@@ -1,12 +1,12 @@
-// Operations (theseus-jid7t.3): one page for every live task, session and thread, each of which can be acted on at
-// any time. The command bar over three regions: the needs-you queue, the canvas (a lens: Board, Threads, Timeline,
-// Graph), and the inspector. Everything on screen is in the address (`ops/address.ts`), so a link reopens it.
+// Operations (theseus-jid7t.3): one page for every live task and session, each of which can be acted on at any time.
+// The command bar over three regions: the needs-you queue, the canvas (a lens: Board, Tasks, Timeline, Graph), and the
+// inspector. Everything on screen is in the address (`ops/address.ts`), so a link reopens it.
 //
-// It reads, it does not poll: the board's views from the one `work.watch` the Threads views keep, `task.list`,
+// It reads, it does not poll: the board's views from the page's one `work.watch`, `task.list`,
 // `confirm.list` and `session.list` on their pushes, the ledger's one copy for today's spend, and the router's
 // questions as the push brings them. Under the time machine every lens shows the folded past and every act is off
 // (`ops/keys.ts`'s `enabled`). Its pure halves are `src/ops/*.ts`, tested by `test/ops-*.test.ts`; the parity table
-// (`src/ops/parity.ts`) holds that nothing the Agenda, Tasks and Threads pages showed is lost.
+// (`src/ops/parity.ts`) holds that nothing the Agenda and Tasks pages showed is lost.
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useQueries } from '@tanstack/react-query'
@@ -18,36 +18,32 @@ import { watchRows } from '@/lib/agenda'
 import { useTick } from '@/lib/hooks'
 import { useWorld } from '@/lib/world'
 import { useHistoryRows } from '@/lib/history'
-import { useThreadBoard } from '@/lib/threadwatch'
+import { useWorkBoard } from '@/lib/workwatch'
 import { useWidth } from '@/lib/chartview'
 import { usePref } from '@/lib/usePref'
 import { plannedRecords, reportLineOf } from '@/lib/taskboard'
-import { groupThreads } from '@/lib/threadboard'
 import { cn, stamp } from '@/lib/format'
 import { fullKey, parseFull, writeFull } from '@/lib/fullgraph'
 import { parseAddress, writeAddress, type Address, type Bucket, type FilterKey, type Lens } from '@/ops/address'
 import { alive, allCounters, boardRows, chipChoices, columnsOf, contextOf, DATA_MARKS, DONE_PAGE, laneRows, shown, spendToday, unaskedCards, type OpsRow } from '@/ops/board'
 import { answerOf, asksWord, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
 import { G_MS, keyName, pressTwice, resolve, SEQUENCES, typingIn, type Ctx, type Verb } from '@/ops/keys'
-import { threadFacts } from '@/ops/facts'
-import { stepNode, viewsOf, type Graph, type LaneMeta } from '@/ops/graph'
+import { stepNode, viewsOf, type Graph } from '@/ops/graph'
 import { GraphLens } from '@/ops/GraphLens'
 import { BulkBar, ResultsToast, useBulk } from '@/ops/BulkBar'
 import { useDragDrop } from '@/ops/DropLayer'
 import { useSelection } from '@/ops/useSelection'
-import type { DropTarget } from '@/ops/rehome'
+import { dropKey, type DropTarget } from '@/ops/rehome'
 import type { RunResult } from '@/ops/selection'
 import { comingShows, DOCK_KEY, flip, idleSel, INSPECTOR_KEY, OPEN_SEL, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
 import { BoardLens } from '@/ops/BoardLens'
 import { TasksTab } from '@/ops/TasksTab'
-import { ThreadsLens } from '@/ops/ThreadsLens'
 import { Queue } from '@/ops/Queue'
 import { toggleBucket } from '@/ops/tiles'
 import { Inspector, type Selection } from '@/ops/Inspector'
 import { CommandBar } from '@/ops/CommandBar'
 import { KeysOverlay } from '@/ops/KeysOverlay'
 import { NewTask } from '@/ops/NewTask'
-import { ThreadPicker } from '@/ops/ThreadPicker'
 import { Dock, type DockState } from '@/ops/Dock'
 import { JoinPane } from '@/ops/JoinPane'
 import { ModeMenu, ModelMenu } from '@/ops/ModelMenu'
@@ -69,7 +65,7 @@ import { parseDay, useTimelineKeys } from '@/ops/timelinekeys'
 /** One empty list for every absent read, so a memo over it holds. */
 const NONE: never[] = []
 
-const isItemKey = (s: string | null): boolean => !!s && /^[qfsha]:/.test(s)
+const isItemKey = (s: string | null): boolean => !!s && /^[qfha]:/.test(s)
 
 /** The lenses that can fill the window (`useFullGraph`). */
 const FULLABLE: readonly Lens[] = ['graph', 'timeline']
@@ -91,7 +87,7 @@ export default function Ops() {
   const world = useDeferredValue(useWorld())
   const past = world?.t ?? null
   const now = past ?? tick
-  const { board, ready, error } = useThreadBoard()
+  const { board } = useWorkBoard()
   const { data: tl } = useRpc<TaskListResult>('task.list', {}, 3000)
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 1500)
   const { data: sl } = useRpc<SessionListResult>('session.list', undefined, 5000)
@@ -106,7 +102,6 @@ export default function Ops() {
 
   // What the page holds: the present's, or the time machine's world (the board's views are the present's only).
   const views = useMemo(() => (world ? [] : Object.values(board.views)), [world, board.views])
-  const groups = useMemo(() => Object.values(board.groups), [board.groups])
   const tasks = world?.tasks ?? tl?.tasks ?? NONE
   const sessions = world?.sessions ?? sl?.sessions ?? NONE
   const confirms = world?.confirms ?? cl?.confirms ?? NONE
@@ -119,8 +114,8 @@ export default function Ops() {
   const lines = useMemo(() => Object.fromEntries(ended.flatMap((r, i) => (read[i]?.data ? [[r.id, read[i].data as string]] : []))), [ended, read])
 
   const queue = useMemo(() => queueOf({
-    confirms, views, records: world ? [] : records, groups: world ? [] : groups, executions: world?.executions, past: !!world, titleOf,
-  }), [confirms, views, records, groups, world, titleOf])
+    confirms, views, records: world ? [] : records, executions: world?.executions, past: !!world, titleOf,
+  }), [confirms, views, records, world, titleOf])
   // The one work set (ops/board.ts): every card once, with its asks mapped to it. The counters, the Board, the Graph,
   // the selection and the filters all read these rows and no others.
   const rows = useMemo(() => boardRows({ views, tasks, sessions, records, lines, queue, now, past: !!world }), [views, tasks, sessions, records, lines, queue, now, world])
@@ -138,26 +133,19 @@ export default function Ops() {
   const counts = useMemo(() => allCounters(rows, now, spend.usd), [rows, now, spend.usd])
   // The cards the counter counts that no queue item names: the panel lists them too, so it glows for them as for an ask.
   const waiting = useMemo(() => unaskedCards(rows), [rows])
-  const grouped = useMemo(() => groupThreads(views, groups, records), [views, groups, records])
 
   // The selection (ops-graph): in memory, shared by the Graph and the Board, the bulk bar and the palette.
   const picked = useSelection((s) => s.ids)
   const { toggle: pickOne, set: pickAll, clear: unpick } = useSelection.getState()
   const [results, setResults] = useState<RunResult[] | null>(null)
   const closeResults = useCallback(() => setResults(null), [])
-  // The Graph's lanes, the threads' words (`threadFacts`), and where a drag or a re-home may send a report.
-  const dataOf = useCallback((sid: string | undefined) => sessions.find((x) => x.session_id === sid)?.data ?? undefined, [sessions])
-  const laneMetas = useMemo((): LaneMeta[] => grouped.threads.map((t) => {
-    const f = threadFacts(t, now)
-    return { key: t.group.slug, title: t.group.title, needs: t.needsYou, words: [f.warmth, f.details].filter(Boolean).join(' · '), sealed: f.sealed, data: dataOf(t.group.session_id), head: t.head?.session_id ?? t.group.session_id }
-  }), [grouped.threads, now, dataOf])
-  const homes = useMemo((): DropTarget[] => [
-    ...rows.flatMap((r): DropTarget[] => (r.kind === 'conversation' && r.sessionId && alive(r) && !r.session?.retired ? [{ kind: 'conversation', sessionId: r.sessionId, title: r.title, data: r.view?.data ?? r.session?.data ?? undefined }] : [])),
-    ...laneMetas.map((l): DropTarget => ({ kind: 'lane', slug: l.key, title: l.title, data: l.data })),
-  ], [rows, laneMetas])
+  // Where a drag or a re-home may send a report.
+  const homes = useMemo((): DropTarget[] =>
+    rows.flatMap((r): DropTarget[] => (r.kind === 'conversation' && r.sessionId && alive(r) && !r.session?.retired ? [{ kind: 'conversation', sessionId: r.sessionId, title: r.title, data: r.view?.data ?? r.session?.data ?? undefined }] : [])),
+  [rows])
   const projects = useMemo(() => records.filter((t) => t.kind === 'project').map((t): DropTarget => ({ kind: 'project', id: t.id, title: t.title })), [records])
-  const dropTargetOf = (key: string): DropTarget | null => [...homes, ...projects].find((t) => (t.kind === 'conversation' ? `conversation:${t.sessionId}` : t.kind === 'lane' ? `lane:${t.slug}` : `project:${t.id}`) === key) ?? null
-  const drag = useDragDrop(dropTargetOf, [...homes.filter((t) => t.kind === 'lane'), ...projects], setResults)
+  const dropTargetOf = (key: string): DropTarget | null => [...homes, ...projects].find((t) => dropKey(t) === key) ?? null
+  const drag = useDragDrop(dropTargetOf, projects, setResults)
   const bulk = useBulk({ rows, queue, homes, projects, titleOf, now, onResults: setResults })
   const offers = bulk.offers(picked)
 
@@ -178,15 +166,12 @@ export default function Ops() {
   // What is selected, and where.
   const item: QueueItem | undefined = isItemKey(a.sel) ? queue.find((i) => i.key === a.sel) : a.do === 'answer' ? itemFor(queue, a.sel) : undefined
   const row: OpsRow | undefined = item ? undefined : rowFor(rows, a.sel)
-  // A thread's head card on the Graph selects its lane, which is a thread, not a row (theseus-hl0r1 F4).
-  const laneSel = a.lens === 'graph' && laneMetas.some((l) => l.key === a.sel)
   // The idle tab opened the panel with nothing selected; so does a Graph or Board selection nothing resolves
   // (theseus-gnhnk F5), which would otherwise fall back to the idle tab.
-  const handOpen = a.sel === OPEN_SEL || ((a.lens === 'graph' || a.lens === 'board') && !!a.sel && !item && !row && !laneSel)
-  const slug = (a.lens === 'threads' || laneSel) && a.sel && !item && !handOpen ? a.sel : null
+  const handOpen = a.sel === OPEN_SEL || ((a.lens === 'graph' || a.lens === 'board') && !!a.sel && !item && !row)
   const event = a.lens === 'timeline' && a.sel?.startsWith('ev:') ? findEvent(cal.calendars, a.sel.slice(3)) : null
   const mark = a.lens === 'timeline' && !item && !handOpen ? tlr?.marks.find((m) => m.key === a.sel) : undefined
-  const selection: Selection = item ? { kind: 'item', item } : slug ? { kind: 'thread', slug } : row ? { kind: 'row', row } : event ? { kind: 'event', ...event, redact: a.redact } : a.lens === 'timeline' && a.sel && !handOpen ? { kind: 'mark', key: a.sel } : { kind: 'none', counts: noneCounts(counts), onFilter: (b) => set({ f: toggleBucket(a.f, b) }) }
+  const selection: Selection = item ? { kind: 'item', item } : row ? { kind: 'row', row } : event ? { kind: 'event', ...event, redact: a.redact } : a.lens === 'timeline' && a.sel && !handOpen ? { kind: 'mark', key: a.sel } : { kind: 'none', counts: noneCounts(counts), onFilter: (b) => set({ f: toggleBucket(a.f, b) }) }
   const region: 'queue' | 'canvas' = item ? 'queue' : 'canvas'
   // The item a key answers: the queue's cursor, or the needs-you item of the row on the canvas.
   const focusItem = item ?? (row ? queue.find((i) => (row.view != null && i.view?.id === row.view.id) || (row.sessionId != null && i.sessionId === row.sessionId)) : undefined)
@@ -205,7 +190,6 @@ export default function Ops() {
   const [selfOpen, setSelfOpen] = useState(false)
   const graphRef = useRef<Graph | null>(null) // the Graph lens's last layout, for `j k h l`
   const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null)
-  const [picker, setPicker] = useState(false)
   const [dockFold, setDockFold] = usePref(DOCK_KEY, parseFold)
   const [dock, setDock] = useState<DockState>({ paused: false, follow: false })
   const [dockFocus, setDockFocus] = useState(false)
@@ -217,8 +201,6 @@ export default function Ops() {
   const armed = useRef<{ verb: Verb; at: number } | null>(null)
 
   const lanes = laneRows(cols, older)
-  const threadList = grouped.threads.filter((t) => (!a.f.thread || t.group.slug === a.f.thread) && (!a.q || a.q.toLowerCase().split(/\s+/).every((w) => `${t.group.title}\n${t.group.slug}`.toLowerCase().includes(w))))
-  const shownSlugs = new Set(threadList.map((t) => t.group.slug))
   const pick = (sel: string | null) => set({ sel, do: null })
   const answer = (verb: Verb, x: Answer) => {
     const c = focusItem && answerOf(focusItem, x)
@@ -232,16 +214,9 @@ export default function Ops() {
       if (to) pick(to); else if (dx < 0) pick(queue[0]?.key ?? null)
       return
     }
-    if (region === 'queue' || (a.lens !== 'board' && a.lens !== 'threads')) {
+    if (region === 'queue' || a.lens !== 'board') {
       if (dx > 0 && a.lens === 'board') { const first = lanes.find((l) => l.length); if (first) pick(first[0].id); return }
       if (dy) pick(step(queue, item?.key ?? null, dy > 0 ? 1 : -1))
-      return
-    }
-    if (a.lens === 'threads') {
-      const at = threadList.findIndex((t) => t.group.slug === slug)
-      if (dx < 0) { pick(queue[0]?.key ?? null); return }
-      const next = threadList[Math.max(0, Math.min(threadList.length - 1, at + dy))]
-      if (next) pick(next.group.slug)
       return
     }
     const c = Math.max(0, lanes.findIndex((l) => l.some((r) => r.id === row?.id)))
@@ -297,7 +272,6 @@ export default function Ops() {
     lens_graph: () => lens('graph'),
     lens_board: () => lens('board'),
     lens_timeline: () => lens('timeline'),
-    lens_threads: () => lens('threads'),
     home: () => nav('/ship'),
     search: () => searchRef.current?.focus(),
     fold_queue: () => setQFold(flip(qFold)),
@@ -305,14 +279,13 @@ export default function Ops() {
     fold_dock: () => setDockFold(flip(dockFold)),
     model_menu: () => { if (focusSession && on('model_menu')) setMenu({ kind: 'model', sid: focusSession.session_id }) },
     mode_menu: () => { if ((focusSession?.kind === 'conversation' || focusSession?.kind === 'task') && on('mode_menu')) setMenu({ kind: 'mode', sid: focusSession.session_id }) },
-    compose: () => { const id = focusSession?.session_id ?? focusRow?.sessionId ?? item?.sessionId ?? slug; if (id) set({ join: id }); else setFlash('select a session, a task or a thread to join') },
+    compose: () => { const id = focusSession?.session_id ?? focusRow?.sessionId ?? item?.sessionId; if (id) set({ join: id }); else setFlash('select a session or a task to join') },
     parent: () => { const p = focusRow?.task?.info?.parent_session_id; if (p) pick(p); else setFlash('it reports to no parent') },
     last_turn: () => { const sid = focusRow?.sessionId ?? item?.sessionId; const t = sid ? lastTurnOf(history.rows, sid) : undefined; if (sid && t) nav(`/session/${sid}/turn/${t}`); else setFlash('no turn has ended in it yet') },
     scroll_up: () => scrollTranscript(-0.85),
     scroll_down: () => scrollTranscript(0.85),
     scroll_end: () => scrollTranscript(Infinity),
     self_changes: () => setSelfOpen(true),
-    thread_picker: () => setPicker(true),
     palette: () => {}, // the shell's own listener opens ⌘K; this entry is its line in the overlay
     dock_pause: () => setDock((d) => ({ ...d, paused: !d.paused })),
     keys: () => setKeysOpen((v) => !v),
@@ -346,7 +319,7 @@ export default function Ops() {
   // The contexts the focus offers, most specific first (`keys.ts`).
   const ctxs = useMemo(() => {
     const c = new Set<Ctx>()
-    if (focusItem || focusRow || slug) c.add('card')
+    if (focusItem || focusRow) c.add('card')
     if (focusItem?.confirm || focusItem?.proposal) c.add('answer')
     if (focusItem?.view?.question?.choices?.length) c.add('choice')
     if (focusItem?.confirm?.grant_offer) c.add('grant')
@@ -360,11 +333,11 @@ export default function Ops() {
     if (focusSession) c.add('session')
     if (dockFocus) c.add('dock')
     return c
-  }, [focusItem, focusRow, focusSession, slug, living, a.lens, region, mark, dockFocus])
+  }, [focusItem, focusRow, focusSession, living, a.lens, region, mark, dockFocus])
 
   // One handler for the page, ahead of the shell's: a `g` sequence the page claims is the page's; one it does not
   // (`g f`) goes on to the shell. Keys never fire while typing.
-  const modal = !!(newTask || menu || selfOpen || picker)
+  const modal = !!(newTask || menu || selfOpen)
   const picks = a.lens === 'graph' || a.lens === 'board'
   const live = useRef({ handlers, ctxs, focusItem, keysOpen, modal, picks, full })
   useLayoutEffect(() => { live.current = { handlers, ctxs, focusItem, keysOpen, modal, picks, full } })
@@ -399,8 +372,8 @@ export default function Ops() {
 
   const filter = (k: FilterKey, v: string | null) => set({ f: { ...a.f, [k]: v ?? undefined } })
   const choices = useMemo(() => ({ ...chipChoices(rows), project: records.filter((t) => t.kind === 'project').map((t) => t.id), data: [...DATA_MARKS] }), [rows, records])
-  const n = a.lens === 'threads' ? threadList.length : a.lens === 'timeline' && tlr ? tlr.n : vis.rows.length
-  const of = a.lens === 'threads' ? grouped.threads.length : a.lens === 'timeline' && tlr ? tlr.of : vis.of
+  const n = a.lens === 'timeline' && tlr ? tlr.n : vis.rows.length
+  const of = a.lens === 'timeline' && tlr ? tlr.of : vis.of
 
   const inspectorCx = { records, rows, onMenu: (m: 'model' | 'mode', sid: string) => setMenu({ kind: m, sid }), onParent: (sid: string) => pick(sid), onJoin: (id: string) => set({ join: id }), joined: a.join }
 
@@ -411,11 +384,11 @@ export default function Ops() {
       visible: vis.rows.map(targetOf),
       selection: vis.rows.filter((r) => picked.has(r.id)).map(targetOf), // ops-graph: the selection scope
     },
-    entities: entitiesOf(rows, grouped.threads.map((t) => ({ slug: t.group.slug, title: t.group.title })), records, pl?.profiles ?? [], watchRows(views)),
+    entities: entitiesOf(rows, records, pl?.profiles ?? [], watchRows(views)),
     profiles: pl?.profiles ?? [], prices: pricing(cat),
     go: (e: { go: { sel: string } | { model: string } | { lens: 'timeline' } }) => { if ('sel' in e.go) pick(e.go.sel); else if ('lens' in e.go) lens(e.go.lens); else set({ f: { ...a.f, model: e.go.model } }) },
     newTask: () => live.current.handlers.new_task('N'), selfChanges: () => setSelfOpen(true),
-  }), [focusRow, vis.rows, picked, rows, grouped.threads, records, pl, cat, a.f, views]) // eslint-disable-line react-hooks/exhaustive-deps
+  }), [focusRow, vis.rows, picked, rows, records, pl, cat, a.f, views]) // eslint-disable-line react-hooks/exhaustive-deps
   // The palette opens over the picked cards while any are picked, and over the focused one when none are.
   useEffect(() => { useOpsPalette.setState({ scope: picked.size > 0 ? 'selection' : 'one' }) }, [picked.size])
   const publish = useOpsPalette((x) => x.publish)
@@ -431,8 +404,6 @@ export default function Ops() {
       {a.lens === 'board' && <BoardLens cols={cols} rows={rows} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} onContext={(id, x, y) => setCtxMenu({ id, x, y })} confirms={confirms} now={now}
         picked={picked} onPick={pickOne} drag={drag} titleOf={titleOf} />}
       {a.lens === 'tasks' && <TasksTab rows={rows} queue={queue} now={now} onOpen={(id) => set({ lens: 'board', sel: id })} />}
-      {a.lens === 'threads' && <ThreadsLens views={views} groups={groups} records={records} ready={ready || !!world} error={error} now={now} past={past} focus={slug} onFocus={pick}
-        matches={(t) => shownSlugs.has(t.group.slug)} rows={rows} kept={shownIds} context={contextIds} onSelect={pick} />}
       {a.lens === 'timeline' && (
         <div className="h-full overflow-y-auto pr-1">
           {world && <p className="mb-2 text-[11.5px] text-wait">The agenda shows the present: its marks are the daemon’s now, not the log’s moment.</p>}
@@ -440,7 +411,7 @@ export default function Ops() {
             onReport={setTl} onOpen={(sid) => nav(`/session/${sid}`)} />
         </div>
       )}
-      {a.lens === 'graph' && <GraphLens views={world ? graphViews : views} records={records} rows={rows} lanes={laneMetas} now={now} focus={row?.id ?? a.sel} picked={picked}
+      {a.lens === 'graph' && <GraphLens views={world ? graphViews : views} records={records} rows={rows} now={now} focus={row?.id ?? a.sel} picked={picked}
         shownIds={shownIds} contextIds={contextIds} filterKey={JSON.stringify(a.f) + a.q} chip={a.f.bucket ? { bucket: a.f.bucket as Bucket, n: counts[a.f.bucket as Bucket], onClear: () => filter('bucket', null) } : null} onFocus={pick} onPick={pickOne} onLasso={(ids) => pickAll([...picked, ...ids])}
         onOpen={(sid) => nav(`/session/${sid}`)} onContext={(id, x, y) => setCtxMenu({ id, x, y })} redact={a.redact} layoutRef={graphRef} drag={drag} titleOf={titleOf} />}
     </div>
@@ -449,7 +420,7 @@ export default function Ops() {
     <div className="flex h-full min-h-0 gap-2.5">
       {lensView}
       <aside aria-label="Join" className="flex w-[460px] max-w-[48%] shrink-0 flex-col overflow-hidden rounded-xl border border-line-strong bg-hull/60">
-        <JoinPane key={joined} sessionId={joined.startsWith('ses_') ? joined : undefined} thread={joined.startsWith('ses_') ? undefined : joined} session={sessions.find((x) => x.session_id === joined)} focus onPicker={() => setPicker(true)} onMenu={(m, sid) => setMenu({ kind: m, sid })} />
+        <JoinPane key={joined} sessionId={joined} session={sessions.find((x) => x.session_id === joined)} focus onMenu={(m, sid) => setMenu({ kind: m, sid })} />
       </aside>
     </div>
   ) : lensView
@@ -502,7 +473,6 @@ export default function Ops() {
       {selfOpen && (
         <Sheet title="What Theseus changed about itself" verb="inspect" submit="Close" onSubmit={() => setSelfOpen(false)} onClose={() => setSelfOpen(false)} wide><SelfChangesCard now={now} /></Sheet>
       )}
-      {picker && <ThreadPicker threads={threadList.length ? threadList.map((t) => t.group) : grouped.threads.map((t) => t.group)} onPick={(slug) => { setPicker(false); set({ lens: 'threads', sel: slug, join: slug }) }} onClose={() => setPicker(false)} />}
       {flash && <div role="status" className="pointer-events-none fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-lg bg-hull/95 px-3 py-1.5 text-[12px] text-ink ring-1 ring-line-strong shadow-xl">{flash}</div>}
       {keysOpen && <KeysOverlay onClose={() => setKeysOpen(false)} />}
       {drag.layer}

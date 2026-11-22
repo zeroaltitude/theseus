@@ -11,7 +11,7 @@ use crate::exchange::{self, Root};
 use crate::memory_pass::{IndexFuture, PassIndex};
 use crate::names::card::{Admits, Source};
 use crate::tender::TenderMiss;
-use crate::tests_onto::{bound, rig, rig_with, Rig};
+use crate::tests_onto::{bound, rig, Rig};
 
 const SAID: &str = "let's plan the Lantern Ledger migration";
 
@@ -118,26 +118,24 @@ async fn a_minted_topic_starts_its_timeline_with_the_message_that_minted_it() {
     assert_eq!(touched[0].exchange, turn);
 }
 
-/// Below the act band, and with the ledger off, no topic is touched.
+/// Below the act band no topic is touched, though the message's exchange is written as always.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn below_the_act_band_or_with_the_ledger_off_no_topic_is_touched() {
+async fn below_the_act_band_no_topic_is_touched() {
     let jev = FakeJev::start().unwrap();
     jev.script_onto("topic", "c1", 0.7);
     let r = rig(jev);
     ledger_category(&r);
     let sid = bound(&r.core);
-    said(&r, &sid).await;
+    let turn = said(&r, &sid).await;
     assert!(timeline(&r, "topic:ledger").is_empty(), "the confirm band");
-
-    let jev = FakeJev::start().unwrap();
-    jev.script_onto("topic", "c1", 0.9);
-    let r = rig_with(jev, Vec::new(), |c| c.context.ledger = Some(false));
-    ledger_category(&r);
-    let sid = bound(&r.core);
-    said(&r, &sid).await;
-    assert!(timeline(&r, "topic:ledger").is_empty(), "the ledger off");
+    let ex = exchange::exchange(&r.core.store, &turn).unwrap();
+    assert!(ex.is_some(), "the turn's exchange is written");
     let place = exchange::newest(&r.core.store, Root::Place("discord:dm:42"), 5).unwrap();
-    assert!(place.is_empty(), "no exchange either");
+    assert_eq!(
+        place.len(),
+        1,
+        "the place holds the one exchange: {place:?}"
+    );
 }
 
 /// An index that names one numbered item, as the tender's extractor would.

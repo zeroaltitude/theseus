@@ -1,11 +1,11 @@
-// The work board's threads on the page (theseus-5i8i): one `work.watch` on the page's connection, kept by the position
-// rule (`threadboard.ts`) and read by the Threads views. The page asks only while a Threads view is mounted
-// (`useThreadBoard`), and stops asking when the last one goes: the watch is dropped with `work.unwatch`.
+// The work board on the page: one `work.watch` on the page's connection, kept by the position rule (`workboard.ts`).
+// The page asks only while a view that reads the board is mounted (`useWorkBoard`), and stops asking when the last one
+// goes: the watch is dropped with `work.unwatch`.
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { WorkChanged, WorkWatchResult } from '@protocol'
 import { client, useConn } from './rpc'
-import { applyChanged, applySnapshot, EMPTY, type BoardState } from './threadboard'
+import { applyChanged, applySnapshot, EMPTY, type BoardState } from './workboard'
 
 interface WatchState { board: BoardState; ready: boolean; error: string | null }
 
@@ -42,8 +42,8 @@ function stop() {
   if (useConn.getState().status === 'open') client.call('work.unwatch').catch(() => {})
 }
 
-/** The board's threads and work while the calling view is mounted. */
-export function useThreadBoard() {
+/** The board's work while the calling view is mounted. */
+export function useWorkBoard() {
   useEffect(() => {
     if (users++ === 0) start()
     return () => {

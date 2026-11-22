@@ -231,36 +231,6 @@ async fn a_single_instruction_reads_300_large_results_without_an_overage() {
     assert!(text.starts_with("[Summary of "), "{text}");
 }
 
-/// The same 300 large results on the view (issue 44): no ring and no compaction, the view's own room
-/// (clearing, then what else it can make): the turn ends with the model's answer, no overage, the
-/// instruction in every request, every call closed.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_single_instruction_reads_300_large_results_on_the_view() {
-    let r = rig_tweaked(300, 2_500, (84_000, None), |_| {});
-    let (_, result) = turn(&r.core, INSTRUCTION).await;
-    let result = result.expect("the turn ends as its model ends it");
-    assert!(result
-        .output
-        .ends_with("All the logs agree with the tide table."));
-    assert!(rows(&r.core, "context.overage").is_empty());
-    assert!(
-        !rows(&r.core, "context.cleared").is_empty(),
-        "a clearing pass"
-    );
-    let sent: Vec<ProviderRequest> = (r.model.requests().into_iter())
-        .filter(|q| !q.tools.is_empty())
-        .collect();
-    assert_eq!(sent.len(), 301);
-    for (k, q) in sent.iter().enumerate() {
-        let all = serde_json::to_string(&q.messages).unwrap();
-        assert!(
-            all.contains(INSTRUCTION),
-            "request {k} holds the instruction"
-        );
-        closed(q).unwrap_or_else(|e| panic!("request {k}: {e}"));
-    }
-}
-
 /// `[context] working_window_tokens` lowers the window: the same turn on a
 /// 1M catalog window compacts against the working window.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

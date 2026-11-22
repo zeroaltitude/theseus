@@ -7,9 +7,7 @@
 //! continues: the call its result answers, or the turn it resumes, `resume_step`), as the ledger wrote
 //! that turn's ask and its mark, or what that turn was given when no marked message opened it
 //! (`exchange::given`, kept here for each such turn). None found is `Unknown`. Held per session for the tools
-//! the turn runs. A steer the turn absorbs narrows
-//! it at once ([`TurnRunner::gate_steered`]). With `[context] ledger` off
-//! nothing is computed, and recall reads places as before.
+//! the turn runs. A steer the turn absorbs narrows it at once ([`TurnRunner::gate_steered`]).
 
 use theseus_memory::gate::Present;
 use theseus_memory::recall::Place;
@@ -21,9 +19,6 @@ use crate::view_gate::{self, Proof};
 
 impl TurnRunner {
     pub(super) fn gate_asking(&self, t: &mut Turn<'_>) {
-        if !self.cfg.context.ledger_on() {
-            return;
-        }
         let sid = t.tc.session_id;
         let today = self.place_of(sid);
         // The one place of the turn, its exchange's too (`turn_place`); unreadable, no place.
@@ -69,16 +64,14 @@ impl TurnRunner {
         if mark.is_none() && unopened {
             let continues = (t.exchange.continues()).and_then(|c| c.first().cloned().flatten());
             let given = Given::new(t.tc.turn_id, asking.present(), continues);
-            self.exchange_given(t, &given);
+            Self::exchange_given(t, &given);
         }
     }
 
     /// A steer the running turn absorbed, its submission's mark `arrival`:
     /// the turn's presence narrows to it (never widens).
     pub(super) fn gate_steered(&self, t: &Turn<'_>, arrival: Option<&crate::exchange::OwnerMark>) {
-        if self.cfg.context.ledger_on() {
-            view_gate::steered(self, t.tc.session_id, arrival);
-        }
+        view_gate::steered(self, t.tc.session_id, arrival);
     }
 }
 

@@ -1,6 +1,6 @@
 //! A background job's ask of Jev (route.v10 row 4, theseus-ej6bj; design §2's
 //! closing paragraph): the acting route pack's `model` question, about a job
-//! that is no turn: a compaction's summary, a synthesis, the self builder or
+//! that is no turn: a synthesis, the ladder's summaries, the self builder or
 //! reviewer, a card, a note, a name. The state is `builders::job`'s (one
 //! paragraph, the place `job`, the route facts), so every site asks the same
 //! question the same way.

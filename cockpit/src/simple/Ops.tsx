@@ -9,12 +9,12 @@
 // confirms it.
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
-import { CalendarClock, Circle, CircleAlert, CircleCheck, CircleDollarSign, CircleDot, CircleHelp, CirclePause, CircleX, Clock, Inbox, Keyboard, ListTodo, Loader, Lock, MessageCircle, MessagesSquare, PencilLine, Plus, Radio, ShieldQuestion, type LucideIcon } from 'lucide-react'
+import { CalendarClock, Circle, CircleAlert, CircleCheck, CircleDollarSign, CircleDot, CircleHelp, CirclePause, CircleX, Clock, Inbox, Keyboard, ListTodo, Loader, MessageCircle, MessagesSquare, PencilLine, Plus, Radio, ShieldQuestion, type LucideIcon } from 'lucide-react'
 import type { ConfirmRequest, SessionInfo, SessionListResult, TaskListResult } from '@protocol'
 import { useConn, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { useHistoryRows } from '@/lib/history'
-import { useThreadBoard } from '@/lib/threadwatch'
+import { useWorkBoard } from '@/lib/workwatch'
 import { ago, cn, short, usd } from '@/lib/format'
 import { stateOf } from '@/lib/sessionState'
 import { Panel, Empty } from '@/components/ui'
@@ -46,7 +46,7 @@ const LOOK: Readonly<Record<OpsRow['bucket'], { Icon: LucideIcon; tone: string }
   todo: { Icon: Circle, tone: 'idle' }, rest: { Icon: MessageCircle, tone: 'idle' }, ended: { Icon: CircleCheck, tone: 'ok' },
 }
 /** Each kind of ask's mark (its tone is `ITEM_LOOK`'s). */
-const ASK_ICON: Readonly<Record<QueueItem['kind'], LucideIcon>> = { approval: ShieldQuestion, budget: CircleDollarSign, change: PencilLine, question: CircleHelp, failure: CircleX, seal: Lock }
+const ASK_ICON: Readonly<Record<QueueItem['kind'], LucideIcon>> = { approval: ShieldQuestion, budget: CircleDollarSign, change: PencilLine, question: CircleHelp, failure: CircleX }
 type PaneTab = 'talk' | 'details'
 
 export default function SimpleOps() {
@@ -60,7 +60,7 @@ export default function SimpleOps() {
     return next
   }, { replace: true }), [setParams])
   const now = useTick(15_000)
-  const { board, ready, error } = useThreadBoard()
+  const { board, ready, error } = useWorkBoard()
   const { data: tl } = useRpc<TaskListResult>('task.list', {}, 3000)
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 1500)
   const { data: sl } = useRpc<SessionListResult>('session.list', undefined, 5000)
@@ -68,14 +68,13 @@ export default function SimpleOps() {
   const linked = useConn((s) => s.status === 'open')
 
   const views = useMemo(() => Object.values(board.views), [board.views])
-  const groups = useMemo(() => Object.values(board.groups), [board.groups])
   const tasks = tl?.tasks ?? NONE
   const records = useMemo(() => plannedRecords(tl), [tl])
   const sessions = sl?.sessions ?? NONE
   const confirms = cl?.confirms ?? NONE
 
   // The one work set (`./ops/workset.ts`): the Operations page's steps, so a number here is the number there.
-  const work = useMemo(() => workSetOf({ views, tasks, sessions, records, confirms, groups, history: history.rows, now }), [views, tasks, sessions, records, confirms, groups, history.rows, now])
+  const work = useMemo(() => workSetOf({ views, tasks, sessions, records, confirms, history: history.rows, now }), [views, tasks, sessions, records, confirms, history.rows, now])
   const { queue, rows, cols, counts, waiting, next, resting, planned } = work
   const spend = { usd: work.spendUsd }
 

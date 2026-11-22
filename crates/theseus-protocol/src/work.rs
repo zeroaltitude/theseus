@@ -249,12 +249,6 @@ pub struct WorkView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub retry_of: Option<String>,
-    /// The thread (`threads::ThreadInfo.slug`) the view's tree belongs to:
-    /// the thread whose session is the view's root conversation (theseus-5i8i).
-    /// Absent for work that is in none; a wire field, not a stored one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub thread: Option<String>,
     /// Where the task's forum post (else its Discord thread) is, as an address
     /// the owner can open (`https://discord.com/channels/<guild>/<post>`).
     /// Absent when no post or thread is known: a daemon with no Discord binding,
@@ -883,7 +877,6 @@ impl WorkView {
             dismissed: x.dismissed,
             read: false,
             retry_of: x.retry_of.clone(),
-            thread: None,
             forum_url: None,
             purpose: None,
             next_at_ms: None,

@@ -125,7 +125,7 @@ impl TurnRunner {
         }
         for (node, author, owner, arrival) in &nodes {
             t.tc.node_written(node);
-            self.exchange_heard(t, node, arrival.as_deref(), true);
+            Self::exchange_heard(t, node, arrival.as_deref(), true);
             // A steer narrows the turn's presence, never widens it (the gate).
             self.gate_steered(t, arrival.as_deref());
             self.inbound_point(t, node, author, true);

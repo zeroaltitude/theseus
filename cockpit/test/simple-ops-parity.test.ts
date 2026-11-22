@@ -21,7 +21,7 @@ const src = (f: string) => readFileSync(new URL(`../src/${f}`, import.meta.url),
 function ship(i: WorkSetInput) {
   const views = [...i.views]
   const titleOf = (sid: string) => { const s = i.sessions.find((x) => x.session_id === sid); return s?.title || s?.label || sid.slice(-6) }
-  const queue = queueOf({ confirms: [...i.confirms], views, records: [...i.records], groups: [...i.groups], executions: undefined, past: false, titleOf })
+  const queue = queueOf({ confirms: [...i.confirms], views, records: [...i.records], executions: undefined, past: false, titleOf })
   const rows = boardRows({ views, tasks: [...i.tasks], sessions: [...i.sessions], records: [...i.records], lines: {}, queue, now: i.now, past: false })
   const spend = spendToday(i.history, i.now)
   return { queue, rows, cols: columnsOf(rows, i.now), counts: allCounters(rows, i.now, spend.usd), waiting: unaskedCards(rows), spent: spend.usd }
@@ -93,12 +93,12 @@ test('the order j and k walk is every entry of every list once, top to bottom', 
 
 test('each page still runs the steps this test runs: the simple page one work set, the Ship’s its own pipeline', () => {
   const ops = src('views/Ops.tsx')
-  assert.match(ops, /const queue = useMemo\(\(\) => queueOf\(\{\n\s+confirms, views, records: world \? \[\] : records, groups: world \? \[\] : groups, executions: world\?\.executions, past: !!world, titleOf,/)
+  assert.match(ops, /const queue = useMemo\(\(\) => queueOf\(\{\n\s+confirms, views, records: world \? \[\] : records, executions: world\?\.executions, past: !!world, titleOf,/)
   assert.match(ops, /const rows = useMemo\(\(\) => boardRows\(\{ views, tasks, sessions, records, lines, queue, now, past: !!world \}\)/)
   assert.match(ops, /const counts = useMemo\(\(\) => allCounters\(rows, now, spend\.usd\)/)
   assert.match(ops, /const waiting = useMemo\(\(\) => unaskedCards\(rows\)/)
   const mine = src('simple/Ops.tsx')
-  assert.match(mine, /workSetOf\(\{ views, tasks, sessions, records, confirms, groups, history: history\.rows, now \}\)/)
+  assert.match(mine, /workSetOf\(\{ views, tasks, sessions, records, confirms, history: history\.rows, now \}\)/)
   const code = mine.replace(/\/\/.*$/gm, '')
   for (const own of ['boardRows(', 'queueOf(', 'columnsOf(', 'allCounters(', 'spendToday(', 'unaskedCards(']) assert.ok(!code.includes(own), `the simple page builds no work set of its own: ${own}`)
   const set = src('simple/ops/workset.ts')

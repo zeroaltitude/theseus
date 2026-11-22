@@ -732,7 +732,6 @@ async fn stop_keeps_the_places_session_and_new_alone_starts_a_fresh_one() {
         message: Id::new(7),
         channel: Id::new(43),
         guild: None,
-        thread: None,
         reply_turn: None,
         reply_unheld: None,
         task: None,

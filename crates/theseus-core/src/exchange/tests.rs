@@ -269,7 +269,7 @@ async fn rebuilt(
 /// not proof of who typed an old message or where it arrived.
 #[tokio::test]
 async fn the_rebuild_never_takes_an_author_or_a_place_from_a_binding() {
-    let r = rig(3, |c| c.context.ledger = Some(false));
+    let r = rig(3, |_| {});
     let c = &r.core;
     let local = turn(c, owner_cli(), None, "an old terminal message").await;
     let dm = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
@@ -284,6 +284,9 @@ async fn the_rebuild_never_takes_an_author_or_a_place_from_a_binding() {
     .await;
     let agent = Client::new("sock#9", Surface::Cli).behind(Behind::Agent("claude".into()));
     let by_agent = turn(c, agent, Some(&dm.session_id), "an agent's old message").await;
+    for s in [&local.session_id, &dm.session_id] {
+        crate::test_support::before_the_ledger(&c.store, s);
+    }
     assert!(
         exchange(&c.store, &by_owner.turn_id).unwrap().is_none(),
         "the ledger was off"
@@ -375,9 +378,11 @@ async fn the_exchange_methods_answer_the_terminal_and_refuse_a_transport() {
     assert!(no.error.is_some());
 }
 
-/// The WAL's bytes after two turns.
-async fn wal_bytes(ledger: bool) -> u64 {
-    let r = rig(2, |c| c.context.ledger = Some(ledger));
+/// The bytes of the ledger's own records after two turns: each message's mark, each turn's exchange and
+/// its touches, keys included.
+async fn ledger_bytes() -> u64 {
+    use theseus_store::Store as _;
+    let r = rig(2, |_| {});
     let first = turn(&r.core, owner_cli(), None, "warm up").await;
     turn(
         &r.core,
@@ -386,7 +391,16 @@ async fn wal_bytes(ledger: bool) -> u64 {
         "see crates/theseus-store/src/wal.rs",
     )
     .await;
-    r.core.store.stats().unwrap().wal_bytes
+    let inner = r.core.store.inner();
+    [SAID_PREFIX, EXCHANGE_PREFIX, TOUCH_PREFIX]
+        .iter()
+        .flat_map(|p| {
+            inner
+                .latest_with_prefix(theseus_store::kinds::META, p)
+                .unwrap()
+        })
+        .map(|rec| (rec.payload.len() + rec.key.map_or(0, |k| k.len())) as u64)
+        .sum()
 }
 
 /// What the ledger costs a turn, printed (run with `--nocapture`): the end's
@@ -453,8 +467,7 @@ async fn the_ledgers_cost_to_a_turn_is_small() {
         ledger::sent(&request, &nodes, &view, (&Default::default(), 0, 0, 0));
     }
     let sent_us = t0.elapsed().as_micros() / 100;
-    let (on, off) = (wal_bytes(true).await, wal_bytes(false).await);
-    let added = on.saturating_sub(off);
+    let added = ledger_bytes().await;
     eprintln!("exchange ledger cost: row {row_us} us, sent walk {sent_us} us, two turns' records {added} bytes");
     assert!(added < 16 * 1024, "{added} bytes");
     assert!(

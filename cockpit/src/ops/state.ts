@@ -1,5 +1,5 @@
-// The Operations page's one state model (theseus-g00vv): every surface (the Board, the Graph, the Threads lens, the
-// queue and the counters) asks this module which bucket a piece of work is in, and nothing else maps a state to one.
+// The Operations page's one state model (theseus-g00vv): every surface (the Board, the Graph, the queue and the
+// counters) asks this module which bucket a piece of work is in, and nothing else maps a state to one.
 // The owner's rules: waiting counts as open; opacity marks the ended alone; WORKING is work in flight; an external-text
 // mark that makes nothing wait is a notice (`ops/notices.ts`), not an ask.
 //
@@ -108,10 +108,6 @@ export function bucketOfWork(v: WorkView, now: number, record?: Pick<TaskRecord,
   const b = bucketOf(v, now)
   return keepsOpen(b, record, v) ? 'paused' : b
 }
-
-/** Is the work open? Whether it is open does not depend on the clock (scheduled and paused are both open), so the
- *  Threads lens asks without one. */
-export const openView = (v: WorkView, record?: Pick<TaskRecord, 'state'>): boolean => isOpen(bucketOfWork(v, 0, record))
 
 /** A node of the Graph: its view's bucket (with its record), else its record's, else what a fold stands for. */
 export function bucketOfNode(n: { kind: string; state: string; view?: WorkView; record?: Pick<TaskRecord, 'state'>; bucket?: StateBucket }, now: number): StateBucket {

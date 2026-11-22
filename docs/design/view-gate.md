@@ -84,9 +84,10 @@ the rule under any name a file gives it. Both are heuristics over the sources, n
   (`other_places_change_nothing_the_gate_admits_over_generated_stores`); and the view the selectors and the
   budgeter make is the same with exchanges the gate denies added (`view/select/tests.rs`). What the renderer and the
   compiler send is not tested this way.
-- **Not behind the gate yet, on the old path**: kept tails (`turn::sent_tail`, the earlier tail a transcript turn
-  sends again), the place digest's count of held threads (with the ledger off, or for the owner alone, it says how
+- **Not behind the gate yet**: the place digest's count of held threads (with the ledger off, or for the owner alone, it says how
   many are sealed), session listings, and the text a turn was already sent before a steer narrowed its presence.
+  (Kept tails, `turn::sent_tail`'s earlier tail a transcript turn sent again, went with the transcript on
+  2026-11-22.)
 
 ## Seals at the message
 
@@ -114,8 +115,8 @@ reader's own thread is clear to it. A frozen view asks again after all of a call
   `memory.lookup` takes the turn's presence whole when the call starts.
 - **A task's report** whose place has moved or narrowed since the task started is delivered as a content-free
   notice (`report_shown`, `withheld_report`); its body stays in the task's session.
-- **The transcript path**: an earlier `Recall` node's sources are admitted again under the current turn
-  (`readmit_sources`); the place digest names and counts other threads only for the owner alone
+- **What every turn reads besides the view**: an earlier `Recall` node's sources are admitted again under the
+  current turn (`readmit_sources`); the place digest names and counts other threads only for the owner alone
   (`digest_threads`); look.work gives another conversation's words only where the gate admits it; a standing record
   kept from another conversation's message is held where the gate does not admit that conversation
   (`standing_held`).

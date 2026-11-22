@@ -72,7 +72,6 @@ pub(super) fn blank(id: &str, kind: WorkKind, at_ms: u64) -> WorkView {
         dismissed: false,
         read: false,
         retry_of: None,
-        thread: None,
         forum_url: None,
         purpose: None,
         next_at_ms: None,

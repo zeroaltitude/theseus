@@ -2,13 +2,13 @@
 //! conversation promised, in the model's own request.
 //!
 //! The model had one scheduling tool, `wake.at`, and learned its own wakes
-//! only from its transcript. After a compaction the "Set wake" results may be
-//! gone, and asked "make that 4 pm" it could only set a second wake. So the
+//! only from its conversation, and a "Set wake" result may be out of what a
+//! turn is shown; asked "make that 4 pm" it could only set a second wake. So the
 //! turn's pending wakes ride in the request's tail beside the task graph's
 //! view (`task_graph::view`): the same last message, after the cached prefix,
 //! with no breakpoint of its own (the view's `attach_to` moves the
-//! conversation's one). Recompiled every loop, so it survives every
-//! compaction, and nothing at all while none is pending.
+//! conversation's one). Built again every loop, so it is always there while a
+//! wake is pending, and nothing at all while none is.
 //!
 //! - **One line each**, at most `MAX_LINES` and `MAX_TOKENS` in all (past
 //!   either, `and N more`): `⏰ a8cebb Fri 09:00 check PR 123`, and a series

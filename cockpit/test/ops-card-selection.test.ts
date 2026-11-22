@@ -18,7 +18,7 @@ const src = (f: string) => readFileSync(new URL(`../src/${f}`, import.meta.url),
 
 function world() {
   const b = board()
-  const views = [...b.views, view('exe_hull', 'step', 'running', { title: 'Scrape the hull', parent: 'exe_tides', thread: 'tide-tables' })]
+  const views = [...b.views, view('exe_hull', 'step', 'running', { title: 'Scrape the hull', parent: 'exe_tides' })]
   const records = [
     record('tsk_plan', { title: 'Chart the estuary', state: 'in_progress', origin: { session: 'ses_tides' } }),
     record('tsk_sound', { title: 'Sound the channel', parent: 'tsk_plan', state: 'done', origin: { session: 'ses_tides' }, updated_at_ms: NOW - 30 * 60_000 }),
@@ -43,7 +43,7 @@ const resolve = (w: ReturnType<typeof world>, sel: string) => {
 
 test('a click on every node the layout emits fills the inspector, with the body of its kind', () => {
   const w = world()
-  const g = layoutRows(w.rows, [], null, { now: NOW, future: true })
+  const g = layoutRows(w.rows, null, { now: NOW, future: true })
   const kinds = new Set(g.nodes.map((n) => n.kind))
   for (const k of ['conversation', 'task', 'step', 'job', 'ask', 'wake']) assert.ok(kinds.has(k as never), `the fixture draws a ${k} node`)
   const failed: string[] = []
@@ -79,7 +79,7 @@ test('the page asks rowFor for its row, and the Graph hands every click to pick'
 test('shift-click and the right-click menu reach every card with a row: their lookup is the selection path', () => {
   const w = world()
   const byId = new Map(w.rows.map((r) => [r.id, r]))
-  const g = layoutRows(w.rows, [], null, { now: NOW, future: true })
+  const g = layoutRows(w.rows, null, { now: NOW, future: true })
   const missing = g.nodes.filter((n) => n.kind !== 'done' && n.kind !== 'folded' && !byId.has(n.id)).map((n) => `${n.kind} ${n.id}`)
   assert.deepEqual(missing, [], 'GraphLens picks and opens the menu only for a node with a row: every card has one')
 })
