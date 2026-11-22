@@ -18,13 +18,11 @@ use theseus_protocol::{
 };
 
 use crate::board::{short, Board, Moved, Only, Question, Row};
-use crate::board_threads::ThreadBoard;
 use crate::detail::Detail;
 use crate::follow::Follow;
 use crate::notice::{Delivery, Notices};
 use crate::selfview::SelfView;
 use crate::standing::{self, Standing};
-use crate::threads::Picker;
 use theseus_client::seen::Seen;
 use theseus_protocol::notices::{self, Viewer};
 
@@ -95,12 +93,6 @@ pub enum Purpose {
     Answer {
         correlation_id: String,
     },
-    /// `thread.list`: the picker's and the status line's threads (theseus-j0yh).
-    Threads,
-    /// `thread.pause`, `.resume` or `.done` from the picker.
-    ThreadAct(String),
-    /// `turn.submit` that opens a thread's session (its slug).
-    SubmitThread(String),
     /// `execution.dismiss`: a failure the owner is done with (theseus-7zgsm).
     Dismiss {
         session: String,
@@ -152,9 +144,6 @@ pub enum Effect {
     Title(String),
     /// Write the seen file: its path and its text.
     Save(PathBuf, String),
-    /// Remember this terminal's current thread: the file, the terminal, the
-    /// slug (none: home).
-    Remember(PathBuf, String, Option<String>),
 }
 
 /// The connection, as the header says it.
@@ -194,12 +183,8 @@ pub enum Mode {
     /// `N`: the brief of a new task, and the conversation it goes under
     /// (none: Home), typed into `App::brief` (theseus-7oq0w).
     NewTask(Option<String>),
-    /// `T`: the keys move over the board's Threads block (theseus-5i8i).
-    BoardThreads,
     /// `?`: the keys.
     Help,
-    /// Ctrl-T: the thread picker (theseus-j0yh).
-    Threads,
     /// `l`: what Theseus changed about itself (theseus-pw1q.19).
     SelfView,
     /// `p`: the standing records that hold in the session in focus.
@@ -218,9 +203,6 @@ pub enum Pane {
 
 pub struct App {
     pub board: Board,
-    /// The threads on the work board (theseus-5i8i), fed by the one
-    /// `work.watch` (`Purpose::Work`).
-    pub board_threads: ThreadBoard,
     /// The session under the cursor.
     pub selected: Option<String>,
     /// The one-turn conversations' fold is open (`one_turn.rs`).
@@ -285,14 +267,6 @@ pub struct App {
     /// When the seen file is due to be written: a change of focus waits a
     /// second, so a walk through the queue writes once.
     save_at: Option<u64>,
-    /// The threads as last read (theseus-j0yh), and the slug of the current one.
-    pub threads: Vec<theseus_protocol::threads::ThreadRow>,
-    pub thread: Option<String>,
-    pub picker: Option<Picker>,
-    /// Where this terminal's current thread is kept, and its name: none in tests.
-    pub thread_file: Option<(PathBuf, String)>,
-    /// The remembered thread's pane has been opened (once, at the first list).
-    pub(crate) threads_focused: bool,
     /// The follow pane: a running job's output, over the detail area.
     pub follow: Option<Follow>,
     /// The future under the task tree (theseus-nuhsz).
@@ -312,7 +286,6 @@ impl App {
     pub fn new(hm: fn(u64) -> String) -> Self {
         Self {
             board: Board::default(),
-            board_threads: ThreadBoard::default(),
             selected: None,
             one_turn_open: false,
             detail: None,
@@ -343,11 +316,6 @@ impl App {
             sync_warn: None,
             notify_pinned: false,
             tui_notify: None,
-            threads: Vec::new(),
-            thread: None,
-            picker: None,
-            thread_file: None,
-            threads_focused: false,
             follow: None,
             selfview: SelfView::default(),
             standing: None,
@@ -597,16 +565,11 @@ impl App {
         self.board.ask_again();
         self.board.reconnected();
         self.board.work.reconnected();
-        self.board_threads.reset();
         let mut out = vec![
             snapshot(),
             call(method::HEALTH, Value::Null, Purpose::Health),
             work_watch(),
         ];
-        // A thread chosen before: its row, for the status line.
-        if self.thread.is_some() {
-            out.push(call(method::THREAD_LIST, Value::Null, Purpose::Threads));
-        }
         if let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) {
             out.extend(read_session(&sid));
             out.push(read_standing(&sid));
@@ -670,7 +633,6 @@ impl App {
                 }
                 self.system_changed(&c);
                 self.horizon.apply(&c);
-                self.board_threads.changed(c);
             }
             Event::ConfirmRequested(c) => self.board.confirm_requested(c),
             Event::ConfirmResolved(r) => {
@@ -898,9 +860,6 @@ impl App {
             Purpose::Inspect(sid) => self.inspected(&sid, v),
             Purpose::Standing(sid) => self.standing_read(&sid, v),
             Purpose::Health => self.health_read(v),
-            Purpose::Threads => return self.threads_listed(v),
-            Purpose::ThreadAct(_) => return self.thread_acted(v),
-            Purpose::SubmitThread(_) => return self.thread_submitted(v),
             Purpose::NewTask => self.task_started(v),
             Purpose::Hold => self.task_held(v),
             Purpose::HorizonAct(_) => self.horizon_answered(purpose),
@@ -914,19 +873,15 @@ impl App {
     }
 
     /// A turn's answer, at its end (its events said the rest): the sources its
-    /// reply cited (theseus-ejdk), the thread list again for a thread's session
-    /// (theseus-j0yh), and the standing records, which may have changed while
-    /// the turn ran (theseus-slvl.4).
+    /// reply cited (theseus-ejdk), and the standing records, which may have
+    /// changed while the turn ran (theseus-slvl.4).
     fn submitted(&mut self, sid: &str, v: Value) -> Vec<Effect> {
-        let mut out = Vec::new();
         if let Ok(r) = serde_json::from_value::<theseus_protocol::TurnSubmitResult>(v) {
             if let Some(d) = self.detail.as_mut().filter(|d| d.session_id == sid) {
                 d.cited(&r.cites);
             }
-            out = self.thread_replied(sid);
         }
-        out.push(read_standing(sid));
-        out
+        vec![read_standing(sid)]
     }
 
     /// The answer to `execution.dismiss` or `task.retry` (theseus-7zgsm): a
@@ -1038,9 +993,6 @@ impl App {
             Purpose::Retry { .. } => method::TASK_RETRY,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
-            Purpose::Threads => method::THREAD_LIST,
-            Purpose::ThreadAct(_) => "thread.pause, resume or done",
-            Purpose::SubmitThread(_) => method::TURN_SUBMIT,
             Purpose::FollowFind => return self.follow_failed(method::ACTION_LIST, e),
             Purpose::FollowPeek => return self.follow_failed(method::WORK_PEEK, e),
             Purpose::FollowStart => return self.follow_failed(method::ACTION_OUTPUT, e),
@@ -1137,12 +1089,7 @@ impl App {
         if k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c') {
             return vec![Effect::Quit];
         }
-        let ctrl_t = k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('t');
-        if ctrl_t && matches!(self.mode, Mode::Normal | Mode::Input) {
-            return self.open_picker();
-        }
         match self.mode.clone() {
-            Mode::Threads => self.picker_key(k),
             Mode::Horizon => self.horizon_key(k),
             Mode::Help | Mode::Standing => {
                 self.mode = Mode::Normal;
@@ -1157,27 +1104,24 @@ impl App {
             Mode::Armed(arm, sid) => self.armed_key(k, arm, &sid),
             Mode::Note(id) => self.note_key(k, &id),
             Mode::NewTask(home) => self.new_task_key(k, home),
-            Mode::BoardThreads => self.board_threads_key(k),
             Mode::Normal => self.normal_key(k),
         }
     }
 
-    /// `work.watch`'s snapshot (theseus-k2vca): the rows' words, the daemon's
-    /// own jobs (theseus-jn17m) and the threads on the board (theseus-5i8i),
-    /// all from the one watch.
+    /// `work.watch`'s snapshot (theseus-k2vca): the rows' words and the
+    /// daemon's own jobs (theseus-jn17m), both from the one watch.
     fn work_read(&mut self, v: Value) {
         match serde_json::from_value::<WorkWatchResult>(v) {
             Ok(snap) => {
                 // The Horizon section reads the same watch (theseus-nuhsz).
                 self.horizon.load(snap.clone());
-                self.board.work.snapshot(snap.views.clone());
                 self.system = snap
                     .views
                     .iter()
                     .filter(|w| w.kind == theseus_protocol::work::WorkKind::System)
                     .map(|w| (w.id.clone(), w.clone()))
                     .collect();
-                self.board_threads.snapshot(snap);
+                self.board.work.snapshot(snap.views);
             }
             // An answer this build can't read is no board: rows say
             // their labels, as with a daemon that lacks the method.
@@ -1278,10 +1222,6 @@ impl App {
                     return self.focus(&sid);
                 }
             }
-            KeyCode::Char('T') => match self.board_threads.is_empty() {
-                true => self.flash = Some((Tag::Dim, "no threads on the board".to_string())),
-                false => self.mode = Mode::BoardThreads,
-            },
             KeyCode::Char('H') => self.focus_horizon(),
             KeyCode::Char('b') => self.only = Only::NeedsYou,
             KeyCode::Char('w') => self.only = Only::Working,
@@ -1305,7 +1245,7 @@ impl App {
                 }
             }
             KeyCode::Char('i') => {
-                if self.on_screen().is_some() || self.sessionless_thread().is_some() {
+                if self.on_screen().is_some() {
                     self.mode = Mode::Input;
                 }
             }
@@ -1327,34 +1267,6 @@ impl App {
             _ => {}
         }
         Vec::new()
-    }
-
-    /// The keys over the Threads block: the arrows move, enter folds a
-    /// thread or opens an item's session, esc and `T` go back to the list.
-    fn board_threads_key(&mut self, k: KeyEvent) -> Vec<Effect> {
-        let (now, width) = (self.now_ms, self.threads_width());
-        match k.code {
-            KeyCode::Down | KeyCode::Char('j') => self.board_threads.step(1, now, width),
-            KeyCode::Up | KeyCode::Char('k') => self.board_threads.step(-1, now, width),
-            KeyCode::Enter | KeyCode::Char(' ') => {
-                if let Some(sid) = self.board_threads.session_at(now, width) {
-                    self.mode = Mode::Normal;
-                    return self.focus(&sid);
-                }
-                self.board_threads.toggle(now, width);
-            }
-            KeyCode::Esc | KeyCode::Char('T') | KeyCode::Char('q') => self.mode = Mode::Normal,
-            _ => {}
-        }
-        Vec::new()
-    }
-
-    /// The columns the Threads block's lines have: the sidebar's.
-    pub fn threads_width(&self) -> usize {
-        match self.wide() {
-            true => crate::ui::sidebar_width(self.width) as usize,
-            false => self.width as usize,
-        }
     }
 
     /// The session the keys act on: the one in focus, if its pane is on
@@ -1663,14 +1575,9 @@ impl App {
             }
             KeyCode::Enter => {
                 let text = self.input.trim().to_string();
-                if let Some(arg) = text
-                    .strip_prefix("/t")
-                    .filter(|r| r.chars().next().is_none_or(char::is_whitespace))
-                {
-                    return self.thread_line(arg.trim());
-                }
                 let Some(sid) = self.detail.as_ref().map(|d| d.session_id.clone()) else {
-                    return self.first_thread_message(&text);
+                    self.mode = Mode::Normal;
+                    return Vec::new();
                 };
                 if text.is_empty() {
                     return Vec::new();
@@ -1770,21 +1677,10 @@ impl App {
                 self.cursor_to_first_match();
             }
             Mode::Note(_) => self.note.push_str(&text),
-            Mode::Threads => {
-                if let Some(p) = self.picker.as_mut() {
-                    p.filter.push_str(&text.replace(['\n', '\t'], " "));
-                    p.cursor = 0;
-                }
-            }
             Mode::NewTask(_) => self.brief.push_str(&text.replace(['\n', '\t'], " ")),
             // The self view takes no paste.
             Mode::SelfView => {}
-            Mode::Normal
-            | Mode::Help
-            | Mode::Standing
-            | Mode::Horizon
-            | Mode::Armed(..)
-            | Mode::BoardThreads => {
+            Mode::Normal | Mode::Help | Mode::Standing | Mode::Horizon | Mode::Armed(..) => {
                 if let Mode::Armed(arm, _) = self.mode {
                     let not = match arm {
                         Arm::Stop | Arm::StopAll => "not stopped",

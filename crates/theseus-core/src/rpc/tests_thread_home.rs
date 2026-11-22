@@ -383,21 +383,17 @@ async fn a_split_into_an_existing_thread_appends_at_its_tail() {
     );
 }
 
-/// An unsplit puts both compiles back to their pre-split bytes, and the ledger records it.
+/// An unsplit puts both places' census back exactly, as the view counts them: the split took the range out
+/// of the home and quoted it into the thread, and the unsplit gives both back; the ledger records it.
 #[tokio::test]
-async fn an_unsplit_puts_both_compiles_back_byte_for_byte() {
-    let r = rig(vec![
-        Scripted::text("ok"),
-        Scripted::text("dev one"),
-        Scripted::text("a"),
-        Scripted::text("b"),
-    ]);
+async fn an_unsplit_puts_both_places_census_back_exactly() {
+    let r = rig(vec![Scripted::text("ok"), Scripted::text("dev one")]);
     let c = &r.core;
     let sid = compiled_home(&r, 9).await;
     let dev = thread(c, "dev");
     turn(c, &dev, "How is the harness built?").await;
-    let (home_before, _, _) = request(c, &sid);
-    let (dev_before, _, _) = request(c, &dev);
+    let tokens = |sid: &str| request(c, sid).2.compiled.estimate.tokens;
+    let (home_before, dev_before) = (tokens(&sid), tokens(&dev));
 
     let into = split(
         c,
@@ -409,11 +405,12 @@ async fn an_unsplit_puts_both_compiles_back_byte_for_byte() {
         },
     )
     .unwrap();
-    let (_, how, _) = request(c, &sid);
-    assert_eq!(how, "recompile");
-    // The compiles are frozen as a turn would freeze them.
-    turn(c, &sid, "One more about the moon").await;
-    turn(c, &dev, "One more about the build").await;
+    assert_ne!(
+        tokens(&sid),
+        home_before,
+        "the split took the range out of the home"
+    );
+    assert_ne!(tokens(&dev), dev_before, "and quoted it into the thread");
     let u = c
         .thread_unsplit(
             &ThreadUnsplitParams {
@@ -424,16 +421,17 @@ async fn an_unsplit_puts_both_compiles_back_byte_for_byte() {
         )
         .unwrap();
     assert!(!u.retired && u.restored == into.moved);
-    let (home_after, how, _) = request(c, &sid);
     assert_eq!(
-        how, "recompile",
-        "its prefix changes once more, at its next turn"
+        tokens(&sid),
+        home_before,
+        "the home's census is back exactly"
     );
-    let head = home_before.trim_end_matches(']');
-    assert!(
-        home_after.starts_with(head),
-        "the home's compile is as it was before the split, and the later turn follows"
+    assert_eq!(
+        tokens(&dev),
+        dev_before,
+        "the thread's census is back exactly"
     );
+    let (home_after, _, _) = request(c, &sid);
     assert!(
         !home_after.contains("moved to thread"),
         "no note is left in place"
@@ -441,9 +439,8 @@ async fn an_unsplit_puts_both_compiles_back_byte_for_byte() {
     let (dev_after, _, _) = request(c, &dev);
     assert!(
         !dev_after.contains("marker-2"),
-        "the quoted turns left the thread's compile"
+        "the quoted turns left the thread's request"
     );
-    assert!(dev_after.starts_with(dev_before.trim_end_matches(']')));
     assert_eq!(crate::tests_day_ceiling::rows(c, "thread.unsplit").len(), 1);
     // Nothing was deleted: the nodes are still in the store.
     assert!(c
@@ -495,9 +492,10 @@ async fn an_unsplit_ends_a_thread_the_split_opened() {
     assert_eq!(home_after, home_before);
 }
 
-/// A dry run writes nothing, and its "after" is the census of a real split of the same range.
+/// A dry run writes nothing; its "before" is today's census of the source, and its "after" that less the
+/// moved range's own tokens, by its bytes (the view's sources cannot be asked as if the range had moved).
 #[tokio::test]
-async fn a_dry_run_writes_nothing_and_its_after_is_the_census_after_a_split() {
+async fn a_dry_run_writes_nothing_and_its_after_is_todays_census_less_the_range() {
     let r = rig(vec![Scripted::text("ok")]);
     let c = &r.core;
     let sid = compiled_home(&r, 12).await;
@@ -520,13 +518,16 @@ async fn a_dry_run_writes_nothing_and_its_after_is_the_census_after_a_split() {
     assert!(plan.source.after < plan.source.before);
     assert!(plan.target.is_none() && !plan.into);
 
-    split(c, params(&sid, "gauges", range)).unwrap();
-    let (_, _, next) = request(c, &sid);
-    let real = next.compiled.estimate.tokens as f64;
-    let said = plan.source.after as f64;
-    assert!(
-        (real - said).abs() <= real * 0.05,
-        "the dry run said {said} tokens, the census after the split {real}"
+    let (_, _, today) = request(c, &sid);
+    assert_eq!(
+        plan.source.before, today.compiled.estimate.tokens,
+        "today's census"
+    );
+    let range_tokens = (plan.bytes as f64 / 3.0).ceil() as u64;
+    assert_eq!(
+        plan.source.after,
+        plan.source.before.saturating_sub(range_tokens),
+        "today's census less the range's own tokens"
     );
 }
 

@@ -1,18 +1,15 @@
 // The Operations page's Graph lens, laid out (theseus-jid7t.4): every session, task, step and job as one graph in
-// lanes, one lane per live thread and a home lane for the rest. Pure: `npm test` runs it (test/ops-graph.test.ts), and
+// one lane, the home lane. Pure: `npm test` runs it (test/ops-graph.test.ts), and
 // it imports only the protocol's types and other pure modules; the lens that draws it is `ops/GraphLens.tsx`.
 //
 // The rules, each held by a test:
-// - Within a lane, columns by depth (a conversation is its lane's anchor, at the left) and rows by start time.
+// - Columns by depth (a conversation is an anchor, at the left) and rows by start time.
 // - **Positions are sticky by id.** Given the last layout (`prev`), every node it placed keeps its slot: a new node
-//   takes the next free row of its column, a node that left leaves a hole, and a lane's band keeps a spare row, so one
-//   new node moves nothing else. The lanes keep their order; a new lane goes below. `prev = null` lays it out afresh,
-//   needs-you lanes first (the lens's "tidy").
-// - Ended work older than an hour folds into one "✓ N done" node per lane, which opens on a click (`expanded`).
-// - **A band is never shorter than its own gutter label** (`labelHeight`, theseus-6ln2q): a lane with no card drawn
-//   still carries its wrapped title, its warmth words and its needs-you badge, so the band holds them and no two
-//   lanes overlap. Before that, a lane the retire bar had emptied was `LANE_HEAD` tall and its label overprinted the
-//   lanes below it.
+//   takes the next free row of its column, a node that left leaves a hole, and the lane's band keeps a spare row, so
+//   one new node moves nothing else. `prev = null` lays it out afresh (the lens's "tidy").
+// - Ended work older than an hour folds into one "✓ N done" node, which opens on a click (`expanded`).
+// - **The band is never shorter than its own gutter label** (`labelHeight`, theseus-6ln2q): with no card drawn it
+//   still carries its title and its needs-you badge, so the band holds them.
 // - Past `cap` nodes (400), subtrees fold, the deepest and oldest first, each into one "+N folded" node; a subtree that
 //   holds something that needs the owner never folds.
 // - Edges: a view's parent (solid; it flows while the child runs), a record's deps (dashed, with an arrow: "waits
@@ -33,13 +30,8 @@ export const LANE_LABEL_W = 180
 export const LANE_LABEL_PAD = 16
 /** One line of the display title (`text-[15px] leading-tight`), measured at 19 px in the browser. */
 export const LANE_TITLE_LINE = 19
-/** The warmth words under the title: `mt-1`, then a `text-[10.5px] leading-snug` line each. */
-export const LANE_WORDS_TOP = 4
-export const LANE_WORDS_LINE = 15
-/** A badge row under them: `mt-1.5` and the pill. Both the needs-you count and the "fold N done" button are one. */
+/** A badge row under the title: `mt-1.5` and the pill. Both the needs-you count and the "fold N done" button are one. */
 export const LANE_BADGE_H = 24
-/** The lock a sealed lane's title carries (`Lock size={11}` and its `mr-1`). */
-const LOCK_W = 15
 /** The advance of every character the display face draws a title with — 15 px, `font-bold`, `tracking-[0.12em]`,
  *  and `uppercase`, so every letter is a cap. Measured in headless Chrome against the real font (theseus-6ln2q);
  *  the width of a title is not one number, since W is more than twice I. A character the table lacks is charged
@@ -52,8 +44,6 @@ const TITLE_ADVANCE: Readonly<Record<string, number>> = {
   ' ': 3.896, '·': 5.55, ',': 5.55, '.': 5.55, '-': 6.795,
 }
 const TITLE_WIDEST = 16.8
-/** The warmth words' face is JetBrains Mono at 10.5 px: one advance for every character. */
-const WORDS_ADVANCE = 6.322
 export const NODE_W = 248
 export const NODE_CAP = 400
 export const DONE_FOLD_MS = 3_600_000
@@ -92,30 +82,27 @@ export interface GNode {
   form?: RowForm
   /** A plan: its children are drawn (open), or folded into it, one node toward the cap. */
   open?: boolean
-  /** A thread's own conversation, drawn as its lane's head card. */
-  head?: boolean
 }
 
 export type EdgeKind = 'parent' | 'deps' | 'retry'
 
 export interface GEdge { id: string; source: string; target: string; kind: EdgeKind; running: boolean }
 
-/** A lane's words, from the page (the Threads lens's `threadFacts`): the layout reads `key`, `needs` and, for the
- *  band's floor, the words the gutter draws (`title`, `words`, `sealed`). */
-export interface LaneMeta { key: string; title: string; needs: number; words?: string; sealed?: boolean; data?: DataMark; /** The thread's own conversation (its session), drawn as the lane's head card. */ head?: string }
+/** The lane's words: its key, the title the gutter draws and how many of its nodes need the owner. */
+export interface LaneMeta { key: string; title: string; needs: number }
 
 export interface GLane extends LaneMeta { y: number; height: number; rows: number }
 
 /** The lines a run of text wraps onto in a box this wide, the way the browser breaks it: at a space, never inside a
- *  word. `lead` is what already sits on the first line (a lock). A word wider than the whole box keeps its own line
- *  and runs past the edge — the gutter sets no `break-words`, so that is what the browser does too. */
-function wrapLines(text: string, width: number, advance: (ch: string) => number, lead = 0): number {
+ *  word. A word wider than the whole box keeps its own line and runs past the edge — the gutter sets no
+ *  `break-words`, so that is what the browser does too. */
+function wrapLines(text: string, width: number, advance: (ch: string) => number): number {
   const words = text.trim().split(/\s+/).filter(Boolean)
   if (!words.length) return 1
   const span = (s: string) => [...s].reduce((w, ch) => w + advance(ch), 0)
   const gap = advance(' ')
   let lines = 1
-  let used = lead
+  let used = 0
   for (const w of words) {
     const own = span(w)
     if (used && used + gap + own > width) { lines += 1; used = own } else used += (used ? gap : 0) + own
@@ -125,28 +112,15 @@ function wrapLines(text: string, width: number, advance: (ch: string) => number,
 
 const titleAdvance = (ch: string): number => TITLE_ADVANCE[ch] ?? TITLE_WIDEST
 
-/** The lines the gutter wraps a lane's title onto. The face uppercases, so the title is measured in caps; a seal
- *  leaves room for its lock on the first line. */
-export const titleLines = (title: string, sealed = false): number =>
-  wrapLines(title.toUpperCase(), LANE_LABEL_W, titleAdvance, sealed ? LOCK_W : 0)
-
-/** The lines the warmth words wrap onto. They are not one line: `details` adds today's dollars and the persona
- *  (`lib/threadboard.ts`), and a warm thread that spent money today runs to two (theseus-6ln2q join fix). */
-export const wordsLines = (words: string): number => wrapLines(words, LANE_LABEL_W, () => WORDS_ADVANCE)
+/** The lines the gutter wraps a lane's title onto. The face uppercases, so the title is measured in caps. */
+export const titleLines = (title: string): number => wrapLines(title.toUpperCase(), LANE_LABEL_W, titleAdvance)
 
 /** How tall a lane's gutter label is, so the band can never be shorter than its own words (theseus-6ln2q): the
- *  inset above and below, the wrapped title, the wrapped warmth words, the needs-you badge, and — for a lane whose
- *  ended work is open — the "fold N done" button under them.
- *
- *  Each term is the browser's measure rounded up, never down, since a short band is the bug and a long one is a
- *  little space. Redact (`?redact=1`) drops the words but can *lengthen* a short title ("QX-LAB" becomes "a
- *  sensitive thread"), so a locked lane is measured both ways and keeps the taller: the band holds whichever the
- *  address asks for. */
+ *  inset above and below, the wrapped title, the needs-you badge, and — when its ended work is open — the "fold N
+ *  done" button under them. Each term is the browser's measure rounded up, never down, since a short band is the bug
+ *  and a long one is a little space. */
 export function labelHeight(l: LaneMeta, opened = false): number {
-  const lines = Math.max(titleLines(l.title, l.sealed), titleLines(shownTitle(l, true), l.sealed))
-  return LANE_LABEL_PAD * 2 + lines * LANE_TITLE_LINE
-    + (l.words ? LANE_WORDS_TOP + wordsLines(l.words) * LANE_WORDS_LINE : 0)
-    + (l.needs > 0 ? LANE_BADGE_H : 0) + (opened ? LANE_BADGE_H : 0)
+  return LANE_LABEL_PAD * 2 + titleLines(l.title) * LANE_TITLE_LINE + (l.needs > 0 ? LANE_BADGE_H : 0) + (opened ? LANE_BADGE_H : 0)
 }
 
 export interface Graph {
@@ -194,7 +168,6 @@ interface Item {
   title: string
   state: string
   parentRef?: string
-  thread?: string
   startedMs: number
   endedMs?: number
   ended: boolean
@@ -213,16 +186,16 @@ export const nodeIdOf = (v: Pick<WorkView, 'id' | 'kind' | 'session_id'>): strin
 
 /** The graph of views and records, laid out through the board's rows (`boardRows`): the form the tests of the layout
  *  take. The page lays out `layoutRows` of the one work set. */
-export function opsLayout(views: readonly WorkView[], records: readonly TaskRecord[], lanes: readonly LaneMeta[], prev: Graph | null, opts: LayoutOpts): Graph {
+export function opsLayout(views: readonly WorkView[], records: readonly TaskRecord[], prev: Graph | null, opts: LayoutOpts): Graph {
   const queue = queueOf({ confirms: [], views }).filter((i) => i.kind === 'question')
-  return layout(boardRows({ views, tasks: [], sessions: [], records, queue, now: opts.now, past: false }), lanes, prev, opts)
+  return layout(boardRows({ views, tasks: [], sessions: [], records, queue, now: opts.now, past: false }), prev, opts)
 }
 
 /** Every node is a row of the work set, and every row a node (a wake, a routine, a watch and a project only under
  *  "+ future"; an ask no card owns is a node of its own). */
-export const layoutRows = (rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph | null, opts: LayoutOpts): Graph => layout(rows, lanes, prev, opts)
+export const layoutRows = (rows: readonly OpsRow[], prev: Graph | null, opts: LayoutOpts): Graph => layout(rows, prev, opts)
 
-function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph | null, opts: LayoutOpts): Graph {
+function layout(rows: readonly OpsRow[], prev: Graph | null, opts: LayoutOpts): Graph {
   // A layout that placed nothing (the page before its first read) holds no order to keep.
   if (prev && prev.nodes.length === 0) prev = null
   const { now, future = false, expanded = new Set<string>(), opened = new Set<string>(), cap = NODE_CAP } = opts
@@ -235,13 +208,13 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
     const rec = r.record
     for (const k of [r.id, v?.id, r.recordId, r.task?.info?.execution_id]) if (k) alias.set(k, r.id)
     if (r.kind === 'ask') {
-      items.set(r.id, { id: r.id, kind: 'ask', title: r.title, state: 'needs_you', thread: r.thread, startedMs: r.activityMs, ended: false, needs: true, bucket: r.bucket, asks: 1 })
+      items.set(r.id, { id: r.id, kind: 'ask', title: r.title, state: 'needs_you', startedMs: r.activityMs, ended: false, needs: true, bucket: r.bucket, asks: 1 })
       continue
     }
     if (v) {
       if (v.kind === 'question' || v.kind === 'system' || (FUTURE.has(v.kind) && !future)) continue
       const it: Item = {
-        id: r.id, kind: v.kind as GKind, title: v.title || v.attention.label || r.id, state: v.paused ? 'paused' : v.state, parentRef: r.parent, thread: v.thread,
+        id: r.id, kind: v.kind as GKind, title: v.title || v.attention.label || r.id, state: v.paused ? 'paused' : v.state, parentRef: r.parent,
         startedMs: v.started_at_ms || v.state_since_ms, endedMs: v.ended_at_ms ?? (isEndedState(v.state) ? v.state_since_ms : undefined),
         ended: isEndedState(v.state), needs: (v.attention.level === 'needs_you' && !v.dismissed) || r.bucket === 'needs', data: v.data, view: v, retryOf: v.retry_of, record: rec,
         bucket: r.bucket, asks: r.asks,
@@ -262,22 +235,11 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
   }
   for (const it of items.values()) if (it.asks) asks.set(it.id, it.asks)
 
-  // The tree: each item's parent by node id, its lane, its depth.
+  // The tree: each item's parent by node id, and its depth.
   const parentOf = new Map<string, string>()
   for (const it of items.values()) {
     const p = it.parentRef ? alias.get(it.parentRef) ?? it.parentRef : undefined
     if (p && p !== it.id && items.has(p)) parentOf.set(it.id, p)
-  }
-  const live = new Set(lanes.map((l) => l.key))
-  const laneOf = new Map<string, string>()
-  const lane = (id: string, seen = 0): string => {
-    const got = laneOf.get(id)
-    if (got) return got
-    const it = items.get(id)!
-    const p = parentOf.get(id)
-    const l = it.kind === 'project' ? HOME : it.thread && live.has(it.thread) ? it.thread : p && seen < 64 ? lane(p, seen + 1) : HOME
-    laneOf.set(id, l)
-    return l
   }
   const depthOf = new Map<string, number>()
   const depth = (id: string, seen = 0): number => {
@@ -285,15 +247,15 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
     if (got !== undefined) return got
     const it = items.get(id)!
     const p = parentOf.get(id)
-    const d = it.kind === 'conversation' ? 0 : p && seen < 64 && lane(p) === lane(id) ? depth(p, seen + 1) + 1 : 1
+    const d = it.kind === 'conversation' ? 0 : p && seen < 64 ? depth(p, seen + 1) + 1 : 1
     depthOf.set(id, d)
     return d
   }
-  for (const id of items.keys()) { lane(id); depth(id) }
+  for (const id of items.keys()) depth(id)
 
   // What is drawn: every item, then the folds. A fold's node stands for its members, and their edges go to it.
   const shown = new Map<string, { id: string; kind: GKind; lane: string; col: number; parent?: string; members?: string[]; it?: Item }>()
-  for (const it of items.values()) shown.set(it.id, { id: it.id, kind: it.kind, lane: laneOf.get(it.id)!, col: depthOf.get(it.id)!, parent: parentOf.get(it.id), it })
+  for (const it of items.values()) shown.set(it.id, { id: it.id, kind: it.kind, lane: HOME, col: depthOf.get(it.id)!, parent: parentOf.get(it.id), it })
   const into = new Map<string, string>()
 
   // Plans: an open plan shows its children, a folded one stands for them (one node toward the cap). What needs the owner
@@ -313,20 +275,20 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
     for (const m of sub) if (shown.has(m) && !items.get(m)!.needs) { shown.delete(m); into.set(m, it.id) }
   }
 
-  // Ended work older than an hour, one "✓ N done" per lane.
-  const old = new Map<string, string[]>()
-  for (const it of items.values()) {
-    if (!(it.kind === 'task' || it.kind === 'step' || it.kind === 'job') || !it.ended || it.needs) continue
-    if (into.has(it.id)) continue // already standing in its folded plan
-    if ((it.endedMs ?? it.startedMs) > now - DONE_FOLD_MS) continue
-    const l = laneOf.get(it.id)!
-    if (expanded.has(l)) continue
-    old.set(l, [...(old.get(l) ?? []), it.id])
+  // Ended work older than an hour, one "✓ N done".
+  const old: string[] = []
+  if (!expanded.has(HOME)) {
+    for (const it of items.values()) {
+      if (!(it.kind === 'task' || it.kind === 'step' || it.kind === 'job') || !it.ended || it.needs) continue
+      if (into.has(it.id)) continue // already standing in its folded plan
+      if ((it.endedMs ?? it.startedMs) > now - DONE_FOLD_MS) continue
+      old.push(it.id)
+    }
   }
-  for (const [l, ids] of old) {
-    const id = `done:${l}`
-    for (const m of ids) { shown.delete(m); into.set(m, id) }
-    shown.set(id, { id, kind: 'done', lane: l, col: 1, members: ids })
+  if (old.length) {
+    const id = `done:${HOME}`
+    for (const m of old) { shown.delete(m); into.set(m, id) }
+    shown.set(id, { id, kind: 'done', lane: HOME, col: 1, members: old })
   }
 
   // The cap: subtrees fold, the deepest and oldest first, never one that holds something that needs the owner.
@@ -349,7 +311,7 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
         if (sub.length < 2 || sub.some((m) => items.get(m)?.needs || hold.has(m))) continue
         const id = `fold:${r}`
         for (const m of sub) { shown.delete(m); into.set(m, id) }
-        shown.set(id, { id, kind: 'folded', lane: laneOf.get(r)!, col: depthOf.get(r)! + 1, parent: r, members: sub })
+        shown.set(id, { id, kind: 'folded', lane: HOME, col: depthOf.get(r)! + 1, parent: r, members: sub })
         folded += sub.length
       }
     }
@@ -368,8 +330,8 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
   }
   const at = (id: string): string | undefined => { let x: string | undefined = alias.get(id) ?? id; for (let i = 0; x && !shown.has(x) && i < 8; i++) x = into.get(x); return x && shown.has(x) ? x : undefined }
 
-  // Slots: the last layout's for every node it placed in the same lane; the next free row of its column for the rest,
-  // in start order, so a fresh layout is rows by start time.
+  // Slots: the last layout's for every node it placed; the next free row of its column for the rest, in start order,
+  // so a fresh layout is rows by start time.
   const slots: Record<string, { lane: string; col: number; row: number }> = {}
   const used = new Map<string, number>()
   const cell = (l: string, c: number) => `${l}\u0000${c}`
@@ -392,14 +354,9 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
   const seenRow = new Map<string, number>()
   for (const [id, sl] of Object.entries(slots)) if (!hidden.has(id)) seenRow.set(sl.lane, Math.max(seenRow.get(sl.lane) ?? 0, sl.row + 1))
 
-  // The lanes: the last layout's order, then the new ones, needs-you first and home last. A band keeps its rows and
-  // a spare one; it grows only when its rows are used up.
-  const metas = new Map<string, LaneMeta>([...lanes.map((l) => [l.key, l] as const), [HOME, lanes.find((l) => l.key === HOME) ?? { key: HOME, title: 'Home · no thread', needs: 0 }]])
-  const needs = new Map<string, number>()
-  for (const it of items.values()) if (it.needs) needs.set(laneOf.get(it.id)!, (needs.get(laneOf.get(it.id)!) ?? 0) + 1)
-  for (const [k, m] of metas) metas.set(k, { ...m, needs: Math.max(m.needs, needs.get(k) ?? 0) })
-  const ranked = [...metas.values()].filter((l) => l.key !== HOME).sort((a, b) => Number(b.needs > 0) - Number(a.needs > 0)).map((l) => l.key)
-  const order = [...(prev?.order ?? []).filter((k) => metas.has(k)), ...[...ranked, HOME].filter((k) => !(prev?.order ?? []).includes(k))]
+  // The home lane, the one lane. Its band keeps its rows and a spare one; it grows only when its rows are used up.
+  const metas = new Map<string, LaneMeta>([[HOME, { key: HOME, title: 'Home', needs: [...items.values()].filter((it) => it.needs).length }]])
+  const order = [HOME]
   const need = new Map<string, number>()
   for (const s of Object.values(slots)) need.set(s.lane, Math.max(need.get(s.lane) ?? 0, s.row + 1))
   for (const [k, r] of used) { const l = k.split('\u0000')[0]; need.set(l, Math.max(need.get(l) ?? 0, r + 1)) }
@@ -412,9 +369,8 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
     const rows = was !== undefined && n <= was ? was : n + 1
     bands[k] = rows
     const drawn = opts.keep ? seenRow.get(k) ?? 0 : rows
-    // The band holds its rows, and never less than its own gutter label: with the retire bar on, a cold thread has
-    // no card drawn at all, and a band of `LANE_HEAD` alone let its title and warmth words run over the lane below
-    // (theseus-6ln2q).
+    // The band holds its rows, and never less than its own gutter label: with the retire bar on, a lane can have no
+    // card drawn at all, and a band of `LANE_HEAD` alone let its label run past the band (theseus-6ln2q).
     const meta = metas.get(k)!
     const height = Math.max(LANE_HEAD + drawn * ROW_H, labelHeight(meta, expanded.has(k)))
     out.push({ ...meta, y, height, rows: drawn })
@@ -436,7 +392,6 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
       data: it?.data, startedMs: it?.startedMs ?? 0, members: n.members, fresh: prev != null && !placed[n.id], ...(it ? { bucket: it.bucket } : {}),
       ...(it && forms.has(it.id) ? { form: forms.get(it.id) } : {}),
       ...(planOpen.has(n.id) ? { open: planOpen.get(n.id) } : {}),
-      ...(it?.kind === 'conversation' && s.lane !== HOME && metas.get(s.lane)?.head === it.id ? { head: true } : {}),
     })
   }
   nodes.sort((a, b) => (a.id < b.id ? -1 : 1))
@@ -490,13 +445,13 @@ function pastView(r: OpsRow): WorkView | undefined {
 
 /** The lens's memory of its last layout: each call lays out over the last one (sticky by id), and a new `epoch` (the
  *  lens's "tidy") forgets it, so that layout is fresh. */
-export function keeper(): { lay: (rows: readonly OpsRow[], lanes: readonly LaneMeta[], opts: LayoutOpts, epoch: number) => Graph } {
+export function keeper(): { lay: (rows: readonly OpsRow[], opts: LayoutOpts, epoch: number) => Graph } {
   let prev: Graph | null = null
   let at = 0
   return {
-    lay: (rows, lanes, opts, epoch) => {
+    lay: (rows, opts, epoch) => {
       if (epoch !== at) { prev = null; at = epoch }
-      prev = layoutRows(rows, lanes, prev, opts)
+      prev = layoutRows(rows, prev, opts)
       return prev
     },
   }
@@ -504,14 +459,14 @@ export function keeper(): { lay: (rows: readonly OpsRow[], lanes: readonly LaneM
 
 const locked = (d: DataMark | undefined) => d === 'private' || d === 'sensitive'
 
-/** The title a node or a lane is drawn with. Under redact (`?redact=1`) one whose data mark is private or sensitive
- *  shows its kind and short id (a lane: "a <mark> thread") instead. Every place a title is drawn takes this. */
-export function shownTitle(n: { title: string; data?: DataMark; kind?: string; id?: string }, redact: boolean): string {
+/** The title a node is drawn with. Under redact (`?redact=1`) one whose data mark is private or sensitive shows its
+ *  kind and short id instead. Every place a node's title is drawn takes this. */
+export function shownTitle(n: { title: string; data?: DataMark; kind: string; id?: string }, redact: boolean): string {
   if (!redact || !locked(n.data)) return n.title
-  return n.kind ? `${n.kind} ${(n.id ?? '').slice(-6)}` : `a ${n.data} thread`
+  return `${n.kind} ${(n.id ?? '').slice(-6)}`
 }
 
-/** Whether redact hides this node's or lane's words. */
+/** Whether redact hides this node's words. */
 export const masked = (n: { data?: DataMark }, redact: boolean): boolean => redact && locked(n.data)
 
 const WALKABLE = new Set<GKind>(['conversation', 'task', 'step', 'job'])
@@ -536,8 +491,8 @@ export function stepNode(g: Pick<Graph, 'nodes'>, fromId: string | null, dx: num
 
 /** What the owner has opened that the canvas can fold back: `lanes`, each lane in `expanded` whose "✓ N done" fold the
  *  layout without openings (`base`) draws (`n` is its members), and `roots`, each root in `opened` whose "+N folded"
- *  the layout with the lanes' openings but no opened roots (`baseRoots`) draws and `g` shows open, so a fold opened
- *  inside an opened lane has its way back too. Nothing when nothing is open, or an opening that changed nothing. */
+ *  the layout with the lane's opening but no opened roots (`baseRoots`) draws and `g` shows open, so a fold opened
+ *  inside an opened "✓ N done" has its way back too. Nothing when nothing is open, or an opening that changed nothing. */
 export function foldBacks(g: Graph, base: Graph, expanded: ReadonlySet<string>, opened: ReadonlySet<string>, baseRoots: Graph = base): { lanes: Array<{ lane: string; n: number }>; roots: string[] } {
   const lanes: Array<{ lane: string; n: number }> = []
   for (const l of expanded) {

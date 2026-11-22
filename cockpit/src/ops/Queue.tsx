@@ -122,8 +122,6 @@ export function Answers({ i, whole, note, onNote, past }: { i: QueueItem; whole:
         {i.kind === 'question' && note === null && <ActBtn verb="choice" on={on} tone="live" onClick={() => onNote({ key: i.key, text: '' })}>Something else…</ActBtn>}
         {b('retry', { verb: 'retry' }, 'live', 'r · Retry')}
         {b('dismiss', { verb: 'dismiss' }, 'fault', 'd · Dismiss')}
-        {b('seal', { verb: 'seal' }, 'wait', 'Seal')}
-        {b('seal_dismiss', { verb: 'seal_dismiss' }, 'fault', 'Not now')}
         {i.kind === 'failure' && i.sessionId && <Link to={`/session/${i.sessionId}`} className="self-center text-[11.5px] text-live hover:underline">o · open</Link>}
       </div>
       {note !== null && (

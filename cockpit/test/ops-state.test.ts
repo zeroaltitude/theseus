@@ -1,6 +1,6 @@
-// The Operations page's one state model (theseus-g00vv): the Board, the Graph, the Threads lens and the counters name the
-// same open work, WORKING counts work in flight, and only ended work is faded. One shared fixture; the owner's rules:
-// waiting counts as open; opacity marks the ended alone; a conversation at rest is not working.
+// The Operations page's one state model (theseus-g00vv): the Board, the Graph and the counters name the same open work,
+// WORKING counts work in flight, and only ended work is faded. One shared fixture; the owner's rules: waiting counts as open;
+// opacity marks the ended alone; a conversation at rest is not working.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -9,23 +9,21 @@ import { bucketOf, bucketOfNode, bucketOfRecord, bucketOfSession, isEnded, isEnd
 import { boardRows, countersOf, needsOf, shown } from '../src/ops/board.ts'
 import { targetOf } from '../src/ops/palette.ts'
 import { bulkVerbs } from '../src/ops/selection.ts'
-import { nodeIdOf, opsLayout, viewsOf } from '../src/ops/graph.ts'
-import { groupThreads } from '../src/lib/threadboard.ts'
-import { group, HOUR, info, MIN, NOW, record, session, view } from './ops-fixtures.ts'
+import { HOME, opsLayout, viewsOf } from '../src/ops/graph.ts'
+import { HOUR, info, MIN, NOW, record, session, view } from './ops-fixtures.ts'
 
-const T = { thread: 'harbour-survey' }
 const doing = (what: string) => ({ what, label: what, since_ms: NOW, turn: 1, loop_index: 0 }) as WorkView['doing']
 
 function fixture() {
   const views: WorkView[] = [
-    view('exe_r1', 'task', 'running', { session_id: 'ses_r1', ...T }),
-    view('exe_w1', 'task', 'waiting', { session_id: 'ses_w1', doing: doing('job'), ...T }),
-    view('wak_d1', 'wake', 'waiting', { session_id: 'ses_h', next_at_ms: NOW + 2 * HOUR, ...T }),
-    view('exe_c1', 'task', 'cancelled', { session_id: 'ses_c1', ended_at_ms: NOW - 10 * MIN, ...T }),
-    view('exe_h', 'conversation', 'ready', { session_id: 'ses_h', ...T }),
-    view('exe_d1', 'task', 'done', { session_id: 'ses_d1', ended_at_ms: NOW - 20 * MIN, ...T }),
-    view('exe_f1', 'task', 'failed', { session_id: 'ses_f1', dismissed: true, ended_at_ms: NOW - 30 * MIN, ...T }),
-    view('exe_x1', 'task', 'expired', { session_id: 'ses_x1', ended_at_ms: NOW - 40 * MIN, ...T }),
+    view('exe_r1', 'task', 'running', { session_id: 'ses_r1' }),
+    view('exe_w1', 'task', 'waiting', { session_id: 'ses_w1', doing: doing('job') }),
+    view('wak_d1', 'wake', 'waiting', { session_id: 'ses_h', next_at_ms: NOW + 2 * HOUR }),
+    view('exe_c1', 'task', 'cancelled', { session_id: 'ses_c1', ended_at_ms: NOW - 10 * MIN }),
+    view('exe_h', 'conversation', 'ready', { session_id: 'ses_h' }),
+    view('exe_d1', 'task', 'done', { session_id: 'ses_d1', ended_at_ms: NOW - 20 * MIN }),
+    view('exe_f1', 'task', 'failed', { session_id: 'ses_f1', dismissed: true, ended_at_ms: NOW - 30 * MIN }),
+    view('exe_x1', 'task', 'expired', { session_id: 'ses_x1', ended_at_ms: NOW - 40 * MIN }),
   ]
   // A cancel and a stop that is not one both leave the record suspended; only the cancel has ended the work (theseus-emqbm).
   const records = [record('tsk_c1', { session: 'ses_c1', state: 'suspended' }), record('tsk_x1', { session: 'ses_x1', state: 'suspended' })]
@@ -33,17 +31,14 @@ function fixture() {
 }
 const OPEN = ['ses_r1', 'ses_w1', 'wak_d1', 'ses_x1']
 
-test('the Board, the Graph and the Threads lens name the same open work', () => {
+test('the Board and the Graph name the same open work', () => {
   const { views, records } = fixture()
   const rows = boardRows({ views, tasks: [], sessions: [], records, now: NOW, past: false })
   const boardOpen = rows.filter((r) => isOpen(r.bucket)).map((r) => r.id).sort()
   assert.deepEqual(boardOpen, [...OPEN].sort())
-  const g = opsLayout(views, records, [{ key: 'harbour-survey', title: 'h', needs: 0 }], null, { now: NOW, future: true, expanded: new Set(['harbour-survey']) })
+  const g = opsLayout(views, records, null, { now: NOW, future: true, expanded: new Set([HOME]) })
   const graphOpen = g.nodes.filter((n) => isOpen(bucketOfNode(n, NOW))).map((n) => n.id).sort()
   assert.deepEqual(graphOpen, [...OPEN].sort())
-  const threads = groupThreads(views, [group('harbour-survey')], records)
-  const listed = threads.threads.flatMap((t) => t.items.map(nodeIdOf)).sort()
-  assert.deepEqual(listed, [...OPEN].sort())
   // The suspended record of a task whose execution ended some other way is paused·queued: open, never working.
   assert.equal(bucketOfNode(g.nodes.find((n) => n.id === 'ses_x1')!, NOW), 'paused')
   assert.equal(rows.find((r) => r.id === 'ses_x1')!.column, 'paused')
@@ -55,7 +50,7 @@ test('the Board, the Graph and the Threads lens name the same open work', () => 
 test('the working counter is the Graph’s working nodes; only ended nodes are faded, a conversation at rest is not', () => {
   const { views, records } = fixture()
   const rows = boardRows({ views, tasks: [], sessions: [], records, now: NOW, past: false })
-  const g = opsLayout(views, records, [{ key: 'harbour-survey', title: 'h', needs: 0 }], null, { now: NOW, future: true, expanded: new Set(['harbour-survey']) })
+  const g = opsLayout(views, records, null, { now: NOW, future: true, expanded: new Set([HOME]) })
   const working = g.nodes.filter((n) => bucketOfNode(n, NOW) === 'working').map((n) => n.id).sort()
   assert.deepEqual(working, ['ses_r1', 'ses_w1'])
   assert.equal(countersOf(rows, NOW, 0).working, working.length)
@@ -69,7 +64,7 @@ test('turning the WORKING filter on fades nothing that is working', () => {
   const { views, records } = fixture()
   const rows = boardRows({ views, tasks: [], sessions: [], records, now: NOW, past: false })
   const kept = new Set(shown(rows, { bucket: 'working' }, '', { now: NOW, spentToday: new Set(), records }).rows.map((r) => r.id))
-  const g = opsLayout(views, records, [{ key: 'harbour-survey', title: 'h', needs: 0 }], null, { now: NOW, expanded: new Set(['harbour-survey']) })
+  const g = opsLayout(views, records, null, { now: NOW, expanded: new Set([HOME]) })
   for (const n of g.nodes.filter((x) => bucketOfNode(x, NOW) === 'working')) assert.ok(kept.has(n.id), `${n.id} is working and the filter keeps it`)
 })
 

@@ -49,7 +49,6 @@ pub(crate) fn view(kind: WorkKind, state: WorkState, question: Option<Question>)
         dismissed: false,
         read: false,
         retry_of: None,
-        thread: None,
         purpose: None,
         next_at_ms: None,
         series: None,

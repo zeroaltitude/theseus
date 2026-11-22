@@ -1,7 +1,7 @@
 // The Operations page's address (theseus-jid7t.3): every choice on screen is in it, so a link reopens exactly what was
 // shown. Pure: `npm test` runs it (test/ops-address.test.ts). The keys:
-//   lens    graph · board · timeline · threads (board when absent: the Graph lens proper is a later row's)
-//   sel     the selected id: `exe_`, `ses_`, `act_`, `wak_`, `tsk_`, a thread's slug, a mark's key
+//   lens    graph · board · timeline · tasks (board when absent: the Graph lens proper is a later row's)
+//   sel     the selected id: `exe_`, `ses_`, `act_`, `wak_`, `tsk_`, a mark's key
 //   f       the filters, `key:value` pairs joined by commas, each value URI-encoded
 //   q       the search
 //   w       the week offset (the Agenda's own `?w=`, kept as it was)
@@ -10,8 +10,8 @@
 //   do      `answer`: a deep link focuses the selected item's answer in the queue (herdr's `&do=answer`)
 // Keys the page does not own (the task graph's `task`, a chart's `table`) are kept as they were.
 
-export type Lens = 'graph' | 'board' | 'timeline' | 'threads' | 'tasks'
-export const LENSES: readonly Lens[] = ['graph', 'board', 'timeline', 'threads', 'tasks']
+export type Lens = 'graph' | 'board' | 'timeline' | 'tasks'
+export const LENSES: readonly Lens[] = ['graph', 'board', 'timeline', 'tasks']
 export const DEFAULT_LENS: Lens = 'board'
 
 /** The command bar's counters, each also a filter. */
@@ -19,7 +19,7 @@ export type Bucket = 'needs' | 'working' | 'paused' | 'still' | 'done' | 'spent'
 export const BUCKETS: readonly Bucket[] = ['needs', 'working', 'paused', 'still', 'done', 'spent']
 
 /** The filter chips. `ended` is a span (`1h`, `1d`, `7d`): what ended within it. */
-export const FILTER_KEYS = ['bucket', 'thread', 'model', 'place', 'kind', 'state', 'project', 'ended', 'data'] as const
+export const FILTER_KEYS = ['bucket', 'model', 'place', 'kind', 'state', 'project', 'ended', 'data'] as const
 export type FilterKey = (typeof FILTER_KEYS)[number]
 export type Filters = Partial<Record<FilterKey, string>>
 
@@ -94,8 +94,9 @@ export function writeAddress(a: Address, into: URLSearchParams = new URLSearchPa
 /** The address of a link to `/ops`. */
 export const opsHref = (a: Partial<Address>): string => `/ops?${writeAddress({ ...parseAddress(''), ...a }).toString()}`
 
-/** The lens each old page's address now opens (the owner's decision 1). `/threads/:slug` stays a page of its own. */
-export const REDIRECTS: Readonly<Record<string, Lens>> = { '/agenda': 'timeline', '/tasks': 'board', '/threads': 'threads' }
+/** The lens each old page's address now opens (the owner's decision 1). The Threads page is gone: its old address
+ *  opens the Board. */
+export const REDIRECTS: Readonly<Record<string, Lens>> = { '/agenda': 'timeline', '/tasks': 'board', '/threads': 'board' }
 
 /** Where an old address goes: the matching lens, its query kept whole (`?w=`, `?sel=` and the rest); null for any
  *  other path. */

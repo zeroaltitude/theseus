@@ -69,12 +69,11 @@ test('a board row becomes a target with its profile, mark and execution', () => 
   assert.equal(x.profile, 'quick')
 })
 
-test('entities: sessions, tasks, threads, routines, projects and profiles, each with where choosing it goes', () => {
+test('entities: sessions, tasks, routines, projects and profiles, each with where choosing it goes', () => {
   const rows = boardRows({ ...board(), now: NOW })
-  const es = entitiesOf(rows, [{ slug: 'tide-tables', title: 'Tide tables' }], [{ id: 'tsk_p', kind: 'project', title: 'Harbour', session: undefined }] as never, cx.profiles)
+  const es = entitiesOf(rows, [{ id: 'tsk_p', kind: 'project', title: 'Harbour', session: undefined }] as never, cx.profiles)
   const kinds = new Set(es.map((e) => e.kind))
-  for (const k of ['session', 'task', 'thread', 'project', 'profile', 'job']) assert.ok(kinds.has(k as never), k)
-  assert.deepEqual(es.find((e) => e.kind === 'thread')!.go, { sel: 'tide-tables' })
+  for (const k of ['session', 'task', 'project', 'profile', 'job']) assert.ok(kinds.has(k as never), k)
   assert.deepEqual(es.find((e) => e.id === 'kimi')!.go, { model: 'kimi' })
   assert.match(es.find((e) => e.id === 'ses_t1')!.hint, /sensitive/)
 })
@@ -109,7 +108,7 @@ test('the palette reads the verb table: every entry is a verb of it, every plan�
 
 test('a watch is an entity: its check and when it gives up, failing said; choosing it opens the Timeline; Cancel asks and plans wake.cancel', () => {
   const w = { id: 'wak_w1', title: 'Quay gate', check: 'gate open?', until: 'it opens', checks: 3, state: 'waiting' }
-  const es = entitiesOf([], [], [], [], [w, { ...w, id: 'wak_w2', title: 'Pier', failing: 'timed out' }])
+  const es = entitiesOf([], [], [], [w, { ...w, id: 'wak_w2', title: 'Pier', failing: 'timed out' }])
   const a = es.find((e) => e.id === 'wak_w1')!
   assert.equal(a.kind, 'watch')
   assert.equal(a.hint, 'watch · gate open? · until it opens')

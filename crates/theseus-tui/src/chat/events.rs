@@ -86,7 +86,10 @@ impl Chat {
                 // The turn's end came as an event; the result is the same
                 // end, taken once.
                 self.released = false;
-                serde_json::from_value(v).map_or_else(|_| Vec::new(), |r| self.submit_ended(&r))
+                if let Ok(r) = serde_json::from_value(v) {
+                    self.turn_ended(&r);
+                }
+                Vec::new()
             }
             Purpose::Stop => {
                 if let Ok(r) = serde_json::from_value::<ExecutionStopResult>(v) {
@@ -414,9 +417,8 @@ impl Chat {
         };
         let mut effects = Vec::new();
         self.note_away(&event);
-        self.placed_continues(&event);
         match event {
-            Event::TurnStarted(t) if self.ours_in(&t.session_id, Some(&t.turn_id)) => {
+            Event::TurnStarted(t) if self.ours(&t.session_id) => {
                 if self.mine.len() > KEPT {
                     self.mine.clear();
                 }
@@ -445,27 +447,20 @@ impl Chat {
                     self.say_reply(&d.text);
                 }
             }
-            Event::ToolProposed(p) if self.ours_in(&p.session_id, Some(&p.turn_id)) => {
+            Event::ToolProposed(p) if self.ours(&p.session_id) => {
                 self.proposed.insert(p.tool_use_id, (p.tool, p.input));
             }
-            Event::ToolStarted(t) if self.ours_in(&t.session_id, Some(&t.turn_id)) => {
+            Event::ToolStarted(t) if self.ours(&t.session_id) => {
                 self.tool_started(&t);
             }
-            Event::ToolEnded(t) if self.ours_in(&t.session_id, Some(&t.turn_id)) => {
+            Event::ToolEnded(t) if self.ours(&t.session_id) => {
                 self.tool_ended(&t);
             }
-            Event::ConfirmRequested(c) if self.ours_in(&c.session_id, c.turn_id.as_deref()) => {
-                self.placed_asked(&c);
-                self.ask(c)
-            }
-            e @ Event::ThreadPlaced(_) => {
-                effects.extend(self.thread_event(e));
-            }
+            Event::ConfirmRequested(c) if self.ours(&c.session_id) => self.ask(c),
             // The mode or the plan moved (theseus-lyxy): the status line
             // follows, and the checklist goes into the transcript.
             Event::SessionMode(m) if self.ours(&m.session_id) => self.moded(&m),
             Event::ConfirmResolved(r) => {
-                self.placed_closed(&r);
                 if self
                     .question
                     .as_ref()
@@ -485,15 +480,15 @@ impl Chat {
                     }
                 }
             }
-            Event::TaskChanged(t) if self.ours_in(&t.session_id, t.turn_id.as_deref()) => {
+            Event::TaskChanged(t) if self.ours(&t.session_id) => {
                 self.task_changed(&t);
             }
             Event::WorkChanged(c) => self.work_changed(c),
             Event::WorkNotice(n) => effects = self.work_notice(&n),
-            Event::TurnFailed(f) if self.ours_in(&f.session_id, f.turn_id.as_deref()) => {
+            Event::TurnFailed(f) if self.ours(&f.session_id) => {
                 self.turn_failed(&f);
             }
-            Event::TurnEnded(r) if self.ours_in(&r.session_id, Some(&r.turn_id)) => {
+            Event::TurnEnded(r) if self.ours(&r.session_id) => {
                 self.turn_ended(&r);
             }
             Event::EventsLost(_) => self.say_plain(
@@ -716,11 +711,6 @@ impl Chat {
         }
         if self.live.turn.as_ref().is_some_and(|t| t.id == r.turn_id) {
             self.live.turn = None;
-        }
-        if let Some(tag) = r.thread.as_ref() {
-            if self.placed.told.insert(r.turn_id.clone()) {
-                self.placed_line(tag, &r.session_id);
-            }
         }
         // The loops' answers were told as they ended; a turn told nothing
         // shows its output now.

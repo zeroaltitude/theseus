@@ -42,7 +42,7 @@ import { SessionGraph } from '@/components/SessionGraph'
 import { Composer } from '@/components/Composer'
 import { Toast } from '@/ops/Toast'
 import { TaskHeader } from '@/components/TaskHeader'
-import { useThreadBoard } from '@/lib/threadwatch'
+import { useWorkBoard } from '@/lib/workwatch'
 import { taskContext, viewOfTask } from '@/lib/taskpage'
 import { RetireButton, SessionLinks, StateBadge } from '@/components/SessionLife'
 import { ContextGrowth, TokenMix } from '@/components/instruments'
@@ -152,7 +152,7 @@ function SessionDeck({ id }: { id: string }) {
 
   const s = hist?.session
   // A task's page (theseus-jm46q): its work view from the board, and the conversation it returns to.
-  const board = useThreadBoard().board
+  const board = useWorkBoard().board
   const taskView = viewOfTask(board.views, id)
   const task = s ? taskContext(s, taskView) : null
   const { data: parentHist } = useRpc<SessionHistory>('session.history', { session_id: task?.parent ?? '', n: 1 }, 30_000, { enabled: !!task })

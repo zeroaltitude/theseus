@@ -18,11 +18,6 @@ pub(super) struct Inbound {
     pub(super) channel: Id<ChannelMarker>,
     /// None in a DM.
     pub(super) guild: Option<Id<GuildMarker>>,
-    /// The thread the message addresses when it is spoken in the owner's DM
-    /// (a reply to a message that carries a thread's tag, or `thread:<slug>`
-    /// first, theseus-sjzm): the turn runs in that thread and is answered
-    /// here.
-    pub(super) thread: Option<String>,
     /// The turn whose reply this message replies to (theseus-rha2): the
     /// router places the message in that turn's thread, certain.
     pub(super) reply_turn: Option<String>,

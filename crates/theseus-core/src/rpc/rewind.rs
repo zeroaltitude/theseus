@@ -23,16 +23,23 @@ fn invalid(m: impl Into<String>) -> RpcFailure {
 }
 
 impl Core {
-    /// Whether this connection may see a session's files at all: a file path
-    /// is private text, so only a surface that reads private text does.
-    fn rewind_reader(&self, conn: &Conn<'_>, session_id: &str) -> Result<(), RpcFailure> {
+    /// Whether this connection may read a session's files: any surface may
+    /// (2026-11-22). `acting` is `files.restore`'s: an act still keeps its
+    /// surface rule as its input (it is restored from the CLI, the TUI or the
+    /// web UI), because that is an act gate, not a read.
+    fn rewind_reader(
+        &self,
+        conn: &Conn<'_>,
+        session_id: &str,
+        acting: bool,
+    ) -> Result<(), RpcFailure> {
         let rec = self.session(session_id)?;
         if rec.imported.is_some() {
             return Err(invalid(
                 "an imported session is the owner's history, closed and read-only: it has no edits",
             ));
         }
-        if !conn.surface.reads_private() {
+        if acting && !conn.surface.reads_private() {
             return Err(RpcFailure::new(
                 error_code::REFUSED,
                 format!(
@@ -51,7 +58,7 @@ impl Core {
         p: FilesChangesParams,
         conn: Conn<'_>,
     ) -> Result<FilesChangesResult, RpcFailure> {
-        self.rewind_reader(&conn, &p.session_id)?;
+        self.rewind_reader(&conn, &p.session_id, false)?;
         let only = match &p.node {
             Some(n) => Some(self.since_position(&p.session_id, n)?.1),
             None => None,
@@ -106,7 +113,7 @@ impl Core {
         p: FilesRestoreParams,
         conn: Conn<'_>,
     ) -> Result<FilesRestoreResult, RpcFailure> {
-        self.rewind_reader(&conn, &p.session_id)?;
+        self.rewind_reader(&conn, &p.session_id, true)?;
         let (since, node) = self.since_position(&p.session_id, &p.since_node)?;
         if !p.dry_run {
             // Files are the owner's: the owner, from a private place.

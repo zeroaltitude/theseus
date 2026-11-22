@@ -1,5 +1,6 @@
-//! The strategy `view` (issue 44, `[context] assembly = "view"`; design §5.1 "The order on the wire" and
-//! "Frozen within a turn"): a turn's request built from its view instead of its session's transcript.
+//! The strategy `view` (issue 44; design §5.1 "The order on the wire" and
+//! "Frozen within a turn"): a turn's request built from its view, the only way a request is built since the
+//! session's transcript was removed (2026-11-22).
 //!
 //! On the wire: the system part as the transcript's, with the memory page after the session's block; then,
 //! as harness blocks heading the first user message, the fixed blocks (who and where, his older words) and
@@ -110,16 +111,10 @@ pub struct Fit {
     pub base: (u64, u64),
     /// What finishing (its tails) added to the last request of the current chain, upper bound and tokens.
     pub tail_on: (u64, u64),
-    /// What finishing added to the newest request that began a chain: a new chain's own cost (the retained
-    /// tails of the chain before are not resent on it).
-    pub tail_new: (u64, u64),
-    /// The newest request sent: how many of the turn's answers came before it, and its finished estimate.
-    pub sent: Option<(usize, u64)>,
-    /// What the provider counted for that request against Theseus's estimate, in thousandths, once its
-    /// answer came: a new chain's estimate is read at it (`turn::view_step::room`).
-    pub ratio: Option<u64>,
-    /// The turn's answers before the call being compiled.
-    pub answered: usize,
+    /// What finishing added to this call's own request that the size check sent back (`Size::Again`): the
+    /// repair of that same call is charged it, and it is cleared once the call fits or fails. Never a
+    /// tail of an earlier request.
+    pub finish: (u64, u64),
     /// What the view's assembly charged, last assembled.
     pub charged: u64,
     /// The request's tokens beyond what the view charged (the turn's own nodes, the tools, the tails).
