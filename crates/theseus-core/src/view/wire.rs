@@ -64,6 +64,37 @@ impl Snapshot for StoreSnapshot<'_> {
     }
 }
 
+/// A ladder read once per place and mark for an assembly: every selector, the text and the window's
+/// materialization see the same nodes and window, whatever folds while the assembly runs.
+pub struct OnceLadder<'a> {
+    inner: &'a dyn Ladder,
+    read: std::cell::RefCell<std::collections::HashMap<ReadKey, LadderRead>>,
+}
+
+/// A ladder read's place, grain and `/new` mark.
+type ReadKey = (String, usize, Option<Pos>);
+
+impl<'a> OnceLadder<'a> {
+    pub fn new(inner: &'a dyn Ladder) -> Self {
+        Self {
+            inner,
+            read: Default::default(),
+        }
+    }
+}
+
+impl Ladder for OnceLadder<'_> {
+    fn read(&self, place: &str, n: usize, since: Option<&Pos>) -> anyhow::Result<LadderRead> {
+        let key = (place.to_string(), n, since.cloned());
+        if let Some(r) = self.read.borrow().get(&key) {
+            return Ok(r.clone());
+        }
+        let r = self.inner.read(place, n, since)?;
+        self.read.borrow_mut().insert(key, r.clone());
+        Ok(r)
+    }
+}
+
 /// What a view is assembled with.
 pub struct Parts<'a> {
     /// One per row of the admission table (`super::select::table`).

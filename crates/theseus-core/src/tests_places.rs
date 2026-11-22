@@ -228,6 +228,15 @@ pub(crate) fn rig_scripted(
 
 type Script = Box<dyn Fn(&ProviderRequest) -> Scripted + Send + Sync>;
 
+/// `rig_setup`, its model answering by `script`.
+pub(crate) fn rig_setup_scripted(
+    tweak: impl FnOnce(&mut Config),
+    setup: impl FnOnce(&Store),
+    script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
+) -> Rig {
+    rig_full(tweak, setup, Box::new(script))
+}
+
 fn rig_full(tweak: impl FnOnce(&mut Config), setup: impl FnOnce(&Store), script: Script) -> Rig {
     rig_defer(tweak, setup, script, (false, None))
 }

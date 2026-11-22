@@ -23,15 +23,17 @@ use crate::view::permit::Permit;
 use crate::view::render::{MarkedBlock, Renderer};
 use crate::view::select::sources::Sources;
 use crate::view::select::{table, Part};
-use crate::view::sources_store::{author_of, StoreSources};
+use crate::view::sources_store::{author_of, Sessions, StoreSources};
 use crate::view::text::forms::{self, Voice};
 use crate::view::text::labels::Origin;
 use crate::view::text::parts::{self, Seen};
 use crate::view::text::tokens;
+use crate::view::wire::OnceLadder;
 use crate::view::wire::{assemble, Assembled, NotAssembled, Parts, StoreSnapshot, StoreTimeline};
 use crate::view::wire_text::TextRenderer;
 use crate::view::{Anchor, Form, Handle, Label, PointOfView, Pos, Present, Reasons, Slot, Space};
 use crate::view_gate::Verified;
+use theseus_memory::gate::Seal;
 
 impl TurnRunner {
     /// The turn's place, as the ledger writes it: where its message arrived, else its session's own.
@@ -66,7 +68,17 @@ impl TurnRunner {
         if self.assembly_here(t) != Assembly::View {
             return Box::pin(self.compact(t, compile(input), input, i)).await;
         }
+        // Before every later call of the turn: a source sealed since ends the old chain (`view_reset`).
+        if self.view_revoked(t) {
+            t.view = None;
+            self.view_freeze(t, input.spec)?;
+            Self::view_reset(t, input.nodes);
+        }
         self.view_freeze(t, input.spec)?;
+        // A refused image under the turn's thinking, or a forced recompile: the same view, a new chain.
+        if input.strip.is_some() || input.force.is_some() {
+            Self::view_reset(t, input.nodes);
+        }
         let (store, turn) = (t.tc.store, t.tc.turn_id);
         let Some(f) = t.view.as_mut() else {
             anyhow::bail!("the turn's view was not assembled");
@@ -83,6 +95,32 @@ impl TurnRunner {
             }
         }
         Ok(compiled)
+    }
+
+    /// Whether a session the frozen view lays has been sealed since it was assembled (the gate's own
+    /// reading, for this turn's session).
+    fn view_revoked(&self, t: &Turn<'_>) -> bool {
+        let Some(f) = t.view.as_ref().filter(|f| f.turn_id == t.tc.turn_id) else {
+            return false;
+        };
+        let sid = t.tc.session_id;
+        (f.sessions.iter()).any(|s| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear)
+    }
+
+    /// A new chain for the turn: its next call makes a new compilation (the sent tails let go), and the
+    /// turn's own answers so far are sent without their thinking, which the change invalidated.
+    fn view_reset(t: &mut Turn<'_>, nodes: &[(u64, Stub)]) {
+        let turn = t.tc.turn_id;
+        let Some(f) = t.view.as_mut() else {
+            return;
+        };
+        f.compilation_id = None;
+        f.stripped.extend(
+            (nodes.iter())
+                .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
+                .filter(|(_, n)| n.kind == Kind::AssistantMessage)
+                .map(|(_, n)| n.id.clone()),
+        );
     }
 
     /// The turn's view, assembled on its first call and kept in `t.view` for its later ones (frozen within
@@ -105,12 +143,18 @@ impl TurnRunner {
         let since = crate::ladder::new_mark(store, &place)?;
         let (asked, message) = message_of(store, sid, turn)?;
         let permit = Permit::of(verified);
+        let read = Sessions::default();
+        let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
         let sources = StoreSources {
             store,
             mark: since.clone().map(|m| (place.as_str(), m)),
             recalled: recalled(t),
+            sealed: &held,
+            sessions: &read,
         };
-        let ladder = StoreLadder(store);
+        // One read of the ladder for the whole assembly: every selector, the text and the window see it.
+        let store_ladder = StoreLadder(store);
+        let ladder = OnceLadder::new(&store_ladder);
         let cards = StoreCards {
             store,
             kernel: &self.kernel,
@@ -135,6 +179,7 @@ impl TurnRunner {
         let renderer = TextRenderer {
             store,
             kernel: Some(&self.kernel),
+            sessions: Some(&read),
             zone: &crate::recall::stamp::system,
         };
         let (frame, now) = frame_and_now(spec, renderer.memory_page().1, &message);
@@ -162,7 +207,7 @@ impl TurnRunner {
                 return Ok(());
             }
         };
-        let (window, spoken) = window_of(store, &a, &pov, turn, renderer.zone)?;
+        let (window, sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
         t.view = Some(Frozen {
@@ -170,7 +215,8 @@ impl TurnRunner {
             compilation_id: None,
             front: front.map(block).collect(),
             window,
-            spoken,
+            stripped: HashSet::new(),
+            sessions,
             beside: a.parts.beside.as_ref().map(block),
             memory_page,
             record: Some(a.view),
@@ -265,10 +311,10 @@ fn message_of(store: &Store, sid: &str, turn: &str) -> anyhow::Result<(Option<St
 
 /// The window as the view shows it: the nodes of each exchange the budgeter kept in slot G, oldest first,
 /// from every session that ran them (this turn's own is its tail; a recall note is the transcript's), each
-/// part labelled by its own provenance (`labelled`); and the results of those kept spoken, which render
-/// as receipts.
+/// part labelled by its own provenance (`labelled`), the results of those kept spoken as their receipts,
+/// made now from the window alone (`compiler::view::receipted`); and every session the view lays.
 fn window_of(
-    store: &Store,
+    (store, read): (&Store, &Sessions),
     a: &Assembled,
     pov: &PointOfView,
     turn: &str,
@@ -279,33 +325,102 @@ fn window_of(
         .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }))
         .map(|s| (s.piece.range.first.id.as_str(), s.form))
         .collect();
-    let mut read: HashMap<String, Transcript> = HashMap::new();
-    let (mut window, mut spoken) = (Vec::new(), Vec::new());
+    let (mut window, mut spoken) = (Vec::new(), HashSet::new());
+    let mut laid = Vec::new();
     for e in a.ladder.window.iter().filter(|e| e.turn_id != turn) {
         let Some(form) = here.get(e.turn_id.as_str()) else {
             continue;
         };
-        if !read.contains_key(&e.session_id) {
-            read.insert(e.session_id.clone(), store.transcript(&e.session_id)?);
-        }
-        let nodes: Vec<(u64, Stub)> = read[&e.session_id]
-            .iter()
-            .filter(|(_, n)| n.turn_id.as_deref() == Some(e.turn_id.as_str()))
-            .filter(|(_, n)| n.kind != Kind::Recall)
-            .cloned()
-            .collect();
+        laid.push(e.session_id.clone());
+        let nodes: Vec<(u64, Stub)> =
+            (read.exchange(store, &e.session_id, &e.turn_id)?.into_iter())
+                .filter(|(_, n)| n.kind != Kind::Recall)
+                .collect();
         for (_, n) in &nodes {
             if *form != Form::Whole && n.kind == Kind::ToolResult {
-                spoken.push(n.id.clone());
+                spoken.insert(n.id.clone());
             }
         }
         let at = Pos {
             at_ms: e.at_ms,
             id: e.turn_id.clone(),
         };
-        window.extend(labelled(store, nodes, pov, at, zone));
+        let nodes = labelled(store, nodes, pov, at, zone);
+        let handle = Handle(e.turn_id.clone());
+        window.extend(match form {
+            Form::Whole => nodes,
+            Form::Spoken => bounded(nodes, &handle),
+            Form::Line => as_line(store, nodes, &handle)?,
+        });
     }
-    Ok((window, spoken))
+    let mut sessions: Vec<String> = (a.view.shown.iter())
+        .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }))
+        .filter_map(|s| {
+            crate::exchange::exchange(store, &s.piece.range.first.id)
+                .ok()
+                .flatten()
+        })
+        .map(|e| e.session_id)
+        .chain(laid)
+        .collect();
+    sessions.sort();
+    sessions.dedup();
+    Ok((crate::compiler::view::receipted(window, &spoken), sessions))
+}
+
+/// The most of a call's input a `Spoken` exchange sends, in characters; past it, a bounded receipt.
+const CALL_INPUT_CHARS: usize = 400;
+
+/// A `Spoken` exchange as the budgeter paid for it: its words, and each call's input bounded to a receipt
+/// past [`CALL_INPUT_CHARS`] (its result is a receipt already); the calls stay paired with their results.
+fn bounded(nodes: Vec<(u64, Stub)>, handle: &Handle) -> Vec<(u64, Stub)> {
+    nodes
+        .into_iter()
+        .map(|(p, n)| {
+            let Body::AssistantMessage { blocks, .. } = &n.body else {
+                return (p, n);
+            };
+            let long = |b: &serde_json::Value| {
+                b["type"] == "tool_use" && b["input"].to_string().chars().count() > CALL_INPUT_CHARS
+            };
+            if !blocks.iter().any(long) {
+                return (p, n);
+            }
+            let mut node = (*n).clone();
+            if let Body::AssistantMessage { blocks, .. } = &mut node.body {
+                for b in blocks.iter_mut().filter(|b| long(b)) {
+                    let input = b["input"].to_string();
+                    let head: String = input.chars().take(CALL_INPUT_CHARS / 2).collect();
+                    b["input"] = serde_json::json!({
+                        "shown_as": format!(
+                            "{head}… ({} characters of input; open {} for the whole call)",
+                            input.chars().count(),
+                            handle.0
+                        )
+                    });
+                }
+            }
+            (p, Stub::from(node))
+        })
+        .collect()
+}
+
+/// A `Line` exchange as the budgeter paid for it: the person's words (as labelled), then the `did` line
+/// (or "reply not summarised") and the handle, as one message of the person's turn.
+fn as_line(
+    store: &Store,
+    nodes: Vec<(u64, Stub)>,
+    handle: &Handle,
+) -> anyhow::Result<Vec<(u64, Stub)>> {
+    let Some((p, ask)) = nodes.into_iter().find(|(_, n)| n.kind == Kind::UserMessage) else {
+        return Ok(Vec::new());
+    };
+    let did = crate::ladder::did::did(store, &handle.0)?.map(|d| d.line);
+    let mut node = (*ask).clone();
+    if let Body::UserMessage { text, .. } = &mut node.body {
+        *text = forms::line(text, did.as_deref(), handle);
+    }
+    Ok(vec![(p, Stub::from(node))])
 }
 
 /// An exchange's nodes as real turns, each part labelled by its own provenance (`parts::mark_parts`, live):
@@ -382,4 +497,101 @@ fn shown_nodes(a: &Assembled) -> Vec<FoldNode> {
         .filter(|n| kept.contains(n.handle.0.as_str()))
         .cloned()
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn store() -> (tempfile::TempDir, Store) {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Store::open(&dir.path().join("store")).unwrap();
+        (dir, s)
+    }
+
+    fn answer(turn: &str, blocks: Vec<serde_json::Value>) -> Node {
+        let mut n = Node::user("s", Some(turn), "cli", "x");
+        n.body = Body::AssistantMessage {
+            blocks,
+            model: "m".into(),
+            provider: "anthropic".into(),
+            stop_reason: None,
+            usage: Default::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+            effort: None,
+        };
+        n
+    }
+
+    fn laid(nodes: Vec<Node>) -> Vec<(u64, Stub)> {
+        (nodes.into_iter().enumerate())
+            .map(|(i, n)| (i as u64, Stub::from(n)))
+            .collect()
+    }
+
+    /// What is sent is the form the budgeter paid for: an old long reply kept as `Line` goes as the person's
+    /// words and the did line; a large `fs_write` kept `Spoken` goes with its input bounded, its call kept.
+    #[test]
+    fn a_kept_form_is_sent_as_that_form() {
+        let (_d, s) = store();
+        let long = "a long reply ".repeat(2_000);
+        let line = as_line(
+            &s,
+            laid(vec![
+                Node::user("s", Some("t0"), "cli", "what did the audit say?"),
+                answer("t0", vec![json!({"type": "text", "text": long})]),
+            ]),
+            &Handle("t0".into()),
+        )
+        .unwrap();
+        assert_eq!(line.len(), 1);
+        let text = crate::recall::text_of(&line[0].1);
+        assert!(text.starts_with("what did the audit say?"), "{text}");
+        assert!(
+            text.contains("reply not summarised") && text.len() < 200,
+            "{text}"
+        );
+
+        let input = json!({"path": "big.rs", "content": "x".repeat(50_000)});
+        let call = json!({"type": "tool_use", "id": "w1", "name": "fs_write", "input": input});
+        let spoken = bounded(laid(vec![answer("t1", vec![call])]), &Handle("t1".into()));
+        let Body::AssistantMessage { blocks, .. } = &spoken[0].1.body else {
+            panic!("an answer");
+        };
+        assert_eq!(
+            blocks[0]["id"], "w1",
+            "the call stays, to pair with its result"
+        );
+        let sent = blocks[0]["input"].to_string();
+        assert!(sent.contains("shown_as") && sent.len() < 600, "{sent}");
+    }
+
+    /// Each session an assembly reads is read from the store once, however many exchanges of it are asked.
+    #[test]
+    fn an_assembly_reads_each_session_once() {
+        let (_d, s) = store();
+        let mut records = Vec::new();
+        for (sid, turn) in [("a", "t1"), ("b", "t2"), ("a", "t3"), ("b", "t4")] {
+            records.push(Node::user(sid, Some(turn), "cli", turn).record().unwrap());
+        }
+        s.append(&records).unwrap();
+        let read = Sessions::default();
+        for (sid, turn) in [
+            ("a", "t1"),
+            ("b", "t2"),
+            ("a", "t3"),
+            ("b", "t4"),
+            ("a", "t1"),
+        ] {
+            assert_eq!(read.exchange(&s, sid, turn).unwrap().len(), 1);
+        }
+        assert_eq!(read.reads.get(), 2);
+    }
 }
