@@ -93,9 +93,15 @@ impl TurnRunner {
             message: None,
             items: t.exchange.items().to_vec(),
         };
+        #[cfg(test)]
+        super::failed::injected(sid)?;
         let built = self.view_built(asked, spec, &self.room_budget(spec, &room))?;
         let mut f = frozen_of(built, room, laid);
         f.stripped.extend(stripped);
+        // A turn no message opened: its empty "now", and beside it one line saying what woke it (issue 44).
+        if let Some(o) = t.exchange.occasion() {
+            f.beside = super::occasion::beside_with(f.beside, o, (sid, turn));
+        }
         t.view = Some(f);
         Ok(())
     }
