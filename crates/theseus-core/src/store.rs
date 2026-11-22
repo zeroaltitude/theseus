@@ -736,6 +736,14 @@ impl Store {
         *self.plain_faults.0.lock().unwrap() = Some(Box::new(check));
     }
 
+    /// Whether `records` is the frame `fail_plain_frame` was set to fail (the
+    /// check is spent if so), for a frame the kernel commits, which never
+    /// reaches `commit`'s arm.
+    #[cfg(test)]
+    pub fn plain_fault_hit(&self, records: &[NewRecord]) -> bool {
+        self.plain_faults.hit(records)
+    }
+
     /// Make every ledger page read fail from now on, as a bad disk would.
     #[cfg(test)]
     pub fn fail_ledger_pages(&self) {

@@ -147,11 +147,12 @@ pub fn by_place(place: Option<&str>, threads: &[&ThreadInfo]) -> Option<Address>
     }
 }
 
-/// An address given that names no live thread: the word as the sender typed
-/// it, and the thread it names, if any. It is refused, never run at home.
+/// An address given that cannot be honoured: the words a refusal may show
+/// (none: it may show none) and the thread it names when this reader may be
+/// told of it. It is refused, never run anywhere.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unresolved {
-    pub word: String,
+    pub word: Option<String>,
     pub slug: Option<String>,
 }
 
@@ -183,21 +184,31 @@ fn address_word(text: &str) -> Option<(String, bool)> {
     None
 }
 
-/// The address `text` gives that names no live thread, read when
-/// [`address`] found none: a `#word` or "in the <title> thread:" that names
-/// a thread of `all` (one paused or done), or `/t word` whatever it names. A
-/// `#word` or "in the …" that names no thread at all is no address.
-pub fn unresolved(text: &str, all: &[&ThreadInfo]) -> Option<Unresolved> {
+/// The explicit address of `text` that failed, read BEFORE the place and
+/// the reply, so a failed address never falls through to another thread
+/// (issue 44): its word names no `live` thread, and names one of `told` (a
+/// thread that is not live and that this reader may be told of: the gate's
+/// call, by the caller), or came after `/t`. A `#word` or "in the …" that
+/// names none of them is no address at all, whatever else it names: a
+/// thread the reader may not be told of reads as no thread.
+pub fn failed_explicit(
+    text: &str,
+    live: &[&ThreadInfo],
+    told: &[&ThreadInfo],
+) -> Option<Unresolved> {
     let (word, slash) = address_word(text)?;
-    if word.is_empty() {
+    if word.is_empty() || explicit(text, live).is_some() {
         return None;
     }
-    match named(&word, all) {
+    match named(&word, told) {
         Some(t) => Some(Unresolved {
-            word,
+            word: Some(word),
             slug: Some(t.slug.clone()),
         }),
-        None => slash.then_some(Unresolved { word, slug: None }),
+        None => slash.then_some(Unresolved {
+            word: Some(word),
+            slug: None,
+        }),
     }
 }
 
