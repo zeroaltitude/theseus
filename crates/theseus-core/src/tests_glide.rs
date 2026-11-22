@@ -92,6 +92,14 @@ fn glides(core: &Core, target: &str) -> Vec<Value> {
         .collect()
 }
 
+/// `session`'s nodes, one a line, each cut to a line's length: what a failed assertion shows.
+fn nodes(core: &Core, session: &str) -> String {
+    (core.store.session_nodes(session).unwrap().iter())
+        .map(|(_, n)| format!("{:.180}", format!("{:?}", n.body)))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Every glide post waiting anywhere.
 fn all_glides(core: &Core) -> usize {
     core.outbox
@@ -306,7 +314,12 @@ async fn between_two_shared_places_a_post_asks_and_into_a_private_one_it_runs() 
     let hall = session(&r.core, Some(&format!("channel:{HALL}")));
     let res = turn(&r.core, &hall, "POST DM @owner :: from the hall").await;
     assert_eq!(res.awaiting_confirm, None, "{res:?}");
-    assert_eq!(glides(&r.core, &format!("discord:dm:{OWNER}")).len(), 1);
+    assert_eq!(
+        glides(&r.core, &format!("discord:dm:{OWNER}")).len(),
+        1,
+        "the session's nodes:\n{}",
+        nodes(&r.core, &hall)
+    );
     let hall = session(&r.core, Some(&format!("channel:{HALL}")));
     let res = turn(&r.core, &hall, "POST #hall :: to ourselves").await;
     assert_eq!(res.awaiting_confirm, None, "{res:?}");
