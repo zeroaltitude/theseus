@@ -1148,8 +1148,14 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
                 texts(q)
             );
         }
-        let notes: Vec<crate::node::Node> = (c.store.session_nodes(&sid).unwrap().into_iter())
+        // Every turn writes its Recall node (issue 44); the asking turn's are the ones of this case.
+        let nodes = c.store.session_nodes(&sid).unwrap();
+        let asking = (nodes.iter())
+            .find(|(_, n)| matches!(&n.body, crate::node::Body::UserMessage { text, .. } if text == ASKS))
+            .and_then(|(_, n)| n.turn_id.clone());
+        let notes: Vec<crate::node::Node> = (nodes.into_iter())
             .filter(|(_, n)| matches!(n.body, crate::node::Body::Recall { .. }))
+            .filter(|(_, n)| n.turn_id == asking)
             .map(|(_, n)| n)
             .collect();
         assert!(notes.len() <= 1, "{case}: one Recall node at most");
