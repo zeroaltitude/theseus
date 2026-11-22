@@ -1,7 +1,8 @@
 //! Splitting a thread (theseus-vt9k, T8): the turns of a thread a new thread
 //! opens with. The model's `thread.split` tool went with threads on
-//! 2026-11-22 (issue 44); what is left is read by the compiler (`is_quote`)
-//! and by writers kept for other units' tests, until the sweep.
+//! 2026-11-22 (issue 44); what is left (`is_quote`, which the compiler's
+//! situation table read until issue 46, and the writers kept for other units'
+//! tests) waits for the sweep.
 //!
 //! - **The turns.** The new thread's first compile is an arrangement
 //!   (`arrangement.rs`) of the chosen messages of the source: each piece is a

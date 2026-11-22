@@ -222,7 +222,7 @@ impl TurnRunner {
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }
-        if let Some(f) = self.admitted(t, &compiled, &nodes, tasks.is_some(), i)? {
+        if let Some(f) = self.admitted(t, &compiled, i)? {
             return Ok(Err(f));
         }
         ph.mark("admitted");

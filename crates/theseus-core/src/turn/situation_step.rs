@@ -1,7 +1,7 @@
 //! The situation's check in the turn (M6 step 35a; `compiler::situation`):
-//! after the compile, a request whose situation does not admit a piece, or
-//! whose set does not close, fails the turn as `context_unadmitted` before
-//! anything is sent, as the core overage does.
+//! after every compile, a request whose set does not close, or that drops a
+//! standing record, fails the turn as `context_unadmitted` before anything
+//! is sent, as the core overage does.
 
 use anyhow::Result;
 
@@ -11,7 +11,7 @@ use crate::fact::situation::{words, Unadmitted};
 use crate::session::SessionRecord;
 use crate::stub::{Kind, Stub};
 
-/// The failure class of a turn whose request its situation does not admit.
+/// The failure class of a turn whose request may not be sent (`unadmitted`, `standing_dropped`).
 pub const UNADMITTED_CLASS: &str = "context_unadmitted";
 
 impl TurnRunner {
@@ -40,13 +40,10 @@ impl TurnRunner {
         &self,
         t: &mut Turn<'_>,
         compiled: &Compiled,
-        nodes: &[(u64, Stub)],
-        task_view: bool,
         i: u32,
     ) -> Result<Option<Failure>> {
         let sid = t.tc.session_id;
-        let last = self.store.last_position();
-        if let Some(f) = Self::unadmitted(t, compiled, nodes, last, task_view, i) {
+        if let Some(f) = Self::unadmitted(t, compiled, i) {
             return Ok(Some(f));
         }
         if let Some(f) = Self::standing_dropped(t, compiled, i) {
@@ -56,17 +53,11 @@ impl TurnRunner {
         Ok(None)
     }
 
-    /// The check over `compiled`'s pieces: its row and the turn's failure
-    /// when it fails. `task_view` is whether the request carries 39a's view.
-    pub(super) fn unadmitted(
-        t: &mut Turn<'_>,
-        compiled: &Compiled,
-        nodes: &[(u64, Stub)],
-        last_position: u64,
-        task_view: bool,
-        i: u32,
-    ) -> Option<Failure> {
-        let why = situation::check(compiled, nodes, last_position, task_view).err()?;
+    /// The check over `compiled`'s request, on every compile: a set that does
+    /// not close (a call without its result, a result without its call) is
+    /// not sent. Its row and the turn's failure when it fails.
+    pub(super) fn unadmitted(t: &mut Turn<'_>, compiled: &Compiled, i: u32) -> Option<Failure> {
+        let why = situation::closed(&compiled.request.messages).err()?;
         let message = words(&why);
         t.record(&Unadmitted {
             situation: &compiled.situation,
