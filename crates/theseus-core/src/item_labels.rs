@@ -106,11 +106,15 @@ impl ItemLabels {
         self.raised.iter().any(|l| l.flag == f) && self.removal(f, session).is_none()
     }
 
-    /// The owner's removal that covers `f` on this item: its own, or the session's at or after the item
-    /// entered (the rule `ContentFlags::raise_after` keeps).
+    /// The owner's removal that covers `f` on this item: its own, or, for an input, the session's at or
+    /// after the item entered (the rule `ContentFlags::raise_after` keeps). A reply's label was never the
+    /// session's, so no removal of the session's covers it.
     pub fn removal<'a>(&'a self, f: Flag, session: &'a ContentFlags) -> Option<&'a Removed> {
         let own = self.removed.iter().rev().find(|r| r.flag == f);
         own.or_else(|| {
+            if !self.kind.on_session() {
+                return None;
+            }
             (session.removed.iter().rev()).find(|r| r.flag == f && r.at_ms >= self.entered_ms)
         })
     }
