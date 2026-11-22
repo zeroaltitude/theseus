@@ -1,0 +1,114 @@
+//! The settings keys the cut retired (issue 44): the old way of building a
+//! request is gone, and with it every key that tuned it. A settings file that
+//! still names one must LOAD, because the sections that held them reject an
+//! unknown key and a live daemon would otherwise not start. So each key in
+//! [`RETIRED`] is taken out of the document before the strict parse, one
+//! warning line names it and says why it is gone, and the start keeps the
+//! list (`Config::ignored_keys`) for `theseus health` to show.
+//!
+//! This is the one table of them, kept whole whether or not the code that
+//! read a key is deleted yet: while it is not, that code sees its default.
+//! An unknown key that is NOT here still fails the load, as it always did.
+//! (`renamed.rs`'s `RETIRED` is the other kind: names that fail the load on
+//! purpose, with the new name.)
+
+/// Every section's `*` (only `profiles.*`): the key in each table under it.
+const EACH: &str = "*";
+
+/// One retired key: its section (`profiles.*` for each profile), its name,
+/// and one sentence of what replaced it or why it is gone.
+pub struct Retired {
+    pub section: &'static str,
+    pub key: &'static str,
+    pub why: &'static str,
+}
+
+const VIEW: &str = "every request is built by the view now, so there is nothing to choose";
+const KEPT: &str = "the kept copy of each session's request is gone: the view builds every turn's \
+                    request afresh";
+const LEDGER: &str = "the exchange ledger is what the view reads, so it can no longer be switched \
+                      off";
+const SUMMARY: &str = "compaction and its summary call are gone: a turn that outgrows the window \
+                       makes room itself, or fails plainly";
+const WARM: &str = "nothing is kept warm between turns any more (a long wait inside a turn still \
+                    is)";
+const STUB: &str = "attachments are no longer replaced by stubs: there is no cold rewrite of a \
+                    session any more";
+const COLD: &str = "a thread is no longer resumed cold from a cut transcript: the view reads its \
+                    conversation's exchanges";
+
+/// The whole list (the map of the cut, §6 step 8).
+pub const RETIRED: &[Retired] = &[
+    r("context", "assembly", VIEW),
+    r("context", "kept_mb", KEPT),
+    r("context", "ledger", LEDGER),
+    r("memory", "summary_profile", SUMMARY),
+    r("cache", "keep_warm_hours", WARM),
+    r("cache", "keep_warm_every_minutes", WARM),
+    r("cache", "threads_keep_warm_hours", WARM),
+    r("cache", "keep_warm_min_tokens", WARM),
+    r("cache", "stub_min_tokens", STUB),
+    r("cache", "stub_after_turns", STUB),
+    r("profiles.*", "keep_warm_hours", WARM),
+    r("threads", "resume_keep_turns", COLD),
+    r("threads", "working_tokens", COLD),
+    r("threads", "working_percent", COLD),
+];
+
+const fn r(section: &'static str, key: &'static str, why: &'static str) -> Retired {
+    Retired { section, key, why }
+}
+
+/// A key this start found and ignored: its dotted name and why it is gone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ignored {
+    pub name: String,
+    pub why: &'static str,
+}
+
+/// Take every retired key out of `doc`, and say which were there, in the
+/// table's order (each profile's by its name).
+pub fn strip(doc: &mut toml::Table) -> Vec<Ignored> {
+    let mut out = Vec::new();
+    for k in RETIRED {
+        let (head, each) = match k.section.split_once('.') {
+            Some((head, EACH)) => (head, true),
+            _ => (k.section, false),
+        };
+        let Some(section) = doc.get_mut(head).and_then(toml::Value::as_table_mut) else {
+            continue;
+        };
+        if !each {
+            if section.remove(k.key).is_some() {
+                out.push(ignored(k.section, k.key, k.why));
+            }
+            continue;
+        }
+        for (name, t) in section.iter_mut() {
+            let Some(t) = t.as_table_mut() else { continue };
+            if t.remove(k.key).is_some() {
+                out.push(ignored(&format!("{head}.{name}"), k.key, k.why));
+            }
+        }
+    }
+    out
+}
+
+fn ignored(section: &str, key: &str, why: &'static str) -> Ignored {
+    Ignored {
+        name: format!("{section}.{key}"),
+        why,
+    }
+}
+
+/// The start's warning for one: what it was, that it does nothing now, why.
+pub fn warning(i: &Ignored) -> String {
+    format!(
+        "{} is retired: {}. It is read and ignored; remove it",
+        i.name, i.why
+    )
+}
+
+#[cfg(test)]
+#[path = "tests_retired_keys.rs"]
+mod tests;

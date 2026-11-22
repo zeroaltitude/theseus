@@ -1303,6 +1303,12 @@ pub fn config_line(c: &theseus_protocol::ConfigStatus) -> Option<String> {
             r.tables.join(", ")
         ));
     }
+    if !c.ignored_keys.is_empty() {
+        line.push_str(&format!(
+            "\n  settings keys ignored: {} (retired: they do nothing now; remove them)",
+            c.ignored_keys.join(", ")
+        ));
+    }
     Some(line)
 }
 

@@ -38,8 +38,8 @@ narrative = true
 # ---------------------------------------------------------------- model
 # The defaults every profile inherits: a profile that leaves a setting out takes
 # this section's (provider, max_output_tokens, system, effort, thinking_display,
-# max_loops, on_max_loops, refusal_fallbacks; cache_ttl and keep_warm_hours come from
-# the cache section's ttl and keep_warm_hours), and the implicit "default" profile is built from it. `live` names the
+# max_loops, on_max_loops, refusal_fallbacks; cache_ttl comes from the cache section's
+# ttl), and the implicit "default" profile is built from it. `live` names the
 # profile that is live at startup; a runtime switch (`theseus profile use`)
 # persists in the store and wins over this value on restart.
 [model]
@@ -120,9 +120,8 @@ refusal_fallbacks = true
 # next call reads the prefix instead of writing it again. It applies to every cache
 # breakpoint, the conversation's included; a task's own conversation stays 5m. A profile
 # that says none takes [cache]'s ttl; one that must stay at 5 minutes under a 1-hour [cache]
-# says cache_ttl = "5m". Its keep_warm_hours overrides [cache]'s the same way.
+# says cache_ttl = "5m".
 # cache_ttl = "1h"
-# keep_warm_hours = 24                  # none: [cache]'s
 
 [profiles.glm]
 provider = "zai"
@@ -134,7 +133,7 @@ refusal_fallbacks = true
 
 # The profiles that run the models Jev chooses among (route.v11): Haiku 5.5, Sonnet 5.5,
 # Opus 5.5, Fable 5.2 and DeepSeek Flash. A profile is also a pin: `-P`, `theseus profile use`,
-# a place's profile, or a key such as [memory] summary_profile.
+# a place's profile, or a key that names a profile.
 [profiles.opus]
 provider = "anthropic"
 model = "claude-opus-5-5"
@@ -216,30 +215,13 @@ cache_ttl = "1h"
 max_loops = 40
 
 # ---------------------------------------------------------------- the prompt cache
-# A long conversation's prompt is mostly its cached prefix. On a 1-hour profile, after a
-# conversation a person talks in (the CLI, the TUI, the web UI, the owner's DM; never a
-# task, a job, the judge or Jev) goes quiet, the daemon reads its prefix once every
-# keep_warm_every_minutes, with the smallest answer the provider allows and nothing stored but
-# its keep_warm ledger row, so the next message reads the cache (0.025x of input on Fable
-# 5.1) instead of writing it again (2x). Each read is a model call under the spend limit
-# and the daily ceiling; a refused or failed one stops that session's reads until its
-# next message. A prefix under keep_warm_min_tokens is not kept warm. A profile may override
-# ttl and keep_warm_hours with cache_ttl and keep_warm_hours of its own ([profiles.<name>]);
-# one that says none takes these.
+# A conversation's request is built afresh each turn; its front (the fixed blocks and the
+# earlier exchanges) is read from the provider's cache while it is unchanged. Nothing is
+# kept warm between turns: a conversation quiet past its cache's life writes its front
+# again at its next message. A profile may override ttl with a cache_ttl of its own
+# ([profiles.<name>]); one that says none takes this.
 [cache]
 # ttl = "1h"                            # how long the provider keeps cached prefixes: 5m (the default) | 1h; a 1-hour entry costs 2x input to write instead of 1.25x
-# A conversation whose profile caches for 1h is kept warm this many hours after its last message
-# (a new message starts the window again); 0 turns it off.
-keep_warm_hours = 24
-keep_warm_every_minutes = 55            # under the 1-hour cache's life by a margin; 0 < it < 60
-threads_keep_warm_hours = 4             # a thread's own window: an active thread whose owner wrote within this is read at the same interval; 0: no thread is kept warm; the profile's own keep_warm_hours still bounds it
-keep_warm_min_tokens = 20000            # the smallest prefix kept warm, estimated
-# When a request will write the cache anyway (the session's last call is older than its
-# TTL, and no keep-warm kept it), an attachment's text over stub_min_tokens from before
-# the last stub_after_turns turns is sent as a one-line stub: its name, its size, and
-# file.read to read it again. The stored history is unchanged; 0 turns it off.
-stub_min_tokens = 20000
-stub_after_turns = 3
 
 # ---------------------------------------------------------------- context files
 # Files (~/ or absolute paths) compiled into every session's system block, after the
@@ -261,17 +243,13 @@ files = []                              # the system level, e.g. ["~/.openclaw/w
 # `theseus persona default KEY` now; Jev's `none` engages it).
 # default_persona = "theseus"
 # The working window: the most tokens a request may take, below the model's own window.
-# Omitted: the model's full window from the catalog. Past half of it, a long turn's old
-# tool results become stubs; past it, the turn compacts its earlier loops.
+# Omitted: the model's full window from the catalog. A turn that outgrows it clears its own
+# old tool results and makes room; one that still does not fit fails, saying so.
 # working_window_tokens = 200000
-# Each session's render, kept across turns so a turn renders only what was written since:
-# at most this many MiB across the sessions, the least recently used going first; 0 keeps
-# none, and every turn renders its session whole.
-# kept_mb = 64
-# The exchange ledger: beside each person's message, whether it was typed by the owner in person
-# and where it arrived; each turn's exchange and what it touched; and one row of counts per private
-# turn (`theseus ledger exchanges`). None of it is sent to a model. false writes none of it.
-# ledger = true
+# Every request is built by the view (what this conversation's place may see), from the exchange
+# ledger: beside each person's message, whether it was typed by the owner in person and where it
+# arrived; each turn's exchange and what it touched (`theseus ledger exchanges`). There is nothing
+# to set: the ledger is always written.
 
 # Personas are the ontology's now (theseus-utfnl): a `persona:<key>` category each, its soul
 # one small file. `theseus persona add KEY` makes one (and asks you for its soul), `persona soul
@@ -1172,17 +1150,6 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # recall_floor = 0.0                      # the relevance floor: a candidate whose fused score is under this share (0 to 1) of the best its answering sources allow is not admitted, and a pack of none brings no Recall node; 0 admits all
 # recall_subject_bar = 0.0                # the share (0 to 1) of that best a candidate about another subject of the question's kind must reach (a host, path or crate the question did not name); 0: no bar
 # include_external = false                # whether fetched text may be recalled
-# Compaction (step 30c): where the ring would drop a session's leading turns to fit
-# the model's window, this profile summarizes them instead, and the request carries
-# the summary, then the turns kept. "session" (the default) is the turn's own
-# profile, provider and model, so the range goes nowhere the session's turns
-# don't. A key of [profiles] sends it to that profile's provider, which may not be
-# the session's. "off" keeps the ring. A call that fails, or a summary that would
-# not fit, rings as before, and the row says why.
-# summary_profile = "session"             # a pin: "session", a key of [profiles], or "off". Unset: Jev chooses the
-#                                         # model for each summary (until the route pack that asks him is acting,
-#                                         # unset runs as "session"). A key of [profiles] such as "haiku" sends the
-#                                         # range to that profile's provider whatever the session's provider
 # assembled_budget_tokens = 4000          # the recall section a task's first compile and a compaction carry (live)
 # The nightly dream ([ontology] dream_guidance) writes a category's first
 # guidance. The nightly synthesis writer these keys once served is retired
@@ -1277,20 +1244,8 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # route_wait_ms = 400                     # at most this long a thread's turn waits for Jev's reading of another thread's notes (cross_recall_judge) and of its scope (place_digest)
 # working_set_grows = true               # after a turn in a thread, the files its calls touched (and their first directory) and the entities its message named join the thread's working set, but for what another live thread holds (false: only your edits, splits and merges change it)
 # bench_clock = false                    # a test hook for the threadbench: a turn.submit carrying route_at_ms is placed at that clock, even from `ask -s` (false: such a submit is refused); never on in a real config
-# A thread's next message after its cache window (the profile's cache_ttl since
-# its last call) finds the provider's cache gone, so the request is rewritten
-# whole anyway: the rewrite is made small. The thread's fresh card, the
-# compaction summary and the newest resume_keep_turns turns; a big old result
-# is a stub that says how to read it again.
-# resume_keep_turns = 20                  # the newest turns a cold resume keeps whole
-# working_percent = 40                   # what a thread's request stays within after a cold resume (its newest turn aside), as a share (1-100) of the serving model's context window
-# working_tokens = 60000                 # the same in tokens, when you set it; it wins over working_percent (unset by default)
 # home_warn_percent = 50                 # a place's home past this share (1-100) of the serving model's context window tells the owner's DM, once per home; large sessions are otherwise fine
-# Keep-warm for threads is [cache] threads_keep_warm_hours: an active thread whose owner last
-# wrote within it has its session read at the [cache] interval, as a long conversation's is,
-# so its next message reads the cache instead of rewriting it. A paused or done thread is never
-# read, and pausing stops it at once. `theseus health` has a threads line, and `theseus thread
-# show` the thread's own numbers.
+# `theseus health` has a threads line, and `theseus thread show` the thread's own numbers.
 # With two or more [personas], each message is answered by the one it calls for: named at its start
 # ("Birch, ..."), `@birch`, or `/as birch` always; else Jev's pick (route.v5's persona question),
 # which `shadow` only records and `act` engages (silently from 0.90, with a visible why from 0.60).

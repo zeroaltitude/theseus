@@ -65,7 +65,15 @@ impl Core {
             providers: self.runner.providers.keys().cloned().collect(),
             secrets_resolved: self.secrets.ready_names(),
             secrets: self.secrets.status(),
-            config: self.config_gate.status(),
+            config: theseus_protocol::ConfigStatus {
+                ignored_keys: self
+                    .cfg
+                    .ignored_keys
+                    .iter()
+                    .map(|i| i.name.clone())
+                    .collect(),
+                ..self.config_gate.status()
+            },
             startup: self.startup_log.snapshot(),
             usage_total: totals.usage,
             provider_errors: self.provider_errors.load(Ordering::Relaxed),

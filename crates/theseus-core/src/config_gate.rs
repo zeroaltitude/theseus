@@ -233,6 +233,7 @@ impl ConfigGate {
             copy: i.copy.as_ref().map(|p| p.display().to_string()),
             reads: i.reads,
             restarted: i.restarted.clone(),
+            ignored_keys: Vec::new(),
         }
     }
 }

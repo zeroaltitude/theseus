@@ -57,6 +57,7 @@ pub use persona::{Initiative, PersonaConfig, PersonaView, DEFAULT_NAME};
 mod initiative;
 mod persona_settings;
 pub(crate) mod renamed;
+pub mod retired_keys;
 mod sessions;
 mod standing;
 mod threads;
@@ -329,6 +330,10 @@ pub struct Config {
     /// that `[model]` names included: resolved once, when the document is read.
     #[serde(skip)]
     resolved: Resolved,
+    /// The retired settings keys this document named, read and ignored
+    /// (`retired_keys`): health names them in one line.
+    #[serde(skip)]
+    pub ignored_keys: Vec<retired_keys::Ignored>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1606,6 +1611,7 @@ impl Config {
         let cfg = Self::from_toml(text).context("parsing config TOML")?;
         cfg.validate()?;
         let mut warnings = Vec::new();
+        warnings.extend(cfg.ignored_keys.iter().map(retired_keys::warning));
         warnings.extend(cfg.persona_warnings());
         warnings.extend(cfg.option_profile_warnings());
         let mut retired = cfg.routing.retired();
@@ -2081,12 +2087,25 @@ impl Config {
 
     /// Deserialize a document and resolve its implicit profile and provider.
     fn from_toml(text: &str) -> Result<Self, toml::de::Error> {
-        let mut cfg: Config = toml::from_str(text).map_err(|e| match renamed::explain(text) {
+        let mut doc: toml::Table = text.parse()?;
+        let ignored = retired_keys::strip(&mut doc);
+        // The document as written unless a retired key had to come out, so an
+        // error's line and column are the file's own.
+        let stripped;
+        let read = match ignored.is_empty() {
+            true => text,
+            false => {
+                stripped =
+                    toml::to_string(&doc).map_err(<toml::de::Error as serde::de::Error>::custom)?;
+                stripped.as_str()
+            }
+        };
+        let mut cfg: Config = toml::from_str(read).map_err(|e| match renamed::explain(text) {
             Some(said) => <toml::de::Error as serde::de::Error>::custom(said),
             None => e,
         })?;
+        cfg.ignored_keys = ignored;
         let m = &cfg.model;
-        let doc: toml::Table = text.parse()?;
         cfg.memory.note_retired(&doc);
         let mut profiles = inherit::profiles(&doc)?;
         profiles

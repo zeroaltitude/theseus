@@ -232,45 +232,6 @@ mod tests {
         Ok(Config::parse(&Config::EXAMPLE_TOML.replace(from, to))?.0)
     }
 
-    /// The template's `[cache]` is the defaults, and a value out of range
-    /// is refused with its key.
-    #[test]
-    fn the_cache_section_has_its_defaults_and_its_range() {
-        let cfg = Config::example();
-        assert_eq!(cfg.cache, CacheConfig::default());
-        assert_eq!(cfg.cache.interval_ms(), 55 * 60_000);
-        for bad in ["60", "0", "-1"] {
-            let e = with(
-                "keep_warm_every_minutes = 55",
-                &format!("keep_warm_every_minutes = {bad}"),
-            );
-            let e = format!("{:#}", e.unwrap_err());
-            assert!(e.contains("keep_warm_every_minutes"), "{e}");
-        }
-        let e = format!(
-            "{:#}",
-            with("keep_warm_hours = 24\n", "keep_warm_hours = -2\n").unwrap_err()
-        );
-        assert!(e.contains("keep_warm_hours"), "{e}");
-    }
-
-    /// `keep_warm_hours` is inherited as `cache_ttl` is: a profile without
-    /// one takes `[cache]`'s, and 0 on a profile turns its keep-warm off.
-    #[test]
-    fn keep_warm_hours_is_inherited_like_the_ttl() {
-        let cfg = with(
-            "[profiles.opus]\nprovider = \"anthropic\"\n",
-            "[profiles.opus]\nprovider = \"anthropic\"\nkeep_warm_hours = 0\n",
-        )
-        .unwrap();
-        assert_eq!(cfg.profile("fable").unwrap().keep_warm_hours(), 24.0);
-        assert_eq!(cfg.profile("opus").unwrap().keep_warm_hours(), 0.0);
-        assert_eq!(cfg.profile("default").unwrap().keep_warm_hours(), 24.0);
-        assert_eq!(cfg.profiles["fable"].keep_warm_hours, None);
-        let cfg = with("keep_warm_hours = 24\n", "keep_warm_hours = 12\n").unwrap();
-        assert_eq!(cfg.profile("fable").unwrap().keep_warm_hours(), 12.0);
-    }
-
     /// A profile that must stay at 5 minutes under a 1-hour `[cache] ttl` says
     /// so, and it holds: the profile's own "5m" wins, it serializes (it is
     /// no longer the value nothing says), and health names it the

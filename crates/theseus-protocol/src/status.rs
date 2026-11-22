@@ -475,6 +475,11 @@ pub struct ConfigStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub restarted: Option<ConfigRestart>,
+    /// The settings keys this start read and ignored because they are
+    /// retired, by their dotted names (issue 44). Absent when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(optional))]
+    pub ignored_keys: Vec<String>,
 }
 
 /// A restart onto the vault's changed config note (theseus-2fo): what

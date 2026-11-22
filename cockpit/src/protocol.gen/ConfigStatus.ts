@@ -50,4 +50,9 @@ reads: number,
 /**
  * This process began as a restart onto the vault's changed note.
  */
-restarted?: ConfigRestart, };
+restarted?: ConfigRestart, 
+/**
+ * The settings keys this start read and ignored because they are
+ * retired, by their dotted names (issue 44). Absent when there are none.
+ */
+ignored_keys?: Array<string>, };

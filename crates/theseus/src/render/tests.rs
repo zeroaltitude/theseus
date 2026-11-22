@@ -627,6 +627,15 @@ fn health_says_where_the_config_came_from_and_what_the_vault_said() {
          restarted at 18:00:00.000 onto the vault's changed note; changed since the copy: \
          kernel"
     );
+    let retired = ConfigStatus {
+        ignored_keys: vec!["context.assembly".into(), "cache.keep_warm_hours".into()],
+        ..file
+    };
+    assert_eq!(
+        config_line(&retired).unwrap(),
+        "config: file /x/c.toml\n  settings keys ignored: context.assembly, \
+         cache.keep_warm_hours (retired: they do nothing now; remove them)"
+    );
 }
 
 // The lines' tags, which the TUI reads (theseus-7yx, step 10a). The

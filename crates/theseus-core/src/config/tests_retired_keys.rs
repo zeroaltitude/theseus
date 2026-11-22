@@ -1,0 +1,152 @@
+//! The cut's retired settings keys (issue 44): a settings file that still
+//! names one loads, says so once per key, and the start keeps their names for
+//! health; a key nobody ever had still fails the load.
+
+use super::{strip, RETIRED};
+use crate::Config;
+
+/// The least a settings file holds to load: a model key's reference.
+const BASE: &str = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n";
+
+/// A file naming every retired key, each with a value its old reader took.
+const EVERY: &str = "[context]\n\
+                     assembly = \"transcript\"\n\
+                     kept_mb = 0\n\
+                     ledger = false\n\
+                     [memory]\n\
+                     summary_profile = \"session\"\n\
+                     [cache]\n\
+                     keep_warm_hours = 24\n\
+                     keep_warm_every_minutes = 55\n\
+                     threads_keep_warm_hours = 4\n\
+                     keep_warm_min_tokens = 20000\n\
+                     stub_min_tokens = 20000\n\
+                     stub_after_turns = 3\n\
+                     [threads]\n\
+                     resume_keep_turns = 20\n\
+                     working_tokens = 60000\n\
+                     working_percent = 40\n\
+                     [profiles.quick]\n\
+                     provider = \"anthropic\"\n\
+                     model = \"claude-haiku-5-5\"\n\
+                     keep_warm_hours = 2\n";
+
+fn parse(text: &str) -> anyhow::Result<(Config, Vec<String>)> {
+    Config::parse(&format!("{BASE}{text}"))
+}
+
+fn names(cfg: &Config) -> Vec<&str> {
+    cfg.ignored_keys.iter().map(|i| i.name.as_str()).collect()
+}
+
+/// Every key of the table, in a file that names them all, loads; each is in
+/// the start's ignored list, and one warning line names it and why it went.
+#[test]
+fn a_settings_file_naming_every_retired_key_loads_and_names_each() {
+    let (cfg, warnings) = parse(EVERY).expect("an old settings file loads");
+    let ignored = names(&cfg);
+    for k in RETIRED {
+        let name = match k.section {
+            "profiles.*" => format!("profiles.quick.{}", k.key),
+            s => format!("{s}.{}", k.key),
+        };
+        assert!(ignored.contains(&name.as_str()), "{name}: {ignored:?}");
+        let said: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.starts_with(&format!("{name} is retired: ")))
+            .collect();
+        assert_eq!(said.len(), 1, "{name}: {warnings:?}");
+        assert!(said[0].contains(k.why), "{}", said[0]);
+    }
+    assert_eq!(ignored.len(), RETIRED.len());
+    // Nothing of what the file said reached a reader: the ledger is on.
+    assert_eq!(cfg.context.ledger, None);
+    assert_eq!(cfg.context.assembly, None);
+    assert_eq!(cfg.context.kept_mb, None);
+}
+
+/// `[context] ledger = true` is ignored with the same warning as `false`: the
+/// key is gone either way, and the line asks for it to be removed.
+#[test]
+fn the_ledger_key_is_ignored_whatever_it_says() {
+    for v in ["true", "false"] {
+        let (cfg, warnings) = parse(&format!("[context]\nledger = {v}\n")).unwrap();
+        assert_eq!(names(&cfg), ["context.ledger"], "{v}");
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|w| w.starts_with("context.ledger is retired"))
+                .count(),
+            1,
+            "{v}: {warnings:?}"
+        );
+    }
+}
+
+/// The template names no retired key, commented or not, and loads with none
+/// ignored; an empty file the same.
+#[test]
+fn the_template_names_no_retired_key() {
+    let (cfg, warnings) = Config::parse(Config::EXAMPLE_TOML).unwrap();
+    assert!(cfg.ignored_keys.is_empty(), "{:?}", names(&cfg));
+    assert!(
+        !warnings.iter().any(|w| w.contains(" is retired: ")),
+        "{warnings:?}"
+    );
+    let (cfg, _) = Config::parse(&super::super::tests::uncommented(Config::EXAMPLE_TOML)).unwrap();
+    assert!(cfg.ignored_keys.is_empty(), "{:?}", names(&cfg));
+    let (cfg, _) = parse("").unwrap();
+    assert!(cfg.ignored_keys.is_empty());
+}
+
+/// A key no build ever had still fails the load, in the sections that held
+/// retired keys and beside one that is retired.
+#[test]
+fn an_unknown_key_still_fails_the_load() {
+    for text in [
+        "[context]\nnot_a_key = 1\n",
+        "[cache]\nkeep_warm_hours = 24\nnot_a_key = 1\n",
+        "[memory]\nnot_a_key = 1\n",
+        "[threads]\nnot_a_key = 1\n",
+    ] {
+        let e = parse(text).expect_err(text);
+        assert!(format!("{e:#}").contains("not_a_key"), "{text}: {e:#}");
+    }
+}
+
+/// Only the retired key goes: its section's other keys, and a table of the
+/// same name elsewhere, are untouched.
+#[test]
+fn strip_takes_only_the_retired_keys() {
+    let mut doc: toml::Table = "[cache]\nttl = \"1h\"\nkeep_warm_hours = 1\n\
+                                [model]\nkeep_warm_hours = 3\n"
+        .parse()
+        .unwrap();
+    let out = strip(&mut doc);
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].name, "cache.keep_warm_hours");
+    assert_eq!(doc["cache"].as_table().unwrap().len(), 1);
+    assert!(doc["model"]
+        .as_table()
+        .unwrap()
+        .contains_key("keep_warm_hours"));
+}
+
+/// The template's `[cache]` is the defaults; a retired key's value, even one
+/// its old reader refused, loads and is ignored (the table replaces the old
+/// range checks and the profile's `keep_warm_hours`).
+#[test]
+fn a_retired_cache_key_loads_whatever_its_value() {
+    use crate::config::cache::CacheConfig;
+    assert_eq!(Config::example().cache, CacheConfig::default());
+    for text in [
+        "[cache]\nkeep_warm_hours = -2\n",
+        "[cache]\nkeep_warm_every_minutes = 60\n",
+        "[profiles.quick]\nprovider = \"anthropic\"\nmodel = \"claude-haiku-5-5\"\n\
+         keep_warm_hours = 0\n",
+    ] {
+        let (cfg, _) = parse(text).expect(text);
+        assert_eq!(cfg.ignored_keys.len(), 1, "{text}");
+        assert_eq!(cfg.cache, CacheConfig::default(), "{text}");
+    }
+}
