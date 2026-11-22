@@ -199,7 +199,7 @@ fn the_read_writes_no_frame() {
     let before = (c.store.last_position(), c.store.ledger_len().unwrap());
     c.ledger_window(LedgerWindowParams {
         since_ms: 0,
-        session_id: Some(s.clone()),
+        session_id: Some(s),
         ..Default::default()
     })
     .unwrap();
