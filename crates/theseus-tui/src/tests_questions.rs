@@ -1,5 +1,5 @@
 //! The sidebar's questions are the whole daemon's (theseus-7zs0f): `confirm.list` answers for every
-//! session, and the board keeps a question whichever turn asked it. The chat's `ours_in` filter
+//! session, and the board keeps a question whichever turn asked it. The chat's `ours` filter
 //! belongs to one conversation's own transcript; applied here it would hide a question the owner
 //! must answer.
 

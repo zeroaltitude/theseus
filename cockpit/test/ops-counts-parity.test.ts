@@ -8,25 +8,22 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import type { ConfirmRequest, WorkView } from '../src/protocol.gen/index.ts'
 import { allCounters, boardRows, columnsOf, contextOf, shown, type OpsRow } from '../src/ops/board.ts'
-import { layoutRows, type LaneMeta } from '../src/ops/graph.ts'
+import { layoutRows } from '../src/ops/graph.ts'
 import { asksWord, queueOf } from '../src/ops/queue.ts'
 import { OWNER_CALLS, RECOMMENDED, type OwnerCalls } from '../src/ops/state.ts'
 import type { Bucket } from '../src/ops/address.ts'
 import { confirm, HOUR, MIN, NOW, record, view } from './ops-fixtures.ts'
 
-const LANES: LaneMeta[] = [{ key: 'harbour-survey', title: 'Harbour survey', needs: 0 }]
-
-/** A thread's conversation, a plan with nested steps, a task that carries a plan with a doing step and a job, a
+/** A conversation, a plan with nested steps, a task that carries a plan with a doing step and a job, a
  *  suspended step, two asks on one task, a loose router ask, a to-do backlog, a wake due today, and a conversation at rest. */
 function fixture() {
-  const T = { thread: 'harbour-survey' }
   const views: WorkView[] = [
-    view('exe_hv', 'conversation', 'running', { session_id: 'ses_hv', ...T }),
-    view('exe_ak', 'task', 'needs_you', { session_id: 'ses_ak', parent: 'exe_hv', ...T }, 'needs_you', NOW - 30 * MIN),
-    view('exe_tk', 'task', 'running', { session_id: 'ses_tk', parent: 'exe_hv', ...T }),
-    view('act_jb', 'job', 'running', { session_id: 'ses_tk', parent: 'exe_tk', ...T, title: 'cargo test -p quays' }),
+    view('exe_hv', 'conversation', 'running', { session_id: 'ses_hv' }),
+    view('exe_ak', 'task', 'needs_you', { session_id: 'ses_ak', parent: 'exe_hv' }, 'needs_you', NOW - 30 * MIN),
+    view('exe_tk', 'task', 'running', { session_id: 'ses_tk', parent: 'exe_hv' }),
+    view('act_jb', 'job', 'running', { session_id: 'ses_tk', parent: 'exe_tk', title: 'cargo test -p quays' }),
     view('wak_t', 'wake', 'waiting', { session_id: 'ses_hv', title: 'check the gauge', next_at_ms: NOW + 2 * HOUR }),
-    view('exe_rs', 'conversation', 'ready', { session_id: 'ses_rs', ...T }),
+    view('exe_rs', 'conversation', 'ready', { session_id: 'ses_rs' }),
   ]
   const records = [
     record('tsk_plan', { title: 'Survey the quays', state: 'in_progress', origin: { session: 'ses_hv' } as never }),
@@ -70,7 +67,7 @@ for (const [name, calls] of CALLS) {
       assert.equal(counter, sum(kept.filter((r) => r.counted), w), `${b}: the counter is the counted kept cards`)
       // The Graph: a click keeps these and their context; the rest is hidden (Q4 A) or outlined (Q4 B).
       const ctx = contextOf(rows, keptIds)
-      const g = layoutRows(rows, LANES, null, { now: NOW, future: true, keep: calls.hideRest ? new Set([...keptIds, ...ctx]) : undefined })
+      const g = layoutRows(rows, null, { now: NOW, future: true, keep: calls.hideRest ? new Set([...keptIds, ...ctx]) : undefined })
       const byId = new Map(rows.map((r) => [r.id, r]))
       const normal = g.nodes.filter((n) => keptIds.has(n.id)).map((n) => byId.get(n.id)!)
       assert.equal(sum(normal.filter((r) => r.counted), w), counter, `${b}: the counted nodes the Graph draws normally`)
@@ -86,7 +83,7 @@ for (const [name, calls] of CALLS) {
 test('every graph node is a row of the work set, and every record is a row or rides on one', () => {
   const { views, records, queue } = fixture()
   const rows = boardRows({ views, tasks: [], sessions: [], records, queue, now: NOW, past: false })
-  const g = layoutRows(rows, LANES, null, { now: NOW, future: true })
+  const g = layoutRows(rows, null, { now: NOW, future: true })
   const ids = new Set(rows.map((r) => r.id))
   for (const n of g.nodes) assert.ok(ids.has(n.id), `${n.id} is a row`)
   assert.equal(g.nodes.length, rows.length, 'every row is a node (with "+ future" on)')
@@ -109,10 +106,9 @@ test('the needs counter under Q1 B is the Needs-you list’s length; under Q1 A,
 // ---- the owner's calls, proved by tests that pass the setting and fail without the code (join fixes of theseus-odj0m) ----
 
 test('Q3: agents only uncounts what is drawn working, never a card in Needs: a doing step with a goal-change ask and a job that needs the owner stay counted', () => {
-  const T = { thread: 'harbour-survey' }
   const views: WorkView[] = [
-    view('exe_hv', 'conversation', 'running', { session_id: 'ses_hv', ...T }),
-    view('act_jb', 'job', 'running', { session_id: 'ses_hv', parent: 'exe_hv', ...T, title: 'cargo test -p quays' }),
+    view('exe_hv', 'conversation', 'running', { session_id: 'ses_hv' }),
+    view('act_jb', 'job', 'running', { session_id: 'ses_hv', parent: 'exe_hv', title: 'cargo test -p quays' }),
   ]
   const records = [
     record('tsk_g', { title: 'Chart the shoals', state: 'in_progress', origin: { session: 'ses_hv' } as never, proposal: { objective: 'chart the reefs too', by: 'ses_hv', card: 'act_px', base_version: 1, at_ms: NOW - 3 * MIN } as never }),
@@ -130,8 +126,7 @@ test('Q3: agents only uncounts what is drawn working, never a card in Needs: a d
 })
 
 test('Q1 A: a task with two asks is one needs card, and Q1 B counts both asks', () => {
-  const T = { thread: 'harbour-survey' }
-  const views: WorkView[] = [view('exe_ak', 'task', 'running', { session_id: 'ses_ak', ...T })]
+  const views: WorkView[] = [view('exe_ak', 'task', 'running', { session_id: 'ses_ak' })]
   const queue = queueOf({ confirms: [confirm('act_c1', { session_id: 'ses_ak' }), confirm('act_c2', { session_id: 'ses_ak', tool: 'fs.delete' })], views })
   const count = (calls: OwnerCalls) => allCounters(boardRows({ views, tasks: [], sessions: [], queue, now: NOW, past: false, calls }), NOW, 0, calls).needs
   assert.equal(count({ ...RECOMMENDED, needsPerCard: false }), 2, 'Q1 B: one per ask')

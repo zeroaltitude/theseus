@@ -42,7 +42,6 @@ pub(super) fn same_work(a: &WorkView, b: &WorkView) -> bool {
         && a.expect == b.expect
         && a.dismissed == b.dismissed
         && a.retry_of == b.retry_of
-        && a.thread == b.thread
         && a.forum_url == b.forum_url
         && a.purpose == b.purpose
         && a.next_at_ms == b.next_at_ms
@@ -169,7 +168,6 @@ impl WorkBoard {
             views,
             gone,
             notices,
-            threads: Vec::new(),
         }
     }
 
@@ -245,7 +243,6 @@ impl WorkBoard {
         }
         new.position = f.position;
         new.at_ms = f.at_ms;
-        new.thread = self.thread_for_root(&new.root);
         self.mark_past(&mut new, f.at_ms);
         if let Some(o) = &old {
             new.previous = Some(o.state);
@@ -313,7 +310,6 @@ impl WorkBoard {
             views: Vec::new(),
             gone: Vec::new(),
             notices,
-            threads: Vec::new(),
         })
     }
 

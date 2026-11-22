@@ -105,7 +105,6 @@ mod route_correct;
 mod routines;
 pub(crate) mod routines_watch;
 mod rsi;
-mod search_text;
 mod server;
 mod session_dir;
 mod session_find;
@@ -163,7 +162,6 @@ mod tests_import_sync_deadline;
 #[cfg(test)]
 mod tests_imported;
 #[cfg(test)]
-mod tests_imported_fields;
 #[cfg(test)]
 mod tests_inspect;
 #[cfg(test)]
@@ -203,7 +201,6 @@ mod tests_rewind;
 #[cfg(test)]
 mod tests_scratch;
 #[cfg(test)]
-mod tests_search_text;
 #[cfg(test)]
 mod tests_self;
 #[cfg(test)]
@@ -238,8 +235,6 @@ mod tests_submit_deadline;
 mod tests_surface;
 #[cfg(test)]
 mod tests_thread_bench;
-#[cfg(test)]
-mod tests_thread_board;
 #[cfg(test)]
 mod tests_thread_grow;
 #[cfg(test)]

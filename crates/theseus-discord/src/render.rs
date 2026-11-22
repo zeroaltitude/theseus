@@ -56,7 +56,7 @@ mod wakes;
 pub use approval::strip_ask;
 pub use ask::{details as question_details, needs_you};
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
-pub use reply::{reply_parts, reply_parts_in, thread_tag, wake_header};
+pub use reply::{reply_parts, reply_parts_in, wake_header};
 use step::{render_turn, step_loop, STEP_ROLL};
 pub use subagent::{subagent_parts, subagent_parts_ended};
 pub use tables::fence_tables;
@@ -96,10 +96,6 @@ pub enum Buttons {
     Horizon(String, Vec<(String, String)>),
     /// An expired card's "Ask again" for this question (theseus-27p6w).
     Again(String),
-    /// A proposed seal's Seal this thread and Not needed, for this thread (theseus-f2g0).
-    Seal(String),
-    /// A proposed link's Link these threads and Not needed, for this pair (theseus-98bz.12).
-    Link(String, String),
     /// A mint's card (theseus-xzxqv): Undo, for this write (the judgment's id).
     OntoUndo(String),
     /// A new persona's card (theseus-utfnl): Write its soul and Decline, for this persona.
@@ -1254,9 +1250,6 @@ fn footer_in(r: &TurnSubmitResult, task: bool) -> String {
     );
     // Where routing ran it: ⬆️ or ⬇️ on the reply corrects it (theseus-q31l).
     bits.extend(crate::runtime::route::routed(r));
-    // Which thread it ran in, with a move handle when the router was unsure
-    // (theseus-rha2: `/move` runs the message again where it belongs).
-    bits.extend(r.thread.as_ref().and_then(|t| t.words()));
     // Where Jev filed the session (theseus-xzxqv): `filed: topic › a › b (new)`.
     bits.extend(r.filed.clone());
     bits.push(format!(

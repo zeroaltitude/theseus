@@ -7,8 +7,9 @@ import { DEFAULT_LENS, opsHref, parseAddress, parseFilters, redirectOf, writeAdd
 test('each old page redirects to its lens and keeps ?w= and ?sel=', () => {
   assert.equal(redirectOf('/agenda', '?w=-1&sel=routine%3Ases_a%3A1700000000000'), '/ops?lens=timeline&w=-1&sel=routine%3Ases_a%3A1700000000000')
   assert.equal(redirectOf('/tasks', '?sel=ses_t1'), '/ops?lens=board&sel=ses_t1')
-  assert.equal(redirectOf('/threads', ''), '/ops?lens=threads')
-  assert.equal(redirectOf('/threads/', 'w=2'), '/ops?lens=threads&w=2', 'a trailing slash, and a query with no ?')
+  // The Threads page is gone: its old address opens the Board.
+  assert.equal(redirectOf('/threads', ''), '/ops?lens=board')
+  assert.equal(redirectOf('/threads/', 'w=2'), '/ops?lens=board&w=2', 'a trailing slash, and a query with no ?')
   // A lens the old address carried is the old page's, not its own.
   assert.equal(redirectOf('/tasks', '?lens=graph&q=quay'), '/ops?lens=board&q=quay')
   for (const p of ['/threads/harbour-survey', '/ops', '/actions', '/', '/agendas']) assert.equal(redirectOf(p, '?w=1'), null, p)
@@ -31,7 +32,7 @@ test('an empty address is the board, nothing selected, nothing filtered', () => 
 
 test('a link reopens what was on screen: every key round-trips, foreign keys are kept', () => {
   const shown: Address[] = [
-    { lens: 'threads', sel: 'harbour-survey', f: { thread: 'harbour-survey', state: 'running' }, q: 'quay walls', w: 0, join: null, redact: true, do: null },
+    { lens: 'tasks', sel: 'ses_t2', f: { state: 'running' }, q: 'quay walls', w: 0, join: null, redact: true, do: null },
     { lens: 'board', sel: 'ses_t1', f: { bucket: 'needs', model: 'sonnet', place: 'discord dm', kind: 'task' }, q: '', w: 0, join: null, redact: false, do: 'answer' },
     { lens: 'timeline', sel: 'routine:ses_a:1700000000000', f: { ended: '1d', project: 'tsk_p1' }, q: '', w: -2, join: 'ses_c1', redact: true, do: null },
     { lens: 'graph', sel: 'tsk_a', f: {}, q: 'a, b: c & d', w: 1, join: null, redact: false, do: null },

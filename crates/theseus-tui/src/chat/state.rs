@@ -224,8 +224,6 @@ pub struct Chat {
     /// the operator's answers are refused there.
     pub job_session: Option<String>,
     pub(super) mine: HashSet<String>,
-    /// What the router's placements brought in (`thread_placed.rs`).
-    pub(super) placed: super::thread_placed::Placed,
     pub(super) ended: HashSet<String>,
     /// The answers another profile gave the calls of a turn, by its id, until the turn ends: a turn
     /// that was stopped or failed says so under each (issue 28).
@@ -313,7 +311,6 @@ impl Chat {
             board: Default::default(),
             job_session: None,
             mine: HashSet::new(),
-            placed: Default::default(),
             ended: HashSet::new(),
             answers: Default::default(),
             answered_text: HashSet::new(),
@@ -399,12 +396,11 @@ impl Chat {
                     json!({ "session_id": sid }),
                     Purpose::Watch,
                 ),
-                Self::watch_with(&main, &self.placed.also),
+                Self::watch_work(&main),
             ];
             if main != sid {
                 out.push(Self::watch_session(&main));
             }
-            out.extend(self.placed.also.iter().map(|s| Self::watch_session(s)));
             out.extend(self.reconnect_call(away));
             return out;
         }

@@ -36,9 +36,8 @@ test('the page reads on pushes: no timer that asks, no refetch interval', () => 
   for (const [f, s] of [['Ops.tsx', page] as const, ...parts]) {
     assert.ok(!/setInterval|refetchInterval/.test(s.replace(/\/\/.*$/gm, '')), `${f} polls`)
   }
-  // The pushed reads ignore their interval (lib/rpc.ts's PUSHED); the lens's thread panel reads once and on the push.
+  // The pushed reads ignore their interval (lib/rpc.ts's PUSHED).
   for (const m of ['task.list', 'confirm.list', 'session.list']) assert.match(page, new RegExp(`useRpc<[^>]+>\\('${m.replace('.', '\\.')}'`))
-  assert.match(src('ops/ThreadPanel.tsx'), /'thread\.show', \{ slug \}, live \? 0 : 5000\)/)
 })
 
 test('the page is routed, on the rail second after the Ship, and in the time machine’s folds', () => {
@@ -52,11 +51,9 @@ test('the page is routed, on the rail second after the Ship, and in the time mac
   assert.match(src('main.tsx'), /\{ path: 'ship', element: wrapShip\(<Ship \/>\) \}/)
 })
 
-test('a deep link survives the queue’s first read, and the Threads lens matches its threads by slug', () => {
+test('a deep link survives the queue’s first read', () => {
   // The queue is empty until its reads land: only an item that was there and left moves the cursor.
   assert.match(page, /if \(isItemKey\(a\.sel\) && was\.includes\(a\.sel!\) && !keys\.includes\(a\.sel!\)\)/)
-  // The lens groups the board itself: a thread is the same thread by its slug, not by its object.
-  assert.match(page, /matches=\{\(t\) => shownSlugs\.has\(t\.group\.slug\)\}/)
 })
 
 test('the keys answer only the selected card’s own item: no view or no session matches nothing', () => {
@@ -84,7 +81,7 @@ test('ops-act: the page mounts the Join pane, dock, menus and toast; no prompt o
   for (const [f, s] of parts) assert.ok(!/window\.prompt/.test(s.replace(/\/\/.*$/gm, '')), `${f} asks with a prompt, not a sheet`)
   const join = src('ops/JoinPane.tsx')
   assert.match(join, /composerStep\(cs, e\)/)
-  // J1: a menu carries its session: the Join pane's own (a thread's included), never the focused card's.
+  // J1: a menu carries its session: the Join pane's own, never the focused card's.
   assert.match(page, /onMenu=\{\(m, sid\) => setMenu\(\{ kind: m, sid \}\)\}/)
   assert.match(join, /onMenu\('model', sid\)/)
   assert.match(join, /onMenu\('mode', sid\)/)
@@ -196,13 +193,9 @@ test('the Graph’s follow-ups are wired: keys, the palette scope, the verb menu
   // n17am 8: space picks the pick box that holds the DOM focus.
   assert.match(page, /document\.activeElement\?\.closest<HTMLElement>\('\[data-pick\]'\)/)
   assert.match(board, /<input type="checkbox" checked=\{picked\} onChange=\{\(\) => onPick\(r\.id\)\} data-pick=\{r\.id\}/)
-  // n17am 4: the node and lane titles are drawn through shownTitle.
+  // n17am 4: the node titles are drawn through shownTitle (the one lane's title is the constant "Home").
   const node = src('ops/GraphNode.tsx')
-  assert.ok(!/title=\{n\.title\}|⚙ \{n\.title\}|>\{n\.title\}<\/div>|\{lane\.title\}/.test(node.replace(/\/\/.*$/gm, "")), "a title is drawn bare")
-  // theseus-brcs4 F1: the Threads lens draws the page's one work set, with the filter's kept and context sets.
-  assert.match(page, /rows=\{rows\} kept=\{shownIds\} context=\{contextIds\} onSelect=\{pick\}/)
-  // theseus-hl0r1 F4: a thread head's click writes its lane's slug, and the Graph lens resolves it to the thread.
-  assert.match(page, /a\.lens === 'graph' && laneMetas\.some/)
+  assert.ok(!/title=\{n\.title\}|⚙ \{n\.title\}|>\{n\.title\}<\/div>/.test(node.replace(/\/\/.*$/gm, "")), "a title is drawn bare")
   // theseus-hl0r1 F2: `tone` can be a CSS var() or an rgb(), so an alpha is never concatenated onto it
   // (an 8-digit hex is fine where the value is one of taxonomy's own `toneHex` literals, hence the word bound).
   assert.ok(!/\$\{[^}]*\btone\b[^}]*\}(55|66)/.test(node), 'an alpha is concatenated onto a tone, which makes the whole box-shadow invalid')

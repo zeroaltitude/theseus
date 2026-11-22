@@ -83,9 +83,7 @@ impl Core {
             }),
             method::SELF_BRANCHES => route(params, |p| Ok(self.self_branches(&p)?)),
             method::SELF_PIPELINE => route(params, |p| Ok(self.self_pipeline(&p)?)),
-            method::SELF_EXAMS => route(params, |p| {
-                Ok(self.self_exams(&p, conn.surface.reads_private())?)
-            }),
+            method::SELF_EXAMS => route(params, |p| Ok(self.self_exams(&p, true)?)),
             _ => route(params, |p| Ok(self.self_digest(&p)?)),
         }
     }

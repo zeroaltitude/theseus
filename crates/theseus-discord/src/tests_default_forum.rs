@@ -12,7 +12,6 @@ use serde_json::Value;
 use theseus_core::approval::{Answerer, Surface};
 use theseus_core::provider::{DeltaSink, Provider, ProviderFuture, ProviderRequest, Scripted};
 use theseus_core::Config;
-use theseus_protocol::threads::ThreadNewParams;
 use theseus_sim::fake_discord::{FakeDiscord, FakeThread, Guild, BOT_ID, DEFAULT_GUILD};
 
 use crate::runtime::default_forum::{Stand, BOT_BITS, OWNER_BITS};
@@ -54,17 +53,12 @@ pub(crate) fn bindings(trusted: bool, lab_extra: &str) -> String {
     )
 }
 
-/// The rig's config: ana is the one owner, and `#reel` is the activity
-/// thread `tides`' place once the thread exists. The task home is off: the
+/// The rig's config: ana is the one owner. The task home is off: the
 /// forum's tests are the DM's as they were, and `tests_task_home.rs` turns it on.
 pub(crate) fn tune(c: &mut Config) {
     tweak(c);
     c.discord.task_home = String::new();
     c.places.owner = Some(vec![format!("discord:{ANA}")]);
-    c.discord.thread = vec![theseus_core::config::discord::ThreadBind {
-        channel: REEL.to_string(),
-        thread: "tides".into(),
-    }];
 }
 
 /// A model that holds the answers of the tasks whose brief holds `mark` until
@@ -530,10 +524,9 @@ async fn the_owners_message_in_a_tasks_post_steers_it() {
     open_gate(&r);
 }
 
-/// Every task, one post each, across four kinds of place: the DM's and a
-/// private channel's work in their posts; a shared channel's keeps its thread
-/// and its post is an index card linking it; an activity thread's is an index
-/// card too. A message in an index card starts nothing.
+/// Every task, one post each, across four places: the DM's and two private
+/// channels' work in their posts; a shared channel's keeps its thread and its
+/// post is an index card linking it. A message in an index card starts nothing.
 #[tokio::test]
 async fn every_task_gets_one_post_across_four_kinds_of_place() {
     let r = rig(
@@ -567,23 +560,6 @@ async fn every_task_gets_one_post_across_four_kinds_of_place() {
     )
     .await;
     let forum = forum_up(&r).await;
-    r.core
-        .thread_new(
-            &ThreadNewParams {
-                slug: "tides".into(),
-                title: Some("Tides".into()),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
-    until(&r, "#reel runs the thread", || {
-        r.core
-            .threads()
-            .get("tides")
-            .is_some_and(|t| !t.surfaces.is_empty())
-    })
-    .await;
     for (channel, brief, reply) in [
         (None, "Reef-chart", "Started."),
         (Some(LAB), "Buoy-paint", "Started it."),
@@ -665,38 +641,6 @@ async fn an_archived_index_card_still_takes_its_final_tag() {
         last_tags(&r, card.id) == [tag_id(&r, forum, "done")]
     })
     .await;
-}
-
-/// An activity thread makes no post and no Discord thread: only a task does.
-#[tokio::test]
-async fn an_activity_thread_makes_no_post_and_no_discord_thread() {
-    let r = rig(
-        vec![Scripted::text("hello")],
-        |_| vec![],
-        &bindings(true, ""),
-        |_| {},
-        |_| {},
-    )
-    .await;
-    let forum = forum_up(&r).await;
-    r.core
-        .thread_new(
-            &ThreadNewParams {
-                slug: "moons".into(),
-                title: Some("Moons".into()),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
-    r.say((ANA, "ana"), None, "thread:moons hello there");
-    until(&r, "the reply", || {
-        r.posted(ANA_DM).iter().any(|m| m.content.contains("hello"))
-    })
-    .await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(r.fake.threads().is_empty(), "{:#?}", r.fake.threads());
-    assert!(posts(&r, forum).is_empty());
 }
 
 /// A message in an index card starts nothing and is answered by a line.
@@ -966,61 +910,4 @@ async fn a_promoted_tasks_post_stays_as_its_index_card_and_is_tagged_done() {
         "renamed once, by the one that ends it: {:?}",
         now.names
     );
-}
-
-/// A task that works in an activity thread has its post as an index card, and
-/// its report's first line names that post (theseus-90qqy).
-#[tokio::test]
-async fn an_index_card_tasks_report_names_its_post() {
-    let r = rig(
-        vec![start(&[ANCHOR]), Scripted::text("Started this.")],
-        |dir| {
-            vec![(
-                ANCHOR,
-                [vec![gate(dir)], answers("Anchor checked.")].concat(),
-            )]
-        },
-        &bindings(true, ""),
-        |_| {},
-        |_| {},
-    )
-    .await;
-    let forum = forum_up(&r).await;
-    r.core
-        .thread_new(
-            &ThreadNewParams {
-                slug: "tides".into(),
-                title: Some("Tides".into()),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
-    until(&r, "#reel runs the thread", || {
-        r.core
-            .threads()
-            .get("tides")
-            .is_some_and(|t| !t.surfaces.is_empty())
-    })
-    .await;
-    r.say((ANA, "ana"), Some(REEL), ASK);
-    until(&r, "its index card", || {
-        post_with(&r, forum, "Anchor-check").is_some()
-    })
-    .await;
-    let post = post_with(&r, forum, "Anchor-check").unwrap();
-    open_gate(&r);
-    until(&r, "the report in #reel", || {
-        r.posted(REEL)
-            .iter()
-            .any(|m| m.content.contains("finished") && m.content.contains("Anchor checked."))
-    })
-    .await;
-    let report = r
-        .posted(REEL)
-        .into_iter()
-        .find(|m| m.content.contains("finished"))
-        .unwrap();
-    let first = report.content.lines().next().unwrap_or_default();
-    assert!(first.contains(&format!("<#{}>", post.id)), "{first}");
 }

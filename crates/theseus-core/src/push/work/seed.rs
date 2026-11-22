@@ -101,10 +101,6 @@ pub(in crate::push) fn seed(
             w.track(a, *pos);
         }
     }
-    // The threads held in memory, if they have been read: never a read here.
-    if let Some(threads) = core.runner.threads.held() {
-        let _ = w.set_threads(threads.groups(), theseus_protocol::now_unix_ms());
-    }
     let f = Frame {
         at_ms: theseus_protocol::now_unix_ms(),
         committed: std::time::Instant::now(),
@@ -343,8 +339,6 @@ impl WorkBoard {
         new.state_since_ms = old.state_since_ms;
         new.below = old.below;
         new.progress = old.progress.clone();
-        // A rebuilt view is built with no thread: the board stamps it, as `put` does.
-        new.thread = self.thread_for_root(&new.root);
         new.attention = theseus_protocol::work::attention_of(&new);
         if super::settle::same_work(old, &new) {
             return;

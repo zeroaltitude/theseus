@@ -15,9 +15,9 @@
 //!   (`Core::report_text`, the one reader `task.list` uses too).
 //! - **Seen stays the client's.** The daemon keeps no position per surface: a
 //!   surface passes the `to` of its last digest, or a time.
-//! - **The place rule** (`work.watch`'s): a connection that reads no private
-//!   text must name conversations, sees those of a shared place alone, and
-//!   every title it is given passes the scrubber and offers no answer.
+//! - **Every root, for every connection** (2026-11-22): one that reads no
+//!   private text is still given titles through the secrets' scrubber, and
+//!   offered no answer.
 //! - **No frame, no lock but the board's** for a moment, no timer.
 
 use std::collections::{HashMap, HashSet};
@@ -25,7 +25,6 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use theseus_kernel::{Execution, SessionKind};
-use theseus_memory::recall::Place;
 use theseus_protocol::notices::Why;
 use theseus_protocol::work::{WorkKind, WorkRef};
 use theseus_protocol::{
@@ -96,56 +95,30 @@ impl Core {
         .map_err(|e| RpcFailure::new(error_code::INTERNAL, e.to_string()))?
     }
 
-    /// The scope a digest is cut to, and the executions the caller named. The
-    /// place rule is `work.watch`'s: a connection that reads no private text
-    /// must name conversations and is given a shared place's alone; the
-    /// Discord binding, in process, may name a private place's too (the owner's
-    /// DM is where it speaks), and only what lies under the roots it names.
+    /// The scope a digest is cut to, and the executions the caller named.
+    /// Every connection sees every root (2026-11-22); what it names only
+    /// narrows (a task's own timeline lies under a root it does not name). A
+    /// connection that reads no private text is still `guarded`: its titles
+    /// pass the secrets' scrubber and offer no answer (the secret and the act,
+    /// not the surface).
     fn digest_scope(
         &self,
         p: &WorkDigestParams,
         surface: Surface,
     ) -> Result<(WorkScope, HashSet<String>), RpcFailure> {
-        let guarded = !surface.reads_private();
+        let scope = WorkScope {
+            roots: None,
+            guarded: !surface.reads_private(),
+        };
         let Some(roots) = p.roots.as_ref() else {
-            if guarded {
-                return Err(RpcFailure::new(
-                    error_code::INVALID_PARAMS,
-                    format!(
-                        "{} reads no private text: name the conversations (roots) to digest",
-                        surface.name()
-                    ),
-                ));
-            }
-            return Ok((WorkScope::default(), HashSet::new()));
+            return Ok((scope, HashSet::new()));
         };
-        let mut named = HashSet::new();
-        for sid in roots {
-            let Ok(Some(rec)) = self.store.get_session::<SessionRecord>(sid) else {
-                continue;
-            };
-            let allowed = !guarded
-                || match self.runner.place_of(sid) {
-                    Place::Shared(_) => true,
-                    _ => surface == Surface::Discord,
-                };
-            if let (true, Some(exe)) = (allowed, rec.execution_id) {
-                named.insert(exe);
-            }
-        }
-        // A connection that sees private text sees every root; what it names
-        // only narrows (a task's own timeline lies under a root it does not
-        // name). A guarded one is cut to what it named, even when that is
-        // nothing.
-        let scope = if guarded {
-            WorkScope {
-                roots: Some(named.clone()),
-                guarded: true,
-            }
-        } else {
-            WorkScope::default()
-        };
-        if !guarded && named.is_empty() {
+        let named: HashSet<String> = roots
+            .iter()
+            .filter_map(|sid| self.store.get_session::<SessionRecord>(sid).ok().flatten())
+            .filter_map(|rec| rec.execution_id)
+            .collect();
+        if named.is_empty() {
             return Err(RpcFailure::new(
                 error_code::NOT_FOUND,
                 "none of those sessions is a conversation or task",

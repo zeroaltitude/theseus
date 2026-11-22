@@ -475,20 +475,6 @@ impl Push {
         self.work.lock().unwrap().all()
     }
 
-    /// Take the thread groups (a thread's write or bind, or a person's read
-    /// of their stats) and send what changed to every `work.watch` subscriber
-    /// that reads private text. Memory only: no store read.
-    pub fn set_threads(&self, core: &Core, groups: Vec<theseus_protocol::ThreadGroup>) {
-        let out = self
-            .work
-            .lock()
-            .unwrap()
-            .set_threads(groups, theseus_protocol::now_unix_ms());
-        if let Some(out) = out {
-            core.bus.publish_work(&out, &core.tools.scrubber);
-        }
-    }
-
     /// Where a task's post or thread is, asked as each task's view is built
     /// (theseus-emqbm). Set by the Discord runtime at start, which holds its
     /// own state weakly. Lives on the push, since the work board is built here.
@@ -498,11 +484,6 @@ impl Push {
         // Views seeded before the registry (an ended task gets no frame to
         // rebuild it) take its answers now; an unseeded board holds none.
         work.relink();
-    }
-
-    /// The thread groups the work board holds.
-    pub fn work_threads(&self) -> Vec<theseus_protocol::ThreadGroup> {
-        self.work.lock().unwrap().threads()
     }
 
     /// `work.agenda`: every occurrence in a window, from the board's wakes in

@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use theseus_protocol::Usage;
 
 use crate::catalog::Catalog;
-use crate::compiler::{compile, CompileInput, Compiled, RequestSpec};
+use crate::compiler::{CompileInput, Compiled, RequestSpec};
 use crate::config::{CacheTtl, ThinkingDisplay};
 use crate::node::{Body, Node};
 use crate::stub::Stub;
@@ -93,7 +93,7 @@ fn nodes(provider: &str) -> Vec<(u64, Stub)> {
 
 fn run(spec: &RequestSpec) -> Compiled {
     let nodes = nodes(&spec.provider);
-    compile(CompileInput {
+    crate::compiler::tests_parts::on_view(CompileInput {
         session_id: "ses_quay",
         current: None,
         nodes: &nodes,

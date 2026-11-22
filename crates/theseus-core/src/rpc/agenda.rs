@@ -4,9 +4,9 @@
 //! at most `AGENDA_MAX` (200) lines come back, `more` saying when the window
 //! held more. A read: no frame, no lock but the board's, no model.
 //!
-//! The place rule is `work.watch`'s: a connection that reads no private text
-//! must name the conversations and sees those of a shared place alone, and
-//! what it reads passes the scrubber.
+//! Any connection reads every conversation's agenda (2026-11-22); one that
+//! reads no private text still has its titles passed through the secrets'
+//! scrubber, as `work.watch` does.
 
 use std::sync::Arc;
 
@@ -31,12 +31,13 @@ impl Core {
                 "the window is from_ms up to to_ms, at most a year",
             ));
         }
+        // The secret, not the surface: a title may hold a secret's line.
         let guarded = !conn.surface.reads_private();
         let named = WorkWatchParams {
             roots: p.roots.clone(),
             ..Default::default()
         };
-        let scope = self.work_scope(&named, guarded, conn.surface)?;
+        let scope = self.work_scope(&named, guarded);
         self.push.ensure(self).await?;
         let mut out = self
             .push

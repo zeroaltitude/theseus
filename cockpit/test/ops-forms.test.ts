@@ -5,22 +5,21 @@ import assert from 'node:assert/strict'
 import type { TaskRecord, WorkView } from '../src/protocol.gen/index.ts'
 import { boardRows, type OpsRow } from '../src/ops/board.ts'
 import { formsOf, progressOf, stepLook, STEP_GLYPH, type StepWord } from '../src/ops/forms.ts'
-import { labelHeight, layoutRows, NODE_CAP, type Graph, type LaneMeta } from '../src/ops/graph.ts'
+import { HOME, layoutRows, NODE_CAP, type Graph } from '../src/ops/graph.ts'
 import { queueOf } from '../src/ops/queue.ts'
 import { confirm, NOW, record, view } from './ops-fixtures.ts'
 
-const LANES: LaneMeta[] = [{ key: 'harbour-survey', title: 'Harbour survey', needs: 0, head: 'ses_home' }]
 const MIN = 60_000
 const rec = (id: string, state: string, over: Partial<TaskRecord> = {}) => record(id, { state, updated_at_ms: NOW - 5 * MIN, ...over } as Partial<TaskRecord>)
 
-/** A thread, a plan with nested steps carried by a running task (with a job), a suspended step, a step with an ask on
+/** Two conversations, a plan with nested steps carried by a running task (with a job), a suspended step, a step with an ask on
  *  it, a loose ask, a to-do backlog and a wake due today. */
 function fixture() {
   const views: WorkView[] = [
-    view('exe_home', 'conversation', 'ready', { session_id: 'ses_home', thread: 'harbour-survey' }),
-    view('exe_side', 'conversation', 'ready', { session_id: 'ses_side', thread: 'harbour-survey' }),
-    view('exe_t2', 'task', 'running', { session_id: 'ses_t2', title: 'Survey the quay', thread: 'harbour-survey', parent: 'exe_home', moved_to: 'sonnet' }),
-    view('act_j1', 'job', 'running', { session_id: 'ses_t2', parent: 'exe_t2', thread: 'harbour-survey', title: 'cargo test -p quay' }),
+    view('exe_home', 'conversation', 'ready', { session_id: 'ses_home' }),
+    view('exe_side', 'conversation', 'ready', { session_id: 'ses_side' }),
+    view('exe_t2', 'task', 'running', { session_id: 'ses_t2', title: 'Survey the quay', parent: 'exe_home', moved_to: 'sonnet' }),
+    view('act_j1', 'job', 'running', { session_id: 'ses_t2', parent: 'exe_t2', title: 'cargo test -p quay' }),
     view('wak_r1', 'wake', 'waiting', { session_id: 'ses_home', title: 'check the gauge', next_at_ms: NOW + 2 * 3_600_000 }),
   ]
   const records: TaskRecord[] = [
@@ -49,7 +48,7 @@ const rowsOfFixture = (extra: { records?: TaskRecord[]; queue?: ReturnType<typeo
   const f = fixture()
   return boardRows({ views: f.views, tasks: [], sessions: [], records: extra.records ?? f.records, queue: extra.queue ?? f.queue, now: NOW })
 }
-const lay = (rows: readonly OpsRow[], prev: Graph | null = null, opts = {}) => layoutRows(rows, LANES, prev, { now: NOW, ...opts })
+const lay = (rows: readonly OpsRow[], prev: Graph | null = null, opts = {}) => layoutRows(rows, prev, { now: NOW, ...opts })
 const node = (g: Graph, id: string) => g.nodes.find((n) => n.id === id)
 
 test('the step glyph is the one its bucket names, for each of the eight states; to do is ink-dim and not faded', () => {
@@ -179,33 +178,27 @@ test('a folded plan holding a needs card still draws that child and says "● 1 
   assert.ok(p.summary.startsWith('1 needs you'))
 })
 
-test('the counter filter through the forms: a collapsed plan holding a kept card opens, an empty lane shrinks to its head, kept nodes keep their slots', () => {
+test('the counter filter through the forms: a collapsed plan holding a kept card opens, kept nodes keep their slots', () => {
   const f = fixture()
   const rows = boardRows({ views: f.views, tasks: [], sessions: [], records: f.records, queue: f.queue, now: NOW })
-  const lanes: LaneMeta[] = [...LANES, { key: 'tide-tables', title: 'Tide tables', needs: 0 }]
   const folds = new Map([['tsk_sub', false], ['ses_t2', false]])
-  const full = layoutRows(rows, lanes, null, { now: NOW, folds })
+  const full = layoutRows(rows, null, { now: NOW, folds })
   assert.ok(!node(full, 'tsk_n1'), 'collapsed without a filter')
   const keep = new Set(['tsk_n1', 'tsk_sub', 'ses_t2', 'ses_home'])
-  const kept = layoutRows(rows, lanes, full, { now: NOW, folds, keep, filter: keep })
+  const kept = layoutRows(rows, full, { now: NOW, folds, keep, filter: keep })
   assert.ok(node(kept, 'tsk_n1'), 'the plan holding a kept card opens for the filter')
   assert.equal(node(kept, 'tsk_sub')!.open, true)
   assert.equal(node(kept, 'ses_t2')!.open, true)
   for (const id of ['ses_home', 'ses_t2']) assert.deepEqual([node(kept, id)!.x, node(kept, id)!.y], [node(full, id)!.x, node(full, id)!.y], `${id} keeps its slot`)
   assert.ok(!node(kept, 'tsk_s1'), 'what is not kept is left out')
-  const empty = kept.lanes.find((l) => l.key === 'tide-tables')!
-  assert.equal(empty.rows, 0, 'a lane with no kept card draws no row')
-  assert.equal(empty.height, labelHeight(empty), 'and shrinks to its gutter label, never below it (theseus-6ln2q)')
   // theseus-hl0r1 F3: retiring something narrows what is drawn (`keep`), and must not unfold the owner's plan. Only
   // the counter's own set (`filter`) does that, so a drawn set with no filter leaves a folded plan folded.
-  const retired = layoutRows(rows, lanes, null, { now: NOW, folds: new Map([['tsk_sub', false]]), keep: new Set(rows.map((r) => r.id)) })
+  const retired = layoutRows(rows, null, { now: NOW, folds: new Map([['tsk_sub', false]]), keep: new Set(rows.map((r) => r.id)) })
   assert.equal(node(retired, 'tsk_sub')!.open, false, 'retiring something does not unfold the owner\u2019s plan')
 })
 
-test('the thread’s conversation is its lane’s head; a loose ask and a task with no record keep their forms', () => {
+test('a conversation is an anchor; a loose ask and a task with no record keep their forms', () => {
   const g = lay(rowsOfFixture())
-  assert.equal(node(g, 'ses_home')!.head, true)
-  assert.equal(node(g, 'ses_side')!.head, undefined, 'a second conversation in the thread is not its head (theseus-hl0r1 F1)')
   assert.equal(node(g, 'ses_home')!.form!.form, 'anchor')
   assert.equal(node(g, 'ses_home')!.form!.progress!.m > 0, true, 'its plan-mode n/m')
   const ask = g.nodes.find((n) => n.kind === 'ask')!
@@ -225,7 +218,7 @@ test('the Board’s plan card: its direct children with their glyphs, and the sa
   assert.equal(step.kids, undefined, 'a step has no children list')
 })
 
-test('an ended card standing in its folded plan does not also join the lane’s “✓ N done” fold (theseus-hl0r1 F6)', () => {
+test('an ended card standing in its folded plan does not also join the “✓ N done” fold (theseus-hl0r1 F6)', () => {
   const f = fixture()
   const stale = NOW - 2 * 3_600_000
   const records = f.records.map((r) => (r.id === 'tsk_n1' || r.id === 'tsk_n2' ? { ...r, state: 'done', updated_at_ms: stale } as TaskRecord : r))
@@ -233,6 +226,6 @@ test('an ended card standing in its folded plan does not also join the lane’s 
   const g = lay(rows, null, { folds: new Map([['tsk_sub', false]]) })
   assert.equal(node(g, 'tsk_sub')!.open, false, 'the plan is folded by the owner')
   assert.ok(!node(g, 'tsk_n1') && !node(g, 'tsk_n2'), 'its children stand in it')
-  assert.ok(!g.nodes.some((n) => n.id === 'done:harbour-survey'), 'and not in a second “✓ N done” fold of the lane')
+  assert.ok(!g.nodes.some((n) => n.id === `done:${HOME}`), 'and not in a second “✓ N done” fold')
   assert.ok(!g.edges.some((e) => e.source.startsWith('done:') || e.target.startsWith('done:')), 'no edge resolves to a done fold')
 })

@@ -136,7 +136,6 @@ mod window;
 pub mod work;
 mod work_digest;
 pub mod work_system;
-mod work_threads;
 mod work_watch;
 
 pub use actions::{ActionInfo, ActionListParams, ActionListResult};
@@ -199,7 +198,6 @@ pub use watches::{
 };
 pub use window::*;
 pub use work_digest::*;
-pub use work_threads::{group as group_threads, Grouped, GroupedThread, WARM_MS};
 pub use work_watch::*;
 
 use serde::{Deserialize, Serialize};

@@ -8,7 +8,7 @@ import { board, NOW } from './ops-fixtures.ts'
 
 function world() {
   const b = board()
-  const queue = queueOf({ confirms: b.confirms, views: b.views, groups: b.groups, titleOf: (s) => s })
+  const queue = queueOf({ confirms: b.confirms, views: b.views, titleOf: (s) => s })
   const rows = boardRows({ views: b.views, tasks: b.tasks, sessions: b.sessions, queue, now: NOW })
   return { b, queue, rows }
 }
@@ -16,7 +16,7 @@ function world() {
 test('every row in the needs-me column has a task and a non-empty reason', () => {
   const { rows, queue } = world()
   const entries = needsEntries(rows, queue)
-  assert.ok(entries.length >= 3, `the column is not empty: ${JSON.stringify(entries)}`)
+  assert.ok(entries.length >= 2, `the column is not empty: ${JSON.stringify(entries)}`)
   for (const e of entries) {
     assert.ok(e.task.length > 0, 'it names its task')
     assert.ok(e.reason.trim().length > 0, `${e.task} has a reason`)

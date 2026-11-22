@@ -547,12 +547,8 @@ pub fn continued(store: &Store, class: &Place, turn_id: &str) -> Option<Present>
 /// input of a turn of `delivery`, the session it reports to. Not when the
 /// place it reports to has moved since the task started, nor when the
 /// presence of the turn that started it would be narrower there now than it
-/// was then: its sources may not be shown there. With the ledger off, as
-/// before.
+/// was then: its sources may not be shown there.
 pub fn report_shown(runner: &TurnRunner, delivery: &str, task: &str) -> bool {
-    if !runner.cfg.context.ledger_on() {
-        return true;
-    }
     let Ok(Some(rec)) = runner.store.get_session::<SessionRecord>(task) else {
         return false;
     };
@@ -619,17 +615,13 @@ pub fn readmit_sources(
 
 /// The threads of a place digest a turn of `session` may be shown: only
 /// where the owner is alone does it name other threads (they are other
-/// places); otherwise its own thread `here` alone. With the ledger off, as
-/// before.
+/// places); otherwise its own thread `here` alone.
 pub fn digest_threads<'b>(
     runner: &TurnRunner,
     session: &str,
     here: &str,
     live: Vec<&'b theseus_protocol::threads::ThreadInfo>,
 ) -> Vec<&'b theseus_protocol::threads::ThreadInfo> {
-    if !runner.cfg.context.ledger_on() {
-        return live;
-    }
     let alone = runner
         .presence
         .get(session)
@@ -679,8 +671,8 @@ pub fn narrowest(all: impl IntoIterator<Item = Option<Present>>) -> Option<Prese
 /// How recall reads places for one asker. Narrowed to one place, the asker
 /// reads as that place and its own sessions as it, and every other session
 /// as it always has, which the place rule then drops for `place`. A channel
-/// bound private is always narrowed to itself (decision 5); with the ledger
-/// on, so is a turn that is not the owner alone, to its exact arrival place.
+/// bound private is always narrowed to itself (decision 5); so is a turn that
+/// is not the owner alone, to its exact arrival place.
 /// Otherwise places read as before.
 #[derive(Clone, Debug, Default)]
 pub struct RecallPlaces {
@@ -764,6 +756,23 @@ impl Verified {
     /// runs): the widest, at `place`.
     pub fn of_preview(_runner: &TurnRunner, _session: &str, place: &str) -> Self {
         Verified(widest(place.into()))
+    }
+
+    /// [`Self::of_preview`] for a session that does not exist yet, at `place` (a census of a fresh session's
+    /// first request): the widest, at `place` (anything goes, 2026-11-22).
+    pub fn of_fresh(_today: Place, place: &str) -> Self {
+        Verified(widest(place.into()))
+    }
+
+    /// The point of view a next turn of the task whose session is `session` would get, for a census of it (no
+    /// turn runs): the widest, at the task's own place. None for a session that is not a task's.
+    pub fn of_task(runner: &TurnRunner, session: &str) -> Option<Self> {
+        // Anything goes (2026-11-22): the widest, at the task's own place.
+        let rec: SessionRecord = runner.store.get_session(session).ok()??;
+        rec.task?;
+        Some(Verified(widest(crate::task_graph::place::of_session(
+            session,
+        ))))
     }
 
     /// `pov` as given, for the gate's own tests.

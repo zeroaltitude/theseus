@@ -1,7 +1,7 @@
-// The Graph lens's nodes (theseus-jid7t.4): a work node (a conversation, the anchor of its lane; a task; a step) with
+// The Graph lens's nodes (theseus-jid7t.4): a work node (a conversation, an anchor; a task; a step) with
 // its state header, glyph and word, short id, title, progress line, spend bar, model chip, place and a lock for private
 // or sensitive data; a job as a pill beside its session; the folds ("✓ N done", "+N folded"); the "+ future" nodes;
-// and a lane's band with its label. Colour is for state and always goes with a glyph or a word; glows only for what
+// and the lane's band with its label. Colour is for state and always goes with a glyph or a word; glows only for what
 // needs the owner (amber), what is picked or focused (gold) and what is live (cyan).
 import { memo, type CSSProperties } from 'react'
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
@@ -13,7 +13,7 @@ import { stateTone, toneHex } from '@/lib/taxonomy'
 import { clock, cn, usd } from '@/lib/format'
 import type { OpsRow } from './board'
 import { bucketGlyph, bucketOfNode, bucketTone, FADED, FILTERED_OUT, isEndedState, look } from './state'
-import { masked, NODE_W, shownTitle, type GLane, type GNode, type LaneMeta } from './graph'
+import { masked, NODE_W, shownTitle, type GLane, type GNode } from './graph'
 import { STEP_WORDS, toneVar, type Badge, type Progress } from './forms'
 import { PlanBar } from './BoardLens'
 
@@ -34,11 +34,9 @@ export interface NodeData extends Record<string, unknown> {
   redact?: boolean
   /** A plan's chevron: the owner folds or opens it (the lens keeps the fold). */
   onPlan?: () => void
-  /** The lane a head card heads: its words and its seal. */
-  laneMeta?: LaneMeta
 }
 
-export interface LaneData extends Record<string, unknown> { lane: GLane; width: number; hover?: 'ok' | 'no'; redact?: boolean; foldBack?: { n: number; onFold: () => void } }
+export interface LaneData extends Record<string, unknown> { lane: GLane; width: number; hover?: 'ok' | 'no'; foldBack?: { n: number; onFold: () => void } }
 
 /** Each state's glyph: shape always goes with colour. */
 const GLYPH: Readonly<Record<string, string>> = {
@@ -118,7 +116,7 @@ function Spend({ d }: { d: NodeData }) {
   )
 }
 
-/** The work card: a conversation (navy; a thread's own one is its lane's head), a task, or a step with its checkbox. A
+/** The work card: a conversation (navy), a task, or a step with its checkbox. A
  *  task that carries out a step or a plan is never one: it is the badge along the bottom of that card. */
 function Work({ data: d }: NodeProps<Node<NodeData>>) {
   const { n, row, now } = d
@@ -128,13 +126,10 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
   const step = f?.look
   const tone = step ? toneVar(step.tone) : toneHex[bucketTone(bucket, n.state) ?? stateTone(n.state === 'paused' ? 'queued' : n.state)] ?? toneHex.idle
   const conv = n.kind === 'conversation'
-  const head = n.head === true
   const v = n.view
   const line = v && !masked(n, !!d.redact) && !isEndedState(v.state) ? progressLine(v, now) : undefined
   const title = shownTitle(n, !!d.redact)
   const shortId = n.kind === 'step' || step ? taskShort(n.record?.id ?? n.id) : row?.short ?? n.id.slice(-6)
-  const lane = d.laneMeta
-  const p = f?.progress
   return (
     <div data-drop={conv && row?.sessionId ? `conversation:${row.sessionId}` : undefined} data-node={n.id} data-form={f?.form}
       className={cn('rounded-lg bg-hull/95 px-2.5 py-2 backdrop-blur transition-opacity', n.fresh && 'ops-fade-in', d.dim && FILTERED_OUT, faded && FADED, conv && 'bg-[#0d2036]/95')}
@@ -146,14 +141,10 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
         <span className="font-semibold uppercase tracking-wider">{step ? STEP_WORDS[step.word] : n.state.replace('_', ' ')}</span>
         {locked(n.data) && <span title={`${n.data} data: US-origin models only${n.data === 'sensitive' ? ', never a shared place' : ''}`} className="flex items-center gap-0.5 text-ink-dim"><Lock size={10} aria-label={n.data} />{n.data}</span>}
         {n.asks > 0 && <span className="rounded-full bg-wait/15 px-1.5 text-wait" title="questions it asks: answer them in the queue">? {n.asks}</span>}
-        <span className="num ml-auto text-ink-faint" title={n.id}>{head ? 'thread' : conv ? 'conversation' : step ? `step · ${shortId}` : shortId}</span>
+        <span className="num ml-auto text-ink-faint" title={n.id}>{conv ? 'conversation' : step ? `step · ${shortId}` : shortId}</span>
         {d.onFoldBack && <button type="button" onClick={(e) => { e.stopPropagation(); d.onFoldBack?.() }} className="nodrag rounded px-1 text-[10px] text-ink-dim ring-1 ring-line hover:text-ink" title="fold its subtree again">fold</button>}
       </div>
       <div className={cn('mt-1 line-clamp-2 leading-snug text-ink', conv ? 'font-display text-[13px] font-bold tracking-[0.02em]' : 'text-[12px] font-medium')} title={title}>{title}</div>
-      {head && lane && !masked(lane, !!d.redact) && (lane.words || lane.sealed) && (
-        <div className="num mt-0.5 flex items-center gap-1 text-[10.5px] text-ink-dim">{lane.sealed && <Lock size={10} aria-label="sealed" className="text-ink-faint" />}{lane.words}</div>
-      )}
-      {head && p && p.m > 0 && <div className="num mt-0.5 text-[10.5px] text-ink-dim" title={p.summary}>plan <span className="text-ok">{p.n}/{p.m}</span> · {p.summary}</div>}
       {line && !f?.badge && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={line}>{line}</div>}
       {f?.badge ? <BadgeStrip b={f.badge} hide={!!d.redact && locked(n.data)} redact={d.redact} /> : <Spend d={d} />}
       {n.needs && <div className="num mt-1.5 rounded bg-wait/10 px-1.5 py-0.5 text-[10px] text-wait ring-1 ring-wait/30">needs you · {keysOf(d)}</div>}
@@ -260,19 +251,17 @@ function Future({ data: d }: NodeProps<Node<NodeData>>) {
   )
 }
 
-/** A lane's band and its engraved label in the gutter: the thread's title, warmth, context, today's dollars, seal. */
+/** The lane's band and its engraved label in the gutter: its title, what needs the owner and the fold-back. */
 function Lane({ data: d }: NodeProps<Node<LaneData>>) {
   const { lane } = d
-  const home = lane.key === 'home'
   return (
-    <div data-drop={home ? undefined : `lane:${lane.key}`} className="relative rounded-xl"
+    <div className="relative rounded-xl"
       style={{ width: d.width, height: lane.height, background: 'linear-gradient(90deg, rgb(214 165 72 / 0.06), rgb(10 24 40 / 0.35) 220px, rgb(10 24 40 / 0.18))',
         boxShadow: d.hover === 'ok' ? `inset 0 0 0 2px ${toneHex.ok}` : d.hover === 'no' ? `inset 0 0 0 2px ${toneHex.fault}` : lane.needs ? `inset 0 0 0 1px ${toneHex.wait}66, 0 0 24px -8px ${toneHex.wait}` : 'inset 0 0 0 1px rgb(176 141 87 / 0.14)' }}>
       <div className="absolute left-4 top-4 w-[180px]">
         <div className="font-display text-[15px] font-bold uppercase leading-tight tracking-[0.12em] text-gold" style={{ textShadow: '0 1px 0 rgb(0 0 0 / 0.6), 0 -1px 0 rgb(255 230 180 / 0.12)' }}>
-          {lane.sealed && <Lock size={11} className="mr-1 inline text-ink-faint" aria-label="sealed" />}{shownTitle(lane, !!d.redact)}
+          {lane.title}
         </div>
-        {lane.words && !masked(lane, !!d.redact) && <div className="num mt-1 text-[10.5px] leading-snug text-ink-dim">{lane.words}</div>}
         {lane.needs > 0 && <div className="mt-1.5 inline-block rounded-full bg-wait/15 px-2 text-[10.5px] text-wait">● {lane.needs} need{lane.needs === 1 ? 's' : ''} you</div>}
         {d.foldBack && <div><button type="button" onClick={d.foldBack.onFold} className="nodrag pointer-events-auto mt-1.5 rounded-full px-2 text-[10.5px] text-ok ring-1 ring-ok/40 hover:bg-ok/15" title="fold the ended work into one node again">fold {d.foldBack.n} done</button></div>}
       </div>

@@ -121,7 +121,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   Nothing matches the words: "cancel it" reaches the model, which calls `job_stop`. The binding sends a message at once
   when a turn is in flight (`theseus-discord`'s `runtime/steer.rs`) instead of holding it. Tests: `tests_steer.rs`,
   `toolrun/waits/steer.rs`, `term/tests_idle.rs`; `bench/async/steer_stand_in.py` measures it.
-- **Context**: `compiler.rs` (manifests, recompiles, the cache layout, the token estimate), `context_files.rs`, and
+- **Context**: the view builds every request (`compiler/view.rs`, `turn/view_step.rs`, `docs/design/view-compile.md`);
+  `compiler.rs` keeps what it shares (manifests, the cache layout, the token estimate, the renderer), `context_files.rs`, and
   `catalog.rs` (each model's window, prices, and caching). A model may have a second price tier, `LongPrompt`
   (Haiku 5.5's: 5x past a 100,000-token prompt, theseus-3okf): `terms` prices a usage at the tier its prompt
   (input, cache reads and writes) picks, `reserve_micros` and `reserve_parts` at the tier the input estimate picks;
@@ -162,33 +163,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (ffmpeg), OCR (tesseract), or `save`. In a shared place its result is outside text. Tests: `attach.rs`'s, and
     theseusd's `tests/files.rs`, which run the real converter, a turn per model, and `file.read` with a stand-in
     Deepgram.
-  - **One long instruction** (theseus-3ki0): `compiler/clearing.rs` and `compiler/ring.rs`. A pass runs when the results not yet
-    cleared pass `clearing::CLEAR_AT_TOKENS` (150K tokens), or the estimate passes `clearing::CLEAR_AT` % of the budget
-    (a small window clears as before), and stubs every result over 2,000 characters except the newest ones within
-    `KEEP_TOKENS` (40K; and what `CLEAR_TO` % leaves beside the rest of the request), oldest first, the newest
-    exchange's always whole (theseus-5lzox; it replaced "the newest 20 answers", whose 270K sawtooth rewrote the cache
-    every dozen calls and cleared the first files read, which the model then read again). One recompile, the cleared
-    results kept as its report's drops of tier `cleared` (no store format: the report is stored already), which the
-    render reads, so appends render the same stubs; a pass that would leave the request above halfway from the line to
-    the keep does not run, so passes stay rare, except past the percent line: there a refused pass is retried keeping only
-    the newest exchange whole and taken under the 20-exchange rule's own 42.5 % line (results of 2,000 characters or
-    fewer are never cleared yet count toward the guard, so without the retry a session of them climbed to the ring,
-    larger than the old rule left it). Each pass is one
-    `context.cleared` row (`fact::compaction::Cleared`, from the compile step). The stub names the call and how to
-    get the result back (a kept output's `full_ref` when there is one); an `fs_read`'s names the lines its result held
-    and the file's length (`clearing/remember.rs`, read from the result's own footer, never from the call's input), and
-    every stub ends with the first sentence of the model's text in the answer after the result (`remember::notes`, from
-    stored nodes at render time, so the bytes never change). `compiler/tests_replay.rs` replays a 207-call hunt
-    through the compiler (its `the_replays_grid` prints the trigger/keep grid). The ring's range holding one user message
-    cuts inside its turn too: at an answer whose earlier calls all have their results before it (`ring::in_turn`),
-    searched by halves; the instruction (the message and what precedes its first answer) is pinned in every
-    candidate, and a summary renders after it (`compaction::summaries_first`, by its range's `first`; `hidden` and
-    `outside` keep a node before a summary's range visible). The summary call is told the work in progress
-    (`turn::compaction::IN_TURN`) when its range holds no user message, and reads a range past its model's window
-    shorter, each node's cut cut in proportion down to 400 characters (`shorter_cut`), before it gives up for the ring. `[context] working_window_tokens`
-    (`config/context.rs`) lowers the window through `window_override` (`TurnRunner::working_window`). The budget
-    and its report are `compiler/budget.rs`. Tests:
-    `compiler/tests_ring.rs`, `tests_one_turn.rs`.
+  - **One long instruction** (theseus-3ki0; issue 44): the view builds every request, and a long tool turn makes room
+    inside the view (`turn/view_step/room.rs`, whose module doc is the rule). A chain's first call runs the clearing
+    pass (`compiler/clearing.rs`, with the view's numbers `compiler::view::CLEAR_AT_TOKENS` 80K and `KEEP_TOKENS` 40K):
+    every result over 2,000 characters but the newest within the keep becomes its one-line stub, oldest first. A
+    call still over the budget, or one the provider refused for its size, is assembled again with its old results
+    cleared, then with slot G's allowance halved down to none, then under the provider's stated maximum; only a floor
+    that cannot fit fails the turn, with the overage's words (`turn::overage`), and nothing retries it. Each pass is
+    one `context.cleared` row. The stub names the call and how to get the result back (a kept output's `full_ref`
+    when there is one); an `fs_read`'s names the lines its result held and the file's length (`clearing/remember.rs`,
+    read from the result's own footer, never from the call's input), and every stub ends with the first sentence of
+    the model's text in the answer after the result (`remember::notes`, from stored nodes at render time, so the
+    bytes never change). The ring, compaction and its summary call are gone (removed 2026-11-22); an old session's
+    `Summary` nodes still decode and render (`compiler/summary.rs`). `[context] working_window_tokens`
+    (`config/context.rs`) lowers the window through `window_override` (`TurnRunner::working_window`). The budget and
+    its report are `compiler/budget.rs`. Tests: `tests_one_turn.rs`, the room's own in `turn/view_step/room`.
   - **CONTINUE's candidate signals are gone** (2026-11-21): `signals.rs`, `continue.v1` in shadow and `[judge.signals]`
     were deleted; a stored `context.compiled` row's `signals` is still read (`CompileSignal`) and nothing writes it.
   - **The system header** (`TurnRunner::system_blocks`): the persona, the assembly note (`turn::ASSEMBLY`: what the
@@ -196,7 +185,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     precedence line (`compiler::situation::PRECEDENCE`, 35a), the tools note, and the profile's text, all static.
     Harness facts every request needs go there, never into a session's messages.
   - **The layered request and the thread's context** (theseus-h4a7; `compiler/layers.rs`, `compiler/card.rs`,
-    `compiler/cold.rs`, `thread_context.rs`): the system is three layers with a breakpoint each, then the messages'
+    `thread_context.rs`): the system is three layers with a breakpoint each, then the messages'
     automatic one, the provider's four: `header` (the header text and the standing block), `persona` (the persona in
     play's files), `project` (the system-level files, then the guidance of the session's categories, a thread's
     `topics` among them: `Walk::with_topics`), and an unmarked `session` block (its directory). Nothing per request
@@ -204,20 +193,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     one place they are rendered (the prefix library, row T13, builds on it), and `context.compiled`'s `cache.layers`
     holds each one's digest (the stored manifest is unchanged: no store format). In a thread's session the thread's
     card heads the first message (`card.rs`), a snapshot kept as the META record `thread.card.<compilation id>` in the
-    compilation's own frame, so every append repeats its bytes and a recompile takes the card as it stands.
+    compilation's own frame; a view turn's chain takes the card as it stands at its first call.
     `thread.note {line}` (threaded sessions only; the tool is left out of every other spec) rides the call's frame
-    with the thread's next record. A thread whose next message finds its cache window passed (`stubs::cold`, the same
-    check) is recompiled small at the turn's first loop (`cold.rs`, trigger `cold_resume`): the fresh card, the
-    summary, the newest `[threads] resume_keep_turns` turns, results over `clearing::MIN_CHARS` stubbed, a turn dropped
-    only when that is not enough (a ring, summarized as any ring is), to the working size: `[threads] working_percent` (40) of the serving model's window, or `working_tokens` when set (`ThreadsConfig::working_size`; resume_keep_turns is 20; theseus-d9je7). Unthreaded
-    sessions and warm threads are never touched by it. Tests: `compiler/tests_layers.rs`, `tests_cold.rs`,
-    `rpc/tests_thread_context.rs`.
+    with the thread's next record. A thread is no longer resumed cold from a cut transcript (`cold.rs` and the stubs
+    of a cold rewrite were removed 2026-11-22): its next turn's view reads its conversation's exchanges, as any
+    turn's does, and `[threads] working_tokens` and `working_percent` are retired keys (a file naming them loads with
+    a warning). Tests: `compiler/tests_layers.rs`, `rpc/tests_thread_context.rs`.
   - **The prefix library** (theseus-rr15, T13; store format 41; `prefix.rs`, `prefix/`, `config/prefix.rs`,
     `fact/prefix.rs`, `rpc/prefix.rs`): layer 3 (the project: the system-level files, then the topics' guidance) is
     kept as a header by digest (META `prefix:<digest>`, its hit log `prefix.hits.<digest>`, a retirement
     `prefix.retired.<digest>`, all in the frame of the compilation that minted or reused it) and reused byte for
-    byte. The pick runs only at a compile point (`prefix/turn.rs`: no compilation, a forced recompile, a cold
-    resume, or a system that changed under the session; never under a warm session): the nearest headers by sketch
+    byte. The pick runs only at a compile point (`prefix/turn.rs`: a new chain of the view, or a system that changed
+    under the session; never inside a chain): the nearest headers by sketch
     (`prefix/sketch.rs`, a hashed bag of words, computed in the daemon) on the same lower layers and place class,
     each scored by `fit` (the share of the fresh layer's bytes it covers; a changed or a foreign section never
     fits), then reuse at `[prefix] confirm`, below it mint only when `p(reuse) × reads × delta > warm coarser`, else
@@ -230,18 +217,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     1 is the same for every session of a place class. Warmth is per header and model, in memory (each compile
     touches its header): routing's cold estimate takes off what a warm header that fits holds on the switch's
     target model, under that target's own lower layers (`warm_prefix_tokens`, asked only for a cache hold). The
-    keep-warm read compiles with the replayed header and the standing block, as the turn does. Not yet: keep-warm
-    refreshing the most-read headers alone instead of one read a session, and Jev's `prefix` pack (the fit is
-    code's). Tests: `prefix/tests.rs`, `rpc/tests_prefix.rs`, `compiler/tests_layers.rs`, `tests_route_warm.rs`,
+    keep-warm reads between turns are gone (removed 2026-11-22; only the read during a job wait stays). Not yet:
+    Jev's `prefix` pack (the fit is code's). Tests: `prefix/tests.rs`, `rpc/tests_prefix.rs`, `compiler/tests_layers.rs`, `tests_route_warm.rs`,
     the layouts' format-34 samples.
   - **Situations** (M6 35a, theseus-3nk.1): `compiler/situation.rs`. What a compile is for: the step tells it from
     what it holds (`TurnRunner::situation_of`, `turn/situation_step.rs`: no compilation yet is a conversation's or a
     task's start; a session's first compile in this run, `RunCompiles` in memory, with nothing its turn brought is a
-    resume; else a continuation; a detour its own), and `compile()` settles it (`settle`: a new compilation of its
-    own triggers is a recompile with its trigger). It rides `Compilation.situation` (store format 22) and
+    resume; else a continuation; a detour its own), and the view's compile settles it (`settle`, in `compiler/view.rs`): every
+    turn's first call makes a new compilation, trigger `view_turn`, and a later call of the chain keeps it. It rides `Compilation.situation` (store format 22) and
     `context.compiled`. `admits` is the table of what each admits, from the code (lessons reserved for 35b): a
     detour admits its window's messages, replies and results, a task's arrangement among them, and a quick detour's
-    own recall note, never a summary or an earlier note (`compile_detour` leaves those out; theseus-pa1xx). `check`, after the compile, fails a piece not admitted, or a
+    own recall note, never a summary or an earlier note (theseus-pa1xx). `check`, after the compile, fails a piece not admitted, or a
     set that does not close (a result without its call, a call without its result), as `context_unadmitted`, with
     nothing sent and no retry; it enforces from the first day, with no shadow mode (the owner, 2026-10-05). An assembled
     `recall_id` whose node is not in the session is a section never written (its call never dispatched; nodes are
@@ -256,8 +242,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and a guild channel the binding bound private (its own `private = true`, or, saying nothing, in a guild the bindings
   file trusts whole with its guild's `private = true`, theseus-rdqg); it gets everything. Shared: every other
   place; it gets the public tools (`places::public_tool`), the file tools only under `[places] public_paths`
-  (canonical roots, so a link out of a tree is outside it), and only the context files marked `readers = "public"`
-  (`context_files::withhold_shared`). A turn's class is `TurnRunner::class_of`: where its words go, which is its
+  (canonical roots, so a link out of a tree is outside it), and every context file whole: since 2026-11-22 a
+  place's class decides tools and publishing, never context (`readers = "public"` is only recorded). A turn's class is `TurnRunner::class_of`: where its words go, which is its
   session's place (a task's is its parent's, `outbox.target`), or, for a session whose place moved on, where its wakes
   and reports answer (`outbox.wake_target`); shared when that cannot be read. It is fixed in `TurnCtx.class` once the
   turn has taken its wakes and reports. The catalog (`ToolRuntime::definitions_for`) and the tools note
@@ -267,8 +253,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `place.viewed`), for health's `places:` line. In a trusted guild it reads none, and health names each private
   channel there `(in a trusted guild)` (`Core::trust_guilds`, `PlaceInfo.trusted_guild`). M6's recall draws in a
   shared place only on that place's own sessions (and the books, when built, will too). `session.history`, `session.list`
-  and `node.list` take the asking surface and withhold an imported session's words from one that reads no private text
-  (`Surface::reads_private`; `docs/design/imported-surface.md` is the rule). A new protocol method is classified into
+  and `node.list` give every surface the same words (2026-11-22: no surface is given sizes in place of text). A new protocol method is classified into
   `ALLOWED`, `JUDGED` or `NOT_FOR_MCP` (`mcp_server.rs`) before it lands, and the census in `mcp_server::tests` fails
   otherwise. Tests: `tests_places.rs`, `places::tests`.
   - **Ceilings** (step 38a, theseus-ext.3; `ceiling.rs`): the bindings file may give a place a ceiling, which
@@ -303,9 +288,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   memberships read from its place at compile, the guild through the channel category's parent, never stored; the
   `thread` and `project` kinds are seeded and their reader, from the thread and project records, is not built
   yet), and the turn's `Walk`, fixed with the request's spec.
-  `compiler::compile` renders the guidance after the context files: an append composes the memberships its
-  manifest recorded, a recompile (or a ring) the current ones; under the view a membership change applies at the
-  next turn. The manifest records `memberships` and `guidance`. A shared
+  The guidance renders after the context files, with the memberships as they are at the turn's first call: the
+  view's chain keeps them within the turn, and a membership change applies at the next turn. The manifest records `memberships` and `guidance`. A shared
   place composes only its own place's given memberships, and the place rule's admissions never read a membership.
   The methods are `rpc/ontology.rs` (`ontology.list`; the writes are `judge_act(Act::Ontology)`, the owner from a
   private place); the rows `fact/ontology.rs`. **Machine writes** (theseus-e3mjc; `rpc/ontology_machine.rs`, no
@@ -368,8 +352,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   so a compile reads memory and a plain turn writes no frame for them. `TurnRunner::stand` renders the turn's scope
   as `standing::Block`: the records for everywhere at the end of the header layer, and this session's and this
   place's at the head of the session's block (theseus-rr15; no block of its own, so no new cache breakpoint), beside
-  the walk in `turn.rs` and `route_step.rs`. A change of the records is a `system_changed` recompile; otherwise the prefix is
-  byte-identical. It is system, outside the ring, so no compaction drops it. A shared place gets the orders' text and
+  the walk in `turn.rs` and `route_step.rs`. A change of the records starts the view's next chain; otherwise the prefix is
+  byte-identical. It is system, so the view lays it on every turn. A shared place gets the orders' text and
   one line (`standing::WITHHELD`) for preferences and facts, never their text; `standing.list` gives their text to
   the owner in a private place alone. The compile's manifest lists each record (`Manifest.standing`: id, shown), and
   `standing::missing`, run by the situation step after `situation::check`, fails a compile whose system lacks one it
@@ -392,12 +376,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   beside the blocks. `standing.list` takes the asker's `surface` with a `session_id`; its tally counts only the
   system's records (no manifest lists the tail). `standing.repeated {record, node}` is a row of ids
   (`Core::standing_repeated`, for the capture row to call), counted per record without a format change.
-  The compaction summary's instructions keep a style request ("for now, be brief") in the operator's words
-  (`turn/compaction.rs`, `tests_compaction`). `standing.add` and `.revoke`
+  (Compaction and its summary instructions, which kept a style request in the operator's words, were removed
+  2026-11-22: the view lays the standing records in the system part every turn.) `standing.add` and `.revoke`
   are `judge_act(Act::Standing)`: the owner, from a private place; the CLI refuses them inside a job
   (`client::OPERATORS`). `standing.list` tallies the manifests (compilations of each live record's scope since it
   began, and those lacking it), a scan of the sessions' compilations: a read for a person, never a turn's path. Tests:
-  `tests_standing.rs`, `tests_standing_ring.rs` (three compactions), `standing::tests`, and the layouts sample and
+  `tests_standing.rs`, `standing::tests`, and the layouts sample and
   format-27 store test in `tests_layouts.rs`. Not yet: the context explorer's totals (`context.explain`) do not count
   the block.
 - **The owner card** (theseus-slvl.6; no store format change then: META keys and two ledger kinds; live learning, theseus-6f8t0, is store format 51; `card/`, `rpc/card.rs`,
@@ -750,20 +734,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `rpc/tests_thread_route.rs` (and `tail.rs`), `thread_route::tests`.
   **A thread's working set grows from its turns** (theseus-98bz.5; `thread_grow.rs`, `rpc/thread_grow.rs`, `[threads] working_set_grows`): after a turn in a thread (`routing.slug`, else `Board::of_session`), one page of the session's nodes after the turn's start gives its calls' paths (relative to the session's directory: the file and its first component as a root) and the message's entities (`thread_grow::extract::working_set`) join the set, but for what another live thread holds; one frame with a `thread.edited` row by the harness, only when the set changed. A list takes nothing past `thread_join::MAX_SET` (64), and nothing is evicted yet. A message's bare file name (`slow.sh`) grows nothing, only a path does (`thread_grow::paths_only`); a message the owner moves takes back what its words grew into the thread it ran in (`thread_ungrow`, from `State::take_grew`), and the thread it moves to grows from the message's resubmitted turn (theseus-iw50k). **A generic folder names no thread** (theseus-2uhsy, the owner's option (b), 2026-11-07): a root that is `notes`, `misc`, `stuff` or any name `generic_folder::is_generic_folder` reads as generic (its `PLACEHOLDERS`, the judge's layout directories `mine::is_layout_dir`, and the router's `GENERIC` words) is not grown into a set (`touched_in`), and one a stored set already holds is read as no name by the router's entity hits and the recall waiver (`thread_recall::named`), so no stored thread needs mending. A new placeholder goes in `generic_folder.rs`; its `every_generic_name_is_refused_by_every_reader` walks every entry through the three readers and names the file to correct. Tests: `rpc/tests_thread_grow.rs`, `thread_grow::tests`, `generic_folder::tests`.
   **The bench's clock** (theseus-98bz.3; `[threads] bench_clock`, false, a test hook): a `turn.submit` carrying `route_at_ms` (`TurnSubmitParams.route_at_ms`) is placed at that clock, `ask -s` included, and refused when the key is off; the threadbench sends each message's plan time. Tests: `rpc/tests_thread_bench.rs`.
-- **Threads kept warm** (theseus-ytt8, T9; `keep_warm_threads.rs`): a thread's session is a private conversation, so the
-  keep-warm reads it as it reads any; what differs is who is kept. An active thread whose owner wrote within `[threads]
-  keep_warm_hours` (4; 0 keeps none), the shorter of that and the profile's window, never a paused or done one:
-  `thread.pause` and `thread.done` forget the session at once (`KeepWarm::forget`), a read re-checks the thread's state
-  (`TurnRunner::thread_warm`), a restart leaves out what is not active, and a resume holds nothing until its next owner
-  message. One request per thread: its own prefix includes the layers every thread on the profile shares, so its read
-  restarts those entries too, and a tail-only request would be a different prefix. The tender reads the most recently
-  written first (`KeepWarm::due`) and, when the day's line refuses a read, leaves the rest of the round unread, counts
-  them (`skipped_today`) and warns; they stay held and are due an interval later. The numbers (`ThreadCacheStats`:
-  cold resumes and their rewrite tokens and dollars, warm hits, rewrites avoided and the modeled saving, keep-warm reads
-  and dollars) are `stats_of` over the day's `provider.call` (a turn's first call has loop 0) and `keep_warm` rows;
-  `thread show`/`list` carry a thread's, health's `threads.cache` the total and each thread's, from a copy a minute old
-  (`CacheNumbers`) so health reads no ledger, and nothing for a daemon with no thread. Tests:
-  `rpc/tests_thread_keep_warm.rs`, `keep_warm_threads::tests`.
+- **Threads kept warm** (theseus-ytt8, T9; `keep_warm_threads.rs`): removed 2026-11-22. No thread is kept warm
+  between turns: the view builds each turn's request afresh, and the only keep-warm read left runs during a job wait
+  (`keep_warm_wait`). `[threads] keep_warm_hours` and `[cache] threads_keep_warm_hours` are retired keys (a file naming
+  them loads with a warning). What stays is the day's numbers (`ThreadCacheStats`, `stats_of` over the day's
+  `provider.call` and `keep_warm` rows), on `thread show`/`list` and health's `threads.cache`; the fields of the old
+  reads are still sent, as zero, for a cockpit page left open since the upgrade. Tests: `keep_warm_threads::tests`.
   **Merge and split** (theseus-vt9k; `thread_join.rs`, `thread_split.rs`, `rpc/thread_join.rs`; no store format change:
   the fields were T1's, the one new key is a META record). `thread.merge {from, into}` is one frame: B's record (A's card
   quoted at its end under `merged from «a», <date>:`, at most six lines while B has lines of its own, A's working set
@@ -796,12 +772,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   thread `into`, which takes the brief and the arrangement at its tail (its prefix unchanged), never across a seal.
   Over `MAX_PIECES` or `MAX_CHARS` is refused with "split it in parts": a large stream moves as several splits into the
   same thread. The source keeps every node, and one `Body::Moved` node (split id, thread, the moved ids, the first and
-  last position, the gist: `--gist`, else the first human message cut to 80 characters) takes them out of its compile:
-  `compiler::compile_with` reads the stubs' `Moved` records (`moved::read`, decoding only those), selects a recompile's
-  nodes without the hidden ones (`Moves::shows`), recompiles once, trigger `moved`, when its frozen compilation holds one
-  of them or a record since undone (`Moves::stale`), places the note `moved to thread «X»: <gist>` before the first node
-  after the range began (`moved::in_place`, called by `situation::selected`), and keeps the hidden nodes out of a tail
-  (`selected`'s tail filter) where the note renders at its own place, so a range that was in the tail changes no prefix.
+  last position, the gist: `--gist`, else the first human message cut to 80 characters) takes them out of what the
+  source's turns see: the view's gate holds a moved message and its exchange (`view_gate::sources_moved`, `node_seal`),
+  and `moved::read` (decoding only the `Moved` records) still serves the readers that walk a session's nodes. (The
+  transcript's `compile_with`, which recompiled once with trigger `moved` and placed the note in the prefix, was removed
+  2026-11-22.)
   The nodes stay in the store: `session.history` marks them (`detail.moved_to`), and recall indexes them as before: the
   turn's `in_context` leaves them out of the source's, so it may bring them back, and a recalled node's header names the
   thread it moved to (`moved.of.<node>`, `ThreadScene::other_title_of`). `thread.unsplit {split}` writes a second `Moved`
@@ -1783,8 +1758,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     that read ahead closes no open window (theseus-gf8j); a mark without it walks everything once.
     Tests: `tests_learning.rs`, `learning::*::tests`.
   - **A background job's model** (route.v10 row 4, theseus-ej6bj; `job_model.rs`, `judge/job.rs`; design §2 rows 4 to 9
-    and 13 in `~/reports/theseus-jev-chooses/design.md`): at every site that is no turn (compaction's summary,
-    consolidation's syntheses, the self builder and reviewer, the card, initiative, people, threads, the learn writer,
+    and 13 of a design note): at every site that is no turn (consolidation's syntheses, the self builder and reviewer, the card, initiative, people, threads, the learn writer,
     the ontology's naming) **a configured profile key is a pin and an unset key asks Jev**, through `builders::job`: one
     paragraph, the place `job`, the route facts. `TurnRunner::job_choice(live, Site)` settles it and never waits past
     `[routing] max_wait_ms`: no answer, an answer under the pack's confirm bar, a pick the data rule refuses (private
@@ -1807,7 +1781,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`an_unset_synth_profile_dreams_on_sonnet_at_high_effort`, `a_set_synth_profile_still_pins_the_dream`,
     `the_cap_leaves_the_answer_room_behind_the_thinking`),
     `tests_job_ask.rs` (the rule),
-    `tests_job_sites.rs` (each site), `tests_compaction.rs`, `rsi/join/tests.rs`, `tests_task_checkpoint.rs`.
+    `tests_job_sites.rs` (each site), `rsi/join/tests.rs`, `tests_task_checkpoint.rs`.
     **A background call settles at the rate in force when it started** (theseus-058cl): `TurnRunner::priced(resp,
     asked, need, at_ms)` takes the call's start, as the turn's own calls do (`cost_micros_at`), so a DeepSeek call in its
     off-peak hours books at half; every site passes the clock it read just before its request, and the reserve it holds
@@ -2288,7 +2262,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     and one of an asked one's type gets the note (`note`). `apply` puts it on `RecallItem.neighbour` at both of
     recall's fill sites; `turn/recall_step.rs::hold_node` appends it to the end of the item's rendered header
     (`with_note`) *before* the handle, thread and persona marks, so it is frozen in the Recall node's header and every
-    later request, a compaction's recall section included, reads the same bytes. An asked subject's chunk, and any
+    later read of it gives the same bytes. An asked subject's chunk, and any
     chunk of a question that named no entity, keeps its header byte for byte. The field is `serde(skip)` and `ts(skip)`:
     in memory only, never on the wire or in the store (no format change; `memory.search` clients never see it). No
     config key switches it off. Tests: `recall::neighbour::tests` (the rule), `tests_recall_neighbour.rs` (the header
@@ -2339,7 +2313,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     under a preamble that names the harness as its source and no part of the person's message (it renders in their
     user turn, after their words: theseus-fpm2), each item's frozen header and its source's text over the frozen byte
     range, read by position (cached: sources never change), so the next request begins with the previous one's bytes.
-    Past `session_recall_cap_tokens` (64,000) of notes in the tail, recall pauses (`paused`) until the next recompile.
+    Past `session_recall_cap_tokens` (64,000) of notes, recall pauses (`paused`, a `recall.ran` row that says why).
+    The count (`recall_tokens_in_tail`) sums the session's `Recall` nodes past its current compilation's `as_of`;
+    under the view that compilation is the last turn's, whose `as_of` counts the nodes it laid, not store positions,
+    so the count reads nearly every note the session wrote and no chain resets it (2026-11-22: to be checked).
     **The pack is sized to the prompt** (theseus-d9je7; `turn/tier.rs`): the route pack's mode folds into a tier,
     `trivial` small, `sophisticated`/`deep_coding`/`review` deep, the rest ordinary, and so is a verdict late, missing,
     under its bar or not acting, and a turn routing does not decide. Ordinary packs `recall_budget_tokens`/
@@ -2367,8 +2344,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `memory.label` (`rpc/memory.rs`, `judge_act(Act::Label)`, refused by the CLI inside a job) writes a `memory.label`
     row scoped `memory`; `wrong` and `stale` drop a node as `labeled_wrong` from a set built after serving
     (`Core::warm_labels`, `recall/labels.rs`).
-    Every compilation carries a `BudgetReport` (`Compiled.budget`, stored on a new `Compilation`; the ring's cut as a
-    range, a recall's budget drops, an overage); the reply's `TurnSubmitResult.recalled` feeds Discord's
+    Every compilation carries a `BudgetReport` (`Compiled.budget`, stored on a new `Compilation`): a view
+    compilation's holds the results its clearing pass stubbed (tier `cleared`), a recall pack's budget drops
+    (`recall_compiled`) and an overage (a range of nodes, the ring's cut, appears only in compilations from before
+    2026-11-22); the reply's `TurnSubmitResult.recalled` feeds Discord's
     `🧠 N recalled` footer. Tests: `tests_recall_node.rs`, `recall::render::tests`.
   - **The `+rerank` arm in shadow** (step 32c): `judge/rerank.rs`. After the shadow recall's pipeline
     (`recall_end`: `[memory] mode = "shadow"`), the recall step's one call,
@@ -2955,9 +2934,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `forks`, generation by generation, a fork of a fork too) and a `session.forked` row. The source is read and never
   written. `at` is a node (as `reach::resolve` names one) or `@<WAL position>` (the last node at or before it); it
   must close its calls: a message of the person, or an answer that made no tool call. `Store::transcript` of a fork
-  is the source's nodes through the point (`fork::prefix_records`, a fork's own prefix first) and then its own, so
-  the compiler reads one list and `compiler::situation::selected` takes the run from `inherits`; a recompile, the
-  ring or a compaction lists ids as any compilation does. `session.history` of a fork pages the same list (nodes keep
+  is the source's nodes through the point (`fork::prefix_records`, a fork's own prefix first) and then its own, and
+  a fork's view lays that run as its window, under the gate (`fork/window.rs`). `session.history` of a fork pages the same list (nodes keep
   their source's `session_id`: the CLI marks them). Authority: a caller on a surface that reads no private text may
   fork only a shared place's session, an MCP client only a conversation it opened (`Core::fork_allowed`), an imported
   session never; the fork speaks in no place (the CLI's: private), so
@@ -2972,19 +2950,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   request loads whole families. `RequestSpec.defer` is the turn's fresh choice (`turn/defer_step.rs`, once a turn:
   `Board::select` over the in-memory counts: a place kind's committed defaults (`PlaceKind::defaults`, never a
   benchmark's or a harness's name), `[tools.defer] always_loaded`, a family used in `load_share` of the kind's turns over
-  `window_days`, a default unused `hide_after_days` hidden; `select.rs` is pure). `compile` resolves it through
-  `tools_defer::forks`, the way it already forks the ontology's memberships: an **append takes the loaded set its current
-  compilation recorded** (`Manifest.loaded`), so the request's tool bytes are identical turn after turn; a recompile, a
-  clearing pass or a ring (all rendered from `recompiled`) takes the fresh set. A compilation with no `loaded` (before
-  format 33) appends with every tool. On a model whose catalog entry has `tool_search` the hidden tools go out with
+  `window_days`, a default unused `hide_after_days` hidden; `select.rs` is pure). The view's compile resolves it
+  through `tools_defer::forks` (`compiler::prepared`, called by `compiler/view.rs`), the way it forks the ontology's
+  memberships: a **chain's first call takes the fresh set** and records it (`Manifest.loaded`); **a later call of the
+  same chain takes the loaded set the chain recorded**, so the turn's tool bytes stay identical call after call. The
+  next turn's first call is a new chain and takes the fresh set again. On a model whose catalog entry has `tool_search` the hidden tools go out with
   `defer_loading: true` and the BM25 tool search tool is first in `tools`; elsewhere they are left out and `tools_find
   {query}` (`find.rs`, a read of the conversation's hidden tools; its answer names the family and says it is loaded now) is offered, and what it found loads
   **in the same turn** (theseus-342qy): `Board::wants` notes the families in `Convo.found`, the turn's next loop takes
-  them (`defer_found`, after `checkpoint_apply`) into `Deferral.loaded` and `Deferral.added`, and since an append's
-  `forks` takes `Deferral::over(recorded)` (recorded plus `added`), its tools differ from the compilation's and the
-  compile recompiles (`tools_changed`; thinking before it is stripped as for any recompile). Tools lead the cached
-  prefix, so that one request misses the cache either way; the new compilation records the families and the turns after
-  append cache-warm. Where the provider has tool search the search already loads in the turn. `tools.find` is never in the
+  them (`defer_found`, after `checkpoint_apply`) into `Deferral.loaded` and `Deferral.added`, and since a later call's
+  `forks` takes `Deferral::over(recorded)` (recorded plus `added`), its tools digest differs from the chain's and the
+  call starts a new chain (`compiler/view.rs`; the turn's own answers go without their thinking, as at any new chain).
+  Tools lead the cached prefix, so that one request misses the cache either way; the new chain records the families and
+  the turn's later calls read it from the cache. Where the provider has tool search the search already loads in the turn. `tools.find` is never in the
   catalog (`tools_defer::listed`) and joins a request only here. The tool search's blocks (`server_tool_use`,
   `tool_search_tool_result`) ride in the assistant node as the provider returned them (`scan.rs` reads them). **Misses**:
   `defer_unloaded` (before `run_calls`) answers a call to a tool the request hid, when no search of the conversation
@@ -3267,8 +3245,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and class `daily_runaway`). **`stop`** is the money row's: the ceiling refuses. A turn's refused call fails it, class
   `daily_ceiling` (or `daily_runaway`), and leaves a harness note the next context reads (`turn/ceiling_step.rs`); the
   judge's day budget holds on it (`ShadowBudget::set_ceiling`), and consolidation, the audit, replay, backfill and the
-  learning writer hold through `TurnRunner::day_hold`; compaction's summary is refused through the kernel and the ring
-  runs; speech asks before its call. The stop is sticky (theseus-l9on): after a refusal every call that day is refused,
+  learning writer hold through `TurnRunner::day_hold`; speech asks before its call. The stop is sticky (theseus-l9on): after a refusal every call that day is refused,
   however small, until local midnight or a higher bar at the next start; the words say a refused turn or task ends (it
   does not wait). **The burn-rate brake** (`[kernel] runaway_usd_per_10min`, $200; 0 never): a settled provider call
   fills a small in-memory ring per execution and per ancestor (`DayCeiling::burn_record`, at the settle); a call planned while the last
@@ -3279,7 +3256,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   bench/recall's `--day-ceiling`), so a run never spends past its own budget. AWS keeps its stops: only model tokens went
   soft, and `[aws.accounts.<id>] monthly_warn_usd` (default half the month's budget) adds one warning once a month
   (`aws/month_warn.rs`, from the budget's six-hourly read). Tests: `tests_day_ceiling.rs` (the stop mode, which names
-  it), `tests_day_total.rs`, `tests_day_notify.rs`, and one each in `tests_compaction.rs` and `tests_consolidate.rs`.
+  it), `tests_day_total.rs`, `tests_day_notify.rs`, and one in `tests_consolidate.rs`.
 - **`turn.inspect`** (theseus-x9swu, `rpc/inspect.rs`, wire `theseus_protocol::inspect`): one turn whole, for the cockpit's
   inspector at `/session/<id>/turn/<turn>`. A read, on the blocking pool: no frame, no record of its own (store format
   unchanged), nothing sent to the model. It finds the turn's `turn.started` row by paging the session's `ks:turn.started`
@@ -3365,15 +3342,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   - `transcripts.rs`: each session's transcript as last read, kept across turns as cold stubs (fields and position,
     never bytes nor node; at most 256 sessions and 400,000 stubs), so a turn's first read scans only the session's
     records after the last one it saw (`Store::scan_kept`). Debug builds still compare it with the store's whole read.
-  - `compiler/ring/sums.rs`: the ring's cut before a user message is guessed from the segments' census sums, walked
-    from the last cut back (each segment rendered once), then settled by rendering the guess and its neighbour: the
-    earliest cut whose own render is under the target, as the walk over every cut picked it while a later cut never
-    estimates more. After a start the ring decodes what lies past the stored cut. Tests: `compiler/tests_ring_sums.rs`.
-  - `compiler/render.rs` and `compiler/kept.rs`: the render is a state nodes are rendered into, kept per session
-    across loops (`[context] kept_mb`, 64; 0 none) and taken up only when its key (compilation, strip, provider, model,
-    media, refused images, the cold rewrite's view) and its nodes' ids match and it was closed (no repair, no cut answer
-    open, nothing retried). Every request is byte for byte a whole render's: `compiler/tests_kept.rs` holds it over
-    generated sessions. Change `render::State::item`, never a copy of it.
+  - The ring's census sums and the kept render (`compiler/ring/sums.rs`, `compiler/kept.rs`, `[context] kept_mb`) were
+    removed 2026-11-22 with the transcript: a view turn builds its request afresh each turn and renders it whole
+    (`compiler/render.rs`; change `render::State::item`, never a copy of it). `kept_mb` is a retired key.
   - `provider/digest.rs`: the digest and the body sent are written from the request, with no copy of it.
   - `compiler/phases.rs`: `THESEUS_LOG=info,theseus_core::compiler::phases=debug` logs each compile's phases.
 
@@ -3433,10 +3404,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   approved, the same id goes on as the job. A question is told by its own view only (`quiet_here`), a wake by the
   conversation's `woke`. `seed.rs` seeds from what the execution board's seed read (no settled action), and `warm`
   fills jobs' commands and usual times (`eta.rs`: the last 16 durations per program key, median) after serving, in place:
-  a client applies by the position rule, so the next frame sends those views again (`stale`). `place.rs` is the place
-  rule: a connection that reads no private text names its roots, hears only a shared place's (or, for the Discord
-  binding alone, a conversation that speaks in a Discord place of any class: `rpc/work_board.rs::may_watch`, theseus-2j2ka;
-  it draws that place's board in that place), scrubbed, and cannot answer. The methods are `rpc/work_board.rs` (`work.watch`, `work.unwatch`, routed through `rpc_prefixed`), the bus
+  a client applies by the position rule, so the next frame sends those views again (`stale`). `place.rs`: any connection
+  watches any conversation (2026-11-22); one that reads no private text is still `guarded`, so what it hears is
+  scrubbed of secrets and it cannot answer. The methods are `rpc/work_board.rs` (`work.watch`, `work.unwatch`, routed through `rpc_prefixed`), the bus
   counts the watchers (`work_watchers`, `interactive_watchers`), and `theseus work` reads them. There is no timer: a
   question's reminder (rule 2 of the policy) is made on the driver's tick (`WorkBoard::remind`, `settle.rs`). A task's
   view carries `WorkView.forum_url`, answered by a registry the Discord runtime sets (`Push::set_task_links`, kept
@@ -3576,7 +3546,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   to get the rest (`Tool::rest`), or the kept file and its lines (`toolrun/kept.rs`). A listing names its scope.
 - **A kept output is scrubbed, never raw.** What a job printed before the scrubber saw it stays in the spool only
   until its result is written; a copy anywhere else goes through the scrubber first.
-- **Thinking goes back only to the provider that wrote it**, and every recompile strips the prefix's thinking.
+- **Thinking goes back only to the provider that wrote it**, and only within a turn: the view sends no earlier turn's
+  thinking, and a new chain inside a turn strips its own (`compiler/view.rs` `unthought`).
 - **A shared place never receives the owner's material** (the place rule). Its model is offered only the public
   tools, the gate refuses anything else, and its system block carries only public context files. A task takes its
   parent's class. Nothing flows from a private place to a shared one but what a person says there, and the owner's
@@ -3677,7 +3648,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - Debug builds assert, at every read, that a turn's kept transcript equals a fresh read of the store, by positions and
   record keys, decoding nothing. A node written past the turn's handle panics a debug daemon.
 - `tests_tiering.rs`: the heat cache and stubs through whole turns (decodes fall, every request the same with the cache
-  off, the debug check through a ring and a recompile, a recall source from before a floor); `node_cache::tests`
+  off, the debug check through many turns of a small window, a recall source from before a floor; the debug check's
+  test keeps the name of the ring and recompile it once ran, removed 2026-11-22); `node_cache::tests`
   holds eviction by heat under the bound (a property test).
 
 ## Traps
@@ -3686,8 +3658,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the daemon's reaper can take its exit status (`ECHILD`).
 - A static or a detached thread holds the core or the store by `Weak`. One that held an `Arc<Core>` kept the store
   open past a clean stop, and every start then paid redb's repair.
-- A recompile inside a tool loop strips thinking between a call and its result, so context files change on the
-  next turn's first loop, never mid-turn.
+- A new chain inside a tool loop strips thinking between a call and its result, so context files change on the
+  next turn's first call, never mid-turn (the view is frozen within a turn).
 - **Every `tool_use` gets a result, whoever ends its execution.** A cancelled execution takes no more turns, so
   `answer_after_cancel` writes what its calls left unanswered (the cancel's handler, and the end of the turn that held
   the execution, whichever runs later; each call is answered once). A call that may have run is `unknown`, never

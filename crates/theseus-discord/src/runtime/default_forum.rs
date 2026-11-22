@@ -442,9 +442,7 @@ impl Place {
             ("dm", _) => true,
             ("channel", Some(c)) => {
                 let c = c.get();
-                s.task_threads.enabled(c)
-                    && !s.task_threads.is_thread(c)
-                    && s.threads.slug_of(c).is_none()
+                s.task_threads.enabled(c) && !s.task_threads.is_thread(c)
             }
             _ => false,
         }
@@ -456,9 +454,7 @@ impl Place {
         let channel_place = self.kind == "channel"
             && self.channel.is_some_and(|c| {
                 let c = c.get();
-                s.task_threads.enabled(c)
-                    && !s.task_threads.is_thread(c)
-                    && s.threads.slug_of(c).is_none()
+                s.task_threads.enabled(c) && !s.task_threads.is_thread(c)
             });
         home_of(self.forum_homes(), channel_place)
     }

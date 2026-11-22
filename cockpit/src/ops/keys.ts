@@ -13,9 +13,9 @@ export type Verb =
   | 'down' | 'up' | 'left' | 'right' | 'inspect' | 'open' | 'back' | 'next' | 'prev'
   | 'approve' | 'decline' | 'choice' | 'grant' | 'retry' | 'dismiss' | 'pause' | 'stop' | 'stop_all'
   | 'cancel' | 'not_this' | 'cancel_wake' | 'follow' | 'new_task'
-  | 'lens_graph' | 'lens_board' | 'lens_timeline' | 'lens_threads' | 'home' | 'search'
+  | 'lens_graph' | 'lens_board' | 'lens_timeline' | 'home' | 'search'
   | 'fold_queue' | 'fold_inspector' | 'fold_dock' | 'keys'
-  | 'model_menu' | 'mode_menu' | 'compose' | 'parent' | 'last_turn' | 'scroll_up' | 'scroll_down' | 'scroll_end' | 'self_changes' | 'thread_picker' | 'palette' | 'dock_pause'
+  | 'model_menu' | 'mode_menu' | 'compose' | 'parent' | 'last_turn' | 'scroll_up' | 'scroll_down' | 'scroll_end' | 'self_changes' | 'palette' | 'dock_pause'
   | 'filter_needs' | 'filter_working' | 'filter_paused' | 'filter_done' | 'filter_all'
   // ops-timeline (theseus-jid7t.5)
   | 'zoom_day' | 'zoom_week' | 'redact' | 'week_prev' | 'week_next' | 'mark_next' | 'mark_prev'
@@ -74,19 +74,17 @@ export const KEYS: readonly KeyDef[] = [
   { verb: 'lens_graph', keys: ['g g'], ctx: 'page', words: 'the Graph lens' },
   { verb: 'lens_board', keys: ['g b'], ctx: 'page', words: 'the Board lens' },
   { verb: 'lens_timeline', keys: ['g t'], ctx: 'page', words: 'the Timeline lens' },
-  { verb: 'lens_threads', keys: ['g h'], ctx: 'page', words: 'the Threads lens' },
   { verb: 'home', keys: ['g m'], ctx: 'page', words: 'home: the Ship' },
   { verb: 'search', keys: ['/'], ctx: 'page', words: 'search' },
   { verb: 'fold_queue', keys: ['['], ctx: 'page', words: 'fold or unfold the queue' },
   { verb: 'fold_inspector', keys: [']'], ctx: 'page', words: 'fold or unfold the inspector' },
   { verb: 'fold_dock', keys: ['\\'], ctx: 'page', words: 'fold or unfold the dock' },
   { verb: 'keys', keys: ['?'], ctx: 'page', words: 'these keys' },
-  { verb: 'palette', keys: ['meta+k'], ctx: 'page', words: '⌘K: the palette, with every session, task, thread and verb (the shell opens it; ⇥ cycles its scope)' },
+  { verb: 'palette', keys: ['meta+k'], ctx: 'page', words: '⌘K: the palette, with every session, task and verb (the shell opens it; ⇥ cycles its scope)' },
   { verb: 'scroll_up', keys: ['PageUp'], ctx: 'page', words: 'scroll the open session’s transcript up' },
   { verb: 'scroll_down', keys: ['PageDown'], ctx: 'page', words: 'scroll it down' },
   { verb: 'scroll_end', keys: ['End'], ctx: 'page', words: 'scroll it to the end' },
   { verb: 'self_changes', keys: ['L'], ctx: 'page', words: 'what Theseus changed about itself' },
-  { verb: 'thread_picker', keys: ['T'], ctx: 'page', words: 'the thread picker (also /t in the box)' },
   { verb: 'filter_needs', keys: ['b'], ctx: 'filter', words: 'only what needs you' },
   { verb: 'filter_working', keys: ['w'], ctx: 'filter', words: 'only what is working' },
   { verb: 'filter_paused', keys: ['r'], ctx: 'filter', words: 'only paused·queued (on a failure, r retries)' },
@@ -123,7 +121,7 @@ export const CTX_WORDS: Readonly<Record<Ctx, string>> = {
 }
 
 /** The verbs that act: off under the time machine. The table's, and the buttons' that no key presses. */
-export const BUTTON_ACTS = ['answer', 'seal', 'seal_dismiss', 'unseal', 'thread_pause', 'thread_resume', 'thread_done', 'thread_reopen', 'thread_edit', 'thread_new', 'mark',
+export const BUTTON_ACTS = ['answer', 'mark',
   // ops-timeline (theseus-jid7t.5): an event's verbs that reach the daemon, and a drag with its Undo.
   'event_remind', 'event_prep', 'event_ask', 'drag', 'undo',
   // ops-act (theseus-jid7t.6): the Join pane, the menus, the session's life and the task sheets.
