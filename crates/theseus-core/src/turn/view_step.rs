@@ -327,17 +327,7 @@ impl TurnRunner {
             Ok(a) => a,
             Err(NotAssembled::Read(e)) => return Err(e.context("the view's read")),
             Err(NotAssembled::Overflow(o)) => {
-                // Rule 9: the turn is told what did not fit and asked for a narrower question.
-                let frozen = Frozen {
-                    turn_id: turn.into(),
-                    beside: Some(Frozen::block(sid, turn, "", &overflow_note(&o))),
-                    memory_page,
-                    ..Frozen::default()
-                };
-                return Ok(Built {
-                    frozen,
-                    assembled: Err(o),
-                });
+                return Ok(Built::overflowed(sid, turn, o, memory_page))
             }
         };
         let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
@@ -402,6 +392,22 @@ pub(super) struct Asked<'a> {
 pub(super) struct Built {
     pub frozen: Frozen,
     pub assembled: Result<Assembled, Overflow>,
+}
+
+impl Built {
+    /// Rule 9: the floor did not fit; the turn is told what did not fit and asked for a narrower question.
+    fn overflowed(sid: &str, turn: &str, o: Overflow, memory_page: String) -> Self {
+        let frozen = Frozen {
+            turn_id: turn.into(),
+            beside: Some(Frozen::block(sid, turn, "", &overflow_note(&o))),
+            memory_page,
+            ..Frozen::default()
+        };
+        Built {
+            frozen,
+            assembled: Err(o),
+        }
+    }
 }
 
 /// Whether any of the newest [`UNLEDGERED_LOOK`] turns of `nodes` before `turn` has no exchange in the
