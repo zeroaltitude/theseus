@@ -2542,8 +2542,7 @@ async fn a_plain_turn_stays_within_its_frame_budget() {
             // frame the turn already writes.
             "recall.ran",
             // A view turn's chain is a new compilation every turn (issue 44): its record and pointer ride
-            // a frame the turn already writes.
-            "context.recompiled",
+            // a frame the turn already writes, and its row is the per-call one (issue 46).
             "context.compiled",
             "loop.started",
             "action.planned",
@@ -4123,7 +4122,7 @@ async fn an_edited_context_file_recompiles_once_and_an_unchanged_one_appends() {
     // The view (issue 44): every turn's request is a new compilation of its own; the edit reaches the
     // next turn's system text, once, and the turn after carries the same.
     assert_eq!(
-        field("context.recompiled", "trigger"),
+        field("context.compiled", "trigger"),
         ["view_turn", "view_turn", "view_turn", "view_turn"]
     );
     assert_eq!(field("context.compiled", "decision").len(), 4);
@@ -4398,7 +4397,7 @@ async fn an_edited_persona_file_recompiles_once_and_an_unchanged_one_appends() {
     };
     // The view (issue 44): one compilation a turn; the edit reaches the next turn's system text.
     assert_eq!(
-        field("context.recompiled", "trigger"),
+        field("context.compiled", "trigger"),
         ["view_turn", "view_turn", "view_turn"]
     );
     assert_eq!(field("context.compiled", "decision").len(), 3);

@@ -1865,8 +1865,9 @@ impl Fact for NodeWritten<'_> {
     }
 }
 
-/// A new compilation, written with the session's pointer to it in one
-/// frame (`context.recompiled`).
+/// A new compilation's row (`context.recompiled`): no longer written (issue 46; the turn's
+/// `context.compiled` row names the same compilation), kept so an old store's rows read as they were
+/// written and the walks over the facts still find their kind.
 pub struct ContextRecompiled<'a> {
     pub compilation: &'a Compilation,
 }

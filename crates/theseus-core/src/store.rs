@@ -1971,6 +1971,30 @@ pub(crate) mod tests {
         assert_eq!(m["format"], 2, "reading marks nothing: {m}");
     }
 
+    /// An older store's `context.recompiled` rows (no longer written, issue 46) still read: through
+    /// the product's ledger read, as a kind the protocol still names, naming a compilation.
+    #[test]
+    fn an_older_stores_recompiled_rows_still_read() {
+        let d = older_store();
+        let store = Store::open(d.path()).unwrap();
+        let old: Vec<LedgerRow> = store
+            .ledger_tail::<LedgerRow>(200)
+            .unwrap()
+            .into_iter()
+            .map(|(_, r)| r)
+            .filter(|r| r.kind == "context.recompiled")
+            .collect();
+        assert!(!old.is_empty(), "the fixture holds an old recompiled row");
+        assert_eq!(
+            theseus_protocol::ledger::LedgerKind::parse(&old[0].kind),
+            Some(theseus_protocol::ledger::LedgerKind::ContextRecompiled)
+        );
+        assert!(
+            old.iter().all(|r| r.data["compilation_id"].is_string()),
+            "{old:?}"
+        );
+    }
+
     /// The first write into an older binary's store (theseus-ptx1): its
     /// manifest moves to this build's format first, so an older build now
     /// refuses it, and the store opens again here and reads the edge from

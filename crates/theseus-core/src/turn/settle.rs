@@ -477,15 +477,14 @@ impl TurnRunner {
         let c = &compiled.compilation;
         session.compilation_id = Some(c.id.clone());
         let records = || -> Result<Vec<NewRecord>> {
-            let mut records = vec![
-                NewRecord::json(theseus_store::kinds::COMPILATION, Some(&c.id), c)?
-                    .scoped(&c.session_id),
-                fact::row(
-                    &fact::turn::ContextRecompiled { compilation: c },
-                    Some(&c.session_id),
-                    Some(turn_id),
-                )?,
-            ];
+            // The compilation alone: its `context.recompiled` row is no longer written (issue 46), since
+            // the turn's `context.compiled` row names the same compilation. Old rows still read
+            // (`fact::turn::ContextRecompiled`, `LedgerKind::ContextRecompiled`).
+            let mut records =
+                vec![
+                    NewRecord::json(theseus_store::kinds::COMPILATION, Some(&c.id), c)?
+                        .scoped(&c.session_id),
+                ];
             records.extend(crate::thread_context::card_record(compiled));
             records.extend(crate::prefix::records(compiled, turn_id)?);
             Ok(records)
