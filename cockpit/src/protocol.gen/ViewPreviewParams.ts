@@ -17,6 +17,6 @@ message?: string,
  */
 text: boolean, 
 /**
- * The job's session when the CLI runs inside a Theseus job: that agent's turn, of its own place only.
+ * The job's session when the CLI runs inside a Theseus job (`THESEUS_SESSION`): refused then.
  */
 from_job?: string, };

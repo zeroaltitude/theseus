@@ -46,6 +46,12 @@ pub fn card_key(compilation_id: &str) -> String {
 pub struct Cards(Mutex<HashMap<String, String>>);
 
 impl Cards {
+    /// The card held for compilation `id`, for a test that a read installs none.
+    #[cfg(test)]
+    pub(crate) fn held(&self, id: &str) -> Option<String> {
+        self.get(id)
+    }
+
     fn get(&self, id: &str) -> Option<String> {
         self.0.lock().unwrap().get(id).cloned()
     }

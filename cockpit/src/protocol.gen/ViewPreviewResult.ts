@@ -13,9 +13,13 @@ export type ViewPreviewResult = { place: string,
  */
 session: string, 
 /**
- * `owner` (the owner in person, at that place) or `agent` (an agent's turn there: no text).
+ * `owner`: the owner in person, at that place (the one reader a preview has).
  */
 reader: string, 
+/**
+ * The place's `[context] assembly` today: `view` or `transcript`.
+ */
+assembly: string, 
 /**
  * The view, as this reader may see it; none when the floor did not fit (`overflow`).
  */
