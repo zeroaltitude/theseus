@@ -335,3 +335,93 @@ async fn the_look_reads_his_private_conversation_alone_and_names_one_or_several(
     assert_eq!(several.outcome, Outcome::Several);
     assert_eq!(several.ids, vec!["t_his_2", "t_his"]);
 }
+
+/// Red team, through the whole core: the owner, in a channel, leans on what he told Theseus in his direct
+/// conversation, and the trigger says so. The look finds his one exchange there and records its id, but nothing
+/// the company turn sends holds a word of it, and the trigger's own state holds only the channel's lines.
+#[tokio::test(flavor = "multi_thread")]
+async fn red_team_the_company_turn_sends_nothing_of_the_look() {
+    use crate::places::BoundPlace;
+    use theseus_judge::fake::{FakeJev, Scripted};
+    const SECRET: &str = "lighthouse";
+    const HIM: u64 = 161_803_398_874_989_484;
+    const DEN: u64 = 271_000_000_000_000_001;
+    let jev = FakeJev::start().unwrap();
+    jev.script(
+        "leans_on",
+        Scripted::Choice {
+            option: LEANS_ELSEWHERE.into(),
+            confidence: 0.99,
+        },
+    );
+    let r = crate::tests_rerank::rig(Some(&jev), |c| {
+        c.judge.packs.remove(crate::judge::leans_on::PACK);
+    });
+    let dm_target = format!("discord:dm:{HIM}");
+    r.core.bind_places(vec![
+        BoundPlace {
+            target: format!("discord:channel:{DEN}"),
+            name: "#den".into(),
+            private: true,
+            ..Default::default()
+        },
+        BoundPlace {
+            target: dm_target.clone(),
+            name: "DM".into(),
+            private: true,
+            ..Default::default()
+        },
+    ]);
+    let dm = crate::tests_rerank::session(&r.core, Some(&format!("dm:{HIM}")), &[]);
+    let his = said(
+        &r.core.store,
+        "t_his",
+        &dm,
+        &dm_target,
+        OWNER,
+        &format!("the offsite plan is the {SECRET} on Friday"),
+        1_000,
+    );
+    r.core.runner.memory.set_ask(index(vec![his]));
+    let den = crate::tests_rerank::session(&r.core, Some(&format!("channel:{DEN}")), &[]);
+    crate::tests_rerank::turn(&r.core, &den, "go with the offsite plan I told you about").await;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let row = loop {
+        let rows: Vec<(u64, LedgerRow)> = r.core.store.ledger_tail(500).unwrap();
+        if let Some((_, row)) = rows
+            .into_iter()
+            .find(|(_, x)| x.kind == "context.release_look")
+        {
+            break row;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no release look was recorded"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    };
+    assert_eq!(row.data["answer"], LEANS_ELSEWHERE);
+    assert_eq!(row.data["outcome"], "one", "{}", row.data);
+    assert_eq!(row.data["ids"], json!(["t_his"]));
+    assert!(!row.data.to_string().contains(SECRET));
+    let sent = r.model.requests.lock().unwrap().clone();
+    assert!(!sent.is_empty());
+    for req in &sent {
+        let bytes = serde_json::to_string(req).unwrap();
+        assert!(
+            !bytes.contains(SECRET),
+            "the company turn was sent the private piece"
+        );
+        assert!(
+            !bytes.contains("t_his"),
+            "the company turn was sent the look's id"
+        );
+    }
+    let asked: Vec<_> = jev
+        .seen()
+        .into_iter()
+        .filter(|s| s.body["questions"].to_string().contains("leans_on.v1/"))
+        .collect();
+    assert_eq!(asked.len(), 1);
+    assert!(!asked[0].body["state"].to_string().contains(SECRET));
+}
