@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use theseus_protocol::threads::{ThreadListParams, ThreadNewParams, ThreadState};
+use theseus_protocol::threads::{ThreadListParams, ThreadState};
 
 use super::tests::test_core;
 use super::Core;
@@ -42,17 +42,10 @@ fn stranger() -> Answerer {
     }
 }
 
-/// A stored thread record, written by the fixture writer (no method reaches it).
+/// A stored thread record, as an old store holds it.
 fn stored(core: &Core, slug: &str) {
-    core.thread_new(
-        &ThreadNewParams {
-            slug: slug.into(),
-            title: Some(format!("Title of {slug}")),
-            ..Default::default()
-        },
-        cli(),
-    )
-    .unwrap();
+    let title = format!("Title of {slug}");
+    crate::tests_old_threads::thread(core, slug, &title, serde_json::json!({}));
 }
 
 #[test]
@@ -100,7 +93,6 @@ fn a_shared_place_can_neither_list_nor_show_a_thread() {
             .unwrap_err(),
     );
     refused(c.thread_show("tides", stranger()).unwrap_err());
-    refused(c.thread_session("tides", stranger()).unwrap_err());
     assert!(
         c.outbox.place_session("thread:tides").unwrap().is_none(),
         "no place was bound"

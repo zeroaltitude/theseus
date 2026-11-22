@@ -8,10 +8,8 @@
 use std::sync::Arc;
 
 use serde_json::Value;
-use theseus_protocol::threads::{ThreadEditParams, ThreadNewParams};
 use theseus_protocol::{StandingAddParams, StandingKind, StandingScope};
 
-use crate::approval::{Answerer, Surface};
 use crate::bus::EventSink;
 use crate::provider::{ProviderRequest, Scripted};
 use crate::session::SessionRecord;
@@ -19,37 +17,11 @@ use crate::tests_day_ceiling::build;
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
-fn cli() -> Answerer {
-    Answerer {
-        label: "the CLI".into(),
-        surface: Surface::Cli,
-        discord: None,
-        agent: None,
-    }
-}
-
+/// An old thread's session, its record holding `topics` (`tests_old_threads`).
 fn thread(core: &Core, slug: &str, topics: &[&str]) -> String {
-    core.thread_new(
-        &ThreadNewParams {
-            slug: slug.into(),
-            title: Some(format!("Title of {slug}")),
-            ..Default::default()
-        },
-        cli(),
-    )
-    .unwrap();
-    if !topics.is_empty() {
-        core.thread_edit(
-            &ThreadEditParams {
-                slug: slug.into(),
-                topics: Some(topics.iter().map(|t| t.to_string()).collect()),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
-    }
-    core.thread_session(slug, cli()).unwrap().session_id
+    let title = format!("Title of {slug}");
+    crate::tests_old_threads::thread(core, slug, &title, serde_json::json!({"topics": topics}));
+    crate::tests_old_threads::session(core, slug)
 }
 
 fn session(core: &Core, place: Option<&str>) -> String {

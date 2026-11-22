@@ -119,8 +119,6 @@ mod task_pause;
 mod task_rehome;
 mod task_reschedule;
 pub(crate) mod task_start;
-pub(crate) mod thread_seal;
-mod thread_surface;
 mod threads;
 mod undo_allow;
 mod voice_pick;

@@ -7,43 +7,25 @@ use std::sync::Arc;
 
 use serde_json::json;
 use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
-use theseus_protocol::threads::ThreadNewParams;
 
 use super::Core;
-use crate::approval::{Answerer, Surface};
 use crate::config::MemoryMode;
 use crate::node::{Body, Node};
 use crate::recall::{Ask, AskFuture};
 use crate::tests_recall::{rig_with, session, turn, Rig};
 
-pub(super) fn cli() -> Answerer {
-    Answerer {
-        label: "the CLI".into(),
-        surface: Surface::Cli,
-        discord: None,
-        agent: None,
-    }
-}
-
 pub(super) fn canary() -> Rig {
     rig_with(MemoryMode::Live, |_| {})
 }
 
+/// An old thread's record (`tests_old_threads`).
 pub(super) fn new_thread(c: &Core, slug: &str, title: &str) {
-    c.thread_new(
-        &ThreadNewParams {
-            slug: slug.into(),
-            title: Some(title.into()),
-            ..Default::default()
-        },
-        cli(),
-    )
-    .unwrap();
+    crate::tests_old_threads::thread(c, slug, title, json!({}));
 }
 
-/// The thread's session, opened and bound.
+/// The old thread's session, opened and bound.
 pub(super) fn thread_session(c: &Core, slug: &str) -> String {
-    c.thread_session(slug, cli()).unwrap().session_id
+    crate::tests_old_threads::session(c, slug)
 }
 
 /// A note in `sid`.

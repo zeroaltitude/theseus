@@ -157,29 +157,10 @@ async fn the_plain_post_says_whether_it_is_held_and_since_when() {
 /// (theseus-zcn80).
 #[tokio::test]
 async fn a_thread_sessions_question_is_asked_by_the_thread() {
-    use crate::approval::{Answerer, Surface};
     let r = owned_rig(vec![], false);
-    let cli = || Answerer {
-        label: "the CLI".into(),
-        surface: Surface::Cli,
-        discord: None,
-        agent: None,
-    };
-    r.core
-        .thread_new(
-            &theseus_protocol::threads::ThreadNewParams {
-                slug: "harbour-log".into(),
-                title: Some("Harbour log notes".into()),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
-    let sid = r
-        .core
-        .thread_session("harbour-log", cli())
-        .unwrap()
-        .session_id;
+    let none = serde_json::json!({});
+    crate::tests_old_threads::thread(&r.core, "harbour-log", "Harbour log notes", none);
+    let sid = crate::tests_old_threads::session(&r.core, "harbour-log");
     let mut rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     rec.title = Some("Say ok, nothing else.".into());
     r.core.store.put_session(&sid, &rec).unwrap();

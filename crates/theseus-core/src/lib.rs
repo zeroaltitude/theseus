@@ -470,6 +470,8 @@ mod tests_offer;
 #[cfg(test)]
 mod tests_old_store;
 #[cfg(test)]
+mod tests_old_threads;
+#[cfg(test)]
 mod tests_one_turn;
 #[cfg(test)]
 mod tests_onto;

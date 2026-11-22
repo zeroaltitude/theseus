@@ -199,7 +199,6 @@ fn card_families() -> Vec<(&'static str, String)> {
         "the deploy landed",
         "👁 the deploy landed → MERGED",
     );
-    let seal = crate::rpc::thread_seal::seal_text("harbour", "harbour", "it looks embargoed");
     let link = crate::thread_link_seen::Pair {
         here: ("pipeline".into(), "datatidy pipeline".into()),
         other: ("stats".into(), "datatidy stats".into()),
@@ -222,7 +221,6 @@ fn card_families() -> Vec<(&'static str, String)> {
         ("routine failed", routine),
         ("routine month spent", routine_month),
         ("watch notice", watch),
-        ("seal card", seal),
         ("link card", link),
         ("retraction card", retraction),
         ("standing kept card", kept),

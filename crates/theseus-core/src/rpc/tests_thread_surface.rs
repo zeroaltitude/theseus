@@ -1,19 +1,16 @@
-//! A thread on Discord (theseus-sjzm), the core's half: the surfaces a thread
-//! is shown on, `thread.changed` told to every connection, the first message
-//! that opens a thread's session announced once, a place that runs as a
-//! thread (private only), and a thread's reply posted where its speaker spoke
-//! (their DM) and nowhere else.
+//! What a place tells the model of its routes (once a thread on Discord's core half, theseus-sjzm):
+//! the route hints by place, on plain sessions, and an old client's `thread` field, which runs in the
+//! session it names. The thread surfaces, state moves and thread sessions this file also tested were
+//! deleted with their writers (threads were retired on 2026-11-22, issue 44).
 
 use std::sync::Arc;
 
-use theseus_protocol::threads::{
-    channel_surface, surface_channel, Speaking, ThreadChanged, ThreadEditParams, ThreadNewParams,
-};
-use theseus_protocol::{error_code, DiscordOrigin, Id, Message, Request, TurnSubmitParams};
+use theseus_protocol::threads::Speaking;
+use theseus_protocol::{DiscordOrigin, Id, Message, Request, TurnSubmitParams};
 
 use super::tests::test_core;
 use super::Core;
-use crate::approval::{Answerer, Client, Surface};
+use crate::approval::{Client, Surface};
 use crate::places::BoundPlace;
 
 const OWNER: u64 = 271_828_182_845_904_523;
@@ -54,163 +51,6 @@ fn core() -> Arc<Core> {
         },
     ]);
     c
-}
-
-fn cli() -> Answerer {
-    Answerer {
-        label: "the CLI".into(),
-        surface: Surface::Cli,
-        discord: None,
-        agent: None,
-    }
-}
-
-fn make(c: &Core, slug: &str) {
-    c.thread_new(
-        &ThreadNewParams {
-            slug: slug.into(),
-            title: Some(format!("Title of {slug}")),
-            ..Default::default()
-        },
-        cli(),
-    )
-    .unwrap();
-}
-
-/// The `thread.changed` notifications the bus carried so far.
-fn changes(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Message>) -> Vec<ThreadChanged> {
-    let mut out = Vec::new();
-    while let Ok(m) = rx.try_recv() {
-        if let Message::Notification(n) = m {
-            if n.method == "thread.changed" {
-                out.push(serde_json::from_value(n.params).unwrap());
-            }
-        }
-    }
-    out
-}
-
-fn tap(c: &Core) -> tokio::sync::mpsc::UnboundedReceiver<Message> {
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    *c.bus.tap.lock().unwrap() = Some(tx);
-    rx
-}
-
-/// A thread's surfaces are edited whole by a person and one at a time by the
-/// binding; a bad one is refused, and each change is told once.
-#[test]
-fn a_thread_is_shown_on_surfaces_and_each_change_is_told_once() {
-    let c = core();
-    make(&c, "tides");
-    let mut rx = tap(&c);
-    let surface = channel_surface(LAB);
-    let edit = |s: Vec<String>| {
-        c.thread_edit(
-            &ThreadEditParams {
-                slug: "tides".into(),
-                surfaces: Some(s),
-                ..Default::default()
-            },
-            cli(),
-        )
-    };
-    let r = edit(vec![surface.clone(), surface.clone(), "cli".into()]).unwrap();
-    assert_eq!(r.thread.surfaces, [surface.clone(), "cli".to_string()]);
-    let told = changes(&mut rx);
-    assert_eq!(told.len(), 1, "{told:?}");
-    assert_eq!(
-        (told[0].change.as_str(), told[0].slug.as_str()),
-        ("edited", "tides")
-    );
-    assert_eq!(told[0].surfaces, r.thread.surfaces);
-    // The same again is no change, and says nothing.
-    edit(vec![surface.clone(), "cli".into()]).unwrap();
-    assert!(changes(&mut rx).is_empty());
-    // A surface that is neither `cli` nor a Discord channel is refused.
-    let bad = edit(vec!["discord:dm:1".into()]).unwrap_err();
-    assert_eq!(bad.code, error_code::INVALID_PARAMS);
-
-    // The binding's own: it adds and removes one, idempotently, as a system act.
-    let other = channel_surface(SHARED);
-    let t = c
-        .thread_surfaces("tides", Some(&other), Some("cli"), "discord")
-        .unwrap();
-    assert_eq!(t.surfaces, [surface, other.clone()]);
-    assert_eq!(surface_channel(&other), Some(SHARED));
-    assert_eq!(changes(&mut rx).len(), 1);
-    let t = c
-        .thread_surfaces("tides", Some(&other), None, "discord")
-        .unwrap();
-    assert_eq!(t.surfaces.len(), 2);
-    assert!(
-        changes(&mut rx).is_empty(),
-        "adding what is there changes nothing"
-    );
-    assert!(c
-        .thread_surfaces("nowhere", Some(&other), None, "discord")
-        .is_err());
-}
-
-/// Every move of a thread is told with its state, and a finished or paused
-/// one says so; sealed shows as a flag.
-#[test]
-fn each_move_is_told_with_the_state_it_ends_in() {
-    let c = core();
-    make(&c, "tides");
-    let mut rx = tap(&c);
-    c.thread_pause("tides", cli()).unwrap();
-    c.thread_resume("tides", cli()).unwrap();
-    c.thread_done("tides", cli()).unwrap();
-    c.thread_reopen("tides", cli()).unwrap();
-    let told: Vec<(String, String)> = changes(&mut rx)
-        .into_iter()
-        .map(|t| (t.change, t.state.as_str().to_string()))
-        .collect();
-    let want = [
-        ("paused", "paused"),
-        ("resumed", "active"),
-        ("done", "done"),
-        ("reopened", "active"),
-    ];
-    assert_eq!(
-        told,
-        want.map(|(a, b)| (a.to_string(), b.to_string())).to_vec()
-    );
-}
-
-/// The first message to a thread opens its session and says so, once; a place
-/// that runs as the thread is private or refused; a paused thread is refused.
-#[test]
-fn a_place_runs_as_a_thread_when_it_is_private_and_the_thread_active() {
-    let c = core();
-    make(&c, "tides");
-    let mut rx = tap(&c);
-    let lab = format!("discord:channel:{LAB}");
-    let first = c.thread_place_session("tides", &lab).unwrap();
-    let opened = changes(&mut rx);
-    assert_eq!(opened.len(), 1, "{opened:?}");
-    assert_eq!(opened[0].change, "opened");
-    assert_eq!(
-        c.threads().get("tides").unwrap().session_id.as_deref(),
-        Some(first.session_id.as_str())
-    );
-    let again = c.thread_place_session("tides", &lab).unwrap();
-    assert_eq!(again.session_id, first.session_id);
-    assert!(
-        changes(&mut rx).is_empty(),
-        "the second message opens nothing"
-    );
-    // The session posts nowhere until the binding names its place.
-    assert!(c.outbox.target(&first.session_id).is_none());
-
-    let town = format!("discord:channel:{SHARED}");
-    let e = c.thread_place_session("tides", &town).unwrap_err();
-    assert_eq!(e.code, error_code::REFUSED);
-    assert!(e.message.contains("private"), "{}", e.message);
-
-    c.thread_pause("tides", cli()).unwrap();
-    let e = c.thread_place_session("tides", &lab).unwrap_err();
-    assert!(e.message.contains("thread resume"), "{}", e.message);
 }
 
 /// One `turn.submit` to a session or a thread, over `client`.

@@ -333,22 +333,7 @@ fn fact(id: &str, text: &str, ends: Option<&str>) -> theseus_protocol::StandingR
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_line_of_works_card_holds_its_current_facts_as_its_gate_admits_them() {
     let r = rig(FakeJev::start().unwrap());
-    let who = crate::approval::Answerer {
-        label: "the CLI".into(),
-        surface: crate::approval::Surface::Cli,
-        discord: None,
-        agent: None,
-    };
-    r.core
-        .thread_new(
-            &theseus_protocol::threads::ThreadNewParams {
-                slug: "kiln-fire".into(),
-                title: Some("Kiln Fire".into()),
-                ..Default::default()
-            },
-            who,
-        )
-        .unwrap();
+    kiln(&r);
     let facts = vec![
         fact("std_a", "The kiln runs at night.", None),
         fact("std_b", "The kiln runs at dawn.", Some("std_a")),
@@ -572,22 +557,10 @@ async fn refused_exchanges_crowd_out_none_the_gate_admits() {
     assert_eq!(cards[0], cards[1]);
 }
 
+/// The thread `kiln-fire`'s old record (`tests_old_threads`).
 fn kiln(r: &Rig) {
-    r.core
-        .thread_new(
-            &theseus_protocol::threads::ThreadNewParams {
-                slug: "kiln-fire".into(),
-                title: Some("Kiln Fire".into()),
-                ..Default::default()
-            },
-            crate::approval::Answerer {
-                label: "the CLI".into(),
-                surface: crate::approval::Surface::Cli,
-                discord: None,
-                agent: None,
-            },
-        )
-        .unwrap();
+    let none = serde_json::json!({});
+    crate::tests_old_threads::thread(&r.core, "kiln-fire", "Kiln Fire", none);
 }
 
 /// The review's P2: a correction the gate refuses ends nothing the card
