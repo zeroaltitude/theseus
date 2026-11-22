@@ -135,6 +135,8 @@ async fn a_preview_lays_the_pieces_the_next_turn_records() {
     assert_eq!(p.fallback, None, "{p:?}");
     assert!(p.window >= 1, "{p:?}");
     let seen = p.view.clone().expect("a view");
+    // The tally in plain lines, as `theseus view preview` prints it (`--no-capture` shows it).
+    eprintln!("{}", theseus_protocol::view::preview_lines(&p));
 
     turn(c, &sid, "third: and now").await;
     let last = (c.store.get_session::<SessionRecord>(&sid).unwrap().unwrap())

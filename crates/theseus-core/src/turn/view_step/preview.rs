@@ -41,9 +41,9 @@ pub struct Preview<'a> {
 
 impl TurnRunner {
     /// The sessions of `place`, newest first: a turn's own (no task, not imported) that ran an exchange
-    /// the place's window reads (its newest `WINDOW_N`, as a turn reads it) (so history adopted into the ledger counts with no change here), or whose
-    /// place the gate reads as `place` today; and none the gate holds for the owner's look (sealed, seal
-    /// pending, unreadable), which lifts no seal.
+    /// the place's window reads (its newest `WINDOW_N`, as a turn's; so history adopted into the ledger
+    /// counts with no change here), or whose place the gate reads as `place` today; and none the gate
+    /// holds for the owner's look (sealed, seal pending, unreadable), which lifts no seal.
     pub fn place_sessions(&self, place: &str) -> anyhow::Result<Vec<SessionRecord>> {
         use crate::view::fold::Ladder;
         let ran: HashSet<String> =
