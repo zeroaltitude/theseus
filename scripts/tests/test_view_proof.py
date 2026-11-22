@@ -162,6 +162,10 @@ class Settings(unittest.TestCase):
         self.assertFalse(cfg["discord"]["enabled"])
         self.assertEqual(cfg["context"]["assembly"], "view")
 
+    def test_health_is_read_for_values_never_for_field_names(self):
+        health = {"keep_warm_hours": 3, "warnings": ["[cache] keep_warm_hours is retired"], "n": {"x": ["stub"]}}
+        self.assertEqual(sorted(proof.string_values(health)), ["[cache] keep_warm_hours is retired", "stub"])
+
     def test_the_retired_keys_are_the_cuts_list(self):
         """X-DECISIONS and the map's §6.8: every key the cut retires is in the settings file the case writes."""
         want = {"context.kept_mb", "context.ledger", "memory.summary_profile", "cache.keep_warm_hours",
@@ -169,10 +173,7 @@ class Settings(unittest.TestCase):
                 "cache.stub_min_tokens", "cache.stub_after_turns", "profiles.bench.keep_warm_hours",
                 "threads.resume_keep_turns", "threads.working_tokens"}
 
-        def keys(d, pre=""):
-            for k, v in d.items():
-                yield from keys(v, f"{pre}{k}.") if isinstance(v, dict) else [f"{pre}{k}"]
-        self.assertEqual(set(keys(proof.RETIRED)), want)
+        self.assertEqual(set(proof.leaf_keys(proof.RETIRED)), want)
         self.assertEqual(proof.CASES["retired_keys"][1], proof.RETIRED)
 
 
@@ -208,6 +209,42 @@ class Words(unittest.TestCase):
         c = proof.cost_table(runs)
         self.assertIn("| 2 | 120 | 90 | 120 | 90 |", c)
         self.assertIn("ratio view/default: total 1.00, not shared 1.18", c)
+
+
+@unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
+class LongCost(unittest.TestCase):
+    def test_the_tool_heavy_conversation_has_three_results_of_six_thousand_characters_a_turn(self):
+        lines, script = proof.tool_heavy(20)
+        self.assertEqual(len(lines), 20)
+        self.assertEqual(len(set(lines)), 20)
+        calls = script[lines[4]][0]["calls"]
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(f"head -c {proof.TOOL_RESULT_CHARS}" in c["input"]["argv"][2] for c in calls))
+
+    def test_no_turns_text_is_held_in_another(self):
+        """A marker held in another turn's text would take the wrong script (`Model`, first marker wins)."""
+        for conv, n in ((proof.short_conversation, 120), (proof.tool_heavy, 20)):
+            lines, _ = conv(n)
+            for a in lines:
+                self.assertEqual([b for b in lines if a in b], [a])
+
+    def test_the_writers_answer_is_a_title_and_an_account(self):
+        title, account = proof.WRITER.split("\n", 1)
+        self.assertTrue(title and account)
+        m = proof.Model()
+        self.addCleanup(m.close)
+        m.answer({"max_tokens": 1200, "messages": [user("fold these")]})
+        self.assertEqual(proof.WRITER_KINDS.get(m.seen[-1]["max_tokens"]), "fold")
+
+    def test_the_long_table(self):
+        row = {"turn": 1, "tokens": 100, "shared_tokens": 60, "calls": 1, "off_calls": 2, "off_tokens": 50,
+               "off_kinds": {"did": 1, "fold": 1}, "strategies": {"view": 1}}
+        runs = [{"mode": m, "case": "long_120", "rows": [row], "total_tokens": 100, "shared_tokens": 60,
+                 "unshared_tokens": 40, "off_calls": 2, "off_tokens": 50, "off_kinds": {"did": 1, "fold": 1},
+                 "unanswered": 0, "strategies": {"view": 1}, "fallback": {}} for m in proof.MODES]
+        t = proof.long_table(runs)
+        self.assertIn("| 1 | 100 | 40 | 1 | 2 (did1 fold1) 50t | view |", t)
+        self.assertIn("ratio view/default: sent 1.00, not shared 1.00, sent + off-turn 1.00", t)
 
 
 def built_bins() -> Path | None:

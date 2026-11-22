@@ -66,6 +66,10 @@ import tokens as tk  # noqa: E402
 
 MODES = ("view", "default")
 REPLY = "Done."
+# A writer's answer (a call that offers no tools: the ladder's `did` line and fold, a compaction's summary): a
+# title line, then an account, which is the shape a fold must have (`ladder/fold.rs`, `parse`); a `did` line
+# takes the first line.
+WRITER = "Charted the buoys.\nThe person noted buoys on the chart, one a turn, and Theseus confirmed each."
 # How long a case waits for the daemon to settle (every turn it started has ended or failed).
 SETTLE = 90.0
 # A gate job: it says it is up, then waits for its gate file (or its directory gone, or 300 s).
@@ -219,9 +223,9 @@ class Model:
             k = self.step[marker] if marker is not None else 0
             again = marker is not None and r == 0 and self.opened[marker] > 1
             self.seen.append({"req": req, "counted": counted, "marker": marker, "round": k,
-                              "tools": bool(req.get("tools"))})
+                              "tools": bool(req.get("tools")), "max_tokens": req.get("max_tokens")})
         if not req.get("tools"):  # a writer's call (a fold, a summary): it offers no tools
-            return 200, standin.text_turn(standin.SUMMARY, counted, rates)
+            return 200, standin.text_turn(WRITER, counted, rates)
         steps = [] if again else self.script.get(marker) or []
         step = steps[k] if k < len(steps) else {}
         if step.get("too_long"):
@@ -658,10 +662,36 @@ def shared_place(c: Case):
     return False, "not driven: every local client is the operator; a second person needs a Discord place"
 
 
+def leaf_keys(d: dict, pre: str = "") -> list[str]:
+    out = []
+    for k, v in d.items():
+        out += leaf_keys(v, f"{pre}{k}.") if isinstance(v, dict) else [f"{pre}{k}"]
+    return out
+
+
+def string_values(v) -> list[str]:
+    """Every string VALUE in `v` (never a key: a summary's field names are not a warning)."""
+    if isinstance(v, dict):
+        return [s for x in v.values() for s in string_values(x)]
+    if isinstance(v, list):
+        return [s for x in v for s in string_values(x)]
+    return [v] if isinstance(v, str) else []
+
+
 def retired_keys(c: Case):
+    """The daemon starts on a settings file naming every retired key, and answers. Its start-up warning goes to
+    stderr, which the kit discards; what CAN be read is `health`: how many of the retired keys a string in it
+    names (`retired_named_in_health`, of `retired_keys`). None today: health has no field for a config's
+    warnings."""
     s = c.session("retired")
     if not answered(submit(c.d, "Say hello.", session_id=s)):
         return False, "the daemon started but did not answer"
+    said = " ".join(string_values(c.d.json("health")))
+    keys = leaf_keys(RETIRED)
+    c.state["retired_keys"] = len(keys)
+    c.state["retired_named_in_health"] = sum(1 for k in keys if k.rsplit(".", 1)[-1] in said)
+    if c.state["retired_named_in_health"] < len(keys):
+        return True, f"health names {c.state['retired_named_in_health']} of {len(keys)} retired keys"
     return True, ""
 
 
@@ -771,32 +801,92 @@ def table(results: list[dict], modes) -> str:
 
 
 COST_TOOL_EVERY = 7
+# How long a turn's writer calls (the ladder's, made after the turn ends) are waited for: until none has come
+# for QUIET seconds, at most WRITER_WAIT.
+QUIET = 1.5
+WRITER_WAIT = 30.0
+# The ladder writer's two works, by the output cap each asks (`ladder/writer.rs`, `Work::max_tokens`).
+WRITER_KINDS = {200: "did", 1200: "fold"}
 
 
 def cost_line(i: int) -> str:
     return f"Turn {i}: note buoy number {i} on the chart."
 
 
-def cost_run(mode: str, bin_dir: Path, out: Path, n: int) -> dict:
-    """`n` turns in one place; per turn its first request's tokens and the prefix it shares with the last."""
+def short_conversation(n: int) -> tuple[list[str], dict]:
+    """`n` short messages, a `fs_list` call every seventh."""
     script = {cost_line(i): [{"calls": [{"name": "fs_list", "input": {"path": "."}}]}, {"text": "Charted."}]
               for i in range(1, n + 1) if i % COST_TOOL_EVERY == 0}
+    return [cost_line(i) for i in range(1, n + 1)], script
+
+
+TOOL_RESULT_CHARS = 6000
+
+
+def tool_line(i: int) -> str:
+    return f"Turn {i}: read the three tide logs."
+
+
+def tool_heavy(n: int) -> tuple[list[str], dict]:
+    """`n` turns, each with three tool results of about TOOL_RESULT_CHARS characters, then a short answer."""
+    def three(i: int) -> list[dict]:
+        return [{"name": "proc_run", "input": {"argv": ["sh", "-c", f"yes 'synthetic tide log {i}.{k} from the proof "
+                                                                    f"suite' | head -c {TOOL_RESULT_CHARS}"]}}
+                for k in range(3)]
+    script = {tool_line(i): [{"calls": three(i)}, {"text": "Read the three logs."}] for i in range(1, n + 1)}
+    return [tool_line(i) for i in range(1, n + 1)], script
+
+
+def writer_quiet(model: Model, timeout: float = WRITER_WAIT) -> None:
+    """Wait until the stand-in has been sent nothing for QUIET seconds (the ladder writes after a turn ends)."""
+    t0 = time.monotonic()
+    last, at = len(model.seen), time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        time.sleep(0.25)
+        n = len(model.seen)
+        if n != last:
+            last, at = n, time.monotonic()
+        elif time.monotonic() - at >= QUIET:
+            return
+
+
+def cost_run(mode: str, bin_dir: Path, out: Path, n: int, name: str = "cost",
+             conversation=short_conversation, extra: dict | None = None) -> dict:
+    """A conversation in one place. Per turn: its first request's tokens and the prefix it shares with the
+    previous turn's first request; the model calls the turn made; the calls made OFF the turn (a call that
+    offers no tools, between this turn's start and the next's: the ladder's `did` lines and folds, a
+    compaction's summary), with their tokens; and the turn's compilations by strategy."""
+    lines, script = conversation(n)
     model = Model(script)
-    root = out / mode / "cost"
+    root = out / mode / name
     per: list[dict] = []
     try:
-        with Daemon(bin_dir, root, model, settings(mode, root / "projects")) as d:
-            s = open_session(d, "cost", root / "projects" / "cost")
-            for i in range(1, n + 1):
+        with Daemon(bin_dir, root, model, settings(mode, root / "projects", extra)) as d:
+            s = open_session(d, name, root / "projects" / name)
+            for i, line in enumerate(lines, 1):
                 before = len(model.seen)
-                v = submit(d, cost_line(i), session_id=s)
+                try:
+                    v = submit(d, line, session_id=s)
+                except scratch.Failed:
+                    v = None
+                writer_quiet(model)
                 with model.lock:
-                    mine = [x for x in model.seen[before:] if x["tools"] and x["round"] == 0
-                            and cost_line(i) in turn_text(x["req"])]
-                per.append({"turn": i, "answered": answered(v), "req": mine[0] if mine else None})
+                    mine = model.seen[before:]
+                first = [x for x in mine if x["tools"] and x["round"] == 0 and line in turn_text(x["req"])]
+                off = [x for x in mine if not x["tools"]]
+                kinds = Counter(WRITER_KINDS.get(x.get("max_tokens"), "other") for x in off)
+                per.append({"turn": i, "answered": answered(v), "req": first[0] if first else None,
+                            "calls": sum(1 for x in mine if x["tools"]), "off_calls": len(off),
+                            "off_tokens": sum(x["counted"] for x in off), "off_kinds": dict(kinds)})
+            started = [r for r in rows(d, "turn.started") if r.get("session_id") == s]
+            by_turn: dict = {}
+            for r in rows(d, "context.compiled"):
+                by_turn.setdefault(r.get("turn_id"), Counter())[(r.get("data") or {}).get("strategy") or "unnamed"] += 1
             seen = observe(d)
     finally:
         model.close()
+    for p, r in zip(per, started):
+        p["strategies"] = dict(by_turn.get(r.get("turn_id")) or {})
     table_rows, prev = [], None
     for p in per:
         req = p.pop("req")
@@ -812,8 +902,12 @@ def cost_run(mode: str, bin_dir: Path, out: Path, n: int) -> dict:
         prev = b
     total = sum(r["tokens"] or 0 for r in table_rows)
     shared = sum(r["shared_tokens"] or 0 for r in table_rows)
-    return {"mode": mode, "rows": table_rows, "total_tokens": total, "shared_tokens": shared,
-            "unshared_tokens": total - shared, "strategies": seen["strategies"], "fallback": seen["fallback"]}
+    return {"mode": mode, "case": name, "rows": table_rows, "total_tokens": total, "shared_tokens": shared,
+            "unshared_tokens": total - shared, "off_calls": sum(r["off_calls"] for r in table_rows),
+            "off_tokens": sum(r["off_tokens"] for r in table_rows),
+            "off_kinds": dict(sum((Counter(r["off_kinds"]) for r in table_rows), Counter())),
+            "unanswered": sum(1 for r in table_rows if not r["answered"]),
+            "strategies": seen["strategies"], "fallback": seen["fallback"]}
 
 
 def cost_table(runs: list[dict]) -> str:
@@ -839,6 +933,52 @@ def cost_table(runs: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def strat(d: dict) -> str:
+    return ",".join(f"{k}{'x' + str(n) if n > 1 else ''}" for k, n in sorted(d.items())) or "-"
+
+
+def long_table(runs: list[dict]) -> str:
+    """A long cost case: per turn and mode, tokens, shared, not shared, the turn's calls, the calls off the
+    turn (with their kinds and tokens), and the compilations; then the totals and the ratios."""
+    modes = [r["mode"] for r in runs]
+    head = " | ".join(f"{m} tokens | {m} not shared | {m} calls | {m} off-turn | {m} compiled" for m in modes)
+    lines = [f"### {runs[0]['case']}", "", f"| turn | {head} |", "|---|" + "---|" * 5 * len(modes)]
+    for i in range(len(runs[0]["rows"])):
+        cells = []
+        for r in runs:
+            x = r["rows"][i]
+            unshared = x["tokens"] - x["shared_tokens"] if x["tokens"] is not None else None
+            kinds = " ".join(f"{k}{n}" for k, n in sorted(x["off_kinds"].items()))
+            cells += [str(x["tokens"]) if x["tokens"] is not None else "-",
+                      str(unshared) if unshared is not None else "-", str(x["calls"]),
+                      f"{x['off_calls']} ({kinds}) {x['off_tokens']}t" if x["off_calls"] else "0",
+                      strat(x.get("strategies") or {})]
+        lines.append(f"| {runs[0]['rows'][i]['turn']} | " + " | ".join(cells) + " |")
+    lines.append("")
+    for r in runs:
+        lines.append(f"{r['mode']}: sent {r['total_tokens']}, not shared {r['unshared_tokens']}, off-turn "
+                     f"{r['off_calls']} calls {r['off_tokens']} tokens {r['off_kinds']}, unanswered {r['unanswered']}, "
+                     f"compilations {r['strategies']}, hand-backs {r['fallback'] or 0}")
+    if len(runs) == 2 and runs[1]["total_tokens"]:
+        a, b = runs
+        ratio = lambda x, y: f"{x / y:.2f}" if y else "-"  # noqa: E731
+        lines.append(f"ratio {a['mode']}/{b['mode']}: sent {ratio(a['total_tokens'], b['total_tokens'])}, not shared "
+                     f"{ratio(a['unshared_tokens'], b['unshared_tokens'])}, sent + off-turn "
+                     f"{ratio(a['total_tokens'] + a['off_tokens'], b['total_tokens'] + b['off_tokens'])}")
+    return "\n".join(lines)
+
+
+# name -> (the conversation, its turns, the case's own settings)
+LONG = {
+    "long_120": (short_conversation, 120, {}),
+    "tool_heavy_20": (tool_heavy, 20, {}),
+}
+LONG_NOT_DRIVEN = {
+    "new_break": "skipped: the terminal has no /new (it is the chat's), and the kit keeps Discord off",
+    "day_change": "skipped: the daemon reads the machine's clock, and the kit cannot move it",
+}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--bin-dir", default="target/debug")
@@ -846,6 +986,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--assembly", choices=(*MODES, "both"), default="both")
     ap.add_argument("--cases", default="all", help="names, comma-separated, or all, or none")
     ap.add_argument("--cost-turns", type=int, default=30, help="0: no cost table")
+    ap.add_argument("--cost-long", action="store_true",
+                    help="the long cost cases: 120 short turns in one place, and 20 tool-heavy turns")
     ap.add_argument("--debug", action="store_true",
                     help="a failing case's tool results and offered tools in proof.json (the suite's own words)")
     a = ap.parse_args(argv)
@@ -871,6 +1013,14 @@ def main(argv: list[str] | None = None) -> int:
         runs = [cost_run(m, Path(a.bin_dir), out, a.cost_turns) for m in modes]
         report["cost"] = runs
         print("\n" + cost_table(runs))
+    if a.cost_long:
+        report["cost_long"] = {}
+        for name, (conv, n, extra) in LONG.items():
+            runs = [cost_run(m, Path(a.bin_dir), out, n, name, conv, extra) for m in modes]
+            report["cost_long"][name] = runs
+            print("\n" + long_table(runs), flush=True)
+        for name, why in LONG_NOT_DRIVEN.items():
+            print(f"\n### {name}\n\n{why}")
     (out / "proof.json").write_text(json.dumps(report, indent=1, sort_keys=True) + "\n")
     return 0 if all(r["ok"] or r.get("not_driven") for r in results) else 1
 
