@@ -337,6 +337,17 @@ pub fn of_node(
     Ok(view(node, item.as_ref(), &session, topics))
 }
 
+/// [`of_node`], read for `session` (round 2 makes the removals session-scoped; until then this is
+/// [`of_node`]).
+pub fn of_node_in(
+    store: &Store,
+    ontology: Option<&theseus_ontology::Ontology>,
+    node: &str,
+    _session: &str,
+) -> anyhow::Result<ItemLabelsView> {
+    of_node(store, ontology, node)
+}
+
 /// The items a piece of a view is read from, by node, as `view show` reads its text (`view::record::text`):
 /// the ask, the person's other messages and the reply of its first and last exchange, or the node a recall
 /// found. None for a piece made from items (a fold, a card, a fact): its labels are its sources'.
