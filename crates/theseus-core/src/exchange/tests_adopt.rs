@@ -110,7 +110,11 @@ async fn the_owner_adopts_a_dms_old_history_and_takes_it_back() {
         (dry.sessions, dry.exchanges, dry.touches, dry.unledgered),
         (1, 2, 2, 0)
     );
-    assert!(dry.id.is_none() && dry.left.is_empty(), "{dry:?}");
+    assert!(dry.id.is_none(), "{dry:?}");
+    assert!(
+        dry.left.keys().all(|k| k == "sessions_tied_to_no_place"),
+        "nothing of the DM is left: {dry:?}"
+    );
     assert_eq!(
         place(c, &o.dm_turns[0]),
         rebuild::UNKNOWN,
@@ -294,4 +298,21 @@ async fn only_the_owner_in_person_adopts() {
     }
     assert_eq!(place(c, &o.dm_turns[0]), rebuild::UNKNOWN);
     let _ = &o.lobby;
+}
+
+/// A session no record ties to a place is never adopted, its working
+/// directory included: a chat session whose place moved has one too.
+#[tokio::test]
+async fn a_session_tied_to_no_place_is_left_and_counted() {
+    let r = rig(1, |c| c.context.ledger = Some(false));
+    let c = &r.core;
+    let t = turn(c, owner_cli(), None, "an old terminal message").await;
+    assert_eq!(rebuilt(c, None, false).await.exchanges, 1);
+    let s: crate::session::SessionRecord = c.store.get_session(&t.session_id).unwrap().unwrap();
+    for here in [place_of(None, s.dir.as_deref()), "local".to_string()] {
+        let got = adoption::adopt(&c.store, &asker(&clear), &params(&here, false)).unwrap();
+        assert_eq!((got.exchanges, got.id), (0, None), "{here}");
+        assert_eq!(got.left.get("sessions_tied_to_no_place"), Some(&1));
+    }
+    assert_eq!(place(c, &t.turn_id), rebuild::UNKNOWN);
 }

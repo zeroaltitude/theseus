@@ -85,6 +85,7 @@ fn reason(key: &str) -> &str {
         "sessions_of_a_thread" => "sessions serving a thread, which spans places",
         "sessions_tied_to_another_place_too" => "sessions tied to another place as well",
         "sessions_sealed_or_unproven" => "sessions sealed, or whose seal cannot be read",
+        "sessions_tied_to_no_place" => "sessions (anywhere) no record ties to a place",
         "exchanges_adopted_already" => "exchanges adopted here already",
         "exchanges_placed_already" => "exchanges whose place was proven here",
         "exchanges_of_another_place" => "exchanges whose place was proven elsewhere",

@@ -11,16 +11,19 @@
 //!   the session a place runs on now), the succession links of a session
 //!   record (`supersedes`, `superseded_by`: the session a place moved from
 //!   and to at a `/new`), a wake's or report's target (`wake.target.<s>`),
-//!   the owner's marks of its messages (`said.<node>`, where each arrived),
-//!   and, for a session tied to no chat place, its working directory
-//!   (`local:<dir>`). A thread's session (`thread.shown.<s>`) serves a thread
+//!   and the owner's marks of its later messages (`said.<node>`, where each
+//!   arrived: a terminal session is tied to `local:<dir>` by these alone). A
+//!   session tied to none of these is left: its working directory is no
+//!   proof (a chat session whose place moved before the links were written
+//!   has one too). A thread's session (`thread.shown.<s>`) serves a thread
 //!   that spans places and is never adopted from; nor is a task's or an
 //!   imported one. None of these proves where an old message arrived or who
 //!   typed it: they say where the session spoke.
 //! - **Which exchanges.** Of those sessions, every exchange whose place is
 //!   `unknown` and that no adoption holds. One with a proven place is never
-//!   touched. A turn with no exchange yet means the rebuild has not run for
-//!   it: nothing is adopted then (the dry run counts them).
+//!   touched. A turn the rebuild would write (one with a message or a reply)
+//!   with no exchange yet means it has not run: nothing is adopted then (the
+//!   dry run counts them).
 //! - **The gate.** A session whose seal is not proven clear (sealed,
 //!   proposed, or unreadable) is left; a seal set later still hides its
 //!   exchanges where they are read, as for any exchange.
@@ -43,7 +46,7 @@ use theseus_store::{kinds, NewRecord, Store as _};
 
 use super::rebuild::UNKNOWN;
 use super::{exchange, mark, touch, Root};
-use crate::node::Body;
+use crate::node::{Body, Origin};
 use crate::outbox::{PLACE_META_PREFIX, SHOWN_PREFIX, WAKE_TARGET_PREFIX};
 use crate::session::SessionRecord;
 use crate::store::Store;
@@ -130,9 +133,6 @@ fn ties(
             out.extend(mark(store, &n.id)?.map(|m| m.place));
         }
     }
-    if out.is_empty() {
-        out.insert(super::place_of(None, s.dir.as_deref()));
-    }
     Ok((out, thread))
 }
 
@@ -171,16 +171,22 @@ fn left(out: &mut ExchangeAdoptResult, why: &str, n: u64) {
     }
 }
 
-/// The turns of `sid`, each once, by its first node.
-fn turns_of(store: &Store, sid: &str) -> anyhow::Result<Vec<String>> {
-    let mut seen = BTreeSet::new();
-    let mut out = Vec::new();
+/// The turns of `sid`, each once, by its first node, and whether each has
+/// what the rebuild writes an exchange for: a person's message or a reply.
+fn turns_of(store: &Store, sid: &str) -> anyhow::Result<Vec<(String, bool)>> {
+    let mut at: HashMap<String, usize> = HashMap::new();
+    let mut out: Vec<(String, bool)> = Vec::new();
     for (_, n) in store.session_nodes(sid)? {
-        if let Some(t) = n.turn_id {
-            if seen.insert(t.clone()) {
-                out.push(t);
-            }
-        }
+        let Some(t) = n.turn_id else {
+            continue;
+        };
+        let words = matches!(n.body, Body::AssistantMessage { .. })
+            || (matches!(n.body, Body::UserMessage { .. }) && n.origin == Origin::Operator);
+        let i = *at.entry(t.clone()).or_insert_with(|| {
+            out.push((t, false));
+            out.len() - 1
+        });
+        out[i].1 |= words;
     }
     Ok(out)
 }
@@ -193,6 +199,9 @@ fn plan(store: &Store, place: &str, a: &Asker<'_>) -> anyhow::Result<Plan> {
             continue;
         }
         let (tied, thread) = ties(store, &s, &bound)?;
+        if tied.is_empty() {
+            left(&mut p.out, "sessions_tied_to_no_place", 1);
+        }
         if !tied.contains(place) {
             continue;
         }
@@ -208,9 +217,9 @@ fn plan(store: &Store, place: &str, a: &Asker<'_>) -> anyhow::Result<Plan> {
             continue;
         }
         let mut took = false;
-        for turn in turns_of(store, sid)? {
+        for (turn, words) in turns_of(store, sid)? {
             let Some(ex) = exchange(store, &turn)? else {
-                p.out.unledgered += 1;
+                p.out.unledgered += u64::from(words);
                 continue;
             };
             match (ex.place == UNKNOWN, ex.place == place) {
