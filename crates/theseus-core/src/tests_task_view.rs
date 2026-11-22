@@ -310,33 +310,6 @@ const INNER: &str = "INNER-VIEW: count the gulls";
 /// its message, and its first turn is in its window.
 #[tokio::test]
 async fn a_report_to_a_task_is_a_view_turn_at_the_tasks_place() {
-    report_into_a_task(false).await;
-}
-
-/// The same in a shared place: the subtask's report into a task whose conversation is a shared channel is
-/// shown to the task (`view_gate::report_shown` reads the task's exchange as where it speaks), not held.
-#[tokio::test]
-async fn a_report_into_a_task_in_a_shared_place_is_shown_there() {
-    report_into_a_task(true).await;
-}
-
-/// A conversation in a shared channel, as the owner's binding makes one.
-fn shared_parent(core: &Arc<Core>) -> String {
-    let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
-    core.store.put_session(&rec.session_id, &rec).unwrap();
-    core.outbox
-        .bind_place("channel:77", &rec.session_id)
-        .unwrap();
-    core.runner.place_rule.bind_one(crate::places::BoundPlace {
-        target: "discord:channel:77".into(),
-        name: "the lab".into(),
-        private: false,
-        ..Default::default()
-    });
-    rec.session_id
-}
-
-async fn report_into_a_task(shared: bool) {
     let r = view_rig(|req, brief| {
         let last = last_text(req);
         Some(match brief {
@@ -362,10 +335,88 @@ async fn report_into_a_task(shared: bool) {
             _ => return None,
         })
     });
-    let parent = match shared {
-        true => shared_parent(&r.core),
-        false => parent_session(&r.core),
-    };
+    let parent = parent_session(&r.core);
+    // The quoted message apart: the outer task's arrangement copies it, and the subtask's quote must be
+    // found in the outer task's brief alone.
+    let arrangement = asked_apart(&r.core, &parent).await;
+    let input = json!({"brief": OUTER, "arrangement": arrangement, "fidelity_ack": true});
+    crate::test_support::turn(&r.core, &parent, &format!("CREATE {input}")).await;
+    let outer = task_by_brief(&r.core, OUTER);
+    let t0 = std::time::Instant::now();
+    while !(exchanges(&r.core, &outer).iter())
+        .any(|e| e.opened_by == Opener::Report && e.end_ms.is_some())
+    {
+        let waited = t0.elapsed() > std::time::Duration::from_secs(30);
+        assert!(!waited, "no report's turn: {}", state_of(&r, &outer, OUTER));
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    let place = crate::task_graph::place::of_session(&outer.session_id);
+    let ex = exchanges(&r.core, &outer);
+    assert!(ex.iter().all(|e| e.place == place), "{ex:?}");
+    let reqs = task_requests(&r, OUTER);
+    let report = (reqs.iter())
+        .find(|q| last_text(q).contains("[Report from task"))
+        .expect("the report's request");
+    let seen = serde_json::to_string(&report.messages).unwrap();
+    assert!(seen.contains("INNER FOUND: 42 gulls."), "{seen}");
+    assert!(
+        seen.contains("OUTER STARTED: waiting on the count."),
+        "its first turn: {seen}"
+    );
+    none_handed_back(&r.core, &outer);
+}
+
+/// The same in a shared place: the subtask's report into a task whose conversation is a shared channel is
+/// shown to the task (`view_gate::report_shown` reads the task's exchange as where it speaks), not held.
+#[tokio::test]
+async fn a_report_into_a_task_in_a_shared_place_is_shown_there() {
+    report_into_a_shared_task().await;
+}
+
+/// A conversation in a shared channel, as the owner's binding makes one.
+fn shared_parent(core: &Arc<Core>) -> String {
+    let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    core.outbox
+        .bind_place("channel:77", &rec.session_id)
+        .unwrap();
+    core.runner.place_rule.bind_one(crate::places::BoundPlace {
+        target: "discord:channel:77".into(),
+        name: "the lab".into(),
+        private: false,
+        ..Default::default()
+    });
+    rec.session_id
+}
+
+async fn report_into_a_shared_task() {
+    let r = view_rig(|req, brief| {
+        let last = last_text(req);
+        Some(match brief {
+            INNER => Scripted::text("INNER FOUND: 42 gulls."),
+            OUTER if last.contains("[Report from task") => Scripted::text("OUTER: it found 42."),
+            OUTER if answers_a_call(req) => Scripted::text("OUTER STARTED: waiting on the count."),
+            OUTER => Scripted::tools(
+                "Starting the count, and a late look.",
+                &[
+                    (
+                        "t_inner",
+                        "task_create",
+                        json!({"brief": INNER, "wake_parent": true, "arrangement": {"pieces": [
+                            {"quote": "have a subtask count the gulls", "role": "objective"}]}}),
+                    ),
+                    (
+                        "t_late",
+                        "wake_at",
+                        json!({"after": "1h", "note": "look again"}),
+                    ),
+                ],
+            ),
+            _ => return None,
+        })
+    });
+    let parent = shared_parent(&r.core);
     // The quoted message apart: the outer task's arrangement copies it, and the subtask's quote must be
     // found in the outer task's brief alone.
     let arrangement = asked_apart(&r.core, &parent).await;
