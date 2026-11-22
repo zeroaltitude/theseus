@@ -5,6 +5,7 @@
 //! session's marks as the gate reads them now. The view's gate then asks those marks as for any piece, so
 //! the view lays no more than the note carried, and never in company what it did not.
 
+use std::collections::BTreeSet;
 use std::sync::Mutex;
 
 use theseus_memory::gate::{Seal, Veil};
@@ -40,11 +41,36 @@ impl TurnRunner {
                 text: render::item(&r, Some(n)),
                 marks: self.recall_marks(asker, n),
                 at_ms: n.created_at_ms,
+                turn: n.turn_id.clone(),
                 item: r.clone(),
             });
             kept.push(r);
         }
         (kept, laid)
+    }
+
+    /// What a view turn's recall counts as already in front of the model (issue 44): the turn's own nodes
+    /// (its tail), and the nodes of this session's exchanges the window lays with their words on every turn
+    /// (`sources_recall::floor_turns`). A `Recall` note's sources exclude nothing (slot H is laid afresh each
+    /// turn), nor does an older node of the session no window holds, nor a node of no exchange.
+    pub(in crate::turn) fn view_in_context(&self, t: &super::super::Turn<'_>) -> BTreeSet<String> {
+        let (store, turn) = (t.tc.store, t.tc.turn_id);
+        let floor = t.exchange.place().map_or_else(BTreeSet::new, |place| {
+            let since = crate::ladder::new_mark(store, place).ok().flatten();
+            let ladder = crate::ladder::view::StoreLadder(store);
+            crate::view::sources_recall::floor_turns(&ladder, place, since.as_ref(), turn)
+        });
+        let Ok(nodes) = store.transcript(t.tc.session_id) else {
+            return BTreeSet::new();
+        };
+        let moves = crate::moved::read(&nodes);
+        (nodes.iter())
+            .filter(|(_, n)| n.kind != crate::stub::Kind::Recall && !moves.hidden.contains(&n.id))
+            .filter(|(_, n)| {
+                (n.turn_id.as_deref()).is_some_and(|id| id == turn || floor.contains(id))
+            })
+            .map(|(_, n)| n.id.clone())
+            .collect()
     }
 
     /// Whether an item the frozen view lays is held out now (a seal, a move): the view is reassembled.
@@ -61,6 +87,11 @@ impl TurnRunner {
         let (author, outside) = match &n.body {
             Body::AssistantMessage { .. } => (Author::Theseus, false),
             Body::ToolResult { .. } => (Author::Unknown, true),
+            // A known outside import is outside text, wrapped as any other.
+            Body::Imported {
+                integrity: crate::import::Integrity::Outside,
+                ..
+            } => (Author::Unknown, true),
             Body::UserMessage { .. } => (
                 crate::view::sources_store::author_of(&self.store, &n.id),
                 false,

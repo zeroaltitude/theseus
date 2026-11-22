@@ -243,6 +243,7 @@ impl Renderer for TextRenderer<'_> {
             };
             to.extend(self.blocks(p, s.form, &view.pov)?);
         }
+        recall_preamble(&mut moving);
         let (version, _) = page::memory_page();
         Ok(RequestParts {
             memory_page: version,
@@ -251,4 +252,25 @@ impl Renderer for TextRenderer<'_> {
             ..RequestParts::default()
         })
     }
+}
+
+/// The recall note's own first line, once, before the first recalled item laid (issue 44): the same words a
+/// `Recall` note opens with, its count the items laid, so the boundary is said whatever each item's label.
+fn recall_preamble(moving: &mut Vec<MarkedBlock>) {
+    let recalled =
+        |b: &MarkedBlock| (b.sources.iter()).any(|r| matches!(r.space, Space::Recalled { .. }));
+    let Some(at) = moving.iter().position(recalled) else {
+        return;
+    };
+    let n = moving.iter().filter(|b| recalled(b)).count();
+    moving.insert(
+        at,
+        MarkedBlock {
+            label: Label::Testimony,
+            heading: String::new(),
+            text: crate::recall::render::preamble(n),
+            sources: Vec::new(),
+            handle: None,
+        },
+    );
 }

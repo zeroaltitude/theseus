@@ -3,7 +3,7 @@
 //! the final reply of the range's first and last exchanges), not a replay of the bytes the model was sent.
 //! An exchange's text is its ask and its final reply, through the exchange record (`exchange.<turn>`, the
 //! ledger's) and their nodes. A space whose text this build does not read yet (a fold node, a fact, a card,
-//! a task, code's own text) gives none: the reader says so rather than guess.
+//! a task, code's own text) gives none; a recalled item gives its source node's text: the reader says so rather than guess.
 
 use serde::Deserialize;
 
@@ -64,6 +64,11 @@ impl StoreText<'_> {
 
 impl PieceText for StoreText<'_> {
     fn text(&self, piece: &Piece) -> Option<String> {
+        // A recalled item: its source node's text now, as recall reads it.
+        if let Space::Recalled { node, .. } = &piece.range.space {
+            let (_, n) = self.0.get_node(node).ok()??;
+            return Some(crate::recall::text_of(&n));
+        }
         let Space::Exchanges { .. } = &piece.range.space else {
             return None;
         };
