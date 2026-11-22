@@ -126,10 +126,14 @@ impl Rig {
     }
 
     /// Every request whose last user text holds `text` (the turn's own, its later calls included).
+    /// A turn's calls carry its tools. The ladder's `did` line of an exchange is a model call too, with no tools,
+    /// that quotes the message; it runs after the turn ends, so it is here only when it finishes before the
+    /// turn's requests are read, and it is not the turn's.
     fn requests_of(&self, text: &str) -> Vec<Value> {
         self.model
             .requests()
             .into_iter()
+            .filter(|r| r["tools"].as_array().is_some_and(|t| !t.is_empty()))
             .filter(|r| opening(r).contains(text))
             .collect()
     }
@@ -352,6 +356,8 @@ fn after_new_nothing_before_is_the_conversation_his_words_are_his_past_and_memor
     wait("the answer to /new", 30, || {
         (bot_said() > said).then_some(())
     });
+    // The turn's own calls only (`requests_of`: those carrying its tools, not the did-line call that quotes it);
+    // asserted non-empty after that choice, so the rule below binds at least one request.
     let after = r.turn(ana, None, "What should we chart next?");
     assert!(!after.is_empty(), "the turn after /new reached the model");
     // The memory turn runs before the rule on `after` is asserted, so a failure of one does not hide the other.
@@ -361,11 +367,7 @@ fn after_new_nothing_before_is_the_conversation_his_words_are_his_past_and_memor
         read.contains(BEFORE),
         "the memory tool reads the conversation from before /new: {read}"
     );
-    // The exchange's did-line call quotes the message too; it is a side call, not the turn's request.
-    for q in after
-        .iter()
-        .filter(|q| !opening(q).starts_with("The person's message:"))
-    {
+    for q in &after {
         assert_eq!(
             real_turns(q),
             0,
