@@ -119,6 +119,7 @@ fn a_shared_place_can_neither_list_nor_show_a_thread() {
 /// Every stored record under the threads' two META prefixes (the records and their places' bindings), as raw
 /// bytes, by key: what a read must leave exactly as it found.
 fn raw_threads(core: &Core) -> Vec<(Option<String>, u64, Vec<u8>)> {
+    use theseus_store::Store as _;
     let mut out = Vec::new();
     for prefix in [
         crate::threads::PREFIX.to_string(),
