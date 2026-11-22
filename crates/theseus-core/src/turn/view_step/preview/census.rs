@@ -46,7 +46,6 @@ impl TurnRunner {
                 person: Some(crate::exchange::OWNER.into()),
                 verified: Some(Verified::of_preview(self, sid, place)),
                 recalled: Vec::new(),
-                items: Vec::new(),
                 message: Some(String::new()),
                 items: Vec::new(),
             },
