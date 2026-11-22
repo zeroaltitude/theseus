@@ -897,26 +897,59 @@ async fn a_fold_over_a_thread_sealed_after_it_was_built_is_dropped() {
     assert!(!texts(&after).contains("7741"), "{}", texts(&after));
 }
 
-/// A view turn in a session with an earlier turn the ledger holds no exchange for takes the view (that turn
-/// is out of its reach, issue 44): its live recall is laid by the view, so the recalled episode, said in
-/// another session and absent from this transcript, is in the provider's request, and the unledgered
-/// turn's words are not. (A view turn that declines carries its recall: `over_budget` below.)
+/// A view turn that declines is the transcript's turn in full: its live recall, withheld while the view
+/// was tried, is carried in the same turn's request as on any transcript turn. Here the decline is
+/// `over_budget` (the provider refused the view's first call for its size; an earlier turn with no exchange
+/// no longer declines, issue 44), and the recalled episode, said in another session and absent from this
+/// transcript, is in the provider's request.
 #[tokio::test]
-async fn a_view_turn_over_unledgered_history_lays_its_recall() {
-    let (r, _) = owners_rig(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)));
+async fn a_declined_view_turn_carries_its_recall() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+    let calls = Arc::new(AtomicU32::new(0));
+    let seen = calls.clone();
+    let r = crate::tests_places::rig_setup_scripted(
+        |c| {
+            c.memory.mode = crate::config::MemoryMode::Live;
+            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+        },
+        |_| {},
+        move |q| {
+            if q.tools.is_empty() {
+                return crate::provider::Scripted::text("aside");
+            }
+            match seen.fetch_add(1, Ordering::SeqCst) {
+                0 => crate::provider::Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
+                    status: 400,
+                    message: "invalid_request_error: prompt is too long: 250000 tokens > 200000 maximum"
+                        .into(),
+                }),
+                _ => crate::provider::Scripted::text("Done."),
+            }
+        },
+    );
     let c = &r.core;
+    let earlier = crate::tests_places::session(c, None);
+    let mut n = crate::node::Node::user(&earlier, None, "test", crate::tests_private_view::EPISODE);
+    n.created_at_ms = 1_767_787_200_000;
+    c.store.append(&[n.record().unwrap()]).unwrap();
+    (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![earlier]));
     let sid = session_in(c, None, &r.root);
-    let earlier = crate::node::Node::user(&sid, Some("turn_old"), "test", "an earlier word");
-    c.store.append(&[earlier.record().unwrap()]).unwrap();
     turn(c, &sid, ASKED).await;
-    assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
-    let q = r.requests().pop().unwrap();
+    assert!(
+        fallbacks(c).contains(&"over_budget".to_string()),
+        "{:?}",
+        fallbacks(c)
+    );
+    let q = (r.requests().into_iter())
+        .rev()
+        .find(|q| !q.tools.is_empty())
+        .unwrap();
     assert!(
         texts(&q).contains(crate::tests_private_view::EPISODE),
-        "the recalled episode rides the view's request: {}",
+        "the recalled episode rides the declined turn's request: {}",
         texts(&q)
     );
-    assert!(!texts(&q).contains("an earlier word"), "{}", texts(&q));
 }
 
 /// Item 1 of round 2: the view's first call is refused by the provider for its size; the turn declines to

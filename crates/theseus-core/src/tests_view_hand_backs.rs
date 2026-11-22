@@ -149,7 +149,9 @@ async fn a_continuation_after_a_jobs_end_takes_the_view_and_answers() {
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
     crate::tests_places::turn(c, &sid, "run the long tide script").await;
+    // The job's completion queues the execution once the spool is drained (as `tests_resumed` drains it).
     r.until("the job's turn", 30, |r| {
+        r.core.heartbeat("test");
         r.requests().iter().any(|q| texts(q).contains(ENDED))
     })
     .await;
@@ -193,13 +195,9 @@ async fn a_turn_resumed_after_an_interruption_takes_the_view() {
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
     let _ = submit(c, &sid, "when is high tide at the harbour?").await;
-    let resumed = |r: &Rig| r.requests().iter().any(|q| texts(q).contains(RESUMES));
-    // The driver resumes it on its own backoff; else it is resumed here, as the driver would.
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    if !resumed(&r) {
-        let rec: crate::session::SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
-        let _ = c.continue_execution(&rec.execution_id.unwrap()).await;
-    }
+    // Queued for a continuation, as the kernel queues an interrupted execution; the driver takes it.
+    let rec: crate::session::SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
+    c.kernel.wake(&rec.execution_id.unwrap(), "test").unwrap();
     r.until("the resumed turn", 30, |r| {
         r.requests().iter().any(|q| texts(q).contains(RESUMES))
     })
@@ -316,12 +314,11 @@ async fn a_turn_resumed_after_a_restart_shows_the_cut_exchange_in_its_window() {
     c.store
         .append(&[crate::exchange::exchange_record(&ex).unwrap()])
         .unwrap();
+    // The next start queues the interrupted execution (`Kernel::wake`), and its driver resumes it.
     let rec: crate::session::SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
-    let res = c
-        .continue_execution(&rec.execution_id.unwrap())
-        .await
-        .unwrap()
-        .unwrap();
+    let exec = rec.execution_id.unwrap();
+    c.kernel.wake(&exec, "restart").unwrap();
+    let res = c.continue_execution(&exec).await.unwrap().unwrap();
     assert_eq!(res.output, "The ferry leaves at six.");
     let q = (fake.requests().into_iter())
         .rev()
