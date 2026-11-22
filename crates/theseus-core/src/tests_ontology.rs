@@ -436,8 +436,9 @@ fn admissions(r: &Rig, sid: &str) -> (Vec<String>, String) {
 /// The design's fifth, the guardrail: interpretations route context and
 /// never grant access. The same session compiled with and without a
 /// membership is admitted the same tools and context files, in a private
-/// place and in a shared one; and a shared place takes no guidance from
-/// what the operator assigned it, only from its own place.
+/// place and in a shared one; and only the channel's session takes the
+/// channel's own guidance. (Since 2026-11-22 a shared place takes what the
+/// operator assigned it too: no membership is withheld by place.)
 #[tokio::test]
 async fn admissions_are_identical_with_and_without_memberships() {
     let r = rig();
@@ -456,7 +457,6 @@ async fn admissions_are_identical_with_and_without_memberships() {
         assert_eq!(admissions(&r, &sid), without, "{place:?}");
         let system = system_text(&r.last_request());
         let shared = place.as_deref() == Some(&format!("channel:{LAB}"));
-        assert_eq!(system.contains(RULES), !shared, "{place:?}: {system}");
         assert_eq!(
             system.contains("This is the lab's channel."),
             shared,
