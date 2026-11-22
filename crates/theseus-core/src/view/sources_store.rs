@@ -261,10 +261,21 @@ impl Recall for StoreSources<'_> {
     /// Every item today's recall found and admitted, laid as its `Recall` note renders it, once each
     /// (`super::sources_recall`): what recall found, not the exchange it came from.
     fn recall(&self, pov: &PointOfView, _: &str) -> anyhow::Result<Vec<Ref>> {
+        let in_window = match &pov.anchor {
+            super::Anchor::Place(place) => {
+                let since = (self.mark.as_ref())
+                    .filter(|(p, _)| p == place)
+                    .map(|(_, m)| m);
+                let ladder = crate::ladder::view::StoreLadder(self.store);
+                super::sources_recall::floor_turns(&ladder, place, since, "")
+            }
+            _ => std::collections::BTreeSet::new(),
+        };
         Ok(super::sources_recall::refs(
             &self.recalled,
             pov,
             self.sessions,
+            &in_window,
         ))
     }
 }

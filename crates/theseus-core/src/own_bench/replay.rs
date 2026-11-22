@@ -146,6 +146,12 @@ impl Core {
     /// source session is an imported episode labelled `personal` or
     /// `partner-confidential`; any image or document block in the rebuilt
     /// messages. The same provider as the original's sends nothing new.
+    ///
+    /// A view turn's sources are what its record named, read once with the
+    /// view (`Original::laid`): every session it laid and the session of every
+    /// node its recall laid. Fail closed: a view turn with no provenance, a
+    /// recalled node that cannot be read, or a session whose record (its
+    /// labels) cannot be read refuses the crossing; none is skipped.
     pub(crate) fn crossing(&self, original: &Original, to_provider: &str) -> Option<String> {
         if original.compilation.manifest.provider == to_provider {
             return None;
@@ -158,19 +164,33 @@ impl Core {
         {
             return Some("its thread is sealed".into());
         }
-        for source in self.recalled_from(original) {
-            let imported = self
-                .store
-                .get_session::<crate::session::SessionRecord>(&source)
-                .ok()
-                .flatten()
-                .and_then(|r| r.imported);
-            if let Some(i) = imported {
-                if crate::memory_lookup::VEILED.contains(&i.labels.sensitivity.as_str()) {
-                    return Some(format!(
-                        "its recall carries a {} source",
-                        i.labels.sensitivity
-                    ));
+        let veiled = |r: Option<crate::session::SessionRecord>| {
+            let i = r.and_then(|r| r.imported)?;
+            let label = i.labels.sensitivity;
+            crate::memory_lookup::VEILED
+                .contains(&label.as_str())
+                .then(|| format!("its recall carries a {label} source"))
+        };
+        for source in noted(original) {
+            let rec = self.store.get_session(&source).ok().flatten();
+            if let Some(why) = veiled(rec) {
+                return Some(why);
+            }
+        }
+        match self.view_sources(original) {
+            Err(why) => return Some(why),
+            Ok(sessions) => {
+                for source in sessions {
+                    match self.store.get_session(&source) {
+                        Ok(Some(rec)) => {
+                            if let Some(why) = veiled(Some(rec)) {
+                                return Some(why);
+                            }
+                        }
+                        Ok(None) | Err(_) => {
+                            return Some("a source its view laid cannot be read".into());
+                        }
+                    }
                 }
             }
         }
@@ -180,20 +200,26 @@ impl Core {
         None
     }
 
-    /// The sessions `original`'s recall in front of the model came from: its recall notes' items, and the
-    /// nodes a view laid beside its message (a node that cannot be read names no session).
-    fn recalled_from(&self, original: &Original) -> Vec<String> {
-        let noted = (original.nodes.iter()).flat_map(|(_, n)| match &n.body {
-            Body::Recall { items, .. } => items.iter().map(|it| it.session_id.clone()).collect(),
-            _ => Vec::new(),
-        });
-        let record = (original.view.as_ref())
-            .and_then(|_| crate::view::record::read(&self.store, &original.compilation.id).ok())
-            .flatten();
-        let kept = record.and_then(|r| r.kept);
-        let laid = kept.iter().flat_map(|k| &k.recalled);
-        let viewed = laid.filter_map(|id| self.store.get_node(id).ok().flatten());
-        noted.chain(viewed.map(|(_, n)| n.session_id)).collect()
+    /// The sessions a view turn laid, as its record named them (`Original::laid`): every session of the view
+    /// and the session of each node its recall laid. None for a transcript's turn; an error, in the
+    /// crossing's words, for a view turn without its provenance or with a recalled node that cannot be read.
+    fn view_sources(&self, original: &Original) -> Result<Vec<String>, String> {
+        if original.compilation.strategy != crate::compiler::view::STRATEGY {
+            return Ok(Vec::new());
+        }
+        let Some(k) = original.laid.as_ref() else {
+            return Err("what its view laid cannot be read".into());
+        };
+        let mut all = k.sessions.clone();
+        for id in &k.recalled {
+            match self.store.get_node(id) {
+                Ok(Some((_, n))) => all.push(n.session_id),
+                Ok(None) | Err(_) => return Err("a node its recall laid cannot be read".into()),
+            }
+        }
+        all.sort_unstable();
+        all.dedup();
+        Ok(all)
     }
 
     /// One turn's first loop replayed on `p.profile`, judged, and written as
@@ -463,4 +489,14 @@ impl Core {
             Err(why) => result.unjudged = Some(why),
         }
     }
+}
+
+/// The sessions of `original`'s recall notes' items (a transcript's turn's recall).
+fn noted(original: &Original) -> Vec<String> {
+    (original.nodes.iter())
+        .flat_map(|(_, n)| match &n.body {
+            Body::Recall { items, .. } => items.iter().map(|it| it.session_id.clone()).collect(),
+            _ => Vec::new(),
+        })
+        .collect()
 }

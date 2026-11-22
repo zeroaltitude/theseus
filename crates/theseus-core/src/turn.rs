@@ -115,6 +115,7 @@ pub mod repeat_step;
 mod reply_step;
 mod request;
 mod rerank_step;
+mod resume_step;
 mod retract_step;
 mod retry_step;
 mod route_step;
