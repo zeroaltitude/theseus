@@ -485,37 +485,37 @@ async fn a_clear_reply_of_an_exchange_the_window_withholds_is_laid_in_slot_h() {
     }
 }
 
-/// A plain recalled item still names its session in its header: its id, its place and when it was said;
-/// and no title, though the session has one made of its first message.
+/// A plain recalled item still names its session in its header: its id and when it was said; and no
+/// title, though its session has one.
 #[tokio::test]
 async fn a_recalled_items_header_names_its_session_by_id_place_and_time() {
-    const FIRST: &str = "the Hollowmere orchard gate code is kept in the blue tin";
+    const SAID: &str = "the Hollowmere orchard gate code is kept in the blue tin";
+    const TITLE: &str = "Kestrel tin ledger";
     let (r, _) = owners_rig(view);
     let c = &r.core;
-    let old = session_in(c, None, &r.root);
-    turn(c, &old, FIRST).await;
-    let titled = (c.store.get_session::<crate::session::SessionRecord>(&old))
+    let notes = crate::tests_places::session(c, None);
+    let n = crate::node::Node::user(&notes, None, "test", SAID);
+    c.store.append(&[n.record().unwrap()]).unwrap();
+    let mut rec = (c.store.get_session::<crate::session::SessionRecord>(&notes))
         .unwrap()
         .unwrap();
-    assert!(titled.title.is_some(), "the session has a title");
-    c.runner.memory.set_ask(index_of(c, vec![old.clone()]));
+    rec.title = Some(TITLE.into());
+    c.store.put_session(&notes, &rec).unwrap();
+    c.runner.memory.set_ask(index_of(c, vec![notes.clone()]));
     let sid = session_in(c, None, &r.root);
     turn(c, &sid, ASKED).await;
     let q = last_call(&r);
-    let held = blocks_with(&q, FIRST);
+    let held = blocks_with(&q, SAID);
     let (_, text) = held.first().expect("recalled");
-    let short = crate::recall::evidence::short(&old);
+    let short = crate::recall::evidence::short(&notes);
     let line = (text.lines())
         .find(|l| l.contains(&format!("session {short}")))
         .unwrap_or_else(|| panic!("the header names its session: {text}"));
     assert!(
-        line.contains("on the CLI or the web UI") && line.contains("said "),
+        line.contains(" in ") && line.contains("said "),
         "place and time: {line}"
     );
-    assert!(
-        !line.contains(&format!("session {short} \"")),
-        "no title: {line}"
-    );
+    assert!(!texts(&q).contains(TITLE), "no title anywhere: {line}");
 }
 
 /// A recalled message moved into a sealed thread is not laid; moved between two calls of one turn, it is
