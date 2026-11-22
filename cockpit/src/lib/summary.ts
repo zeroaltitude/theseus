@@ -43,6 +43,7 @@ export function summarize(r: LedgerEntry): string {
     case 'turn.trace': return 'timing tree (open for spans)'
     case 'context.compiled':
       return `context ${d.decision}${d.trigger ? ` (${s('trigger')})` : ''}: ${tokens(d.est_tokens)} tokens, ${d.messages} messages (${d.strategy ?? ''}) · ${n(d.prefix_nodes ?? 0)}+${n(d.tail_nodes ?? 0)} nodes`
+    // An old store's row: the daemon stopped writing it (issue 46); `context.compiled` carries the same compilation.
     case 'context.recompiled':
       return `${s('trigger')} · ${s('strategy')} · ${s('includes')} node(s)${d.strip_thinking ? ' · thinking stripped' : ''}`
     case 'action.planned':

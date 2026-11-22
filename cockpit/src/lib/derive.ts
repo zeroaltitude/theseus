@@ -9,6 +9,8 @@ import { routedOf, type TurnRouted } from './route'
 
 // A billed call's shape and its reading are pure (calls.ts), so the tested modules can name them.
 export { providerCalls, totalIn, type ProviderCall, type RateLimit } from './calls'
+// The context compiles' series is pure too (contextRows.ts): one row kind, the per-call one.
+export { contextSeries, isContextCompile } from './contextRows'
 
 export interface LedgerTail { rows: LedgerEntry[]; total: number }
 
@@ -110,21 +112,6 @@ export function quantile(xs: number[], q: number): number | undefined {
   if (!xs.length) return undefined
   const s = [...xs].sort((a, b) => a - b)
   return s[Math.min(s.length - 1, Math.floor(q * s.length))]
-}
-
-/** est_tokens per context compile, per session: [time, tokens]. */
-export function contextSeries(rows: LedgerEntry[] | undefined): Map<string, [number, number][]> {
-  const m = new Map<string, [number, number][]>()
-  for (const r of rows ?? []) {
-    if (r.kind !== 'context.compiled' && r.kind !== 'context.recompiled') continue
-    const d = (r.data ?? {}) as Record<string, any>
-    const sid = d.session_id ?? r.session_id ?? '?'
-    if (typeof d.est_tokens !== 'number') continue
-    const arr = m.get(sid) ?? []
-    arr.push([r.at_unix_ms, d.est_tokens])
-    m.set(sid, arr)
-  }
-  return m
 }
 
 export function useDerived(n = 2000) {
