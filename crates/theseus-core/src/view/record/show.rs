@@ -65,6 +65,7 @@ fn kind_of(space: &Space) -> &'static str {
         Space::Card { .. } => "card",
         Space::Task { .. } => "task",
         Space::Waiting { .. } => "waiting",
+        Space::Recalled { .. } => "recalled",
         Space::Code { .. } => "code",
     }
 }

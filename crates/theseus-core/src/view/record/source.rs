@@ -10,6 +10,7 @@
 //! - Code's own text (the frame, the clock): every reader's; it has no source.
 //! - A named thing's card and a waiting record: the owner alone, and every session it was read from (its
 //!   `from`, ids only) readable and clear today; the facts about the person: the owner alone.
+//! - A recalled item: its session's marks through the gate, and its node not moved into a thread held out.
 //! - A fold node, a task: no session this build can prove today, so not shown.
 //! - A piece whose stored marks say sealed or veiled stays out (marks only grow).
 
@@ -57,6 +58,16 @@ impl GateSource<'_> {
                 })
     }
 
+    /// Whether a recalled item may be shown today: its session's marks pass the gate for this reader, and
+    /// its node reads clear (`view_gate::readable_nodes`: its session's seal, and a thread it was moved into).
+    fn recalled_clear(&self, session: &str, node: &str) -> bool {
+        let m = view_gate::session_marks(self.runner, self.asker, session, Veil::Clear);
+        let node = [(session.to_string(), node.to_string())];
+        crate::view::sources_names::place_reads(m.place.as_deref())
+            && Gate::check(&self.pov, &m).is_ok()
+            && !view_gate::readable_nodes(self.runner, self.asker, node.to_vec(), pair).is_empty()
+    }
+
     /// The sessions behind an exchange range of `place`; none when they cannot all be proven, or when a
     /// message or reply of an exchange in it was moved into a thread not proven clear for this reader
     /// (`view_gate::Moved`: the owner's inspection lifts no seal).
@@ -87,6 +98,11 @@ impl GateSource<'_> {
     }
 }
 
+/// A node's session and id, as `view_gate::readable_nodes` reads them.
+fn pair(n: &(String, String)) -> (&str, &str) {
+    (&n.0, &n.1)
+}
+
 impl Source for GateSource<'_> {
     fn may_show(&self, range: &SourceRange, marks: Option<&Marks>) -> bool {
         if marks.is_some_and(|m| m.sealed || m.veiled) || self.pov.present == Present::Unknown {
@@ -102,6 +118,9 @@ impl Source for GateSource<'_> {
                     && from.as_ref().is_some_and(|p| self.proven(p))
             }
             Space::Facts { .. } => return self.pov.present == Present::OwnerAlone,
+            // A recalled item: its session's marks pass the gate now, and its node is not moved into a
+            // thread not proven clear for this reader.
+            Space::Recalled { session, node } => return self.recalled_clear(session, node),
             _ => return false,
         };
         let Some(sessions) = self.sessions(place, range) else {
