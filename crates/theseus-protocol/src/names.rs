@@ -213,6 +213,9 @@ pub mod method {
         /// What a turn was shown and why (issue 44; `view::ViewShowParams`): the view record of each view the
         /// turn built. A read; ids, kinds and counts, text only for the owner at his own terminal.
         VIEW_SHOW = "view.show",
+        /// The view a place's next turn would get, assembled now and neither sent nor kept (issue 44;
+        /// `view::ViewPreviewParams`). A read: the owner's in person, or an agent's of its own place.
+        VIEW_PREVIEW = "view.preview",
         /// The books, first cut (theseus-civ0; `books`): each book's count and span, and a book's
         /// episodes newest first, filtered and paged. Reads.
         BOOKS_LIST = "books.list", BOOKS_PAGE = "books.page",

@@ -5,8 +5,8 @@
 //!
 //! None of it is the record: a route is the `thread.routed` row its turn
 //! writes in its own first frame, and a move is `thread.moved`. A restart
-//! forgets the place memory (a reply to an old message needs the new run's
-//! turns).
+//! forgets the place memory; a reply to a turn this memory does not hold
+//! finds its thread by that row (`rpc/thread_flow.rs`, issue 44).
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -18,7 +18,8 @@ use theseus_protocol::threads::WorkingSet;
 use crate::judge::inbound::Early;
 use crate::thread_route::Last;
 
-/// The turns remembered for a reply to find.
+/// The turns remembered for a reply to find: a cache of their
+/// `thread.routed` rows, which a miss reads.
 const TURNS: usize = 512;
 /// The routed messages remembered for a move to find.
 const ROUTED: usize = 128;

@@ -386,6 +386,8 @@ mod tests_fresh_recall;
 #[cfg(test)]
 mod tests_gate_layers;
 #[cfg(test)]
+mod tests_gate_readers;
+#[cfg(test)]
 mod tests_glide;
 #[cfg(test)]
 mod tests_grants;

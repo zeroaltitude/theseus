@@ -112,7 +112,7 @@ async fn work_coding_is_what_puts_the_coding_hint_in_the_tail() {
 fn the_acting_list_names_each_packs_own_options() {
     use crate::learning::report::ACTING;
     for (pack, question) in [
-        ("route.v10", "model"),
+        ("route.v11", "model"),
         ("effort.v1", "effort"),
         ("work.v1", "work"),
         ("split.v1", "split"),

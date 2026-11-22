@@ -13,4 +13,10 @@ keep_warm_hours: number,
 /**
  * The day's numbers; absent until the first read of the ledger ends.
  */
-cache?: ThreadsCache, };
+cache?: ThreadsCache, 
+/**
+ * Threads whose record of the conversation they run on cannot be read
+ * (issue 44): until it reads again, recall holds out every conversation
+ * whose thread it cannot prove. A count, never which.
+ */
+unread_bindings: number, };

@@ -155,8 +155,8 @@ impl Tool for MoveToThread {
         MOVE
     }
     fn description(&self) -> &'static str {
-        "Move the message the router placed in the wrong thread to the thread the operator \
-         says it was for, or to home. It is run again there when this turn ends."
+        "Move this message to the thread the operator says it was for, or to home. It is run \
+         again there when this turn ends."
     }
     fn input_schema(&self) -> Value {
         json!({

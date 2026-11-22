@@ -732,6 +732,7 @@ async fn stop_keeps_the_places_session_and_new_alone_starts_a_fresh_one() {
         guild: None,
         thread: None,
         reply_turn: None,
+        reply_unheld: None,
         task: None,
     }]);
     let done = tokio::time::timeout(Duration::from_secs(10), async {

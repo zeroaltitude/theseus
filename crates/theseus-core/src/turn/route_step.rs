@@ -912,7 +912,6 @@ impl TurnRunner {
             effort_reason: e.map(|e| e.reason.as_str().into()),
             effort_applied: applied.map(|e| effort::name(e).into()),
             persona: persona_shown,
-            data: None,
         });
     }
 

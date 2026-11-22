@@ -38,8 +38,8 @@ export function startParams(f: NewTaskForm): TaskStartParams | null {
 
 export interface Choice { name: string; label: string; grey: string | null }
 
-/** The profiles a task may run on: each with the floor's reason when the home's data refuses it (the daemon clears
- *  every profile, so none is greyed by origin). No profile is picked: the task runs on the parent's model unless the
+/** The profiles a task may run on, each with the floor's grey (none for a configured profile: no label keeps a task
+ *  off a model). No profile is picked: the task runs on the parent's model unless the
  *  owner picks one. */
 export function profileChoices(profiles: readonly ProfileInfo[], mark: DataMark | undefined): { choices: Choice[] } {
   return { choices: profiles.map((p) => ({ name: p.name, label: `${p.name} · ${p.model}${p.origin ? ` · ${p.origin}` : ''}`, grey: greyOf(mark, p.name, p) })) }

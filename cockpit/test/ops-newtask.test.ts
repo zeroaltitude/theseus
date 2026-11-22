@@ -26,20 +26,20 @@ test('a bad budget blocks the start; blank is a quarter of what is left', () => 
   assert.equal(startParams({ ...EMPTY_FORM, brief: 'b', budget: 'x' }), null)
 })
 
-const prof = (name: string, origin: string): ProfileInfo => ({ name, provider: 'p', model: `m-${name}`, max_output_tokens: 1, has_system: false, live: false, origin, cleared: origin === 'us' })
+const prof = (name: string, origin: string): ProfileInfo => ({ name, provider: 'p', model: `m-${name}`, max_output_tokens: 1, has_system: false, live: false, origin })
 
-test('profile choices: the home’s mark greys a profile the daemon does not clear', () => {
+test('profile choices: the home’s mark greys no configured profile', () => {
   const ps = [prof('quick', 'us'), prof('kimi', 'cn')]
   assert.deepEqual(profileChoices(ps, 'open').choices.map((c) => c.grey), [null, null])
   const sens = profileChoices(ps, 'sensitive').choices
   assert.equal(sens[0].grey, null)
-  assert.match(sens[1].grey!, /not a model of US origin/)
+  assert.equal(sens[1].grey, null)
 })
 
-// The daemon clears every profile since its rule about a model's origin went (2026-11-21): a profile of China origin,
-// as `profile.list` now sends it, is offered like any other, whatever the home holds, and nothing is picked for the owner.
+// No rule reads a model's origin since 2026-11-21: a profile of China origin, as `profile.list` sends it, is offered
+// like any other, whatever the home holds, and nothing is picked for the owner.
 test('a profile of cn origin that the daemon clears is offered like any other', () => {
-  const kimi: ProfileInfo = { ...prof('kimi', 'cn'), cleared: true }
+  const kimi: ProfileInfo = prof('kimi', 'cn')
   const ps = [prof('quick', 'us'), kimi]
   for (const mark of ['open', 'private', 'sensitive'] as const) {
     const { choices } = profileChoices(ps, mark)

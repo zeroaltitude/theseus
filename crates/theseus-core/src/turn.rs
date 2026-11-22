@@ -133,6 +133,7 @@ mod target;
 pub(crate) mod tier;
 mod title_step;
 pub(crate) mod view_step;
+pub use view_step::preview::Preview;
 
 pub use request::TurnRequest;
 #[cfg(test)]
