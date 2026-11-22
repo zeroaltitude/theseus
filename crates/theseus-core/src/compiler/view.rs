@@ -47,8 +47,16 @@ pub struct Frozen {
     /// The turn's own answers whose thinking a reset retired (a seal since, a refused image under it, a
     /// forced recompile): sent without it from then on.
     pub stripped: HashSet<String>,
-    /// The sessions whose exchanges the view lays: re-checked against their seals before each call.
+    /// The sessions whose exchanges the view lays, the ladder's fold nodes' included: re-checked against
+    /// their seals before each call.
     pub sessions: Vec<String>,
+    /// The thread card the chain began with: its later calls send it, whatever the thread says since.
+    pub card: Option<String>,
+    /// The verified point of view it was assembled under; a different reading before a later call (a steer
+    /// narrowed it) reassembles under the new permit.
+    pub verified: Option<theseus_memory::gate::PointOfView>,
+    /// This turn is the transcript's (`turn::view_step`'s fallback): it stays so.
+    pub declined: bool,
     /// The block beside the new message (waiting, in play, elsewhere lately, called).
     pub beside: Option<Node>,
     /// The memory page, at the end of the system part; empty for none.
@@ -84,31 +92,75 @@ fn with_page(spec: &RequestSpec, page: &str) -> Option<RequestSpec> {
 /// node ids its `includes`), a later call of the same turn appends to it. `input.nodes` is the session's
 /// transcript; the turn's own nodes are read from it by turn id.
 pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
-    let current = input
-        .current
-        .filter(|c| frozen.compilation_id.as_deref() == Some(c.id.as_str()));
+    let (spec, current) = chain_spec(&input, frozen);
+    let spec = &spec;
     let new_compilation = current.is_none();
-    // The transcript's spec preparation (`super::prepared`): the turn's first call renders the recompile's
-    // spec (the walk's guidance, the resolved tools, the card as it stands now), its later calls the append's,
-    // which keeps what the first recorded and adds what the turn loaded since.
-    let (appended, recompiled) = prepared(&input);
-    let chosen = match (new_compilation, appended.as_deref()) {
-        (false, Some(a)) => a,
-        _ => &*recompiled,
-    };
-    let applied = prefix::applied(chosen);
-    let page = with_page(&applied, &frozen.memory_page);
-    let spec = page.as_ref().unwrap_or(&*applied);
     let entry = input.catalog.get(&spec.model);
     let window = input.window_override.or(entry.map(|e| e.context_window));
-    let mut compilation = current
+    let compilation = current
         .cloned()
         .unwrap_or_else(|| made_now(&input, frozen, spec, window));
-    let laid = laid(input.nodes, frozen);
+    // A new chain in the middle of a turn: the turn's answers so far go without their thinking.
+    let mut stripped = frozen.stripped.clone();
+    if new_compilation && frozen.compilation_id.is_some() {
+        stripped.extend(own_answers(input.nodes, &frozen.turn_id));
+    }
+    let laid = laid(input.nodes, frozen, &stripped);
+    compiled_from(&input, spec, (compilation, new_compilation), &laid)
+}
+
+/// The spec a call renders, and the chain's compilation it appends to (none: a new chain).
+fn chain_spec<'c>(
+    input: &CompileInput<'c>,
+    frozen: &Frozen,
+) -> (RequestSpec, Option<&'c Compilation>) {
+    let window_of = |s: &RequestSpec| {
+        let entry = input.catalog.get(&s.model);
+        input.window_override.or(entry.map(|e| e.context_window))
+    };
+    // The transcript's spec preparation (`super::prepared`): a chain's first call renders the recompile's
+    // spec (the walk's guidance, the resolved tools, the card as it stands now); its later calls the
+    // append's, with the card the chain began with. An effective spec that changed since the chain began (a
+    // family `tools_find` loaded, a changed system, tools or model) starts a new chain, as the transcript
+    // recompiles on a changed digest.
+    let (appended, recompiled) = prepared(input);
+    let fresh = || effective(&recompiled, None, &frozen.memory_page);
+    let chained = input
+        .current
+        .filter(|c| frozen.compilation_id.as_deref() == Some(c.id.as_str()));
+    let (spec, current) = match chained {
+        None => (fresh(), None),
+        Some(c) => {
+            let base = appended.as_deref().unwrap_or(&*recompiled);
+            let s = effective(base, frozen.card.as_deref(), &frozen.memory_page);
+            let m = manifest_for(&s, input.catalog, window_of(&s), true);
+            let same = (m.system_digest == c.manifest.system_digest)
+                && m.tools_digest == c.manifest.tools_digest
+                && m.model == c.manifest.model
+                && m.provider == c.manifest.provider;
+            match same {
+                true => (s, Some(c)),
+                false => (fresh(), None),
+            }
+        }
+    };
+    (spec, current)
+}
+
+/// The request of a call from its spec, its compilation (and whether it is new) and the laid nodes: the
+/// clearing pass at a chain's first call, the render, the estimate and the report.
+fn compiled_from(
+    input: &CompileInput<'_>,
+    spec: &RequestSpec,
+    (mut compilation, new_compilation): (Compilation, bool),
+    laid: &(Vec<(u64, Stub)>, u64),
+) -> Compiled {
+    let entry = input.catalog.get(&spec.model);
+    let window = input.window_override.or(entry.map(|e| e.context_window));
     let rates = entry.map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
     let made = |c: &Compilation| {
-        let split = split(c, &laid);
-        let rendered = render(spec, input.catalog, &split, &laid.0, &input);
+        let split = split(c, laid);
+        let rendered = render(spec, input.catalog, &split, &laid.0, input);
         let counted = counted_part(&laid.0, &split, &rendered.request);
         let est = estimate(&rendered.request, rates, counted);
         (split, rendered, est)
@@ -177,7 +229,7 @@ pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
             .count() as u64,
         situation,
         cleared,
-        card: None,
+        card: spec.card.as_ref().map(|c| c.shown.clone()),
         prefix: None,
     }
 }
@@ -247,7 +299,11 @@ fn clear(
 
 /// The nodes as the request lays them, renumbered so the compiler's split reads the front and the window as
 /// the prefix and the beside block and the turn's own nodes as the tail; and where the prefix ends.
-fn laid(nodes: &[(u64, Stub)], frozen: &Frozen) -> (Vec<(u64, Stub)>, u64) {
+fn laid(
+    nodes: &[(u64, Stub)],
+    frozen: &Frozen,
+    stripped: &HashSet<String>,
+) -> (Vec<(u64, Stub)>, u64) {
     let turn = frozen.turn_id.as_str();
     let front = frozen.front.iter().map(|n| Stub::from(n.clone()));
     let window = frozen.window.iter().map(|(_, n)| n.clone());
@@ -256,7 +312,7 @@ fn laid(nodes: &[(u64, Stub)], frozen: &Frozen) -> (Vec<(u64, Stub)>, u64) {
     let own = nodes
         .iter()
         .filter(|(_, n)| n.turn_id.as_deref() == Some(turn) && n.kind != crate::stub::Kind::Recall)
-        .map(|(_, n)| match frozen.stripped.contains(&n.id) {
+        .map(|(_, n)| match stripped.contains(&n.id) {
             true => unthought(n),
             false => n.clone(),
         });
@@ -344,6 +400,30 @@ fn mark_front(rendered: &mut Rendered, first_tail: Option<&str>, spec: &RequestS
         if let Some(o) = req.system[i].as_object_mut() {
             o.remove("cache_control");
         }
+    }
+}
+
+/// The turn's own answers so far, by node id.
+pub fn own_answers<'a>(
+    nodes: &'a [(u64, Stub)],
+    turn: &'a str,
+) -> impl Iterator<Item = String> + 'a {
+    (nodes.iter())
+        .filter(move |(_, n)| n.turn_id.as_deref() == Some(turn))
+        .filter(|(_, n)| n.kind == crate::stub::Kind::AssistantMessage)
+        .map(|(_, n)| n.id.clone())
+}
+
+/// The spec a call renders: `s` with the prefix library's header, the chain's card when it has one, and the
+/// memory page.
+fn effective(s: &RequestSpec, card: Option<&str>, page: &str) -> RequestSpec {
+    let mut s = prefix::applied(s).into_owned();
+    if let (Some(c), Some(t)) = (s.card.as_mut(), card) {
+        c.shown = t.to_string();
+    }
+    match with_page(&s, page) {
+        Some(p) => p,
+        None => s,
     }
 }
 

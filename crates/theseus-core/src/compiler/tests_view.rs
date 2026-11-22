@@ -129,21 +129,25 @@ fn frozen(turn: &str, window: &[Node]) -> Frozen {
         beside: Some(Frozen::block("s", turn, "beside", "waiting: one question")),
         memory_page: "# How your memory works".into(),
         record: None,
+        ..Frozen::default()
     }
 }
 
 fn run(f: &Frozen, own: &[Node], current: Option<&Compilation>) -> Compiled {
+    run_with(&spec(), f, own, current)
+}
+
+fn run_with(s: &RequestSpec, f: &Frozen, own: &[Node], current: Option<&Compilation>) -> Compiled {
     let nodes: Vec<(u64, crate::stub::Stub)> = (own.iter().enumerate())
         .map(|(i, n)| (1000 + i as u64, n.clone().into()))
         .collect();
-    let s = spec();
     view::compile(
         CompileInput {
             session_id: "s",
             current,
             nodes: &nodes,
             last_position: 2000,
-            spec: &s,
+            spec: s,
             catalog: &Catalog::builtin(),
             force: None,
             window_override: None,
@@ -320,4 +324,63 @@ fn a_reset_retires_the_turns_own_thinking() {
     let all = serde_json::to_string(&reset.request.messages).unwrap();
     assert!(!all.contains("\"thinking\""), "{all}");
     assert!(all.contains("tool_use"), "its calls stay, paired");
+}
+
+/// An effective spec that changed between two calls of a turn (a tool family `tools_find` loaded) starts a
+/// new chain, as the transcript recompiles on a changed tools digest: a new compilation recording the new
+/// tool set, the turn's answers so far without their thinking.
+#[test]
+fn a_tool_set_that_changed_mid_turn_starts_a_new_chain() {
+    let mut f = frozen("t1", &exchange("t0", 10));
+    let mut own = vec![Node::user("s", Some("t1"), "cli", "now")];
+    let first = run(&f, &own, None);
+    f.compilation_id = Some(first.compilation.id.clone());
+    own.push(said("t1", vec![thinking(), read("c1")]));
+    own.push(result("t1", "c1", "short"));
+    let same = run(&f, &own, Some(&first.compilation));
+    assert!(!same.new_compilation, "an unchanged spec appends");
+    let mut more = spec();
+    let mut tools = more.tools.to_vec();
+    tools.push(json!({"name": "git_log", "description": "d", "input_schema": {"type": "object"}}));
+    more.tools = tools.into();
+    let changed = run_with(&more, &f, &own, Some(&first.compilation));
+    assert!(
+        changed.new_compilation,
+        "a changed tool set starts a new chain"
+    );
+    assert_ne!(
+        changed.compilation.manifest.tools_digest,
+        first.compilation.manifest.tools_digest
+    );
+    let all = serde_json::to_string(&changed.request.messages).unwrap();
+    assert!(
+        !all.contains("\"thinking\""),
+        "the turn's answer goes without its thinking: {all}"
+    );
+}
+
+/// The thread card the chain began with is the one its later calls send, though the turn-start spec's
+/// append would take the card recorded before; it is recorded with the compilation.
+#[test]
+fn the_chains_card_is_frozen_and_recorded() {
+    let mut s = spec();
+    s.card = Some(card::Card::new(
+        "[Thread card: NOW]".into(),
+        Some("[Thread card: BEFORE]".into()),
+    ));
+    let mut f = frozen("t1", &exchange("t0", 10));
+    let mut own = vec![Node::user("s", Some("t1"), "cli", "now")];
+    let first = run_with(&s, &f, &own, None);
+    assert_eq!(first.card.as_deref(), Some("[Thread card: NOW]"));
+    f.compilation_id = Some(first.compilation.id.clone());
+    f.card = first.card.clone();
+    own.push(said("t1", vec![thinking(), read("c1")]));
+    own.push(result("t1", "c1", "short"));
+    let second = run_with(&s, &f, &own, Some(&first.compilation));
+    assert!(!second.new_compilation);
+    let all = serde_json::to_string(&second.request.messages).unwrap();
+    assert!(
+        all.contains("Thread card: NOW") && !all.contains("Thread card: BEFORE"),
+        "{all}"
+    );
 }

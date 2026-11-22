@@ -707,3 +707,190 @@ fn an_assembly_reads_the_ladder_once() {
     assert_eq!(a.window.len(), 2);
     assert_eq!(inner.0.get(), 1, "the store's ladder is read once");
 }
+
+/// The `context.view_fallback` rows' reasons.
+fn fallbacks(c: &crate::Core) -> Vec<String> {
+    (crate::test_support::rows(c, "context.view_fallback").into_iter())
+        .filter_map(|r| r["why"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// A turn of `sid` submitted as the driver does, its outcome returned (a turn may fail on its own).
+async fn submit(
+    core: &std::sync::Arc<crate::Core>,
+    sid: &str,
+    input: &str,
+) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+    use crate::session::SessionRecord;
+    let rec = (core.store.get_session::<SessionRecord>(sid).unwrap()).unwrap();
+    let (live, _) = core.live_profile();
+    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+    let mark = crate::view_gate::test_mark(&core.runner, sid, true);
+    let sink = crate::bus::EventSink::new(core.bus.clone(), sid, None).with_arrival(Some(mark));
+    core.runner
+        .run(crate::turn::TurnRequest {
+            prompt: None,
+            surface: None,
+            session: rec,
+            input: Some(input.into()),
+            target,
+            sink,
+            author: "cli".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            reply_to: None,
+            answer_at: None,
+        })
+        .await
+}
+
+/// Fallback (c): an established session switched to view, whose earlier conversation the ledger holds no
+/// exchange for, is the transcript's turn: "apply the second option" is sent with the options.
+#[tokio::test]
+async fn an_established_session_without_its_exchanges_is_the_transcripts_turn() {
+    let r = view_rig();
+    let c = &r.core;
+    let sid = session_in(c, None, &r.root);
+    let earlier = crate::node::Node::user(
+        &sid,
+        Some("turn_old"),
+        "test",
+        "options: the red one, or the blue one",
+    );
+    c.store.append(&[earlier.record().unwrap()]).unwrap();
+    turn(c, &sid, "apply the second option").await;
+    let q = r.requests().pop().unwrap();
+    assert!(texts(&q).contains("the blue one"), "{}", texts(&q));
+    assert!(
+        fallbacks(c).contains(&"unledgered_history".to_string()),
+        "{:?}",
+        fallbacks(c)
+    );
+}
+
+/// Fallback (b): a view whose rendered request is over the budget is the transcript's turn, whose ring and
+/// compaction make room; the ledger says why.
+#[tokio::test]
+async fn a_view_over_its_budget_is_the_transcripts_turn() {
+    let r = rig_with(|c| {
+        c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+        c.context.working_window_tokens = Some(12_000);
+    });
+    let c = &r.core;
+    let sid = session_in(c, None, &r.root);
+    // The transcript's turn may itself be over so small a window: its own overage says so.
+    let _ = submit(c, &sid, "small window: hello").await;
+    assert!(
+        fallbacks(c).contains(&"over_budget".to_string()),
+        "{:?}",
+        fallbacks(c)
+    );
+}
+
+/// P1-A: a steer that narrows the turn's presence (the gate's own `steered`) before its next call: the view
+/// is reassembled under the new permit, so the owner's words from his DM, admitted while he was alone, are
+/// not in the next request.
+#[tokio::test]
+async fn a_steer_that_narrows_the_presence_reassembles_the_view() {
+    use std::sync::{Arc, Mutex, OnceLock};
+    const HIS: &str = "the plum orchard gate code is 2718";
+    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
+    let desk: Arc<Mutex<String>> = Arc::default();
+    let (held, at) = (core.clone(), desk.clone());
+    let r = crate::tests_places::rig_setup_scripted(
+        |c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)),
+        |_| {},
+        move |q| {
+            if last_user(q).contains("desk: narrow me") && !crate::tests_places::answers_a_call(q) {
+                let c = held.get().expect("the core");
+                crate::view_gate::steered(&c.runner, &at.lock().unwrap(), None);
+                return crate::provider::Scripted::tools(
+                    "Looking.",
+                    &[("n1", "fs_list", serde_json::json!({"path": "."}))],
+                );
+            }
+            crate::provider::Scripted::text("Done.")
+        },
+    );
+    let _ = core.set(r.core.clone());
+    let c = &r.core;
+    let dm = crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
+    turn_as(c, &dm, HIS, true).await;
+    let sid = crate::tests_places::session(c, None);
+    *desk.lock().unwrap() = sid.clone();
+    turn_as(c, &sid, "desk: narrow me", true).await;
+    let calls: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| texts(q).contains("desk: narrow me"))
+        .collect();
+    assert_eq!(calls.len(), 2, "the turn made two calls");
+    calls.iter().for_each(legal);
+    assert!(
+        !texts(&calls[1]).contains(HIS),
+        "after the steer: {}",
+        texts(&calls[1])
+    );
+}
+
+/// P1-B: a fold node built while its thread was clear is dropped whole (its account with its words) once
+/// the thread is sealed: the gate reads its constituent exchanges' sessions today.
+#[tokio::test]
+async fn a_fold_over_a_thread_sealed_after_it_was_built_is_dropped() {
+    const KELP: &str = "kelp: the embargoed figure is 7741";
+    let thread = std::cell::RefCell::new(String::new());
+    let r = crate::tests_places::rig_setup(
+        |c| {
+            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+            c.threads.enabled = true;
+        },
+        |s| *thread.borrow_mut() = kelp(s, false),
+    );
+    let c = &r.core;
+    let thread = thread.into_inner();
+    turn_as(c, &thread, KELP, true).await;
+    let turn_id = (c.store.session_nodes(&thread).unwrap().into_iter())
+        .find_map(|(_, n)| n.turn_id)
+        .unwrap();
+    let ex = crate::exchange::exchange(&c.store, &turn_id)
+        .unwrap()
+        .unwrap();
+    let node = crate::ladder::fold::FoldNode {
+        id: "fold-kelp-1".into(),
+        place: ex.place.clone(),
+        level: 1,
+        exchanges: vec![turn_id.clone()],
+        first_ms: ex.start_ms,
+        last_ms: ex.start_ms,
+        his: vec![],
+        counted: 0,
+        children: vec![],
+        title: "kelp".into(),
+        account: "ACCOUNT: the figure 7741 was discussed".into(),
+        marks: crate::view::Marks {
+            place: Some(ex.place.clone()),
+            audience: crate::view::Audience::Private,
+            author: crate::view::Author::Theseus,
+            outside: false,
+            sealed: false,
+            veiled: false,
+        },
+        model: None,
+        writer: 1,
+        at_ms: ex.start_ms,
+    };
+    c.store
+        .append(&crate::ladder::fold::records(&node).unwrap())
+        .unwrap();
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: before the seal", true).await;
+    let before = asked(&r, "desk: before the seal").pop().unwrap();
+    assert!(
+        texts(&before).contains("ACCOUNT: the figure"),
+        "{}",
+        texts(&before)
+    );
+    seal_kelp(c);
+    turn_as(c, &desk, "desk: after the seal", true).await;
+    let after = asked(&r, "desk: after the seal").pop().unwrap();
+    assert!(!texts(&after).contains("7741"), "{}", texts(&after));
+}
