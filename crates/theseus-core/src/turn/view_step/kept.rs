@@ -14,7 +14,7 @@ use theseus_memory::gate::Seal;
 /// second compile, a new chain within the turn), so a replay finds the one its answer names; routing's
 /// first compile keeps one only when the call uses it (`route_step::keep_first`), so a discarded probe
 /// leaves none.
-pub(crate) fn record_kept(t: &mut Turn<'_>, compiled: &Compiled) {
+pub(in crate::turn) fn record_kept(t: &mut Turn<'_>, compiled: &Compiled) {
     let (turn, store) = (t.tc.turn_id, t.tc.store);
     let Some(f) = (t.view.as_ref()).filter(|f| f.turn_id == turn && !f.declined) else {
         return;

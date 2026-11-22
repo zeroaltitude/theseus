@@ -129,7 +129,7 @@ async fn a_view_turns_crossing_reads_every_session_it_laid() {
     ));
     rig.core.store.put_session(&imp.session_id, &imp).unwrap();
     let view = original.view.as_mut().expect("a view turn");
-    view.sessions.push(imp.session_id.clone());
+    view.sessions.push(imp.session_id);
     assert_eq!(
         rig.core.crossing(&original, "zai").as_deref(),
         Some("its recall carries a personal source")
