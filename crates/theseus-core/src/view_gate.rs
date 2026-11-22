@@ -38,7 +38,7 @@
 //! registry test (`tests_view_gate::no_new_decision_by_place_outside_the_gate`)
 //! names each file's count and fails on a new one.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Mutex;
 
 use anyhow::Result;
@@ -627,6 +627,33 @@ pub fn readmit_sources(
         here.may_draw_on(&places.of_session(runner, &n.session_id))
             && node_seal(&runner.store, b, Some(asker), &n.session_id, &n.id) == Seal::Clear
     });
+}
+
+/// The threads a reader in `asker` may not be shown now for their seal: every
+/// sealed or seal-pending thread but its own, and every one that cannot be
+/// read. A kept tail is sent again only where no thread joined this since it
+/// was made (`turn::sent_tail`). None when the threads cannot be read: then
+/// nothing kept is sent again.
+pub fn held_threads(runner: &TurnRunner, asker: &str) -> Option<BTreeSet<String>> {
+    let b = board(runner, "kept tails")?;
+    let own = thread_of(&runner.store, &b, asker, 0).ok().flatten();
+    let held = b
+        .all()
+        .filter(|t| match thread_seal(&b, &t.slug) {
+            Seal::Clear => false,
+            Seal::Held => own.as_deref() != Some(t.slug.as_str()),
+            Seal::Unread => true,
+        })
+        .map(|t| t.slug.clone())
+        .collect();
+    Some(held)
+}
+
+/// The presence of `session`'s turn as a kept tail's reuse key holds it
+/// (`turn::sent_tail`): who is present and where the turn arrived. A tail
+/// made under one is not sent again under another.
+pub fn presence_key(runner: &TurnRunner, session: &str) -> Option<(Present, String)> {
+    runner.presence.get(session).map(|a| (a.present, a.place))
 }
 
 /// The threads of a place digest a turn of `session` may be shown: only
