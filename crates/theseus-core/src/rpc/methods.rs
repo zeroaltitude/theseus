@@ -1024,13 +1024,6 @@ impl Core {
             .chat_acts
             .heard
             .stage_home(&session.session_id, &place_home);
-        // A person's message starts its keep-warm window again (theseus-ezeg).
-        let person = p.opened_from.is_none()
-            && !matches!(
-                conn.surface,
-                crate::approval::Surface::Mcp | crate::approval::Surface::Unnamed
-            );
-        self.runner.keep_warm.message(&session.session_id, person);
         // A one-run daemon's client follows the session's later turns, so
         // its connection hears them from the start (theseus-mqxk).
         if self.outbox.one_shot.follow_ms().is_some() {

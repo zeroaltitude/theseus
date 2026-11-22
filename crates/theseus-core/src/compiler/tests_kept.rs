@@ -24,7 +24,6 @@ fn spec() -> RequestSpec {
         session_text: String::new(),
         persona_text: String::new(),
         card: None,
-        cold: None,
         context_files: vec![],
         persona: None,
         tools: vec![

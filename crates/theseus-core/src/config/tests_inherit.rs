@@ -71,7 +71,7 @@ fn load_cached(cache: &str, model: &str, profile: &str) -> Config {
 #[test]
 fn a_model_field_reaches_every_profile_that_leaves_it_unset() {
     let cfg = load_cached(
-        "ttl = \"1h\"\nkeep_warm_hours = 3.0",
+        "ttl = \"1h\"",
         "provider = \"zai\"\nmax_output_tokens = 9000\nsystem = \"Be brief.\"\neffort = \"low\"\n\
          thinking_display = \"omitted\"\nmax_loops = 7\non_max_loops = \"end\"\n\
          refusal_fallbacks = false",
@@ -85,10 +85,7 @@ fn a_model_field_reaches_every_profile_that_leaves_it_unset() {
     assert_eq!(p.thinking_display, ThinkingDisplay::Omitted);
     assert_eq!((p.max_loops, p.on_max_loops), (7, MaxLoopsMode::End));
     assert!(!p.refusal_fallbacks);
-    assert_eq!(
-        (p.cache_ttl, p.keep_warm_hours),
-        (Some(CacheTtl::OneHour), Some(3.0))
-    );
+    assert_eq!(p.cache_ttl, Some(CacheTtl::OneHour));
 }
 
 /// The bug the review found: `[model] max_loops_mode` (now `on_max_loops`) was ignored by every named profile.

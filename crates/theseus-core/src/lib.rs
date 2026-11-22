@@ -697,8 +697,6 @@ mod tests_stopping;
 #[cfg(test)]
 mod tests_stub_kinds;
 #[cfg(test)]
-mod tests_stubs;
-#[cfg(test)]
 mod tests_task_brief;
 #[cfg(test)]
 mod tests_task_checkpoint;

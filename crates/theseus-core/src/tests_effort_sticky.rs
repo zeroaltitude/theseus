@@ -13,7 +13,6 @@ use theseus_judge::fake::{FakeJev, Scripted as Jev};
 use crate::catalog::CatalogRow;
 use crate::compiler::BETA_TURN_EFFORT;
 use crate::config::Effort;
-use crate::keep_warm::{Outcome, MAX_TOKENS};
 use crate::provider::ProviderRequest;
 use crate::routing::effort::{name, sticky};
 use crate::tests_route::{decided, mode, rig, turn, Rig};
@@ -209,43 +208,6 @@ fn sticky_is_one_step_at_most() {
         }
         assert_eq!(sticky(p, None, 50_000, 20_000), None, "no previous level");
     }
-}
-
-/// Keep-warm sends the effort the last real request carried (Jev's), not the
-/// profile's, so its read repeats that request's prefix.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn keep_warm_replays_the_last_effort() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
-    effort(&jev, "low");
-    let r = rig(Some(&jev), 1, |c| {
-        // The template with a 1-hour `[model]`, under the rig's own sections.
-        let mut hour = crate::tests_keep_warm::one_hour(24);
-        hour.server = c.server.clone();
-        hour.tools = c.tools.clone();
-        hour.judge = c.judge.clone();
-        hour.routing = c.routing.clone();
-        hour.memory = c.memory.clone();
-        *c = hour;
-        no_per_message(c);
-    });
-    let res = turn(&r.core, None, "Where do the herons nest?", None).await;
-    let sid = res.session_id;
-    let own = r.core.runner.cfg.all_profiles()["sonnet"].effort;
-    assert_ne!(
-        own,
-        Some(Effort::Low),
-        "the profile's own differs from Jev's"
-    );
-    r.core.runner.keep_warm.message(&sid, true);
-    let (live, _) = r.core.live_profile();
-    let out = r.core.runner.keep_warm_once(&sid, &live).await;
-    assert!(matches!(out, Outcome::Read { .. }), "{out:?}");
-    let reqs = r.claude.requests();
-    let (turned, read) = (&reqs[0], reqs.last().unwrap());
-    assert_eq!(read.max_tokens, MAX_TOKENS);
-    assert_eq!(top(turned).as_deref(), Some("low"));
-    keeps(turned, read);
 }
 
 /// Which models take per-message effort is catalog data: one row's field

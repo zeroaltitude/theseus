@@ -205,7 +205,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         vault_keep::VaultKeepAnswerParams, vault_keep::VaultKeepParams, vault_keep::VaultKept, vault_keep::VaultKeepWaitingParams, vault_keep::VaultKeepWaiting, vault_keep::KeepCard, vault_keep::ClientEnd, ConfirmListResult, ActionConfirmParams, ActionConfirmResult, ToolInfo, ToolListResult, defer::DeferListResult, defer::DeferPlace, defer::DeferFamily, defer::DeferHealth,
         ProviderErrorData, TurnStarted, TurnFailed, LoopStarted, ModelDelta, LoopEnded,
         NarrativePart, NarrativeLine, NarrativeWatchResult, narrative_watch::NarrativeWatchParams, ToolProposed, ContextFileRef,
-        CacheSummary, StubbedFile, EstimateSummary, CensusSummary, ContextCompiled, Situation, ToolStarted, ToolEnded, ToolDiff, SubagentAnswer, ConfirmPreview,
+        CacheSummary, EstimateSummary, CensusSummary, ContextCompiled, Situation, ToolStarted, ToolEnded, ToolDiff, SubagentAnswer, ConfirmPreview,
         ConfirmResolved, NodeWritten, PolicyNotified, Access, Resource, Plan, Proposal,
         Notice, GateDecision, GateResult, GateRecord, Level, Attention, WaitingOn, PendingConfirm,
         ExecutionView, ExecutionsWatchParams, ExecutionsWatchResult, ShortFailed, StatusShortResult, SessionListParams, PushStatus, ConnectionsHealth,

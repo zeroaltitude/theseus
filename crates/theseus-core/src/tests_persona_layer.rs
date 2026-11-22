@@ -3,8 +3,6 @@
 //! (theseus-c1uz); in a cli, task or headless session, whose persona is fixed, it carries only the persona in
 //! play. Measured on the owner's shape: five personas, 10,552 bytes of files.
 
-use std::time::Duration;
-
 use theseus_protocol::SessionKind;
 
 use crate::config::PersonaConfig;
@@ -93,60 +91,13 @@ fn in_the_dm_a_persona_switch_changes_no_byte_of_the_prefix() {
     assert_eq!(one.compiled.request.tools, two.compiled.request.tools);
 }
 
-/// A keep-warm read of a cli session, with five personas, is the turn's request byte for byte: the persona in
-/// play's files only, in the read as in the turn.
-#[tokio::test(start_paused = true)]
-async fn a_keep_warm_replay_matches_the_turns_request_bytes() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut config = kw::one_hour(24);
-    for name in PERSONAS {
-        let path = format!("{}/fixtures/personas/{name}.md", env!("CARGO_MANIFEST_DIR"));
-        let p = PersonaConfig {
-            files: vec![path.into()],
-            ..Default::default()
-        };
-        config.personas.insert(name.into(), p);
-    }
-    config.context.default_persona = Some("brook".into());
-    let (core, fake) = kw::build(dir.path(), config);
-    let sid = kw::session(&core, SessionKind::Conversation, None);
-    kw::turn(&core, &sid, "first, a question").await;
-    let live = core.live_profile().0;
-    assert!(matches!(
-        core.runner.keep_warm_once(&sid, &live).await,
-        crate::keep_warm::Outcome::Read { .. }
-    ));
-    kw::settle().await;
-    tokio::time::advance(Duration::from_millis(1)).await;
-    kw::turn(&core, &sid, "and the next message").await;
-    let all = fake.requests();
-    let read = kw::reads(&fake).pop().unwrap();
-    let (first, next) = (&all[0], all.last().unwrap());
-    let bytes = |v: &[serde_json::Value]| serde_json::to_string(v).unwrap();
-    assert_eq!(
-        bytes(&read.system),
-        bytes(&next.system),
-        "the read's system is the turn's"
-    );
-    assert_eq!(
-        bytes(&first.system),
-        bytes(&next.system),
-        "and stays the same"
-    );
-    let text = bytes(&next.system);
-    assert!(
-        text.contains("# Brook") && !text.contains("# Alder"),
-        "only brook's files"
-    );
-}
-
 /// A task's turn carries the persona in play and no other, though the DM that opened it carries all five: a task's
 /// persona is fixed (its parent's), so its request is the cli's size, not the DM's (theseus-nsp9l.1). The census
 /// of a fresh place reads the kind it is asked for; this is the turn's own reading of a task session.
 #[tokio::test(start_paused = true)]
 async fn a_task_sessions_turn_carries_only_the_persona_in_play() {
     let dir = tempfile::tempdir().unwrap();
-    let mut config = kw::one_hour(24);
+    let mut config = kw::one_hour();
     for name in PERSONAS {
         let path = format!("{}/fixtures/personas/{name}.md", env!("CARGO_MANIFEST_DIR"));
         let p = PersonaConfig {

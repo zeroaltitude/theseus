@@ -231,12 +231,11 @@ pub struct TurnRunner {
     pub(crate) spend_marks: budget_step::SpendMarks,
     /// The models found to refuse per-message effort, for this run (theseus-posww).
     pub effort_refusals: effort_step::EffortRefusals,
-    /// The conversations kept warm after their turns, and the stubs their
-    /// cold rewrites decided (theseus-ezeg).
+    /// A job wait's keep-warm request, a task wait's room, and the sticky
+    /// effort's last request (theseus-7m7w.3).
     pub keep_warm: crate::keep_warm::KeepWarm,
     /// A minute's copy of the day's thread cache numbers (theseus-ytt8).
     pub(crate) cache_numbers: crate::keep_warm_threads::CacheNumbers,
-    pub stubs: crate::compiler::stubs::InForce,
     /// Each session's render, kept across turns (theseus-0l3g).
     pub kept: Arc<crate::compiler::kept::Kept>,
     /// The self budget's account (theseus-pw1q.3).

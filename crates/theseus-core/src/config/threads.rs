@@ -68,14 +68,11 @@
 //!   carrying `route_at_ms` is placed at that clock (the place tail reads the
 //!   bench's gaps) and is placed even when `ask -s` named its session; off,
 //!   such a submit is refused. Off in every real config.
-//! - `resume_keep_turns`: the newest turns a thread keeps whole when its next
-//!   message finds its cache gone (20; `thread-context`).
-//! - `working_percent`: what a thread's request stays within after such a cold
-//!   resume, as a share of the serving model's context window (40; 1 to 100), its newest
-//!   turn aside. `working_tokens`, when set, is that size in tokens and wins.
+//! - `resume_keep_turns`: the newest turns a home keeps whole when its oldest settled stretch is
+//!   measured (20; `turn::home_size_step`).
 //! - `home_warn_percent`: the share of the serving model's context window a place's home may
 //!   reach before the owner's DM is told once (50; 1 to 100). A long session is otherwise fine;
-//!   the warning is for a home near the window. Not `working_tokens`.
+//!   the warning is for a home near the window.
 //! - `persona_engage` (`shadow`): whether Jev's `persona` verdict (route.v5,
 //!   theseus-c1uz) engages a persona. An explicit address (a name at the
 //!   message's start, `@name`, `/as name`) always does; `shadow` records
@@ -149,10 +146,6 @@ pub struct ThreadsConfig {
     pub bench_clock: bool,
     #[serde(default = "default_resume_keep_turns")]
     pub resume_keep_turns: u32,
-    #[serde(default)]
-    pub working_tokens: Option<u64>,
-    #[serde(default = "default_working_percent")]
-    pub working_percent: u8,
     #[serde(default = "default_home_warn_percent")]
     pub home_warn_percent: u8,
     #[serde(default)]
@@ -210,20 +203,8 @@ fn default_route_wait() -> u64 {
 fn default_resume_keep_turns() -> u32 {
     20
 }
-fn default_working_percent() -> u8 {
-    40
-}
 fn default_home_warn_percent() -> u8 {
     50
-}
-
-impl ThreadsConfig {
-    /// The tokens a cold resume stays within on a model with `window`: `working_tokens` when
-    /// set, else `working_percent` of the window.
-    pub fn working_size(&self, window: u64) -> u64 {
-        self.working_tokens
-            .unwrap_or_else(|| window / 100 * u64::from(self.working_percent))
-    }
 }
 
 impl Default for ThreadsConfig {
@@ -247,8 +228,6 @@ impl Default for ThreadsConfig {
             working_set_grows: true,
             bench_clock: false,
             resume_keep_turns: default_resume_keep_turns(),
-            working_tokens: None,
-            working_percent: default_working_percent(),
             home_warn_percent: default_home_warn_percent(),
             persona_engage: PersonaEngage::default(),
             seal_recommend: false,
@@ -323,15 +302,6 @@ impl ThreadsConfig {
         if self.resume_keep_turns == 0 {
             bail!("threads.resume_keep_turns is 0: a resume keeps at least the newest turn");
         }
-        if self.working_tokens.is_some_and(|w| w < 2_000) {
-            bail!("threads.working_tokens is under 2,000: a resume could not keep a turn");
-        }
-        if !(1..=100).contains(&self.working_percent) {
-            bail!(
-                "threads.working_percent is {}: a share of the model's window, 1 to 100 (default 40)",
-                self.working_percent
-            );
-        }
         if !(1..=100).contains(&self.home_warn_percent) {
             bail!(
                 "threads.home_warn_percent is {}: a share of the model's window, 1 to 100 (default 50)",
@@ -362,14 +332,7 @@ mod tests {
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
         assert!(crate::Config::parse(&format!("{secrets}\n[threads]\nmax_live = 0\n")).is_err());
         assert_eq!(cfg.threads.resume_keep_turns, 20);
-        assert_eq!(cfg.threads.working_tokens, None);
-        assert_eq!(cfg.threads.working_percent, 40);
-        for bad in [
-            "resume_keep_turns = 0",
-            "working_tokens = 10",
-            "working_percent = 0",
-            "working_percent = 101",
-        ] {
+        for bad in ["resume_keep_turns = 0"] {
             assert!(crate::Config::parse(&format!("{secrets}\n[threads]\n{bad}\n")).is_err());
         }
         assert!(crate::Config::from_toml("[threads]\nbogus = 1\n").is_err());
@@ -486,19 +449,6 @@ mod tests {
         assert!(quiet.iter().all(|w| !w.contains("threads.")), "{quiet:?}");
     }
 
-    /// `[cache] threads_keep_warm_hours` is 4 by default, 0 keeps no thread warm, and a
-    /// negative window is refused (theseus-ytt8).
-    #[test]
-    fn the_keep_warm_window_is_four_hours_and_zero_is_none() {
-        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert_eq!(cfg.cache.threads_keep_warm_hours, 4.0);
-        let off = crate::Config::from_toml("[cache]\nthreads_keep_warm_hours = 0\n").unwrap();
-        assert_eq!(off.cache.threads_keep_warm_hours, 0.0);
-        let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
-        let bad = format!("{secrets}\n[cache]\nthreads_keep_warm_hours = -1\n");
-        assert!(crate::Config::parse(&bad).is_err());
-    }
-
     /// `discord_channel` is off by default, named in the template, takes a
     /// Discord id, and refuses anything else (theseus-sjzm).
     #[test]
@@ -545,20 +495,6 @@ mod tests {
             let e = crate::Config::parse(&note).unwrap_err().to_string();
             assert!(e.contains("home_warn_percent"), "{bad}: {e}");
         }
-    }
-
-    /// A cold resume's working size is a share of the serving model's window; a set
-    /// `working_tokens` wins (theseus-d9je7).
-    #[test]
-    fn the_working_size_is_a_share_of_the_window() {
-        let cfg = ThreadsConfig::default();
-        assert_eq!(cfg.working_size(1_000_000), 400_000);
-        assert_eq!(cfg.working_size(200_000), 80_000);
-        let set = crate::Config::from_toml("[threads]\nworking_tokens = 60000\n").unwrap();
-        assert_eq!(set.threads.working_size(1_000_000), 60_000);
-        let pct = crate::Config::from_toml("[threads]\nworking_percent = 25\n").unwrap();
-        assert_eq!(pct.threads.working_size(200_000), 50_000);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# working_percent = 40"));
     }
 
     /// A thread's set grows from its turns (theseus-98bz.5) by default, named

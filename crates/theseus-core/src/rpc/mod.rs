@@ -243,8 +243,6 @@ mod tests_thread_home;
 #[cfg(test)]
 mod tests_thread_join;
 #[cfg(test)]
-mod tests_thread_keep_warm;
-#[cfg(test)]
 mod tests_thread_link;
 #[cfg(test)]
 mod tests_thread_mix;
@@ -1003,7 +1001,6 @@ impl Core {
             tails: Default::default(),
             keep_warm: Default::default(),
             cache_numbers: Default::default(),
-            stubs: Default::default(),
             kept: Arc::new(crate::compiler::kept::Kept::new(cfg.context.kept_bytes())),
             judge,
             // Read at a routed session's first turn, never on the start path.

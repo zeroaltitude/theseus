@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use super::ProfileConfig;
 
 /// The fields `[model]` and a profile share, bar `model`, which a profile always names. A profile's
-/// `cache_ttl` and `keep_warm_hours` come from `[cache]` (`cache::inherit`, theseus-rwpbg.10).
+/// `cache_ttl` comes from `[cache]` (`cache::inherit`, theseus-rwpbg.10).
 const SHARED: [&str; 8] = [
     "provider",
     "max_output_tokens",

@@ -40,7 +40,6 @@ use layers::{system_blocks, system_digest};
 pub mod cache;
 pub mod card;
 pub(crate) mod clearing;
-pub mod cold;
 pub mod compaction;
 pub mod effort;
 pub mod layers;
@@ -51,8 +50,6 @@ mod ring;
 pub mod session_block;
 #[cfg(test)]
 mod tests_clear;
-#[cfg(test)]
-mod tests_cold;
 #[cfg(test)]
 mod tests_kept;
 #[cfg(test)]
@@ -76,7 +73,6 @@ pub mod kept;
 mod readable;
 mod render;
 mod server_calls;
-pub mod stubs;
 #[cfg(test)]
 use render::is_thinking;
 pub use render::{render_messages, Messages};
@@ -213,8 +209,6 @@ pub struct RequestSpec {
     pub context_text: String,
     /// A thread's card, at the head of its messages (`card`).
     pub card: Option<card::Card>,
-    /// A cold resume of a thread (`cold`): this compile rewrites it small.
-    pub cold: Option<cold::Cold>,
     /// The third block: the session's own (`session_block`); maybe empty.
     pub session_text: String,
     /// The context files `context_text` carries, for the manifest.
@@ -673,12 +667,7 @@ fn compile_with(
                 t.push("tools_changed");
             }
             if t.is_empty() {
-                // A thread resumed cold: the cache is gone, so the rewrite
-                // refreshes its card and may make it small (`cold`).
-                input
-                    .spec
-                    .cold
-                    .map(|_| ("cold_resume".to_string(), "transcript", true))
+                None
             } else {
                 // Each invalidates the prefix's thinking blocks: a system or
                 // tool change the context they were thought in, and a model
@@ -805,26 +794,6 @@ fn compile_with(
         true => now_manifest.clone(),
         false => manifest_for(recompiled, input.catalog, window, false),
     };
-    if let Some(cold) = spec
-        .cold
-        .filter(|c| new_compilation && est.tokens > c.working_tokens)
-    {
-        let b = base();
-        let r = ring::Ring {
-            recompiled,
-            base: &b,
-            renderable: &all_renderable,
-            est: &est,
-            budget: 0,
-            rates,
-            carried: compilation.budget.as_ref(),
-        };
-        if let Some(rung) = cold::resume(&input, &r, cold, &make) {
-            ring_drop = Some(rung.cut).filter(|c| c.range.is_some());
-            (compilation, rendered, est) = (rung.compilation, rung.rendered, rung.est);
-            (spec, trigger) = (recompiled, Some("cold_resume".into()));
-        }
-    }
     if let Some(w) = window {
         let budget = request_budget(w, spec);
         let (b, seen) = (base(), (&compilation, &rendered.request, &est));

@@ -1280,11 +1280,9 @@ pub struct ProfileConfig {
     #[serde(default = "default_true")]
     pub refusal_fallbacks: bool,
     /// How long the provider keeps the profile's cached prefixes (theseus-ev1);
-    /// none: `[cache]`'s ttl, as `keep_warm_hours` (theseus-ezeg, `config/cache.rs`).
+    /// none: `[cache]`'s ttl (theseus-ezeg, `config/cache.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<CacheTtl>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub keep_warm_hours: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -2103,7 +2101,6 @@ impl Config {
                 on_max_loops: m.on_max_loops,
                 refusal_fallbacks: m.refusal_fallbacks,
                 cache_ttl: Some(cfg.cache.ttl),
-                keep_warm_hours: Some(cfg.cache.keep_warm_hours),
             });
         cache::inherit(&mut profiles, &cfg.cache);
         let mut providers = cfg.providers.clone();

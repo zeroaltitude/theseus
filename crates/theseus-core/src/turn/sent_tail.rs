@@ -148,19 +148,6 @@ fn put_back(
 }
 
 impl SentTails {
-    /// The tails a conversation's earlier requests sent, put back on a request made for it
-    /// outside a turn (the keep-warm read), so that it is the prefix the next turn
-    /// sends: byte for byte what `begin` puts back, for the key the newest tail was sent to.
-    /// Nothing is kept or changed here.
-    pub(crate) fn warm(&self, session: &str, compiled: &mut Compiled) {
-        let held = {
-            let h = self.0.lock().unwrap_or_else(|e| e.into_inner());
-            h.by_session.get(session).cloned().unwrap_or_default()
-        };
-        let stripped = compiled.new_compilation && compiled.compilation.manifest.strip_thinking;
-        put_back(compiled, held, None, stripped);
-    }
-
     /// Put back the tails the session's earlier requests sent, on the
     /// messages that carried them, before this request's own is attached.
     pub(super) fn begin(
