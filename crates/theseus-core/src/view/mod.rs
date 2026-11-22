@@ -31,7 +31,9 @@ pub mod record;
 pub mod render;
 pub mod select;
 pub mod sources_names;
+pub mod sources_people;
 pub mod sources_store;
+pub mod sources_waiting;
 pub mod text;
 pub mod timeline;
 pub mod wire;
@@ -212,6 +214,9 @@ pub enum Space {
     Card { thing: String },
     /// A task's records.
     Task { task: String },
+    /// A record waiting between Theseus and the owner: a question for his answer, a task waiting on him
+    /// (`sources_waiting`; ids are the record's own).
+    Waiting { id: String },
     /// Code's own text with no source in the store: the frame, the clock, residue lines.
     Code { part: String },
 }

@@ -70,6 +70,11 @@ impl Source for GateSource<'_> {
         let place = match &range.space {
             Space::Code { .. } => return true,
             Space::Exchanges { place } => place,
+            // A named thing's card, what waits and the facts about the person: the owner alone, its
+            // stored seal clear (above).
+            Space::Card { .. } | Space::Waiting { .. } | Space::Facts { .. } => {
+                return self.pov.present == Present::OwnerAlone
+            }
             _ => return false,
         };
         let Some(sessions) = self.sessions(place, range) else {

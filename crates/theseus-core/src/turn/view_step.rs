@@ -24,7 +24,9 @@ use crate::view::render::{MarkedBlock, Renderer};
 use crate::view::select::sources::{Names, Sources, Things};
 use crate::view::select::{table, Part};
 use crate::view::sources_names::{Called, ViewAdmits};
+use crate::view::sources_people::StorePeople;
 use crate::view::sources_store::{author_of, Sessions, StoreSources};
+use crate::view::sources_waiting::StoreWaiting;
 use crate::view::text::forms::{self, Voice};
 use crate::view::text::labels::Origin;
 use crate::view::text::parts::{self, Seen};
@@ -287,17 +289,7 @@ impl TurnRunner {
             sessions: Default::default(),
         };
         let ladder = OnceLadder::new(&gated);
-        // The names table, built once for the turn through its permit (the core holds the stores it reads).
-        let core = self.threads.core();
-        let called = match &core {
-            Some(core) => {
-                let tasks = crate::task_graph::all(store)?;
-                let admits = ViewAdmits::new(&permit, &pov, self, tasks);
-                let items = t.exchange.items().to_vec();
-                Some(Called::build(core, admits, items, &read.cards)?)
-            }
-            None => None,
-        };
+        let moving = self.moving(store, (&permit, &pov), t.exchange.items(), &read.texts)?;
         let cards = StoreCards {
             store,
             kernel: &self.kernel,
@@ -305,13 +297,7 @@ impl TurnRunner {
             homes: self,
             judged: asked.and_then(|n| judged_task(store, sid, &n)),
         };
-        let src = sources_of(
-            &permit,
-            (&sources, called.as_ref()),
-            &ladder,
-            &cards,
-            &message,
-        );
+        let src = sources_of(&permit, (&sources, &moving), &ladder, &cards, &message);
         let renderer = TextRenderer {
             store,
             kernel: Some(&self.kernel),
@@ -364,6 +350,41 @@ impl TurnRunner {
             declined: false,
         });
         Ok(())
+    }
+
+    /// The sources of what is beside the message and who is speaking, read once before assembly: the
+    /// names table through the turn's permit (none outside a core, which holds the stores it reads), what
+    /// waits, and the facts about the person.
+    fn moving<'a>(
+        &'a self,
+        store: &'a Store,
+        (permit, pov): (&'a Permit, &'a PointOfView),
+        items: &[String],
+        texts: &'a std::cell::RefCell<std::collections::BTreeMap<Space, String>>,
+    ) -> anyhow::Result<Moving<'a>> {
+        let called = match self.threads.core() {
+            Some(core) => {
+                let tasks = crate::task_graph::all(store)?;
+                let admits = ViewAdmits::new(permit, pov, self, tasks);
+                Some(Called::build(core, admits, items.to_vec(), texts)?)
+            }
+            None => None,
+        };
+        Ok(Moving {
+            called,
+            waiting: StoreWaiting {
+                store,
+                kernel: &self.kernel,
+                homes: self,
+                texts,
+            },
+            people: StorePeople {
+                ontology: self.ontology.snapshot(store)?,
+                owner: self.cfg.places.owner.clone().unwrap_or_default(),
+                now_ms: pov.now_ms,
+                texts,
+            },
+        })
     }
 
     /// The view's one budget: the provider's window, less the reply's room.
@@ -461,16 +482,24 @@ fn opened(nodes: &[(u64, Stub)], turn: &str) -> bool {
     (nodes.iter()).any(|(_, n)| n.turn_id.as_deref() == Some(turn) && n.kind == Kind::UserMessage)
 }
 
+/// What [`TurnRunner::moving`] reads.
+struct Moving<'a> {
+    called: Option<Called<'a>>,
+    waiting: StoreWaiting<'a>,
+    people: StorePeople<'a>,
+}
+
 /// Every source the selectors read: the store's, the turn's permit as their gate, the ladder read once,
-/// the named things (none outside a core), the joined task's card, and the message.
+/// the named things (none outside a core), what waits, the facts about the person, the joined task's
+/// card, and the message.
 fn sources_of<'a, 'b>(
     gate: &'a Permit,
-    (store, called): (&'a StoreSources<'b>, Option<&'a Called<'b>>),
+    (store, moving): (&'a StoreSources<'b>, &'a Moving<'b>),
     ladder: &'a dyn crate::view::fold::Ladder,
     cards: &'a StoreCards<'b>,
     message: &'a str,
 ) -> Sources<'a> {
-    let (things, names): (&dyn Things, &dyn Names) = match called {
+    let (things, names): (&dyn Things, &dyn Names) = match &moving.called {
         Some(c) => (c, c),
         None => (store, store),
     };
@@ -480,12 +509,12 @@ fn sources_of<'a, 'b>(
         ladder,
         folds: store,
         places: store,
-        waiting: store,
+        waiting: &moving.waiting,
         things,
         names,
         tasks: cards,
         recall: store,
-        people: store,
+        people: &moving.people,
         message,
     }
 }

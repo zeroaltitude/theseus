@@ -172,30 +172,30 @@ impl Admits for ViewAdmits<'_> {
 
 /// The named things of one turn: its table, its message's numbered items, and the cards read, each once.
 pub struct Called<'a> {
-    pub core: &'a crate::rpc::Core,
+    pub core: std::sync::Arc<crate::rpc::Core>,
     pub admits: ViewAdmits<'a>,
     table: Table,
     /// The message's numbered items, scoped as they were touched (`names::items`).
     items: Vec<String>,
-    /// Each card read, by thing; its text is what the renderer lays (`wire_text`).
-    cards: &'a RefCell<BTreeMap<String, Option<String>>>,
+    /// Each text read, by its space; the renderer lays it (`wire_text`).
+    texts: &'a RefCell<BTreeMap<Space, String>>,
 }
 
 impl<'a> Called<'a> {
     /// The table of what the stores hold and `admits` admits, built once for the turn.
     pub fn build(
-        core: &'a crate::rpc::Core,
+        core: std::sync::Arc<crate::rpc::Core>,
         admits: ViewAdmits<'a>,
         items: Vec<String>,
-        cards: &'a RefCell<BTreeMap<String, Option<String>>>,
+        texts: &'a RefCell<BTreeMap<Space, String>>,
     ) -> anyhow::Result<Self> {
-        let table = table::build_for(core, &admits)?;
+        let table = table::build_for(&core, &admits)?;
         Ok(Self {
             core,
             admits,
             table,
             items,
-            cards,
+            texts,
         })
     }
 
@@ -224,7 +224,7 @@ impl<'a> Called<'a> {
         let Some(marks) = self.admits.marks_of(thing) else {
             return Ok(None);
         };
-        Ok(card::card(self.core, &self.table, thing, &self.admits)?.map(|c| (c, marks)))
+        Ok(card::card(&self.core, &self.table, thing, &self.admits)?.map(|c| (c, marks)))
     }
 }
 
@@ -263,14 +263,14 @@ impl Things for Called<'_> {
 
     fn card(&self, thing: &str) -> anyhow::Result<Vec<Ref>> {
         let Some((c, marks)) = self.read(thing)? else {
-            self.cards.borrow_mut().insert(thing.to_string(), None);
             return Ok(Vec::new());
         };
         let text = card_text(&c);
         let (whole, line) = (tokens(&text), tokens(&c.title));
-        self.cards
-            .borrow_mut()
-            .insert(thing.to_string(), Some(text));
+        let space = Space::Card {
+            thing: thing.to_string(),
+        };
+        self.texts.borrow_mut().insert(space, text);
         let pos = Pos {
             at_ms: self.admits.pov.now_ms,
             id: thing.to_string(),

@@ -1,7 +1,7 @@
 //! A thing's card, as one read: its title, and at most [`LINES`] lines under
 //! it of what it is, its current facts, its open tasks, the owner's guidance
-//! for it and the newest exchanges of its timeline. Nothing here is sent to
-//! a model yet; the selector that calls a named thing in will.
+//! for it and the newest exchanges of its timeline. A turn in a place set to
+//! `view` lays it beside the message (`crate::view::sources_names`).
 //!
 //! - **Facts** are the owner's standing records whose scope is the thing's
 //!   own place or session: a line of work's thread place and session, a

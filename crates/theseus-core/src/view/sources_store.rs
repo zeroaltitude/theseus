@@ -1,8 +1,8 @@
 //! The selectors' sources over the store (`super::select::sources`), for a turn in a place set to `view`:
 //! an exchange's facts from the ledger's record and its nodes, a fold node's sizes, a place's `/new` mark
-//! and the places a person has spoken in. The sources whose records belong to other work (what waits, the
-//! things named, the name matcher, a task's card, recall, facts about the person) answer nothing here until
-//! that work is wired in; the selectors then lay nothing for their bands.
+//! and the places a person has spoken in, and recall. What waits (`super::sources_waiting`), the things
+//! named and the name matcher (`super::sources_names`) and a task's card (`crate::task_graph::joined`) have
+//! sources of their own; their impls here, and facts about the person, answer nothing.
 
 use std::collections::BTreeSet;
 
@@ -31,9 +31,10 @@ pub struct Sessions {
         std::collections::HashMap<String, std::rc::Rc<crate::store::Transcript>>,
     >,
     facts: std::cell::RefCell<std::collections::HashMap<String, Option<ExchangeFacts>>>,
-    /// Each named thing's card text as it was read for the turn (`super::sources_names`); none for a thing
-    /// with no card.
-    pub cards: std::cell::RefCell<std::collections::BTreeMap<String, Option<String>>>,
+    /// The text of each piece code reads whole for the turn, by its space: a named thing's card
+    /// (`super::sources_names`), a waiting record's line (`super::sources_waiting`), the facts about the
+    /// person (`super::sources_people`). The renderer lays what the selectors read, once.
+    pub texts: std::cell::RefCell<std::collections::BTreeMap<super::Space, String>>,
     /// How many times the store was read for a session.
     pub reads: std::cell::Cell<u32>,
 }

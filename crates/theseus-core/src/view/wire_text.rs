@@ -5,8 +5,9 @@
 //! the window's exchanges as real turns (`compiler::view`).
 //!
 //! A piece is read by its range: an exchange of a place from the store, in the piece's form; a named
-//! thing's card as the turn read it (`super::sources_names`). A piece of a space this renderer does not read
-//! yet (a fact) is left out of the text; it stays in the view, so the view's record still says it was chosen.
+//! thing's card, a waiting line and the facts about the person as the turn's sources read them
+//! (`super::sources_store::Sessions::texts`). A piece with no text read is left out of the text; it stays in
+//! the view, so the view's record still says it was chosen.
 
 use super::budget::View;
 use super::fold::FoldNode;
@@ -70,7 +71,9 @@ impl TextRenderer<'_> {
         match &p.range.space {
             Space::Exchanges { .. } => {}
             Space::Task { task } => return self.task_card(p, task, pov),
-            Space::Card { thing } => return Ok(self.thing_card(p, thing, form, pov)),
+            Space::Card { .. } | Space::Waiting { .. } | Space::Facts { .. } => {
+                return Ok(self.read_text(p, form, pov))
+            }
             _ => return Ok(Vec::new()),
         }
         let place = p.marks.place.as_deref().unwrap_or("an unknown place");
@@ -131,16 +134,13 @@ impl TextRenderer<'_> {
         Ok(vec![block])
     }
 
-    /// A named thing's card, as the turn read it: whole, or its title alone in the line form.
-    fn thing_card(
-        &self,
-        p: &Piece,
-        thing: &str,
-        form: Form,
-        pov: &PointOfView,
-    ) -> Vec<MarkedBlock> {
-        let read = self.sessions.map(|s| s.cards.borrow().get(thing).cloned());
-        let Some(text) = read.flatten().flatten() else {
+    /// A piece whose text the turn's sources read (a card, a waiting line, the facts about the person), as
+    /// one block of its own provenance: whole, or its first line alone in the line form.
+    fn read_text(&self, p: &Piece, form: Form, pov: &PointOfView) -> Vec<MarkedBlock> {
+        let read = self
+            .sessions
+            .and_then(|s| s.texts.borrow().get(&p.range.space).cloned());
+        let Some(text) = read else {
             return Vec::new();
         };
         let text = match form {

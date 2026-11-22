@@ -149,3 +149,92 @@ async fn a_sealed_threads_thing_is_absent_and_uncounted() {
     assert!(!texts(&q).contains(KELP_CARD), "{}", texts(&q));
     assert_eq!(cards_counted(&c.store, &t.turn_id), 0);
 }
+
+/// A question for the owner's answer, parked by a turn of a session of its own, as a tool the policy
+/// stopped for approval parks it.
+fn plant(core: &crate::Core, root: &std::path::Path) -> String {
+    use serde_json::{json, Value};
+    use theseus_kernel::{Authority, Proposal, RetryClass, TurnEnd, Wake};
+    let k = &core.kernel;
+    let sid = session_in(core, None, root);
+    let mut rec = (core.store)
+        .get_session::<crate::session::SessionRecord>(&sid)
+        .unwrap()
+        .unwrap();
+    let operator = Authority {
+        principal: crate::turn::OPERATOR.into(),
+        ..Default::default()
+    };
+    let e = k
+        .open_execution(&sid, rec.kind, operator, None, None)
+        .unwrap();
+    rec.execution_id = Some(e.id.clone());
+    core.store.put_session(&sid, &rec).unwrap();
+    k.wake_input(&e.id).unwrap();
+    let guard = k.admit(&e.id).unwrap();
+    let p = Proposal {
+        tool: "aws.stack.apply".into(),
+        args: json!({"stack": "example-harbour"}),
+        resource: None,
+        policy_context: Value::Null,
+    };
+    let a = k
+        .plan_confirm(&guard, &p, RetryClass::NonRepeatable, Some(600_000))
+        .unwrap();
+    let wake = Wake::Confirm {
+        confirm_id: a.correlation_id.clone(),
+    };
+    k.end_turn(guard, TurnEnd::Wait { wake }).unwrap();
+    a.correlation_id
+}
+
+/// KEY: a question waiting for the owner's answer is listed beside his message, by its id and one line,
+/// and once he has answered it, it is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_waiting_confirmation_is_listed_and_disappears_when_answered() {
+    let r = view_rig();
+    let c = &r.core;
+    let question = plant(c, &r.root);
+    let line = format!("{question}: waiting for your answer: aws.stack.apply");
+    let desk = session_in(c, None, &r.root);
+    turn_as(c, &desk, "desk: anything for me?", true).await;
+    let q = asked(&r, "desk: anything for me?").pop().unwrap();
+    assert!(texts(&q).contains(&line), "{}", texts(&q));
+
+    c.confirm_action(&question, false, Some("not now"), "cli")
+        .unwrap();
+    turn_as(c, &desk, "desk: and now?", true).await;
+    let q = asked(&r, "desk: and now?").pop().unwrap();
+    assert!(!texts(&q).contains(&question), "{}", texts(&q));
+}
+
+/// KEY: the owner alone is told the facts his held person records (its name and role line); an agent's
+/// process at the terminal, which is no person and never the owner alone, is told none of them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_facts_about_the_person_reach_the_owner_alone() {
+    use theseus_ontology::{Category, CategoryId, Origin, Record};
+    const ROLE: &str = "keeps the harbour's books and owns the tide gauge";
+    let r = view_rig();
+    let c = &r.core;
+    let me = CategoryId::parse(&format!("person:{}", crate::tests_places::OWNER)).unwrap();
+    let mut held = Category::new(me, "Ada", "ada");
+    held.description = ROLE.into();
+    (c.runner.ontology)
+        .write(
+            &c.store,
+            vec![Record::Category(held)],
+            Origin::Operator,
+            |_| Ok(vec![]),
+        )
+        .unwrap();
+    let desk = session_in(c, None, &r.root);
+    turn_as(c, &desk, "desk: good morning", true).await;
+    let q = asked(&r, "desk: good morning").pop().unwrap();
+    assert!(texts(&q).contains("Who is speaking: Ada"), "{}", texts(&q));
+    assert!(texts(&q).contains(ROLE), "{}", texts(&q));
+
+    let agent = session_in(c, None, &r.root);
+    turn_as(c, &agent, "agent: good morning", false).await;
+    let q = asked(&r, "agent: good morning").pop().unwrap();
+    assert!(!texts(&q).contains(ROLE), "{}", texts(&q));
+}
