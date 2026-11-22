@@ -773,6 +773,8 @@ mod tests_unlabel;
 #[cfg(test)]
 mod tests_view_between;
 #[cfg(test)]
+mod tests_view_recall;
+#[cfg(test)]
 mod tests_view_compile;
 #[cfg(test)]
 mod tests_view_gate;
