@@ -129,3 +129,62 @@ async fn a_fold_of_the_owners_words_alone_reads_as_before() {
         "the owner's words in them, word for word (selected):\n- Recalibrate gauge 1000"
     ));
 }
+
+/// A node written before its writer was told each message's author (P1-4): its account says the owner
+/// asked for what another person asked for. Its title and account are withheld, said so; its excerpt
+/// stays, labelled by its own mark. Nothing stored is changed.
+#[tokio::test]
+async fn an_older_summarys_account_is_withheld_where_it_could_credit_another_to_the_owner() {
+    let (_d, s) = store();
+    let turn = exchange_at(&s, "ses_ch", CHANNEL, 1_000, false);
+    mark(&s, &turn, Some("discord:7"));
+    let ex = exchange::exchange(&s, &turn).unwrap().unwrap();
+    let node = super::fold::FoldNode {
+        id: "fld_old".into(),
+        place: CHANNEL.into(),
+        level: 1,
+        exchanges: vec![turn.clone()],
+        first_ms: ex.start_ms,
+        last_ms: ex.start_ms,
+        his: vec![super::fold::HisLine {
+            node: ex.ask.clone().unwrap(),
+            correction: false,
+            standing: false,
+        }],
+        counted: 0,
+        children: vec![],
+        title: "The owner's gauge".into(),
+        account: "The owner asked for gauge 1000 to be recalibrated.".into(),
+        marks: super::marks_of(&ex),
+        model: Some("fake-small-1".into()),
+        writer: 1,
+        at_ms: ex.start_ms,
+    };
+    s.append(&super::fold::records(&node).unwrap()).unwrap();
+    let nodes = StoreLadder(&s).read(CHANNEL, N, None).unwrap().nodes;
+    assert_eq!(nodes.len(), 1);
+    let renderer = crate::view::wire_text::TextRenderer {
+        store: &s,
+        kernel: None,
+        sessions: None,
+        zone: &crate::recall::stamp::system,
+    };
+    let pov = PointOfView {
+        anchor: Anchor::Place(CHANNEL.into()),
+        person: Some(exchange::OWNER.into()),
+        present: Present::Private,
+        at_hand: None,
+        now_ms: 0,
+    };
+    let b = &renderer.ladder(&pov, &nodes).unwrap()[0];
+    assert!(!b.text.contains("The owner asked"), "{}", b.text);
+    assert!(!b.heading.contains("The owner's gauge"), "{}", b.heading);
+    assert!(b
+        .text
+        .contains("(written before authorship was recorded; not shown)"));
+    assert!(b
+        .text
+        .contains("- another person (not the owner): Recalibrate gauge 1000"));
+    let kept = super::fold::node(&s, "fld_old").unwrap().unwrap();
+    assert_eq!(kept.account, node.account, "nothing stored is rewritten");
+}

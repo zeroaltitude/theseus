@@ -50,6 +50,9 @@ pub struct Frozen {
     /// The sessions whose exchanges the view lays, the ladder's fold nodes' included: re-checked against
     /// their seals before each call.
     pub sessions: Vec<String>,
+    /// The exchanges it lays or folds (the window's, the shown pieces' and the fold nodes' constituents):
+    /// their messages' node seals are re-checked before each call, as the sessions' seals are.
+    pub exchanges: Vec<String>,
     /// The thread card the chain began with: its later calls send it, whatever the thread says since.
     pub card: Option<String>,
     /// The verified point of view it was assembled under; a different reading before a later call (a steer

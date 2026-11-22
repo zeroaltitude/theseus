@@ -254,7 +254,17 @@ impl TurnRunner {
             return false;
         };
         let sid = t.tc.session_id;
-        (f.sessions.iter()).any(|s| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear)
+        if (f.sessions.iter()).any(|s| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear)
+        {
+            return true;
+        }
+        // A message it shows moved into a thread, or that thread sealed, since it was assembled.
+        let moved = crate::view_gate::Moved::read(self, Some(sid));
+        (f.exchanges.iter()).any(|id| match crate::exchange::exchange(&self.store, id) {
+            Ok(Some(e)) => moved.holds(&e),
+            Ok(None) => false,
+            Err(_) => true,
+        })
     }
 
     /// A new chain for the turn: its next call makes a new compilation (the sent tails let go), and the
@@ -345,6 +355,7 @@ impl TurnRunner {
             held: &held,
             moved: &moved,
             sessions: Default::default(),
+            exchanges: Default::default(),
         };
         let ladder = OnceLadder::new(&gated);
         let cards = StoreCards {
@@ -381,6 +392,15 @@ impl TurnRunner {
         };
         let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
         sessions.extend(gated.sessions.borrow().iter().cloned());
+        // Every exchange it lays or folds: their messages' node seals are asked again before each call.
+        let mut exchanges: Vec<String> = (window.iter())
+            .filter_map(|(_, n)| n.turn_id.clone())
+            .filter(|t| t != turn)
+            .chain(gated.exchanges.borrow().iter().cloned())
+            .chain(shown_exchanges(&a))
+            .collect();
+        exchanges.sort();
+        exchanges.dedup();
         sessions.sort();
         sessions.dedup();
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
@@ -392,6 +412,7 @@ impl TurnRunner {
             window,
             stripped: HashSet::new(),
             sessions,
+            exchanges,
             verified: Some(verified_pov),
             beside: a.parts.beside.as_ref().map(block),
             memory_page,
@@ -533,25 +554,25 @@ impl Fallback {
 /// The ladder as the gate reads it today: a fold node is kept only when every exchange it stands for
 /// resolves to a session, none of those sessions is sealed, seal pending or unreadable now, and none of
 /// those exchanges holds a message or reply moved into a thread not proven clear (`view_gate::Moved`; a
-/// fold built before the move is held so); its words AND its account go together. The sessions of those
-/// kept are recorded, so a seal before a later call revokes them too.
+/// fold built before the move is held so); its words AND its account go together. The sessions and the
+/// exchanges of those kept are recorded, so a seal or a move before a later call revokes them too.
 struct GatedLadder<'a> {
     inner: &'a dyn crate::view::fold::Ladder,
     store: &'a Store,
     held: &'a dyn Fn(&str) -> bool,
     moved: &'a dyn Fn(&crate::exchange::Exchange) -> bool,
     sessions: std::cell::RefCell<Vec<String>>,
+    exchanges: std::cell::RefCell<Vec<String>>,
 }
 
 impl GatedLadder<'_> {
-    /// The sessions of every exchange fold node `id` stands for; none when any cannot be resolved, or any
-    /// holds a moved message the reader may not read.
-    fn constituents(&self, id: &str) -> Option<Vec<String>> {
+    /// Every exchange fold node `id` stands for; none when any cannot be resolved, or any holds a moved
+    /// message the reader may not read.
+    fn constituents(&self, id: &str) -> Option<Vec<crate::exchange::Exchange>> {
         let node = crate::ladder::fold::node(self.store, id).ok()??;
         let read = crate::ladder::fold::open(self.store, &node).ok()?;
         let whole = !node.exchanges.is_empty() && read.len() == node.exchanges.len();
-        (whole && !read.iter().any(|e| (self.moved)(e)))
-            .then(|| read.into_iter().map(|e| e.session_id).collect())
+        (whole && !read.iter().any(|e| (self.moved)(e))).then_some(read)
     }
 }
 
@@ -565,18 +586,34 @@ impl crate::view::fold::Ladder for GatedLadder<'_> {
         let mut read = self.inner.read(place, n, since)?;
         let mut kept = Vec::new();
         for node in read.nodes {
-            let Some(sessions) = self.constituents(&node.handle.0) else {
+            let Some(exchanges) = self.constituents(&node.handle.0) else {
                 continue;
             };
-            if sessions.iter().any(|s| (self.held)(s)) {
+            if exchanges.iter().any(|e| (self.held)(&e.session_id)) {
                 continue;
             }
-            self.sessions.borrow_mut().extend(sessions);
+            for e in exchanges {
+                self.sessions.borrow_mut().push(e.session_id);
+                self.exchanges.borrow_mut().push(e.turn_id);
+            }
             kept.push(node);
         }
         read.nodes = kept;
         Ok(read)
     }
+}
+
+/// The exchanges the view's shown pieces stand for, by the ends of their ranges.
+fn shown_exchanges(a: &Assembled) -> Vec<String> {
+    (a.view.shown.iter())
+        .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }))
+        .flat_map(|s| {
+            [
+                s.piece.range.first.id.clone(),
+                s.piece.range.last.id.clone(),
+            ]
+        })
+        .collect()
 }
 
 /// Whether a person's message, a wake or a report of the turn's own opened it (they are written as the

@@ -203,7 +203,12 @@ pub fn material(reads: &[(Read, did::Said)]) -> String {
         let body = format!(
             "{}: {ask}\nWhat Theseus did: {}\nIts reply began: {reply}",
             super::did::said_by(r.author),
-            said.text()
+            match said {
+                // A line written before its writer was told the author is not fed to a new summary.
+                did::Said::Line(d) if d.writer < super::writer::AUTHORSHIP_SINCE =>
+                    did::NOT_SUMMARISED,
+                _ => said.text(),
+            }
         );
         let body = match r.marks.outside {
             true => super::writer::outside(Some("a tool's result this exchange read"), &body),
@@ -269,6 +274,7 @@ pub async fn first_level(
         text: material(reads),
         sources: reads.len() as u32,
         sessions,
+        exchanges: reads.iter().map(|(r, _)| r.ex.turn_id.clone()).collect(),
     };
     let w = writer.write(ask, purse).await;
     let Some((title, account)) = w.text.as_deref().and_then(parse) else {
@@ -384,7 +390,12 @@ pub fn above(children: &[FoldNode]) -> Option<FoldNode> {
         account,
         marks: node_marks(children.iter().map(|c| &c.marks)),
         model: None,
-        writer: super::writer::WRITER_VERSION,
+        // Its title and account are its children's titles: as old as the oldest of them.
+        writer: children
+            .iter()
+            .map(|c| c.writer)
+            .min()
+            .unwrap_or(super::writer::WRITER_VERSION),
         at_ms: theseus_protocol::now_unix_ms(),
     })
 }

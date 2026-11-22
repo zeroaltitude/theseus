@@ -1146,3 +1146,123 @@ async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
         "{written}"
     );
 }
+
+/// Every message saying `what`, in any session, moved into the thread `kelp` as a split records it.
+fn move_into_kelp(c: &crate::Core, what: &str) {
+    for s in (c.store.list_sessions::<crate::session::SessionRecord>()).unwrap() {
+        for (_, n) in c.store.session_nodes(&s.session_id).unwrap() {
+            if matches!(&n.body, crate::node::Body::UserMessage { text, .. } if text.contains(what))
+            {
+                let to = serde_json::json!({"thread": "kelp", "split": "spl_x"});
+                c.store
+                    .put_meta(&crate::moved::moved_of_key(&n.id), &to)
+                    .unwrap();
+            }
+        }
+    }
+}
+
+/// A frozen view re-checks the node seals of what it shows before each call (P1-1): a shown message moved
+/// into a sealed thread between two calls of one turn, or moved into a clear thread that is sealed
+/// between them, is in neither part of the second request.
+#[tokio::test]
+async fn a_move_or_its_threads_seal_between_two_calls_holds_the_shown_message() {
+    use std::sync::{Arc, OnceLock};
+    const SAID: &str = "desk: the embargoed figure is 7741";
+    for seal_later in [false, true] {
+        let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
+        let held = core.clone();
+        let r = crate::tests_places::rig_setup_scripted(
+            |c| {
+                c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+                c.threads.enabled = true;
+            },
+            move |s| {
+                kelp(s, !seal_later);
+            },
+            move |q| {
+                let last = last_user(q);
+                if last.contains("move it now") && !crate::tests_places::answers_a_call(q) {
+                    let c = held.get().expect("the core");
+                    match seal_later {
+                        true => seal_kelp(c),
+                        false => move_into_kelp(c, "7741"),
+                    }
+                    return crate::provider::Scripted::tools(
+                        "Looking.",
+                        &[("s1", "fs_list", serde_json::json!({"path": "."}))],
+                    );
+                }
+                crate::provider::Scripted::text("Done.")
+            },
+        );
+        let _ = core.set(r.core.clone());
+        let c = &r.core;
+        let desk = crate::tests_places::session(c, None);
+        turn_as(c, &desk, SAID, true).await;
+        if seal_later {
+            move_into_kelp(c, "7741");
+        }
+        turn_as(c, &desk, "desk: move it now", true).await;
+        let calls: Vec<ProviderRequest> = (r.requests().into_iter())
+            .filter(|q| texts(q).contains("desk: move it now"))
+            .collect();
+        assert_eq!(calls.len(), 2, "the turn made two calls");
+        assert!(
+            texts(&calls[0]).contains("7741"),
+            "before: {}",
+            texts(&calls[0])
+        );
+        assert!(
+            !texts(&calls[1]).contains("7741"),
+            "seal later {seal_later}: {}",
+            texts(&calls[1])
+        );
+    }
+}
+
+/// `view show --text`'s gate (P1-3): a recorded exchange whose message moved into a sealed thread since is
+/// not shown to the owner's inspection either; the owner's look lifts no seal.
+#[tokio::test]
+async fn the_owners_inspection_withholds_a_message_moved_into_a_sealed_thread() {
+    use crate::view::record::show::Source as _;
+    let r = crate::tests_places::rig_setup(
+        |c| {
+            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+            c.threads.enabled = true;
+        },
+        |s| {
+            kelp(s, true);
+        },
+    );
+    let c = &r.core;
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: the embargoed figure is 7741", true).await;
+    let ex = (c.store.session_nodes(&desk).unwrap().into_iter())
+        .find_map(|(_, n)| n.turn_id)
+        .and_then(|t| crate::exchange::exchange(&c.store, &t).unwrap())
+        .expect("the exchange");
+    let pos = crate::view::Pos {
+        at_ms: ex.start_ms,
+        id: ex.turn_id.clone(),
+    };
+    let range = crate::view::SourceRange {
+        space: crate::view::Space::Exchanges {
+            place: ex.place.clone(),
+        },
+        first: pos.clone(),
+        last: pos,
+    };
+    let source = crate::view::record::source::GateSource {
+        runner: &c.runner,
+        pov: theseus_memory::gate::PointOfView {
+            anchor: ex.place.clone(),
+            place: theseus_memory::recall::Place::Private,
+            present: theseus_memory::gate::Present::OwnerAlone,
+        },
+        asker: None,
+    };
+    assert!(source.may_show(&range, None), "before the move");
+    move_into_kelp(c, "7741");
+    assert!(!source.may_show(&range, None), "after it");
+}
