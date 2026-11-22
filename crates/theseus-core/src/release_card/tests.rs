@@ -375,7 +375,7 @@ async fn red_team_the_company_turn_sends_nothing_of_the_look() {
     let dm = crate::tests_rerank::session(&r.core, Some(&format!("dm:{HIM}")), &[]);
     let his = said(
         &r.core.store,
-        "t_his",
+        "xq_private_turn_9",
         &dm,
         &dm_target,
         OWNER,
@@ -402,7 +402,7 @@ async fn red_team_the_company_turn_sends_nothing_of_the_look() {
     };
     assert_eq!(row.data["answer"], LEANS_ELSEWHERE);
     assert_eq!(row.data["outcome"], "one", "{}", row.data);
-    assert_eq!(row.data["ids"], json!(["t_his"]));
+    assert_eq!(row.data["ids"], json!(["xq_private_turn_9"]));
     assert!(!row.data.to_string().contains(SECRET));
     let sent = r.model.requests.lock().unwrap().clone();
     assert!(!sent.is_empty());
@@ -413,7 +413,7 @@ async fn red_team_the_company_turn_sends_nothing_of_the_look() {
             "the company turn was sent the private piece"
         );
         assert!(
-            !bytes.contains("t_his"),
+            !bytes.contains("xq_private_turn_9"),
             "the company turn was sent the look's id"
         );
     }
