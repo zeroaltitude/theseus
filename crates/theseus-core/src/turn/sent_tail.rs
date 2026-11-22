@@ -10,15 +10,15 @@
 //! `claude-fable-5-2` refuses it.
 //!
 //! So a tail is kept with the message it rode, by what that message rendered
-//! as, and put back in place on the requests after it; what is new goes
-//! after, as it always did. Within one turn a block the latest tail already
-//! holds, unchanged, is not sent a second time: the model has it a step back,
-//! and a turn of many steps grows by what changed and nothing else. Each new
-//! turn's request carries its tail whole, as it always did, and the turns
-//! before it keep theirs. A kept tail whose message
-//! no longer renders as it did (a recompile, a ring's cut, a compaction)
-//! is let go, and so is the lot when a recompile strips the thinking, which
-//! is what needed them.
+//! as, and put back in place on the turn's later requests; what is new goes
+//! after, as it always did. A block the latest tail already holds, unchanged,
+//! is not sent a second time: the model has it a step back, and a turn of many
+//! steps grows by what changed and nothing else. Tails are kept WITHIN a turn
+//! only: a new turn's request carries its own tail whole, and nothing an
+//! earlier turn sent is put back (an earlier turn's thinking is not sent
+//! again either, so nothing needs it; and a kept tail was never behind the
+//! gate). A kept tail whose message no longer renders as it did (a new chain)
+//! is let go, and so is the lot when a recompile strips the thinking.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -31,8 +31,8 @@ use crate::provider::binding::unmarked;
 
 /// How many sessions keep their tails; the least recently used goes first.
 const SESSIONS: usize = 256;
-/// How many tails a session keeps.
-const PER_SESSION: usize = 2048;
+/// How many tails a turn keeps.
+const PER_TURN: usize = 2048;
 
 /// One request's tail: the message it rode, what that message rendered as
 /// without it, and its blocks.
@@ -52,7 +52,7 @@ struct Held {
     recent: VecDeque<String>,
 }
 
-/// Each session's kept tails.
+/// Each session's kept tails: its current turn's.
 #[derive(Default)]
 pub struct SentTails(Mutex<Held>);
 
@@ -161,8 +161,9 @@ impl SentTails {
         put_back(compiled, held, None, stripped);
     }
 
-    /// Put back the tails the session's earlier requests sent, on the
+    /// Put back the tails this turn's earlier requests sent, on the
     /// messages that carried them, before this request's own is attached.
+    /// An earlier turn's are let go.
     pub(super) fn begin(
         &self,
         session: &str,
@@ -171,12 +172,13 @@ impl SentTails {
     ) -> Option<Begun> {
         let last = compiled.request.messages.len().checked_sub(1)?;
         let stripped = compiled.new_compilation && compiled.compilation.manifest.strip_thinking;
-        let held = {
+        let mut held = {
             let mut h = self.0.lock().unwrap_or_else(|e| e.into_inner());
             h.recent.retain(|s| s != session);
             h.recent.push_back(session.to_string());
             h.by_session.get(session).cloned().unwrap_or_default()
         };
+        held.retain(|s| s.turn == turn);
         let (kept, here) = put_back(compiled, held, Some(key), stripped);
         let m = &mut compiled.request.messages[last];
         let anchor = anchor(m);
@@ -238,8 +240,8 @@ impl SentTails {
                 });
             }
         }
-        // A session that moves between places keeps the tails of each, but not without end.
-        let over = kept.len().saturating_sub(PER_SESSION);
+        // A turn of many steps keeps its tails, but not without end.
+        let over = kept.len().saturating_sub(PER_TURN);
         kept.drain(..over);
         let mut h = self.0.lock().unwrap_or_else(|e| e.into_inner());
         h.recent.retain(|s| s != session);
