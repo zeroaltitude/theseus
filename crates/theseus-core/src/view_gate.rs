@@ -868,6 +868,43 @@ impl Verified {
     }
 }
 
+/// Whether `session` is a worker's: a task's session, or one the self loop opened (its execution's principal
+/// is `self`). Its tools read its point of view as its view does ([`Verified::of_session`]).
+pub fn worker(runner: &TurnRunner, session: &str) -> bool {
+    let Ok(Some(rec)) = runner.store.get_session::<SessionRecord>(session) else {
+        return false;
+    };
+    rec.task.is_some()
+        || (rec.execution_id.as_deref()).is_some_and(|e| {
+            crate::task_graph::principal_of(&runner.kernel, e) == crate::rsi::SELF_PRINCIPAL
+        })
+}
+
+/// How many of a session's newest earlier turns [`own_turns`] looks at: twice the most a window holds.
+const OWN_TURNS: usize = 4 * crate::ladder::N;
+
+/// The exchanges `session` itself ran at `place` before `turn`, among its newest [`OWN_TURNS`] turns: what a
+/// turn of it is always shown at that place, whoever is present (`view::permit::Permit::speaking`). An
+/// exchange whose record cannot be read is not among them.
+pub fn own_turns(store: &Store, session: &str, turn: &str, place: &str) -> Vec<String> {
+    let Ok(nodes) = store.transcript(session) else {
+        return Vec::new();
+    };
+    let mut seen = std::collections::HashSet::new();
+    let turns = (nodes.iter().rev())
+        .filter_map(|(_, n)| n.turn_id.as_deref())
+        .filter(|t| *t != turn && seen.insert(*t))
+        .take(OWN_TURNS)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    (turns.into_iter())
+        .filter(|t| match crate::exchange::exchange(store, t) {
+            Ok(Some(e)) => e.session_id == session && e.place == place,
+            _ => false,
+        })
+        .collect()
+}
+
 /// A task's point of view (issue 44, a task's own view): anchored at its own
 /// place `own` (`task_graph::place`), today's reading of where it speaks
 /// renamed to it, and its presence as its set-up proved it. A set-up that

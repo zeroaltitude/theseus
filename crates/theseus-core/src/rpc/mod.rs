@@ -217,6 +217,8 @@ mod tests_self_patterns;
 #[cfg(test)]
 mod tests_self_pause;
 #[cfg(test)]
+mod tests_self_view;
+#[cfg(test)]
 mod tests_session_find;
 #[cfg(test)]
 mod tests_session_states;

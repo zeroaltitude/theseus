@@ -142,6 +142,11 @@ impl Core {
         if !super::laddered(&ex.place) {
             return Ok(());
         }
+        // A worker's turns (a task's, the self loop's) are not summarised: the day's purse is the owner's
+        // conversations'. Its window is bounded instead (`read::ladder`), the rest reached by history.
+        if blocking(|| crate::view_gate::worker(&self.runner, &ex.session_id)) {
+            return Ok(());
+        }
         let since = blocking(|| super::new_mark(&self.store, &ex.place))?;
         let writer = ModelWriter(self.clone());
         let hidden = |sid: &str| self.ladder_hidden(sid);

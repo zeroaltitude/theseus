@@ -21,7 +21,7 @@ use crate::Core;
 
 /// What every task's brief opens with (`task::brief_text_in`): a request that holds it in a person's words
 /// is a task's.
-const TASK_HEAD: &str = "a background task started by session";
+const TASK_HEAD: &str = ": a background task";
 
 /// A message's text blocks (a tool's result is not a text block).
 fn texts(m: &Value) -> Vec<String> {
@@ -55,7 +55,7 @@ fn own_brief(req: &ProviderRequest) -> Option<String> {
     (req.messages.iter())
         .filter(|m| m["role"] == "user")
         .flat_map(texts)
-        .find(|t| t.contains(TASK_HEAD))
+        .find(|t| t.contains("[Task ") && t.contains(TASK_HEAD))
         .and_then(|t| t.rsplit("\n\n").next().map(str::to_string))
 }
 
@@ -214,6 +214,15 @@ async fn a_tasks_turns_take_the_view_at_its_own_place_and_its_second_sees_its_fi
     complete(&r.core, &task).await;
 
     let reqs = task_requests(&r, COUNT);
+    // Its opening is laid once in every request: at the head of the window, never again in the tail.
+    for q in &reqs {
+        assert_eq!(
+            user_text(q).matches(TASK_HEAD).count(),
+            1,
+            "{}",
+            user_text(q)
+        );
+    }
     assert!(
         reqs.len() >= 3,
         "two calls, then the wake's: {}",
@@ -357,6 +366,87 @@ async fn a_report_to_a_task_is_a_view_turn_at_the_tasks_place() {
     none_handed_back(&r.core, &outer);
 }
 
+/// The same in a shared place: the subtask's report into a task whose conversation is a shared channel is
+/// shown to the task (`view_gate::report_shown` reads the task's exchange as where it speaks), not held.
+#[tokio::test]
+async fn a_report_into_a_task_in_a_shared_place_is_shown_there() {
+    report_into_a_shared_task().await;
+}
+
+/// A conversation in a shared channel, as the owner's binding makes one.
+fn shared_parent(core: &Arc<Core>) -> String {
+    let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    core.outbox
+        .bind_place("channel:77", &rec.session_id)
+        .unwrap();
+    core.runner.place_rule.bind_one(crate::places::BoundPlace {
+        target: "discord:channel:77".into(),
+        name: "the lab".into(),
+        private: false,
+        ..Default::default()
+    });
+    rec.session_id
+}
+
+async fn report_into_a_shared_task() {
+    let r = view_rig(|req, brief| {
+        let last = last_text(req);
+        Some(match brief {
+            INNER => Scripted::text("INNER FOUND: 42 gulls."),
+            OUTER if last.contains("[Report from task") => Scripted::text("OUTER: it found 42."),
+            OUTER if answers_a_call(req) => Scripted::text("OUTER STARTED: waiting on the count."),
+            OUTER => Scripted::tools(
+                "Starting the count, and a late look.",
+                &[
+                    (
+                        "t_inner",
+                        "task_create",
+                        json!({"brief": INNER, "wake_parent": true, "arrangement": {"pieces": [
+                            {"quote": "have a subtask count the gulls", "role": "objective"}]}}),
+                    ),
+                    (
+                        "t_late",
+                        "wake_at",
+                        json!({"after": "1h", "note": "look again"}),
+                    ),
+                ],
+            ),
+            _ => return None,
+        })
+    });
+    let parent = shared_parent(&r.core);
+    // The quoted message apart: the outer task's arrangement copies it, and the subtask's quote must be
+    // found in the outer task's brief alone.
+    let arrangement = asked_apart(&r.core, &parent).await;
+    let input = json!({"brief": OUTER, "arrangement": arrangement, "fidelity_ack": true});
+    crate::test_support::turn(&r.core, &parent, &format!("CREATE {input}")).await;
+    let outer = task_by_brief(&r.core, OUTER);
+    let t0 = std::time::Instant::now();
+    while !(exchanges(&r.core, &outer).iter())
+        .any(|e| e.opened_by == Opener::Report && e.end_ms.is_some())
+    {
+        let waited = t0.elapsed() > std::time::Duration::from_secs(30);
+        assert!(!waited, "no report's turn: {}", state_of(&r, &outer, OUTER));
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    let place = crate::task_graph::place::of_session(&outer.session_id);
+    let ex = exchanges(&r.core, &outer);
+    assert!(ex.iter().all(|e| e.place == place), "{ex:?}");
+    let reqs = task_requests(&r, OUTER);
+    let report = (reqs.iter())
+        .find(|q| last_text(q).contains("[Report from task"))
+        .expect("the report's request");
+    let seen = serde_json::to_string(&report.messages).unwrap();
+    assert!(seen.contains("INNER FOUND: 42 gulls."), "{seen}");
+    assert!(
+        seen.contains("OUTER STARTED: waiting on the count."),
+        "its first turn: {seen}"
+    );
+    none_handed_back(&r.core, &outer);
+}
+
 const SECRET: &str = "SECRET-HARBOUR: the spare key is under the third bollard";
 const ERRAND: &str = "ERRAND-VIEW: list the boats in the south quay";
 
@@ -416,4 +506,62 @@ async fn a_tasks_request_holds_nothing_of_the_parents_window_it_may_not_see() {
     }
     assert_eq!(strategy(&r.core, &task.session_id), "view");
     none_handed_back(&r.core, &task);
+}
+
+const NOPROOF: &str = "NOPROOF-VIEW: count the herons on the east marsh";
+
+/// A task started by `task.start` (no set-up proof) reads its own history in a later turn: its history
+/// tool's point of view is the one its view is assembled under (its own place), so it pages and opens its
+/// first turn's exchange, and reads no other place.
+#[tokio::test]
+async fn a_task_with_no_proof_pages_and_opens_its_own_history_in_a_later_turn() {
+    use crate::history_tool::{answer, pov_of, Board};
+    use crate::view::history::HistoryArgs;
+    let r = view_rig(|req, brief| {
+        (brief == NOPROOF).then(|| match () {
+            _ if last_text(req).contains("⏰ wake") => Scripted::text("SECOND: herons again."),
+            _ if answers_a_call(req) => Scripted::text("FIRST-HERONS: nine herons so far."),
+            _ => Scripted::tools(
+                "Counting.",
+                &[(
+                    "t_wake",
+                    "wake_at",
+                    json!({"after": "1s", "note": "count again"}),
+                )],
+            ),
+        })
+    });
+    let started = r
+        .core
+        .task_start(
+            &crate::tests_task_brief::params(NOPROOF, None),
+            crate::tests_task_brief::cli(),
+        )
+        .unwrap();
+    let task = task_by_brief(&r.core, NOPROOF);
+    assert_eq!(task.session_id, started.session_id);
+    complete(&r.core, &task).await;
+    let ex = exchanges(&r.core, &task);
+    assert_eq!(ex.len(), 2, "{}", state_of(&r, &task, NOPROOF));
+    let (first, last) = (&ex[0].turn_id, &ex[1].turn_id);
+    let sid = task.session_id.as_str();
+    let pov = pov_of(&r.core, sid, last, None, crate::places::PlaceClass::Private);
+    let place = crate::task_graph::place::of_session(sid);
+    assert_eq!(pov.anchor, crate::view::Anchor::Place(place.clone()));
+    let args = |v: Value| serde_json::from_value::<HistoryArgs>(v).unwrap();
+    let ask = |a: HistoryArgs| {
+        let (core, pov) = (r.core.clone(), pov.clone());
+        let last = last.clone();
+        async move { answer(&core, &Board::default(), (sid, &last), &pov, &a).await }
+    };
+    let opened = ask(args(json!({"open": first}))).await.unwrap();
+    assert!(opened.text.contains("FIRST-HERONS"), "{}", opened.text);
+    let page = ask(args(json!({}))).await.unwrap();
+    assert!(
+        !page.text.contains("cannot be established"),
+        "{}",
+        page.text
+    );
+    let elsewhere = ask(args(json!({"place": "local"}))).await;
+    assert!(elsewhere.is_err(), "another place: {elsewhere:?}");
 }

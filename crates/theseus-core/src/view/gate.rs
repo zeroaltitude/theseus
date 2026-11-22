@@ -39,6 +39,32 @@ pub(in crate::view) fn admit_own(
         .map(|()| Admitted::new(piece))
 }
 
+/// `piece`, admitted for the turn `verified` as what its own session said at its anchor
+/// (`super::permit::Permit::speaking`): the gate's rule run with an unknown presence read as not the owner
+/// alone, and the piece's audience as the anchor's own reading, its seal and veil as they are. The caller has
+/// checked that the piece is an exchange of the asking session at the anchor.
+pub(in crate::view) fn admit_spoken(
+    verified: &Verified,
+    pov: &PointOfView,
+    piece: Piece,
+) -> Option<Admitted<Piece>> {
+    use theseus_memory::gate::Present;
+    let mut rule = verified.pov().clone();
+    if rule.present == Present::Unknown {
+        rule.present = Present::PrivateChannel;
+    }
+    // Only ever narrowed by the view's own point of view, as `point_of_view` narrows it.
+    let view = super::permit::point_of_view(verified, pov).present;
+    if view != Present::Unknown {
+        rule.present = rule.present.max(view);
+    }
+    let mut marks = super::permit::marks(&piece);
+    marks.class = rule.place.clone();
+    crate::view_gate::Gate::check(&rule, &marks)
+        .ok()
+        .map(|()| Admitted::new(piece))
+}
+
 /// A value the gate admitted for one point of view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Admitted<T>(T);
@@ -81,4 +107,11 @@ impl Admitted<Piece> {
 pub trait Gate {
     /// `None` denies.
     fn admit(&self, pov: &PointOfView, piece: Piece) -> Option<Admitted<Piece>>;
+
+    /// Whether a point of view whose presence is unknown may still be shown something here: the asking
+    /// session's own exchanges at its anchor (`super::permit::Permit::speaking`). Otherwise an unknown
+    /// presence admits nothing, and its selectors read nothing.
+    fn speaks_unknown(&self) -> bool {
+        false
+    }
 }
