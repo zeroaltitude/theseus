@@ -57,7 +57,11 @@ async fn a_fold_over_a_moved_message_is_written_by_the_model() {
     };
     let out = read::fold_step(&s, PLACE, None, &step).await.unwrap();
     assert_eq!(out.made.len(), 1);
-    assert_ne!(out.made[0].account, super::fold::HIDDEN);
+    assert!(
+        !out.made[0].account.starts_with("Not summarised"),
+        "{}",
+        out.made[0].account
+    );
     assert!(out.made[0].model.is_some(), "a model wrote it");
     assert_eq!(
         w.asks.lock().unwrap().len(),

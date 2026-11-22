@@ -6,7 +6,6 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use serde_json::json;
-use theseus_memory::gate::Present;
 use theseus_protocol::{error_code, method};
 
 use crate::approval::{Client, Surface};
@@ -21,7 +20,6 @@ use crate::view::{
     Anchor, Audience, Author, Form, Handle, Marks, Piece, PointOfView, Pos, Reason, Sizes,
     SourceRange, Space,
 };
-use crate::view_gate;
 use crate::Core;
 
 fn rig() -> Rig {
@@ -195,11 +193,6 @@ async fn view_show_answers_every_reader() {
     );
 }
 
-/// Seat `session`'s turn `turn` with `present` at `place`, as the turn's own start does.
-fn seat(core: &Core, session: &str, turn: &str, present: Present, place: &str) {
-    view_gate::seat_for_tests(&core.runner, session, turn, present, place);
-}
-
 /// Of a turn's many compilations, the look reads the newest.
 #[tokio::test]
 async fn the_look_reads_this_turns_newest_view() {
@@ -239,7 +232,6 @@ async fn the_owner_alone_is_shown_every_piece_and_no_text() {
         "local",
         vec![piece("local", "t-here"), piece("local", "t-two")],
     );
-    seat(&r.core, &desk, "t-desk", Present::OwnerAlone, "local");
     let said = crate::look::view::words(&r.core, &desk, "t-desk");
     assert!(
         said.contains("x:t-here") && said.contains("x:t-two"),
@@ -256,7 +248,6 @@ async fn the_owner_alone_is_shown_every_piece_and_no_text() {
 async fn a_turn_with_no_view_says_so() {
     let r = rig();
     let desk = session(&r.core, None);
-    seat(&r.core, &desk, "t-desk", Present::OwnerAlone, "local");
     let said = crate::look::view::words(&r.core, &desk, "t-desk");
     assert!(said.contains("no view record"), "{said}");
 }

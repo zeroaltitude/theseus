@@ -268,15 +268,13 @@ async fn eleven_hours_later_the_window_is_unchanged() {
         timeline: crate::view::wire::StoreTimeline(&c.store),
         at_hand: None,
     };
-    let pov = crate::view::PointOfView::compute(
-        &crate::view::Arrival {
-            anchor: crate::view::Anchor::Place(place.clone()),
-            person: None,
-            owner_marked: false,
-            audience: crate::view::Audience::Private,
-        },
-        &snap,
-    );
+    let pov = crate::view::PointOfView {
+        anchor: crate::view::Anchor::Place(place.clone()),
+        person: None,
+        present: crate::view::Present::Private,
+        at_hand: None,
+        now_ms: snap.now_ms,
+    };
     let renderer = crate::view::wire_text::TextRenderer {
         store: &c.store,
         kernel: None,

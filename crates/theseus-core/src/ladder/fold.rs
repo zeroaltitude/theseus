@@ -299,11 +299,6 @@ pub async fn first_level(
     (Ok(node), w)
 }
 
-/// What a first-level node over a sealed or veiled source said in place of an account, before anything goes
-/// (2026-11-22): no node is made so any more. One already written is read and shown as it stands (a node is
-/// written once for its range, `write_once`); its exchanges are opened by its handle like any other's.
-pub const HIDDEN: &str = "Not summarised: a source of these exchanges is sealed or veiled.";
-
 /// A node of the level above `children` (oldest first, one level, one
 /// place), built by code from their fields alone.
 pub fn above(children: &[FoldNode]) -> Option<FoldNode> {

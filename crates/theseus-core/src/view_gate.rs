@@ -131,11 +131,10 @@ pub fn standing_held<'r>(
 }
 
 /// How recall reads places for one asker: every asker reads every place (anything goes, 2026-11-22); it is
-/// never narrowed. Kept for its callers until the sweep.
+/// never narrowed. Kept for `thread.read`'s one call until that tool goes.
 #[derive(Clone, Debug, Default)]
 pub struct RecallPlaces {
     own: Option<String>,
-    channel: bool,
 }
 
 impl RecallPlaces {
@@ -144,40 +143,9 @@ impl RecallPlaces {
         Self::default()
     }
 
-    /// The channel bound private the asker speaks in, when it does.
-    pub fn channel(&self) -> Option<&str> {
-        self.own.as_deref().filter(|_| self.channel)
-    }
-
     /// The one place the asker draws on, when it is narrowed.
     pub fn narrowed(&self) -> Option<&str> {
         self.own.as_deref()
-    }
-
-    /// The asker's own place, read as recall reads it: the widest, so that it draws on every place
-    /// (anything goes, 2026-11-22).
-    pub fn asker(&self, _today: Place) -> Place {
-        Place::Private
-    }
-
-    /// `session`'s place, read as recall reads it for this asker.
-    pub fn of_session(&self, runner: &TurnRunner, session: &str) -> Place {
-        let today = runner.place_of(session);
-        match &self.own {
-            Some(own)
-                if today == Place::Private
-                    && place_name(runner, session).as_deref() == Some(own) =>
-            {
-                Place::Shared(own.clone())
-            }
-            _ => today,
-        }
-    }
-
-    /// Whether a reader in this asker may read `session` whole: any session
-    /// unless the asker is narrowed, when only its own place's.
-    pub fn may_read(&self, _runner: &TurnRunner, _session: &str) -> bool {
-        true
     }
 }
 
@@ -344,20 +312,3 @@ pub fn test_mark(
         at_ms: 0,
     }
 }
-
-/// Seat `session`'s turn with `present` at `place`, for a test: nothing now (anything goes, 2026-11-22;
-/// no presence is held). Kept for the tests that call it until the sweep.
-#[cfg(test)]
-pub fn seat_for_tests(
-    _runner: &TurnRunner,
-    _session: &str,
-    _turn_id: &str,
-    _present: Present,
-    _place: &str,
-) {
-}
-
-/// Seat the owner alone in `session`, for a test: nothing now (no presence is held). Kept for the tests
-/// that call it until the sweep.
-#[cfg(test)]
-pub fn seat_owner(_runner: &TurnRunner, _session: &str) {}

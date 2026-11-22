@@ -176,8 +176,6 @@ async fn a_read_with_a_query_cites_the_threads_notes() {
     let fix = thread_session(c, "security-fix");
     let id = say(c, &fix, "The staging proxy listens on port 8443.");
     let asker = session(c, None, &[]);
-    // Called past any turn: as from a turn of the owner's in person (issue 44).
-    crate::view_gate::seat_owner(&c.runner, &asker);
     c.runner
         .memory
         .set_ask(scored(c, vec![(fix.clone(), 0, 0.04)]));

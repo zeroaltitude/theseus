@@ -89,40 +89,6 @@ pub struct PointOfView {
     pub now_ms: u64,
 }
 
-/// What a turn's input brings to [`PointOfView::compute`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Arrival {
-    pub anchor: Anchor,
-    /// The person the owner's mark names; `None` without a mark.
-    pub person: Option<String>,
-    /// The input carries the owner's mark (no agent behind it).
-    pub owner_marked: bool,
-    /// The surface's audience as today's binding says it.
-    pub audience: Audience,
-}
-
-impl PointOfView {
-    /// The point of view of a turn: `present` is `OwnerAlone` only for a private surface and a marked input;
-    /// an unmarked input on a private surface is `Private` (its own place, nothing from elsewhere). `at_hand`
-    /// is read from the snapshot (the assembler fills [`Snapshot::at_hand`]).
-    pub fn compute(arrival: &Arrival, snap: &dyn Snapshot) -> Self {
-        let present = match (arrival.audience, arrival.owner_marked) {
-            (Audience::Private, true) => Present::OwnerAlone,
-            (Audience::Private, false) => Present::Private,
-            (Audience::Shared, _) => Present::Shared,
-            (Audience::Open, _) => Present::Open,
-            (Audience::Unknown, _) => Present::Unknown,
-        };
-        Self {
-            anchor: arrival.anchor.clone(),
-            person: arrival.person.clone(),
-            present,
-            at_hand: snap.at_hand(&arrival.anchor),
-            now_ms: snap.now_ms(),
-        }
-    }
-}
-
 /// One frozen read of the store for a turn: every selector runs once from it (frozen within a turn).
 pub trait Snapshot {
     /// The snapshot's time, in ms.

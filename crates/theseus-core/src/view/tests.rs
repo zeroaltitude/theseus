@@ -138,20 +138,22 @@ fn piece(place: &str, e: &ExchangeRef, band: Band) -> Piece {
     }
 }
 
-fn arrival() -> Arrival {
-    Arrival {
-        anchor: Anchor::Place("local".into()),
+/// The owner's point of view at the terminal, as the turn's view step builds one.
+fn pov(present: Present, snap: &dyn Snapshot) -> PointOfView {
+    let anchor = Anchor::Place("local".into());
+    PointOfView {
+        at_hand: snap.at_hand(&anchor),
+        anchor,
         person: Some("owner".into()),
-        owner_marked: true,
-        audience: Audience::Private,
+        present,
+        now_ms: snap.now_ms(),
     }
 }
 
 #[test]
 fn a_view_is_built_from_fakes_through_the_shells() {
     let snap = FakeSnapshot(FakeTimeline);
-    let pov = PointOfView::compute(&arrival(), &snap);
-    assert_eq!(pov.present, Present::OwnerAlone);
+    let pov = pov(Present::OwnerAlone, &snap);
     let selectors: Vec<Box<dyn Selector>> = vec![Box::new(FakeRecall), Box::new(FakeFloor)];
     let mut denied = piece(
         "x",
@@ -203,7 +205,7 @@ fn a_view_is_built_from_fakes_through_the_shells() {
 #[test]
 fn a_floor_that_cannot_fit_is_a_typed_overflow() {
     let snap = FakeSnapshot(FakeTimeline);
-    let pov = PointOfView::compute(&arrival(), &snap);
+    let pov = pov(Present::OwnerAlone, &snap);
     let admitted: Vec<_> = FakeFloor
         .select(&pov, &snap)
         .expect("selects")
@@ -238,16 +240,9 @@ fn the_admission_table_has_each_band_once_and_its_floors_are_the_floor_and_now()
 }
 
 #[test]
-fn an_unmarked_input_is_not_the_owner_alone_and_folds_are_by_count() {
+fn a_stored_piece_needs_the_gate_and_folds_are_by_count() {
     let snap = FakeSnapshot(FakeTimeline);
-    let pov = PointOfView::compute(
-        &Arrival {
-            owner_marked: false,
-            ..arrival()
-        },
-        &snap,
-    );
-    assert_eq!(pov.present, Present::Private);
+    let pov = pov(Present::Private, &snap);
     let stored = piece(
         "local",
         &ExchangeRef {
