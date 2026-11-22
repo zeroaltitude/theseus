@@ -30,8 +30,8 @@
 //!   one full read, once. `read_today` is that full read; the two must agree.
 //!
 //! What counts, by source, read back at the start from:
-//! - a turn's and a task's provider calls, compaction's summary among them
-//!   (`action.succeeded`, `action.failed` and `action.outcome_unknown` rows
+//! - a turn's and a task's provider calls (and compaction's summary, in the
+//!   rows of a store from before 2026-11-22) (`action.succeeded`, `action.failed` and `action.outcome_unknown` rows
 //!   whose producer is a provider's, or whose cost is a booked reservation);
 //!   a task's cost carried to its parent's budget writes no row of its own,
 //!   so it counts once;
