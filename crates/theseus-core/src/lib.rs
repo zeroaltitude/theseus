@@ -556,6 +556,8 @@ mod tests_push_once;
 #[cfg(test)]
 mod tests_reach;
 #[cfg(test)]
+mod tests_rebase_view;
+#[cfg(test)]
 mod tests_recall;
 #[cfg(test)]
 mod tests_recall_current;
@@ -773,6 +775,8 @@ mod tests_view_hand_backs;
 mod tests_view_gate;
 #[cfg(test)]
 mod tests_view_record;
+#[cfg(test)]
+mod tests_view_sources;
 #[cfg(test)]
 mod tests_wait_cost;
 #[cfg(test)]

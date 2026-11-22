@@ -32,6 +32,9 @@ pub enum Kind {
     Task,
     /// A category of the ontology (a topic, an event, a resource, …).
     Topic,
+    /// A numbered item (`names::items`): no record holds it, only its
+    /// timeline; never in the table.
+    Item,
 }
 
 /// One thing of the table.

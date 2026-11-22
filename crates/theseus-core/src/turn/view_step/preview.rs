@@ -174,6 +174,7 @@ impl TurnRunner {
                 verified: Some(verified),
                 recalled: Vec::new(),
                 message: Some(p.message.unwrap_or_default().to_string()),
+                items: Vec::new(),
             },
             spec,
         )?;
@@ -400,5 +401,6 @@ fn tally_of(v: &ViewShown) -> ViewTally {
     t
 }
 
+mod census;
 #[cfg(test)]
 mod tests;

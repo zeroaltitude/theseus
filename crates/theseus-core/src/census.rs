@@ -3,7 +3,8 @@
 //! and nothing is written; `exact` asks the provider's token counter (not a model) when a key resolves.
 //!
 //! It compiles as a turn does (`TurnRunner::census_request`: the spec a turn builds, its standing block,
-//! `compiler::compile` over the session's transcript), so it follows whatever the compile changes, then
+//! `compiler::compile` over the session's transcript; in a place set to the view, the turn's own assembler and
+//! the view's compile, `turn::view_step::preview::census`), so it follows whatever the compile changes, then
 //! apportions the compile's own estimate to the parts (`Ledger`): a part's tokens are the difference of the
 //! running rounded total before and after it, so the parts add up to the total exactly, however many there
 //! are. A tool's use is a read of the ledger's `action.planned` rows (`tool_use`): an operator's read, never
@@ -37,6 +38,9 @@ pub const USE_DAYS: u32 = 30;
 const DAY_MS: u64 = 86_400_000;
 /// The rows read for the use a page at a time.
 const USE_PAGE: usize = 5_000;
+/// Said with a census of a place set to the view.
+const VIEW_NOTE: &str = "built as the view builds the next turn's first request, for an empty message from \
+                         the owner in person: no recall was run, so recall's pieces are not counted";
 /// The bytes of a request's smallest form, a user message of one word.
 const SMALLEST: &str = "x";
 
@@ -203,32 +207,11 @@ impl TurnRunner {
                 crate::stub::Stub::hydrated(at, std::sync::Arc::new(n.clone())),
             ));
         }
-        let hidden = rec.map(|r| r.not_shown.as_slice()).unwrap_or_default();
-        let (nodes, _) = self.stubbed_view(&sid, &spec.model, hidden, nodes, None);
-        let current = match rec.and_then(|r| r.compilation_id.as_deref()) {
-            Some(id) => self.store.get_compilation(id)?,
-            None => None,
-        };
-        let (recall_tokens, sources) = self.recall_part(&nodes);
-        let situation = crate::compiler::situation::given(false, false, false);
-        let compiled = crate::compiler::compile(crate::compiler::CompileInput {
-            session_id: &sid,
-            current: current.as_ref(),
-            nodes: &nodes,
-            last_position: self.store.last_position(),
-            spec: &spec,
-            catalog: &self.catalog,
-            force: None,
-            window_override: self.working_window(&spec),
-            blobs: Some(self.store.blobs()),
-            hidden,
-            strip: None,
-            overflowed: None,
-            sources: &sources,
-            assembled: None,
-            situation: &situation,
-            kept: None,
-        });
+        let (compiled, recall_tokens) =
+            self.census_compile(&sid, &spec, rec, nodes, extra.is_some())?;
+        if rec.is_some_and(|r| extra.is_none() && self.census_view_place(r).is_some()) {
+            notes.push(VIEW_NOTE.to_string());
+        }
         let how = match (rec.is_some(), compiled.new_compilation) {
             (false, _) => "fresh",
             (true, true) => "recompile",
@@ -263,6 +246,60 @@ impl TurnRunner {
             spec,
             notes,
         })
+    }
+
+    /// The census's compile of `nodes` (the session's transcript, `moved` when a split's dry run added a
+    /// node), and the tokens of the recall notes it holds. In a place set to the view: its own assembler,
+    /// never the transcript's compile, and no recall (a split's dry run aside, which reads the transcript a
+    /// `Moved` node would leave).
+    fn census_compile(
+        &self,
+        sid: &str,
+        spec: &RequestSpec,
+        rec: Option<&SessionRecord>,
+        nodes: crate::store::Transcript,
+        moved: bool,
+    ) -> Result<(Compiled, u64)> {
+        let hidden = rec.map(|r| r.not_shown.as_slice()).unwrap_or_default();
+        let view_place = rec
+            .filter(|_| !moved)
+            .and_then(|r| Some((r, self.census_view_place(r)?)));
+        let (nodes, _) = match view_place {
+            Some(_) => (nodes, Vec::new()),
+            None => self.stubbed_view(sid, &spec.model, hidden, nodes, None),
+        };
+        let current = match rec.and_then(|r| r.compilation_id.as_deref()) {
+            Some(id) => self.store.get_compilation(id)?,
+            None => None,
+        };
+        let (recall_tokens, sources) = match view_place {
+            Some(_) => (0, crate::recall::render::Sources::new()),
+            None => self.recall_part(&nodes),
+        };
+        let situation = crate::compiler::situation::given(false, false, false);
+        let input = crate::compiler::CompileInput {
+            session_id: sid,
+            current: current.as_ref(),
+            nodes: &nodes,
+            last_position: self.store.last_position(),
+            spec,
+            catalog: &self.catalog,
+            force: None,
+            window_override: self.working_window(spec),
+            blobs: Some(self.store.blobs()),
+            hidden,
+            strip: None,
+            overflowed: None,
+            sources: &sources,
+            assembled: None,
+            situation: &situation,
+            kept: None,
+        };
+        let compiled = match &view_place {
+            Some((r, place)) => self.census_view_compile(r, place, input)?,
+            None => crate::compiler::compile(input),
+        };
+        Ok((compiled, recall_tokens))
     }
 
     /// The tokens of the recall notes a transcript holds, and the sources they render from.

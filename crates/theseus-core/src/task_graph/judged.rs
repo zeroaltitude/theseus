@@ -187,15 +187,24 @@ fn asked_of(
 }
 
 /// Whether anything the turn admitted came from outside, or from anyone but
-/// the owner in person (evidence 2). The model's transcript is read whole,
-/// with a fork's inherited prefix (`Store::transcript`): no result in it is
-/// marked as outside, and no message in it was relayed from a task's report
-/// or written by an agent, a tool, an MCP prompt or an import. From the
-/// current exchange's ask, every node is his marked message, Theseus's own
-/// reply or call, or a plain result; a note the harness relayed there (a
-/// wake, a clock line) counts as outside, since its source is not proven
-/// here. Every view the turn was built from is read completely
-/// ([`outside_viewed`]). Anything that cannot be read counts as outside.
+/// the owner in person (evidence 2). The model's transcript is read whole and
+/// strictly ([`strict_transcript`]: a fork's inherited prefix included, and
+/// any record that cannot be read fails the read). In all of it:
+///
+/// - no result is marked as outside;
+/// - every person's message carries the owner's in-person mark;
+/// - no message was relayed from a task's report, or written by an agent, a
+///   tool, an MCP prompt or an import;
+/// - every source a recall put in front of the model reads, and is his marked
+///   message, Theseus's own reply or call, or a plain result;
+/// - nothing else of unknown source (an imported text, a synthesis, a task's
+///   arrangement) is there.
+///
+/// A summary's sources are this transcript's own earlier nodes, read above.
+/// From the current exchange's ask, a note the harness relayed (a wake, a
+/// clock line) counts as outside too. Every view the turn was built from is
+/// read completely ([`outside_viewed`]). Anything that cannot be read counts
+/// as outside.
 pub fn outside_admitted(
     store: &crate::store::Store,
     session: &str,
@@ -205,11 +214,9 @@ pub fn outside_admitted(
     let Some(ask) = ex.and_then(|e| e.ask.as_deref()) else {
         return true;
     };
-    let Ok(stubs) = store.transcript(session) else {
+    let Ok(nodes) = strict_transcript(store, session) else {
         return true;
     };
-    let nodes: Vec<std::sync::Arc<crate::node::Node>> =
-        stubs.iter().map(|(_, s)| s.node()).collect();
     let Some(from) = nodes.iter().position(|n| n.id == ask) else {
         return true;
     };
@@ -217,16 +224,16 @@ pub fn outside_admitted(
         matches!(crate::exchange::mark(store, id),
             Ok(Some(m)) if m.in_person && m.person().as_deref() == Some(crate::exchange::OWNER))
     };
-    let inherited = nodes.iter().any(|n| {
-        crate::external::is_outside(n)
-            || match &n.body {
-                Body::UserMessage { .. } => match n.origin {
-                    Origin::Operator => false,
-                    Origin::Harness => n.author.as_deref().is_some_and(|a| a.starts_with("task:")),
-                    _ => true,
-                },
-                _ => false,
-            }
+    let inherited = nodes.iter().any(|n| match &n.body {
+        Body::UserMessage { .. } => match n.origin {
+            Origin::Operator => !his(&n.id),
+            Origin::Harness => n.author.as_deref().is_some_and(|a| a.starts_with("task:")),
+            _ => true,
+        },
+        Body::ToolResult { .. } => crate::external::is_outside(n),
+        Body::AssistantMessage { .. } | Body::ToolCall { .. } | Body::Summary { .. } => false,
+        Body::Recall { items, .. } => items.iter().any(|i| !own_source(store, &i.node_id, &his)),
+        _ => true,
     });
     let outside_node = inherited
         || nodes[from..].iter().any(|n| match &n.body {
@@ -239,25 +246,136 @@ pub fn outside_admitted(
     outside_node || outside_viewed(store, turn, &nodes)
 }
 
+/// A source a recall showed: it reads, and it is his marked message,
+/// Theseus's own reply or call, or a result not marked as outside.
+fn own_source(store: &crate::store::Store, node: &str, his: &dyn Fn(&str) -> bool) -> bool {
+    match store.get_node(node) {
+        Ok(Some((_, n))) => match &n.body {
+            Body::UserMessage { .. } => n.origin == Origin::Operator && his(&n.id),
+            Body::AssistantMessage { .. } | Body::ToolCall { .. } => true,
+            Body::ToolResult { .. } => !crate::external::is_outside(&n),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// A session's transcript as the model is shown it (`Store::transcript`: a
+/// fork's inherited prefix, then its own nodes), read strictly: a record the
+/// index lists that cannot be read, or a node that does not decode, fails
+/// the read, where the transcript's own read skips the one and shows the
+/// other as a harness note.
+pub fn strict_transcript(
+    store: &crate::store::Store,
+    session: &str,
+) -> anyhow::Result<Vec<crate::node::Node>> {
+    use theseus_store::kinds::NODE;
+    let mut chain = Vec::new();
+    let mut through = u64::MAX;
+    let mut at = crate::fork::origin_of(store, session)?;
+    while let Some(o) = at {
+        anyhow::ensure!(chain.len() < 64, "a chain of forks too deep to read");
+        through = through.min(o.position);
+        at = crate::fork::origin_of(store, &o.session)?;
+        chain.push((o.session, through));
+    }
+    chain.reverse();
+    chain.push((session.to_string(), u64::MAX));
+    let mut nodes = Vec::new();
+    for (s, through) in chain {
+        for r in store.inner().scan_scope_strict(&s, 0, usize::MAX)? {
+            if r.kind == NODE && r.position <= through {
+                nodes.push(store.node_cache().decode(&r.payload)?);
+            }
+        }
+    }
+    Ok(nodes)
+}
+
+/// `task.carried.<turn>`: the turn's requests carry a block its transcript
+/// and its view do not show, whose source is not proven here (the place
+/// digest, the place's last words).
+pub const CARRIED_PREFIX: &str = "task.carried.";
+
+/// Latch, for `turn`, that its requests carry such a block: written at once,
+/// when the turn takes the block, before any request carries it. False when
+/// it could not be written; the caller then attaches nothing, so a block is
+/// never carried without its latch.
+pub fn latch(store: &crate::store::Store, turn: &str) -> bool {
+    let key = format!("{CARRIED_PREFIX}{turn}");
+    let written =
+        NewRecord::json(kinds::META, Some(&key), &true).and_then(|r| store.append(&[r]).map(drop));
+    if let Err(e) = &written {
+        tracing::warn!(turn, error = %format!("{e:#}"), "a carried block's latch was not written; the block is left out");
+    }
+    written.is_ok()
+}
+
+/// [`latch`], once for the turn: true when it is latched already (or the
+/// latch cannot be read, which the checks read as carried too).
+pub fn latch_once(store: &crate::store::Store, turn: &str) -> bool {
+    carried_in(store, turn) || latch(store, turn)
+}
+
+/// Whether `turn` carried such a block, read from its latch: what the turn
+/// actually attached, not the thread board as it stands now (a thread retired
+/// and opened again mid-turn leaves the board, and the block was attached
+/// all the same). A latch that cannot be read counts as carried.
+pub fn carried_in(store: &crate::store::Store, turn: &str) -> bool {
+    !matches!(
+        store.get_meta::<bool>(&format!("{CARRIED_PREFIX}{turn}")),
+        Ok(None)
+    )
+}
+
+/// [`carried_in`] for the call `tc` runs: read at the gate and again under
+/// the task's lock (both build [`super::words::Records::of`]).
+pub fn carried(tc: &TurnCtx<'_>) -> bool {
+    carried_in(tc.store, tc.turn_id)
+}
+
+/// The turn's `thread.routed` row gave it the place's last words, as the
+/// ledger tells it; an index that cannot answer cannot prove it did not.
+/// The authorization checks read the turn's latch ([`carried_in`]).
+pub fn tailed(store: &crate::store::Store, session: &str, turn: &str) -> bool {
+    use theseus_protocol::LedgerKind;
+    use theseus_store::pages::ledger_kind_session;
+    use theseus_store::{Page, Store as _};
+    let page = Page {
+        kind: theseus_store::kinds::LEDGER,
+        tags: vec![ledger_kind_session(
+            LedgerKind::ThreadRouted.as_str(),
+            session,
+        )],
+        limit: 64,
+        ..Page::default()
+    };
+    // An index still being built cannot prove there was no tail.
+    let Ok(Some(got)) = store.inner().page(&page) else {
+        return true;
+    };
+    got.records
+        .iter()
+        .any(|r| match r.decode::<crate::ledger::LedgerRow>() {
+            Ok(row) => row.turn_id.as_deref() == Some(turn) && !row.data["tail"].is_null(),
+            Err(_) => true,
+        })
+}
+
 /// A piece of a view the turn was built from that came from outside or from
 /// another person, read completely: every view the turn's index names, and
 /// the view of every compilation of the turn's own replies that was
 /// assembled as a view, must read; a missing or corrupt one counts as
 /// outside. A turn of a place not set to `view` has no view, and its inputs
 /// are its transcript.
-fn outside_viewed(
-    store: &crate::store::Store,
-    turn: &str,
-    nodes: &[std::sync::Arc<crate::node::Node>],
-) -> bool {
+fn outside_viewed(store: &crate::store::Store, turn: &str, nodes: &[crate::node::Node]) -> bool {
     use crate::view::record::{read, ViewOfTurn, SEP, VIEW_TURN_PREFIX};
     use crate::view::Author;
-    use theseus_store::Store as _;
     let prefix = format!("{VIEW_TURN_PREFIX}{turn}{SEP}");
     let Ok(index) =
         store
             .inner()
-            .first_with_prefix(theseus_store::kinds::META, &prefix, usize::MAX)
+            .first_with_prefix_strict(theseus_store::kinds::META, &prefix, usize::MAX)
     else {
         return true;
     };
@@ -304,7 +422,9 @@ fn outside_viewed(
 pub fn acts_now(store: &crate::store::Store, session: &str) -> bool {
     use crate::judge::ladder::{fold, given_of, scope};
     use crate::judge::task_words::PACK;
-    let Ok(records) = store.scope_after(&scope(PACK), 0) else {
+    // Strictly: a rollback row that cannot be read is no permission, never
+    // a row skipped.
+    let Ok(records) = store.inner().scan_scope_strict(&scope(PACK), 0, usize::MAX) else {
         return false;
     };
     let mut rows = Vec::new();

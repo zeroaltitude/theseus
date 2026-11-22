@@ -1,8 +1,8 @@
 # Recognition: topics per exchange, numbered items, scoped names, and a thing's card
 
-Issue 44, step 5's recognition half. The code is `crates/theseus-core/src/names.rs` and its modules. Nothing
-here is sent to a model yet and no request changes: these are readers and an index, for the selector that
-calls a named thing in.
+Issue 44, step 5's recognition half. The code is `crates/theseus-core/src/names.rs` and its modules: readers
+and an index. In a place set to `view` they reach the model through the view's sources
+(`view/sources_names.rs`; "The view's sources" below); the transcript's requests do not change.
 
 ## Topics per exchange (`names::topics`)
 
@@ -89,3 +89,43 @@ timeline with the words that opened each, cut by code. A cut list says how many 
   is what is current resolved, so a refused correction ends nothing the card shows.
 - **Exchanges are paged** back through the timeline until three are admitted or it ends: refused exchanges crowd
   out none it admits, and no hidden count is reported. The view's gate (`view::gate`) is meant to stand behind it.
+
+## The view's sources (`view::sources_names`, `view::sources_waiting`, `view::sources_people`)
+
+A turn in a place set to `view` builds the names table once, before assembly, with the core the turn's runner
+is attached to, through the turn's own permit: every thread, task and topic is made a piece with its own marks
+(a line of work's and a task's are its session's, as the gate reads them; a topic's are the owner's filing,
+private and of no place a turn is anchored to) and asked of the gate first, so a refused thing is no name, no
+candidate, and makes no alias it shares ambiguous. An exchange a card or "in play" reads is admitted only when
+its session's current marks (place, audience, seal) and its own arrival place both pass, and none of its
+messages was moved into a thread not proven clear (the turn's `view_gate::Moved`); its words are read only then,
+and the sessions it was read from (the moved-to threads' included) join the view's dependencies. The message is
+matched against that table (a qualified name, or an alias one live admitted thing holds; candidates name
+nothing), and its qualified numbered items are the ones the exchange's own naming told the turn
+(`names::items::WAIT` bounds the wait); an unscoped item is a candidate and brings no card. Words the owner's
+mark proves his may name any admitted thing; another person's, or unmarked words (an agent's process, an
+import, a rebuilt exchange), name nothing private and no item. Words in play that are not his in a private
+place (anyone's in company, his included) name only from that place's own namespace: the things the turn's
+gate admits AND that are of that place, built before any alias is resolved, so nothing their audience could
+not read is named or makes an alias ambiguous. A tool's result is never matched; text quoted inside his own
+typed message counts as his message (so an ordinary alias in pasted prose may call a card for him alone). A card keeps each excerpt's author: words not his are
+outside text inside it. A matched thing brings its card
+(`names::card`, every part admitted first): its title, what it is, its current facts, its open tasks and its
+newest exchanges, as one piece of slot H. What is in play (slot D) is the things the person's words name in the
+newest three admitted exchanges here. A numbered item's card is its key and its admitted exchanges; an item
+with none has no card.
+
+What waits (slot C, `view::sources_waiting`) is the kernel's pending confirmations and the tasks waiting on the
+owner or proposed for his yes, an id and one line each, each admitted with its session's marks before it is
+read or depended on. Facts about the person (slot B, `view::sources_people`) are the held person the speaker is
+(the owner by the place rule's owner handles): its name and the owner's guidance for it, marked as the owner's
+filing. Its role line is not laid: no reader clears an operator's or an import's description by the memory
+rules. Each text is read once for the turn and laid by the renderer as one block of its own provenance. A card
+and a waiting line carry the sessions they were read from (ids); the view's record re-checks them against
+today's seals before it shows or counts the piece (kind `card`, `waiting`), to the owner alone, and shows no
+residue count for those bands. That provenance is the sessions and the exchanges read; a record with none
+(written before it was kept) is unproven and neither shown nor counted. Before it shows a card, and before a
+frozen view's every later call, each exchange a card read is asked again of today's moves (a fresh
+`view_gate::Moved`): a message moved since into a thread not proven clear revokes it. A card asks the gate only
+of the standing records its own facts need (its scope's, and those that end one of them).
+
