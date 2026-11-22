@@ -43,7 +43,6 @@ pub mod ladder;
 pub mod lineage;
 pub mod loop_end;
 pub mod mark;
-pub mod memory;
 pub mod notice;
 pub mod offer;
 pub mod onto;
@@ -118,8 +117,6 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (categorize::PACK, PackMode::Shadow),
     (rerank::RERANK_PACK, PackMode::Live),
     (families::FAMILIES_PACK, PackMode::Live),
-    (memory::MEMORY_PACK, PackMode::Shadow),
-    (memory::ATTRIBUTION_PACK, PackMode::Shadow),
     (compare::COMPARE_PACK, PackMode::Shadow),
     (heard::PACK, PackMode::Live),
     (people::PACK, PackMode::Live),

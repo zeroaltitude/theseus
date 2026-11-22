@@ -169,7 +169,7 @@ pub(crate) fn rig(mode: MemoryMode) -> Rig {
         mode: Mutex::new("hybrid".into()),
         ..Fixed::default()
     });
-    let pass = MemoryPass::with_timing(memory, store.clone(), Some(index.clone()), None, timing());
+    let pass = MemoryPass::with_timing(memory, store.clone(), Some(index.clone()), timing());
     Rig {
         store,
         pass,

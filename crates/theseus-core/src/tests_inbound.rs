@@ -119,8 +119,6 @@ const INBOUND_ALONE: [&str; 23] = [
     "categorize.v1: off",
     "rerank.v1: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "families.v1: live",
-    "memory.v1: shadow",
-    "attribution.v1: shadow",
     "compare.v1: shadow",
     "heard.v1: live",
     "people.v1: off",

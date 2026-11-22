@@ -931,7 +931,6 @@ impl Core {
                 memory.clone(),
                 store.clone(),
                 Some(index.clone()),
-                Some(judge.clone()),
             ),
             memory,
             outbox: outbox.clone(),
