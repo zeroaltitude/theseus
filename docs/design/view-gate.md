@@ -112,12 +112,14 @@ the rule under any name a file gives it. Both are heuristics over the sources, n
   when a thread is held now that was not then, or when the threads cannot be read. The keep-warm read applies the
   same seals. A tail does not record which thread's words it holds, so a new seal lets every older tail go, not
   only those that held that thread's words: it may cost a cache read, never a leak.
-- **The place digest** is given no thread held from its reader (`digest_threads`, whatever the ledger says), so it
-  neither names nor counts one: a count says a thread exists.
+- **The place digest** is given no thread held from a reader that is not the owner alone (`digest_threads`,
+  whatever the ledger says), so it neither names nor counts one: a count says a thread exists. The owner alone is
+  still told how many, as the digest's own rule (`a_place_digest_never_shows_a_sealed_thread`) has it.
 - **The session listing** shows no title for a session with a message moved into a thread held from the reader
   (`title_shown`): a title is made from a session's first inputs. The session is still listed.
 - **Health** counts the thread bindings that do not read (`threads.unread_bindings`, never which), the condition
   under which recall holds out every session whose thread it cannot prove. Binding the thread again clears it.
-- **A turn whose presence is `Unknown`** (a wake set by a wake: the set-up turn had no message, so no mark) reads
-  nothing of history through recall's places, its own place's included. A wake set by a turn with a message takes
-  that message's presence (`set_up`), as before.
+- **Not done: a turn whose presence is `Unknown`** (a wake set by a wake) still draws on its own place through
+  recall's places. Reading nothing for every `Unknown` turn also blanks every turn whose input carries no mark (a
+  surface or a path that does not write one), so it needs `Proof::SetUp` to tell "set up by a turn with no message"
+  from "no mark written" before recall narrows to nothing on the first alone.

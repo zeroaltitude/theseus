@@ -58,8 +58,6 @@ use crate::turn::TurnRunner;
 pub const IMPORTED: &str = "imported";
 /// The longest a task's chain is followed to its thread.
 const DEPTH: usize = 4;
-/// The place a turn whose presence is not known draws on: no session's.
-const NOWHERE: &str = "nowhere";
 
 /// What the gate reads of the owner's mark of one message.
 pub trait OwnerMarks {
@@ -691,10 +689,11 @@ pub fn presence_key(runner: &TurnRunner, session: &str) -> Option<(Present, Stri
 
 /// The threads of a place digest a turn of `session` may be shown: only
 /// where the owner is alone does it name other threads (they are other
-/// places); otherwise its own thread `here` alone. A thread held from it for
-/// its seal is neither named nor counted, whatever the ledger says: a count
-/// says it exists, and none at all when the threads cannot be read. With the
-/// ledger off, the rest as before.
+/// places); otherwise its own thread `here` alone. A thread held from a turn
+/// that is not the owner alone is neither named nor counted, whatever the
+/// ledger says: a count says it exists. The owner alone is told how many
+/// (the digest's own rule); none at all when the threads cannot be read.
+/// With the ledger off, the rest as before.
 pub fn digest_threads<'b>(
     runner: &TurnRunner,
     session: &str,
@@ -704,18 +703,18 @@ pub fn digest_threads<'b>(
     let Some(b) = board(runner, "the place digest") else {
         return Vec::new();
     };
-    let own = thread_of(&runner.store, &b, session, 0).ok().flatten();
-    let live: Vec<_> = live
-        .into_iter()
-        .filter(|t| !held_from(&b, own.as_deref(), &t.slug))
-        .collect();
-    if !runner.cfg.context.ledger_on() {
-        return live;
-    }
     let alone = runner
         .presence
         .get(session)
         .is_some_and(|a| a.present == Present::OwnerAlone);
+    let own = thread_of(&runner.store, &b, session, 0).ok().flatten();
+    let live: Vec<_> = live
+        .into_iter()
+        .filter(|t| alone || !held_from(&b, own.as_deref(), &t.slug))
+        .collect();
+    if !runner.cfg.context.ledger_on() {
+        return live;
+    }
     live.into_iter()
         .filter(|t| alone || t.slug == here)
         .collect()
@@ -803,12 +802,6 @@ impl RecallPlaces {
     fn narrowed_to(runner: &TurnRunner, asker: &str, asking: Option<&Asking>) -> Self {
         match asking {
             Some(a) if a.present == Present::OwnerAlone => Self::default(),
-            // Not known (a wake set by a wake, a mark that does not read):
-            // a place no session is in, so it reads nothing of history.
-            Some(a) if a.present == Present::Unknown => RecallPlaces {
-                own: Some(NOWHERE.into()),
-                channel: false,
-            },
             Some(a) => RecallPlaces {
                 own: Some(a.place.clone()),
                 channel: false,
