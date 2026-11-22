@@ -43,13 +43,18 @@ pub(crate) struct Model {
 }
 
 fn answers_a_call(req: &ProviderRequest) -> bool {
-    // The LAST block, not any block: a new message after a call the view lays unanswered (closed by the
-    // harness's stub, as main closes one) merges into that result's user message, after it, and is a
-    // person's words to act on, not a call's answer (issue 44).
+    // Nothing was said after the results: the last block that is not one of the harness's tail blocks (the
+    // task view, the date, the block beside the message: `task_graph::view::is_view`, which a stand-in skips
+    // as not the person's words) is a result. A person's words after a result (a new message merged into the
+    // result's user message, as main's renderer merges one) are a prompt, not a call's answer (issue 44).
     req.messages
         .last()
         .and_then(|m| m["content"].as_array())
-        .and_then(|c| c.last())
+        .and_then(|c| {
+            c.iter()
+                .rev()
+                .find(|b| !crate::task_graph::view::is_view(b))
+        })
         .is_some_and(|b| b["type"] == "tool_result")
 }
 
