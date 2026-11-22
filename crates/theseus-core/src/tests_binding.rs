@@ -458,7 +458,8 @@ async fn a_fallback_and_the_steps_after_it_send_what_was_sent() {
 
 /// The kept tail costs what changed and no more within a turn: the second step's request holds
 /// the date line once, in the place the first step put it, and not again at its own end. A
-/// new turn's request carries its tail whole, and keeps the first turn's where it was.
+/// new turn's request carries its own tail whole, and none of the first turn's: tails are kept
+/// within a turn only (issue 44).
 #[tokio::test]
 async fn a_tail_block_the_model_has_is_not_sent_again_within_its_turn() {
     let r = rig(
@@ -483,7 +484,7 @@ async fn a_tail_block_the_model_has_is_not_sent_again_within_its_turn() {
     };
     assert_eq!(
         (dates(&reqs[0]), dates(&reqs[1]), dates(&reqs[2])),
-        (1, 1, 2),
+        (1, 1, 1),
         "{:?}",
         reqs[2].messages
     );
