@@ -32,9 +32,6 @@ pub(crate) const KEPT: usize = 512;
 #[derive(Default)]
 pub(crate) struct Replies(
     Mutex<VecDeque<(u64, String)>>,
-    /// The turns that ran in a thread and carried its tag in the DM, with
-    /// the thread's slug (theseus-sjzm).
-    Mutex<VecDeque<(String, String)>>,
     /// A task's messages that are no turn's reply (theseus-bh3t.2).
     super::task_react::TaskMsgs,
     /// The needs-you cards and headers a reply answers (theseus-suvpe).
@@ -56,34 +53,14 @@ impl Replies {
         }
     }
 
-    /// `turn` ran in the thread `slug` and its reply carries the thread's tag.
-    pub(crate) fn thread_turn(&self, turn: &str, slug: &str) {
-        let mut t = self.1.lock().unwrap_or_else(|e| e.into_inner());
-        if t.iter().any(|(x, _)| x == turn) {
-            return;
-        }
-        t.push_back((turn.to_string(), slug.to_string()));
-        while t.len() > KEPT {
-            t.pop_front();
-        }
-    }
-
-    /// The thread a reply to `message` addresses: the one whose tag the
-    /// message carried.
-    pub(crate) fn thread_of(&self, message: u64) -> Option<String> {
-        let turn = self.turn(message)?;
-        let t = self.1.lock().unwrap_or_else(|e| e.into_inner());
-        t.iter().find(|(x, _)| *x == turn).map(|(_, s)| s.clone())
-    }
-
     /// The messages that carry a task, for a reaction to find.
     pub(crate) fn tasks(&self) -> &super::task_react::TaskMsgs {
-        &self.2
+        &self.1
     }
 
     /// The needs-you messages a reply can answer.
     pub(crate) fn asked(&self) -> &super::reply::answer::Asked {
-        &self.3
+        &self.2
     }
 
     /// The turn whose reply `message` is.

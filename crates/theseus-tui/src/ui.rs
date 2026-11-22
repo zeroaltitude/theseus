@@ -64,9 +64,6 @@ pub fn draw(app: &App, buf: &mut Buffer) -> Option<(u16, u16)> {
     if app.mode == Mode::Help {
         help(body, buf);
     }
-    if app.mode == Mode::Threads {
-        crate::threads::draw_picker(app, body, buf);
-    }
     if app.mode == Mode::Standing {
         let lines = app
             .standing
@@ -108,9 +105,7 @@ fn self_view(app: &App, area: Rect, buf: &mut Buffer) {
 }
 
 fn header(app: &App, area: Rect, buf: &mut Buffer) {
-    let mut t = app.board.tally(&|v| app.is_done(v));
-    // A seal waiting on the owner is a need the executions' count lacks (theseus-5i8i).
-    t.needs += app.board_threads.seals_pending();
+    let t = app.board.tally(&|v| app.is_done(v));
     let mut left = String::from(" theseus");
     // `● 1 needs you · ◐ 3 working · ✗ 1 failed · ✓ 2 done` (theseus-k2vca).
     for (n, text) in [
@@ -156,12 +151,7 @@ fn header(app: &App, area: Rect, buf: &mut Buffer) {
         Link::Up => "socket ok".to_string(),
         Link::Down { attempt, .. } => format!("reconnecting ({attempt})"),
     };
-    // The current thread, in the status line (theseus-j0yh): within half the width.
-    let status = app.thread_status(area.width as usize / 2);
-    let right = match status {
-        Some(t) => format!("{t} · {} · {link} ", (app.hm)(app.now_ms)),
-        None => format!("{} · {link} ", (app.hm)(app.now_ms)),
-    };
+    let right = format!("{} · {link} ", (app.hm)(app.now_ms));
     let style = Style::default().add_modifier(Modifier::BOLD);
     buf.set_style(area, Style::default().bg(Color::Black));
     let room = (area.width as usize).saturating_sub(right.width() + 1);
@@ -176,61 +166,7 @@ fn header(app: &App, area: Rect, buf: &mut Buffer) {
     buf.set_stringn(x, area.y, &right, right.width(), link_style);
 }
 
-/// The Threads block (theseus-5i8i) at the head of the sidebar: a group for
-/// each live thread, folded or open, over a rule. At most half the sidebar,
-/// scrolled to the cursor while the block has the keys. Returns the rows it
-/// took; nothing when no thread is on the board.
-fn threads_block(app: &App, area: Rect, buf: &mut Buffer) -> u16 {
-    let lines = app.board_threads.lines(app.now_ms, area.width as usize);
-    if lines.is_empty() || area.height < 6 {
-        return 0;
-    }
-    let room = (area.height / 2).max(2) as usize;
-    let top = match app.mode {
-        Mode::BoardThreads if app.board_threads.cursor >= room => {
-            app.board_threads.cursor + 1 - room
-        }
-        _ => 0,
-    };
-    let shown = lines.len().min(room);
-    for (i, line) in lines.iter().enumerate().skip(top).take(room) {
-        let y = area.y + (i - top) as u16;
-        let selected = app.mode == Mode::BoardThreads && i == app.board_threads.cursor;
-        let base = if selected {
-            Style::default().add_modifier(Modifier::REVERSED)
-        } else {
-            Style::default()
-        };
-        let row = Rect::new(area.x, y, area.width, 1);
-        buf.set_style(row, base);
-        let style = match line.kind {
-            crate::board_threads::Kind::Header { .. } => {
-                level_style(line.level, false).add_modifier(Modifier::BOLD)
-            }
-            _ => level_style(line.level, false),
-        };
-        buf.set_stringn(
-            area.x + 1,
-            y,
-            &line.text,
-            area.width.saturating_sub(1) as usize,
-            base.patch(style),
-        );
-    }
-    let rule = area.y + shown as u16;
-    buf.set_stringn(
-        area.x,
-        rule,
-        "─".repeat(area.width as usize),
-        area.width as usize,
-        dim(),
-    );
-    shown as u16 + 1
-}
-
 fn sidebar(app: &App, area: Rect, buf: &mut Buffer) {
-    let used = threads_block(app, area, buf);
-    let area = Rect::new(area.x, area.y + used, area.width, area.height - used);
     // The future sits under the task tree (theseus-nuhsz).
     let below = crate::horizon::rows_for(app, area.height);
     if below > 0 && area.height > below + 1 {
@@ -558,10 +494,6 @@ fn detail_header(app: &App, sid: &str) -> String {
     if let Some(v) = app.board.view(sid) {
         parts.push(pill(&v.attention));
     }
-    // A thread's session says so (theseus-j0yh): the reply's tag, dim.
-    if let Some(t) = app.thread_of(sid) {
-        parts.push(theseus_client::render::thread::reply_tag(&t.thread.title));
-    }
     // The mode (theseus-lyxy), and the plan's count while there is one.
     if let Some(d) = app.detail.as_ref().filter(|d| d.session_id == sid) {
         parts.push(d.mode.status());
@@ -788,7 +720,7 @@ fn tail_fit(text: &str, room: usize) -> String {
 
 /// The keys (design §2.9), over the body.
 fn help(area: Rect, buf: &mut Buffer) {
-    const KEYS: [&str; 28] = [
+    const KEYS: [&str; 25] = [
         " keys",
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
@@ -805,9 +737,6 @@ fn help(area: Rect, buf: &mut Buffer) {
         " PgUp PgDn  scroll the open session (End: back to its end)",
         " / text     filter by text (enter keeps it, esc clears)",
         " b w r d a  only needs you, working, ready, done; all",
-        " ctrl-t     the threads: pick one (enter), pause p, resume r, done d",
-        " /t         in the input line: the threads; /t N or /t NAME picks one",
-        " T          the threads on the board: enter folds or opens; esc leaves",
         " r d o      on a failed row: retry (a task) / dismiss / open it",
         " L          what Theseus changed about itself (esc closes)",
         " p          the standing records that hold in the open session; in a task, back to its parent (⌫ too)",

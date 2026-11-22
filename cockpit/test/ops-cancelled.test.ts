@@ -4,7 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { boardRows, columnsOf, countersOf, shown, type OpsRow } from '../src/ops/board.ts'
-import { bucketOfCard, bucketOfNode, bucketOfWork, openView } from '../src/ops/state.ts'
+import { bucketOfCard, bucketOfNode, bucketOfWork } from '../src/ops/state.ts'
 import { HOUR, info, MIN, NOW, record, view } from './ops-fixtures.ts'
 
 const DAY = 24 * HOUR
@@ -59,7 +59,6 @@ test('a cancel ended it whether the board still holds its view or only task.list
   const rec = records.find((t) => t.id === 'tsk_cx')!
   const v = views.find((x) => x.id === 'exe_cx')!
   assert.equal(bucketOfWork(v, NOW, rec), 'ended', 'the view and its record')
-  assert.equal(openView(v, rec), false, 'the Threads lens does not hold it open either')
   assert.equal(bucketOfNode({ kind: 'task', state: 'cancelled', view: v, record: rec }, NOW), 'ended', 'nor does the Graph')
   assert.equal(bucketOfCard({ kind: 'task', task: { section: 'done', paused: false, view: v }, record: rec }, NOW), 'ended', 'the card’s one path')
 })

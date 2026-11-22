@@ -1,4 +1,4 @@
-// The Graph lens (theseus-jid7t.4): every session, task, step and job as one living graph, in lanes across a deck-navy
+// The Graph lens (theseus-jid7t.4): every session, task, step and job as one living graph, in one lane across a deck-navy
 // canvas, laid out by `opsLayout` (`ops/graph.ts`: sticky by id, ended work folded, the 400-node cap). React Flow draws
 // it: minimap, zoom and fit; `?sel=` pans to its node. A click focuses (`?sel=`), ⇧/⌘-click picks, ⇧-drag lassos, a
 // double-click opens the deck, a right-click opens the page's verb menu for that node's row, and a task or a
@@ -17,7 +17,7 @@ const FIT_LANES = { ...FIT, padding: 0.05 }
 /** The least zoom a first view takes: a node's title still reads. */
 const READABLE = 0.62
 import type { OpsRow } from './board'
-import { foldBacks, keeper, layoutRows, NODE_W, type Graph, type GEdge, type LaneMeta } from './graph'
+import { foldBacks, keeper, layoutRows, NODE_W, type Graph, type GEdge } from './graph'
 import { NODE_TYPES, typeOf, type LaneData, type NodeData } from './GraphNode'
 import type { Selection } from './selection'
 import type { DragDrop } from './DropLayer'
@@ -39,14 +39,13 @@ export interface GraphLensProps {
   records?: readonly unknown[]
   /** The one work set (`boardRows`): every node of the graph is one of these. */
   rows: readonly OpsRow[]
-  lanes: readonly LaneMeta[]
   now: number
   focus: string | null
   picked: Selection
   /** The ids the filters and the search keep: drawn normally. The context around them is outlined, "context" on hover;
    *  the rest are outlined too, or left out when `calls.hideRest`. */
   shownIds: ReadonlySet<string> | null
-  /** Each kept card's ancestors up to the thread's head, and the jobs and carried steps of kept cards (`contextOf`). */
+  /** Each kept card's ancestors up to its root, and the jobs and carried steps of kept cards (`contextOf`). */
   contextIds?: ReadonlySet<string> | null
   /** The counter being filtered by, as a chip on the toolbar. */
   chip?: FilterChipProps | null
@@ -59,7 +58,7 @@ export interface GraphLensProps {
   onOpen: (sessionId: string) => void
   /** A right-click on a node that has a row: the page opens its one verb menu there. */
   onContext: (id: string, x: number, y: number) => void
-  /** `?redact=1`: a private or sensitive node and lane show a mark for their title. */
+  /** `?redact=1`: a private or sensitive node shows a mark for its title. */
   redact: boolean
   /** The lens hands its last layout up, for the page's keys (a ref: no render). */
   layoutRef: { current: Graph | null }
@@ -71,7 +70,7 @@ export function GraphLens(p: GraphLensProps) {
   return <ReactFlowProvider><Canvas {...p} /></ReactFlowProvider>
 }
 
-function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, chip = null, calls = OWNER_CALLS, filterKey = '', onFocus, onPick, onLasso, onOpen, onContext, redact, layoutRef, drag, titleOf }: GraphLensProps) {
+function Canvas({ rows, now, focus, picked, shownIds, contextIds = null, chip = null, calls = OWNER_CALLS, filterKey = '', onFocus, onPick, onLasso, onOpen, onContext, redact, layoutRef, drag, titleOf }: GraphLensProps) {
   const rf = useReactFlow()
   const fullGraph = useFullGraph('Graph')
   const calm = useCalm((s) => s.calm)
@@ -92,16 +91,16 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
   const kept = useMemo(() => (retiredOut.size ? new Set([...(keep ?? rows.map((r) => r.id))].filter((id) => !retiredOut.has(id))) : keep), [keep, rows, retiredOut])
   const retireCounts = useMemo(() => tally(rows, rowItem, now, retire.choice.days), [rows, now, retire.choice.days])
   // `keep` is the counter filter's own set and it alone opens a folded plan (theseus-hl0r1 F3); `kept` is what is drawn.
-  const g = useMemo(() => memory.lay(rows, lanes, { now, future, expanded, opened, keep: kept, filter: keep, folds }, tidy), [memory, rows, lanes, now, future, expanded, opened, keep, kept, folds, tidy])
+  const g = useMemo(() => memory.lay(rows, { now, future, expanded, opened, keep: kept, filter: keep, folds }, tidy), [memory, rows, now, future, expanded, opened, keep, kept, folds, tidy])
   // The layout without the openings, which says what each opening can fold back into (`foldBacks`).
-  const base = useMemo(() => (expanded.size || opened.size ? layoutRows(rows, lanes, null, { now, future, keep: kept, filter: keep, folds }) : g), [rows, lanes, now, future, keep, kept, folds, expanded, opened, g])
-  // The roots' fold-backs read the layout with the lanes' openings: a fold opened inside an opened lane is only there.
-  const baseRoots = useMemo(() => (opened.size && expanded.size ? layoutRows(rows, lanes, null, { now, future, expanded, keep: kept, filter: keep, folds }) : base), [rows, lanes, now, future, expanded, opened, keep, kept, folds, base])
+  const base = useMemo(() => (expanded.size || opened.size ? layoutRows(rows, null, { now, future, keep: kept, filter: keep, folds }) : g), [rows, now, future, keep, kept, folds, expanded, opened, g])
+  // The roots' fold-backs read the layout with the lane's opening: a fold opened inside an opened "✓ N done" is only there.
+  const baseRoots = useMemo(() => (opened.size && expanded.size ? layoutRows(rows, null, { now, future, expanded, keep: kept, filter: keep, folds }) : base), [rows, now, future, expanded, opened, keep, kept, folds, base])
   const back = useMemo(() => foldBacks(g, base, expanded, opened, baseRoots), [g, base, expanded, opened, baseRoots])
   useEffect(() => { layoutRef.current = g }, [g, layoutRef])
   const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows])
   // `?sel=` names a node by its id, or a task by its record's (`tsk_…`, the task graph's link).
-  const at = focus ? g.nodes.find((n) => n.id === focus) ?? g.nodes.find((n) => n.record?.id === focus) ?? g.nodes.find((n) => n.head && n.lane === focus) : undefined
+  const at = focus ? g.nodes.find((n) => n.id === focus) ?? g.nodes.find((n) => n.record?.id === focus) : undefined
   const fid = at?.id ?? null
   const [moving, setMoving] = useState<{ id: string; x: number; y: number } | null>(null)
   const [hover, setHover] = useState<{ key: string; ok: boolean } | null>(null)
@@ -114,7 +113,7 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
     const out: Node[] = g.lanes.map((l): Node<LaneData> => ({
       id: `lane:${l.key}`, type: 'lane', position: { x: 0, y: l.y }, measured: { width: g.width + 24, height: l.height }, draggable: false, selectable: false, zIndex: -1,
       data: {
-        lane: l, width: g.width + 24, redact, hover: hover?.key === `lane:${l.key}` ? (hover.ok ? 'ok' : 'no') : undefined,
+        lane: l, width: g.width + 24, hover: hover?.key === `lane:${l.key}` ? (hover.ok ? 'ok' : 'no') : undefined,
         foldBack: back.lanes.find((x) => x.lane === l.key) && { n: back.lanes.find((x) => x.lane === l.key)!.n, onFold: () => setExpanded((s) => { const t = new Set(s); t.delete(l.key); return t }) },
       },
     }))
@@ -125,7 +124,7 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
       out.push({
         id: n.id, type: typeOf(n), position: at, ...(shownIds != null && !shownIds.has(n.id) && contextIds?.has(n.id) ? { domAttributes: { title: 'context' } } : {}), measured: sizes[n.id], selected: picked.has(n.id), draggable: n.kind === 'task' || n.kind === 'conversation', zIndex: moving?.id === n.id ? 10 : 1,
         data: {
-          n, row, now, redact, focused: fid === n.id, laneMeta: n.head ? g.lanes.find((l) => l.key === n.lane) : undefined,
+          n, row, now, redact, focused: fid === n.id,
           onPlan: n.open !== undefined ? () => setFolds((m) => new Map(m).set(n.id, !n.open)) : undefined, picked: picked.has(n.id), dim: shownIds != null && !shownIds.has(n.id) && n.kind !== 'done' && n.kind !== 'folded',
           hover: key && hover?.key === key ? (hover.ok ? 'ok' : 'no') : undefined,
           onFoldBack: back.roots.includes(n.id) ? () => setOpened((s) => { const t = new Set(s); t.delete(n.id); return t }) : undefined,
@@ -142,7 +141,7 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
   })), [g.edges])
 
   // The first view, once the first read brings nodes (the graph mounts before its data): the whole graph when it fits
-  // at a readable zoom, else its top-left at that zoom (the needs-you lanes lead; the minimap has the rest). A focus
+  // at a readable zoom, else its top-left at that zoom (the minimap has the rest). A focus
   // pans instead.
   const box = useRef<HTMLDivElement>(null)
   const fitted = useRef(false)
@@ -205,7 +204,7 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
         proOptions={{ hideAttribution: true }} multiSelectionKeyCode={null} selectionKeyCode="Shift" deleteKeyCode={null}
         onNodeClick={(e, n) => {
           if (n.type === 'lane') return
-          if (e.shiftKey || e.metaKey || e.ctrlKey) { if (byId.has(n.id)) onPick(n.id) } else onFocus((n.data as NodeData).n?.head ? (n.data as NodeData).n.lane : n.id) // only a node with a row is picked; a thread's head selects the thread
+          if (e.shiftKey || e.metaKey || e.ctrlKey) { if (byId.has(n.id)) onPick(n.id) } else onFocus(n.id) // only a node with a row is picked
         }}
         onNodeDoubleClick={(_, n) => { const sid = byId.get(n.id)?.sessionId; if (sid) onOpen(sid) }}
         onNodeContextMenu={(e, n) => { if (n.type === 'lane' || !byId.has(n.id)) return; e.preventDefault(); onContext(n.id, e.clientX, e.clientY) }}
@@ -240,7 +239,7 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
         <button type="button" aria-pressed={future} onClick={() => setFuture((f) => !f)} className={cn('rounded px-1.5 ring-1', future ? 'bg-think/15 text-think ring-think/40' : 'ring-line hover:text-ink')}
           title="wakes, routines, watches and projects (a project takes a dropped task or conversation)">+ future</button>
         <button type="button" onClick={() => { setExpanded(new Set()); setOpened(new Set()); setTidy((t) => t + 1) }} className="rounded px-1.5 ring-1 ring-line hover:text-ink"
-          title="lay it out afresh: needs-you lanes first, holes closed (live changes never move a node)">tidy</button>
+          title="lay it out afresh, holes closed (live changes never move a node)">tidy</button>
       </div>
       <Legend />
     </div>

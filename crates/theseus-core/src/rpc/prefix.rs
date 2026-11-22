@@ -1,7 +1,7 @@
 //! `prefix.report` (theseus-rr15): the prefix library's picks, their cache
 //! reads and the false fits (`prefix::report`), for `theseus model prefix`.
-//! A read for the owner, from a surface that reads private text: the picks
-//! name sessions and turns. It writes nothing and takes no lock.
+//! A read, from any surface: the picks name sessions and turns. It writes
+//! nothing and takes no lock.
 
 use std::collections::BTreeSet;
 
@@ -12,7 +12,6 @@ use theseus_store::{kinds, Page};
 
 use super::server::RpcFailure;
 use super::Core;
-use crate::approval::Surface;
 use crate::ledger::LedgerRow;
 use crate::node::Body;
 use crate::prefix::report::{self, Next};
@@ -79,18 +78,7 @@ impl Core {
     pub(super) async fn prefix_report(
         &self,
         p: PrefixReportParams,
-        surface: Surface,
     ) -> Result<PrefixReport, RpcFailure> {
-        if !surface.reads_private() {
-            return Err(RpcFailure::new(
-                error_code::INVALID_PARAMS,
-                format!(
-                    "{} reads no private text: the prefix report is the owner's, from the CLI or \
-                     the web UI",
-                    surface.name()
-                ),
-            ));
-        }
         let limit = p.limit.unwrap_or(2_000).clamp(1, 20_000) as usize;
         let store = self.store.clone();
         let mut r = tokio::task::spawn_blocking(move || -> anyhow::Result<PrefixReport> {

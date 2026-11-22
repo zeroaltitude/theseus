@@ -30,7 +30,7 @@ fn marks(c: &Compiled) -> Vec<bool> {
 
 fn compiled(spec: &RequestSpec) -> Compiled {
     let nodes = [(1u64, Node::user("s", None, "cli", "hello").into())];
-    compile(CompileInput {
+    super::tests_parts::on_view(CompileInput {
         session_id: "s",
         current: None,
         nodes: &nodes,
@@ -167,7 +167,7 @@ fn a_planned_third_layer_is_the_headers_bytes_and_an_append_repeats_them() {
         (2u64, Node::user("s", None, "cli", "again").into()),
     ];
     let append = |spec: &RequestSpec| {
-        compile(CompileInput {
+        super::tests_parts::on_view(CompileInput {
             session_id: "s",
             current: Some(&c.compilation),
             nodes: &nodes,
@@ -193,7 +193,7 @@ fn a_planned_third_layer_is_the_headers_bytes_and_an_append_repeats_them() {
     let mut edited = s;
     edited.context_text = format!("{header} and a line\n\n{topic}");
     let moved = append(&edited);
-    assert_eq!(moved.trigger.as_deref(), Some("system_changed"));
+    assert_eq!(moved.trigger.as_deref(), Some("view_turn"));
     assert_eq!(moved.compilation.manifest.prefix, None);
     assert_eq!(moved.request.system[2]["text"], edited.context_text);
 }

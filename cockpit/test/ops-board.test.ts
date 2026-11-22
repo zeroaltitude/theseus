@@ -50,7 +50,6 @@ test('filters: each chip, the counters’ buckets, ended within', () => {
   const b = board()
   const rows = boardRows({ ...b, now: NOW })
   const ids = (f: object, c = cx) => rows.filter((r) => matchesFilters(r, f, c)).map((r) => r.id).sort()
-  assert.deepEqual(ids({ thread: 'tide-tables' }), ['act_j1', 'ses_t2', 'ses_tides'].sort())
   assert.deepEqual(ids({ model: 'sonnet' }), ['ses_t2'])
   assert.deepEqual(ids({ data: 'sensitive' }), ['ses_t1'], 'the data chip reads the session’s mark')
   assert.deepEqual(ids({ data: 'private' }), ['act_j1', 'ses_tides'], 'a job carries its session’s mark')
@@ -65,12 +64,11 @@ test('filters: each chip, the counters’ buckets, ended within', () => {
   assert.deepEqual(ids({ ended: '2h' }), ['ses_t4'])
   assert.deepEqual(ids({ ended: 'soon' }), [], 'a span the chip does not know keeps nothing')
   assert.equal(spanMs('7d'), 7 * 24 * HOUR)
-  assert.deepEqual(ids({ thread: 'tide-tables', kind: 'task' }), ['ses_t2'], 'chips combine')
+  assert.deepEqual(ids({ model: 'sonnet', kind: 'task' }), ['ses_t2'], 'chips combine')
   const records = [record('tsk_p', { kind: 'project' }), record('tsk_a', { parent: 'tsk_p', session: 'ses_t2' })]
   assert.equal(projectOf('ses_t2', records), 'tsk_p')
   assert.deepEqual(ids({ project: 'tsk_p' }, { ...cx, records }), ['ses_t2'])
   const choices = chipChoices(rows)
-  assert.deepEqual(choices.thread, ['harbour-survey', 'tide-tables'])
   assert.ok(choices.model.includes('sonnet') && choices.kind.includes('job'))
 })
 
@@ -207,15 +205,14 @@ test('an ask maps to its card: two asks on one task are one needs card with asks
   assert.equal(t2.bucket, 'needs', 'a card with an ask needs you, whatever it was doing')
   assert.equal(t2.column, 'needs')
   const ask = rows.find((r) => r.id === 'q:act_c9')!
-  assert.deepEqual([ask.kind, ask.bucket, ask.column, ask.counted, ask.asks, ask.thread], ['ask', 'needs', 'needs', true, 1, undefined], 'no thread: it is in Home')
+  assert.deepEqual([ask.kind, ask.bucket, ask.column, ask.counted, ask.asks], ['ask', 'needs', 'needs', true, 1])
   assert.equal(rows.filter((r) => r.kind === 'ask').length, 1)
 })
 
-test('a seal maps to its thread’s head, and a failure to its card', () => {
+test('a failure maps to its card', () => {
   const b = board()
-  const q = queueOf({ confirms: [], views: b.views, groups: [{ slug: 'tide-tables', title: 'Tide tables', state: 'active', session_id: 'ses_tides', last_active_ms: NOW, context_tokens: 1, today_usd: 0, seal_pending: 'it read a private chart' } as never] })
+  const q = queueOf({ confirms: [], views: b.views })
   const rows = boardRows({ ...b, queue: q, now: NOW })
-  assert.equal(rows.find((r) => r.id === 'ses_tides')!.asks, 1, 'the seal is an ask on the head conversation')
   assert.equal(rows.find((r) => r.id === 'ses_t5')!.asks, 1, 'a failure not dismissed is an ask on its task')
 })
 

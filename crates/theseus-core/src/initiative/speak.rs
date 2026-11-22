@@ -95,7 +95,7 @@ impl Core {
         }
         files
             .iter()
-            .filter(|f| f.file.persona.is_some() && f.file.withheld.is_none())
+            .filter(|f| f.file.persona.is_some())
             .map(|f| f.section.as_str())
             .collect::<Vec<_>>()
             .join("\n\n")

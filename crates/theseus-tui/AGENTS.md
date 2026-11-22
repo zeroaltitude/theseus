@@ -62,12 +62,6 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
   (a bounded tail of lines, an open line, the next byte expected, a gap said as `-- N bytes skipped --`); `events.lost`
   naming the job's stream, and a reconnect, peek and follow again. Its header says `job 0:05 of usual 0:31`. The
   sidebar's own row words are `tui-rows`'. Tests: `src/tests_follow.rs`.
-- `src/board_threads.rs` (theseus-5i8i): the threads on the board (`App.board_threads`; `src/threads.rs` is thread-cli-tui's
-  picker). Fed by tui-rows' one `work.watch` (a connection holds one), views and `ThreadGroup`s applied by the position rule, and the sidebar's Threads block over
-  `theseus_protocol::group_threads`: a fold-able group per live thread (`▾`/`▸`, the one header wording the CLI shares), its
-  open work under it, a pending seal as a needs-you line. `T` gives the block the keys (up/down, enter folds a thread or
-  opens an item's session, esc leaves). A daemon that refuses `work.watch` costs no word and no block. Tests:
-  `src/tests_board_threads.rs`.
 - `src/detail.rs` (the focused session's history and events, as the CLI's `render` lines; its newest 200 nodes first, then, when a scroll reaches the first line held, the next older page by `session.history { before }`, `Purpose::Older`, one read out at a time, within the pane's 5,000 lines: theseus-kym3; tests `tests_older.rs`), `src/card.rs` (a
   question's card), `src/notice.rs` (a re-export: the notices, their delivery and the toast are
   `theseus_client::notify`, shared with `theseus status --watch`; the TUI keeps the viewer in `app.rs`). `--notify`
@@ -147,16 +141,6 @@ new lines, the dock again, in synchronized-output mode 2026).
   (jobs that went to the background run on) and the transcript says what was verified. `chat/queue.rs`: a message
   typed while a turn runs waits in the dock, ↑ pulls it back, Ctrl-Enter stops and sends; it goes when the turn ends
   (steer-queued will deliver it into the turn: only `release_queue` changes). Tests: `chat/tests_ask.rs`.
-- chat-thread (theseus-wapgp, theseus-0rfjx): `chat/thread_placed.rs`. A turn placed in a thread (by its address: the
-  router asks nothing since 2026-11-21) prints `→ thread <title>` and `theseus chat <session>` to go there (from
-  `TurnSubmitResult.thread`, at the turn's end). Tests: `chat/tests_thread_placed.rs`.
-  A connection hears only the sessions it watches, and the answer to a placed turn's question (`confirm.resolved`) and the
-  continuation turn that goes on after it are published to the placed session's watchers: so adopting a placed session also
-  sends `session.watch` for it (and again at each reconnect), and a question of that session which this chat's turn raised
-  marks it `owed` (`Placed::owed`): its next `turn.started` with `continuation` is this chat's turn (`placed_continues`), so
-  the card resolves (`approved`) and the continuation's reply prints. Another turn of that session (Discord's, say) stays out
-  (theseus-nde5n). The mark is made only for a question of one of this chat's own turns, is kept by correlation id, and goes when the question
-  closes with no answer or its session is evicted from `also` (the ninth placed session), which is then unwatched (theseus-hk0dk).
 - **Coming back** (theseus-6yka). `theseus -c` (`theseus-tui chat -c`) asks `session.list {dir, n: 50}` and continues
   the directory's most recently active conversation (`chat/reopen.rs`: `last_here`: a conversation, with a turn, not
   retired, `started_on` not `discord`, so never a task's, a DM's or a shared place's); with none it says so and opens
@@ -267,12 +251,6 @@ SIGHUP, a panic and Ctrl-C twice). vt100 can read back only one screen of scroll
   `diffview::preview_lines`); the pane shows tool lines in words, a failed command's last lines and a finished edit's
   diff (`render::Flight`). The changed words of a diff line are `MARK_ON`/`MARK_OFF` in its text: `ui::put` draws them
   on a background of their own and `ui::wrap` carries a mark over a cut. Tests: `src/tests_diff.rs`.
-
-- `src/threads.rs` (theseus-j0yh): the current thread, the header's status line (only once a thread is known), Ctrl-T's
-  picker (type to filter; `p` `r` `d` (twice) `a` act while the filter is empty, `/` types them; Enter switches), `/t` in the
-  input line, a thread's session tagged `→ title` in the pane header. Requests: `thread.list` on opening the picker, at a
-  connect with a thread current, and after a reply in a thread; keys in the picker send none but the acts. Tests:
-  `src/tests_threads.rs`.
 
 - Since you last looked (theseus-qkoi3): while the terminal has focus, each view the board takes moves the machine's
   look (`Seen::look`, written with the seen file); a blur writes it. At each connect, and when focus returns after

@@ -7,7 +7,7 @@ use twilight_util::builder::command::CommandBuilder;
 
 use super::{
     digest, extensions, halt, horizon_cmds, orders, project_trust, prompt, remind, task_cmds,
-    thread, thread_move, voice, why,
+    voice, why,
 };
 
 /// The slash commands every place answers, one effect each (the owner's rule):
@@ -89,8 +89,6 @@ pub(super) fn commands() -> Vec<twilight_model::application::command::Command> {
     cmds.push(extensions::command());
     cmds.extend([why::command(), digest::command()]);
     cmds.push(orders::command());
-    cmds.push(thread::command());
-    cmds.push(thread_move::command());
     cmds.push(remind::command());
     cmds.extend(horizon_cmds::commands());
     cmds.extend(voice::commands());

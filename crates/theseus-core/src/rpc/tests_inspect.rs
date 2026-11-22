@@ -229,14 +229,11 @@ fn build(core: &Core, loops: u32, calls: u32) -> (String, String) {
     (s, t)
 }
 
-fn inspect(core: &Core, s: &str, t: &str, private: bool) -> TurnInspectResult {
-    core.turn_inspect(
-        &TurnInspectParams {
-            session_id: s.into(),
-            turn_id: t.into(),
-        },
-        private,
-    )
+fn inspect(core: &Core, s: &str, t: &str) -> TurnInspectResult {
+    core.turn_inspect(&TurnInspectParams {
+        session_id: s.into(),
+        turn_id: t.into(),
+    })
     .unwrap()
 }
 
@@ -246,7 +243,7 @@ fn inspect(core: &Core, s: &str, t: &str, private: bool) -> TurnInspectResult {
 fn a_multi_loop_turn_comes_back_whole() {
     let core = test_core("ok");
     let (s, t) = build(&core, 3, 2);
-    let r = inspect(&core, &s, &t, true);
+    let r = inspect(&core, &s, &t);
     assert_eq!(r.outcome, "ended");
     assert_eq!(r.stop_reason.as_deref(), Some("end_turn"));
     assert_eq!(
@@ -293,7 +290,7 @@ fn a_multi_loop_turn_comes_back_whole() {
 fn each_loop_of_a_turn_has_its_compile_its_answer_and_its_calls() {
     let core = test_core("ok");
     let (s, t) = build(&core, 3, 2);
-    let r = inspect(&core, &s, &t, true);
+    let r = inspect(&core, &s, &t);
     let l0 = &r.loops[0];
     assert_eq!(l0.calls.len(), 2);
     assert_eq!(
@@ -335,8 +332,7 @@ fn each_loop_of_a_turn_has_its_compile_its_answer_and_its_calls() {
 }
 
 /// A request that carried a vault secret (theseus-gyjyo R7b): the loop's answer
-/// names which, how many times, and whether it was substituted; a private
-/// reader gets the names, another the count alone. A token count is no loop's
+/// names which, how many times, and whether it was substituted. A token count is no loop's
 /// request, and a loop that sent none has an empty list.
 #[test]
 fn an_answer_names_the_vault_secrets_its_request_carried() {
@@ -388,7 +384,7 @@ fn an_answer_names_the_vault_secrets_its_request_carried() {
         json!({"provider": "openai", "model": "gpt-summary", "names": ["db_password"], "count": 2,
                "substituted": true, "op": "compaction", "loop": 0, "correlation_id": "act_c0"}),
     );
-    let r = inspect(&core, &s, &t, true);
+    let r = inspect(&core, &s, &t);
     let a0 = r.loops[0].answer.as_ref().unwrap();
     assert_eq!(a0.redacted.len(), 2, "{:?}", a0.redacted);
     assert_eq!(
@@ -421,16 +417,9 @@ fn an_answer_names_the_vault_secrets_its_request_carried() {
     assert!(!serde_json::to_string(&r.loops)
         .unwrap()
         .contains("tokens_only"));
-    // Another surface learns how many and whether, never which.
-    let o = inspect(&core, &s, &t, false);
-    let a = o.loops[0].answer.as_ref().unwrap();
-    assert_eq!(a.redacted.len(), 2);
-    assert!(a.redacted.iter().all(|r| r.names.is_empty()));
-    assert_eq!(a.redacted[0].count, 3);
-    assert!(!serde_json::to_string(&o).unwrap().contains("anthropic_key"));
     // A turn with no such row has none.
     let (s2, t2) = build(&core, 1, 1);
-    assert!(inspect(&core, &s2, &t2, true).loops[0]
+    assert!(inspect(&core, &s2, &t2).loops[0]
         .answer
         .as_ref()
         .unwrap()
@@ -438,64 +427,22 @@ fn an_answer_names_the_vault_secrets_its_request_carried() {
         .is_empty());
 }
 
-/// Another surface reads shapes and sizes, never thinking, texts, inputs or results.
-#[test]
-fn a_surface_that_reads_no_private_text_gets_the_shapes_alone() {
-    let core = test_core("ok");
-    let (s, t) = build(&core, 2, 1);
-    let r = inspect(&core, &s, &t, false);
-    assert!(r.withheld.is_some());
-    assert_eq!(r.prompt.text, "");
-    assert!(r.prompt.chars > 0);
-    let a = r.loops[0].answer.as_ref().unwrap();
-    assert!(a.thinking_chars > 0, "the size of the thinking is told");
-    let wire = serde_json::to_string(&r).unwrap();
-    for secret in [
-        "Plan for loop",
-        "Looking, round",
-        "tide.log",
-        "harbour directory",
-        "/harbour",
-    ] {
-        assert!(
-            !wire.contains(secret),
-            "{secret} reached a surface that reads no private text"
-        );
-    }
-    assert!(r.rows.iter().all(|x| x.data.is_null()));
-    assert!(r
-        .loops
-        .iter()
-        .flat_map(|l| &l.calls)
-        .all(|c| c.gate.is_none() && c.input.is_null() && c.content.is_empty()));
-    assert!(
-        r.trace.as_ref().is_some_and(|t| t.attrs.is_null()),
-        "the trace keeps its times and loses its attributes"
-    );
-}
-
 #[test]
 fn a_turn_the_session_never_had_is_refused_and_a_session_it_never_had_too() {
     let core = test_core("ok");
     let (s, _) = build(&core, 1, 1);
     let e = core
-        .turn_inspect(
-            &TurnInspectParams {
-                session_id: s,
-                turn_id: "turn_nope".into(),
-            },
-            true,
-        )
+        .turn_inspect(&TurnInspectParams {
+            session_id: s,
+            turn_id: "turn_nope".into(),
+        })
         .unwrap_err();
     assert!(e.to_string().contains("no turn turn_nope"), "{e}");
     assert!(core
-        .turn_inspect(
-            &TurnInspectParams {
-                session_id: "ses_none".into(),
-                turn_id: "x".into()
-            },
-            true
-        )
+        .turn_inspect(&TurnInspectParams {
+            session_id: "ses_none".into(),
+            turn_id: "x".into()
+        },)
         .is_err());
 }
 
@@ -504,7 +451,7 @@ fn a_turn_the_session_never_had_is_refused_and_a_session_it_never_had_too() {
 fn a_twenty_loop_turn_with_forty_calls_is_read_within_150_ms() {
     let core = test_core("ok");
     let (s, t) = build(&core, 20, 2);
-    let r = inspect(&core, &s, &t, true);
+    let r = inspect(&core, &s, &t);
     assert_eq!(
         (r.totals.loops, r.totals.tool_calls),
         (20, 38),
@@ -513,7 +460,7 @@ fn a_twenty_loop_turn_with_forty_calls_is_read_within_150_ms() {
     let mut times: Vec<f64> = (0..20)
         .map(|_| {
             let t0 = Instant::now();
-            inspect(&core, &s, &t, true);
+            inspect(&core, &s, &t);
             t0.elapsed().as_secs_f64() * 1e3
         })
         .collect();
@@ -528,7 +475,7 @@ fn reading_a_turn_writes_no_frame() {
     let core = test_core("ok");
     let (s, t) = build(&core, 2, 1);
     let before = core.store.last_position();
-    inspect(&core, &s, &t, true);
+    inspect(&core, &s, &t);
     assert_eq!(core.store.last_position(), before);
 }
 
@@ -553,7 +500,7 @@ fn a_turn_nothing_routed_shows_the_target_it_started_on() {
         "turn_plain",
         json!({"loops": 0, "stop_reason": "end_turn", "elapsed_ms": 5}),
     );
-    let r = inspect(&core, &s, "turn_plain", true);
+    let r = inspect(&core, &s, "turn_plain");
     assert_eq!(r.route["model"], "claude-sonnet-5");
     assert_eq!(r.route["profile"], "sonnet");
     assert_eq!(r.outcome, "ended");
@@ -585,7 +532,7 @@ async fn a_turns_result_links_to_it_at_the_configured_address() {
             res.session_id, res.turn_id
         )
     );
-    let seen = inspect(&core, &res.session_id, &res.turn_id, true);
+    let seen = inspect(&core, &res.session_id, &res.turn_id);
     assert_eq!(seen.url, url);
     assert_eq!(seen.outcome, "ended");
     assert_eq!(seen.totals.model_calls, 1);
@@ -604,31 +551,5 @@ fn no_web_ui_means_no_link() {
         c.cockpit.resolve(c.web.port, c.web.enabled);
     });
     let (s, t) = build(&core, 2, 1);
-    assert_eq!(inspect(&core, &s, &t, true).url, "");
-}
-
-/// Over a connection the surface decides what a read holds: the Discord
-/// binding's gets the shapes alone, the CLI's the texts (turn-inspector's join
-/// review: the split was held below the protocol, and a planted revert that
-/// read every surface as private passed every test).
-#[tokio::test]
-async fn the_connections_surface_decides_what_its_read_holds() {
-    use crate::approval::{Client, Surface};
-    let core = test_core("ok");
-    let (s, t) = build(&core, 2, 1);
-    let params = json!({"session_id": s, "turn_id": t});
-    let read = |surface| {
-        crate::tests_m3::rpc_as(
-            &core,
-            Client::new("test", surface),
-            "turn.inspect",
-            params.clone(),
-        )
-    };
-    let other = read(Surface::Discord).await.unwrap();
-    assert!(other["withheld"].is_string(), "{other}");
-    assert!(!other.to_string().contains("harbour directory"), "{other}");
-    let cli = read(Surface::Cli).await.unwrap();
-    assert!(cli["withheld"].is_null(), "{cli}");
-    assert!(cli.to_string().contains("harbour directory"));
+    assert_eq!(inspect(&core, &s, &t).url, "");
 }

@@ -8,7 +8,7 @@ import { bucketGlyph, bucketOfNode, look, RECOMMENDED } from '../src/ops/state.t
 import { NOW, record } from './ops-fixtures.ts'
 
 test('a suspended record is drawn open, with ⏸, not faded', () => {
-  const g = opsLayout([], [record('tsk_s', { state: 'suspended', title: 'Resume the survey' })], [], null, { now: NOW })
+  const g = opsLayout([], [record('tsk_s', { state: 'suspended', title: 'Resume the survey' })], null, { now: NOW })
   const n = g.nodes.find((x) => x.id === 'tsk_s')!
   const b = bucketOfNode(n, NOW)
   assert.equal(b, 'paused')
@@ -17,7 +17,7 @@ test('a suspended record is drawn open, with ⏸, not faded', () => {
 })
 
 test('a filtered-out node gets the dashed treatment, not the opacity class', () => {
-  const g = opsLayout([], [record('tsk_s', { state: 'suspended' }), record('tsk_d', { state: 'done', updated_at_ms: NOW - 60_000 })], [], null, { now: NOW })
+  const g = opsLayout([], [record('tsk_s', { state: 'suspended' }), record('tsk_d', { state: 'done', updated_at_ms: NOW - 60_000 })], null, { now: NOW })
   const open = look(bucketOfNode(g.nodes.find((x) => x.id === 'tsk_s')!, NOW), true)
   assert.deepEqual(open, { faded: false, filteredOut: true }, 'filtered out and open: outlined, not faded')
   assert.equal(look(bucketOfNode(g.nodes.find((x) => x.id === 'tsk_d')!, NOW), false).faded, true, 'ended: faded')
@@ -25,11 +25,11 @@ test('a filtered-out node gets the dashed treatment, not the opacity class', () 
 
 test('a node wears its row’s bucket: a to-do step is todo (Q2 A), and paused·queued under Q2 B', () => {
   const records = [record('tsk_td', { state: 'accepted' })]
-  const asB = layoutRows(boardRows({ views: [], tasks: [], sessions: [], records, now: NOW, calls: { ...RECOMMENDED, todoApart: false } }), [], null, { now: NOW })
+  const asB = layoutRows(boardRows({ views: [], tasks: [], sessions: [], records, now: NOW, calls: { ...RECOMMENDED, todoApart: false } }), null, { now: NOW })
   assert.equal(bucketOfNode(asB.nodes[0], NOW), 'paused')
-  const today = layoutRows(boardRows({ views: [], tasks: [], sessions: [], records, now: NOW }), [], null, { now: NOW })
+  const today = layoutRows(boardRows({ views: [], tasks: [], sessions: [], records, now: NOW }), null, { now: NOW })
   assert.equal(bucketOfNode(today.nodes[0], NOW), 'todo', 'by default, the owner’s answer')
-  const rec = layoutRows(boardRows({ views: [], tasks: [], sessions: [], records, now: NOW, calls: RECOMMENDED }), [], null, { now: NOW })
+  const rec = layoutRows(boardRows({ views: [], tasks: [], sessions: [], records, now: NOW, calls: RECOMMENDED }), null, { now: NOW })
   assert.equal(bucketOfNode(rec.nodes[0], NOW), 'todo')
   assert.equal(look(bucketOfNode(rec.nodes[0], NOW), false).faded, false, 'a to-do step is open work, never faded')
 })

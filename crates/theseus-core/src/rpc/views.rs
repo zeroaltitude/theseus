@@ -31,13 +31,6 @@ const NO_TEXT: &str = "a piece's text is shown only when asked for (`--text`)";
 
 /// Why `view.show` is refused on `conn`, or none for the owner in person.
 fn refused(core: &Core, conn: &Conn<'_>, from_job: Option<&str>) -> Option<String> {
-    if !conn.surface.reads_private() {
-        return Some(format!(
-            "it came through {}, and what a turn was shown is the owner's to inspect, from his own \
-             terminal or the web UI",
-            conn.surface.name()
-        ));
-    }
     if from_job.is_some() {
         return Some(
             "this shell is a Theseus job's, and what a turn was shown is the owner's alone to inspect"
@@ -100,7 +93,7 @@ impl Core {
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
         match name {
-            method::TURN_INSPECT => self.rpc_inspect(params, conn).await,
+            method::TURN_INSPECT => self.rpc_inspect(params).await,
             method::VIEW_PREVIEW => self.rpc_preview(params, conn).await,
             _ => self.rpc_views(params, conn).await,
         }

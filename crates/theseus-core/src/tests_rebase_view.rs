@@ -70,7 +70,9 @@ async fn a_bare_history_call_begins_where_the_views_window_does() {
         .filter(|(_, f)| *f == Form::Whole)
         .map(|(t, _)| t.as_str())
         .collect();
-    assert!(!whole.is_empty(), "{laid:?}");
+    // The floor lays the newest exchanges' words; a tool-less exchange is laid whole by no band (issue 44's
+    // closing cut: no previous exchange is a mandatory whole), so a bare call pages from the newest earlier one.
+    assert!(whole.is_empty(), "{laid:?}");
     assert!(
         !laid.iter().any(|(t, _)| *t == turns[0] || *t == turns[4]),
         "the window starts mid-history: {laid:?}"
@@ -140,37 +142,40 @@ async fn the_measuring_rows_seen_is_what_the_view_showed() {
     assert!(dm_seen.in_view, "{row:?}");
 }
 
-/// `context.census` of a session in a place set to the view counts the request the view builds: the place's
-/// window, read across sessions (another session's exchange there included), a new chain as every view turn
-/// is, and no recall. A place left to the transcript still counts the session's own transcript.
+/// `context.census` of a conversation counts the request the view builds: the place's window, read across
+/// sessions (another session's exchange there included), a new chain as every view turn is, and no recall.
+/// Nothing of the view is kept.
 #[tokio::test]
-async fn a_census_of_a_view_place_counts_the_views_request() {
-    // The transcript's side is a session with the ledger off, which only a test can set.
-    let transcript = || rig_with(|c| c.context.ledger = Some(false));
-    for (as_view, r) in [(true, view_rig()), (false, transcript())] {
-        let c = &r.core;
-        let other = session_in(c, None, &r.root);
-        turn(c, &other, "alpha: the kestrel nests on the quay").await;
-        let sid = session_in(c, None, &r.root);
-        turn(c, &sid, "beta: the heron fishes the weir").await;
-        let p = theseus_protocol::census::ContextCensusParams {
-            session_id: Some(sid.clone()),
-            ..Default::default()
-        };
-        let (out, request, _) = c.context_census(&p).unwrap();
-        let sent = serde_json::to_string(&request.messages).unwrap();
-        assert!(sent.contains("the heron fishes the weir"), "{sent}");
-        let noted = out.notes.iter().any(|n| n.contains("as the view builds"));
-        if as_view {
-            assert!(sent.contains("the kestrel nests on the quay"), "{sent}");
-            assert_eq!((out.compile.as_str(), out.recall_tokens), ("recompile", 0));
-            assert!(noted, "{:?}", out.notes);
-            assert!(record::of_turn(&c.store, "census").unwrap().is_empty());
-        } else {
-            assert!(!sent.contains("the kestrel"), "{sent}");
-            assert!(!noted, "{:?}", out.notes);
-        }
-    }
+async fn a_census_of_a_conversation_counts_the_views_request() {
+    let r = view_rig();
+    let c = &r.core;
+    let other = session_in(c, None, &r.root);
+    turn(c, &other, "alpha: the kestrel nests on the quay").await;
+    let sid = session_in(c, None, &r.root);
+    turn(c, &sid, "beta: the heron fishes the weir").await;
+    let p = theseus_protocol::census::ContextCensusParams {
+        session_id: Some(sid.clone()),
+        ..Default::default()
+    };
+    let pointer = |c: &crate::Core| {
+        let rec: SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
+        rec.compilation_id
+    };
+    let (before, compiled) = (
+        pointer(c),
+        crate::test_support::rows(c, "context.compiled").len(),
+    );
+    let (out, request, _) = c.context_census(&p).unwrap();
+    let sent = serde_json::to_string(&request.messages).unwrap();
+    assert!(sent.contains("the heron fishes the weir"), "{sent}");
+    assert!(sent.contains("the kestrel nests on the quay"), "{sent}");
+    assert_eq!((out.compile.as_str(), out.recall_tokens), ("recompile", 0));
+    let noted = out.notes.iter().any(|n| n.contains("as the view builds"));
+    assert!(noted, "{:?}", out.notes);
+    assert!(record::of_turn(&c.store, "census").unwrap().is_empty());
+    assert_eq!(pointer(c), before, "the session's chain is not moved");
+    let after = crate::test_support::rows(c, "context.compiled").len();
+    assert_eq!(after, compiled, "no compile is recorded");
 }
 
 /// A fork of `source` at its last node, speaking in no place (as `session.fork` makes one, by reference).
