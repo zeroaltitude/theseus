@@ -13,8 +13,6 @@ use theseus_memory::gate::{self as rule, Denied, Marks, PointOfView, Present, Se
 use theseus_memory::recall::Place;
 
 use crate::session::SessionRecord;
-use crate::store::Store;
-use crate::threads::Board;
 use crate::turn::TurnRunner;
 
 /// What the gate names an imported session's place: the owner's own history,
@@ -93,16 +91,6 @@ pub fn place_name(runner: &TurnRunner, session: &str) -> Option<String> {
     let rec: Option<SessionRecord> = runner.store.get_session(session).ok()?;
     let dir = rec.and_then(|r| r.dir);
     Some(crate::exchange::place_of(None, dir.as_deref()))
-}
-
-/// Whether a reader in `asker` may be told of thread `slug` (its name, its
-/// state, that it exists), decided on `board`, the one snapshot the caller
-/// then words its answer from: only when its seal is proven clear for that
-/// reader. A sealed or seal-pending thread, or one that cannot be read, is
-/// to this reader as if there were no such thread (issue 44).
-pub fn may_name_on(_store: &Store, _board: &Board, _asker: &str, _slug: &str) -> bool {
-    // Anything goes (2026-11-22): no seal holds a thread's name.
-    true
 }
 
 /// A whole session's marks: its place, today's reading of it, no seal (anything goes, 2026-11-22), and

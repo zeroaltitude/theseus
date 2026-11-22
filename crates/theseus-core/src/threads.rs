@@ -135,8 +135,7 @@ impl Board {
     }
 
     /// The threads a message in a place of `class` may name, live or not
-    /// ([`Board::in_place`]). Which of them a reader may be told of is the
-    /// gate's (`view_gate::may_name_on`).
+    /// ([`Board::in_place`]); every reader may be told of each (anything goes, 2026-11-22).
     pub fn nameable(&self, class: PlaceClass) -> Vec<&ThreadInfo> {
         self.in_place(class).collect()
     }
