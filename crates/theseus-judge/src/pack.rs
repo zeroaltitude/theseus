@@ -70,10 +70,6 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("two_things.v1", include_str!("../packs/two_things.v1.toml")),
     ("same_kind.v1", include_str!("../packs/same_kind.v1.toml")),
     ("name_it.v1", include_str!("../packs/name_it.v1.toml")),
-    (
-        "recall_cross.v1",
-        include_str!("../packs/recall_cross.v1.toml"),
-    ),
     ("precedence.v1", include_str!("../packs/precedence.v1.toml")),
     ("families.v1", include_str!("../packs/families.v1.toml")),
     ("content.v4", include_str!("../packs/content.v4.toml")),
@@ -108,6 +104,8 @@ pub const RETIRED: &[&str] = &[
     "directive.v1",
     "role.v1",
     "continue.v1",
+    // The cross-thread recall judge (theseus-98bz.10): no turn asks it since the cross step went (XD3).
+    "recall_cross.v1",
 ];
 
 /// Each retired version's rollback rules, as its file declares them (the
@@ -237,6 +235,7 @@ count = 2
 "#,
     ),
     ("continue.v1", r#""#),
+    ("recall_cross.v1", r#""#),
 ];
 
 /// A retired version's own rollback rules; `None` for a name this build did
@@ -338,6 +337,10 @@ pub fn retired(name: &str) -> Option<Arc<Pack>> {
         (
             "continue.v1",
             include_str!("../packs/retired/continue.v1.toml"),
+        ),
+        (
+            "recall_cross.v1",
+            include_str!("../packs/retired/recall_cross.v1.toml"),
         ),
     ];
     static PARSED: OnceLock<Vec<Arc<Pack>>> = OnceLock::new();

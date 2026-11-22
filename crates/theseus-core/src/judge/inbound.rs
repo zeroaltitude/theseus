@@ -34,7 +34,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 use theseus_judge::builders::{
-    DataNames, InboundInput, PersonaInput, RoleInput, TaskInput, ThreadInput, ThreadNow, TurnInput,
+    DataNames, InboundInput, PersonaInput, RoleInput, TaskInput, ThreadNow, TurnInput,
 };
 use theseus_judge::{Ask, DecisionPoint, Judge, Mode, Outcome, Pack, Urgency};
 use theseus_kernel::Kernel;
@@ -52,8 +52,6 @@ use crate::trace::Trace;
 /// described for later, and v2 the `thread` question (theseus-rha2).
 /// `classify.v2` and `classify.v3` stay embedded for their history.
 pub const CLASSIFY_PACK: &str = "classify.v4";
-/// The question of `classify` that names a thread.
-pub const THREAD_QUESTION: &str = "thread";
 /// The question of `classify.v4` that asks whether the message spans every
 /// thread of the place (theseus-98bz.9).
 pub const SCOPE_QUESTION: &str = "scope";
@@ -121,10 +119,6 @@ pub(super) fn is_onto(pack: &Pack) -> bool {
 /// day's limit among it) reads the same, at once.
 pub type RouteWait = tokio::sync::oneshot::Receiver<Answered>;
 
-/// What a turn waits on for `classify.v2`'s `thread` answer: dropped without
-/// a value when Jev gave none.
-pub type ThreadWait = tokio::sync::oneshot::Receiver<ThreadAnswered>;
-
 /// What a turn waits on for `classify.v4`'s `scope` answer: dropped without a
 /// value when Jev gave none.
 pub type ScopeWait = tokio::sync::oneshot::Receiver<ScopeAnswered>;
@@ -141,27 +135,11 @@ pub struct ScopeAnswered {
     pub judgment: String,
 }
 
-/// `classify.v2`'s `thread` answer, come back with its batch.
-#[derive(Debug, Clone)]
-pub struct ThreadAnswered {
-    /// A live thread's slug, `new_thread` or `home`.
-    pub choice: String,
-    pub confidence: f64,
-    /// Whether the judgment acts (canary or live), or is only recorded.
-    pub acts: bool,
-    pub judgment: String,
-    /// The options the question offered, in order (the live threads' slugs
-    /// first): what a label of the answer may name.
-    pub offered: Vec<String>,
-    pub at: tokio::time::Instant,
-}
-
 /// A point's asks, begun: the marks its turn's trace takes, and what its
 /// answers come back on.
 pub struct Early {
     pub marks: Vec<serde_json::Value>,
     pub route: Option<RouteWait>,
-    pub thread: Option<ThreadWait>,
     /// `classify.v4`'s `scope` answer, when it was asked (theseus-98bz.9).
     pub scope: Option<ScopeWait>,
     /// Where the owner's words were said, for `directive.v2` asked before
@@ -278,12 +256,10 @@ pub struct Inbound {
     pub author: String,
     /// The live tasks are the kernel's.
     pub kernel: Arc<Kernel>,
-    /// The live threads the message may be about (theseus-rha2), most
-    /// recent first; none: `classify.v2` asks no `thread` question.
-    pub threads: Vec<ThreadInput>,
     /// The message arrives in a thread's own session and the place digest is
-    /// on: `classify.v4` asks its `scope` question without the list of
-    /// threads (theseus-98bz.9).
+    /// on: `classify.v4` asks its `scope` question (theseus-98bz.9). The list
+    /// of live threads its `thread` question read went with the router that
+    /// filled it (XD3): no turn offers one, so that question is never asked.
     pub in_thread: bool,
     /// `route.v1`'s mode for this turn, as the turn decides it (`[routing]`,
     /// the judge's ladder, a pin): off, shadow, or live.
@@ -498,24 +474,14 @@ impl JudgeService {
             }
             false => (None, None),
         };
-        let (ttx, trx) = match !msg.threads.is_empty()
-            && packs.iter().any(|(p, _, _)| p.name() == CLASSIFY_PACK)
-        {
-            true => {
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                (Some(tx), Some(rx))
-            }
-            false => (None, None),
-        };
-        let (stx, srx) = match (!msg.threads.is_empty() || msg.in_thread)
-            && packs.iter().any(|(p, _, _)| p.name() == CLASSIFY_PACK)
-        {
-            true => {
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                (Some(tx), Some(rx))
-            }
-            false => (None, None),
-        };
+        let (stx, srx) =
+            match msg.in_thread && packs.iter().any(|(p, _, _)| p.name() == CLASSIFY_PACK) {
+                true => {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    (Some(tx), Some(rx))
+                }
+                false => (None, None),
+            };
         let heard = packs
             .iter()
             .any(|(p, _, _)| p.name().starts_with("directive."))
@@ -540,14 +506,13 @@ impl JudgeService {
             packs,
             msg,
             tx,
-            (ttx, stx),
+            stx,
             (heard, said_rx),
             point == Point::Checkpoint,
         ));
         Some(Early {
             marks,
             route: rx,
-            thread: trx,
             scope: srx,
             said,
             breaker_open,
@@ -729,15 +694,6 @@ impl JudgeService {
             if is_onto(&pack) {
                 context["onto"] = onto_context.clone();
             }
-            if pack.name() == CLASSIFY_PACK && !msg.threads.is_empty() {
-                // The slugs the `thread` question offered, so a label of its
-                // answer names what was on offer (theseus-rha2).
-                context["threads"] = json!(msg
-                    .threads
-                    .iter()
-                    .map(|t| t.id.as_str())
-                    .collect::<Vec<_>>());
-            }
             if pack.name() == ROUTE_PACK {
                 if msg.persona.personas.len() >= 2 {
                     // The ids the `persona` question offered, so a label of
@@ -907,7 +863,9 @@ pub fn input(nodes: &[Node], msg: &Inbound, live_tasks: Vec<TaskInput>) -> Inbou
         last_reply,
         minutes_since_last_message,
         live_tasks,
-        live_threads: msg.threads.clone(),
+        // No turn offers live threads any more (XD3); the field stays, so an
+        // old state still reads.
+        live_threads: Vec::new(),
         in_thread: msg.in_thread,
         personas: msg.persona.personas.clone(),
         speaker: msg.persona.speaker.clone(),
@@ -1116,38 +1074,6 @@ pub fn names_hit(names: &DataNames, text: &str) -> bool {
             .is_empty()
 }
 
-/// `classify.v2`'s `thread` answer from its judgment, when it was answered
-/// by the model the pack pins.
-pub fn thread_answer(j: &theseus_judge::Judgment) -> Option<ThreadAnswered> {
-    if j.pack != CLASSIFY_PACK || !j.actionable() {
-        return None;
-    }
-    let a = j.answer(THREAD_QUESTION)?;
-    let theseus_judge::Answer::Choice {
-        choice, confidence, ..
-    } = &a.answer
-    else {
-        return None;
-    };
-    Some(ThreadAnswered {
-        choice: choice.clone(),
-        confidence: *confidence,
-        acts: j.mode != theseus_judge::Mode::Shadow,
-        judgment: j.id.clone(),
-        offered: j
-            .context
-            .get("threads")
-            .and_then(|v| v.as_array())
-            .map(|v| {
-                v.iter()
-                    .filter_map(|s| s.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default(),
-        at: tokio::time::Instant::now(),
-    })
-}
-
 /// `classify.v4`'s `scope` answer from its judgment, when it was answered by
 /// the model the pack pins.
 pub fn scope_answer(j: &theseus_judge::Judgment) -> Option<ScopeAnswered> {
@@ -1198,14 +1124,11 @@ async fn lane(built: &Built, asks: Vec<Ask>, urgency: Urgency) -> Vec<theseus_ju
     built.judge.judge(DecisionPoint { asks, urgency }).await
 }
 
-/// The thread answer goes to the router the moment the batch lands, and an
+/// The scope answer goes to the turn the moment the batch lands, and an
 /// offer is noted for the reply.
-async fn hand_thread_answer(
+async fn hand_answers(
     batch: impl std::future::Future<Output = Vec<theseus_judge::Judgment>>,
-    (thread, scope): (
-        Option<tokio::sync::oneshot::Sender<ThreadAnswered>>,
-        Option<tokio::sync::oneshot::Sender<ScopeAnswered>>,
-    ),
+    scope: Option<tokio::sync::oneshot::Sender<ScopeAnswered>>,
     offer: (&Weak<JudgeService>, &str, &str),
 ) -> Vec<theseus_judge::Judgment> {
     let judgments = batch.await;
@@ -1215,11 +1138,6 @@ async fn hand_thread_answer(
     if let Some(svc) = offer.0.upgrade() {
         for j in judgments.iter().filter(|j| j.pack.starts_with("onto.")) {
             svc.onto_landed(j, offer.1, offer.2);
-        }
-    }
-    if let Some(tx) = thread {
-        if let Some(a) = judgments.iter().find_map(thread_answer) {
-            let _ = tx.send(a);
         }
     }
     if let Some(tx) = scope {
@@ -1265,10 +1183,7 @@ async fn judge_inbound(
     packs: Vec<(Arc<Pack>, String, PackMode)>,
     msg: Inbound,
     route: Option<tokio::sync::oneshot::Sender<Answered>>,
-    thread: (
-        Option<tokio::sync::oneshot::Sender<ThreadAnswered>>,
-        Option<tokio::sync::oneshot::Sender<ScopeAnswered>>,
-    ),
+    scope: Option<tokio::sync::oneshot::Sender<ScopeAnswered>>,
     (heard, said): (
         Option<crate::capture::act::Message>,
         Option<tokio::sync::oneshot::Receiver<(String, String)>>,
@@ -1333,16 +1248,16 @@ async fn judge_inbound(
         }
         judgments
     };
-    let rest = hand_thread_answer(
+    let rest = hand_answers(
         lane(&built, rest_asks, rest_urgency),
-        thread,
+        scope,
         (&me, &turn, &brief),
     );
     // onto.v1 in a request of its own: no turn waits on it, and it is
     // reserved and recorded as the batch's judgments are.
-    let alone = hand_thread_answer(
+    let alone = hand_answers(
         lane(&built, own_asks, rest_urgency),
-        (None, None),
+        None,
         (&me, &turn, &brief),
     );
     let (mut judgments, rest, alone) = futures_util::future::join3(routed, rest, alone).await;

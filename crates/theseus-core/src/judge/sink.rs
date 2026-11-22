@@ -423,7 +423,7 @@ impl JudgeService {
         self.built.get()?.judge.inner().breaker_of(pack)
     }
 
-    /// A pack's own breaker opening (`rerank`'s, `recall_cross`'s) counts
+    /// A pack's own breaker opening (`rerank`'s) counts
     /// toward its day brake on the ladder (26a: twice in a local day). Any
     /// breaker of its own is one: a pack declares the rule in its file, and
     /// a breaker with no such pack's rule counts an event nothing reads.

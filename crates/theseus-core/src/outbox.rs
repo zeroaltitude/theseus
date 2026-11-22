@@ -98,6 +98,7 @@ pub const OPERATOR_KINDS: &[&str] = &[
     "self_narrow_red",
     "retraction",
     "seal_card",
+    // No producer since the link offer went (XD3): kept so an old staged card still delivers.
     "link_card",
     "initiative",
     "standing_card",
@@ -1715,7 +1716,6 @@ mod tests {
         "rsi/pr.rs",
         "rule_notice.rs",
         "sweep_notice.rs",
-        "thread_link_seen.rs",
         "turn/admission.rs",
         "turn/ceiling_step.rs",
         "turn/personal_step.rs",
