@@ -593,9 +593,11 @@ pub fn report_shown(runner: &TurnRunner, delivery: &str, task: &str) -> bool {
         // No proof of what started it: as before, where it has not moved.
         return true;
     };
-    let then_class = match ex.private {
-        true => Place::Private,
-        false => Place::Shared(ex.place.clone()),
+    // A task's exchange is at the task's own place, not a binding: then, it spoke where it speaks now.
+    let then_class = match (ex.private, crate::task_graph::place::task_of(&ex.place)) {
+        (true, _) => Place::Private,
+        (false, Some(_)) => Place::Shared(now.clone().unwrap_or_default()),
+        (false, None) => Place::Shared(ex.place.clone()),
     };
     let today = runner.place_of(delivery);
     match (
@@ -807,7 +809,7 @@ pub struct Verified(PointOfView);
 
 impl Verified {
     /// The turn of `session`'s: its presence as the turn computed it; none
-    /// computed, `Unknown`.
+    /// computed, `Unknown`. A task's is at its own place ([`task_pov`]).
     pub fn of_session(runner: &TurnRunner, session: &str) -> Self {
         let place = runner.place_of(session);
         let (present, anchor) = match runner.presence.get(session) {
@@ -817,11 +819,15 @@ impl Verified {
                 place_name(runner, session).unwrap_or_else(|| "unknown".into()),
             ),
         };
-        Verified(PointOfView {
+        let pov = PointOfView {
             anchor,
             place,
             present,
-        })
+        };
+        match crate::task_graph::place::of_task_session(&runner.store, session) {
+            Some(own) => Verified(task_pov(pov, own)),
+            None => Verified(pov),
+        }
     }
 
     /// The point of view a next turn in `session` at `place` would get, for a preview of its view (no turn
@@ -851,6 +857,30 @@ impl Verified {
 
     pub fn pov(&self) -> &PointOfView {
         &self.0
+    }
+}
+
+/// A task's point of view (issue 44, a task's own view): anchored at its own
+/// place `own` (`task_graph::place`), today's reading of where it speaks
+/// renamed to it, and its presence as its set-up proved it. A set-up that
+/// could not be proven reads as not the owner alone (`PrivateChannel`), not
+/// `Unknown`: at the task's own place that admits only what is of that place,
+/// the task's own exchanges and card, which only its own turns write (the
+/// trust principle; nothing of another place is admitted without the owner
+/// alone).
+fn task_pov(pov: PointOfView, own: String) -> PointOfView {
+    let place = match pov.place {
+        Place::Shared(_) => Place::Shared(own.clone()),
+        p => p,
+    };
+    let present = match pov.present {
+        Present::Unknown if place != Place::Unknown => Present::PrivateChannel,
+        p => p,
+    };
+    PointOfView {
+        anchor: own,
+        place,
+        present,
     }
 }
 

@@ -3,8 +3,8 @@
 //! is written, what the first compile sent, and the end with its measuring
 //! row. Every record rides a frame the turn writes anyway (`Store::defer`);
 //! a naming of things, off the path, rides any writer's next one. Nothing here
-//! changes what any request carries. A task's turns have no
-//! place, and write none of it.
+//! changes what any request carries. A task's turns are at the task's own
+//! place (`task_graph::place`), its first turn's ask its brief.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -84,8 +84,8 @@ pub(super) fn failed(t: &mut Turn<'_>, class: &str) {
 }
 
 impl TurnRunner {
-    fn ledger_on(&self, t: &Turn<'_>) -> bool {
-        self.cfg.context.ledger_on() && t.tc.task.is_none()
+    fn ledger_on(&self, _: &Turn<'_>) -> bool {
+        self.cfg.context.ledger_on()
     }
 
     /// The index's things in `text`, named off the turn's path: the task
@@ -221,24 +221,30 @@ impl TurnRunner {
             return;
         }
         let sid = t.tc.session_id;
+        // A task's first turn answers its brief, written before the turn: its ask.
+        let brief = (t.tc.task.is_some() && t.exchange.ask.is_none())
+            .then(|| t.tc.store.transcript(sid).ok())
+            .flatten()
+            .and_then(|nodes| super::view_step::task::brief(&nodes, t.tc.turn_id));
         let h = &t.exchange;
         let opened_by = match () {
             _ if prompted => Opener::Prompt,
-            _ if h.ask.is_some() => Opener::Message,
+            _ if h.ask.is_some() || brief.is_some() => Opener::Message,
             _ if !t.wakes.is_empty() => Opener::Wake,
             _ if !t.woke_by.is_empty() => Opener::Report,
             _ => Opener::Continuation,
         };
         // With no message, where the turn's reply is delivered (`speaks_at`: a wake's or a report's target
         // too); a route that cannot be read is no place, never the terminal's.
-        let place = h.mark.as_ref().map_or_else(
-            || match self.outbox.speaks_at(sid) {
+        let place = match (t.tc.task, &h.mark) {
+            (Some(_), _) => crate::task_graph::place::of_session(sid),
+            (None, Some(m)) => m.place.clone(),
+            (None, None) => match self.outbox.speaks_at(sid) {
                 Ok(at) => crate::exchange::place_of(at.as_deref(), t.tc.dir),
                 Err(_) => crate::exchange::rebuild::UNKNOWN.into(),
             },
-            |m| m.place.clone(),
-        );
-        let ask = h.ask.as_ref().map(|(id, _)| id.clone());
+        };
+        let ask = (h.ask.as_ref().map(|(id, _)| id.clone())).or(brief.map(|(id, _)| id));
         let ex = Exchange {
             turn_id: t.tc.turn_id.into(),
             session_id: sid.into(),
