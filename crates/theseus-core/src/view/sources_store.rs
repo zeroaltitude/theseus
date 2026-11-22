@@ -75,6 +75,9 @@ pub struct StoreSources<'a> {
     pub recalled: Vec<String>,
     /// The gate's reading of a session's seal for this turn: true holds it out.
     pub sealed: &'a dyn Fn(&str) -> bool,
+    /// The gate's node seal for this turn (`view_gate::Moved`): true when a message or the reply of the
+    /// exchange was moved into a thread not proven clear, which holds the exchange out whole.
+    pub moved: &'a dyn Fn(&exchange::Exchange) -> bool,
     pub sessions: &'a Sessions,
 }
 
@@ -159,9 +162,10 @@ impl StoreSources<'_> {
                 },
                 author,
                 outside,
-                // The seal is the gate's own reading of the exchange's session, the same place's included.
+                // The seal is the gate's own reading of the exchange's session, the same place's included, and
+                // of its nodes: one moved into a sealed thread holds the whole exchange.
                 // No reader of today's store marks an exchange veiled.
-                sealed: (self.sealed)(&ex.session_id),
+                sealed: (self.sealed)(&ex.session_id) || (self.moved)(&ex),
                 veiled: false,
             },
             place: ex.place,

@@ -53,10 +53,10 @@ pub struct Board {
     /// What did not read when the board was loaded, for the readers that
     /// decide permission (`view_gate::seal_of`): the slugs of thread records
     /// that do not decode, the sessions bound to them, and whether a binding
-    /// itself did not decode, by the slug its key names (issue 44).
+    /// itself did not decode (issue 44).
     unread_slugs: BTreeSet<String>,
     unread_sessions: BTreeSet<String>,
-    unread_bindings: BTreeSet<String>,
+    unread_binding: bool,
 }
 
 impl Board {
@@ -87,15 +87,9 @@ impl Board {
     }
 
     /// Whether a thread's binding did not read at the load: any session may
-    /// then be that thread's. It clears when the thread is bound again.
+    /// then be that thread's.
     pub fn unread_binding(&self) -> bool {
-        !self.unread_bindings.is_empty()
-    }
-
-    /// How many threads' bindings did not read, for health: a count, never
-    /// which.
-    pub fn unread_bindings(&self) -> usize {
-        self.unread_bindings.len()
+        self.unread_binding
     }
 
     /// Every thread, by slug.
@@ -119,30 +113,32 @@ impl Board {
             .and_then(|slug| self.threads.get(slug))
     }
 
-    /// The threads a turn in a place of `class` may be routed to: the active
-    /// ones in a private place, none in a shared one (a thread is private
-    /// always), newest activity first.
-    pub fn live(&self, class: PlaceClass) -> Vec<&ThreadInfo> {
-        if class != PlaceClass::Private {
-            return Vec::new();
-        }
-        let mut live: Vec<&ThreadInfo> = self
-            .threads
+    /// The threads a message in a place of `class` may reach at all: every
+    /// one in a private place, none in a shared one (a thread is private
+    /// always). The one reading of the place for [`Board::live`] and
+    /// [`Board::nameable`].
+    fn in_place(&self, class: PlaceClass) -> impl Iterator<Item = &ThreadInfo> {
+        self.threads
             .values()
+            .filter(move |_| class == PlaceClass::Private)
+    }
+
+    /// The threads a turn in a place of `class` may be routed to: the active
+    /// ones of [`Board::in_place`], newest activity first.
+    pub fn live(&self, class: PlaceClass) -> Vec<&ThreadInfo> {
+        let mut live: Vec<&ThreadInfo> = self
+            .in_place(class)
             .filter(|t| t.state == ThreadState::Active)
             .collect();
         live.sort_by(|a, b| (b.last_active_ms, &a.slug).cmp(&(a.last_active_ms, &b.slug)));
         live
     }
 
-    /// The threads a message in a place of `class` may name, live or not: every
-    /// one in a private place, none in a shared one, as [`Board::live`]. An
-    /// address naming one that is not live is refused, never run at home.
+    /// The threads a message in a place of `class` may name, live or not
+    /// ([`Board::in_place`]). Which of them a reader may be told of is the
+    /// gate's (`view_gate::may_name_on`).
     pub fn nameable(&self, class: PlaceClass) -> Vec<&ThreadInfo> {
-        if class != PlaceClass::Private {
-            return Vec::new();
-        }
-        self.threads.values().collect()
+        self.in_place(class).collect()
     }
 
     /// The thread a thread now lives in: itself, or, when it was merged away,
@@ -306,7 +302,7 @@ impl Threads {
         }
         let prefix = place_prefix();
         let mut sessions = HashMap::new();
-        let mut unread_bindings = BTreeSet::new();
+        let mut unread_binding = false;
         for r in store.inner().latest_with_prefix(kinds::META, &prefix)? {
             let Some(slug) = r.key.as_deref().and_then(|k| k.strip_prefix(&prefix)) else {
                 continue;
@@ -315,9 +311,7 @@ impl Threads {
                 Ok(sid) => {
                     sessions.insert(slug.to_string(), sid);
                 }
-                Err(_) => {
-                    unread_bindings.insert(slug.to_string());
-                }
+                Err(_) => unread_binding = true,
             }
         }
         let mut board = Board::build(records, &sessions);
@@ -329,7 +323,7 @@ impl Threads {
             .collect();
         board.unread_sessions = unread_sessions;
         board.unread_slugs = unread_slugs;
-        board.unread_bindings = unread_bindings;
+        board.unread_binding = unread_binding;
         let board = Arc::new(board);
         *self.board.write().unwrap() = Some(board.clone());
         Ok(board)
@@ -384,7 +378,6 @@ impl Threads {
                     t.session_id = Some(session.to_string());
                     next.by_session
                         .insert(session.to_string(), slug.to_string());
-                    next.unread_bindings.remove(slug);
                 }
                 next.threads.insert(t.slug.clone(), t);
             }
@@ -444,8 +437,6 @@ impl Threads {
                     t.session_id = Some(session.clone());
                 }
                 next.by_session.insert(session, slug.to_string());
-                // Its binding is written again, and reads.
-                next.unread_bindings.remove(slug);
                 self.told(&next);
                 *self.board.write().unwrap() = Some(Arc::new(next));
             }

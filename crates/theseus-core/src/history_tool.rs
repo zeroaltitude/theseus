@@ -331,11 +331,14 @@ pub(crate) async fn answer(
     let places = crate::view_gate::RecallPlaces::default();
     let private = |s: &str| places.of_session(&core.runner, s) == Place::Private;
     let hidden = |s: &str| s != session && core.ladder_hidden(s);
+    let moved = crate::view_gate::Moved::read(&core.runner, Some(session));
+    let moved = |e: &crate::exchange::Exchange| moved.holds(e);
     let mut lens = page::Lens {
         store: &core.store,
         here: here.clone(),
         present: pov.present,
         hidden: &hidden,
+        moved: &moved,
         private: &private,
         in_view: page::in_view(&core.store, session).map_err(|e| format!("{e:#}"))?,
         words: None,

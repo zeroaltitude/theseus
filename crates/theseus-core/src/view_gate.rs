@@ -38,7 +38,7 @@
 //! registry test (`tests_view_gate::no_new_decision_by_place_outside_the_gate`)
 //! names each file's count and fails on a new one.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 
 use anyhow::Result;
@@ -52,6 +52,9 @@ use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::threads::Board;
 use crate::turn::TurnRunner;
+
+mod moved;
+pub use moved::{moved_at_all, Moved};
 
 /// What the gate names an imported session's place: the owner's own history,
 /// from no place of this daemon's.
@@ -252,14 +255,13 @@ fn thread_seal(board: &Board, slug: &str) -> Seal {
     Seal::Unread
 }
 
-/// Whether a refusal told in `asker` may name thread `slug` and say why it
-/// cannot take the message (paused, done, not opened): only when its seal
-/// is proven clear for that reader. A sealed or seal-pending thread, or one
-/// that cannot be read, is refused as if there were no such thread, so the
-/// refusal does not tell that it exists.
-pub fn may_name_thread(runner: &TurnRunner, asker: &str, slug: &str) -> bool {
-    board(runner, slug)
-        .is_some_and(|b| seal_for(&runner.store, &b, Some(asker), slug) == Seal::Clear)
+/// Whether a reader in `asker` may be told of thread `slug` (its name, its
+/// state, that it exists), decided on `board`, the one snapshot the caller
+/// then words its answer from: only when its seal is proven clear for that
+/// reader. A sealed or seal-pending thread, or one that cannot be read, is
+/// to this reader as if there were no such thread (issue 44).
+pub fn may_name_on(store: &Store, board: &Board, asker: &str, slug: &str) -> bool {
+    seal_for(store, board, Some(asker), slug) == Seal::Clear
 }
 
 /// The seal of `session` for a reader in `asker`, whatever `[threads]
@@ -320,12 +322,6 @@ pub fn node_seal(
     if own != Seal::Clear {
         return own;
     }
-    moved_seal(store, board, asker, node)
-}
-
-/// The seal of the thread a split or a claim moved `node` into, for a reader
-/// in `asker`; clear when it was not moved.
-fn moved_seal(store: &Store, board: &Board, asker: Option<&str>, node: &str) -> Seal {
     match store.get_meta::<Option<crate::moved::MovedTo>>(&crate::moved::moved_of_key(node)) {
         Ok(Some(Some(m))) => seal_for(store, board, asker, &m.thread),
         Ok(_) => Seal::Clear,
@@ -335,25 +331,6 @@ fn moved_seal(store: &Store, board: &Board, asker: Option<&str>, node: &str) -> 
             Seal::Unread
         }
     }
-}
-
-/// Whether a reader in `asker` may be shown the title of `session`, whose
-/// own seal it may read: a title is made from the session's first inputs,
-/// so not when any of its messages was moved into a thread held from it
-/// (`moved_seal`), nor when its messages or the threads cannot be read.
-pub fn title_shown(runner: &TurnRunner, asker: Option<&str>, session: &str) -> bool {
-    let Some(b) = board(runner, "a session's title") else {
-        return false;
-    };
-    let Ok(nodes) = runner.store.session_nodes(session) else {
-        return false;
-    };
-    nodes.iter().all(|(_, n)| match &n.body {
-        Body::UserMessage { .. } | Body::AssistantMessage { .. } => {
-            moved_seal(&runner.store, &b, asker, &n.id) == Seal::Clear
-        }
-        _ => true,
-    })
 }
 
 /// The nodes of `nodes` a reader in `asker` may read for their seal (by
@@ -664,67 +641,23 @@ pub fn readmit_sources(
     });
 }
 
-/// The threads a reader in `asker` may not be shown now for their seal: every
-/// sealed or seal-pending thread but its own, and every one that cannot be
-/// read. A kept tail is sent again only where no thread joined this since it
-/// was made (`turn::sent_tail`). None when the threads cannot be read: then
-/// nothing kept is sent again.
-pub fn held_threads(runner: &TurnRunner, asker: &str) -> Option<BTreeSet<String>> {
-    let b = board(runner, "kept tails")?;
-    let own = thread_of(&runner.store, &b, asker, 0).ok().flatten();
-    let held = b
-        .all()
-        .filter(|t| held_from(&b, own.as_deref(), &t.slug))
-        .map(|t| t.slug.clone())
-        .collect();
-    Some(held)
-}
-
-/// Whether thread `slug` is held from a reader whose own thread is `own`:
-/// sealed, seal-pending or unread, and not its own.
-fn held_from(board: &Board, own: Option<&str>, slug: &str) -> bool {
-    match thread_seal(board, slug) {
-        Seal::Clear => false,
-        Seal::Held => own != Some(slug),
-        Seal::Unread => true,
-    }
-}
-
-/// The presence of `session`'s turn as a kept tail's reuse key holds it
-/// (`turn::sent_tail`): who is present and where the turn arrived. A tail
-/// made under one is not sent again under another.
-pub fn presence_key(runner: &TurnRunner, session: &str) -> Option<(Present, String)> {
-    runner.presence.get(session).map(|a| (a.present, a.place))
-}
-
 /// The threads of a place digest a turn of `session` may be shown: only
 /// where the owner is alone does it name other threads (they are other
-/// places); otherwise its own thread `here` alone. A thread held from a turn
-/// that is not the owner alone is neither named nor counted, whatever the
-/// ledger says: a count says it exists. The owner alone is told how many
-/// (the digest's own rule); none at all when the threads cannot be read.
-/// With the ledger off, the rest as before.
+/// places); otherwise its own thread `here` alone. With the ledger off, as
+/// before.
 pub fn digest_threads<'b>(
     runner: &TurnRunner,
     session: &str,
     here: &str,
     live: Vec<&'b theseus_protocol::threads::ThreadInfo>,
 ) -> Vec<&'b theseus_protocol::threads::ThreadInfo> {
-    let Some(b) = board(runner, "the place digest") else {
-        return Vec::new();
-    };
+    if !runner.cfg.context.ledger_on() {
+        return live;
+    }
     let alone = runner
         .presence
         .get(session)
         .is_some_and(|a| a.present == Present::OwnerAlone);
-    let own = thread_of(&runner.store, &b, session, 0).ok().flatten();
-    let live: Vec<_> = live
-        .into_iter()
-        .filter(|t| alone || !held_from(&b, own.as_deref(), &t.slug))
-        .collect();
-    if !runner.cfg.context.ledger_on() {
-        return live;
-    }
     live.into_iter()
         .filter(|t| alone || t.slug == here)
         .collect()

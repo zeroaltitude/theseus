@@ -19,15 +19,8 @@
 //! no longer renders as it did (a recompile, a ring's cut, a compaction)
 //! is let go, and so is the lot when a recompile strips the thinking, which
 //! is what needed them.
-//!
-//! A kept tail is admitted again before it is sent again (issue 44, the
-//! gate, `docs/design/view-gate.md`): who is present is part of the key it is
-//! put back under, so a tail made where the owner was alone is not sent to a
-//! narrower audience; and a tail made before a thread was sealed, or one
-//! whose thread cannot be read, is let go, since it may hold that thread's
-//! words.
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 
 use serde_json::{json, Value};
@@ -51,9 +44,6 @@ struct Sent {
     key: String,
     anchor: String,
     blocks: Vec<Value>,
-    /// The threads held from this reader when the tail was made
-    /// (`view_gate::held_threads`); none read, every thread is new since.
-    sealed: BTreeSet<String>,
 }
 
 #[derive(Default)]
@@ -76,14 +66,6 @@ pub(super) struct Begun {
     blocks: usize,
     anchor: String,
     kept: Vec<Sent>,
-    sealed: BTreeSet<String>,
-}
-
-/// Whether a kept tail may be sent again under the seals `now`: not where the
-/// threads cannot be read, nor where a thread is held from this reader that
-/// was not when it was made.
-fn still_clear(s: &Sent, now: Option<&BTreeSet<String>>) -> bool {
-    now.is_some_and(|now| now.is_subset(&s.sealed))
 }
 
 fn anchor(message: &Value) -> String {
@@ -121,16 +103,14 @@ fn counted(compiled: &mut Compiled, n: u64) {
 /// its message rendered as, not by its place (routing may have moved a message). Only the tails
 /// sent to `key` go back (`None`: the newest tail's own key, for a request no turn is making yet);
 /// the rest stay in the list as they were sent. Nothing goes back on a request a recompile
-/// stripped the thinking from. A tail that is not clear under the seals `now` is let go, whatever
-/// its key. Returns the list and the place in it of the latest tail put back.
+/// stripped the thinking from. Returns the list and the place in it of the latest tail put back.
 /// The one function a turn's request and every other request of a conversation share.
 fn put_back(
     compiled: &mut Compiled,
     held: Vec<Sent>,
-    (key, now): (Option<&str>, Option<&BTreeSet<String>>),
+    key: Option<&str>,
     stripped: bool,
 ) -> (Vec<Sent>, Option<usize>) {
-    let held: Vec<Sent> = held.into_iter().filter(|s| still_clear(s, now)).collect();
     let Some(last) = compiled.request.messages.len().checked_sub(1) else {
         return (held, None);
     };
@@ -170,30 +150,23 @@ fn put_back(
 impl SentTails {
     /// The tails a conversation's earlier requests sent, put back on a request made for it
     /// outside a turn (the keep-warm read), so that it is the prefix the next turn
-    /// sends: byte for byte what `begin` puts back, for the key the newest tail was sent to and
-    /// under the seals `now`. Nothing is kept or changed here.
-    pub(crate) fn warm(
-        &self,
-        session: &str,
-        now: Option<&BTreeSet<String>>,
-        compiled: &mut Compiled,
-    ) {
+    /// sends: byte for byte what `begin` puts back, for the key the newest tail was sent to.
+    /// Nothing is kept or changed here.
+    pub(crate) fn warm(&self, session: &str, compiled: &mut Compiled) {
         let held = {
             let h = self.0.lock().unwrap_or_else(|e| e.into_inner());
             h.by_session.get(session).cloned().unwrap_or_default()
         };
         let stripped = compiled.new_compilation && compiled.compilation.manifest.strip_thinking;
-        put_back(compiled, held, (None, now), stripped);
+        put_back(compiled, held, None, stripped);
     }
 
     /// Put back the tails the session's earlier requests sent, on the
-    /// messages that carried them, before this request's own is attached:
-    /// those sent to `key` and clear under the threads held `now`
-    /// (`view_gate::held_threads`), which this request's own tail keeps.
+    /// messages that carried them, before this request's own is attached.
     pub(super) fn begin(
         &self,
         session: &str,
-        (turn, key, now): (&str, &str, Option<BTreeSet<String>>),
+        (turn, key): (&str, &str),
         compiled: &mut Compiled,
     ) -> Option<Begun> {
         let last = compiled.request.messages.len().checked_sub(1)?;
@@ -204,7 +177,7 @@ impl SentTails {
             h.recent.push_back(session.to_string());
             h.by_session.get(session).cloned().unwrap_or_default()
         };
-        let (kept, here) = put_back(compiled, held, (Some(key), now.as_ref()), stripped);
+        let (kept, here) = put_back(compiled, held, Some(key), stripped);
         let m = &mut compiled.request.messages[last];
         let anchor = anchor(m);
         let blocks = blocks_of(m).map_or(0, |b| b.len());
@@ -215,8 +188,6 @@ impl SentTails {
             blocks,
             anchor,
             kept,
-            // None read: every thread that is held later is new since.
-            sealed: now.unwrap_or_default(),
         })
     }
 
@@ -230,7 +201,6 @@ impl SentTails {
             blocks,
             anchor,
             mut kept,
-            sealed,
         }) = begun
         else {
             return;
@@ -265,7 +235,6 @@ impl SentTails {
                     key,
                     anchor,
                     blocks: fresh,
-                    sealed,
                 });
             }
         }

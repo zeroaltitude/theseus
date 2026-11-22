@@ -804,11 +804,36 @@ impl Core {
                 {
                     return Ok((rec, None));
                 }
-                let rec = self.open_session(SessionOpenParams {
-                    label: Some(place_of(slug)),
+                let place = place_of(slug);
+                let params = SessionOpenParams {
+                    label: Some(place.clone()),
                     ..SessionOpenParams::default()
-                })?;
-                self.bind_place_to(&place_of(slug), &rec.session_id)?;
+                };
+                let rec = match self.outbox.place_session(&place)? {
+                    // The first session: it and its place's binding in one
+                    // frame, so a binding that fails leaves no session,
+                    // execution or `session.opened` behind (issue 44).
+                    None => {
+                        let operator = theseus_kernel::Authority {
+                            principal: crate::turn::OPERATOR.to_string(),
+                            ..Default::default()
+                        };
+                        let place_rec =
+                            |r: &SessionRecord| -> anyhow::Result<Vec<theseus_store::NewRecord>> {
+                                Ok(vec![self.outbox.place_record(&place, &r.session_id)?])
+                            };
+                        let rec = self.open_session_with(params, (operator, None), &place_rec)?;
+                        self.outbox.place_bound(&place, &rec.session_id)?;
+                        rec
+                    }
+                    // A session after a retired one supersedes it, in a
+                    // frame of its own (`bind_place_to`).
+                    Some(_) => {
+                        let rec = self.open_session(params)?;
+                        self.bind_place_to(&place, &rec.session_id)?;
+                        rec
+                    }
+                };
                 let bound = rec.session_id.clone();
                 opened.set(true);
                 Ok((rec, Some(bound)))

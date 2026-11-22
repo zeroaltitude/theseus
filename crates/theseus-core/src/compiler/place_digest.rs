@@ -6,8 +6,6 @@
 //!   card's last line, and the card's dated lines, cut to `line_chars`.
 //! - **A sealed or seal-pending thread is a count** ("1 embargoed thread (not
 //!   shown)"): no byte of its title, goal, card or working set is read here.
-//!   Only the owner alone is given one to count (`view_gate::digest_threads`,
-//!   issue 44): a count says a thread exists to a reader the gate may not tell.
 //! - **Per turn, in the tail.** The turn attaches it after the request's last
 //!   cache mark (`task_graph::view::attach_text`), so every cached byte is the
 //!   same with and without it, and no compilation keeps it.

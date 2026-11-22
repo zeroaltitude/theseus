@@ -6,7 +6,7 @@
 
 use super::*;
 use theseus_protocol::error_code;
-use theseus_protocol::threads::ThreadSealParams;
+use theseus_protocol::threads::{ThreadEditParams, ThreadSealParams};
 
 /// `turn.submit`'s answer, whatever it is.
 async fn answer(c: &Arc<Core>, session: &str, input: &str) -> Value {
@@ -96,6 +96,7 @@ async fn an_addressed_thread_that_does_not_open_is_refused_and_runs_nowhere() {
     two_threads(c);
     let dm = home(c, Some(&format!("dm:{OWNER}")));
     let before = rows(c, "turn.started").len();
+    let opened = rows(c, "session.opened").len();
     // The thread's first message opens its session and binds the thread's
     // place to it: that binding's write fails, as a full disk would.
     c.store.fail_plain_frame(|recs| {
@@ -112,6 +113,15 @@ async fn an_addressed_thread_that_does_not_open_is_refused_and_runs_nowhere() {
         "{line}"
     );
     nothing_ran(c, &dm, before);
+    // The session and its place's binding are one frame: neither is left.
+    assert_eq!(rows(c, "session.opened").len(), opened, "an orphan session");
+    assert_eq!(c.outbox.place_session("thread:security-fix").unwrap(), None);
+    assert!(c
+        .threads()
+        .get("security-fix")
+        .unwrap()
+        .session_id
+        .is_none());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -139,4 +149,146 @@ async fn a_sealed_thread_is_refused_as_no_thread_at_all() {
         "the refusal does not tell that a sealed thread exists"
     );
     nothing_ran(c, &dm, before);
+}
+
+/// What `turn.submit` did with `input`: its refusal's line, or where it ran.
+async fn outcome(c: &Arc<Core>, dm: &str, input: &str, reply: Option<&str>) -> String {
+    let mut w = Wire::open(c);
+    let id = w.send(method::TURN_SUBMIT, params(dm, input, reply)).await;
+    let r = w.response(id).await;
+    match r["error"]["message"].as_str() {
+        Some(line) => format!("refused: {line}"),
+        None if r["result"]["session_id"] == json!(dm) => "ran at home".into(),
+        None => format!("ran elsewhere: {r}"),
+    }
+}
+
+/// Edits a thread's record as its writer does.
+fn set(c: &Core, slug: &str, f: impl Fn(&mut theseus_protocol::threads::ThreadInfo)) {
+    c.runner
+        .threads
+        .write(
+            &c.store,
+            |board| {
+                let mut t = board.get(slug).unwrap().clone();
+                f(&mut t);
+                Ok(vec![t])
+            },
+            |_, _| Ok(vec![]),
+        )
+        .unwrap();
+}
+
+/// A thread the gate does not let this reader be told of (sealed, a seal
+/// proposed, or one whose seal cannot be read), paused, is to every address
+/// form exactly what no thread is: `/t` gets the same "no thread" line,
+/// `#word` and "in the … thread:" run at home, and a reply to its turn runs
+/// at home as a reply to an unknown turn does. Renamed before its seal, its
+/// new title shows nowhere.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_thread_this_reader_may_not_be_told_of_is_no_thread_in_every_form() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, 24);
+    let c = &r.core;
+    two_threads(c);
+    let ws0 = || ws(&[], &[], &[]);
+    thread(c, "embargo", "ledger fix", ws0());
+    thread(c, "pending", "pending work", ws0());
+    thread(c, "lost", "lost work", ws0());
+    let dm = home(c, Some(&format!("dm:{OWNER}")));
+    thread_answer(&jev, "pr-round", 0.5);
+    let earlier = submit(c, &dm, "#embargo what is left").await;
+    assert_eq!(earlier.session_id, session_of(c, "embargo"));
+    c.thread_edit(
+        &ThreadEditParams {
+            slug: "embargo".into(),
+            title: Some("vault keys".into()),
+            ..Default::default()
+        },
+        cli(),
+    )
+    .unwrap();
+    c.thread_seal(
+        &ThreadSealParams {
+            slug: "embargo".into(),
+            ..Default::default()
+        },
+        cli(),
+    )
+    .unwrap();
+    for slug in ["embargo", "pending", "lost"] {
+        c.thread_pause(slug, cli()).unwrap();
+    }
+    set(c, "pending", |t| t.seal_pending = Some("proposed".into()));
+    set(c, "lost", |t| t.merged_into = Some("nowhere".into()));
+    for (slug, title) in [
+        ("embargo", "vault keys"),
+        ("pending", "pending work"),
+        ("lost", "lost work"),
+    ] {
+        for (form, absent) in [
+            (format!("/t {slug} do it"), "/t nothere do it".to_string()),
+            (format!("#{slug} do it"), "#nothere do it".to_string()),
+            (
+                format!("in the {title} thread: do it"),
+                "in the nothing here thread: do it".to_string(),
+            ),
+        ] {
+            let hidden = outcome(c, &dm, &form, None).await.replace(slug, "nothere");
+            let none = outcome(c, &dm, &absent, None).await;
+            assert_eq!(hidden, none, "{form}");
+            assert!(
+                !hidden.contains(title) && !hidden.contains("paused"),
+                "{hidden}"
+            );
+        }
+    }
+    assert_eq!(
+        outcome(c, &dm, "/t embargo do it", None).await,
+        "refused: Not run: there is no thread \u{201c}embargo\u{201d}. Send it again with a \
+         thread's name, or without one to talk here."
+    );
+    let reply = outcome(c, &dm, "and the vault?", Some(&earlier.turn_id)).await;
+    let unknown = outcome(c, &dm, "and the vault?", Some("turn_unknown")).await;
+    assert_eq!(
+        (reply.as_str(), unknown.as_str()),
+        ("ran at home", "ran at home")
+    );
+}
+
+/// A failed explicit address is refused before the reply and the place are
+/// read: `/t missing` or `/t <paused>` as a reply to a live thread's turn, or
+/// in a place a live thread alone lists, runs nowhere, never in that thread.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_explicit_address_never_falls_through_to_the_reply_or_the_place() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, 4);
+    let c = &r.core;
+    two_threads(c);
+    let dm = home(c, Some(&format!("dm:{OWNER}")));
+    let a = submit(c, &dm, "#pr-round check the lint run").await;
+    c.thread_pause("security-fix", cli()).unwrap();
+    let before = rows(c, "turn.started").len();
+    let ran_in_a = texts_of(c, &session_of(c, "pr-round")).len();
+    for input in ["/t missing do X", "/t security-fix do X"] {
+        let line = refusal(&{
+            let mut w = Wire::open(c);
+            let id = w
+                .send(method::TURN_SUBMIT, params(&dm, input, Some(&a.turn_id)))
+                .await;
+            w.response(id).await
+        });
+        assert!(line.starts_with("Not run: "), "{input}: {line}");
+    }
+    set(c, "pr-round", |t| {
+        t.surfaces = vec![format!("discord:dm:{OWNER2}")]
+    });
+    let bound = home(c, Some(&format!("dm:{OWNER2}")));
+    for input in ["/t missing do X", "/t security-fix do X"] {
+        let line = refusal(&answer(c, &bound, input).await);
+        assert!(line.starts_with("Not run: "), "{input}: {line}");
+    }
+    nothing_ran(c, &dm, before);
+    assert!(texts_of(c, &bound).is_empty());
+    assert_eq!(texts_of(c, &session_of(c, "pr-round")).len(), ran_in_a);
 }
