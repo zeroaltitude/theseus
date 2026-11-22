@@ -551,18 +551,23 @@ fn unthought(n: &Stub) -> Stub {
 /// or nothing, and never changes after it was first sent (a result with no answer after it never borrows
 /// this turn's first answer).
 pub fn receipted(window: Vec<(u64, Stub)>, spoken: &HashSet<String>) -> Vec<(u64, Stub)> {
-    let calls: std::collections::HashMap<String, (String, Value)> = (window.iter())
-        .filter_map(|(_, n)| match &n.body {
-            Body::AssistantMessage { blocks, .. } => Some(blocks.clone()),
-            _ => None,
-        })
-        .flatten()
-        .filter(|b| b["type"] == "tool_use")
-        .filter_map(|b| {
-            let id = b["id"].as_str()?.to_string();
-            Some((id, (b["name"].as_str()?.to_string(), b["input"].clone())))
-        })
-        .collect();
+    // A result's call is one of its own exchange (issue 44): a window lays many exchanges, and a provider that
+    // numbers its calls per response repeats ids between them. Within an exchange the earliest call with the
+    // id names it, as the render pairs it (`render::results_of`).
+    let mut calls: std::collections::HashMap<(Option<String>, String), (String, Value)> =
+        std::collections::HashMap::new();
+    for (_, n) in &window {
+        let Body::AssistantMessage { blocks, .. } = &n.body else {
+            continue;
+        };
+        for b in blocks.iter().filter(|b| b["type"] == "tool_use") {
+            let (Some(id), Some(name)) = (b["id"].as_str(), b["name"].as_str()) else {
+                continue;
+            };
+            (calls.entry((n.turn_id.clone(), id.to_string())))
+                .or_insert_with(|| (name.to_string(), b["input"].clone()));
+        }
+    }
     // The note a clearing pass writes (`clearing::notes`): so a receipt is, byte for byte, the stub that
     // clearing makes of the same result, and a cleared result reads the same whether its exchange is laid
     // whole or spoken (the cache's prefix holds when an exchange's form changes).
@@ -587,7 +592,10 @@ pub fn receipted(window: Vec<(u64, Stub)>, spoken: &HashSet<String>) -> Vec<(u64
             if !spoken.contains(&n.id) {
                 return (*p, n.clone());
             }
-            let (name, input) = calls.get(tool_use_id).cloned().unwrap_or_default();
+            let (name, input) = (calls
+                .get(&(n.turn_id.clone(), tool_use_id.clone()))
+                .cloned())
+            .unwrap_or_default();
             let text = super::clearing::stub_noted(&name, &input, n, notes[i].as_deref());
             let mut node = (**n).clone();
             if let Body::ToolResult { content, meta, .. } = &mut node.body {

@@ -104,8 +104,8 @@ pub(super) struct State {
 
 /// What every node of a render reads besides itself.
 pub(super) struct Ctx<'a, 'n> {
-    /// Each call's result.
-    pub results: &'a HashMap<&'n str, &'n Node>,
+    /// Each call's result, by the call: the assistant node that makes it and its id ([`results_of`]).
+    pub results: &'a HashMap<(&'n str, &'n str), &'n Node>,
     /// The answers a later call replaced.
     pub replaced: &'a HashSet<&'n str>,
     pub strip_prefix_thinking: bool,
@@ -113,23 +113,54 @@ pub(super) struct Ctx<'a, 'n> {
     pub media: &'a Media<'a>,
     pub sources: &'a crate::recall::render::Sources,
     pub cleared: &'a HashSet<&'a str>,
-    /// What the model wrote after each cleared result, by its call's id.
+    /// What the model wrote after each cleared result, by the result's node id.
     pub notes: &'a HashMap<String, String>,
     /// What the request's tools let a replayed tool search stand on.
     pub offers: &'a Offers,
 }
 
-/// Each call's result among `nodes`: its last one that is not late.
-pub(super) fn results_of<'n>(nodes: impl Iterator<Item = &'n Node>) -> HashMap<&'n str, &'n Node> {
+/// Each call's result among `nodes`, by the CALL: the assistant node that makes it, and its id (issue 44).
+///
+/// A result answers a call of its own exchange (the same `turn_id`): the earliest call with its id that stands
+/// before it and is not yet answered. Ids a provider repeats (one that numbers its calls per response) then
+/// pair in order, between two responses of one turn and between two exchanges laid in one request, and a
+/// result is never placed twice. When every call with its id in its exchange is already answered, it is the
+/// latest one's answer again (a call answered twice keeps its last result, as before). A call no result of
+/// its own exchange answers is closed with the harness's stub ([`repaired`]), never with another call's
+/// output: a call parked on an approval never reads as having run. Late results are not paired here.
+pub(super) fn results_of<'n>(
+    nodes: impl Iterator<Item = &'n Node>,
+) -> HashMap<(&'n str, &'n str), &'n Node> {
     let mut results = HashMap::new();
+    // The calls seen so far, by exchange and id, in order: the assistant node, and whether it is answered.
+    let mut calls: HashMap<(Option<&'n str>, &'n str), Vec<(&'n str, bool)>> = HashMap::new();
     for n in nodes {
-        if let Body::ToolResult {
-            tool_use_id,
-            late: false,
-            ..
-        } = &n.body
-        {
-            results.insert(tool_use_id.as_str(), n);
+        match &n.body {
+            Body::AssistantMessage { blocks, .. } => {
+                for id in (blocks.iter())
+                    .filter(|b| b["type"] == "tool_use")
+                    .filter_map(|b| b["id"].as_str())
+                {
+                    (calls.entry((n.turn_id.as_deref(), id)).or_default())
+                        .push((n.id.as_str(), false));
+                }
+            }
+            Body::ToolResult {
+                tool_use_id,
+                late: false,
+                ..
+            } => {
+                let Some(open) = calls.get_mut(&(n.turn_id.as_deref(), tool_use_id.as_str()))
+                else {
+                    continue;
+                };
+                let at = (open.iter())
+                    .position(|(_, answered)| !answered)
+                    .unwrap_or(open.len() - 1);
+                open[at].1 = true;
+                results.insert((open[at].0, tool_use_id.as_str()), n);
+            }
+            _ => {}
         }
     }
     results
@@ -230,7 +261,7 @@ impl State {
                 if !uses.is_empty() {
                     let rb: Vec<Value> = uses
                         .iter()
-                        .map(|u| match ctx.results.get(u.id.as_str()) {
+                        .map(|u| match ctx.results.get(&(n.id.as_str(), u.id.as_str())) {
                             // An old result cleared to save context (theseus-3ki0).
                             // A view's receipt is already that stub, and is laid as it is.
                             Some(r)
@@ -241,7 +272,7 @@ impl State {
                                     &u.name,
                                     &u.input,
                                     r,
-                                    ctx.notes.get(u.id.as_str()).map(String::as_str),
+                                    ctx.notes.get(r.id.as_str()).map(String::as_str),
                                 )
                             }
                             Some(r) => tool_result_block(r, media, &mut self.spend),
