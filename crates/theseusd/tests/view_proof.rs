@@ -178,6 +178,35 @@ fn holds(req: &Value, text: &str) -> bool {
     req.to_string().contains(text)
 }
 
+/// Where `text` sits in a request, for a failure's message: the part (system block or message, by index and
+/// role) and the characters around it. Every word in a request here is the test's own.
+fn where_held(req: &Value, text: &str) -> String {
+    let mut parts: Vec<(String, String)> = Vec::new();
+    for (i, b) in req["system"].as_array().into_iter().flatten().enumerate() {
+        parts.push((format!("system[{i}]"), b.to_string()));
+    }
+    for (i, m) in req["messages"].as_array().into_iter().flatten().enumerate() {
+        parts.push((format!("messages[{i}] {}", m["role"]), m.to_string()));
+    }
+    parts
+        .iter()
+        .filter_map(|(name, body)| {
+            let at = body.find(text)?;
+            let from = body[..at]
+                .char_indices()
+                .rev()
+                .nth(600)
+                .map_or(0, |(i, _)| i);
+            let to = body[at..]
+                .char_indices()
+                .nth(200)
+                .map_or(body.len(), |(i, _)| at + i);
+            Some(format!("{name}: …{}…", &body[from..to]))
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
 /// The text of every tool result the request carries.
 fn tool_results(req: &Value) -> String {
     let mut out = String::new();
@@ -251,8 +280,9 @@ fn after_new_the_next_turn_holds_nothing_from_before_and_memory_still_answers() 
     for q in &after {
         assert!(
             !holds(q, BEFORE),
-            "a request after /new holds a message from before it ({})",
-            r.strategies()
+            "a request after /new holds a message from before it ({}); where: {}",
+            r.strategies(),
+            where_held(q, BEFORE)
         );
     }
     let looked = r.turn(ana, None, "Look up the earlier buoy talk.");
