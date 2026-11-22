@@ -173,7 +173,7 @@ async fn a_continuation_after_a_jobs_end_takes_the_view_and_answers() {
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
 }
 
-/// (a) continuation: a turn whose call failed (the provider overloaded) is resumed by the driver
+/// (a) continuation: a turn whose call failed (an error the turn does not retry) is resumed by the driver
 /// (`continue_execution`): no message of its own, so it takes the view with one line saying it resumes,
 /// and the interrupted exchange (ended, failed) is in its window with the question it never answered.
 #[tokio::test]
@@ -186,8 +186,9 @@ async fn a_turn_resumed_after_an_interruption_takes_the_view() {
             return Scripted::text("aside");
         }
         match seen.fetch_add(1, Ordering::SeqCst) {
-            0 => Scripted::Fail(ProviderError::Overloaded {
-                message: "overloaded_error: Overloaded".into(),
+            0 => Scripted::Fail(ProviderError::Api {
+                status: 418,
+                message: "api_error: the call was cut".into(),
             }),
             _ => Scripted::text("High tide is at four."),
         }
@@ -306,8 +307,9 @@ async fn a_turn_resumed_after_a_restart_shows_the_cut_exchange_in_its_window() {
     cfg.tools.roots = vec![];
     view(&mut cfg);
     let fake = Arc::new(crate::provider::FakeProvider::scripted(vec![
-        Scripted::Fail(ProviderError::Overloaded {
-            message: "overloaded_error: Overloaded".into(),
+        Scripted::Fail(ProviderError::Api {
+            status: 418,
+            message: "api_error: the call was cut".into(),
         }),
         Scripted::text("The ferry leaves at six."),
     ]));
