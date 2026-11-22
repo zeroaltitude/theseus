@@ -452,6 +452,14 @@ fn who(person: Option<&str>) -> String {
     }
 }
 
+/// Whether a page shows another person's words: a line whose person is known and is not the owner, which
+/// the page marks outside text (`who`).
+pub fn shows_another(p: &HistoryPage) -> bool {
+    p.lines
+        .iter()
+        .any(|l| l.person.as_deref().is_some_and(|x| x != OWNER))
+}
+
 /// A cursor as the model passes it back.
 pub fn cursor_text(c: &Cursor) -> String {
     serde_json::json!({"at_ms": c.at_ms, "turn_id": c.turn_id}).to_string()

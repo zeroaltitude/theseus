@@ -16,6 +16,9 @@
 //!   paged by `before`; an empty span says so; beside `words`, `place` or `thing` it narrows them.
 //! - **Every place, for every reader** (anything goes, 2026-11-22): no presence, place class, seal or move
 //!   keeps an exchange off a page or out of an open.
+//! - **Another person's words are outside text** ([`marker`]): a result whose page holds another person's
+//!   line, or whose open holds another person's message, is marked External on its node, as a fetched page
+//!   is, so `external::read_any`, `external::first` and the settings acts' outside-text check see it.
 //! - **Where** ([`anchor`]): a message's turn is anchored where the message arrived; any other turn where its
 //!   reply is delivered (`Outbox::speaks_at`, a wake's or a report's target too); a route that cannot be read
 //!   is no place, and its bare page is the unknown place's.
@@ -168,6 +171,26 @@ impl Tool for HistoryTool {
     }
 }
 
+/// The External marker of a call's result (`external`): set when what it shows holds another person's
+/// words (a page's line, an opened exchange or session marked outside text), so every reader of the marker
+/// (`external::read_any`, `external::first`, the settings acts' "outside text since the owner's message")
+/// sees it as it sees a fetched page. Its `url` names what was read: `history:<place>`, `history:<handle>`.
+pub(crate) fn marker(o: &ToolOutput) -> Option<theseus_tools::External> {
+    o.meta["outside"]
+        .as_str()
+        .map(|url| theseus_tools::External {
+            url: url.to_string(),
+        })
+}
+
+/// The `outside` of a result's meta: what it read, when it shows another person's words.
+fn outside_of(shows: bool, what: &str) -> Value {
+    match shows {
+        true => json!(format!("history:{}", page::flat(what))),
+        false => Value::Null,
+    }
+}
+
 /// One turn's use of the tool: its looks and opens, and the resume positions of walks stopped by their bound.
 #[derive(Debug, Default, Clone)]
 pub struct Use {
@@ -257,7 +280,10 @@ impl Board {
         Box::pin(async move {
             answer(&core, &board, (&session, &turn), &pov, &a)
                 .await
-                .map(|o| (o, None, None))
+                .map(|o| {
+                    let external = marker(&o);
+                    (o, external, None)
+                })
                 .map_err(ToolFailure::new)
         })
     }
@@ -381,13 +407,17 @@ pub(crate) async fn answer(
                 meta: json!({
                     "open": page::flat(&h.0), "session": true,
                     "opens": used.opens + 1, "of": OPENS_PER_TURN,
+                    "outside": outside_of(s.outside, h.0.trim()),
                 }),
             });
         }
-        let text = open::open(&lens, h)?;
+        let o = open::open_marked(&lens, h)?;
         return Ok(ToolOutput {
-            text,
-            meta: json!({"open": page::flat(&h.0), "opens": used.opens + 1, "of": OPENS_PER_TURN}),
+            text: o.text,
+            meta: json!({
+                "open": page::flat(&h.0), "opens": used.opens + 1, "of": OPENS_PER_TURN,
+                "outside": outside_of(o.outside, h.0.trim()),
+            }),
         });
     }
     let before = board.position(turn, a.before.as_ref())?;
@@ -406,6 +436,7 @@ pub(crate) async fn answer(
         meta: json!({
             "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
             "look": used.looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
+            "outside": outside_of(page::shows_another(&p), here),
         }),
     })
 }

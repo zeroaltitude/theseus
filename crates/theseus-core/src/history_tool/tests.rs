@@ -1049,3 +1049,113 @@ async fn a_session_open_through_the_tool_counts_as_an_open() {
     assert_eq!(got.meta["session"], json!(true));
     assert_eq!(got.meta["opens"], json!(1));
 }
+
+/// The External mark (D6a step 3): a page holding another person's line, an opened exchange holding another
+/// person's message, and an opened session holding one each give their result the marker, naming what was
+/// read; the owner's own history gives none.
+#[tokio::test]
+async fn a_result_holding_another_persons_words_is_marked_external() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let me = session(&r.core, None);
+    let guest = session(&r.core, None);
+    put(&r.core.store, &ex(1, HERE, &me));
+    put(
+        &r.core.store,
+        &Ex {
+            person: Some("discord:7"),
+            ..ex(2, LOBBY, &guest)
+        },
+    );
+    let (b, pov) = (Board::default(), pov(HERE, Present::OwnerAlone));
+    let call = |v: Value| answer(&r.core, &b, (&me, "t"), &pov, &args(v));
+    let url = |o: &theseus_tools::ToolOutput| super::marker(o).map(|e| e.url);
+    let own = call(json!({})).await.unwrap();
+    assert_eq!(url(&own), None, "the owner's own page: {}", own.text);
+    let opened = call(json!({"open": "turn_0001"})).await.unwrap();
+    assert_eq!(url(&opened), None, "the owner's own exchange");
+    let lobby = call(json!({"place": LOBBY})).await.unwrap();
+    assert_eq!(
+        url(&lobby).as_deref(),
+        Some("history:discord:channel:7"),
+        "{}",
+        lobby.text
+    );
+    let theirs = call(json!({"open": "turn_0002"})).await.unwrap();
+    assert_eq!(
+        url(&theirs).as_deref(),
+        Some("history:turn_0002"),
+        "{}",
+        theirs.text
+    );
+    let whole = call(json!({"open": guest.clone()})).await.unwrap();
+    assert_eq!(
+        url(&whole),
+        Some(format!("history:{guest}")),
+        "{}",
+        whole.text
+    );
+    let mine = call(json!({"open": me.clone()})).await.unwrap();
+    assert_eq!(url(&mine), None, "the owner's own session");
+}
+
+/// On the real tool path: a turn whose history call opens another person's exchange stores its result marked
+/// external, so `external::read_any` sees the session as having read outside text; a session that opened only
+/// the owner's own exchange has not.
+#[tokio::test]
+async fn read_any_sees_a_history_result_of_another_persons_words() {
+    use crate::provider::Scripted;
+    use crate::tests_places::{answers_a_call, last_user, rig_scripted, session, turn};
+    let r = rig_scripted(
+        |_| {},
+        |req| {
+            if answers_a_call(req) {
+                return Scripted::text("Read.");
+            }
+            match last_user(req).split_once("OPEN ") {
+                Some((_, h)) => Scripted::tools(
+                    "Opening.",
+                    &[("h1", "context_history", json!({"open": h.trim()}))],
+                ),
+                None => Scripted::text("Hello."),
+            }
+        },
+    );
+    let (reader, control, other) = (
+        session(&r.core, None),
+        session(&r.core, None),
+        session(&r.core, None),
+    );
+    put(&r.core.store, &ex(1, HERE, &other));
+    put(
+        &r.core.store,
+        &Ex {
+            person: Some("discord:7"),
+            ..ex(2, LOBBY, &other)
+        },
+    );
+    assert!(!crate::external::read_any(&r.core.store, &reader));
+    turn(&r.core, &control, "OPEN turn_0001").await;
+    let said = crate::tests_places::result_of(&r.core, &control, "h1");
+    assert!(said.contains("message 1"), "the call ran: {said}");
+    assert!(
+        !crate::external::read_any(&r.core.store, &control),
+        "the owner's own words are not outside text"
+    );
+    turn(&r.core, &reader, "OPEN turn_0002").await;
+    let said = crate::tests_places::result_of(&r.core, &reader, "h1");
+    assert!(said.contains("outside text"), "the call ran: {said}");
+    assert!(crate::external::read_any(&r.core.store, &reader));
+    let first = crate::external::first(
+        &r.core
+            .store
+            .session_nodes(&reader)
+            .unwrap()
+            .into_iter()
+            .map(|(_, n)| n)
+            .collect::<Vec<_>>(),
+    )
+    .expect("the first outside text");
+    assert_eq!(first.tool, crate::view::history::HISTORY_TOOL);
+    assert_eq!(first.url, "history:turn_0002");
+}

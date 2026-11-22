@@ -17,6 +17,7 @@ use theseus_store::pages::ledger_session;
 use theseus_store::{kinds, Page, Store as _};
 
 use super::page::{flat, when, Lens};
+use super::session::Opened;
 use crate::exchange::{self, Exchange, OWNER};
 use crate::node::{Body, Node, Origin};
 use crate::recall::stamp;
@@ -35,6 +36,12 @@ const MARGIN: &str = "\u{2502} ";
 
 /// The exchange `h` names, as said, or why it cannot be opened (a denied one is not told apart from none).
 pub fn open(lens: &Lens<'_>, h: &Handle) -> Result<String, String> {
+    open_marked(lens, h).map(|o| o.text)
+}
+
+/// [`open`], and whether the exchange holds another person's words (a message whose own mark is not the
+/// owner's, or a server's prompt): what marks the call's result as outside text (`history_tool::marker`).
+pub fn open_marked(lens: &Lens<'_>, h: &Handle) -> Result<Opened, String> {
     let none = || format!("no exchange {} can be opened here", flat(h.0.trim()));
     let ex = exchange::exchange(lens.store, h.0.trim())
         .map_err(|_| none())?
@@ -44,7 +51,13 @@ pub fn open(lens: &Lens<'_>, h: &Handle) -> Result<String, String> {
         return Err(none());
     }
     let nodes = nodes(lens, &ex).map_err(|e| format!("{e:#}"))?;
-    Ok(render(lens, &ex, &nodes))
+    let outside = speakable(&nodes).iter().any(|n| {
+        matches!(n.body, Body::UserMessage { .. }) && matches!(author_of(lens, n), Author::Other)
+    });
+    Ok(Opened {
+        text: render(lens, &ex, &nodes),
+        outside,
+    })
 }
 
 /// The nodes of `ex`'s turn, oldest first: its session's, read forward from its opening message (or from its

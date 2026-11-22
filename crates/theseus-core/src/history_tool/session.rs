@@ -40,10 +40,9 @@ pub fn open(lens: &Lens<'_>, id: &str, before: Option<&Cursor>) -> Result<Opened
         return Err(none());
     }
     let before = match before {
-        Some(c) if c.turn_id != id => return Err(format!(
-            "that before is not a position in session {}: give the next this session's page named",
-            flat(id)
-        )),
+        Some(c) if c.turn_id != id => {
+            return Err(format!("that before is not a position in {}", flat(id)))
+        }
         Some(c) => Some(c.at_ms),
         None => None,
     };
