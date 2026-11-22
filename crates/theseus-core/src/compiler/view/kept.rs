@@ -59,7 +59,7 @@ pub fn kept(f: &Frozen) -> Option<(Kept, Vec<String>)> {
         beside: beside.as_ref().map(digest),
         sessions: f.sessions.clone(),
         exchanges: f.exchanges.clone(),
-        recalled: f.recalled.clone(),
+        recalled: f.recalled.iter().map(|r| r.node_id.clone()).collect(),
     };
     let texts = front.into_iter().chain(window).chain(beside).collect();
     Some((k, texts))
@@ -101,7 +101,8 @@ fn exchanges(window: &[(u64, crate::stub::Stub)]) -> Vec<Vec<&Node>> {
 }
 
 /// The frozen view `k` names, read back from `blobs` for `turn` of `session`; the blob that is missing or
-/// does not read is the error.
+/// does not read is the error. Its recall is in the beside block's text: the items themselves are not read
+/// back (`k.recalled` names their nodes for whoever asks about them).
 pub fn frozen(blobs: &Blobs, k: &Kept, (session, turn): (&str, &str)) -> Result<Frozen, String> {
     let front: Vec<String> = match k.front.is_empty() {
         true => (k.blocks.iter())
@@ -129,7 +130,6 @@ pub fn frozen(blobs: &Blobs, k: &Kept, (session, turn): (&str, &str)) -> Result<
         // What it laid from, so a replay to another provider reads every source (`own_bench::replay`).
         sessions: k.sessions.clone(),
         exchanges: k.exchanges.clone(),
-        recalled: k.recalled.clone(),
         ..Frozen::default()
     })
 }
