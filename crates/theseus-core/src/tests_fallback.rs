@@ -274,11 +274,15 @@ async fn the_fallbacks_call_is_spent_and_reserved_as_its_own_and_the_session_kee
         ("claude-sonnet-5-5", None)
     );
     let reqs = r.fake.requests();
-    assert_eq!(
-        &reqs[2].messages[..reqs[1].messages.len()],
-        &reqs[1].messages[..]
-    );
+    // The view builds the next turn's request afresh (issue 44): the earlier exchange is laid in its window,
+    // its question once, rather than the earlier request extended.
     let sent = serde_json::to_string(&reqs[2].messages).unwrap();
+    assert_eq!(
+        sent.matches("open the archive and read what the tide table says")
+            .count(),
+        1,
+        "{sent}"
+    );
     assert!(
         sent.contains("The archive says four.") && !sent.contains("toolu_refused"),
         "{sent}"
