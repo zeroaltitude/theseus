@@ -28,6 +28,8 @@ pub struct TextRenderer<'a> {
     pub store: &'a Store,
     /// Where a task's card reads its jobs; none renders no task card.
     pub kernel: Option<&'a theseus_kernel::Kernel>,
+    /// The assembly's one read of each session; none reads the store each time.
+    pub sessions: Option<&'a super::sources_store::Sessions>,
     pub zone: ZoneAt<'a>,
 }
 
@@ -53,13 +55,13 @@ impl TextRenderer<'_> {
         let Some(ex) = exchange::exchange(self.store, turn)? else {
             return Ok(Vec::new());
         };
-        Ok(self
-            .store
-            .transcript(&ex.session_id)?
-            .into_iter()
-            .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
-            .map(|(_, n)| (*n).clone())
-            .collect())
+        let nodes = match self.sessions {
+            Some(s) => s.exchange(self.store, &ex.session_id, turn)?,
+            None => (self.store.transcript(&ex.session_id)?.into_iter())
+                .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
+                .collect(),
+        };
+        Ok(nodes.into_iter().map(|(_, n)| (*n).clone()).collect())
     }
 
     /// A piece's marked blocks: an exchange's parts each labelled by its own provenance

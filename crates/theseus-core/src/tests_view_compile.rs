@@ -73,9 +73,62 @@ fn view_rig() -> Rig {
 /// The conversation's requests whose newest user message says `what`, in the order they were sent: a
 /// request with tools (the ladder's own model calls, a did line's, offer none).
 fn asked(r: &Rig, what: &str) -> Vec<ProviderRequest> {
-    (r.requests().into_iter())
+    let got: Vec<ProviderRequest> = (r.requests().into_iter())
         .filter(|q| !q.tools.is_empty() && last_user(q).contains(what))
-        .collect()
+        .collect();
+    got.iter().for_each(legal);
+    got
+}
+
+/// The provider's rules on an unscrubbed request: it opens with the person; roles alternate; every call
+/// has its result in the very next message and every result answers a call of the message before it, each
+/// once; no message is empty; at most four cache breakpoints.
+fn legal(q: &ProviderRequest) {
+    let ids = |m: &Value, kind: &str, key: &str| -> Vec<String> {
+        (m["content"].as_array().into_iter().flatten())
+            .filter(|b| b["type"] == kind)
+            .filter_map(|b| b[key].as_str().map(str::to_string))
+            .collect()
+    };
+    assert_eq!(
+        q.messages.first().map(|m| &m["role"]),
+        Some(&Value::from("user"))
+    );
+    for (i, m) in q.messages.iter().enumerate() {
+        let content = m["content"].as_array().map_or(0, Vec::len);
+        assert!(
+            content > 0 || m["content"].is_string(),
+            "message {i} is empty"
+        );
+        if i > 0 {
+            assert_ne!(
+                m["role"],
+                q.messages[i - 1]["role"],
+                "roles alternate at {i}"
+            );
+        }
+        let uses = ids(m, "tool_use", "id");
+        let answered = q
+            .messages
+            .get(i + 1)
+            .map_or(vec![], |n| ids(n, "tool_result", "tool_use_id"));
+        for u in &uses {
+            assert_eq!(
+                answered.iter().filter(|a| *a == u).count(),
+                1,
+                "call {u} answered once"
+            );
+        }
+        let results = ids(m, "tool_result", "tool_use_id");
+        let asked = (i.checked_sub(1)).map_or(vec![], |p| ids(&q.messages[p], "tool_use", "id"));
+        for r in &results {
+            assert!(
+                asked.contains(r),
+                "result {r} answers a call of the message before"
+            );
+        }
+    }
+    assert!(breakpoints(q) <= 4, "{} breakpoints", breakpoints(q));
 }
 
 /// A request's messages without their cache marks: what the provider's prefix is compared by.
@@ -154,6 +207,7 @@ async fn a_view_place_sends_its_window_as_real_turns_frozen_within_a_turn() {
         assert!(all.contains(said), "the window carries {said:?}: {all}");
     }
     paired(third);
+    calls.iter().for_each(legal);
     // Frozen within a turn: the second call's request begins with the first's messages, byte for byte.
     let (a, b) = (plain(&second[0]), plain(&second[1]));
     assert_eq!(
@@ -281,6 +335,7 @@ async fn eleven_hours_later_the_window_is_unchanged() {
     let renderer = crate::view::wire_text::TextRenderer {
         store: &c.store,
         kernel: None,
+        sessions: None,
         zone: &crate::recall::stamp::system,
     };
     let parts = crate::view::wire::Parts {
@@ -460,4 +515,195 @@ async fn a_view_place_offers_the_history_tool_as_the_transcript_does() {
         offered[0]
     );
     assert_eq!(offered[0], offered[1]);
+}
+
+/// The view runs the transcript's spec preparation: with tools deferred (the owner's direct conversation
+/// defers them) a view turn offers the resolved set the transcript's turn does, not the raw catalog.
+#[tokio::test]
+async fn a_view_turn_offers_the_resolved_deferred_tools() {
+    let mut offered = Vec::new();
+    for view in [true, false] {
+        let r = crate::tests_places::rig_deferring(
+            |c| {
+                c.context.assembly = view.then_some(AssemblySetting::All(Assembly::View));
+            },
+            |_| crate::provider::Scripted::text("Hello."),
+        );
+        let sid = session_in(&r.core, None, &r.root);
+        turn(&r.core, &sid, "deferred: which tools?").await;
+        let q = (r.requests().into_iter())
+            .rfind(|q| last_user(q).contains("deferred: which tools?"))
+            .unwrap();
+        offered.push(crate::tests_places::offered(&q));
+    }
+    assert_eq!(
+        offered[0], offered[1],
+        "the view offers the transcript's resolved set"
+    );
+}
+
+/// The view runs the transcript's spec preparation: a conversation whose ontology membership carries
+/// guidance has that guidance in its view request's system part.
+#[tokio::test]
+async fn a_view_turn_carries_its_memberships_guidance() {
+    let (r, _) = owners_rig(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)));
+    let c = &r.core;
+    let sid = session_in(c, None, &r.root);
+    with_person(c, &sid);
+    turn(c, &sid, ASKED).await;
+    let q = r.requests().pop().unwrap();
+    let system = crate::tests_places::system_text(&q);
+    assert!(system.contains("is the owner's accountant"), "{system}");
+}
+
+/// A thread `kelp`, bound to its own session, sealed as `seal` says.
+fn kelp(store: &crate::store::Store, seal: bool) -> String {
+    use crate::session::SessionRecord;
+    let r = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    store.put_session(&r.session_id, &r).unwrap();
+    let mut t = serde_json::json!({"slug": "kelp", "title": "kelp"});
+    if seal {
+        t["sealed"] = serde_json::json!({"by": "cli", "at_ms": 1, "reason": "embargo"});
+    }
+    store.put_meta("thread:kelp", &t).unwrap();
+    store
+        .put_meta("discord.session.thread:kelp", &r.session_id)
+        .unwrap();
+    r.session_id
+}
+
+/// A sealed thread's exchange in the SAME place is not in the window: the seal is the gate's own reading
+/// of the exchange's session. Unsealed, the same exchange is.
+#[tokio::test]
+async fn a_sealed_threads_exchange_in_the_same_place_is_not_in_the_window() {
+    const KELP: &str = "kelp: the embargoed figure is 7741";
+    for seal in [false, true] {
+        let thread = std::cell::RefCell::new(String::new());
+        let r = crate::tests_places::rig_setup(
+            |c| {
+                c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+                c.threads.enabled = true;
+            },
+            |s| *thread.borrow_mut() = kelp(s, seal),
+        );
+        let c = &r.core;
+        let thread = thread.into_inner();
+        turn_as(c, &thread, KELP, true).await;
+        let desk = crate::tests_places::session(c, None);
+        turn_as(c, &desk, "desk: and now?", true).await;
+        let q = asked(&r, "desk: and now?").pop().unwrap();
+        assert_eq!(
+            texts(&q).contains("7741"),
+            !seal,
+            "sealed {seal}: {}",
+            texts(&q)
+        );
+    }
+}
+
+/// A seal applied between two calls of one turn: the turn's next call is a fresh chain without the sealed
+/// exchange.
+#[tokio::test]
+async fn a_seal_between_two_calls_of_a_turn_ends_the_chain() {
+    use std::sync::{Arc, OnceLock};
+    const KELP: &str = "kelp: the embargoed figure is 7741";
+    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
+    let held = core.clone();
+    let thread = std::cell::RefCell::new(String::new());
+    let r = crate::tests_places::rig_setup_scripted(
+        |c| {
+            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+            c.threads.enabled = true;
+        },
+        |s| *thread.borrow_mut() = kelp(s, false),
+        move |q| {
+            let last = last_user(q);
+            if last.contains("seal it now") && !crate::tests_places::answers_a_call(q) {
+                let c = held.get().expect("the core");
+                seal_kelp(c);
+                return crate::provider::Scripted::tools(
+                    "Looking.",
+                    &[("s1", "fs_list", serde_json::json!({"path": "."}))],
+                );
+            }
+            crate::provider::Scripted::text("Done.")
+        },
+    );
+    let _ = core.set(r.core.clone());
+    let c = &r.core;
+    let thread = thread.into_inner();
+    turn_as(c, &thread, KELP, true).await;
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: seal it now", true).await;
+    let calls: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| texts(q).contains("desk: seal it now"))
+        .collect();
+    assert_eq!(calls.len(), 2, "the turn made two calls");
+    assert!(
+        texts(&calls[0]).contains("7741"),
+        "before the seal: {}",
+        texts(&calls[0])
+    );
+    assert!(
+        !texts(&calls[1]).contains("7741"),
+        "after it: {}",
+        texts(&calls[1])
+    );
+}
+
+/// Seal the thread `kelp` through the thread board's own write.
+fn seal_kelp(c: &crate::Core) {
+    c.runner
+        .threads
+        .write(
+            &c.store,
+            |b| {
+                let mut v = serde_json::to_value(b.get("kelp").expect("kelp")).unwrap();
+                v["sealed"] = serde_json::json!({"by": "cli", "at_ms": 2, "reason": "embargo"});
+                Ok(vec![serde_json::from_value(v)?])
+            },
+            |_, _| Ok(vec![]),
+        )
+        .unwrap();
+}
+
+/// One ladder read per assembly: a fold that lands between two reads of the same place does not reach the
+/// assembly, so every admitted range has one representation.
+#[test]
+fn an_assembly_reads_the_ladder_once() {
+    use crate::view::fold::{Ladder, LadderRead};
+    use crate::view::timeline::ExchangeRef;
+    use std::cell::Cell;
+    struct Folding(Cell<u32>);
+    impl Ladder for Folding {
+        fn read(
+            &self,
+            _: &str,
+            _: usize,
+            _: Option<&crate::view::Pos>,
+        ) -> anyhow::Result<LadderRead> {
+            self.0.set(self.0.get() + 1);
+            let e = |i: u32| ExchangeRef {
+                turn_id: format!("t{i}"),
+                session_id: "s".into(),
+                at_ms: u64::from(i),
+            };
+            // The first read sees two exchanges; any later read would see them folded away.
+            let window = match self.0.get() {
+                1 => vec![e(1), e(2)],
+                _ => vec![e(3)],
+            };
+            Ok(LadderRead {
+                nodes: Vec::new(),
+                window,
+            })
+        }
+    }
+    let inner = Folding(Cell::new(0));
+    let once = crate::view::wire::OnceLadder::new(&inner);
+    let a = once.read("local", 20, None).unwrap();
+    let b = once.read("local", 20, None).unwrap();
+    assert_eq!(a, b);
+    assert_eq!(a.window.len(), 2);
+    assert_eq!(inner.0.get(), 1, "the store's ladder is read once");
 }

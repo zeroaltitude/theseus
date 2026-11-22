@@ -84,6 +84,13 @@ impl ContextConfig {
         {
             anyhow::bail!("context.persona_max_tokens = {n} is out of range: 200 to 8000");
         }
+        if !self.ledger_on() && self.assembly.as_ref().is_some_and(|a| a.any_view()) {
+            anyhow::bail!(
+                "context.assembly sets a place to \"view\" while context.ledger = false: a view is read \
+                 from the exchange ledger, so it needs the ledger on. Remove `ledger = false`, or set \
+                 assembly back to \"transcript\""
+            );
+        }
         Ok(())
     }
 
