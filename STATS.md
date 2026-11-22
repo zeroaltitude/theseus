@@ -2,7 +2,7 @@
 
 The size of Theseus's code and of what it builds. Written by `scripts/stats.py`; do not edit it by hand.
 
-Counted at the merge of f9d1f3a8 into 82a2f07f, over every file git tracks:
+Counted at the merge of 0d7b7940 into 1376af8d, over every file git tracks:
 
 - **Code**: a line that is not blank and not only comment (code with a comment after it is code). **Test code**: a file in a directory, or with a name (before its first dot), that is `test`, `tests`, `fixtures`, `benches`, `test_…`, `tests_…`, `…_test` or `…_tests`; files named `*.test.*`; and Rust's `#[cfg(test)] mod … { … }` blocks.
 - **Comments**: `//`, `///`, `//!` and `/* … */` (nested, in Rust) in Rust, TypeScript, JavaScript, C and CSS; in Python, comment tokens and triple-quoted strings that begin a statement (read with Python's own tokenizer); in shell, a `#` that begins a word outside quotes. A marker inside a string literal is not a comment.
@@ -19,7 +19,7 @@ Counted at the merge of f9d1f3a8 into 82a2f07f, over every file git tracks:
 | crates/theseus-aws | 3,179 | 2,303 | 549 |
 | crates/theseus-aws-catalog | 5,994 | 1,394 | 644 |
 | crates/theseus-aws-guard | 2,857 | 1,522 | 323 |
-| crates/theseus-core | 268,270 | 287,732 | 93,879 |
+| crates/theseus-core | 268,519 | 288,100 | 93,943 |
 | crates/theseus-discord | 33,818 | 41,534 | 10,859 |
 | crates/theseus-exam | 5,298 | 2,873 | 1,196 |
 | crates/theseus-files | 2,318 | 591 | 296 |
@@ -43,7 +43,7 @@ Counted at the merge of f9d1f3a8 into 82a2f07f, over every file git tracks:
 | crates/theseusd | 5,254 | 31,926 | 5,443 |
 | infra/ | 554 | 1,432 | 193 |
 | scripts/ | 10,014 | 5,759 | 3,363 |
-| **Total** | **619,195** | **566,929** | **201,900** |
+| **Total** | **619,444** | **567,297** | **201,964** |
 | vendor/ (third-party, not in the total) | 12,719 | 1,166 | 3,154 |
 
 ## Build sizes
