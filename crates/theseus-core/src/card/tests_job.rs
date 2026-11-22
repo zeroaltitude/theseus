@@ -572,9 +572,11 @@ async fn a_dry_run_makes_no_call() {
         )
         .await
         .unwrap();
+    // The partner-confidential episode is evidence too since 2026-11-22
+    // (anything goes): seven, none left unread.
     assert_eq!(
-        (got.calls, got.proposed.len(), got.evidence, got.withheld),
-        (0, 0, 6, 1),
+        (got.calls, got.proposed.len(), got.evidence),
+        (0, 0, 7),
         "{got:?}"
     );
     assert!(got.at_most_usd > 0.0 && got.clusters >= 4);

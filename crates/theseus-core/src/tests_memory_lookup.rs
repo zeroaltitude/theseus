@@ -27,7 +27,7 @@ pub(crate) const SHOWN: &str = "the tide-table parser";
 
 /// An episode of `sensitivity`, its one message at `at` (RFC 3339), its
 /// summary saying `says`.
-fn episode(n: usize, sensitivity: &str, at: &str, says: &str) -> Value {
+pub(crate) fn episode(n: usize, sensitivity: &str, at: &str, says: &str) -> Value {
     let mut v = json!({
         "format": 1, "import_tag": "kelp-2026", "episode_id": format!("ep_{:064x}", 0xbeef + n),
         "source": "claude-cli", "agent": "main",
@@ -136,6 +136,103 @@ async fn a_shared_place_is_never_offered_the_lookup_and_the_gate_refuses_it() {
         let all = serde_json::to_string(&req.messages).unwrap();
         assert!(!all.contains(SHOWN) && !all.contains(HIDDEN), "{all}");
     }
+}
+
+/// An erased import is gone from the tool's reads (review G-R1): erasure
+/// leaves the earlier payload in the WAL, so the session read resolves each
+/// imported node to its newest record (its tombstone), and a stale index
+/// hit (the index not yet told to forget) is dropped once its node is read
+/// erased. Counts and the cursor see none of it.
+#[tokio::test]
+async fn an_erased_import_is_read_as_nothing_by_session_or_by_words() {
+    let r = rig_scripted(|_| {}, script);
+    let ids = import(&r.core, &episodes());
+    // The index answers every record ever written: it is never told to forget.
+    r.core
+        .runner
+        .memory
+        .set_ask(index_over(&r.core, ids.clone()));
+    let cli = session(&r.core, None);
+    let read = call(&r.core, &cli, json!({"session": ids[0]}))
+        .await
+        .unwrap();
+    assert!(read.contains(HIDDEN), "before the erase: {read}");
+    crate::import::write::erase(&r.core.store, "kelp-2026", Some("a test"), "cli").unwrap();
+    let read = call(&r.core, &cli, json!({"session": ids[0]}))
+        .await
+        .unwrap();
+    assert!(!read.contains(HIDDEN), "{read}");
+    assert!(!read.contains("Its summary"), "{read}");
+    assert!(read.contains("0 messages"), "{read}");
+    assert!(read.contains("Nothing on this page."), "{read}");
+    let found = call(&r.core, &cli, json!({"words": "letters", "limit": 25}))
+        .await
+        .unwrap();
+    for gone in [HIDDEN, SHOWN, "September renderer"] {
+        assert!(!found.contains(gone), "{gone}: {found}");
+    }
+    assert!(found.contains("Nothing on this page."), "{found}");
+    assert!(!found.contains("cursor"), "no next page: {found}");
+}
+
+/// A stale hit never costs a live one (review G-R1 r2): with erased episodes ranked first, a page of one
+/// at a time returns every live hit, none twice, over its pages, and the last page says that is all.
+#[tokio::test]
+async fn erased_hits_ranked_first_cost_no_live_hit_across_pages() {
+    let r = rig_scripted(|_| {}, script);
+    let gone = |n: usize| {
+        let mut e = episode(n, "public", "2026-03-03T18:00:00Z", HIDDEN);
+        e["import_tag"] = json!("gone-2026");
+        e["hash"] = json!(crate::import::episode::hash_of(&e));
+        e
+    };
+    let live = [
+        episode(20, "public", "2026-03-10T18:00:00Z", SHOWN),
+        episode(21, "public", "2026-03-17T18:00:00Z", SHOWN),
+    ];
+    let erased = import(&r.core, &[gone(10), gone(11)]);
+    let kept = import(&r.core, &live);
+    crate::import::write::erase(&r.core.store, "gone-2026", Some("a test"), "cli").unwrap();
+    // The index ranks the erased episodes' records first, and never forgets them.
+    let mut order = erased;
+    order.extend(kept.iter().cloned());
+    r.core.runner.memory.set_ask(index_over(&r.core, order));
+    let cli = session(&r.core, None);
+    let (mut lines, mut cursor, mut last) = (Vec::new(), 0u64, String::new());
+    for _ in 0..12 {
+        let got = call(
+            &r.core,
+            &cli,
+            json!({"words": "parser", "limit": 1, "cursor": cursor}),
+        )
+        .await
+        .unwrap();
+        assert!(!got.contains(HIDDEN), "{got}");
+        // Each item: its header (less its number) and its body line after it.
+        let ls: Vec<&str> = got.lines().collect();
+        for (i, l) in ls.iter().enumerate() {
+            if l.contains(" · ses_") {
+                let head = l.split_once(". ").map_or(*l, |(_, rest)| rest);
+                lines.push(format!("{head}\n{}", ls.get(i + 1).unwrap_or(&"")));
+            }
+        }
+        last = got.clone();
+        match got.split("cursor ").nth(1) {
+            Some(rest) => cursor = rest.trim_end_matches('.').trim().parse().unwrap(),
+            None => break,
+        }
+    }
+    for sid in &kept {
+        assert!(
+            lines.iter().any(|l| l.contains(sid.as_str())),
+            "{sid}: {lines:?}"
+        );
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for l in &lines {
+        assert!(seen.insert(l.clone()), "twice: {l}");
+    }
+    assert!(last.contains("that is all"), "{last}");
 }
 
 /// The local month an instant falls in, `2026-03`, in the daemon's zone.

@@ -2,7 +2,7 @@
 //! reply holds, resolved against the turn's own `Recall` node. A handle the
 //! turn was not given is left as text. Each resolved handle is a
 //! `memory.cited` row in the turn's next frame (no frame of its own), and its
-//! source, when the place may show it, rides in the result and the reply's
+//! source rides in the result and the reply's
 //! post for the surfaces to draw. Citations only show: nothing asks or pings.
 
 use theseus_protocol::cite::{handles_in, Citation};
@@ -10,7 +10,6 @@ use theseus_protocol::cite::{handles_in, Citation};
 use super::recall_step::defer_row;
 use super::{Turn, TurnRunner};
 use crate::fact::memory::MemoryCited;
-use crate::places::PlaceClass;
 use crate::recall::cite::item_for;
 
 impl TurnRunner {
@@ -19,7 +18,6 @@ impl TurnRunner {
         if t.recall.count == 0 || t.output.is_empty() {
             return Vec::new();
         }
-        let shared = t.tc.class != PlaceClass::Private;
         let items = std::mem::take(&mut t.recall.items);
         let recall_id = t.recall.recall_id.clone();
         let mut cites = Vec::new();
@@ -36,7 +34,7 @@ impl TurnRunner {
                     source_session: &item.session_id,
                 },
             );
-            cites.extend(self.citation(item, shared));
+            cites.extend(self.citation(item));
         }
         t.recall.items = items;
         cites

@@ -460,6 +460,48 @@ async fn and_so_is_one_the_router_places_in_a_thread() {
     );
 }
 
+/// A DM message that names a thread runs in the DM's own session (threads are gone, 2026-11-22): the binding
+/// sends the place's session with every message, and the core opens no other conversation for it.
+#[tokio::test]
+async fn a_dm_message_naming_a_thread_runs_in_the_dms_own_session() {
+    let r = rig().await;
+    let dm = dm_session(&r).await;
+    let conversations = || {
+        (r.core
+            .store
+            .list_sessions::<SessionRecord>()
+            .unwrap()
+            .into_iter())
+        .filter(|s| s.kind == theseus_protocol::SessionKind::Conversation)
+        .count()
+    };
+    let before = conversations();
+    r.say(
+        (ANA, "ana"),
+        None,
+        "#design-oct what did we decide about the gate?",
+    );
+    let asked = || {
+        (r.core.store.session_nodes(&dm).unwrap().into_iter())
+            .filter(|(_, n)| matches!(&n.body, theseus_core::node::Body::UserMessage { text, .. } if text.contains("design-oct")))
+            .count()
+    };
+    r.until("the thread-named message in the DM's session", || {
+        asked() == 1
+    })
+    .await;
+    assert_eq!(
+        r.core
+            .outbox
+            .place_session(&format!("dm:{ANA}"))
+            .unwrap()
+            .as_deref(),
+        Some(dm.as_str()),
+        "the DM keeps its session"
+    );
+    assert_eq!(conversations(), before, "no other conversation was opened");
+}
+
 /// The guard on the fix. Naming who spoke claims **identity, not authority**:
 /// the core checks the id against `[places] owner` and the place's class
 /// itself. Ben is not an owner and `#lab` is shared, so his message carries his

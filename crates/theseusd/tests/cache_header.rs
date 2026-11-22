@@ -207,11 +207,27 @@ fn bytes(v: &Value) -> String {
     serde_json::to_string(v).unwrap()
 }
 
-/// Everything but the messages.
+/// Everything but the messages; the system blocks without their breakpoints.
 fn header_fields(req: &Value) -> Value {
     let mut m = req.as_object().unwrap().clone();
     m.remove("messages");
+    if let Some(system) = m.get_mut("system") {
+        *system = unmarked(system);
+    }
     Value::Object(m)
+}
+
+/// The system blocks without their `cache_control`: a session whose first request lays the place's earlier
+/// exchanges (issue 44) spends one of the four breakpoints on them, so its system blocks carry one fewer.
+/// The blocks' bytes are the same; where the breakpoints fall is the request's own.
+fn unmarked(system: &Value) -> Value {
+    let mut blocks = system.clone();
+    for b in blocks.as_array_mut().into_iter().flatten() {
+        if let Some(o) = b.as_object_mut() {
+            o.remove("cache_control");
+        }
+    }
+    blocks
 }
 
 /// Everything but the messages and the conversation's breakpoint, which a
@@ -226,12 +242,30 @@ fn header_fields_of_a_task(req: &Value) -> Value {
     m
 }
 
-/// The first request among `raw` whose first user message `pick` takes.
-fn first_request(raw: &[Vec<u8>], what: &str, pick: &dyn Fn(&str) -> bool) -> (Vec<u8>, Value) {
+/// How a session's first request is picked: which user message is read, and what it must say.
+type Pick<'a> = (fn(&Value) -> String, &'a dyn Fn(&str) -> bool);
+
+/// The first request among `raw` whose `text` (its first or its last user message) `pick` takes.
+fn first_request(raw: &[Vec<u8>], what: &str, (text, pick): Pick<'_>) -> (Vec<u8>, Value) {
     raw.iter()
         .map(|b| (b.clone(), parsed(b)))
-        .find(|(_, v)| pick(&first_text(v)))
+        .find(|(_, v)| pick(&text(v)))
         .unwrap_or_else(|| panic!("no first request of {what} among {}", raw.len()))
+}
+
+/// The last user message's text: a session's own message. The view lays the place's earlier exchanges, of
+/// another session too, before it (issue 44), so a session's first request is known by its last message.
+fn last_text(req: &Value) -> String {
+    let last = (req["messages"].as_array().into_iter().flatten()).rfind(|m| m["role"] == "user");
+    match last.map(|m| &m["content"]) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Array(blocks)) => blocks
+            .iter()
+            .filter_map(|b| b["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
 }
 
 fn text(block: &Value) -> &str {
@@ -252,10 +286,10 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
             .cloned()
     });
     let raw = r.model.raw_requests();
-    let first = |what: &str, pick: &dyn Fn(&str) -> bool| first_request(&raw, what, pick);
-    let (a_raw, a) = first("the first session", &|t| t.contains(START));
-    let (b_raw, b) = first("the second session", &|t| t.contains(OTHER));
-    let (t_raw, t) = first("the task", &|t| t.contains(BRIEF));
+    let first = |what: &str, pick: Pick<'_>| first_request(&raw, what, pick);
+    let (a_raw, a) = first("the first session", (last_text, &|t| t.contains(START)));
+    let (b_raw, b) = first("the second session", (last_text, &|t| t.contains(OTHER)));
+    let (t_raw, t) = first("the task", (first_text, &|t| t.contains(BRIEF)));
     assert_ne!(a_raw, b_raw);
     assert_ne!(a_raw, t_raw);
 
@@ -292,7 +326,7 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
             "{profile}: the tools differ between the first session and {what}"
         );
         assert!(
-            bytes(&a["system"]) == bytes(&other["system"]),
+            bytes(&unmarked(&a["system"])) == bytes(&unmarked(&other["system"])),
             "{profile}: the system blocks differ between the first session and {what}:\n{}\n{}",
             bytes(&a["system"]),
             bytes(&other["system"])
@@ -426,7 +460,11 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
     .unwrap();
     r.turn(profile, "third", EDITED);
     let raw = r.model.raw_requests();
-    let (_, e) = first_request(&raw, "the session after the edit", &|t| t.contains(EDITED));
+    let (_, e) = first_request(
+        &raw,
+        "the session after the edit",
+        (last_text, &|t| t.contains(EDITED)),
+    );
     let edited = e["system"].as_array().unwrap();
     assert_eq!(edited.len(), 4, "{profile}: {}", bytes(&e["system"]));
     assert!(
@@ -451,7 +489,14 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
         text(&edited[1]).contains(EDIT),
         "{profile}: the edit is not in the block"
     );
-    assert_eq!(edited[1]["cache_control"], five);
+    // The edit's session is a later session at the same place: its first request lays the place's earlier
+    // exchanges, whose cache mark takes the breakpoint the persona block had (issue 44).
+    assert!(
+        edited[1]["cache_control"] == five
+            || (edited[1]["cache_control"].is_null()
+                && bytes(&e["messages"]).contains("cache_control")),
+        "{profile}: the edited persona block's breakpoint, or the window's that took it"
+    );
 
     eprintln!(
         "{profile} ({provider}): model {}; tools {} bytes ({tools} tools); system {} bytes in {} \

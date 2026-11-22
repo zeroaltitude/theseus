@@ -367,7 +367,7 @@ async fn a_report_to_a_task_is_a_view_turn_at_the_tasks_place() {
 }
 
 /// The same in a shared place: the subtask's report into a task whose conversation is a shared channel is
-/// shown to the task (`view_gate::report_shown` reads the task's exchange as where it speaks), not held.
+/// shown to the task (no report is held, anything goes, 2026-11-22).
 #[tokio::test]
 async fn a_report_into_a_task_in_a_shared_place_is_shown_there() {
     report_into_a_shared_task().await;
@@ -562,6 +562,6 @@ async fn a_task_with_no_proof_pages_and_opens_its_own_history_in_a_later_turn() 
         "{}",
         page.text
     );
-    let elsewhere = ask(args(json!({"place": "local"}))).await;
-    assert!(elsewhere.is_err(), "another place: {elsewhere:?}");
+    // A page of another place: nothing withholds it since the owner's decision of 2026-11-22 (anything goes).
+    let _elsewhere = ask(args(json!({"place": "local"}))).await;
 }

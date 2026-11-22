@@ -193,7 +193,7 @@ pub fn show_lines(r: &ThreadRow) -> Vec<String> {
             tokens(r.context_tokens),
             usd(r.today_usd)
         ),
-        None => "  session: none yet; its first message opens one".into(),
+        None => "  session: none".into(),
     });
     out.push(format!("  last active: {}", fmt_stamp(t.last_active_ms)));
     if let Some(c) = &r.cache {
@@ -341,7 +341,7 @@ mod tests {
         );
         assert!(show_lines(&row("a", ThreadState::Paused, None, 0.0))
             .join("\n")
-            .contains("session: none yet"));
+            .contains("session: none"));
     }
 
     #[test]

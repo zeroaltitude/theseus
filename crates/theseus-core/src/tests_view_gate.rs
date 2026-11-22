@@ -176,3 +176,27 @@ async fn a_refused_owners_submission_lends_nothing_to_an_agents_identical_text()
         Present::PrivateChannel
     );
 }
+
+/// Round 2, item 2: a standing record captured from a message that is gone or cannot be read is held from
+/// every turn (a removed thing is not sent again); a record from no conversation, and one whose message
+/// reads, are shown, whoever asks.
+#[tokio::test]
+async fn a_captured_standing_record_whose_source_is_gone_is_held() {
+    let r = rig();
+    let dm = session(&r.core, Some("dm:7"));
+    let words = crate::node::Node::user_with(&dm, None, "cli", "the tide turns at noon", vec![]);
+    r.core.store.append(&[words.record().unwrap()]).unwrap();
+    let here = format!("capture:{}", words.id);
+    let records = [
+        ("std_gone", "capture:nod_missing"),
+        ("std_here", here.as_str()),
+        ("std_cli", "the CLI"),
+    ];
+    let desk = session(&r.core, None);
+    let mut held: Vec<String> =
+        view_gate::standing_held(&r.core.runner, &desk, records.iter().copied())
+            .into_iter()
+            .collect();
+    held.sort();
+    assert_eq!(held, ["std_gone"]);
+}

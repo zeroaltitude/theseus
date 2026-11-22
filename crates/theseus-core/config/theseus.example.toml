@@ -1141,7 +1141,6 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # mode = "live"                           # live (the default) | shadow | off; the retired "canary" reads as live
 # arm = "baseline"                        # the arm live sessions get: none | bm25 | baseline; the retired +retention, +activation and +synthesis read as baseline
 # experiment = "m6-1"                     # names the plan in each memory.arm row
-# session_recall_cap_tokens = 64000       # the recall notes a session's tail may hold; past it, recall pauses until the next recompile
 # recall_budget_tokens = 3000             # the pack's tokens
 # recall_max_items = 8                    # the pack's items, at most 40; both are an ordinary prompt's (a trivial detour's request carries none)
 # deep_recall_tokens = 8000               # a deep prompt's pack (the route pack's sophisticated, deep_coding, review), in tokens
@@ -1845,6 +1844,10 @@ min_loops_between = 4                   # at most one verdict per this many loop
 # context = ""                          # one paragraph on what the assistant is and which of its
 #                                       # work is public, given to the classifier as written (cut at
 #                                       # 800 characters); empty says nothing
+# judge_replies = false                 # true: Theseus's own replies are asked the same four
+#                                       # questions, each kept on its own item (never on the
+#                                       # session); off by default, as a reply's ask spends from the
+#                                       # same judge day and daemon ceiling as the inputs'
 
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and

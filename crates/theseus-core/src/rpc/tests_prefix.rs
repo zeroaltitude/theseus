@@ -154,13 +154,14 @@ fn choices(core: &Core) -> Vec<String> {
         .collect()
 }
 
-/// Two sessions in two places, and two threads, on one project render
-/// layers 1 to 3 byte for byte: nothing of a session, a place, a thread or a
-/// day is inside them. A session's own standing record goes to its own block.
+/// Two sessions in two places on one project render layers 1 to 3 byte for
+/// byte: nothing of a session, a place or a day is inside them (the provider's
+/// cache). A session's own standing record goes to its own block. (Threads
+/// were retired on 2026-11-22: their case left this test.)
 #[tokio::test]
 async fn sessions_threads_and_places_on_one_project_send_layers_one_to_three_byte_for_byte() {
     let dir = tempfile::tempdir().unwrap();
-    let (core, fake) = build(dir.path(), texts(4), |c| project(dir.path(), c));
+    let (core, fake) = build(dir.path(), texts(2), |c| project(dir.path(), c));
     crate::tests_day_ceiling::bind_dm(&core);
     let (a, b) = (session(&core, None), session(&core, Some("dm:5150")));
     let add = |scope: StandingScope, text: &str| {
@@ -182,17 +183,9 @@ async fn sessions_threads_and_places_on_one_project_send_layers_one_to_three_byt
     );
     say(&core, &a, "the levels today").await;
     say(&core, &b, "the levels today").await;
-    let (t1, t2) = (
-        thread(&core, "tide-gauges", &[]),
-        thread(&core, "moon-tables", &[]),
-    );
-    say(&core, &t1, "first").await;
-    say(&core, &t2, "second").await;
     let r = fake.requests();
-    assert_eq!(r.len(), 4);
+    assert_eq!(r.len(), 2);
     assert_eq!(layers(&r[0]), layers(&r[1]), "two sessions, two places");
-    assert_eq!(layers(&r[2]), layers(&r[3]), "two threads");
-    assert_eq!(layers(&r[0]), layers(&r[2]), "a session and a thread");
     assert!(text(&r[0], 0).contains("Quote every level in metres."));
     assert!(text(&r[0], 2).contains("The harbour log."));
     // The session's own order is in its own block, never in a layer.
@@ -200,7 +193,7 @@ async fn sessions_threads_and_places_on_one_project_send_layers_one_to_three_byt
     for q in &r {
         for i in 0..3 {
             let t = text(q, i);
-            for own in [&*a, &*b, &*t1, &*t2, "harbour clerk", "Directory:", "2026-"] {
+            for own in [&*a, &*b, "harbour clerk", "Directory:", "2026-"] {
                 assert!(!t.contains(own), "{own} is inside layer {}", i + 1);
             }
         }

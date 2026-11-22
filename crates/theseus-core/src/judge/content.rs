@@ -257,12 +257,32 @@ impl ContentItem {
     }
 }
 
+/// The part of the day's judge allowance under which a REPLY is asked, in percent: past it a reply's ask is
+/// recorded `refused` on its item and costs nothing (issue 44). A guideline for the owner to move.
+///
+/// **A soft brake, not a reservation**: it reads what the day has SETTLED, before the batch's cost, and
+/// apart from the reservation, so replies in flight can still pass it, and their spend counts against the
+/// judge's hard cap and the daemon's ceiling as an input's does. Nothing here keeps a share for the inputs;
+/// that is why reply judging is off by default (`[content_based_security] judge_replies`).
+pub const REPLY_SHARE_PERCENT: u64 = 50;
+
+/// Whether a reply may be asked about with `spent` of the day's `limit` gone ([`REPLY_SHARE_PERCENT`]).
+pub fn reply_may_ask(spent: u64, limit: u64) -> bool {
+    spent < limit * REPLY_SHARE_PERCENT / 100
+}
+
 /// What a session's queue holds.
 #[derive(Default)]
 struct Slot {
+    /// The inputs waiting.
     queue: Vec<ContentItem>,
-    /// A task is draining this queue.
+    /// The replies waiting (`ItemKind::Reply`, issue 44). They have a worker of their own
+    /// ([`drain_replies`], `replies_running`): an input never queues behind a reply, waiting or in flight.
+    replies: Vec<ContentItem>,
+    /// A task is draining this queue (the inputs').
     running: bool,
+    /// A task is draining the replies.
+    replies_running: bool,
     /// The owner has been told this session's asks are failing, and nothing
     /// has been judged since: a Jev that stays down is told once, not once a
     /// tool call.
@@ -309,6 +329,23 @@ pub(crate) struct Point {
     /// that holds the submitted set against the blocked set (theseus-sh1n3).
     #[cfg(test)]
     pub(crate) submitted: Mutex<Vec<String>>,
+}
+
+impl Slot {
+    /// What a batch that panicked leaves behind: its OWN path's queue cleared and its worker stopped. A reply
+    /// batch's panic never touches the inputs' queue or worker, nor an input's the replies'.
+    fn abandon(&mut self, replies: bool) {
+        match replies {
+            true => {
+                self.replies.clear();
+                self.replies_running = false;
+            }
+            false => {
+                self.queue.clear();
+                self.running = false;
+            }
+        }
+    }
 }
 
 impl Point {
@@ -459,14 +496,23 @@ impl JudgeService {
         let Ok(rt) = tokio::runtime::Handle::try_current() else {
             return;
         };
-        let spawn = {
+        let (replies, inputs): (Vec<_>, Vec<_>) =
+            items.into_iter().partition(|i| i.kind == ItemKind::Reply);
+        let (spawn, spawn_replies) = {
             let mut slots = self.content.slots();
             let slot = slots.entry(session.to_string()).or_default();
-            slot.queue.extend(items);
-            !std::mem::replace(&mut slot.running, true)
+            let spawn = !inputs.is_empty() && !std::mem::replace(&mut slot.running, true);
+            slot.queue.extend(inputs);
+            let spawn_replies =
+                !replies.is_empty() && !std::mem::replace(&mut slot.replies_running, true);
+            slot.replies.extend(replies);
+            (spawn, spawn_replies)
         };
         if spawn {
             rt.spawn(drain(self.me.clone(), session.to_string()));
+        }
+        if spawn_replies {
+            rt.spawn(drain_replies(self.me.clone(), session.to_string()));
         }
     }
 }
@@ -533,6 +579,11 @@ impl JudgeService {
         items: &[ContentItem],
         today: &str,
     ) -> Result<Batch, Unasked> {
+        // A batch of replies (they are drained apart from inputs) is asked only under the reply's share of
+        // the day: over it, nothing is reserved and each reply is recorded `refused`.
+        if self.replies_refused(items, today) {
+            return Err(Unasked::Refused);
+        }
         let scrub = ScrubWith(self.scrubber.clone());
         let names = self.content.names.get().cloned().unwrap_or_default();
         let built = self
@@ -568,11 +619,17 @@ impl JudgeService {
         let mut asks = Vec::new();
         let mut truncated = Vec::new();
         let max = self.content.max_pieces.load(Ordering::Relaxed).max(1);
+        let bounds = piece_bounds(items, max);
         for (i, item) in items.iter().enumerate() {
             if item.text.trim().is_empty() {
                 continue;
             }
-            let (pieces, cut) = content::split(&item.text, PIECE_CHARS, max);
+            let Some((pieces, cut)) =
+                (bounds[i] > 0).then(|| content::split(&item.text, PIECE_CHARS, bounds[i]))
+            else {
+                truncated.push(i);
+                continue;
+            };
             if cut {
                 truncated.push(i);
             }
@@ -628,6 +685,13 @@ impl JudgeService {
             need,
             beside,
         })
+    }
+
+    /// Whether `items` is a batch of replies past the reply's share of the day ([`reply_may_ask`]).
+    fn replies_refused(&self, items: &[ContentItem], today: &str) -> bool {
+        let replies = items.iter().all(|i| i.kind == ItemKind::Reply);
+        let spent = self.budget.today(&self.store, today).spent_micros;
+        replies && !reply_may_ask(spent, self.budget.limit_micros())
     }
 
     /// The batch's write, one frame: each item's rows and each label raised,
@@ -897,7 +961,7 @@ impl JudgeService {
                                 .of(&self.store, (node, label.kind, &label.source, *entered_ms));
                             item_labels::land(&mut flags, item, label.clone(), *entered_ms)
                         }
-                        None => flags.raise_after(label.clone(), *entered_ms),
+                        None => item_labels::land(&mut flags, None, label.clone(), *entered_ms),
                     };
                     if took {
                         fresh.push(label);
@@ -942,12 +1006,14 @@ impl JudgeService {
 /// The pack's ask of `l`, kept on its item's record in this frame: an item that was asked, or whose ask
 /// failed; one with no text to ask about keeps nothing.
 fn keep_ask(items: &mut item_labels::Pending, store: &crate::store::Store, l: &Landing, now: u64) {
-    if l.unjudged.is_none() && l.pieces == 0 {
+    // An item with no text is no ask; one the batch's piece bound cut out whole is (`truncated`).
+    if l.unjudged.is_none() && l.pieces == 0 && !l.truncated {
         return;
     }
     let it = &l.item;
-    let item = items.of(store, (&it.node, it.kind, &it.source, it.entered_ms));
-    item.asked(asked_of(l, now));
+    if let Some(item) = items.of(store, (&it.node, it.kind, &it.source, it.entered_ms)) {
+        item.asked(asked_of(l, now));
+    }
 }
 
 /// The pack's ask of one landing, as its item keeps it: the answers it holds, and `answered` or why not.
@@ -955,7 +1021,12 @@ fn asked_of(l: &Landing, at_ms: u64) -> item_labels::Asked {
     item_labels::Asked {
         pack: PACK.into(),
         at_ms,
-        outcome: l.unjudged.unwrap_or("answered").into(),
+        outcome: match (l.unjudged, l.pieces) {
+            (Some(why), _) => why,
+            (None, 0) => "truncated",
+            (None, _) => "answered",
+        }
+        .into(),
         answers: (l.answers.iter())
             .filter_map(|a| {
                 Some(item_labels::Answer {
@@ -1014,6 +1085,35 @@ async fn drain(me: Weak<JudgeService>, session: String) {
         let _open = Open {
             me: me.clone(),
             session: session.clone(),
+            replies: false,
+        };
+        judge_batch(&me, &session, batch).await;
+    }
+}
+
+/// A session's replies, drained one batch at a time by a worker of their own (issue 44): the inputs' worker
+/// never waits for a reply's judgment, retry or landing. Every reply waiting is one batch, so a turn's replies
+/// share one piece bound (`prepare_content`).
+async fn drain_replies(me: Weak<JudgeService>, session: String) {
+    loop {
+        tokio::time::sleep(COALESCE).await;
+        let Some(svc) = me.upgrade() else { return };
+        let batch = {
+            let mut slots = svc.content.slots();
+            let Some(slot) = slots.get_mut(&session) else {
+                return;
+            };
+            if slot.replies.is_empty() {
+                slot.replies_running = false;
+                return;
+            }
+            std::mem::take(&mut slot.replies)
+        };
+        drop(svc);
+        let _open = Open {
+            me: me.clone(),
+            session: session.clone(),
+            replies: true,
         };
         judge_batch(&me, &session, batch).await;
     }
@@ -1025,6 +1125,8 @@ async fn drain(me: Weak<JudgeService>, session: String) {
 struct Open {
     me: Weak<JudgeService>,
     session: String,
+    /// Whose batch it is: the replies' worker, or the inputs'.
+    replies: bool,
 }
 
 impl Drop for Open {
@@ -1035,8 +1137,7 @@ impl Drop for Open {
         let Some(svc) = self.me.upgrade() else { return };
         let mut slots = svc.content.slots();
         let slot = slots.entry(self.session.clone()).or_default();
-        slot.queue.clear();
-        slot.running = false;
+        slot.abandon(self.replies);
     }
 }
 
@@ -1091,6 +1192,7 @@ async fn ask_once(
     let svc = me.upgrade()?;
     let pack = svc.pack(PACK)?;
     let total = Duration::from_secs(svc.cfg.total_secs);
+    let urgency = urgency_of(&items, total);
     let (day, queued, sid) = (today.clone(), items.clone(), session.to_string());
     let prepared = tokio::task::spawn_blocking({
         let svc = svc.clone();
@@ -1136,10 +1238,11 @@ async fn ask_once(
             .judge
             .judge(DecisionPoint {
                 asks: asks.iter().map(|(_, a)| a.clone()).collect(),
-                // Every content call goes out so (theseus-oc9n4): it may take
-                // one of the permits kept back for content, rather than
-                // queueing behind ordinary judge work.
-                urgency: Urgency::awaited(total),
+                // An input's call goes out so (theseus-oc9n4): it may take one
+                // of the permits kept back for content, rather than queueing
+                // behind ordinary judge work. A reply's never does
+                // (`urgency_of`).
+                urgency,
             })
             .await;
         settle(me, &today, need, &judgments);
@@ -1149,6 +1252,39 @@ async fn ask_once(
     }
     let svc = me.upgrade()?;
     Some(landings_of(&svc, items, &asks, &truncated, &judgments))
+}
+
+/// Each item's piece bound in a batch (issue 44): `max` for every item of a batch of inputs, as at the base;
+/// for a batch of replies (a turn's are one batch, `drain_replies`), ONE `max` for the whole batch, spent in
+/// order, so thirty replies are never thirty times `max` pieces. 0: nothing is left, and the item is cut out
+/// whole (its record says `truncated`, never clean).
+fn piece_bounds(items: &[ContentItem], max: usize) -> Vec<usize> {
+    if items.is_empty() || !items.iter().all(|i| i.kind == ItemKind::Reply) {
+        return vec![max; items.len()];
+    }
+    let mut left = max;
+    (items.iter())
+        .map(|i| {
+            let bound = left;
+            if bound > 0 && !i.text.trim().is_empty() {
+                left -= content::split(&i.text, PIECE_CHARS, bound)
+                    .0
+                    .len()
+                    .min(bound);
+            }
+            bound
+        })
+        .collect()
+}
+
+/// How a batch's call waits for a permit: an input's as at the base, [`Urgency::awaited`], which may take one of
+/// the permits kept back for content; a batch of replies (they are drained apart, so a batch is one or the
+/// other) [`Urgency::live`], an ordinary permit only, never one kept back for the inputs (issue 44).
+fn urgency_of(items: &[ContentItem], total: Duration) -> Urgency {
+    match !items.is_empty() && items.iter().all(|i| i.kind == ItemKind::Reply) {
+        true => Urgency::live(total),
+        false => Urgency::awaited(total),
+    }
 }
 
 /// Each judgment settles its share of the point's reservation, the last taking
@@ -1288,6 +1424,68 @@ async fn land(me: &Weak<JudgeService>, session: &str, landings: Vec<Landing>) {
 mod tests {
     use super::*;
 
+    fn item(node: &str, kind: ItemKind) -> ContentItem {
+        ContentItem::new(node, kind, "s", "text", 1)
+    }
+
+    /// **A reply-path failure leaves the inputs alone** (issue 44): a reply batch that panics clears the
+    /// replies' queue and stops their worker, and the inputs' queue and worker are as they were; and the other
+    /// way about. (A unit of the guard's own function: `Open::drop` calls it on a panic.)
+    #[test]
+    fn a_panic_in_one_path_leaves_the_other_queued() {
+        let mut slot = Slot::default();
+        slot.queue.push(item("i1", ItemKind::ToolResult));
+        slot.replies.push(item("r1", ItemKind::Reply));
+        (slot.running, slot.replies_running) = (true, true);
+        slot.abandon(true);
+        assert!(slot.replies.is_empty() && !slot.replies_running);
+        assert_eq!(slot.queue.len(), 1, "the input is still queued");
+        assert!(slot.running, "the inputs' worker still runs");
+        slot.replies.push(item("r2", ItemKind::Reply));
+        slot.replies_running = true;
+        slot.abandon(false);
+        assert!(slot.queue.is_empty() && !slot.running);
+        assert_eq!(slot.replies.len(), 1);
+    }
+
+    /// **A bound on fan-out**: a batch of replies shares one piece bound, in order; the item past it is cut out
+    /// whole (bound 0). A batch of inputs keeps each item's own bound, as at the base.
+    #[test]
+    fn a_batch_of_replies_shares_one_piece_bound() {
+        let long = "x\n".repeat(PIECE_CHARS); // two pieces at the cap
+        let reply = |n: &str, t: &str| ContentItem::new(n, ItemKind::Reply, "reply", t, 1);
+        let replies = [reply("r1", &long), reply("r2", &long), reply("r3", "short")];
+        assert_eq!(piece_bounds(&replies, 3), [3, 1, 0]);
+        let inputs = [
+            item("i1", ItemKind::ToolResult),
+            item("i2", ItemKind::ToolResult),
+        ];
+        assert_eq!(piece_bounds(&inputs, 3), [3, 3]);
+    }
+
+    /// A reply's call never takes a permit kept back for the inputs; an input's call is as at the base.
+    #[test]
+    fn a_reply_batch_waits_on_an_ordinary_permit() {
+        // Named `total`, as every dispatch in this directory's source must be
+        // (`tests_judge_budget::every_short_judge_dispatch_has_a_reason…` reads it).
+        let total = Duration::from_secs(5);
+        let replies = [item("r1", ItemKind::Reply), item("r2", ItemKind::Reply)];
+        assert_eq!(urgency_of(&replies, total), Urgency::live(total));
+        let inputs = [item("i1", ItemKind::ToolResult)];
+        assert_eq!(urgency_of(&inputs, total), Urgency::awaited(total));
+    }
+
+    /// **A reply's share**: a reply is asked while the day's spend is under half its allowance, and not at
+    /// or over it.
+    #[test]
+    fn a_reply_is_asked_under_half_the_day_alone() {
+        assert!(reply_may_ask(0, 1_000_000));
+        assert!(reply_may_ask(499_999, 1_000_000));
+        assert!(!reply_may_ask(500_000, 1_000_000));
+        assert!(!reply_may_ask(900_000, 1_000_000));
+        assert!(!reply_may_ask(0, 0), "no allowance, no reply asked");
+    }
+
     /// **A batch that panics does not leave the queue stuck** (theseus-gyjyo.7,
     /// the review of R5a). The guard a batch holds runs however the batch ends;
     /// when it ends in a panic it takes the queue behind it and clears
@@ -1325,7 +1523,11 @@ mod tests {
         }
         let (me, session) = (svc.me.clone(), sid.clone());
         let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-            let _open = Open { me, session };
+            let _open = Open {
+                me,
+                session,
+                replies: false,
+            };
             panic!("the batch died");
         }));
         assert!(died.is_err());
@@ -1345,6 +1547,7 @@ mod tests {
         drop(Open {
             me: svc.me.clone(),
             session: sid.clone(),
+            replies: false,
         });
         assert!(svc.content.slots().get(&sid).unwrap().running, "untouched");
     }

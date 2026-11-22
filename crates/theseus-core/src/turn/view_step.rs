@@ -237,7 +237,8 @@ impl TurnRunner {
         };
         // One read of the ladder for the whole assembly: every selector, the text and the window see it.
         let store_ladder = fork.ladder(store);
-        let ladder = OnceLadder::new(&store_ladder);
+        let resolved = ResolvedLadder::new(&store_ladder, store);
+        let ladder = OnceLadder::new(&resolved);
         let moving = self.moving(store, (&permit, &pov), &items, &read)?;
         let cards = StoreCards {
             store,
@@ -271,8 +272,9 @@ impl TurnRunner {
             // (`room`), a preview reports it.
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
-        let (window, sessions) = window_of((store, &read, sid), &a, &pov, turn, renderer.zone)?;
-        let exchanges = laid_exchanges(&window, turn, &a);
+        let (window, mut sessions) = window_of((store, &read, sid), &a, &pov, turn, renderer.zone)?;
+        sessions.extend(resolved.sessions.borrow().iter().cloned());
+        let exchanges = laid_exchanges(&window, turn, &resolved.exchanges.borrow(), &a);
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
         let frozen = Frozen {
@@ -349,6 +351,31 @@ const CALL_HEADROOM: u64 = 4_096;
 /// How many times one call is compiled again when something its view laid was removed under it.
 const VIEW_REASSEMBLIES: u32 = 2;
 
+/// A test's seam: what runs at the start of the next `env_tail` of a session (after the view's assembly,
+/// before the call is sent), once.
+#[cfg(test)]
+type EnvHook = Box<dyn FnOnce() + Send>;
+
+#[cfg(test)]
+static AT_ENV_TAIL: std::sync::Mutex<Vec<(String, EnvHook)>> = std::sync::Mutex::new(Vec::new());
+
+/// Run `f` at the next `env_tail` of `session`.
+#[cfg(test)]
+pub(crate) fn env_tail_hook(session: &str, f: EnvHook) {
+    AT_ENV_TAIL.lock().unwrap().push((session.to_string(), f));
+}
+
+#[cfg(test)]
+pub(super) fn at_env_tail(session: &str) {
+    let hook = {
+        let mut hooks = AT_ENV_TAIL.lock().unwrap();
+        (hooks.iter().position(|(s, _)| s == session)).map(|i| hooks.remove(i).1)
+    };
+    if let Some(f) = hook {
+        f();
+    }
+}
+
 /// What one view is assembled for: a turn's (`view_freeze`), or a preview's of a place's next turn.
 pub(super) struct Asked<'a> {
     pub store: &'a Store,
@@ -391,8 +418,54 @@ impl Built {
     }
 }
 
-/// Every exchange fold node `id` stands for; none when any cannot be resolved: a preview's listing of a
-/// fold.
+/// The ladder as the model's assembly reads it: a fold node is kept only when every exchange it stands for
+/// resolves now (a removed thing is not sent again); the sessions and the exchanges of those kept are
+/// recorded, so a removal before a later call or a replay revokes them too (`view_gone`, `kept::held_now`).
+/// No presence, seal or move holds a fold.
+struct ResolvedLadder<'a> {
+    inner: &'a dyn crate::view::fold::Ladder,
+    store: &'a Store,
+    sessions: std::cell::RefCell<Vec<String>>,
+    exchanges: std::cell::RefCell<Vec<String>>,
+}
+
+impl<'a> ResolvedLadder<'a> {
+    fn new(inner: &'a dyn crate::view::fold::Ladder, store: &'a Store) -> Self {
+        Self {
+            inner,
+            store,
+            sessions: Default::default(),
+            exchanges: Default::default(),
+        }
+    }
+}
+
+impl crate::view::fold::Ladder for ResolvedLadder<'_> {
+    fn read(
+        &self,
+        place: &str,
+        n: usize,
+        since: Option<&Pos>,
+    ) -> anyhow::Result<crate::view::fold::LadderRead> {
+        let mut read = self.inner.read(place, n, since)?;
+        let mut kept = Vec::new();
+        for node in read.nodes {
+            let Some(exchanges) = fold_constituents(self.store, &node.handle.0) else {
+                continue;
+            };
+            for e in exchanges {
+                self.sessions.borrow_mut().push(e.session_id);
+                self.exchanges.borrow_mut().push(e.turn_id);
+            }
+            kept.push(node);
+        }
+        read.nodes = kept;
+        Ok(read)
+    }
+}
+
+/// Every exchange fold node `id` stands for; none when any cannot be resolved: the model's assembly's rule
+/// ([`ResolvedLadder`]) and a preview's listing of a fold.
 pub(super) fn fold_constituents(store: &Store, id: &str) -> Option<Vec<crate::exchange::Exchange>> {
     let node = crate::ladder::fold::node(store, id).ok()??;
     let read = crate::ladder::fold::open(store, &node).ok()?;
@@ -408,9 +481,14 @@ fn sorted(mut v: Vec<String>) -> Vec<String> {
 }
 
 /// Every exchange a view lays or folds, once each: the window's (but `turn`'s own), the kept folds'
-/// constituents, and the ends of every shown exchange piece's range. Their messages' node seals are asked
-/// again before each call.
-fn laid_exchanges(window: &[(u64, Stub)], turn: &str, a: &Assembled) -> Vec<String> {
+/// constituents, and the ends of every shown exchange piece's range. Each is read again before each call
+/// (`view_gone`): one removed since revokes the view.
+fn laid_exchanges(
+    window: &[(u64, Stub)],
+    turn: &str,
+    folded: &[String],
+    a: &Assembled,
+) -> Vec<String> {
     let shown = (a.view.shown.iter())
         .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }))
         .flat_map(|s| {
@@ -419,7 +497,7 @@ fn laid_exchanges(window: &[(u64, Stub)], turn: &str, a: &Assembled) -> Vec<Stri
                 s.piece.range.last.id.clone(),
             ]
         });
-    // The exchanges a shown card read its excerpts from (its provenance): a move since revokes it too.
+    // The exchanges a shown card read its excerpts from (its provenance): a removal since revokes it too.
     let read = (a.view.shown.iter()).flat_map(|s| match &s.piece.range.space {
         Space::Card { from: Some(p), .. } => p.exchanges.clone(),
         _ => Vec::new(),
@@ -427,6 +505,7 @@ fn laid_exchanges(window: &[(u64, Stub)], turn: &str, a: &Assembled) -> Vec<Stri
     let mut out: Vec<String> = (window.iter())
         .filter_map(|(_, n)| n.turn_id.clone())
         .filter(|t| t != turn)
+        .chain(folded.iter().cloned())
         .chain(shown)
         .chain(read)
         .collect();
@@ -513,6 +592,15 @@ fn verified_pov(verified: &Verified, person: Option<String>, now_ms: u64) -> Poi
 
 /// The items today's recall found for this turn (its pending note), before the view admits them
 /// (`recall::view_recall`).
+///
+/// Read once, at the turn's first freeze, and that is enough: recall is settled before a turn's first
+/// call, so nothing lands after the freeze. The pending note is written only by the first loop's recall
+/// (`recall_first`), which the turn loop awaits before that loop's compile, where the view is frozen. It
+/// answers within its deadline or not at all (a late pack is dropped), the rerank's wait and refill run
+/// inside it, a later loop asks nothing, and a late verdict only marks the pack already held. Held by
+/// `tests_route::a_quick_picks_later_loop_keeps_its_recall` and
+/// `tests_route::a_routed_turn_still_writes_and_sends_its_recall`: every call of the turn, the switched
+/// model's included, carries the note once.
 fn recalled(t: &Turn<'_>) -> Vec<crate::node::RecalledRef> {
     match t.recall.pending.as_ref().map(|n| &n.body) {
         Some(Body::Recall { items, .. }) => items.clone(),

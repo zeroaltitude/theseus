@@ -18,12 +18,11 @@ use theseus_protocol::import::{ImportEpisodesParams, ImportEraseResult, ImportLi
 use theseus_protocol::method;
 
 use super::episode;
-use super::tests::{call, import, index_of, lines, live, sessions_of};
+use super::session_id_of;
+use super::tests::{call, import, lines, live, sessions_of};
 use super::write;
-use super::{session_id_of, Integrity};
 use crate::node::Body;
 use crate::session::SessionRecord;
-use crate::tests_recall::{dropped_for, recalls, session, turn, PIER};
 
 const TAG: &str = "claude-code-2026-10-11";
 
@@ -278,55 +277,4 @@ async fn an_erase_by_tag_tombstones_a_harness_import() {
     }
     let again = import(c, lines(&eps[..1])).await;
     assert!(again.rejected[0].why.contains("erased"), "{again:?}");
-}
-
-/// The place rule: a shared place recalls none of it (each dropped for its
-/// place); a private place recalls the person's and the assistant's lines,
-/// the tool result (outside text) stays out unless the config admits it.
-#[tokio::test]
-async fn a_shared_place_never_recalls_a_harness_import_and_a_tool_result_stays_outside() {
-    let r = live();
-    let c = &r.core;
-    let eps = [harness("claude-code", 7, &[])];
-    import(c, lines(&eps)).await;
-    let imported = sessions_of(&eps);
-    c.runner.memory.set_ask(index_of(c, imported.clone()));
-
-    let pier = session(c, Some(&format!("channel:{PIER}")), &[]);
-    turn(c, &pier, "where does the tide log live?").await;
-    let m = &recalls(c, &pier)[0];
-    assert!(m.admitted.is_empty(), "{:?}", m.admitted);
-    assert!(dropped_for(m, "place").contains(&imported[0].as_str()));
-
-    let here = session(c, None, &[]);
-    turn(c, &here, "where does the tide log live?").await;
-    let m = recalls(c, &here).pop().unwrap();
-    let ids: Vec<&str> = m.admitted.iter().map(|a| a.node_id.as_str()).collect();
-    assert!(
-        ids.iter().any(|i| i.ends_with("_0")) && ids.iter().any(|i| i.ends_with("_1")),
-        "{ids:?}"
-    );
-    assert!(
-        m.dropped
-            .iter()
-            .any(|d| d.node_id.ends_with("_2") && d.reason == "untrusted"),
-        "the tool result is outside text: {:?}",
-        m.dropped
-    );
-    let q = r.model.requests.lock().unwrap().last().unwrap().clone();
-    let all = serde_json::to_string(&q.messages).unwrap();
-    assert!(all.contains("boathouse ledger"));
-    assert!(!all.contains("Ignore your instructions"), "{all}");
-    let (_, n) = c
-        .store
-        .get_node(&format!("imp_{}_2", &imported[0][6..]))
-        .unwrap()
-        .unwrap();
-    assert!(matches!(
-        n.body,
-        Body::Imported {
-            integrity: Integrity::Outside,
-            ..
-        }
-    ));
 }

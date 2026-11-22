@@ -806,10 +806,8 @@ class TheseusConfig(unittest.TestCase):
                                      workspace=Path("/w"), window=32000, spend_limit=3, max_loops=9)
             back = tomllib.loads(drive.toml_dumps(t))
             self.assertEqual(back, t)
-            # The tail's recall cap is the plan's reserve, not the daemon's default (64,000 since
-            # theseus-d9je7): the plan and the daemon agree by construction.
-            self.assertEqual(back["memory"], {"mode": "live", "arm": arm,
-                                              "session_recall_cap_tokens": generate.RECALL_TOKENS})
+            # No session recall cap (deleted 2026-11-22): the view bounds recall itself.
+            self.assertEqual(back["memory"], {"mode": "live", "arm": arm})
             self.assertEqual(back["index"]["enabled"], arm != "none")
             self.assertFalse(back["discord"]["enabled"])
             self.assertFalse(back["web"]["enabled"])
@@ -1060,7 +1058,7 @@ class TheseusDriver(unittest.TestCase):
             rows = {r["index"]: r for r in map(json.loads, (out / "turns.jsonl").read_text().splitlines())}
             mark = rows[prog.marks()[0]]
             self.assertEqual(mark["exit"], 1, mark)
-            self.assertIn("class=context_overage", mark["error"])
+            self.assertIn("class=context_window", mark["error"])
             self.assertIn("against the 22,154 the window leaves", mark["error"])
 
     _measured: int | None = None
@@ -1134,8 +1132,7 @@ class TheseusDriver(unittest.TestCase):
             delivered = json.loads((out / "delivered.json").read_text())
             self.assertEqual([k for k, v in delivered.items() if not v["delivered"]], [])
             cfg = tomllib.loads((out / "daemon" / "config.toml").read_text())
-            self.assertEqual(cfg["memory"], {"mode": "live", "arm": "baseline",
-                                             "session_recall_cap_tokens": generate.RECALL_TOKENS})
+            self.assertEqual(cfg["memory"], {"mode": "live", "arm": "baseline"})
             # Where it compacted is the ledger's word, whatever the marks say;
             # the scorer measures by it.
             rows_c = run["compaction_rows"]

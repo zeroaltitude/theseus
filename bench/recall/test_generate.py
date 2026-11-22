@@ -379,17 +379,15 @@ class TheRustRule(unittest.TestCase):
         self.assertEqual(tk.census_of_request({"tools": tools}).json, tk.tools_bytes(tools))
 
     def test_a_later_session_reserves_the_recall_notes_the_tail_may_hold(self):
-        """theseus-93lkm: a recall note is written into the session each turn
-        and stays in its tail until a recompile, up to the session cap, from
-        the turn the index tender comes up (a timing: turn 26 of the smoke on
-        one machine, earlier on another, where a second compaction came at 23
-        against the plan's one). The plan reserves the cap, not one note."""
-        # The driver sets `[memory] session_recall_cap_tokens` to this reserve (test_drive's
-        # TheseusConfig): the daemon's default is far larger (64,000, theseus-d9je7), and a plan
-        # that reserved it would find no window. The key must still exist under that name.
-        self.assertIn("pub session_recall_cap_tokens: u64,", self.src("theseus-core/src/config/memory.rs"))
-        self.assertIn("if !m.admitted.is_empty() && in_tail + m.used_tokens > cap {",
-                      self.src("theseus-core/src/turn/recall_step.rs"))
+        """theseus-93lkm: a later session's plan reserves room for recall
+        from the turn the index tender comes up (a timing: turn 26 of the
+        smoke on one machine, earlier on another). The session cap it once
+        reserved is deleted (2026-11-22): the plan keeps its own reserve."""
+        # The session recall cap is deleted (2026-11-22): its key is retired (an old settings file
+        # still loads) and nothing pauses recall by the tail's sum; the view bounds recall itself.
+        self.assertIn('r("memory", "session_recall_cap_tokens", CAP)',
+                      self.src("theseus-core/src/config/retired_keys.rs"))
+        self.assertNotIn("in_tail + m.used_tokens > cap", self.src("theseus-core/src/turn/recall_step.rs"))
         # The first session has nothing to recall before it compacts.
         self.assertEqual((generate.recall_for(0), generate.recall_for(1)), (0, generate.RECALL_TOKENS))
         self.assertEqual(generate.fit_bound(10000, 500, PLAN, generate.recall_for(1))

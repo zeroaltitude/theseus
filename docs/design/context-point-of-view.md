@@ -47,7 +47,8 @@ same cut, each by its own lane. What a person does differently: nothing to set, 
 room for (`turn/view_step/room.rs`): it clears the turn's old tool results to their stand-ins, then lowers slot G's
 allowance to none, each a new chain, under the provider's stated window once it refused a request for its size;
 only when the floor and the turn's own nodes still do not fit does the turn fail, before anything is sent, on the
-core overage (`context_overage`). A turn no person's message, wake or report opened (a background job ended, a call
+core overage (class `context_window`, the window's; a provider that refused a request for its size gets the
+smallest smaller request first: the floor, then the bare floor of the turn's message and the fixed blocks). A turn no person's message, wake or report opened (a background job ended, a call
 it waited on was answered, it resumes after a restart or a failed attempt) is assembled with an empty message and
 one line beside it saying what woke it; its presence is that of the turn it continues, read as a set-up's. A
 turn's place is read once, where its message arrived or else where its reply is delivered (a wake's or a report's
@@ -264,6 +265,8 @@ Properties that hold for all of it.
 
 ## 4. The point of view, and the gate
 
+*Superseded on 2026-11-22: anything goes. Every turn's point of view is the widest (the owner alone, in a private place, at its own anchor), whoever is present; nothing is held by presence, a seal, a veil or a move. The place's class still decides tools and publishing. What follows is the design as it was.*
+
 A point of view is computed once at the start of a turn, from one snapshot of the store, and recorded on the view:
 
 `{anchor: a place or a task · person · present · at hand · now}`
@@ -455,7 +458,7 @@ is kept out of the window and out of the turn's own nodes. No turn is handed to 
    fit, gives its handle, and asks for a narrower question or a deep look. Every such case is recorded.
 
 **As built**, rule 9 is not this: a floor too large for the view's budget fails the turn before any call, on the
-core overage (`context_overage`, recorded on the ledger), and no note is laid in the view.
+core overage (class `context_window`; `context.overage` on the ledger), and no note is laid in the view.
 
 **Forms.** A piece is shown *whole* (as it was said, with its tool traffic), *spoken* (his words and the reply's
 text; tool traffic as one-line stubs), or as a *line* (`he asked → Theseus did`, his ask verbatim). Every piece,
@@ -859,6 +862,8 @@ slot F is built, the search is not, and the sizes are unmeasured. In (c), the ca
 `addressed_task` names the task, and the change keeps its card (§7).
 
 ## 9. What becomes of threads, sessions and places; what stays a wall
+
+*Superseded on 2026-11-22: threads are not containers. No message is sent to a thread's own session; `theseus thread list` and `thread show` read the stored records, and every other thread command is gone. What follows is the design as it was.*
 
 - **A place** is an address, an audience and a timeline. It holds no conversation of its own.
 - **A session** is one run: the execution and the provider's chain of one point of view. Two places run at

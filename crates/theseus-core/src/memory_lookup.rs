@@ -329,7 +329,7 @@ async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, St
         return read::session(&core, &a, when.as_ref(), (offset, limit, budget)).await;
     }
     // A search of words asks for one past the page, to know there is more.
-    let (head, items, total) = match some(&a.words) {
+    let (head, items, total, incomplete) = match some(&a.words) {
         Some(words) => {
             let k = offset + limit + 1;
             by_words(
@@ -342,7 +342,10 @@ async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, St
             )
             .await?
         }
-        None => by_catalog(&core, &a, when.as_ref(), offset, limit).await?,
+        None => {
+            let (head, items, total) = by_catalog(&core, &a, when.as_ref(), offset, limit).await?;
+            (head, items, total, None)
+        }
     };
     let counted = some(&a.words).is_none();
     let items: Vec<Item> = match some(&a.words) {
@@ -369,10 +372,21 @@ async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, St
         false => String::new(),
     };
     text.push_str(&match (shown, more) {
+        // No promise of progress from a cursor that cannot advance past what was read.
+        (0, _) if incomplete.is_some() => format!(
+            "\nNothing on this page. The search could not be completed ({}): narrow it (words, when, book or topic) to read further.",
+            incomplete.as_deref().unwrap_or_default()
+        ),
         (0, _) => "\nNothing on this page.".to_string(),
         (_, true) => format!(
             "\nShown {}–{next}{of}. More: call again with cursor {next}.",
             offset + 1
+        ),
+        // The live hits ran out inside what was fetched, or a hit could not be read: never "that is all".
+        (_, false) if incomplete.is_some() => format!(
+            "\nShown {}–{next}{of}. The search could not be completed ({}): more may exist; narrow it (words, when, book or topic) to read further.",
+            offset + 1,
+            incomplete.as_deref().unwrap_or_default()
         ),
         (_, false) => format!("\nShown {}–{next}{of}; that is all.", offset + 1),
     });
@@ -391,6 +405,32 @@ async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, St
             "tokens": used,
         }),
     })
+}
+
+/// The newest reply among a `session.history` answer's nodes, with the vault's values substituted (review
+/// G-R2 r2): MCP's `conversation_status` and `conversation_send` read it (`theseusd::mcp`), and no provider
+/// call is on that path, so the exits' own substitution runs here, as for the memory tools' replies.
+pub fn mcp_last_reply(core: &Core, nodes: &[Value]) -> Option<String> {
+    nodes
+        .iter()
+        .rev()
+        .find(|n| {
+            n["kind"] == "assistant_message" && n["text"].as_str().is_some_and(|t| !t.is_empty())
+        })
+        .and_then(|n| n["text"].as_str())
+        .map(|t| core.exits.text(t).0.into_owned())
+}
+
+/// Whether `session` is an imported episode whose tag was erased.
+fn erased(core: &Core, session: &str) -> bool {
+    crate::import::is_imported(session)
+        && core
+            .store
+            .get_session::<crate::session::SessionRecord>(session)
+            .ok()
+            .flatten()
+            .and_then(|r| r.imported)
+            .is_some_and(|i| i.erased.is_some())
 }
 
 /// A date in the daemon's time zone, `2026-03-14`.
@@ -542,7 +582,7 @@ async fn by_words(
     a: &Args,
     when: Option<&When>,
     k: u64,
-) -> Result<(String, Vec<Item>, u64), String> {
+) -> Result<(String, Vec<Item>, u64, Option<String>), String> {
     // A book or a topic: its sessions, from the catalog.
     let (sessions, narrowed) = match narrowed_to(core, a).await? {
         Some(n) => n,
@@ -551,6 +591,7 @@ async fn by_words(
                 format!("memory.lookup: no imported episode is {}.", what(a, None)),
                 Vec::new(),
                 0,
+                None,
             ))
         }
     };
@@ -566,25 +607,76 @@ async fn by_words(
         None => Default::default(),
     };
     let deadline = Duration::from_millis(memory.cfg().recall_deadline_ms).max(DEADLINE);
-    let k = (k as usize).clamp(1, 100);
+    let k = (k as usize).clamp(1, CANDIDATES_MAX);
+    let labeled = memory.labeled(&core.store).map_err(|e| format!("{e:#}"))?;
+    // A stale hit (erased, gone) must not cost a live one (review G-R1 r2): the liveness check runs before
+    // the page's limit, and while stale hits fill what was fetched, more is fetched, bounded.
+    let mut want = k;
+    loop {
+        let m = asked(
+            core,
+            (session, words.as_str(), when, sessions.as_slice()),
+            (want, deadline),
+            &in_context,
+            &labeled,
+        )
+        .await?;
+        let (items, stale, unread) = items_of(core, &m.admitted).await?;
+        // The index or the pack held more than this fetch took.
+        let beyond = m.candidates as usize >= want || m.drops.get("budget").is_some_and(|n| *n > 0);
+        if items.len() >= k || !beyond || want >= CANDIDATES_MAX {
+            let incomplete = match (unread, beyond && items.len() < k) {
+                (0, false) => None,
+                (0, true) => Some(format!(
+                    "{stale} stale hits of erased or gone notes filled what was read"
+                )),
+                (n, _) => Some(format!("{n} hits could not be read")),
+            };
+            let total = items.len() as u64;
+            let head = format!(
+                "memory.lookup: recall's items for {words:?}{}{narrowed}, best first.",
+                match what(a, when) {
+                    w if w.is_empty() => String::new(),
+                    w => format!(" {w}"),
+                }
+            );
+            return Ok((head, items, total, incomplete));
+        }
+        want = (want + stale + unread).max(want * 2).min(CANDIDATES_MAX);
+    }
+}
+
+/// The most candidates a search of words fetches, refills included.
+const CANDIDATES_MAX: usize = 100;
+
+/// One fetch of a search of words: recall's pipeline over the index's `want` best, as a turn of `session`
+/// would run it.
+async fn asked(
+    core: &Arc<Core>,
+    (session, words, when, sessions): (Option<&str>, &str, Option<&When>, &[String]),
+    (want, deadline): (usize, Duration),
+    in_context: &std::collections::BTreeSet<String>,
+    labeled: &std::collections::BTreeSet<String>,
+) -> Result<theseus_protocol::memory::RecallManifest, String> {
+    let memory = &core.runner.memory;
     let mut begun = memory.begin_within(
-        words.clone(),
+        words.to_string(),
         None,
-        k,
+        want,
         MemoryArm::Baseline,
         deadline,
         when.cloned(),
-        sessions,
+        sessions.to_vec(),
     );
-    begun.max_items = Some(k);
+    begun.max_items = Some(want);
     let answer = begun.answer().await;
     let scene = crate::recall::Scene {
         mode: "lookup",
         session_id: session,
         turn_id: None,
         place: session.map_or(Place::Private, |s| core.runner.place_of(s)),
-        in_context,
-        labeled: memory.labeled(&core.store).map_err(|e| format!("{e:#}"))?,
+        in_context: in_context.clone(),
+        labeled: labeled.clone(),
         budget_tokens: Some(BUDGET_MAX * 4),
         max_items: None,
         science: memory.science_for(MemoryArm::Baseline),
@@ -608,16 +700,7 @@ async fn by_words(
             m.why.as_deref().map(|w| format!(": {w}")).unwrap_or_default()
         ));
     }
-    let items = items_of(core, &m.admitted).await?;
-    let total = items.len() as u64;
-    let head = format!(
-        "memory.lookup: recall's items for {words:?}{}{narrowed}, best first.",
-        match what(a, when) {
-            w if w.is_empty() => String::new(),
-            w => format!(" {w}"),
-        }
-    );
-    Ok((head, items, total))
+    Ok(m)
 }
 
 /// A book's or a topic's sessions, from the catalog, and what the answer
@@ -668,10 +751,12 @@ async fn catalog(
 /// Recall's admitted items as the answer says them: an imported one with
 /// its episode's labels (one read of the catalog for all) and its message's
 /// own date; a native one with its node's.
+/// With them, how many were stale (an erased or gone node, an erased episode) and how many could not be
+/// read: neither is an item, and an unread one is not called absent.
 async fn items_of(
     core: &Arc<Core>,
     admitted: &[theseus_protocol::memory::RecallItem],
-) -> Result<Vec<Item>, String> {
+) -> Result<(Vec<Item>, usize, usize), String> {
     // The imported sessions' labels, in one read.
     let ids: Vec<String> = admitted
         .iter()
@@ -693,8 +778,23 @@ async fn items_of(
             .map(|e| (e.session_id.clone(), e))
             .collect();
     }
-    let mut items = Vec::new();
+    let (mut items, mut stale, mut unread) = (Vec::new(), 0, 0);
     for i in admitted {
+        // An index hit never outlives a tombstone (review G-R1): forgetting the index is best-effort, so
+        // the node and its session are read as they are now, and an erased one is no item.
+        let live = match core.store.get_node(&i.node_id) {
+            Ok(n) => n,
+            Err(_) => {
+                unread += 1;
+                continue;
+            }
+        };
+        if live.is_none_or(|(_, n)| matches!(n.body, crate::node::Body::Erased { .. }))
+            || erased(core, &i.session_id)
+        {
+            stale += 1;
+            continue;
+        }
         let text = i.text.clone().unwrap_or_default();
         let item = match episodes.get(&i.session_id) {
             Some(e) => {
@@ -756,5 +856,5 @@ async fn items_of(
             ..item
         });
     }
-    Ok(items)
+    Ok((items, stale, unread))
 }
