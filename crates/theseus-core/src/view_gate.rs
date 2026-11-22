@@ -596,7 +596,7 @@ pub fn report_shown(runner: &TurnRunner, delivery: &str, task: &str) -> bool {
     // A task's exchange is at the task's own place, not a binding: then, it spoke where it speaks now.
     let then_class = match (ex.private, crate::task_graph::place::task_of(&ex.place)) {
         (true, _) => Place::Private,
-        (false, Some(_)) => Place::Shared(now.clone().unwrap_or_default()),
+        (false, Some(_)) => Place::Shared(now.unwrap_or_default()),
         (false, None) => Place::Shared(ex.place.clone()),
     };
     let today = runner.place_of(delivery);

@@ -33,7 +33,8 @@ against a turn of the view.
 every place or by place (`assembly = { default = "transcript", places = { "<place>" = "view" } }`), a place as the
 ledger writes it. Absent, every request is the transcript's, byte for byte as before (a golden test holds it). The
 view needs `[context] ledger` on (the default); a settings file that sets a place to `view` with the ledger off does
-not load. A task's turn has no place and is always the transcript's. There is no `shadow` value: a place is
+not load. A task's turns are at the task's own place, `task:<task id>` (§7, "as built"), which the setting names
+as any other. There is no `shadow` value: a place is
 either the transcript's or the view's.
 
 **A turn the view cannot assemble soundly runs as the transcript's turn.** Before its first call, a turn in a view
@@ -100,7 +101,7 @@ that was written as it happened or carries a mark, and only its unmarked older h
 is ever made backwards.
 
 **Not built**: the search before the first word (§6, rung 2) and the `leans_on` question; asking a task itself, and
-a task's own view (§7); writing `did` lines and fold nodes again after a correction; the yardstick; the aside;
+§7's own table for a task (a task's turns use a place's table at the task's own place: §7, "as built"); writing `did` lines and fold nodes again after a correction; the yardstick; the aside;
 step 10; and the `derived_from` edges of §3.
 
 **Numbers the plan calls settings are constants.** N (20), the ceiling (60,000), slot G's allowance (150,000),
@@ -708,6 +709,14 @@ the first word (rung 2), and `leans_on` is not asked. The judge's `fragment`, `m
   take the presence of the turn that set it up, as the gate does.
 
 ## 7. Tasks
+
+**As built** (the cut; `task_graph::place`, `turn/view_step/task.rs`): a task is its own place, `task:<task id>`.
+Its turns write exchanges there (its first turn's ask is its brief), so its window is its own earlier exchanges,
+newest N, and its ladder folds older ones as any place's does. Its opening (the brief and the arrangement's
+pieces, written before any turn) heads its window on every turn, and on the first turn the brief is the message
+it answers; its own card is laid in slot H. Its presence is its set-up's, as below; a set-up that cannot be
+proven reads as not the owner alone, which at the task's own place admits only what that place holds, its own
+exchanges and card. The table below is the design, not yet built.
 
 **A task's view** has the same assembler, gate and budgeter, another table:
 
