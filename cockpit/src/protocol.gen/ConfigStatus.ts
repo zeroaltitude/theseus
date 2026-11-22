@@ -55,4 +55,4 @@ restarted?: ConfigRestart,
  * The settings keys this start read and ignored because they are
  * retired, by their dotted names (issue 44). Absent when there are none.
  */
-ignored_keys?: Array<string>, };
+ignored_keys: Array<string>, };

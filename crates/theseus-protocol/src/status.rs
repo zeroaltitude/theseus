@@ -478,7 +478,6 @@ pub struct ConfigStatus {
     /// The settings keys this start read and ignored because they are
     /// retired, by their dotted names (issue 44). Absent when there are none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[cfg_attr(test, ts(optional))]
     pub ignored_keys: Vec<String>,
 }
 
