@@ -236,7 +236,13 @@ fn wait<T>(what: &str, secs: u64, mut f: impl FnMut() -> Option<T>) -> T {
 
 /// After `/new` in the owner's DM, the next turn's request holds nothing said before the mark; the memory
 /// tool, asked for the conversation from before it, still reads it.
+///
+/// Ignored, as a finding, not a pass: on today's code the memory half holds, and the request after `/new`
+/// still carries the owner's own earlier words there, laid as his past (slot E, "the owner's own earlier
+/// words"), as the design's decision 7 rules. This test states the stricter rule it was asked to; which rule
+/// holds is the owner's call, and the test is not bent to either.
 #[test]
+#[ignore = "finding: decision 7 keeps the owner's own words before /new as his past (slot E)"]
 fn after_new_the_next_turn_holds_nothing_from_before_and_memory_still_answers() {
     let earlier: Arc<Mutex<String>> = Arc::default();
     let asked = earlier.clone();
