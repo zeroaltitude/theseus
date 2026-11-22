@@ -11,7 +11,9 @@ use serde_json::json;
 
 use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::provider::{ProviderError, ProviderRequest, Scripted};
-use crate::tests_places::{answers_a_call, last_user, rig_setup_scripted, rig_with, session, Rig, LAB};
+use crate::tests_places::{
+    answers_a_call, last_user, rig_setup_scripted, rig_with, session, Rig, LAB,
+};
 use crate::tests_private_view::session_in;
 use crate::tests_view_compile::{fallbacks, legal, submit, texts};
 
@@ -32,7 +34,9 @@ fn compiled(c: &crate::Core, sid: &str) -> Vec<(String, String)> {
 
 /// The failure a turn ended with: its class and its words.
 fn failure(e: &anyhow::Error) -> (String, String) {
-    let te = e.downcast_ref::<crate::turn::TurnError>().expect("a turn's failure");
+    let te = e
+        .downcast_ref::<crate::turn::TurnError>()
+        .expect("a turn's failure");
     (te.class.clone(), format!("{:#}", te.source))
 }
 
@@ -73,13 +77,21 @@ async fn a_wake_in_a_session_that_posts_nowhere_takes_the_view_where_its_answer_
     crate::tests_places::turn(c, &old, "WAKE in a second").await;
     let _new = session(c, Some(&format!("channel:{LAB}")));
     assert_eq!(c.outbox.target(&old), None, "the old session posts nowhere");
-    r.until("the wake's turn", 15, |r| !r.asked("check again").is_empty())
-        .await;
-    r.until("the wake turn's compile row", 15, |_| compiled(c, &old).len() >= 2)
-        .await;
+    r.until("the wake's turn", 15, |r| {
+        !r.asked("check again").is_empty()
+    })
+    .await;
+    r.until("the wake turn's compile row", 15, |_| {
+        compiled(c, &old).len() >= 2
+    })
+    .await;
     let (turn, strategy) = compiled(c, &old).pop().unwrap();
     assert_eq!(strategy, "view", "the wake's turn is the view's");
-    let goes = c.outbox.try_wake_target(&old).unwrap().expect("a wake target");
+    let goes = c
+        .outbox
+        .try_wake_target(&old)
+        .unwrap()
+        .expect("a wake target");
     let ex = crate::exchange::exchange(&c.store, &turn).unwrap().unwrap();
     assert_eq!(ex.place, goes, "its exchange is where its answer goes");
     let rec = crate::view::record::of_turn(&c.store, &turn).unwrap();
@@ -159,11 +171,17 @@ async fn a_continuation_after_a_jobs_end_takes_the_view_and_answers() {
         .find(|q| texts(q).contains(ENDED))
         .unwrap();
     legal(&q);
-    assert!(texts(&q).contains("TIDE-7731"), "the job's output: {}", texts(&q));
+    assert!(
+        texts(&q).contains("TIDE-7731"),
+        "the job's output: {}",
+        texts(&q)
+    );
     r.until("its answer", 15, |_| {
         (c.store.session_nodes(&sid).unwrap().iter()).any(|(_, n)| {
             matches!(&n.body, crate::node::Body::AssistantMessage { .. })
-                && serde_json::to_string(&n.body).unwrap().contains("finished: TIDE-7731")
+                && serde_json::to_string(&n.body)
+                    .unwrap()
+                    .contains("finished: TIDE-7731")
         })
     })
     .await;
@@ -181,18 +199,22 @@ async fn a_turn_resumed_after_an_interruption_takes_the_view() {
     const RESUMES: &str = "it resumes work an earlier turn left unfinished";
     let calls = Arc::new(AtomicU32::new(0));
     let seen = calls.clone();
-    let r = rig_setup_scripted(view, |_| {}, move |q| {
-        if q.tools.is_empty() {
-            return Scripted::text("aside");
-        }
-        match seen.fetch_add(1, Ordering::SeqCst) {
-            0 => Scripted::Fail(ProviderError::Api {
-                status: 418,
-                message: "api_error: the call was cut".into(),
-            }),
-            _ => Scripted::text("High tide is at four."),
-        }
-    });
+    let r = rig_setup_scripted(
+        view,
+        |_| {},
+        move |q| {
+            if q.tools.is_empty() {
+                return Scripted::text("aside");
+            }
+            match seen.fetch_add(1, Ordering::SeqCst) {
+                0 => Scripted::Fail(ProviderError::Api {
+                    status: 418,
+                    message: "api_error: the call was cut".into(),
+                }),
+                _ => Scripted::text("High tide is at four."),
+            }
+        },
+    );
     let c = &r.core;
     // A session at the terminal with no directory: the test's mark names the terminal so (`turn.submit`'s
     // names the session's directory), and the resumed turn's place is the same.
@@ -208,7 +230,17 @@ async fn a_turn_resumed_after_an_interruption_takes_the_view() {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
     let kinds: Vec<String> = (c.store.session_nodes(&sid).unwrap().into_iter())
-        .map(|(_, n)| format!("{:?}/{}", n.turn_id, serde_json::to_string(&n.body).unwrap().chars().take(90).collect::<String>()))
+        .map(|(_, n)| {
+            format!(
+                "{:?}/{}",
+                n.turn_id,
+                serde_json::to_string(&n.body)
+                    .unwrap()
+                    .chars()
+                    .take(90)
+                    .collect::<String>()
+            )
+        })
         .collect();
     let asked: Vec<String> = r.requests().iter().map(last_user).collect();
     let failed = crate::test_support::rows(c, "turn.failed");
@@ -225,8 +257,10 @@ async fn a_turn_resumed_after_an_interruption_takes_the_view() {
         "the interrupted exchange is in the window: {}",
         texts(&q)
     );
-    r.until("the resumed turn's compile row", 15, |_| !compiled(c, &sid).is_empty())
-        .await;
+    r.until("the resumed turn's compile row", 15, |_| {
+        !compiled(c, &sid).is_empty()
+    })
+    .await;
     let rows = compiled(c, &sid);
     assert!(rows.iter().all(|(_, s)| s == "view"), "{rows:?}");
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
@@ -336,9 +370,23 @@ async fn a_turn_resumed_after_a_restart_shows_the_cut_exchange_in_its_window() {
     c.kernel.wake(&exec, "restart").unwrap();
     let res = c.continue_execution(&exec).await.unwrap().unwrap();
     let kinds: Vec<String> = (c.store.session_nodes(&sid).unwrap().into_iter())
-        .map(|(_, n)| format!("{:?}/{:?}", n.turn_id, serde_json::to_string(&n.body).unwrap().chars().take(90).collect::<String>()))
+        .map(|(_, n)| {
+            format!(
+                "{:?}/{:?}",
+                n.turn_id,
+                serde_json::to_string(&n.body)
+                    .unwrap()
+                    .chars()
+                    .take(90)
+                    .collect::<String>()
+            )
+        })
         .collect();
-    assert_eq!(res.output, "The ferry leaves at six.", "{} {kinds:#?}", res.stop_reason);
+    assert_eq!(
+        res.output, "The ferry leaves at six.",
+        "{} {kinds:#?}",
+        res.stop_reason
+    );
     let q = (fake.requests().into_iter())
         .rev()
         .find(|q| !q.tools.is_empty())

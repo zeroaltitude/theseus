@@ -148,7 +148,12 @@ impl TurnRunner {
         let read = t.exchange.mark.as_ref().map_or_else(
             || {
                 #[cfg(test)]
-                if UNREADABLE.lock().unwrap().iter().any(|s| s == t.tc.session_id) {
+                if UNREADABLE
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|s| s == t.tc.session_id)
+                {
                     return None;
                 }
                 (self.outbox.speaks_at(t.tc.session_id))
@@ -308,7 +313,8 @@ impl TurnRunner {
             return;
         }
         let sid = t.tc.session_id;
-        let place = (self.turn_place(t)).unwrap_or_else(|| crate::exchange::rebuild::UNKNOWN.into());
+        let place =
+            (self.turn_place(t)).unwrap_or_else(|| crate::exchange::rebuild::UNKNOWN.into());
         let h = &t.exchange;
         let opened_by = match () {
             _ if prompted => Opener::Prompt,
