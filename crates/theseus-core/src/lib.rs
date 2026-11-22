@@ -725,6 +725,8 @@ mod tests_task_self;
 #[cfg(test)]
 mod tests_task_start;
 #[cfg(test)]
+mod tests_task_view;
+#[cfg(test)]
 mod tests_task_wait;
 #[cfg(test)]
 mod tests_task_wakes;
