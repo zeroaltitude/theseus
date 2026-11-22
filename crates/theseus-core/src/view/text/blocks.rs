@@ -6,13 +6,14 @@ use crate::view::budget::Residue;
 use crate::view::fold::FoldNode;
 use crate::view::render::MarkedBlock;
 use crate::view::select::Band;
-use crate::view::{Anchor, Handle, Label, PointOfView, Pos, SourceRange, Space};
+use crate::view::{Anchor, Author, Handle, Label, PointOfView, Pos, SourceRange, Space};
 
 use super::labels;
 use super::literal::literal;
 
 /// A fold node's block: testimony, whatever place it is from, since its account is a summary and not a
-/// turn. `words` are the texts of [`FoldNode::his_words`], in order, as stored (a source that cannot be read
+/// turn, every excerpt the owner's (a caller that knows each author uses [`fold_block_by`]). `words` are
+/// the texts of [`FoldNode::his_words`], in order, as stored (a source that cannot be read
 /// is `None`, and says so). The owner's excerpts are shown word for word and never wrapped; only the account
 /// is wrapped, when the node was made from outside text. The heading is the node's own title when it has
 /// one (a quoted literal), then the counted line and the warning.
@@ -33,15 +34,44 @@ pub fn fold_block(
     pov: &PointOfView,
     zone: ZoneAt<'_>,
 ) -> MarkedBlock {
+    let his = Author::His {
+        may_authorise: false,
+    };
+    let said: Vec<(Author, Option<String>)> = words.iter().map(|w| (his, w.clone())).collect();
+    fold_block_by(node, &said, pov, zone)
+}
+
+/// [`fold_block`] with each excerpt's author, by its own mark (`sources_store::author_of`), as the window
+/// labels them. When every readable excerpt is the owner's, the block reads as above; otherwise each line
+/// names its author, another person's and an unknown author's never as his, nor as his instruction. A
+/// node of any age reads so: authorship is the message's mark, never something the fold stored.
+pub fn fold_block_by(
+    node: &FoldNode,
+    words: &[(Author, Option<String>)],
+    pov: &PointOfView,
+    zone: ZoneAt<'_>,
+) -> MarkedBlock {
     let here = matches!(&pov.anchor, Anchor::Place(p) if *p == node.place);
     let account = match node.marks.outside {
         true => labels::wrap_outside(Some("tool results in these exchanges"), &node.account),
         false => node.account.clone(),
     };
-    let mut lines = vec!["the owner's words in them, word for word (selected):".to_string()];
-    lines.extend(words.iter().zip(&node.his_words).map(|(w, id)| match w {
-        Some(w) => format!("- {}", w.replace('\n', "\n  ")),
-        None => format!("- (its source, {}, cannot be read)", literal(id, 80)),
+    let all_his = (words.iter()).all(|(a, w)| w.is_none() || matches!(a, Author::His { .. }));
+    let mut lines = vec![match all_his {
+        true => "the owner's words in them, word for word (selected):".to_string(),
+        false => "the words in them, word for word (selected), each by its author:".to_string(),
+    }];
+    lines.extend(words.iter().zip(&node.his_words).map(|((a, w), id)| {
+        let by = match (all_his, a) {
+            (true, _) => "",
+            (false, Author::His { .. }) => "the owner: ",
+            (false, Author::Other) => "another person (not the owner): ",
+            (false, _) => "author unknown (not the owner's instruction): ",
+        };
+        match w {
+            Some(w) => format!("- {by}{}", w.replace('\n', "\n  ")),
+            None => format!("- (its source, {}, cannot be read)", literal(id, 80)),
+        }
     }));
     if node.his_counted > 0 {
         lines.push(format!(

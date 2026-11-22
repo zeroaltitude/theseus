@@ -53,6 +53,9 @@ use crate::store::Store;
 use crate::threads::Board;
 use crate::turn::TurnRunner;
 
+mod moved;
+pub use moved::{moved_at_all, Moved};
+
 /// What the gate names an imported session's place: the owner's own history,
 /// from no place of this daemon's.
 pub const IMPORTED: &str = "imported";
