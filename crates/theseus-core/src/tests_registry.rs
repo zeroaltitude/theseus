@@ -53,10 +53,7 @@ const ROOTS: [&str; 2] = ["theseusd", "theseus"];
 /// <its reader>")`. The kind is `method`, `notify`, or `edge`, and
 /// the name is the wire's (`node.reach`, `derived_from`). Empty: everything
 /// else has its reader.
-const RESERVED: &[(&str, &str)] = &[(
-    "notify thread.placed",
-    "threads, unit E (2026-11-22): the router that sent it is gone, and the name goes with the protocol's",
-)];
+const RESERVED: &[(&str, &str)] = &[];
 
 /// How a failure for an item with no reader ends: what to add, or the marker
 /// to add instead, in `RESERVED`.
