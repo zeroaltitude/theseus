@@ -6,7 +6,9 @@
 //!   model sees in full (`page::in_view`). A page's `next` cursor, passed back as `before`, gives the ones
 //!   before those, with no horizon. One line an exchange: its date, the place, whose words, the person's words
 //!   (cut by code at 300 characters), the `did` line or the reply's beginning, and a handle.
-//! - **Open**: a handle gives the exchange in spoken form, cut at about 3,000 tokens (`open`).
+//! - **Open**: a handle gives the exchange in spoken form, cut at about 3,000 tokens (`open`); a session's id
+//!   (`ses_…`, this harness's or an imported one) gives a page of its messages the same way, `before` paging
+//!   back (`session`).
 //! - **Narrowing**: `place` (any other place), `thing` (its timeline in the touch index), `words` (the words
 //!   index, searched over the sessions on that timeline, then a filter on the walk), and a time span: `when`,
 //!   or `from` / `to` ([`span_of`]: an explicit argument's reader, `recall::when::read_local`, never recall's
@@ -46,6 +48,7 @@ use crate::Core;
 
 pub(crate) mod open;
 pub(crate) mod page;
+pub(crate) mod session;
 #[cfg(test)]
 mod tests;
 
@@ -116,7 +119,7 @@ impl Tool for HistoryTool {
         HISTORY_TOOL
     }
     fn description(&self) -> &'static str {
-        "This place's earlier history, 100 exchanges a page before those you see; before pages back; open reads one; when (or from/to) a time span."
+        "This place's earlier history, 100 exchanges a page before those you see; before pages back; open reads one (or a ses_ session by its id); when (or from/to) a time span."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -146,6 +149,9 @@ impl Tool for HistoryTool {
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let a = parse(input)?;
         let summary = match (&a.open, &a.before) {
+            (Some(h), _) if session::names_a_session(&h.0) => {
+                format!("open session {}", page::flat(&h.0))
+            }
             (Some(h), _) => format!("open exchange {}", page::flat(&h.0)),
             (None, Some(_)) => "read further back through history".into(),
             (None, None) => "read back through history".into(),
@@ -364,6 +370,18 @@ pub(crate) async fn answer(
                      more this turn: tell the person what you found and offer to read further."
                 ),
                 meta: json!({"open": null, "opens": used.opens, "of": OPENS_PER_TURN}),
+            });
+        }
+        // A `ses_…` id opens that session, a page of it, `before` paging back (`session`); any other handle
+        // one exchange.
+        if session::names_a_session(&h.0) {
+            let s = session::open(&lens, &h.0, a.before.as_ref())?;
+            return Ok(ToolOutput {
+                text: s.text,
+                meta: json!({
+                    "open": page::flat(&h.0), "session": true,
+                    "opens": used.opens + 1, "of": OPENS_PER_TURN,
+                }),
             });
         }
         let text = open::open(&lens, h)?;

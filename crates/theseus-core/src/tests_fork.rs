@@ -1429,3 +1429,47 @@ async fn a_fork_asking_a_span_gets_nothing_past_its_point() {
     assert!(got.contains(&one), "the inherited turn: {got}");
     assert!(!got.contains(&three), "the source's later turn: {got}");
 }
+
+/// A fork opening its source session by id reads it as no session here (D6a step 2): the cut names it, and
+/// the source's later turn is past the point; the fork's own session opens.
+#[tokio::test]
+async fn a_fork_opening_its_sources_session_reads_no_session() {
+    let r = rig();
+    let (s, nodes) = three_turns(&r).await;
+    let f = fork(&r.core, &s, &nodes[3].0);
+    turn(&r.core, &f.session_id, "other road").await;
+    let pov = crate::view::PointOfView {
+        anchor: crate::view::Anchor::Place("local".into()),
+        person: None,
+        present: crate::view::Present::Open,
+        at_hand: None,
+        now_ms: theseus_protocol::now_unix_ms(),
+    };
+    let b = crate::history_tool::Board::default();
+    let open = |id: &str| -> crate::view::history::HistoryArgs {
+        serde_json::from_value(json!({ "open": id })).unwrap()
+    };
+    let src = crate::history_tool::answer(&r.core, &b, (&f.session_id, "t"), &pov, &open(&s))
+        .await
+        .unwrap_err();
+    assert!(src.contains("no session"), "{src}");
+    let own = crate::history_tool::answer(
+        &r.core,
+        &b,
+        (&f.session_id, "t"),
+        &pov,
+        &open(&f.session_id),
+    )
+    .await
+    .unwrap()
+    .text;
+    assert!(own.contains("other road"), "{own}");
+    let plain = crate::history_tool::answer(&r.core, &b, (&s, "t"), &pov, &open(&s))
+        .await
+        .unwrap()
+        .text;
+    assert!(
+        plain.contains("three"),
+        "the control, from the source: {plain}"
+    );
+}

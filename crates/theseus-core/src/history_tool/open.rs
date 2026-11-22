@@ -92,7 +92,7 @@ fn nodes(lens: &Lens<'_>, ex: &Exchange) -> anyhow::Result<Vec<Node>> {
 }
 
 /// `text` behind the margin, line by line.
-fn margined(text: &str) -> String {
+pub(super) fn margined(text: &str) -> String {
     text.trim()
         .lines()
         .map(|l| {
@@ -108,7 +108,7 @@ fn margined(text: &str) -> String {
 
 /// Who wrote a person's message, by its own mark: the owner (shown as his; may authorise only when he typed
 /// it in person), another known person, or not known. A server's prompt is another's words.
-fn author_of(lens: &Lens<'_>, n: &Node) -> Author {
+pub(super) fn author_of(lens: &Lens<'_>, n: &Node) -> Author {
     if n.origin == Origin::Mcp {
         return Author::Other;
     }

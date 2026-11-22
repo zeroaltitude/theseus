@@ -858,3 +858,194 @@ async fn a_span_beside_a_place_narrows_it() {
         "{got}"
     );
 }
+
+/// A tool result node in `session`, for a session's open to leave out.
+fn tool_result_in(session: &str, turn: &str) -> Node {
+    Node::tool_result(
+        session,
+        Some(turn),
+        Some(0),
+        Body::ToolResult {
+            tool_use_id: "tu_9".into(),
+            tool: "http.fetch".into(),
+            status: ResultStatus::Ok,
+            is_error: false,
+            content: "THE TOOL'S OWN TEXT".into(),
+            correlation_id: None,
+            bytes_total: 0,
+            truncated: false,
+            full_ref: None,
+            duration_ms: None,
+            late: false,
+            meta: Value::Null,
+            image: None,
+            external: None,
+            payload: None,
+        },
+    )
+}
+
+/// Opening a harness session by its id (D6a step 2): its people's and the model's messages in spoken form,
+/// oldest first, behind the margin; another person's words wrapped as outside text; tool traffic left out and
+/// counted; an id that names nothing is no session here.
+#[test]
+fn a_harness_session_opens_by_its_id_spoken_with_tool_traffic_counted() {
+    use super::session;
+    let (_d, s) = store();
+    let sid = "ses_harness";
+    put(&s, &ex(1, HERE, sid));
+    put(
+        &s,
+        &Ex {
+            person: Some("discord:7"),
+            words: "a guest's words".into(),
+            ..ex(2, LOBBY, sid)
+        },
+    );
+    s.append(&[tool_result_in(sid, "turn_0002").record().unwrap()])
+        .unwrap();
+    let l = lens(&s, HERE);
+    let got = session::open(&l, sid, None).unwrap();
+    let t = &got.text;
+    assert!(
+        t.starts_with("[Session \"ses_harness\", this harness's"),
+        "{t}"
+    );
+    assert!(t.contains("the owner\n\u{2502} message 1"), "{t}");
+    assert!(t.contains("Theseus\n\u{2502} reply to message 1"), "{t}");
+    assert!(t.contains("outside text, discord:7"), "{t}");
+    assert!(t.contains("\u{2502} a guest's words"), "{t}");
+    assert!(
+        t.find("message 1") < t.find("a guest's words"),
+        "oldest first: {t}"
+    );
+    assert!(!t.contains("THE TOOL'S OWN TEXT"), "{t}");
+    assert!(t.contains("Left out: 1 tool call or result."), "{t}");
+    assert!(t.contains("That is its beginning."), "{t}");
+    assert!(got.outside, "another person's words are shown");
+    let none = session::open(&l, "ses_nothing", None).unwrap_err();
+    assert!(none.contains("no session"), "{none}");
+}
+
+/// An imported session (no exchange records) opens by its id from its nodes, each by its newest record: an
+/// erased message reads as nothing and is counted, an imported message of outside text is left out and
+/// counted, and the operator's and an agent's words are spoken.
+#[test]
+fn an_imported_session_opens_from_its_nodes_its_erased_and_outside_messages_counted() {
+    use super::session;
+    use crate::import::Integrity;
+    let (_d, s) = store();
+    let sid = format!("{}{}", crate::import::SESSION_PREFIX, "a".repeat(64));
+    let msg = |i: u32, integrity: Integrity, text: &str| {
+        Node::imported(
+            format!("imp_{i}"),
+            &sid,
+            "openclaw",
+            1_000_000 + u64::from(i) * 1_000,
+            Body::Imported {
+                text: text.into(),
+                integrity,
+                source: "openclaw-store".into(),
+                unit: format!("u{i}"),
+                sha256: "0".repeat(64),
+                idx: i,
+            },
+        )
+    };
+    let gone = msg(2, Integrity::Operator, "THE ERASED WORDS");
+    s.append(&[
+        msg(0, Integrity::Operator, "the owner's imported words")
+            .record()
+            .unwrap(),
+        msg(1, Integrity::Agent, "the agent's imported reply")
+            .record()
+            .unwrap(),
+        gone.record().unwrap(),
+        msg(3, Integrity::Outside, "A PASTED PAGE")
+            .record()
+            .unwrap(),
+    ])
+    .unwrap();
+    s.append(&[gone
+        .erased(2_000_000, "import.erase of a test")
+        .record()
+        .unwrap()])
+        .unwrap();
+    let got = session::open(&lens(&s, HERE), &sid, None).unwrap();
+    let t = &got.text;
+    assert!(t.contains(", imported,"), "{t}");
+    assert!(
+        t.contains("the owner\n\u{2502} the owner's imported words"),
+        "{t}"
+    );
+    assert!(
+        t.contains("an agent\n\u{2502} the agent's imported reply"),
+        "{t}"
+    );
+    assert!(!t.contains("THE ERASED WORDS"), "{t}");
+    assert!(!t.contains("A PASTED PAGE"), "{t}");
+    assert!(
+        t.contains("Left out: 1 imported message of outside text and 1 erased message."),
+        "{t}"
+    );
+    assert!(!got.outside, "no other person's words are shown");
+}
+
+/// A long session pages back by `before`, the position its page named: each page the newest that fit, the
+/// next page holding only what came before it, the first page's lines never repeated.
+#[test]
+fn a_long_session_pages_back_by_before() {
+    use super::session;
+    let (_d, s) = store();
+    let sid = "ses_long";
+    for i in 1..=40 {
+        put(
+            &s,
+            &Ex {
+                words: format!("message {i:02} {}", "x".repeat(600)),
+                ..ex(i, HERE, sid)
+            },
+        );
+    }
+    let l = lens(&s, HERE);
+    let first = session::open(&l, sid, None).unwrap().text;
+    assert!(first.contains("message 40"), "the newest: {first}");
+    assert!(!first.contains("message 01"), "{first}");
+    let token = first
+        .rsplit("before=")
+        .next()
+        .and_then(|t| t.strip_suffix('.'))
+        .unwrap();
+    let before: Cursor = serde_json::from_str(token).unwrap();
+    assert_eq!(before.turn_id, sid);
+    let second = session::open(&l, sid, Some(&before)).unwrap().text;
+    assert!(!second.contains("message 40"), "{second}");
+    let oldest_shown = (1..=40)
+        .find(|i| first.contains(&format!("message {i:02}")))
+        .unwrap();
+    assert!(
+        second.contains(&format!("message {:02}", oldest_shown - 1)),
+        "the page before the first: {second}"
+    );
+    let wrong = Cursor {
+        at_ms: before.at_ms,
+        turn_id: "ses_other".into(),
+    };
+    assert!(session::open(&l, sid, Some(&wrong)).is_err());
+}
+
+/// Through the tool: `open` of a session's id counts as an open and says it opened a session.
+#[tokio::test]
+async fn a_session_open_through_the_tool_counts_as_an_open() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let me = session(&r.core, None);
+    put(&r.core.store, &ex(1, HERE, &me));
+    let (b, pov) = (Board::default(), pov(HERE, Present::OwnerAlone));
+    let got = answer(&r.core, &b, (&me, "t"), &pov, &args(json!({"open": me})))
+        .await
+        .unwrap();
+    assert!(got.text.contains("message 1"), "{}", got.text);
+    assert_eq!(got.meta["session"], json!(true));
+    assert_eq!(got.meta["opens"], json!(1));
+}
