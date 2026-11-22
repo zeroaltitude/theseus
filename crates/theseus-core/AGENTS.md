@@ -304,8 +304,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `thread` and `project` kinds are seeded and their reader, from the thread and project records, is not built
   yet), and the turn's `Walk`, fixed with the request's spec.
   `compiler::compile` renders the guidance after the context files: an append composes the memberships its
-  manifest recorded, a recompile (or a ring) the current ones, so a membership change waits for the next recompile
-  and a guidance edit in play is one `system_changed`. The manifest records `memberships` and `guidance`. A shared
+  manifest recorded, a recompile (or a ring) the current ones; under the view a membership change applies at the
+  next turn. The manifest records `memberships` and `guidance`. A shared
   place composes only its own place's given memberships, and the place rule's admissions never read a membership.
   The methods are `rpc/ontology.rs` (`ontology.list`; the writes are `judge_act(Act::Ontology)`, the owner from a
   private place); the rows `fact/ontology.rs`. **Machine writes** (theseus-e3mjc; `rpc/ontology_machine.rs`, no
@@ -1215,7 +1215,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   hook's crash file beside the store, which the next start takes and health reports). The config template is
   `config/theseus.example.toml`, public, so it never carries a deployment's own values: a deployment's note holds
   only what differs from the defaults, and `config/sparse.rs` cuts a whole note to that (`theseusd config
-  --sparse`, theseus-vwar). `config/renamed.rs` is the one table of renamed keys, (old, new) paths, and `explain`, which turns the loader's unknown-field error for an old key into "`[model] max_loops_mode` was renamed to `[model] on_max_loops`" (naming the file); there is no alias, so a rename adds a row and a literal case in its tests (`CASES`, one per row), and the operator edits the file. `config/lookup.rs` finds the config when nothing names one (theseus-5aqz):
+  --sparse`, theseus-vwar). `config/retired_keys.rs` is the one table of the cut's retired keys (issue 44: `[context] assembly`, `ledger`, the keep-warm, stub, cold-resume and summary keys): each present one is taken out before the strict parse, warned of once, and named by health's "settings keys ignored"; `session.recompile` and `pending_recompile` are gone (old records read). `config/renamed.rs` is the one table of renamed keys, (old, new) paths, and `explain`, which turns the loader's unknown-field error for an old key into "`[model] max_loops_mode` was renamed to `[model] on_max_loops`" (naming the file); there is no alias, so a rename adds a row and a literal case in its tests (`CASES`, one per row), and the operator edits the file. `config/lookup.rs` finds the config when nothing names one (theseus-5aqz):
   `~/.theseus/theseus.toml` if it exists, else `/etc/theseus/theseus.toml`, which `scripts/setup.sh` writes.
 - **MCP servers** (M7 36b): `mcp/`. `McpBoard` tends each `[mcp.servers]` server (`config/mcp.rs`) after serving,
   never before: a stdio server through `children::spawn(Kind::Owned)` in its own process group (stderr to
@@ -2677,8 +2677,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`ToolRuntime::plan_moved`, in `harness_done`: a `task_create` or `task_close` of the model's is the same plan).
   `plan_present` and `plan_step` are in the deferred family **`plan`** (`tools_defer/family.rs`; in no place's defaults, so
   no first request carries them), loaded while the conversation is in plan mode: `deferral_in` adds the family to the
-  fresh choice, and entering `plan` (`session.mode`) asks for a recompile on the next turn (`request_recompile`,
-  `Transcript`), so the request that follows takes the fresh set, whatever the last compilation recorded. Both are
+  fresh choice, and the next turn's request takes the fresh set (the view builds it afresh). Both are
   harness tools in `run_harness` (`ToolRuntime::run_plan`), offered in private places only; neither is in the template's
   `[policy.tools]` (as `thread.note` is not). The mode is not offered in the tools note or the system prompt (a
   refusal's words and the tools' descriptions carry it). Tests: `tests_m3/modes.rs`, `task_graph/plan.rs`'s,

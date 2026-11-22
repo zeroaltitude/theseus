@@ -67,7 +67,7 @@ On a terminal, bare `theseus` (no argument) opens a conversation in this directo
   task's carve, and the totals. `theseus budgets`.
 - **`sessions`**: list sessions with token totals, or open one to continue. `theseus sessions`; `sessions --state` lists
   each session's execution instead (state, turns, outstanding actions, budget); `sessions explain ID` is one in full;
-  `sessions open`, `recompile`, `retire`, `reopen`, `nudge`.
+  `sessions open`, `retire`, `reopen`, `nudge`. (There is no `recompile`: every turn's request is built afresh.)
 
 ## Answering what waits
 

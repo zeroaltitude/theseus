@@ -1,15 +1,21 @@
 # Context compiled for each turn, not piled up
 
-*One page on the context compiler. Numbers come from the data files and checks it cites. Updated 2026-10-28.*
+*One page on the context compiler. Numbers come from the data files and checks it cites. Updated 2026-11-22.*
 
 ## What it is
 
-Most agents send the model a transcript that grows until it is cut. Theseus sends a request compiled from its store
-for this turn, and the conversation is only one part of it: the standing instructions and personas, the context files
-you listed, the guidance you wrote for the thread's topics, the conversation so far with a summary in place of what
-no longer fits, the notes recall found for this message in the order Jev put them, and, for a session attached to a
-project, the project's slice at the end. Every request has a manifest that names each node, file and summary that
-went in, so "why did it say that?" has an answer you can read.
+Most agents send the model a transcript that grows until it is cut. Theseus builds each turn's request afresh from
+its store, as the conversation's place may see it (the view, `docs/design/context-point-of-view.md`), and the
+conversation is only one part of it: the standing instructions and personas, the context files you listed, the
+guidance you wrote for the thread's topics, the place's recent exchanges with older ones folded into short lines, the
+notes recall found for this message in the order Jev put them, and, for a session attached to a project, the
+project's slice at the end. Every request has a manifest that names each node and file that went in, so "why did it
+say that?" has an answer you can read.
+
+There is nothing to set and nothing to recompile. The old way (a transcript kept across turns, cut by a ring,
+summarised by compaction, kept warm between turns) is gone, and so are the settings that tuned it: a settings file
+that still names one loads, says so once at startup, and `theseus health` lists it under "settings keys ignored".
+A change to what a session carries (a membership, guidance, a context file) applies at its next turn.
 
 ## How it works
 
@@ -18,15 +24,14 @@ went in, so "why did it say that?" has an answer you can read.
   personas' context files, the project layer (system context files and the guidance of the session's categories, a
   thread's topics among them), and the messages. Sessions and threads share their first layers byte for byte, so the
   cache is warm for all of them.
-- **A budget, and what was left out.** The compiler fits the layers to the place's budget
-  (`compiler/budget.rs`), compacts the conversation into a summary when it no longer fits (`compiler/compaction.rs`),
-  and records each drop with its reason. The spec is [§4.4 The context compiler](../spec/05-part1-s4.md#44-the-context-compiler)
+- **A budget, and what was left out.** The view fits its pieces to the turn's budget (`view/budget.rs`) and records
+  each drop with its reason. A long turn that outgrows the model's window clears its own old tool results and makes
+  room (`turn/view_step/room.rs`); one that still does not fit fails, saying so. Nothing is summarised. The spec is [§4.4 The context compiler](../spec/05-part1-s4.md#44-the-context-compiler)
   and [§4.5 Prompt caching layout](../spec/05-part1-s4.md#45-prompt-caching-layout).
 - **Recall's notes** go in the order Jev's rerank put them, each with its date and why it was recalled; a thread
   keeps other threads' notes out unless they are about the same subject ([It remembers everything](memory-across-sessions.md)).
 - **A project's slice.** `theseus project attach` ends every request with the project's goal, its open milestones
-  with their dates, its next steps, and the first of its "done when" lines, in at most 300 tokens, and the slice
-  survives compaction.
+  with their dates, its next steps, and the first of its "done when" lines, in at most 300 tokens.
 - **The manifest** names every block with its tokens and source, and `context.compiled` is persisted with the turn,
   so a request can be replayed and checked against the digest of what was sent.
 
@@ -42,9 +47,9 @@ went in, so "why did it say that?" has an answer you can read.
 
 - **Tests:** a request is three layers, a session block and the messages
   (`crates/theseus-core/src/compiler/tests_layers.rs`); threads and sessions share their first layers byte for
-  byte, and a thread's topics make its third layer (`crates/theseus-core/src/rpc/tests_thread_context.rs`); an
-  attached conversation keeps its project's slice through three compactions
-  (`crates/theseus-core/src/tests_projects.rs`); and `theseus why` prints a turn's route, recalls, drops and gated
+  byte, and a thread's topics make its third layer (`crates/theseus-core/src/rpc/tests_thread_context.rs`); a
+  settings file naming every retired key loads and names each (`crates/theseus-core/src/config/tests_retired_keys.rs`);
+  and `theseus why` prints a turn's route, recalls, drops and gated
   tools (`crates/theseus/tests/why.rs`).
 - **Live, on the owner's daemon** (2026-10-19): a session attached to a project quoted the project's goal and first
   "done when" line from its context, while `theseus why` listed the slice (2 lines, 177 tokens), five context files,

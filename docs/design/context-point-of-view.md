@@ -21,7 +21,7 @@ not findings; the shadow steps exist to fit them.
 section below says what was built and what was not; where a later section misstated the code, it now carries an
 **As built** paragraph. The owner's decisions in §15 are his words and are left as he gave them.
 
-## What is built, and what is not (2026-11-21)
+## What is built, and what is not (2026-11-22)
 
 **Nothing was run in shadow, and nothing in §10 has been measured.** The plan's order (a ledger, then the whole
 assembly in shadow beside today's, then one quiet place) was not followed. The ledger's measuring row is written
@@ -29,12 +29,19 @@ on every private turn, but no question of §10 has been answered from it: there 
 replay, no benchmark arm and no yardstick. The figures in Part Two are still estimates; none has been checked
 against a turn of the view.
 
-**The view is one setting per place, off by default.** `[context] assembly` is `"transcript"` or `"view"`, for
-every place or by place (`assembly = { default = "transcript", places = { "<place>" = "view" } }`), a place as the
-ledger writes it. Absent, every request is the transcript's, byte for byte as before (a golden test holds it). The
-view needs `[context] ledger` on (the default); a settings file that sets a place to `view` with the ledger off does
-not load. A task's turn has no place and is always the transcript's. There is no `shadow` value: a place is
-either the transcript's or the view's.
+**The view is the only way a conversation's request is built** (the owner, 2026-11-22: "the cut"). There is no
+setting: `[context] assembly`, which once chose between the view and the transcript by place, is retired, and so is
+`[context] ledger` (the ledger the view reads can no longer be switched off). A settings file that still names
+either loads, says so once at startup, and `theseus health` lists it under "settings keys ignored"; the same holds
+for every other key the cut retired (`config/retired_keys.rs`). A task's turns are the transcript's until tasks take
+the view.
+
+**What was deleted with it**: the hand-back plumbing (a turn was once handed back to the transcript for six
+reasons; none remains), the recall kept for a hand-back and admitted again after one, and `session.recompile`
+with its CLI verb, its cockpit control and plan mode's recompile (a changed system text starts a new chain at the
+next turn by itself). The rest of the old way (compaction and its summaries, the ring and the kept render, cold
+resume and stubs, keep-warm between turns, sent tails and thinking across turns, the place tail) goes in the
+same cut, each by its own lane. What a person does differently: nothing to set, nothing to recompile.
 
 **Nothing a view turn meets hands it back to the transcript.** A request over the budget is the view's to make
 room for (`turn/view_step/room.rs`): it clears the turn's old tool results to their stand-ins, then lowers slot G's
@@ -64,9 +71,9 @@ is sent: never a partial view. No `context.view_fallback` row is written.
 - **4, `did` lines and the ladder**, by a background job with its own daily line of spend
   (`docs/design/ladder.md`).
 - **5, recognition, in part**: topics per exchange, the `item` kind, the table of scoped names and a thing's card
-  (`docs/design/names.md`). In a place set to `view` it reaches the model as a thing's card (below).
-- **6 and 7, together**: the assembler went straight into the compiler, behind the setting above, with no shadow
-  run (`docs/design/view-compile.md`). The memory page, the record of what a turn was shown, `theseus view show`, and
+  (`docs/design/names.md`). It reaches the model as a thing's card (below).
+- **6 and 7, together**: the assembler went straight into the compiler, with no shadow run
+  (`docs/design/view-compile.md`); it is now the only way. The memory page, the record of what a turn was shown, `theseus view show`, and
   Theseus's own reading of its view (`look.theseus`) came with it (`docs/design/view-record.md`).
 - **8, in part**: a joined task's card; the change of objective without a card, built, its judge in shadow (§7).
 - **Ahead of the plan, by the same day's trims**: routing by a guess is gone (a message goes to a thread only by its
@@ -76,9 +83,8 @@ is sent: never a partial view. No `context.view_fallback` row is written.
   `docs/design/threads.md`). The retired importer's spend still counts toward the day's ceiling. Of the wire, the
   route pack `route.v10` is retired, and `profile.list` still sends `cleared: true` for each profile, for a cockpit
   page left open since before the upgrade.
-- **The view's hardening**: recall kept across a sent view call is admitted again item by item if the turn declines;
-  a floor too large for the view's budget fails the turn on the core overage; and after all of a call's
-  preparation, before every send, the view is checked against the gate again (§5.1, §4).
+- **The view's hardening**: a floor too large for the view's budget fails the turn on the core overage; and after
+  all of a call's preparation, before every send, the view is checked against the gate again (§5.1, §4).
 - **The preview**: `theseus view preview PLACE` shows what the place's next turn would be given, by the turn's own
   assembler, without calling a model or writing anything (§5.1).
 
@@ -100,7 +106,7 @@ come only from that mark, and a message has a mark only if it was submitted afte
 session's binding is where it posts now, not proof of where a message arrived or who typed it. So **unmarked
 history from before the owner's mark has no proven place**: its rebuilt exchanges are of place `unknown` with no
 person, and no place's window, ladder or history tool holds them. Before the rebuild, such history is out of the
-view's reach, and the turn takes the view all the same. The rebuild erases nothing: a view place keeps every exchange
+view's reach, and the turn takes the view all the same. The rebuild erases nothing: a place keeps every exchange
 that was written as it happened or carries a mark, and only its unmarked older history is out of its reach. No mark
 is ever made backwards.
 
