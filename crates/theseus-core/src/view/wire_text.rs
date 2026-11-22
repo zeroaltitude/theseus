@@ -315,7 +315,8 @@ fn recall_preamble(moving: &mut Vec<MarkedBlock>) {
 /// What a bare floor cut of the newest exchanges here, said first beside the message (after a provider refused a
 /// request of the turn for its size, `turn::view_step::room`): `[N more of the newest exchanges here, about T
 /// tokens, left out; open HANDLE]` (`blocks::residue_line`), the handle the newest exchange cut. A floor is cut
-/// only there, so an ordinary view has no such line.
+/// only there, so an ordinary view has no such line. A line that would cost as much as what it stands for is not
+/// said: the bare floor is there to send a smaller request than the refused one.
 fn floor_left_out(moving: &mut Vec<MarkedBlock>, view: &View) {
     use super::budget::{DropWhy, Residue};
     use super::select::Band;
@@ -334,6 +335,9 @@ fn floor_left_out(moving: &mut Vec<MarkedBlock>, view: &View) {
     let Some(text) = blocks::residue_line(&r, &newest.handle) else {
         return;
     };
+    if super::text::tokens(&text) >= r.tokens {
+        return;
+    }
     moving.insert(
         0,
         MarkedBlock {
