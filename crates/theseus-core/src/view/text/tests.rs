@@ -896,6 +896,10 @@ fn the_memory_page_names_what_it_must() {
         "make the call again",
         "look.theseus",
         "opens any handle",
+        // Version 4 (2026-11-22): nothing is withheld by place, so the page no longer promises it.
+        "you see this place alone",
+        "always there",
+        "Where the owner is alone",
     ] {
         assert!(
             !MEMORY_PAGE.contains(never),

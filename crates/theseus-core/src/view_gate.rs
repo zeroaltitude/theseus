@@ -1,8 +1,8 @@
 //! The gate (issue 44; the design note is `docs/design/view-gate.md`). Anything goes (2026-11-22): nothing
 //! is withheld from a model request because of who is present, where it is, a seal, a move or a veil. What
 //! is left here is the rule's one caller ([`Gate::check`]), the seal and move readers' pass-throughs until
-//! their callers go, recall's places (every turn reads every place, [`RecallPlaces`]), and each turn's point
-//! of view ([`Verified`]): the widest, at its own anchor.
+//! their callers go, and each turn's point of view ([`Verified`]): the widest, at its own anchor. Recall reads
+//! every place for every turn; nothing here narrows it.
 //!
 //! The one reading of who is present that stays is authority, not privacy: whether the owner typed a
 //! message in person at a surface he can be alone at, which a task's objective change requires. It lives
@@ -128,57 +128,6 @@ pub fn standing_held<'r>(
         })
         .map(|(id, _)| id.to_string())
         .collect()
-}
-
-/// How recall reads places for one asker: every asker reads every place (anything goes, 2026-11-22); it is
-/// never narrowed. Kept for its callers until the sweep.
-#[derive(Clone, Debug, Default)]
-pub struct RecallPlaces {
-    own: Option<String>,
-    channel: bool,
-}
-
-impl RecallPlaces {
-    /// The places recall reads for a turn of `asker`: every place (anything goes, 2026-11-22).
-    pub fn of(_runner: &TurnRunner, _asker: Option<&str>) -> Self {
-        Self::default()
-    }
-
-    /// The channel bound private the asker speaks in, when it does.
-    pub fn channel(&self) -> Option<&str> {
-        self.own.as_deref().filter(|_| self.channel)
-    }
-
-    /// The one place the asker draws on, when it is narrowed.
-    pub fn narrowed(&self) -> Option<&str> {
-        self.own.as_deref()
-    }
-
-    /// The asker's own place, read as recall reads it: the widest, so that it draws on every place
-    /// (anything goes, 2026-11-22).
-    pub fn asker(&self, _today: Place) -> Place {
-        Place::Private
-    }
-
-    /// `session`'s place, read as recall reads it for this asker.
-    pub fn of_session(&self, runner: &TurnRunner, session: &str) -> Place {
-        let today = runner.place_of(session);
-        match &self.own {
-            Some(own)
-                if today == Place::Private
-                    && place_name(runner, session).as_deref() == Some(own) =>
-            {
-                Place::Shared(own.clone())
-            }
-            _ => today,
-        }
-    }
-
-    /// Whether a reader in this asker may read `session` whole: any session
-    /// unless the asker is narrowed, when only its own place's.
-    pub fn may_read(&self, _runner: &TurnRunner, _session: &str) -> bool {
-        true
-    }
 }
 
 /// The point of view of one turn, for the view's gate: made here alone, the widest at the turn's own
