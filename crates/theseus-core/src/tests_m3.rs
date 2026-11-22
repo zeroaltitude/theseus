@@ -714,10 +714,15 @@ async fn proc_run_returns_in_turn_and_a_slow_one_comes_back_later_as_a_late_resu
     let ks = kinds(&r.core, &res.session_id);
     assert!(ks.contains(&"tool_result:ok:late".to_string()), "{ks:?}");
     let last = r.fake.requests().pop().unwrap();
-    let late = last.messages.last().unwrap()["content"][0]["text"]
-        .as_str()
+    // The view leads a turn no message opened with its occasion's line, beside the late result: every text
+    // block of the last message (issue 44).
+    let late = (last.messages.last().unwrap()["content"]
+        .as_array()
         .unwrap()
-        .to_string();
+        .iter())
+    .filter_map(|b| b["text"].as_str())
+    .collect::<Vec<_>>()
+    .join("\n");
     assert!(
         late.contains("Background result") && late.contains("slow done"),
         "{late}"
@@ -6273,8 +6278,11 @@ mod parallel {
         assert_eq!(again.tool_calls, 7);
         let reqs = r.fake.requests();
         assert_eq!(reqs.len(), 4);
-        assert_eq!(reqs[3].messages, reqs[1].messages);
-        assert_eq!(reqs[3].digest(), reqs[1].digest());
+        // A new session at the same place: the view lays the place's earlier exchange before the turn's own
+        // (issue 44), so the turn's own messages are the same, byte for byte, and so is everything else.
+        let own = &reqs[3].messages[reqs[3].messages.len() - reqs[1].messages.len()..];
+        assert_eq!(own, &reqs[1].messages[..]);
+        assert_eq!(reqs[3].system, reqs[1].system);
         let written = labels(&r.core, &again.session_id);
         let results: Vec<&String> = written.iter().filter(|l| l.starts_with("result")).collect();
         let in_order: Vec<String> = order.iter().map(|id| format!("result {id}")).collect();
