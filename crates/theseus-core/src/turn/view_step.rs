@@ -337,10 +337,8 @@ impl TurnRunner {
         };
         let since = crate::ladder::new_mark(store, &place)?;
         // Read where a turn has always read it: after the clock and the `/new` mark.
-        let (asked, message) = match given {
-            Some(text) => (None, text),
-            None => message_of(store, sid, turn)?,
-        };
+        let (asked, message) =
+            given.map_or_else(|| message_of(store, sid, turn), |text| Ok((None, text)))?;
         let verified_pov = verified.pov().clone();
         let permit = Permit::of(verified);
         let read = Sessions::default();
@@ -401,8 +399,6 @@ impl TurnRunner {
         let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
         sessions.extend(gated.sessions.borrow().iter().cloned());
         let exchanges = laid_exchanges(&window, turn, &gated.exchanges.borrow(), &a);
-        sessions.sort();
-        sessions.dedup();
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
         let frozen = Frozen {
@@ -411,7 +407,7 @@ impl TurnRunner {
             front: front.map(block).collect(),
             window,
             stripped: HashSet::new(),
-            sessions,
+            sessions: sorted(sessions),
             exchanges,
             verified: Some(verified_pov),
             beside: a.parts.beside.as_ref().map(block),
@@ -602,6 +598,13 @@ impl crate::view::fold::Ladder for GatedLadder<'_> {
         read.nodes = kept;
         Ok(read)
     }
+}
+
+/// `v` in order, each once.
+fn sorted(mut v: Vec<String>) -> Vec<String> {
+    v.sort();
+    v.dedup();
+    v
 }
 
 /// Every exchange a view lays or folds, once each: the window's (but `turn`'s own), the kept folds'
