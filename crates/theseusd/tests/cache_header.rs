@@ -226,12 +226,31 @@ fn header_fields_of_a_task(req: &Value) -> Value {
     m
 }
 
-/// The first request among `raw` whose first user message `pick` takes.
-fn first_request(raw: &[Vec<u8>], what: &str, pick: &dyn Fn(&str) -> bool) -> (Vec<u8>, Value) {
+/// The first request among `raw` whose `text` (its first or its last user message) `pick` takes.
+fn first_request(
+    raw: &[Vec<u8>],
+    what: &str,
+    (text, pick): (fn(&Value) -> String, &dyn Fn(&str) -> bool),
+) -> (Vec<u8>, Value) {
     raw.iter()
         .map(|b| (b.clone(), parsed(b)))
-        .find(|(_, v)| pick(&first_text(v)))
+        .find(|(_, v)| pick(&text(v)))
         .unwrap_or_else(|| panic!("no first request of {what} among {}", raw.len()))
+}
+
+/// The last user message's text: a session's own message. The view lays the place's earlier exchanges, of
+/// another session too, before it (issue 44), so a session's first request is known by its last message.
+fn last_text(req: &Value) -> String {
+    let last = (req["messages"].as_array().into_iter().flatten()).rfind(|m| m["role"] == "user");
+    match last.map(|m| &m["content"]) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Array(blocks)) => blocks
+            .iter()
+            .filter_map(|b| b["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
 }
 
 fn text(block: &Value) -> &str {
@@ -252,10 +271,12 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
             .cloned()
     });
     let raw = r.model.raw_requests();
-    let first = |what: &str, pick: &dyn Fn(&str) -> bool| first_request(&raw, what, pick);
-    let (a_raw, a) = first("the first session", &|t| t.contains(START));
-    let (b_raw, b) = first("the second session", &|t| t.contains(OTHER));
-    let (t_raw, t) = first("the task", &|t| t.contains(BRIEF));
+    let first = |what: &str, pick: (fn(&Value) -> String, &dyn Fn(&str) -> bool)| {
+        first_request(&raw, what, pick)
+    };
+    let (a_raw, a) = first("the first session", (last_text, &|t| t.contains(START)));
+    let (b_raw, b) = first("the second session", (last_text, &|t| t.contains(OTHER)));
+    let (t_raw, t) = first("the task", (first_text, &|t| t.contains(BRIEF)));
     assert_ne!(a_raw, b_raw);
     assert_ne!(a_raw, t_raw);
 
@@ -426,7 +447,11 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
     .unwrap();
     r.turn(profile, "third", EDITED);
     let raw = r.model.raw_requests();
-    let (_, e) = first_request(&raw, "the session after the edit", &|t| t.contains(EDITED));
+    let (_, e) = first_request(
+        &raw,
+        "the session after the edit",
+        (last_text, &|t| t.contains(EDITED)),
+    );
     let edited = e["system"].as_array().unwrap();
     assert_eq!(edited.len(), 4, "{profile}: {}", bytes(&e["system"]));
     assert!(

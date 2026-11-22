@@ -1117,7 +1117,9 @@ impl Journey {
         turn("first");
         let plain = turn("a plain turn");
         let frames = plain["trace"]["attrs"]["frames"].as_u64().unwrap();
-        assert!(frames <= 4, "h9tu1 6: a plain turn wrote {frames} frames");
+        // Five: the exchange's opening (its mark, its record, its touches) has a frame of its own, because the
+        // view reads the exchange ledger while it assembles, before the turn's next frame (issue 44).
+        assert!(frames <= 5, "h9tu1 6: a plain turn wrote {frames} frames");
         let delays = self.watcher.delays();
         assert!(delays.len() >= 20, "h9tu1 6: {} changes seen", delays.len());
         let p = p95(&delays);
