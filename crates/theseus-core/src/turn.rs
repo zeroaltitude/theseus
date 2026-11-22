@@ -1948,7 +1948,12 @@ impl TurnRunner {
                     self.tails.finish(t.tc.session_id, &mut c, t.tail.take());
                     Some(c)
                 }
-                Err(f) if !t.route.held => return Ok(Next::Fail(f)),
+                // A request that could not be made smaller than the one the provider refused for its
+                // size: the window's failure, in its words (nothing earlier could be dropped).
+                Err(f) if !t.route.held => match (&overflow, f.class == WINDOW_CLASS) {
+                    (Some(o), true) => return Ok(Next::Fail(Self::window_failure(t, o, false))),
+                    _ => return Ok(Next::Fail(f)),
+                },
                 Err(_) => None,
             };
             // A reach for the owner's personal details in a shared place: the

@@ -183,6 +183,7 @@ mod tests {
             provider_window: u64::MAX,
             reserve: 0,
             floor_only: false,
+            bare: false,
         };
         let v = fit(&pov, pieces, &budget).expect("no floor here");
         let shown: Vec<(&str, Form, u64)> = (v.shown.iter())

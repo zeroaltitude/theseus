@@ -11,7 +11,12 @@
 //! 3. A provider that refused a request of the turn for its size: its stated maximum, read at Theseus's
 //!    estimate (scaled by how far its count ran over the estimate), is the window for the rest of the turn,
 //!    and 1 and 2 run under it until the request is also smaller than the refused one.
-//! 4. The floor alone: every optional piece gone, rendered and measured as it will be sent.
+//! 4. The floor alone: every optional piece gone, rendered and measured as it will be sent. After a provider
+//!    refused a request of the turn for its size, and the floor is not smaller than the refused request (or
+//!    does not fit the window the refusal stated), the bare floor: the turn's message and the fixed blocks,
+//!    the window's exchanges gone too, measured against the catalog's window and the refused request alone.
+//!    A smaller request exists, so it is sent; the provider says whether it fits (a second refusal fails the
+//!    turn, `turn::model_call::overflowed`).
 //! 5. Then the newest exchange's own results, largest first, laid as their head with one line saying so,
 //!    until the request fits: the last step, never the first (clearing keeps the newest results whole).
 //! 6. Only then the call goes back over its budget, and the compile step fails the turn before anything is
@@ -112,6 +117,22 @@ impl TurnRunner {
             Self::view_reset(t, input.nodes);
             compiled = rendered(t, input)?;
         }
+        // After a refusal, a smaller request than the refused one is sent whenever one exists.
+        if input.overflowed.is_some() && (floored(t) || !fits(t, &compiled)) {
+            let bare = Room {
+                here: Some(0),
+                keep: Some(0),
+                reserve: false,
+                floor_only: true,
+                bare: true,
+                window: None,
+                ..last
+            };
+            compiled = self.view_room(t, input, bare)?;
+            if fits(t, &compiled) {
+                return Ok(compiled);
+            }
+        }
         if !floored(t) {
             let fit = t.view.as_ref().map(|f| f.fit).unwrap_or_default();
             over_by(&mut compiled, fit);
@@ -195,6 +216,7 @@ impl TurnRunner {
                 here_allowance: 0,
                 provider_window: window,
                 floor_only: true,
+                bare: room.bare,
                 ..b
             };
         }

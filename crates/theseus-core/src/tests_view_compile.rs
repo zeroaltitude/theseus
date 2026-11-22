@@ -691,7 +691,7 @@ async fn a_view_over_its_budget_fails_on_its_overage_and_is_never_handed_back() 
         .await
         .expect_err("past the window");
     let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
-    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
+    assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
     assert_eq!(crate::test_support::rows(c, "context.overage").len(), 1);
     assert!(
@@ -839,7 +839,7 @@ async fn a_view_call_refused_for_size_with_nothing_to_clear_fails_plainly() {
     let sid = session_in(c, None, &r.root);
     let err = submit(c, &sid, ASKED).await.expect_err("past the window");
     let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
-    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
+    assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     let asked: Vec<ProviderRequest> = (r.requests().into_iter())
         .filter(|q| !q.tools.is_empty() && texts(q).contains(ASKED))
         .collect();
@@ -860,7 +860,7 @@ async fn a_floor_too_large_for_the_view_fails_on_its_overage() {
     let huge = "enormous ".repeat(1_500_000);
     let err = submit(c, &sid, &huge).await.expect_err("past the window");
     let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
-    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
+    assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     let said = format!("{err:#}");
     assert!(
         said.contains("does not fit") && said.contains("Nothing was sent"),
