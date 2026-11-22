@@ -314,7 +314,10 @@ async fn the_live_sessions_next_turn_carries_the_note_once() {
     let c = &r.core;
     let (_, x) = plant(c);
     let a = asker(c, "What port does the Kestrel relay use?").await;
-    let s = asker(c, "Which port is the Kestrel relay on, again?").await;
+    // s asks at another place: a window lays its own place's exchanges, so a's (with its correction note)
+    // is not in s's request, and what s gets of the correction is only what is s's own.
+    let s = session(c, Some(DM), &[]);
+    turn(c, &s, "Which port is the Kestrel relay on, again?").await;
     let (_, a_rcl) = recall_of(c, &a);
     let (_, s_rcl) = recall_of(c, &s);
     used(c, &a, &a_rcl, &x, true);

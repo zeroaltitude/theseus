@@ -867,7 +867,9 @@ async fn a_correction_supersedes_the_fact_and_recall_prefers_it() {
     );
     c.runner.memory.set_ask(index_of(c, vec![]));
     let fact = c.store.session_nodes(&a).unwrap()[0].1.clone();
-    let b = session(c, None, &[]);
+    // B speaks at another place: C's window lays its own place's exchanges, so what C's turn has of the
+    // correction is recall's, which reads every place.
+    let b = session(c, Some("discord:dm:5150"), &[]);
     let said = "Correction: Larkspur's staging port is 8082, not 8081.";
     r.model
         .script
