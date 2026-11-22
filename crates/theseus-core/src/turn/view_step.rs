@@ -352,13 +352,12 @@ impl TurnRunner {
         let read = Sessions::default();
         let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
         let moved_read = crate::view_gate::Moved::read(self, Some(sid));
-        let moved = |e: &crate::exchange::Exchange| moved_read.holds(e);
         let sources = StoreSources {
             store,
             mark: since.clone().map(|m| (place.as_str(), m)),
             recalled,
             sealed: &held,
-            moved: &moved,
+            moved: &|e: &crate::exchange::Exchange| moved_read.holds(e),
             sessions: &read,
         };
         // One read of the ladder for the whole assembly: every selector, the text and the window see it.
@@ -367,7 +366,7 @@ impl TurnRunner {
             inner: &store_ladder,
             store,
             held: &held,
-            moved: &moved,
+            moved: &|e: &crate::exchange::Exchange| moved_read.holds(e),
             sessions: Default::default(),
             exchanges: Default::default(),
         };

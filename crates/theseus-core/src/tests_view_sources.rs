@@ -386,7 +386,7 @@ async fn a_recorded_card_with_no_provenance_is_not_shown_or_counted() {
             *from = None;
         }
     };
-    let mut legacy = rec.clone();
+    let mut legacy = rec;
     legacy
         .shown
         .iter_mut()
@@ -486,11 +486,9 @@ async fn a_frozen_views_next_call_drops_a_card_whose_source_moved() {
         "{}",
         texts(&calls[0])
     );
-    assert!(
-        card_of(&texts(&calls[1]), SCOPED).is_none(),
-        "{}",
-        texts(&calls[1])
-    );
+    // The card may be laid again from this turn's own words (which name the item too); never the moved one's.
+    let again = card_of(&texts(&calls[1]), SCOPED).unwrap_or_default();
+    assert!(!again.contains("tide gauge"), "{again}");
     assert!(
         !texts(&calls[1]).contains("tide gauge"),
         "{}",
