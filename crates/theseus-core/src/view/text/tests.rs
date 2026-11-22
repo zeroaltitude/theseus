@@ -884,6 +884,7 @@ fn the_memory_page_names_what_it_must() {
         "receipts",
         "reply not summarised",
         "exactly one thing in view",
+        "In company",
         "a wake or a task",
         "open it before relying on a number, a name",
         "what this turn was shown",
@@ -895,7 +896,13 @@ fn the_memory_page_names_what_it_must() {
         "make the call again",
         "look.theseus",
         "opens any handle",
-        "In company",
+        // Version 4 (2026-11-22): nothing is withheld by place, so the page no longer promises it.
+        "you see this place alone",
+        "always there",
+        "Where the owner is alone",
+        // Round 2: a tool ceiling can leave the history tool out, and the owner-session wall is live.
+        "is in every place",
+        "In a private place, your settings",
     ] {
         assert!(
             !MEMORY_PAGE.contains(never),
