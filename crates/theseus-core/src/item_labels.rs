@@ -133,7 +133,7 @@ impl ItemLabels {
     pub fn removal<'a>(&'a self, f: Flag, r: Reading<'a>) -> Option<(&'a str, &'a str)> {
         let own = (self.removed.iter().rev()).find(|x| x.flag == f && x.session == r.session);
         if let Some(x) = own {
-            return Some((&x.by, &x.via));
+            return Some((x.by.as_str(), x.via.as_str()));
         }
         if !self.kind.on_session() {
             return None;

@@ -562,13 +562,7 @@ impl JudgeService {
     ) -> Result<Batch, Unasked> {
         // A batch of replies (they are drained apart from inputs) is asked only under the reply's share of
         // the day: over it, nothing is reserved and each reply is recorded `refused`.
-        let replies = items.iter().all(|i| i.kind == ItemKind::Reply);
-        if replies
-            && !reply_may_ask(
-                self.budget.today(&self.store, today).spent_micros,
-                self.budget.limit_micros(),
-            )
-        {
+        if self.replies_refused(items, today) {
             return Err(Unasked::Refused);
         }
         let scrub = ScrubWith(self.scrubber.clone());
@@ -666,6 +660,13 @@ impl JudgeService {
             need,
             beside,
         })
+    }
+
+    /// Whether `items` is a batch of replies past the reply's share of the day ([`reply_may_ask`]).
+    fn replies_refused(&self, items: &[ContentItem], today: &str) -> bool {
+        let replies = items.iter().all(|i| i.kind == ItemKind::Reply);
+        let spent = self.budget.today(&self.store, today).spent_micros;
+        replies && !reply_may_ask(spent, self.budget.limit_micros())
     }
 
     /// The batch's write, one frame: each item's rows and each label raised,
