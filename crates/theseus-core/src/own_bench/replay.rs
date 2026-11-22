@@ -118,24 +118,8 @@ pub fn carries_attachment(v: &Value) -> bool {
     }
 }
 
-/// Why a replay to another provider is refused once anything was sealed, moved or withdrawn after the turn
-/// began (`Core::changed_since`).
-pub const CHANGED: &str = "something was sealed, moved or withdrawn after this turn; a replay to another \
-                           provider cannot check what the turn's words carried, so it stays with its own \
-                           provider";
-/// Why, when that cannot be read.
-pub const CHANGED_UNREAD: &str =
-    "whether anything was sealed, moved or withdrawn after this turn cannot be \
-                                  read, so a replay of it stays with its own provider";
-
-/// The ledger's kinds a seal, a move into a thread, or a proposed seal writes.
-const CHANGES: [theseus_protocol::LedgerKind; 5] = [
-    theseus_protocol::LedgerKind::ThreadSealed,
-    theseus_protocol::LedgerKind::ThreadSealProposed,
-    theseus_protocol::LedgerKind::ThreadSplit,
-    theseus_protocol::LedgerKind::ThreadMerged,
-    theseus_protocol::LedgerKind::ThreadMoved,
-];
+/// Why a turn built from a view is not replayed to another provider: no rule for what may cross held.
+pub const VIEW_HOME: &str = "a turn built from a view is replayed only with its own provider";
 
 impl Core {
     /// `turn.replay`: the owner's run, from a private place.
@@ -165,12 +149,6 @@ impl Core {
     /// source session is an imported episode labelled `personal` or
     /// `partner-confidential`; any image or document block in the rebuilt
     /// messages. The same provider as the original's sends nothing new.
-    ///
-    /// A view turn's sources are what its record named, read once with the
-    /// view (`Original::laid`): every session it laid and the session of every
-    /// node its recall laid. Fail closed: a view turn with no provenance, a
-    /// recalled node that cannot be read, or a session whose record (its
-    /// labels) cannot be read refuses the crossing; none is skipped.
     pub(crate) fn crossing(&self, original: &Original, to_provider: &str) -> Option<String> {
         if original.compilation.manifest.provider == to_provider {
             return None;
@@ -183,37 +161,23 @@ impl Core {
         {
             return Some("its thread is sealed".into());
         }
-        match self.changed_since(original.started_ms) {
-            Ok(false) => {}
-            Ok(true) => return Some(CHANGED.into()),
-            Err(_) => return Some(CHANGED_UNREAD.into()),
-        }
-        let veiled = |r: Option<crate::session::SessionRecord>| {
-            let i = r.and_then(|r| r.imported)?;
-            let label = i.labels.sensitivity;
-            crate::memory_lookup::VEILED
-                .contains(&label.as_str())
-                .then(|| format!("its recall carries a {label} source"))
-        };
-        for source in noted(original) {
-            let rec = self.store.get_session(&source).ok().flatten();
-            if let Some(why) = veiled(rec) {
-                return Some(why);
-            }
-        }
-        match self.view_sources(original) {
-            Err(why) => return Some(why),
-            Ok(sessions) => {
-                for source in sessions {
-                    match self.store.get_session(&source) {
-                        Ok(Some(rec)) => {
-                            if let Some(why) = veiled(Some(rec)) {
-                                return Some(why);
-                            }
-                        }
-                        Ok(None) | Err(_) => {
-                            return Some("a source its view laid cannot be read".into());
-                        }
+        for (_, n) in &original.nodes {
+            let Body::Recall { items, .. } = &n.body else {
+                continue;
+            };
+            for it in items {
+                let imported = self
+                    .store
+                    .get_session::<crate::session::SessionRecord>(&it.session_id)
+                    .ok()
+                    .flatten()
+                    .and_then(|r| r.imported);
+                if let Some(i) = imported {
+                    if crate::memory_lookup::VEILED.contains(&i.labels.sensitivity.as_str()) {
+                        return Some(format!(
+                            "its recall carries a {} source",
+                            i.labels.sensitivity
+                        ));
                     }
                 }
             }
@@ -221,59 +185,11 @@ impl Core {
         if original.request.messages.iter().any(carries_attachment) {
             return Some("its request carries an attachment".into());
         }
+        // A turn built from a view goes to no other provider (after the above, which keep their words).
+        if original.view.is_some() {
+            return Some(VIEW_HOME.into());
+        }
         None
-    }
-
-    /// Whether anything was sealed (or a seal proposed), moved into a thread (a split, a merge, a thread
-    /// moved) or a release withdrawn at or after `since_ms`, anywhere in the store: one page of one row of
-    /// each such kind from the ledger's kind index, and the withdrawals' own records (a withdrawal writes no
-    /// row). Whole-store on purpose: it needs no provenance. Any read that fails is an error, which refuses.
-    fn changed_since(&self, since_ms: u64) -> anyhow::Result<bool> {
-        for kind in CHANGES {
-            let page = theseus_store::Page {
-                kind: theseus_store::kinds::LEDGER,
-                tags: crate::rpc::ledger_tags(Some(kind.as_str()), None),
-                after: Some(0),
-                before: None,
-                since_ms: Some(since_ms),
-                until_ms: None,
-                limit: 1,
-            };
-            let got = (self.store.ledger_page(&page)?)
-                .ok_or_else(|| anyhow::anyhow!("the ledger's index is still being built"))?;
-            // A row whose read is refused is left out of `records` but still has a position: it counts.
-            if !got.records.is_empty() || got.first.is_some() {
-                return Ok(true);
-            }
-        }
-        let releases = crate::release::all(&self.store)?;
-        // `release::all` reads at most this many: past it, a withdrawal could be among those unread.
-        if releases.len() >= crate::release::ALL_READ {
-            anyhow::bail!("more releases than one read holds");
-        }
-        Ok((releases.into_iter()).any(|(_, end)| end.is_some_and(|e| e.at_ms >= since_ms)))
-    }
-
-    /// The sessions a view turn laid, as its record named them (`Original::laid`): every session of the view
-    /// and the session of each node its recall laid. None for a transcript's turn; an error, in the
-    /// crossing's words, for a view turn without its provenance or with a recalled node that cannot be read.
-    fn view_sources(&self, original: &Original) -> Result<Vec<String>, String> {
-        if original.compilation.strategy != crate::compiler::view::STRATEGY {
-            return Ok(Vec::new());
-        }
-        let Some(k) = original.laid.as_ref() else {
-            return Err("what its view laid cannot be read".into());
-        };
-        let mut all = k.sessions.clone();
-        for id in &k.recalled {
-            match self.store.get_node(id) {
-                Ok(Some((_, n))) => all.push(n.session_id),
-                Ok(None) | Err(_) => return Err("a node its recall laid cannot be read".into()),
-            }
-        }
-        all.sort_unstable();
-        all.dedup();
-        Ok(all)
     }
 
     /// One turn's first loop replayed on `p.profile`, judged, and written as
@@ -543,14 +459,4 @@ impl Core {
             Err(why) => result.unjudged = Some(why),
         }
     }
-}
-
-/// The sessions of `original`'s recall notes' items (a transcript's turn's recall).
-fn noted(original: &Original) -> Vec<String> {
-    (original.nodes.iter())
-        .flat_map(|(_, n)| match &n.body {
-            Body::Recall { items, .. } => items.iter().map(|it| it.session_id.clone()).collect(),
-            _ => Vec::new(),
-        })
-        .collect()
 }

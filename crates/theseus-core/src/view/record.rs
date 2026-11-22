@@ -95,6 +95,13 @@ pub struct Room {
     /// The window a provider stated when it refused a request of the turn for its size, read at Theseus's
     /// estimate.
     pub window: Option<u64>,
+    /// This assembly reserves what the turn's requests carry beyond the view (slot G is being lowered, after
+    /// clearing); the turn's own working state, not recorded.
+    #[serde(skip)]
+    pub reserve: bool,
+    /// This assembly is the floor alone (the last before an overage); not recorded.
+    #[serde(skip)]
+    pub floor_only: bool,
 }
 
 impl Room {

@@ -41,13 +41,11 @@ mod tests_sampler;
 #[cfg(test)]
 mod tests_view;
 #[cfg(test)]
-mod tests_view_carried;
-#[cfg(test)]
-mod tests_view_changed;
-#[cfg(test)]
-mod tests_view_crossing;
-#[cfg(test)]
 mod tests_view_front;
+#[cfg(test)]
+mod tests_view_import;
+#[cfg(test)]
+mod tests_view_provider;
 #[cfg(test)]
 mod tests_view_refused;
 #[cfg(test)]

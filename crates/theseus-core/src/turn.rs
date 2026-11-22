@@ -1963,8 +1963,10 @@ impl TurnRunner {
             };
             if let Some(o) = overflow.take() {
                 // The ring dropped nothing, so the same request would pass the
-                // window again: the turn fails without the call.
-                if compiled.digest == o.digest {
+                // window again: the turn fails without the call. A view's retry
+                // is judged on its finished size instead (`view_step::room`): a
+                // smaller finish under the same compile is a smaller request.
+                if compiled.digest == o.digest && t.view.is_none() {
                     return Ok(Next::Fail(Self::window_failure(t, &o, false)));
                 }
                 retrying = Some(o);

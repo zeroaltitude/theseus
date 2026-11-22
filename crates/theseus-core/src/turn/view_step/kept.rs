@@ -33,17 +33,35 @@ pub(in crate::turn) fn record_kept(t: &mut Turn<'_>, compiled: &Compiled) {
 /// The chain `f` begins: its texts queued with the turn's system blocks (written on the blocking pool in
 /// the frame-free batch `compile_step::keep_blocks` starts, never in a frame of their own), each once, and
 /// the digests for its view record. None when a part does not serialize: the turn goes on, and a replay of
-/// it is refused in words.
+/// it is refused in words. None too, with nothing queued, when its recall laid anything of an imported
+/// session ([`recalled_import`]): the replay cache keeps no copy of an import's words, which its erasure
+/// must leave nowhere; that turn's replay is refused as one that kept nothing.
 fn chain_kept(store: &Store, keeping: &mut Keeping, f: &Frozen) -> Option<Kept> {
+    if recalled_import(store, f) {
+        return None;
+    }
     let (k, texts) = kept(f)?;
     let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
     keeping.add(crate::compiler::cache::fresh(store.blobs(), &texts));
     Some(k)
 }
 
+/// Whether a node `f`'s recall laid is of an imported session: by its id, or by its session's record; a
+/// session whose record cannot be read counts as one.
+fn recalled_import(store: &Store, f: &Frozen) -> bool {
+    (f.recalled.iter()).any(|r| {
+        crate::import::is_imported(&r.session_id)
+            || !matches!(
+                store.get_session::<crate::session::SessionRecord>(&r.session_id),
+                Ok(Some(rec)) if rec.imported.is_none()
+            )
+    })
+}
+
 /// Whether the gate of now, for a reader in `asker`, holds anything a view laid: a session sealed or not
 /// proven clear; an exchange that is gone or holds a message moved into a thread not proven clear; a node
-/// its recall laid (`recalled`) that is gone, or sealed by its session or by where it was moved.
+/// its recall laid (`recalled`) that is gone or erased (`Body::Erased`), or sealed by its session or by
+/// where it was moved.
 pub(crate) fn held_now(
     runner: &TurnRunner,
     asker: &str,
@@ -72,6 +90,8 @@ fn recall_held(runner: &TurnRunner, asker: &str, recalled: &[String]) -> bool {
         return true;
     };
     recalled.iter().any(|id| match runner.store.get_node(id) {
+        // Erased since (an import's erasure, or another path): its words must not be sent again.
+        Ok(Some((_, n))) if matches!(n.body, crate::node::Body::Erased { .. }) => true,
         Ok(Some((_, n))) => {
             let seal =
                 crate::view_gate::node_seal(&runner.store, &board, Some(asker), &n.session_id, id);

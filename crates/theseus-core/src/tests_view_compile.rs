@@ -856,7 +856,8 @@ async fn a_floor_too_large_for_the_view_fails_on_its_overage() {
     let r = view_rig();
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
-    let huge = "enormous ".repeat(150_000);
+    // Larger than the model's whole window: the floor alone cannot be sent.
+    let huge = "enormous ".repeat(1_500_000);
     let err = submit(c, &sid, &huge).await.expect_err("past the window");
     let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
     assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
@@ -1126,6 +1127,14 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
         );
         for q in &asked[1..] {
             assert!(!texts(q).contains("5519"), "{case}: {}", texts(q));
+            // Nor its header: the sealed thread's title.
+            if !steer {
+                assert!(
+                    !texts(q).contains("kelp"),
+                    "{case}: no header: {}",
+                    texts(q)
+                );
+            }
             // The open source's place is the desk's own, so its exchange is laid in the window as well as
             // recalled: it is kept, though not once.
             assert!(
@@ -1157,14 +1166,11 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
                 assert_eq!(texts(q).matches(OPEN).count(), 1, "{case}: {}", texts(q));
             }
         }
-        // The turn after this one lays nothing of the held source.
-        for q in next_turn(&r, &sid).await {
-            assert!(
-                !texts(&q).contains("5519"),
-                "{case}: the next turn lays nothing of the held source: {}",
-                texts(&q)
-            );
-        }
+        // The turn after this one: one NOT opened by the owner in person (the unknown presence) lays nothing
+        // of the held source. After a narrowing steer, a next turn of the owner in person is his own
+        // presence (a steer narrows the turn it lands in, not the session: addendum 18), so it may lay his
+        // own words again, at most once a request; after a seal it lays nothing either.
+        next_turns_hold(&r, &sid, steer, &case).await;
         // A seal's own report of what had already crossed names the asking session.
         if !steer {
             let crossed = resealed_crossed(c);
@@ -1176,11 +1182,37 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
     }
 }
 
-/// The requests of the session's next turn (it asks "and the tide?"), at least one.
-async fn next_turn(r: &Rig, sid: &str) -> Vec<ProviderRequest> {
-    turn_as(&r.core, sid, "and the tide?", true).await;
+/// The session's next turns after a held source (addendum 18): one NOT opened by the owner in person lays
+/// nothing of it; one of the owner in person may lay his own words after a steer (at most once a request),
+/// and nothing after a seal.
+async fn next_turns_hold(r: &Rig, sid: &str, steer: bool, case: &str) {
+    for q in next_turn(r, sid, false).await {
+        assert!(
+            !texts(&q).contains("5519"),
+            "{case}: a next turn not opened in person lays nothing of the held source: {}",
+            texts(&q)
+        );
+    }
+    for q in next_turn(r, sid, true).await {
+        let laid = texts(&q).matches("5519").count();
+        assert!(
+            laid <= usize::from(steer),
+            "{case}: the owner's next turn: {}",
+            texts(&q)
+        );
+    }
+}
+
+/// The requests of a next turn of the session, opened by the owner in person or not (`in_person`); each asks
+/// its own words, at least one request.
+async fn next_turn(r: &Rig, sid: &str, in_person: bool) -> Vec<ProviderRequest> {
+    let asks = match in_person {
+        true => "and the tide, in person?",
+        false => "and the tide?",
+    };
+    turn_as(&r.core, sid, asks, in_person).await;
     let after: Vec<ProviderRequest> = (r.requests().into_iter())
-        .filter(|q| !q.tools.is_empty() && texts(q).contains("and the tide?"))
+        .filter(|q| !q.tools.is_empty() && texts(q).contains(asks))
         .collect();
     assert!(!after.is_empty(), "the next turn's requests");
     after
@@ -1212,6 +1244,76 @@ fn resealed_crossed(c: &crate::Core) -> Vec<theseus_protocol::threads::ThreadCro
         )
         .unwrap();
     sealed.crossed
+}
+
+/// Round 2, item 1: a size repair's recompile comes back to the admission check. A recalled source the
+/// first compile laid is sealed (or the presence narrowed by a steer) during the repair compile's
+/// post-assembly await; the request that goes out holds nothing of it. Without the seal or steer, the same
+/// turn lays it (the control).
+#[tokio::test]
+async fn a_size_repair_comes_back_to_the_admission_check() {
+    use std::sync::{Arc, OnceLock};
+    const SECRET: &str = "the kelp vault code is 5519";
+    const ASKS: &str = "what is the vault code now?";
+    for change in ["none", "seal", "steer"] {
+        let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
+        let thread = std::cell::RefCell::new(String::new());
+        let r = crate::tests_places::rig_setup_scripted(
+            |c| {
+                c.memory.mode = crate::config::MemoryMode::Live;
+                c.threads.enabled = true;
+            },
+            |s| *thread.borrow_mut() = kelp(s, false),
+            |q| match last_user(q).contains(ASKS) && !q.tools.is_empty() {
+                true => crate::provider::Scripted::text("Done."),
+                false => crate::provider::Scripted::text("Hello."),
+            },
+        );
+        let _ = core.set(r.core.clone());
+        let c = &r.core;
+        let thread = thread.into_inner();
+        // The held source: a thread's message, or the owner's words in his DM (another place).
+        let source = match change {
+            "steer" => {
+                crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)))
+            }
+            _ => thread,
+        };
+        turn_as(c, &source, SECRET, true).await;
+        (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![source]));
+        let sid = session_in(c, None, &r.root);
+        // The first compile's env tail does nothing but arm the second's: the repair's own await.
+        let (held, desk) = (core.clone(), sid.clone());
+        let act = move || {
+            let c = held.get().unwrap();
+            match change {
+                "seal" => seal_kelp(c),
+                "steer" => crate::view_gate::steered(&c.runner, &desk, None),
+                _ => {}
+            }
+        };
+        let again = sid.clone();
+        crate::turn::view_step::env_tail_hook(
+            &sid,
+            Box::new(move || crate::turn::view_step::env_tail_hook(&again, Box::new(act))),
+        );
+        crate::turn::view_step::force_resize(&sid);
+        turn_as(c, &sid, ASKS, true).await;
+        let sent: Vec<ProviderRequest> = (r.requests().into_iter())
+            .filter(|q| !q.tools.is_empty() && texts(q).contains(ASKS))
+            .collect();
+        assert_eq!(sent.len(), 1, "{change}: one call");
+        let text = texts(&sent[0]);
+        match change {
+            "none" => assert!(text.contains("5519"), "the control lays the source: {text}"),
+            _ => {
+                assert!(!text.contains("5519"), "{change}: {text}");
+                if change == "seal" {
+                    assert!(!text.contains("kelp"), "{change}: no header: {text}");
+                }
+            }
+        }
+    }
 }
 
 /// Every message saying `what`, in any session, moved into the thread `kelp` as a split records it.

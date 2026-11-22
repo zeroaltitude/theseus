@@ -106,6 +106,7 @@ impl TurnRunner {
             sealed: &held,
             moved: &moved,
             sessions: &read,
+            own: Some(turn),
         };
         let store_ladder = fork.ladder(store);
         let gated = super::GatedLadder::new(&store_ladder, store, &held, &moved);

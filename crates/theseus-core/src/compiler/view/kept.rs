@@ -104,9 +104,6 @@ pub fn frozen(blobs: &Blobs, k: &Kept, (session, turn): (&str, &str)) -> Result<
             .map(|(i, n)| (i as u64 + 1, n.into()))
             .collect(),
         beside: beside.as_deref().map(block),
-        // What it laid from, so a replay to another provider reads every source (`own_bench::replay`).
-        sessions: k.sessions.clone(),
-        exchanges: k.exchanges.clone(),
         ..Frozen::default()
     })
 }
