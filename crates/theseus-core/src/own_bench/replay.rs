@@ -9,8 +9,9 @@
 //! directory (`whole/`); the first request, its price and its judgment are
 //! the same.
 //!
-//! A shared place's turn is refused. Anything goes (2026-11-22): any other
-//! turn is replayed on any provider's model, with no rule for what crosses.
+//! Anything goes (2026-11-22): any turn, whatever place it was said in, is
+//! replayed on any provider's model, with no rule for what crosses. The act
+//! gate is the caller's (`judge_act`), and the spend checks are as they were.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -23,7 +24,6 @@ use theseus_protocol::own_bench::{ReplayVerdict, TurnReplayParams, TurnReplayRes
 use super::rebuild::{Original, Said};
 use super::{parse_effort, BY_OWNER, REPLAY_MAX_TOKENS};
 use crate::fact::own_bench::TurnReplayed;
-use crate::places::PlaceClass;
 use crate::rpc::Core;
 
 /// The only scope: the turn's first request, no tool run.
@@ -146,9 +146,6 @@ impl Core {
             );
         }
         let whole = scope == super::whole::WHOLE_TURN;
-        if self.runner.class_of(&p.session) == PlaceClass::Shared {
-            bail!("a shared place's turn is never replayed");
-        }
         let (live, _) = self.live_profile();
         let target = self
             .runner
