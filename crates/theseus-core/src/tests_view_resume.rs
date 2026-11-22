@@ -639,3 +639,99 @@ async fn an_unmarked_conversations_late_result_is_answered_seeing_only_its_own_s
     })
     .await;
 }
+
+/// The steered resume and another place's words: an owner-opened turn at the terminal (`local`) is cut, the
+/// owner's words at another terminal session (`local:<dir>`) are recent, the turn's durable steer has no mark,
+/// and the turn resumes. DIAGNOSTIC: what the resumed request lays, and under which point of view.
+#[tokio::test]
+async fn diag_a_steered_resume_and_another_places_words() {
+    const ELSEWHERE: &str = "elsewhere: the spare key is under the blue heron statue";
+    let mut out = String::new();
+    for steered in [true, false] {
+        let fake = Arc::new(crate::provider::FakeProvider::scripted(vec![
+            cut(),
+            Scripted::text("Noted."),
+            Scripted::text("The board shows three ferries."),
+        ]));
+        let (c, sid, turn) = restart_rig(fake.clone(), None, "what is on the harbour board?").await;
+        let other = session_in(&c, None, std::path::Path::new("/srv/elsewhere-ship"));
+        let said = submit(&c, &other, ELSEWHERE).await.unwrap();
+        let mut ex = crate::exchange::exchange(&c.store, &turn).unwrap().unwrap();
+        (ex.end_ms, ex.stop) = (None, None);
+        ex.messages = ex.ask.iter().cloned().collect();
+        let mut records = vec![crate::exchange::exchange_record(&ex).unwrap()];
+        if steered {
+            let steer = crate::node::Node::user_with(
+                &sid,
+                Some(&turn),
+                "agent",
+                "also list the gulls",
+                vec![],
+            );
+            records.push(steer.record().unwrap());
+        }
+        c.store.append(&records).unwrap();
+        let class = c.runner.place_of(&sid);
+        let cont = crate::view_gate::continued(&c.store, &class, &turn);
+        let before = fake.requests().len();
+        let res = resume(&c, &sid).await;
+        let last = started(&c, &sid).pop().unwrap();
+        out.push_str(&format!(
+            "\n== steered {steered}: resume ok {}; continued(turn) {cont:?}; given(resumed) {:?}; session place {:?}; \
+             other place {:?}; other exchange {}\n",
+            res.is_ok(),
+            given(&c, &last),
+            crate::exchange::exchange(&c.store, &turn).unwrap().map(|e| e.place),
+            crate::exchange::exchange(&c.store, &said.turn_id).unwrap().map(|e| e.place),
+            said.turn_id,
+        ));
+        if let Ok(Some(rec)) = crate::view::record::newest(&c.store, &last) {
+            out.push_str(&format!(
+                "view pov: present {:?}, anchor {:?}, person {:?}\n",
+                rec.pov.present, rec.pov.anchor, rec.pov.person
+            ));
+            for sh in &rec.shown {
+                let p = &sh.piece;
+                out.push_str(&format!(
+                    "  shown slot {:?} band {:?} space {:?} form {:?} reasons {:?} first {} other? {}\n",
+                    p.slot,
+                    p.band,
+                    p.range.space,
+                    sh.form,
+                    p.reasons,
+                    p.range.first.id,
+                    p.range.first.id == said.turn_id || p.range.last.id == said.turn_id
+                ));
+            }
+        } else {
+            out.push_str("no view record\n");
+        }
+        for (k, q) in fake.requests()[before..].iter().enumerate() {
+            for (i, m) in q.messages.iter().enumerate() {
+                let blocks: Vec<String> = match &m["content"] {
+                    serde_json::Value::String(t) => vec![t.clone()],
+                    serde_json::Value::Array(b) => (b.iter())
+                        .filter_map(|b| b["text"].as_str().map(str::to_string))
+                        .collect(),
+                    _ => vec![],
+                };
+                for b in blocks {
+                    let head: String = b
+                        .lines()
+                        .next()
+                        .unwrap_or_default()
+                        .chars()
+                        .take(90)
+                        .collect();
+                    out.push_str(&format!(
+                        "  req {k} msg {i} {} block: {head:?} ({} chars) fact? {}\n",
+                        m["role"],
+                        b.len(),
+                        b.contains("spare key is under the blue heron")
+                    ));
+                }
+            }
+        }
+    }
+    panic!("DIAG{out}");
+}
