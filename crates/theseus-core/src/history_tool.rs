@@ -287,55 +287,115 @@ pub(crate) async fn answer(
     let Anchor::Place(here) = &pov.anchor else {
         return Err("context.history reads a place's history, and this turn has none".into());
     };
-    let done = |t: &str| ended(core, t);
-    let used = board.count(
-        turn,
-        if a.open.is_some() {
-            Count::Open
-        } else {
-            Count::Look
-        },
-        &done,
-    );
-    let mut lens = page::Lens {
+    let lens = page::Lens {
         store: &core.store,
         here: here.clone(),
         in_view: page::in_view(&core.store, session, here).map_err(|e| format!("{e:#}"))?,
         words: None,
     };
+    Ok(match read(core, lens, Allowance::Turn { board, turn }, a).await? {
+        Read::OpensUsed { opens } => ToolOutput {
+            text: format!(
+                "This turn's allowance of opens is used: {OPENS_PER_TURN} exchanges opened. Do not open \
+                 more this turn: tell the person what you found and offer to read further."
+            ),
+            meta: json!({"open": null, "opens": opens, "of": OPENS_PER_TURN}),
+        },
+        Read::Opened { handle, text, opens } => ToolOutput {
+            text,
+            meta: json!({"open": page::flat(&handle), "opens": opens, "of": OPENS_PER_TURN}),
+        },
+        Read::Page {
+            walked,
+            looks,
+            resume,
+        } => {
+            let p = walked.page;
+            ToolOutput {
+                text: page::render(&p, here, looks, resume.as_ref()),
+                meta: json!({
+                    "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
+                    "look": looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
+                }),
+            }
+        }
+    })
+}
+
+/// What a call may do: a turn's allowance (its looks and opens, counted on the board, which keeps its resume
+/// tokens), or none for a caller with no turn (an MCP client: each call is one page or one open, bounded by the
+/// page's size and the reading limit, and nothing is counted across calls).
+pub(crate) enum Allowance<'a> {
+    Turn { board: &'a Board, turn: &'a str },
+    NoTurn,
+}
+
+/// A call's answer before it is said: an open's text, a turn's opens used, or a page. `resume` is a turn's
+/// opaque token, or with no turn the raw position a walk stopped by its bound resumes at.
+pub(crate) enum Read {
+    Opened {
+        handle: String,
+        text: String,
+        opens: u32,
+    },
+    OpensUsed {
+        opens: u32,
+    },
+    Page {
+        walked: page::Walked,
+        looks: u32,
+        resume: Option<Cursor>,
+    },
+}
+
+/// The history tool's one read, for every caller: `a` over `lens`, within `allowance`.
+pub(crate) async fn read(
+    core: &Arc<Core>,
+    mut lens: page::Lens<'_>,
+    allowance: Allowance<'_>,
+    a: &HistoryArgs,
+) -> Result<Read, String> {
+    let used = match &allowance {
+        Allowance::Turn { board, turn } => {
+            let done = |t: &str| ended(core, t);
+            let what = match a.open.is_some() {
+                true => Count::Open,
+                false => Count::Look,
+            };
+            board.count(turn, what, &done)
+        }
+        Allowance::NoTurn => Use::default(),
+    };
     if let Some(h) = &a.open {
         if used.opens >= OPENS_PER_TURN {
-            return Ok(ToolOutput {
-                text: format!(
-                    "This turn's allowance of opens is used: {OPENS_PER_TURN} exchanges opened. Do not open \
-                     more this turn: tell the person what you found and offer to read further."
-                ),
-                meta: json!({"open": null, "opens": used.opens, "of": OPENS_PER_TURN}),
-            });
+            return Ok(Read::OpensUsed { opens: used.opens });
         }
-        let text = open::open(&lens, h)?;
-        return Ok(ToolOutput {
-            text,
-            meta: json!({"open": page::flat(&h.0), "opens": used.opens + 1, "of": OPENS_PER_TURN}),
+        return Ok(Read::Opened {
+            handle: h.0.clone(),
+            text: open::open(&lens, h)?,
+            opens: used.opens + 1,
         });
     }
-    let before = board.position(turn, a.before.as_ref())?;
+    let before = match &allowance {
+        Allowance::Turn { board, turn } => board.position(turn, a.before.as_ref())?,
+        Allowance::NoTurn => a.before.clone(),
+    };
     if let Some(w) = a.words.as_deref().map(str::trim).filter(|w| !w.is_empty()) {
         let (root, _) = lens.root(a).map_err(|e| format!("{e:#}"))?;
         let scope = lens.scope(&root).map_err(|e| format!("{e:#}"))?;
         lens.words = Some(found(core, w, scope).await?);
     }
-    let walked = lens
+    let mut walked = lens
         .walk(a, before, used.looks)
         .map_err(|e| format!("{e:#}"))?;
-    let resume = walked.resume.map(|at| board.keep(turn, at));
-    let p = walked.page;
-    Ok(ToolOutput {
-        text: page::render(&p, here, used.looks, resume.as_ref()),
-        meta: json!({
-            "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
-            "look": used.looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
-        }),
+    let resume = match (&allowance, walked.resume.take()) {
+        (Allowance::Turn { board, turn }, Some(at)) => Some(board.keep(turn, at)),
+        (_, at) => at,
+    };
+    Ok(Read::Page {
+        walked,
+        looks: used.looks,
+        resume,
     })
 }
 

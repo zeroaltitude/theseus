@@ -94,6 +94,18 @@ pub struct Lens<'a> {
     pub words: Option<HashSet<String>>,
 }
 
+impl<'a> Lens<'a> {
+    /// A lens for a caller with nothing in view (an MCP client: no turn, so a bare page starts at the newest).
+    pub fn bare(store: &'a Store, here: String) -> Self {
+        Lens {
+            store,
+            here,
+            in_view: None,
+            words: None,
+        }
+    }
+}
+
 /// A walk's page, and where a walk stopped by its bound would resume (kept by the tool, never shown).
 pub struct Walked {
     pub page: HistoryPage,
@@ -408,7 +420,7 @@ pub(super) fn when(ms: u64) -> String {
 }
 
 /// Whose words a line's are: the owner's, another known person's (outside text), or not known.
-fn who(person: Option<&str>) -> String {
+pub(crate) fn who(person: Option<&str>) -> String {
     match person {
         Some(OWNER) => "the owner".into(),
         Some(p) => format!("outside text, {}", cut(p, 80)),
