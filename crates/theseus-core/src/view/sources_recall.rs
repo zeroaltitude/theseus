@@ -57,7 +57,9 @@ pub fn floor_turns(
 /// The pieces of `recalled` for `pov`, each once by its node (the first chunk recall gave), their texts
 /// kept for the renderer and their sessions among those the view depends on (a seal before a later call
 /// revokes it). An item whose turn the window lays with its words (`in_window`, from [`floor_turns`]) is
-/// not laid again: the window holds the passage whole. A fold or a one-line receipt is not such a turn.
+/// not laid again: the window holds the passage whole. A fold or a one-line receipt is not such a turn. The
+/// owner's own proven word from this place is not laid either: it is his past's (slot E lays what he said
+/// here before the `/new` mark) or the place's conversation's.
 pub fn refs(
     recalled: &[Recalled],
     pov: &PointOfView,
@@ -67,7 +69,12 @@ pub fn refs(
     let mut out = Vec::new();
     let mut texts = read.texts.borrow_mut();
     for r in recalled {
-        if r.turn.as_ref().is_some_and(|t| in_window.contains(t)) {
+        // The window lays it with its words; or it is the owner's own proven word from this place, which
+        // is his past's (before the place's `/new` mark) or the place's own conversation (since): slot H
+        // does not lay it again, nor as words of anyone else.
+        let here = matches!(&pov.anchor, Anchor::Place(p) if r.marks.place.as_deref() == Some(p));
+        let his = matches!(r.marks.author, Author::His { .. });
+        if r.turn.as_ref().is_some_and(|t| in_window.contains(t)) || (here && his) {
             continue;
         }
         let space = Space::Recalled {
@@ -79,13 +86,7 @@ pub fn refs(
         }
         texts.insert(space.clone(), r.text.clone());
         read.depends.borrow_mut().insert(r.item.session_id.clone());
-        let here = matches!(&pov.anchor, Anchor::Place(p) if r.marks.place.as_deref() == Some(p));
-        let mut marks = r.marks.clone();
-        // The owner's word recalled from this very place would read as the conversation here: it is an
-        // earlier note, so it is laid as words of unknown author, never as his present message.
-        if here && matches!(marks.author, Author::His { .. }) {
-            marks.author = Author::Unknown;
-        }
+        let marks = r.marks.clone();
         let pos = Pos {
             at_ms: r.at_ms,
             id: r.item.node_id.clone(),
@@ -291,7 +292,7 @@ mod tests_labels {
             at_hand: None,
             now_ms: 10,
         };
-        let cases: [(&str, Author, bool, &str); 6] = [
+        let cases: [(&str, Author, bool, &str); 5] = [
             (
                 "discord:dm:1",
                 Author::Theseus,
@@ -309,14 +310,6 @@ mod tests_labels {
                 "the owner said, in",
             ),
             ("discord:dm:1", Author::Unknown, false, "author unknown"),
-            (
-                "local",
-                Author::His {
-                    may_authorise: false,
-                },
-                false,
-                "author unknown",
-            ),
         ];
         for (i, (place, author, outside, want)) in cases.into_iter().enumerate() {
             let r = Recalled {
@@ -369,5 +362,30 @@ mod tests_labels {
             assert!(shown.contains(want), "case {i}: {shown}");
             assert_ne!(b.label, crate::view::Label::Here, "case {i}");
         }
+        // His proven word from THIS place is not laid by slot H: it is his past's, or the conversation's.
+        let mine = Recalled {
+            item: RecalledRef {
+                node_id: "his".into(),
+                session_id: "ses".into(),
+                position: 1,
+                chunk: (0, 1),
+                header: "a message".into(),
+                tokens: 0,
+            },
+            text: "his words here".into(),
+            marks: Marks {
+                place: Some("local".into()),
+                audience: Audience::Private,
+                author: Author::His {
+                    may_authorise: false,
+                },
+                outside: false,
+                sealed: false,
+                veiled: false,
+            },
+            at_ms: 1,
+            turn: None,
+        };
+        assert!(refs(&[mine], &pov, &Sessions::default(), &BTreeSet::new()).is_empty());
     }
 }

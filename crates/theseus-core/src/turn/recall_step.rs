@@ -225,7 +225,7 @@ impl TurnRunner {
     ) -> Scene<'a> {
         // A view turn counts only what its view lays (issue 44); the transcript, all it carries.
         let in_context = match self.assembly_here(t) == crate::config::assembly::Assembly::View {
-            true => self.view_in_context(t),
+            true => Self::view_in_context(t),
             false => Self::in_context(t),
         };
         let labeled = self

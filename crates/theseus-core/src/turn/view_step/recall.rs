@@ -53,7 +53,7 @@ impl TurnRunner {
     /// (its tail), and the nodes of this session's exchanges the window lays with their words on every turn
     /// (`sources_recall::floor_turns`). A `Recall` note's sources exclude nothing (slot H is laid afresh each
     /// turn), nor does an older node of the session no window holds, nor a node of no exchange.
-    pub(in crate::turn) fn view_in_context(&self, t: &super::super::Turn<'_>) -> BTreeSet<String> {
+    pub(in crate::turn) fn view_in_context(t: &super::super::Turn<'_>) -> BTreeSet<String> {
         let (store, turn) = (t.tc.store, t.tc.turn_id);
         let floor = t.exchange.place().map_or_else(BTreeSet::new, |place| {
             let since = crate::ladder::new_mark(store, place).ok().flatten();
