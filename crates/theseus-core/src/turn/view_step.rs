@@ -11,9 +11,9 @@ use std::collections::{HashMap, HashSet};
 
 mod failed;
 pub(crate) mod kept;
-mod recall;
 pub(in crate::turn) mod occasion;
 pub(super) mod preview;
+mod recall;
 mod room;
 pub(super) mod task;
 

@@ -42,9 +42,11 @@ fn old_memories(c: &crate::Core) -> Vec<String> {
     c.store
         .append(&[n.record().unwrap(), m.record().unwrap()])
         .unwrap();
-    assert!(crate::exchange::exchange(&c.store, "turn_before_the_ledger")
-        .unwrap()
-        .is_none());
+    assert!(
+        crate::exchange::exchange(&c.store, "turn_before_the_ledger")
+            .unwrap()
+            .is_none()
+    );
     vec![imported.session_id, old]
 }
 
@@ -91,7 +93,10 @@ async fn in_company_a_private_item_is_not_laid() {
     let (transcript, view) = (got[0], got[1]);
     for (i, laid) in view.iter().enumerate() {
         assert!(!laid, "item {i} is not laid in company: {view:?}");
-        assert!(!laid || transcript[i], "never more than the transcript: {transcript:?} {view:?}");
+        assert!(
+            !laid || transcript[i],
+            "never more than the transcript: {transcript:?} {view:?}"
+        );
     }
 }
 
@@ -161,7 +166,11 @@ async fn a_recalled_item_sealed_between_two_calls_is_gone_from_the_second() {
     turn(c, &sid, ASKED).await;
     let asked = calls(&r);
     assert!(asked.len() >= 2, "{}", asked.len());
-    assert!(texts(&asked[0]).contains("5519"), "laid while clear: {}", texts(&asked[0]));
+    assert!(
+        texts(&asked[0]).contains("5519"),
+        "laid while clear: {}",
+        texts(&asked[0])
+    );
     for q in &asked[1..] {
         assert!(!texts(q).contains("5519"), "{}", texts(q));
     }

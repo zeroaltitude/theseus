@@ -36,7 +36,11 @@ pub fn preamble(n: usize) -> String {
 pub fn render(items: &[RecalledRef], sources: &Sources) -> String {
     let mut out = preamble(items.len());
     for (i, r) in items.iter().enumerate() {
-        out.push_str(&format!("\n({}) {}", i + 1, item(r, sources.get(&r.node_id).map(|n| &**n))));
+        out.push_str(&format!(
+            "\n({}) {}",
+            i + 1,
+            item(r, sources.get(&r.node_id).map(|n| &**n))
+        ));
     }
     out
 }
@@ -47,11 +51,7 @@ pub fn render(items: &[RecalledRef], sources: &Sources) -> String {
 /// lays each recalled item with this (`view::sources_store`).
 pub fn item(r: &RecalledRef, source: Option<&Node>) -> String {
     match source.and_then(|n| shown(n, r.chunk)) {
-        Some(text) => format!(
-            "{}\n    \"{}\"",
-            r.header,
-            text.replace('\n', "\n    ")
-        ),
+        Some(text) => format!("{}\n    \"{}\"", r.header, text.replace('\n', "\n    ")),
         None => format!("(its source, {}, cannot be read)", r.node_id),
     }
 }

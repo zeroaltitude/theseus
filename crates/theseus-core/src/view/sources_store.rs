@@ -261,7 +261,11 @@ impl Recall for StoreSources<'_> {
     /// Every item today's recall found and admitted, laid as its `Recall` note renders it, once each
     /// (`super::sources_recall`): what recall found, not the exchange it came from.
     fn recall(&self, pov: &PointOfView, _: &str) -> anyhow::Result<Vec<Ref>> {
-        Ok(super::sources_recall::refs(&self.recalled, pov, self.sessions))
+        Ok(super::sources_recall::refs(
+            &self.recalled,
+            pov,
+            self.sessions,
+        ))
     }
 }
 

@@ -61,7 +61,10 @@ impl TurnRunner {
         let (author, outside) = match &n.body {
             Body::AssistantMessage { .. } => (Author::Theseus, false),
             Body::ToolResult { .. } => (Author::Unknown, true),
-            Body::UserMessage { .. } => (crate::view::sources_store::author_of(&self.store, &n.id), false),
+            Body::UserMessage { .. } => (
+                crate::view::sources_store::author_of(&self.store, &n.id),
+                false,
+            ),
             _ => (Author::Unknown, false),
         };
         Marks {
