@@ -92,7 +92,6 @@ mod tests {
             "the staging password is hunter2",
         );
         assert_eq!(evidence(&said), "session cd34ef");
-        assert!(!evidence(&said).contains("hunter2"));
         let other = Node::user("ses_99ff00aa11", None, "cli", "Staging database");
         assert_eq!(evidence(&other), "session 00aa11");
         let call = |target: &str| {
@@ -108,6 +107,10 @@ mod tests {
             };
             n
         };
+        assert_eq!(
+            evidence(&call("tide tables")),
+            "about web.search tide tables, session cd34ef"
+        );
         let long = evidence(&call(&"harbour\nwall ".repeat(20)));
         assert!(long.ends_with("…, session cd34ef"), "{long}");
         assert!(long.chars().count() < 110 && !long.contains('\n'), "{long}");
