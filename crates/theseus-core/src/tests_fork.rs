@@ -1086,11 +1086,10 @@ async fn a_fork_at_the_persons_message_elsewhere_holds_that_message_and_not_its_
         .unwrap();
     turn(&r.core, &f.session_id, "instead").await;
     let said = said_in(requests(&r).last().unwrap());
-    assert!(
-        said.iter().any(|t| t.ends_with("two")),
-        "the message at the point: {said:?}"
-    );
-    assert!(said.iter().any(|t| t.ends_with("instead")), "{said:?}");
+    // The message at the point and the fork's own may be one user message (two person's lines in a row).
+    let line = |words: &str| said.iter().any(|t| t.lines().any(|l| l.ends_with(words)));
+    assert!(line("two"), "the message at the point: {said:?}");
+    assert!(line("instead"), "{said:?}");
     let text = said.join("\n");
     assert!(!text.contains("answer to two"), "its answer: {said:?}");
     assert!(!text.contains("three"), "a later turn: {said:?}");
