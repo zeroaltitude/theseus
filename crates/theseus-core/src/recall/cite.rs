@@ -6,7 +6,6 @@
 //! the turn was not given is no citation and stays text.
 
 use serde::{Deserialize, Serialize};
-use theseus_memory::recall::Place;
 use theseus_protocol::cite::{split_header, Citation, DiscordSource};
 use theseus_protocol::term::words::cut_marked as clip;
 use theseus_store::NewRecord;
@@ -56,15 +55,11 @@ pub fn item_for<'a>(items: &'a [RecalledRef], handle: &str) -> Option<&'a Recall
 impl TurnRunner {
     /// The citation for `item`: its handle, its frozen header, its source's
     /// excerpt, and where it was said when that was a Discord message. None
-    /// for an item with no handle (recalled before handles), a source that
-    /// cannot be read, or, when `shared`, a source a shared place may not
-    /// show: one from a private place or imported. A shared place cites its
-    /// own history and nothing else of the owner's.
-    pub fn citation(&self, item: &RecalledRef, shared: bool) -> Option<Citation> {
+    /// for an item with no handle (recalled before handles) or a source that
+    /// cannot be read. A citation is shown wherever its item is (anything
+    /// goes, 2026-11-22): no place keeps one out.
+    pub fn citation(&self, item: &RecalledRef) -> Option<Citation> {
         let (handle, header) = split_header(&item.header)?;
-        if shared && !self.shows_in_shared(&item.session_id) {
-            return None;
-        }
         let source = self.memory.read_source(&self.store, item)?;
         Some(Citation {
             handle: handle.to_string(),
@@ -76,13 +71,6 @@ impl TurnRunner {
             excerpt: clip(&shown_text(&source, item.chunk), EXCERPT_CHARS),
             discord: self.discord_source(&source),
         })
-    }
-
-    /// A shared place's reply shows a source only from a shared place and
-    /// never an imported one.
-    fn shows_in_shared(&self, session_id: &str) -> bool {
-        !crate::import::is_imported(session_id)
-            && matches!(self.place_of(session_id), Place::Shared(_))
     }
 
     /// Where `source` was said, when it was a person's Discord message whose
