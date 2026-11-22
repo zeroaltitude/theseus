@@ -199,6 +199,16 @@ fn ids(e: &ReachExposure) -> Vec<String> {
         .collect()
 }
 
+/// The times of `session`'s model calls dispatched after `after` (`action.dispatched`, `provider.messages`).
+fn dispatched(store: &Store, session: &str, after: u64) -> Vec<u64> {
+    (store.scope_after(session, after).unwrap().into_iter())
+        .filter(|r| r.kind == kinds::LEDGER)
+        .filter_map(|r| r.decode::<crate::ledger::LedgerRow>().ok())
+        .filter(|row| row.kind == "action.dispatched" && row.data["tool"] == "provider.messages")
+        .map(|row| row.at_unix_ms)
+        .collect()
+}
+
 /// The compilations of `session` whose kept view laid `copy`, read from the records (issue 44): a view of
 /// the copy's own turn (it is in that turn's tail), or one whose shown exchanges hold the copy's turn.
 fn held_by_views(store: &Store, session: &str, copy: &Node) -> Vec<String> {
@@ -317,10 +327,11 @@ async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
         .map(|(_, n)| n.created_at_ms)
         .collect();
     assert_eq!(replies.len(), 2);
-    // A call's exposure is when its request was sent (issue 44): the last is
-    // the last call's dispatch, at or before its answer, after the first.
-    assert!(d.exposure.last_ms <= replies.last().copied(), "{d:?}");
-    assert!(d.exposure.last_ms > Some(replies[0]), "{d:?}");
+    // A call's exposure is when its request was dispatched (issue 44).
+    assert_eq!(
+        d.exposure.last_ms,
+        dispatched(&r.core.store, &parent, at).last().copied()
+    );
     assert!(d.exposure.first_ms <= Some(replies[0]));
     assert_eq!(
         got.totals,
@@ -504,6 +515,63 @@ async fn a_message_sent_in_a_call_that_failed_is_still_exposed() {
     assert!(got.direct.loops >= 1, "{got:?}");
     assert_eq!(got.direct.compilations.len(), 1, "{got:?}");
     assert_eq!(got.direct.compilations[0].session_id, sid);
+}
+
+/// A view record that cannot be read leaves the answer partial (rule A, issue 44): what that view laid
+/// is unknown, though what was read is still said.
+#[tokio::test]
+async fn an_unreadable_view_record_makes_the_answer_partial() {
+    let r = rig(|_| Scripted::text("Noted."));
+    let sid = conversation(&r.core);
+    turn(&r.core, &sid, "a message").await;
+    let first = nodes(&r.core, &sid)[0].1.id.clone();
+    assert!(!reach(&r.core.store, &first, None).unwrap().unwrap().partial);
+    let bad = theseus_store::NewRecord::json(
+        kinds::META,
+        Some("view.cmp_unreadable"),
+        &json!({"not": "a view"}),
+    )
+    .unwrap();
+    r.core.store.append(&[bad]).unwrap();
+    let got = reach(&r.core.store, &first, None).unwrap().unwrap();
+    assert!(got.partial, "{got:?}");
+    assert_eq!(got.totals.contexts, 2, "what was read is still said");
+}
+
+/// A reply that is only calls, laid in a later turn's window, is counted there (rule B, issue 44): the
+/// window's own renderer carries its calls, which the text renderer's parts do not model.
+#[tokio::test]
+async fn a_reply_that_is_only_calls_is_counted_where_a_window_lays_it() {
+    let r = rig(
+        |req| match last_user(req).starts_with("START") && !answers_a_call(req) {
+            true => Scripted::tools(
+                "",
+                &[(
+                    "t_task",
+                    "task_create",
+                    json!({"brief": "CHILD: name a colour", "budget_usd": 1.5}),
+                )],
+            ),
+            false => colours(req),
+        },
+    );
+    let parent = conversation(&r.core);
+    turn(&r.core, &parent, "START the colour task").await;
+    finished_task(&r.core, &parent).await;
+    turn(&r.core, &parent, "And then?").await;
+    let holder = (nodes(&r.core, &parent).into_iter())
+        .find_map(|(_, n)| match &n.body {
+            Body::ToolCall { assistant_node, .. } => Some(assistant_node.clone()),
+            _ => None,
+        })
+        .expect("the reply that made the call");
+    let got = reach(&r.core.store, &holder, None).unwrap().unwrap();
+    let pcomps = r.core.store.session_compilations(&parent).unwrap();
+    assert!(pcomps.len() >= 2, "{pcomps:?}");
+    // Its own turn's call that answered it, and the later turn whose window laid it.
+    let named = ids(&got.direct);
+    assert!(named.contains(&pcomps[0].id), "{got:?}");
+    assert!(named.contains(&pcomps.last().unwrap().id), "{got:?}");
 }
 
 /// A turn that reads a report writes no extra frame: the edge rides in the

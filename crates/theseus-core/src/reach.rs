@@ -16,9 +16,12 @@
 //!   not sent), and its turn's own nodes and the notes between turns (`compiler::view::between`) at each
 //!   call. A call is its `action.dispatched` row (`provider.messages`), answered or not: what was written
 //!   after it was dispatched was not in it. A turn's `Recall` node is not laid (its sources are, as
-//!   recalled items). A fold lays its account, not its sources, so they are not counted. A view record
-//!   that cannot be read, a view whose calls cannot be found, or a walk past its cap makes the answer
-//!   `partial`: never a silent "nowhere".
+//!   recalled items). A fold lays its account, not its sources, so they are not counted.
+//! - **Rule A:** reach never answers complete on evidence it could not read or cut short. A view record
+//!   that is absent or will not decode, a turn with more views than are read, a view whose calls cannot
+//!   be found, or a walk past its cap makes the answer `partial`. A store read error fails the command.
+//! - **Rule B:** where reach cannot tell exactly whether a request held a node's text, it counts the
+//!   request. The window's own renderer, a cut or cleared result, and an erased reply are counted so.
 //! - **An erased node** is accounted from its original position and kind (ids, positions and counts; never
 //!   the erased words): the requests before its erasure still say where it went.
 //! - **Descendants**: the edges into the node (the scope `in:<node>`), each a
@@ -104,13 +107,14 @@ pub fn reach(
             .push(k);
     }
     let mut exposure: Vec<ReachExposure> = vec![ReachExposure::default(); reached.len()];
+    let mut named: BTreeSet<String> = BTreeSet::new();
     for (session, ks) in &by_session {
         let nodes: Vec<(u64, &Node)> = ks
             .iter()
             .map(|k| (reached[*k].position, &reached[*k].node))
             .collect();
-        let (got, unread) = exposures(store, session, &nodes)?;
-        partial |= unread;
+        let (got, loops_named) = exposures(store, session, &nodes)?;
+        named.extend(loops_named);
         for (k, e) in ks.iter().zip(got) {
             exposure[*k] = e;
         }
@@ -122,8 +126,7 @@ pub fn reach(
 
     let (sessions, unknown) = by_views(
         store,
-        &reached,
-        &by_session,
+        (&reached, &by_session, &named),
         (exposure.as_mut_slice(), forks.as_mut_slice()),
     )?;
     partial |= unknown;
@@ -208,8 +211,7 @@ fn walk(store: &Store, root: Reached, max: u32) -> Result<(Vec<Reached>, bool)> 
 /// it is unknown.
 fn by_views(
     store: &Store,
-    reached: &[Reached],
-    by_session: &HashMap<&str, Vec<usize>>,
+    (reached, by_session, named): (&[Reached], &HashMap<&str, Vec<usize>>, &BTreeSet<String>),
     (exposure, forks): (&mut [ReachExposure], &mut [ReachFork]),
 ) -> Result<(usize, bool)> {
     let from = reached.iter().map(|r| r.position).min().unwrap_or(0);
@@ -217,7 +219,9 @@ fn by_views(
         .filter_map(|r| r.node.turn_id.as_deref())
         .collect();
     let views = Views::read(store, from, &turns)?;
-    let mut partial = views.partial;
+    // A view compilation a loop names whose record was not read laid what it laid unseen (rule A).
+    let unread = (named.iter()).any(|c| !views.kept.iter().any(|(_, v)| &v.compilation == c));
+    let mut partial = views.partial || unread;
     let mut sessions: BTreeSet<String> = by_session.keys().map(|s| (*s).to_string()).collect();
     let mut acc = Accounting::new(store, &views);
     for (k, r) in reached.iter().enumerate() {
@@ -292,8 +296,8 @@ fn forks_of(store: &Store, root: &Reached, max: u32) -> Result<(Vec<ReachFork>, 
                 }
                 let at = c.inherits.as_ref().map_or(0, |i| i.through_position);
                 let nodes = [(root.position, &root.node)];
-                let (got, unread) = exposures(store, &c.session_id, &nodes)?;
-                partial |= unread;
+                // A fork's view compilations are read with the views (`by_views`).
+                let (got, _) = exposures(store, &c.session_id, &nodes)?;
                 let exposure = got.into_iter().next().unwrap_or_default();
                 next.push(c.session_id.clone());
                 out.push(ReachFork {
@@ -358,12 +362,13 @@ enum ReplyBody {
 
 /// Each node's exposure in `session` through an old store's transcript compilations, from one scan of it
 /// after the earliest of `nodes`. A loop's compilation made before that is read by its id. A view
-/// compilation is left to [`Accounting`]. False: nothing here is unknown (the signature is the caller's).
+/// compilation is left to [`Accounting`]; the view compilations the loops name are returned, so a view
+/// whose record is not read is known to be missing.
 fn exposures(
     store: &Store,
     session: &str,
     nodes: &[(u64, &Node)],
-) -> Result<(Vec<ReachExposure>, bool)> {
+) -> Result<(Vec<ReachExposure>, BTreeSet<String>)> {
     let from = nodes.iter().map(|(p, _)| *p).min().unwrap_or(0);
     let Scanned {
         compilations,
@@ -371,6 +376,11 @@ fn exposures(
         loops,
     } = scan(store, session, from)?;
     let view = |c: &Compilation| c.strategy == crate::compiler::view::STRATEGY;
+    let named: BTreeSet<String> = (loops.iter())
+        .filter(|(at, ..)| *at > from)
+        .filter(|(_, _, c, _)| compilations.get(c).is_some_and(|(_, c)| view(c)))
+        .map(|(_, _, c, _)| c.clone())
+        .collect();
     let mut out = Vec::with_capacity(nodes.len());
     for (p, n) in nodes {
         let holds = |c: &Compilation| c.includes.contains(&n.id) || crate::fork::inherited(c, *p);
@@ -411,7 +421,7 @@ fn exposures(
         }
         out.push(e);
     }
-    Ok((out, false))
+    Ok((out, named))
 }
 
 /// A compilation as an answer lists it.
@@ -590,18 +600,49 @@ impl Views {
             }
         }
         for turn in turns {
-            for v in record::of_turn(store, turn)? {
-                out.turns.insert(v.compilation.clone(), (*turn).to_string());
-                if out.kept.iter().any(|(_, k)| k.compilation == v.compilation) {
-                    continue;
-                }
-                let key = format!("{VIEW_PREFIX}{}", v.compilation);
-                let at =
-                    (store.inner().latest_by_key(kinds::META, &key)?).map_or(0, |r| r.position);
-                out.kept.push((at, v));
-            }
+            out.own_turn(store, turn)?;
+        }
+        // A view a turn's index entry names whose record is not here (absent, or unreadable) laid what it
+        // laid unseen: the answer cannot be complete.
+        let missing: Option<String> = (out.turns.keys())
+            .find(|c| !out.kept.iter().any(|(_, v)| &v.compilation == *c))
+            .cloned();
+        if let Some(c) = missing {
+            tracing::warn!(compilation = %c, "a view a turn names has no readable record: reach says partial");
+            out.partial = true;
         }
         Ok(out)
+    }
+
+    /// Every view of `turn`, from its index entries (newest first), each with the position it was kept at.
+    /// More entries than [`record::VIEWS_READ`] are cut, and the answer says partial.
+    fn own_turn(&mut self, store: &Store, turn: &str) -> Result<()> {
+        let prefix = format!("{VIEW_TURN_PREFIX}{turn}{SEP}");
+        let entries =
+            (store.inner()).first_with_prefix(kinds::META, &prefix, record::VIEWS_READ + 1)?;
+        if entries.len() > record::VIEWS_READ {
+            tracing::warn!(turn, "a turn has more views than reach reads: partial");
+            self.partial = true;
+        }
+        for e in entries.iter().take(record::VIEWS_READ) {
+            let Ok(of) = e.decode::<record::ViewOfTurn>() else {
+                self.partial = true;
+                continue;
+            };
+            self.turns.insert(of.compilation.clone(), turn.to_string());
+            if self
+                .kept
+                .iter()
+                .any(|(_, k)| k.compilation == of.compilation)
+            {
+                continue;
+            }
+            // An entry with no readable record is reconciled after: the answer is partial.
+            if let Ok(Some(v)) = record::read(store, &of.compilation) {
+                self.kept.push((e.position, v));
+            }
+        }
+        Ok(())
     }
 
     /// One kept record of the walk, born at `born`: a view (dated by its birth: a view kept again after
@@ -707,58 +748,113 @@ impl<'a> Accounting<'a> {
         Ok(out)
     }
 
-    /// What each form lays of `n`'s own text, from its exchange's nodes (`forms::laid`). An erased node's
-    /// is read from its kind; an erased reply's text is unknown (true as the second).
-    fn forms_of(&mut self, n: &Node) -> Result<(Forms, bool)> {
+    /// What each form lays of `n`: `text`, the other slots' text renderer, exactly (`forms::laid`: a Line
+    /// lays the first user message, Spoken and Whole what `whole` lays); `window`, the window's own renderer
+    /// (slot Here), whose Spoken and Whole carry every node of the exchange but a recall and a call node, as
+    /// a reply, a receipt or a stub: counted (rule B). An erased node's is read from its kind (rule B).
+    fn forms_of(&mut self, n: &Node) -> Result<Laid> {
+        let kind = kind_of(n).to_string();
+        let any = kind != "recall" && kind != "tool_call";
         let Some(turn) = n.turn_id.clone() else {
-            return Ok(([false; 3], false));
+            return Ok(Laid::default());
         };
         let nodes: Vec<Node> = (self.transcript(&n.session_id)?.iter())
             .filter(|(_, x)| x.turn_id.as_deref() == Some(turn.as_str()))
             .map(|(_, x)| (**x).clone())
             .collect();
-        if !matches!(n.body, Body::Erased { .. }) {
-            let has = |f: Form| crate::view::text::forms::laid(&nodes, f).contains(&n.id);
-            return Ok((
-                [has(Form::Line), has(Form::Spoken), has(Form::Whole)],
-                false,
-            ));
-        }
         let first_ask = (nodes.iter())
             .find(|x| kind_of(x) == "user_message")
             .is_some_and(|x| x.id == n.id);
-        Ok(match kind_of(n) {
-            "user_message" => ([first_ask, true, true], false),
-            "tool_call" | "tool_result" => ([false, false, true], false),
-            "assistant_message" => ([false; 3], true),
-            _ => ([false; 3], false),
-        })
+        let window = [first_ask, any, any];
+        if !matches!(n.body, Body::Erased { .. }) {
+            let has = |f: Form| crate::view::text::forms::laid(&nodes, f).contains(&n.id);
+            let text = [has(Form::Line), has(Form::Spoken), has(Form::Whole)];
+            return Ok(Laid { text, window });
+        }
+        let text = match kind.as_str() {
+            "user_message" => [first_ask, true, true],
+            "assistant_message" => [false, true, true],
+            "tool_call" | "tool_result" => [false, false, true],
+            _ => [false; 3],
+        };
+        Ok(Laid { text, window })
     }
 
     /// Where `n` (first written at `p`) went through view turns: by the session each ran in, each
-    /// compilation that laid it and the calls that did; and true when some of it is unknown.
+    /// compilation that laid it and the calls that did; and true when some of it is unknown (rule A).
     fn exposure_of(&mut self, p: u64, n: &Node) -> Result<(BTreeMap<String, ReachExposure>, bool)> {
-        let mut by: BTreeMap<String, ReachExposure> = BTreeMap::new();
-        let (forms, mut unknown) = self.forms_of(n)?;
-        let at = match exchange_at(self.store, n) {
-            Ok(a) => a,
-            Err(e) => {
-                tracing::warn!(node = %n.id, error = %format!("{e:#}"),
-                    "an exchange cannot be read: reach says partial");
-                unknown = true;
-                None
-            }
+        let laid = self.forms_of(n)?;
+        let mut unknown = false;
+        let at = match n.turn_id.is_some() {
+            false => None,
+            true => match exchange_at(self.store, n) {
+                Ok(a) => a,
+                Err(e) => {
+                    tracing::warn!(node = %n.id, error = %format!("{e:#}"),
+                        "an exchange cannot be read: reach says partial");
+                    unknown = true;
+                    None
+                }
+            },
         };
+        let candidates = self.candidates(n, at.as_ref(), laid, &mut unknown)?;
+        // Each consuming session read once, from its earliest candidate view.
+        let mut from: BTreeMap<String, u64> = BTreeMap::new();
+        for c in &candidates {
+            let f = from
+                .entry(c.compilation.session_id.clone())
+                .or_insert(c.kept);
+            *f = (*f).min(c.kept);
+        }
+        for (session, f) in &from {
+            self.records(session, *f)?;
+        }
+        let mut by: BTreeMap<String, ReachExposure> = BTreeMap::new();
+        for c in candidates {
+            let calls = self.calls(&c.compilation.session_id, c.kept, &c.compilation.id)?;
+            if calls.is_empty() {
+                // A view whose calls cannot be found laid what it laid unseen (rule A).
+                unknown = true;
+                continue;
+            }
+            let mut laid_calls = Vec::new();
+            for (d, ms) in &calls {
+                if c.frozen || (c.tail && *d > p) || (*d > p && self.between_at(&c, n, *d)?) {
+                    laid_calls.push(*ms);
+                }
+            }
+            if laid_calls.is_empty() {
+                continue;
+            }
+            let e = by.entry(c.compilation.session_id.clone()).or_default();
+            e.compilations.push(listed_compilation(&c.compilation));
+            e.loops += laid_calls.len() as u64;
+            seen(e, c.compilation.created_at_ms);
+            for ms in laid_calls {
+                seen(e, ms);
+            }
+        }
+        Ok((by, unknown))
+    }
+
+    /// The views that may have laid `n`, each with its compilation: a frozen piece that did, its own turn's
+    /// tail, or (a no-turn message of its session) the notes between turns.
+    fn candidates(
+        &mut self,
+        n: &Node,
+        at: Option<&(String, Pos)>,
+        laid: Laid,
+        unknown: &mut bool,
+    ) -> Result<Vec<Candidate>> {
         let kind = kind_of(n).to_string();
         let views = self.views;
+        let mut out = Vec::new();
         for (kept, v) in &views.kept {
-            let turn = views.turns.get(&v.compilation).map(String::as_str);
-            let own = turn.is_some() && n.turn_id.as_deref() == turn;
-            // A call node renders into no request where real turns are laid (its reply carries the call,
-            // `compiler::renderable`): not in the tail, nor in a window's exchange.
-            let call = kind == "tool_call";
-            let frozen = !own && lays_frozen(v, &n.id, at.as_ref(), (forms, call));
-            let tail = own && kind != "recall" && !call;
+            let turn = views.turns.get(&v.compilation).cloned();
+            let own = turn.is_some() && n.turn_id == turn;
+            let frozen = !own && lays_frozen(v, &n.id, at, laid);
+            // A call node renders into no request (its reply carries the call); a recall node is not laid.
+            let tail = own && kind != "recall" && kind != "tool_call";
             let between = turn.is_some() && n.turn_id.is_none() && kind == "user_message";
             // A node of no exchange (a task's opening, laid as the window's head) is in no piece: its
             // compilation's frozen prefix (`includes`) says whether the view laid it.
@@ -767,62 +863,84 @@ impl<'a> Accounting<'a> {
                 continue;
             }
             let Some(c) = self.store.get_compilation(&v.compilation)? else {
-                unknown |= frozen;
+                *unknown = true;
                 continue;
             };
             let frozen = frozen || (head && c.includes.contains(&n.id));
-            let between = between && c.session_id == n.session_id && {
-                let here: HashSet<&str> = (v.shown.iter())
-                    .filter(|s| s.piece.slot == Slot::Here)
-                    .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }))
-                    .map(|s| s.piece.range.first.id.as_str())
-                    .collect();
-                let t = self.transcript(&c.session_id)?;
-                crate::compiler::view::between::notes(t, turn.unwrap_or_default(), &here)
-                    .contains(&n.id)
-            };
+            let between = between && c.session_id == n.session_id;
             if !frozen && !tail && !between {
                 continue;
             }
-            let calls = self.calls(&c.session_id, *kept, &c.id)?;
-            // A frozen piece is in every call of the chain; the tail and the notes in those sent after.
-            let laid: Vec<&(u64, u64)> = calls.iter().filter(|(d, _)| frozen || *d > p).collect();
-            if laid.is_empty() {
-                unknown |= frozen && calls.is_empty();
-                continue;
-            }
-            let e = by.entry(c.session_id.clone()).or_default();
-            e.compilations.push(listed_compilation(&c));
-            e.loops += laid.len() as u64;
-            seen(e, c.created_at_ms);
-            for (_, ms) in laid {
-                seen(e, *ms);
-            }
+            let here: Vec<String> = (v.shown.iter())
+                .filter(|s| s.piece.slot == Slot::Here)
+                .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }))
+                .map(|s| s.piece.range.first.id.clone())
+                .collect();
+            out.push(Candidate {
+                kept: *kept,
+                compilation: c,
+                turn: turn.unwrap_or_default(),
+                here,
+                frozen,
+                tail,
+                between,
+            });
         }
-        Ok((by, unknown))
+        Ok(out)
+    }
+
+    /// Whether the call of `c` dispatched at `d` laid `n` among its notes between turns: the tail's own
+    /// selector run on the session as it was at that call. An erased note's text is unknown: counted (B).
+    fn between_at(&mut self, c: &Candidate, n: &Node, d: u64) -> Result<bool> {
+        if !c.between {
+            return Ok(false);
+        }
+        if matches!(n.body, Body::Erased { .. }) {
+            return Ok(true);
+        }
+        let t = self.transcript(&c.compilation.session_id)?;
+        let upto = t.partition_point(|(p, _)| *p <= d);
+        let here: HashSet<&str> = c.here.iter().map(String::as_str).collect();
+        Ok(crate::compiler::view::between::notes(&t[..upto], &c.turn, &here).contains(&n.id))
     }
 }
 
+/// A view that may have laid a node, with its compilation and why.
+struct Candidate {
+    kept: u64,
+    compilation: Compilation,
+    turn: String,
+    here: Vec<String>,
+    frozen: bool,
+    tail: bool,
+    between: bool,
+}
+
+/// What each form lays of a node: the other slots' text renderer, and the window's own (see `forms_of`).
+#[derive(Clone, Copy, Default)]
+struct Laid {
+    text: Forms,
+    window: Forms,
+}
+
 /// Whether a view's frozen pieces laid node `id`: a recalled item it showed, or an exchange laid in a form
-/// that carries the node's text (the window, slot Here, lays real turns, where a call node is not
-/// rendered). A dropped piece is not in `shown`: it was not sent.
-fn lays_frozen(
-    v: &ViewRecord,
-    id: &str,
-    at: Option<&(String, Pos)>,
-    (forms, call): (Forms, bool),
-) -> bool {
+/// that carries the node (the window, slot Here, by its own renderer; any other slot by the text one). A
+/// dropped piece is not in `shown`: it was not sent.
+fn lays_frozen(v: &ViewRecord, id: &str, at: Option<&(String, Pos)>, laid: Laid) -> bool {
     v.shown.iter().any(|s| match &s.piece.range.space {
         Space::Recalled { node, .. } => node == id,
         Space::Exchanges { place } => {
             let r = &s.piece.range;
+            let forms = match s.piece.slot == Slot::Here {
+                true => laid.window,
+                false => laid.text,
+            };
             at.is_some_and(|(p, at)| {
                 p == place
                     && (r.first.id == at.id
                         || r.last.id == at.id
                         || (&r.first..=&r.last).contains(&at))
             }) && forms[form_index(s.form)]
-                && !(call && s.piece.slot == Slot::Here)
         }
         _ => false,
     })

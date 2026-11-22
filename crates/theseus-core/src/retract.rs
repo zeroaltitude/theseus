@@ -432,39 +432,25 @@ impl Core {
         let memory_session = self.memory_session()?;
         let mut out: Vec<Found> = Vec::new();
         let mut sessions: BTreeMap<String, Option<Sess>> = BTreeMap::new();
-        // Each session whose requests laid the node itself: its own, and on the view any other session whose
-        // turn laid it with no copy to follow (issue 44; each listed compilation names its session).
+        // The sessions the walk reached by a copy are sorted by the copy's route below, which knows more
+        // (used, seen); a view's laying of the node there adds nothing to that.
+        let reached: Vec<&str> = (walk.descendants.iter())
+            .map(|d| d.session_id.as_str())
+            .chain([walk.session_id.as_str()])
+            .collect();
+        // The node's own session, if its requests laid it.
         let direct = &walk.direct;
-        let mut laid_in: Vec<&str> = Vec::new();
-        for c in &direct.compilations {
-            let sid = match c.session_id.is_empty() {
-                true => walk.session_id.as_str(),
-                false => c.session_id.as_str(),
-            };
-            if !laid_in.contains(&sid) {
-                laid_in.push(sid);
-            }
-        }
-        if laid_in.is_empty() && direct.loops > 0 {
-            laid_in.push(walk.session_id.as_str());
-        }
-        // A session the walk reached by a copy (a recall's, a report's) is sorted by that copy's route
-        // below, which knows more (used, seen); its view's laying of the node itself adds nothing to that.
-        laid_in.retain(|sid| {
-            *sid == walk.session_id.as_str()
-                || !walk.descendants.iter().any(|d| d.session_id == *sid)
-        });
-        for sid in laid_in {
-            if memory_session.as_deref() == Some(sid) {
-                continue;
-            }
-            if let Some(s) = self.cached(&mut sessions, sid)? {
+        let own = (direct.compilations.iter())
+            .any(|c| c.session_id.is_empty() || c.session_id == walk.session_id)
+            || (direct.compilations.is_empty() && direct.loops > 0);
+        if own && memory_session.as_deref() != Some(walk.session_id.as_str()) {
+            if let Some(s) = self.cached(&mut sessions, &walk.session_id)? {
                 if !s.imported {
                     let k = if s.task { kind::TASK } else { kind::SESSION };
                     out.push(Found {
                         e: RetractExposure {
                             kind: k.into(),
-                            session_id: sid.to_string(),
+                            session_id: walk.session_id.clone(),
                             node_id: walk.node_id.clone(),
                             generation: 0,
                             place: s.place.clone(),
@@ -477,6 +463,11 @@ impl Core {
                     });
                 }
             }
+        }
+        // Every other session whose view turn laid it with no copy to follow (issue 44).
+        for sid in view_sessions(direct, &walk.session_id, &reached) {
+            let at = (walk.node_id.as_str(), 0, direct.last_ms);
+            out.extend(self.laid_by_view(&mut sessions, memory_session.as_deref(), sid, at)?);
         }
         for d in &walk.descendants {
             let Some(s) = self.cached(&mut sessions, &d.session_id)? else {
@@ -525,9 +516,71 @@ impl Core {
                 },
                 private: s.private,
             });
+            // Every other session whose view turn laid this copy, with no further copy to follow.
+            for sid in view_sessions(&d.exposure, &d.session_id, &reached) {
+                let at = (d.node_id.as_str(), d.generation, d.exposure.last_ms);
+                out.extend(self.laid_by_view(&mut sessions, memory_session.as_deref(), sid, at)?);
+            }
         }
         Ok(merge(out))
     }
+
+    /// A session a view turn laid the node in, found by the compilations its exposure names (issue 44),
+    /// sorted by the rules a session the walk reaches has always had: a retired one is seen only (it will
+    /// never run again, so no note), a task's is a task, any other a session that gets a note; the memory
+    /// session and an imported one are left out.
+    fn laid_by_view(
+        &self,
+        sessions: &mut BTreeMap<String, Option<Sess>>,
+        memory: Option<&str>,
+        sid: &str,
+        (node_id, generation, at_ms): (&str, u32, Option<u64>),
+    ) -> Result<Option<Found>> {
+        if memory == Some(sid) {
+            return Ok(None);
+        }
+        let Some(s) = self.cached(sessions, sid)? else {
+            return Ok(None);
+        };
+        if s.imported {
+            return Ok(None);
+        }
+        let k = match (s.retired, s.task) {
+            (true, _) => kind::SEEN,
+            (false, true) => kind::TASK,
+            (false, false) => kind::SESSION,
+        };
+        Ok(Some(Found {
+            e: RetractExposure {
+                kind: k.into(),
+                session_id: sid.to_string(),
+                node_id: node_id.to_string(),
+                generation,
+                place: s.place.clone(),
+                at_ms,
+                used: None,
+                what: what_of(k, s.retired, ""),
+                hidden: false,
+            },
+            private: s.private,
+        }))
+    }
+}
+
+/// The sessions an exposure's compilations name, other than `own` and those in `reached`, once each.
+fn view_sessions<'a>(
+    e: &'a theseus_protocol::ReachExposure,
+    own: &str,
+    reached: &[&str],
+) -> Vec<&'a str> {
+    let mut out: Vec<&str> = Vec::new();
+    for c in &e.compilations {
+        let sid = c.session_id.as_str();
+        if !sid.is_empty() && sid != own && !reached.contains(&sid) && !out.contains(&sid) {
+            out.push(sid);
+        }
+    }
+    out
 }
 
 /// The correction note for each session that goes on: one text, a note each.

@@ -390,6 +390,40 @@ async fn a_fact_laid_by_another_sessions_window_is_in_the_spread() {
     );
 }
 
+/// A copy's consumer with no further edge is in the spread (issue 44): a fact's copy said in one session
+/// is laid by another session's window at the same place, and the retraction finds that session too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_copys_consumer_with_no_further_edge_is_in_the_spread() {
+    let r = rig();
+    let c = &r.core;
+    bind(c);
+    let (_, x) = plant(c);
+    let two = session(c, Some(DM), &[]);
+    turn(c, &two, "The relay listens on port 7714, the note says.").await;
+    let y = (c.store.session_nodes(&two).unwrap().into_iter())
+        .find(|(_, n)| matches!(n.body, Body::UserMessage { .. }))
+        .expect("the copy")
+        .1
+        .id;
+    let e = Edge::new(EdgeKind::DerivedFrom, &y, &x, crate::graph::VIA_REPORT);
+    c.store.append(&[e.record().unwrap()]).unwrap();
+    let three = session(c, Some(DM), &[]);
+    turn(c, &three, "And what else?").await;
+    let reach = crate::reach::reach(&c.store, &x, None).unwrap().unwrap();
+    let d = (reach.descendants.iter())
+        .find(|d| d.node_id == y)
+        .expect("the copy is a descendant");
+    assert!(
+        (d.exposure.compilations.iter()).any(|k| k.session_id == three),
+        "{reach:?}"
+    );
+    let out = retract(c, &x).unwrap();
+    assert!(
+        out.exposures.iter().any(|e| e.session_id == three),
+        "{out:#?}"
+    );
+}
+
 /// The live session's next turn carries the correction once; a session that
 /// only saw the fact, and a task, get none.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
