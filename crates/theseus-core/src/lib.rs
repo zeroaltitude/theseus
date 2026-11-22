@@ -450,6 +450,8 @@ mod tests_manifest_harness;
 #[cfg(test)]
 mod tests_marker;
 #[cfg(test)]
+mod tests_mcp_history;
+#[cfg(test)]
 mod tests_mcp_memory;
 #[cfg(test)]
 mod tests_memory_arm;

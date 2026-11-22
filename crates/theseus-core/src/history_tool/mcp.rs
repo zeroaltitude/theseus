@@ -9,6 +9,8 @@
 //! - **Typed lines**, not the model's page: the page's text speaks to a model in a turn (its looks, the person
 //!   it talks to), which an outside agent is not. A line holds what `HistoryLine` holds, cut by the same
 //!   margins, and `who` by the page's own rule; an open is the tool's spoken form, one string.
+//! - **The vault's values are substituted** in every string of a reply and of an error (`Exits::text`), as the
+//!   MCP memory tools' are: no provider call is on this path to do it.
 
 use std::sync::Arc;
 
@@ -83,8 +85,77 @@ fn cursor(c: Cursor) -> HistoryCursor {
     }
 }
 
-/// `history.read`: a page of `p`'s timeline, or one opened exchange.
+/// `history.read`: a page of `p`'s timeline, or one opened exchange, with the vault's values substituted in
+/// every string of the reply and of an error.
 pub(crate) async fn history(
+    core: &Arc<Core>,
+    p: &HistoryReadParams,
+) -> Result<HistoryReadResult, String> {
+    read_history(core, p)
+        .await
+        .map(|r| substituted(core, r))
+        .map_err(|e| said(core, &e))
+}
+
+/// An error's words with the vault's values substituted: an error may echo what was asked.
+pub(crate) fn said(core: &Core, e: &str) -> String {
+    core.exits.text(e).0.into_owned()
+}
+
+/// The reply with the vault's values substituted in every string a client reads. Every field is named (no
+/// `..`), so a field added later does not compile until it is classified here: substituted (what was said,
+/// a place, a person), or left as it is (a handle, a time, a cursor, a generated word).
+fn substituted(core: &Core, r: HistoryReadResult) -> HistoryReadResult {
+    let sub = |s: String| core.exits.text(&s).0.into_owned();
+    let HistoryReadResult {
+        place,
+        lines,
+        end,
+        next,
+        open,
+    } = r;
+    let lines = lines
+        .into_iter()
+        .map(|l| {
+            let HistoryReadLine {
+                handle,
+                place,
+                at_ms,
+                when,
+                who,
+                words,
+                did,
+                reply_begins,
+            } = l;
+            HistoryReadLine {
+                handle,
+                place: sub(place),
+                at_ms,
+                when,
+                who: sub(who),
+                words: sub(words),
+                did: did.map(sub),
+                reply_begins: reply_begins.map(sub),
+            }
+        })
+        .collect();
+    let open = open.map(|o| {
+        let HistoryOpened { handle, text } = o;
+        HistoryOpened {
+            handle,
+            text: sub(text),
+        }
+    });
+    HistoryReadResult {
+        place: sub(place),
+        lines,
+        end,
+        next,
+        open,
+    }
+}
+
+async fn read_history(
     core: &Arc<Core>,
     p: &HistoryReadParams,
 ) -> Result<HistoryReadResult, String> {

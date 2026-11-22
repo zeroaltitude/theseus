@@ -55,7 +55,7 @@ impl Core {
             }
             method::HISTORY_READ => {
                 let p = super::server::parse(params).map_err(|mut e| {
-                    e.message = crate::memory_lookup::mcp::said(self, &e.message);
+                    e.message = crate::history_tool::mcp::said(self, &e.message);
                     e
                 })?;
                 reply(self.rpc_history_read(p, conn.surface).await?)
