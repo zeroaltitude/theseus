@@ -508,64 +508,45 @@ fn thread_named(store: &crate::store::Store, slug: &str) -> String {
     r.session_id
 }
 
-/// Seal thread `slug` through the board's own write.
-fn seal(c: &crate::Core, slug: &str) {
-    c.runner
-        .threads
-        .write(
-            &c.store,
-            |b| {
-                let mut v = serde_json::to_value(b.get(slug).expect("the thread")).unwrap();
-                v["sealed"] = serde_json::json!({"by": "cli", "at_ms": 2, "reason": "embargo"});
-                Ok(vec![serde_json::from_value(v)?])
-            },
-            |_, _| Ok(vec![]),
-        )
-        .unwrap();
-}
-
-/// A card reads only the standing records its facts need: a fact of an unrelated thread's session is not
-/// part of kelp's card's provenance, and sealing that thread leaves kelp's recorded card listed.
+/// KEY: a named thing's card shows no standing record: a Fact and a Preference scoped to the thing's own
+/// working session are neither printed nor counted on its card, even for the owner alone (the most any
+/// reader sees); the standing reader is the only place that shows them.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn sealing_an_unrelated_standing_records_session_leaves_the_card() {
+async fn a_cards_thing_shows_no_standing_facts_or_preferences() {
     use theseus_protocol::{StandingAddParams, StandingKind, StandingScope};
-    let sessions = std::cell::RefCell::new((String::new(), String::new()));
+    let session = std::cell::RefCell::new(String::new());
     let r = crate::tests_places::rig_setup(
         |c| {
             c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
-        |s| *sessions.borrow_mut() = (thread_named(s, "kelp"), thread_named(s, "reef")),
+        |s| *session.borrow_mut() = thread_named(s, "kelp"),
     );
     let c = &r.core;
-    let (kelp_sid, reef_sid) = sessions.into_inner();
-    for (sid, text) in [
-        (&kelp_sid, "kelp is kept dry"),
-        (&reef_sid, "reef is a secret"),
+    let kelp_sid = session.into_inner();
+    for (kind, text) in [
+        (
+            StandingKind::Fact,
+            "the kelp beds are leased to Harbor Nine",
+        ),
+        (StandingKind::Preference, "send kelp reports on Fridays"),
     ] {
         let p = StandingAddParams {
-            kind: StandingKind::Fact,
+            kind,
             text: text.into(),
-            scope: StandingScope::Session(sid.clone()),
+            scope: StandingScope::Session(kelp_sid.clone()),
             ..Default::default()
         };
         c.standing_add(&p, "the CLI").unwrap();
     }
     let desk = session_in(c, None, &r.root);
-    let t = turn_as(c, &desk, "desk: what about thread:kelp?", true).await;
-    let q = asked(&r, "desk: what about thread:kelp?").pop().unwrap();
-    assert!(texts(&q).contains("kelp is kept dry"), "{}", texts(&q));
-    let rec = record_of(c, &t.turn_id);
-    let from = (rec.shown.iter())
-        .find_map(|s| match &s.piece.range.space {
-            Space::Card { from: Some(p), .. } => Some(p.clone()),
-            _ => None,
-        })
-        .expect("kelp's card, with its provenance");
-    assert!(from.sessions.contains(&kelp_sid), "{from:?}");
-    assert!(!from.sessions.contains(&reef_sid), "{from:?}");
-    seal(c, "reef");
-    assert!(lists(&owners_reading(c, &rec), "thread:kelp"));
+    turn_as(c, &desk, "desk: what about thread:kelp?", true).await;
+    let all = texts(&asked(&r, "desk: what about thread:kelp?").pop().unwrap());
+    let card = card_of(&all, "thread:kelp").unwrap_or_else(|| panic!("no card: {all}"));
+    assert!(!card.contains("Harbor Nine"), "{card}");
+    assert!(!card.contains("on Fridays"), "{card}");
+    assert!(!card.contains("Fact:"), "{card}");
+    assert!(!card.contains("more facts"), "{card}");
 }
 
 /// KEY: the owner alone is told who is speaking (his held person's name) and his own guidance for it; the

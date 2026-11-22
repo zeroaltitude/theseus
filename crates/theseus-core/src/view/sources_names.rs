@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use theseus_ontology::Guidance;
 use theseus_protocol::tasks::TaskRecord;
-use theseus_protocol::{StandingRecord, StandingScope};
+use theseus_protocol::StandingRecord;
 
 use super::gate::Gate;
 use super::select::sources::{Names, Ref, Things};
@@ -45,8 +45,19 @@ use crate::view_gate::Moved;
 /// record for everywhere): private, and never the anchor, so only the owner alone sees it.
 pub const FILING: &str = "theseus:filing";
 
+/// Whether a current place reads as a place: missing, empty or the ledger's `unknown` is none. The one
+/// rule of place validity: every admission here ([`admitted`]) and the view record's re-read
+/// (`record::source`) ask it.
+pub fn place_reads(place: Option<&str>) -> bool {
+    place.is_some_and(|p| !p.is_empty() && p != crate::exchange::rebuild::UNKNOWN)
+}
+
 /// Whether `gate` admits a record of these marks, of this time, to `pov`: the record made a piece and asked.
+/// Marks whose place does not read as a place ([`place_reads`]) are refused first.
 pub fn admitted(gate: &dyn Gate, pov: &PointOfView, marks: Marks, at_ms: u64) -> bool {
+    if !place_reads(marks.place.as_deref()) {
+        return false;
+    }
     let pos = Pos {
         at_ms,
         id: String::new(),
@@ -122,10 +133,9 @@ impl<'a> ViewAdmits<'a> {
         self.reading.borrow_mut().0.insert(session.to_string());
     }
 
-    /// [`Self::passes`] for a record of `session`, which the view then depends on; a session whose
-    /// current place does not read as a place never passes.
+    /// [`Self::passes`] for a record of `session`, which the view then depends on.
     fn passes_of(&self, session: &str, marks: Marks, at_ms: u64) -> bool {
-        let ok = placed(&marks) && self.passes(marks, at_ms);
+        let ok = self.passes(marks, at_ms);
         if ok {
             self.depend(session);
         }
@@ -157,13 +167,6 @@ impl<'a> ViewAdmits<'a> {
     }
 }
 
-/// Whether marks name a place: a place that is missing, empty or the ledger's `unknown` is none.
-fn placed(m: &Marks) -> bool {
-    m.place
-        .as_deref()
-        .is_some_and(|p| !p.is_empty() && p != crate::exchange::rebuild::UNKNOWN)
-}
-
 /// The owner's own filing, marked private and of no place a turn is anchored to.
 fn filing() -> Marks {
     private(FILING)
@@ -181,27 +184,21 @@ fn private(place: &str) -> Marks {
 }
 
 impl Admits for ViewAdmits<'_> {
-    fn fact(&self, r: &StandingRecord) -> bool {
-        match &r.scope {
-            StandingScope::Session(s) => self.passes_of(s, self.homes.marks(s), r.since_ms),
-            // A place's record is held as private to it: shown there, or to the owner alone.
-            StandingScope::Place(p) => self.passes(private(p), r.since_ms),
-            _ => self.passes(filing(), r.since_ms),
-        }
+    /// A card shows no standing record (no fact, no preference): the standing reader is the only place
+    /// that shows them, so none is read here.
+    fn fact(&self, _: &StandingRecord) -> bool {
+        false
     }
 
-    /// Its session's current marks AND its own arrival place pass (neither missing, empty nor `unknown`),
-    /// no message of it was moved into a thread not proven clear, and the threads its messages were moved
-    /// into are proven (their sessions become dependencies); its id joins the card's provenance.
+    /// Its session's current marks AND its own arrival place pass ([`admitted`]), and no message of it was
+    /// moved into a thread not proven clear; its id joins the card's provenance, and the dispatch and the
+    /// record re-ask its moves and seals afresh (`turn::view_step`, `record::source`).
     fn exchange(&self, e: &Exchange) -> bool {
-        let now = self.homes.marks(&e.session_id);
-        let here = private(&e.place);
-        if self.moved.holds(e) || !placed(&now) || !placed(&here) {
+        if self.moved.holds(e) {
             return false;
         }
-        let Some(moved_to) = self.moved.sessions(e) else {
-            return false;
-        };
+        let now = self.homes.marks(&e.session_id);
+        let here = private(&e.place);
         let arrived = Marks {
             audience: match e.private {
                 true => Audience::Private,
@@ -214,9 +211,6 @@ impl Admits for ViewAdmits<'_> {
             return false;
         }
         self.depend(&e.session_id);
-        for s in moved_to {
-            self.depend(&s);
-        }
         self.reading.borrow_mut().1.insert(e.turn_id.clone());
         true
     }
@@ -648,5 +642,33 @@ mod tests {
             place: "discord:channel:9",
         };
         assert!(there.thing(Source::Task(&task)), "of its own place");
+    }
+
+    /// KEY: the one place rule is the common admission's: any record (a waiting line's, a card's part)
+    /// whose current place is missing, empty or `unknown` is refused, the owner alone included; the view
+    /// record's re-read asks the same [`place_reads`].
+    #[test]
+    fn a_record_whose_current_place_does_not_read_is_refused_everywhere() {
+        let permit = Permit::of(Verified::for_tests(rule::PointOfView {
+            anchor: "local".into(),
+            place: theseus_memory::recall::Place::Private,
+            present: rule::Present::OwnerAlone,
+        }));
+        let pov = PointOfView {
+            anchor: Anchor::Place("local".into()),
+            person: Some(OWNER.into()),
+            present: Present::OwnerAlone,
+            at_hand: None,
+            now_ms: 9_000,
+        };
+        let at = |place: Option<&str>| Marks {
+            place: place.map(str::to_string),
+            ..private("x")
+        };
+        assert!(admitted(&permit, &pov, at(Some("discord:dm:42")), 1));
+        for bad in [None, Some(""), Some(crate::exchange::rebuild::UNKNOWN)] {
+            assert!(!admitted(&permit, &pov, at(bad), 1), "{bad:?}");
+            assert!(!place_reads(bad), "{bad:?}");
+        }
     }
 }

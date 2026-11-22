@@ -90,25 +90,6 @@ impl<'a> Moved<'a> {
     pub fn holds(&self, ex: &Exchange) -> bool {
         nodes(ex).any(|n| self.held(n))
     }
-
-    /// The sessions of the threads `ex`'s messages and reply were moved into, as the board knows them: a
-    /// reader that shows `ex` depends on them (a seal of one later revokes what it showed). None when they
-    /// cannot all be proven: a move that does not read, an unread board, a thread the board does not hold, or
-    /// one with no session.
-    pub fn sessions(&self, ex: &Exchange) -> Option<Vec<String>> {
-        let mut out = Vec::new();
-        for n in nodes(ex) {
-            match self.store.get_meta::<Option<MovedTo>>(&moved_of_key(n)) {
-                Ok(None | Some(None)) => {}
-                Ok(Some(Some(m))) => {
-                    let t = self.board.as_ref()?.get(&m.thread)?;
-                    out.push(t.session_id.clone()?);
-                }
-                Err(_) => return None,
-            }
-        }
-        Some(out)
-    }
 }
 
 /// Whether any exchange of `turns` holds a message or reply moved into a thread, is missing, or cannot be

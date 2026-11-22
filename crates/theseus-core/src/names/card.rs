@@ -310,21 +310,8 @@ pub fn card(
         });
     // What is current is decided inside the history the gate admits: a
     // record it refuses ends nothing the card shows.
-    // Only the records the card's facts need are asked of the gate (and so read): those of its scope, and
-    // those that end one of them (a record's currentness is whether one ends it, `standing::state`).
     let all = core.runner.standing.all(&core.store)?;
-    let scoped: std::collections::BTreeSet<&str> = (all.iter())
-        .filter(|r| scope.contains(&r.scope))
-        .map(|r| r.id.as_str())
-        .collect();
-    let needed = |r: &&StandingRecord| {
-        scoped.contains(r.id.as_str()) || r.ends.as_deref().is_some_and(|e| scoped.contains(e))
-    };
-    let admitted: Vec<StandingRecord> = (all.iter())
-        .filter(needed)
-        .filter(|r| gate.fact(r))
-        .cloned()
-        .collect();
+    let admitted: Vec<StandingRecord> = all.iter().filter(|r| gate.fact(r)).cloned().collect();
     let live = crate::standing::live(&admitted, None, theseus_protocol::now_unix_ms());
     let facts = live
         .into_iter()

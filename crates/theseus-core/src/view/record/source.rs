@@ -44,7 +44,8 @@ impl GateSource<'_> {
     fn proven(&self, p: &Provenance) -> bool {
         let clear = |s: &str| {
             let m = view_gate::session_marks(self.runner, self.asker, s, Veil::Clear);
-            Gate::check(&self.pov, &m).is_ok()
+            crate::view::sources_names::place_reads(m.place.as_deref())
+                && Gate::check(&self.pov, &m).is_ok()
         };
         let moved = view_gate::Moved::read(self.runner, self.asker);
         p.sessions.iter().all(|s| clear(s))
