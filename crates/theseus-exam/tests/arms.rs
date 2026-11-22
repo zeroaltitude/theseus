@@ -404,13 +404,14 @@ fn second_heard_first(recs: &[drive::Record], exam: &Exam, bodies: &[Value]) -> 
         let u = m.iter().rev().find(|m| m["role"] == "user").unwrap();
         u["content"].to_string()
     };
-    let asked: Vec<String> = (bodies.iter())
+    let asked: Vec<String> = bodies
+        .iter()
         .filter(|b| last_user(b).contains(&second))
         .map(Value::to_string)
         .collect();
     assert!(!asked.is_empty(), "the second cell's request was seen");
     let words = [first, recs[0].reply.clone()];
-    (asked.iter()).any(|b| {
+    asked.iter().any(|b| {
         words
             .iter()
             .any(|w| !w.is_empty() && b.contains(w.as_str()))

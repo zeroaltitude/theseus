@@ -206,7 +206,8 @@ pub type CellDaemons = Arc<dyn Fn(&str, &str) -> Result<CellDaemon> + Send + Syn
 /// A cell's name, for its daemon's directory: `<item>-<arm>-r<run>`, the item's id kept to what a file name
 /// takes.
 pub fn cell_name(item: &str, arm: Arm, run: u32) -> String {
-    let id: String = (item.chars())
+    let id: String = item
+        .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' {
                 c
@@ -480,7 +481,10 @@ fn cancel(c: &mut Client, sid: &str) {
 pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, run: u32) -> Record {
     // The cell's own daemon starts before its clock does: its latency stays its turn's. Held to the end of the
     // cell, which stops it.
-    let own = (plan.cells.as_ref()).map(|up| up(arm.daemon(), &cell_name(&item.id, arm, run)));
+    let own = plan
+        .cells
+        .as_ref()
+        .map(|up| up(arm.daemon(), &cell_name(&item.id, arm, run)));
     let socket = match &own {
         None => plan.socket(arm).map(Path::to_path_buf),
         Some(Ok(d)) => Ok(d.socket.clone()),

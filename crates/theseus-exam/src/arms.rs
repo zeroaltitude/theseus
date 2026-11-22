@@ -150,7 +150,10 @@ struct CellStop {
 impl Drop for CellStop {
     fn drop(&mut self) {
         let k = self.d.stop().unwrap_or_default();
-        (self.killed.lock().unwrap_or_else(PoisonError::into_inner)).extend(k);
+        self.killed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .extend(k);
     }
 }
 
@@ -171,7 +174,7 @@ fn cell_daemons(
     );
     let (settle, last, snapshots) = (plan.settle, m.last_position, snapshots.clone());
     let (cells, killed) = (cells.to_path_buf(), killed.clone());
-    Arc::new(move |d: &str, cell: &str| {
+    Arc::new(move |d: &str, cell: &str| -> Result<drive::CellDaemon> {
         let snap = snapshots
             .get(d)
             .with_context(|| format!("no snapshot of the {d} daemon"))?;
