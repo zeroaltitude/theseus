@@ -264,10 +264,6 @@ impl TurnRunner {
         let view_place = rec
             .filter(|_| !moved)
             .and_then(|r| Some((r, self.census_view_place(r)?)));
-        let (nodes, _) = match view_place {
-            Some(_) => (nodes, Vec::new()),
-            None => self.stubbed_view(sid, &spec.model, hidden, nodes, None),
-        };
         let current = match rec.and_then(|r| r.compilation_id.as_deref()) {
             Some(id) => self.store.get_compilation(id)?,
             None => None,

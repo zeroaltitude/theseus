@@ -60,10 +60,6 @@ impl TurnRunner {
                 if let Some(row) = &h.row {
                     t.record(&crate::fact::thread_route::ThreadRouted(row));
                 }
-                // Latched for the turn before any request carries it (issue 44).
-                t.digest.tail = h
-                    .tail
-                    .filter(|_| crate::task_graph::judged::latch(t.tc.store, t.tc.turn_id));
                 h.early
             });
         if !self.judge.config().enabled {

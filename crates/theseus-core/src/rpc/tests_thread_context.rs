@@ -1,15 +1,15 @@
 //! A thread carries only its own working set (theseus-h4a7) through the
 //! core: the layers two threads and an unthreaded session share, the card's
-//! snapshot and `thread.note`, and the cold resume.
+//! snapshot and `thread.note`. (The cold resume went with the transcript, issue 44.)
 
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::json;
 use theseus_protocol::threads::ThreadNewParams;
 
 use crate::approval::{Answerer, Surface};
 use crate::bus::EventSink;
-use crate::provider::{FakeProvider, ProviderRequest, Scripted};
+use crate::provider::{ProviderRequest, Scripted};
 use crate::session::SessionRecord;
 use crate::tests_day_ceiling::{build, turn};
 use crate::turn::TurnRequest;
@@ -347,168 +347,4 @@ async fn a_note_is_bounded_and_the_card_keeps_the_newest_lines() {
     let rows: Vec<_> = crate::tests_day_ceiling::rows(&core, "thread.edited");
     assert_eq!(rows.len(), 14);
     assert_eq!(rows[0].data["via"], "thread.note");
-}
-
-/// The history a cold-resume test starts from: a thread of `turns` long
-/// replies, its last call `ago_ms` ago.
-async fn long_thread(
-    core: &Arc<Core>,
-    fake: &Arc<FakeProvider>,
-    sid: &str,
-    turns: usize,
-    ago_ms: u64,
-) -> usize {
-    for k in 0..turns {
-        say(core, sid, &format!("question {k}")).await;
-    }
-    core.store
-        .update_session(sid, |r: &mut SessionRecord| {
-            r.last_active_ms = theseus_protocol::now_unix_ms() - ago_ms;
-            Ok(vec![])
-        })
-        .unwrap();
-    fake.requests().len()
-}
-
-fn long(i: usize) -> Scripted {
-    Scripted::text(&format!("answer {i}: {}", "silt ".repeat(2_000)))
-}
-
-fn compiled_rows(core: &Core, sid: &str) -> Vec<Value> {
-    crate::tests_day_ceiling::rows(core, "context.compiled")
-        .into_iter()
-        .filter(|r| r.session_id.as_deref() == Some(sid))
-        .map(|r| r.data)
-        .collect()
-}
-
-const HOUR_PLUS: u64 = 2 * 3_600_000;
-
-/// A thread whose next message finds its cache window passed is rewritten
-/// small: under its working tokens, the newest turns kept; a warm one is
-/// appended to as it was.
-#[tokio::test]
-async fn a_cold_thread_resumes_small_and_a_warm_one_is_untouched() {
-    let dir = tempfile::tempdir().unwrap();
-    let script: Vec<Scripted> = (0..20).map(long).collect();
-    let (core, fake) = build(dir.path(), script, |c| {
-        files(dir.path(), c);
-        c.threads.working_tokens = Some(22_000);
-        c.threads.resume_keep_turns = 1;
-    });
-    let (cold, warm) = (thread(&core, "cold"), thread(&core, "warm"));
-    let n = long_thread(&core, &fake, &cold, 6, HOUR_PLUS).await;
-    let m = long_thread(&core, &fake, &warm, 6, 1_000).await;
-    assert!(n > 0 && m > n);
-    let before = fake.requests().len();
-    say(&core, &cold, "back after lunch").await;
-    say(&core, &warm, "still here").await;
-    let r = fake.requests();
-    assert_eq!(r.len(), before + 2);
-    let rows = |sid| compiled_rows(&core, sid);
-    let last = |sid| rows(sid).last().cloned().unwrap();
-    let c = last(&cold);
-    assert_eq!(c["decision"], "recompile", "{c}");
-    assert_eq!(c["trigger"], "cold_resume");
-    assert!(
-        // 22,200 until `context_history` joined every request's tools (issue 44): about 120 tokens more.
-        c["est_tokens"].as_u64().unwrap() <= 22_400,
-        "{}",
-        c["est_tokens"]
-    );
-    let kept = r[before]
-        .messages
-        .iter()
-        .filter(|m| m["role"] == "user")
-        .count();
-    assert!(kept <= 2, "the newest turns only: {kept}");
-    let w = last(&warm);
-    assert_eq!(w["decision"], "append", "{w}");
-    assert!(
-        w["est_tokens"].as_u64().unwrap() > 22_000,
-        "a warm thread is not shrunk for its size"
-    );
-}
-
-/// A cold resume keeps the newest twenty turns whole by default (theseus-d9je7): a thread of
-/// thirty turns resume with the newest twenty, not six.
-#[tokio::test]
-async fn a_cold_resume_keeps_twenty_turns() {
-    let dir = tempfile::tempdir().unwrap();
-    let script: Vec<Scripted> = (0..32).map(long).collect();
-    let (core, fake) = build(dir.path(), script, |c| {
-        files(dir.path(), c);
-        c.threads.working_tokens = Some(90_000);
-    });
-    let cold = thread(&core, "cold");
-    long_thread(&core, &fake, &cold, 30, HOUR_PLUS).await;
-    let before = fake.requests().len();
-    say(&core, &cold, "back after lunch").await;
-    let r = fake.requests();
-    assert_eq!(r.len(), before + 1);
-    let c = compiled_rows(&core, &cold).last().cloned().unwrap();
-    assert_eq!(c["trigger"], "cold_resume", "{c}");
-    let kept = r[before]
-        .messages
-        .iter()
-        .filter(|m| m["role"] == "user")
-        .count();
-    assert_eq!(
-        kept, 20,
-        "the newest twenty turns, the new message among them"
-    );
-}
-
-/// With no `working_tokens`, a cold resume works to `working_percent` of the model's window
-/// (theseus-d9je7): at 1 per cent only a turn or two fit.
-#[tokio::test]
-async fn a_cold_resume_works_to_a_share_of_the_window() {
-    let dir = tempfile::tempdir().unwrap();
-    let script: Vec<Scripted> = (0..32).map(long).collect();
-    let (core, fake) = build(dir.path(), script, |c| {
-        files(dir.path(), c);
-        c.threads.working_percent = 1;
-    });
-    let cold = thread(&core, "cold");
-    long_thread(&core, &fake, &cold, 30, HOUR_PLUS).await;
-    let before = fake.requests().len();
-    say(&core, &cold, "back after lunch").await;
-    let c = compiled_rows(&core, &cold).last().cloned().unwrap();
-    assert_eq!(c["trigger"], "cold_resume", "{c}");
-    let kept = fake.requests()[before]
-        .messages
-        .iter()
-        .filter(|m| m["role"] == "user")
-        .count();
-    assert!(
-        kept <= 3,
-        "1 per cent of the window is a turn or two: {kept}"
-    );
-}
-
-/// An unthreaded session that has been away is not rewritten by this: a
-/// cold-compact is a separate decision.
-#[tokio::test]
-async fn an_unthreaded_session_is_not_resumed_small() {
-    let dir = tempfile::tempdir().unwrap();
-    let script: Vec<Scripted> = (0..10).map(long).collect();
-    let (core, fake) = build(dir.path(), script, |c| {
-        files(dir.path(), c);
-        c.threads.working_tokens = Some(22_000);
-    });
-    let (sid, first) = turn(&core, "question 0").await;
-    first.unwrap();
-    for k in 1..5 {
-        say(&core, &sid, &format!("question {k}")).await;
-    }
-    core.store
-        .update_session(&sid, |r: &mut SessionRecord| {
-            r.last_active_ms = theseus_protocol::now_unix_ms() - HOUR_PLUS;
-            Ok(vec![])
-        })
-        .unwrap();
-    say(&core, &sid, "back after lunch").await;
-    let last = compiled_rows(&core, &sid).last().cloned().unwrap();
-    assert_eq!(last["decision"], "append", "{last}");
-    assert!(fake.requests().len() >= 6);
 }

@@ -9,7 +9,9 @@ use crate::Config;
 const BASE: &str = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n";
 
 /// A file naming every retired key, each with a value its old reader took.
-const EVERY: &str = "[context]\n\
+const EVERY: &str = "[model]\n\
+                     keep_warm_hours = 12\n\
+                     [context]\n\
                      assembly = \"transcript\"\n\
                      kept_mb = 0\n\
                      ledger = false\n\
@@ -17,13 +19,11 @@ const EVERY: &str = "[context]\n\
                      summary_profile = \"session\"\n\
                      [cache]\n\
                      keep_warm_hours = 24\n\
-                     keep_warm_every_minutes = 55\n\
                      threads_keep_warm_hours = 4\n\
-                     keep_warm_min_tokens = 20000\n\
                      stub_min_tokens = 20000\n\
                      stub_after_turns = 3\n\
                      [threads]\n\
-                     resume_keep_turns = 20\n\
+                     keep_warm_hours = 2\n\
                      working_tokens = 60000\n\
                      working_percent = 40\n\
                      [profiles.quick]\n\
@@ -99,6 +99,38 @@ fn the_template_names_no_retired_key() {
     assert!(cfg.ignored_keys.is_empty());
 }
 
+/// The three keys something still reads are live, not retired: a file that sets them is read, and a value
+/// out of range still fails the load.
+#[test]
+fn the_keys_something_still_reads_are_live() {
+    let (cfg, _) = parse(
+        "[cache]\nkeep_warm_every_minutes = 30\nkeep_warm_min_tokens = 5000\n\
+         [threads]\nresume_keep_turns = 7\n",
+    )
+    .unwrap();
+    assert!(cfg.ignored_keys.is_empty(), "{:?}", names(&cfg));
+    assert_eq!(cfg.cache.keep_warm_every_minutes, 30.0);
+    assert_eq!(cfg.cache.keep_warm_min_tokens, 5000);
+    assert_eq!(cfg.threads.resume_keep_turns, 7);
+    assert!(parse("[cache]\nkeep_warm_every_minutes = 60\n").is_err());
+    assert!(parse("[threads]\nresume_keep_turns = 0\n").is_err());
+}
+
+/// An older name of a retired key loads with the retired key's warning; an older name of a live key still
+/// fails the load, asking for its rename.
+#[test]
+fn an_old_name_of_a_retired_key_is_retired_with_it() {
+    let (cfg, warnings) =
+        parse("[model]\nkeep_warm_hours = 12\n[threads]\nkeep_warm_hours = 2\n").unwrap();
+    assert_eq!(names(&cfg), ["model.keep_warm_hours", "threads.keep_warm_hours"]);
+    assert!(
+        warnings.iter().any(|w| w.starts_with("model.keep_warm_hours is retired: ")),
+        "{warnings:?}"
+    );
+    let e = parse("[cache]\nkeep_warm_minutes = 50\n").unwrap_err();
+    assert!(format!("{e:#}").contains("keep_warm_every_minutes"), "{e:#}");
+}
+
 /// A key no build ever had still fails the load, in the sections that held
 /// retired keys and beside one that is retired.
 #[test]
@@ -141,7 +173,7 @@ fn a_retired_cache_key_loads_whatever_its_value() {
     assert_eq!(Config::example().cache, CacheConfig::default());
     for text in [
         "[cache]\nkeep_warm_hours = -2\n",
-        "[cache]\nkeep_warm_every_minutes = 60\n",
+        "[cache]\nstub_min_tokens = -1\n",
         "[profiles.quick]\nprovider = \"anthropic\"\nmodel = \"claude-haiku-5-5\"\n\
          keep_warm_hours = 0\n",
     ] {

@@ -418,12 +418,12 @@ async fn a_wait_past_the_cache_lifetime_reads_the_cache_before_it_lapses() {
         rows.iter().all(|w| w["data"]["during_wait"] == true),
         "{rows:?}"
     );
-    let (kept, _, today, _) = r
+    let (today, _) = r
         .core
         .runner
         .keep_warm
         .counts(&crate::keep_warm::today(&r.core.kernel));
-    assert_eq!((kept, today), (0, 3), "counted on the day");
+    assert_eq!(today, 3, "counted on the day");
     // The turn's own calls are the script's three.
     assert_eq!(r.turns.requests().len(), 3);
     let (_, _, meta) = r.result(&s.session_id, "t2");

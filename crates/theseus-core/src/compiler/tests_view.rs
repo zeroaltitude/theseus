@@ -20,7 +20,6 @@ fn spec() -> RequestSpec {
         session_text: "Directory: /w".into(),
         persona_text: String::new(),
         card: None,
-        cold: None,
         context_files: vec![],
         persona: None,
         tools: vec![

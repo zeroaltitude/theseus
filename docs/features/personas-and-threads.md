@@ -58,7 +58,8 @@ message is for: a router places it, and asks in one line when it cannot tell.
   answering until the pick is shown to be right.
 - The personality exam (`bench/personality/`) and the thread benchmark (`bench/threads/`) are built and have not
   been run on the real model.
-- A place's home that grows past `[threads] working_tokens` tells you once; nothing splits on its own.
+- A place's home that grows past `[threads] home_warn_percent` of the model's window tells you once; nothing
+  splits on its own.
 
 ## What is coming
 

@@ -28,9 +28,6 @@ pub struct RoutedRow {
     /// took it over).
     pub early: bool,
     pub movable: bool,
-    /// What was just said in the place, given to a turn that ran elsewhere
-    /// (`compiler::place_tail`): from `home` or a `thread`, and its tokens.
-    pub tail: Option<(String, u64)>,
 }
 
 /// `thread.routed`: where a message in a place with threads ran.
@@ -41,15 +38,11 @@ impl Fact for ThreadRouted<'_> {
 
     fn row(&self) -> Value {
         let r = self.0;
-        let mut row = json!({
+        json!({
             "home": r.home, "to": r.to.as_deref().unwrap_or("home"), "thread": r.to,
             "session": r.session,
             "how": r.how, "confidence": r.confidence, "movable": r.movable, "early": r.early,
-        });
-        if let Some((from, tokens)) = &r.tail {
-            row["tail"] = json!({"from": from, "tokens": tokens});
-        }
-        row
+        })
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

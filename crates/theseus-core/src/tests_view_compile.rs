@@ -324,26 +324,6 @@ async fn a_place_in_company_gets_nothing_from_elsewhere() {
     );
 }
 
-/// Keep-warm is off for a conversation: the view builds its next request afresh, so there is no
-/// transcript prefix to read between turns.
-#[tokio::test]
-async fn a_view_place_is_not_kept_warm() {
-    use crate::keep_warm::Outcome;
-    use crate::tests_keep_warm::{build, one_hour, reads, session, turn};
-    let dir = tempfile::tempdir().unwrap();
-    let c = one_hour(24);
-    let (core, fake) = build(dir.path(), c);
-    let live = core.live_profile().0;
-    let sid = session(&core, theseus_protocol::SessionKind::Conversation, None);
-    turn(&core, &sid, "a conversation in a view place").await;
-    let got = core.runner.keep_warm_once(&sid, &live).await;
-    assert_eq!(
-        got,
-        Outcome::Forgotten("its request is built afresh each turn by the view".into())
-    );
-    assert!(reads(&fake).is_empty());
-}
-
 /// A small conversation in a place set to `view`, byte for byte: three turns, the second with three calls
 /// and their results; each request as the model is sent it.
 #[tokio::test]

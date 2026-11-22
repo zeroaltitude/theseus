@@ -13,10 +13,6 @@
 //!   thread's record, one version further; the prefix a request replays is
 //!   the snapshot's, so the line shows in the next recompile's card (and, in
 //!   the meantime, in the call itself).
-//! - **The cold resume** (`TurnRunner::cold_spec`): a thread's next message
-//!   after its cache window (`stubs::cold`, as the stubs decide it) is
-//!   compiled small, `compiler::cold`. Never for an unthreaded session (that
-//!   is `cold-compact`, a separate decision), and a warm thread never.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -28,7 +24,6 @@ use theseus_store::{kinds, NewRecord};
 use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
 use crate::compiler::card::{self, Card};
-use crate::compiler::cold::Cold;
 use crate::compiler::{Compiled, RequestSpec};
 use crate::fact::thread::{Change, ThreadEdited};
 use crate::toolrun::TurnCtx;
@@ -116,33 +111,6 @@ impl TurnRunner {
             })
         });
         spec.card = Some(Card::new(now, recorded.flatten()));
-    }
-
-    /// The window a cold resume's working size is a share of: the compile's own (the catalog's,
-    /// lowered by `[context] working_window_tokens`), a million when the model is not known.
-    fn cold_window(&self, spec: &RequestSpec) -> u64 {
-        let catalog = self.catalog.get(&spec.model).map(|e| e.context_window);
-        self.cfg
-            .context
-            .working_window(catalog)
-            .or(catalog)
-            .unwrap_or(1_000_000)
-    }
-
-    /// The spec of a turn's first loop when its thread resumes cold: its next
-    /// message came after the cache window (`cold`: the turn's first compile
-    /// decided it), so the compile rewrites it small. None: the spec stands.
-    pub(crate) fn cold_spec(&self, spec: &RequestSpec, cold: Option<bool>) -> Option<RequestSpec> {
-        if cold != Some(true) || spec.card.is_none() {
-            return None;
-        }
-        let t = &self.cfg.threads;
-        let mut s = spec.clone();
-        s.cold = Some(Cold {
-            keep_turns: t.resume_keep_turns,
-            working_tokens: t.working_size(self.cold_window(spec)),
-        });
-        Some(s)
     }
 }
 

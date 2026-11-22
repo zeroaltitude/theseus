@@ -14,9 +14,6 @@ ProfileConfig {
     cache_ttl: Some(
         OneHour,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- dsflash
 ProfileConfig {
@@ -34,9 +31,6 @@ ProfileConfig {
     refusal_fallbacks: true,
     cache_ttl: Some(
         OneHour,
-    ),
-    keep_warm_hours: Some(
-        24.0,
     ),
 }
 -- dsflashmax
@@ -56,9 +50,6 @@ ProfileConfig {
     cache_ttl: Some(
         OneHour,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- dspro
 ProfileConfig {
@@ -76,9 +67,6 @@ ProfileConfig {
     refusal_fallbacks: true,
     cache_ttl: Some(
         OneHour,
-    ),
-    keep_warm_hours: Some(
-        24.0,
     ),
 }
 -- fable
@@ -98,9 +86,6 @@ ProfileConfig {
     cache_ttl: Some(
         OneHour,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- glm
 ProfileConfig {
@@ -116,9 +101,6 @@ ProfileConfig {
     refusal_fallbacks: true,
     cache_ttl: Some(
         FiveMinutes,
-    ),
-    keep_warm_hours: Some(
-        24.0,
     ),
 }
 -- haiku
@@ -137,9 +119,6 @@ ProfileConfig {
     refusal_fallbacks: true,
     cache_ttl: Some(
         FiveMinutes,
-    ),
-    keep_warm_hours: Some(
-        24.0,
     ),
 }
 -- haiku_high
@@ -159,9 +138,6 @@ ProfileConfig {
     cache_ttl: Some(
         OneHour,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- opus
 ProfileConfig {
@@ -180,9 +156,6 @@ ProfileConfig {
     cache_ttl: Some(
         OneHour,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- sonnet
 ProfileConfig {
@@ -200,9 +173,6 @@ ProfileConfig {
     refusal_fallbacks: true,
     cache_ttl: Some(
         OneHour,
-    ),
-    keep_warm_hours: Some(
-        24.0,
     ),
 }
 -- sonnet_high
@@ -222,9 +192,6 @@ ProfileConfig {
     cache_ttl: Some(
         OneHour,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 == template
 -- default
@@ -242,9 +209,6 @@ ProfileConfig {
     cache_ttl: Some(
         FiveMinutes,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- fable
 ProfileConfig {
@@ -260,9 +224,6 @@ ProfileConfig {
     refusal_fallbacks: true,
     cache_ttl: Some(
         FiveMinutes,
-    ),
-    keep_warm_hours: Some(
-        24.0,
     ),
 }
 -- fable52
@@ -280,9 +241,6 @@ ProfileConfig {
     cache_ttl: Some(
         FiveMinutes,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- glm
 ProfileConfig {
@@ -299,9 +257,6 @@ ProfileConfig {
     cache_ttl: Some(
         FiveMinutes,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- glm53
 ProfileConfig {
@@ -317,9 +272,6 @@ ProfileConfig {
     refusal_fallbacks: true,
     cache_ttl: Some(
         FiveMinutes,
-    ),
-    keep_warm_hours: Some(
-        24.0,
     ),
 }
 -- haiku
@@ -339,9 +291,6 @@ ProfileConfig {
     cache_ttl: Some(
         OneHour,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- opus
 ProfileConfig {
@@ -358,9 +307,6 @@ ProfileConfig {
     cache_ttl: Some(
         FiveMinutes,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- sonnet
 ProfileConfig {
@@ -376,9 +322,6 @@ ProfileConfig {
     refusal_fallbacks: true,
     cache_ttl: Some(
         FiveMinutes,
-    ),
-    keep_warm_hours: Some(
-        24.0,
     ),
 }
 == bench
@@ -399,9 +342,6 @@ ProfileConfig {
     cache_ttl: Some(
         FiveMinutes,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- default
 ProfileConfig {
@@ -417,9 +357,6 @@ ProfileConfig {
     refusal_fallbacks: true,
     cache_ttl: Some(
         FiveMinutes,
-    ),
-    keep_warm_hours: Some(
-        24.0,
     ),
 }
 == bench_routed
@@ -440,9 +377,6 @@ ProfileConfig {
     cache_ttl: Some(
         FiveMinutes,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- default
 ProfileConfig {
@@ -458,9 +392,6 @@ ProfileConfig {
     refusal_fallbacks: true,
     cache_ttl: Some(
         FiveMinutes,
-    ),
-    keep_warm_hours: Some(
-        24.0,
     ),
 }
 -- fable
@@ -480,9 +411,6 @@ ProfileConfig {
     cache_ttl: Some(
         FiveMinutes,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- haiku
 ProfileConfig {
@@ -500,9 +428,6 @@ ProfileConfig {
     refusal_fallbacks: true,
     cache_ttl: Some(
         FiveMinutes,
-    ),
-    keep_warm_hours: Some(
-        24.0,
     ),
 }
 -- haiku_high
@@ -522,9 +447,6 @@ ProfileConfig {
     cache_ttl: Some(
         FiveMinutes,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- opus
 ProfileConfig {
@@ -542,9 +464,6 @@ ProfileConfig {
     refusal_fallbacks: true,
     cache_ttl: Some(
         FiveMinutes,
-    ),
-    keep_warm_hours: Some(
-        24.0,
     ),
 }
 -- opus_high
@@ -564,9 +483,6 @@ ProfileConfig {
     cache_ttl: Some(
         FiveMinutes,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- sonnet
 ProfileConfig {
@@ -585,9 +501,6 @@ ProfileConfig {
     cache_ttl: Some(
         FiveMinutes,
     ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
 }
 -- sonnet_high
 ProfileConfig {
@@ -605,8 +518,5 @@ ProfileConfig {
     refusal_fallbacks: true,
     cache_ttl: Some(
         FiveMinutes,
-    ),
-    keep_warm_hours: Some(
-        24.0,
     ),
 }

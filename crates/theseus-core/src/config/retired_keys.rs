@@ -37,20 +37,22 @@ const STUB: &str = "attachments are no longer replaced by stubs: there is no col
 const COLD: &str = "a thread is no longer resumed cold from a cut transcript: the view reads its \
                     conversation's exchanges";
 
-/// The whole list (the map of the cut, §6 step 8).
+/// The whole list (the map of the cut, §6 step 8), less three keys something that stays still reads:
+/// `[cache] keep_warm_every_minutes` and `keep_warm_min_tokens` (the read during a job wait; the sticky
+/// effort rule) and `[threads] resume_keep_turns` (the home-size warning). Those are live settings.
 pub const RETIRED: &[Retired] = &[
     r("context", "assembly", VIEW),
     r("context", "kept_mb", KEPT),
     r("context", "ledger", LEDGER),
     r("memory", "summary_profile", SUMMARY),
     r("cache", "keep_warm_hours", WARM),
-    r("cache", "keep_warm_every_minutes", WARM),
     r("cache", "threads_keep_warm_hours", WARM),
-    r("cache", "keep_warm_min_tokens", WARM),
     r("cache", "stub_min_tokens", STUB),
     r("cache", "stub_after_turns", STUB),
     r("profiles.*", "keep_warm_hours", WARM),
-    r("threads", "resume_keep_turns", COLD),
+    // Their older names (they were `config/renamed.rs` rows): retired with them, not asked to be renamed.
+    r("model", "keep_warm_hours", WARM),
+    r("threads", "keep_warm_hours", WARM),
     r("threads", "working_tokens", COLD),
     r("threads", "working_percent", COLD),
 ];

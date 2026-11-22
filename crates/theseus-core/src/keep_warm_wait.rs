@@ -13,8 +13,8 @@
 //! dropped when the turn ends (`KeepWarm::turn_ended`) or the next response
 //! with a wait replaces it. Nothing is stored.
 //!
-//! **The read** is `TurnRunner::keep_warm_send`, as the between-turns read is:
-//! reserved against the session's spend limit and the day ceiling, booked in
+//! **The read** is `TurnRunner::keep_warm_send` (the only keep-warm read left:
+//! the reads between turns went with the transcript, issue 44): reserved against the session's spend limit and the day ceiling, booked in
 //! one frame as a `keep_warm` row (its data says `during_wait`), counted in
 //! health and `theseus.keep_warm.reads`. The wait runs it beside its other
 //! events (`Warmth::read`), so a settled job, a person's message or a stop

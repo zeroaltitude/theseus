@@ -49,9 +49,6 @@ pub struct Handoff {
     pub text: String,
     pub early: Option<Early>,
     pub row: Option<crate::fact::thread_route::RoutedRow>,
-    /// What was just said in the place, when the turn runs elsewhere
-    /// (`compiler::place_tail`, issue 43).
-    pub tail: Option<String>,
     pub at: Instant,
 }
 
@@ -326,7 +323,6 @@ mod tests {
             text: text.into(),
             early: None,
             row: None,
-            tail: None,
             at: Instant::now(),
         };
         s.hand_off("ses_a", h("one"));

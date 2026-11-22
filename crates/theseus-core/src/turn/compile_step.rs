@@ -155,17 +155,13 @@ impl TurnRunner {
         // and what its request carries decides what rides the plan frame
         // (theseus-fpm2).
         let (nodes, sources) = self.recall_carried(t, nodes);
-        // A big old attachment is a stub at a cold rewrite, and in the warm
-        // window after it (theseus-ezeg): decided at the turn's first compile.
-        let cold = (i == 0).then(|| self.cold_now(sid, session, spec));
-        // A thread resumed cold is rewritten small (`thread_context`).
-        let cold_spec = self.cold_spec(spec, cold);
-        let spec = cold_spec.as_ref().unwrap_or(spec);
-        let (nodes, stubbed) = self.stubbed_view(sid, &spec.model, &session.not_shown, nodes, cold);
+        // Whether the provider's cache had lapsed since the session's last call: the measuring row's.
+        let ttl = spec.conversation_ttl.min(spec.cache_ttl).ms();
+        let cold = (i == 0).then(|| theseus_protocol::now_unix_ms() > session.last_active_ms + ttl);
         let read_before = crate::stub::read(&nodes);
         ph.mark("views");
         // The prefix library's third layer, picked only at a compile point.
-        let point = current.is_none() || force || cold_spec.is_some();
+        let point = current.is_none() || force;
         let (prefix_spec, picked) = self.prefix_pick(t, spec, (current.as_ref(), &nodes), point, i);
         let spec = prefix_spec.as_ref().unwrap_or(spec);
         let assembled = t.recall.assembled_id().map(str::to_string);
@@ -244,7 +240,6 @@ impl TurnRunner {
             (&nodes, read_before, i),
             (tasks, project),
         );
-        summary.cache.stubbed = stubbed;
         self.summary_done(t, &mut summary, (&nodes, &compiled, spec), cold);
         // While routing decides, the rows wait for the compile the call uses
         // (`route_step`, theseus-d13v): one `context.compiled` and one
@@ -408,7 +403,6 @@ impl TurnRunner {
                     .collect(),
                 ttl: spec.cache_ttl.as_str().into(),
                 conversation_ttl: spec.conversation_ttl.min(spec.cache_ttl).as_str().into(),
-                stubbed: Vec::new(),
                 layers: crate::compiler::layers::digests_of(
                     &compiled.cache,
                     &compiled.request.system,

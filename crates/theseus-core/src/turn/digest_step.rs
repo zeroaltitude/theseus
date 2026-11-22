@@ -29,9 +29,6 @@ pub(crate) struct Digest {
     pub scope: Option<ScopeWait>,
     /// The digest this turn's requests carry.
     pub text: Option<String>,
-    /// What was just said in the place, for a turn that runs elsewhere
-    /// (`compiler::place_tail`), carried the same way.
-    pub tail: Option<String>,
 }
 
 impl Digest {
@@ -115,10 +112,9 @@ impl TurnRunner {
         t.digest.text = digest.map(|d| d.text);
     }
 
-    /// The digest and the place's last words after the request's last cache
-    /// mark, their tokens counted.
+    /// The digest after the request's last cache mark, its tokens counted.
     pub(super) fn digest_line(t: &Turn<'_>, compiled: &mut Compiled) {
-        for text in [&t.digest.text, &t.digest.tail].into_iter().flatten() {
+        if let Some(text) = &t.digest.text {
             crate::task_graph::view::attach_text(&mut compiled.request, text);
             let n = (text.len() as u64).div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
             compiled.est_tokens += n;

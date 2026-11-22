@@ -2,33 +2,26 @@
 //! entry's lifetime, `CacheTtl`, is `[cache] ttl`, and a profile's own
 //! `cache_ttl` when it says one: a profile that says none inherits `[cache]`'s
 //! (theseus-ezeg; before it, a profile without one cached for 5 minutes
-//! whatever the default said). So does `keep_warm_hours`. A profile that must
-//! stay at 5 minutes under a 1-hour `[cache] ttl` says `cache_ttl = "5m"`,
-//! which serializes.
+//! whatever the default said). A profile that must stay at 5 minutes under a
+//! 1-hour `[cache] ttl` says `cache_ttl = "5m"`, which serializes.
 //!
-//! `[cache]` holds the default of those two, and what is the daemon's, not a
-//! profile's:
+//! `[cache]` holds that default, and what is the daemon's, not a profile's:
 //!
-//! - `ttl` (`5m`) and `keep_warm_hours` (24): a profile's defaults.
-//!   `keep_warm_hours` is how long after a conversation's last message its
-//!   keep-warm reads go on; 0 keeps none.
-//! - `keep_warm_every_minutes` (55): how long after a conversation's last call its
-//!   keep-warm read goes (`crate::keep_warm`). Under the 1-hour TTL by 5
-//!   minutes: the provider's clock starts at its own receipt of the last
-//!   call, and a read that lands after the entry expired writes it whole
+//! - `ttl` (`5m`): a profile's default.
+//! - `keep_warm_every_minutes` (55): how often a job wait reads a one-hour
+//!   cache again while it waits (`crate::keep_warm_wait`). Under the 1-hour
+//!   TTL by 5 minutes: the provider's clock starts at its own receipt of the
+//!   last call, and a read that lands after the entry expired writes it whole
 //!   again at 2x instead of reading it at 0.025x of input.
-//! - `threads_keep_warm_hours` (4): a thread's own window
-//!   (`crate::keep_warm_threads`); 0 keeps no thread warm.
-//! - `keep_warm_min_tokens` (20,000): a conversation whose prefix is
-//!   estimated under this is not kept warm. A read and a rewrite both scale
-//!   with the prefix (on Fable 5.1 one 1-hour write costs as much as 80
-//!   reads), so the floor is for what does not: a small prompt's cold write
-//!   is cents, and each read carries the reply's own small write and its
-//!   request.
-//! - `stub_min_tokens` (20,000) and `stub_after_turns` (3): at a cold
-//!   rewrite, an attachment's extracted text over the first, older than the
-//!   last this many turns, is sent as a one-line stub instead
-//!   (`crate::compiler::stubs`). 0 for `stub_min_tokens` turns it off.
+//! - `keep_warm_min_tokens` (20,000): a request estimated under this is not
+//!   kept warm during a wait, and the sticky effort rule holds only above it
+//!   (`turn::effort_step`). A read and a rewrite both scale with the prefix
+//!   (on Fable 5.1 one 1-hour write costs as much as 80 reads), so the floor
+//!   is for what does not: a small prompt's cold write is cents.
+//!
+//! The keep-warm reads BETWEEN turns, their windows (`keep_warm_hours`,
+//! `threads_keep_warm_hours`) and the stubs of a cold rewrite
+//! (`stub_min_tokens`, `stub_after_turns`) went with the transcript (issue 44).
 
 use std::collections::BTreeMap;
 
@@ -90,23 +83,12 @@ impl CacheTtl {
     }
 }
 
-/// `keep_warm_hours`' default: a day after the last message.
-pub(super) fn default_keep_warm_hours() -> f64 {
-    24.0
-}
-
-/// `threads_keep_warm_hours`' default: four hours after the owner's last message in a thread.
-fn default_threads_keep_warm_hours() -> f64 {
-    4.0
-}
-
 /// A profile's settings that come from `[cache]` when it says none: the
 /// resolved profiles carry the value in force, and `[profiles]` as written
 /// keeps `None`, which is how health tells an inherited one.
 pub(super) fn inherit(profiles: &mut BTreeMap<String, ProfileConfig>, c: &CacheConfig) {
     for p in profiles.values_mut() {
         p.cache_ttl.get_or_insert(c.ttl);
-        p.keep_warm_hours.get_or_insert(c.keep_warm_hours);
     }
 }
 
@@ -115,11 +97,6 @@ impl ProfileConfig {
     /// resolved profile always carries.
     pub fn ttl(&self) -> CacheTtl {
         self.cache_ttl.unwrap_or_default()
-    }
-
-    /// The keep-warm window in force, in hours (0: none).
-    pub fn keep_warm_hours(&self) -> f64 {
-        self.keep_warm_hours.unwrap_or_else(default_keep_warm_hours)
     }
 }
 
@@ -137,25 +114,16 @@ impl super::Config {
     }
 }
 
-/// `[cache]`: the cache's lifetime and keep-warm defaults, the keep-warm read, and the cold
-/// rewrite's stubs (theseus-ezeg).
+/// `[cache]`: the cache's lifetime, and the keep-warm read of a job wait (theseus-ezeg).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CacheConfig {
     #[serde(default, skip_serializing_if = "CacheTtl::is_default")]
     pub ttl: CacheTtl,
-    #[serde(default = "default_keep_warm_hours")]
-    pub keep_warm_hours: f64,
     #[serde(default = "default_keep_warm_minutes")]
     pub keep_warm_every_minutes: f64,
-    #[serde(default = "default_threads_keep_warm_hours")]
-    pub threads_keep_warm_hours: f64,
     #[serde(default = "default_keep_warm_min_tokens")]
     pub keep_warm_min_tokens: u64,
-    #[serde(default = "default_stub_min_tokens")]
-    pub stub_min_tokens: u64,
-    #[serde(default = "default_stub_after_turns")]
-    pub stub_after_turns: u32,
 }
 
 fn default_keep_warm_minutes() -> f64 {
@@ -164,23 +132,13 @@ fn default_keep_warm_minutes() -> f64 {
 fn default_keep_warm_min_tokens() -> u64 {
     20_000
 }
-fn default_stub_min_tokens() -> u64 {
-    20_000
-}
-fn default_stub_after_turns() -> u32 {
-    3
-}
 
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
             ttl: CacheTtl::default(),
-            keep_warm_hours: default_keep_warm_hours(),
             keep_warm_every_minutes: default_keep_warm_minutes(),
-            threads_keep_warm_hours: default_threads_keep_warm_hours(),
             keep_warm_min_tokens: default_keep_warm_min_tokens(),
-            stub_min_tokens: default_stub_min_tokens(),
-            stub_after_turns: default_stub_after_turns(),
         }
     }
 }
@@ -197,26 +155,10 @@ impl CacheConfig {
 
     /// Each value in range, and the interval under the 1-hour TTL: a read
     /// past it finds the entry gone and writes it whole.
-    pub(crate) fn validate(&self, cfg: &super::Config) -> Result<()> {
+    pub(crate) fn validate(&self, _cfg: &super::Config) -> Result<()> {
         let m = self.keep_warm_every_minutes;
         if !(m > 0.0 && m < 60.0) {
             bail!("[cache] keep_warm_every_minutes must be above 0 and under 60 (the 1-hour cache's life), not {m}");
-        }
-        let h = self.threads_keep_warm_hours;
-        if !(h.is_finite() && h >= 0.0) {
-            bail!("[cache] threads_keep_warm_hours must be 0 or more, not {h}");
-        }
-        if !(self.keep_warm_hours >= 0.0 && self.keep_warm_hours.is_finite()) {
-            bail!(
-                "[cache] keep_warm_hours must be 0 or more, not {}",
-                self.keep_warm_hours
-            );
-        }
-        for (name, p) in cfg.all_profiles() {
-            let h = p.keep_warm_hours();
-            if !(h >= 0.0 && h.is_finite()) {
-                bail!("profile {name:?}: keep_warm_hours must be 0 or more, not {h}");
-            }
         }
         Ok(())
     }

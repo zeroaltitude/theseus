@@ -44,12 +44,10 @@ use layers::{system_blocks, system_digest};
 pub mod cache;
 pub mod card;
 pub(crate) mod clearing;
-pub mod cold;
 pub mod effort;
 pub mod layers;
 pub(crate) mod phases;
 pub mod place_digest;
-pub mod place_tail;
 pub mod session_block;
 pub mod summary;
 #[cfg(test)]
@@ -68,7 +66,6 @@ pub mod view;
 pub use effort::{output_config, BETA_TURN_EFFORT};
 mod render;
 mod server_calls;
-pub mod stubs;
 #[cfg(test)]
 use render::is_thinking;
 pub use render::{render_messages, Messages};
@@ -196,8 +193,6 @@ pub struct RequestSpec {
     pub context_text: String,
     /// A thread's card, at the head of its messages (`card`).
     pub card: Option<card::Card>,
-    /// A cold resume of a thread (`cold`): this compile rewrites it small.
-    pub cold: Option<cold::Cold>,
     /// The third block: the session's own (`session_block`); maybe empty.
     pub session_text: String,
     /// The context files `context_text` carries, for the manifest.

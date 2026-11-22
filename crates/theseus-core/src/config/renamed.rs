@@ -8,7 +8,8 @@
 use toml::{Table, Value};
 
 /// Every (old, new) pair, in the order a document is checked. A key retired outright is not here: it is the
-/// retired-keys list's (`config.rs`), which loads with a warning.
+/// retired-keys list's (`config/retired_keys.rs`), which loads with a warning, and so are the old names of a
+/// key it retired (`[model] keep_warm_hours`, `[threads] keep_warm_hours`).
 pub const RENAMED: &[(&str, &str)] = &[
     ("model.max_loops_mode", "model.on_max_loops"),
     ("profiles.*.max_loops_mode", "profiles.*.on_max_loops"),
@@ -19,9 +20,7 @@ pub const RENAMED: &[(&str, &str)] = &[
     ("persona.import_files", "persona_import.import_files"),
     ("persona.own_boost", "persona_import.own_boost"),
     ("model.cache_ttl", "cache.ttl"),
-    ("model.keep_warm_hours", "cache.keep_warm_hours"),
     ("cache.keep_warm_minutes", "cache.keep_warm_every_minutes"),
-    ("threads.keep_warm_hours", "cache.threads_keep_warm_hours"),
     ("watches", "watch_for"),
     ("routing.data.private_topics", "privacy.sensitive_names"),
     ("self.sealed_dir", "self.sealed.dir"),
@@ -163,16 +162,8 @@ mod tests {
             "`[model] cache_ttl` was renamed to `[cache] ttl`",
         ),
         (
-            "[model]\nkeep_warm_hours = 12\n",
-            "`[model] keep_warm_hours` was renamed to `[cache] keep_warm_hours`",
-        ),
-        (
             "[cache]\nkeep_warm_minutes = 50\n",
             "`[cache] keep_warm_minutes` was renamed to `[cache] keep_warm_every_minutes`",
-        ),
-        (
-            "[threads]\nkeep_warm_hours = 2\n",
-            "`[threads] keep_warm_hours` was renamed to `[cache] threads_keep_warm_hours`",
         ),
         (
             "[watches]\nmax_days = 10\n",

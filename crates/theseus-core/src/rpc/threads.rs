@@ -675,13 +675,6 @@ impl Core {
             Move::Done => self.announce_thread(&slug, &ThreadDone(c)),
             Move::Reopen => self.announce_thread(&slug, &ThreadReopened(c)),
         }
-        // A paused or finished thread is not kept warm, from the next refresh
-        // on; a resume puts it back at its next owner message (theseus-ytt8).
-        if matches!(mv, Move::Pause | Move::Done) {
-            if let Some(sid) = t.session_id.as_deref() {
-                self.runner.keep_warm.forget(sid);
-            }
-        }
         if mv == Move::Done {
             self.finish_thread_session(&t, &who);
         }

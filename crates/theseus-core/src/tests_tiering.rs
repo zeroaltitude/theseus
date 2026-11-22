@@ -326,7 +326,6 @@ fn renders_the_same_from_stubs(core: &Arc<Core>, sid: &str) {
         session_text: String::new(),
         persona_text: String::new(),
         card: None,
-        cold: None,
         context_files: vec![],
         persona: None,
         defer: None,

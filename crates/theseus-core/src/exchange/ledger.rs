@@ -174,8 +174,6 @@ pub struct Seen {
     pub trigger: Option<String>,
     /// The build's own check that the provider's cache had lapsed.
     pub cold: bool,
-    /// The request carried what was just said in the place (issue 43).
-    pub place_tail: bool,
 }
 
 /// How the place's previous exchange stood in the context sent.
@@ -187,7 +185,8 @@ pub enum Prev {
     None,
     /// Its message or reply was in this request's transcript; for a view, the view showed it.
     Transcript,
-    /// It ran in another session, and the place's tail block carried it.
+    /// It ran in another session, and the place's tail block carried it (issue 43's block, gone with
+    /// the transcript: an old row's value).
     PlaceTail,
     Missed,
 }
@@ -406,10 +405,9 @@ pub fn row(store: &Store, g: Given<'_>) -> Row {
     if let Some(p) = &prev {
         let held = seen(p, &[p.ask.as_deref(), p.reply.as_deref()]);
         let other = p.session_id != ex.session_id;
-        row.prev = match (held, other && g.seen.is_some_and(|s| s.place_tail)) {
-            (true, _) => Prev::Transcript,
-            (false, true) => Prev::PlaceTail,
-            (false, false) => Prev::Missed,
+        row.prev = match held {
+            true => Prev::Transcript,
+            false => Prev::Missed,
         };
         row.prev_exchange = Some(p.turn_id.clone());
         row.prev_same_session = Some(!other);

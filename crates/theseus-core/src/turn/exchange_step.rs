@@ -412,7 +412,6 @@ impl TurnRunner {
             situation: summary.situation.as_ref().map(|s| s.kind().into()),
             trigger: summary.trigger.clone(),
             cold: cold.unwrap_or(false),
-            place_tail: t.digest.tail.is_some(),
         });
     }
 

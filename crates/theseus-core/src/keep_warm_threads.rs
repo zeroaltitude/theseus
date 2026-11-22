@@ -1,35 +1,15 @@
-//! Keep-warm for threads, and what it saves (theseus-ytt8, T9; the owner's
-//! policy of 2026-10-13). A thread's session is a private conversation, so
-//! `keep_warm` already reads it; this is what is different about a thread:
+//! What the cache did for threads today (theseus-ytt8, T9): read from the
+//! ledger's `provider.call` and `keep_warm` rows of the local day, by
+//! `stats_of`, which is pure (`ThreadCacheStats`: cold resumes, warm hits,
+//! keep-warm reads and what they saved). Health's `threads.cache` holds a
+//! minute's copy, so the health path never scans the ledger.
 //!
-//! - **Who is kept**: an active thread whose owner last wrote within `[threads]
-//!   keep_warm_hours` (4), never a paused or done one. The window is the
-//!   shorter of that and the profile's own `keep_warm_hours`, which still
-//!   turns it off. `thread.pause` and `thread.done` forget the session at
-//!   once, and a resume puts it back only at its next owner message
-//!   (`KeepWarm::message`), as a restart's windows do (`keep_warm_restore`).
-//! - **One request per thread, and no more.** The provider caches by prefix,
-//!   at each of the request's breakpoints, and a read of a cached prefix
-//!   restarts its life. A thread's request carries the layers every thread on
-//!   its profile shares (header, persona, project: the same bytes, the first
-//!   three breakpoints) and then its card and messages. Its read therefore
-//!   restarts the shared layers' entries as well as its own tail's, so one
-//!   request per thread refreshes everything the cache would lose for it, and
-//!   no request is sent for the shared layers alone: a request made of the
-//!   tail alone would be a different prefix, which the provider does not
-//!   have. The shared layers cost their cache-read price in each request
-//!   (0.025x of input on Fable 5.1), which is the price of the thread's tail
-//!   staying warm, not a duplicate refresh.
-//! - **The day's line**: the reads go through `keep_warm_send`'s checks, so
-//!   the session's limit and the day's ceiling hold them. The tender makes
-//!   the due reads most recently written first (`KeepWarm::due`), and when
-//!   the line is reached it says how many due sessions it skipped (a warning,
-//!   and `ThreadsCache.skipped_today`); they wait one interval and are due
-//!   again.
-//! - **The numbers** (`ThreadCacheStats`): read from the ledger's
-//!   `provider.call` and `keep_warm` rows of the local day, by `stats_of`,
-//!   which is pure. Health's `threads.cache` holds a minute's copy, so the
-//!   health path never scans the ledger.
+//! No thread is kept warm between turns any more (issue 44: the view builds
+//! each turn's request afresh); a keep-warm read now runs only during a job
+//! wait (`keep_warm_wait`). The fields of the old reads (`ThreadsHealth`'s
+//! `keep_warm_hours`, `ThreadsCache`'s `kept` and `skipped_today`, an entry's
+//! `kept`) are still sent, as zero, for a cockpit page left open since the
+//! upgrade.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -38,23 +18,10 @@ use std::time::Instant;
 use theseus_protocol::thread_cache::{
     ThreadCacheEntry, ThreadCacheStats, ThreadsCache, ThreadsHealth,
 };
-use theseus_protocol::threads::ThreadState;
 use theseus_protocol::Usage;
 use theseus_store::{kinds, Page};
 
 use crate::ledger::LedgerRow;
-use crate::turn::TurnRunner;
-
-/// What the keep-warm does with a session, as threads decide it.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ThreadWarm {
-    /// Not a thread's session: the profile's window and rules apply.
-    NotThread,
-    /// An active thread's: its window in hours (the profile's still applies).
-    Window(f64),
-    /// A thread's, and not kept (why).
-    Out(String),
-}
 
 /// A minute's copy of the day's numbers: health reads this, never the ledger.
 #[derive(Default)]
@@ -62,28 +29,6 @@ pub struct CacheNumbers(Mutex<Option<(Instant, ThreadsCache)>>);
 
 /// How long a copy serves.
 const FRESH: std::time::Duration = std::time::Duration::from_secs(60);
-
-impl TurnRunner {
-    /// Whether the keep-warm holds `session_id`, as the thread it serves says.
-    pub fn thread_warm(&self, session_id: &str) -> ThreadWarm {
-        if !self.cfg.threads.enabled {
-            return ThreadWarm::NotThread;
-        }
-        let Ok(board) = self.threads.all(&self.store) else {
-            return ThreadWarm::NotThread;
-        };
-        let Some(t) = board.of_session(session_id) else {
-            return ThreadWarm::NotThread;
-        };
-        if t.state != ThreadState::Active {
-            return ThreadWarm::Out(format!("its thread {} is {}", t.slug, t.state.as_str()));
-        }
-        match self.cfg.cache.threads_keep_warm_hours {
-            h if h > 0.0 => ThreadWarm::Window(h),
-            _ => ThreadWarm::Out("[cache] threads_keep_warm_hours is 0".into()),
-        }
-    }
-}
 
 /// One thing that touched a session's cache in the window.
 #[derive(Debug, Clone, PartialEq)]
@@ -292,7 +237,7 @@ impl crate::rpc::Core {
             return None;
         }
         Some(ThreadsHealth {
-            keep_warm_hours: self.cfg.cache.threads_keep_warm_hours,
+            keep_warm_hours: 0.0,
             cache: Some(self.threads_cache()),
         })
     }
@@ -325,7 +270,6 @@ impl crate::rpc::Core {
         let mut threads = Vec::new();
         let mut shown: Vec<_> = board.all().collect();
         shown.sort_by(|a, b| (b.last_active_ms, &a.slug).cmp(&(a.last_active_ms, &b.slug)));
-        let mut kept = 0;
         for t in shown {
             let s = t
                 .session_id
@@ -333,26 +277,21 @@ impl crate::rpc::Core {
                 .and_then(|s| stats.get(s))
                 .cloned()
                 .unwrap_or_default();
-            let held = t
-                .session_id
-                .as_deref()
-                .is_some_and(|s| self.runner.keep_warm.holds(s));
-            kept += u64::from(held);
             total.add(&s);
-            if held || !s.is_empty() {
+            if !s.is_empty() {
                 threads.push(ThreadCacheEntry {
                     slug: t.slug.clone(),
                     stats: s,
-                    kept: held,
+                    kept: false,
                 });
             }
         }
         ThreadsCache {
-            skipped_today: self.runner.keep_warm.skipped_today(&day),
+            skipped_today: 0,
             day,
             total,
             threads,
-            kept,
+            kept: 0,
         }
     }
 

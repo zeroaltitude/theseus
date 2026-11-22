@@ -31,7 +31,6 @@ use crate::tests_judge::{rig_on, texts, Rig};
 mod exchange;
 mod refused;
 mod restart;
-mod tail;
 
 /// The owner, and a second place of theirs.
 const OWNER: u64 = 314_159_265_358_979;
