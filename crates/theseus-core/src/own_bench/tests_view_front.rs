@@ -4,7 +4,6 @@
 //! that changed, never the large fold again, and every turn is rebuilt as it was sent.
 
 use crate::compiler::view::kept::Kept;
-use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::tests_view_compile::{asked, kelp, turn_as};
 
 /// A fold over the exchange `turn` of the thread's place, its account `account`.
@@ -75,7 +74,6 @@ async fn a_front_kept_per_block_stores_only_what_changed_across_a_minute() {
     let thread = std::cell::RefCell::new(String::new());
     let r = crate::tests_places::rig_setup(
         |c| {
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
         |s| *thread.borrow_mut() = kelp(s, false),

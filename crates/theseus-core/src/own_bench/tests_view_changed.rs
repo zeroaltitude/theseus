@@ -7,7 +7,6 @@ use theseus_protocol::own_bench::TurnReplayParams;
 use theseus_protocol::threads::{ThreadNewParams, ThreadSealParams, ThreadSplitParams};
 
 use super::replay::{CHANGED, CHANGED_UNREAD};
-use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::tests_places::Rig;
 use crate::tests_view_compile::turn_as;
 
@@ -26,7 +25,6 @@ fn cli() -> crate::approval::Answerer {
 async fn viewed() -> (Rig, String, String, String, String) {
     let r = crate::tests_places::rig_setup(
         |c| {
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
         |_| {},
@@ -144,10 +142,7 @@ async fn a_move_after_the_turn_keeps_its_replay_with_its_own_provider() {
 /// Refused once a release made before the turn is withdrawn after it.
 #[tokio::test]
 async fn a_release_withdrawn_after_the_turn_keeps_its_replay_with_its_own_provider() {
-    let r = crate::tests_places::rig_setup(
-        |c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)),
-        |_| {},
-    );
+    let r = crate::tests_places::rig_setup(|_| {}, |_| {});
     let c = &r.core;
     let spare = crate::tests_places::session(c, None);
     turn_as(c, &spare, "the offsite is on Friday", true).await;
