@@ -274,20 +274,7 @@ impl TurnRunner {
             homes: self,
             judged: asked.and_then(|n| judged_task(store, sid, &n)),
         };
-        let src = Sources {
-            gate: &permit,
-            exchanges: &sources,
-            ladder: &ladder,
-            folds: &sources,
-            places: &sources,
-            waiting: &sources,
-            things: &sources,
-            names: &sources,
-            tasks: &cards,
-            recall: &sources,
-            people: &sources,
-            message: &message,
-        };
+        let src = sources_of(&permit, &sources, &ladder, &cards, &message);
         let renderer = TextRenderer {
             store,
             kernel: Some(&self.kernel),
@@ -428,6 +415,31 @@ impl crate::view::fold::Ladder for GatedLadder<'_> {
         }
         read.nodes = kept;
         Ok(read)
+    }
+}
+
+/// Every source the selectors read: the store's, the turn's permit as their gate, the ladder read once,
+/// the joined task's card, and the message.
+fn sources_of<'a, 'b>(
+    gate: &'a Permit,
+    store: &'a StoreSources<'b>,
+    ladder: &'a dyn crate::view::fold::Ladder,
+    cards: &'a StoreCards<'b>,
+    message: &'a str,
+) -> Sources<'a> {
+    Sources {
+        gate,
+        exchanges: store,
+        ladder,
+        folds: store,
+        places: store,
+        waiting: store,
+        things: store,
+        names: store,
+        tasks: cards,
+        recall: store,
+        people: store,
+        message,
     }
 }
 

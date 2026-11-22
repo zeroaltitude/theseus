@@ -92,6 +92,28 @@ fn with_page(spec: &RequestSpec, page: &str) -> Option<RequestSpec> {
 /// node ids its `includes`), a later call of the same turn appends to it. `input.nodes` is the session's
 /// transcript; the turn's own nodes are read from it by turn id.
 pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
+    let (spec, current) = chain_spec(&input, frozen);
+    let spec = &spec;
+    let new_compilation = current.is_none();
+    let entry = input.catalog.get(&spec.model);
+    let window = input.window_override.or(entry.map(|e| e.context_window));
+    let compilation = current
+        .cloned()
+        .unwrap_or_else(|| made_now(&input, frozen, spec, window));
+    // A new chain in the middle of a turn: the turn's answers so far go without their thinking.
+    let mut stripped = frozen.stripped.clone();
+    if new_compilation && frozen.compilation_id.is_some() {
+        stripped.extend(own_answers(input.nodes, &frozen.turn_id));
+    }
+    let laid = laid(input.nodes, frozen, &stripped);
+    compiled_from(&input, spec, (compilation, new_compilation), &laid)
+}
+
+/// The spec a call renders, and the chain's compilation it appends to (none: a new chain).
+fn chain_spec<'c>(
+    input: &CompileInput<'c>,
+    frozen: &Frozen,
+) -> (RequestSpec, Option<&'c Compilation>) {
     let window_of = |s: &RequestSpec| {
         let entry = input.catalog.get(&s.model);
         input.window_override.or(entry.map(|e| e.context_window))
@@ -122,23 +144,23 @@ pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
             }
         }
     };
-    let spec = &spec;
-    let new_compilation = current.is_none();
+    (spec, current)
+}
+
+/// The request of a call from its spec, its compilation (and whether it is new) and the laid nodes: the
+/// clearing pass at a chain's first call, the render, the estimate and the report.
+fn compiled_from(
+    input: &CompileInput<'_>,
+    spec: &RequestSpec,
+    (mut compilation, new_compilation): (Compilation, bool),
+    laid: &(Vec<(u64, Stub)>, u64),
+) -> Compiled {
     let entry = input.catalog.get(&spec.model);
-    let window = window_of(spec);
-    let mut compilation = current
-        .cloned()
-        .unwrap_or_else(|| made_now(&input, frozen, spec, window));
-    // A new chain in the middle of a turn: the turn's answers so far go without their thinking.
-    let mut stripped = frozen.stripped.clone();
-    if new_compilation && frozen.compilation_id.is_some() {
-        stripped.extend(own_answers(input.nodes, &frozen.turn_id));
-    }
-    let laid = laid(input.nodes, frozen, &stripped);
+    let window = input.window_override.or(entry.map(|e| e.context_window));
     let rates = entry.map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
     let made = |c: &Compilation| {
-        let split = split(c, &laid);
-        let rendered = render(spec, input.catalog, &split, &laid.0, &input);
+        let split = split(c, laid);
+        let rendered = render(spec, input.catalog, &split, &laid.0, input);
         let counted = counted_part(&laid.0, &split, &rendered.request);
         let est = estimate(&rendered.request, rates, counted);
         (split, rendered, est)
