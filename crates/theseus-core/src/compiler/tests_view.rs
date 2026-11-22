@@ -390,7 +390,6 @@ fn the_chains_card_is_frozen_and_recorded() {
 /// the provider's numbers.
 #[test]
 fn a_provider_overflow_is_a_decline() {
-    let f = frozen("t1", &exchange("t0", 10));
     let nodes: Vec<(u64, crate::stub::Stub)> = vec![];
     let s = spec();
     let over = Overflowed {
@@ -420,5 +419,4 @@ fn a_provider_overflow_is_a_decline() {
     assert!(!view::provider_overflowed(&input));
     input.overflowed = Some(&over);
     assert!(view::provider_overflowed(&input));
-    let _ = f;
 }
