@@ -533,32 +533,6 @@ fn short_json(v: &Value) -> String {
     s.chars().take(600).collect()
 }
 
-/// The proof suite's `over_budget` shape: one turn of six results of about 28,000 characters each, read one
-/// a loop, past a 40,000-token working window with a 2,000-token reply. The view clears the older results,
-/// reads a new chain at the provider's measured count, and cuts the newest result to its head if it must:
-/// the turn answers, no overage, every request as sent within its limit.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn six_large_results_past_a_small_working_window_still_answer() {
-    const CALLS: usize = 6;
-    let script: Vec<Scripted> = (0..CALLS)
-        .map(reads)
-        .chain([Scripted::text(DONE)])
-        .collect();
-    let r = rig_tweaked(CALLS, script, (None, 200_000), |c| {
-        c.context.working_window_tokens = Some(40_000);
-    });
-    let root = r.core.runner.cfg.tools.projects_dir.clone().unwrap();
-    for k in 0..CALLS {
-        let path = std::path::Path::new(&root).join(format!("logs/keeper-{k:03}.txt"));
-        std::fs::write(path, format!("log {k}\n{}{}", LINE.repeat(390), end(k))).unwrap();
-    }
-    let res = turn(&r.core).await.expect("the turn answers");
-    assert_eq!(res.output, DONE, "{res:?}");
-    assert!(crate::test_support::rows(&r.core, "context.overage").is_empty());
-    assert_eq!(asked(&r).len(), CALLS + 1, "one request a loop");
-    every_send_within(&r, 40_000);
-}
-
 /// One result alone larger than the window: before the overage, it is laid as its head with one line
 /// saying how much is shown and how to read the rest; the turn answers.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -637,4 +611,64 @@ async fn a_turn_that_lowered_slot_g_then_needs_clearing_still_answers() {
         made.iter().any(|m| m.cleared > 0),
         "and results were cleared: {made:?}"
     );
+}
+
+/// A turn that answered only by a head cut does not strand the next one: the person's short follow-up in
+/// the same session answers too, and the old result is in its request as its receipt, not whole (the newest
+/// previous exchange's words are the floor, its tool results are not).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn after_a_head_cut_the_next_short_message_answers_with_the_old_result_as_its_receipt() {
+    let r = crate::tests_places::rig_setup_scripted(
+        |c| {
+            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+            c.context.working_window_tokens = Some(40_000);
+            c.catalog.insert(
+                "claude-sonnet-5-5".into(),
+                crate::catalog::CatalogRow {
+                    context_window: Some(200_000),
+                    max_output_tokens: Some(OUTPUT),
+                    ..Default::default()
+                },
+            );
+        },
+        |_| {},
+        |q| match (!q.tools.is_empty()).then(|| turn_and_results(q)).flatten() {
+            Some((1, 0)) => Scripted::tools(
+                "Reading the log.",
+                &[(
+                    "toolu_000",
+                    "fs_read",
+                    json!({"path": "logs/keeper-000.txt"}),
+                )],
+            ),
+            Some((1, _)) => Scripted::text(DONE),
+            _ => Scripted::text("Noted."),
+        },
+    );
+    std::fs::create_dir_all(r.root.join("logs")).unwrap();
+    std::fs::write(
+        r.root.join("logs/keeper-000.txt"),
+        format!("log 0\n{}{}", LINE.repeat(1_300), end(0)),
+    )
+    .unwrap();
+    let sid = crate::tests_private_view::session_in(&r.core, None, &r.root);
+    let first = crate::tests_places::turn(&r.core, &sid, "turn 1: read the keeper's log").await;
+    assert!(first.output.ends_with(DONE), "{first:?}");
+    let second = crate::tests_places::turn(&r.core, &sid, "turn 2: thank you").await;
+    assert_eq!(second.output, "Noted.", "{second:?}");
+    assert!(crate::test_support::rows(&r.core, "context.overage").is_empty());
+    let last = (r.requests().into_iter())
+        .rfind(|q| !q.tools.is_empty() && texts(q).contains("turn 2: thank you"))
+        .expect("the follow-up was sent");
+    let sent = texts(&last);
+    assert!(
+        sent.contains("turn 1: read the keeper"),
+        "the previous words stay"
+    );
+    assert!(
+        sent.contains("[Result cleared to save context:"),
+        "the old result as its receipt: {}",
+        &sent[..sent.len().min(2_000)]
+    );
+    assert!(!sent.contains(end(0).trim()), "not whole");
 }
