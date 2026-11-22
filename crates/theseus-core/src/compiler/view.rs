@@ -1,4 +1,4 @@
-//! The strategy `view` (issue 44, `[context] assembly = "view"`; design §5.1 "The order on the wire" and
+//! The strategy `view` (issue 44; design §5.1 "The order on the wire" and
 //! "Frozen within a turn"): a turn's request built from its view, the only way a request is built since the
 //! session's transcript was removed (2026-11-22).
 //!
