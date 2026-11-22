@@ -2,8 +2,8 @@
 //! message and admitted, laid as its `Recall` note renders it (`recall::render::item`), whatever it was: a
 //! turn of a conversation with an exchange, a conversation from before the ledger, an imported session, a
 //! node that is no turn's. Admission is recall's own, run by the turn before assembly
-//! (`turn::view_step::recall`): the place rule and the node seal of `view_gate::readmit_sources`, then the
-//! gate's reading of the source session's marks here, as for any piece. Nothing is laid that a transcript
+//! (`turn::view_step::recall`); then the gate's reading of the source session's marks here, as for any piece
+//! (anything goes, 2026-11-22: no place or seal holds one). Nothing is laid that a transcript
 //! turn's `Recall` note would not have carried for this reader.
 //!
 //! Each item is one piece of its own space ([`Space::Recalled`]), sized whole in every form, so the budgeter

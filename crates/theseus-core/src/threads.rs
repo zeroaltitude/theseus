@@ -50,8 +50,8 @@ fn place_prefix() -> String {
 pub struct Board {
     threads: BTreeMap<String, ThreadInfo>,
     by_session: HashMap<String, String>,
-    /// What did not read when the board was loaded, for the readers that
-    /// decide permission (`view_gate::seal_of`): the slugs of thread records
+    /// What did not read when the board was loaded (the readers that once
+    /// decided permission by it are gone, 2026-11-22): the slugs of thread records
     /// that do not decode, the sessions bound to them, and whether a binding
     /// itself did not decode (issue 44).
     unread_slugs: BTreeSet<String>,
