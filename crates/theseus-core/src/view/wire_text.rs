@@ -74,6 +74,8 @@ impl TextRenderer<'_> {
             Space::Card { .. } | Space::Waiting { .. } | Space::Facts { .. } => {
                 return Ok(self.read_text(p, form, pov))
             }
+            // A recalled item is laid whole, as its `Recall` note renders it, or not at all.
+            Space::Recalled { .. } => return Ok(self.read_text(p, Form::Whole, pov)),
             _ => return Ok(Vec::new()),
         }
         let place = p.marks.place.as_deref().unwrap_or("an unknown place");

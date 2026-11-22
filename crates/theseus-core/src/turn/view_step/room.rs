@@ -161,13 +161,15 @@ impl TurnRunner {
         if laid.is_empty() {
             laid = recalled(t);
         }
+        // Admitted again now: a source sealed since is not laid (issue 44, `view_step::recall`).
+        let (laid, found) = self.view_recall(sid, laid);
         let asked = Asked {
             store,
             sid,
             turn,
             person: t.exchange.person().0,
             verified: None,
-            recalled: laid.clone(),
+            recalled: found,
             message: None,
             items: t.exchange.items().to_vec(),
         };
@@ -288,7 +290,11 @@ fn floored(t: &Turn<'_>) -> bool {
 }
 
 /// The frozen view of `built` under `room`: what slot G held, or the floor's overflow.
-fn frozen_of(built: Built, (room, fit): (Room, Fit), recalled: Vec<String>) -> Frozen {
+fn frozen_of(
+    built: Built,
+    (room, fit): (Room, Fit),
+    recalled: Vec<crate::node::RecalledRef>,
+) -> Frozen {
     let Built { frozen, assembled } = built;
     let (held, charged, floor) = match assembled {
         Ok(a) => {

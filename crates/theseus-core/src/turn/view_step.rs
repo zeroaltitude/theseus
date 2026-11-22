@@ -13,6 +13,7 @@ mod failed;
 pub(crate) mod kept;
 pub(in crate::turn) mod occasion;
 pub(super) mod preview;
+mod recall;
 mod room;
 pub(super) mod task;
 
@@ -248,8 +249,9 @@ impl TurnRunner {
             return false;
         };
         // A session sealed, or a message it shows moved into a thread or that thread sealed, since it was
-        // assembled (its recall's sources are asked by the gate's own selector at assembly).
+        // assembled; or a recalled item it lays held out now (`recall::view_recall_revoked`).
         kept::held_now(self, t.tc.session_id, (&f.sessions, &f.exchanges, &[]))
+            || self.view_recall_revoked(t.tc.session_id, &f.recalled)
     }
 
     /// A new chain for the turn: its next call makes a new compilation (the sent tails let go), and the
@@ -477,8 +479,9 @@ pub(super) struct Asked<'a> {
     /// The gate's point of view, never the caller's word: a preview's; none reads the turn's
     /// (`Verified::of_session`) where a turn always read it, after the clock.
     pub verified: Option<Verified>,
-    /// The nodes today's recall found (none for a preview, which runs no recall).
-    pub recalled: Vec<String>,
+    /// The items today's recall found and admitted, read for slot H (none for a preview, which runs no
+    /// recall).
+    pub recalled: Vec<crate::view::sources_recall::Recalled>,
     /// The message given (a preview's); none reads the turn's own, by node and text, at the point a turn
     /// always read it (after the clock and the `/new` mark).
     pub message: Option<String>,
@@ -717,10 +720,11 @@ fn verified_pov(verified: &Verified, person: Option<String>, now_ms: u64) -> Poi
     }
 }
 
-/// The nodes today's recall found for this turn (its pending note, never written in a view place).
-fn recalled(t: &Turn<'_>) -> Vec<String> {
+/// The items today's recall found for this turn (its pending note), before the view admits them
+/// (`recall::view_recall`).
+fn recalled(t: &Turn<'_>) -> Vec<crate::node::RecalledRef> {
     match t.recall.pending.as_ref().map(|n| &n.body) {
-        Some(Body::Recall { items, .. }) => items.iter().map(|i| i.node_id.clone()).collect(),
+        Some(Body::Recall { items, .. }) => items.clone(),
         _ => Vec::new(),
     }
 }

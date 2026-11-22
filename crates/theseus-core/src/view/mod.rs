@@ -32,6 +32,7 @@ pub mod render;
 pub mod select;
 pub mod sources_names;
 pub mod sources_people;
+pub mod sources_recall;
 pub mod sources_store;
 pub mod sources_waiting;
 pub mod text;
@@ -226,6 +227,9 @@ pub enum Space {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from: Option<Provenance>,
     },
+    /// One item today's recall found for the turn's message (ids are the recalled node's): its session and
+    /// node, which the gate re-asks before every call and the view's record re-checks before it shows it.
+    Recalled { session: String, node: String },
     /// Code's own text with no source in the store: the frame, the clock, residue lines.
     Code { part: String },
 }
