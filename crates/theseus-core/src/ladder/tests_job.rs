@@ -279,9 +279,13 @@ async fn a_threads_earlier_session_is_summarised_like_any_other() {
     let purse = DayPurse::new(&core.store, None, false);
     // A thread's earlier session, a session with no record, and an imported one's id: each summarised.
     let imported = format!("{}x", crate::import::SESSION_PREFIX);
-    for (i, sid) in [old.session_id.as_str(), "ses_never_recorded", &imported]
-        .into_iter()
-        .enumerate()
+    for (i, sid) in [
+        old.session_id.as_str(),
+        "ses_never_recorded",
+        imported.as_str(),
+    ]
+    .into_iter()
+    .enumerate()
     {
         let turn = exchange_at(&core.store, sid, PLACE, 1_000 + i as u64, false);
         let out = did::write(&core.store, &w, &turn, &purse).await.unwrap();
