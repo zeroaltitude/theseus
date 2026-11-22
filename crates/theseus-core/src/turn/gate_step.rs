@@ -58,16 +58,36 @@ impl TurnRunner {
         // owner's own message where he is not alone (`judge::leans_on`).
         if let Some(m) = &mark {
             if crate::judge::leans_on::asked_of(m, asking.present()) {
-                let history = self.tools.history.clone();
-                let (turn, node) = (t.tc.turn_id.to_string(), m.node.clone());
-                let then = Box::new(move |answer: Option<String>| {
-                    if let Some(core) = history.core() {
-                        tokio::spawn(crate::release_card::after_trigger(core, turn, node, answer));
-                    }
-                });
-                self.judge.at_leans_on(sid, t.tc.turn_id, &m.node, then);
+                self.leans_on(sid, t.tc.turn_id, &asking, &m.node);
             }
         }
+    }
+
+    /// The release card's trigger for the owner's message `node` in company: its input read through the company
+    /// place's own lens when its task runs, and the look after its answer (`release_card`).
+    fn leans_on(&self, sid: &str, turn: &str, asking: &view_gate::Asking, node: &str) {
+        let present = match asking.present() {
+            Present::Shared => crate::view::Present::Shared,
+            _ => crate::view::Present::Private,
+        };
+        let (history, history2) = (self.tools.history.clone(), self.tools.history.clone());
+        let (s, t, place, n) = (
+            sid.to_string(),
+            turn.to_string(),
+            asking.place().to_string(),
+            node.to_string(),
+        );
+        let input = Box::new(move || {
+            let core = history.core()?;
+            crate::release_card::company_tail(&core, (&s, &t), &place, present, &n)
+        });
+        let (t2, n2) = (turn.to_string(), node.to_string());
+        let then = Box::new(move |answer: Option<String>| {
+            if let Some(core) = history2.core() {
+                tokio::spawn(crate::release_card::after_trigger(core, t2, n2, answer));
+            }
+        });
+        self.judge.at_leans_on(sid, turn, node, input, then);
     }
 
     /// A steer the running turn absorbed, its submission's mark `arrival`:

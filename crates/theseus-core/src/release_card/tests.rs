@@ -8,6 +8,7 @@ use serde_json::json;
 
 use super::*;
 use crate::exchange::{exchange_record, Exchange, Opener};
+use crate::ledger::LedgerRow;
 use crate::node::{Body, Node};
 use crate::store::Store;
 
@@ -102,25 +103,17 @@ fn the_record_holds_ids_and_counts_only_whatever_was_found() {
         ids: vec!["t_new".into()],
     };
     let none = Look::bare(Outcome::NotAsked);
-    let a = record("turn_c", "node_c", Some(LEANS_ELSEWHERE), &found);
-    let b = record("turn_c", "node_c", Some("stands_alone"), &none);
-    for row in [&a, &b] {
-        assert_eq!(row.kind, "context.release_look");
-        assert_eq!(row.session_id, None);
-        assert_eq!(row.turn_id, None);
-    }
+    let a =
+        serde_json::to_value(record("turn_c", "node_c", Some(LEANS_ELSEWHERE), &found)).unwrap();
+    let b = serde_json::to_value(record("turn_c", "node_c", Some("stands_alone"), &none)).unwrap();
     let keys = |v: &serde_json::Value| -> Vec<String> {
         let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
         k.sort();
         k
     };
+    assert_eq!(keys(&a), keys(&b), "the same fields, found or not");
     assert_eq!(
-        keys(&a.data),
-        keys(&b.data),
-        "the same fields, found or not"
-    );
-    assert_eq!(
-        keys(&a.data),
+        keys(&a),
         vec![
             "answer",
             "company_turn",
@@ -131,13 +124,9 @@ fn the_record_holds_ids_and_counts_only_whatever_was_found() {
             "outcome"
         ]
     );
-    assert_eq!(a.data["ids"], json!(["t_new"]));
-    assert_eq!(a.data["mode"], "shadow");
-    assert!(
-        !a.data.to_string().contains("offsite"),
-        "no words: {}",
-        a.data
-    );
+    assert_eq!(a["ids"], json!(["t_new"]));
+    assert_eq!(a["mode"], "shadow");
+    assert!(!a.to_string().contains("offsite"), "no words: {a}");
 }
 
 /// The look follows only the trigger's `not_said_here`; the message's own words are read from its node.
@@ -347,6 +336,7 @@ async fn red_team_the_company_turn_sends_nothing_of_the_look() {
     use crate::places::BoundPlace;
     use theseus_judge::fake::{FakeJev, Scripted};
     const SECRET: &str = "lighthouse";
+    const MIXED: &str = "harbourmaster-sentinel";
     const HIM: u64 = 161_803_398_874_989_484;
     const DEN: u64 = 271_000_000_000_000_001;
     let jev = FakeJev::start().unwrap();
@@ -387,15 +377,23 @@ async fn red_team_the_company_turn_sends_nothing_of_the_look() {
     );
     r.core.runner.memory.set_ask(index(vec![his]));
     let den = crate::tests_rerank::session(&r.core, Some(&format!("channel:{DEN}")), &[]);
-    crate::tests_rerank::turn(&r.core, &den, "go with the offsite plan I told you about").await;
+    // The den's own session also served a private arrival (a thread session can): its words are in the
+    // session's nodes, and its exchange's place is his DM. The trigger must never read them.
+    said(
+        &r.core.store,
+        "t_mixed",
+        &den,
+        &dm_target,
+        OWNER,
+        MIXED,
+        500,
+    );
+    let res =
+        crate::tests_rerank::turn(&r.core, &den, "go with the offsite plan I told you about").await;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    let row = loop {
-        let rows: Vec<(u64, LedgerRow)> = r.core.store.ledger_tail(500).unwrap();
-        if let Some((_, row)) = rows
-            .into_iter()
-            .find(|(_, x)| x.kind == "context.release_look")
-        {
-            break row;
+    let rec = loop {
+        if let Some(rec) = look_of(&r.core.store, &res.turn_id).unwrap() {
+            break rec;
         }
         assert!(
             std::time::Instant::now() < deadline,
@@ -403,10 +401,22 @@ async fn red_team_the_company_turn_sends_nothing_of_the_look() {
         );
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     };
-    assert_eq!(row.data["answer"], LEANS_ELSEWHERE);
-    assert_eq!(row.data["outcome"], "one", "{}", row.data);
-    assert_eq!(row.data["ids"], json!(["xq_private_turn_9"]));
-    assert!(!row.data.to_string().contains(SECRET));
+    assert_eq!(rec.answer.as_deref(), Some(LEANS_ELSEWHERE));
+    assert_eq!(rec.outcome, Outcome::One, "{rec:?}");
+    assert_eq!(rec.ids, vec!["xq_private_turn_9".to_string()]);
+    // The general ledger, which any reader of the socket may tail, says nothing of the look.
+    let rows: Vec<(u64, LedgerRow)> = r.core.store.ledger_tail(2_000).unwrap();
+    for (_, row) in &rows {
+        let text = serde_json::to_string(row).unwrap();
+        assert!(
+            !text.contains("xq_private_turn_9"),
+            "a ledger row names the look's id: {text}"
+        );
+        assert!(
+            !text.contains("release"),
+            "a ledger row speaks of the look: {text}"
+        );
+    }
     let sent = r.model.requests.lock().unwrap().clone();
     assert!(!sent.is_empty());
     for req in &sent {
@@ -426,5 +436,94 @@ async fn red_team_the_company_turn_sends_nothing_of_the_look() {
         .filter(|s| s.body["questions"].to_string().contains("leans_on.v1/"))
         .collect();
     assert_eq!(asked.len(), 1);
-    assert!(!asked[0].body["state"].to_string().contains(SECRET));
+    let state = asked[0].body["state"].to_string();
+    assert!(!state.contains(SECRET));
+    assert!(
+        !state.contains(MIXED),
+        "the trigger read an unadmitted line of the session: {state}"
+    );
+}
+
+/// The look's record waits for a moment between turns: while a turn runs, a finished look writes nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_looks_record_waits_for_a_moment_between_turns() {
+    let r = crate::tests_rerank::rig(None, |_| {});
+    let running = r.core.runner.pass.turns().begin().await;
+    let core = r.core.clone();
+    let wrote = tokio::spawn(after_trigger(
+        core,
+        "turn_w".into(),
+        "node_w".into(),
+        Some("stands_alone".into()),
+    ));
+    tokio::time::sleep(std::time::Duration::from_millis(1_500)).await;
+    assert!(
+        look_of(&r.core.store, "turn_w").unwrap().is_none(),
+        "written beside a running turn"
+    );
+    drop(running);
+    wrote.await.unwrap();
+    let rec = look_of(&r.core.store, "turn_w").unwrap().unwrap();
+    assert_eq!(rec.outcome, Outcome::NotAsked);
+}
+
+/// His private conversation is a DM of a configured owner, never merely the first bound; none is no look.
+#[tokio::test]
+async fn his_private_conversation_is_an_owners_dm_not_the_first_bound() {
+    use crate::places::BoundPlace;
+    const HIM: u64 = 161_803_398_874_989_484;
+    const ALICE: u64 = 333_333_333_333_333_333;
+    let r = crate::tests_rerank::rig(None, |_| {});
+    let dm = |u: u64| BoundPlace {
+        target: format!("discord:dm:{u}"),
+        name: "DM".into(),
+        private: true,
+        ..Default::default()
+    };
+    r.core.bind_places(vec![dm(ALICE)]);
+    assert_eq!(
+        private_conversation(&r.core),
+        None,
+        "a DM that is not an owner's"
+    );
+    r.core.bind_places(vec![dm(ALICE), dm(HIM)]);
+    assert_eq!(
+        private_conversation(&r.core),
+        Some(format!("discord:dm:{HIM}"))
+    );
+}
+
+/// A sample share of 0 asks nothing and looks at nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sample_of_zero_asks_nothing_and_looks_at_nothing() {
+    use crate::places::BoundPlace;
+    use theseus_judge::fake::FakeJev;
+    const DEN: u64 = 271_000_000_000_000_001;
+    let jev = FakeJev::start().unwrap();
+    let r = crate::tests_rerank::rig(Some(&jev), |c| {
+        c.judge.packs.insert(
+            crate::judge::leans_on::PACK.into(),
+            crate::config::JudgePackConfig {
+                mode: None,
+                sample: Some(0.0),
+                notices: None,
+            },
+        );
+    });
+    r.core.bind_places(vec![BoundPlace {
+        target: format!("discord:channel:{DEN}"),
+        name: "#den".into(),
+        private: true,
+        ..Default::default()
+    }]);
+    let den = crate::tests_rerank::session(&r.core, Some(&format!("channel:{DEN}")), &[]);
+    let res = crate::tests_rerank::turn(&r.core, &den, "use what I told you").await;
+    tokio::time::sleep(std::time::Duration::from_millis(2_500)).await;
+    assert!(
+        jev.seen()
+            .iter()
+            .all(|s| !s.body["questions"].to_string().contains("leans_on.v1/")),
+        "a sample of 0 asked"
+    );
+    assert!(look_of(&r.core.store, &res.turn_id).unwrap().is_none());
 }

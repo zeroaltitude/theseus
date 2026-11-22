@@ -7,9 +7,14 @@
 //!   presence the gate made a private channel or shared ([`asked_of`]). Another
 //!   person's message, an agent's process, a message with no mark, and his
 //!   message where he is alone are never asked.
-//! - **What it reads.** The message and the last lines of the turn's own
-//!   session, as that place already shows them, and nothing else: no other
-//!   place, no memory, no recall. The state is built in the spawned task.
+//! - **What it reads.** The message and the last lines of the company
+//!   place's own ADMITTED exchanges, by the same lens the company turn's
+//!   history reads (the place rule for that place and its audience, the
+//!   seal, and messages moved into a thread: `release_card::company_tail`),
+//!   chosen after admission, never the session's raw nodes. Its caller hands
+//!   that reading in ([`InputOf`]); it runs in the spawned task.
+//! - **Sampled** by the pack's share (`[judge.packs."leans_on.v1"] sample`):
+//!   a turn not sampled asks nothing and looks at nothing.
 //! - **Off the turn's path, in shadow.** [`JudgeService::at_leans_on`] returns
 //!   at once; the session's read, the state, its blob, the reservation from
 //!   the shadow budget, the call and the record are the spawned task's, as
@@ -25,13 +30,12 @@
 use std::sync::{Arc, Weak};
 
 use serde_json::json;
-use theseus_judge::builders::{HereLine, LeansOnInput, HERE};
+use theseus_judge::builders::LeansOnInput;
 use theseus_judge::{Ask, DecisionPoint, Input, Judge, Outcome, Pack, Urgency};
 use theseus_memory::gate::Present;
 
-use super::{spend, JudgeService, Prepared, ScrubWith};
+use super::{sampled, spend, JudgeService, Prepared, ScrubWith};
 use crate::exchange::{OwnerMark, OWNER};
-use crate::node::{Body, Node, Origin};
 
 /// The pack.
 pub const PACK: &str = "leans_on.v1";
@@ -40,6 +44,9 @@ pub const PACK: &str = "leans_on.v1";
 /// failed). The release card's look (`release_card::after_trigger`).
 pub type Then = Box<dyn FnOnce(Option<String>) + Send + 'static>;
 
+/// The trigger's input, read when its task runs: none asks nothing.
+pub type InputOf = Box<dyn FnOnce() -> Option<LeansOnInput> + Send + 'static>;
+
 /// Whether the trigger is asked of a message of `mark`, at a turn whose
 /// presence is `present`: the owner's own message, where he is not alone.
 pub fn asked_of(mark: &OwnerMark, present: Present) -> bool {
@@ -47,75 +54,44 @@ pub fn asked_of(mark: &OwnerMark, present: Present) -> bool {
     company && mark.person().as_deref() == Some(OWNER)
 }
 
-/// The pack's input: the message `node` of the session's `nodes` (oldest
-/// first), and the lines said before it there, as the place shows them.
-pub fn input(nodes: &[Node], node: &str) -> Option<LeansOnInput> {
-    let at = nodes.iter().position(|n| n.id == node)?;
-    let Body::UserMessage { text, .. } = &nodes[at].body else {
-        return None;
-    };
-    let mut here: Vec<HereLine> = nodes[..at]
-        .iter()
-        .rev()
-        .filter_map(line_of)
-        .take(HERE)
-        .collect();
-    here.reverse();
-    Some(LeansOnInput {
-        message: text.clone(),
-        here,
-    })
-}
-
-/// One line the place shows: a person's message, or the assistant's reply's
-/// text. Tool calls, results and notes are not lines of the conversation.
-fn line_of(n: &Node) -> Option<HereLine> {
-    match &n.body {
-        Body::UserMessage { text, .. } if n.origin == Origin::Operator => Some(HereLine {
-            who: "person".into(),
-            text: text.clone(),
-        }),
-        Body::AssistantMessage { blocks, .. } => {
-            let text = crate::provider::text_of(blocks);
-            (!text.is_empty()).then(|| HereLine {
-                who: "assistant".into(),
-                text,
-            })
-        }
-        _ => None,
-    }
-}
-
 impl JudgeService {
     /// The trigger, in shadow, in a task of its own, for the message `node`
     /// that opened `turn_id` of `session`; `then` is handed its answer once it
     /// is judged. Returns at once, whatever Jev does.
-    pub fn at_leans_on(&self, session: &str, turn_id: &str, node: &str, then: Then) {
+    pub fn at_leans_on(
+        &self,
+        session: &str,
+        turn_id: &str,
+        node: &str,
+        input: InputOf,
+        then: Then,
+    ) {
         if !self.pack_on(PACK) {
             return;
         }
         let Some(pack) = theseus_judge::pack::by_name(PACK) else {
             return;
         };
+        if !sampled(turn_id, self.cfg.sample_of(PACK, pack.sample)) {
+            return;
+        }
         let Ok(rt) = tokio::runtime::Handle::try_current() else {
             return;
         };
         let at = (session.to_string(), turn_id.to_string(), node.to_string());
-        rt.spawn(judge_leans_on(self.me.clone(), pack, at, then));
+        rt.spawn(judge_leans_on(self.me.clone(), pack, at, input, then));
     }
 
     /// The blocking half: the session's read, the state, its blob, and the
     /// reservation.
-    fn prepare_leans_on(&self, pack: Arc<Pack>, at: &(String, String, String)) -> Option<Prepared> {
+    fn prepare_leans_on(
+        &self,
+        pack: Arc<Pack>,
+        at: &(String, String, String),
+        input: InputOf,
+    ) -> Option<Prepared> {
         let (session, turn, node) = at;
-        let nodes: Vec<Node> = self
-            .store
-            .session_nodes(session)
-            .ok()?
-            .into_iter()
-            .map(|(_, n)| n)
-            .collect();
-        let input = input(&nodes, node)?;
+        let input = input()?;
         let lines = input.here.len();
         let scrub = ScrubWith(self.scrubber.clone());
         let state = theseus_judge::prepare(&pack, &Input::LeansOn(input), &scrub).ok()?;
@@ -149,11 +125,12 @@ async fn judge_leans_on(
     me: Weak<JudgeService>,
     pack: Arc<Pack>,
     at: (String, String, String),
+    input: InputOf,
     then: Then,
 ) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
-    let prepared = tokio::task::spawn_blocking(move || svc.prepare_leans_on(pack, &at))
+    let prepared = tokio::task::spawn_blocking(move || svc.prepare_leans_on(pack, &at, input))
         .await
         .ok()
         .flatten();

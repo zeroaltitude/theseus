@@ -252,7 +252,8 @@ impl Core {
                     .into_iter()
                     .map(|(r, end)| serde_json::json!({"release": r, "ended": end}))
                     .collect();
-                serde_json::json!({"releases": rows})
+                let looks = crate::release_card::looks(&self.store)?;
+                serde_json::json!({"releases": rows, "looks": looks})
             }
         })
     }

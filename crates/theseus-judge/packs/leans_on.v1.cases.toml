@@ -122,3 +122,17 @@ message = "go with my earlier answer"
 here = [["assistant", "Which colour should the banner be?"], ["person", "blue"], ["assistant", "And the font?"]]
 label = "said_here"
 why = "TRAP: his earlier answer ('blue') is in here"
+
+[[case]]
+id = "L17"
+message = "\"as I said before, keep it under budget\" - can you hold me to that?"
+here = [["person", "starting the quarter plan"]]
+label = "stands_alone"
+why = "TRAP (review): a quoted reference carries its own words; nothing outside the message is needed"
+
+[[case]]
+id = "L18"
+message = "go back to what we settled last month about the vendor"
+here = [["person", "morning"], ["assistant", "Morning."]]
+label = "not_said_here"
+why = "KNOWN LIMIT (review): said in this same place, but older than the lines shown, so the pack reads it as elsewhere and the look runs needlessly; a v2 would show the place's own older history or ask apart"
