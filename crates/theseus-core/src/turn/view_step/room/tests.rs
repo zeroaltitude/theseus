@@ -363,7 +363,8 @@ async fn a_bare_refusal_after_four_exchanges_shrinks_and_answers_on_one_retry() 
             c.catalog.insert(
                 "claude-sonnet-5-5".into(),
                 crate::catalog::CatalogRow {
-                    context_window: Some(WINDOW),
+                    // Room for four large exchanges: the refusal, not the window, is what this case is about.
+                    context_window: Some(200_000),
                     max_output_tokens: Some(OUTPUT),
                     ..Default::default()
                 },
