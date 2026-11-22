@@ -403,5 +403,6 @@ fn tally_of(v: &ViewShown) -> ViewTally {
     t
 }
 
+mod census;
 #[cfg(test)]
 mod tests;
