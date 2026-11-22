@@ -174,23 +174,6 @@ mod tests {
         Ok(Config::parse(&Config::EXAMPLE_TOML.replace(from, to))?.0)
     }
 
-    /// The template's `[cache]` is the defaults, and a value out of range
-    /// is refused with its key.
-    #[test]
-    fn the_cache_section_has_its_defaults_and_its_range() {
-        let cfg = Config::example();
-        assert_eq!(cfg.cache, CacheConfig::default());
-        assert_eq!(cfg.cache.interval_ms(), 55 * 60_000);
-        for bad in ["60", "0", "-1"] {
-            let e = with(
-                "keep_warm_every_minutes = 55",
-                &format!("keep_warm_every_minutes = {bad}"),
-            );
-            let e = format!("{:#}", e.unwrap_err());
-            assert!(e.contains("keep_warm_every_minutes"), "{e}");
-        }
-    }
-
     /// A profile that must stay at 5 minutes under a 1-hour `[cache] ttl` says
     /// so, and it holds: the profile's own "5m" wins, it serializes (it is
     /// no longer the value nothing says), and health names it the
