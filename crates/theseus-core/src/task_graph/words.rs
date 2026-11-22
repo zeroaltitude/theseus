@@ -6,24 +6,29 @@
 //! his yes on a card. This module says when the card would not be needed,
 //! and keeps the words behind each change.
 //!
-//! **Built, not live.** The conversation model proposes through `task.update`,
-//! naming his message (`said`) and the change's kind (`kind`), but the kind is
-//! the proposing model's own label: nothing in this build checks that his
-//! words mean that, about that task ("Also deploy to production" appended
-//! under `narrows` widens it). So the first check is an independent typed
-//! judgment recorded for this exact message ([`judged_change`]), and no pack
-//! asks that question yet: every change keeps its card, counted as
-//! `no_judgment`. The rest of [`decide`] holds the rule's shape for when the
-//! question exists:
+//! **Asked, recorded, and acting only when the ladder says so.** The
+//! conversation model proposes through `task.update`, naming his message
+//! (`said`) and the change's kind (`kind`), but the kind is the proposing
+//! model's own label ("Also deploy to production" appended under `narrows`
+//! widens it). So the first check is an independent typed judgment of this
+//! exact message, `task_words.v1`'s, asked at the call's gate and kept for
+//! the message ([`judged_change`]; `judged.rs` says when it is asked). The
+//! pack starts in shadow: [`decide`] then says what the rule WOULD do, the
+//! proposal's row records it, and [`applies`] keeps the card (`shadow`) until
+//! an operator promotes the pack. The checks of [`decide`]:
 //!
-//! - the judgment names exactly this task, this version, and `restricts`;
+//! - the judgment names exactly this task, this version, and `restricts`, at
+//!   the pack's act band (anything else the judge says is `unsure`);
 //! - the kind is `narrows` (`widens`, `replaces` and anything else keep the
 //!   card);
 //! - this is not a task's own session; the call names the whole id; the
 //!   version it names is the newest, and his message is not older than it;
-//! - nothing from outside was read since his last message;
+//! - nothing the turn admitted came from outside or from another person
+//!   (`judged::outside_admitted`), and the session is not flagged steered;
 //! - the message carries the owner's mark (`exchange::mark`), in person, and
 //!   is of the current exchange of this very session;
+//! - his message has not authorised a change already: its one-use receipt
+//!   (`task.receipt.<node>`) is not spent, for this task or any other;
 //! - the owner is alone here, as the gate's `present` says (a channel, an
 //!   agent's process at the terminal, an unreadable mark: not alone);
 //! - a narrowing keeps the objective as it was, word for word, and adds his
@@ -35,8 +40,9 @@
 //! The words are kept by reference, never by text, in a small META record,
 //! `task.words.<id>.<version>`; a proposal that named his words and fell to
 //! the card says why in its `task.change_proposed` row (`words`), so the cards
-//! are counted. No stored record gains a field. A pause is not offered here:
-//! the owner's own `task.pause` is the durable one.
+//! are counted, and what the rule would have done (`words.would`). No stored
+//! record gains a field. A pause is not offered by `task.update`: the
+//! owner's own `task.pause` is the durable one.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -123,7 +129,11 @@ pub enum Operation {
     Resumes,
     Widens,
     Replaces,
-    /// The judge could not tell.
+    /// The judge was shown less than the whole message or task: its answer
+    /// cannot authorise the whole of either.
+    Clipped,
+    /// The judge could not tell, said anything else (widen, redirect, add
+    /// work, a question), or answered under its act band.
     Unsure,
 }
 
@@ -137,13 +147,15 @@ pub struct JudgedChange {
     pub operation: Operation,
 }
 
-/// The judgment recorded for the message `node`. **None today: no pack asks
-/// this question yet**, so every change to the owner's task keeps its card
-/// (`no_judgment`). The question, when it exists, is the judge's, asked of
-/// his message, the one task it addresses and that task's objective; it is
-/// never the proposing model's own word.
-pub fn judged_change(_store: &crate::store::Store, _node: &str) -> Option<JudgedChange> {
-    None
+/// The judgment kept for the message `node` (`task.judged.<node>`): the
+/// judge's, asked of his message and the one task `addressed_task` names,
+/// never the proposing model's own word. None when none was asked, or it
+/// cannot be read: the card.
+pub fn judged_change(store: &crate::store::Store, node: &str) -> Option<JudgedChange> {
+    super::judged::judged(store, node)
+        .ok()
+        .flatten()
+        .map(|j| j.change)
 }
 
 /// Why a change falls to the card.
@@ -153,6 +165,8 @@ pub enum Why {
     NoWords,
     /// No independent judgment is recorded for his message.
     NoJudgment,
+    /// The judge read a clipped message or task.
+    Clipped,
     /// The judgment names another task, another version, or another
     /// operation than restricting this one.
     Misjudged,
@@ -174,6 +188,12 @@ pub enum Why {
     NotCurrent,
     /// The gate does not find the owner alone here.
     NotAlone,
+    /// His message has authorised a change already (its receipt is spent),
+    /// or the receipt cannot be read.
+    Spent,
+    /// Every check holds, and the judge that said so is in shadow: the change
+    /// would apply without a card, and keeps it.
+    Shadow,
     /// The change does not have its kind's shape: a narrowing that drops or
     /// rewrites any of the objective, or adds words that are not his.
     NotItsKind,
@@ -184,6 +204,7 @@ impl Why {
         match self {
             Why::NoWords => "no_words",
             Why::NoJudgment => "no_judgment",
+            Why::Clipped => "clipped",
             Why::Misjudged => "misjudged",
             Why::Kind(Kind::Widens) => "widens",
             Why::Kind(Kind::Replaces) => "replaces",
@@ -196,6 +217,8 @@ impl Why {
             Why::NotHim => "not_him",
             Why::NotCurrent => "not_current",
             Why::NotAlone => "not_alone",
+            Why::Spent => "spent",
+            Why::Shadow => "shadow",
             Why::NotItsKind => "not_its_kind",
         }
     }
@@ -233,6 +256,13 @@ pub trait Evidence {
     fn words(&self, task: &str, version: u64) -> Result<Option<Words>>;
     /// The independent judgment recorded for the message `node`.
     fn judged(&self, node: &str) -> Option<JudgedChange>;
+    /// The message `node` has authorised a change already, or its receipt
+    /// cannot be read.
+    fn spent(&self, node: &str) -> bool;
+    /// The judgment of `node` was asked while its pack acted (live, or in the
+    /// canary's arm), and the ladder lets the pack act now; false in shadow,
+    /// and false once it is rolled back or off.
+    fn acting(&self, node: &str) -> bool;
 }
 
 /// A text as it is compared: whitespace runs as one space, and the
@@ -284,6 +314,9 @@ pub fn decide(ev: &dyn Evidence, rec: &TaskRecord, ask: &Ask<'_>) -> Result<Kind
     let Some(judged) = ev.judged(said) else {
         return Err(Why::NoJudgment);
     };
+    if judged.operation == Operation::Clipped {
+        return Err(Why::Clipped);
+    }
     if kind != Kind::Narrows {
         return Err(Why::Kind(kind));
     }
@@ -324,8 +357,11 @@ pub fn decide(ev: &dyn Evidence, rec: &TaskRecord, ask: &Ask<'_>) -> Result<Kind
     if !current {
         return Err(Why::NotCurrent);
     }
-    if mark.at_ms < rec.updated_at_ms {
+    if mark.at_ms <= rec.updated_at_ms {
         return Err(Why::Stale);
+    }
+    if ev.spent(said) {
+        return Err(Why::Spent);
     }
     if ev.present(&mark) != Present::OwnerAlone {
         return Err(Why::NotAlone);
@@ -340,6 +376,17 @@ pub fn decide(ev: &dyn Evidence, rec: &TaskRecord, ask: &Ask<'_>) -> Result<Kind
     }
 }
 
+/// Whether `ask` applies now without a card: [`decide`], and the judgment
+/// asked while its pack acted. In shadow every change that [`decide`] passes
+/// keeps its card as `shadow`, and its row says it would have applied.
+pub fn applies(ev: &dyn Evidence, rec: &TaskRecord, ask: &Ask<'_>) -> Result<Kind, Why> {
+    let kind = decide(ev, rec, ask)?;
+    match ask.said.is_some_and(|s| ev.acting(s)) {
+        true => Ok(kind),
+        false => Err(Why::Shadow),
+    }
+}
+
 /// [`Evidence`] for a turn's call: the store's records, the gate's `present`.
 pub struct Records<'a> {
     pub store: &'a crate::store::Store,
@@ -349,14 +396,20 @@ pub struct Records<'a> {
     /// The class of the place the turn's words go to.
     pub class: crate::places::PlaceClass,
     pub task: bool,
-    /// Outside text read since his last message, or the turn flagged steered.
+    /// Something the turn admitted came from outside or from another person,
+    /// or the session is flagged steered (`judged::outside_admitted`).
     pub outside: bool,
 }
 
 impl<'a> Records<'a> {
     /// The evidence of the call `tc` runs.
     pub fn of(tc: &'a TurnCtx<'a>) -> Self {
-        let (outside, steered) = crate::config_change::outside_text(tc);
+        let ex = crate::exchange::exchange(tc.store, tc.turn_id)
+            .ok()
+            .flatten();
+        let outside =
+            super::judged::outside_admitted(tc.store, tc.session_id, tc.turn_id, ex.as_ref());
+        let steered = super::judged::steered(tc.store, tc.session_id);
         Self {
             store: tc.store,
             outbox: tc.outbox,
@@ -428,6 +481,16 @@ impl Evidence for Records<'_> {
 
     fn judged(&self, node: &str) -> Option<JudgedChange> {
         judged_change(self.store, node)
+    }
+
+    fn spent(&self, node: &str) -> bool {
+        !matches!(super::judged::receipt(self.store, node), Ok(None))
+    }
+
+    /// Asked while the pack acted, AND the ladder lets it act now.
+    fn acting(&self, node: &str) -> bool {
+        matches!(super::judged::judged(self.store, node), Ok(Some(j)) if j.acting)
+            && super::judged::acts_now(self.store, self.session)
     }
 }
 

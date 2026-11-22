@@ -85,7 +85,11 @@ impl TextRenderer<'_> {
             let said = match form {
                 Form::Whole => forms::whole(&nodes),
                 Form::Spoken => forms::spoken(&nodes),
-                Form::Line => line(&nodes, did::did(self.store, turn)?.map(|d| d.line), &handle),
+                Form::Line => line(
+                    &nodes,
+                    did::did(self.store, turn)?.map(|d| did::shown_line(self.store, &d)),
+                    &handle,
+                ),
             };
             let seen = Seen {
                 origin: Origin {

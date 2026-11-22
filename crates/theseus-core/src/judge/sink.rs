@@ -89,6 +89,11 @@ impl Queue {
         self.lock().is_empty()
     }
 
+    /// The first judgment landed and not yet written that `f` picks.
+    pub(crate) fn find(&self, f: impl Fn(&Judgment) -> bool) -> Option<Judgment> {
+        self.lock().iter().find(|j| f(j)).cloned()
+    }
+
     pub(crate) fn push(&self, j: Judgment) {
         self.lock().push_back(j);
         self.landed.notify_waiters();

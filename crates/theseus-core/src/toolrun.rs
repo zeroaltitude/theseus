@@ -995,6 +995,10 @@ impl ToolRuntime {
         if let Some(done) = self.answer_own_command(tc, tool.name(), call)? {
             return Ok(Admitted::Answered(done));
         }
+        // A change in the owner's own words: the judge reads his message before the gate (issue 44).
+        if let Some(judge) = self.judge.get() {
+            crate::task_graph::judged::ask(judge, tc, tool.name(), &call.input).await;
+        }
         match self.gate(tc, tool.as_ref(), call).await {
             Err(bad) => self
                 .invalid_input(tc, assistant_node, call, tool.name(), bad)

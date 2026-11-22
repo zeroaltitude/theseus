@@ -110,3 +110,33 @@ fn the_dispatch_check_sees_a_move_made_after_the_first_check() {
     assert!(crate::view_gate::sources_moved(&s, &turns));
     assert!(!crate::view_gate::sources_moved(&s, &turns[..1]));
 }
+
+/// Absence is not proof (item 2): a source exchange that cannot be found holds the summary's dispatch.
+#[test]
+fn a_missing_source_holds_the_dispatch() {
+    let (_d, s) = store();
+    let mut turns = history(&s, 1);
+    assert!(!crate::view_gate::sources_moved(&s, &turns));
+    turns.push("trn_gone".into());
+    assert!(crate::view_gate::sources_moved(&s, &turns));
+}
+
+/// A node gate is read for one moment: one read before a move does not see it, one read after does. The
+/// history tool reads its gate again after its only await (`history_tool.rs`), never carrying the first.
+#[test]
+fn a_gate_read_after_a_move_sees_it_and_one_read_before_does_not() {
+    let (_d, s) = store();
+    thread(&s, "kelp", true);
+    let turns = history(&s, 1);
+    let board = || Some(crate::threads::Threads::default().all(&s).unwrap());
+    let ex = || exchange::exchange(&s, &turns[0]).unwrap().unwrap();
+    let before = crate::view_gate::Moved::of(&s, board(), Some(SID));
+    assert!(!before.holds(&ex()));
+    move_ask(&s, &turns[0], "kelp");
+    assert!(
+        !before.holds(&ex()),
+        "a snapshot: why it is never carried across an await"
+    );
+    let after = crate::view_gate::Moved::of(&s, board(), Some(SID));
+    assert!(after.holds(&ex()));
+}

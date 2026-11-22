@@ -264,9 +264,9 @@ impl TurnRunner {
         // A message it shows moved into a thread, or that thread sealed, since it was assembled.
         let moved = crate::view_gate::Moved::read(self, Some(sid));
         (f.exchanges.iter()).any(|id| match crate::exchange::exchange(&self.store, id) {
+            // Only a readable exchange whose nodes are all clear proves admission: a missing one revokes.
             Ok(Some(e)) => moved.holds(&e),
-            Ok(None) => false,
-            Err(_) => true,
+            Ok(None) | Err(_) => true,
         })
     }
 
@@ -355,14 +355,7 @@ impl TurnRunner {
         };
         // One read of the ladder for the whole assembly: every selector, the text and the window see it.
         let store_ladder = StoreLadder(store);
-        let gated = GatedLadder {
-            inner: &store_ladder,
-            store,
-            held: &held,
-            moved: &moved,
-            sessions: Default::default(),
-            exchanges: Default::default(),
-        };
+        let gated = GatedLadder::new(&store_ladder, store, &held, &moved);
         let ladder = OnceLadder::new(&gated);
         let cards = StoreCards {
             store,
@@ -562,7 +555,23 @@ struct GatedLadder<'a> {
     exchanges: std::cell::RefCell<Vec<String>>,
 }
 
-impl GatedLadder<'_> {
+impl<'a> GatedLadder<'a> {
+    fn new(
+        inner: &'a dyn crate::view::fold::Ladder,
+        store: &'a Store,
+        held: &'a dyn Fn(&str) -> bool,
+        moved: &'a dyn Fn(&crate::exchange::Exchange) -> bool,
+    ) -> Self {
+        Self {
+            inner,
+            store,
+            held,
+            moved,
+            sessions: Default::default(),
+            exchanges: Default::default(),
+        }
+    }
+
     /// Every exchange fold node `id` stands for; none when any cannot be resolved, or any holds a moved
     /// message the reader may not read.
     fn constituents(&self, id: &str) -> Option<Vec<crate::exchange::Exchange>> {
@@ -879,7 +888,8 @@ fn as_line(
     let Some((p, ask)) = nodes.into_iter().find(|(_, n)| n.kind == Kind::UserMessage) else {
         return Ok(Vec::new());
     };
-    let did = crate::ladder::did::did(store, &handle.0)?.map(|d| d.line);
+    let did = crate::ladder::did::did(store, &handle.0)?
+        .map(|d| crate::ladder::did::shown_line(store, &d));
     let mut node = (*ask).clone();
     if let Body::UserMessage { text, .. } = &mut node.body {
         *text = forms::line(text, did.as_deref(), handle);

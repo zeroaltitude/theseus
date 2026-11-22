@@ -99,8 +99,10 @@ impl Reader<'_> {
             });
         }
         let mut dropped = Vec::new();
+        let mut held: Vec<&super::super::budget::Dropped> = Vec::new();
         for d in &rec.dropped {
             if !self.source.may_show(&d.range, None) {
+                held.push(d);
                 continue;
             }
             totals.dropped += 1;
@@ -123,7 +125,7 @@ impl Reader<'_> {
             dropped,
             // A band's residue counts pieces with no reference to check: a restricted reader is not shown it.
             residue: match self.restricted {
-                false => rec.residue.iter().map(residue_of).collect(),
+                false => residue_without(&rec.residue, &held),
                 true => Vec::new(),
             },
             totals,
@@ -170,6 +172,29 @@ fn piece_ref(p: &Piece) -> ViewPiece {
         label: String::new(),
         text: None,
     }
+}
+
+/// The record's residue less what `held` (drops this reader may not see) added to it, as the budgeter
+/// counted them (a merged piece was never counted): a held piece's count and size are not shown either. A
+/// band left with nothing is not shown.
+fn residue_without(
+    residue: &[super::super::budget::Residue],
+    held: &[&super::super::budget::Dropped],
+) -> Vec<ViewResidue> {
+    let merged = super::super::budget::DropWhy::Merged;
+    (residue.iter())
+        .map(|r| {
+            let gone = held.iter().filter(|d| d.band == r.band && d.why != merged);
+            let (n, t) = gone.fold((0u32, 0u64), |(n, t), d| (n + 1, t + d.tokens));
+            super::super::budget::Residue {
+                band: r.band,
+                pieces: r.pieces.saturating_sub(n),
+                tokens: r.tokens.saturating_sub(t),
+            }
+        })
+        .filter(|r| r.pieces > 0)
+        .map(|r| residue_of(&r))
+        .collect()
 }
 
 fn residue_of(r: &super::super::budget::Residue) -> ViewResidue {

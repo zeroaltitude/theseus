@@ -56,6 +56,7 @@ pub mod sink;
 pub mod small_talk;
 pub mod spend;
 pub mod stop;
+pub mod task_words;
 #[cfg(test)]
 mod tests_ahead;
 #[cfg(test)]
