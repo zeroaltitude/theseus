@@ -14,6 +14,9 @@ pub(super) struct Keeping {
     writing: Vec<tokio::task::JoinHandle<()>>,
 }
 
+/// The most a turn's end waits for its blocks' writes (`blocks_kept`).
+pub(super) const KEEP_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 impl Keeping {
     /// More texts to keep with the system blocks, in the same batch (a view's chain, `view_step::kept`).
     pub(super) fn add(&mut self, fresh: Vec<Vec<u8>>) {
@@ -314,13 +317,31 @@ impl TurnRunner {
             .extend(crate::compiler::cache::keep(&blobs, fresh));
     }
 
-    /// Wait for the blocks' writes, starting any no call reached: called once
-    /// the turn's body is done, so a turn that has ended has its blocks kept.
+    /// Wait for the blocks' writes (the system blocks' and a view's, kept
+    /// for a replay), starting any no call reached: called once the turn's
+    /// body is done, so a turn that has ended has its blocks kept. The wait
+    /// is bounded ([`KEEP_WAIT`]): past it the turn completes with a warning,
+    /// and the writes left settle on their own without holding the session
+    /// (a replay of the turn is refused, naming the missing blob, until they
+    /// land).
     pub(super) async fn blocks_kept(t: &mut Turn<'_>) {
         Self::start_keeping(t);
+        let until = tokio::time::Instant::now() + KEEP_WAIT;
         for writing in std::mem::take(&mut t.keeping.writing) {
-            if let Err(e) = writing.await {
-                tracing::warn!(error = %e, "a system blocks' write did not finish; its turns cannot be replayed");
+            match tokio::time::timeout_at(until, writing).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    tracing::warn!(error = %e, "a system blocks' write did not finish; its turns cannot be replayed");
+                }
+                // The handle is let go: its write goes on, and nothing waits for it.
+                Err(_) => {
+                    tracing::warn!(
+                        wait = ?KEEP_WAIT,
+                        "the turn's blocks were not written in time; it completes without them, and they \
+                         settle on their own"
+                    );
+                    return;
+                }
             }
         }
     }

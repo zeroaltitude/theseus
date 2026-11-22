@@ -18,7 +18,7 @@ mod room;
 pub(super) mod task;
 
 #[cfg(test)]
-pub(crate) use super::exchange_step::route_unreadable;
+pub(crate) use super::exchange_step::{route_readable, route_unreadable};
 #[cfg(test)]
 pub(crate) use failed::fail_next_assembly;
 pub(in crate::turn) use failed::ViewFailed;
@@ -73,9 +73,9 @@ impl TurnRunner {
     }
 
     /// This loop's compile: in a place set to `view`, from the turn's view (assembled on its first call);
-    /// else, and for a view turn over its budget (`Fallback`), the transcript's, with a summary where the
-    /// ring would cut (30c). A view that cannot be assembled soundly fails the turn plainly (`ViewFailed`):
-    /// never a partial view. The view's record is kept with the compilation it was built for, once.
+    /// else the transcript's, with a summary where the ring would cut (30c). A view that cannot be
+    /// assembled soundly fails the turn plainly (`ViewFailed`): never a partial view, and no hand-back.
+    /// The view's record is kept with the compilation it was built for, once.
     pub(super) async fn compile_here(
         &self,
         t: &mut Turn<'_>,
@@ -118,7 +118,8 @@ impl TurnRunner {
     }
 
     /// One call of a view turn, or why this turn is the transcript's (`None`: decided before); a turn whose
-    /// place could not be read fails (`ViewFailed::Place`).
+    /// place could not be read fails (`ViewFailed::Place`), as does one that cannot resume what it continues
+    /// (`ViewFailed::Resume`, `ResumeHere`: `resume_step`).
     fn view_compile(
         &self,
         t: &mut Turn<'_>,
@@ -133,6 +134,9 @@ impl TurnRunner {
             if t.exchange.place_unread() {
                 return Err(ViewFailed::Place.into());
             }
+            if let Some(why) = t.exchange.unresumable() {
+                return Err(ViewFailed::from(why).into());
+            }
         } else if self.view_revoked(t) || self.view_moved(t) {
             // A source sealed since, or a presence that changed (a steer narrowed it): reassembled under
             // the new permit, on a new chain, with the room the turn made.
@@ -144,7 +148,6 @@ impl TurnRunner {
         if input.strip.is_some() || input.force.is_some() {
             Self::view_reset(t, input.nodes);
         }
-        let store = t.tc.store;
         // Over the budget as rendered, or refused by the provider for its size: the view makes its own room
         // (`room`), and a request it cannot fit fails on its overage.
         let compiled = self.view_roomed(t, input)?;
@@ -160,18 +163,9 @@ impl TurnRunner {
             }
             f.compilation_id = Some(compiled.compilation.id.clone());
             f.card.clone_from(&compiled.card);
-            if let Some(view) = f.record.take() {
-                let room = f.room.made(compiled.cleared.map_or(0, |p| p.results));
-                let replay = kept::chain_kept(store, &mut t.keeping, f);
-                if let Err(e) = crate::view::record::keep_made(
-                    store,
-                    turn,
-                    &compiled.compilation.id,
-                    &view,
-                    (room, replay),
-                ) {
-                    tracing::warn!(error = %format!("{e:#}"), "the view's record was not kept");
-                }
+            // Routing's first compile is persisted only if the call uses it (`route_step::keep_first`).
+            if !t.route.defer_persist {
+                kept::record_kept(t, &compiled);
             }
         }
         Ok(Ok(compiled))
@@ -193,7 +187,8 @@ impl TurnRunner {
         let mut compiled = compiled;
         for again in 0..=VIEW_READMISSIONS {
             if !(self.view_revoked(t) || self.view_moved(t)) {
-                return Ok(Ok(compiled));
+                // The request as it will be sent is held to its size (`room::view_sized`).
+                return self.view_sized(t, session, spec, compiled, i).await;
             }
             if again == VIEW_READMISSIONS {
                 return Ok(Err(Self::view_failed(t, &ViewFailed::Moved)));
