@@ -238,3 +238,41 @@ async fn the_facts_about_the_person_reach_the_owner_alone() {
     let q = asked(&r, "agent: good morning").pop().unwrap();
     assert!(!texts(&q).contains(ROLE), "{}", texts(&q));
 }
+
+/// A topic named by its key brings its card, with the owner's guidance, to the owner alone: a topic is the
+/// owner's own filing, so an agent's process at the terminal is told nothing of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_named_topic_brings_its_card_to_the_owner_alone() {
+    use theseus_ontology::{Category, CategoryId, Guidance, Origin, Record};
+    const GUIDED: &str = "Keep the ledger's own words.";
+    let r = view_rig();
+    let c = &r.core;
+    let ledger = CategoryId::parse("topic:ledger").unwrap();
+    (c.runner.ontology)
+        .write(
+            &c.store,
+            vec![
+                Record::Category(Category::new(ledger.clone(), "Ledger", "ada")),
+                Record::Guidance(Guidance::new(ledger, GUIDED, 1, "ada")),
+            ],
+            Origin::Operator,
+            |_| Ok(vec![]),
+        )
+        .unwrap();
+    let desk = session_in(c, None, &r.root);
+    turn_as(c, &desk, "desk: where is topic:ledger now?", true).await;
+    let q = asked(&r, "desk: where is topic:ledger now?").pop().unwrap();
+    assert!(
+        texts(&q).contains("Topic: Ledger (topic:ledger)"),
+        "{}",
+        texts(&q)
+    );
+    assert!(texts(&q).contains(GUIDED), "{}", texts(&q));
+
+    let agent = session_in(c, None, &r.root);
+    turn_as(c, &agent, "agent: where is topic:ledger now?", false).await;
+    let q = asked(&r, "agent: where is topic:ledger now?")
+        .pop()
+        .unwrap();
+    assert!(!texts(&q).contains("Topic: Ledger"), "{}", texts(&q));
+}
