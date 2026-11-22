@@ -39,7 +39,6 @@ use theseus_store::NewRecord;
 use super::{Turn, TurnRunner};
 use crate::compiler::Compiled;
 use crate::config::memory::{Assigned, MemoryArm};
-use crate::config::MemoryMode;
 use crate::fact::recall::{scope, ArmAssigned, RecallRan, RecallShadow, RecallWithheld};
 use crate::graph::{Edge, EdgeKind, VIA_RECALL};
 use crate::node::{Body, Node, RecalledRef};

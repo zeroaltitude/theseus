@@ -427,19 +427,3 @@ async fn a_piece_its_situation_does_not_admit_fails_naming_it() {
     assert_eq!(row[0]["piece"], piece);
     assert_eq!(row[0]["situation"]["kind"], "conversation_start");
 }
-
-/// And 48,000 until `task_fan_out` joined the catalog (theseus-z9mze.3): its definition grows the tools
-/// block by about 500 tokens. 48,250 and up hold (to 52,000, the sweep's end) for this suite, and 48,500 and up for the
-/// others in this family of tests; 49,000 is the middle of the near end of that band. And 49,000 until
-/// `card_observed` joined the catalog (theseus-6f8t0: deferred, counted whole here; 49,200 and 49,400 still
-/// fail in this family, 49,600 to 53,000 hold: a sweep at its join); 50,000 is inside the near end again.
-const WINDOW: u64 = 50_000;
-
-/// A message of about `tokens` tokens of prose.
-fn long(tag: &str, tokens: usize) -> String {
-    let mut s = format!("{tag} ");
-    while s.len() < tokens * 4 {
-        s.push_str("the keeper logged the tide and the wind before the lamp was lit. ");
-    }
-    s
-}

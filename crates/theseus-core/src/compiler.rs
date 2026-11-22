@@ -43,13 +43,13 @@ pub mod cache;
 pub mod card;
 pub(crate) mod clearing;
 pub mod cold;
-pub mod summary;
 pub mod effort;
 pub mod layers;
 pub(crate) mod phases;
 pub mod place_digest;
 pub mod place_tail;
 pub mod session_block;
+pub mod summary;
 #[cfg(test)]
 mod tests_clear;
 #[cfg(test)]
@@ -619,19 +619,20 @@ fn compile_with(
     );
     let (appended, recompiled) = (&*a, r.as_deref().unwrap_or(&*a));
     let entry = input.catalog.get(&appended.model);
-    let window = input.window_override.or(entry.map(|e| e.context_window));
-    // The provider's word on the window beats the catalog's when it is
-    // smaller (theseus-9p88): a catalog that overstates a window would let
-    // every request past it.
-    let window = match (window, input.overflowed.and_then(|o| o.maximum)) {
-        (Some(w), Some(m)) => Some(w.min(m)),
-        (w, m) => w.or(m),
-    };
+    let window = window_of(&input, entry);
     let moves = crate::moved::read(input.nodes);
-    let decided = decided(&input, &manifest_for(appended, input.catalog, window, false), &moves);
+    let decided = decided(
+        &input,
+        &manifest_for(appended, input.catalog, window, false),
+        &moves,
+    );
     // A recompile renders the walk's current memberships.
     let now_manifest = manifest_for(
-        if decided.is_some() { recompiled } else { appended },
+        if decided.is_some() {
+            recompiled
+        } else {
+            appended
+        },
         input.catalog,
         window,
         false,
@@ -646,47 +647,14 @@ fn compile_with(
         .into_iter()
         .filter(|(_, n)| moves.shows(n))
         .collect();
-    let make =
-        |trigger: String, strategy: &str, strip: bool, includes: Vec<String>, base: &Manifest| {
-            Compilation {
-                id: crate::new_id("cmp"),
-                schema: COMPILATION_SCHEMA,
-                session_id: input.session_id.into(),
-                created_at_ms: theseus_protocol::now_unix_ms(),
-                trigger,
-                strategy: strategy.into(),
-                as_of: input.last_position,
-                includes,
-                derived_from: input.current.map(|c| c.id.clone()),
-                manifest: Manifest {
-                    strip_thinking: strip,
-                    ..base.clone()
-                },
-                budget: None,
-                recall_id: input.assembled.map(str::to_string),
-                situation: None,
-                inherits: None,
-            }
-        };
+    let make = maker(&input);
     let mut compilation = match decided {
         None => input
             .current
             .cloned()
             .expect("append requires a current compilation"),
         Some((trigger, strategy, strip)) => {
-            // Fresh: from the latest operator message on, the request that
-            // triggered it plus any tool traffic it started.
-            let from = match strategy {
-                "fresh" => all_renderable
-                    .iter()
-                    .rposition(|(_, n)| n.kind == crate::stub::Kind::UserMessage)
-                    .unwrap_or(all_renderable.len()),
-                _ => 0,
-            };
-            let includes = all_renderable[from..]
-                .iter()
-                .map(|(_, n)| n.id.clone())
-                .collect();
+            let includes = included(&all_renderable, strategy);
             make(trigger, strategy, strip, includes, &now_manifest)
         }
     };
@@ -710,7 +678,7 @@ fn compile_with(
     let mut cleared = None;
     if let Some(w) = window {
         let b = match std::ptr::eq(spec, recompiled) {
-            true => now_manifest.clone(),
+            true => now_manifest,
             false => manifest_for(recompiled, input.catalog, window, false),
         };
         let at = clearing::At {
@@ -743,18 +711,12 @@ fn compile_with(
     let messages = request.messages.len();
     let digest = request.digest();
     est.bytes = request.json_bytes();
-    // The results it renders cleared stay in its report (theseus-3ki0).
-    let drops = clearing::drops(compilation.budget.as_ref()).cloned();
-    let limit = window.map(|w| request_budget(w, spec));
-    let mut budget = budget_report(limit, &est, drops);
-    // The provider said the request passed the window, and nothing here makes room: the overage stands
-    // by its word, so the turn fails on it rather than sending the same request again.
-    if let (None, Some(o)) = (&budget.overage, input.overflowed) {
-        budget.overage = Some(theseus_protocol::memory::BudgetOverage {
-            tokens: o.counted.unwrap_or(est.upper).saturating_sub(budget.limit_tokens).max(1),
-            why: "the provider said the request passes the model's window".into(),
-        });
-    }
+    let budget = budget_of(
+        &input,
+        &compilation,
+        &est,
+        window.map(|w| request_budget(w, spec)),
+    );
     let first = input.current.is_none();
     let situation = situation::settle(input.situation, first, new_compilation, trigger.as_deref());
     if new_compilation {
@@ -783,6 +745,83 @@ fn compile_with(
         card: spec.card.as_ref().map(|c| c.shown.clone()),
         prefix: None,
     }
+}
+
+/// The window a compile measures by: the override, else the catalog's. The provider's word on the window
+/// beats the catalog's when it is smaller (theseus-9p88): a catalog that overstates a window would let every
+/// request past it.
+fn window_of(
+    input: &CompileInput<'_>,
+    entry: Option<&crate::catalog::CatalogEntry>,
+) -> Option<u64> {
+    let window = input.window_override.or(entry.map(|e| e.context_window));
+    match (window, input.overflowed.and_then(|o| o.maximum)) {
+        (Some(w), Some(m)) => Some(w.min(m)),
+        (w, m) => w.or(m),
+    }
+}
+
+/// How a compile makes a new compilation of `input`'s session (`clearing::Make`).
+fn maker<'a>(
+    input: &CompileInput<'a>,
+) -> impl Fn(String, &str, bool, Vec<String>, &Manifest) -> Compilation + 'a {
+    let (session_id, as_of) = (input.session_id, input.last_position);
+    let (current, assembled) = (input.current, input.assembled);
+    move |trigger: String, strategy: &str, strip: bool, includes: Vec<String>, base: &Manifest| {
+        Compilation {
+            id: crate::new_id("cmp"),
+            schema: COMPILATION_SCHEMA,
+            session_id: session_id.into(),
+            created_at_ms: theseus_protocol::now_unix_ms(),
+            trigger,
+            strategy: strategy.into(),
+            as_of,
+            includes,
+            derived_from: current.map(|c| c.id.clone()),
+            manifest: Manifest {
+                strip_thinking: strip,
+                ..base.clone()
+            },
+            budget: None,
+            recall_id: assembled.map(str::to_string),
+            situation: None,
+            inherits: None,
+        }
+    }
+}
+
+/// A new compilation's prefix: every renderable node; for `fresh`, from the latest operator message on, the
+/// request that triggered it plus any tool traffic it started.
+fn included(all: &[&(u64, crate::stub::Stub)], strategy: &str) -> Vec<String> {
+    let from = match strategy {
+        "fresh" => all
+            .iter()
+            .rposition(|(_, n)| n.kind == crate::stub::Kind::UserMessage)
+            .unwrap_or(all.len()),
+        _ => 0,
+    };
+    all[from..].iter().map(|(_, n)| n.id.clone()).collect()
+}
+
+/// What a compile fitted and left out: the results it renders cleared stay in its report (theseus-3ki0). A
+/// request the provider said passed the window, where nothing here makes room, keeps an overage by its word,
+/// so the turn fails on it rather than sending the same request again.
+fn budget_of(
+    input: &CompileInput<'_>,
+    c: &Compilation,
+    est: &Estimate,
+    limit: Option<u64>,
+) -> BudgetReport {
+    let drops = clearing::drops(c.budget.as_ref()).cloned();
+    let mut budget = budget_report(limit, est, drops);
+    if let (None, Some(o)) = (&budget.overage, input.overflowed) {
+        let over = o.counted.unwrap_or(est.upper);
+        budget.overage = Some(theseus_protocol::memory::BudgetOverage {
+            tokens: over.saturating_sub(budget.limit_tokens).max(1),
+            why: "the provider said the request passes the model's window".into(),
+        });
+    }
+    budget
 }
 
 /// Append or recompile: `None` appends to the current compilation; else the new one's trigger, strategy

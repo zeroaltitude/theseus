@@ -12,13 +12,12 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use theseus_kernel::Purpose;
 use theseus_protocol::tasks::{TaskKind, TaskState};
-use theseus_protocol::{Message, Request, Usage};
+use theseus_protocol::{Message, Request};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::approval::{Client, Surface};
-use crate::provider::{FakeProvider, ProviderRequest, Scripted};
 use crate::tests_task_graph::{results, rig, rows, session, turn, until, Rig};
-use crate::{Config, Core};
+use crate::Core;
 
 async fn rpc(core: &Arc<Core>, method: &str, params: Value) -> Result<Value, String> {
     let (ours, theirs) = tokio::io::duplex(64 * 1024);
@@ -500,13 +499,6 @@ async fn the_model_plans_a_milestone_and_attaches_its_conversation() {
 }
 
 // ------------------------------------------------------------- the slice
-
-/// And 48,000 until `task_fan_out` joined the catalog (theseus-z9mze.3): its definition grows the tools
-/// block by about 500 tokens. 48,250 and up hold (to 52,000, the sweep's end) for this suite, and 48,500 and up for the
-/// others in this family of tests; 49,000 is the middle of the near end of that band. And 49,000 until
-/// `card_observed` joined the catalog (theseus-6f8t0: deferred, counted whole here; 49,200 and 49,400 still
-/// fail in this family, 49,600 to 53,000 hold: a sweep at its join); 50,000 is inside the near end again.
-const WINDOW: u64 = 50_000;
 
 /// The model plans a project with a weekly review: the review is a routine,
 /// which spends money on a schedule, so the call waits on one card. A no

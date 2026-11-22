@@ -690,42 +690,7 @@ fn a_manifest_from_before_the_cache_layout_reads_as_none() {
     assert_eq!(c2.request.system, c.request.system);
 }
 
-fn of_turn(mut n: Node, turn: &str, loop_index: u32) -> Node {
-    n.turn_id = Some(turn.into());
-    n.loop_index = Some(loop_index);
-    n
-}
-
 // ------------------------------------------------- the estimate (theseus-f5hf)
-
-/// `run` with a window.
-fn run_in(
-    nodes: &[(u64, Node)],
-    current: Option<&Compilation>,
-    spec: &RequestSpec,
-    last: u64,
-    window: u64,
-) -> Compiled {
-    let nodes: Vec<(u64, crate::stub::Stub)> =
-        nodes.iter().map(|(p, n)| (*p, n.clone().into())).collect();
-    compile(CompileInput {
-        session_id: "s",
-        current,
-        nodes: &nodes,
-        last_position: last,
-        spec,
-        catalog: &Catalog::builtin(),
-        force: None,
-        window_override: Some(window),
-        blobs: None,
-        hidden: &[],
-        strip: None,
-        overflowed: None,
-        sources: &Default::default(),
-        assembled: None,
-        situation: &situation::Situation::Continuation,
-    })
-}
 
 /// An answer a call of compilation `cmp` returned, which the provider
 /// counted: `input` tokens in (a cache write, as a first call's is),

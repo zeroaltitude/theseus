@@ -119,8 +119,14 @@ mod tests {
     fn an_old_sessions_summary_still_stands_for_its_range_and_renders_first() {
         let summary: Node = serde_json::from_str(OLD_SUMMARY).expect("an old summary decodes");
         let nodes: Vec<(u64, Stub)> = vec![
-            (1, Node::user("s", None, "web", "when is high water?").into()),
-            (2, answer(vec![json!({"type": "text", "text": "At noon."})]).into()),
+            (
+                1,
+                Node::user("s", None, "web", "when is high water?").into(),
+            ),
+            (
+                2,
+                answer(vec![json!({"type": "text", "text": "At noon."})]).into(),
+            ),
             (3, summary.into()),
             (4, Node::user("s", None, "web", "and low water?").into()),
         ];
@@ -142,11 +148,69 @@ mod tests {
             assembled: None,
             situation: &situation::Situation::ConversationStart,
         });
-        let first = c.request.messages[0]["content"][0]["text"].as_str().unwrap_or_default();
-        assert!(first.starts_with("[Summary of 2 earlier messages"), "{first}");
+        let first = c.request.messages[0]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(
+            first.starts_with("[Summary of 2 earlier messages"),
+            "{first}"
+        );
         assert!(first.contains("it was at noon."), "{first}");
         let all = serde_json::to_string(&c.request.messages).unwrap();
-        assert!(!all.contains("when is high water?"), "its range stays out: {all}");
+        assert!(
+            !all.contains("when is high water?"),
+            "its range stays out: {all}"
+        );
         assert!(all.contains("and low water?"), "{all}");
+    }
+
+    fn user(text: &str) -> Stub {
+        Node::user("ses_1", Some("turn_1"), "cli", text).into()
+    }
+
+    fn summary(first: u64, last: u64) -> Stub {
+        Stub::from(Node::summary(
+            "ses_1",
+            "turn_9",
+            crate::node::Body::Summary {
+                first,
+                last,
+                nodes: 2,
+                text: "the gist".into(),
+                profile: "glm".into(),
+                model: "glm-5.3-flash".into(),
+                cost_usd: None,
+                header: format!("[Summary of 2 earlier messages, 2025-09-20 (@{first} to @{last}), written by glm]"),
+            },
+        ))
+    }
+
+    /// The latest summary stands for its range: a compile selects it,
+    /// then what came after its range, never an older summary.
+    #[test]
+    fn the_latest_summary_is_the_floor() {
+        use super::{is_summary, summaries_first, visible};
+        let nodes: Vec<(u64, Stub)> = vec![
+            (1, user("a")),
+            (2, user("b")),
+            (3, user("c")),
+            (4, summary(1, 2)),
+            (5, user("d")),
+            (6, summary(1, 3)),
+            (7, user("e")),
+        ];
+        let seen: Vec<u64> = visible(&nodes).iter().map(|(p, _)| *p).collect();
+        assert_eq!(seen, vec![5, 6, 7]);
+        let none: Vec<(u64, Stub)> = vec![(1, user("a")), (2, user("b"))];
+        assert_eq!(visible(&none).len(), 2);
+        // In the prefix, a summary renders first whatever its position.
+        let three = || nodes[4..7].iter().map(|(p, n)| (*p, &**n)).collect();
+        let ordered = summaries_first(three(), None);
+        assert!(is_summary(ordered[0]));
+        // An assembled prefix's recall section comes before it.
+        let section = nodes[6].1.id.as_str();
+        let ordered = summaries_first(three(), Some(section));
+        assert_eq!(ordered[0].id, section);
+        assert!(is_summary(ordered[1]));
     }
 }
