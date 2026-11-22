@@ -540,3 +540,75 @@ async fn a_recalled_message_moved_into_a_sealed_thread_is_not_laid_nor_kept_afte
         }
     }
 }
+
+/// `view show --text` of a recalled item, as the owner's own look reads it: its source's text while the
+/// source is clear, and withheld once its thread is sealed (the look lifts no seal).
+#[tokio::test]
+async fn the_owners_look_shows_a_recalled_item_and_withholds_it_once_sealed() {
+    use crate::view::record::show::{PieceText as _, Source as _};
+    const SECRET: &str = "the kelp vault code for the Hollowmere hives is 5519";
+    let thread = std::cell::RefCell::new(String::new());
+    let r = crate::tests_places::rig_setup(
+        |c| {
+            c.memory.mode = crate::config::MemoryMode::Live;
+            view(c);
+            c.threads.enabled = true;
+        },
+        |s| *thread.borrow_mut() = crate::tests_view_compile::kelp(s, false),
+    );
+    let c = &r.core;
+    let thread = thread.into_inner();
+    let n = crate::node::Node::user(&thread, None, "test", SECRET);
+    c.store.append(&[n.record().unwrap()]).unwrap();
+    let at = Pos {
+        at_ms: n.created_at_ms,
+        id: n.id.clone(),
+    };
+    let range = SourceRange {
+        space: Space::Recalled {
+            session: thread.clone(),
+            node: n.id.clone(),
+        },
+        first: at.clone(),
+        last: at,
+    };
+    let piece = Piece {
+        range: range.clone(),
+        band: Band::Recall,
+        slot: Band::Recall.row().slot,
+        reasons: BTreeSet::from([Reason::Recalled]),
+        form: Form::Whole,
+        marks: Marks {
+            place: None,
+            audience: Audience::Private,
+            author: Author::Unknown,
+            outside: false,
+            sealed: false,
+            veiled: false,
+        },
+        sizes: Sizes {
+            whole: 10,
+            spoken: 10,
+            line: 10,
+        },
+        handle: Handle(n.id.clone()),
+        unit: None,
+    };
+    let look = crate::view::record::source::GateSource {
+        runner: &c.runner,
+        pov: theseus_memory::gate::PointOfView {
+            anchor: "local".into(),
+            place: theseus_memory::recall::Place::Private,
+            present: theseus_memory::gate::Present::OwnerAlone,
+        },
+        asker: None,
+    };
+    assert!(look.may_show(&range, None), "clear: shown");
+    let text = crate::view::record::StoreText(&c.store).text(&piece);
+    assert!(
+        text.is_some_and(|t| t.contains(SECRET)),
+        "its source's text"
+    );
+    crate::tests_view_compile::seal_kelp(c);
+    assert!(!look.may_show(&range, None), "sealed since: withheld");
+}

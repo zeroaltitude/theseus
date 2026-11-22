@@ -487,6 +487,17 @@ fn in_play_named_waiting_and_recall_ask_for_their_sources() {
     );
 }
 
+/// Slot H with an unknown presence lays nothing recalled (issue 44), where any known one lays it.
+#[test]
+fn recall_lays_nothing_for_an_unknown_presence() {
+    let s = Store::default();
+    assert_eq!(
+        card_of(select(&s, Band::Recall, Present::OwnerAlone)),
+        ["card:recalled"]
+    );
+    assert!(select(&s, Band::Recall, Present::Unknown).is_empty());
+}
+
 #[test]
 fn a_whole_turn_assembles_and_the_floor_is_in_view() {
     let mut s = Store::default();
