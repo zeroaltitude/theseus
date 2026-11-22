@@ -14,11 +14,8 @@ use theseus_protocol::memory::{BudgetDrop, BudgetReport};
 pub(super) mod remember;
 pub(super) use remember::notes;
 
-use super::{counted_part, estimate, render_request, situation};
-use super::{Compilation, CompileInput, Estimate, Manifest, Rendered, RequestSpec};
-use crate::catalog::TokenRates;
+use super::Compilation;
 use crate::node::{Body, Node};
-use crate::provider::ProviderRequest;
 use crate::stub::{Kind, Stub};
 
 /// Half the request's budget: the line a task's fan-in keeps its reports under (`task_wait::fan_in_bound`).

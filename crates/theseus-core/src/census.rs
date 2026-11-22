@@ -137,6 +137,19 @@ impl TurnRunner {
         self.target_for_session(r, live)
     }
 
+    /// The spec `rec`'s next request is built from, for a view's preview (issue 44): its target, files and
+    /// session block, read and nothing more. No thread card is resolved (a legacy compilation's card would
+    /// be installed in the shared cache, which pins what a later turn sends), no request is compiled (no
+    /// stubs are cached), so nothing a turn observes changes. The view reads the spec's system parts and
+    /// its model alone.
+    pub(crate) fn preview_spec(&self, rec: &SessionRecord, live: &str) -> Result<RequestSpec> {
+        let (kind, view, _, _) = self.census_place(Some(rec), "cli");
+        let target = self.census_target(Some(rec), "cli", live)?;
+        let mut spec = self.spec_of(&target, kind, view, self.peek_files(&target));
+        spec.session_text = self.session_block(rec.dir.as_deref(), view, rec.flagged());
+        Ok(spec)
+    }
+
     /// The next request of `rec`'s session, or a fresh session's first on `place`, compiled and not sent.
     pub fn census_request(
         &self,
@@ -144,19 +157,6 @@ impl TurnRunner {
         place_kind: &str,
         live: &str,
     ) -> Result<NextRequest> {
-        /// The spec `rec`'s next request is built from, for a view's preview (issue 44): its target, files and
-        /// session block, read and nothing more. No thread card is resolved (a legacy compilation's card would
-        /// be installed in the shared cache, which pins what a later turn sends), no request is compiled (no
-        /// stubs are cached), so nothing a turn observes changes. The view reads the spec's system parts and
-        /// its model alone.
-        pub(crate) fn preview_spec(&self, rec: &SessionRecord, live: &str) -> Result<RequestSpec> {
-            let (kind, view, _, _) = self.census_place(Some(rec), "cli");
-            let target = self.census_target(Some(rec), "cli", live)?;
-            let mut spec = self.spec_of(&target, kind, view, self.peek_files(&target));
-            spec.session_text = self.session_block(rec.dir.as_deref(), view, rec.flagged());
-            Ok(spec)
-        }
-
         let (kind, view, sid, mut notes) = self.census_place(rec, place_kind);
         let target = self.census_target(rec, place_kind, live)?;
         let mut spec = self.spec_of(&target, kind, view, self.peek_files(&target));
