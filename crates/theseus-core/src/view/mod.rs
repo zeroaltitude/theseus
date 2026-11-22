@@ -210,12 +210,12 @@ pub enum Space {
     Folds { place: String, level: u8 },
     /// A thing's facts (ids are fact ids).
     Facts { thing: String },
-    /// A thing's card. `from` is its provenance by id (the sessions its records were read from), kept so
-    /// the view's record re-checks them before it shows or counts the card (`record::source`).
+    /// A thing's card. `from` is what it was read from, kept so the view's record re-checks it before it
+    /// shows or counts the card (`record::source`); absent (a record from before it was kept) is unproven.
     Card {
         thing: String,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        from: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<Provenance>,
     },
     /// A task's records.
     Task { task: String },
@@ -223,11 +223,22 @@ pub enum Space {
     /// (`sources_waiting`; ids are the record's own).
     Waiting {
         id: String,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        from: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<Provenance>,
     },
     /// Code's own text with no source in the store: the frame, the clock, residue lines.
     Code { part: String },
+}
+
+/// What a card or a waiting line was read from, by id: the sessions whose records it read, and the exchanges
+/// whose words it read. Empty is proven source-free (a topic's card that read no exchange); a piece with no
+/// provenance at all is unproven, and no reader is shown it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct Provenance {
+    #[serde(default)]
+    pub sessions: Vec<String>,
+    #[serde(default)]
+    pub exchanges: Vec<String>,
 }
 
 /// A reference to a range of the store, never copied text: `first..=last` within one space.

@@ -42,8 +42,10 @@ carried as on any transcript turn. The reason is written on the ledger (`context
 closed list: `continuation` (no person's message, wake or report of its own opened the turn), `route` (the gate's
 anchor is not the place the exchange opened in), `unledgered_history` (the session's recent turns include some the
 ledger holds no exchange for), `over_budget` (the request is over the budget, the floor alone is too large for the
-view's budget, or the provider said a request of the turn passed its window) and `assembly_error`. A turn's recall is
-kept across a view call that was sent, and is carried once if the turn then declines.
+view's budget, or the provider said a request of the turn passed its window), `assembly_error`, and `moved` (the
+gate's reading changed under the view a third time in one call). A turn's recall is kept across a view call that was
+sent, and if the turn then declines it is admitted again item by item under the presence and seals of that moment;
+an item held out since leaves nothing behind.
 
 **Built, step by step** (§11's numbers):
 
@@ -51,9 +53,12 @@ kept across a view call that was sent, and is carried once if the turn then decl
   measuring row, and the one-time rebuild (`docs/design/exchanges.md`).
 - **1b, the history tool**: `context.history`, offered on every turn (§6).
 - **2, the gate**: `owner alone`, the turn's presence, a seal check that fails closed across sessions, and the
-  view's permit (`docs/design/view-gate.md`; §4 below). Since the first pass the readers left on the old path go
-  through it too: a kept tail, the place digest's count, a listed session's title, and health's line for a thread
-  binding that cannot be read (§4).
+  view's permit (`docs/design/view-gate.md`; §4 below). **Not behind the gate yet**: kept tails (the earlier tail a
+  transcript turn sends again), the place digest's count of held threads, session listings, and the text a turn had
+  already been sent when a steer narrowed its presence (§4).
+- **Seals at the message**: a message a split or a claim moved into a sealed, seal-pending or unreadable thread is
+  held at read time, with its whole exchange, from the view's window and selectors, the fold ladder, the history
+  tool and the owner's `theseus view show`; a frozen view checks this again before every send (§4).
 - **4, `did` lines and the ladder**, by a background job with its own daily line of spend
   (`docs/design/ladder.md`).
 - **5, recognition, in part**: topics per exchange, the `item` kind, the table of scoped names and a thing's card
@@ -63,13 +68,17 @@ kept across a view call that was sent, and is carried once if the turn then decl
   Theseus's own reading of its view (`look.theseus`) came with it (`docs/design/view-record.md`).
 - **8, in part**: a joined task's card; the change of objective without a card, built and switched off (§7).
 - **Ahead of the plan, by the same day's trims**: routing by a guess is gone (a message goes to a thread only by its
-  address; §9), and the rule by model provider is deleted (decision 8; §4). An address that cannot be honoured is
-  refused and runs nowhere, a sealed thread's refusal reads as "no thread", and a reply finds its thread after a
-  restart from stored rows (§9, `docs/design/threads.md`). The retired importer's spend still counts toward the day's
-  ceiling.
-- **The view's hardening**: a turn's recall is kept across a view call and carried if the turn then declines to the
-  transcript; a floor too large for the view's budget declines to the transcript (`over_budget`); and the view is
-  checked against the gate again just before a turn's first request is sent (§5.1, §4).
+  address; §9), and the rule by model provider is deleted (decision 8; §4). A failed explicit address is refused
+  before anything else and runs nowhere; a thread the reader may not be told of is no thread in every form; a reply
+  finds its thread after a restart from stored rows, within bounds, and does not follow a turn a split moved (§9,
+  `docs/design/threads.md`). The retired importer's spend still counts toward the day's ceiling. Of the wire, the
+  route pack `route.v10` is retired, and `profile.list` still sends `cleared: true` for each profile, for a cockpit
+  page left open since before the upgrade.
+- **The view's hardening**: recall kept across a sent view call is admitted again item by item if the turn declines;
+  a floor too large for the view's budget declines to the transcript (`over_budget`); and after all of a call's
+  preparation, before every send, the view is checked against the gate again (§5.1, §4).
+- **The preview**: `theseus view preview PLACE` shows what the place's next turn would be given, by the turn's own
+  assembler, without calling a model or writing anything (§5.1).
 
 **The sources the view has, read from the store.** **What waits** (slot C: the pending confirmations and the
 tasks waiting on him, an id and a line each), **facts about the person** (slot B: the held person's name and
@@ -289,22 +298,26 @@ count.
   record that cannot be read, a chain too long to follow, or a thread the board does not hold, is held out as if
   sealed. It is not unconditional: a sealed thread reads its own material, and the history tool does not check the
   asking session's own seal (§6).
-- **The readers left on the old path go through the gate as well.** A kept tail (the place's last exchange that a
-  transcript turn sends again) is keyed by the turn's presence and arrival place, so one made where the owner was
-  alone is not sent to a narrower audience, and it is let go when a thread has been sealed since it was made, or
-  when the threads cannot be read. The place digest neither names nor counts a thread held from a turn that is not
-  the owner alone; the owner alone is still told how many. A listed session's title is withheld when one of its
-  messages was moved into a thread held from the reader, or when its messages or the threads cannot be read.
-  `theseus health` says, by count, when a thread's binding record cannot be read, until it reads or is bound again.
+- **Seals at the message.** A message a split or a claim moved into a thread is that thread's. An exchange holding
+  one moved into a sealed, seal-pending or unreadable thread (or with the threads unread) is held whole at read time
+  from the view's window and selectors, the fold ladder's read, the history tool and the owner's `theseus view
+  show`; the reader's own thread is clear to it. A frozen view checks this again before every send. The summary
+  writers (`did` lines and first-level folds) use a stricter rule, checked again after their last await: an
+  exchange with any message moved into any thread is folded by code and read by no model, since a summary outlives a
+  seal set later.
+- **Not behind the gate yet, on the old path**: kept tails (the earlier tail a transcript turn sends again), the
+  place digest's count of held threads (with the ledger on, a turn that is not the owner alone is shown no other
+  thread; the owner alone, and every reader with the ledger off, is told how many are sealed), session listings, and
+  the text a turn was already sent before a steer narrowed its presence.
 - **Not yet sound on the old path**: a wake set up by a turn with no marked message has presence unknown, which
   the gate admits nothing to, but the old path's recall still reads it as narrowed to its own place. The three cases
   behind "unknown" (set up by a turn with no message, no mark written, a mark that does not read) are not yet told
   apart.
 - **The rule by model provider is deleted** (decision 8), not only on the trimming list.
 - **Within a turn**, a seal set or a presence narrowed between two calls reassembles the view under the new
-  permit, on a new chain. The same check runs once more after the route's wait on a turn's first call, before that
-  request is sent; and a joined task card's home session is among the sessions whose seal revokes the view. Neither
-  of these two is yet tested through a turn.
+  permit, on a new chain. The same check, and the moved-message check above, run after all of a call's
+  preparation and before every send: a difference compiles the call again, at most twice, and a third makes the turn
+  the transcript's (`moved`). A joined task card's home session is among the sessions whose seal revokes the view.
 - **The registry test** pins each file's count of decisions by place as it was when the gate landed, and fails
   when one grows. **The property** is held over generated stores for what the gate admits and for the view the
   selectors make; the same test on the bytes sent is not written.
@@ -362,6 +375,16 @@ part after the session's block in a place set to the view. Theseus reads the rec
 `look.theseus` (`what: ["view"]`): every piece where the owner is alone, this place's pieces in company, never
 text; the owner reads any turn's with `theseus view show` (`docs/design/view-record.md`).
 
+**The preview, as built**: `theseus view preview PLACE` shows the view a next turn of that place would get, opened
+by a message of the owner in person there, built by the turn's own assembler (the same selectors, budget and gate)
+from the place as it stands now. It is the owner's alone (the CLI or the web page with no agent's process behind
+it); a piece's text is shown only at his own terminal. It calls no model, sends nothing and writes nothing that
+persists: no view record, no ledger row, no cache a turn reads. It does not predict `route` or `continuation`
+(decided by the turn that arrives) or `over_budget` on the rendered request, runs no recall (so recall's pieces are
+not in it), and sizes the system part from an approximation of the next request. It lists and counts only what the
+reader's gate admits, node by node: exchanges, the fixed code pieces and fold nodes; a piece of another kind (a
+joined task's card, say) is neither listed nor counted.
+
 **The order on the wire** (the owner's point: what is fixed goes first, what moves goes last):
 
 1. A, the system part.
@@ -383,7 +406,7 @@ cache mark. Each turn's first call is a new compilation (strategy `view`), so no
 to its bytes except the window, which only appends. Nothing of the view is written into the session, and neither
 is a recall note: recall reaches the model as a piece. If a turn declines to the transcript after a view call was
 sent (the provider refused it for size, say), the recall that call held back is kept for the turn, never stored,
-and carried once on the transcript's call. A place set to the view is not kept warm.
+and admitted again item by item under the presence and seals of that moment before it rides the transcript's call. A place set to the view is not kept warm.
 
 **The budgeter's rules** (one function; these are all of them):
 
@@ -527,6 +550,11 @@ per turn today, so step 1 adds it). A new session does not start a new place or 
   characters, a title of at most 120). **No model writes a level above it**: code builds that node from its
   children's titles and handles, the person's lines that are corrections or made a standing record, and a count
   of the rest.
+- **Each quoted excerpt carries its own author**, read from the message's own mark at every read: the owner,
+  another person (not the owner), or author unknown (not the owner's instruction). The writer is told each author
+  too. A summary written before authorship was recorded (writer version 1) may have credited another's words to
+  the owner, so its title and account are not shown (its excerpts are), unless it is a first-level node whose every
+  message is shown as his; a `did` line of that version is not fed to a new summary.
 - **A node never changes once written.** A later correction rewrites none; it is recorded so that a node above the
   first level keeps the line.
 - **A source is summarised only when it is proven neither sealed nor veiled**, checked again just before the model
@@ -674,7 +702,8 @@ the first word (rung 2), and `leans_on` is not asked. The judge's `fragment`, `m
   from "history is exhausted".
 - **Every line and every open passes the place rule and the seal check.** Another session's exchanges are read
   only when that session is proven neither sealed nor seal-pending, failing closed; the asking session's own
-  exchanges are exempt from that check. Paging and counts run over admitted exchanges only.
+  exchanges are exempt from that check. An exchange holding a message moved into a thread not proven clear is held
+  too, whichever session it is in. Paging and counts run over admitted exchanges only.
 - **It is offered everywhere**, a shared place included (where it reads that place alone), and **loads by
   surface**: in a direct conversation and a channel it is in the first request; at the terminal, in a task and in
   a headless run it is declared and deferred, one search away, and the self card names it.
@@ -835,12 +864,14 @@ not. Kept as built: thread records and their commands, sealed threads and their 
 session, the place tail, and `thread.move`, the owner's own act, which now teaches nothing. In a place set to the
 view, an exchange of a sealed thread is not in the window.
 
-Since then (`docs/design/threads.md`): **an address that cannot be honoured is refused and runs nowhere**: `/t`
-naming no thread, an address to a paused or done thread, or a thread whose session does not open ends the
-submission with one line saying why; nothing starts and nothing is written. A sealed thread, or one whose records
-cannot be read, is refused with exactly the line for a thread that does not exist. **A reply to a thread's earlier
-answer finds its thread after a restart**, from the turn's stored `thread.routed` row (the router's memory is only
-a cache of those rows). And the retired importer's spend still counts toward the day's ceiling.
+Since then (`docs/design/threads.md`): **a failed explicit address is refused first**, and runs nowhere: a `/t`
+naming no thread, or an address to a paused or done thread the reader may be told of, ends the submission with one
+line saying why; nothing starts and nothing is written. Then the place and the words; only then the replied-to turn.
+**A thread the reader may not be told of is no thread in every form**: `/t` gets the "no thread" line, and a
+hashtag, prose or a reply runs at home. An **active** thread, sealed or not, stays addressable by name and by reply.
+**A reply finds its thread after a restart** from the turn's stored `thread.routed` row, within stated bounds (the
+newest 4,096 such rows; Discord's own newest 5,000 sent-message rows), and goes to the thread the turn ran in, not
+to one a split moved it to since. The retired importer's spend still counts toward the day's ceiling.
 
 ## 10. How it is measured before it is trusted
 
@@ -902,18 +933,19 @@ and `[context] assembly` (default `"transcript"`), which reads the view, place b
   the turn's end. The count of channels bound private is not a row at each start; `theseus ledger exchanges` reads
   it from the place rule when asked.
 - **1b**: built (§6).
-- **2**: built (§4), decision 5 included, and the old path's kept tails, digest, session titles and health behind it.
+- **2**: built (§4), decision 5 included, with seals at the message; kept tails, the digest's count of held threads,
+  session listings and a narrowing steer's already-sent text are not behind it yet.
 - **3**: not built as planned. His words in his other private places reach a model only in a place set to the
   view, as slot F; the per-turn block of a transcript place does not carry them. 3b is not built.
 - **4**: built, without the `gists` view and without his reading of 50 lines and 10 nodes.
 - **5**: the recognition half built, not run in shadow and not read by the view; the search and `leans_on` not
   built.
 - **6 and 7**: built as one, live behind `[context] assembly` with no shadow run, no labelled set, no replay, no
-  benchmark arm and no yardstick. `theseus view show` and the memory page came with it. Which place to try first is
+  benchmark arm and no yardstick. `theseus view show`, `theseus view preview` and the memory page came with it. Which place to try first is
   the owner's: the setting names it.
 - **8**: the card built; decision 6 built and off; the task's own view and asking the task not built (§7).
-- **9**: routing by a guess went everywhere, ahead of the benchmark (§9); an address that cannot be honoured is
-  refused; thread sessions are kept; the aside is not built.
+- **9**: routing by a guess went everywhere, ahead of the benchmark (§9); a failed explicit address is refused;
+  thread sessions are kept; the aside is not built.
 - **10 and 11**: not started, beyond the trims of the same day.
 
 **The first step is the ledger and the owner's mark.** It changes no prompt and calls no model. The mark has to

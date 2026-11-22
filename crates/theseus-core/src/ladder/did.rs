@@ -251,6 +251,7 @@ pub async fn write(
         text: material(&r),
         sources: 1,
         sessions: vec![r.ex.session_id.clone()],
+        exchanges: vec![r.ex.turn_id.clone()],
     };
     let w = writer.write(ask, purse).await;
     let Some(line) = w.text.as_deref().and_then(line_of) else {

@@ -30,8 +30,8 @@ use super::select::sources::{Names, Ref, Things};
 use super::select::Band;
 use super::text::tokens;
 use super::{
-    AtHand, Audience, Author, Form, Handle, Marks, Piece, PointOfView, Pos, Reason, Sizes,
-    SourceRange, Space,
+    AtHand, Audience, Author, Form, Handle, Marks, Piece, PointOfView, Pos, Provenance, Reason,
+    Sizes, SourceRange, Space,
 };
 use crate::exchange::{Exchange, OWNER};
 use crate::names::card::{self, Admits, Card, Source};
@@ -55,7 +55,7 @@ pub fn admitted(gate: &dyn Gate, pov: &PointOfView, marks: Marks, at_ms: u64) ->
         range: SourceRange {
             space: Space::Card {
                 thing: String::new(),
-                from: Vec::new(),
+                from: None,
             },
             first: pos.clone(),
             last: pos,
@@ -88,8 +88,8 @@ pub struct ViewAdmits<'a> {
     admitted: RefCell<BTreeMap<String, Marks>>,
     /// Every session a record admitted was read from (`Sessions::depends`).
     depends: &'a RefCell<BTreeSet<String>>,
-    /// The sessions read from since [`Self::reading`] began: one card's provenance.
-    reading: RefCell<BTreeSet<String>>,
+    /// What was read since [`Self::reading`] began (sessions, exchanges): one card's provenance.
+    reading: RefCell<(BTreeSet<String>, BTreeSet<String>)>,
 }
 
 impl<'a> ViewAdmits<'a> {
@@ -119,12 +119,13 @@ impl<'a> ViewAdmits<'a> {
     /// The view depends on `session` (a seal of it before a later call revokes the view).
     fn depend(&self, session: &str) {
         self.depends.borrow_mut().insert(session.to_string());
-        self.reading.borrow_mut().insert(session.to_string());
+        self.reading.borrow_mut().0.insert(session.to_string());
     }
 
-    /// [`Self::passes`] for a record of `session`, which the view then depends on.
+    /// [`Self::passes`] for a record of `session`, which the view then depends on; a session whose
+    /// current place does not read as a place never passes.
     fn passes_of(&self, session: &str, marks: Marks, at_ms: u64) -> bool {
-        let ok = self.passes(marks, at_ms);
+        let ok = placed(&marks) && self.passes(marks, at_ms);
         if ok {
             self.depend(session);
         }
@@ -133,12 +134,16 @@ impl<'a> ViewAdmits<'a> {
 
     /// Start reading one card: what it is read from is collected apart.
     fn reading(&self) {
-        self.reading.borrow_mut().clear();
+        *self.reading.borrow_mut() = Default::default();
     }
 
-    /// The sessions read from since [`Self::reading`].
-    fn read_from(&self) -> Vec<String> {
-        self.reading.borrow().iter().cloned().collect()
+    /// What was read since [`Self::reading`]: the sessions and the exchanges.
+    fn read_from(&self) -> Provenance {
+        let r = self.reading.borrow();
+        Provenance {
+            sessions: r.0.iter().cloned().collect(),
+            exchanges: r.1.iter().cloned().collect(),
+        }
     }
 
     /// A task's home session.
@@ -150,6 +155,13 @@ impl<'a> ViewAdmits<'a> {
     pub fn marks_of(&self, thing: &str) -> Option<Marks> {
         self.admitted.borrow().get(thing).cloned()
     }
+}
+
+/// Whether marks name a place: a place that is missing, empty or the ledger's `unknown` is none.
+fn placed(m: &Marks) -> bool {
+    m.place
+        .as_deref()
+        .is_some_and(|p| !p.is_empty() && p != crate::exchange::rebuild::UNKNOWN)
 }
 
 /// The owner's own filing, marked private and of no place a turn is anchored to.
@@ -178,30 +190,34 @@ impl Admits for ViewAdmits<'_> {
         }
     }
 
-    /// Its session's current marks AND its own arrival place pass, no message of it was moved into a thread
-    /// not proven clear, and a place the ledger could not prove (`unknown`) is none.
+    /// Its session's current marks AND its own arrival place pass (neither missing, empty nor `unknown`),
+    /// no message of it was moved into a thread not proven clear, and the threads its messages were moved
+    /// into are proven (their sessions become dependencies); its id joins the card's provenance.
     fn exchange(&self, e: &Exchange) -> bool {
-        if self.moved.holds(e) || e.place.is_empty() || e.place == crate::exchange::rebuild::UNKNOWN
-        {
+        let now = self.homes.marks(&e.session_id);
+        let here = private(&e.place);
+        if self.moved.holds(e) || !placed(&now) || !placed(&here) {
             return false;
         }
-        let now = self.homes.marks(&e.session_id);
+        let Some(moved_to) = self.moved.sessions(e) else {
+            return false;
+        };
         let arrived = Marks {
-            place: Some(e.place.clone()),
             audience: match e.private {
                 true => Audience::Private,
                 false => Audience::Shared,
             },
             sealed: now.sealed,
-            ..filing()
+            ..here
         };
         if !(self.passes(now, e.start_ms) && self.passes(arrived, e.start_ms)) {
             return false;
         }
         self.depend(&e.session_id);
-        for s in self.moved.sessions(e) {
+        for s in moved_to {
             self.depend(&s);
         }
+        self.reading.borrow_mut().1.insert(e.turn_id.clone());
         true
     }
 
@@ -309,7 +325,7 @@ impl<'a> Called<'a> {
     /// `thing`'s card as the gate admits it, read once, with the sessions it was read from: a thing of the
     /// table, or a qualified numbered item (its timeline's admitted exchanges; an item with none has no
     /// card, and an unscoped one is a candidate, never one thing).
-    fn read(&self, thing: &str) -> anyhow::Result<Option<(Card, Marks, Vec<String>)>> {
+    fn read(&self, thing: &str) -> anyhow::Result<Option<(Card, Marks, Provenance)>> {
         self.admits.reading();
         if thing.starts_with(ITEM) {
             if !items::is_qualified(thing) {
@@ -383,7 +399,7 @@ impl Things for Called<'_> {
         let (whole, line) = (tokens(&text), tokens(&c.title));
         let space = Space::Card {
             thing: thing.to_string(),
-            from,
+            from: Some(from),
         };
         self.texts.borrow_mut().insert(space.clone(), text);
         let pos = Pos {
@@ -506,5 +522,16 @@ mod tests {
         let nowhere = crate::exchange::rebuild::UNKNOWN;
         assert_eq!(admits(clear(), &dm(nowhere)), (false, false));
         assert_eq!(admits(clear(), &dm("")), (false, false));
+        // The session's CURRENT place reads empty, or as the ledger's `unknown`: refused too.
+        let empty_now = Marks {
+            place: Some(String::new()),
+            ..clear()
+        };
+        assert_eq!(admits(empty_now, &dm("discord:dm:42")), (false, false));
+        let unknown_now = Marks {
+            place: Some(nowhere.into()),
+            ..clear()
+        };
+        assert_eq!(admits(unknown_now, &dm("discord:dm:42")), (false, false));
     }
 }

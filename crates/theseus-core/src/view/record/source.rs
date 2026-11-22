@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 
 use theseus_memory::gate::{PointOfView, Present, Veil};
 
-use super::super::{AtHand, Marks, SourceRange, Space};
+use super::super::{AtHand, Marks, Provenance, SourceRange, Space};
 use super::show::Source;
 use crate::exchange::{self, Root};
 use crate::turn::TurnRunner;
@@ -38,12 +38,33 @@ pub struct GateSource<'a> {
 }
 
 impl GateSource<'_> {
-    /// The sessions behind an exchange range of `place`; none when they cannot all be proven.
+    /// Whether a card's or a waiting line's provenance holds today: every session it read readable and clear
+    /// for this reader, and every exchange it read readable, its session clear, and none of its messages
+    /// moved since into a thread not proven clear (`view_gate::Moved`, read now).
+    fn proven(&self, p: &Provenance) -> bool {
+        let clear = |s: &str| {
+            let m = view_gate::session_marks(self.runner, self.asker, s, Veil::Clear);
+            Gate::check(&self.pov, &m).is_ok()
+        };
+        let moved = view_gate::Moved::read(self.runner, self.asker);
+        p.sessions.iter().all(|s| clear(s))
+            && p.exchanges
+                .iter()
+                .all(|id| match exchange::exchange(&self.runner.store, id) {
+                    Ok(Some(e)) => clear(&e.session_id) && !moved.holds(&e),
+                    _ => false,
+                })
+    }
+
+    /// The sessions behind an exchange range of `place`; none when they cannot all be proven, or when a
+    /// message or reply of an exchange in it was moved into a thread not proven clear for this reader
+    /// (`view_gate::Moved`: the owner's inspection lifts no seal).
     fn sessions(&self, place: &str, range: &SourceRange) -> Option<BTreeSet<String>> {
         let store = &self.runner.store;
+        let moved = view_gate::Moved::read(self.runner, self.asker);
         let one = |turn: &str| -> Option<String> {
             let e = exchange::exchange(store, turn).ok()??;
-            (e.place == place).then_some(e.session_id)
+            (e.place == place && !moved.holds(&e)).then_some(e.session_id)
         };
         let mut out = BTreeSet::from([one(&range.first.id)?, one(&range.last.id)?]);
         if range.first.id == range.last.id {
@@ -55,11 +76,12 @@ impl GateSource<'_> {
         if !reached {
             return None;
         }
-        out.extend(
-            page.into_iter()
-                .filter(|t| t.at_ms >= range.first.at_ms)
-                .map(|t| t.session_id),
-        );
+        for t in page.into_iter().filter(|t| t.at_ms >= range.first.at_ms) {
+            if !matches!(exchange::exchange(store, &t.exchange), Ok(Some(e)) if !moved.holds(&e)) {
+                return None;
+            }
+            out.insert(t.session_id);
+        }
         Some(out)
     }
 }
@@ -72,14 +94,11 @@ impl Source for GateSource<'_> {
         let place = match &range.space {
             Space::Code { .. } => return true,
             Space::Exchanges { place } => place,
-            // A named thing's card and what waits: the owner alone, and every session it was read from
-            // readable and clear today; the facts about the person (the owner's filing): the owner alone.
+            // A named thing's card and what waits: the owner alone, and its provenance proven and clear today;
+            // the facts about the person (the owner's filing): the owner alone.
             Space::Card { from, .. } | Space::Waiting { from, .. } => {
                 return self.pov.present == Present::OwnerAlone
-                    && from.iter().all(|s| {
-                        let m = view_gate::session_marks(self.runner, self.asker, s, Veil::Clear);
-                        Gate::check(&self.pov, &m).is_ok()
-                    })
+                    && from.as_ref().is_some_and(|p| self.proven(p))
             }
             Space::Facts { .. } => return self.pov.present == Present::OwnerAlone,
             _ => return false,

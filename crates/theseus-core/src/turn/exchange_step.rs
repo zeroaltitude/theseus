@@ -13,6 +13,7 @@ use tokio::sync::oneshot;
 
 use super::{Turn, TurnRunner};
 use crate::compiler::{Compiled, RequestSpec};
+use crate::config::assembly::Assembly;
 use crate::exchange::ledger::{self, Given, Seen, View};
 use crate::exchange::{
     exchange_record, mark_record, put_reply, thing_touches, touch, Exchange, Opener, OwnerMark,
@@ -154,13 +155,15 @@ impl TurnRunner {
 
     /// `text`'s numbered items scoped by `scope` (`names::items`), named
     /// apart from its things so a slow tender costs them nothing, given up
-    /// after `names::items::WAIT`, and touched as the things are. The receiver
-    /// is told them, scoped; it is dropped untold when they are given up.
+    /// after `names::items::WAIT`, and touched as the things are. With `tell`
+    /// (a place set to the view), the receiver is told them, scoped, and is
+    /// dropped untold when they are given up; without, there is no receiver,
+    /// and nothing is done beyond what a transcript place always did.
     fn items_of(
         &self,
         text: &str,
         (turn, session, start_ms): (&str, &str, u64),
-        scope: Option<String>,
+        (scope, tell): (Option<String>, bool),
     ) -> Option<oneshot::Receiver<Vec<String>>> {
         let (Some(index), Ok(rt), Some(core)) = (
             self.pass.index(),
@@ -169,7 +172,13 @@ impl TurnRunner {
         ) else {
             return None;
         };
-        let (tx, rx) = oneshot::channel();
+        let (tx, rx) = match tell {
+            true => {
+                let (tx, rx) = oneshot::channel();
+                (Some(tx), Some(rx))
+            }
+            false => (None, None),
+        };
         let mut cut = text.len().min(THINGS_TEXT);
         while !text.is_char_boundary(cut) {
             cut -= 1;
@@ -184,7 +193,9 @@ impl TurnRunner {
             };
             let items =
                 crate::names::items::scoped(named.pop().unwrap_or_default(), scope.as_deref());
-            let _ = tx.send(items.clone());
+            if let Some(tx) = tx {
+                let _ = tx.send(items.clone());
+            }
             let Some(core) = core.upgrade() else {
                 return;
             };
@@ -194,7 +205,7 @@ impl TurnRunner {
                 }
             }
         });
-        Some(rx)
+        rx
     }
 
     /// A person's message, its node written: `arrival`, the mark its own
@@ -291,8 +302,10 @@ impl TurnRunner {
             .map(|p| p.exchange.as_str());
         t.exchange.reply_things = self.exchanges.take_reply(&ex.place, preceding);
         if let Some(text) = t.exchange.ask_text.take() {
-            t.exchange.items =
-                self.items_of(&text, (&ex.turn_id, sid, at), t.exchange.scope.clone());
+            // Only a place set to the view reads the message's items back (`turn::view_step`).
+            let view = self.cfg.context.assembly_for(&ex.place) == Assembly::View;
+            let scope = (t.exchange.scope.clone(), view);
+            t.exchange.items = self.items_of(&text, (&ex.turn_id, sid, at), scope);
             let (tx, rx) = oneshot::channel();
             let told = move |c| {
                 let _ = tx.send(c);
@@ -399,7 +412,7 @@ impl TurnRunner {
         };
         let at = (ex.turn_id.as_str(), ex.session_id.as_str(), ex.start_ms);
         // The reply's items are touched; nothing waits for them.
-        let _ = self.items_of(&result.output, at, t.exchange.scope.take());
+        let _ = self.items_of(&result.output, at, (t.exchange.scope.take(), false));
         self.things_of(&result.output, at, keep);
     }
 }
