@@ -96,18 +96,29 @@ A turn in a place set to `view` builds the names table once, before assembly, wi
 is attached to, through the turn's own permit: every thread, task and topic is made a piece with its own marks
 (a line of work's and a task's are its session's, as the gate reads them; a topic's are the owner's filing,
 private and of no place a turn is anchored to) and asked of the gate first, so a refused thing is no name, no
-candidate, and makes no alias it shares ambiguous. The message is matched against that table (a qualified name,
-or an alias one live admitted thing holds; candidates name nothing), and its numbered items are the ones the
-exchange's own naming told the turn (`names::items::WAIT` bounds the wait). A matched thing brings its card
+candidate, and makes no alias it shares ambiguous. An exchange a card or "in play" reads is admitted only when
+its session's current marks (place, audience, seal) and its own arrival place both pass, and none of its
+messages was moved into a thread not proven clear (the turn's `view_gate::Moved`); its words are read only then,
+and the sessions it was read from (the moved-to threads' included) join the view's dependencies. The message is
+matched against that table (a qualified name, or an alias one live admitted thing holds; candidates name
+nothing), and its qualified numbered items are the ones the exchange's own naming told the turn
+(`names::items::WAIT` bounds the wait); an unscoped item is a candidate and brings no card. Words the owner's
+mark proves his may name any admitted thing; another person's, or unmarked words (an agent's process, an
+import, a rebuilt exchange), name nothing private and no item; a tool's result is never matched; text quoted
+inside his own typed message counts as his message. A card keeps each excerpt's author: words not his are
+outside text inside it. A matched thing brings its card
 (`names::card`, every part admitted first): its title, what it is, its current facts, its open tasks and its
 newest exchanges, as one piece of slot H. What is in play (slot D) is the things the person's words name in the
 newest three admitted exchanges here. A numbered item's card is its key and its admitted exchanges; an item
 with none has no card.
 
 What waits (slot C, `view::sources_waiting`) is the kernel's pending confirmations and the tasks waiting on the
-owner or proposed for his yes, an id and one line each, each with its session's marks. Facts about the person
-(slot B, `view::sources_people`) are the held person the speaker is (the owner by the place rule's owner
-handles): its name, its role line and the owner's guidance for it, marked as the owner's filing. Each text is
-read once for the turn and laid by the renderer as one block of its own provenance; the view's record names
-each piece (kind `card`, `waiting` or `facts`) to the owner alone.
+owner or proposed for his yes, an id and one line each, each admitted with its session's marks before it is
+read or depended on. Facts about the person (slot B, `view::sources_people`) are the held person the speaker is
+(the owner by the place rule's owner handles): its name and the owner's guidance for it, marked as the owner's
+filing. Its role line is not laid: no reader clears an operator's or an import's description by the memory
+rules. Each text is read once for the turn and laid by the renderer as one block of its own provenance. A card
+and a waiting line carry the sessions they were read from (ids); the view's record re-checks them against
+today's seals before it shows or counts the piece (kind `card`, `waiting`), to the owner alone, and shows no
+residue count for those bands.
 

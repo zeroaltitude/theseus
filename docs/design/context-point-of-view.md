@@ -72,8 +72,8 @@ kept across a view call that was sent, and is carried once if the turn then decl
   checked against the gate again just before a turn's first request is sent (§5.1, §4).
 
 **The sources the view has, read from the store.** **What waits** (slot C: the pending confirmations and the
-tasks waiting on him, an id and a line each), **facts about the person** (slot B: the held person's name, role
-line and guidance, to the owner alone), and **named things and their cards** (slot D, and slot H's named things:
+tasks waiting on him, an id and a line each), **facts about the person** (slot B: the held person's name and
+the owner's guidance for it, to the owner alone; the role line is not laid), and **named things and their cards** (slot D, and slot H's named things:
 the names table built once for the turn through its permit, the message's names and numbered items matched
 against it; `docs/design/names.md`, "The view's sources"). Slot H also holds recall, and a joined task's card
 when the judge's existing `addressed_task` answer names one task. Slots E, F and G (his past, his words
