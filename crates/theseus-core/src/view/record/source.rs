@@ -36,12 +36,15 @@ pub struct GateSource<'a> {
 }
 
 impl GateSource<'_> {
-    /// The sessions behind an exchange range of `place`; none when they cannot all be proven.
+    /// The sessions behind an exchange range of `place`; none when they cannot all be proven, or when a
+    /// message or reply of an exchange in it was moved into a thread not proven clear for this reader
+    /// (`view_gate::Moved`: the owner's inspection lifts no seal).
     fn sessions(&self, place: &str, range: &SourceRange) -> Option<BTreeSet<String>> {
         let store = &self.runner.store;
+        let moved = view_gate::Moved::read(self.runner, self.asker);
         let one = |turn: &str| -> Option<String> {
             let e = exchange::exchange(store, turn).ok()??;
-            (e.place == place).then_some(e.session_id)
+            (e.place == place && !moved.holds(&e)).then_some(e.session_id)
         };
         let mut out = BTreeSet::from([one(&range.first.id)?, one(&range.last.id)?]);
         if range.first.id == range.last.id {
@@ -53,11 +56,12 @@ impl GateSource<'_> {
         if !reached {
             return None;
         }
-        out.extend(
-            page.into_iter()
-                .filter(|t| t.at_ms >= range.first.at_ms)
-                .map(|t| t.session_id),
-        );
+        for t in page.into_iter().filter(|t| t.at_ms >= range.first.at_ms) {
+            if !matches!(exchange::exchange(store, &t.exchange), Ok(Some(e)) if !moved.holds(&e)) {
+                return None;
+            }
+            out.insert(t.session_id);
+        }
         Some(out)
     }
 }

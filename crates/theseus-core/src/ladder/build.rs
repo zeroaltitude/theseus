@@ -290,6 +290,7 @@ fn estimate(writer: &dyn Writer, todo: &[did::Read], folds: usize) -> f64 {
                 text: did::material(r),
                 sources: 1,
                 sessions: Vec::new(),
+                exchanges: Vec::new(),
             })
         })
         .sum();
@@ -300,6 +301,7 @@ fn estimate(writer: &dyn Writer, todo: &[did::Read], folds: usize) -> f64 {
             text: "x".repeat(most),
             sources: N as u32,
             sessions: Vec::new(),
+            exchanges: Vec::new(),
         })
         .unwrap_or(0.0);
     lines + fold * folds as f64
