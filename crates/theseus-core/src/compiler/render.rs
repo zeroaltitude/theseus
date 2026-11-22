@@ -238,12 +238,18 @@ impl State {
                         .iter()
                         .map(|u| match ctx.results.get(u.id.as_str()) {
                             // An old result cleared to save context (theseus-3ki0).
-                            Some(r) if ctx.cleared.contains(r.id.as_str()) => clearing::block(
-                                &u.name,
-                                &u.input,
-                                r,
-                                ctx.notes.get(u.id.as_str()).map(String::as_str),
-                            ),
+                            // A view's receipt is already that stub, and is laid as it is.
+                            Some(r)
+                                if ctx.cleared.contains(r.id.as_str())
+                                    && !super::view::is_receipt(r) =>
+                            {
+                                clearing::block(
+                                    &u.name,
+                                    &u.input,
+                                    r,
+                                    ctx.notes.get(u.id.as_str()).map(String::as_str),
+                                )
+                            }
                             Some(r) => tool_result_block(r, media, &mut self.spend),
                             None => {
                                 self.repairs.push(u.id.clone());
