@@ -61,8 +61,8 @@ impl TurnRunner {
         )
     }
 
-    /// How this turn's requests are assembled: `[context] assembly` for its place (a task's, its own); with
-    /// no such setting, the view (`ContextConfig::assembly_for`).
+    /// How this turn's requests are assembled: `[context] assembly` for its place (a task's, its own). With
+    /// no such setting, the view (the transcript where the ledger is off: `ContextConfig::assembly_for`).
     pub(super) fn assembly_here(&self, t: &Turn<'_>) -> Assembly {
         self.cfg.context.assembly_for(&self.place_here(t))
     }
