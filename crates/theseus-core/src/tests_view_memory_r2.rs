@@ -492,24 +492,24 @@ async fn a_recalled_items_header_names_its_session_by_id_place_and_time() {
     const FIRST: &str = "the Hollowmere orchard gate code is kept in the blue tin";
     let (r, _) = owners_rig(view);
     let c = &r.core;
-    let dm = crate::tests_places::session(c, Some(&format!("dm:{OWNER}")));
-    turn(c, &dm, FIRST).await;
-    let titled = (c.store.get_session::<crate::session::SessionRecord>(&dm))
+    let old = session_in(c, None, &r.root);
+    turn(c, &old, FIRST).await;
+    let titled = (c.store.get_session::<crate::session::SessionRecord>(&old))
         .unwrap()
         .unwrap();
     assert!(titled.title.is_some(), "the session has a title");
-    c.runner.memory.set_ask(index_of(c, vec![dm.clone()]));
+    c.runner.memory.set_ask(index_of(c, vec![old.clone()]));
     let sid = session_in(c, None, &r.root);
     turn(c, &sid, ASKED).await;
     let q = last_call(&r);
     let held = blocks_with(&q, FIRST);
     let (_, text) = held.first().expect("recalled");
-    let short = crate::recall::evidence::short(&dm);
+    let short = crate::recall::evidence::short(&old);
     let line = (text.lines())
         .find(|l| l.contains(&format!("session {short}")))
         .unwrap_or_else(|| panic!("the header names its session: {text}"));
     assert!(
-        line.contains("dm:") && line.contains("said "),
+        line.contains("on the CLI or the web UI") && line.contains("said "),
         "place and time: {line}"
     );
     assert!(
