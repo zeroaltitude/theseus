@@ -49,8 +49,8 @@ impl TurnRunner {
         )
     }
 
-    /// How this turn's requests are assembled: `[context] assembly` for its place. With no such setting,
-    /// the transcript, and nothing is read.
+    /// How this turn's requests are assembled: `[context] assembly` for its place; with no such setting,
+    /// the view. A task's turn takes the transcript.
     pub(super) fn assembly_here(&self, t: &Turn<'_>) -> Assembly {
         if t.tc.task.is_some() {
             return Assembly::Transcript;

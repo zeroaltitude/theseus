@@ -42,7 +42,7 @@ pub struct ContextConfig {
     /// of it sent to a model. Absent: on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ledger: Option<bool>,
-    /// How a request's context is assembled (issue 44; `super::assembly`). Absent: `"transcript"`.
+    /// How a request's context is assembled (issue 44; `super::assembly`). Absent: `"view"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assembly: Option<super::assembly::AssemblySetting>,
 }

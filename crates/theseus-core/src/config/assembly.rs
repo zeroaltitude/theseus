@@ -1,6 +1,6 @@
 //! `[context] assembly` (issue 44): how a request's context is assembled, `"transcript"` (as built) or
 //! `"view"` (`crate::view`). One value for every place, or a default and values by place. Absent:
-//! `"transcript"` everywhere. Read only by `ContextConfig::assembly_for`.
+//! `"view"` everywhere. Read only by `ContextConfig::assembly_for`.
 
 use std::collections::BTreeMap;
 
