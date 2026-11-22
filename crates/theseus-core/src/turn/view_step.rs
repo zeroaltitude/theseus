@@ -89,9 +89,6 @@ impl TurnRunner {
             if t.exchange.place_unread() {
                 return Err(ViewFailed::Place.into());
             }
-            if let Some(why) = t.exchange.unresumable() {
-                return Err(ViewFailed::from(why).into());
-            }
         } else if self.view_revoked(t) || self.view_moved(t) {
             // A source sealed since, or a presence that changed (a steer narrowed it): reassembled under
             // the new permit, on a new chain, with the room the turn made.
@@ -316,7 +313,7 @@ impl TurnRunner {
             sessions: sorted(sessions),
             exchanges,
             verified: Some(verified_pov),
-            beside: fork.note(a.parts.beside.as_ref().map(block)),
+            beside: a.parts.beside.as_ref().map(block),
             memory_page,
             record: Some(a.view.clone()),
             ..Frozen::default()

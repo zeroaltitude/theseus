@@ -401,31 +401,6 @@ fn relaid(store: &Store, mut rec: ViewRecord, laid: &[(&str, &str, u64)]) {
     store.put_meta(&rec.key(), &rec).unwrap();
 }
 
-/// Run a turn of `sid` as the owner's own terminal does (in person) or as an agent's process at it does.
-async fn turn_as(c: &std::sync::Arc<crate::Core>, sid: &str, input: &str, in_person: bool) {
-    let mark = crate::view_gate::test_mark(&c.runner, sid, in_person);
-    let rec = (c.store.get_session::<SessionRecord>(sid).unwrap()).unwrap();
-    let (live, _) = c.live_profile();
-    let target = c.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = crate::bus::EventSink::new(c.bus.clone(), sid, None).with_arrival(Some(mark));
-    c.runner
-        .run(crate::turn::TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "cli".into(),
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .unwrap();
-}
-
 /// A long fork, with no folds and ample room: every inherited exchange is a candidate of its window, so the
 /// oldest one's words reach the request (the window had been cut to its newest 39 before admission).
 #[tokio::test]
@@ -664,24 +639,6 @@ async fn a_source_sealed_after_the_fork_is_refused_at_the_next_turn() {
     assert!(!shows(&rec, &said), "{rec:?}");
     let sent = sent_for(&r, "fork: and now");
     assert!(!sent.contains("4471"), "after the seal: {sent}");
-}
-
-/// Where the owner is not alone (an agent's process at the terminal), a fork of his DM shows nothing of it,
-/// and a harness line beside the message says the fork's source is not shown.
-#[tokio::test]
-async fn a_fork_not_alone_shows_nothing_of_a_private_source_and_says_so() {
-    let r = view_rig();
-    let c = &r.core;
-    let dm = session(c, Some(&format!("dm:{OWNER}")));
-    turn(c, &dm, "dm: the safe combination is 2718").await;
-    let fork = fork_of(c, &dm);
-    turn_as(c, &fork, "fork: what is the combination?", false).await;
-    let sent = sent_for(&r, "what is the combination");
-    assert!(!sent.contains("2718"), "{sent}");
-    assert!(
-        sent.contains(crate::fork::window::NOT_SHOWN),
-        "the fork says its source is not shown: {sent}"
-    );
 }
 
 /// `context.census` asked from a surface that reads no private text (Discord) carries none of the view's

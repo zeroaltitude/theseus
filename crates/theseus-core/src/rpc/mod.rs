@@ -999,7 +999,6 @@ impl Core {
             effort_refusals: Default::default(),
             yes_facts: Default::default(),
             exchanges: Default::default(),
-            presence: Default::default(),
             tails: Default::default(),
             keep_warm: Default::default(),
             cache_numbers: Default::default(),

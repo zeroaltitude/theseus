@@ -123,7 +123,6 @@ impl TurnRunner {
             tc.record(&fact::turn::WakeCameDue { fired: f });
         }
         t.wake_target = fired.iter().find_map(|f| f.wake.target.clone());
-        t.set_ups = fired.iter().map(|f| f.wake.by.clone()).collect();
         t.wakes = fired
             .iter()
             .map(|f| json!({"wake_id": f.wake.id, "text": crate::wake::fired_text(f), "late_ms": f.late_ms}))
