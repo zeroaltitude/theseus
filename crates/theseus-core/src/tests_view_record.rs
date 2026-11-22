@@ -9,7 +9,7 @@ use serde_json::json;
 use theseus_memory::gate::Present;
 use theseus_protocol::{error_code, method};
 
-use crate::approval::{Answerer, Client, Surface};
+use crate::approval::{Client, Surface};
 use crate::exchange::{self, Exchange, Opener};
 use crate::peer_proc::{Behind, JOB};
 use crate::tests_m3::{rpc_as, surface};
@@ -23,15 +23,6 @@ use crate::view::{
 };
 use crate::view_gate;
 use crate::Core;
-
-fn cli() -> Answerer {
-    Answerer {
-        label: "the CLI".into(),
-        surface: Surface::Cli,
-        discord: None,
-        agent: None,
-    }
-}
 
 fn rig() -> Rig {
     rig_scripted(|_| {}, |_| crate::provider::Scripted::text("ok"))

@@ -357,12 +357,6 @@ type EnvHook = Box<dyn FnOnce() + Send>;
 #[cfg(test)]
 static AT_ENV_TAIL: std::sync::Mutex<Vec<(String, EnvHook)>> = std::sync::Mutex::new(Vec::new());
 
-/// Run `f` at the next `env_tail` of `session`.
-#[cfg(test)]
-pub(crate) fn env_tail_hook(session: &str, f: EnvHook) {
-    AT_ENV_TAIL.lock().unwrap().push((session.to_string(), f));
-}
-
 #[cfg(test)]
 pub(super) fn at_env_tail(session: &str) {
     let hook = {
