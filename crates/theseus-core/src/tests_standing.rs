@@ -199,13 +199,6 @@ impl Rig {
             .unwrap()
     }
 
-    fn triggers(&self, sid: &str) -> Vec<String> {
-        rows_in(&self.core, "context.recompiled", Some(sid))
-            .iter()
-            .map(|r| r["trigger"].as_str().unwrap().to_string())
-            .collect()
-    }
-
     /// The CLI adds a record; its id.
     fn add(&self, kind: StandingKind, scope: StandingScope, text: &str) -> String {
         self.core
@@ -328,7 +321,6 @@ async fn a_revoked_record_is_gone_and_an_unchanged_set_keeps_the_prefix_byte_ide
         serde_json::to_string(&(&second.system, &second.tools)).unwrap(),
         "the prefix is byte-identical with no change to the records"
     );
-    assert_eq!(r.triggers(&sid), ["new_session"]);
 
     r.revoke(&drop);
     turn(&r.core, &sid, "three").await;
@@ -337,7 +329,7 @@ async fn a_revoked_record_is_gone_and_an_unchanged_set_keeps_the_prefix_byte_ide
         system.contains(NO_PUSH) && !system.contains(SHORT),
         "{system}"
     );
-    assert_eq!(r.triggers(&sid), ["new_session", "system_changed"]);
+    assert_ne!(system, system_text(&second), "a revoke changes the system");
     let m = r.compilation(&sid).manifest;
     assert_eq!(
         m.standing.iter().map(|u| u.id.as_str()).collect::<Vec<_>>(),

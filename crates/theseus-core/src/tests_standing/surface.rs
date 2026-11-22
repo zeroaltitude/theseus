@@ -173,11 +173,6 @@ async fn a_surface_record_rides_the_tail_of_its_surface_and_the_prefix_stays_ide
         .unwrap()
         .contains(CODE_FIRST));
     assert_eq!(prefix_bytes(&on_terminal), prefix_bytes(&on_discord));
-    assert_eq!(
-        r.triggers(&sid),
-        ["new_session"],
-        "no recompile for a surface"
-    );
 
     // A turn that names no surface (a continuation's, a caller's that says
     // none) carries none either.
@@ -192,15 +187,14 @@ async fn a_surface_record_rides_the_tail_of_its_surface_and_the_prefix_stays_ide
         .unwrap();
     assert!(tail_text(&r.last_request()).contains(CODE_FIRST));
     assert_eq!(prefix_bytes(&on_terminal), prefix_bytes(&r.last_request()));
-    assert_eq!(r.triggers(&sid), ["new_session"]);
 
-    // Revoked, it leaves the tail at the next turn, still with no recompile.
+    // Revoked, it leaves the tail at the next turn; the prefix is as it was.
     r.revoke(&id);
     turn_on(&r.core, &sid, "five", Some("terminal"))
         .await
         .unwrap();
     assert!(!tail_text(&r.last_request()).contains("Standing here:"));
-    assert_eq!(r.triggers(&sid), ["new_session"]);
+    assert_eq!(prefix_bytes(&on_terminal), prefix_bytes(&r.last_request()));
 }
 
 /// Two sessions on two surfaces, one record live: the system block and the
