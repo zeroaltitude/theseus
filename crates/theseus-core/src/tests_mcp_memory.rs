@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use theseus_protocol::method;
 
 use crate::approval::Surface;
-use crate::tests_memory_lookup::{episodes, import, index_over, script, SHOWN};
+use crate::tests_memory_lookup::{episode, episodes, import, index_over, script, SHOWN};
 use crate::tests_places::{rig_scripted, session, turn, Rig, LAB};
 use crate::Core;
 
@@ -142,6 +142,59 @@ async fn a_search_returns_native_and_imported_hits_with_citations() {
         assert_eq!(c["session_id"], node.session_id.as_str());
         let day = crate::judge::spend::local_day(node.created_at_ms);
         assert!(c["as_of"].as_str().unwrap().starts_with(&day), "{c}");
+    }
+}
+
+/// A value the vault holds is substituted in every MCP memory reply (review
+/// G-R2): no provider call is on this path, so the reply is substituted
+/// itself. Plain and in its base64 and percent encodings, in a native
+/// session's text and in an imported one's, through a search, a get by id,
+/// and a get by session.
+#[tokio::test]
+async fn a_vault_value_is_substituted_in_every_mcp_memory_reply() {
+    use base64::Engine as _;
+    let secret = "marsh-kelp-vault-value-77";
+    let b64 = base64::engine::general_purpose::STANDARD.encode(secret);
+    let enc = secret.replace('-', "%2D");
+    let said = format!("plain {secret} b64 {b64} pct {enc}");
+    let r = rig(true);
+    r.core
+        .secrets
+        .hold("marsh_vault", crate::secrets::Secret::new(secret.into()));
+    let imported = import(
+        &r.core,
+        &[episode(7, "personal", "2026-03-03T18:00:00Z", &said)],
+    );
+    let native = session(&r.core, None);
+    turn(&r.core, &native, &format!("the ferry note: {said}")).await;
+    let mut all = imported.clone();
+    all.push(native.clone());
+    r.core.runner.memory.set_ask(index_over(&r.core, all));
+    let clean = |v: &Value| {
+        let t = v.to_string();
+        for raw in [secret, b64.as_str(), enc.as_str()] {
+            assert!(!t.contains(raw), "{raw} came back: {t}");
+        }
+        assert!(t.contains("[redacted:marsh_vault]"), "{t}");
+    };
+    let got = search(&r.core, json!({"words": "ferry note", "limit": 25})).await;
+    clean(&got);
+    for sid in [&imported[0], &native] {
+        let hit = hits(&got)
+            .iter()
+            .find(|x| x["citation"]["session_id"] == sid.as_str())
+            .unwrap_or_else(|| panic!("{sid}: {got}"));
+        let id = hit["citation"]["node_id"].as_str().unwrap().to_string();
+        clean(
+            &ask(&r.core, json!({"op": "get", "id": id, "client": "c"}))
+                .await
+                .unwrap(),
+        );
+        clean(
+            &ask(&r.core, json!({"op": "get", "session": sid, "client": "c"}))
+                .await
+                .unwrap(),
+        );
     }
 }
 
