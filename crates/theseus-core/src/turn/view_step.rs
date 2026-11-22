@@ -57,19 +57,54 @@ impl TurnRunner {
     }
 
     /// This loop's compile: in a place set to `view`, from the turn's view (assembled on its first call);
-    /// else the transcript's, with a summary where the ring would cut (30c). The view's record is kept with
-    /// the compilation it was built for, once.
+    /// else, and for a view turn that cannot be assembled soundly (`Fallback`), the transcript's, with a
+    /// summary where the ring would cut (30c). The view's record is kept with the compilation it was built
+    /// for, once.
     pub(super) async fn compile_here(
         &self,
         t: &mut Turn<'_>,
         input: CompileInput<'_>,
         i: u32,
     ) -> anyhow::Result<Compiled> {
-        if self.assembly_here(t) != Assembly::View {
-            return Box::pin(self.compact(t, compile(input), input, i)).await;
+        if self.assembly_here(t) == Assembly::View {
+            match self.view_compile(t, input) {
+                Ok(Ok(c)) => return Ok(c),
+                Ok(Err(why)) => Self::view_declined(t, why),
+                Err(e) => {
+                    tracing::warn!(error = %format!("{e:#}"), "the view could not be assembled");
+                    Self::view_declined(t, Some(Fallback::AssemblyError));
+                }
+            }
         }
-        // Before every later call of the turn: a source sealed since ends the old chain (`view_reset`).
-        if self.view_revoked(t) {
+        // After a view's compilation the transcript starts a new chain: the view's prefix is not its own.
+        let mut input = input;
+        if input
+            .current
+            .is_some_and(|c| c.strategy == crate::compiler::view::STRATEGY)
+        {
+            input.force = input.force.or(Some(crate::compiler::Recompile::Transcript));
+        }
+        Box::pin(self.compact(t, compile(input), input, i)).await
+    }
+
+    /// One call of a view turn, or why this turn is the transcript's (`None`: decided before).
+    fn view_compile(
+        &self,
+        t: &mut Turn<'_>,
+        input: CompileInput<'_>,
+    ) -> anyhow::Result<Result<Compiled, Option<Fallback>>> {
+        let turn = t.tc.turn_id;
+        let held = t.view.as_ref().filter(|f| f.turn_id == turn);
+        if held.is_some_and(|f| f.declined) {
+            return Ok(Err(None));
+        }
+        if held.is_none() {
+            if let Some(why) = self.view_unsound(t, input.nodes) {
+                return Ok(Err(Some(why)));
+            }
+        } else if self.view_revoked(t) || self.view_moved(t) {
+            // A source sealed since, or a presence that changed (a steer narrowed it): reassembled under
+            // the new permit, on a new chain.
             t.view = None;
             self.view_freeze(t, input.spec)?;
             Self::view_reset(t, input.nodes);
@@ -79,13 +114,24 @@ impl TurnRunner {
         if input.strip.is_some() || input.force.is_some() {
             Self::view_reset(t, input.nodes);
         }
-        let (store, turn) = (t.tc.store, t.tc.turn_id);
+        let store = t.tc.store;
         let Some(f) = t.view.as_mut() else {
             anyhow::bail!("the turn's view was not assembled");
         };
         let compiled = crate::compiler::view::compile(input, f);
+        // Over the budget as rendered: the transcript's ring and compaction make room, not a stuck place.
+        if compiled.budget.overage.is_some() {
+            return Ok(Err(Some(Fallback::OverBudget)));
+        }
         if compiled.new_compilation {
+            if f.compilation_id.is_some() {
+                // A new chain in the middle of the turn (an effective spec that changed).
+                let own: Vec<String> =
+                    crate::compiler::view::own_answers(input.nodes, turn).collect();
+                f.stripped.extend(own);
+            }
             f.compilation_id = Some(compiled.compilation.id.clone());
+            f.card.clone_from(&compiled.card);
             if let Some(view) = f.record.take() {
                 if let Err(e) =
                     crate::view::record::keep(store, turn, &compiled.compilation.id, &view)
@@ -94,7 +140,65 @@ impl TurnRunner {
                 }
             }
         }
-        Ok(compiled)
+        Ok(Ok(compiled))
+    }
+
+    /// Why a turn's view cannot be assembled soundly, before it is tried: a turn no message of a person,
+    /// a wake or a report opened (a continuation, a resume: its pending work is not a place's exchange);
+    /// a route the gate does not read as the opened exchange's place; or this session's recent
+    /// conversation that the ledger holds no exchange for (nothing is dropped silently before
+    /// `rebuild-exchanges` has run).
+    fn view_unsound(&self, t: &Turn<'_>, nodes: &[(u64, Stub)]) -> Option<Fallback> {
+        let turn = t.tc.turn_id;
+        let opened = (nodes.iter())
+            .any(|(_, n)| n.turn_id.as_deref() == Some(turn) && n.kind == Kind::UserMessage);
+        if !opened {
+            return Some(Fallback::Continuation);
+        }
+        let anchor = Verified::of_session(self, t.tc.session_id)
+            .pov()
+            .anchor
+            .clone();
+        if t.exchange.place() != Some(anchor.as_str()) {
+            return Some(Fallback::Route);
+        }
+        let mut seen = HashSet::new();
+        let earlier = (nodes.iter().rev())
+            .filter(|(_, n)| n.kind == Kind::UserMessage)
+            .filter_map(|(_, n)| n.turn_id.as_deref())
+            .filter(|id| *id != turn && seen.insert(*id))
+            .take(UNLEDGERED_LOOK);
+        for id in earlier.collect::<Vec<_>>() {
+            if !matches!(crate::exchange::exchange(t.tc.store, id), Ok(Some(_))) {
+                return Some(Fallback::Unledgered);
+            }
+        }
+        None
+    }
+
+    /// The turn is the transcript's from now on, and the ledger says why once.
+    fn view_declined(t: &mut Turn<'_>, why: Option<Fallback>) {
+        let Some(why) = why else {
+            return;
+        };
+        t.tc.ledger(
+            theseus_protocol::LedgerKind::ContextViewFallback,
+            serde_json::json!({"turn_id": t.tc.turn_id, "why": why.as_str()}),
+        );
+        t.view = Some(Frozen {
+            turn_id: t.tc.turn_id.into(),
+            declined: true,
+            ..Frozen::default()
+        });
+    }
+
+    /// Whether the gate reads the turn's point of view differently from when its view was assembled.
+    fn view_moved(&self, t: &Turn<'_>) -> bool {
+        let Some(f) = t.view.as_ref().filter(|f| f.turn_id == t.tc.turn_id) else {
+            return false;
+        };
+        let now = Verified::of_session(self, t.tc.session_id);
+        f.verified.as_ref() != Some(now.pov())
     }
 
     /// Whether a session the frozen view lays has been sealed since it was assembled (the gate's own
@@ -115,6 +219,7 @@ impl TurnRunner {
             return;
         };
         f.compilation_id = None;
+        f.card = None;
         f.stripped.extend(
             (nodes.iter())
                 .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
@@ -142,6 +247,7 @@ impl TurnRunner {
         };
         let since = crate::ladder::new_mark(store, &place)?;
         let (asked, message) = message_of(store, sid, turn)?;
+        let verified_pov = verified.pov().clone();
         let permit = Permit::of(verified);
         let read = Sessions::default();
         let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
@@ -154,7 +260,13 @@ impl TurnRunner {
         };
         // One read of the ladder for the whole assembly: every selector, the text and the window see it.
         let store_ladder = StoreLadder(store);
-        let ladder = OnceLadder::new(&store_ladder);
+        let gated = GatedLadder {
+            inner: &store_ladder,
+            store,
+            held: &held,
+            sessions: Default::default(),
+        };
+        let ladder = OnceLadder::new(&gated);
         let cards = StoreCards {
             store,
             kernel: &self.kernel,
@@ -207,7 +319,10 @@ impl TurnRunner {
                 return Ok(());
             }
         };
-        let (window, sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
+        let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
+        sessions.extend(gated.sessions.into_inner());
+        sessions.sort();
+        sessions.dedup();
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
         t.view = Some(Frozen {
@@ -217,6 +332,7 @@ impl TurnRunner {
             window,
             stripped: HashSet::new(),
             sessions,
+            verified: Some(verified_pov),
             beside: a.parts.beside.as_ref().map(block),
             memory_page,
             record: Some(a.view),
@@ -230,6 +346,81 @@ impl TurnRunner {
             .or_else(|| self.catalog.get(&spec.model).map(|e| e.context_window))
             .unwrap_or(u64::MAX);
         Budget::new(provider_window, u64::from(spec.max_tokens))
+    }
+}
+
+/// How many of the session's newest earlier turns must have their exchange before a view reads it.
+const UNLEDGERED_LOOK: usize = 40;
+
+/// Why a turn in a view place is the transcript's: a closed list, said in `context.view_fallback`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Fallback {
+    /// No person's message, wake or report of its own opened the turn.
+    Continuation,
+    /// The gate's anchor is not the opened exchange's place.
+    Route,
+    /// The session's recent conversation has turns the ledger holds no exchange for.
+    Unledgered,
+    /// The rendered request is over the budget.
+    OverBudget,
+    /// The assembly failed.
+    AssemblyError,
+}
+
+impl Fallback {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Continuation => "continuation",
+            Self::Route => "route",
+            Self::Unledgered => "unledgered_history",
+            Self::OverBudget => "over_budget",
+            Self::AssemblyError => "assembly_error",
+        }
+    }
+}
+
+/// The ladder as the gate reads it today: a fold node is kept only when every exchange it stands for
+/// resolves to a session and none of those sessions is sealed, seal pending or unreadable now (its words
+/// AND its account go together); the sessions of those kept are recorded, so a seal before a later call
+/// revokes them too.
+struct GatedLadder<'a> {
+    inner: &'a dyn crate::view::fold::Ladder,
+    store: &'a Store,
+    held: &'a dyn Fn(&str) -> bool,
+    sessions: std::cell::RefCell<Vec<String>>,
+}
+
+impl GatedLadder<'_> {
+    /// The sessions of every exchange fold node `id` stands for; none when any cannot be resolved.
+    fn constituents(&self, id: &str) -> Option<Vec<String>> {
+        let node = crate::ladder::fold::node(self.store, id).ok()??;
+        let read = crate::ladder::fold::open(self.store, &node).ok()?;
+        (!node.exchanges.is_empty() && read.len() == node.exchanges.len())
+            .then(|| read.into_iter().map(|e| e.session_id).collect())
+    }
+}
+
+impl crate::view::fold::Ladder for GatedLadder<'_> {
+    fn read(
+        &self,
+        place: &str,
+        n: usize,
+        since: Option<&Pos>,
+    ) -> anyhow::Result<crate::view::fold::LadderRead> {
+        let mut read = self.inner.read(place, n, since)?;
+        let mut kept = Vec::new();
+        for node in read.nodes {
+            let Some(sessions) = self.constituents(&node.handle.0) else {
+                continue;
+            };
+            if sessions.iter().any(|s| (self.held)(s)) {
+                continue;
+            }
+            self.sessions.borrow_mut().extend(sessions);
+            kept.push(node);
+        }
+        read.nodes = kept;
+        Ok(read)
     }
 }
 

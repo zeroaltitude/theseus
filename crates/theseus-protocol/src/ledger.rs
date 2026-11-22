@@ -108,6 +108,7 @@ ledger_kinds! {
     ContextRecompileRequested = "context.recompile_requested",
     ContextRecompiled = "context.recompiled",
     ContextUnadmitted = "context.unadmitted",
+    ContextViewFallback = "context.view_fallback",
     DiscordBound = "discord.bound",
     DiscordCommand = "discord.command",
     DiscordConfirm = "discord.confirm",
