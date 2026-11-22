@@ -58,7 +58,7 @@ And one review:
 
 - [retired-judge-questions.md](retired-judge-questions.md): the judge questions, pack versions and modes the trim of issue 44 took out because nothing used them, and what of each stays readable (stored judgments, old settings files).
 - [review-2.md](review-2.md): Review 2 (2026-09-30), a read-only review of the code as built through the Daily
-- [context-point-of-view.md](context-point-of-view.md): one memory, many points of view: how a turn's context is assembled from the whole graph around who is speaking, where, and on what (issue 44). A design for the owner's decision; nothing of it is built.
+- [context-point-of-view.md](context-point-of-view.md): one memory, many points of view: how a turn's context is assembled from the whole graph around who is speaking, where, and on what (issue 44). The plan the owner approved, with what was built on 2026-11-21 and how it differs.
   Driver, in three layers: complexity, speed (the lifecycle budgets and the runtime's threads), and hardening (the
   web UI, the spool, the git tools, the secret broker). Its accepted findings became the roadmap's fix batches and
   lanes. The spec's Part III records each one's fix. Checked in on 2026-10-01.
