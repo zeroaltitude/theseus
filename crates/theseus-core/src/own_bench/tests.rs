@@ -450,9 +450,10 @@ async fn a_replay_from_the_mcp_surface_is_refused_and_calls_no_model() {
     assert_eq!(rig.model.requests().len(), 1, "no call was made");
 }
 
-/// A shared place's turn is never replayed.
+/// Anything goes (2026-11-22): the owner's replay of a turn whose place was shared is sent, as any other's;
+/// the act gate is the caller's (`judge_act`), never where the past turn was said.
 #[tokio::test]
-async fn a_shared_places_turn_is_never_replayed() {
+async fn the_owners_replay_of_a_shared_places_turn_is_sent() {
     let rig = rig(None);
     script(&rig, &[ORIGINAL, REPLAYED]);
     let sid = session(
@@ -461,13 +462,14 @@ async fn a_shared_places_turn_is_never_replayed() {
         &[],
     );
     let t = turn(&rig.core, &sid, ASK).await.turn_id;
-    let err = rig
+    let r = rig
         .core
         .turn_replay(params(&sid, &t, "haiku"), "cli")
         .await
-        .unwrap_err();
-    assert!(format!("{err:#}").contains("shared place"), "{err:#}");
-    assert_eq!(rig.model.requests().len(), 1);
+        .unwrap();
+    assert_eq!(r.original.text, ORIGINAL);
+    assert_eq!(r.replay.text, REPLAYED);
+    assert_eq!(rig.model.requests().len(), 2, "the replay was sent");
 }
 
 /// `compare.v1` through the fake Jev: the replay is judged, the verdict is

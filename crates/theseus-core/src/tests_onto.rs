@@ -801,17 +801,19 @@ async fn the_category_scene_weights_what_two_sessions_share() {
         !b.shared.contains_key(&here),
         "its own notes are not lifted"
     );
-    // A shared place reads no interpretation.
-    assert!(r
+    // A shared place reads the same interpretation (2026-11-22: no place
+    // withholds one).
+    let shared = r
         .core
         .runner
         .category_scene(Some(&here), false, None)
-        .is_none());
+        .expect("a scene in a shared place too");
+    assert_eq!(shared.boost(&cands).expect("the same").shared, b.shared);
 }
 
 /// With `recall_boost = 0` the scene is none, and the persona question's
 /// state carries the session's interpreted categories by path, never a
-/// person's, and nothing in a shared place.
+/// person's, in a shared place as in a private one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_term_is_off_at_zero_and_the_persona_state_names_the_categories() {
     use crate::places::PlaceClass;
@@ -836,11 +838,10 @@ async fn the_term_is_off_at_zero_and_the_persona_state_names_the_categories() {
         r.core.runner.category_names(&sid, PlaceClass::Private),
         vec!["web".to_string()]
     );
-    assert!(r
-        .core
-        .runner
-        .category_names(&sid, PlaceClass::Shared)
-        .is_empty());
+    assert_eq!(
+        r.core.runner.category_names(&sid, PlaceClass::Shared),
+        vec!["web".to_string()]
+    );
 }
 
 /// A picture file as a message carries it.

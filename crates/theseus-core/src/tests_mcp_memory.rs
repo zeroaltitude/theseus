@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use theseus_protocol::method;
 
 use crate::approval::Surface;
-use crate::tests_memory_lookup::{episodes, import, index_over, script, SHOWN};
+use crate::tests_memory_lookup::{episode, episodes, import, index_over, script, SHOWN};
 use crate::tests_places::{rig_scripted, session, turn, Rig, LAB};
 use crate::Core;
 
@@ -143,6 +143,128 @@ async fn a_search_returns_native_and_imported_hits_with_citations() {
         let day = crate::judge::spend::local_day(node.created_at_ms);
         assert!(c["as_of"].as_str().unwrap().starts_with(&day), "{c}");
     }
+}
+
+/// A value the vault holds is substituted in every MCP memory reply (review
+/// G-R2): no provider call is on this path, so the reply is substituted
+/// itself. Plain and in its base64 and percent encodings, in a native
+/// session's text and in an imported one's, through a search, a get by id,
+/// and a get by session.
+#[tokio::test]
+async fn a_vault_value_is_substituted_in_every_mcp_memory_reply() {
+    use base64::Engine as _;
+    let secret = "marsh-kelp-vault-value-77";
+    let b64 = base64::engine::general_purpose::STANDARD.encode(secret);
+    let enc = secret.replace('-', "%2D");
+    let said = format!("plain {secret} b64 {b64} pct {enc}");
+    let r = rig(true);
+    r.core
+        .secrets
+        .hold("marsh_vault", crate::secrets::Secret::new(secret.into()));
+    let imported = import(
+        &r.core,
+        &[episode(7, "personal", "2026-03-03T18:00:00Z", &said)],
+    );
+    let native = session(&r.core, None);
+    turn(&r.core, &native, &format!("the ferry note: {said}")).await;
+    let mut all = imported.clone();
+    all.push(native.clone());
+    r.core.runner.memory.set_ask(index_over(&r.core, all));
+    let clean = |v: &Value| {
+        let t = v.to_string();
+        for raw in [secret, b64.as_str(), enc.as_str()] {
+            assert!(!t.contains(raw), "{raw} came back: {t}");
+        }
+        assert!(t.contains("[redacted:marsh_vault]"), "{t}");
+    };
+    let got = search(&r.core, json!({"words": "ferry note", "limit": 25})).await;
+    clean(&got);
+    for sid in [&imported[0], &native] {
+        let hit = hits(&got)
+            .iter()
+            .find(|x| x["citation"]["session_id"] == sid.as_str())
+            .unwrap_or_else(|| panic!("{sid}: {got}"));
+        let id = hit["citation"]["node_id"].as_str().unwrap().to_string();
+        clean(
+            &ask(&r.core, json!({"op": "get", "id": id, "client": "c"}))
+                .await
+                .unwrap(),
+        );
+        clean(
+            &ask(&r.core, json!({"op": "get", "session": sid, "client": "c"}))
+                .await
+                .unwrap(),
+        );
+    }
+}
+
+/// An MCP error's words and `conversation_status`'s last reply carry the vault's values substituted too
+/// (review G-R2 r2): an error that echoes what was asked, and the newest reply as the status reads it
+/// (`memory_lookup::mcp_last_reply` over the session's `session.history`, the MCP's own route).
+#[tokio::test]
+async fn an_mcp_error_and_the_status_reply_carry_the_vault_value_substituted() {
+    let secret = "marsh-kelp-vault-value-77";
+    let r = rig(true);
+    r.core
+        .secrets
+        .hold("marsh_vault", crate::secrets::Secret::new(secret.into()));
+    // An error that echoes the asked span.
+    let e = ask(
+        &r.core,
+        json!({"op": "search", "words": "ferry", "since": secret, "client": "c"}),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        !e.message.contains(secret) && e.message.contains("[redacted:marsh_vault]"),
+        "{}",
+        e.message
+    );
+    // The RPC's own error, which echoes the op.
+    let e = ask(&r.core, json!({"op": secret, "client": "c"}))
+        .await
+        .unwrap_err();
+    assert!(
+        !e.message.contains(secret) && e.message.contains("[redacted:marsh_vault]"),
+        "{}",
+        e.message
+    );
+    // The newest reply a session holds, read as conversation_status reads it.
+    let sid = session(&r.core, None);
+    let reply = crate::node::Node::assistant(
+        &sid,
+        "turn_x",
+        0,
+        crate::node::Body::AssistantMessage {
+            blocks: vec![json!({"type": "text", "text": format!("the key is {secret}")})],
+            model: "m".into(),
+            provider: "p".into(),
+            stop_reason: None,
+            usage: Default::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+            effort: None,
+        },
+    );
+    r.core.store.append(&[reply.record().unwrap()]).unwrap();
+    let h = rpc(
+        &r.core,
+        Surface::Mcp,
+        method::SESSION_HISTORY,
+        json!({"session_id": sid, "n": 40}),
+    )
+    .await
+    .unwrap();
+    let nodes = h["nodes"].as_array().cloned().unwrap_or_default();
+    let last = crate::memory_lookup::mcp_last_reply(&r.core, &nodes).expect("a reply");
+    assert!(
+        !last.contains(secret) && last.contains("[redacted:marsh_vault]"),
+        "{last}"
+    );
 }
 
 /// `get` by a citation's id returns that node, flagged, with its session's

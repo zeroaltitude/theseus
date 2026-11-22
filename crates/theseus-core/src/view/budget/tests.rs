@@ -91,6 +91,7 @@ fn budget(ceiling: u64, here_allowance: u64) -> Budget {
         provider_window: 1_000_000,
         reserve: 0,
         floor_only: false,
+        bare: false,
     }
 }
 

@@ -295,49 +295,14 @@ async fn a_stalled_index_holds_a_canary_turn_no_longer_than_its_deadline() {
     assert!(recall_nodes(c, &b).is_empty());
 }
 
-/// Past the session's cap, recall pauses until the next recompile: the row
-/// says `paused` and why, and no node is written.
-#[tokio::test]
-async fn past_the_sessions_cap_recall_pauses() {
-    let r = canary_with(|c| {
-        c.memory.recall_budget_tokens = 30;
-        c.memory.recall_max_items = 1;
-        c.memory.session_recall_cap_tokens = 30;
-    });
-    let c = &r.core;
-    // Each note about 25 tokens: one fits the cap, two do not.
-    let a = session(
-        c,
-        None,
-        &[
-            "the heron nests by the weir in spring, and the reeds there are cut back each autumn",
-            "the heron fishes at dawn by the mill, where the race runs shallow over the stones",
-        ],
-    );
-    let b = session(c, None, &[]);
-    c.runner.memory.set_ask(index_of(c, vec![a]));
-    assert_eq!(turn(c, &b, "the heron?").await.recalled, 1);
-    assert_eq!(turn(c, &b, "and the heron again?").await.recalled, 0);
-    let m = &recalls(c, &b)[1];
-    assert_eq!(m.outcome, "paused");
-    assert!(m
-        .why
-        .as_deref()
-        .unwrap()
-        .contains("session_recall_cap_tokens = 30"));
-    assert_eq!(recall_nodes(c, &b).len(), 1);
-}
-
-/// A guard for the session's recall cap on the view (issue 44): a long conversation, each of whose turns
-/// recalls past what the cap would hold summed over turns, still recalls on its next turn. Today a view
-/// turn writes no `Recall` node into its session, so the tail the cap sums holds none; if a later change
-/// persists the view's note, this test says whether the cap then pauses a long conversation.
+/// A guard for the session's recall cap, now deleted (issue 44): a long conversation, each of whose turns
+/// recalls more than a cap of 30 tokens would have held summed over turns, still recalls on its next turn.
+/// What bounds recall on the view is slot H's own budget and its left-out line.
 #[tokio::test]
 async fn on_the_view_a_long_conversation_still_recalls_past_the_sessions_cap() {
     let r = canary_with(|c| {
         c.memory.recall_budget_tokens = 30;
         c.memory.recall_max_items = 1;
-        c.memory.session_recall_cap_tokens = 30;
     });
     let c = &r.core;
     // Each note about 25 tokens: one fits the cap, two do not.

@@ -220,7 +220,10 @@ fn why_reads_the_last_turn_and_an_older_one_by_its_id_and_writes_nothing() {
 /// model files) holds what session one said, recall is live, and a second
 /// session's turn about the same words is shown that note. `theseus why`
 /// names it, its source session, and why it ranked (its BM25 rank), and the
-/// turn's own records are read, not written.
+/// turn's own records are read, not written. While the seed exchange is among
+/// the place's newest, the window lays it with its words, and `why` says the
+/// note was left out as already in context; three exchanges later it is
+/// recalled.
 #[test]
 fn why_shows_a_seeded_recall_its_source_and_its_reason() {
     let r = rig(|t| {
@@ -240,6 +243,7 @@ fn why_shows_a_seeded_recall_its_source_and_its_reason() {
         t.insert("index".into(), index.into());
         let mut memory = table(t, "memory");
         memory.insert("mode".into(), "live".into());
+        memory.insert("recall_max_items".into(), 1.into());
         t.insert("memory".into(), memory.into());
     });
     let dir = r.dir.path();
@@ -268,6 +272,19 @@ fn why_shows_a_seeded_recall_its_source_and_its_reason() {
             "the index never held the note"
         );
         std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    // Now: the seed exchange is in the window's floor, so the note is already in context.
+    ask(dir, "Tell me about harbour zeta's tide table.", None);
+    let (out, err, code) = cli(dir, &["why"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("left out, already in context"), "{out}");
+    // Three exchanges about other things take the seed out of the floor, and recall brings it back.
+    for other in [
+        "Which kettle should I buy?",
+        "Name a hardy winter vegetable.",
+        "How long does bread dough rise?",
+    ] {
+        ask(dir, other, None);
     }
     let second = ask(
         dir,
