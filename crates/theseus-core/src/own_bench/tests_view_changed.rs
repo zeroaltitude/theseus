@@ -45,7 +45,7 @@ async fn viewed() -> (Rig, String, String, String, String) {
             matches!(&n.body, crate::node::Body::UserMessage { text, .. }
                 if text.contains("the offsite is on Friday"))
         })
-        .map(|(_, n)| n.id.clone())
+        .map(|(_, n)| n.id)
         .expect("the spare message");
     let desk = crate::tests_places::session(c, None);
     let t = turn_as(c, &desk, "desk: which hives wintered?", true)
@@ -118,14 +118,20 @@ async fn a_seal_after_the_turn_keeps_its_replay_with_its_own_provider() {
 async fn a_move_after_the_turn_keeps_its_replay_with_its_own_provider() {
     let (r, desk, t, spare, said) = viewed().await;
     crossing_says(&r, (&desk, &t), None).await;
-    let at = (r.core.store.transcript(&spare).unwrap().into_iter())
+    // A turn moves whole: from its first node to its last.
+    let nodes = r.core.store.transcript(&spare).unwrap();
+    let turn = (nodes.iter())
         .find(|(_, n)| n.id == said)
-        .map(|(p, _)| p)
+        .and_then(|(_, n)| n.turn_id.clone())
         .unwrap();
+    let at: Vec<u64> = (nodes.iter())
+        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn.as_str()))
+        .map(|(p, _)| *p)
+        .collect();
     let split = ThreadSplitParams {
         from: spare.clone(),
         slug: "offsite".into(),
-        range: Some([at, at]),
+        range: Some([at[0], *at.last().unwrap()]),
         ..Default::default()
     };
     r.core
@@ -143,14 +149,14 @@ async fn a_release_withdrawn_after_the_turn_keeps_its_replay_with_its_own_provid
         |_| {},
     );
     let c = &r.core;
-    let spare = crate::tests_places::session(c, Some("dm:42"));
+    let spare = crate::tests_places::session(c, None);
     turn_as(c, &spare, "the offsite is on Friday", true).await;
     let said = (c.store.transcript(&spare).unwrap().into_iter())
         .find(|(_, n)| {
             matches!(&n.body, crate::node::Body::UserMessage { text, .. }
                 if text == "the offsite is on Friday")
         })
-        .map(|(_, n)| n.id.clone())
+        .map(|(_, n)| n.id)
         .expect("the spare message");
     let digest = crate::release::digest("the offsite is on Friday");
     let rel = crate::release::grant(c, &said, &digest, "discord:channel:7", "cli").unwrap();

@@ -184,18 +184,11 @@ impl Core {
                 )
             })?;
         let nodes: Transcript = transcript[..at].to_vec();
-        let started_ms = (transcript[..=at].iter())
-            .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
-            .map(|(_, n)| n.created_at_ms)
-            .min()
-            .unwrap_or(compilation.created_at_ms);
-        let (view, laid) = match compilation.strategy == crate::compiler::view::STRATEGY {
-            true => {
-                let (f, k) = self.kept_view(&compilation, (session_id, turn))?;
-                (Some(f), Some(k))
-            }
-            false => (None, None),
-        };
+        let started_ms = started(&transcript[..=at], turn).unwrap_or(compilation.created_at_ms);
+        let kept = (compilation.strategy == crate::compiler::view::STRATEGY)
+            .then(|| self.kept_view(&compilation, (session_id, turn)))
+            .transpose()?;
+        let (view, laid) = kept.map_or((None, None), |(f, k)| (Some(f), Some(k)));
         let mut spec = self.kept_spec(&session, &compilation)?;
         let recalls = nodes
             .iter()
@@ -421,6 +414,14 @@ pub(super) type Laid<'a> = (
     &'a Sources,
     Option<&'a Frozen>,
 );
+
+/// When `turn` began: its first node's time among `nodes`.
+fn started(nodes: &[(u64, crate::stub::Stub)], turn: &str) -> Option<u64> {
+    (nodes.iter())
+        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
+        .map(|(_, n)| n.created_at_ms)
+        .min()
+}
 
 /// The last user message's text among `nodes`.
 fn last_user_text(nodes: &Transcript) -> String {
