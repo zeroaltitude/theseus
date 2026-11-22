@@ -16,13 +16,10 @@ use crate::view_gate::{place_name, Verified};
 const CENSUS_TURN: &str = "census";
 
 impl TurnRunner {
-    /// The place whose view `rec`'s next request is assembled by, when that place is set to the view: a
-    /// conversation's (a task's turns are the transcript's today).
+    /// The place whose view `rec`'s next request is assembled by, when that place takes the view (with no
+    /// `[context] assembly`, every place does): a conversation's (a task's census stays the transcript's).
     pub(crate) fn census_view_place(&self, rec: &SessionRecord) -> Option<String> {
-        if self.cfg.context.assembly.is_none()
-            || rec.task.is_some()
-            || rec.kind == theseus_protocol::SessionKind::Task
-        {
+        if rec.task.is_some() || rec.kind == theseus_protocol::SessionKind::Task {
             return None;
         }
         let place = place_name(self, &rec.session_id)?;
