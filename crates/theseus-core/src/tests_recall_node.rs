@@ -22,7 +22,7 @@ use crate::provider::ProviderRequest;
 use crate::recall::AskFuture;
 use crate::test_support::recall_rows as rows;
 use crate::tests_recall::{
-    admitted, dropped_for, index_of, recalls, rig, rig_with, session, turn, Rig, OWNER, PIER,
+    admitted, dropped_for, index_of, recalls, rig_with, session, turn, Rig, OWNER, PIER,
 };
 use crate::Core;
 

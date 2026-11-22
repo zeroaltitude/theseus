@@ -16,7 +16,7 @@ use crate::config::MemoryMode;
 use crate::ledger::LedgerRow;
 use crate::node::Node;
 use crate::places::BoundPlace;
-use crate::provider::{FakeProvider, ProviderRequest};
+use crate::provider::FakeProvider;
 use crate::recall::{Ask, AskFuture};
 use crate::session::SessionRecord;
 use crate::store::Store;
@@ -286,14 +286,6 @@ async fn memory_off_recalls_nothing() {
     turn(c, &here, "where does the heron nest?").await;
     assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert!(recalls(c, &here).is_empty());
-}
-
-/// The requests a core's model got, as bytes.
-pub(crate) fn sent(model: &FakeProvider) -> Vec<String> {
-    let reqs: Vec<ProviderRequest> = model.requests.lock().unwrap().clone();
-    reqs.iter()
-        .map(|q| serde_json::to_string(&(&q.system, &q.messages, &q.tools)).unwrap())
-        .collect()
 }
 
 /// `memory.search` runs the pipeline for a query, writing nothing: as the

@@ -243,10 +243,6 @@ const SHORT_DISPATCH: &[(&str, &str)] = &[
         "600 ms on-path rerank budget (about 350 ms expected); tests can use set_rerank_deadline",
     ),
     (
-        "cross.rs:live(Duration::from_secs(5))",
-        "five-second detached recall-call window; the turn separately waits route_wait_ms",
-    ),
-    (
         "families.rs:live(Duration::from_secs(5))",
         "five-second detached recall-call window; the turn separately waits route_wait_ms",
     ),

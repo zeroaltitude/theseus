@@ -566,7 +566,6 @@ mod tests {
             "recall_vector_tokens = 501",
             "rerank_wait_ms = 0",
             "rerank_wait_ms = 601",
-            "experiment = \" \"",
             "assembled_budget_tokens = 0",
             "synth_profile = \"\"",
             "synth_limit_usd_per_day = -1.0",

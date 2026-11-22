@@ -64,7 +64,8 @@ pub(crate) fn pack_mode(cfg: &mut Config, pack: &str, mode: PackMode) {
 }
 
 /// Memory live, admitting one item; the judge on against `jev` when
-/// given, with every other wired pack off (`loop.v1`, and the gate's,
+/// given, the rerank pack in shadow (memory's own shadow mode, which made
+/// every rerank a shadow one, went with D8a), with every other wired pack off (`loop.v1`, and the gate's,
 /// inbound's, compile's and categorize's points), so every judgment is the
 /// rerank's.
 pub(crate) fn rig(jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig {
@@ -85,6 +86,11 @@ pub(crate) fn rig(jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig
                 pack_mode(&mut cfg, pack, PackMode::Off);
             }
         }
+        pack_mode(
+            &mut cfg,
+            crate::judge::rerank::RERANK_PACK,
+            PackMode::Shadow,
+        );
     }
     tweak(&mut cfg);
     cfg.validate().unwrap();
@@ -352,8 +358,7 @@ async fn a_fake_jev_reorders_what_would_be_admitted() {
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
     assert_eq!(h.spend_today_usd, theseus_judge::price::micros_to_usd(cost));
     assert!(
-        h.packs
-            .contains(&"rerank.v1: live (owner: decision of 2026-10-04)".to_string()),
+        h.packs.iter().any(|p| p.starts_with("rerank.v1: shadow")),
         "{:?}",
         h.packs
     );

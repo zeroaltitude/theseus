@@ -18,6 +18,7 @@ const EVERY: &str = "[model]\n\
                      [memory]\n\
                      summary_profile = \"session\"\n\
                      session_recall_cap_tokens = 64000\n\
+                     experiment = \"m6-1\"\n\
                      [cache]\n\
                      keep_warm_hours = 24\n\
                      threads_keep_warm_hours = 4\n\
