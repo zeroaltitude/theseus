@@ -39,25 +39,6 @@ impl TurnRunner {
         }
     }
 
-    /// The block of `session_id`'s scope in a place of `class`, from memory:
-    /// what its next turn's system carries (the keep-warm read builds that
-    /// spec too, theseus-rr15). A surface's records are never in it.
-    pub(crate) fn standing_block(
-        &self,
-        session_id: &str,
-        class: crate::places::PlaceClass,
-    ) -> Option<Block> {
-        // The session's persona, as its next turn speaks as (theseus-a8n7).
-        let persona = self
-            .store
-            .get_session::<crate::session::SessionRecord>(session_id)
-            .ok()
-            .flatten()
-            .and_then(|s| self.persona_of(&s));
-        self.standing_blocks(session_id, class, None, persona.as_deref())
-            .0
-    }
-
     /// The system's block and the tail's (the records of `surface`) of
     /// `session_id`'s scope in a place of `class`, from memory.
     fn standing_blocks(
