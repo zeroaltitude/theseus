@@ -129,7 +129,7 @@ impl TurnRunner {
         let read = t.exchange.mark.as_ref().map_or_else(
             || {
                 #[cfg(test)]
-                if UNREADABLE.lock().unwrap().contains(t.tc.session_id) {
+                if UNREADABLE.lock().unwrap().iter().any(|s| s == t.tc.session_id) {
                     return None;
                 }
                 (self.outbox.speaks_at(t.tc.session_id))

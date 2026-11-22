@@ -278,3 +278,63 @@ async fn a_third_move_in_one_call_fails_it_plainly_and_sends_nothing() {
     assert!(sent.is_empty(), "nothing is sent: {}", sent.len());
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
 }
+
+/// (a) continuation, after a restart: the turn was cut before its exchange ended (as a crash leaves it: the
+/// exchange opened, no end, no stop), and the next start's driver resumes its execution
+/// (`continue_execution`). The resumed turn takes the view with its occasion line, and the cut exchange,
+/// though it never ended, is in its window with the question it never answered.
+#[tokio::test]
+async fn a_turn_resumed_after_a_restart_shows_the_cut_exchange_in_its_window() {
+    const RESUMES: &str = "it resumes work an earlier turn left unfinished";
+    const ASKED: &str = "when does the ferry leave the harbour?";
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    let mut cfg = crate::Config::example();
+    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
+    cfg.tools.roots = vec![];
+    view(&mut cfg);
+    let fake = Arc::new(crate::provider::FakeProvider::scripted(vec![
+        Scripted::Fail(ProviderError::Overloaded {
+            message: "overloaded_error: Overloaded".into(),
+        }),
+        Scripted::text("The ferry leaves at six."),
+    ]));
+    let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    // No driver runs here: the resume below is the one a restart's driver makes.
+    let c = crate::Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
+    let sid = session_in(&c, None, &root);
+    let _ = submit(&c, &sid, ASKED).await;
+    let turn = (c.store.session_nodes(&sid).unwrap().into_iter())
+        .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))
+        .and_then(|(_, n)| n.turn_id)
+        .unwrap();
+    let mut ex = crate::exchange::exchange(&c.store, &turn).unwrap().unwrap();
+    (ex.end_ms, ex.stop) = (None, None);
+    c.store
+        .append(&[crate::exchange::exchange_record(&ex).unwrap()])
+        .unwrap();
+    let rec: crate::session::SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
+    let res = c
+        .continue_execution(&rec.execution_id.unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(res.output, "The ferry leaves at six.");
+    let q = (fake.requests().into_iter())
+        .filter(|q| !q.tools.is_empty())
+        .last()
+        .unwrap();
+    legal(&q);
+    assert!(texts(&q).contains(RESUMES), "{}", texts(&q));
+    assert!(
+        texts(&q).contains(ASKED),
+        "the cut exchange is in the window: {}",
+        texts(&q)
+    );
+    let rows = compiled(&c, &sid);
+    assert!(rows.iter().all(|(_, s)| s == "view"), "{rows:?}");
+    assert!(fallbacks(&c).is_empty(), "{:?}", fallbacks(&c));
+}
