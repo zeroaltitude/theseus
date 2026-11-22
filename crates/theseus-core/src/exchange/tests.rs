@@ -14,6 +14,7 @@ use theseus_protocol::{Response, TurnSubmitResult};
 use super::ledger::{Prev, Row};
 use super::*;
 use crate::approval::Client;
+use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::config::Config;
 use crate::ledger::LedgerRow;
 use crate::provider::{FakeProvider, Scripted};
@@ -247,10 +248,13 @@ async fn an_agents_process_on_the_terminal_is_never_the_owner_in_person() {
     assert!(newest(&c.store, Root::Person(OWNER), 8).unwrap().is_empty());
 }
 
-/// The requests a rig's two turns sent, with its own directory's path made
+/// The requests a rig's two turns sent on the transcript, with its own directory's path made
 /// one name, so two rigs compare.
 async fn sent(ledger: bool) -> String {
-    let r = rig(2, |c| c.context.ledger = Some(ledger));
+    let r = rig(2, |c| {
+        c.context.ledger = Some(ledger);
+        c.context.assembly = Some(AssemblySetting::All(Assembly::Transcript));
+    });
     let first = turn(&r.core, owner_cli(), None, "the tide is out").await;
     turn(&r.core, owner_cli(), Some(&first.session_id), "and in?").await;
     let requests = serde_json::to_string(&r.fake.requests()).unwrap();

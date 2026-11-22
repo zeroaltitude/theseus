@@ -104,7 +104,7 @@ async fn an_exchanges_end_writes_its_line_off_the_turns_path() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_place_on_the_transcript_spends_nothing_on_summaries() {
-    let (_d, core, fake) = core_with(&["Never asked."], None);
+    let (_d, core, fake) = core_with(&["Never asked."], Some(Assembly::Transcript));
     let sid = session(&core);
     let turn = exchange_at(&core.store, &sid, PLACE, 1_000, false);
     let e = ExchangeEnd {

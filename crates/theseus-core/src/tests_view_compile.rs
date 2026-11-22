@@ -247,7 +247,9 @@ async fn a_view_window_reads_the_place_across_its_sessions() {
     for (view, sees) in [(true, true), (false, false)] {
         let r = match view {
             true => view_rig(),
-            false => rig_with(|_| {}),
+            false => {
+                rig_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::Transcript)))
+            }
         };
         let c = &r.core;
         let before = session_in(c, None, &r.root);
