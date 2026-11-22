@@ -49,7 +49,8 @@ impl TurnRunner {
         }
         let mut compiled = rendered(t, input)?;
         let over = |c: &Compiled| c.budget.overage.is_some();
-        if floored(t) || !(over(&compiled) || input.overflowed.is_some()) {
+        let short = over(&compiled) || input.overflowed.is_some();
+        if floored(t) || !short {
             return Ok(compiled);
         }
         let now = t.view.as_ref().map(|f| f.room).unwrap_or_default();

@@ -135,10 +135,14 @@ pub fn turn_record(turn: &str, compilation: &str, at_ms: u64) -> anyhow::Result<
 }
 
 /// Keep what a turn was shown: the view record, its turn's entry and its counts, deferred into the turn's
-/// next frame. The compiler calls it once for each view it builds, with the turn's own store handle, and the
-/// room the turn made, if any. A turn or compilation id holding the key's separator is refused, and nothing
-/// is kept.
-pub fn keep(
+/// next frame. A turn or compilation id holding the key's separator is refused, and nothing is kept.
+pub fn keep(store: &Store, turn: &str, compilation: &str, view: &View) -> anyhow::Result<()> {
+    keep_made(store, turn, compilation, view, None)
+}
+
+/// [`keep`], with the room the turn made, if any: the compiler calls it once for each view it builds, with
+/// the turn's own store handle.
+pub fn keep_made(
     store: &Store,
     turn: &str,
     compilation: &str,

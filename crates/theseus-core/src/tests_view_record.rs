@@ -132,7 +132,7 @@ fn keep_at(
         dropped: Vec::new(),
         residue: Vec::new(),
     };
-    record::keep(&core.store, turn, compilation, &view, None).unwrap();
+    record::keep(&core.store, turn, compilation, &view).unwrap();
 }
 
 async fn show(

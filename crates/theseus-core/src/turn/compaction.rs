@@ -30,7 +30,7 @@ use theseus_protocol::memory::{BudgetDrop, BudgetRange};
 
 pub(crate) mod gate;
 
-use super::{Failure, Target, Turn, TurnRunner};
+use super::{Target, Turn, TurnRunner};
 use crate::catalog::ThinkingMode;
 use crate::compiler::{self, compaction, CompileInput, Compiled};
 use crate::config::memory::SUMMARY_SESSION;

@@ -147,9 +147,13 @@ impl TurnRunner {
             f.card.clone_from(&compiled.card);
             if let Some(view) = f.record.take() {
                 let room = f.room.made(compiled.cleared.map_or(0, |p| p.results));
-                if let Err(e) =
-                    crate::view::record::keep(store, turn, &compiled.compilation.id, &view, room)
-                {
+                if let Err(e) = crate::view::record::keep_made(
+                    store,
+                    turn,
+                    &compiled.compilation.id,
+                    &view,
+                    room,
+                ) {
                     tracing::warn!(error = %format!("{e:#}"), "the view's record was not kept");
                 }
             }
