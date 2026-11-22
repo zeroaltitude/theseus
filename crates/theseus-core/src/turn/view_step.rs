@@ -396,12 +396,13 @@ impl TurnRunner {
             // (`view_freeze`), a preview reports it.
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
-        let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
-        sessions.extend(gated.sessions.borrow().iter().cloned());
-        // What a card, a waiting line or a fact was read from: a seal before a later call revokes it.
-        sessions.extend(read.depends.borrow().iter().cloned());
-        sessions.sort();
-        sessions.dedup();
+        let (window, sessions) = window_of(
+            (store, &read, gated.sessions.take()),
+            &a,
+            &pov,
+            turn,
+            renderer.zone,
+        )?;
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
         let frozen = Frozen {
@@ -762,9 +763,11 @@ fn message_of(store: &Store, sid: &str, turn: &str) -> anyhow::Result<(Option<St
 /// The window as the view shows it: the nodes of each exchange the budgeter kept in slot G, oldest first,
 /// from every session that ran them (this turn's own is its tail; a recall note is the transcript's), each
 /// part labelled by its own provenance (`labelled`), the results of those kept spoken as their receipts,
-/// made now from the window alone (`compiler::view::receipted`); and every session the view lays.
+/// made now from the window alone (`compiler::view::receipted`); and every session the view lays: the
+/// window's, the folds' (`folds`, as the gated ladder kept them), and those a card, a waiting line or a fact
+/// was read from (`Sessions::depends`), so a seal of any before a later call revokes the view.
 fn window_of(
-    (store, read): (&Store, &Sessions),
+    (store, read, folds): (&Store, &Sessions, Vec<String>),
     a: &Assembled,
     pov: &PointOfView,
     turn: &str,
@@ -830,6 +833,8 @@ fn window_of(
             sessions.push(crate::task_graph::home(&all, rec));
         }
     }
+    sessions.extend(folds);
+    sessions.extend(read.depends.borrow().iter().cloned());
     sessions.sort();
     sessions.dedup();
     Ok((crate::compiler::view::receipted(window, &spoken), sessions))

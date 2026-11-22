@@ -486,25 +486,25 @@ mod tests {
     /// the `unknown` place contributes nothing, and the view does not depend on it.
     #[test]
     fn an_exchange_is_admitted_by_its_sessions_current_marks_and_fails_closed() {
-        let clear = private("discord:dm:42");
-        assert_eq!(admits(clear.clone(), &dm("discord:dm:42")), (true, true));
+        let clear = || private("discord:dm:42");
+        assert_eq!(admits(clear(), &dm("discord:dm:42")), (true, true));
         let unplaced = Marks {
             place: None,
-            ..clear.clone()
+            ..clear()
         };
         assert_eq!(admits(unplaced, &dm("discord:dm:42")), (false, false));
         let unknown = Marks {
             audience: Audience::Unknown,
-            ..clear.clone()
+            ..clear()
         };
         assert_eq!(admits(unknown, &dm("discord:dm:42")), (false, false));
         let sealed = Marks {
             sealed: true,
-            ..clear
+            ..clear()
         };
         assert_eq!(admits(sealed, &dm("discord:dm:42")), (false, false));
         let nowhere = crate::exchange::rebuild::UNKNOWN;
-        assert_eq!(admits(clear.clone(), &dm(nowhere)), (false, false));
-        assert_eq!(admits(clear, &dm("")), (false, false));
+        assert_eq!(admits(clear(), &dm(nowhere)), (false, false));
+        assert_eq!(admits(clear(), &dm("")), (false, false));
     }
 }
