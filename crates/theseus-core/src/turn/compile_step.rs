@@ -14,6 +14,13 @@ pub(super) struct Keeping {
     writing: Vec<tokio::task::JoinHandle<()>>,
 }
 
+impl Keeping {
+    /// More texts to keep with the system blocks, in the same batch (a view's chain, `view_step::kept`).
+    pub(super) fn add(&mut self, fresh: Vec<Vec<u8>>) {
+        self.texts.extend(fresh);
+    }
+}
+
 impl TurnRunner {
     /// Render the session into this loop's request: an append to the current
     /// compilation, or a recompile (persisted with the session's pointer).
