@@ -168,6 +168,11 @@ pub struct MemoryConfig {
     /// The shadow count it would have promoted, `would_drop`, stays.
     #[serde(default, skip_serializing)]
     pub(crate) small_talk_bar: Option<toml::Value>,
+    /// `summary_profile` chose who wrote compaction's summary (30c). Compaction
+    /// is gone (issue 44): read, warned of ([`Self::trimmed`]), ignored and
+    /// never written back.
+    #[serde(default, skip_serializing)]
+    pub(crate) summary_profile: Option<toml::Value>,
     /// The tokens of the recall section an assembled prefix carries (30c):
     /// a task's first compile.
     #[serde(default = "default_assembled_budget")]
@@ -286,6 +291,7 @@ impl Default for MemoryConfig {
             recall_subject_bar: 0.0,
             include_external: false,
             small_talk_bar: None,
+            summary_profile: None,
             assembled_budget_tokens: default_assembled_budget(),
             synth_profile: None,
             synth_limit_usd_per_day: default_synth_limit(),
@@ -305,8 +311,13 @@ impl MemoryConfig {
     /// The keys the trim of unused modes retired (issue 44) that this
     /// section sets: what [`crate::Config::parse`] warns of, once.
     pub fn trimmed(&self) -> Vec<String> {
-        (self.small_talk_bar.iter())
-            .map(|_| "memory.small_talk_bar".into())
+        let keys = [
+            ("small_talk_bar", self.small_talk_bar.is_some()),
+            ("summary_profile", self.summary_profile.is_some()),
+        ];
+        (keys.iter())
+            .filter(|(_, set)| *set)
+            .map(|(k, _)| format!("memory.{k}"))
             .collect()
     }
 

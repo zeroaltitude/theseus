@@ -30,6 +30,11 @@ pub struct ContextConfig {
     /// smaller one makes clearing come sooner and cost less.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_window_tokens: Option<u64>,
+    /// `kept_mb` bounded each session's render kept across turns. The kept
+    /// render is gone (issue 44): read, warned of ([`Self::trimmed`]), ignored
+    /// and never written back.
+    #[serde(default, skip_serializing)]
+    pub(crate) kept_mb: Option<toml::Value>,
     /// The exchange ledger (issue 44, step 1; `crate::exchange`): each
     /// person's message's mark, each turn's exchange and touches, and a
     /// measuring row per private turn, all beside the conversation and none
@@ -87,6 +92,14 @@ impl ContextConfig {
             );
         }
         Ok(())
+    }
+
+    /// The keys the cut retired (issue 44) that this section sets: what
+    /// [`crate::Config::parse`] warns of, once.
+    pub fn trimmed(&self) -> Vec<String> {
+        (self.kept_mb.iter())
+            .map(|_| "context.kept_mb".into())
+            .collect()
     }
 
     /// Whether the exchange ledger is written.

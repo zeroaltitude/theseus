@@ -121,3 +121,21 @@ fn the_line_says_what_changes_with_each_retired_mode() {
         assert!(!l.contains("What changes"), "{l}");
     }
 }
+
+/// What the cut retired from the old way of building a request (issue 44): `[memory] summary_profile`
+/// (compaction's summary) and `[context] kept_mb` (the kept render) load whatever their value, do nothing,
+/// and are named in the same one line. An unknown key in either section is still refused.
+#[test]
+fn an_old_settings_file_with_the_cuts_retired_keys_loads() {
+    let text = "[memory]\nsummary_profile = \"haiku\"\n\n[context]\nkept_mb = 64\n";
+    let (cfg, warnings) = parse(text).unwrap();
+    let lines = trimmed(&warnings);
+    assert_eq!(lines.len(), 1, "{warnings:?}");
+    for key in ["memory.summary_profile", "context.kept_mb"] {
+        assert!(lines[0].contains(key), "{key}: {}", lines[0]);
+    }
+    assert_eq!(cfg.memory.trimmed(), ["memory.summary_profile"]);
+    assert_eq!(cfg.context.trimmed(), ["context.kept_mb"]);
+    assert!(parse("[memory]\nsummary_profil = \"off\"\n").is_err());
+    assert!(parse("[context]\nkept_mbs = 1\n").is_err());
+}
