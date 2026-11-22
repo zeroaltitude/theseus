@@ -120,7 +120,11 @@ fn ask_with_a_thread_runs_here_and_says_so() {
     let _d = r.spawn();
     let o = ask_naming_a_thread(
         &r,
-        &["--thread", "harbour-log", "hello from the shell about the north wall"],
+        &[
+            "--thread",
+            "harbour-log",
+            "hello from the shell about the north wall",
+        ],
         &[],
     );
     let err = String::from_utf8_lossy(&o.stderr);
@@ -140,7 +144,10 @@ fn an_ignored_thread_address_prints_no_thread_title() {
     let r = Rig::new();
     let _d = r.spawn();
     for (args, env) in [
-        (vec!["--thread", "harbour-log", "first word from the north wall"], vec![]),
+        (
+            vec!["--thread", "harbour-log", "first word from the north wall"],
+            vec![],
+        ),
         (
             vec!["second word from the north wall"],
             vec![("THESEUS_THREAD", "harbour-log")],

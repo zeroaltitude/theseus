@@ -154,10 +154,6 @@ pub(crate) async fn stream_turn(
         .get("dir")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let thread = params
-        .get("thread")
-        .and_then(Value::as_str)
-        .map(str::to_string);
     let mode = match (json, stream) {
         (true, _) => Mode::Json,
         (false, true) => Mode::Text,

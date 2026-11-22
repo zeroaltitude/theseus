@@ -632,7 +632,12 @@ mod tests {
     #[test]
     fn an_old_split_threads_quote_is_told_from_a_tasks_arrangement() {
         let old = Node::user("ses_lighthouse", None, "thread:harbour", "the tide tables");
-        let task = Node::user("ses_lighthouse", None, "session:ses_keeper", "the tide tables");
+        let task = Node::user(
+            "ses_lighthouse",
+            None,
+            "session:ses_keeper",
+            "the tide tables",
+        );
         assert!(is_thread_quote(&old));
         assert!(!is_thread_quote(&task));
     }

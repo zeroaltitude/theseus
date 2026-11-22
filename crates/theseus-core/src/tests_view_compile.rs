@@ -431,20 +431,17 @@ pub(crate) fn kelp(store: &crate::store::Store, seal: bool) -> String {
     r.session_id
 }
 
-/// Seal the thread `kelp` through the thread board's own write.
+/// Seal the thread `kelp`: its record written again sealed, as an older store holds it (nothing
+/// writes a thread now, issue 44; the record keeps no session), and the board read again.
 pub(crate) fn seal_kelp(c: &crate::Core) {
-    c.runner
-        .threads
-        .write(
-            &c.store,
-            |b| {
-                let mut v = serde_json::to_value(b.get("kelp").expect("kelp")).unwrap();
-                v["sealed"] = serde_json::json!({"by": "cli", "at_ms": 2, "reason": "embargo"});
-                Ok(vec![serde_json::from_value(v)?])
-            },
-            |_, _| Ok(vec![]),
-        )
-        .unwrap();
+    let mut v = serde_json::to_value(c.threads().get("kelp").expect("kelp")).unwrap();
+    v["sealed"] = serde_json::json!({"by": "cli", "at_ms": 2, "reason": "embargo"});
+    if let Some(o) = v.as_object_mut() {
+        o.remove("session_id");
+    }
+    c.store.put_meta("thread:kelp", &v).unwrap();
+    c.runner.threads.forget();
+    c.threads();
 }
 
 /// One ladder read per assembly: a fold that lands between two reads of the same place does not reach the

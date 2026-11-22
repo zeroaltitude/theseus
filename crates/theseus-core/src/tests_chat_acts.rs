@@ -560,10 +560,7 @@ fn thread_session(core: &Arc<Core>, slug: &str, channel: Option<u64>) -> String 
         .unwrap();
     if let Some(c) = channel {
         core.outbox
-            .show_at(
-                &rec.session_id,
-                Some(&format!("discord:channel:{c}")),
-            )
+            .show_at(&rec.session_id, Some(&format!("discord:channel:{c}")))
             .unwrap();
     }
     rec.session_id

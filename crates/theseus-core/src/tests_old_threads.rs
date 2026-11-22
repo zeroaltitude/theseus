@@ -5,7 +5,7 @@
 
 use serde_json::{json, Value};
 use theseus_protocol::SessionOpenParams;
-use theseus_store::{kinds, NewRecord, Store as _};
+use theseus_store::{kinds, NewRecord};
 
 use crate::rpc::Core;
 use crate::session::SessionRecord;

@@ -6,8 +6,8 @@
 
 use serde_json::{json, Value};
 use theseus_protocol::threads::ThreadInfo;
-use theseus_protocol::NarrativePart::Session;
 use theseus_protocol::LedgerKind;
+use theseus_protocol::NarrativePart::Session;
 
 use super::{Fact, Say};
 

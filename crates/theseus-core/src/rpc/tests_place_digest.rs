@@ -81,10 +81,10 @@ fn rig(jev: &FakeJev, n: usize, digest: bool) -> Rig {
 fn threads(c: &Core) {
     for (slug, title, goal, card, host) in THREADS {
         let mut more = json!({"goal": goal, "card": card, "working_set": {"hosts": [host]}});
-        if *slug == "embargo" {
+        if slug == "embargo" {
             more["sealed"] = json!({"by": "the CLI", "at_ms": 1, "reason": "before disclosure"});
         }
-        if *slug == "pending" {
+        if slug == "pending" {
             more["seal_pending"] = json!("it names the vault");
         }
         crate::tests_old_threads::thread(c, slug, title, more);
