@@ -122,12 +122,16 @@ pub async fn look(core: &Arc<Core>, message: &str) -> Look {
     let places = RecallPlaces::default();
     let private = |s: &str| places.of_session(&core.runner, s) == Place::Private;
     let hidden = |s: &str| core.ladder_hidden(s);
+    let moved = crate::view_gate::Moved::read(&core.runner, None);
+    let moved = |e: &crate::exchange::Exchange| moved.holds(e);
     let lens = page::Lens {
         store: &core.store,
         here: here.clone(),
         present: Present::OwnerAlone,
         hidden: &hidden,
+        moved: &moved,
         private: &private,
+        released: &page::none_released,
         in_view: None,
         words: None,
     };

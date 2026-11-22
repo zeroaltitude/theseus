@@ -157,6 +157,7 @@ fn lens<'a>(
         hidden,
         moved: &none_moved,
         private: &all_private,
+        released: &super::page::none_released,
         in_view: None,
         words: None,
     }

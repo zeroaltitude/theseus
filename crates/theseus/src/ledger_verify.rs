@@ -60,6 +60,28 @@ pub enum LedgerCmd {
         #[arg(long)]
         over_day_line: bool,
     },
+    /// For a message of yours in a channel (its node id), what Theseus would offer from your private
+    /// conversation: the one piece it leans on, in its own words. Nothing is released by looking.
+    ReleaseOffer {
+        /// The message, by its node id.
+        message: String,
+    },
+    /// Release one exchange of your private conversation (by its id) to one other place: there, that piece and
+    /// nothing else becomes readable, marked as released by you. Yours alone, from your own terminal.
+    Release {
+        /// The exchange, by its turn id.
+        exchange: String,
+        /// The place it is released to (`discord:channel:<id>`).
+        #[arg(long)]
+        to: String,
+    },
+    /// Every release you made, and whether it was withdrawn.
+    Releases,
+    /// Withdraw a release: the piece is no longer readable there. What was already sent cannot be unsent.
+    Withdraw {
+        /// The release's id (`rel_…`).
+        id: String,
+    },
 }
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
@@ -87,6 +109,38 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
                 json,
                 place,
                 (dry_run, cap_usd, over_day_line),
+            )
+            .await
+        }
+        LedgerCmd::ReleaseOffer { message } => {
+            return crate::exchanges_cmd::release(
+                conn,
+                method::EXCHANGE_OFFER,
+                serde_json::json!({ "message": message }),
+            )
+            .await
+        }
+        LedgerCmd::Release { exchange, to } => {
+            return crate::exchanges_cmd::release(
+                conn,
+                method::EXCHANGE_RELEASE,
+                serde_json::json!({ "exchange": exchange, "to": to }),
+            )
+            .await
+        }
+        LedgerCmd::Releases => {
+            return crate::exchanges_cmd::release(
+                conn,
+                method::EXCHANGE_RELEASES,
+                serde_json::json!({}),
+            )
+            .await
+        }
+        LedgerCmd::Withdraw { id } => {
+            return crate::exchanges_cmd::release(
+                conn,
+                method::EXCHANGE_WITHDRAW,
+                serde_json::json!({ "id": id }),
             )
             .await
         }

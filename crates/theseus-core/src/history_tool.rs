@@ -338,6 +338,7 @@ pub(crate) async fn answer(
     let hidden = |s: &str| s != session && core.ladder_hidden(s);
     let moved = crate::view_gate::Moved::read(&core.runner, Some(session));
     let moved = |e: &crate::exchange::Exchange| moved.holds(e);
+    let released = page::released_here(&core.store, here);
     let mut lens = page::Lens {
         store: &core.store,
         here: here.clone(),
@@ -345,6 +346,7 @@ pub(crate) async fn answer(
         hidden: &hidden,
         moved: &moved,
         private: &private,
+        released: &released,
         in_view: page::in_view(&core.store, session).map_err(|e| format!("{e:#}"))?,
         words: None,
     };
@@ -375,13 +377,52 @@ pub(crate) async fn answer(
         .map_err(|e| format!("{e:#}"))?;
     let resume = walked.resume.map(|at| board.keep(turn, at));
     let p = walked.page;
+    let bare = a.place.is_none() && a.thing.is_none() && a.words.is_none() && a.before.is_none();
+    let released = match bare {
+        true => released_lines(&lens),
+        false => String::new(),
+    };
     Ok(ToolOutput {
-        text: page::render(&p, here, used.looks, resume.as_ref()),
+        text: format!(
+            "{released}{}",
+            page::render(&p, here, used.looks, resume.as_ref())
+        ),
         meta: json!({
             "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
             "look": used.looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
         }),
     })
+}
+
+/// The exchanges the owner released to this place from another conversation (`crate::release`), each passing
+/// the lens like any line: the seal, the moved messages and the release's rules, failing closed.
+fn released_lines(lens: &page::Lens<'_>) -> String {
+    let mut out = String::new();
+    for r in crate::release::released_to(lens.store, &lens.here) {
+        let Some(ex) = exchange::exchange(lens.store, &r.exchange).ok().flatten() else {
+            continue;
+        };
+        if !lens.admits(&ex) {
+            continue;
+        }
+        let words = ex
+            .ask
+            .as_deref()
+            .and_then(|id| lens.store.get_node(id).ok().flatten())
+            .map(|(_, n)| page::cut(&page::spoken(&n), 300))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "{} ({}): \"{}\" [open: {}]\n",
+            crate::release::LABEL,
+            page::when(ex.start_ms),
+            page::flat(&words),
+            ex.turn_id
+        ));
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out
 }
 
 /// The turns the words index finds for `words` among `scope`, the sessions this point of view may read on the

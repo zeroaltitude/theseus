@@ -21,6 +21,10 @@ pub(super) const OWN: &[&str] = &[
     method::EXCHANGE_REPORT,
     method::EXCHANGE_REBUILD,
     method::EXCHANGE_LADDER,
+    method::EXCHANGE_OFFER,
+    method::EXCHANGE_RELEASE,
+    method::EXCHANGE_RELEASES,
+    method::EXCHANGE_WITHDRAW,
 ];
 
 impl Core {
@@ -153,6 +157,28 @@ impl Core {
                     stopped: b.stopped,
                 })
             }
+            method::EXCHANGE_OFFER
+            | method::EXCHANGE_RELEASE
+            | method::EXCHANGE_RELEASES
+            | method::EXCHANGE_WITHDRAW => {
+                let who = conn.answerer(None, None);
+                if let Err(why) = crate::places::owner_in_person_of(
+                    &who,
+                    &self.runner.place_rule,
+                    &self.cfg,
+                    "a piece of a private conversation is released by the owner alone",
+                    "",
+                ) {
+                    return Err(RpcFailure::new(
+                        error_code::REFUSED,
+                        format!("refused: {why}"),
+                    ));
+                }
+                return self
+                    .rpc_release(name, params, conn.surface.as_str())
+                    .await
+                    .map_err(|e| RpcFailure::new(error_code::REFUSED, format!("{e:#}")));
+            }
             other => {
                 return Err(RpcFailure::new(
                     error_code::METHOD_NOT_FOUND,
@@ -161,5 +187,103 @@ impl Core {
             }
         };
         out.map_err(|e| RpcFailure::invalid(e.into()))
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OfferParams {
+    /// A message of the owner's in company, by its node.
+    message: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReleaseParams {
+    /// The exchange, by its turn.
+    exchange: String,
+    /// The place it is released to, as the ledger names places.
+    to: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WithdrawParams {
+    id: String,
+}
+
+impl Core {
+    /// The release methods, the owner in person proven by the caller (`crate::release`).
+    async fn rpc_release(
+        self: Arc<Self>,
+        name: &str,
+        params: Value,
+        surface: &str,
+    ) -> anyhow::Result<Value> {
+        Ok(match name {
+            method::EXCHANGE_OFFER => {
+                let p: OfferParams = serde_json::from_value(params)?;
+                return self.clone().release_offer(&p.message).await;
+            }
+            method::EXCHANGE_RELEASE => {
+                let p: ReleaseParams = serde_json::from_value(params)?;
+                let moved = crate::view_gate::Moved::read(&self.runner, None);
+                let held = |ex: &crate::exchange::Exchange| {
+                    self.ladder_hidden(&ex.session_id) || moved.holds(ex)
+                };
+                let r = crate::release::grant(&self.store, &p.exchange, &p.to, surface, &held)?;
+                serde_json::json!({"release": r, "label": crate::release::LABEL})
+            }
+            method::EXCHANGE_WITHDRAW => {
+                let p: WithdrawParams = serde_json::from_value(params)?;
+                let e = crate::release::withdraw(&self.store, &p.id, surface)?;
+                serde_json::json!({"ended": e, "note": crate::release::UNSENT})
+            }
+            _ => {
+                let all = crate::release::all(&self.store)?;
+                let rows: Vec<Value> = all
+                    .into_iter()
+                    .map(|(r, end)| serde_json::json!({"release": r, "ended": end}))
+                    .collect();
+                serde_json::json!({"releases": rows})
+            }
+        })
+    }
+
+    /// What the release card's look would offer for the owner's message `node` in company: its place, the
+    /// outcome, and each candidate's words (shown to him alone, at his own terminal).
+    async fn release_offer(self: Arc<Self>, node: &str) -> anyhow::Result<Value> {
+        let mark = crate::exchange::mark(&self.store, node)?
+            .ok_or_else(|| anyhow::anyhow!("no message {node} with the owner's mark"))?;
+        if mark.person().as_deref() != Some(crate::exchange::OWNER) {
+            anyhow::bail!("message {node} is not the owner's");
+        }
+        let (_, n) = self
+            .store
+            .get_node(node)?
+            .ok_or_else(|| anyhow::anyhow!("no message {node}"))?;
+        let crate::node::Body::UserMessage { text, .. } = &n.body else {
+            anyhow::bail!("{node} is not a message");
+        };
+        let look = crate::release_card::look(&self, text).await;
+        let candidates: Vec<Value> = look
+            .ids
+            .iter()
+            .filter_map(|t| crate::exchange::exchange(&self.store, t).ok().flatten())
+            .map(|ex| {
+                let words = ex
+                    .ask
+                    .as_deref()
+                    .and_then(|a| self.store.get_node(a).ok().flatten())
+                    .map(|(_, n)| crate::recall::text_of(&n))
+                    .unwrap_or_default();
+                serde_json::json!({"exchange": ex.turn_id, "from": ex.place,
+                                   "at_ms": ex.start_ms, "words": words})
+            })
+            .collect();
+        Ok(serde_json::json!({
+            "message": node, "place": mark.place, "outcome": look.outcome,
+            "found": look.found, "candidates": candidates,
+        }))
     }
 }

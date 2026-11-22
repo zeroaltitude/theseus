@@ -60,18 +60,21 @@ fn a_candidate_is_his_own_words_in_his_private_conversation_and_never_a_sealed_o
     put(&s, "t_lobby", "ses_lobby", LOBBY, Some(OWNER), 4_000);
     put(&s, "t_other", "ses_other", OTHER_DM, Some(OWNER), 5_000);
     put(&s, "t_sealed", "ses_sealed", DM, Some(OWNER), 6_000);
+    put(&s, "t_moved", "ses_dm", DM, Some(OWNER), 7_000);
     let hidden = |sid: &str| sid == "ses_sealed";
     let lens = page::Lens {
         store: &s,
         here: DM.into(),
         present: Present::OwnerAlone,
         hidden: &hidden,
+        moved: &|e: &Exchange| e.turn_id == "t_moved",
         private: &all_private,
+        released: &page::none_released,
         in_view: None,
         words: None,
     };
     let found: HashSet<String> = [
-        "t_old", "t_new", "t_guest", "t_lobby", "t_other", "t_sealed", "t_none",
+        "t_old", "t_new", "t_guest", "t_lobby", "t_other", "t_sealed", "t_moved", "t_none",
     ]
     .iter()
     .map(|t| t.to_string())
