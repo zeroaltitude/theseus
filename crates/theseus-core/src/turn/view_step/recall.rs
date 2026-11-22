@@ -78,7 +78,7 @@ impl TurnRunner {
     /// The nodes the window's floor lays with their words, read as the view's assembly reads them: the
     /// same verified presence, mark, fork, gated ladder and facts, the floor chosen over what the gate
     /// admits (`select::Here`), each exchange counted by the form the floor asks for it
-    /// (`sources_recall::carries`: the newest whole, the other two spoken). The floor is never cut, so
+    /// (`sources_recall::carries`: spoken). The floor is never cut, so
     /// what it lays here the assembled view lays too.
     fn view_floor(&self, t: &super::super::Turn<'_>) -> anyhow::Result<BTreeSet<String>> {
         use crate::view::select::{Band, Here, Selector};

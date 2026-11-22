@@ -110,16 +110,6 @@ pub struct Fit {
     pub base: (u64, u64),
     /// What finishing (its tails) added to the last request of the current chain, upper bound and tokens.
     pub tail_on: (u64, u64),
-    /// What finishing added to the newest request that began a chain: a new chain's own cost (the retained
-    /// tails of the chain before are not resent on it).
-    pub tail_new: (u64, u64),
-    /// The newest request sent: how many of the turn's answers came before it, and its finished estimate.
-    pub sent: Option<(usize, u64)>,
-    /// What the provider counted for that request against Theseus's estimate, in thousandths, once its
-    /// answer came: a new chain's estimate is read at it (`turn::view_step::room`).
-    pub ratio: Option<u64>,
-    /// The turn's answers before the call being compiled.
-    pub answered: usize,
     /// What the view's assembly charged, last assembled.
     pub charged: u64,
     /// The request's tokens beyond what the view charged (the turn's own nodes, the tools, the tails).
