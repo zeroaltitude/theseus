@@ -315,3 +315,140 @@ async fn in_company_on_the_view_no_private_memory_is_laid() {
         );
     }
 }
+
+/// A real imported episode labelled `sensitivity`, holding one operator message `text`.
+fn labelled_import(c: &crate::Core, sensitivity: &str, text: &str, n: u8) -> String {
+    use crate::import::{AsOf, EpisodeLabels, EpisodePlace, ImportedFrom, Integrity};
+    use crate::session::SessionRecord;
+    let sid = format!(
+        "{}{}",
+        crate::import::SESSION_PREFIX,
+        format!("{n:x}").repeat(64).get(..64).unwrap()
+    );
+    let mut rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    rec.session_id = sid.clone();
+    rec.imported = Some(Box::new(ImportedFrom {
+        tag: "t".into(),
+        episode_id: format!("ep_{n}"),
+        hash: "h".into(),
+        source: "openclaw-store".into(),
+        agent: None,
+        place: EpisodePlace {
+            kind: "dm".into(),
+            name: None,
+            id: None,
+        },
+        labels: EpisodeLabels {
+            sensitivity: sensitivity.into(),
+            partner: (sensitivity == "partner-confidential")
+                .then(|| "partner-candidate:kelp".into()),
+            topic: vec![],
+            book_hint: None,
+            credential_redacted: false,
+        },
+        triage: None,
+        as_of: AsOf {
+            start_ms: 1,
+            end_ms: 2,
+        },
+        messages: 1,
+        summary: false,
+        file: "x.jsonl".into(),
+        line: 1,
+        imported_at_ms: 3,
+        erased: None,
+        diverged_at: vec![],
+    }));
+    c.store.put_session(&sid, &rec).unwrap();
+    let body = crate::node::Body::Imported {
+        text: text.into(),
+        integrity: Integrity::Operator,
+        source: "openclaw-store".into(),
+        unit: format!("u{n}"),
+        sha256: "0".repeat(64),
+        idx: 0,
+    };
+    let node = crate::node::Node::imported(
+        format!("node_veil_{n}"),
+        &sid,
+        "operator",
+        1_767_787_200_000,
+        body,
+    );
+    c.store.append(&[node.record().unwrap()]).unwrap();
+    sid
+}
+
+/// Corrected, pinned as it is (the conductor's item 5): automatic recall applies no sensitivity veil to an
+/// import. A `personal` and a `partner-confidential` import are laid when the owner is alone; in a shared
+/// channel, and in a private channel others may join, neither is.
+#[tokio::test]
+async fn veiled_imports_are_laid_only_where_the_owner_is_alone() {
+    const PERSONAL: &str = "a personal diary line about the Hollowmere hives and the doctor";
+    const PARTNER: &str = "a partner-confidential note on the Hollowmere hives contract";
+    for place in ["alone", "shared", "private channel"] {
+        let (r, _) = owners_rig(view);
+        let c = &r.core;
+        let sources = vec![
+            labelled_import(c, "personal", PERSONAL, 1),
+            labelled_import(c, "partner-confidential", PARTNER, 2),
+        ];
+        c.runner.memory.set_ask(index_of(c, sources));
+        let sid = match place {
+            "alone" => session_in(c, None, &r.root),
+            "shared" => crate::tests_places::session(c, Some(&format!("channel:{LAB}"))),
+            _ => {
+                c.bind_places(vec![crate::places::BoundPlace {
+                    target: format!("discord:channel:{LAB}"),
+                    name: "#lab".into(),
+                    private: true,
+                    ..Default::default()
+                }]);
+                crate::tests_places::session(c, Some(&format!("channel:{LAB}")))
+            }
+        };
+        turn(c, &sid, ASKED).await;
+        let sent = texts(&calls(&r).pop().unwrap());
+        let laid = [PERSONAL, PARTNER].map(|w| sent.contains(w));
+        assert_eq!(laid, [place == "alone"; 2], "{place}: {sent}");
+    }
+}
+
+/// The owner's own DM with his in-person mark recalls an import: laid. An agent's process at the terminal
+/// (never the owner alone) is not shown the import, but is shown an item of its own place.
+#[tokio::test]
+async fn the_owners_dm_is_shown_an_import_and_an_agent_at_the_terminal_only_its_place() {
+    const HERE: &str = "earlier at this terminal the Hollowmere hives got a new roof";
+    // The owner's DM.
+    let (r, _) = owners_rig(view);
+    let c = &r.core;
+    let sources = old_memories(c);
+    c.runner.memory.set_ask(index_of(c, sources));
+    let dm = session_in(
+        c,
+        Some(&format!("dm:{}", crate::tests_places::OWNER)),
+        &r.root,
+    );
+    turn(c, &dm, ASKED).await;
+    let sent = texts(&calls(&r).pop().unwrap());
+    assert!(sent.contains(IMPORTED), "the owner's DM: {sent}");
+    // An agent's process at the terminal.
+    let (r, _) = owners_rig(view);
+    let c = &r.core;
+    let here = session_in(c, None, &r.root);
+    crate::tests_view_compile::turn_as(c, &here, HERE, true).await;
+    let mut sources = old_memories(c);
+    sources.push(here);
+    c.runner.memory.set_ask(index_of(c, sources));
+    let sid = session_in(c, None, &r.root);
+    crate::tests_view_compile::turn_as(c, &sid, ASKED, false).await;
+    let sent = texts(&calls(&r).pop().unwrap());
+    assert!(
+        !sent.contains(IMPORTED),
+        "an agent is not shown an import: {sent}"
+    );
+    assert!(
+        sent.contains(HERE),
+        "an agent is shown its own place: {sent}"
+    );
+}

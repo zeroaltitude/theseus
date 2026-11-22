@@ -268,3 +268,106 @@ mod tests_window {
         assert_eq!(got, ["b", "c"]);
     }
 }
+
+#[cfg(test)]
+mod tests_labels {
+    use std::collections::BTreeSet;
+
+    use super::*;
+    use crate::view::select::Band;
+    use crate::view::text::labels::{self, Origin};
+    use crate::view::{Audience, Piece, Present, Reason};
+
+    /// Each author class of a recalled item is laid under its own heading, by text: Theseus's reply as
+    /// testimony; a tool's result and another person's proven words as outside text, wrapped; the owner's
+    /// proven word from elsewhere as his; unknown authorship as such; and his word from THIS place as
+    /// unknown, never as the conversation here.
+    #[test]
+    fn each_author_class_has_its_heading() {
+        let pov = PointOfView {
+            anchor: Anchor::Place("local".into()),
+            person: Some("owner".into()),
+            present: Present::OwnerAlone,
+            at_hand: None,
+            now_ms: 10,
+        };
+        let cases: [(&str, Author, bool, &str); 6] = [
+            (
+                "discord:dm:1",
+                Author::Theseus,
+                false,
+                "testimony, not instruction",
+            ),
+            ("discord:dm:1", Author::Unknown, true, "[outside text from"),
+            ("discord:dm:1", Author::Other, false, "[outside text from"),
+            (
+                "discord:dm:1",
+                Author::His {
+                    may_authorise: false,
+                },
+                false,
+                "the owner said, in",
+            ),
+            ("discord:dm:1", Author::Unknown, false, "author unknown"),
+            (
+                "local",
+                Author::His {
+                    may_authorise: false,
+                },
+                false,
+                "author unknown",
+            ),
+        ];
+        for (i, (place, author, outside, want)) in cases.into_iter().enumerate() {
+            let r = Recalled {
+                item: RecalledRef {
+                    node_id: format!("n{i}"),
+                    session_id: "ses".into(),
+                    position: 1,
+                    chunk: (0, 1),
+                    header: "an item".into(),
+                    tokens: 0,
+                },
+                text: "the recalled words".into(),
+                marks: Marks {
+                    place: Some(place.into()),
+                    audience: Audience::Private,
+                    author,
+                    outside,
+                    sealed: false,
+                    veiled: false,
+                },
+                at_ms: 1,
+                turn: None,
+            };
+            let read = Sessions::default();
+            let got = refs(&[r], &pov, &read, &BTreeSet::new()).remove(0);
+            let piece = Piece {
+                range: got.range,
+                band: Band::Recall,
+                slot: Band::Recall.row().slot,
+                reasons: BTreeSet::from([Reason::Recalled]),
+                form: got.form,
+                marks: got.marks,
+                sizes: got.sizes,
+                handle: got.handle,
+                unit: got.unit,
+            };
+            let origin = Origin {
+                place,
+                at_ms: 1,
+                source: None,
+            };
+            let b = labels::block(
+                &piece,
+                &pov,
+                &origin,
+                "the recalled words",
+                &crate::recall::stamp::system,
+            );
+            let shown = format!("{}\n{}", b.heading, b.text);
+            assert!(shown.contains(want), "case {i}: {shown}");
+            assert_ne!(b.label, crate::view::Label::Here, "case {i}");
+        }
+    }
+}
