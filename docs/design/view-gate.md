@@ -78,7 +78,12 @@ the rule under any name a file gives it. Both are heuristics over the sources, n
 
 ## Left for the steps that follow
 
-- The byte test (the bytes sent are identical with the forbidden records deleted) lands with the assembler (step 6).
+- The byte test (the bytes sent are identical with the forbidden records deleted) has not landed. Two properties
+  stand in its place, and neither is about bytes: over generated stores, for a point of view that is not the owner
+  alone, what the gate admits is the same with every other place's sessions left out of the store
+  (`other_places_change_nothing_the_gate_admits_over_generated_stores`); and the view the selectors and the
+  budgeter make is the same with exchanges the gate denies added (`view/select/tests.rs`). What the renderer and the
+  compiler send is not tested this way.
 
 ## After the second review
 

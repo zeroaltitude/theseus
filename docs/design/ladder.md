@@ -56,6 +56,9 @@ One summary job runs at a time. `theseus exchanges ladder <place> [--dry-run] [-
 ladder from its history: the missing lines, oldest first, then the folds. A dry run counts the exchanges, the
 lines and the folds, prices them at their worst case, and writes nothing.
 
-## Not yet
+## Where it is read
 
-- The renderer shows none of this yet; no request changes.
+- In a place set to the view (`[context] assembly`, `view-compile.md`), the window and the ladder are read from
+  these records: the fold nodes stand for the exchanges older than the window, and an exchange with no `did` line
+  reads "reply not summarised". A fold node is kept only when every exchange it stands for resolves to a session and
+  none of those is sealed, seal-pending or unreadable at the turn. In a transcript place no request changes.
