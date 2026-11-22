@@ -336,7 +336,7 @@ const VOICE_RESUMED: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 48] = [
+const INSTRUMENTS: [&Instrument; 47] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
