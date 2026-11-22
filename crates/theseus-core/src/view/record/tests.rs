@@ -412,3 +412,19 @@ fn the_owners_look_tells_nothing_of_a_held_drop_not_even_in_the_residue() {
         .iter()
         .any(|r| r.pieces == 1 && r.tokens == 100));
 }
+
+/// Two chains of one turn from one frozen view (the same assembly time, as a room's new chain reuses it):
+/// the newest is the later chain's, whatever the ids, and `of_turn` lists them in the order kept.
+#[test]
+fn two_chains_of_one_frozen_view_read_newest_as_the_later() {
+    let (_d, store) = store();
+    // Ids that sort in the order made, as production ids (`cmp_<UUIDv7>`) do.
+    let (first, second) = ("cmp_a".to_string(), "cmp_b".to_string());
+    keep(&store, "t1", &first, &view(7)).unwrap();
+    keep(&store, "t1", &second, &view(7)).unwrap();
+    assert_eq!(newest(&store, "t1").unwrap().unwrap().compilation, second);
+    let order: Vec<_> = (of_turn(&store, "t1").unwrap().into_iter())
+        .map(|v| v.compilation)
+        .collect();
+    assert_eq!(order, [first, second], "listed in the order kept");
+}

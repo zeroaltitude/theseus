@@ -34,19 +34,6 @@ pub const VIEW_HELD: &str =
     "something this turn's view laid has been sealed or moved since, so it is not \
      replayed";
 
-/// Why a view turn is refused when it laid the result of a tool that brings another session's or place's
-/// words into an exchange (`compiler::view::kept::CARRIERS`): the tool, in the reader's words.
-pub fn view_carried(tool: &str) -> String {
-    let by = match tool {
-        crate::view::history::HISTORY_TOOL => "the history tool".to_string(),
-        _ => format!("the {tool} tool"),
-    };
-    format!(
-        "this turn's view carries words read by {by}, whose sources a replay cannot check now, so \
-         it is not replayed"
-    )
-}
-
 /// A reply: what a turn's answer said and asked for (the wire's own type).
 pub use theseus_protocol::own_bench::ReplayReply as Said;
 
@@ -66,6 +53,8 @@ pub struct Original {
     /// read once with the view (`kept_view`): a crossing reads its sources here, never again from the
     /// store. None for a transcript's turn.
     pub laid: Option<crate::compiler::view::kept::Kept>,
+    /// When the turn began: its first node's time (the compilation's, when no node of it is read).
+    pub started_ms: u64,
     /// The request, and the digest that matched.
     pub request: ProviderRequest,
     pub digest: String,
@@ -195,13 +184,11 @@ impl Core {
                 )
             })?;
         let nodes: Transcript = transcript[..at].to_vec();
-        let (view, laid) = match compilation.strategy == crate::compiler::view::STRATEGY {
-            true => {
-                let (f, k) = self.kept_view(&compilation, (session_id, turn), &nodes)?;
-                (Some(f), Some(k))
-            }
-            false => (None, None),
-        };
+        let started_ms = started(&transcript[..=at], turn).unwrap_or(compilation.created_at_ms);
+        let kept = (compilation.strategy == crate::compiler::view::STRATEGY)
+            .then(|| self.kept_view(&compilation, (session_id, turn)))
+            .transpose()?;
+        let (view, laid) = kept.map_or((None, None), |(f, k)| (Some(f), Some(k)));
         let mut spec = self.kept_spec(&session, &compilation)?;
         let recalls = nodes
             .iter()
@@ -229,6 +216,7 @@ impl Core {
                 sources,
                 view,
                 laid,
+                started_ms,
                 request,
                 digest,
                 ask,
@@ -302,13 +290,12 @@ impl Core {
 
     /// The view a view turn's request was laid from, read back from the blobs its record names, once the
     /// gate of now has said none of what it laid is held: a turn from before views kept it is refused in
-    /// words, as is one a source of which was sealed or moved since, and one whose window (or own nodes,
-    /// among `nodes`) holds words a tool read from elsewhere, whose sources cannot be checked now.
+    /// words, as is one a source of which was sealed or moved since. It is returned with what the record
+    /// names it laid from.
     fn kept_view(
         &self,
         compilation: &Compilation,
         (session_id, turn): (&str, &str),
-        nodes: &Transcript,
     ) -> Result<(Frozen, crate::compiler::view::kept::Kept), NotRebuildable> {
         let record = crate::view::record::read(&self.store, &compilation.id)
             .map_err(|e| no("view", format!("{e:#}")))?;
@@ -321,10 +308,6 @@ impl Core {
         }
         let f = crate::compiler::view::kept::frozen(self.store.blobs(), &k, (session_id, turn))
             .map_err(|why| no("view", why))?;
-        let own = (nodes.iter()).filter(|(_, n)| n.turn_id.as_deref() == Some(turn));
-        if let Some(tool) = crate::compiler::view::kept::carried(&f, own.map(|(_, n)| &**n)) {
-            return Err(no("view", view_carried(tool)));
-        }
         Ok((f, k))
     }
 
@@ -431,6 +414,14 @@ pub(super) type Laid<'a> = (
     &'a Sources,
     Option<&'a Frozen>,
 );
+
+/// When `turn` began: its first node's time among `nodes`.
+fn started(nodes: &[(u64, crate::stub::Stub)], turn: &str) -> Option<u64> {
+    (nodes.iter())
+        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
+        .map(|(_, n)| n.created_at_ms)
+        .min()
+}
 
 /// The last user message's text among `nodes`.
 fn last_user_text(nodes: &Transcript) -> String {

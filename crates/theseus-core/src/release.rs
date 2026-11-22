@@ -193,11 +193,14 @@ pub fn opened(core: &Core, here: &str, id: &str) -> Option<String> {
     readable(core, &r).map(|t| format!("[{LABEL}]\n{t}"))
 }
 
-/// Every release, with its end when withdrawn, newest first.
+/// The most releases [`all`] reads.
+pub const ALL_READ: usize = 1_000;
+
+/// Every release, with its end when withdrawn, newest first: at most [`ALL_READ`].
 pub fn all(store: &Store) -> Result<Vec<(Release, Option<Ended>)>> {
     let recs = store
         .inner()
-        .first_with_prefix(kinds::META, ID_PREFIX, 1_000)?;
+        .first_with_prefix(kinds::META, ID_PREFIX, ALL_READ)?;
     let mut out = Vec::new();
     for rec in &recs {
         let r: Release = rec.decode()?;
