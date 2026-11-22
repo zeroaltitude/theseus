@@ -1192,11 +1192,59 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
             .collect();
         assert!(notes.len() <= 1, "{case}: one Recall node at most");
         if let Some(crate::node::Body::Recall { items, .. }) = notes.first().map(|n| &n.body) {
+            // By the owner's decision of 2026-11-22 (A): the note is a record of what the first request held
+            // (references, never words), and it stays; what changes is what the LATER requests lay.
             let ids: Vec<&str> = items.iter().map(|i| i.node_id.as_str()).collect();
-            assert_eq!(ids, [open_id.as_str()], "{case}: the admitted item alone");
+            assert!(
+                ids.contains(&open_id.as_str()),
+                "{case}: the items admitted at first dispatch, the open one among them: {ids:?}"
+            );
             for q in &asked[1..] {
                 assert_eq!(texts(q).matches(OPEN).count(), 1, "{case}: {}", texts(q));
             }
+        }
+        // The turn after this one lays nothing of the held source.
+        turn_as(c, &sid, "and the tide?", true).await;
+        let after: Vec<ProviderRequest> = (r.requests().into_iter())
+            .filter(|q| !q.tools.is_empty() && texts(q).contains("and the tide?"))
+            .collect();
+        assert!(!after.is_empty(), "{case}: the next turn's requests");
+        for q in &after {
+            assert!(
+                !texts(q).contains("5519"),
+                "{case}: the next turn lays nothing of the held source: {}",
+                texts(q)
+            );
+        }
+        // A seal's own report of what had already crossed names the asking session.
+        if !steer {
+            c.runner
+                .threads
+                .write(
+                    &c.store,
+                    |b| {
+                        let mut t = b.get("kelp").expect("kelp").clone();
+                        t.sealed = None;
+                        Ok(vec![t])
+                    },
+                    |_, _| Ok(vec![]),
+                )
+                .unwrap();
+            let sealed = c
+                .thread_seal(
+                    &theseus_protocol::threads::ThreadSealParams {
+                        slug: "kelp".into(),
+                        reason: Some("embargo".into()),
+                        ..Default::default()
+                    },
+                    crate::tests_task_brief::cli(),
+                )
+                .unwrap();
+            assert!(
+                sealed.crossed.iter().any(|x| x.session_id == sid),
+                "{case}: the seal reports the note that crossed: {:?}",
+                sealed.crossed
+            );
         }
     }
 }
