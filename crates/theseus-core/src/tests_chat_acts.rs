@@ -1087,10 +1087,9 @@ async fn a_message_after_a_call_parked_here_is_last_in_its_request_and_the_call_
 
     r.calls(&[]);
     say(&r, &here, "And when does the tide turn?").await;
-    let last = (r.model.requests.lock().unwrap().last().unwrap().messages)
-        .last()
-        .unwrap()
-        .clone();
+    let requests = r.model.requests.lock().unwrap();
+    let req = requests.last().unwrap();
+    let last = req.messages.last().unwrap().clone();
     let tail = last["content"].as_array().unwrap().last().unwrap();
     assert_eq!(
         tail["type"], "text",
@@ -1102,6 +1101,40 @@ async fn a_message_after_a_call_parked_here_is_last_in_its_request_and_the_call_
             .unwrap()
             .ends_with("And when does the tide turn?"),
         "{last}"
+    );
+    // The parked call reached this request, by its own id, closed by the harness's stub (and not by
+    // another call's result: `tests_call_ids`).
+    let id = (r.core.store.session_nodes(&asking).unwrap().into_iter())
+        .find_map(|(_, n)| match &n.body {
+            crate::node::Body::AssistantMessage { blocks, .. } => (blocks.iter())
+                .find(|b| b["type"] == "tool_use" && b["name"] == "owner_ask")
+                .and_then(|b| b["id"].as_str().map(str::to_string)),
+            _ => None,
+        })
+        .expect("the parked call is recorded");
+    let at = (req.messages.iter())
+        .position(|m| {
+            m["role"] == "assistant"
+                && (m["content"].as_array())
+                    .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_use" && b["id"] == id))
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "the parked call {id} reached the request: {:?}",
+                req.messages
+            )
+        });
+    let closed = (req.messages[at + 1]["content"]
+        .as_array()
+        .into_iter()
+        .flatten())
+    .find(|b| b["type"] == "tool_result" && b["tool_use_id"] == id)
+    .unwrap_or_else(|| panic!("the parked call {id} is closed: {:?}", req.messages[at + 1]));
+    assert!(
+        closed["content"]
+            .to_string()
+            .contains("No result was recorded for this call"),
+        "the parked call {id} is closed by the stub: {closed}"
     );
     assert_eq!(
         r.core.confirm_list().unwrap().len(),

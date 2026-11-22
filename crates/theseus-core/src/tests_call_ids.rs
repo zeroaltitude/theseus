@@ -110,9 +110,10 @@ fn recorded(core: &Core, sid: &str) -> String {
 }
 
 /// **Two exchanges at one place, one id.** A post into its own place runs and is answered; in another session
-/// at the place a post with the SAME call id waits on its approval; then a new message. In the new turn's
-/// request the parked call carries the harness's stub and not the other call's output, the answered call
-/// carries its own result exactly once, and the question still waits.
+/// at the place a post with the SAME call id waits on its approval; then a new message. The store holds ONE
+/// result with the id; in the new turn's request the answered call carries it exactly once, the parked call
+/// carries the harness's stub and not a second copy of it, and the question still waits. This is the paired
+/// request / store fixture of a finished exchange's result read as if a waiting exchange had run.
 #[tokio::test]
 async fn a_call_parked_on_an_approval_is_never_answered_by_another_exchanges_result_with_its_id() {
     let r = rig_scripted(|_| {}, post_script);
@@ -142,16 +143,32 @@ async fn a_call_parked_on_an_approval_is_never_answered_by_another_exchanges_res
         .find(|q| last_user(q).contains("and now?"))
         .expect("the new turn's request");
 
-    let held = first_result(after_call(&req, "to", "#pier"));
-    assert!(
-        held.starts_with(STUB),
-        "the parked call is closed with the stub, never another call's output: {held}"
+    // The store: one result with the id, the answered session's; the parked session holds none.
+    let with_id = |sid: &str| {
+        (r.core.store.session_nodes(sid).unwrap().into_iter())
+            .filter(|(_, n)| {
+                matches!(&n.body, Body::ToolResult { tool_use_id, late: false, .. } if tool_use_id == SAME)
+            })
+            .count()
+    };
+    assert_eq!(
+        (with_id(&answered), with_id(&parked)),
+        (1, 0),
+        "one result is recorded"
     );
+
+    // The request: that one result is placed once, under its own call; where the parked call's stub
+    // stands, a second copy of it must not (pairing by id alone across exchanges put it there).
     // The answered call's result as this request renders it (the renderer may head a result).
     let shown = first_result(after_call(&req, "to", "#hall"));
     assert!(
         !shown.starts_with(STUB),
         "the answered call carries its result: {shown}"
+    );
+    let held = first_result(after_call(&req, "to", "#pier"));
+    assert_ne!(
+        held, shown,
+        "a second copy of the answered call's result stands where the parked call's stub should"
     );
     let placed = req
         .messages
@@ -161,6 +178,10 @@ async fn a_call_parked_on_an_approval_is_never_answered_by_another_exchanges_res
         .filter(|b| b["type"] == "tool_result" && b["content"] == shown.as_str())
         .count();
     assert_eq!(placed, 1, "a result is placed once: {:?}", req.messages);
+    assert!(
+        held.starts_with(STUB),
+        "the parked call is closed with the stub, never another call's output: {held}"
+    );
     assert!(
         r.core
             .confirm_list()
