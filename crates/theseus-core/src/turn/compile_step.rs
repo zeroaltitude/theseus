@@ -71,7 +71,18 @@ impl TurnRunner {
             &routines,
             self.kernel.now_ms(),
             compiled,
-            &|w| crate::watch::run::shown_value(&self.kernel, w),
+            &|w| {
+                // A watch's observed value is outside text the transcript does not
+                // show: latched for the turn before it is attached, or left out
+                // (issue 44).
+                let seen = self.kernel.watch_state(&w.id).ok().flatten();
+                if seen.is_some_and(|s| s.last.is_some())
+                    && !crate::task_graph::judged::latch_once(t.tc.store, t.tc.turn_id)
+                {
+                    return None;
+                }
+                crate::watch::run::shown_value(&self.kernel, w)
+            },
         );
         // The records of this turn's surface (theseus-slvl.4), in the tail too.
         Self::standing_here(t, compiled);

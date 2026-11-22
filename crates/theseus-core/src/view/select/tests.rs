@@ -185,6 +185,7 @@ fn card_by(thing: &str, author: Author) -> Ref {
         range: SourceRange {
             space: Space::Card {
                 thing: thing.into(),
+                from: None,
             },
             first: Pos {
                 at_ms: 0,

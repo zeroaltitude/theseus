@@ -64,6 +64,7 @@ fn kind_of(space: &Space) -> &'static str {
         Space::Facts { .. } => "facts",
         Space::Card { .. } => "card",
         Space::Task { .. } => "task",
+        Space::Waiting { .. } => "waiting",
         Space::Code { .. } => "code",
     }
 }
@@ -123,9 +124,17 @@ impl Reader<'_> {
             pov: self.pov_of(&rec.pov),
             slots,
             dropped,
-            // A band's residue counts pieces with no reference to check: a restricted reader is not shown it.
+            // A band's residue counts pieces with no reference to check: a restricted reader is not shown it,
+            // and no reader the residue of the bands of cards, what waits and the person's facts, whose
+            // sources a count cannot re-check.
             residue: match self.restricted {
-                false => residue_without(&rec.residue, &held),
+                false => {
+                    let checked: Vec<_> = (rec.residue.iter())
+                        .filter(|r| !unchecked(r.band))
+                        .cloned()
+                        .collect();
+                    residue_without(&checked, &held)
+                }
                 true => Vec::new(),
             },
             totals,
@@ -156,6 +165,15 @@ impl Reader<'_> {
             now_ms: p.now_ms,
         }
     }
+}
+
+/// A band whose residue is not shown: its pieces' sources are re-checked one by one, never by a count.
+fn unchecked(band: super::super::select::Band) -> bool {
+    use super::super::select::Band;
+    matches!(
+        band,
+        Band::Named | Band::InPlay | Band::Waiting | Band::WhoAndWhere
+    )
 }
 
 /// What a piece is, by reference: no text.

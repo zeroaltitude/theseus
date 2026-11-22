@@ -69,6 +69,13 @@ pub struct Frozen {
     pub memory_page: String,
     /// The view the turn was built from, until its record is kept with the turn's compilation.
     pub record: Option<crate::view::budget::View>,
+    /// The room the turn made when a request passed the budget (`turn::view_step::room`): its clearing
+    /// holds for every new chain of the turn, and every reassembly carries it.
+    pub room: crate::view::record::Room,
+    /// The floor did not fit (rule 9): nothing is laid, and every call is over by the floor's numbers.
+    pub floor: Option<crate::view::budget::Overflow>,
+    /// The nodes today's recall found, laid again by a reassembly.
+    pub recalled: Vec<String>,
 }
 
 impl Frozen {
@@ -112,7 +119,8 @@ pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
         stripped.extend(own_answers(input.nodes, &frozen.turn_id));
     }
     let laid = laid(input.nodes, frozen, &stripped);
-    compiled_from(&input, spec, (compilation, new_compilation), &laid)
+    let at = (compilation, new_compilation, frozen.room.keep);
+    compiled_from(&input, spec, at, &laid)
 }
 
 /// The spec a call renders, and the chain's compilation it appends to (none: a new chain).
@@ -153,12 +161,12 @@ fn chain_spec<'c>(
     (spec, current)
 }
 
-/// The request of a call from its spec, its compilation (and whether it is new) and the laid nodes: the
-/// clearing pass at a chain's first call, the render, the estimate and the report.
+/// The request of a call from its spec, its compilation (whether it is new, and the turn's room-making keep)
+/// and the laid nodes: the clearing pass at a chain's first call, the render, the estimate and the report.
 fn compiled_from(
     input: &CompileInput<'_>,
     spec: &RequestSpec,
-    (mut compilation, new_compilation): (Compilation, bool),
+    (mut compilation, new_compilation, keep): (Compilation, bool, Option<u64>),
     laid: &(Vec<(u64, Stub)>, u64),
 ) -> Compiled {
     let entry = input.catalog.get(&spec.model);
@@ -175,7 +183,7 @@ fn compiled_from(
     // Fixed between clearings: a pass runs only as a turn begins, and its stubs hold after.
     let mut cleared = None;
     if let Some(pass) = new_compilation
-        .then(|| clear(&split, &laid.0, &rendered, &est))
+        .then(|| clear(&split, &laid.0, (&rendered, &est), keep))
         .flatten()
     {
         let (drops, results, chars) = pass;
@@ -282,12 +290,13 @@ fn carried(current: Option<&Compilation>, includes: &[String]) -> Option<BudgetR
 
 /// The build's clearing pass over the laid nodes, with this strategy's numbers: when the results not yet
 /// cleared pass [`CLEAR_AT_TOKENS`], every result over `MIN_CHARS` older than the newest [`KEEP_TOKENS`]
-/// becomes its receipt (the newest exchange's stay whole). The drops, the results and their characters.
+/// becomes its receipt (the newest exchange's stay whole). A turn that made room (`keep`) runs it whatever
+/// the line, keeping that many tokens of the newest whole. The drops, the results and their characters.
 fn clear(
     split: &Compilation,
     nodes: &[(u64, Stub)],
-    rendered: &Rendered,
-    est: &Estimate,
+    (rendered, est): (&Rendered, &Estimate),
+    keep: Option<u64>,
 ) -> Option<(Vec<BudgetDrop>, u64, u64)> {
     if !clearing::any_old(nodes) {
         return None;
@@ -295,10 +304,10 @@ fn clear(
     let shown: Vec<(u64, &Node)> = nodes.iter().map(|(p, n)| (*p, &**n)).collect();
     let already = clearing::of(split);
     let per_byte = est.tokens as f64 / rendered.request.json_bytes().max(1) as f64;
-    if clearing::live_tokens(&shown, &already, per_byte) <= CLEAR_AT_TOKENS {
+    if keep.is_none() && clearing::live_tokens(&shown, &already, per_byte) <= CLEAR_AT_TOKENS {
         return None;
     }
-    let (drops, chars) = clearing::pass(&shown, &already, KEEP_TOKENS, per_byte);
+    let (drops, chars) = clearing::pass(&shown, &already, keep.unwrap_or(KEEP_TOKENS), per_byte);
     let results = drops.len() as u64;
     (!drops.is_empty()).then_some((drops, results, chars))
 }
@@ -409,13 +418,6 @@ fn mark_front(rendered: &mut Rendered, first_tail: Option<&str>, spec: &RequestS
             o.remove("cache_control");
         }
     }
-}
-
-/// Whether the provider said a request of this turn passed its window (`input.overflowed`): the view does
-/// not retry at its own reading of the window; the turn declines to the transcript, whose ring uses the
-/// provider's numbers.
-pub fn provider_overflowed(input: &CompileInput<'_>) -> bool {
-    input.overflowed.is_some()
 }
 
 /// The turn's own answers so far, by node id.

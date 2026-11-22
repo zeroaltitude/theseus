@@ -54,8 +54,8 @@ const LIMITS: [&str; 5] = [
      recall's pieces are not in it",
     "the system part is sized from an approximation of the next request's spec (no thread card, no \
      deferred tools)",
-    "not predicted: route and continuation (decided by the turn that arrives) and over_budget on the \
-     rendered request (decided when a turn compiles it)",
+    "not predicted: route and continuation (decided by the turn that arrives) and the room a long turn \
+     makes in its own request (decided when a turn compiles it)",
     "the pieces and totals listed are code's, exchanges' and folds': a joined task's card, facts and other \
      pieces the view laid are not listed or counted here",
     "nothing was written: no view record, no ledger row, no change to what a turn compiles",
@@ -176,8 +176,10 @@ impl TurnRunner {
                 verified: Some(verified),
                 recalled: Vec::new(),
                 message: Some(p.message.unwrap_or_default().to_string()),
+                items: Vec::new(),
             },
             spec,
+            &self.view_budget(spec),
         )?;
         let source = GateSource {
             runner: self,
@@ -211,11 +213,8 @@ impl TurnRunner {
                 BTreeMap::new(),
             ),
         };
-        let fallback = match (unledgered, overflow.is_some()) {
-            (true, _) => Some(Fallback::Unledgered),
-            (false, true) => Some(Fallback::OverBudget),
-            _ => None,
-        };
+        // A floor that cannot fit is said by `overflow`: the turn fails on it, never handed back.
+        let fallback = unledgered.then_some(Fallback::Unledgered);
         let budget = self.view_budget(spec);
         Ok(ViewPreviewResult {
             place: p.place.into(),
