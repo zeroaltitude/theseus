@@ -61,4 +61,12 @@ lines and the folds, prices them at their worst case, and writes nothing.
 - In a place set to the view (`[context] assembly`, `view-compile.md`), the window and the ladder are read from
   these records: the fold nodes stand for the exchanges older than the window, and an exchange with no `did` line
   reads "reply not summarised". A fold node is kept only when every exchange it stands for resolves to a session and
-  none of those is sealed, seal-pending or unreadable at the turn. In a transcript place no request changes.
+  none of those is sealed, seal-pending or unreadable at the turn, and none holds a message moved into a thread not
+  proven clear for the reader. In a transcript place no request changes.
+- **Moved messages**: a `did` line or a first-level fold is never written by a model from an exchange with any
+  message or reply moved into any thread, whatever that thread's seal (`view_gate::moved_at_all`); it is folded by
+  code. The writers ask this again after their last await, just before the call.
+- **Authors**: each quoted excerpt is shown with its own author, read from the message's mark (the owner, another
+  person, author unknown), and the writer is told each author. A node written before authorship was recorded
+  (writer version 1) shows its excerpts but no title and no account, unless it is a first-level node whose every
+  message is shown as the owner's; a `did` line of that version is not fed to a new summary.
