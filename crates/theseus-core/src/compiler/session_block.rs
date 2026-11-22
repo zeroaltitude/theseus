@@ -9,7 +9,7 @@
 //! process (`cpu::commands`, theseus-yct32), and the OS and architecture they
 //! run on, read once per process too (`cpu::os`, theseus-wadu). Static for the
 //! session: it changes only when the session moves (`turn.submit` with another
-//! `dir`), which is a `system_changed` recompile, as an edited context file is.
+//! `dir`), which reaches the next turn, as an edited context file does.
 //! So a request that replays a session's prefix replays this block's bytes
 //! unchanged.
 //!
@@ -20,8 +20,8 @@
 //! one the owner has not granted, the one
 //! line naming how many files there are and how large they are, and nothing
 //! else of them. A nested directory's files join the block the first time a
-//! tool touches that directory, which is the `system_changed` recompile a
-//! session moving directory already is (§2).
+//! tool touches that directory, which reaches the next turn, as a session
+//! moving directory does (§2).
 //!
 //! A granted repository's file that has *changed* since the owner last read
 //! it is named here too (§8, "After a grant"), and it is named and not read

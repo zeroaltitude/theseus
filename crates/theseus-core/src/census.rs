@@ -2,9 +2,9 @@
 //! for a kind of place, compiled once and counted part by part down to each tool's schema. Nothing is sent
 //! and nothing is written; `exact` asks the provider's token counter (not a model) when a key resolves.
 //!
-//! It compiles as a turn does (`TurnRunner::census_request`: the spec a turn builds, its standing block,
-//! `compiler::compile` over the session's transcript; in a place set to the view, the turn's own assembler and
-//! the view's compile, `turn::view_step::preview::census`), so it follows whatever the compile changes, then
+//! It compiles as a turn does (`TurnRunner::census_request`: the spec a turn builds, its standing block, the
+//! turn's own assembler and the view's compile, `turn::view_step::preview::census`; `compiler::compile` over the
+//! session's nodes only where the ledger is off, as its turns are), so it follows whatever the compile changes, then
 //! apportions the compile's own estimate to the parts (`Ledger`): a part's tokens are the difference of the
 //! running rounded total before and after it, so the parts add up to the total exactly, however many there
 //! are. A tool's use is a read of the ledger's `action.planned` rows (`tool_use`): an operator's read, never

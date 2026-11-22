@@ -1,5 +1,9 @@
 //! Old results cleared (theseus-3ki0, by tokens at theseus-5lzox): the first
-//! thing a long session gives up, before the ring drops a turn.
+//! thing a long turn gives up. The view runs a pass at a chain's first call
+//! with its own numbers (`compiler::view::CLEAR_AT_TOKENS`, `KEEP_TOKENS`),
+//! and its room-making runs one whatever its line (`turn/view_step/room.rs`).
+//! What follows was written for the transcript, removed 2026-11-22, whose
+//! ring made room past a pass; the stub and its rules are the view's too.
 //!
 //! A pass runs when the request's results not yet cleared pass
 //! `CLEAR_AT_TOKENS`, or its estimate passes `CLEAR_AT` % of its budget,

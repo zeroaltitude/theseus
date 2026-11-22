@@ -6,7 +6,8 @@
 //!
 //! The compiler reads them, not a tool, so no posture or approval applies.
 //! Their text is in the system block, so the system digest covers it: an
-//! edit is one `system_changed` recompile, and an unchanged file appends.
+//! edit reaches the next turn (and starts a new chain inside a turn), and an
+//! unchanged file keeps every byte.
 //!
 //! FAST: nothing is read at startup. Each compile stats each file and
 //! rereads it only when its size, mtime, or inode changed, or when it

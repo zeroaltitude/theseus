@@ -6,11 +6,11 @@
 //! Each loop asks one question: append, or recompile? M3 answers it with
 //! deterministic triggers only (no Jev): a new session, a model or provider
 //! change, a system prompt change, a tool set change, or an operator's manual
-//! request. This is the transcript's compile; what still takes it (a place
-//! set to `transcript` or with the ledger off, a view turn that declined,
-//! keep-warm between turns, the census of a fresh session, a task or a
-//! split's dry run) goes with the lanes that remove those. Nothing in it makes
-//! room past the window but the clearing pass.
+//! request. This was the transcript's compile; the view builds every request
+//! now (`compiler/view.rs`), and this one is reached only where the ledger is
+//! off, which only a test can set (`[context] ledger` is a retired key), and
+//! by the census of such a session. What the view shares of it (the manifest,
+//! the renderer, the token estimate, the cache layout) is this module's.
 //!
 //! The renderer is deterministic and append-only: the same nodes and the same
 //! manifest produce the same bytes, and a later request's messages begin with
