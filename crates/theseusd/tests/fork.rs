@@ -148,6 +148,11 @@ fn a_fork_of_the_second_turn_takes_the_other_road_and_both_stay() {
     for t in ["turn two", "turn three"] {
         json_of(dir.path(), &["ask", "-s", &source, t]);
     }
+    // The source's own request for turn three: how its earlier messages read in their own session.
+    let in_source = (model.requests().into_iter().rev())
+        .map(|r| texts(&r))
+        .find(|t| t.last().is_some_and(|m| m.ends_with("turn three")))
+        .expect("the source's request for turn three");
 
     // The nodes of the source, as history names them.
     let (_, history, _) = cli(dir.path(), &["history", &source]);
@@ -187,6 +192,20 @@ fn a_fork_of_the_second_turn_takes_the_other_road_and_both_stay() {
     // Each message's tag ends with when it was written (theseus-sro04).
     let written = written(dir.path(), &[&source, &fork]);
     let ask = "[Terminal · theseus ask ·";
+    eprintln!(
+        "SOURCE said[0]: {:?}\nFORK said[0]: {:?}",
+        in_source[0], said[0]
+    );
+    // Authorship is a fact of the message (issue 44): an inherited message reads in the fork exactly as
+    // it reads in its source.
+    assert_eq!(
+        said[0], in_source[0],
+        "turn one, in the fork and in its source"
+    );
+    assert_eq!(
+        said[2], in_source[2],
+        "turn two, in the fork and in its source"
+    );
     assert_eq!(said[0], format!("{ask} {}] turn one", written["turn one"]));
     assert_eq!(said[2], format!("{ask} {}] turn two", written["turn two"]));
     let other = "the other road, please";
