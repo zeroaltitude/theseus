@@ -765,15 +765,18 @@ async fn a_fork_inheriting_a_page_admits_it() {
         if page {
             read_a_page(&core.store, &src.session_id);
         }
+        // A fork starts at a person's message: one after the page.
+        let src = submit(&core, owner(), "ok", Some(&src.session_id)).await;
         let at = core
             .store
             .session_nodes(&src.session_id)
             .unwrap()
-            .last()
+            .into_iter()
+            .rev()
+            .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))
             .unwrap()
             .1
-            .id
-            .clone();
+            .id;
         let fork = rpc(
             &core,
             owner(),
