@@ -42,6 +42,8 @@ const COLD: &str = "a thread is no longer resumed cold from a cut transcript: th
                     conversation's exchanges";
 const THREADS: &str = "threads are no longer containers (2026-11-22): a thread's own recall, its \
                        growth, its home's size and its seals are gone";
+const INERT: &str = "nothing read it any more: the link offer, the Discord thread mirror and the \
+                     place tail's half-life went with threads as containers";
 
 /// The whole list (the map of the cut, §6 step 8), less the one key something that stays still reads:
 /// `[cache] keep_warm_min_tokens` (the sticky effort rule), a live setting. The thread keys whose readers
@@ -78,6 +80,10 @@ pub const RETIRED: &[Retired] = &[
     r("threads", "resume_keep_turns", THREADS),
     r("threads", "home_warn_percent", THREADS),
     r("threads", "seal_recommend", THREADS),
+    // XD3: inert keys, with the readers that went (the link offer, the Discord thread mirror, the place tail).
+    r("threads", "link_proposals", INERT),
+    r("threads", "discord_channel", INERT),
+    r("threads", "sticky_half_life_secs", INERT),
 ];
 
 const fn r(section: &'static str, key: &'static str, why: &'static str) -> Retired {

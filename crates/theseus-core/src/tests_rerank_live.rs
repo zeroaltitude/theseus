@@ -175,19 +175,17 @@ async fn five_rerank_timeouts_open_reranks_breaker_alone() {
     assert_eq!(opened(), [json!({"event": "breaker_opened", "day": day})]);
     let h = c.health().judge.unwrap();
     assert_eq!(h.breaker, "closed", "the shared breaker");
-    // Two breakers of their own: rerank's, open, and the cross judge's
-    // (theseus-pt7lt), which rerank's failures leave closed.
-    assert_eq!(h.breakers.len(), 2, "{:?}", h.breakers);
+    // One breaker of its own: rerank's, open (the cross judge's went with its
+    // pack, XD3).
+    assert_eq!(h.breakers.len(), 1, "{:?}", h.breakers);
     assert!(
         h.breakers.iter().any(|b| b.starts_with("rerank: open")),
         "{:?}",
         h.breakers
     );
     assert!(
-        h.breakers
-            .iter()
-            .any(|b| b.starts_with("recall_cross: closed")),
-        "{:?}",
+        !h.breakers.iter().any(|b| b.starts_with("recall_cross")),
+        "the retired cross judge has no breaker: {:?}",
         h.breakers
     );
     // The sixth rerank skips at once; loop.v1 still goes out, and answers.

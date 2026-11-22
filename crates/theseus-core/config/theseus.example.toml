@@ -1229,17 +1229,14 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # [threads]
 # enabled = true                          # false: no thread is made or addressed (the records stay)
 # max_live = 50                           # active and paused threads at once
-# discord_channel = "123456789012345678"  # a channel (text or forum) in your guild: each active thread gets a Discord thread there, made at its first message; unset: none
 # place_digest = true                     # a message in a thread that Jev reads as asking across everything going on gets, for that turn, one labelled line for each other live thread of the place (a sealed one only counted; false: none, and no turn waits for the answer)
 # place_digest_line_chars = 200           # the longest a digest's line is, in characters
-# sticky_half_life_secs = 600             # a turn that runs in another session than the place's last exchange is given what was said from this many seconds before that exchange
-# route_wait_ms = 400                     # at most this long a thread's turn waits for Jev's reading of another thread's notes (cross_recall_judge) and of its scope (place_digest)
+# route_wait_ms = 400                     # at most this long a thread's turn waits for Jev's reading of its scope (place_digest)
 # `theseus health` has a threads line, and `theseus thread show` the thread's own numbers.
 # With two or more [personas], each message is answered by the one it calls for: named at its start
 # ("Birch, ..."), `@birch`, or `/as birch` always; else Jev's pick (route.v5's persona question),
 # which `shadow` only records and `act` engages (silently from 0.90, with a visible why from 0.60).
 # persona_engage = "shadow"               # shadow | act
-# link_proposals = true                   # Jev admits another live, unsealed thread's notes into a thread's recall twice: one sentence to your DM offers `theseus thread link` (once a pair; it links nothing itself; false: nothing is counted or posted)
 
 # ---------------------------------------------------------------- initiative
 # What Theseus says first, in its persona's voice (theseus-slvl.9). How readily

@@ -271,7 +271,6 @@ impl Core {
             place_kind: "import (private)".into(),
             author: "operator".into(),
             kernel: self.kernel.clone(),
-            threads: Vec::new(),
             // An imported session is replayed as no thread's own session.
             in_thread: false,
             route: PackMode::Shadow,

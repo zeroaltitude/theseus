@@ -91,7 +91,6 @@ impl TurnRunner {
                 chosen: t.target.chosen.clone(),
                 task: t.tc.task.is_some(),
                 own: super::defer_step::is_self(author),
-                threads: Vec::new(),
                 in_thread: !steered && self.scope_in_thread(t.tc.session_id),
                 persona: self.persona_ctx(t.tc.session_id, class),
                 capture,

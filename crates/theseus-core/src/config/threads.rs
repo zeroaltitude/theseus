@@ -7,84 +7,19 @@
 //!   and a `turn.submit` that names a thread are refused; the records stay.
 //! - `max_live`: the most active and paused threads at once (50); a thread
 //!   made past it is refused until one is done.
-//! - `discord_channel`: a channel (a text channel or a forum) in the owner's
-//!   guild where each active thread gets a Discord thread of its own, made at
-//!   the thread's first message (theseus-sjzm); unset, none.
-//! - `cross_recall_penalty` (0.35) and `cross_recall_bar` (0.75), the thread
-//!   distance (theseus-f2g0): in a threaded session, recall's candidate from
-//!   another thread pays that share of its score and is admitted only when
-//!   its score is above the bar's share of the index's best, unless the
-//!   message names the thread (its slug, its title, or one of its working
-//!   set's entities). Unthreaded sessions recall as before.
-//! - `cross_recall_beats_own` (true; theseus-wncdv): ...and, once it has paid,
-//!   another thread's candidate must still outrank the asking thread's own best
-//!   hit of the query. Streams share the shape of their facts (a port, a branch,
-//!   a ticket), so a question about this thread's port scores another's port
-//!   nearly as high; with this off the bar alone decides, and the threadbench
-//!   answered about other streams' facts on 4 to 7 of 12 cross-stream questions.
-//! - `cross_recall_needs_entity` (true; theseus-wncdv): ...and a candidate whose
-//!   chunk holds concrete entities (a path, a ticket, a host) of which the
-//!   message names none is dropped: the question's shape alone is no reason to
-//!   pull another stream's note. A chunk with no entities is judged by the bar
-//!   and the thread's own best hit alone.
-//! - `base_distance` (true; theseus-wncdv): a candidate no thread claims (the
-//!   place's own conversation, where each stream's first messages run before its
-//!   thread exists) is another stream's to a threaded asker: it pays the same
-//!   distance and a name never waives it. Off, it recalls as before. A node a
-//!   split moved belongs to the thread it moved to, whichever session it is in.
-//! - `own_top_admissible` (true; theseus-98bz.8, theseus-stwkb): the asking
-//!   thread's own best hit that a note no thread claims (the place's own
-//!   conversation) must outrank (`cross_recall_beats_own`) is its best not
-//!   already in the turn's context, so a home note holding the one fact the
-//!   thread lacks is not kept out by a note it has. Another live thread's note
-//!   must still outrank its best hit in context or not: a thread's own hits
-//!   are mostly in its context, and the bar held other streams out by them.
-//!   Off, every own hit counts for every note, in context or not.
-//! - `cross_recall_judge` (true; theseus-98bz.10): the notes the distance
-//!   dropped whose score is above the bar go to Jev (`recall_cross.v1`), at
-//!   most `cross_recall_judge_k` (3, 1 to 10) of them, best first, in one
-//!   request the turn waits for at most `route_wait_ms`: a note Jev reads as
-//!   about the message's subject, not only the same kind of fact, is
-//!   admitted with the penalty and labelled with its thread. Off, none is
-//!   asked about and the drops stand.
 //! - `place_digest` (true; theseus-98bz.9): when Jev's `scope` answer
 //!   (classify.v4) says a message in a thread asks across everything going on,
 //!   that turn's request gains a digest of the place's other live threads, one
 //!   labelled line each, a sealed or seal-pending one only counted. Off, no
 //!   turn waits for the answer and no request carries a digest.
 //! - `place_digest_line_chars` (200): the longest a digest's line is.
-//! - `sticky_half_life_secs`: how far back the place tail reaches before the
-//!   place's last exchange (600; issue 43): a turn that runs in another session
-//!   than that exchange is given what was said from this many seconds before it.
-//! - `route_wait_ms`: the most a thread's turn waits for Jev's notes of another
-//!   thread (`cross_recall_judge`) and its `scope` answer (`place_digest`), 400.
-//! - `working_set_grows` (true; theseus-98bz.5): after each turn that ran in a
-//!   thread, the paths its calls touched (a file under the session's directory
-//!   and its first component as a root) and the entities its message named join
-//!   the thread's working set, but for what another live thread holds; the
-//!   message's entity readers and Jev's thread inputs read it. Off, a set changes
-//!   only by the owner's edit, a split or a merge.
-//! - `bench_clock` (false; theseus-98bz.3): a test hook. On, a `turn.submit`
-//!   carrying `route_at_ms` is placed at that clock (the place tail reads the
-//!   bench's gaps) and is placed even when `ask -s` named its session; off,
-//!   such a submit is refused. Off in every real config.
-//! - `resume_keep_turns`: the newest turns a home keeps whole when its oldest settled stretch is
-//!   measured (20; `turn::home_size_step`).
-//! - `home_warn_percent`: the share of the serving model's context window a place's home may
-//!   reach before the owner's DM is told once (50; 1 to 100). A long session is otherwise fine;
-//!   the warning is for a home near the window.
+//! - `route_wait_ms`: the most a thread's turn waits for its `scope` answer
+//!   (`place_digest`), 400.
 //! - `persona_engage` (`shadow`): whether Jev's `persona` verdict (route.v5,
 //!   theseus-c1uz) engages a persona. An explicit address (a name at the
 //!   message's start, `@name`, `/as name`) always does; `shadow` records
 //!   Jev's pick and keeps the prior, `act` engages it at 0.90 and shows
 //!   a why from 0.60. The maintainer sets `act` after the persona holdout.
-//! - `seal_recommend` (false): whether a `yes` of route.v5's `seal` question
-//!   at the confirm bar or above, in a thread, proposes sealing it (a card to
-//!   the owner's DM; Jev recommends, the owner seals). Off until its holdout.
-//! - `link_proposals` (true; theseus-98bz.11): when Jev admits notes of another live, unsealed thread
-//!   into a thread's recall in two recalls, one sentence to the owner's DM offers `theseus thread link`
-//!   (once a pair, whatever the owner does). It links nothing itself. Off, nothing is counted, written
-//!   or posted.
 //!
 //! Retired on 2026-11-21, when the owner removed routing by a guess and the
 //! thread importer: `ask_wait_secs`, `sticky_alone_asks`, `ask_every_thread`,
@@ -92,6 +27,16 @@
 //! `import_profile`. A config that sets one still loads: the key is read,
 //! named once at startup ([`ThreadsConfig::retired`]), ignored and never
 //! written back.
+//!
+//! Retired on 2026-11-22 (threads are no longer containers), through the
+//! loader's table (`config/retired_keys.rs`), which takes each out before the
+//! section is read and says so once: `cross_recall_penalty`, `cross_recall_bar`,
+//! `cross_recall_beats_own`, `cross_recall_needs_entity`, `base_distance`,
+//! `own_top_admissible`, `cross_recall_judge`, `cross_recall_judge_k`,
+//! `working_set_grows`, `bench_clock`, `resume_keep_turns`, `home_warn_percent`,
+//! `seal_recommend`; and, with the link offer and the Discord thread mirror
+//! that read them, `link_proposals`, `discord_channel` and
+//! `sticky_half_life_secs` (XD3).
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -114,46 +59,14 @@ pub struct ThreadsConfig {
     pub enabled: bool,
     #[serde(default = "default_max_live")]
     pub max_live: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub discord_channel: Option<String>,
-    #[serde(default = "default_penalty")]
-    pub cross_recall_penalty: f64,
-    #[serde(default = "default_bar")]
-    pub cross_recall_bar: f64,
-    #[serde(default = "default_true")]
-    pub cross_recall_beats_own: bool,
-    #[serde(default = "default_true")]
-    pub cross_recall_needs_entity: bool,
-    #[serde(default = "default_true")]
-    pub base_distance: bool,
-    #[serde(default = "default_true")]
-    pub own_top_admissible: bool,
-    #[serde(default = "default_true")]
-    pub cross_recall_judge: bool,
-    #[serde(default = "default_judge_k")]
-    pub cross_recall_judge_k: usize,
     #[serde(default = "default_true")]
     pub place_digest: bool,
     #[serde(default = "default_digest_line_chars")]
     pub place_digest_line_chars: usize,
-    #[serde(default = "default_half_life")]
-    pub sticky_half_life_secs: u64,
     #[serde(default = "default_route_wait")]
     pub route_wait_ms: u64,
-    #[serde(default = "default_true")]
-    pub working_set_grows: bool,
-    #[serde(default)]
-    pub bench_clock: bool,
-    #[serde(default = "default_resume_keep_turns")]
-    pub resume_keep_turns: u32,
-    #[serde(default = "default_home_warn_percent")]
-    pub home_warn_percent: u8,
     #[serde(default)]
     pub persona_engage: PersonaEngage,
-    #[serde(default)]
-    pub seal_recommend: bool,
-    #[serde(default = "default_true")]
-    pub link_proposals: bool,
     /// The retired keys (the module's last paragraph): read, warned of, ignored.
     #[serde(default, skip_serializing)]
     ask_wait_secs: Option<toml::Value>,
@@ -182,29 +95,11 @@ fn default_true() -> bool {
 fn default_max_live() -> u32 {
     50
 }
-fn default_penalty() -> f64 {
-    0.35
-}
-fn default_bar() -> f64 {
-    0.75
-}
-fn default_judge_k() -> usize {
-    3
-}
 fn default_digest_line_chars() -> usize {
     200
 }
-fn default_half_life() -> u64 {
-    600
-}
 fn default_route_wait() -> u64 {
     400
-}
-fn default_resume_keep_turns() -> u32 {
-    20
-}
-fn default_home_warn_percent() -> u8 {
-    50
 }
 
 impl Default for ThreadsConfig {
@@ -212,26 +107,10 @@ impl Default for ThreadsConfig {
         Self {
             enabled: default_enabled(),
             max_live: default_max_live(),
-            discord_channel: None,
-            cross_recall_penalty: default_penalty(),
-            cross_recall_bar: default_bar(),
-            cross_recall_beats_own: true,
-            cross_recall_needs_entity: true,
-            base_distance: true,
-            own_top_admissible: true,
-            cross_recall_judge: true,
-            cross_recall_judge_k: default_judge_k(),
             place_digest: true,
             place_digest_line_chars: default_digest_line_chars(),
-            sticky_half_life_secs: default_half_life(),
             route_wait_ms: default_route_wait(),
-            working_set_grows: true,
-            bench_clock: false,
-            resume_keep_turns: default_resume_keep_turns(),
-            home_warn_percent: default_home_warn_percent(),
             persona_engage: PersonaEngage::default(),
-            seal_recommend: false,
-            link_proposals: true,
             ask_wait_secs: None,
             sticky_alone_asks: None,
             ask_every_thread: None,
@@ -272,41 +151,8 @@ impl ThreadsConfig {
         if self.max_live == 0 {
             bail!("threads.max_live is 0: use enabled = false to turn threads off");
         }
-        if let Some(c) = &self.discord_channel {
-            if !(15..=21).contains(&c.len()) || !c.bytes().all(|b| b.is_ascii_digit()) {
-                bail!(
-                    "threads.discord_channel {c:?} is not a Discord id (15-21 digits, as a string)"
-                );
-            }
-        }
-        for (key, v) in [
-            ("cross_recall_penalty", self.cross_recall_penalty),
-            ("cross_recall_bar", self.cross_recall_bar),
-        ] {
-            if !(0.0..=1.0).contains(&v) {
-                bail!("threads.{key} = {v} is outside 0 to 1");
-            }
-        }
-        if !(1..=10).contains(&self.cross_recall_judge_k) {
-            bail!(
-                "threads.cross_recall_judge_k is {}: Jev reads 1 to 10 notes a request",
-                self.cross_recall_judge_k
-            );
-        }
         if self.place_digest_line_chars < 40 {
             bail!("threads.place_digest_line_chars is under 40: a line could not name its thread");
-        }
-        if self.sticky_half_life_secs == 0 {
-            bail!("threads.sticky_half_life_secs is 0: a half-life is at least a second");
-        }
-        if self.resume_keep_turns == 0 {
-            bail!("threads.resume_keep_turns is 0: a resume keeps at least the newest turn");
-        }
-        if !(1..=100).contains(&self.home_warn_percent) {
-            bail!(
-                "threads.home_warn_percent is {}: a share of the model's window, 1 to 100 (default 50)",
-                self.home_warn_percent
-            );
         }
         Ok(())
     }
@@ -322,10 +168,7 @@ mod tests {
         let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
         assert_eq!(cfg.threads, ThreadsConfig::default());
         assert!(cfg.threads.enabled && cfg.threads.max_live == 50);
-        assert_eq!(
-            (cfg.threads.sticky_half_life_secs, cfg.threads.route_wait_ms),
-            (600, 400)
-        );
+        assert_eq!(cfg.threads.route_wait_ms, 400);
         assert!(crate::Config::EXAMPLE_TOML.contains("# [threads]\n# enabled = true"));
         let off = crate::Config::from_toml("[threads]\nenabled = false\nmax_live = 3\n").unwrap();
         assert!(!off.threads.enabled && off.threads.max_live == 3);
@@ -408,34 +251,27 @@ mod tests {
         assert!(quiet.iter().all(|w| !w.contains("threads.")), "{quiet:?}");
     }
 
-    /// `discord_channel` is off by default, named in the template, takes a
-    /// Discord id, and refuses anything else (theseus-sjzm).
+    /// The three inert keys retired by XD3 (`discord_channel`, `sticky_half_life_secs`,
+    /// `link_proposals`): an old config that sets them still loads, even with a value the
+    /// field once refused, and each is named once and ignored; the template names none.
     #[test]
-    fn the_discord_channel_is_off_by_default_and_takes_an_id() {
-        assert_eq!(ThreadsConfig::default().discord_channel, None);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# discord_channel = \""));
+    fn the_inert_thread_keys_still_load_and_are_named() {
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
-        let on = crate::Config::parse(&format!(
-            "{secrets}\n[threads]\ndiscord_channel = \"123456789012345678\"\n"
-        ))
-        .unwrap();
-        assert_eq!(
-            on.0.threads.discord_channel.as_deref(),
-            Some("123456789012345678")
+        let old = format!(
+            "{secrets}\n[threads]\ndiscord_channel = \"general\"\n\
+             sticky_half_life_secs = 0\nlink_proposals = false\n"
         );
-        for bad in ["general", "123", "1234567890123456789012"] {
-            let t = format!("{secrets}\n[threads]\ndiscord_channel = \"{bad}\"\n");
-            assert!(crate::Config::parse(&t).is_err(), "{bad}");
+        let (cfg, _) = crate::Config::parse(&old).unwrap();
+        let names: Vec<&str> = cfg.ignored_keys.iter().map(|i| i.name.as_str()).collect();
+        for key in ["discord_channel", "sticky_half_life_secs", "link_proposals"] {
+            assert!(
+                names.contains(&format!("threads.{key}").as_str()),
+                "{key}: {names:?}"
+            );
+            assert!(
+                !crate::Config::EXAMPLE_TOML.contains(&format!("# {key} =")),
+                "the template still names {key}"
+            );
         }
-    }
-
-    /// Link proposals (theseus-98bz.11) are on by default, named in the template, and turn off.
-    #[test]
-    fn link_proposals_are_on_by_default_and_turn_off() {
-        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert!(cfg.threads.link_proposals && ThreadsConfig::default().link_proposals);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# link_proposals = true"));
-        let off = crate::Config::from_toml("[threads]\nlink_proposals = false\n").unwrap();
-        assert!(!off.threads.link_proposals);
     }
 }

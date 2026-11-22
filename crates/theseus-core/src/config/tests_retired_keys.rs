@@ -42,6 +42,9 @@ const EVERY: &str = "[model]\n\
                      resume_keep_turns = 20\n\
                      home_warn_percent = 50\n\
                      seal_recommend = false\n\
+                     link_proposals = true\n\
+                     discord_channel = \"123456789012345678\"\n\
+                     sticky_half_life_secs = 600\n\
                      [profiles.quick]\n\
                      provider = \"anthropic\"\n\
                      model = \"claude-haiku-5-5\"\n\
