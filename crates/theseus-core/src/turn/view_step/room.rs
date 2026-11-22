@@ -10,7 +10,7 @@
 //!    floor (the turn's message and the fixed blocks) is never cut.
 //! 3. A provider that refused a request of the turn for its size: its stated maximum, read at Theseus's
 //!    estimate (scaled by how far its count ran over the estimate), is the window for the rest of the turn,
-//!    and 1 and 2 run under it.
+//!    and 1 and 2 run under it until the request is also smaller than the refused one.
 //! 4. Only then, and for a floor that cannot fit at all, the call goes back over its budget, and the compile
 //!    step fails the turn before anything is sent with the core overage's words and class
 //!    (`turn::overage`), which nothing retries.
@@ -47,10 +47,13 @@ impl TurnRunner {
         if let (Some(w), Some(f)) = (refused, t.view.as_mut()) {
             f.room.window = Some(f.room.window.map_or(w, |r| r.min(w)));
         }
+        // After a refusal the retry must also be smaller than the refused request, by the estimate: a
+        // provider that stated no count, or one under the estimate, says the estimate itself is short.
+        let line = input.overflowed.map(|o| o.estimated);
+        let fits =
+            |c: &Compiled| c.budget.overage.is_none() && line.is_none_or(|l| c.estimate.tokens < l);
         let mut compiled = rendered(t, input)?;
-        let over = |c: &Compiled| c.budget.overage.is_some();
-        let short = over(&compiled) || input.overflowed.is_some();
-        if floored(t) || !short {
+        if floored(t) || fits(&compiled) {
             return Ok(compiled);
         }
         let now = t.view.as_ref().map(|f| f.room).unwrap_or_default();
@@ -58,7 +61,7 @@ impl TurnRunner {
             self.view_refrozen(t, input.spec, Some(room))?;
             Self::view_reset(t, input.nodes);
             compiled = rendered(t, input)?;
-            if floored(t) || !over(&compiled) {
+            if floored(t) || fits(&compiled) {
                 break;
             }
         }

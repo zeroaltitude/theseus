@@ -1081,7 +1081,9 @@ async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
                 return crate::provider::Scripted::text("aside");
             }
             match seen.fetch_add(1, Ordering::SeqCst) {
-                0 => {
+                // An earlier turn, whose exchange is the window the view cuts to make room.
+                0 => crate::provider::Scripted::text("Hello."),
+                1 => {
                     // After the view's first call: the recalled source's thread is sealed, and the call
                     // is refused for its size. Since the cut the view makes room and calls again under the
                     // provider's maximum (`view_step::room`), reassembled under the gate of now.
@@ -1105,6 +1107,7 @@ async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
     c.store.append(&[n.record().unwrap()]).unwrap();
     (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![thread.clone()]));
     let sid = session_in(c, None, &r.root);
+    turn(c, &sid, "the tide table, earlier").await;
     turn(c, &sid, "what is the vault code?").await;
     let asked: Vec<ProviderRequest> = (r.requests().into_iter())
         .filter(|q| !q.tools.is_empty() && texts(q).contains("what is the vault code?"))
@@ -1156,7 +1159,9 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
                     return crate::provider::Scripted::text("aside");
                 }
                 match seen.fetch_add(1, Ordering::SeqCst) {
-                    0 => {
+                    // An earlier turn, whose exchange is the window the view cuts to make room.
+                    0 => crate::provider::Scripted::text("Hello."),
+                    1 => {
                         let c = held.get().unwrap();
                         match steer {
                             true => crate::view_gate::steered(&c.runner, at.get().unwrap(), None),
@@ -1198,6 +1203,7 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
         c.runner.memory.set_ask(index);
         let sid = crate::tests_places::session(c, None);
         let _ = desk.set(sid.clone());
+        turn(c, &sid, "the tide table, earlier").await;
         turn(c, &sid, "what do you remember of the tide and the vault?").await;
         let asked: Vec<ProviderRequest> = (r.requests().into_iter())
             .filter(|q| !q.tools.is_empty() && texts(q).contains("the tide and the vault?"))

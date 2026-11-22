@@ -121,9 +121,14 @@ fn end(k: usize) -> String {
 }
 
 /// A core in a place set to `view` whose model reads `calls` logs of [`LINES`] lines, one a loop, then
-/// answers [`DONE`]; `extra` is answered in place of the read at its index. Its window is [`WINDOW`], its
+/// answers [`DONE`]; `extra` is answered in place of the read at its index. Its window is `window`, its
 /// reply's room [`OUTPUT`].
-fn rig(calls: usize, extra: Option<(usize, Scripted)>, binding: Option<Binding>) -> Rig {
+fn rig(
+    calls: usize,
+    extra: Option<(usize, Scripted)>,
+    binding: Option<Binding>,
+    window: u64,
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(root.join("logs")).unwrap();
@@ -145,7 +150,7 @@ fn rig(calls: usize, extra: Option<(usize, Scripted)>, binding: Option<Binding>)
     cfg.catalog.insert(
         "claude-sonnet-5-5".into(),
         crate::catalog::CatalogRow {
-            context_window: Some(WINDOW),
+            context_window: Some(window),
             max_output_tokens: Some(OUTPUT),
             ..Default::default()
         },
@@ -239,7 +244,7 @@ fn rooms(core: &Core, turn: &str) -> Vec<Room> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_turn_of_many_large_results_makes_its_own_room_and_answers() {
     const CALLS: usize = 36;
-    let r = rig(CALLS, None, Some(Binding::Refuse));
+    let r = rig(CALLS, None, Some(Binding::Refuse), WINDOW);
     let res = turn(&r.core).await.expect("the turn answers");
     assert_eq!(res.output, DONE, "{res:?}");
     let rows = |kind: &str| crate::test_support::rows(&r.core, kind);
@@ -278,15 +283,16 @@ async fn a_turn_of_many_large_results_makes_its_own_room_and_answers() {
 
 /// A provider that refuses a request of the turn for its size: the retry is compiled under its stated
 /// window (its maximum, read at the estimate), with room made, and it answers; the turn goes on to its end.
+/// On a window the turn never had to make room in before the refusal.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_refusal_for_size_is_retried_under_the_providers_number_and_succeeds() {
-    const CALLS: usize = 16;
-    const AT: usize = 12;
+    const CALLS: usize = 28;
+    const AT: usize = 24;
     let refused = Scripted::Fail(ProviderError::InvalidRequest {
         status: 400,
-        message: "invalid_request_error: prompt is too long: 72000 tokens > 70000 maximum".into(),
+        message: "invalid_request_error: prompt is too long: 80000 tokens > 70000 maximum".into(),
     });
-    let r = rig(CALLS, Some((AT, refused)), None);
+    let r = rig(CALLS, Some((AT, refused)), None, 200_000);
     let res = turn(&r.core).await.expect("the turn answers");
     assert_eq!(res.output, DONE, "{res:?}");
     assert!(crate::test_support::rows(&r.core, "context.view_fallback").is_empty());
@@ -306,7 +312,7 @@ async fn a_refusal_for_size_is_retried_under_the_providers_number_and_succeeds()
     );
     let made = rooms(&r.core, &res.turn_id);
     assert!(
-        made.iter().any(|m| m.window.is_some_and(|w| w < 70_000)),
+        made.iter().any(|m| m.window.is_some_and(|w| w <= 70_000)),
         "the record says the provider's window: {made:?}"
     );
 }
