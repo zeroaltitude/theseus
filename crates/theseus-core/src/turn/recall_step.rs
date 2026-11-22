@@ -198,7 +198,7 @@ impl TurnRunner {
     ) -> Scene<'a> {
         // A view turn counts only what its view lays (issue 44); the transcript, all it carries.
         let in_context = match self.on_transcript() {
-            false => Self::view_in_context(t),
+            false => self.view_in_context(t),
             true => Self::in_context(t),
         };
         let labeled = self
