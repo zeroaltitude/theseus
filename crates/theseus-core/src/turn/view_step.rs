@@ -82,10 +82,13 @@ impl TurnRunner {
             }
         }
         // A view turn that declined is the transcript's in full: the recall this call withheld for the
-        // view is carried now, as on any transcript turn (`recall_step::carries`).
+        // view, or a view call before it kept, is carried now, as on any transcript turn
+        // (`recall_step::carries`), whatever the withheld flag says (a `moved` decline is made before the
+        // compile step clears it).
         let recarried;
         let mut input: CompileInput<'_> = input;
-        if t.recall.withheld.is_some() && self.carries(t).is_none() {
+        let kept = t.recall.withheld.is_some() || t.recall.kept_for_view.is_some();
+        if kept && self.carries(t).is_none() {
             t.recall.withheld = None;
             // After a view call was dispatched, the recall it withheld comes back once.
             self.recall_readmitted(t);
