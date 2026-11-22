@@ -500,7 +500,7 @@ mod tests {
         assert_eq!(admits(unknown, &dm("discord:dm:42")), (false, false));
         let sealed = Marks {
             sealed: true,
-            ..clear.clone()
+            ..clear
         };
         assert_eq!(admits(sealed, &dm("discord:dm:42")), (false, false));
         let nowhere = crate::exchange::rebuild::UNKNOWN;

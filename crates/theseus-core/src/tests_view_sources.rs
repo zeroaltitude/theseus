@@ -87,10 +87,12 @@ fn serving(c: &crate::Core, root: &std::path::Path, project: &str) -> String {
 
 const SCOPED: &str = "item:project:prj_tide#issue-33";
 
-/// The lines of the card whose title ends with `(<thing>)`, in `all`.
-fn card_of<'a>(all: &'a str, thing: &str) -> Option<String> {
+/// The lines of the card whose title ends with `(<thing>)`, in `all` (a request as JSON: its newlines and
+/// quotes are escaped, and read back here).
+fn card_of(all: &str, thing: &str) -> Option<String> {
     let at = all.find(&format!("({thing})"))?;
-    Some(all[at..].lines().take(6).collect::<Vec<_>>().join("\n"))
+    let lines: Vec<&str> = all[at..].split("\\n").take(6).collect();
+    Some(lines.join("\n").replace("\\\"", "\""))
 }
 
 /// KEY: a message naming a numbered item brings the item's card beside it, scoped by the project of the
