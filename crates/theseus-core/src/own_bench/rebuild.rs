@@ -242,9 +242,10 @@ impl Core {
             for turn_effort in [placed, None] {
                 spec.effort = effort;
                 spec.turn_effort = turn_effort;
-                let digest = self.rendered(spec, laid).digest();
+                let request = self.rendered(spec, laid);
+                let digest = request.digest();
                 if digest == want {
-                    return Some((rendered.request, digest));
+                    return Some((request, digest));
                 }
                 tried.push(digest);
                 if turn_effort.is_none() {

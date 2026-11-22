@@ -57,8 +57,14 @@ async fn a_front_that_did_not_change_is_kept_once() {
     let second = turn(&rig.core, &sid, "And the heron relay?").await.turn_id;
     let (a, b) = (kept_of(&rig.core, &first), kept_of(&rig.core, &second));
     assert_eq!(a.front, b.front, "the same front, one blob");
-    assert_ne!(a.window, b.window, "the window holds the first turn now");
     assert!(rig.core.store.blobs().path(&a.front).exists());
+    // The second turn's window is the first turn's exchange: one blob that joined it, nothing else new.
+    assert_eq!(b.window.len(), a.window.len() + 1, "{a:?} {b:?}");
+    assert_eq!(
+        b.window[..a.window.len()],
+        a.window[..],
+        "older exchanges keep their blobs"
+    );
     for t in [&first, &second] {
         rig.core.rebuild_first(&sid, t).expect("rebuildable");
     }
