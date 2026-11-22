@@ -345,9 +345,14 @@ impl TurnRunner {
         let provider_window = (self.working_window(spec))
             .or_else(|| self.catalog.get(&spec.model).map(|e| e.context_window))
             .unwrap_or(u64::MAX);
-        Budget::new(provider_window, u64::from(spec.max_tokens))
+        // The reply's room and the headroom the compiler keeps for the turn's own calls
+        // (`compiler::budget::request_budget`), so a view that fits is one the compiler sends.
+        Budget::new(provider_window, u64::from(spec.max_tokens) + CALL_HEADROOM)
     }
 }
+
+/// The headroom the compiler keeps beside the reply for the turn's own calls, in tokens.
+const CALL_HEADROOM: u64 = 4_096;
 
 /// How many of the session's newest earlier turns must have their exchange before a view reads it.
 const UNLEDGERED_LOOK: usize = 40;
@@ -562,38 +567,52 @@ fn window_of(
 /// The most of a call's input a `Spoken` exchange sends, in characters; past it, a bounded receipt.
 const CALL_INPUT_CHARS: usize = 400;
 
-/// A `Spoken` exchange as the budgeter paid for it: its words, and each call's input bounded to a receipt
-/// past [`CALL_INPUT_CHARS`] (its result is a receipt already); the calls stay paired with their results.
+/// A `Spoken` exchange as the budgeter paid for it: its words, and each call whose input runs past
+/// [`CALL_INPUT_CHARS`] as historical text (`[earlier call: <tool> <head>… (N characters of input)]`) with
+/// its result folded into that text as its stub, instead of a tool use whose input no longer fits the tool's
+/// schema; the other calls stay real, paired with their results (receipts already).
 fn bounded(nodes: Vec<(u64, Stub)>, handle: &Handle) -> Vec<(u64, Stub)> {
-    nodes
-        .into_iter()
-        .map(|(p, n)| {
-            let Body::AssistantMessage { blocks, .. } = &n.body else {
-                return (p, n);
-            };
-            let long = |b: &serde_json::Value| {
-                b["type"] == "tool_use" && b["input"].to_string().chars().count() > CALL_INPUT_CHARS
-            };
-            if !blocks.iter().any(long) {
-                return (p, n);
-            }
-            let mut node = (*n).clone();
-            if let Body::AssistantMessage { blocks, .. } = &mut node.body {
-                for b in blocks.iter_mut().filter(|b| long(b)) {
-                    let input = b["input"].to_string();
-                    let head: String = input.chars().take(CALL_INPUT_CHARS / 2).collect();
-                    b["input"] = serde_json::json!({
-                        "shown_as": format!(
-                            "{head}… ({} characters of input; open {} for the whole call)",
+    let long = |b: &serde_json::Value| {
+        b["type"] == "tool_use" && b["input"].to_string().chars().count() > CALL_INPUT_CHARS
+    };
+    let results: HashMap<String, Node> = (nodes.iter())
+        .filter_map(|(_, n)| match &n.body {
+            Body::ToolResult { tool_use_id, .. } => Some((tool_use_id.clone(), (**n).clone())),
+            _ => None,
+        })
+        .collect();
+    let mut folded: HashSet<String> = HashSet::new();
+    let mut out = Vec::new();
+    for (p, n) in nodes {
+        match &n.body {
+            Body::AssistantMessage { blocks, .. } if blocks.iter().any(long) => {
+                let mut node = (*n).clone();
+                if let Body::AssistantMessage { blocks, .. } = &mut node.body {
+                    for b in blocks.iter_mut().filter(|b| long(b)) {
+                        let id = b["id"].as_str().unwrap_or_default().to_string();
+                        let name = b["name"].as_str().unwrap_or_default().to_string();
+                        let input = b["input"].to_string();
+                        let head: String = input.chars().take(CALL_INPUT_CHARS / 2).collect();
+                        let result = results.get(&id).map_or_else(
+                            || "no result".into(),
+                            |r| forms::stub(&name, &b["input"], Some(r)),
+                        );
+                        *b = serde_json::json!({"type": "text", "text": format!(
+                            "[earlier call: {name} {head}… ({} characters of input); {result}; open {} for \
+                             the whole call]",
                             input.chars().count(),
                             handle.0
-                        )
-                    });
+                        )});
+                        folded.insert(id);
+                    }
                 }
+                out.push((p, Stub::from(node)));
             }
-            (p, Stub::from(node))
-        })
-        .collect()
+            Body::ToolResult { tool_use_id, .. } if folded.contains(tool_use_id) => {}
+            _ => out.push((p, n)),
+        }
+    }
+    out
 }
 
 /// A `Line` exchange as the budgeter paid for it: the person's words (as labelled), then the `did` line
@@ -752,16 +771,41 @@ mod tests {
 
         let input = json!({"path": "big.rs", "content": "x".repeat(50_000)});
         let call = json!({"type": "tool_use", "id": "w1", "name": "fs_write", "input": input});
-        let spoken = bounded(laid(vec![answer("t1", vec![call])]), &Handle("t1".into()));
+        let mut done = Node::user("s", Some("t1"), "cli", "x");
+        done.body = Body::ToolResult {
+            tool_use_id: "w1".into(),
+            tool: "fs.write".into(),
+            status: crate::node::ResultStatus::Ok,
+            is_error: false,
+            content: "wrote 50,000 bytes".into(),
+            correlation_id: None,
+            bytes_total: 0,
+            truncated: false,
+            full_ref: None,
+            duration_ms: None,
+            late: false,
+            meta: json!({}),
+            image: None,
+            external: None,
+            payload: None,
+        };
+        let spoken = bounded(
+            laid(vec![answer("t1", vec![call]), done]),
+            &Handle("t1".into()),
+        );
+        assert_eq!(spoken.len(), 1, "the call's result is folded into its text");
         let Body::AssistantMessage { blocks, .. } = &spoken[0].1.body else {
             panic!("an answer");
         };
         assert_eq!(
-            blocks[0]["id"], "w1",
-            "the call stays, to pair with its result"
+            blocks[0]["type"], "text",
+            "historical text, not a tool use with a broken input"
         );
-        let sent = blocks[0]["input"].to_string();
-        assert!(sent.contains("shown_as") && sent.len() < 600, "{sent}");
+        let sent = blocks[0]["text"].as_str().unwrap();
+        assert!(
+            sent.starts_with("[earlier call: fs_write") && sent.len() < 800,
+            "{sent}"
+        );
     }
 
     /// Each session an assembly reads is read from the store once, however many exchanges of it are asked.
