@@ -1152,15 +1152,11 @@ async fn a_forks_facts_hold_no_summary_of_what_came_after_its_point() {
             .append(&[crate::ladder::did::did_record(&d).unwrap()])
             .unwrap();
     }
-    let clear = |_: &str| false;
-    let unmoved = |_: &crate::exchange::Exchange| false;
     let facts = |sessions: &crate::view::sources_store::Sessions, turn: &str| {
         crate::view::sources_store::StoreSources {
             store: &r.core.store,
             mark: None,
             recalled: Vec::new(),
-            sealed: &clear,
-            moved: &unmoved,
             sessions,
             own: None,
         }
