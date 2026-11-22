@@ -342,7 +342,11 @@ async fn a_guidance_edit_in_play_forces_one_system_changed() {
         "{system}"
     );
     turn(&r.core, &sid, "three").await;
-    assert_eq!(system_text(&r.last_request()), system, "the turn after carries it as it is");
+    assert_eq!(
+        system_text(&r.last_request()),
+        system,
+        "the turn after carries it as it is"
+    );
     let m = r.compilation(&sid).manifest;
     assert_eq!(m.guidance[0].version, 2);
 

@@ -104,7 +104,11 @@ fn keeps(earlier: &ProviderRequest, later: &ProviderRequest) {
         "top-level effort"
     );
     for (k, m) in earlier.messages.iter().enumerate() {
-        assert!(carries(&later.messages[k], m), "{} against {m}", later.messages[k]);
+        assert!(
+            carries(&later.messages[k], m),
+            "{} against {m}",
+            later.messages[k]
+        );
     }
 }
 
