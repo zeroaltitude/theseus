@@ -56,14 +56,6 @@ enum Target {
     Into { thread: ThreadInfo, session: String },
 }
 
-impl Target {
-    fn slug(&self) -> &str {
-        match self {
-            Target::New(t) | Target::Into { thread: t, .. } => &t.slug,
-        }
-    }
-}
-
 /// A split read and checked.
 struct Planned {
     source: Source,
@@ -812,37 +804,22 @@ impl Core {
         let ask = Self::split_ask(p, pick, &who_s, &via);
         let plan = self.plan_split(&ask)?;
         let closed = plan.chosen.closed.clone().unwrap_or_default();
-        let hypothetical = Node::harness_body(
-            "mov",
-            &plan.source.session,
-            moved::AUTHOR,
-            Body::Moved {
-                split: plan.split.clone(),
-                undoes: None,
-                thread: plan.target.slug().to_string(),
-                to_session: String::new(),
-                nodes: closed.moved.clone(),
-                first: closed.first,
-                last: closed.last,
-                gist: plan.gist.clone(),
-                quiet: false,
-            },
-        );
         let (live, _) = self.live_profile();
-        let tokens = |sid: &str, extra: Option<&Node>| -> Result<u64, RpcFailure> {
+        let tokens = |sid: &str| -> Result<u64, RpcFailure> {
             let rec: SessionRecord = self
                 .store
                 .get_session(sid)
                 .map_err(invalid)?
                 .ok_or_else(|| invalid(format!("no session {sid}")))?;
-            let next = self
-                .runner
-                .census_request_with(Some(&rec), "cli", &live, extra)
+            let next = (self.runner)
+                .census_request(Some(&rec), "cli", &live)
                 .map_err(invalid)?;
             Ok(next.compiled.estimate.tokens)
         };
-        let before = tokens(&plan.source.session, None)?;
-        let after = tokens(&plan.source.session, Some(&hypothetical))?;
+        // The view's sources cannot be asked "as if moved": after is today's census less the range's own
+        // tokens, by its bytes, as the quoted turns are counted (said in the plan's lines).
+        let before = tokens(&plan.source.session)?;
+        let after = before.saturating_sub((closed.bytes as f64 / 3.0).ceil() as u64);
         let quoted_bytes: usize = plan
             .chosen
             .pieces
@@ -854,7 +831,7 @@ impl Core {
         let (thread, into, target) = match &plan.target {
             Target::New(t) => (t.slug.clone(), false, None),
             Target::Into { thread, session } => {
-                let b = tokens(session, None)?;
+                let b = tokens(session)?;
                 (
                     thread.slug.clone(),
                     true,
