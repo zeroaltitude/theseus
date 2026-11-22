@@ -647,26 +647,6 @@ async fn a_floor_too_large_for_the_view_fails_on_its_overage() {
     }
 }
 
-/// How many turns the late-seal tests run before theirs: one more than the window's floor of three exchanges
-/// (`view::select::here::FLOOR_EXCHANGES`), so the view has an exchange to cut when it makes room after a
-/// refusal.
-const EARLIER: u32 = 4;
-
-/// Every message saying `what`, in any session, moved into the thread `kelp` as a split records it.
-fn move_into_kelp(c: &crate::Core, what: &str) {
-    for s in (c.store.list_sessions::<crate::session::SessionRecord>()).unwrap() {
-        for (_, n) in c.store.session_nodes(&s.session_id).unwrap() {
-            if matches!(&n.body, crate::node::Body::UserMessage { text, .. } if text.contains(what))
-            {
-                let to = serde_json::json!({"thread": "kelp", "split": "spl_x"});
-                c.store
-                    .put_meta(&crate::moved::moved_of_key(&n.id), &to)
-                    .unwrap();
-            }
-        }
-    }
-}
-
 /// Absence is not proof (item 2): a shown exchange whose record is gone between two calls of one turn
 /// revokes the frozen view, and the second request holds nothing of it.
 #[tokio::test]
