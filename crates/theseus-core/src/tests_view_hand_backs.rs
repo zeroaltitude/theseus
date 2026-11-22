@@ -198,10 +198,21 @@ async fn a_turn_resumed_after_an_interruption_takes_the_view() {
     // Queued for a continuation, as the kernel queues an interrupted execution; the driver takes it.
     let rec: crate::session::SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
     c.kernel.wake(&rec.execution_id.unwrap(), "test").unwrap();
-    r.until("the resumed turn", 30, |r| {
-        r.requests().iter().any(|q| texts(q).contains(RESUMES))
-    })
-    .await;
+    for _ in 0..150 {
+        if r.requests().iter().any(|q| texts(q).contains(RESUMES)) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let kinds: Vec<String> = (c.store.session_nodes(&sid).unwrap().into_iter())
+        .map(|(_, n)| format!("{:?}/{}", n.turn_id, serde_json::to_string(&n.body).unwrap().chars().take(90).collect::<String>()))
+        .collect();
+    let asked: Vec<String> = r.requests().iter().map(last_user).collect();
+    let failed = crate::test_support::rows(c, "turn.failed");
+    assert!(
+        r.requests().iter().any(|q| texts(q).contains(RESUMES)),
+        "no resumed request: {asked:?} {kinds:#?} {failed:?}"
+    );
     let q = (r.requests().into_iter())
         .find(|q| texts(q).contains(RESUMES))
         .unwrap();
@@ -319,7 +330,10 @@ async fn a_turn_resumed_after_a_restart_shows_the_cut_exchange_in_its_window() {
     let exec = rec.execution_id.unwrap();
     c.kernel.wake(&exec, "restart").unwrap();
     let res = c.continue_execution(&exec).await.unwrap().unwrap();
-    assert_eq!(res.output, "The ferry leaves at six.");
+    let kinds: Vec<String> = (c.store.session_nodes(&sid).unwrap().into_iter())
+        .map(|(_, n)| format!("{:?}/{:?}", n.turn_id, serde_json::to_string(&n.body).unwrap().chars().take(90).collect::<String>()))
+        .collect();
+    assert_eq!(res.output, "The ferry leaves at six.", "{} {kinds:#?}", res.stop_reason);
     let q = (fake.requests().into_iter())
         .rev()
         .find(|q| !q.tools.is_empty())
