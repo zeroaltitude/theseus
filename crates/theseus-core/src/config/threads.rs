@@ -332,9 +332,8 @@ mod tests {
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
         assert!(crate::Config::parse(&format!("{secrets}\n[threads]\nmax_live = 0\n")).is_err());
         assert_eq!(cfg.threads.resume_keep_turns, 20);
-        for bad in ["resume_keep_turns = 0"] {
-            assert!(crate::Config::parse(&format!("{secrets}\n[threads]\n{bad}\n")).is_err());
-        }
+        let bad = "resume_keep_turns = 0";
+        assert!(crate::Config::parse(&format!("{secrets}\n[threads]\n{bad}\n")).is_err());
         assert!(crate::Config::from_toml("[threads]\nbogus = 1\n").is_err());
         assert_eq!(cfg.threads.cross_recall_penalty, 0.35);
         assert_eq!(cfg.threads.cross_recall_bar, 0.75);
