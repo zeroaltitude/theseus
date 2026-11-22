@@ -1,7 +1,7 @@
 //! A thing's card, as one read: its title, and at most [`LINES`] lines under
 //! it of what it is, its current facts, its open tasks, the owner's guidance
-//! for it and the newest exchanges of its timeline. Nothing here is sent to
-//! a model yet; the selector that calls a named thing in will.
+//! for it and the newest exchanges of its timeline. A turn in a place set to
+//! `view` lays it beside the message (`crate::view::sources_names`).
 //!
 //! - **Facts** are the owner's standing records whose scope is the thing's
 //!   own place or session: a line of work's thread place and session, a
@@ -61,6 +61,11 @@ pub trait Admits {
     fn guidance(&self, _g: &Guidance) -> bool {
         false
     }
+    /// Who wrote the words that opened an admitted exchange, when they are not the owner's: the card keeps
+    /// them as outside text, under this name. None: shown as his words.
+    fn by(&self, _e: &Exchange) -> Option<&'static str> {
+        None
+    }
 }
 
 /// The record a thing of the table is held by.
@@ -90,6 +95,7 @@ fn source_of<'a>(
         Kind::Topic => o
             .category(&CategoryId::parse(thing).ok()?)
             .map(Source::Topic),
+        Kind::Item => None,
     }
 }
 
@@ -111,6 +117,8 @@ pub struct Card {
 pub struct Said {
     pub exchange: Exchange,
     pub ask: Option<String>,
+    /// Its author, when not the owner ([`Admits::by`]).
+    pub by: Option<&'static str>,
 }
 
 /// What a card is made from, read once.
@@ -154,6 +162,7 @@ pub fn compose(src: Sources<'_>) -> Card {
         Kind::Line => "Line of work",
         Kind::Task => "Task",
         Kind::Topic => "Topic",
+        Kind::Item => "Item",
     };
     let mut lines = Vec::new();
     if !src.about.trim().is_empty() {
@@ -183,10 +192,13 @@ pub fn compose(src: Sources<'_>) -> Card {
     }
     for s in src.said.iter().take(EXCHANGES) {
         let ex = &s.exchange;
-        let words = s.ask.as_deref().map_or_else(
-            || "(no words)".into(),
-            |a| format!("\"{}\"", cut(a, ASK_CHARS)),
-        );
+        let words = match (s.ask.as_deref(), s.by) {
+            (None, _) => "(no words)".into(),
+            (Some(a), None) => format!("\"{}\"", cut(a, ASK_CHARS)),
+            (Some(a), Some(by)) => {
+                crate::view::text::labels::wrap_outside(Some(by), &cut(a, ASK_CHARS))
+            }
+        };
         lines.push(format!(
             "{} in {}: {words}",
             crate::recall::stamp::date(ex.start_ms),
@@ -246,7 +258,12 @@ fn said(store: &crate::store::Store, thing: &str, gate: &dyn Admits) -> anyhow::
                 Some(id) => store.get_node(id)?.map(|(_, n)| crate::recall::text_of(&n)),
                 None => None,
             };
-            out.push(Said { exchange: ex, ask });
+            let by = gate.by(&ex);
+            out.push(Said {
+                exchange: ex,
+                ask,
+                by,
+            });
             if out.len() == EXCHANGES {
                 return Ok(out);
             }
@@ -310,6 +327,39 @@ pub fn card(
     })))
 }
 
+/// A numbered item's card (`super::items`): its key, and the newest
+/// exchanges of its timeline that `gate` admits, with the newest of them; none
+/// when the gate admits none of them (an item is known only by where it was
+/// said).
+pub fn item_card(
+    store: &crate::store::Store,
+    thing: &str,
+    gate: &dyn Admits,
+) -> anyhow::Result<Option<(Card, Exchange)>> {
+    let said = said(store, thing, gate)?;
+    let Some(newest) = said.first().map(|s| s.exchange.clone()) else {
+        return Ok(None);
+    };
+    let entry = Entry {
+        thing: thing.to_string(),
+        kind: Kind::Item,
+        title: thing
+            .strip_prefix(super::items::ITEM)
+            .unwrap_or(thing)
+            .into(),
+        live: true,
+    };
+    let c = compose(Sources {
+        entry: &entry,
+        about: "",
+        facts: Vec::new(),
+        tasks: Vec::new(),
+        guidance: None,
+        said,
+    });
+    Ok(Some((c, newest)))
+}
+
 /// What `entry` is about, the scopes its facts are in, and its open tasks.
 fn what<'a>(
     entry: &Entry,
@@ -355,6 +405,7 @@ fn what<'a>(
                 .unwrap_or_default();
             (about, Vec::new(), mine)
         }
+        Kind::Item => (String::new(), Vec::new(), Vec::new()),
     }
 }
 
@@ -419,6 +470,7 @@ mod tests {
                 rebuilt: false,
             },
             ask: Some(format!("words of exchange {n}")),
+            by: None,
         }
     }
 

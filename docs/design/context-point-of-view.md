@@ -62,7 +62,7 @@ an item held out since leaves nothing behind.
 - **4, `did` lines and the ladder**, by a background job with its own daily line of spend
   (`docs/design/ladder.md`).
 - **5, recognition, in part**: topics per exchange, the `item` kind, the table of scoped names and a thing's card
-  (`docs/design/names.md`). None of it reaches the view yet.
+  (`docs/design/names.md`). In a place set to `view` it reaches the model as a thing's card (below).
 - **6 and 7, together**: the assembler went straight into the compiler, behind the setting above, with no shadow
   run (`docs/design/view-compile.md`). The memory page, the record of what a turn was shown, `theseus view show`, and
   Theseus's own reading of its view (`look.theseus`) came with it (`docs/design/view-record.md`).
@@ -90,12 +90,15 @@ an item held out since leaves nothing behind.
   snapshot**: only the inherited run stops at the fork point; the place's own window, his other places and the
   ladder show what was said since, the source's later words included where they are in reach.
 
-**The sources the view does not have yet.** The selectors for these slots exist and are tested with fakes, but
-their sources over the store answer nothing, so they lay nothing: **what waits** (slot C), **facts about the
-person** (slot B), and **named things and their cards** (slot D, and slot H's named things; the name matcher of
-step 5 is not wired into the view). Slot H holds recall, and a joined task's card when the judge's existing
-`addressed_task` answer names one task. Slots E, F and G (his past, his words elsewhere lately, and here: the
-window and the ladder) are read from the store.
+**The sources the view has, read from the store.** **What waits** (slot C: the pending confirmations and the
+tasks waiting on him, an id and a line each), **facts about the person** (slot B: the held person's name and
+the owner's guidance for it, to the owner alone; the role line is not laid), and **named things and their cards** (slot D, and slot H's named things:
+the names table built once for the turn through its permit, the message's names and numbered items matched
+against it; `docs/design/names.md`, "The view's sources"). Slot H also holds recall, and a joined task's card
+when the judge's existing `addressed_task` answer names one task. Slots E, F and G (his past, his words
+elsewhere lately, and here: the window and the ladder) are read from the store. What is in play is the things
+his words named in the newest exchanges here; the things Theseus's replies named and old exchanges' numbered
+items are not read for it.
 
 **What the one-time rebuild can and cannot prove.** `theseus ledger rebuild-exchanges` fills in the missing
 exchanges of conversations that are not a task's and not imported, for the turns that hold a message of the
@@ -791,8 +794,9 @@ step 8, after the card.
   (`words.would`: `apply` or `card`, and why: `shadow`, `no_judgment`, `misjudged`, `outside`, `spent`, …; one
   that names his message but no kind is `no_words`), and every change still keeps its card. Promoting `task_words.v1`
   (`theseus packs promote task_words.v1 --live`, the operator's act, citing a learning report) makes a clean
-  narrowing apply without one. A resume keeps its card in every state: it starts work again, which a misread
-  pause never does.
+  narrowing apply without one. **Only narrowing can act**: a pause still goes to the card (the judge records
+  `pauses`, but the durable cardless pause path is not built), and a resume keeps its card in every state: it
+  starts work again.
 - **A model-proposed pause was withdrawn.** `task.update` offers `narrows`, `widens` and `replaces` only, and has
   no pause field; a call that asks for a pause is refused. The pause as first built set a state on the record and held nothing that ran,
   and making it a real hold inside the kernel's frame was not a small change. The owner's own `task.pause` and

@@ -1164,6 +1164,12 @@ impl Store {
         self.sessions.lock(id)
     }
 
+    /// Writers waiting for a task's lock now.
+    #[cfg(test)]
+    pub fn task_writers_waiting(&self) -> usize {
+        self.tasks.waiting.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// Writers waiting for a session record's lock now.
     #[cfg(test)]
     pub fn session_writers_waiting(&self) -> usize {

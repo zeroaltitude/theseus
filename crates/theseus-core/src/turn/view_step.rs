@@ -22,9 +22,12 @@ use crate::view::budget::{Budget, Overflow};
 use crate::view::fold::FoldNode;
 use crate::view::permit::Permit;
 use crate::view::render::{MarkedBlock, Renderer};
-use crate::view::select::sources::Sources;
+use crate::view::select::sources::{Names, Sources, Things};
 use crate::view::select::{table, Part};
+use crate::view::sources_names::{Called, ViewAdmits};
+use crate::view::sources_people::StorePeople;
 use crate::view::sources_store::{author_of, Sessions, StoreSources};
+use crate::view::sources_waiting::StoreWaiting;
 use crate::view::text::forms::{self, Voice};
 use crate::view::text::labels::Origin;
 use crate::view::text::parts::{self, Seen};
@@ -68,6 +71,9 @@ impl TurnRunner {
         i: u32,
     ) -> anyhow::Result<Compiled> {
         if self.assembly_here(t) == Assembly::View {
+            // The message's numbered items, named off the path since the exchange opened, are what its
+            // view's names are matched with.
+            t.exchange.await_items().await;
             match self.view_compile(t, input) {
                 Ok(Ok(c)) => return Ok(c),
                 Ok(Err(why)) => Self::view_declined(t, why),
@@ -301,6 +307,7 @@ impl TurnRunner {
             verified: None,
             recalled: recalled(t),
             message: None,
+            items: t.exchange.items().to_vec(),
         };
         let built = self.view_built(asked, spec)?;
         // Rule 9: a floor too large for the view's budget is the transcript's to handle (its ring and
@@ -324,6 +331,7 @@ impl TurnRunner {
             verified,
             recalled,
             message: given,
+            items,
         } = asked;
         let snap = StoreSnapshot {
             now_ms: self.kernel.now_ms(),
@@ -343,8 +351,8 @@ impl TurnRunner {
         let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified);
         let read = Sessions::default();
         let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
-        let moved = crate::view_gate::Moved::read(self, Some(sid));
-        let moved = |e: &crate::exchange::Exchange| moved.holds(e);
+        let moved_read = crate::view_gate::Moved::read(self, Some(sid));
+        let moved = |e: &crate::exchange::Exchange| moved_read.holds(e);
         let sources = StoreSources {
             store,
             mark: since.clone().map(|m| (place.as_str(), m)),
@@ -357,6 +365,7 @@ impl TurnRunner {
         let store_ladder = fork.ladder(store);
         let gated = GatedLadder::new(&store_ladder, store, &held, &moved);
         let ladder = OnceLadder::new(&gated);
+        let moving = self.moving(store, (&permit, &pov, &moved_read), &items, &read)?;
         let cards = StoreCards {
             store,
             kernel: &self.kernel,
@@ -364,7 +373,7 @@ impl TurnRunner {
             homes: self,
             judged: asked.and_then(|n| judged_task(store, sid, &n)),
         };
-        let src = sources_of(&permit, &sources, &ladder, &cards, &message);
+        let src = sources_of(&permit, (&sources, &moving), &ladder, &cards, &message);
         let renderer = TextRenderer {
             store,
             kernel: Some(&self.kernel),
@@ -412,6 +421,45 @@ impl TurnRunner {
         Ok(Built {
             frozen,
             assembled: Ok(a),
+        })
+    }
+
+    /// The sources of what is beside the message and who is speaking, read once before assembly: the
+    /// names table through the turn's permit (none outside a core, which holds the stores it reads), what
+    /// waits, and the facts about the person.
+    fn moving<'a>(
+        &'a self,
+        store: &'a Store,
+        (permit, pov, moved): (&'a Permit, &'a PointOfView, &'a crate::view_gate::Moved<'a>),
+        items: &[String],
+        read: &'a Sessions,
+    ) -> anyhow::Result<Moving<'a>> {
+        let (texts, depends) = (&read.texts, &read.depends);
+        let called = match self.threads.core() {
+            Some(core) => {
+                let tasks = crate::task_graph::all(store)?;
+                let admits = ViewAdmits::new((permit, pov), (store, self, moved), tasks, depends);
+                Some(Called::build(core, admits, items.to_vec(), texts)?)
+            }
+            None => None,
+        };
+        Ok(Moving {
+            called,
+            waiting: StoreWaiting {
+                gate: permit,
+                pov,
+                store,
+                kernel: &self.kernel,
+                homes: self,
+                texts,
+                depends,
+            },
+            people: StorePeople {
+                ontology: self.ontology.snapshot(store)?,
+                owner: self.cfg.places.owner.clone().unwrap_or_default(),
+                now_ms: pov.now_ms,
+                texts,
+            },
         })
     }
 
@@ -475,6 +523,8 @@ pub(super) struct Asked<'a> {
     /// The message given (a preview's); none reads the turn's own, by node and text, at the point a turn
     /// always read it (after the clock and the `/new` mark).
     pub message: Option<String>,
+    /// The message's numbered items, as the exchange's naming told them (none for a preview).
+    pub items: Vec<String>,
 }
 
 /// A view as assembled: what a turn freezes, and the assembly (or the floor's overflow).
@@ -645,11 +695,17 @@ fn laid_exchanges(
                 s.piece.range.last.id.clone(),
             ]
         });
+    // The exchanges a shown card read its excerpts from (its provenance): a move since revokes it too.
+    let read = (a.view.shown.iter()).flat_map(|s| match &s.piece.range.space {
+        Space::Card { from: Some(p), .. } => p.exchanges.clone(),
+        _ => Vec::new(),
+    });
     let mut out: Vec<String> = (window.iter())
         .filter_map(|(_, n)| n.turn_id.clone())
         .filter(|t| t != turn)
         .chain(folded.iter().cloned())
         .chain(shown)
+        .chain(read)
         .collect();
     out.sort();
     out.dedup();
@@ -662,27 +718,39 @@ fn opened(nodes: &[(u64, Stub)], turn: &str) -> bool {
     (nodes.iter()).any(|(_, n)| n.turn_id.as_deref() == Some(turn) && n.kind == Kind::UserMessage)
 }
 
+/// What [`TurnRunner::moving`] reads.
+struct Moving<'a> {
+    called: Option<Called<'a>>,
+    waiting: StoreWaiting<'a>,
+    people: StorePeople<'a>,
+}
+
 /// Every source the selectors read: the store's, the turn's permit as their gate, the ladder read once,
-/// the joined task's card, and the message.
+/// the named things (none outside a core), what waits, the facts about the person, the joined task's
+/// card, and the message.
 fn sources_of<'a, 'b>(
     gate: &'a Permit,
-    store: &'a StoreSources<'b>,
+    (store, moving): (&'a StoreSources<'b>, &'a Moving<'b>),
     ladder: &'a dyn crate::view::fold::Ladder,
     cards: &'a StoreCards<'b>,
     message: &'a str,
 ) -> Sources<'a> {
+    let (things, names): (&dyn Things, &dyn Names) = match &moving.called {
+        Some(c) => (c, c),
+        None => (store, store),
+    };
     Sources {
         gate,
         exchanges: store,
         ladder,
         folds: store,
         places: store,
-        waiting: store,
-        things: store,
-        names: store,
+        waiting: &moving.waiting,
+        things,
+        names,
         tasks: cards,
         recall: store,
-        people: store,
+        people: &moving.people,
         message,
     }
 }
@@ -766,7 +834,9 @@ fn message_of(store: &Store, sid: &str, turn: &str) -> anyhow::Result<(Option<St
 /// The window as the view shows it: the nodes of each exchange the budgeter kept in slot G, oldest first,
 /// from every session that ran them (this turn's own is its tail; a recall note is the transcript's), each
 /// part labelled by its own provenance (`labelled`), the results of those kept spoken as their receipts,
-/// made now from the window alone (`compiler::view::receipted`); and every session the view lays.
+/// made now from the window alone (`compiler::view::receipted`); and every session the view lays, those a
+/// card, a waiting line or a fact was read from (`Sessions::depends`) among them, so a seal of any before a
+/// later call revokes the view.
 fn window_of(
     (store, read): (&Store, &Sessions),
     a: &Assembled,
@@ -834,6 +904,7 @@ fn window_of(
             sessions.push(crate::task_graph::home(&all, rec));
         }
     }
+    sessions.extend(read.depends.borrow().iter().cloned());
     sessions.sort();
     sessions.dedup();
     Ok((crate::compiler::view::receipted(window, &spoken), sessions))
