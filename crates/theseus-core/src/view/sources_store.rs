@@ -23,6 +23,50 @@ const PLACES_READ: usize = 500;
 /// A tool call's stub, in tokens: one line naming the call.
 const STUB_TOKENS: u64 = 30;
 
+/// Each session an assembly reads, read once and shared by the selectors, the text and the window; an
+/// exchange's facts once each.
+#[derive(Default)]
+pub struct Sessions {
+    read: std::cell::RefCell<
+        std::collections::HashMap<String, std::rc::Rc<crate::store::Transcript>>,
+    >,
+    facts: std::cell::RefCell<std::collections::HashMap<String, Option<ExchangeFacts>>>,
+    /// How many times the store was read for a session.
+    pub reads: std::cell::Cell<u32>,
+}
+
+impl Sessions {
+    /// `session`'s nodes, read from the store the first time.
+    pub fn of(
+        &self,
+        store: &Store,
+        session: &str,
+    ) -> anyhow::Result<std::rc::Rc<crate::store::Transcript>> {
+        if let Some(t) = self.read.borrow().get(session) {
+            return Ok(t.clone());
+        }
+        let t = std::rc::Rc::new(store.transcript(session)?);
+        self.reads.set(self.reads.get() + 1);
+        self.read
+            .borrow_mut()
+            .insert(session.to_string(), t.clone());
+        Ok(t)
+    }
+
+    /// The nodes of exchange `turn` of `session`, in order.
+    pub fn exchange(
+        &self,
+        store: &Store,
+        session: &str,
+        turn: &str,
+    ) -> anyhow::Result<Vec<(u64, crate::stub::Stub)>> {
+        Ok((self.of(store, session)?.iter())
+            .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
+            .cloned()
+            .collect())
+    }
+}
+
 /// The sources over `store`. `mark` is the turn's place and its `/new` mark, and `recalled` the nodes
 /// today's recall found for the turn's message, both read by the turn.
 pub struct StoreSources<'a> {
@@ -31,6 +75,7 @@ pub struct StoreSources<'a> {
     pub recalled: Vec<String>,
     /// The gate's reading of a session's seal for this turn: true holds it out.
     pub sealed: &'a dyn Fn(&str) -> bool,
+    pub sessions: &'a Sessions,
 }
 
 /// Who wrote a person's message, by its node's mark: the owner's mark is his; a chat author's proof is
@@ -55,14 +100,25 @@ fn json_tokens(v: &serde_json::Value) -> u64 {
 
 impl Exchanges for StoreSources<'_> {
     fn facts(&self, turn_id: &str) -> anyhow::Result<Option<ExchangeFacts>> {
+        if let Some(f) = self.sessions.facts.borrow().get(turn_id) {
+            return Ok(f.clone());
+        }
+        let f = self.read_facts(turn_id)?;
+        (self.sessions.facts.borrow_mut()).insert(turn_id.to_string(), f.clone());
+        Ok(f)
+    }
+}
+
+impl StoreSources<'_> {
+    fn read_facts(&self, turn_id: &str) -> anyhow::Result<Option<ExchangeFacts>> {
         let Some(ex) = exchange::exchange(self.store, turn_id)? else {
             return Ok(None);
         };
         let (mut his, mut reply, mut tools, mut stubs, mut outside) = (0, 0, 0, 0, false);
-        for (_, n) in self.store.transcript(&ex.session_id)? {
-            if n.turn_id.as_deref() != Some(turn_id) {
-                continue;
-            }
+        for (_, n) in self
+            .sessions
+            .exchange(self.store, &ex.session_id, turn_id)?
+        {
             match &n.body {
                 Body::UserMessage { text, .. } => his += tokens(text),
                 Body::AssistantMessage { blocks, .. } => {

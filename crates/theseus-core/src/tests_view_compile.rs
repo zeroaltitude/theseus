@@ -335,6 +335,7 @@ async fn eleven_hours_later_the_window_is_unchanged() {
     let renderer = crate::view::wire_text::TextRenderer {
         store: &c.store,
         kernel: None,
+        sessions: None,
         zone: &crate::recall::stamp::system,
     };
     let parts = crate::view::wire::Parts {
