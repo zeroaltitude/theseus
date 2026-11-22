@@ -10,6 +10,7 @@
 use std::collections::{HashMap, HashSet};
 
 mod failed;
+pub(crate) mod kept;
 pub(in crate::turn) mod occasion;
 pub(super) mod preview;
 mod room;
@@ -157,12 +158,13 @@ impl TurnRunner {
             f.card.clone_from(&compiled.card);
             if let Some(view) = f.record.take() {
                 let room = f.room.made(compiled.cleared.map_or(0, |p| p.results));
+                let replay = kept::chain_kept(store, &mut t.keeping, f);
                 if let Err(e) = crate::view::record::keep_made(
                     store,
                     turn,
                     &compiled.compilation.id,
                     &view,
-                    room,
+                    (room, replay),
                 ) {
                     tracing::warn!(error = %format!("{e:#}"), "the view's record was not kept");
                 }
@@ -241,18 +243,9 @@ impl TurnRunner {
         let Some(f) = t.view.as_ref().filter(|f| f.turn_id == t.tc.turn_id) else {
             return false;
         };
-        let sid = t.tc.session_id;
-        if (f.sessions.iter()).any(|s| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear)
-        {
-            return true;
-        }
-        // A message it shows moved into a thread, or that thread sealed, since it was assembled.
-        let moved = crate::view_gate::Moved::read(self, Some(sid));
-        (f.exchanges.iter()).any(|id| match crate::exchange::exchange(&self.store, id) {
-            // Only a readable exchange whose nodes are all clear proves admission: a missing one revokes.
-            Ok(Some(e)) => moved.holds(&e),
-            Ok(None) | Err(_) => true,
-        })
+        // A session sealed, or a message it shows moved into a thread or that thread sealed, since it was
+        // assembled (its recall's sources are asked by the gate's own selector at assembly).
+        kept::held_now(self, t.tc.session_id, (&f.sessions, &f.exchanges, &[]))
     }
 
     /// A new chain for the turn: its next call makes a new compilation (the sent tails let go), and the

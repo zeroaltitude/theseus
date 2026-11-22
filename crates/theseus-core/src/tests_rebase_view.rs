@@ -188,32 +188,6 @@ async fn a_census_of_a_view_place_counts_the_views_request() {
     }
 }
 
-/// A turn the view built is refused by own-benchmark in plain words, by its compilation's strategy, before
-/// any byte is rendered again (never as a digest that does not match).
-#[tokio::test]
-async fn a_view_turn_is_refused_for_replay_in_words() {
-    let r = view_rig();
-    let c = &r.core;
-    let sid = session_in(c, None, &r.root);
-    let t = turn(c, &sid, "first: the tide").await.turn_id;
-    let rec: SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
-    let cid = rec.compilation_id.expect("a compilation");
-    let strategy = c.store.get_compilation(&cid).unwrap().unwrap().strategy;
-    assert_eq!(strategy, crate::compiler::view::STRATEGY);
-    let Err(e) = c.rebuild_first(&sid, &t) else {
-        panic!("a view turn was rebuilt");
-    };
-    assert_eq!(
-        (e.part, e.why.as_str()),
-        ("compilation", crate::own_bench::rebuild::VIEW_REFUSED)
-    );
-    assert!(
-        e.to_string()
-            .contains("a turn built from a view cannot be replayed yet"),
-        "{e}"
-    );
-}
-
 /// A fork of `source` at its last node, speaking in no place (as `session.fork` makes one, by reference).
 fn fork_in(store: &Store, source: &str) -> String {
     let nodes = store.transcript(source).unwrap();
