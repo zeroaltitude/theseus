@@ -421,33 +421,6 @@ async fn a_bare_refusal_after_four_exchanges_shrinks_and_answers_on_one_retry() 
     assert!(crate::test_support::rows(&r.core, "context.overage").is_empty());
 }
 
-/// The proof suite's `over_budget` shape as a core test: one turn of six results of about 28,000 characters
-/// each, read one a loop, past a 40,000-token working window with a 2,000-token reply. The view clears the
-/// turn's own older results (and makes what other room it can): the turn answers, no overage, every request
-/// as sent within its limit.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn six_large_results_past_a_small_working_window_still_answer() {
-    const CALLS: usize = 6;
-    let script: Vec<Scripted> = (0..CALLS)
-        .map(reads)
-        .chain([Scripted::text(DONE)])
-        .collect();
-    let r = rig_tweaked(CALLS, script, (None, 200_000), |c| {
-        c.context.working_window_tokens = Some(40_000);
-    });
-    // The logs of about 28,000 characters each.
-    let root = r.core.runner.cfg.tools.projects_dir.clone().unwrap();
-    for k in 0..CALLS {
-        let path = std::path::Path::new(&root).join(format!("logs/keeper-{k:03}.txt"));
-        std::fs::write(path, format!("log {k}\n{}{}", LINE.repeat(390), end(k))).unwrap();
-    }
-    let res = turn(&r.core).await.expect("the turn answers");
-    assert_eq!(res.output, DONE, "{res:?}");
-    assert!(crate::test_support::rows(&r.core, "context.overage").is_empty());
-    assert_eq!(asked(&r).len(), CALLS + 1, "one request a loop");
-    every_send_within(&r, 40_000);
-}
-
 /// The turn (`turn k:`) a request is of, and how many tool results it already holds after that message.
 fn turn_and_results(q: &ProviderRequest) -> Option<(usize, usize)> {
     let at = (q.messages.iter()).rposition(|m| {
