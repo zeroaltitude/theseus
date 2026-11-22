@@ -232,12 +232,10 @@ async fn a_place_with_unledgered_history_is_the_views_and_counts_it() {
         .is_empty());
 }
 
-/// Only the owner in person is answered. The daemon cannot tell which session an agent's process runs, so
-/// a session the caller names is no scope: an agent's process naming another place's session, a Theseus
-/// job's process, a shell with a job's marker, Discord, and text from the web UI are each refused in words,
-/// and none is told any id.
+/// A preview is a read (anything goes, 2026-11-22): an agent's process naming another place's session, a
+/// Theseus job's process, a shell with a job's marker, Discord, and text from the web UI are each answered.
 #[tokio::test]
-async fn only_the_owner_in_person_is_answered() {
+async fn every_reader_is_answered() {
     let r = view_rig();
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
@@ -272,12 +270,9 @@ async fn only_the_owner_in_person_is_answered() {
             json!({"place": at, "text": true}),
         ),
     ] {
-        let said = preview_as(&r.core, client, params).await.unwrap_err();
-        assert!(said.starts_with("not shown:"), "{who}: {said}");
-        assert!(
-            !said.contains(&sid) && !said.contains(&other),
-            "{who}: {said}"
-        );
+        preview_as(&r.core, client, params)
+            .await
+            .unwrap_or_else(|e| panic!("{who}: {e}"));
     }
     let mine = preview(&r.core, json!({"place": at})).await.unwrap();
     assert_eq!(

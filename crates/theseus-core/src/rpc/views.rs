@@ -1,8 +1,5 @@
-//! `view.show` (issue 44; `crate::view::record`): what a turn was shown and why, from its view records. The
-//! owner's inspection, whole or not at all: it answers the owner in person alone, by the rule the other
-//! owner-only methods use (`places::owner_in_person_of`): the CLI or the web UI with no agent's process
-//! behind the connection (a Theseus job's is one), and no job's marker. Anyone else is refused in words, the
-//! record and its text alike; and text at his own terminal alone, not the web UI. Every piece's source is checked again today; a sealed, seal-pending or
+//! `view.show` (issue 44; `crate::view::record`): what a turn was shown and why, from its view records. A
+//! read: since 2026-11-22 (anything goes) every reader is answered, the record and its text alike. Every piece's source is checked again today; a sealed, seal-pending or
 //! unreadable one is not listed, and inspecting lifts no seal.
 
 use std::sync::Arc;
@@ -10,14 +7,13 @@ use std::sync::Arc;
 use serde_json::Value;
 use theseus_memory::gate::{PointOfView, Present};
 use theseus_memory::recall::Place;
+use theseus_protocol::method;
 use theseus_protocol::view::{
     ViewCount, ViewPreviewParams, ViewPreviewResult, ViewShowParams, ViewShowResult, ViewTally,
 };
-use theseus_protocol::{error_code, method};
 
 use super::server::{parse, Conn, RpcFailure};
 use super::Core;
-use crate::approval::Surface;
 use crate::view::record::show::{name, PieceText, Reader};
 use crate::view::record::source::GateSource;
 use crate::view::record::{self, Count, StoreText, Tally, ViewRecord};
@@ -28,25 +24,6 @@ pub(super) const OWN: &[&str] = &[method::VIEW_SHOW, method::VIEW_PREVIEW];
 
 /// What a reader is told when no text was asked for.
 const NO_TEXT: &str = "a piece's text is shown only when asked for (`--text`)";
-
-/// Why `view.show` is refused on `conn`, or none for the owner in person.
-fn refused(core: &Core, conn: &Conn<'_>, from_job: Option<&str>) -> Option<String> {
-    if from_job.is_some() {
-        return Some(
-            "this shell is a Theseus job's, and what a turn was shown is the owner's alone to inspect"
-                .into(),
-        );
-    }
-    let who = conn.answerer(None, None);
-    crate::places::owner_in_person_of(
-        &who,
-        &core.runner.place_rule,
-        &core.cfg,
-        "what a turn was shown is the owner's alone to inspect",
-        "it is inspected",
-    )
-    .err()
-}
 
 /// A stored tally, by name.
 fn tally_shown(t: &Tally) -> ViewTally {
@@ -90,66 +67,33 @@ impl Core {
         self: Arc<Self>,
         name: &str,
         params: Value,
-        conn: Conn<'_>,
+        _conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
         match name {
             method::TURN_INSPECT => self.rpc_inspect(params).await,
-            method::VIEW_PREVIEW => self.rpc_preview(params, conn).await,
-            _ => self.rpc_views(params, conn).await,
+            method::VIEW_PREVIEW => self.rpc_preview(params).await,
+            _ => self.rpc_views(params).await,
         }
     }
 
-    async fn rpc_views(
-        self: Arc<Self>,
-        params: Value,
-        conn: Conn<'_>,
-    ) -> Result<Value, RpcFailure> {
+    async fn rpc_views(self: Arc<Self>, params: Value) -> Result<Value, RpcFailure> {
+        // A read (anything goes, 2026-11-22): every reader is answered, the text included.
         let p: ViewShowParams = parse(params)?;
-        if let Some(why) = refused(&self, &conn, p.from_job.as_deref()) {
-            return Err(RpcFailure::new(
-                error_code::REFUSED,
-                format!("not shown: {why}"),
-            ));
-        }
-        if p.text && conn.surface != Surface::Cli {
-            return Err(RpcFailure::new(
-                error_code::REFUSED,
-                "not shown: a piece's text is shown at the owner's own terminal alone",
-            ));
-        }
         let core = self.clone();
         let r = super::import::blocking(move || core.view_show(&p)).await?;
         serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()))
     }
 
-    /// `view.preview`: the owner in person previews any place; anyone else is refused in words. An agent's
-    /// process, a Theseus job included, is refused: the daemon knows a job's peer only as a job's, never
-    /// which session it runs, and a session the caller names is its claim, not a scope.
-    async fn rpc_preview(
-        self: Arc<Self>,
-        params: Value,
-        conn: Conn<'_>,
-    ) -> Result<Value, RpcFailure> {
+    /// `view.preview`: any place's next turn, for any reader.
+    async fn rpc_preview(self: Arc<Self>, params: Value) -> Result<Value, RpcFailure> {
+        // A read (anything goes, 2026-11-22): every reader is answered, the text included.
         let p: ViewPreviewParams = parse(params)?;
-        let refuse = |why: &str| {
-            Err(RpcFailure::new(
-                error_code::REFUSED,
-                format!("not shown: {why}"),
-            ))
-        };
-        if let Some(why) = refused(&self, &conn, p.from_job.as_deref()) {
-            return refuse(&why);
-        }
-        if p.text && conn.surface != Surface::Cli {
-            return refuse("a piece's text is shown at the owner's own terminal alone");
-        }
         let core = self.clone();
         let r = super::import::blocking(move || core.view_preview(&p)).await?;
         serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()))
     }
 
-    /// The preview of `p.place`'s next turn, for the owner in person (checked by the caller): its newest
-    /// session the gate admits there.
+    /// The preview of `p.place`'s next turn: its newest session there.
     fn view_preview(&self, p: &ViewPreviewParams) -> anyhow::Result<ViewPreviewResult> {
         let Some(rec) = self.runner.place_sessions(&p.place)?.into_iter().next() else {
             anyhow::bail!(
@@ -169,7 +113,7 @@ impl Core {
         self.runner.view_preview(&preview, &spec)
     }
 
-    /// A turn's views, for the owner in person (checked by the caller).
+    /// A turn's views.
     fn view_show(&self, p: &ViewShowParams) -> anyhow::Result<ViewShowResult> {
         let views = record::of_turn(&self.store, &p.turn_id)?;
         let text = StoreText(&self.store);

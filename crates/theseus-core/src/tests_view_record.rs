@@ -139,12 +139,11 @@ async fn show(
     }
 }
 
-/// Only the owner in person reads a turn's view, the record as well as its text: an agent's process at the
-/// terminal, a Theseus job (its process, or a shell carrying its marker), an agent behind the web UI and the
-/// Discord binding are each refused in words, for another place's turn, and none is told to try without
-/// `--text`.
+/// A turn's view is a read (anything goes, 2026-11-22): an agent's process at the terminal, a Theseus job (its
+/// process, or a shell carrying its marker), an agent behind the web UI and the Discord binding are each
+/// answered, the record and its text alike, for another place's turn.
 #[tokio::test]
-async fn view_show_answers_the_owner_in_person_alone() {
+async fn view_show_answers_every_reader() {
     let r = rig();
     let lab_place = format!("discord:channel:{LAB}");
     let lab = session(&r.core, Some(&format!("channel:{LAB}")));
@@ -176,19 +175,13 @@ async fn view_show_answers_the_owner_in_person_alone() {
         ),
         ("web agent", web_agent, named.clone()),
         ("discord", discord, named.clone()),
+        ("owner", surface("sock#1", Surface::Cli), named.clone()),
     ] {
-        let said = show(&r.core, client, params).await.unwrap_err();
-        assert!(said.starts_with("not shown:"), "{who}: {said}");
-        assert!(
-            !said.contains("--text") && !said.contains("without"),
-            "{who}: {said}"
-        );
-        assert!(!said.contains("x:t-lab"), "{who}: {said}");
+        let shown = show(&r.core, client, params)
+            .await
+            .unwrap_or_else(|e| panic!("{who}: {e}"));
+        assert!(shown.contains("x:t-lab"), "{who}: {shown}");
     }
-    let mine = show(&r.core, surface("sock#1", Surface::Cli), named.clone())
-        .await
-        .unwrap();
-    assert!(mine.contains("x:t-lab"), "{mine}");
     let web = show(
         &r.core,
         surface("web#1", Surface::Web),
