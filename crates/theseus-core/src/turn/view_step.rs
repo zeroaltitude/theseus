@@ -143,7 +143,6 @@ impl TurnRunner {
         if input.strip.is_some() || input.force.is_some() {
             Self::view_reset(t, input.nodes);
         }
-        let store = t.tc.store;
         // Over the budget as rendered, or refused by the provider for its size: the view makes its own room
         // (`room`), and a request it cannot fit fails on its overage.
         let compiled = self.view_roomed(t, input)?;
@@ -159,18 +158,9 @@ impl TurnRunner {
             }
             f.compilation_id = Some(compiled.compilation.id.clone());
             f.card.clone_from(&compiled.card);
-            if let Some(view) = f.record.take() {
-                let room = f.room.made(compiled.cleared.map_or(0, |p| p.results));
-                let replay = kept::chain_kept(store, &mut t.keeping, f);
-                if let Err(e) = crate::view::record::keep_made(
-                    store,
-                    turn,
-                    &compiled.compilation.id,
-                    &view,
-                    (room, replay),
-                ) {
-                    tracing::warn!(error = %format!("{e:#}"), "the view's record was not kept");
-                }
+            // Routing's first compile is persisted only if the call uses it (`route_step::keep_first`).
+            if !t.route.defer_persist {
+                kept::record_kept(t, &compiled);
             }
         }
         Ok(Ok(compiled))

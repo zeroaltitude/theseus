@@ -34,6 +34,19 @@ pub const VIEW_HELD: &str =
     "something this turn's view laid has been sealed or moved since, so it is not \
      replayed";
 
+/// Why a view turn is refused when it laid the result of a tool that brings another session's or place's
+/// words into an exchange (`compiler::view::kept::CARRIERS`): the tool, in the reader's words.
+pub fn view_carried(tool: &str) -> String {
+    let by = match tool {
+        crate::view::history::HISTORY_TOOL => "the history tool".to_string(),
+        _ => format!("the {tool} tool"),
+    };
+    format!(
+        "this turn's view carries words read by {by}, whose sources a replay cannot check now, so \
+         it is not replayed"
+    )
+}
+
 /// A reply: what a turn's answer said and asked for (the wire's own type).
 pub use theseus_protocol::own_bench::ReplayReply as Said;
 
@@ -177,10 +190,10 @@ impl Core {
                     format!("{cid} was never stored (a detour's compile is not)"),
                 )
             })?;
-        let view = (compilation.strategy == crate::compiler::view::STRATEGY)
-            .then(|| self.kept_view(&compilation, session_id, turn))
-            .transpose()?;
         let nodes: Transcript = transcript[..at].to_vec();
+        let view = (compilation.strategy == crate::compiler::view::STRATEGY)
+            .then(|| self.kept_view(&compilation, (session_id, turn), &nodes))
+            .transpose()?;
         let mut spec = self.kept_spec(&session, &compilation)?;
         let recalls = nodes
             .iter()
@@ -280,12 +293,13 @@ impl Core {
 
     /// The view a view turn's request was laid from, read back from the blobs its record names, once the
     /// gate of now has said none of what it laid is held: a turn from before views kept it is refused in
-    /// words, as is one a source of which was sealed or moved since.
+    /// words, as is one a source of which was sealed or moved since, and one whose window (or own nodes,
+    /// among `nodes`) holds words a tool read from elsewhere, whose sources cannot be checked now.
     fn kept_view(
         &self,
         compilation: &Compilation,
-        session_id: &str,
-        turn: &str,
+        (session_id, turn): (&str, &str),
+        nodes: &Transcript,
     ) -> Result<Frozen, NotRebuildable> {
         let record = crate::view::record::read(&self.store, &compilation.id)
             .map_err(|e| no("view", format!("{e:#}")))?;
@@ -296,8 +310,13 @@ impl Core {
         if crate::turn::view_step::kept::held_now(&self.runner, session_id, laid) {
             return Err(no("view", VIEW_HELD));
         }
-        crate::compiler::view::kept::frozen(self.store.blobs(), &k, (session_id, turn))
-            .map_err(|why| no("view", why))
+        let f = crate::compiler::view::kept::frozen(self.store.blobs(), &k, (session_id, turn))
+            .map_err(|why| no("view", why))?;
+        let own = (nodes.iter()).filter(|(_, n)| n.turn_id.as_deref() == Some(turn));
+        if let Some(tool) = crate::compiler::view::kept::carried(&f, own.map(|(_, n)| &**n)) {
+            return Err(no("view", view_carried(tool)));
+        }
+        Ok(f)
     }
 
     /// The spec the compilation's requests were rendered from: this

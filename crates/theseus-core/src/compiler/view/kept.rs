@@ -59,6 +59,29 @@ pub fn kept(f: &Frozen) -> Option<(Kept, Vec<String>)> {
     Some((k, texts))
 }
 
+/// The tools whose result can bring another session's or place's conversation words into an exchange: the
+/// history tool (its pages and opens, a released piece included), another thread's read, another place's
+/// read, and memory's lookup (its hits and its reads by session, which the recall check does not see).
+pub const CARRIERS: [&str; 4] = [
+    crate::view::history::HISTORY_TOOL,
+    crate::thread_read::READ,
+    crate::glide::READ,
+    crate::memory_lookup::LOOKUP,
+];
+
+/// The first tool of [`CARRIERS`] whose result `f` laid in its window, or that is among `own` (the turn's
+/// own nodes before its answer: a turn a late result woke): a replay cannot check that result's sources as
+/// they stand now, so it is refused. A view lays a tool's result only in its window: the front and the
+/// beside block are the harness's own text.
+pub fn carried<'a>(f: &'a Frozen, own: impl IntoIterator<Item = &'a Node>) -> Option<&'a str> {
+    let laid = (f.window.iter()).map(|(_, n)| &**n).chain(own);
+    laid.filter_map(|n| match &n.body {
+        Body::ToolResult { tool, .. } => Some(tool.as_str()),
+        _ => None,
+    })
+    .find(|tool| CARRIERS.contains(tool))
+}
+
 /// The window's nodes in runs of one exchange (one turn id), oldest first.
 fn exchanges(window: &[(u64, crate::stub::Stub)]) -> Vec<Vec<&Node>> {
     let mut out: Vec<Vec<&Node>> = Vec::new();
@@ -91,6 +114,9 @@ pub fn frozen(blobs: &Blobs, k: &Kept, (session, turn): (&str, &str)) -> Result<
             .map(|(i, n)| (i as u64 + 1, n.into()))
             .collect(),
         beside: beside.as_deref().map(block),
+        // What it laid from, so a replay to another provider reads every source (`own_bench::replay`).
+        sessions: k.sessions.clone(),
+        exchanges: k.exchanges.clone(),
         recalled: k.recalled.clone(),
         ..Frozen::default()
     })
@@ -104,13 +130,11 @@ fn text_of(n: &Node) -> String {
     }
 }
 
-/// The text of blob `digest`, which must hash to its name.
+/// The text of blob `digest`, which must hash to its name (`Blobs::read` reads only one that does).
 fn text(blobs: &Blobs, digest: &str, part: &str) -> Result<String, String> {
-    let bytes = (blobs.read(digest))
-        .filter(|b| crate::blobs::digest(b) == digest)
-        .ok_or_else(|| {
-            format!("the view's {part} blob {digest} is missing or does not hash to its name")
-        })?;
+    let bytes = blobs.read(digest).ok_or_else(|| {
+        format!("the view's {part} blob {digest} is missing or does not hash to its name")
+    })?;
     String::from_utf8(bytes).map_err(|_| format!("the view's {part} blob {digest} is not text"))
 }
 

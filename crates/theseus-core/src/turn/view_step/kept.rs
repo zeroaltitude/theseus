@@ -3,17 +3,38 @@
 //! of it sends anything (`own_bench::rebuild`).
 
 use super::super::compile_step::Keeping;
-use super::TurnRunner;
+use super::{Compiled, Turn, TurnRunner};
 use crate::compiler::view::kept::{kept, Kept};
 use crate::compiler::view::Frozen;
 use crate::store::Store;
 use theseus_memory::gate::Seal;
 
+/// The view record of `compiled`, a new compilation the turn persists: what its view showed, the room the
+/// turn made, and what a replay needs. Every compilation an answer can name keeps its own (a routed turn's
+/// second compile, a new chain within the turn), so a replay finds the one its answer names; routing's
+/// first compile keeps one only when the call uses it (`route_step::keep_first`), so a discarded probe
+/// leaves none.
+pub(crate) fn record_kept(t: &mut Turn<'_>, compiled: &Compiled) {
+    let (turn, store) = (t.tc.turn_id, t.tc.store);
+    let Some(f) = (t.view.as_ref()).filter(|f| f.turn_id == turn && !f.declined) else {
+        return;
+    };
+    let Some(view) = f.record.as_ref() else {
+        return;
+    };
+    let room = f.room.made(compiled.cleared.map_or(0, |p| p.results));
+    let replay = chain_kept(store, &mut t.keeping, f);
+    let id = &compiled.compilation.id;
+    if let Err(e) = crate::view::record::keep_made(store, turn, id, view, (room, replay)) {
+        tracing::warn!(error = %format!("{e:#}"), "the view's record was not kept");
+    }
+}
+
 /// The chain `f` begins: its texts queued with the turn's system blocks (written on the blocking pool in
 /// the frame-free batch `compile_step::keep_blocks` starts, never in a frame of their own), each once, and
 /// the digests for its view record. None when a part does not serialize: the turn goes on, and a replay of
 /// it is refused in words.
-pub(super) fn chain_kept(store: &Store, keeping: &mut Keeping, f: &Frozen) -> Option<Kept> {
+fn chain_kept(store: &Store, keeping: &mut Keeping, f: &Frozen) -> Option<Kept> {
     let (k, texts) = kept(f)?;
     let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
     keeping.add(crate::compiler::cache::fresh(store.blobs(), &texts));

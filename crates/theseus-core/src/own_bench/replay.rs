@@ -180,8 +180,10 @@ impl Core {
         None
     }
 
-    /// The sessions `original`'s recall in front of the model came from: its recall notes' items, and the
-    /// nodes a view laid beside its message (a node that cannot be read names no session).
+    /// The sessions `original`'s recall in front of the model came from: its recall notes' items; and for a
+    /// view turn every session its view laid (the window's, the ladder's constituents', the cards', what
+    /// waits) and those of the nodes its recall laid beside its message (a node that cannot be read names
+    /// no session).
     fn recalled_from(&self, original: &Original) -> Vec<String> {
         let noted = (original.nodes.iter()).flat_map(|(_, n)| match &n.body {
             Body::Recall { items, .. } => items.iter().map(|it| it.session_id.clone()).collect(),
@@ -189,7 +191,13 @@ impl Core {
         });
         let laid = (original.view.iter()).flat_map(|f| &f.recalled);
         let viewed = laid.filter_map(|id| self.store.get_node(id).ok().flatten());
-        noted.chain(viewed.map(|(_, n)| n.session_id)).collect()
+        let sessions = (original.view.iter()).flat_map(|f| f.sessions.iter().cloned());
+        let mut all: Vec<String> = (noted.chain(viewed.map(|(_, n)| n.session_id)))
+            .chain(sessions)
+            .collect();
+        all.sort_unstable();
+        all.dedup();
+        all
     }
 
     /// One turn's first loop replayed on `p.profile`, judged, and written as
