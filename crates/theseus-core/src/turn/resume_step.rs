@@ -46,14 +46,21 @@ impl TurnRunner {
     }
 
     /// Where a turn no message opened answers (`read`: where its session's reply goes now): there, when
-    /// its session speaks somewhere now; when it posts nowhere, where the work it continues was asked (the
-    /// first of those turns' places that reads), else `read`. Never a failure.
+    /// its session speaks somewhere now; when it posts nowhere (`speaks_at` is `Ok(None)`), where the work it
+    /// continues was asked (the first of those turns' places that reads), else `read`. Never a failure for
+    /// the difference; a route that cannot be read stays unread (`read`, the view fails it plainly).
     pub(super) fn resumed_place(&self, t: &Turn<'_>, read: Option<String>) -> Option<String> {
         let opened = t.exchange.mark().is_some() || t.exchange.occasion().is_none();
         if opened || t.tc.task.is_some() {
             return read;
         }
-        if matches!(self.outbox.speaks_at(t.tc.session_id), Ok(Some(_))) {
+        let speaks = self.outbox.speaks_at(t.tc.session_id);
+        #[cfg(test)]
+        let speaks = match super::exchange_step::route_is_unreadable(t.tc.session_id) {
+            true => Err(anyhow::anyhow!("a test's unreadable route")),
+            false => speaks,
+        };
+        if !matches!(speaks, Ok(None)) {
             return read;
         }
         let asked = (self.continued_turns(t).iter().flatten())

@@ -110,12 +110,27 @@ pub fn session_marks(
     }
 }
 
-/// How recall reads places for one asker. Narrowed to one place, the asker
-/// reads as that place and its own sessions as it, and every other session
-/// as it always has, which the place rule then drops for `place`. A channel
-/// bound private is always narrowed to itself (decision 5); so is a turn that
-/// is not the owner alone, to its exact arrival place.
-/// Otherwise places read as before.
+/// The standing records, of `(id, source)`, a turn may not be shown: each kept from a message
+/// (`capture:<node>`) whose message is gone or cannot be read (a removed thing is not sent again). A record
+/// from no conversation (the owner's own surfaces) is source-free. Anything goes (2026-11-22): no place,
+/// presence or seal holds one.
+pub fn standing_held<'r>(
+    runner: &TurnRunner,
+    _asker: &str,
+    records: impl Iterator<Item = (&'r str, &'r str)>,
+) -> std::collections::HashSet<String> {
+    records
+        .filter(|(_, source)| {
+            source
+                .strip_prefix("capture:")
+                .is_some_and(|node| !matches!(runner.store.get_node(node), Ok(Some(_))))
+        })
+        .map(|(id, _)| id.to_string())
+        .collect()
+}
+
+/// How recall reads places for one asker: every asker reads every place (anything goes, 2026-11-22); it is
+/// never narrowed. Kept for its callers until the sweep.
 #[derive(Clone, Debug, Default)]
 pub struct RecallPlaces {
     own: Option<String>,
@@ -165,9 +180,8 @@ impl RecallPlaces {
     }
 }
 
-/// The verified point of view of one turn, for the view's gate: made here
-/// alone, from the turn's presence and today's reading of its place, never
-/// from what a caller says of itself.
+/// The point of view of one turn, for the view's gate: made here alone, the widest at the turn's own
+/// place ([`widest`]), never from what a caller says of itself.
 #[derive(Clone, Debug)]
 pub struct Verified(PointOfView);
 
