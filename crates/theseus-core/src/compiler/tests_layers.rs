@@ -44,7 +44,6 @@ fn compiled(spec: &RequestSpec) -> Compiled {
         strip: None,
         overflowed: None,
         sources: &Default::default(),
-        assembled: None,
         situation: &situation::Situation::ConversationStart,
     })
 }
@@ -181,7 +180,6 @@ fn a_planned_third_layer_is_the_headers_bytes_and_an_append_repeats_them() {
             strip: None,
             overflowed: None,
             sources: &Default::default(),
-            assembled: None,
             situation: &situation::Situation::ConversationStart,
         })
     };

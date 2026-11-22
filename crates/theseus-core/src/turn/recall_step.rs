@@ -59,24 +59,13 @@ pub(crate) struct Recalled {
     pub items: Vec<RecalledRef>,
     /// The node's id, for `memory.cited`'s rows.
     pub recall_id: String,
-    /// It is an assembled prefix's recall section (30c): a task's first
-    /// compile. Its pack takes `assembled_budget_tokens`,
-    /// and the new compilation renders it first in its prefix.
+    /// A task's first compile (30c): its pack takes `assembled_budget_tokens`.
+    /// (The view lays recall as slot H's pieces; nothing renders the node first.)
     pub assembled: bool,
     /// The `recall.ran` rows of recalls made while routing had the turn's
     /// route to decide, with their times: recorded once it is known
     /// (`recall_routed`, theseus-n7nc).
     pub held: Vec<(RecallManifest, u64, u64)>,
-}
-
-impl Recalled {
-    /// The pending node an assembled prefix renders first (`recall_id`).
-    pub fn assembled_id(&self) -> Option<&str> {
-        self.pending
-            .as_ref()
-            .filter(|_| self.assembled)
-            .map(|n| n.id.as_str())
-    }
 }
 
 /// The position a pending `Recall` node renders at: after every node, as

@@ -167,7 +167,6 @@ impl TurnRunner {
         let point = current.is_none() || force;
         let (prefix_spec, picked) = self.prefix_pick(t, spec, (current.as_ref(), &nodes), point, i);
         let spec = prefix_spec.as_ref().unwrap_or(spec);
-        let assembled = t.recall.assembled_id().map(str::to_string);
         let given = self.situation_of(t, &nodes, current.is_none(), session);
         let input = CompileInput {
             session_id: sid,
@@ -184,7 +183,6 @@ impl TurnRunner {
             strip,
             overflowed,
             sources: &sources,
-            assembled: assembled.as_deref(),
             situation: &given,
         };
         // Past the window with nothing left to drop, the turn fails before any call.

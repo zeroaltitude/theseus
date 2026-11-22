@@ -123,7 +123,6 @@ fn run(
         strip: None,
         overflowed: None,
         sources: &Default::default(),
-        assembled: None,
         situation: &situation::Situation::Continuation,
     })
 }
@@ -526,7 +525,6 @@ fn a_model_that_does_not_cache_gets_no_breakpoints() {
         strip: None,
         overflowed: None,
         sources: &Default::default(),
-        assembled: None,
         situation: &situation::Situation::Continuation,
     });
     assert_eq!(c.request.system.len(), 2);
