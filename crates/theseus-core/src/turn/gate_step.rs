@@ -1,5 +1,6 @@
 //! A turn's presence for the gate (issue 44, step 2; `crate::view_gate`):
-//! computed once, after the turn's input is written, from the input's mark;
+//! computed once, after the turn's input is written, from the input's mark,
+//! at the turn's one place (`turn_place`, its exchange's);
 //! for a turn no person's message opened, from the turn that set it up (a
 //! wake's `wake.at` call, a task's `task.create` call, or the call that
 //! started the task whose report this is), as the ledger wrote that turn's
@@ -22,12 +23,9 @@ impl TurnRunner {
         }
         let sid = t.tc.session_id;
         let today = self.place_of(sid);
-        let target = self.outbox.try_target(sid).ok().flatten();
+        // The one place of the turn, its exchange's too (`turn_place`); unreadable, no place.
+        let place = (self.turn_place(t)).unwrap_or_else(|| crate::exchange::rebuild::UNKNOWN.into());
         let mark = t.exchange.mark().cloned();
-        let place = match &mark {
-            Some(m) => m.place.clone(),
-            None => crate::exchange::place_of(target.as_deref(), t.tc.dir),
-        };
         let proof = match &mark {
             Some(m) => Proof::Mark(m),
             None => {

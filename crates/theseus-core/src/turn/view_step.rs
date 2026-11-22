@@ -9,7 +9,11 @@
 
 use std::collections::{HashMap, HashSet};
 
+mod failed;
+pub(in crate::turn) mod occasion;
 pub(super) mod preview;
+
+pub(in crate::turn) use failed::ViewFailed;
 
 use super::{compile, CompileInput, Compiled, RequestSpec, Turn, TurnRunner};
 use crate::compiler::view::Frozen;
@@ -59,9 +63,9 @@ impl TurnRunner {
     }
 
     /// This loop's compile: in a place set to `view`, from the turn's view (assembled on its first call);
-    /// else, and for a view turn that cannot be assembled soundly (`Fallback`), the transcript's, with a
-    /// summary where the ring would cut (30c). The view's record is kept with the compilation it was built
-    /// for, once.
+    /// else, and for a view turn over its budget (`Fallback`), the transcript's, with a summary where the
+    /// ring would cut (30c). A view that cannot be assembled soundly fails the turn plainly (`ViewFailed`):
+    /// never a partial view. The view's record is kept with the compilation it was built for, once.
     pub(super) async fn compile_here(
         &self,
         t: &mut Turn<'_>,
@@ -75,16 +79,14 @@ impl TurnRunner {
                 Err(e) if e.is::<FloorOverflow>() => {
                     Self::view_declined(t, Some(Fallback::OverBudget))
                 }
-                Err(e) => {
-                    tracing::warn!(error = %format!("{e:#}"), "the view could not be assembled");
-                    Self::view_declined(t, Some(Fallback::AssemblyError));
-                }
+                Err(e) if e.is::<ViewFailed>() => return Err(e),
+                // Never a partial view: the turn fails with the error's words, and nothing is sent.
+                Err(e) => return Err(ViewFailed::Assembly(format!("{e:#}")).into()),
             }
         }
         // A view turn that declined is the transcript's in full: the recall this call withheld for the
         // view, or a view call before it kept, is carried now, as on any transcript turn
-        // (`recall_step::carries`), whatever the withheld flag says (a `moved` decline is made before the
-        // compile step clears it).
+        // (`recall_step::carries`), whatever the withheld flag says.
         let recarried;
         let mut input: CompileInput<'_> = input;
         let kept = t.recall.withheld.is_some() || t.recall.kept_for_view.is_some();
@@ -105,7 +107,8 @@ impl TurnRunner {
         Box::pin(self.compact(t, compile(input), input, i)).await
     }
 
-    /// One call of a view turn, or why this turn is the transcript's (`None`: decided before).
+    /// One call of a view turn, or why this turn is the transcript's (`None`: decided before); a turn whose
+    /// place could not be read fails (`ViewFailed::Place`).
     fn view_compile(
         &self,
         t: &mut Turn<'_>,
@@ -122,8 +125,8 @@ impl TurnRunner {
             return Ok(Err(Some(Fallback::OverBudget)));
         }
         if held.is_none() {
-            if let Some(why) = self.view_unsound(t, input.nodes) {
-                return Ok(Err(Some(why)));
+            if t.exchange.place_unread() {
+                return Err(ViewFailed::Place.into());
             }
         } else if self.view_revoked(t) || self.view_moved(t) {
             // A source sealed since, or a presence that changed (a steer narrowed it): reassembled under
@@ -166,30 +169,10 @@ impl TurnRunner {
         Ok(Ok(compiled))
     }
 
-    /// Why a turn's view cannot be assembled soundly, before it is tried: a turn no message of a person,
-    /// a wake or a report opened (a continuation, a resume: its pending work is not a place's exchange);
-    /// a route the gate does not read as the opened exchange's place; or this session's recent
-    /// conversation that the ledger holds no exchange for (nothing is dropped silently before
-    /// `rebuild-exchanges` has run).
-    fn view_unsound(&self, t: &Turn<'_>, nodes: &[(u64, Stub)]) -> Option<Fallback> {
-        let turn = t.tc.turn_id;
-        if !opened(nodes, turn) {
-            return Some(Fallback::Continuation);
-        }
-        let anchor = Verified::of_session(self, t.tc.session_id)
-            .pov()
-            .anchor
-            .clone();
-        if t.exchange.place() != Some(anchor.as_str()) {
-            return Some(Fallback::Route);
-        }
-        unledgered(t.tc.store, nodes, turn).then_some(Fallback::Unledgered)
-    }
-
     /// After every await of a call's compile and before the provider (issue 44): the frozen view's verified
     /// point of view and its sessions' seals against the gate's reading now. A difference compiles the call
     /// again (the compile step reassembles under the new permit, on a new chain), at most twice; a third
-    /// difference makes the turn the transcript's (`moved`). The request that goes out is the last one
+    /// difference fails the call plainly (`ViewFailed::Moved`), and nothing is sent. The request that goes out is the last one
     /// compiled, its tail kept as the turn loop keeps one.
     pub(super) async fn view_readmitted(
         &self,
@@ -205,7 +188,7 @@ impl TurnRunner {
                 return Ok(Ok(compiled));
             }
             if again == VIEW_READMISSIONS {
-                Self::view_declined(t, Some(Fallback::Moved));
+                return Ok(Err(Self::view_failed(t, &ViewFailed::Moved)));
             }
             compiled =
                 match Box::pin(self.compile_step(t, session, spec, None, None, None, i)).await? {
@@ -309,7 +292,12 @@ impl TurnRunner {
         if let Err(o) = built.assembled {
             return Err(anyhow::Error::new(FloorOverflow(o)));
         }
-        t.view = Some(built.frozen);
+        let mut frozen = built.frozen;
+        // A turn no message opened: its empty "now", and beside it one line saying what woke it.
+        if let Some(o) = t.exchange.occasion() {
+            frozen.beside = occasion::beside_with(frozen.beside, o, (sid, turn));
+        }
+        t.view = Some(frozen);
         Ok(())
     }
 
@@ -458,9 +446,6 @@ pub(super) fn at_env_tail(session: &str) {
     }
 }
 
-/// How many of the session's newest earlier turns must have their exchange before a view reads it.
-const UNLEDGERED_LOOK: usize = 40;
-
 /// What one view is assembled for: a turn's (`view_freeze`), or a preview's of a place's next turn.
 pub(super) struct Asked<'a> {
     pub store: &'a Store,
@@ -500,45 +485,19 @@ impl Built {
     }
 }
 
-/// Whether any of the newest [`UNLEDGERED_LOOK`] turns of `nodes` before `turn` has no exchange in the
-/// ledger: a view would drop it silently, so the turn is the transcript's.
-pub(super) fn unledgered(store: &Store, nodes: &[(u64, Stub)], turn: &str) -> bool {
-    let mut seen = HashSet::new();
-    let earlier: Vec<&str> = (nodes.iter().rev())
-        .filter(|(_, n)| n.kind == Kind::UserMessage)
-        .filter_map(|(_, n)| n.turn_id.as_deref())
-        .filter(|id| *id != turn && seen.insert(*id))
-        .take(UNLEDGERED_LOOK)
-        .collect();
-    (earlier.into_iter()).any(|id| !matches!(crate::exchange::exchange(store, id), Ok(Some(_))))
-}
-
-/// Why a turn in a view place is the transcript's: a closed list, said in `context.view_fallback`.
+/// Why a turn in a view place is the transcript's: a closed list, said in `context.view_fallback`. A turn
+/// no message opened, a turn's place, history the ledger holds no exchange for, a failed read and a gate
+/// that kept moving are the view's own to answer (issue 44): none of them hands a turn back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Fallback {
-    /// No person's message, wake or report of its own opened the turn.
-    Continuation,
-    /// The gate's anchor is not the opened exchange's place.
-    Route,
-    /// The session's recent conversation has turns the ledger holds no exchange for.
-    Unledgered,
     /// The rendered request is over the budget.
     OverBudget,
-    /// The assembly failed.
-    AssemblyError,
-    /// The gate's reading moved under the view a third time in one call.
-    Moved,
 }
 
 impl Fallback {
     pub(super) fn as_str(self) -> &'static str {
         match self {
-            Self::Continuation => "continuation",
-            Self::Route => "route",
-            Self::Unledgered => "unledgered_history",
             Self::OverBudget => "over_budget",
-            Self::AssemblyError => "assembly_error",
-            Self::Moved => "moved",
         }
     }
 }
@@ -655,12 +614,6 @@ fn laid_exchanges(
     out.sort();
     out.dedup();
     out
-}
-
-/// Whether a person's message, a wake or a report of the turn's own opened it (they are written as the
-/// turn's own user messages); a continuation or a resume has none.
-fn opened(nodes: &[(u64, Stub)], turn: &str) -> bool {
-    (nodes.iter()).any(|(_, n)| n.turn_id.as_deref() == Some(turn) && n.kind == Kind::UserMessage)
 }
 
 /// Every source the selectors read: the store's, the turn's permit as their gate, the ladder read once,
@@ -1083,20 +1036,6 @@ mod tests {
             sent.starts_with("[earlier call: fs_write") && sent.len() < 800,
             "{sent}"
         );
-    }
-
-    /// Fallback (a): a turn with no message of its own (a continuation, a resume after a restart: the earlier
-    /// turn's unanswered message is not this turn's) is not opened, so it is the transcript's.
-    #[test]
-    fn a_turn_with_no_message_of_its_own_is_a_continuation() {
-        let earlier = Node::user("s", Some("t_earlier"), "cli", "the pending question");
-        let note = answer(
-            "t_now",
-            vec![json!({"type": "text", "text": "a clock line"})],
-        );
-        assert!(!opened(&laid(vec![earlier.clone(), note]), "t_now"));
-        let asked = Node::user("s", Some("t_now"), "cli", "and now?");
-        assert!(opened(&laid(vec![earlier, asked]), "t_now"));
     }
 
     /// Each session an assembly reads is read from the store once, however many exchanges of it are asked.

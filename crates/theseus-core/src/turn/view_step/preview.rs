@@ -20,7 +20,7 @@ use theseus_protocol::view::{
     ViewTally,
 };
 
-use super::{fold_constituents, unledgered, Asked, Built, Fallback, RequestSpec, TurnRunner};
+use super::{fold_constituents, Asked, Built, Fallback, RequestSpec, TurnRunner};
 use crate::ladder::view::StoreLadder;
 use crate::session::SessionRecord;
 use crate::store::Transcript;
@@ -164,8 +164,6 @@ impl TurnRunner {
         if p.message.is_none() {
             notes.push("assembled for an empty message (`--message` gives one)".into());
         }
-        let admitted = self.admitted_nodes(&gate_pov, p.session)?;
-        let unledgered = unledgered(store, &admitted, PREVIEW_TURN);
         let built: Built = self.view_built(
             Asked {
                 store,
@@ -211,11 +209,8 @@ impl TurnRunner {
                 BTreeMap::new(),
             ),
         };
-        let fallback = match (unledgered, overflow.is_some()) {
-            (true, _) => Some(Fallback::Unledgered),
-            (false, true) => Some(Fallback::OverBudget),
-            _ => None,
-        };
+        // Earlier turns with no exchange are out of the view's reach, not a hand-back (issue 44).
+        let fallback = overflow.is_some().then_some(Fallback::OverBudget);
         let budget = self.view_budget(spec);
         Ok(ViewPreviewResult {
             place: p.place.into(),

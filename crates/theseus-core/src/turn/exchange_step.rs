@@ -21,6 +21,7 @@ use crate::exchange::{
 use crate::node::Node;
 use crate::places::PlaceClass;
 use crate::store::Transcript;
+use crate::turn::view_step::occasion::Occasion;
 
 /// The most of a message the index is asked to name things in.
 const THINGS_TEXT: usize = crate::exchange::THINGS_TEXT;
@@ -42,6 +43,10 @@ pub(super) struct Held {
     /// The things of the reply before it, when they were named in time.
     reply_things: Option<BTreeMap<String, u64>>,
     seen: Option<Seen>,
+    /// The turn's place, read once ([`TurnRunner::turn_place`]): none inside when it could not be read.
+    read_place: Option<Option<String>>,
+    /// What woke a turn no message, wake or report opened, as its catch-up told it.
+    occasion: Option<Occasion>,
 }
 
 impl Held {
@@ -62,6 +67,21 @@ impl Held {
     /// (the gate reads it, `turn::gate_step`).
     pub(super) fn mark(&self) -> Option<&OwnerMark> {
         self.mark.as_ref()
+    }
+
+    /// Whether the turn's place was read and could not be (the view fails such a turn plainly).
+    pub(super) fn place_unread(&self) -> bool {
+        matches!(self.read_place, Some(None))
+    }
+
+    /// What woke the turn, when no message of its own opened it.
+    pub(super) fn occasion(&self) -> Option<Occasion> {
+        self.occasion
+    }
+
+    /// The turn's catch-up says what woke it (`Occasion::of`).
+    pub(super) fn caught_up(&mut self, occasion: Option<Occasion>) {
+        self.occasion = occasion;
     }
 }
 
@@ -86,6 +106,26 @@ pub(super) fn failed(t: &mut Turn<'_>, class: &str) {
 impl TurnRunner {
     fn ledger_on(&self, t: &Turn<'_>) -> bool {
         self.cfg.context.ledger_on() && t.tc.task.is_none()
+    }
+
+    /// The turn's place, read once and the same for its exchange and its gate (issue 44): where its
+    /// message arrived (its mark's), else where its reply is delivered (`speaks_at`: a wake's or a
+    /// report's target too). None when that cannot be read: a route that cannot be read is no place,
+    /// never the terminal's.
+    pub(super) fn turn_place(&self, t: &mut Turn<'_>) -> Option<String> {
+        if let Some(read) = &t.exchange.read_place {
+            return read.clone();
+        }
+        let read = t.exchange.mark.as_ref().map_or_else(
+            || {
+                (self.outbox.speaks_at(t.tc.session_id))
+                    .ok()
+                    .map(|at| crate::exchange::place_of(at.as_deref(), t.tc.dir))
+            },
+            |m| Some(m.place.clone()),
+        );
+        t.exchange.read_place = Some(read.clone());
+        read
     }
 
     /// The index's things in `text`, named off the turn's path: the task
@@ -221,6 +261,7 @@ impl TurnRunner {
             return;
         }
         let sid = t.tc.session_id;
+        let place = (self.turn_place(t)).unwrap_or_else(|| crate::exchange::rebuild::UNKNOWN.into());
         let h = &t.exchange;
         let opened_by = match () {
             _ if prompted => Opener::Prompt,
@@ -229,15 +270,6 @@ impl TurnRunner {
             _ if !t.woke_by.is_empty() => Opener::Report,
             _ => Opener::Continuation,
         };
-        // With no message, where the turn's reply is delivered (`speaks_at`: a wake's or a report's target
-        // too); a route that cannot be read is no place, never the terminal's.
-        let place = h.mark.as_ref().map_or_else(
-            || match self.outbox.speaks_at(sid) {
-                Ok(at) => crate::exchange::place_of(at.as_deref(), t.tc.dir),
-                Err(_) => crate::exchange::rebuild::UNKNOWN.into(),
-            },
-            |m| m.place.clone(),
-        );
         let ask = h.ask.as_ref().map(|(id, _)| id.clone());
         let ex = Exchange {
             turn_id: t.tc.turn_id.into(),
