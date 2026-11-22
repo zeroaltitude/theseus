@@ -66,8 +66,11 @@ async fn a_view_turn_is_replayed_on_another_providers_model() {
         ..Default::default()
     };
     settled(&r).await;
-    r.core.turn_replay(p("glm"), "cli").await.unwrap();
+    let other = r.core.turn_replay(p("glm"), "cli").await.unwrap();
+    assert_eq!(other.profile, "glm");
+    assert_eq!(other.turn, t);
     assert_eq!(zai.requests().len(), 1, "the other provider was sent it");
     let ok = r.core.turn_replay(p("haiku"), "cli").await.unwrap();
+    assert_eq!(ok.profile, "haiku");
     assert!(!ok.replay.text.is_empty(), "the replay answered");
 }

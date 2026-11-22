@@ -66,6 +66,10 @@ async fn a_moved_message_is_summarised_like_any_other() {
     let moved = did::write(&s, &w, &turns[0], &purse).await.unwrap();
     assert!(matches!(moved, Outcome::Written(_)), "{moved:?}");
     assert_eq!(w.asks.lock().unwrap().len(), 1, "the model read it");
+    assert!(
+        did::did(&s, &turns[0]).unwrap().is_some(),
+        "its line is kept"
+    );
 }
 
 #[tokio::test]

@@ -155,6 +155,8 @@ async fn a_view_turn_whose_laid_message_moved_since_is_still_rebuilt() {
                 .unwrap();
         }
     }
-    c.rebuild_first(&sid, &t)
-        .expect("rebuildable after the move");
+    assert!(
+        c.rebuild_first(&sid, &t).is_ok(),
+        "rebuildable after the move"
+    );
 }

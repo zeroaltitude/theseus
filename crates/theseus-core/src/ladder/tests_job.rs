@@ -276,11 +276,26 @@ async fn a_threads_earlier_session_is_summarised_like_any_other() {
     });
     core.store.put_session(&old.session_id, &old).unwrap();
     let w = Fake::default();
-    let turn = exchange_at(&core.store, &old.session_id, PLACE, 1_000, false);
     let purse = DayPurse::new(&core.store, None, false);
-    let out = did::write(&core.store, &w, &turn, &purse).await.unwrap();
-    assert!(matches!(out, Outcome::Written(_)), "{out:?}");
-    assert_eq!(w.asks.lock().unwrap().len(), 1);
+    // A thread's earlier session, a session with no record, and an imported one's id: each summarised.
+    let imported = format!("{}x", crate::import::SESSION_PREFIX);
+    for (i, sid) in [old.session_id.as_str(), "ses_never_recorded", &imported]
+        .into_iter()
+        .enumerate()
+    {
+        let turn = exchange_at(&core.store, sid, PLACE, 1_000 + i as u64, false);
+        let out = did::write(&core.store, &w, &turn, &purse).await.unwrap();
+        assert!(matches!(out, Outcome::Written(_)), "{sid}: {out:?}");
+        assert!(did::did(&core.store, &turn).unwrap().is_some(), "{sid}");
+    }
+    assert_eq!(w.asks.lock().unwrap().len(), 3, "a model read each");
+    assert!(core
+        .store
+        .get_session::<SessionRecord>(&old.session_id)
+        .unwrap()
+        .is_some());
+    assert_ne!(old.session_id, plain);
+    assert!(old.superseded_by.is_some());
 }
 
 #[tokio::test]

@@ -215,6 +215,7 @@ async fn a_place_digest_shows_a_sealed_thread_like_any_other() {
         "{d}"
     );
     assert!(d.ends_with(']'), "{d}");
+    assert_eq!(d.matches("embargoed").count(), 0, "no count line: {d}");
     assert!(
         !d.contains("tarnlib PR\u{bb}"),
         "the asking thread has no line: {d}"
