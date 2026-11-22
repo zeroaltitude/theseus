@@ -351,7 +351,9 @@ pub fn author_of(class: PlaceClass) -> &'static str {
 }
 
 /// A slash command (`/stop`, `/tasks 2`): its first word is `/` and a
-/// name. A path (`/etc/hosts is empty`) is not one.
+/// name. A path (`/etc/hosts is empty`) is not one, nor is the retired thread
+/// address `/t …` (issue 44): with threads gone it is a message like any other,
+/// and is judged as one.
 pub fn slash_command(text: &str) -> bool {
     let Some(word) = text.split_whitespace().next() else {
         return false;
@@ -360,6 +362,7 @@ pub fn slash_command(text: &str) -> bool {
         return false;
     };
     !name.is_empty()
+        && name != "t"
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
@@ -1438,6 +1441,7 @@ mod tests {
             "/ stop",
             "",
             "please /stop",
+            "/t harbour-log remember the north-wall measurement",
         ] {
             assert!(!slash_command(s), "{s}");
         }
