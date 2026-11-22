@@ -319,10 +319,11 @@ pub(super) fn cut(text: &str, max: usize) -> String {
     }
 }
 
-/// Where a bare call begins: the oldest exchange the model sees in full, and everything older. In today's
-/// transcript assembly that is the session's last compilation: the newest exchange it cut or cleared
-/// anything of is not seen in full, so the page begins with it; with nothing cut, the page begins before the
-/// compilation's first node (a fresh one: before it was made; none: before the session began).
+/// Where a bare call begins: the oldest exchange the model sees in full, and everything older. Read from the
+/// session's last compilation. A view's is its frozen window ([`window_start`]). A transcript's: the newest
+/// exchange it cut or cleared anything of is not seen in full, so the page begins with it; with nothing cut,
+/// the page begins before the compilation's first node (a fresh one: before it was made; none: before the
+/// session began).
 pub fn in_view(store: &Store, session: &str) -> Result<Option<Cursor>> {
     let from = |at_ms: u64| {
         Some(Cursor {
@@ -343,6 +344,11 @@ pub fn in_view(store: &Store, session: &str) -> Result<Option<Cursor>> {
     };
     if c.strategy == "fresh" {
         return Ok(older(c.created_at_ms));
+    }
+    if c.strategy == crate::compiler::view::STRATEGY {
+        if let Some(v) = crate::view::record::read(store, &c.id)? {
+            return Ok(Some(window_start(&v, c.created_at_ms)));
+        }
     }
     let cut = c
         .budget
@@ -370,6 +376,39 @@ pub fn in_view(store: &Store, session: &str) -> Result<Option<Cursor>> {
         .and_then(|id| node(store, id))
         .map_or(rec.created_at_unix_ms, |n| n.created_at_ms);
     Ok(older(first))
+}
+
+/// Where a bare call begins for a view: its window's exchanges (slot G, this place's) as its record keeps them.
+/// The newest laid in less than its whole form (a line, or words without their tool traffic) is not seen in
+/// full, so the page begins with it; with every one whole, the page begins just past the oldest, so no
+/// exchange in full sight is paged again; with no window, before the view was made.
+pub fn window_start(v: &crate::view::record::ViewRecord, made_ms: u64) -> Cursor {
+    use crate::view::{Form, Pos, Slot, Space};
+    let window = (v.shown.iter())
+        .filter(|s| s.piece.slot == Slot::Here)
+        .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }));
+    // The index's own order: newest first, then by turn id ascending within one millisecond.
+    let order = |a: &&Pos, b: &&Pos| a.at_ms.cmp(&b.at_ms).then(b.id.cmp(&a.id));
+    let thinned = (window.clone())
+        .filter(|s| s.form != Form::Whole)
+        .map(|s| &s.piece.range.last)
+        .max_by(order);
+    if let Some(p) = thinned {
+        return Cursor {
+            at_ms: p.at_ms,
+            turn_id: String::new(),
+        };
+    }
+    match window.map(|s| &s.piece.range.first).min_by(order) {
+        Some(p) => Cursor {
+            at_ms: p.at_ms,
+            turn_id: p.id.clone(),
+        },
+        None => Cursor {
+            at_ms: made_ms.saturating_sub(1),
+            turn_id: String::new(),
+        },
+    }
 }
 
 /// A time as a line says it, in the daemon's time zone: `2026-11-20 14:03`.

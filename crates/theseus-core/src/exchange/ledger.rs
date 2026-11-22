@@ -185,7 +185,7 @@ pub enum Prev {
     /// The place had no exchange before.
     #[default]
     None,
-    /// Its message or reply was in this request's transcript.
+    /// Its message or reply was in this request's transcript; for a view, the view showed it.
     Transcript,
     /// It ran in another session, and the place's tail block carried it.
     PlaceTail,
@@ -263,6 +263,37 @@ fn in_view(store: &Store, session: &str, view: &View<'_>, id: &str) -> bool {
         }
         _ => false,
     }
+}
+
+/// The exchanges a view compilation showed, in any slot (its front, window and beside block), as its view
+/// record keeps them: none for another strategy's compilation, or a view whose record does not read.
+fn shown_exchanges(
+    store: &Store,
+    c: &crate::compiler::Compilation,
+) -> Option<Vec<crate::view::SourceRange>> {
+    if c.strategy != crate::compiler::view::STRATEGY {
+        return None;
+    }
+    let v = crate::view::record::read(store, &c.id).ok().flatten()?;
+    Some(
+        (v.shown.into_iter())
+            .map(|s| s.piece.range)
+            .filter(|r| matches!(r.space, crate::view::Space::Exchanges { .. }))
+            .collect(),
+    )
+}
+
+/// Whether `o` is in one of `shown`'s ranges: its place's, by the position its touch sorts at.
+fn shown_holds(shown: &[crate::view::SourceRange], o: &Exchange) -> bool {
+    let at = crate::view::Pos {
+        at_ms: o.start_ms,
+        id: o.turn_id.clone(),
+    };
+    shown.iter().any(|r| {
+        matches!(&r.space, crate::view::Space::Exchanges { place } if *place == o.place)
+            && r.first <= at
+            && at <= r.last
+    })
 }
 
 /// The place's exchanges around `ex`: the one before it, and whether another
@@ -347,6 +378,12 @@ pub fn row(store: &Store, g: Given<'_>) -> Row {
         view.as_ref()
             .is_some_and(|v| in_view(store, &ex.session_id, v, id))
     };
+    // A view's "seen" is every exchange it showed: front, window and beside, by its record.
+    let shown = compiled.as_ref().and_then(|c| shown_exchanges(store, c));
+    let seen = |o: &Exchange, ids: &[Option<&str>]| match &shown {
+        Some(s) => shown_holds(s, o),
+        None => ids.iter().flatten().any(|id| seen_in(id)),
+    };
     let (prev, overlap) = around(store, ex);
     let mut row = Row {
         exchange: ex.turn_id.clone(),
@@ -367,10 +404,7 @@ pub fn row(store: &Store, g: Given<'_>) -> Row {
         (row.situation, row.trigger, row.cold) = (s.situation.clone(), s.trigger.clone(), s.cold);
     }
     if let Some(p) = &prev {
-        let held = [p.ask.as_deref(), p.reply.as_deref()]
-            .into_iter()
-            .flatten()
-            .any(seen_in);
+        let held = seen(p, &[p.ask.as_deref(), p.reply.as_deref()]);
         let other = p.session_id != ex.session_id;
         row.prev = match (held, other && g.seen.is_some_and(|s| s.place_tail)) {
             (true, _) => Prev::Transcript,
@@ -386,7 +420,7 @@ pub fn row(store: &Store, g: Given<'_>) -> Row {
             row.answered = Some(p.opened_by);
         }
     }
-    row.elsewhere = elsewhere(store, ex, &seen_in);
+    row.elsewhere = elsewhere(store, ex, &|o: &Exchange| seen(o, &[o.ask.as_deref()]));
     if let Some(ask) = &ex.ask {
         let mut sessions = vec![ex.session_id.as_str()];
         sessions.extend(g.arrived_session.filter(|s| *s != ex.session_id));
@@ -396,7 +430,7 @@ pub fn row(store: &Store, g: Given<'_>) -> Row {
 }
 
 /// The person's newest exchange in each other private place, at most eight.
-fn elsewhere(store: &Store, ex: &Exchange, seen_in: &dyn Fn(&str) -> bool) -> Vec<Elsewhere> {
+fn elsewhere(store: &Store, ex: &Exchange, seen_in: &dyn Fn(&Exchange) -> bool) -> Vec<Elsewhere> {
     let person = ex.person.as_deref().unwrap_or(OWNER);
     let mut places = HashSet::new();
     let mut out = Vec::new();
@@ -411,7 +445,7 @@ fn elsewhere(store: &Store, ex: &Exchange, seen_in: &dyn Fn(&str) -> bool) -> Ve
             continue;
         }
         out.push(Elsewhere {
-            in_view: o.ask.as_deref().is_some_and(seen_in),
+            in_view: seen_in(&o),
             age_ms: ex.start_ms.saturating_sub(o.start_ms),
             place: o.place,
             exchange: o.turn_id,
