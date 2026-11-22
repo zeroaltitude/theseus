@@ -200,10 +200,13 @@ fn residue_without(
     residue: &[super::super::budget::Residue],
     held: &[&super::super::budget::Dropped],
 ) -> Vec<ViewResidue> {
-    let merged = super::super::budget::DropWhy::Merged;
+    use super::super::budget::DropWhy;
     (residue.iter())
         .map(|r| {
-            let gone = held.iter().filter(|d| d.band == r.band && d.why != merged);
+            let counted = |d: &&&super::super::budget::Dropped| {
+                d.band == r.band && !matches!(d.why, DropWhy::Merged | DropWhy::InWindow)
+            };
+            let gone = held.iter().filter(counted);
             let (n, t) = gone.fold((0u32, 0u64), |(n, t), d| (n + 1, t + d.tokens));
             super::super::budget::Residue {
                 band: r.band,
