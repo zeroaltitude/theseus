@@ -159,8 +159,8 @@ EMPTY store, so every word in it is the suite's own, with a stand-in model on 12
 counts what it is sent and charges nothing. The cases: a message and a follow-up; a steer during a turn; a loop
 of tool calls; a job that ends after its turn (a continuation); a daemon killed in the middle of a turn and
 started again; a wake; a task's report; a task's brief and a second turn; a check; a fork and its first turn; a
-turn of large tool results past the budget (a working window of 40,000 tokens); a provider refusal for size; a
-thread sealed between two calls of one turn; `/new`; a shared place with another person; a settings file that
+turn of large tool results past the budget (a working window of 40,000 tokens); a provider refusal for size;
+`/new`; a shared place with another person; a settings file that
 names every key the cut retires. Each case asserts what a person needs (an answer arrived, or the turn ended in
 a plain failure) and ends with `case <name>: ok|FAILED <why>`.
 
