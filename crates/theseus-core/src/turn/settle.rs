@@ -466,8 +466,9 @@ impl TurnRunner {
     }
 
     /// A new compilation (it carries its own `derived_from`) and the
-    /// session's pointer, in one frame. The stored record takes only the
-    /// turn's fields (theseus-xeo).
+    /// session's pointer, in one frame; a view turn's in frames the turn
+    /// writes anyway. The stored record takes only the turn's fields
+    /// (theseus-xeo).
     pub(super) fn persist_compilation(
         store: &Store,
         compiled: &Compiled,
@@ -490,6 +491,16 @@ impl TurnRunner {
             records.extend(crate::prefix::records(compiled, turn_id)?);
             Ok(records)
         };
+        // A view turn builds a compilation every turn (issue 44, issue 46): its records ride the
+        // turn's next frame, and the pointer rides the turn's own session write at its end
+        // (`take_turns_fields`), so neither costs a frame of its own. A session never stored
+        // takes the path below.
+        let stored = store
+            .get_session::<serde::de::IgnoredAny>(&session.session_id)?
+            .is_some();
+        if c.strategy == crate::compiler::view::STRATEGY && stored {
+            return records()?.into_iter().try_for_each(|r| store.defer(r));
+        }
         let written = store.update_session(&session.session_id, |r| {
             r.take_turns_fields(session);
             records()
