@@ -15,6 +15,8 @@ pub(in crate::turn) mod occasion;
 pub(super) mod preview;
 mod recall;
 mod room;
+#[cfg(test)]
+pub(crate) use room::force_resize;
 pub(super) mod task;
 
 #[cfg(test)]
@@ -128,8 +130,10 @@ impl TurnRunner {
     /// After every await of a call's compile and before the provider (issue 44): the frozen view's verified
     /// point of view and its sessions' seals against the gate's reading now. A difference compiles the call
     /// again (the compile step reassembles under the new permit, on a new chain), at most twice; a third
-    /// difference fails the call plainly (`ViewFailed::Moved`), and nothing is sent. The request that goes out is the last one
-    /// compiled, its tail kept as the turn loop keeps one.
+    /// difference fails the call plainly (`ViewFailed::Moved`), and nothing is sent. Then the size check
+    /// (`room::view_size`) on the finished request; a recompile for size comes back to the admission check
+    /// too (at most `room::SIZINGS` of them). The request that goes out is the last one compiled, its tail
+    /// kept as the turn loop keeps one.
     pub(super) async fn view_readmitted(
         &self,
         t: &mut Turn<'_>,
@@ -138,14 +142,23 @@ impl TurnRunner {
         compiled: Compiled,
         i: u32,
     ) -> anyhow::Result<Result<Compiled, super::Failure>> {
-        let mut compiled = compiled;
-        for again in 0..=VIEW_READMISSIONS {
-            if !(self.view_revoked(t) || self.view_moved(t)) {
-                // The request as it will be sent is held to its size (`room::view_sized`).
-                return self.view_sized(t, session, spec, compiled, i).await;
-            }
-            if again == VIEW_READMISSIONS {
-                return Ok(Err(Self::view_failed(t, &ViewFailed::Moved)));
+        // One bounded loop: every recompile, for admission or for size, comes back to the admission check
+        // and then the size check, so nothing compiled after an await is sent unchecked.
+        let (mut compiled, mut moved, mut sized) = (compiled, 0, 0);
+        loop {
+            if self.view_revoked(t) || self.view_moved(t) {
+                if moved == VIEW_READMISSIONS {
+                    return Ok(Err(Self::view_failed(t, &ViewFailed::Moved)));
+                }
+                moved += 1;
+            } else {
+                match room::view_size(t, &mut compiled, sized == room::SIZINGS) {
+                    room::Size::Fits => return Ok(Ok(compiled)),
+                    room::Size::Over => {
+                        return Ok(Self::overage(t, &compiled, i).map_or(Ok(compiled), Err));
+                    }
+                    room::Size::Again => sized += 1,
+                }
             }
             compiled =
                 match Box::pin(self.compile_step(t, session, spec, false, None, None, i)).await? {
@@ -156,7 +169,6 @@ impl TurnRunner {
                     Err(f) => return Ok(Err(f)),
                 };
         }
-        Ok(Ok(compiled))
     }
 
     /// Whether the gate reads the turn's point of view differently from when its view was assembled.
@@ -253,6 +265,7 @@ impl TurnRunner {
             sealed: &held,
             moved: &moved,
             sessions: &read,
+            own: Some(turn),
         };
         // One read of the ladder for the whole assembly: every selector, the text and the window see it.
         let store_ladder = fork.ladder(store);
