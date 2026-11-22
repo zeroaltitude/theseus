@@ -917,10 +917,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   index (at most `INDEX_MAX_CHARS`). Ended by a task's end (`JobWaits::task_settled`, fired by `settled()` and at a session's
   end, with the one-second look as the backstop), a person's message, a stop, or the timeout (`clamp_timeout`: 30 s to `[tools]
   fan_out_max_wait_secs`, and less `max(60 s, 15 %)` of the turn's deadline); a task still running is told in a note and stays
-  on the parent's `reports`. It lends its admission slot after `LEND_AFTER` (helper turns are `Class::Task`), keeps the cache
-  warm as `job_wait` does (`stash_for_wait` also accepts the breakpoint the task view moves into the last block), and bounds the
-  fan-in: `report_chars` each, `[tools] fan_in_chars` and half the room before the clearing line in all (`KeepWarm::room`,
-  recorded by `stash_for_wait`), the rest of a cut report kept in the session's outputs. `task_fan_out` calls `wait_on_tasks`.
+  on the parent's `reports`. It lends its admission slot after `LEND_AFTER` (helper turns are `Class::Task`), sends nothing of
+  its own while it waits (issue 44, 2026-11-22), and bounds the
+  fan-in: `report_chars` each, `[tools] fan_in_chars` and half the room before the clearing line in all (`LastRequest::room`,
+  recorded by `record_wait_room` at the response), the rest of a cut report kept in the session's outputs. `task_fan_out` calls `wait_on_tasks`.
   Tests: `tests_task_wait.rs`. `task_wait` and `task_fan_out` are the family `helpers` (`tools_defer/family.rs`), which no place
   loads and no cue names yet, so they add nothing to the owner's DM task flow's request, and a shared place is not offered them
   (`places::public_tool`).
