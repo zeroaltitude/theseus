@@ -640,98 +640,95 @@ async fn an_unmarked_conversations_late_result_is_answered_seeing_only_its_own_s
     .await;
 }
 
-/// The steered resume and another place's words: an owner-opened turn at the terminal (`local`) is cut, the
-/// owner's words at another terminal session (`local:<dir>`) are recent, the turn's durable steer has no mark,
-/// and the turn resumes. DIAGNOSTIC: what the resumed request lays, and under which point of view.
+/// A turn of `sid` typed by the owner in person, its arrival place `place` (the place `turn.submit` names:
+/// a terminal session with a directory arrives at `local:<dir>`, `rpc::methods`), or the test mark's.
+async fn submit_at(c: &Arc<crate::Core>, sid: &str, input: &str, place: Option<&str>) {
+    let rec: crate::session::SessionRecord = c.store.get_session(sid).unwrap().unwrap();
+    let (live, _) = c.live_profile();
+    let target = c.runner.resolve_target(&live, None, None, None).unwrap();
+    let mut mark = crate::view_gate::test_mark(&c.runner, sid, true);
+    if let Some(p) = place {
+        mark.place = p.into();
+    }
+    let sink = crate::bus::EventSink::new(c.bus.clone(), sid, None).with_arrival(Some(mark));
+    c.runner
+        .run(crate::turn::TurnRequest {
+            prompt: None,
+            surface: None,
+            session: rec,
+            input: Some(input.into()),
+            target,
+            sink,
+            author: "cli".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            reply_to: None,
+            answer_at: None,
+        })
+        .await
+        .unwrap();
+}
+
+/// The steered resume and another place's words (decisions 1, 2 and 5): an owner-opened turn at the terminal
+/// (place `local`) is cut, its durable steer has no mark (so it is not the owner alone), and it resumes. What
+/// the owner said shortly before, in another session:
+/// - at the SAME place (`local`, as the test mark names a terminal message with no binding) is laid: slot G is
+///   this place's window, read across the place's sessions, whoever is present (the place rule, not his
+///   words elsewhere);
+/// - at a terminal session with ANOTHER directory (`local:<dir>`, as `turn.submit` names its arrival) is
+///   another place: absent;
+/// - in his DM is another place: absent.
 #[tokio::test]
-async fn diag_a_steered_resume_and_another_places_words() {
-    const ELSEWHERE: &str = "elsewhere: the spare key is under the blue heron statue";
-    let mut out = String::new();
-    for steered in [true, false] {
+async fn a_steered_resume_lays_its_own_places_words_and_none_of_another_place() {
+    const SAID: &str = "the spare key is under the blue heron statue";
+    for (at, laid) in [("same", true), ("dir", false), ("dm", false)] {
         let fake = Arc::new(crate::provider::FakeProvider::scripted(vec![
             cut(),
             Scripted::text("Noted."),
             Scripted::text("The board shows three ferries."),
         ]));
         let (c, sid, turn) = restart_rig(fake.clone(), None, "what is on the harbour board?").await;
-        let other = session_in(&c, None, std::path::Path::new("/srv/elsewhere-ship"));
-        let said = submit(&c, &other, ELSEWHERE).await.unwrap();
+        let words = format!("{at}: {SAID}");
+        match at {
+            "same" => {
+                let other = session_in(&c, None, std::path::Path::new("/srv/elsewhere-ship"));
+                submit_at(&c, &other, &words, None).await;
+            }
+            "dir" => {
+                let dir = "/srv/elsewhere-ship";
+                let other = session_in(&c, None, std::path::Path::new(dir));
+                let place = crate::exchange::place_of(None, Some(dir));
+                submit_at(&c, &other, &words, Some(&place)).await;
+            }
+            _ => {
+                let dm = session(&c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
+                submit_at(&c, &dm, &words, None).await;
+            }
+        }
         let mut ex = crate::exchange::exchange(&c.store, &turn).unwrap().unwrap();
         (ex.end_ms, ex.stop) = (None, None);
         ex.messages = ex.ask.iter().cloned().collect();
-        let mut records = vec![crate::exchange::exchange_record(&ex).unwrap()];
-        if steered {
-            let steer = crate::node::Node::user_with(
-                &sid,
-                Some(&turn),
-                "agent",
-                "also list the gulls",
-                vec![],
-            );
-            records.push(steer.record().unwrap());
-        }
-        c.store.append(&records).unwrap();
-        let class = c.runner.place_of(&sid);
-        let cont = crate::view_gate::continued(&c.store, &class, &turn);
+        let steer =
+            crate::node::Node::user_with(&sid, Some(&turn), "agent", "also list the gulls", vec![]);
+        c.store
+            .append(&[
+                crate::exchange::exchange_record(&ex).unwrap(),
+                steer.record().unwrap(),
+            ])
+            .unwrap();
         let before = fake.requests().len();
-        let res = resume(&c, &sid).await;
+        let res = resume(&c, &sid).await.unwrap();
+        assert_eq!(res.output, "The board shows three ferries.");
         let last = started(&c, &sid).pop().unwrap();
-        out.push_str(&format!(
-            "\n== steered {steered}: resume ok {}; continued(turn) {cont:?}; given(resumed) {:?}; session place {:?}; \
-             other place {:?}; other exchange {}\n",
-            res.is_ok(),
+        assert_eq!(
             given(&c, &last),
-            crate::exchange::exchange(&c.store, &turn).unwrap().map(|e| e.place),
-            crate::exchange::exchange(&c.store, &said.turn_id).unwrap().map(|e| e.place),
-            said.turn_id,
-        ));
-        if let Ok(Some(rec)) = crate::view::record::newest(&c.store, &last) {
-            out.push_str(&format!(
-                "view pov: present {:?}, anchor {:?}, person {:?}\n",
-                rec.pov.present, rec.pov.anchor, rec.pov.person
-            ));
-            for sh in &rec.shown {
-                let p = &sh.piece;
-                out.push_str(&format!(
-                    "  shown slot {:?} band {:?} space {:?} form {:?} reasons {:?} first {} other? {}\n",
-                    p.slot,
-                    p.band,
-                    p.range.space,
-                    sh.form,
-                    p.reasons,
-                    p.range.first.id,
-                    p.range.first.id == said.turn_id || p.range.last.id == said.turn_id
-                ));
-            }
-        } else {
-            out.push_str("no view record\n");
-        }
-        for (k, q) in fake.requests()[before..].iter().enumerate() {
-            for (i, m) in q.messages.iter().enumerate() {
-                let blocks: Vec<String> = match &m["content"] {
-                    serde_json::Value::String(t) => vec![t.clone()],
-                    serde_json::Value::Array(b) => (b.iter())
-                        .filter_map(|b| b["text"].as_str().map(str::to_string))
-                        .collect(),
-                    _ => vec![],
-                };
-                for b in blocks {
-                    let head: String = b
-                        .lines()
-                        .next()
-                        .unwrap_or_default()
-                        .chars()
-                        .take(90)
-                        .collect();
-                    out.push_str(&format!(
-                        "  req {k} msg {i} {} block: {head:?} ({} chars) fact? {}\n",
-                        m["role"],
-                        b.len(),
-                        b.contains("spare key is under the blue heron")
-                    ));
-                }
-            }
-        }
+            Some(Present::PrivateChannel),
+            "{at}: not alone"
+        );
+        let sent: Vec<String> = (fake.requests()[before..].iter()).map(texts).collect();
+        assert!(!sent.is_empty(), "{at}");
+        let found = sent.iter().any(|t| t.contains(&words));
+        assert_eq!(found, laid, "{at}: laid only at its own place");
     }
-    panic!("DIAG{out}");
 }
