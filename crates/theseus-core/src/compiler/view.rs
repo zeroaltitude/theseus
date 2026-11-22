@@ -82,8 +82,9 @@ pub struct Frozen {
     pub room: crate::view::record::Room,
     /// The floor did not fit (rule 9): nothing is laid, and every call is over by the floor's numbers.
     pub floor: Option<crate::view::budget::Overflow>,
-    /// The items today's recall found that the view laid (admitted), admitted again by a reassembly and
-    /// re-asked before every call (`turn::view_step::recall`).
+    /// The re-admitted candidates of today's recall (what recall's admission let through, before the view's
+    /// gate and budget chose what to lay), admitted again by a reassembly and re-asked before every call
+    /// (`turn::view_step::recall`).
     pub recalled: Vec<crate::node::RecalledRef>,
     /// The turn's sizes as its requests are finished and sent (`turn::view_step::room`), carried by every
     /// reassembly.
