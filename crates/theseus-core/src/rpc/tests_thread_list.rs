@@ -1,6 +1,7 @@
 //! `thread.list` and `thread.show` after threads were retired (2026-11-22, issue 44): they read
 //! the stored records, and they are still the owner's alone (`judge_act(Act::Thread)`), so a
-//! person in a shared place is refused them.
+//! person in a shared place is refused them. The shared-place case keeps the act-gate half of the
+//! deleted `tests_threads.rs::a_shared_place_can_neither_address_list_nor_bind_a_thread`.
 
 use std::sync::Arc;
 
@@ -9,7 +10,7 @@ use theseus_protocol::threads::{ThreadListParams, ThreadNewParams, ThreadState};
 use super::tests::test_core;
 use super::Core;
 use crate::approval::{Answerer, Surface};
-use crate::places::BoundPlace;
+use crate::places::{BoundPlace, PlaceClass};
 
 const LAB: u64 = 314_159_265_358_979_323;
 const STRANGER: u64 = 777;
@@ -99,4 +100,18 @@ fn a_shared_place_can_neither_list_nor_show_a_thread() {
             .unwrap_err(),
     );
     refused(c.thread_show("tides", stranger()).unwrap_err());
+    refused(c.thread_session("tides", stranger()).unwrap_err());
+    assert!(
+        c.outbox.place_session("thread:tides").unwrap().is_none(),
+        "no place was bound"
+    );
+    assert_eq!(c.threads().get("tides").unwrap().state, ThreadState::Active);
+    // The owner's own DM, bound private, may.
+    let class = |t: &str| c.runner.place_rule.class(&c.cfg, Some(t));
+    assert_eq!(class("thread:tides"), PlaceClass::Private);
+    assert_eq!(class("discord:thread:tides"), PlaceClass::Private);
+    assert_eq!(class(&format!("discord:channel:{LAB}")), PlaceClass::Shared);
+    let board = c.threads();
+    assert!(board.live(PlaceClass::Shared).is_empty());
+    assert_eq!(board.live(PlaceClass::Private).len(), 1);
 }
