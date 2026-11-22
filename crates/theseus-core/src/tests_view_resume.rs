@@ -144,7 +144,8 @@ async fn a_continuations_own_call_answered_later_keeps_the_question() {
         move |q| {
             if texts(q).contains(ENDED) {
                 if n.fetch_add(1, Ordering::SeqCst) == 0 {
-                    let argv = json!({"argv": ["sh", "-c", "sleep 1.6; echo GAUGE-SECOND-88"]});
+                    // Long enough that B has ended when it ends: its result opens a turn of its own, C.
+                    let argv = json!({"argv": ["sh", "-c", "sleep 4; echo GAUGE-SECOND-88"]});
                     return Scripted::tools("", &[("j2", "proc_run", argv)]);
                 }
                 return Scripted::text("Both gauges read: GAUGE-SECOND-88.");
@@ -175,6 +176,8 @@ async fn a_continuations_own_call_answered_later_keeps_the_question() {
     let t = texts(&q);
     assert_eq!(t.matches(ASKED).count(), 1, "the question, once: {t}");
     r.until("its answer", 15, |_| answered(c, &sid, "GAUGE-SECOND-88"))
+        .await;
+    r.until("three turns' compiles", 15, |_| started(c, &sid).len() >= 3)
         .await;
     let turns = started(c, &sid);
     assert!(turns.len() >= 3, "{turns:?}");
