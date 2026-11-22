@@ -42,9 +42,12 @@ place checks that it can be assembled, and if not it is the transcript's turn fr
 carried as on any transcript turn. The reason is written on the ledger (`context.view_fallback`) and is one of a
 closed list: `continuation` (no person's message, wake or report of its own opened the turn), `route` (the gate's
 anchor is not the place the exchange opened in), `unledgered_history` (the session's recent turns include some the
-ledger holds no exchange for), `over_budget` (the request is over the budget, the floor alone is too large for the
-view's budget, or the provider said a request of the turn passed its window), `assembly_error`, and `moved` (the
-gate's reading changed under the view a third time in one call). A turn's recall is kept across a view call that was
+ledger holds no exchange for), `assembly_error`, and `moved` (the gate's reading changed under the view a third time
+in one call). A request over the budget is never handed back: the view makes its own room
+(`turn/view_step/room.rs`): it clears the turn's old tool results to their stand-ins, then lowers slot G's allowance
+to none, each a new chain, under the provider's stated window once it refused a request for its size; only when
+the floor and the turn's own nodes still do not fit does the turn fail, before anything is sent, on the core
+overage (`context_overage`). A turn's recall is kept across a view call that was
 sent, and if the turn then declines it is admitted again item by item under the presence and seals of that moment;
 an item held out since leaves nothing behind.
 
@@ -63,7 +66,7 @@ an item held out since leaves nothing behind.
 - **4, `did` lines and the ladder**, by a background job with its own daily line of spend
   (`docs/design/ladder.md`).
 - **5, recognition, in part**: topics per exchange, the `item` kind, the table of scoped names and a thing's card
-  (`docs/design/names.md`). None of it reaches the view yet.
+  (`docs/design/names.md`). In a place set to `view` it reaches the model as a thing's card (below).
 - **6 and 7, together**: the assembler went straight into the compiler, behind the setting above, with no shadow
   run (`docs/design/view-compile.md`). The memory page, the record of what a turn was shown, `theseus view show`, and
   Theseus's own reading of its view (`look.theseus`) came with it (`docs/design/view-record.md`).
@@ -76,17 +79,20 @@ an item held out since leaves nothing behind.
   route pack `route.v10` is retired, and `profile.list` still sends `cleared: true` for each profile, for a cockpit
   page left open since before the upgrade.
 - **The view's hardening**: recall kept across a sent view call is admitted again item by item if the turn declines;
-  a floor too large for the view's budget declines to the transcript (`over_budget`); and after all of a call's
+  a floor too large for the view's budget fails the turn on the core overage; and after all of a call's
   preparation, before every send, the view is checked against the gate again (§5.1, §4).
 - **The preview**: `theseus view preview PLACE` shows what the place's next turn would be given, by the turn's own
   assembler, without calling a model or writing anything (§5.1).
 
-**The sources the view does not have yet.** The selectors for these slots exist and are tested with fakes, but
-their sources over the store answer nothing, so they lay nothing: **what waits** (slot C), **facts about the
-person** (slot B), and **named things and their cards** (slot D, and slot H's named things; the name matcher of
-step 5 is not wired into the view). Slot H holds recall, and a joined task's card when the judge's existing
-`addressed_task` answer names one task. Slots E, F and G (his past, his words elsewhere lately, and here: the
-window and the ladder) are read from the store.
+**The sources the view has, read from the store.** **What waits** (slot C: the pending confirmations and the
+tasks waiting on him, an id and a line each), **facts about the person** (slot B: the held person's name and
+the owner's guidance for it, to the owner alone; the role line is not laid), and **named things and their cards** (slot D, and slot H's named things:
+the names table built once for the turn through its permit, the message's names and numbered items matched
+against it; `docs/design/names.md`, "The view's sources"). Slot H also holds recall, and a joined task's card
+when the judge's existing `addressed_task` answer names one task. Slots E, F and G (his past, his words
+elsewhere lately, and here: the window and the ladder) are read from the store. What is in play is the things
+his words named in the newest exchanges here; the things Theseus's replies named and old exchanges' numbered
+items are not read for it.
 
 **What the one-time rebuild can and cannot prove.** `theseus ledger rebuild-exchanges` fills in the missing
 exchanges of conversations that are not a task's and not imported, for the turns that hold a message of the
@@ -378,7 +384,7 @@ by a message of the owner in person there, built by the turn's own assembler (th
 from the place as it stands now. It is the owner's alone (the CLI or the web page with no agent's process behind
 it); a piece's text is shown only at his own terminal. It calls no model, sends nothing and writes nothing that
 persists: no view record, no ledger row, no cache a turn reads. It does not predict `route` or `continuation`
-(decided by the turn that arrives) or `over_budget` on the rendered request, runs no recall (so recall's pieces are
+(decided by the turn that arrives) or the room a long turn makes in its own request, runs no recall (so recall's pieces are
 not in it), and sizes the system part from an approximation of the next request. It lists and counts only what the
 reader's gate admits, node by node: exchanges, the fixed code pieces and fold nodes; a piece of another kind (a
 joined task's card, say) is neither listed nor counted.
@@ -433,8 +439,8 @@ and admitted again item by item under the presence and seals of that moment befo
    and the turn says exactly that instead of answering from a silently incomplete view: it names what did not
    fit, gives its handle, and asks for a narrower question or a deep look. Every such case is recorded.
 
-**As built**, rule 9 is not this: a floor too large for the view's budget declines the turn to the transcript
-(`over_budget`, recorded on the ledger), and no note is laid in the view.
+**As built**, rule 9 is not this: a floor too large for the view's budget fails the turn before any call, on the
+core overage (`context_overage`, recorded on the ledger), and no note is laid in the view.
 
 **Forms.** A piece is shown *whole* (as it was said, with its tool traffic), *spoken* (his words and the reply's
 text; tool traffic as one-line stubs), or as a *line* (`he asked → Theseus did`, his ask verbatim). Every piece,
@@ -790,8 +796,9 @@ step 8, after the card.
   (`words.would`: `apply` or `card`, and why: `shadow`, `no_judgment`, `misjudged`, `outside`, `spent`, …; one
   that names his message but no kind is `no_words`), and every change still keeps its card. Promoting `task_words.v1`
   (`theseus packs promote task_words.v1 --live`, the operator's act, citing a learning report) makes a clean
-  narrowing apply without one. A resume keeps its card in every state: it starts work again, which a misread
-  pause never does.
+  narrowing apply without one. **Only narrowing can act**: a pause still goes to the card (the judge records
+  `pauses`, but the durable cardless pause path is not built), and a resume keeps its card in every state: it
+  starts work again.
 - **A model-proposed pause was withdrawn.** `task.update` offers `narrows`, `widens` and `replaces` only, and has
   no pause field; a call that asks for a pause is refused. The pause as first built set a state on the record and held nothing that ran,
   and making it a real hold inside the kernel's frame was not a small change. The owner's own `task.pause` and

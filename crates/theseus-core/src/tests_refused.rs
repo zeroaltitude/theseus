@@ -57,7 +57,7 @@ async fn session(core: &Arc<Core>) -> (String, String) {
 /// crc no longer checks, and its record still decodes, its JSON too (the
 /// last digit in it moves by one). A record read checks no crc, so until the
 /// history check finds the frame, the start reads the record as it is.
-fn corrupt_frame_of(dir: &Path, position: u64) {
+pub(crate) fn corrupt_frame_of(dir: &Path, position: u64) {
     use theseus_store::wal::{first_position, list_segments, segment_path, FRAME_HEADER};
     let wal = dir.join("wal");
     for seg in list_segments(&wal).unwrap() {

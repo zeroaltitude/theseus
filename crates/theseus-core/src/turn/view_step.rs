@@ -10,6 +10,7 @@
 use std::collections::{HashMap, HashSet};
 
 pub(super) mod preview;
+mod room;
 pub(super) mod task;
 
 use super::{compile, CompileInput, Compiled, RequestSpec, Turn, TurnRunner};
@@ -23,9 +24,12 @@ use crate::view::budget::{Budget, Overflow};
 use crate::view::fold::FoldNode;
 use crate::view::permit::Permit;
 use crate::view::render::{MarkedBlock, Renderer};
-use crate::view::select::sources::Sources;
+use crate::view::select::sources::{Names, Sources, Things};
 use crate::view::select::{table, Part};
+use crate::view::sources_names::{Called, ViewAdmits};
+use crate::view::sources_people::StorePeople;
 use crate::view::sources_store::{author_of, Sessions, StoreSources};
+use crate::view::sources_waiting::StoreWaiting;
 use crate::view::text::forms::{self, Voice};
 use crate::view::text::labels::Origin;
 use crate::view::text::parts::{self, Seen};
@@ -69,12 +73,12 @@ impl TurnRunner {
         i: u32,
     ) -> anyhow::Result<Compiled> {
         if self.assembly_here(t) == Assembly::View {
+            // The message's numbered items, named off the path since the exchange opened, are what its
+            // view's names are matched with.
+            t.exchange.await_items().await;
             match self.view_compile(t, input) {
                 Ok(Ok(c)) => return Ok(c),
                 Ok(Err(why)) => Self::view_declined(t, why),
-                Err(e) if e.is::<FloorOverflow>() => {
-                    Self::view_declined(t, Some(Fallback::OverBudget))
-                }
                 Err(e) => {
                     tracing::warn!(error = %format!("{e:#}"), "the view could not be assembled");
                     Self::view_declined(t, Some(Fallback::AssemblyError));
@@ -116,20 +120,14 @@ impl TurnRunner {
         if held.is_some_and(|f| f.declined) {
             return Ok(Err(None));
         }
-        // The provider said a request of this turn passed its window: the transcript's ring makes room
-        // by the provider's own numbers, and the turn stays the transcript's.
-        if crate::compiler::view::provider_overflowed(&input) {
-            return Ok(Err(Some(Fallback::OverBudget)));
-        }
         if held.is_none() {
             if let Some(why) = self.view_unsound(t, input.nodes) {
                 return Ok(Err(Some(why)));
             }
         } else if self.view_revoked(t) || self.view_moved(t) {
             // A source sealed since, or a presence that changed (a steer narrowed it): reassembled under
-            // the new permit, on a new chain.
-            t.view = None;
-            self.view_freeze(t, input.spec)?;
+            // the new permit, on a new chain, with the room the turn made.
+            self.view_refrozen(t, input.spec, None)?;
             Self::view_reset(t, input.nodes);
         }
         self.view_freeze(t, input.spec)?;
@@ -138,14 +136,12 @@ impl TurnRunner {
             Self::view_reset(t, input.nodes);
         }
         let store = t.tc.store;
+        // Over the budget as rendered, or refused by the provider for its size: the view makes its own room
+        // (`room`), and a request it cannot fit fails on its overage.
+        let compiled = self.view_roomed(t, input)?;
         let Some(f) = t.view.as_mut() else {
             anyhow::bail!("the turn's view was not assembled");
         };
-        let compiled = crate::compiler::view::compile(input, f);
-        // Over the budget as rendered: the transcript's ring and compaction make room, not a stuck place.
-        if compiled.budget.overage.is_some() {
-            return Ok(Err(Some(Fallback::OverBudget)));
-        }
         if compiled.new_compilation {
             if f.compilation_id.is_some() {
                 // A new chain in the middle of the turn (an effective spec that changed).
@@ -156,9 +152,14 @@ impl TurnRunner {
             f.compilation_id = Some(compiled.compilation.id.clone());
             f.card.clone_from(&compiled.card);
             if let Some(view) = f.record.take() {
-                if let Err(e) =
-                    crate::view::record::keep(store, turn, &compiled.compilation.id, &view)
-                {
+                let room = f.room.made(compiled.cleared.map_or(0, |p| p.results));
+                if let Err(e) = crate::view::record::keep_made(
+                    store,
+                    turn,
+                    &compiled.compilation.id,
+                    &view,
+                    room,
+                ) {
                     tracing::warn!(error = %format!("{e:#}"), "the view's record was not kept");
                 }
             }
@@ -289,35 +290,24 @@ impl TurnRunner {
     }
 
     /// The turn's view, assembled on its first call and kept in `t.view` for its later ones (frozen within
-    /// a turn); a new turn assembles afresh.
+    /// a turn); a new turn assembles afresh. A floor too large for the budget (rule 9) lays nothing: its
+    /// calls fail on the floor's overage (`room`), never a small view.
     fn view_freeze(&self, t: &mut Turn<'_>, spec: &RequestSpec) -> anyhow::Result<()> {
         if t.view.as_ref().is_some_and(|f| f.turn_id == t.tc.turn_id) {
             return Ok(());
         }
-        let (sid, turn, store) = (t.tc.session_id, t.tc.turn_id, t.tc.store);
-        let asked = Asked {
-            store,
-            sid,
-            turn,
-            person: t.exchange.person().0,
-            verified: None,
-            recalled: recalled(t),
-            message: None,
-        };
-        let built = self.view_built(asked, spec)?;
-        // Rule 9: a floor too large for the view's budget is the transcript's to handle (its ring and
-        // compaction, or its own words on an overage), not a small view.
-        if let Err(o) = built.assembled {
-            return Err(anyhow::Error::new(FloorOverflow(o)));
-        }
-        t.view = Some(built.frozen);
-        Ok(())
+        self.view_refrozen(t, spec, None)
     }
 
-    /// A view assembled for `asked`: what a turn freezes, and the assembly it was made from (the floor's
-    /// overflow, rule 9, when it could not fit). The one assembler: a turn's and a preview's
+    /// A view assembled for `asked` under `budget`: what a turn freezes, and the assembly it was made from
+    /// (the floor's overflow, rule 9, when it could not fit). The one assembler: a turn's and a preview's
     /// (`view_step::preview`).
-    pub(super) fn view_built(&self, asked: Asked<'_>, spec: &RequestSpec) -> anyhow::Result<Built> {
+    pub(super) fn view_built(
+        &self,
+        asked: Asked<'_>,
+        spec: &RequestSpec,
+        budget: &Budget,
+    ) -> anyhow::Result<Built> {
         let Asked {
             store,
             sid,
@@ -326,6 +316,7 @@ impl TurnRunner {
             verified,
             recalled,
             message: given,
+            items,
         } = asked;
         let snap = StoreSnapshot {
             now_ms: self.kernel.now_ms(),
@@ -345,8 +336,8 @@ impl TurnRunner {
         let permit = Permit::of(verified);
         let read = Sessions::default();
         let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
-        let moved = crate::view_gate::Moved::read(self, Some(sid));
-        let moved = |e: &crate::exchange::Exchange| moved.holds(e);
+        let moved_read = crate::view_gate::Moved::read(self, Some(sid));
+        let moved = |e: &crate::exchange::Exchange| moved_read.holds(e);
         let sources = StoreSources {
             store,
             mark: since.clone().map(|m| (place.as_str(), m)),
@@ -359,6 +350,7 @@ impl TurnRunner {
         let store_ladder = crate::fork::window::ForkLadder::of(store, sid);
         let gated = GatedLadder::new(&store_ladder, store, &held, &moved);
         let ladder = OnceLadder::new(&gated);
+        let moving = self.moving(store, (&permit, &pov, &moved_read), &items, &read)?;
         let cards = StoreCards {
             store,
             kernel: &self.kernel,
@@ -366,7 +358,7 @@ impl TurnRunner {
             homes: self,
             judged: asked.and_then(|n| judged_task(store, sid, &n)),
         };
-        let src = sources_of(&permit, &sources, &ladder, &cards, &message);
+        let src = sources_of(&permit, (&sources, &moving), &ladder, &cards, &message);
         let renderer = TextRenderer {
             store,
             kernel: Some(&self.kernel),
@@ -384,11 +376,11 @@ impl TurnRunner {
         };
         let block = |b: &MarkedBlock| Frozen::block(sid, turn, &b.heading, &b.text);
         let memory_page = renderer.memory_page().1.to_string();
-        let a = match assemble(&pov, &snap, &parts, &self.view_budget(spec)) {
+        let a = match assemble(&pov, &snap, &parts, budget) {
             Ok(a) => a,
             Err(NotAssembled::Read(e)) => return Err(e.context("the view's read")),
-            // Rule 9: the floor did not fit. The assembler says so by its numbers; a turn declines on it
-            // (`view_freeze`), a preview reports it.
+            // Rule 9: the floor did not fit. The assembler says so by its numbers; a turn fails on it
+            // (`room`), a preview reports it.
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
         let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
@@ -398,22 +390,58 @@ impl TurnRunner {
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
         let frozen = Frozen {
             turn_id: turn.into(),
-            compilation_id: None,
             front: front.map(block).collect(),
             window,
-            stripped: HashSet::new(),
             sessions: sorted(sessions),
             exchanges,
             verified: Some(verified_pov),
             beside: a.parts.beside.as_ref().map(block),
             memory_page,
             record: Some(a.view.clone()),
-            card: None,
-            declined: false,
+            ..Frozen::default()
         };
         Ok(Built {
             frozen,
             assembled: Ok(a),
+        })
+    }
+
+    /// The sources of what is beside the message and who is speaking, read once before assembly: the
+    /// names table through the turn's permit (none outside a core, which holds the stores it reads), what
+    /// waits, and the facts about the person.
+    fn moving<'a>(
+        &'a self,
+        store: &'a Store,
+        (permit, pov, moved): (&'a Permit, &'a PointOfView, &'a crate::view_gate::Moved<'a>),
+        items: &[String],
+        read: &'a Sessions,
+    ) -> anyhow::Result<Moving<'a>> {
+        let (texts, depends) = (&read.texts, &read.depends);
+        let called = match self.threads.core() {
+            Some(core) => {
+                let tasks = crate::task_graph::all(store)?;
+                let admits = ViewAdmits::new((permit, pov), (store, self, moved), tasks, depends);
+                Some(Called::build(core, admits, items.to_vec(), texts)?)
+            }
+            None => None,
+        };
+        Ok(Moving {
+            called,
+            waiting: StoreWaiting {
+                gate: permit,
+                pov,
+                store,
+                kernel: &self.kernel,
+                homes: self,
+                texts,
+                depends,
+            },
+            people: StorePeople {
+                ontology: self.ontology.snapshot(store)?,
+                owner: self.cfg.places.owner.clone().unwrap_or_default(),
+                now_ms: pov.now_ms,
+                texts,
+            },
         })
     }
 
@@ -477,6 +505,8 @@ pub(super) struct Asked<'a> {
     /// The message given (a preview's); none reads the turn's own, by node and text, at the point a turn
     /// always read it (after the clock and the `/new` mark).
     pub message: Option<String>,
+    /// The message's numbered items, as the exchange's naming told them (none for a preview).
+    pub items: Vec<String>,
 }
 
 /// A view as assembled: what a turn freezes, and the assembly (or the floor's overflow).
@@ -486,7 +516,7 @@ pub(super) struct Built {
 }
 
 impl Built {
-    /// Rule 9: the floor did not fit. Nothing is laid: a turn declines to the transcript on it, and a
+    /// Rule 9: the floor did not fit. Nothing is laid: a turn fails on the floor's overage (`room`), and a
     /// preview says the floor's numbers.
     fn overflowed(turn: &str, o: Overflow, memory_page: String) -> Self {
         let frozen = Frozen {
@@ -523,8 +553,6 @@ pub(super) enum Fallback {
     Route,
     /// The session's recent conversation has turns the ledger holds no exchange for.
     Unledgered,
-    /// The rendered request is over the budget.
-    OverBudget,
     /// The assembly failed.
     AssemblyError,
     /// The gate's reading moved under the view a third time in one call.
@@ -537,7 +565,6 @@ impl Fallback {
             Self::Continuation => "continuation",
             Self::Route => "route",
             Self::Unledgered => "unledgered_history",
-            Self::OverBudget => "over_budget",
             Self::AssemblyError => "assembly_error",
             Self::Moved => "moved",
         }
@@ -647,11 +674,17 @@ fn laid_exchanges(
                 s.piece.range.last.id.clone(),
             ]
         });
+    // The exchanges a shown card read its excerpts from (its provenance): a move since revokes it too.
+    let read = (a.view.shown.iter()).flat_map(|s| match &s.piece.range.space {
+        Space::Card { from: Some(p), .. } => p.exchanges.clone(),
+        _ => Vec::new(),
+    });
     let mut out: Vec<String> = (window.iter())
         .filter_map(|(_, n)| n.turn_id.clone())
         .filter(|t| t != turn)
         .chain(folded.iter().cloned())
         .chain(shown)
+        .chain(read)
         .collect();
     out.sort();
     out.dedup();
@@ -664,27 +697,39 @@ fn opened(nodes: &[(u64, Stub)], turn: &str) -> bool {
     (nodes.iter()).any(|(_, n)| n.turn_id.as_deref() == Some(turn) && n.kind == Kind::UserMessage)
 }
 
+/// What [`TurnRunner::moving`] reads.
+struct Moving<'a> {
+    called: Option<Called<'a>>,
+    waiting: StoreWaiting<'a>,
+    people: StorePeople<'a>,
+}
+
 /// Every source the selectors read: the store's, the turn's permit as their gate, the ladder read once,
-/// the joined task's card, and the message.
+/// the named things (none outside a core), what waits, the facts about the person, the joined task's
+/// card, and the message.
 fn sources_of<'a, 'b>(
     gate: &'a Permit,
-    store: &'a StoreSources<'b>,
+    (store, moving): (&'a StoreSources<'b>, &'a Moving<'b>),
     ladder: &'a dyn crate::view::fold::Ladder,
     cards: &'a StoreCards<'b>,
     message: &'a str,
 ) -> Sources<'a> {
+    let (things, names): (&dyn Things, &dyn Names) = match &moving.called {
+        Some(c) => (c, c),
+        None => (store, store),
+    };
     Sources {
         gate,
         exchanges: store,
         ladder,
         folds: store,
         places: store,
-        waiting: store,
-        things: store,
-        names: store,
+        waiting: &moving.waiting,
+        things,
+        names,
         tasks: cards,
         recall: store,
-        people: store,
+        people: &moving.people,
         message,
     }
 }
@@ -728,22 +773,6 @@ fn verified_pov(verified: &Verified, person: Option<String>, now_ms: u64) -> Poi
     }
 }
 
-/// The view's floor does not fit its budget (rule 9): the turn declines to the transcript (`over_budget`).
-#[derive(Debug)]
-pub(super) struct FloorOverflow(Overflow);
-
-impl std::fmt::Display for FloorOverflow {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Overflow::Floor { tokens, room, .. } = &self.0;
-        write!(
-            f,
-            "the view's floor is {tokens} tokens against {room} of room"
-        )
-    }
-}
-
-impl std::error::Error for FloorOverflow {}
-
 /// The nodes today's recall found for this turn (its pending note, never written in a view place).
 fn recalled(t: &Turn<'_>) -> Vec<String> {
     match t.recall.pending.as_ref().map(|n| &n.body) {
@@ -771,7 +800,9 @@ fn message_of(store: &Store, sid: &str, turn: &str) -> anyhow::Result<(Option<St
 /// The window as the view shows it: the nodes of each exchange the budgeter kept in slot G, oldest first,
 /// from every session that ran them (this turn's own is its tail; a recall note is the transcript's), each
 /// part labelled by its own provenance (`labelled`), the results of those kept spoken as their receipts,
-/// made now from the window alone (`compiler::view::receipted`); and every session the view lays.
+/// made now from the window alone (`compiler::view::receipted`); and every session the view lays, those a
+/// card, a waiting line or a fact was read from (`Sessions::depends`) among them, so a seal of any before a
+/// later call revokes the view.
 fn window_of(
     (store, read): (&Store, &Sessions),
     a: &Assembled,
@@ -840,6 +871,7 @@ fn window_of(
             sessions.push(crate::task_graph::home(&all, rec));
         }
     }
+    sessions.extend(read.depends.borrow().iter().cloned());
     sessions.sort();
     sessions.dedup();
     Ok((crate::compiler::view::receipted(window, &spoken), sessions))
