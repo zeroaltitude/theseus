@@ -1267,6 +1267,7 @@ impl Shared {
             guild: m.guild_id,
             thread,
             reply_turn: self.reply_turn_of(m),
+            reply_unheld: self.reply_unheld_of(m),
             task: self.reply_task_of(m),
         }));
     }
@@ -2123,6 +2124,7 @@ impl Place {
         // stream's, or the reply's post when the stream posted nothing.
         let anchor = batch.last().map(|m| m.message);
         let reply_turn = batch.last().and_then(|m| m.reply_turn.clone());
+        let unheld = batch.last().and_then(|m| m.reply_unheld);
         // Who spoke, for the core's place rule (`steer::speaker_of`).
         let speaker = steer::speaker_of(&batch);
         if let Some(a) = anchor {
@@ -2141,6 +2143,10 @@ impl Place {
             for p in pending {
                 attachments.extend(p.wait().await);
             }
+            let reply_turn = match (reply_turn, unheld) {
+                (None, Some(m)) => thread_move::sent_turn_of(&rpc, m).await,
+                (held, _) => held,
+            };
             let r = rpc
                 .call::<_, TurnSubmitResult>(
                     theseus_protocol::method::TURN_SUBMIT,

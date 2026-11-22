@@ -107,6 +107,74 @@ fn explicit_tag(a: &Address, live: &[&ThreadInfo], p: &mut TurnSubmitParams) -> 
     }
 }
 
+/// The rows of `thread.routed` read back for a reply's turn, at most: the
+/// newest first, a page at a time.
+const ROUTED_READ: usize = 4096;
+
+/// Where turn `turn` ran, by its `thread.routed` row (written in the turn's
+/// own first frame): `Some(Some(slug))` in a thread, `Some(None)` at home,
+/// `None` when no row of the newest `ROUTED_READ` names the turn or the rows
+/// cannot be read.
+fn routed_thread_of(store: &crate::store::Store, turn: &str) -> Option<Option<String>> {
+    let tags = vec![theseus_store::pages::ledger_kind(
+        theseus_protocol::LedgerKind::ThreadRouted.as_str(),
+    )];
+    let (mut before, mut read) = (None, 0);
+    while read < ROUTED_READ {
+        let page = theseus_store::Page {
+            kind: theseus_store::kinds::LEDGER,
+            tags: tags.clone(),
+            after: None,
+            before,
+            since_ms: None,
+            until_ms: None,
+            limit: 512,
+        };
+        let got = match store.ledger_page(&page) {
+            Ok(Some(got)) => got,
+            Ok(None) => return None,
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "a reply's turn was not read back");
+                return None;
+            }
+        };
+        for r in &got.records {
+            read += 1;
+            let Ok(row) = r.decode::<crate::ledger::LedgerRow>() else {
+                continue;
+            };
+            if row.turn_id.as_deref() == Some(turn) {
+                let to = row.data["to"].as_str()?;
+                return Some((to != "home").then(|| to.to_string()));
+            }
+        }
+        match (got.more, got.first) {
+            (true, Some(first)) => before = Some(first),
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// An address the message gives that cannot be honoured, when none was
+/// found among the live threads: its own words naming no live thread
+/// (`unresolved`), or a reply to a turn of a thread of `nameable` that is no
+/// longer live (paused, done).
+fn unhonoured(
+    p: &TurnSubmitParams,
+    nameable: &[&ThreadInfo],
+    reply_thread: Option<String>,
+) -> Option<Unresolved> {
+    unresolved(&p.input, nameable).or_else(|| {
+        let slug = reply_thread?;
+        let t = nameable.iter().find(|t| t.slug == slug)?;
+        Some(Unresolved {
+            word: t.title.clone(),
+            slug: Some(slug),
+        })
+    })
+}
+
 /// The place's own conversation: where a message with no address runs.
 fn home_tag(confidence: f64, movable: bool) -> ThreadTag {
     ThreadTag {
@@ -140,11 +208,12 @@ impl Core {
         }
         let class = self.runner.class_of(&home);
         let live = board.live(class);
+        let reply_thread = self.reply_thread(p);
+        let nameable = board.nameable(class);
         if live.is_empty() {
-            return match unresolved(&p.input, &board.nameable(class)) {
-                Some(u) => Err(self.refuse_address(&home, &u, None)),
-                None => Ok(None),
-            };
+            return self
+                .addressed(p, (&home, None), (&[], &nameable), reply_thread)
+                .map(|_| None);
         }
         let state = &self.runner.threads.route;
         let bench = self.bench_clock(p);
@@ -153,12 +222,8 @@ impl Core {
         let turn_id = crate::new_id("turn");
         let mut row = fresh_row(&home);
         let mut early: Option<Early> = None;
-        let addr = self.addressed(p, place.as_deref(), &live);
-        if addr.is_none() {
-            if let Some(u) = unresolved(&p.input, &board.nameable(class)) {
-                return Err(self.refuse_address(&home, &u, None));
-            }
-        }
+        let at = (home.as_str(), place.as_deref());
+        let addr = self.addressed(p, at, (&live, &nameable), reply_thread)?;
         let typed = typed_word(&p.input);
         let tag = match addr {
             Some(a) => explicit_tag(&a, &live, p),
@@ -248,26 +313,45 @@ impl Core {
         Some(tail.text)
     }
 
-    /// What a message addresses: a thread in its own words, or the thread of
-    /// the turn it replies to.
+    /// What a message in `home` at `place` addresses among the `live`
+    /// threads: a thread in its own words, its place, or the thread of the turn
+    /// it replies to. An address that cannot be honoured among the `nameable`
+    /// (`unhonoured`) is the refusal.
     fn addressed(
         &self,
         p: &TurnSubmitParams,
-        place: Option<&str>,
-        live: &[&ThreadInfo],
-    ) -> Option<Address> {
-        let reply_thread = p
-            .in_reply_to
-            .as_deref()
-            .and_then(|t| self.runner.threads.route.thread_of_turn(t));
-        address(
-            &Addressing {
-                text: &p.input,
-                place,
-                reply_thread: reply_thread.as_deref(),
-            },
-            live,
-        )
+        (home, place): (&str, Option<&str>),
+        (live, nameable): (&[&ThreadInfo], &[&ThreadInfo]),
+        reply_thread: Option<String>,
+    ) -> Result<Option<Address>, RpcFailure> {
+        let addressing = Addressing {
+            text: &p.input,
+            place,
+            reply_thread: reply_thread.as_deref(),
+        };
+        if let Some(a) = address(&addressing, live) {
+            return Ok(Some(a));
+        }
+        match unhonoured(p, nameable, reply_thread) {
+            Some(u) => Err(self.refuse_address(home, &u, None)),
+            None => Ok(None),
+        }
+    }
+
+    /// The thread of the turn a message replies to: the router's memory of
+    /// this run's turns first, else the turn's `thread.routed` row, the
+    /// durable record a restart keeps (`routed_thread_of`). None: no reply,
+    /// a turn the records place at home, or one no record names (a turn of a
+    /// place without threads, or older than the rows read), which runs at
+    /// home as before.
+    fn reply_thread(&self, p: &TurnSubmitParams) -> Option<String> {
+        let turn = p.in_reply_to.as_deref()?;
+        if let Some(slug) = self.runner.threads.route.thread_of_turn(turn) {
+            return Some(slug);
+        }
+        let slug = routed_thread_of(&self.store, turn)??;
+        self.runner.threads.route.turn_ran(turn, &slug);
+        Some(slug)
     }
 
     /// A message the router put in a thread: the thread's replies and cards
