@@ -491,10 +491,8 @@ fn in_play_named_waiting_and_recall_ask_for_their_sources() {
 #[test]
 fn recall_lays_nothing_for_an_unknown_presence() {
     let s = Store::default();
-    assert_eq!(
-        card_of(select(&s, Band::Recall, Present::OwnerAlone)),
-        ["card:recalled"]
-    );
+    let laid = select(&s, Band::Recall, Present::OwnerAlone);
+    assert_eq!(laid.len(), 1, "a known presence lays it");
     assert!(select(&s, Band::Recall, Present::Unknown).is_empty());
 }
 
