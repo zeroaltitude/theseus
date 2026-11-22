@@ -16,6 +16,7 @@ use crate::config::Effort;
 use crate::provider::ProviderRequest;
 use crate::routing::effort::{name, sticky};
 use crate::tests_route::{decided, mode, rig, turn, Rig};
+use crate::tests_turn_effort_open::carries;
 use crate::Config;
 
 fn effort(jev: &FakeJev, level: &str) {
@@ -94,7 +95,7 @@ fn top(req: &ProviderRequest) -> Option<String> {
         .and_then(|o| o["effort"].as_str().map(str::to_string))
 }
 
-/// `later` begins with every byte `earlier` sent before its breakpoint.
+/// `later` keeps what `earlier` sent: its system, tools and effort, and its messages laid again as history.
 fn keeps(earlier: &ProviderRequest, later: &ProviderRequest) {
     assert_eq!(later.system, earlier.system);
     assert_eq!(later.tools, earlier.tools);
@@ -102,11 +103,13 @@ fn keeps(earlier: &ProviderRequest, later: &ProviderRequest) {
         later.output_config, earlier.output_config,
         "top-level effort"
     );
-    let n = earlier.messages.len();
-    assert_eq!(
-        serde_json::to_string(&later.messages[..n]).unwrap(),
-        serde_json::to_string(&earlier.messages).unwrap(),
-    );
+    for (k, m) in earlier.messages.iter().enumerate() {
+        assert!(
+            carries(&later.messages[k], m),
+            "{} against {m}",
+            later.messages[k]
+        );
+    }
 }
 
 /// A long conversation on a model without per-message effort: Jev asks

@@ -13,7 +13,7 @@ use theseus_protocol::{StandingAddParams, StandingKind, StandingScope};
 
 use crate::approval::{Answerer, Surface};
 use crate::bus::EventSink;
-use crate::provider::{FakeProvider, ProviderRequest, Scripted};
+use crate::provider::{ProviderRequest, Scripted};
 use crate::session::SessionRecord;
 use crate::tests_day_ceiling::build;
 use crate::turn::TurnRequest;
@@ -206,53 +206,6 @@ async fn sessions_threads_and_places_on_one_project_send_layers_one_to_three_byt
         }
     }
     assert!(!text(&r[1], 3).contains("harbour clerk"));
-}
-
-/// A second thread on a warm project reuses the project's header verbatim,
-/// and its topic's guidance goes after the cached prefix; its appends repeat
-/// those bytes; the picks ride their compilations' frames.
-#[tokio::test]
-async fn a_second_thread_on_the_project_reuses_its_header_and_its_topic_follows_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let (core, fake) = build(dir.path(), texts(3), |c| project(dir.path(), c));
-    topic(&core, "tides", "Quote every level in metres.");
-    let a = thread(&core, "harbour", &[]);
-    say(&core, &a, "the harbour").await;
-    let b = thread(&core, "gauges", &["topic:tides"]);
-    say(&core, &b, "the gauges").await;
-    say(&core, &b, "and again").await;
-    let r = fake.requests();
-    assert_eq!(text(&r[1], 2), text(&r[0], 2), "the header, verbatim");
-    assert!(!text(&r[1], 2).contains("metres"));
-    assert!(
-        text(&r[1], 3).contains("Quote every level in metres."),
-        "{}",
-        text(&r[1], 3)
-    );
-    assert_eq!(r[2].system, r[1].system, "the append repeats the bytes");
-    assert_eq!(choices(&core), ["mint", "reuse"]);
-    let p = &picks(&core)[1];
-    assert!(p["fit"].as_f64().unwrap() >= 0.90, "{p}");
-    assert_eq!(p["below_act"], false);
-    let rec: SessionRecord = core.store.get_session(&b).unwrap().unwrap();
-    let c = core
-        .store
-        .get_compilation(rec.compilation_id.as_deref().unwrap())
-        .unwrap()
-        .unwrap();
-    let used = c.manifest.prefix.unwrap();
-    assert_eq!(used.header, p["header"].as_str().unwrap());
-    assert_ne!(used.header, used.fresh);
-    // A restarted daemon reads the headers back and picks the same bytes.
-    let model = Arc::new(FakeProvider::scripted(texts(1)));
-    let again = Core::build(crate::rpc::Parts::for_tests(
-        (*core.cfg).clone(),
-        model.clone(),
-        core.store.clone(),
-    ))
-    .unwrap();
-    say(&again, &b, "after a restart").await;
-    assert_eq!(model.requests()[0].system, r[1].system);
 }
 
 /// A near-miss project (the same layout, another test command) is not

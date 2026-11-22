@@ -60,6 +60,20 @@ impl TurnRunner {
         }
     }
 
+    /// The turn's reply, judged as inputs are (issue 44): its output, kept on its final message node. A
+    /// task's turns are not: their output is the report its parent judges ([`ItemKind::TaskReport`]).
+    pub(super) fn content_reply(&self, t: &Turn<'_>, output: &str) {
+        let Some((_, node)) = t.said.last() else {
+            return;
+        };
+        if t.tc.task.is_some() || output.trim().is_empty() {
+            return;
+        }
+        let now = theseus_protocol::now_unix_ms();
+        let item = ContentItem::new(node, ItemKind::Reply, "reply", output, now);
+        self.judge.ask_content(t.tc.session_id, vec![item]);
+    }
+
     /// A task's first turn has no message: its brief is its first item.
     pub(super) fn content_brief(&self, t: &Turn<'_>) {
         let sid = t.tc.session_id;

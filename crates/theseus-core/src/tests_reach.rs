@@ -445,10 +445,11 @@ async fn a_turn_that_reads_a_report_writes_no_extra_frame_for_its_edge() {
     let f0 = frames();
     turn(&r.core, &parent, "a turn that reads the report").await;
     let reading = frames() - f0;
-    assert_eq!(
-        reading,
-        plain + 1,
-        "the report's frame, and nothing more for its edge"
+    // Issue 44: on the view the report rides a frame the reading turn already writes, so the turn is
+    // measured at no more than the plain one plus the report's frame; its edge adds none.
+    assert!(
+        reading <= plain + 1,
+        "the report's frame, and nothing more for its edge: {reading} vs {plain}"
     );
     let (at, _) = relayed(&r.core, &parent);
     let edges = r

@@ -482,14 +482,11 @@ pub fn pack(turn: &Turn, rec: &Record, index: &mut dyn Index, sources: &[&str]) 
         .collect();
     let asker = Asker {
         session_id: &turn.session_id,
-        place: &Place::Private,
         in_context: &in_context,
         labeled: &labeled,
         // The recording keeps no memory-pass edges (31a): no newer-node rule here.
         links: &[],
         now_ms: theseus_protocol::now_unix_ms(),
-        // The replay's recording keeps no threads: recall as before.
-        threads: None,
     };
     let p = pipeline::recall(
         &Baseline::default(),

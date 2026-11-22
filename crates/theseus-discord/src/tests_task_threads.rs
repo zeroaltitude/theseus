@@ -1374,7 +1374,7 @@ fn the_until_family_is_exactly_the_files_that_share_its_guard() {
     for (file, test) in [
         (
             "tests_walk1b.rs",
-            "a_dm_message_routed_to_a_placeless_thread_still_sees_its_tasks",
+            "a_dm_under_notify_starts_two_tasks_and_both_are_seen",
         ),
         (
             "tests_task_react.rs",

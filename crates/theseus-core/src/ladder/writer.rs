@@ -82,13 +82,6 @@ pub struct Ask {
     pub text: String,
     /// How many exchanges it is made from.
     pub sources: u32,
-    /// The sessions it was read from: checked again for a seal just before
-    /// the call is sent.
-    pub sessions: Vec<String>,
-    /// The exchanges it was read from, by turn: checked again for a message
-    /// moved into a thread just before the call is sent
-    /// (`view_gate::sources_moved`).
-    pub exchanges: Vec<String>,
 }
 
 /// What the instructions add when the material holds outside text.
@@ -187,15 +180,6 @@ impl ModelWriter {
             Ok(t) => t,
             Err(why) => return Written::not(why),
         };
-        // The model was picked across an await: a seal set since, or a message
-        // moved into a thread since, holds. Nothing awaits between here and
-        // the request.
-        if ask.sessions.iter().any(|s| self.0.ladder_hidden(s)) {
-            return Written::not("a source was sealed or veiled before the call was sent");
-        }
-        if crate::view_gate::sources_moved(&self.0.store, &ask.exchanges) {
-            return Written::not("a source's message moved into a thread before the call was sent");
-        }
         let runner = &self.0.runner;
         let Some(provider) = runner.providers.get(&target.provider).cloned() else {
             return Written::not(format!("no provider {:?}", target.provider));

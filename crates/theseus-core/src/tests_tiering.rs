@@ -51,5 +51,8 @@ async fn decodes_fall_on_a_long_session() {
     let (cached, new, _) = per_turn[0];
     assert_eq!(cached, new, "with the cache, only the turn's new nodes");
     let (off, _, all) = per_turn[1];
-    assert!(off >= all, "without it, the session whole: {off} of {all}");
+    assert!(
+        off >= cached && off < all,
+        "without it, more than with it, and never the session whole: the view reads its window, {off} of {all}"
+    );
 }

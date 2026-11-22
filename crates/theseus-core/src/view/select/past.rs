@@ -9,7 +9,7 @@
 
 use super::super::history::PAGE_EXCHANGES;
 use super::super::timeline::{Cursor, TimelineRoot};
-use super::super::{Anchor, Form, Piece, PointOfView, Pos, Present, Reason};
+use super::super::{Anchor, Form, Piece, PointOfView, Pos, Reason};
 use super::elsewhere::LATELY_MS;
 use super::make::{self, Cut};
 use super::sources::{ExchangeFacts, Sources};
@@ -67,11 +67,10 @@ impl Scope {
             Some(p) => src.places.new_mark(p)?,
             None => None,
         };
-        let (root, person) = match (pov.present, &pov.person, &here) {
-            (Present::Unknown, _, _) => return Ok(None),
-            (Present::OwnerAlone, Some(p), _) => (TimelineRoot::Person(p.clone()), Some(p.clone())),
-            (_, _, Some(h)) => (TimelineRoot::Place(h.clone()), None),
-            _ => return Ok(None),
+        let (root, person) = match (&pov.person, &here) {
+            (Some(p), _) => (TimelineRoot::Person(p.clone()), Some(p.clone())),
+            (None, Some(h)) => (TimelineRoot::Place(h.clone()), None),
+            (None, None) => return Ok(None),
         };
         Ok(Some(Self {
             root,

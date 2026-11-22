@@ -13,17 +13,14 @@
 //! is dropped (`superseded`), each when its newer node is a candidate the
 //! filters kept, or already in the turn's context.
 //!
-//! The place rule (theseus-nbsh) is the first filter: a turn in a shared
-//! place draws only on that place's own sessions, and a turn in a private
-//! place on any session (m6 §2.15, as the rule was decided; theseus-1is6).
-//! A candidate whose place cannot be read is dropped in a shared place, and
-//! a turn whose own place cannot be read draws on nothing.
+//! Every turn draws on every session (the owner, 2026-11-22: anything
+//! goes): no place rule, no seal and no thread distance drop a candidate. A
+//! candidate still carries its session's place, which its heading names.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::floor::Floor;
 use crate::science::{MemoryScience, RankCtx, Scored};
-use crate::threads::{Cause, Distant, ThreadLens, Tie, Verdict};
 
 /// Where a session speaks, as the core read it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -39,6 +36,8 @@ pub enum Place {
 impl Place {
     /// Whether a turn speaking here may draw on a session speaking at `from`:
     /// a private place on any; a shared place on its own sessions alone.
+    /// Recall reads it no more (anything goes); the core's view gate still
+    /// does until its own cut.
     pub fn may_draw_on(&self, from: &Place) -> bool {
         match (self, from) {
             (Place::Private, _) => true,
@@ -52,8 +51,6 @@ impl Place {
 /// labels add `labeled_wrong`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Reason {
-    /// Its session speaks in a place this turn may not draw on.
-    Place,
     /// Already in the turn's context, or another chunk of a node admitted.
     InContext,
     /// External text, and the config admits none.
@@ -77,16 +74,10 @@ pub enum Reason {
     Subject,
     /// It did not fit the budget, or the items were already at their most.
     Budget,
-    /// Its thread is sealed, or a seal is proposed for it (theseus-f2g0).
-    Sealed,
-    /// Another stream's, kept out by one of the distance's rules
-    /// (theseus-f2g0; the rule named since theseus-98bz.2).
-    Thread(Cause),
 }
 
 impl Reason {
-    pub const ALL: [Reason; 16] = [
-        Reason::Place,
+    pub const ALL: [Reason; 10] = [
         Reason::InContext,
         Reason::Untrusted,
         Reason::LabeledWrong,
@@ -97,16 +88,10 @@ impl Reason {
         Reason::Threshold,
         Reason::Subject,
         Reason::Budget,
-        Reason::Sealed,
-        Reason::Thread(Cause::Bar),
-        Reason::Thread(Cause::Own),
-        Reason::Thread(Cause::Entity),
-        Reason::Thread(Cause::Base),
     ];
 
     pub fn as_str(self) -> &'static str {
         match self {
-            Reason::Place => "place",
             Reason::InContext => "in_context",
             Reason::Untrusted => "untrusted",
             Reason::LabeledWrong => "labeled_wrong",
@@ -117,20 +102,6 @@ impl Reason {
             Reason::Threshold => "threshold",
             Reason::Subject => "subject",
             Reason::Budget => "budget",
-            Reason::Sealed => "sealed",
-            Reason::Thread(Cause::Bar) => "thread_bar",
-            Reason::Thread(Cause::Own) => "thread_own",
-            Reason::Thread(Cause::Entity) => "thread_entity",
-            Reason::Thread(Cause::Base) => "thread_base",
-        }
-    }
-
-    /// The reason's family, which a recall's tally counts by: `thread` for
-    /// each of the distance's rules, else the reason itself.
-    pub fn family(self) -> &'static str {
-        match self {
-            Reason::Thread(_) => "thread",
-            r => r.as_str(),
         }
     }
 }
@@ -174,7 +145,6 @@ impl Candidate {
 #[derive(Clone, Debug)]
 pub struct Asker<'a> {
     pub session_id: &'a str,
-    pub place: &'a Place,
     /// The nodes the turn's request already carries.
     pub in_context: &'a BTreeSet<String>,
     /// The nodes the operator labeled wrong or stale.
@@ -182,9 +152,6 @@ pub struct Asker<'a> {
     /// The memory pass's edges among the candidates (31a).
     pub links: &'a [Link],
     pub now_ms: u64,
-    /// What the threads do to this recall (theseus-f2g0); none when no
-    /// thread is known.
-    pub threads: Option<&'a ThreadLens>,
 }
 
 impl Asker<'_> {
@@ -263,8 +230,7 @@ impl PersonaBoost {
 /// worth `1 + gain * weight * (K + 1) / (K + rank)`, rank from 1, where
 /// `weight` is the heaviest kind among the categories they share (project and
 /// thread highest, topic next, the rest low). Only the rank moves: a filter
-/// still sees the index's score and the place rule has already run, so the
-/// term admits nothing.
+/// still sees the index's score, so the term admits nothing.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CategoryBoost {
     /// `[ontology] recall_boost`: 0 (off) to 1.
@@ -336,8 +302,6 @@ pub struct Dropped {
     pub reason: Reason,
     /// Its excerpt's tokens, for a `budget` drop; else 0.
     pub tokens: u64,
-    /// What the distance weighed, for a `thread_*` drop; else none.
-    pub distance: Option<Distant>,
 }
 
 /// What a recall would admit, and what it dropped.
@@ -383,34 +347,8 @@ pub fn excerpt(text: &str, tokens: u64) -> String {
     format!("{}…", &text[..end])
 }
 
-/// The filter that drops `c`, if one does, in the order the place rule
-/// first, with what the distance weighed when it was the one.
+/// The filter that drops `c`, if one does.
 fn filter(
-    c: &Candidate,
-    asker: &Asker<'_>,
-    p: &Params,
-    science: &dyn MemoryScience,
-) -> Option<(Reason, Option<Distant>)> {
-    if !asker.place.may_draw_on(&c.place) {
-        return Some((Reason::Place, None));
-    }
-    if let Some(l) = asker.threads {
-        match l.judge(
-            &c.session_id,
-            &c.node_id,
-            c.fused,
-            Tie::of(&c.entities, &c.matched),
-        ) {
-            Verdict::Sealed => return Some((Reason::Sealed, None)),
-            Verdict::Distant(d) => return Some((Reason::Thread(d.cause), Some(d))),
-            Verdict::Pass | Verdict::Costs(_) => {}
-        }
-    }
-    other_filters(c, asker, p, science).map(|r| (r, None))
-}
-
-/// The filters after the place rule and the threads'.
-fn other_filters(
     c: &Candidate,
     asker: &Asker<'_>,
     p: &Params,
@@ -475,28 +413,11 @@ fn fresher(kept: Vec<Candidate>, asker: &Asker<'_>, dropped: &mut Vec<Dropped>) 
                 candidate: c,
                 reason: *reason,
                 tokens: 0,
-                distance: None,
             }),
             None => out.push(c),
         }
     }
     out
-}
-
-/// What a candidate's score is multiplied by for its thread's distance
-/// (theseus-f2g0): 1 for all but another thread's.
-fn distance(asker: &Asker<'_>, c: &Candidate) -> f64 {
-    match asker.threads.map(|l| {
-        l.judge(
-            &c.session_id,
-            &c.node_id,
-            c.fused,
-            Tie::of(&c.entities, &c.matched),
-        )
-    }) {
-        Some(Verdict::Costs(f)) => f,
-        _ => 1.0,
-    }
 }
 
 /// The pipeline after the index: filter, rank by the science, and pack
@@ -511,11 +432,10 @@ pub fn recall(
     let mut kept = Vec::new();
     for c in candidates {
         match filter(&c, asker, p, science) {
-            Some((reason, distance)) => pack.dropped.push(Dropped {
+            Some(reason) => pack.dropped.push(Dropped {
                 candidate: c,
                 reason,
                 tokens: 0,
-                distance,
             }),
             None => kept.push(c),
         }
@@ -534,7 +454,6 @@ pub fn recall(
             .map(|c| Scored {
                 key: c.key(),
                 score: c.fused
-                    * distance(asker, c)
                     * p.persona.as_ref().map_or(1.0, |b| b.factor(&c.session_id))
                     * shared
                         .as_ref()
@@ -558,7 +477,6 @@ pub fn recall(
                 candidate: c,
                 reason: Reason::InContext,
                 tokens: 0,
-                distance: None,
             });
             continue;
         }
@@ -569,7 +487,6 @@ pub fn recall(
                 candidate: c,
                 reason: Reason::Budget,
                 tokens,
-                distance: None,
             });
             continue;
         }
@@ -588,7 +505,6 @@ pub fn recall(
             candidate: c,
             reason: Reason::Threshold,
             tokens: 0,
-            distance: None,
         });
     }
     pack
@@ -598,8 +514,6 @@ pub fn recall(
 mod tests {
     use super::*;
     use crate::science::Baseline;
-    use crate::threads::SessionThread;
-    use proptest::prelude::*;
 
     fn cand(node: &str, session: &str, place: Place, fused: f64) -> Candidate {
         Candidate {
@@ -620,8 +534,8 @@ mod tests {
         }
     }
 
-    fn run(place: &Place, in_context: &[&str], cands: Vec<Candidate>, p: &Params) -> Pack {
-        run_with(place, in_context, cands, p, &[])
+    fn run(in_context: &[&str], cands: Vec<Candidate>, p: &Params) -> Pack {
+        run_with(in_context, cands, p, &[])
     }
 
     fn link(kind: LinkKind, newer: &str, older: &str) -> Link {
@@ -632,23 +546,15 @@ mod tests {
         }
     }
 
-    fn run_with(
-        place: &Place,
-        in_context: &[&str],
-        cands: Vec<Candidate>,
-        p: &Params,
-        links: &[Link],
-    ) -> Pack {
+    fn run_with(in_context: &[&str], cands: Vec<Candidate>, p: &Params, links: &[Link]) -> Pack {
         let in_context = in_context.iter().map(|s| s.to_string()).collect();
         let labeled = BTreeSet::from(["wrong".to_string()]);
         let asker = Asker {
             session_id: "ses_here",
-            place,
             in_context: &in_context,
             labeled: &labeled,
             links,
             now_ms: 0,
-            threads: None,
         };
         recall(
             &Baseline {
@@ -668,84 +574,10 @@ mod tests {
             .map(|d| d.reason)
     }
 
-    /// The threads' reasons (theseus-f2g0): a sealed thread's note, and
-    /// another stream's by each of the distance's rules (theseus-98bz.2).
-    fn threaded_pack(p: &Params) -> Pack {
-        let lens = ThreadLens {
-            here: Some("here".into()),
-            distance: true,
-            of_session: BTreeMap::from([
-                (
-                    "ses_sealed".to_string(),
-                    SessionThread {
-                        slug: "sealed".into(),
-                        held: true,
-                    },
-                ),
-                (
-                    "ses_far".to_string(),
-                    SessionThread {
-                        slug: "far".into(),
-                        held: false,
-                    },
-                ),
-            ]),
-            waived: BTreeSet::new(),
-            top_fused: 0.9,
-            own_top: 0.55,
-            beats_own: true,
-            needs_entity: true,
-            base: true,
-            penalty: 0.35,
-            bar: 0.75,
-            ..ThreadLens::default()
-        };
-        let mut apart = cand("apart", "ses_far", Place::Private, 0.85);
-        apart.entities = vec!["file:far.rs".into()];
-        let none = BTreeSet::new();
-        let asker = Asker {
-            session_id: "ses_here",
-            place: &Place::Private,
-            in_context: &none,
-            labeled: &none,
-            links: &[],
-            now_ms: 0,
-            threads: Some(&lens),
-        };
-        let threaded = recall(
-            &Baseline {
-                min_score: 0.01,
-                ..Baseline::default()
-            },
-            &asker,
-            vec![
-                cand("held", "ses_sealed", Place::Private, 0.9),
-                cand("distant", "ses_far", Place::Private, 0.3),
-                cand("near", "ses_far", Place::Private, 0.88),
-                cand("beaten", "ses_far", Place::Private, 0.82),
-                apart,
-                cand("base", "ses_none", Place::Private, 0.3),
-            ],
-            p,
-        );
-        assert_eq!(reason_of(&threaded, "held"), Some(Reason::Sealed));
-        for (node, cause) in [
-            ("distant", Cause::Bar),
-            ("beaten", Cause::Own),
-            ("apart", Cause::Entity),
-            ("base", Cause::Base),
-        ] {
-            assert_eq!(reason_of(&threaded, node), Some(Reason::Thread(cause)));
-        }
-        assert_eq!(threaded.admitted.len(), 1);
-        threaded
-    }
-
     /// Each filter's reason (§3.2's 30a tests), one candidate each, and one
     /// that passes them all.
     #[test]
     fn each_filter_drops_with_its_reason() {
-        let lab = Place::Shared("discord:channel:7".into());
         let mut external = cand("ext", "ses_b", Place::Private, 0.5);
         external.external = true;
         let mut harness = cand("harness", "ses_b", Place::Private, 0.5);
@@ -781,7 +613,7 @@ mod tests {
             link(LinkKind::Supersedes, "ok", "stale"),
             link(LinkKind::SameEntity, "seen", "twin"),
         ];
-        let pack = run_with(&Place::Private, &["seen"], cands, &p, &links);
+        let pack = run_with(&["seen"], cands, &p, &links);
         let admitted: Vec<_> = pack
             .admitted
             .iter()
@@ -808,42 +640,19 @@ mod tests {
             .iter()
             .any(|d| d.candidate.key() == "ok#1" && d.reason == Reason::InContext));
         assert_eq!(pack.admitted.len() + pack.dropped.len(), 12);
-        // The place: a shared place draws on its own sessions alone.
-        let there = vec![
-            cand("mine", "ses_lab", lab.clone(), 0.9),
-            cand("private", "ses_b", Place::Private, 0.9),
-            cand("unknown", "ses_x", Place::Unknown, 0.9),
-            cand(
-                "other",
-                "ses_y",
-                Place::Shared("discord:channel:9".into()),
-                0.9,
-            ),
-        ];
-        let placed = run(&lab, &[], there, &p);
-        assert_eq!(placed.admitted.len(), 1);
-        assert_eq!(placed.admitted[0].candidate.node_id, "mine");
-        for node in ["private", "unknown", "other"] {
-            assert_eq!(reason_of(&placed, node), Some(Reason::Place), "{node}");
-        }
-        let threaded = threaded_pack(&p);
         let subject = subject_pack();
         // Every reason this step builds is met above.
         for r in Reason::ALL {
             assert!(
-                pack.dropped_for(r)
-                    + placed.dropped_for(r)
-                    + threaded.dropped_for(r)
-                    + subject.dropped_for(r)
-                    > 0,
+                pack.dropped_for(r) + subject.dropped_for(r) > 0,
                 "{}",
                 r.as_str()
             );
         }
     }
 
-    /// A private place draws on any session: another private place's, a
-    /// shared place's, and one whose place cannot be read (theseus-1is6).
+    /// A turn draws on any session: a private place's, a shared place's, and
+    /// one whose place cannot be read (theseus-1is6; anything goes).
     #[test]
     fn a_private_place_draws_on_every_place() {
         let cands = vec![
@@ -857,9 +666,8 @@ mod tests {
             cand("dm", "ses_c", Place::Shared("discord:dm:3".into()), 0.7),
             cand("unknown", "ses_d", Place::Unknown, 0.6),
         ];
-        let pack = run(&Place::Private, &[], cands, &Params::default());
+        let pack = run(&[], cands, &Params::default());
         assert_eq!(pack.admitted.len(), 4, "{:?}", pack.dropped);
-        assert_eq!(pack.dropped_for(Reason::Place), 0);
     }
 
     /// External text is admitted only when the config says so.
@@ -871,7 +679,7 @@ mod tests {
             include_external: true,
             ..Params::default()
         };
-        assert_eq!(run(&Place::Private, &[], vec![c], &p).admitted.len(), 1);
+        assert_eq!(run(&[], vec![c], &p).admitted.len(), 1);
     }
 
     /// The pack stops at its items and its tokens, in the science's order,
@@ -898,7 +706,7 @@ mod tests {
             persona: None,
             category: None,
         };
-        let pack = run(&Place::Private, &[], cands, &p);
+        let pack = run(&[], cands, &p);
         let admitted: Vec<_> = pack
             .admitted
             .iter()
@@ -932,7 +740,7 @@ mod tests {
                 cand("near", "ses_b", Place::Private, 0.019),
             ]
         };
-        let pack = run(&Place::Private, &[], cands(), &floor(0.4));
+        let pack = run(&[], cands(), &floor(0.4));
         let kept: Vec<_> = pack
             .admitted
             .iter()
@@ -947,16 +755,10 @@ mod tests {
                 c
             })
             .collect();
-        let none = run(&Place::Private, &[], faint, &floor(0.4));
+        let none = run(&[], faint, &floor(0.4));
         assert!(none.admitted.is_empty(), "no candidate passes: no pack");
         assert_eq!(none.dropped_for(Reason::Threshold), 3);
-        assert_eq!(
-            run(&Place::Private, &[], cands(), &floor(0.0))
-                .admitted
-                .len(),
-            3,
-            "0 is off"
-        );
+        assert_eq!(run(&[], cands(), &floor(0.0)).admitted.len(), 3, "0 is off");
     }
 
     /// The pack of a question that names `db-prod`, over a note that names
@@ -979,7 +781,6 @@ mod tests {
             c
         };
         run(
-            &Place::Private,
             &[],
             vec![
                 with("prod", 0.031, &["host:db-prod.example"]),
@@ -1041,7 +842,7 @@ mod tests {
             link(LinkKind::SameEntity, "c", "b"),
             link(LinkKind::Supersedes, "elsewhere", "lone"),
         ];
-        let pack = run_with(&Place::Private, &[], cands(), &p, &links);
+        let pack = run_with(&[], cands(), &p, &links);
         let admitted: Vec<_> = pack
             .admitted
             .iter()
@@ -1061,65 +862,13 @@ mod tests {
         let labeled = BTreeSet::new();
         let asker = Asker {
             session_id: "ses_here",
-            place: &Place::Private,
             in_context: &in_context,
             labeled: &labeled,
             links: &links,
             now_ms: 0,
-            threads: None,
         };
         let pack = recall(&v1, &asker, cands(), &p);
         assert_eq!(pack.admitted[0].candidate.node_id, "old");
         assert_eq!(pack.dropped.len(), 0);
-    }
-
-    fn place_strategy() -> impl Strategy<Value = Place> {
-        prop_oneof![
-            Just(Place::Private),
-            Just(Place::Unknown),
-            (0u8..4).prop_map(|i| Place::Shared(format!("discord:channel:{i}"))),
-            (0u8..2).prop_map(|i| Place::Shared(format!("discord:dm:{i}"))),
-        ]
-    }
-
-    proptest! {
-        /// The place rule, over generated candidates and places, both ways:
-        /// in a shared place, nothing from a private place's session, from
-        /// another shared place, or from a place that cannot be read is
-        /// admitted, and each is dropped for its place alone; a private place
-        /// drops nothing for its place; a turn whose place cannot be
-        /// read draws on nothing.
-        #[test]
-        fn the_place_rule_holds_for_every_pack(
-            here in place_strategy(),
-            places in proptest::collection::vec(place_strategy(), 1..30),
-            scores in proptest::collection::vec(0.0f64..1.0, 30),
-        ) {
-            let cands: Vec<_> = places
-                .iter()
-                .enumerate()
-                .map(|(i, pl)| cand(&format!("n{i}"), &format!("ses_{i}"), pl.clone(), scores[i]))
-                .collect();
-            let pack = run(&here, &[], cands, &Params { max_items: 40, budget_tokens: 100_000, ..Params::default() });
-            for a in &pack.admitted {
-                prop_assert!(here.may_draw_on(&a.candidate.place), "{here:?} admitted {:?}", a.candidate.place);
-            }
-            for d in &pack.dropped {
-                if !here.may_draw_on(&d.candidate.place) {
-                    prop_assert_eq!(d.reason, Reason::Place);
-                }
-            }
-            for c in &pack.admitted {
-                match (&here, &c.candidate.place) {
-                    (Place::Shared(a), Place::Shared(b)) => prop_assert_eq!(a, b),
-                    (Place::Shared(_), other) => prop_assert!(false, "a shared place drew on {other:?}"),
-                    (Place::Private, _) => {}
-                    (Place::Unknown, other) => prop_assert!(false, "an unknown place drew on {other:?}"),
-                }
-            }
-            if here == Place::Private {
-                prop_assert_eq!(pack.dropped_for(Reason::Place), 0);
-            }
-        }
     }
 }

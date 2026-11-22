@@ -332,8 +332,6 @@ pub mod notify {
         WORK_CHANGED = "work.changed", WORK_NOTICE = "work.notice",
         /// A thread changed (theseus-sjzm, `threads::ThreadChanged`).
         THREAD_CHANGED = "thread.changed",
-        /// The router placed a message in a thread's session (theseus-7kjb7, `thread_placed::ThreadPlaced`), to the connection that sent it and to every watcher of the home session.
-        THREAD_PLACED = "thread.placed",
         /// A followed job's output (`job_follow.rs`): a chunk from a byte to the connection that asked, then its end.
         ACTION_OUTPUT_CHUNK = "action.output.chunk", ACTION_OUTPUT_END = "action.output.end",
         /// Self-improvement's switch moved (theseus-pw1q.19): `rsi::SelfChanged`, to every connection that watches

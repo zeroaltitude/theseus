@@ -3,8 +3,8 @@
 //! help answer the message, and the top 20 are re-sorted by it. Pure: the
 //! core asks Jev, and this decides the order and what it would admit.
 //!
-//! - [`eligible`]: the candidates that pass every filter (the place rule
-//!   first), in the science's order. Only these may reach Jev.
+//! - [`eligible`]: the candidates that pass every filter, in the science's
+//!   order. Only these may reach Jev.
 //! - [`reorder`]: the top [`TOP`] re-sorted by Jev's probability, highest
 //!   first; an item Jev did not answer keeps its fused place, and the rest
 //!   follow in the fused order.
@@ -226,21 +226,17 @@ mod tests {
             ..Baseline::default()
         };
         let in_context = BTreeSet::from(["seen".to_string()]);
-        let here = Place::Private;
         let asker = Asker {
             session_id: "ses_here",
-            place: &here,
             in_context: &in_context,
             labeled: &BTreeSet::new(),
             links: &[],
             now_ms: 0,
-
-            threads: None,
         };
         let mut second = cand("n1", Place::Private, 0.85);
         second.chunk = 1;
-        // A private place draws on a shared place's sessions (theseus-1is6):
-        // external text is the filtered one here.
+        // Every place draws on a shared place's sessions (theseus-1is6;
+        // anything goes): external text is the filtered one here.
         let mut ext = cand("ext", Place::Shared("discord:channel:9".into()), 0.95);
         ext.external = true;
         let cands = vec![
@@ -277,59 +273,5 @@ mod tests {
             .iter()
             .any(|d| d.candidate.node_id == "ext" && d.reason == Reason::Untrusted));
         assert_eq!(re.admitted.len() + re.dropped.len(), 7);
-    }
-
-    use proptest::prelude::*;
-
-    fn place_strategy() -> impl Strategy<Value = Place> {
-        prop_oneof![
-            Just(Place::Private),
-            Just(Place::Unknown),
-            (0u8..3).prop_map(|i| Place::Shared(format!("discord:channel:{i}"))),
-        ]
-    }
-
-    proptest! {
-        /// The place rule through the rerank, over generated candidates and
-        /// any answers: nothing a turn may not draw on is eligible (so it
-        /// never reaches Jev), and the repack drops every such candidate
-        /// for its place, as the fused pack does.
-        #[test]
-        fn the_place_rule_holds_through_the_rerank(
-            here in place_strategy(),
-            places in proptest::collection::vec(place_strategy(), 1..30),
-            scores in proptest::collection::vec(0.0f64..1.0, 30),
-            answers in proptest::collection::vec(proptest::option::of(0.0f64..1.0), 30),
-        ) {
-            let science = Baseline { min_score: 0.01, ..Baseline::default() };
-            let none = BTreeSet::new();
-            let asker = Asker { session_id: "ses_here", place: &here, in_context: &none, labeled: &none, links: &[], now_ms: 0, threads: None };
-            let cands: Vec<Candidate> = places
-                .iter()
-                .enumerate()
-                .map(|(i, pl)| cand(&format!("n{i}"), pl.clone(), scores[i]))
-                .collect();
-            let p = Params::default();
-            let el = eligible(&science, &asker, &cands, &p);
-            for c in &el {
-                prop_assert!(here.may_draw_on(&c.place), "{here:?} would hand Jev {:?}", c.place);
-            }
-            let keys: Vec<String> = el.iter().map(Candidate::key).collect();
-            let p_of: BTreeMap<String, f64> = keys
-                .iter()
-                .zip(&answers)
-                .filter_map(|(k, a)| a.map(|x| (k.clone(), x)))
-                .collect();
-            let order = reorder(&keys, &p_of);
-            let re = repack(&science, &asker, cands, &p, order);
-            for a in &re.admitted {
-                prop_assert!(here.may_draw_on(&a.candidate.place));
-            }
-            for d in &re.dropped {
-                if !here.may_draw_on(&d.candidate.place) {
-                    prop_assert_eq!(d.reason, Reason::Place);
-                }
-            }
-        }
     }
 }

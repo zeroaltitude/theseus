@@ -1,7 +1,7 @@
 //! The selectors and the admission table (trim item 2: the order is a TABLE, and the tests iterate it). A row
 //! is one band of rule 6's admission order: its slot, whether it is a floor (never cut), and the one
 //! [`Selector`] that fills it. A row's priority is its index in [`ADMISSION`]: over the ceiling, cut from the
-//! end. In company, the bands of slots C and F are absent ([`Band::in_company`]).
+//! end. Every band is laid for every turn, whoever is present (anything goes, 2026-11-22).
 
 use serde::{Deserialize, Serialize};
 
@@ -67,11 +67,6 @@ pub enum Band {
 }
 
 impl Band {
-    /// Whether the band is laid when the place is in company (a channel, or an agent's session).
-    pub fn in_company(self) -> bool {
-        !matches!(self.row().slot, Slot::Waiting | Slot::Elsewhere)
-    }
-
     /// This band's row of [`ADMISSION`].
     pub fn row(self) -> &'static Row {
         ADMISSION

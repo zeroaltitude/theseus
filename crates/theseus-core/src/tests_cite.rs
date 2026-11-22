@@ -84,7 +84,7 @@ async fn a_recalled_items_header_carries_its_handle() {
     );
     let note = serde_json::to_string(q.messages.last().unwrap()).unwrap();
     assert!(
-        note.contains(&format!("(1) [{want}] a message from test")),
+        note.contains(&format!("[{want}] a message from test")),
         "{note}"
     );
 }

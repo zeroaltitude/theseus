@@ -1,5 +1,10 @@
 # Threads: the router's rules and the lane's decisions
 
+> **Superseded on 2026-11-22: threads are not containers.** No message is sent to a thread's own session, and
+> every thread command but the read-only `theseus thread list` and `thread show` is gone; a seal, a move or a
+> merge no longer holds anything back. Old thread records still decode and are what `list` and `show` read.
+> What follows is the record of the threads lane as it was built.
+
 What the threads lane (theseus-98bz and its follow-ups) decided, in one place, beside the code that holds it. Since
 2026-11-21 (the owner, theseus-rha2) a message goes to a thread **by its address only**: the router's guesses were
 removed, not switched off. The module docs of `crates/theseus-core/src/thread_route.rs` (the address) and

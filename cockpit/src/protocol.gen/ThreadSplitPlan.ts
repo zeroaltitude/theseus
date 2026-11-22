@@ -4,8 +4,9 @@ import type { SplitEstimate } from "./SplitEstimate";
 /**
  * `thread.split_plan`: what a split would do, written nowhere: the turns,
  * nodes and bytes that would move, and the next request's tokens of the
- * source (compiled with the range left out) and of the target, before and
- * after. No model is called.
+ * source (today's census, and after: that less the range's own tokens, by its
+ * bytes) and of the target (today's, and after: that plus the quoted turns),
+ * before and after. No model is called.
  */
 export type ThreadSplitPlan = { from: string, 
 /**

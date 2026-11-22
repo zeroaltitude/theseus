@@ -51,17 +51,6 @@ pub(super) struct Held {
     read_place: Option<Option<String>>,
     /// What woke a turn no message, wake or report opened, as its catch-up told it.
     occasion: Option<Occasion>,
-    /// The turns such a turn continues (`resume_step`): none inside for one that could not be found.
-    continues: Option<Vec<Option<String>>>,
-    /// Why such a turn cannot be resumed soundly (the view fails it plainly).
-    unresumable: Option<Unresumable>,
-}
-
-/// Why a turn no message opened cannot be resumed soundly (`resume_step`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Unresumable {
-    /// What it continues was asked where this conversation does not answer now.
-    Elsewhere,
 }
 
 impl Held {
@@ -73,10 +62,14 @@ impl Held {
         )
     }
 
-    /// The mark of the message that opened the turn, when one was written
-    /// (the gate reads it, `turn::gate_step`).
+    /// The mark of the message that opened the turn, when one was written.
     pub(super) fn mark(&self) -> Option<&OwnerMark> {
         self.mark.as_ref()
+    }
+
+    /// The turn's place, once read and readable ([`TurnRunner::turn_place`]).
+    pub(super) fn read_place(&self) -> Option<&str> {
+        self.read_place.as_ref().and_then(|p| p.as_deref())
     }
 
     /// Whether the turn's place was read and could not be (the view fails such a turn plainly).
@@ -87,24 +80,6 @@ impl Held {
     /// What woke the turn, when no message of its own opened it.
     pub(super) fn occasion(&self) -> Option<Occasion> {
         self.occasion
-    }
-
-    /// The turns a turn no message opened continues, once read (`resume_step`).
-    pub(super) fn continues(&self) -> Option<&[Option<String>]> {
-        self.continues.as_deref()
-    }
-
-    pub(super) fn set_continues(&mut self, turns: Vec<Option<String>>) {
-        self.continues = Some(turns);
-    }
-
-    /// Why the turn cannot be resumed soundly, the first reason found.
-    pub(super) fn unresumable(&self) -> Option<Unresumable> {
-        self.unresumable
-    }
-
-    pub(super) fn cannot_resume(&mut self, why: Unresumable) {
-        self.unresumable.get_or_insert(why);
     }
 
     /// The turn's catch-up says what woke it (`Occasion::of`).
@@ -187,16 +162,11 @@ impl TurnRunner {
             },
             |m| Some(m.place.clone()),
         );
-        // A turn no message opened answers where the work it resumes was asked (`resume_step`).
+        // A turn no message opened answers where its session speaks now, else where its work was asked
+        // (`resume_step`).
         let read = self.resumed_place(t, read);
         t.exchange.read_place = Some(read.clone());
         read
-    }
-
-    /// What a turn no person's message opened was given by the gate, kept beside its exchange so a turn
-    /// that continues it reads it (`exchange::given`), in the turn's frame.
-    pub(super) fn exchange_given(t: &Turn<'_>, given: &crate::exchange::given::Given) {
-        defer(t, crate::exchange::given::given_record(given).ok());
     }
 
     /// The index's things in `text`, named off the turn's path: the task
