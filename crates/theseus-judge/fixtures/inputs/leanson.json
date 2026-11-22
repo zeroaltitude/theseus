@@ -1,0 +1,7 @@
+{
+  "message": "go ahead with the plan from earlier",
+  "here": [
+    {"who": "person", "text": "morning all"},
+    {"who": "assistant", "text": "Good morning. What can I help with?"}
+  ]
+}

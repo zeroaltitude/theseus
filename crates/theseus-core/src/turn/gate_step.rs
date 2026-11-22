@@ -53,7 +53,14 @@ impl TurnRunner {
                 Proof::SetUp(view_gate::narrowest(set_ups))
             }
         };
-        view_gate::begin(self, sid, t.tc.turn_id, place, proof);
+        let asking = view_gate::begin(self, sid, t.tc.turn_id, place, proof);
+        // The trigger of step 3b, in shadow and off the turn's path: the
+        // owner's own message where he is not alone (`judge::leans_on`).
+        if let Some(m) = &mark {
+            if crate::judge::leans_on::asked_of(m, asking.present()) {
+                self.judge.at_leans_on(sid, t.tc.turn_id, &m.node);
+            }
+        }
     }
 
     /// A steer the running turn absorbed, its submission's mark `arrival`:

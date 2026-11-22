@@ -104,6 +104,10 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "an allow check's state is the operator's message and the call held at that moment, \
              which the record keeps only in the judgment's blob",
         ),
+        Builder::LeansOn => Some(
+            "a leans-on state is a message and the lines its place showed before it at that \
+             moment, which the record keeps only in the judgment's blob",
+        ),
         Builder::Precedence => Some(
             "a precedence state is the pairs of testimony a reader held together at that moment, \
              with each source's text as it was then read, which the record keeps only in the \

@@ -81,6 +81,8 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("delay.v1", include_str!("../packs/delay.v1.toml")),
     ("undo.v1", include_str!("../packs/undo.v1.toml")),
     ("allow_said.v1", include_str!("../packs/allow_said.v1.toml")),
+    // issue 44, step 3b: a new pack, in shadow (`judge::WIRED`).
+    ("leans_on.v1", include_str!("../packs/leans_on.v1.toml")),
 ];
 
 /// The versions this build retired from [`EMBEDDED`] (issue 44): the shadows
@@ -430,6 +432,9 @@ pub enum Builder {
     /// `allow_said.v1`'s: the operator's latest message and the held call the
     /// assistant decided it means (chat-acts-are-tools, S43-1).
     AllowSaid,
+    /// `leans_on.v1`'s: the owner's message in company and the lines that
+    /// place shows before it (issue 44, step 3b).
+    LeansOn,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
