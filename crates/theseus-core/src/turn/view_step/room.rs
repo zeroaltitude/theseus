@@ -153,7 +153,7 @@ fn floored(t: &Turn<'_>) -> bool {
 }
 
 /// The frozen view of `built` under `room`: what slot G held, or the floor's overflow.
-fn frozen_of(built: Built, room: Room, recalled: Vec<String>) -> Frozen {
+fn frozen_of(built: Built, room: Room, recalled: Vec<crate::node::RecalledRef>) -> Frozen {
     let Built { frozen, assembled } = built;
     let (held, floor) = match assembled {
         Ok(a) => {

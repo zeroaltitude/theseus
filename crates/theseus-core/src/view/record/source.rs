@@ -62,10 +62,10 @@ impl GateSource<'_> {
     /// its node reads clear (`view_gate::readable_nodes`: its session's seal, and a thread it was moved into).
     fn recalled_clear(&self, session: &str, node: &str) -> bool {
         let m = view_gate::session_marks(self.runner, self.asker, session, Veil::Clear);
-        let of = |n: &(&str, &str)| (n.0, n.1);
+        let node = [(session.to_string(), node.to_string())];
         crate::view::sources_names::place_reads(m.place.as_deref())
             && Gate::check(&self.pov, &m).is_ok()
-            && !view_gate::readable_nodes(self.runner, self.asker, vec![(session, node)], of).is_empty()
+            && !view_gate::readable_nodes(self.runner, self.asker, node.to_vec(), pair).is_empty()
     }
 
     /// The sessions behind an exchange range of `place`; none when they cannot all be proven, or when a
@@ -96,6 +96,11 @@ impl GateSource<'_> {
         }
         Some(out)
     }
+}
+
+/// A node's session and id, as `view_gate::readable_nodes` reads them.
+fn pair(n: &(String, String)) -> (&str, &str) {
+    (&n.0, &n.1)
 }
 
 impl Source for GateSource<'_> {
