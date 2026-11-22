@@ -935,8 +935,9 @@ mod tests {
     fn a_kept_form_is_sent_as_that_form() {
         let (_d, s) = store();
         let long = "a long reply ".repeat(2_000);
+        let read = Sessions::default();
         let line = as_line(
-            &s,
+            (&s, &read),
             laid(vec![
                 Node::user("s", Some("t0"), "cli", "what did the audit say?"),
                 answer("t0", vec![json!({"type": "text", "text": long})]),

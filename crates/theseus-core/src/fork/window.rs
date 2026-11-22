@@ -180,7 +180,13 @@ impl Ladder for ForkLadder<'_> {
                 }
             }
             read.window = window;
-            read.nodes.retain(|f| !self.cut.folds_past(f));
+            let mut nodes = Vec::with_capacity(read.nodes.len());
+            for f in std::mem::take(&mut read.nodes) {
+                if self.cut.fold_inside(self.inner.0, &f.handle.0)? {
+                    nodes.push(f);
+                }
+            }
+            read.nodes = nodes;
         }
         if self.inherited.is_empty() {
             return Ok(read);

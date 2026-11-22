@@ -1227,3 +1227,64 @@ async fn a_fork_whose_point_cannot_be_read_fails_its_turn_and_sends_nothing() {
     assert!(res.is_err(), "{res:?}");
     assert_eq!(requests(&r).len(), sent, "nothing was sent");
 }
+
+/// A fold is laid for a fork by the positions of the exchanges it stands for, never by their clock (issue 44,
+/// round 2b). A fold over an exchange the source began after the point is not laid, though its times read as
+/// before the point (the clock stepped back); a fold over an exchange before the point is laid, though its
+/// times read as later; a fold one of whose exchanges cannot be read is not laid. At the ladder seam
+/// (`Cut::fold_inside`, which `ForkLadder::read` asks of every fold): the rig has no ladder writer for a
+/// request-level case.
+#[tokio::test]
+async fn a_fold_is_cut_by_its_exchanges_positions_not_by_their_clock() {
+    let r = rig();
+    let (s, nodes) = three_turns(&r).await;
+    let f = fork(&r.core, &s, &nodes[3].0); // through the answer to "two"
+    let (one, three) = (turn_of(&r.core, &nodes[0].0), turn_of(&r.core, &nodes[4].0));
+    let stored = |id: &str, exchanges: Vec<String>, ms: u64| {
+        let n = crate::ladder::fold::FoldNode {
+            id: id.into(),
+            place: "local".into(),
+            level: 1,
+            exchanges,
+            first_ms: ms,
+            last_ms: ms,
+            his: vec![],
+            counted: 0,
+            children: vec![],
+            title: String::new(),
+            account: "what was said there".into(),
+            marks: crate::view::Marks {
+                place: Some("local".into()),
+                audience: crate::view::Audience::Private,
+                author: crate::view::Author::Theseus,
+                outside: false,
+                sealed: false,
+                veiled: false,
+            },
+            model: None,
+            writer: 1,
+            at_ms: ms,
+        };
+        let records = crate::ladder::fold::records(&n).unwrap();
+        r.core.store.append(&records).unwrap();
+    };
+    stored("fold.later", vec![three], 1);
+    stored("fold.before", vec![one], u64::MAX / 2);
+    stored("fold.unread", vec!["turn_gone".into()], 1);
+    let cut = crate::fork::cut::Cut::of(&r.core.store, &f.session_id).unwrap();
+    let laid = |handle: &str| cut.fold_inside(&r.core.store, handle).unwrap();
+    assert!(
+        !laid("fold.later"),
+        "a later exchange's fold, its clock stepped back"
+    );
+    assert!(
+        laid("fold.before"),
+        "an earlier exchange's fold, its clock ahead"
+    );
+    assert!(!laid("fold.unread"), "a fold whose exchange cannot be read");
+    let none = crate::fork::cut::Cut::default();
+    assert!(
+        none.fold_inside(&r.core.store, "fold.later").unwrap(),
+        "no fork: every fold"
+    );
+}
