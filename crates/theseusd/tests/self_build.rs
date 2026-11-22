@@ -169,6 +169,7 @@ impl Rig {
             jail: None,
             notify: None,
             stop: None,
+            owner: None,
         };
         let sandbox = Arc::new(sandbox);
         Self {
