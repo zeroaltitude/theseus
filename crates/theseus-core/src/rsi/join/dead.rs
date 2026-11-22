@@ -21,48 +21,46 @@ impl Core {
             return Ok(Vec::new());
         };
         let place = self.tools.self_pr.place(&repo);
-        let found = guard::close_dead(&place);
-        let dead = match found {
-            Ok(d) => d,
-            Err(NoSweep::NotOwner) => {
-                tracing::info!(
-                    "self: {}: this daemon does not sweep the trees",
-                    crate::rsi::trees_lock::NOT_OWNER
-                );
-                return Err(NoSweep::NotOwner);
-            }
-            Err(NoSweep::Outside) => {
-                tracing::warn!(trees = %place.trees().display(),
-                    "self: the trees directory leads out of the state directory: no sweep");
-                return Err(NoSweep::Outside);
-            }
-        };
+        let dead = guard::close_dead(&place).inspect_err(|why| match why {
+            NoSweep::NotOwner => tracing::info!(
+                "self: {}: this daemon does not sweep the trees",
+                crate::rsi::trees_lock::NOT_OWNER
+            ),
+            NoSweep::Outside => tracing::warn!(trees = %place.trees().display(),
+                "self: the trees directory leads out of the state directory: no sweep"),
+        })?;
         for d in &dead {
-            let (what, closed) = match &d.swept {
-                Swept::Closed => (format!("the {} tree {} is closed", d.phase, d.tree), true),
-                Swept::NotClosed(e) => (
-                    format!("the {} tree {} could not be closed: {e}", d.phase, d.tree),
-                    false,
-                ),
-                Swept::MarkCleared => {
-                    tracing::info!(tree = %d.tree, "self: a mark with no tree any more is cleared");
-                    continue;
-                }
-                Swept::NotTheLoops => {
-                    tracing::info!(tree = %d.tree,
-                        "self: a directory named like a phase's tree, which the loop did not open: left as it is");
-                    continue;
-                }
-            };
-            let m = Moved::new("", what)
-                .with("tree", d.tree.as_str())
-                .with("phase", d.phase.as_str())
-                .with("reason", "left_by_a_gone_daemon")
-                .with("closed", closed)
-                .why(WHY)
-                .numbers(json!({"trees": usize::from(closed)}));
-            self.rec(None).record(&Cleared(m));
+            self.swept_row(d);
         }
         Ok(dead)
+    }
+
+    /// The row of one tree the sweep closed or could not close; a cleared mark and a directory the loop did not
+    /// open are said in the log only.
+    fn swept_row(&self, d: &Dead) {
+        let (what, closed) = match &d.swept {
+            Swept::Closed => (format!("the {} tree {} is closed", d.phase, d.tree), true),
+            Swept::NotClosed(e) => (
+                format!("the {} tree {} could not be closed: {e}", d.phase, d.tree),
+                false,
+            ),
+            Swept::MarkCleared => {
+                tracing::info!(tree = %d.tree, "self: a mark with no tree any more is cleared");
+                return;
+            }
+            Swept::NotTheLoops => {
+                tracing::info!(tree = %d.tree,
+                    "self: a directory named like a phase's tree, which the loop did not open: left as it is");
+                return;
+            }
+        };
+        let m = Moved::new("", what)
+            .with("tree", d.tree.as_str())
+            .with("phase", d.phase.as_str())
+            .with("reason", "left_by_a_gone_daemon")
+            .with("closed", closed)
+            .why(WHY)
+            .numbers(json!({"trees": usize::from(closed)}));
+        self.rec(None).record(&Cleared(m));
     }
 }

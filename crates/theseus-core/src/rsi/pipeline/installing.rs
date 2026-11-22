@@ -235,7 +235,7 @@ impl Core {
                 .to_string()
         };
         let merge = match s("merge") {
-            m if m.is_empty() => short.clone(),
+            m if m.is_empty() => short,
             m => m,
         };
         let i = Installing {

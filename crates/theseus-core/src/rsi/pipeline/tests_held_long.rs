@@ -96,7 +96,7 @@ async fn a_live_install_past_three_hours_is_said_as_working_with_no_act() {
         item: "tsk_sails".into(),
         title: "Trim the sails".into(),
         branch: "self/trim-the-sails".into(),
-        merge: merge.clone(),
+        merge,
         since_ms: theseus_protocol::now_unix_ms() - 4 * HOUR,
         unit: None,
         root_helper: false,
