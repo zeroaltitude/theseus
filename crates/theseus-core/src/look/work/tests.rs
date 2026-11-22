@@ -223,7 +223,8 @@ fn a_projects_line_counts_its_tasks_and_names_none() {
 /// alone included.
 #[tokio::test]
 async fn another_conversations_words_pass_the_gate() {
-    use crate::view_gate::{begin, test_mark, Proof};
+    use crate::view_gate::{seat_for_tests, test_mark};
+    use theseus_memory::gate::Present;
     let r = crate::tests_places::rig();
     let core = &r.core;
     let dm =
@@ -231,8 +232,11 @@ async fn another_conversations_words_pass_the_gate() {
     let desk = crate::tests_places::session(core, None);
     let seat = |sid: &str, in_person: bool| {
         let m = test_mark(&core.runner, sid, in_person);
-        let place = m.place.clone();
-        begin(&core.runner, sid, "turn_w", place, Proof::Mark(&m));
+        let present = match in_person {
+            true => Present::OwnerAlone,
+            false => Present::PrivateChannel,
+        };
+        seat_for_tests(&core.runner, sid, "turn_w", present, &m.place);
     };
     let said = |here: &str, there: &str| {
         reader::Reader::new(core, here).words(there, "the harbour gate code", 100)

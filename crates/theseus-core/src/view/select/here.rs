@@ -9,7 +9,7 @@
 
 use super::super::fold::{FoldNode, WINDOW_N};
 use super::super::timeline::ExchangeRef;
-use super::super::{Anchor, Form, Piece, PointOfView, Present, Reason, SourceRange, Space};
+use super::super::{Anchor, Form, Piece, PointOfView, Reason, SourceRange, Space};
 use super::make::{self, Cut};
 use super::sources::Sources;
 use super::{Band, Selector, Snapshot};
@@ -17,20 +17,11 @@ use super::{Band, Selector, Snapshot};
 /// The floor: the words of the newest this-many exchanges of the window are never cut.
 pub const FLOOR_EXCHANGES: usize = 3;
 
-/// The place a point of view's here-slots read, if it is anchored to one and may see anything.
+/// The place a point of view's here-slots read, if it is anchored to one.
 pub(super) fn anchor_place(pov: &PointOfView) -> Option<&str> {
-    match (&pov.anchor, pov.present) {
-        (_, Present::Unknown) | (Anchor::Task(_), _) => None,
-        (Anchor::Place(p), _) => Some(p),
-    }
-}
-
-/// The place slot G reads: the anchor's; with an unknown presence only where the gate still shows it what
-/// its own session said there (`view::gate::Gate::speaks_unknown`), and the gate holds out everything else.
-fn window_place<'p>(pov: &'p PointOfView, gate: &dyn super::super::gate::Gate) -> Option<&'p str> {
-    match (&pov.anchor, pov.present) {
-        (Anchor::Place(p), Present::Unknown) => gate.speaks_unknown().then_some(p.as_str()),
-        _ => anchor_place(pov),
+    match &pov.anchor {
+        Anchor::Task(_) => None,
+        Anchor::Place(p) => Some(p),
     }
 }
 
@@ -130,7 +121,7 @@ impl Selector for Here<'_> {
     }
 
     fn select(&self, pov: &PointOfView, _: &dyn Snapshot) -> anyhow::Result<Vec<Piece>> {
-        let Some(place) = window_place(pov, self.src.gate) else {
+        let Some(place) = anchor_place(pov) else {
             return Ok(Vec::new());
         };
         let (window, nodes) = read(&self.src, place)?;

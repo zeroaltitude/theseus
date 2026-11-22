@@ -1,13 +1,11 @@
-//! What a replay needs of a view turn's chain, kept as it begins (`compiler::view::kept`), and the gate's
-//! word on what a view laid, asked again now: before a call of the turn (`view_revoked`) and before a replay
-//! of it sends anything (`own_bench::rebuild`).
+//! What a replay needs of a view turn's chain, kept as it begins (`compiler::view::kept`), and whether what
+//! a view laid is gone now, asked before a replay of it sends anything (`own_bench::rebuild`).
 
 use super::super::compile_step::Keeping;
 use super::{Compiled, Turn, TurnRunner};
 use crate::compiler::view::kept::{kept, Kept};
 use crate::compiler::view::Frozen;
 use crate::store::Store;
-use theseus_memory::gate::Seal;
 
 /// The view record of `compiled`, a new compilation the turn persists: what its view showed, the room the
 /// turn made, and what a replay needs. Every compilation an answer can name keeps its own (a routed turn's
@@ -58,45 +56,19 @@ fn recalled_import(store: &Store, f: &Frozen) -> bool {
     })
 }
 
-/// Whether the gate of now, for a reader in `asker`, holds anything a view laid: a session sealed or not
-/// proven clear; an exchange that is gone or holds a message moved into a thread not proven clear; a node
-/// its recall laid (`recalled`) that is gone or erased (`Body::Erased`), or sealed by its session or by
-/// where it was moved.
+/// Whether anything a view laid is gone now: an exchange that is missing or does not read, or a node its
+/// recall laid (`recalled`) that is gone or erased (`Body::Erased`): its words must not be sent again. Anything
+/// goes (2026-11-22): no seal or move holds anything; the sessions are not read.
 pub(crate) fn held_now(
     runner: &TurnRunner,
-    asker: &str,
-    (sessions, exchanges, recalled): (&[String], &[String], &[String]),
+    _asker: &str,
+    (_sessions, exchanges, recalled): (&[String], &[String], &[String]),
 ) -> bool {
-    let sealed = |s: &str| crate::view_gate::seal_of(runner, Some(asker), s) != Seal::Clear;
-    if sessions.iter().any(|s| sealed(s)) {
-        return true;
-    }
-    let moved = crate::view_gate::Moved::read(runner, Some(asker));
     let store = &runner.store;
-    let gone_or_moved = (exchanges.iter()).any(|id| match crate::exchange::exchange(store, id) {
-        // Only a readable exchange whose nodes are all clear proves admission: a missing one is held.
-        Ok(Some(e)) => moved.holds(&e),
-        Ok(None) | Err(_) => true,
-    });
-    gone_or_moved || recall_held(runner, asker, recalled)
-}
-
-/// Whether a node of `recalled` is gone, or held from a reader in `asker` (`view_gate::node_seal`).
-fn recall_held(runner: &TurnRunner, asker: &str, recalled: &[String]) -> bool {
-    if recalled.is_empty() {
-        return false;
-    }
-    let Ok(board) = runner.threads.all(&runner.store) else {
-        return true;
-    };
-    recalled.iter().any(|id| match runner.store.get_node(id) {
-        // Erased since (an import's erasure, or another path): its words must not be sent again.
-        Ok(Some((_, n))) if matches!(n.body, crate::node::Body::Erased { .. }) => true,
-        Ok(Some((_, n))) => {
-            let seal =
-                crate::view_gate::node_seal(&runner.store, &board, Some(asker), &n.session_id, id);
-            seal != Seal::Clear
-        }
+    let gone =
+        (exchanges.iter()).any(|id| !matches!(crate::exchange::exchange(store, id), Ok(Some(_))));
+    gone || (recalled.iter()).any(|id| match store.get_node(id) {
+        Ok(Some((_, n))) => matches!(n.body, crate::node::Body::Erased { .. }),
         Ok(None) | Err(_) => true,
     })
 }

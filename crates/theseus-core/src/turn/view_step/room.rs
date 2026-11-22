@@ -148,7 +148,7 @@ impl TurnRunner {
         if laid.is_empty() {
             laid = recalled(t);
         }
-        // Admitted again now: a source sealed since is not laid (issue 44, `view_step::recall`).
+        // Read again now: a source that no longer reads is not laid (issue 44, `view_step::recall`).
         let (laid, found) = self.view_recall(sid, laid);
         let asked = Asked {
             store,

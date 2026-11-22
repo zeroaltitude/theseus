@@ -1,31 +1,15 @@
 //! A turn no person's message, wake or report opened (issue 44: a job's late result, an answered call, a
-//! resume after an interruption or a failed call) continues earlier turns of its session. What it reads of
-//! them, so it carries the work it resumes or fails plainly:
+//! resume after an interruption or a failed call) continues earlier turns of its session: the turn that
+//! made each call its own results answer, else the session's newest turn before it.
 //!
-//! - **Which turns**: the turn that made each call its own results answer, else the session's newest turn
-//!   before it. A continuation of a continuation finds the continuation, whose presence was kept
-//!   (`exchange::given`), so the chain holds its narrowest presence and never borrows another mark.
-//! - **Where it answers**: where that work was asked (its exchange's place). When the session's reply goes
-//!   somewhere else now (a reply target that changed), the turn cannot be resumed here: the view fails it
-//!   plainly rather than lay that place's conversation for another audience. A session that posts nowhere
-//!   answers where the work was asked.
-//! - **Its presence**: each continued turn's, read as a set-up's. One that cannot be read, or reads as
-//!   `Unknown`, is the unknown presence (the conductor's decision, issue 44): the turn is not failed, and
-//!   under it the view shows only what its own session said at its own place (`view_gate::own_turns`): the
-//!   question, the calls, the results, and nothing of another session or place. Only a place that cannot be
-//!   read, or work asked where the conversation does not answer now, fails it plainly.
+//! **Where it answers** (anything goes, 2026-11-22): where its session speaks now; a session that posts
+//! nowhere answers where the work it continues was asked. It never fails for the difference.
 //!
-//! A task's turns are the task's own (their place and presence are set elsewhere): they keep the presences,
-//! and nothing here fails them.
+//! A task's turns are the task's own (their place is set elsewhere): nothing here moves them.
 
-use theseus_memory::gate::Present;
-use theseus_memory::recall::Place;
-
-use super::exchange_step::Unresumable;
 use super::{Turn, TurnRunner};
 use crate::node::Body;
 use crate::stub::Kind;
-use crate::view_gate;
 
 impl TurnRunner {
     /// The turns a turn no message opened continues: the turn that made each call its own results answer,
@@ -61,62 +45,20 @@ impl TurnRunner {
         vec![earlier.map(str::to_string)]
     }
 
-    /// Where a turn no message opened answers (`read`: where its session's reply goes now): where the work
-    /// it continues was asked, when that is where its reply goes, or its session posts nowhere. Otherwise,
-    /// or when that place cannot be read, the turn is marked unresumable, and `read` is kept.
-    pub(super) fn resumed_place(&self, t: &mut Turn<'_>, read: Option<String>) -> Option<String> {
+    /// Where a turn no message opened answers (`read`: where its session's reply goes now): there, when
+    /// its session speaks somewhere now; when it posts nowhere, where the work it continues was asked (the
+    /// first of those turns' places that reads), else `read`. Never a failure.
+    pub(super) fn resumed_place(&self, t: &Turn<'_>, read: Option<String>) -> Option<String> {
         let opened = t.exchange.mark().is_some() || t.exchange.occasion().is_none();
         if opened || t.tc.task.is_some() {
             return read;
         }
-        let turns = self.continued_turns(t);
-        let places: Vec<Option<String>> = (turns.iter())
-            .map(|id| {
-                let id = id.as_deref()?;
-                crate::exchange::exchange(&self.store, id).ok().flatten()
-            })
-            .map(|e| e.map(|e| e.place))
-            .collect();
-        t.exchange.set_continues(turns);
-        // A continued turn with no exchange (a fault before its frame) gives no place to compare: the turn
-        // answers at its session's own place, under the presence it can prove, the unknown one when none
-        // (the conductor's decision 9): only its own session's words there.
-        let known: Vec<&String> = places.iter().flatten().collect();
-        let Some(first) = known.first().map(|p| (*p).clone()) else {
-            return read;
-        };
-        if known.iter().any(|p| **p != first) {
-            t.exchange.cannot_resume(Unresumable::Elsewhere);
+        if matches!(self.outbox.speaks_at(t.tc.session_id), Ok(Some(_))) {
             return read;
         }
-        if read.as_deref() == Some(first.as_str()) {
-            return read;
-        }
-        match self.outbox.speaks_at(t.tc.session_id) {
-            Ok(None) => Some(first),
-            _ => {
-                t.exchange.cannot_resume(Unresumable::Elsewhere);
-                read
-            }
-        }
-    }
-
-    /// The presence of each turn a turn no message opened continues, read as a set-up's at `class`. One
-    /// that cannot be read is `None`, which the gate reads as the unknown presence: the turn goes on.
-    pub(super) fn continued_presence(
-        &self,
-        t: &mut Turn<'_>,
-        class: &Place,
-    ) -> Vec<Option<Present>> {
-        let turns = match t.exchange.continues() {
-            Some(c) => c.to_vec(),
-            None => self.continued_turns(t),
-        };
-        (turns.iter())
-            .map(|id| {
-                let id = id.as_deref()?;
-                view_gate::continued(&self.store, class, id)
-            })
-            .collect()
+        let asked = (self.continued_turns(t).iter().flatten())
+            .find_map(|id| crate::exchange::exchange(&self.store, id).ok().flatten())
+            .map(|e| e.place);
+        asked.or(read)
     }
 }

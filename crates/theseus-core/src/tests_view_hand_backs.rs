@@ -1,18 +1,15 @@
-//! Five of the view's hand-backs, answered inside the view (issue 44): a wake answered where its reply is
+//! Four of the view's hand-backs, answered inside the view (issue 44): a wake answered where its reply is
 //! delivered takes the view there, and a place that cannot be read fails the turn plainly (route); a turn
 //! no message opened is assembled with one line saying what woke it (continuation); a failed read fails
-//! the turn with its words (assembly error); a gate that moves a third time within one call fails the call
-//! (moved). None of them sends a request it could not stand behind, and none writes a fallback row.
+//! the turn with its words (assembly error). None of them sends a request it could not stand behind, and none writes a fallback row.
 
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use serde_json::json;
 
-use crate::provider::{ProviderError, ProviderRequest, Scripted};
-use crate::tests_places::{
-    answers_a_call, last_user, rig_setup_scripted, rig_with, session, Rig, LAB,
-};
+use crate::provider::{ProviderError, Scripted};
+use crate::tests_places::{answers_a_call, last_user, rig_setup_scripted, rig_with, session, LAB};
 use crate::tests_private_view::session_in;
 use crate::tests_view_compile::{fallbacks, legal, submit, texts};
 
@@ -279,42 +276,6 @@ async fn a_read_failure_during_assembly_fails_the_turn_with_its_words() {
         (r.requests().iter()).all(|q| !texts(q).contains("what is on the desk?")),
         "nothing is sent"
     );
-    assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
-}
-
-/// (f) moved: the gate's reading of the turn's presence moves after each of three assemblies of one call
-/// (after the view's first, and after each reassembly). The call fails plainly, and nothing is sent.
-#[tokio::test]
-async fn a_third_move_in_one_call_fails_it_plainly_and_sends_nothing() {
-    use theseus_memory::gate::Present;
-    let r: Rig = rig_with(|_| {});
-    let c = &r.core;
-    let sid = session_in(c, None, &r.root);
-    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::new(OnceLock::new());
-    let _ = core.set(c.clone());
-    for present in [Present::PrivateChannel, Present::Shared, Present::Open] {
-        let (held, s) = (core.clone(), sid.clone());
-        crate::turn::view_step::env_tail_hook(
-            &sid,
-            Box::new(move || {
-                let c = held.get().unwrap();
-                let now = c.runner.presence.get(&s).unwrap();
-                let (turn, place) = (now.turn_id().to_string(), now.place().to_string());
-                crate::view_gate::seat_for_tests(&c.runner, &s, &turn, present, &place);
-            }),
-        );
-    }
-    let e = submit(c, &sid, "tidy the harbour notes").await.unwrap_err();
-    let (class, words) = failure(&e);
-    assert_eq!(class, "context_unreadable");
-    assert!(
-        words.contains("what this turn may see changed while it was being prepared; send it again"),
-        "{words}"
-    );
-    let sent: Vec<ProviderRequest> = (r.requests().into_iter())
-        .filter(|q| texts(q).contains("tidy the harbour notes"))
-        .collect();
-    assert!(sent.is_empty(), "nothing is sent: {}", sent.len());
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
 }
 

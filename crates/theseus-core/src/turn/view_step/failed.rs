@@ -1,7 +1,6 @@
 //! A view turn that cannot be assembled soundly fails plainly (issue 44): no partial view, no other way of
 //! building the request, and nothing is sent. Its words are a person's: the place could not be read, the
-//! context could not be read (with the error), or what the turn may see kept changing while its call was
-//! being prepared.
+//! context could not be read (with the error).
 
 use super::super::{Failure, Turn, TurnRunner};
 
@@ -15,10 +14,6 @@ pub(in crate::turn) enum ViewFailed {
     Place,
     /// A read during the view's assembly failed: its words.
     Assembly(String),
-    /// The gate's reading moved under the view a third time within one call's preparation.
-    Moved,
-    /// A turn no message opened continues work asked in a place it may not answer in now.
-    ResumeHere,
 }
 
 impl std::fmt::Display for ViewFailed {
@@ -26,26 +21,11 @@ impl std::fmt::Display for ViewFailed {
         match self {
             Self::Place => f.write_str("this conversation's place could not be read"),
             Self::Assembly(why) => write!(f, "the conversation's context could not be read: {why}"),
-            Self::Moved => f.write_str(
-                "what this turn may see changed while it was being prepared; send it again",
-            ),
-            Self::ResumeHere => f.write_str(
-                "this turn's work cannot be resumed here: it was asked where this conversation does not answer now",
-            ),
         }
     }
 }
 
 impl std::error::Error for ViewFailed {}
-
-impl From<super::super::exchange_step::Unresumable> for ViewFailed {
-    fn from(why: super::super::exchange_step::Unresumable) -> Self {
-        use super::super::exchange_step::Unresumable;
-        match why {
-            Unresumable::Elsewhere => Self::ResumeHere,
-        }
-    }
-}
 
 impl ViewFailed {
     /// Its `why` in the `turn.failed` row's reason.
@@ -53,8 +33,6 @@ impl ViewFailed {
         match self {
             Self::Place => "place",
             Self::Assembly(_) => "assembly",
-            Self::Moved => "moved",
-            Self::ResumeHere => "resume_place",
         }
     }
 }
@@ -121,6 +99,5 @@ mod tests {
             ViewFailed::Assembly("the store is closed".into()).to_string(),
             "the conversation's context could not be read: the store is closed"
         );
-        assert!(ViewFailed::Moved.to_string().ends_with("send it again"));
     }
 }
