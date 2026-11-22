@@ -281,8 +281,7 @@ mod tests_labels {
 
     /// Each author class of a recalled item is laid under its own heading, by text: Theseus's reply as
     /// testimony; a tool's result and another person's proven words as outside text, wrapped; the owner's
-    /// proven word from elsewhere as his; unknown authorship as such; and his word from THIS place as
-    /// unknown, never as the conversation here.
+    /// proven word from elsewhere as his; unknown authorship as such; none as the conversation here.
     #[test]
     fn each_author_class_has_its_heading() {
         let pov = PointOfView {
@@ -362,7 +361,18 @@ mod tests_labels {
             assert!(shown.contains(want), "case {i}: {shown}");
             assert_ne!(b.label, crate::view::Label::Here, "case {i}");
         }
-        // His proven word from THIS place is not laid by slot H: it is his past's, or the conversation's.
+    }
+
+    /// His proven word from THIS place is not laid by slot H: it is his past's, or the conversation's.
+    #[test]
+    fn his_word_from_this_place_is_not_laid() {
+        let pov = PointOfView {
+            anchor: Anchor::Place("local".into()),
+            person: Some("owner".into()),
+            present: Present::OwnerAlone,
+            at_hand: None,
+            now_ms: 10,
+        };
         let mine = Recalled {
             item: RecalledRef {
                 node_id: "his".into(),
