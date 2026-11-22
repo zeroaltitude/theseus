@@ -824,3 +824,20 @@ async fn a_missing_or_corrupt_view_of_the_turn_counts_as_outside() {
         "corrupt"
     );
 }
+
+/// Review P2.5: the ladder's bar for moving `task_words.v1` up counts its
+/// acting class: a report with too few labelled `restricts`, or with no
+/// precision for it, falls short, and says so.
+#[test]
+fn the_promotion_bar_counts_restricts() {
+    use crate::judge::ladder::promote::short_of;
+    let mut r = theseus_protocol::learning::PackReport::default();
+    r.holdout.labeled_per_question = [("change".to_string(), 1_000)].into();
+    assert!(
+        short_of(crate::judge::task_words::PACK, &r).is_some(),
+        "no restricts labelled"
+    );
+    r.holdout.labeled_per_acting_class = [("restricts".to_string(), 1_000)].into();
+    let why = short_of(crate::judge::task_words::PACK, &r).expect("no precision");
+    assert!(why.contains("restricts"), "{why}");
+}
