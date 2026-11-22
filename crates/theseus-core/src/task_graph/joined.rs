@@ -367,15 +367,19 @@ pub fn judged_task(store: &Store, session: &str, node: &str) -> Option<String> {
         {
             continue;
         }
-        return j
-            .answers
-            .iter()
-            .find(|a| a.question == "addressed_task")
-            .and_then(|a| a.ran())
-            .map(|v| v.to_string())
-            .filter(|v| v.starts_with(super::ID_PREFIX));
+        return addressed_of(&j);
     }
     None
+}
+
+/// A `classify.v4` judgment's `addressed_task` answer, when it is a task.
+pub fn addressed_of(j: &theseus_judge::Judgment) -> Option<String> {
+    j.answers
+        .iter()
+        .find(|a| a.question == "addressed_task")
+        .and_then(|a| a.ran())
+        .map(|v| v.to_string())
+        .filter(|v| v.starts_with(super::ID_PREFIX))
 }
 
 #[cfg(test)]

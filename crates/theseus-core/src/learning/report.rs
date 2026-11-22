@@ -44,6 +44,8 @@ pub const ACTING: &[(&str, &str, &[&str])] = &[
     ("work", "work", &["coding", "research_or_design", "review"]),
     // The label that is the fan-out cue.
     ("split", "split", &["splits_by_area"]),
+    // The one answer that may skip the owner's card (issue 44, decision 6).
+    ("task_words", "change", &["restricts"]),
 ];
 
 /// The acting classes of `pack_id` among the questions its pack asks: the one row whose question
