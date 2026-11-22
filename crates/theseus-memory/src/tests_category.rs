@@ -1,11 +1,11 @@
 //! The category term in recall (theseus-jrf4c): a note from a session that
 //! shares a category with the asker's ranks above an otherwise equal one,
-//! weighted by the kind, and the term admits nothing: the place rule and
-//! every other filter run first.
+//! weighted by the kind, and the term admits nothing: every filter runs
+//! first.
 
 use std::collections::BTreeSet;
 
-use crate::recall::{recall, Asker, Candidate, CategoryBoost, Pack, Params, Place, Reason};
+use crate::recall::{recall, Asker, Candidate, CategoryBoost, Pack, Params, Place};
 use crate::science::Baseline;
 
 fn cand(node: &str, session: &str, fused: f64, place: Place) -> Candidate {
@@ -34,17 +34,14 @@ fn shares(gain: f64, of: &[(&str, f64)]) -> CategoryBoost {
     }
 }
 
-fn run(asker_place: &Place, category: Option<CategoryBoost>, cands: Vec<Candidate>) -> Pack {
+fn run(category: Option<CategoryBoost>, cands: Vec<Candidate>) -> Pack {
     let none = BTreeSet::new();
     let asker = Asker {
         session_id: "ses_here",
-        place: asker_place,
         in_context: &none,
         labeled: &none,
         links: &[],
         now_ms: 0,
-
-        threads: None,
     };
     let p = Params {
         category,
@@ -71,19 +68,11 @@ fn a_same_category_note_ranks_above_an_equal_one() {
             cand("same", "ses_same", 0.050, Place::Private),
         ]
     };
-    let on = run(
-        &Place::Private,
-        Some(shares(0.25, &[("ses_same", 0.6)])),
-        cands(),
-    );
+    let on = run(Some(shares(0.25, &[("ses_same", 0.6)])), cands());
     assert_eq!(order(&on)[0], "same");
     let mut reversed = cands();
     reversed.reverse();
-    let again = run(
-        &Place::Private,
-        Some(shares(0.25, &[("ses_same", 0.6)])),
-        reversed,
-    );
+    let again = run(Some(shares(0.25, &[("ses_same", 0.6)])), reversed);
     assert_eq!(order(&again)[0], "same");
 }
 
@@ -99,10 +88,10 @@ fn the_kinds_weight_orders_the_sharers_and_zero_is_off() {
         ]
     };
     let w = [("ses_low", 0.3), ("ses_topic", 0.6), ("ses_project", 1.0)];
-    let on = run(&Place::Private, Some(shares(0.25, &w)), cands());
+    let on = run(Some(shares(0.25, &w)), cands());
     assert_eq!(order(&on), vec!["project", "topic", "low"]);
-    let off = run(&Place::Private, Some(shares(0.0, &w)), cands());
-    let none = run(&Place::Private, None, cands());
+    let off = run(Some(shares(0.0, &w)), cands());
+    let none = run(None, cands());
     assert_eq!(order(&off), order(&none));
 }
 
@@ -114,34 +103,8 @@ fn a_clearly_better_note_still_wins() {
         cand("same", "ses_same", 0.050, Place::Private),
         cand("better", "ses_other", 0.050 * 1.4, Place::Private),
     ];
-    let p = run(
-        &Place::Private,
-        Some(shares(0.25, &[("ses_same", 1.0)])),
-        cands,
-    );
+    let p = run(Some(shares(0.25, &[("ses_same", 1.0)])), cands);
     assert_eq!(order(&p)[0], "better");
-}
-
-/// The place rule runs first: a candidate of a place this turn may not draw
-/// on stays dropped, however much it shares.
-#[test]
-fn a_shared_place_candidate_is_still_dropped() {
-    let shared = Place::Shared("discord:channel:77".into());
-    let p = run(
-        &Place::Shared("discord:channel:12".into()),
-        Some(shares(1.0, &[("ses_far", 1.0)])),
-        vec![
-            cand("far", "ses_far", 0.050, shared),
-            cand(
-                "ok",
-                "ses_ok",
-                0.040,
-                Place::Shared("discord:channel:12".into()),
-            ),
-        ],
-    );
-    assert_eq!(order(&p), vec!["ok"]);
-    assert_eq!(p.dropped_for(Reason::Place), 1);
 }
 
 /// The factor is a reciprocal rank among the sharers: the best sharer gets

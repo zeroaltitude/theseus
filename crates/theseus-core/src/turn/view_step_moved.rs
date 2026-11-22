@@ -13,7 +13,6 @@ use crate::store::Store;
 use crate::view::fold::Ladder as _;
 use crate::view::history::{HistoryArgs, PageEnd};
 use crate::view::select::sources::Exchanges as _;
-use crate::view::Present;
 use crate::view_gate::Moved;
 
 fn store() -> (tempfile::TempDir, Store) {
@@ -34,23 +33,13 @@ fn clear(_: &str) -> bool {
     false
 }
 
-fn private(_: &str) -> bool {
-    true
-}
-
-/// The newest history page of the DM, the owner alone, for `moved`.
-fn page(s: &Store, moved: &Moved<'_>) -> (Vec<String>, PageEnd) {
-    let held = |e: &Exchange| moved.holds(e);
+/// The newest history page of the DM. The history tool reads no move any more (p17): `_moved` is not read.
+fn page(s: &Store, _moved: &Moved<'_>) -> (Vec<String>, PageEnd) {
     let lens = Lens {
         store: s,
         here: PLACE.into(),
-        present: Present::OwnerAlone,
-        hidden: &clear,
-        moved: &held,
-        private: &private,
         in_view: None,
         words: None,
-        own: None,
     };
     let p = lens.walk(&HistoryArgs::default(), None, 0).unwrap().page;
     (p.lines.into_iter().map(|l| l.handle.0).collect(), p.end)

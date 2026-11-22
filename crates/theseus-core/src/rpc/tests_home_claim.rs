@@ -2,16 +2,14 @@
 //! turn the router ran at a place's home whose files all fell in one thread's working set was
 //! claimed for that thread; the owner removed routing by a guess that day, and the claim with it.
 //! Now a home turn that writes a thread's file claims nothing, and a claim already in a store
-//! still reads (the history names it, the lens reads its nodes as the thread's) and is undone by
-//! `thread.unclaim`, beside a split over it.
+//! still reads (the history names it) and is undone by `thread.unclaim`, beside a split over it.
+//! The thread lens that read its nodes as the thread's is gone (p17: anything goes).
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
 use theseus_judge::fake::FakeJev;
-use theseus_memory::threads::{Tie, Verdict};
 use theseus_protocol::threads::{
     ThreadEditParams, ThreadNewParams, ThreadSplitParams, ThreadUnclaimParams, WorkingSet,
 };
@@ -27,7 +25,6 @@ use super::Core;
 use crate::approval::{Answerer, Client, Surface};
 use crate::ledger::LedgerRow;
 use crate::moved::{moved_of_key, MovedTo};
-use crate::node::Body;
 use crate::provider::Scripted;
 use crate::session::SessionRecord;
 use crate::tests_inbound::inbound_only;
@@ -244,18 +241,6 @@ fn turn_nodes(c: &Core, sid: &str, turn: &str) -> Vec<(u64, String, Option<Moved
         .collect()
 }
 
-fn user_node(c: &Core, sid: &str, turn: &str) -> String {
-    c.store
-        .session_nodes(sid)
-        .unwrap()
-        .into_iter()
-        .find(|(_, n)| {
-            n.turn_id.as_deref() == Some(turn) && matches!(n.body, Body::UserMessage { .. })
-        })
-        .map(|(_, n)| n.id)
-        .expect("the turn's message")
-}
-
 fn claims(c: &Core) -> Vec<ClaimRecord> {
     c.store
         .inner()
@@ -264,18 +249,6 @@ fn claims(c: &Core) -> Vec<ClaimRecord> {
         .iter()
         .map(|r| r.decode().unwrap())
         .collect()
-}
-
-/// The lens's verdict on `node` of `home` for `slug`'s recall, its own turn's.
-fn verdict(c: &Core, slug: &str, home: &str, node: &str) -> Verdict {
-    let asker = c.thread_session(slug, cli()).unwrap().session_id;
-    let scene = c
-        .runner
-        .thread_scene(Some(&asker), "what changed in the retry", true)
-        .expect("threads exist");
-    scene
-        .lens([(home, node, 1.0)], &BTreeSet::new())
-        .judge(home, node, 1.0, Tie::Unknown)
 }
 
 /// A claim as an earlier build wrote it for `turn`'s nodes in `home`: its record, and each node keyed
@@ -322,8 +295,7 @@ fn plant_claim(c: &Core, home: &str, turn: &str, thread: &str) -> String {
 }
 
 /// A message with no address runs at home and writes `tarnlib/tarn/retry.py`, under pr-round's root
-/// alone: nothing claims it now. No key, no record, no `thread.claimed` row; the lens reads its
-/// message as the place's own conversation, distant for pr-round.
+/// alone: nothing claims it now. No key, no record, no `thread.claimed` row.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_home_turn_that_wrote_a_threads_file_claims_nothing() {
     let p = place(&["tarnlib/tarn/retry.py"]);
@@ -337,11 +309,6 @@ async fn a_home_turn_that_wrote_a_threads_file_claims_nothing() {
     assert!(turn_nodes(c, home, &res.turn_id)
         .iter()
         .all(|(_, _, to)| to.is_none()));
-    let note = user_node(c, home, &res.turn_id);
-    assert!(!matches!(
-        verdict(c, "pr-round", home, &note),
-        Verdict::Pass
-    ));
 }
 
 /// A split of the whole turn into a new thread takes the claimed nodes over (a claim is weaker
@@ -380,27 +347,14 @@ fn split_over_the_claim(c: &Core, home: &str, turn: &str) {
         .all(|(_, _, to)| to.is_none()));
 }
 
-/// `thread.unclaim` puts every node of a stored claim back to no thread, so pr-round's lens reads the turn as
-/// it reads the place's own conversation; a node a split took after the claim keeps the split's;
+/// `thread.unclaim` puts every node of a stored claim back to no thread; a node a split took after the claim keeps the split's;
 /// a second undo, and an unknown claim, are refused with the argument named.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_unclaim_restores_the_home_turn_and_leaves_a_later_split() {
     let p = place(&["tarnlib/tarn/retry.py"]);
     let (c, home) = (&p.r.core, p.home.as_str());
-    let base = {
-        let n = crate::node::Node::user(home, None, "test", "the place's own note");
-        c.store.append(&[n.record().unwrap()]).unwrap();
-        n.id
-    };
-    let before = verdict(c, "pr-round", home, &base);
-    assert!(
-        !matches!(before, Verdict::Pass),
-        "the base is distant: {before:?}"
-    );
     let res = submit(c, home, "fix the retry").await;
     let id = plant_claim(c, home, &res.turn_id, "pr-round");
-    let note = user_node(c, home, &res.turn_id);
-    assert!(matches!(verdict(c, "pr-round", home, &note), Verdict::Pass));
 
     let nodes = turn_nodes(c, home, &res.turn_id);
     split_over_the_claim(c, home, &res.turn_id);
@@ -451,12 +405,6 @@ async fn an_unclaim_restores_the_home_turn_and_leaves_a_later_split() {
             unclaimed[0].data["kept"].as_u64()
         ),
         (Some(nodes.len() as u64 - 1), Some(1))
-    );
-    let after = verdict(c, "pr-round", home, &note);
-    assert_eq!(
-        format!("{after:?}"),
-        format!("{before:?}"),
-        "the verdict before the claim"
     );
     assert!(claims(c).iter().all(|r| r.undone));
 

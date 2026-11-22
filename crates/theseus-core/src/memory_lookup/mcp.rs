@@ -2,49 +2,39 @@
 //! the same functions `memory.lookup` runs, with their answers as typed hits
 //! rather than a page of text, for a client that is another agent.
 //!
-//! - **Search** is `by_words`, recall's pipeline with the place rule first,
-//!   asked as the CLI asks (a private place) and then kept to private
-//!   sessions: a private asker may draw on a shared place's sessions, so
-//!   `by_words`'s `private_only` drops each hit whose session
-//!   `TurnRunner::place_of` does not read as private. The MCP principal's own
-//!   place is private; the memory it reads must be too.
+//! - **Search** is `by_words`, recall's pipeline, asked as the CLI asks: it
+//!   reads every session, a shared place's included (anything goes,
+//!   2026-11-22).
 //! - **Get** reads one node by its citation's id with a few of its session's
 //!   messages around it, or one session's messages in order, paged by a
-//!   cursor. A node of a session that is not private answers as a node that
-//!   is not there, so the answer never says that it exists.
-//! - **Veiled as `memory.lookup` veils**: `personal` and
-//!   `partner-confidential` text, and an imported episode whose labels could
-//!   not be read, is never in a hit; the hit says it is veiled.
+//!   cursor, whatever place, seal or move its session has.
+//! - **Labels, not veils**: a hit carries its sensitivity (`personal`,
+//!   `partner-confidential`, or labels unread) beside its text; `veiled` is
+//!   always false.
+//! - **The vault's values are substituted** in every reply's strings (`Exits::text`), as a provider
+//!   request's are: no provider call is on this path to do it.
 //! - **Citations**: the node's id, its WAL position, its session and its
 //!   as-of minute in the daemon's zone. A client quotes them back.
 
 use std::sync::Arc;
 
-use theseus_memory::recall::Place;
 use theseus_protocol::import::ImportSessionsParams;
 use theseus_protocol::memory::{MemoryCitation, MemoryHit, MemoryLookupParams, MemoryLookupResult};
 
 use super::read::{clipped, moment, one_line, readable_at, MESSAGE_MAX};
-use super::{by_words, catalog, some, veils, Args, Item, BUDGET, PAGE, PAGE_MAX, UNREAD};
+use super::{by_words, catalog, some, Args, Item, BUDGET, PAGE, PAGE_MAX, UNREAD};
 use crate::node::{Body, Node};
 use crate::Core;
 
 /// The most neighbours a `get` gives on a side, and by default.
 const AROUND: u64 = 2;
 const AROUND_MAX: u64 = 10;
-/// What an answer says of a node or session that is not there, or not
-/// private.
+/// What an answer says of a node or session that is not there.
 const NOT_FOUND: &str = "no remembered node or session is named so: cite an id or session an \
      earlier memory_search answered";
-/// A hit's text, never a veiled one's.
-fn shown(veiled: bool, sensitivity: Option<&str>, text: &str, cut: usize) -> String {
-    match veiled {
-        true => format!(
-            "[{} · veiled: its text stays veiled here, as on the cockpit's Context page; the owner opens it there]",
-            sensitivity.unwrap_or_default().replace('-', " ")
-        ),
-        false => clipped(&one_line(text), cut),
-    }
+/// A hit's text, on one line, cut to `cut` bytes.
+fn shown(text: &str, cut: usize) -> String {
+    clipped(&one_line(text), cut)
 }
 
 fn as_of(at_ms: u64, fallback: &str) -> String {
@@ -55,7 +45,6 @@ fn as_of(at_ms: u64, fallback: &str) -> String {
 }
 
 fn hit_of_item(it: &Item, cut: usize) -> MemoryHit {
-    let veiled = veils(it.sensitivity.as_deref());
     MemoryHit {
         citation: MemoryCitation {
             node_id: it.node_id.clone(),
@@ -66,9 +55,9 @@ fn hit_of_item(it: &Item, cut: usize) -> MemoryHit {
         origin: origin(&it.session_id),
         harness: it.harness.clone(),
         sensitivity: it.sensitivity.clone(),
-        veiled,
+        veiled: false,
         book: it.book.clone(),
-        text: shown(veiled, it.sensitivity.as_deref(), &it.text, cut),
+        text: shown(&it.text, cut),
         target: false,
     }
 }
@@ -86,6 +75,31 @@ pub(crate) async fn search(
     core: &Arc<Core>,
     p: &MemoryLookupParams,
 ) -> Result<MemoryLookupResult, String> {
+    searched(core, p).await.map(|r| substituted(core, r))
+}
+
+/// The reply with the vault's values substituted in every string a client reads (review G-R2): no provider
+/// call is on this path, so the exits' own substitution (`Exits::text`, under the owner's `redact_outbound`)
+/// runs here. Citations, paging and the stored text are as they were.
+fn substituted(core: &Core, mut r: MemoryLookupResult) -> MemoryLookupResult {
+    let sub = |s: &mut String| {
+        let out = core.exits.text(s).0.into_owned();
+        *s = out;
+    };
+    for h in &mut r.hits {
+        sub(&mut h.text);
+        sub(&mut h.harness);
+        for s in [&mut h.book, &mut h.sensitivity].into_iter().flatten() {
+            sub(s);
+        }
+    }
+    if let Some(s) = r.left_out.as_mut() {
+        sub(s);
+    }
+    r
+}
+
+async fn searched(core: &Arc<Core>, p: &MemoryLookupParams) -> Result<MemoryLookupResult, String> {
     let Some(words) = some(&p.words) else {
         return Err("memory_search needs words: what to find, as you would say it".into());
     };
@@ -100,20 +114,10 @@ pub(crate) async fn search(
     let when = a.span(theseus_protocol::now_unix_ms())?;
     let limit = p.limit.unwrap_or(PAGE).clamp(1, PAGE_MAX);
     let offset = p.cursor.unwrap_or(0);
-    // The most the index is asked, whatever the page: a private-only filter
-    // may drop some of the best hits, and a total that moved with the page's
-    // size would break a cursor.
+    // The most the index is asked, whatever the page: a total that moved
+    // with the page's size would break a cursor.
     let k = 100;
-    let (_, items, total) = by_words(
-        core,
-        None,
-        words.to_string(),
-        &a,
-        when.as_ref(),
-        (k, true),
-        &crate::view_gate::RecallPlaces::default(),
-    )
-    .await?;
+    let (_, items, total) = by_words(core, None, words.to_string(), &a, when.as_ref(), k).await?;
     let cut = MESSAGE_MAX as usize * 4;
     let mut hits = Vec::new();
     let mut used = 0u64;
@@ -136,7 +140,7 @@ pub(crate) async fn search(
 }
 
 /// A session's labels: its harness, sensitivity and book. An imported one's
-/// from its episode (labels unread: veiled), the harness's own none.
+/// from its episode (or labels unread), the harness's own none.
 async fn labels(
     core: &Arc<Core>,
     session: &str,
@@ -163,7 +167,6 @@ fn hit_of_node(
     target: bool,
     cut: usize,
 ) -> MemoryHit {
-    let veiled = veils(sensitivity.as_deref());
     MemoryHit {
         citation: MemoryCitation {
             node_id: n.id.clone(),
@@ -174,41 +177,20 @@ fn hit_of_node(
         origin: origin(&n.session_id),
         harness: harness.clone(),
         sensitivity: sensitivity.clone(),
-        veiled,
+        veiled: false,
         book: book.clone(),
-        text: shown(
-            veiled,
-            sensitivity.as_deref(),
-            &crate::recall::text_of(n),
-            cut,
-        ),
+        text: shown(&crate::recall::text_of(n), cut),
         target,
     }
 }
 
-/// A session's nodes, as `session.history` shows them, if it is a private
-/// place's and has any.
+/// A session's nodes, as `session.history` shows them, if it has any.
 async fn nodes_of(core: &Arc<Core>, session: &str) -> Result<Vec<(u64, Node)>, String> {
-    if core.runner.place_of(session) != Place::Private {
-        return Err(NOT_FOUND.into());
-    }
-    // A sealed thread's session (or one whose seal is proposed) answers as
-    // one that is not there: another agent is never its thread.
-    if crate::view_gate::seal_of(&core.runner, None, session) != theseus_memory::gate::Seal::Clear {
-        return Err(NOT_FOUND.into());
-    }
     let c = core.clone();
     let sid = session.to_string();
     let nodes = tokio::task::spawn_blocking(move || {
         let nodes = c.store.session_nodes(&sid)?;
-        let nodes = crate::import::shown(&c.store, nodes)?;
-        // A message moved into a sealed thread is held out (`node_seal`).
-        anyhow::Ok(crate::view_gate::readable_nodes(
-            &c.runner,
-            None,
-            nodes,
-            |(_, n)| (n.session_id.as_str(), n.id.as_str()),
-        ))
+        crate::import::shown(&c.store, nodes)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -224,11 +206,12 @@ pub(crate) async fn get(
     core: &Arc<Core>,
     p: &MemoryLookupParams,
 ) -> Result<MemoryLookupResult, String> {
-    match (some(&p.id), some(&p.session)) {
+    let read = match (some(&p.id), some(&p.session)) {
         (Some(id), None) => by_id(core, id, p).await,
         (None, Some(session)) => by_session(core, session, p).await,
         _ => Err("memory_get takes an id (a citation's node_id) or a session, not both".into()),
-    }
+    };
+    read.map(|r| substituted(core, r))
 }
 
 async fn by_id(
@@ -247,14 +230,6 @@ async fn by_id(
         return Err(NOT_FOUND.into());
     }
     let nodes = nodes_of(core, &node.session_id).await?;
-    // The node itself, moved into a sealed thread, answers as not there.
-    let held = crate::view_gate::readable_nodes(&core.runner, None, vec![&node], |n| {
-        (n.session_id.as_str(), n.id.as_str())
-    })
-    .is_empty();
-    if held {
-        return Err(NOT_FOUND.into());
-    }
     let labels = labels(core, &node.session_id).await?;
     let (before, after) = (
         p.before.unwrap_or(AROUND).min(AROUND_MAX) as usize,

@@ -1,7 +1,7 @@
 //! The MCP server's memory tools through the whole core (theseus-02i1h): the
 //! one method `memory.lookup` on `Surface::Mcp`, answering only while
-//! `[mcp_server] memory` is on. A hit carries its citation; a shared place's
-//! nodes are never returned; veiled text stays veiled; `get` reads a node
+//! `[mcp_server] memory` is on. A hit carries its citation (every place's
+//! node, and no label veils a text since 2026-11-22); `get` reads a node
 //! with its neighbours or a session in order; a page has a cursor; every
 //! other memory method and every approval stays refused; and each read is a
 //! `memory.read` row that holds a digest and no words.
@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use theseus_protocol::method;
 
 use crate::approval::Surface;
-use crate::tests_memory_lookup::{episodes, import, index_over, script, HIDDEN, SHOWN};
+use crate::tests_memory_lookup::{episode, episodes, import, index_over, script, SHOWN};
 use crate::tests_places::{rig_scripted, session, turn, Rig, LAB};
 use crate::Core;
 
@@ -84,7 +84,6 @@ fn rows(core: &Core, kind: &str) -> Vec<Value> {
 /// episodes, all behind one stand-in index.
 struct Held {
     native: String,
-    shared: String,
     imported: Vec<String>,
 }
 
@@ -97,11 +96,7 @@ async fn held(r: &Rig) -> Held {
     let mut all = imported.clone();
     all.extend([native.clone(), shared.clone()]);
     r.core.runner.memory.set_ask(index_over(&r.core, all));
-    Held {
-        native,
-        shared,
-        imported,
-    }
+    Held { native, imported }
 }
 
 fn hits(v: &Value) -> &Vec<Value> {
@@ -150,67 +145,57 @@ async fn a_search_returns_native_and_imported_hits_with_citations() {
     }
 }
 
-/// A shared place's node is never returned: not by a search, not by `get`
-/// of its id, not by `get` of its session.
+/// A value the vault holds is substituted in every MCP memory reply (review
+/// G-R2): no provider call is on this path, so the reply is substituted
+/// itself. Plain and in its base64 and percent encodings, in a native
+/// session's text and in an imported one's, through a search, a get by id,
+/// and a get by session.
 #[tokio::test]
-async fn a_shared_places_node_is_never_returned() {
+async fn a_vault_value_is_substituted_in_every_mcp_memory_reply() {
+    use base64::Engine as _;
+    let secret = "marsh-kelp-vault-value-77";
+    let b64 = base64::engine::general_purpose::STANDARD.encode(secret);
+    let enc = secret.replace('-', "%2D");
+    let said = format!("plain {secret} b64 {b64} pct {enc}");
     let r = rig(true);
-    let h = held(&r).await;
-    let got = search(&r.core, json!({"words": "ferry", "limit": 25})).await;
-    assert!(
-        hits(&got).iter().any(|x| x["text"] == NATIVE),
-        "the private one is there: {got}"
+    r.core
+        .secrets
+        .hold("marsh_vault", crate::secrets::Secret::new(secret.into()));
+    let imported = import(
+        &r.core,
+        &[episode(7, "personal", "2026-03-03T18:00:00Z", &said)],
     );
-    let all = got.to_string();
-    assert!(!all.contains(SHARED) && !all.contains(&h.shared), "{all}");
-    // The shared session's own nodes by id and by session.
-    let node = r
-        .core
-        .store
-        .session_nodes(&h.shared)
-        .unwrap()
-        .into_iter()
-        .find(|(_, n)| crate::recall::text_of(n) == SHARED)
-        .map(|(_, n)| n)
-        .unwrap();
-    for p in [
-        json!({"op": "get", "id": node.id}),
-        json!({"op": "get", "session": h.shared}),
-    ] {
-        let e = ask(&r.core, p).await.unwrap_err();
-        assert!(e.message.contains("no remembered node or session"), "{e:?}");
-        assert!(!e.message.contains(SHARED), "{e:?}");
-    }
-}
-
-/// A veiled hit shows its labels and never its text: not in a search, not
-/// in a `get` of its node or its session.
-#[tokio::test]
-async fn a_veiled_hits_text_is_veiled() {
-    let r = rig(true);
-    let h = held(&r).await;
-    let got = search(&r.core, json!({"words": "keeper parser", "limit": 25})).await;
-    assert!(!got.to_string().contains(HIDDEN), "{got}");
-    for (i, label) in [(0, "personal"), (2, "partner-confidential")] {
-        let x = hits(&got)
-            .iter()
-            .find(|x| x["citation"]["session_id"] == h.imported[i].as_str())
-            .unwrap_or_else(|| panic!("{got}"));
-        assert_eq!(x["veiled"], true, "{x}");
-        assert_eq!(x["sensitivity"], label);
-        assert!(x["text"].as_str().unwrap().contains("veiled"), "{x}");
-        let id = x["citation"]["node_id"].as_str().unwrap();
-        let by_id = ask(&r.core, json!({"op": "get", "id": id})).await.unwrap();
-        let by_session = ask(&r.core, json!({"op": "get", "session": h.imported[i]}))
-            .await
-            .unwrap();
-        for v in [by_id, by_session] {
-            assert!(!v.to_string().contains(HIDDEN), "{v}");
-            assert!(hits(&v).iter().all(|x| x["veiled"] == true), "{v}");
+    let native = session(&r.core, None);
+    turn(&r.core, &native, &format!("the ferry note: {said}")).await;
+    let mut all = imported.clone();
+    all.push(native.clone());
+    r.core.runner.memory.set_ask(index_over(&r.core, all));
+    let clean = |v: &Value| {
+        let t = v.to_string();
+        for raw in [secret, b64.as_str(), enc.as_str()] {
+            assert!(!t.contains(raw), "{raw} came back: {t}");
         }
+        assert!(t.contains("[redacted:marsh_vault]"), "{t}");
+    };
+    let got = search(&r.core, json!({"words": "ferry note", "limit": 25})).await;
+    clean(&got);
+    for sid in [&imported[0], &native] {
+        let hit = hits(&got)
+            .iter()
+            .find(|x| x["citation"]["session_id"] == sid.as_str())
+            .unwrap_or_else(|| panic!("{sid}: {got}"));
+        let id = hit["citation"]["node_id"].as_str().unwrap().to_string();
+        clean(
+            &ask(&r.core, json!({"op": "get", "id": id, "client": "c"}))
+                .await
+                .unwrap(),
+        );
+        clean(
+            &ask(&r.core, json!({"op": "get", "session": sid, "client": "c"}))
+                .await
+                .unwrap(),
+        );
     }
-    // An unveiled one's text shows.
-    assert!(got.to_string().contains(SHOWN), "{got}");
 }
 
 /// `get` by a citation's id returns that node, flagged, with its session's

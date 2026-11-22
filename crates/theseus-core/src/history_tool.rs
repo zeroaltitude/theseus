@@ -7,21 +7,15 @@
 //!   before those, with no horizon. One line an exchange: its date, the place, whose words, the person's words
 //!   (cut by code at 300 characters), the `did` line or the reply's beginning, and a handle.
 //! - **Open**: a handle gives the exchange in spoken form, cut at about 3,000 tokens (`open`).
-//! - **Narrowing**: `place` (another private place, only where the owner is alone), `thing` (its timeline in
-//!   the touch index), `words` (the words index, searched only over the sessions this point of view may read
-//!   on that timeline, then a filter on the walk).
-//! - **Who is present** ([`presence`]): the gate's reading (`view_gate::present`): owner alone only on the
-//!   terminal, the web page or the owner's direct conversation, for an input carrying his in-person mark; a
-//!   channel, private or not, is never alone; a wake's or a report's turn is not known (nothing records the
-//!   presence of the turn that set it up), so it reads nothing in a private place.
+//! - **Narrowing**: `place` (any other place), `thing` (its timeline in the touch index), `words` (the words
+//!   index, searched over the sessions on that timeline, then a filter on the walk).
+//! - **Every place, for every reader** (anything goes, 2026-11-22): no presence, place class, seal or move
+//!   keeps an exchange off a page or out of an open.
 //! - **Where** ([`anchor`]): a message's turn is anchored where the message arrived; any other turn where its
 //!   reply is delivered (`Outbox::speaks_at`, a wake's or a report's target too); a route that cannot be read
-//!   is no place, and reads nothing.
-//! - **The rules** (`page::Lens::admits`), on every line and every open: the place rule, and the seal, fail
-//!   closed: an exchange is read only when its session is proven neither sealed nor seal-pending
-//!   (`Core::ladder_hidden`), the asking session itself aside. Paging, counts and endings run over admitted
-//!   exchanges alone (`page`). [`LOOKS_PER_TURN`] pages and [`OPENS_PER_TURN`] opens a turn, each told plainly
-//!   when used; "history is exhausted" is told apart.
+//!   is no place, and its bare page is the unknown place's.
+//! - **Bounded**: [`LOOKS_PER_TURN`] pages and [`OPENS_PER_TURN`] opens a turn, each told plainly when used;
+//!   "history is exhausted" is told apart.
 //! - **Offered everywhere**: a public tool (`places::public_tool`), so a shared place has it too. Its family,
 //!   `history`, loads by default in a DM and a channel; a terminal's, a task's and a headless run's first
 //!   request has no room for it under its budget (`first_request`), so there it is declared and deferred, one
@@ -215,40 +209,6 @@ impl Board {
     }
 }
 
-/// Who is present for a turn, by the gate's reading (`view_gate::present`): the session's place by today's
-/// rule, the surface the message arrived at, and its in-person mark; a turn with no message (a wake, a report,
-/// a continuation) is not known. Never more than the turn's own class allows. The one function to swap for
-/// the gate's own when it computes the view's presence itself.
-pub fn presence(
-    core: &Core,
-    session: &str,
-    ex: Option<&Exchange>,
-    class: crate::places::PlaceClass,
-) -> Present {
-    use theseus_memory::gate::Present as G;
-    let message = ex.filter(|e| e.opened_by == Opener::Message);
-    let target = message.map(|e| e.place.as_str());
-    let input = match message.and_then(|e| e.ask.as_deref()) {
-        Some(node) => crate::view_gate::Input::Message(node),
-        None => crate::view_gate::Input::SetUp(None),
-    };
-    let place = crate::view_gate::RecallPlaces::default().of_session(&core.runner, session);
-    let g = crate::view_gate::present(&place, target, input, &core.store);
-    let p = match g {
-        G::OwnerAlone => Present::OwnerAlone,
-        G::PrivateChannel => Present::Private,
-        G::Shared => Present::Shared,
-        G::Open => Present::Open,
-        G::Unknown => Present::Unknown,
-    };
-    match (class, p) {
-        (crate::places::PlaceClass::Shared, Present::OwnerAlone | Present::Private) => {
-            Present::Shared
-        }
-        (_, p) => p,
-    }
-}
-
 /// Where a turn is anchored: where its message arrived; else where its reply is delivered
 /// (`Outbox::speaks_at`); none when that route cannot be read.
 pub fn anchor(
@@ -267,24 +227,21 @@ pub fn anchor(
         .map(|t| exchange::place_of(t.as_deref(), dir))
 }
 
-/// The turn's point of view. A task's or a self session's is the one its view is assembled under
-/// (`view_gate::Verified`: its own place and the presence its turn computed).
+/// The turn's point of view: where it is anchored, and who wrote its message. A task's or a self session's
+/// anchor is the one its view is assembled under (`view_gate::Verified`). Every reader reads every place, so
+/// its presence is the widest (`Open`); `_class` is read no more, and goes with the sweep.
 pub(crate) fn pov_of(
     core: &Core,
     session: &str,
     turn: &str,
     dir: Option<&str>,
-    class: crate::places::PlaceClass,
+    _class: crate::places::PlaceClass,
 ) -> PointOfView {
     let ex = exchange::exchange(&core.store, turn).ok().flatten();
     if crate::view_gate::worker(&core.runner, session) {
         return worker_pov(core, session, ex.as_ref());
     }
     let here = anchor(core, session, ex.as_ref(), dir);
-    let present = match here {
-        Some(_) => presence(core, session, ex.as_ref(), class),
-        None => Present::Unknown,
-    };
     let person = ex
         .as_ref()
         .filter(|e| e.opened_by == Opener::Message)
@@ -292,27 +249,20 @@ pub(crate) fn pov_of(
     PointOfView {
         anchor: Anchor::Place(here.unwrap_or_else(|| exchange::rebuild::UNKNOWN.into())),
         person,
-        present,
+        present: Present::Open,
         at_hand: None,
         now_ms: theseus_protocol::now_unix_ms(),
     }
 }
 
-/// A task's or a self session's point of view: its view's, anchor and presence (`view_gate::Verified`).
+/// A task's or a self session's point of view: its view's anchor (`view_gate::Verified`).
 fn worker_pov(core: &Core, session: &str, ex: Option<&Exchange>) -> PointOfView {
-    use theseus_memory::gate::Present as G;
     let v = crate::view_gate::Verified::of_session(&core.runner, session);
     let v = v.pov();
     PointOfView {
         anchor: Anchor::Place(v.anchor.clone()),
         person: (ex.filter(|e| e.opened_by == Opener::Message)).and_then(|e| e.person.clone()),
-        present: match v.present {
-            G::OwnerAlone => Present::OwnerAlone,
-            G::PrivateChannel => Present::Private,
-            G::Shared => Present::Shared,
-            G::Open => Present::Open,
-            G::Unknown => Present::Unknown,
-        },
+        present: Present::Open,
         at_hand: None,
         now_ms: theseus_protocol::now_unix_ms(),
     }
@@ -337,12 +287,6 @@ pub(crate) async fn answer(
     let Anchor::Place(here) = &pov.anchor else {
         return Err("context.history reads a place's history, and this turn has none".into());
     };
-    // Who is present unknown: only what this session itself said here is read (`page::Lens::own`).
-    if pov.present == Present::Unknown && here == exchange::rebuild::UNKNOWN {
-        return Err(
-            "context.history reads nothing here: who can see this conversation cannot be established".into(),
-        );
-    }
     let done = |t: &str| ended(core, t);
     let used = board.count(
         turn,
@@ -353,21 +297,11 @@ pub(crate) async fn answer(
         },
         &done,
     );
-    let places = crate::view_gate::RecallPlaces::default();
-    let private = |s: &str| places.of_session(&core.runner, s) == Place::Private;
-    let hidden = |s: &str| s != session && core.ladder_hidden(s);
-    let moved = crate::view_gate::Moved::read(&core.runner, Some(session));
-    let moved = |e: &crate::exchange::Exchange| moved.holds(e);
     let mut lens = page::Lens {
         store: &core.store,
         here: here.clone(),
-        present: pov.present,
-        hidden: &hidden,
-        moved: &moved,
-        private: &private,
         in_view: page::in_view(&core.store, session, here).map_err(|e| format!("{e:#}"))?,
         words: None,
-        own: Some(session),
     };
     if let Some(h) = &a.open {
         if used.opens >= OPENS_PER_TURN {
@@ -395,16 +329,10 @@ pub(crate) async fn answer(
         });
     }
     let before = board.position(turn, a.before.as_ref())?;
-    let fresh;
-    let fresh_held;
     if let Some(w) = a.words.as_deref().map(str::trim).filter(|w| !w.is_empty()) {
         let (root, _) = lens.root(a).map_err(|e| format!("{e:#}"))?;
         let scope = lens.scope(&root).map_err(|e| format!("{e:#}"))?;
         lens.words = Some(found(core, w, scope).await?);
-        // The node gate is read again after the await: a negative is never carried across it.
-        fresh = crate::view_gate::Moved::read(&core.runner, Some(session));
-        fresh_held = |e: &crate::exchange::Exchange| fresh.holds(e);
-        lens.moved = &fresh_held;
     }
     let bare = bare_first(a, here) && used.looks < LOOKS_PER_TURN;
     let walked = lens
@@ -462,9 +390,8 @@ fn released_lines(core: &Core, here: &str) -> (String, usize) {
     (out, shown.len())
 }
 
-/// The turns the words index finds for `words` among `scope`, the sessions this point of view may read on the
-/// timeline walked: the search is scoped to them before it ranks anything, so what may not be read can
-/// neither crowd out nor change what may.
+/// The turns the words index finds for `words` among `scope`, the sessions on the timeline walked: the search
+/// is scoped to them before it ranks anything.
 pub(crate) async fn found(
     core: &Arc<Core>,
     words: &str,
@@ -498,20 +425,14 @@ pub(crate) async fn found(
         budget_tokens: None,
         max_items: None,
         science: memory.science_for(MemoryArm::Baseline),
-        threads: None,
         persona: None,
         category: None,
     };
-    // Each session's place is read as its own, so recall's place rule drops none of the scope: the scope is
-    // already what this point of view may read.
     let m = memory.manifest(
         &scene,
         &begun,
         answer,
-        |s| match scope.contains(s) {
-            true => Place::Private,
-            false => Place::Unknown,
-        },
+        |s| core.runner.place_of(s),
         |ids| crate::recall::links(&core.store, ids),
         true,
     );

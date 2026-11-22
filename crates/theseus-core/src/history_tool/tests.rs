@@ -1,8 +1,6 @@
-//! `context.history` (issue 44): paging over what may be read, byte for byte the same whatever is hidden;
-//! five looks and twelve opens a turn; the place rule and the fail-closed seal on every line and every open;
-//! who is present by the gate's reading (a private channel is never alone); a wake's anchor where its reply
-//! goes; words scoped before ranking; every message by its own mark; and a played turn that finds an exchange
-//! not in view, opens it and answers.
+//! `context.history` (issue 44): paging with no horizon; five looks and twelve opens a turn; every place
+//! for every reader (anything goes, 2026-11-22); a wake's anchor where its reply goes; every message by its
+//! own mark; and a played turn that finds an exchange not in view, opens it and answers.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -11,18 +9,16 @@ use serde_json::{json, Value};
 
 use super::open::open;
 use super::page::{render, Lens, READ_MOST};
-use super::{answer, pov_of, Board, Count, OPENS_PER_TURN};
+use super::{anchor, answer, pov_of, Board, Count, OPENS_PER_TURN};
 use crate::exchange::{
     exchange_record, mark_record, touch, Exchange, Opener, OwnerMark, Peer, Root, OWNER,
 };
 use crate::node::{Body, Node, Origin, ResultStatus};
 use crate::places::PlaceClass;
-use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::view::history::{HistoryArgs, HistoryPage, PageEnd, LOOKS_PER_TURN};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, Handle, PointOfView, Present};
-use theseus_protocol::{SessionKind, SessionLink};
 
 const HERE: &str = "local";
 const DM: &str = "discord:dm:42";
@@ -132,34 +128,12 @@ fn put(store: &Store, e: &Ex<'_>) -> (Node, Node) {
     (ask, said)
 }
 
-fn no(_: &str) -> bool {
-    false
-}
-
-fn none_moved(_: &Exchange) -> bool {
-    false
-}
-
-fn all_private(_: &str) -> bool {
-    true
-}
-
-fn lens<'a>(
-    store: &'a Store,
-    here: &str,
-    present: Present,
-    hidden: &'a (dyn Fn(&str) -> bool + Sync),
-) -> Lens<'a> {
+fn lens<'a>(store: &'a Store, here: &str) -> Lens<'a> {
     Lens {
         store,
         here: here.into(),
-        present,
-        hidden,
-        moved: &none_moved,
-        private: &all_private,
         in_view: None,
         words: None,
-        own: None,
     }
 }
 
@@ -191,7 +165,7 @@ fn a_bare_page_is_the_hundred_before_what_is_in_view_and_pages_on_with_no_horizo
     for i in 0..180 {
         put(&s, &ex(i, HERE, "ses_a"));
     }
-    let mut l = lens(&s, HERE, Present::OwnerAlone, &no);
+    let mut l = lens(&s, HERE);
     // Exchanges 150 and later are in view in full: the page begins strictly before 150's millisecond.
     l.in_view = Some(Cursor {
         at_ms: 1_000_000 + 150 * 1_000 - 1,
@@ -240,7 +214,7 @@ fn a_hundred_and_twenty_exchanges_in_one_millisecond_page_without_a_gap() {
             },
         );
     }
-    let l = lens(&s, HERE, Present::OwnerAlone, &no);
+    let l = lens(&s, HERE);
     let first = walk(&l, &HistoryArgs::default(), None, 0);
     let second = walk(&l, &HistoryArgs::default(), first.next.clone(), 1);
     assert_eq!((first.lines.len(), second.lines.len()), (100, 20));
@@ -255,7 +229,7 @@ fn five_looks_a_turn_then_the_allowance_is_told_apart_from_the_end_of_history() 
     for i in 0..300 {
         put(&s, &ex(i, HERE, "ses_a"));
     }
-    let l = lens(&s, HERE, Present::OwnerAlone, &no);
+    let l = lens(&s, HERE);
     let fifth = walk(&l, &HistoryArgs::default(), None, LOOKS_PER_TURN - 1);
     assert_eq!(
         (fifth.lines.len(), fifth.end),
@@ -275,77 +249,16 @@ fn five_looks_a_turn_then_the_allowance_is_told_apart_from_the_end_of_history() 
     assert_eq!(earlier.end, PageEnd::More);
 }
 
-/// Inserting exchanges this point of view may not read (a sealed thread's, a private one for a shared
-/// reader) changes no byte of any answer: the pages, their endings, and a page with nothing visible.
-#[test]
-fn hidden_exchanges_change_no_byte_of_any_answer() {
-    let answers = |hide: bool| -> Vec<String> {
-        let (_d, s) = store();
-        for i in 0..130 {
-            put(
-                &s,
-                &Ex {
-                    things: &["issue:33"],
-                    ..ex(i * 10, LOBBY, "ses_lobby")
-                },
-            );
-            if hide {
-                // Sealed sessions, interleaved and older and newer; and private ones in this place.
-                put(
-                    &s,
-                    &Ex {
-                        things: &["issue:33"],
-                        ..ex(i * 10 + 1, LOBBY, "ses_sealed")
-                    },
-                );
-                put(
-                    &s,
-                    &Ex {
-                        private: true,
-                        things: &["issue:9"],
-                        ..ex(i * 10 + 2, LOBBY, "ses_x")
-                    },
-                );
-            }
-        }
-        let hidden = |sid: &str| sid == "ses_sealed";
-        let l = lens(&s, LOBBY, Present::Shared, &hidden);
-        let mut out = Vec::new();
-        for a in [
-            json!({}),
-            json!({"thing": "issue:33"}),
-            json!({"thing": "issue:9"}),
-        ] {
-            let a = args(a);
-            let p1 = walk(&l, &a, None, 0);
-            out.push(render(&p1, LOBBY, 0, None));
-            let p2 = walk(&l, &a, p1.next.clone(), 1);
-            out.push(render(&p2, LOBBY, 1, None));
-            out.push(render(
-                &walk(&l, &a, None, LOOKS_PER_TURN - 1),
-                LOBBY,
-                4,
-                None,
-            ));
-        }
-        out
-    };
-    let (plain, hidden) = (answers(false), answers(true));
-    assert_eq!(plain, hidden);
-    assert!(plain[0].contains("More before these") && plain[1].contains("History is exhausted"));
-    assert!(plain[6].contains("0 exchanges") && plain[6].contains("History is exhausted"));
-}
-
-/// A walk that reads its bound of records without filling its page says so as a limit of the tool, and
-/// shows no position of anything it could not read.
+/// A walk that reads its bound of records without filling its page (here, words no exchange holds) says so
+/// as a limit of the tool, and shows no position of anything it passed over.
 #[test]
 fn a_walk_stopped_by_its_bound_shows_no_hidden_position() {
     let (_d, s) = store();
     for i in 0..(READ_MOST as u64 + 50) {
         put(&s, &ex(i, HERE, "ses_sealed"));
     }
-    let hidden = |sid: &str| sid == "ses_sealed";
-    let l = lens(&s, HERE, Present::OwnerAlone, &hidden);
+    let mut l = lens(&s, HERE);
+    l.words = Some(HashSet::new());
     let w = l.walk(&HistoryArgs::default(), None, 0).unwrap();
     assert_eq!(
         (w.page.lines.len(), w.page.end, w.page.next.as_ref()),
@@ -362,83 +275,6 @@ fn a_walk_stopped_by_its_bound_shows_no_hidden_position() {
     );
     assert!(!said.contains("turn_0") && !said.contains("1000"), "{said}");
     assert!(w.resume.is_some(), "the tool keeps where it stopped");
-}
-
-#[test]
-fn in_company_and_without_the_owner_alone_a_page_reads_this_place_alone() {
-    let (_d, s) = store();
-    put(&s, &ex(1, HERE, "ses_a"));
-    put(&s, &ex(2, DM, "ses_dm"));
-    put(
-        &s,
-        &Ex {
-            person: Some("discord:7"),
-            ..ex(3, LOBBY, "ses_lobby")
-        },
-    );
-    put(&s, &ex(4, HERE, "ses_a"));
-    for (here, present, want) in [
-        (LOBBY, Present::Shared, vec!["turn_0003"]),
-        (HERE, Present::Private, vec!["turn_0004", "turn_0001"]),
-        // A shared reader anchored in a private place (a misrecorded wake) reads none of its private history.
-        (HERE, Present::Shared, vec![]),
-    ] {
-        let l = lens(&s, here, present, &no);
-        assert_eq!(
-            turns(&walk(&l, &HistoryArgs::default(), None, 0)),
-            want,
-            "{present:?}"
-        );
-        assert!(l.walk(&args(json!({"place": DM})), None, 0).is_err());
-        assert!(open(&l, &Handle("turn_0002".into()))
-            .unwrap_err()
-            .contains("can be opened here"));
-    }
-    let unknown = lens(&s, HERE, Present::Unknown, &no);
-    assert!(walk(&unknown, &HistoryArgs::default(), None, 0)
-        .lines
-        .is_empty());
-}
-
-#[test]
-fn where_the_owner_is_alone_his_other_private_places_read_but_never_a_shared_one_or_a_sealed_thread(
-) {
-    let (_d, s) = store();
-    put(&s, &ex(1, DM, "ses_dm"));
-    put(&s, &ex(2, DM, "ses_sealed"));
-    put(
-        &s,
-        &Ex {
-            person: None,
-            ..ex(3, DM, "ses_dm")
-        },
-    );
-    put(&s, &ex(4, LOBBY, "ses_lobby"));
-    let hidden = |sid: &str| sid == "ses_sealed";
-    let mut l = lens(&s, HERE, Present::OwnerAlone, &hidden);
-    let shared = |sid: &str| sid != "ses_lobby";
-    l.private = &shared;
-    let dm = walk(&l, &args(json!({"place": DM})), None, 0);
-    assert_eq!(
-        turns(&dm),
-        ["turn_0001"],
-        "the sealed thread's and an unmarked exchange stay out"
-    );
-    assert!(walk(&l, &args(json!({"place": LOBBY})), None, 0)
-        .lines
-        .is_empty());
-    let denied = open(&l, &Handle("turn_0002".into())).unwrap_err();
-    let none = open(&l, &Handle("turn_9999".into())).unwrap_err();
-    assert_eq!(
-        denied.replace("turn_0002", "X"),
-        none.replace("turn_9999", "X"),
-        "a denial is not told apart"
-    );
-    let his = open(&l, &Handle("turn_0001".into())).unwrap();
-    assert!(
-        his.contains("[the owner said, in ") && his.contains("person: \u{2502} message 1"),
-        "{his}"
-    );
 }
 
 #[test]
@@ -469,7 +305,7 @@ fn words_filter_the_walk_and_a_thing_reads_its_own_timeline_through_the_same_rul
             ..ex(22, LOBBY, "ses_lobby")
         },
     );
-    let mut l = lens(&s, HERE, Present::OwnerAlone, &no);
+    let mut l = lens(&s, HERE);
     l.words = Some(["turn_0003".to_string(), "turn_0007".to_string()].into());
     assert_eq!(
         turns(&walk(&l, &HistoryArgs::default(), None, 0)),
@@ -477,12 +313,13 @@ fn words_filter_the_walk_and_a_thing_reads_its_own_timeline_through_the_same_rul
     );
     l.words = None;
     let thing = args(json!({"thing": "issue:33"}));
-    assert_eq!(
-        turns(&walk(&l, &thing, None, 0)),
-        ["turn_0021", "turn_0020"]
-    );
-    let company = lens(&s, LOBBY, Present::Shared, &no);
-    assert_eq!(turns(&walk(&company, &thing, None, 0)), ["turn_0022"]);
+    // Every place's touch of the thing is read, wherever the reader is (anything goes).
+    for here in [HERE, LOBBY] {
+        assert_eq!(
+            turns(&walk(&lens(&s, here), &thing, None, 0)),
+            ["turn_0022", "turn_0021", "turn_0020"]
+        );
+    }
     let both = l.walk(&args(json!({"thing": "issue:33", "place": DM})), None, 0);
     assert!(both.is_err(), "a place or a thing, not both");
 }
@@ -504,7 +341,7 @@ fn a_line_cuts_his_words_at_300_and_the_replys_beginning_at_200_by_code() {
             ..ex(2, HERE, "ses_a")
         },
     );
-    let l = lens(&s, HERE, Present::OwnerAlone, &no);
+    let l = lens(&s, HERE);
     let p = walk(&l, &HistoryArgs::default(), None, 0);
     let line = &p.lines[1];
     assert_eq!(line.his_words, format!("{}\u{2026}", "w".repeat(300)));
@@ -581,7 +418,7 @@ fn an_opened_exchange_is_spoken_with_tool_traffic_as_stubs_and_outside_text_mark
         call.record().unwrap(),
     ])
     .unwrap();
-    let l = lens(&s, LOBBY, Present::Shared, &no);
+    let l = lens(&s, LOBBY);
     let said = open(&l, &Handle(e.turn.clone())).unwrap();
     // The owner's own message, said here: the conversation here, no heading.
     assert!(said.contains("\nperson: \u{2502} message 1"), "{said}");
@@ -639,7 +476,7 @@ fn the_tool_is_offered_in_company_and_loads_in_a_dm_and_a_channel() {
     }
 }
 
-// --- Through the core: who is present, where a wake is, the seal, the words, the opens. ---
+// --- Through the core: the opens, and a played turn. ---
 
 fn exchange_of(
     core: &crate::Core,
@@ -677,74 +514,24 @@ fn exchange_of(
     core.store.append(&recs).unwrap();
 }
 
-/// The owner's message in a channel bound private is his, but he is not alone there; in his DM, by his
-/// in-person mark, he is. An agent's process at the terminal is not.
-#[tokio::test]
-async fn a_private_channel_is_never_the_owner_alone() {
-    use crate::places::BoundPlace;
-    use crate::tests_places::{rig, session, LAB, OWNER as DM_OWNER};
-    let r = rig();
-    r.core.bind_places(vec![
-        BoundPlace {
-            target: format!("discord:channel:{LAB}"),
-            name: "#lab".into(),
-            private: true,
-            ..Default::default()
-        },
-        BoundPlace {
-            target: format!("discord:dm:{DM_OWNER}"),
-            name: "DM @owner".into(),
-            private: true,
-            ..Default::default()
-        },
-    ]);
-    let lab = session(&r.core, Some(&format!("channel:{LAB}")));
-    let dm = session(&r.core, Some(&format!("dm:{DM_OWNER}")));
-    let cli = session(&r.core, None);
-    exchange_of(
-        &r.core,
-        &lab,
-        "t_lab",
-        &format!("discord:channel:{LAB}"),
-        Some(OWNER),
-        Opener::Message,
+/// Another place's exchange, opened: the owner's words carry his heading and stay behind the margin (the
+/// whose-words half of the cross-place test the cut deleted; review §6 item 1).
+#[test]
+fn another_places_exchange_opens_with_the_owners_heading_and_margined_words() {
+    let (_d, s) = store();
+    put(&s, &ex(1, DM, "ses_dm"));
+    let his = open(&lens(&s, HERE), &Handle("turn_0001".into())).unwrap();
+    assert!(
+        his.contains("[the owner said, in ") && his.contains("person: \u{2502} message 1"),
+        "{his}"
     );
-    exchange_of(
-        &r.core,
-        &dm,
-        "t_dm",
-        &format!("discord:dm:{DM_OWNER}"),
-        Some(OWNER),
-        Opener::Message,
-    );
-    exchange_of(&r.core, &cli, "t_agent", HERE, None, Opener::Message);
-    let p = |sid: &str, turn: &str| pov_of(&r.core, sid, turn, None, PlaceClass::Private).present;
-    assert_eq!(r.core.runner.class_of(&lab), PlaceClass::Private);
-    assert_eq!(
-        p(&lab, "t_lab"),
-        Present::Private,
-        "a private channel is not alone"
-    );
-    assert_eq!(p(&dm, "t_dm"), Present::OwnerAlone);
-    assert_eq!(p(&cli, "t_agent"), Present::Private, "no in-person mark");
-    // And so a page from the channel reads no other place.
-    let pov = pov_of(&r.core, &lab, "t_lab", None, PlaceClass::Private);
-    let got = answer(
-        &r.core,
-        &Board::default(),
-        (&lab, "t_lab"),
-        &pov,
-        &args(json!({"place": HERE})),
-    )
-    .await;
-    assert!(got.unwrap_err().contains("only where the owner is alone"));
 }
 
 /// A shared channel's old session after `/new`: no direct target, its wake answers the channel. The wake's
-/// turn is anchored there, so it reads nothing of the terminal's place, even from an exchange the ledger
-/// once recorded as local.
+/// turn is anchored where its reply goes, even from an exchange the ledger once recorded at the terminal
+/// (the anchor half of the deleted wake test; review §6 item 2).
 #[tokio::test]
-async fn a_shared_channels_wake_after_new_reads_nothing_of_the_terminal() {
+async fn a_shared_channels_wake_after_new_is_anchored_where_its_reply_goes() {
     use crate::tests_places::{rig, session};
     let r = rig();
     let old = session(&r.core, None);
@@ -755,95 +542,52 @@ async fn a_shared_channels_wake_after_new_reads_nothing_of_the_terminal() {
             &LOBBY.to_string(),
         )
         .unwrap();
-    let cli = session(&r.core, None);
-    put(
-        &r.core.store,
-        &Ex {
-            words: "the owner's private note".into(),
-            ..ex(1, HERE, &cli)
-        },
-    );
-    // A wake exchange misrecorded at the terminal's place.
     exchange_of(&r.core, &old, "t_wake", HERE, None, Opener::Wake);
+    let ex = crate::exchange::exchange(&r.core.store, "t_wake").unwrap();
+    assert_eq!(
+        anchor(&r.core, &old, ex.as_ref(), None).as_deref(),
+        Some(LOBBY)
+    );
     let pov = pov_of(&r.core, &old, "t_wake", None, PlaceClass::Shared);
     assert_eq!(pov.anchor, Anchor::Place(LOBBY.into()));
-    assert_eq!(pov.present, Present::Shared);
-    let got = answer(
-        &r.core,
-        &Board::default(),
-        (&old, "t_wake"),
-        &pov,
-        &HistoryArgs::default(),
-    )
-    .await
-    .unwrap();
-    assert!(
-        !got.text.contains("private note") && got.text.contains("0 exchanges"),
-        "{}",
-        got.text
-    );
-    let opened = answer(
-        &r.core,
-        &Board::default(),
-        (&old, "t_wake"),
-        &pov,
-        &args(json!({"open": "turn_0001"})),
-    )
-    .await;
-    assert!(opened.is_err());
 }
 
-/// The seal fails closed: a sealed thread's session however old in its chain, and a session whose record
-/// does not read, are never read; the asking session reads itself.
-#[tokio::test]
-async fn the_seal_is_proven_or_the_exchange_is_not_read() {
-    use crate::tests_places::{rig, session};
-    let r = rig();
-    let me = session(&r.core, None);
-    put(&r.core.store, &ex(1, HERE, &me));
-    // A chain of 51 sessions of a thread: the oldest still names it.
-    let mut ids = Vec::new();
-    for i in 0..51u64 {
-        let mut rec = SessionRecord::new(SessionKind::Conversation, None);
-        rec.superseded_by = Some(SessionLink {
-            session_id: format!("next_{i}"),
-            at_ms: i,
-            place: Some("thread:tide-gauges".into()),
-        });
-        r.core.store.put_session(&rec.session_id, &rec).unwrap();
-        ids.push(rec.session_id);
+/// The authority reader (`view_gate::present`, what the task objective's owner-in-person rule reads) tells
+/// the owner's in-person message at a surface he can be alone at from a channel's, an unmarked one's and an
+/// agent's: the mark half of the deleted private-channel test (review §6 item 3), never a history rule.
+#[test]
+fn the_authority_reader_tells_the_owner_in_person_from_a_channel_and_an_unmarked_input() {
+    use crate::view_gate::{present, Input, OwnerMarks};
+    use theseus_memory::gate::Present as P;
+    use theseus_memory::recall::Place;
+    struct Mark(Option<bool>);
+    impl OwnerMarks for Mark {
+        fn in_person(&self, _: &str) -> anyhow::Result<Option<bool>> {
+            Ok(self.0)
+        }
     }
-    put(&r.core.store, &ex(2, HERE, &ids[50]));
-    put(&r.core.store, &ex(3, HERE, "ses_never_recorded"));
-    let pov = pov(HERE, Present::OwnerAlone);
-    let b = Board::default();
-    let page = answer(&r.core, &b, (&me, "t"), &pov, &HistoryArgs::default())
-        .await
-        .unwrap();
-    assert!(page.text.contains("turn_0001"), "{}", page.text);
-    assert!(
-        !page.text.contains("turn_0002") && !page.text.contains("turn_0003"),
-        "{}",
-        page.text
+    let p = |target: &str, m| present(&Place::Private, Some(target), Input::Message("n"), &Mark(m));
+    assert_eq!(p(DM, Some(true)), P::OwnerAlone, "his DM, in person");
+    assert_eq!(
+        p(HERE, Some(true)),
+        P::OwnerAlone,
+        "the terminal, in person"
     );
-    for h in ["turn_0002", "turn_0003"] {
-        assert!(
-            answer(&r.core, &b, (&me, "t"), &pov, &args(json!({"open": h})))
-                .await
-                .is_err()
-        );
-    }
-    // The asking session is its own exception, even if it is a sealed thread's.
-    let sealed = &ids[50];
-    let own = answer(
-        &r.core,
-        &b,
-        (sealed, "t2"),
-        &pov,
-        &args(json!({"open": "turn_0002"})),
-    )
-    .await;
-    assert!(own.unwrap().text.contains("message 2"));
+    assert_eq!(
+        p("discord:channel:11", Some(true)),
+        P::PrivateChannel,
+        "a channel bound private is never alone, his message or not"
+    );
+    assert_eq!(
+        p(HERE, None),
+        P::PrivateChannel,
+        "no mark: an agent's process"
+    );
+    assert_eq!(
+        p(DM, Some(false)),
+        P::PrivateChannel,
+        "his handle, not in person"
+    );
 }
 
 #[tokio::test]
@@ -878,98 +622,6 @@ async fn twelve_opens_a_turn_then_the_allowance_is_told() {
         "{}",
         last.text
     );
-}
-
-/// Words are searched only among what may be read: a hundred better-ranked hits in hidden sessions neither
-/// crowd out nor change the visible one.
-#[tokio::test]
-async fn words_are_scoped_before_ranking() {
-    use crate::recall::AskFuture;
-    use crate::tests_places::{rig, session};
-    use theseus_protocol::index::{IndexHit, IndexQueryParams, IndexQueryResult, IndexSourceRank};
-    let r = rig();
-    let me = session(&r.core, None);
-    let mut nodes = Vec::new();
-    for i in 0..100 {
-        let sid = format!("ses_hidden_{i}");
-        let (ask, _) = put(
-            &r.core.store,
-            &Ex {
-                words: format!("berth seven {i}"),
-                ..ex(i, HERE, &sid)
-            },
-        );
-        nodes.push(ask);
-    }
-    let (seen, _) = put(
-        &r.core.store,
-        &Ex {
-            words: "berth seven, here".into(),
-            ..ex(500, HERE, &me)
-        },
-    );
-    nodes.push(seen);
-    let ns = nodes.clone();
-    r.core
-        .runner
-        .memory
-        .set_ask(Arc::new(move |p: IndexQueryParams| -> AskFuture {
-            let hits: Vec<IndexHit> = ns
-                .iter()
-                .filter(|n| {
-                    p.filters.sessions.is_empty() || p.filters.sessions.contains(&n.session_id)
-                })
-                .take(p.k)
-                .enumerate()
-                .map(|(i, n)| IndexHit {
-                    text: crate::recall::text_of(n),
-                    time_ms: n.created_at_ms,
-                    node_id: n.id.clone(),
-                    chunk: 0,
-                    session_id: n.session_id.clone(),
-                    position: 0,
-                    kind: "user_message".into(),
-                    origin: "operator".into(),
-                    author: None,
-                    place: None,
-                    tool: None,
-                    external: false,
-                    entities_matched: vec![],
-                    entities: Vec::new(),
-                    sources: [(
-                        "bm25".to_string(),
-                        IndexSourceRank {
-                            rank: i + 1,
-                            score: 1.0,
-                        },
-                    )]
-                    .into(),
-                    fused: 1.0 / (61 + i) as f64,
-                })
-                .collect();
-            Box::pin(async move {
-                Ok(IndexQueryResult {
-                    hits,
-                    indexed_through: 0,
-                    lag: Default::default(),
-                    timings: Default::default(),
-                    skipped: Default::default(),
-                    weights: Default::default(),
-                })
-            })
-        }));
-    let pov = pov(HERE, Present::OwnerAlone);
-    let got = answer(
-        &r.core,
-        &Board::default(),
-        (&me, "t"),
-        &pov,
-        &args(json!({"words": "berth seven"})),
-    )
-    .await
-    .unwrap();
-    assert!(got.text.contains("turn_0500"), "{}", got.text);
-    assert!(got.text.contains("1 exchange of"), "{}", got.text);
 }
 
 /// The played turn of the addendum's part 6: a message leans on an exchange not in view (said in an earlier
@@ -1065,37 +717,6 @@ pub(super) async fn submit(
     serde_json::from_value(r.result.unwrap()).unwrap()
 }
 
-/// A turn always reads what its own session said at its own place, whoever is present (the cut's rule,
-/// `Lens::own`): with no proof of who is present it pages and opens its own exchanges here, and nothing of
-/// another session here, of its own elsewhere, or of its own moved into a thread not proven clear.
-#[test]
-fn an_unknown_presence_reads_its_own_sessions_history_here_and_nothing_else() {
-    let (_d, s) = store();
-    put(&s, &ex(1, HERE, "ses_own"));
-    put(&s, &ex(2, HERE, "ses_other"));
-    put(&s, &ex(3, DM, "ses_own"));
-    put(&s, &ex(4, HERE, "ses_own"));
-    let moved = |e: &Exchange| e.turn_id == "turn_0004";
-    let mut l = lens(&s, HERE, Present::Unknown, &no);
-    assert!(walk(&l, &HistoryArgs::default(), None, 0).lines.is_empty());
-    l.own = Some("ses_own");
-    assert_eq!(
-        turns(&walk(&l, &HistoryArgs::default(), None, 0)),
-        vec!["turn_0004", "turn_0001"]
-    );
-    l.moved = &moved;
-    assert_eq!(
-        turns(&walk(&l, &HistoryArgs::default(), None, 0)),
-        vec!["turn_0001"]
-    );
-    assert!(open(&l, &Handle("turn_0001".into()))
-        .unwrap()
-        .contains("reply to message 1"));
-    for other in ["turn_0002", "turn_0003", "turn_0004"] {
-        assert!(open(&l, &Handle(other.into())).is_err(), "{other}");
-    }
-}
-
 /// A task's place is never summarised, so its window is bounded: the newest 2N of its exchanges; what is
 /// older is still opened and paged by the task's own history. Another place's unfolded window is not cut.
 #[test]
@@ -1119,8 +740,7 @@ fn a_tasks_window_holds_its_newest_two_n_and_history_reaches_the_rest() {
     assert_eq!(read.window.first().unwrap().turn_id, "turn_0006");
     let here = crate::ladder::read::ladder(&s, HERE, None).unwrap();
     assert_eq!(here.window.len(), 2 * N + 5, "not a task's place");
-    let mut l = lens(&s, task, Present::Unknown, &no);
-    l.own = Some("ses_long");
+    let l = lens(&s, task);
     assert!(open(&l, &Handle("turn_0001".into()))
         .unwrap()
         .contains("reply to message 1"));
