@@ -174,6 +174,15 @@ turn's first request (the compiler's rule, `bench/recall/tokens.py`) and the len
 with the previous turn's first request (tools, system, messages, in that order, cache marks taken out), which
 is what a provider cache could read; then totals and the ratio of the two modes.
 
+`--cost-long` adds two longer conversations in each mode: 120 short turns in one place (folds land from the 40th
+exchange on), and 20 turns of three 6,000-character tool results each. Per turn they add the turn's own model
+calls, the calls made OFF the turn (a call that offers no tools: the ladder's `did` lines and folds, a
+compaction's summary) with their tokens, and the turn's compilations by strategy. A `/new` break and a day
+change are not driven: the terminal has no `/new`, and the daemon reads the machine's clock.
+
+`/new` and a shared place with a second person are driven in Rust instead, on the stand-in Discord:
+`crates/theseusd/tests/view_proof.rs` (`cargo nextest run -p theseusd --test view_proof --run-ignored all`).
+
 **What the proof cannot tell.** The stand-in has no cache and no judgement: a shared prefix is what a cache
 could read, not what one did, and no answer's quality is measured. `/new` is the chat's and a second person is a
 Discord place's, and the kit keeps Discord off, so those two cases say `not driven`. A retired key's warning is
