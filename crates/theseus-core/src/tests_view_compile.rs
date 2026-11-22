@@ -1181,11 +1181,22 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
                 assert_eq!(texts(q).matches(OPEN).count(), 1, "{case}: {}", texts(q));
             }
         }
-        // The turn after this one lays nothing of the held source.
-        for q in next_turn(&r, &sid).await {
+        // The turn after this one: one NOT opened by the owner in person (the unknown presence) lays nothing
+        // of the held source. After a narrowing steer, a next turn of the owner in person is his own
+        // presence (a steer narrows the turn it lands in, not the session: addendum 18), so it may lay his
+        // own words again, at most once a request; after a seal it lays nothing either.
+        for q in next_turn(&r, &sid, false).await {
             assert!(
                 !texts(&q).contains("5519"),
-                "{case}: the next turn lays nothing of the held source: {}",
+                "{case}: a next turn not opened in person lays nothing of the held source: {}",
+                texts(&q)
+            );
+        }
+        for q in next_turn(&r, &sid, true).await {
+            let laid = texts(&q).matches("5519").count();
+            assert!(
+                laid <= usize::from(steer),
+                "{case}: the owner's next turn: {}",
                 texts(&q)
             );
         }
@@ -1200,11 +1211,16 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
     }
 }
 
-/// The requests of the session's next turn (it asks "and the tide?"), at least one.
-async fn next_turn(r: &Rig, sid: &str) -> Vec<ProviderRequest> {
-    turn_as(&r.core, sid, "and the tide?", true).await;
+/// The requests of a next turn of the session, opened by the owner in person or not (`in_person`); each asks
+/// its own words, at least one request.
+async fn next_turn(r: &Rig, sid: &str, in_person: bool) -> Vec<ProviderRequest> {
+    let asks = match in_person {
+        true => "and the tide, in person?",
+        false => "and the tide?",
+    };
+    turn_as(&r.core, sid, asks, in_person).await;
     let after: Vec<ProviderRequest> = (r.requests().into_iter())
-        .filter(|q| !q.tools.is_empty() && texts(q).contains("and the tide?"))
+        .filter(|q| !q.tools.is_empty() && texts(q).contains(asks))
         .collect();
     assert!(!after.is_empty(), "the next turn's requests");
     after
