@@ -200,7 +200,13 @@ impl Core {
                 sent.tools =
                     crate::tools_defer::sent_tools(&built.spec, compilation.map(|c| &c.manifest))
                         .into();
-                let now = manifest_for(&sent, &self.catalog, None, false);
+                // Said against the request a turn sends: the view's spec, the memory page in it.
+                let now = manifest_for(
+                    &crate::compiler::view::first_call_spec(&sent),
+                    &self.catalog,
+                    None,
+                    false,
+                );
                 let then = compilation.map(|c| &c.manifest);
                 out.digest_now = now.system_digest.clone();
                 out.digest_then = then.map(|m| m.system_digest.clone());
@@ -303,17 +309,18 @@ impl Core {
                 continue;
             };
             for item in items {
+                let header = crate::recall::evidence::untitled(&item.header, &item.session_id);
                 let shown = self.store.get_node(&item.node_id)?.and_then(|(_, src)| {
                     let text = crate::recall::text_of(&src);
                     let (a, b) = (item.chunk.0 as usize, item.chunk.1 as usize);
                     text.get(a.min(text.len())..b.min(text.len()))
-                        .map(|t| format!("{}\n{t}", item.header))
+                        .map(|t| format!("{header}\n{t}"))
                 });
                 out.push(ContextPart {
                     block: "recall".into(),
-                    name: item.header.clone(),
+                    name: header.to_string(),
                     bytes: u64::from(item.chunk.1.saturating_sub(item.chunk.0))
-                        + item.header.len() as u64,
+                        + header.len() as u64,
                     tokens: item.tokens,
                     digest: None,
                     then: None,

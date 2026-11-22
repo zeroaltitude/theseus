@@ -246,10 +246,6 @@ async fn a_tool_found_by_tools_find_is_callable_in_the_same_turn() {
     assert!(reqs.len() >= 3, "{}", reqs.len());
 }
 
-async fn say_boundary(core: &Arc<Core>, sid: &str) {
-    turn_as(core, sid, "go on").await;
-}
-
 /// Rows of the ledger that make a place kind use a family in most turns.
 fn seed_use(core: &Core, kind: &str, family: &str, turns: u32) {
     let at = theseus_protocol::now_unix_ms() - 3 * 86_400_000;
@@ -261,26 +257,17 @@ fn seed_use(core: &Core, kind: &str, family: &str, turns: u32) {
     }
 }
 
+/// On the view every turn is where a request is compiled afresh (issue 44): a family the ledger
+/// learned loads at the session's next turn, and a new conversation starts from the learned set.
 #[tokio::test]
 async fn the_loaded_set_holds_across_a_conversation_and_changes_where_it_recompiles() {
     let r = rig();
     let sid = session(&r.core, None);
     say(&r.core, &sid, "hello").await;
-    let first = tool_bytes(&r.requests()[0]);
     assert!(deferred(&r.requests()[0], "project_attach"));
     // The ledger now shows projects used in most turns of the CLI.
     seed_use(&r.core, "cli", "projects", 12);
     say(&r.core, &sid, "hello again").await;
-    say(&r.core, &sid, "and again").await;
-    for q in r.requests() {
-        assert_eq!(
-            tool_bytes(&q),
-            first,
-            "mid-conversation the request's tools never change"
-        );
-    }
-    // At a recompile the fresh choice applies: the learned family loads.
-    say_boundary(&r.core, &sid).await;
     let after = r.requests().pop().unwrap();
     assert!(
         tool(&after, "project_attach").is_some() && !deferred(&after, "project_attach"),

@@ -119,7 +119,6 @@ pub mod term;
 #[cfg(test)]
 mod tests_task_info;
 pub mod thread_cache;
-mod thread_placed;
 pub mod thread_route;
 pub mod threads;
 mod tighten;
@@ -190,7 +189,6 @@ pub use status::*;
 pub use submit::{SessionOpenParams, TurnSubmitParams};
 pub use tasks::{TaskDetail, TaskListParams, TaskListResult};
 pub use term::{TerminalInfo, TerminalLeft};
-pub use thread_placed::*;
 pub use tighten::*;
 pub use time::now_unix_ms;
 pub use toolinfo::{ToolInfo, ToolListResult};

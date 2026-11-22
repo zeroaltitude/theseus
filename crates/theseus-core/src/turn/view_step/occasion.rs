@@ -7,6 +7,10 @@ use crate::compiler::view::Frozen;
 use crate::node::{Body, Node};
 use crate::toolrun::LateCall;
 
+/// How every occasion's line begins: the harness's words, never the person's (`task_graph::view::is_head`
+/// lists it, so a block that leads with the line still reads as the harness's).
+pub const HEAD: &str = "No new message opened this turn:";
+
 /// What woke a turn no person's message, wake or report opened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::turn) enum Occasion {
@@ -79,6 +83,14 @@ mod tests {
             status: crate::node::ResultStatus::Ok,
             run_ms: None,
             delivered,
+        }
+    }
+
+    #[test]
+    fn every_line_begins_with_the_head_the_harness_readers_know() {
+        for o in [Occasion::JobEnded, Occasion::Answered, Occasion::Resumed] {
+            assert!(o.line().starts_with(HEAD), "{o:?}");
+            assert!(crate::task_graph::view::is_head(o.line()), "{o:?}");
         }
     }
 

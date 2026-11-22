@@ -187,9 +187,6 @@ pub struct Stepped {
 pub struct Step<'a> {
     pub writer: &'a dyn Writer,
     pub flags: &'a dyn Flags,
-    /// Whether a session is not proven unsealed and unveiled: its exchanges
-    /// are folded by code, their words read by no model.
-    pub hidden: &'a (dyn Fn(&str) -> bool + Sync),
     pub purse: &'a dyn Purse,
 }
 
@@ -258,14 +255,7 @@ pub async fn first(store: &Store, exchanges: &[Exchange], step: &Step<'_>) -> an
         let said = blocking(|| did::said(store, &e.turn_id))?;
         reads.push((r, said));
     }
-    // A session not proven clear, or a message moved into a thread (`view_gate::moved_at_all`): by code.
-    let hidden = reads.iter().any(|(r, _)| {
-        (step.hidden)(&r.ex.session_id) || crate::view_gate::moved_at_all(store, &r.ex)
-    });
-    let (node, w) = match hidden {
-        true => (Ok(fold::hidden(&reads, step.flags)), Default::default()),
-        false => fold::first_level(&reads, step.writer, step.flags, step.purse).await,
-    };
+    let (node, w) = fold::first_level(&reads, step.writer, step.flags, step.purse).await;
     Ok(match node {
         Ok(n) => Ok((fold::write_once(store, n)?, w.cost_usd)),
         Err(why) => Err((why, w.cost_usd)),
