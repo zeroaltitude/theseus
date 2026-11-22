@@ -140,28 +140,26 @@ mod tests {
         }
     }
 
-    /// The completeness test: every entry the rule reads as generic, from any of its three
-    /// sources, is read so, and taken by no reader. A list that gains a name the reader cannot
-    /// see fails here and says which file to correct.
+    /// Recall's waiver, list by list: a placeholder, a generic word and a layout name are each
+    /// read as generic, and none of them names a thread to the waiver. A list that gains a name
+    /// the rule cannot see fails here naming this file.
     #[test]
-    fn every_generic_name_is_generic_and_waives_nothing() {
-        let all: Vec<&str> = PLACEHOLDERS
-            .iter()
-            .chain(GENERIC.iter())
-            .copied()
-            .chain(LAYOUT_PROBES.iter().copied())
+    fn recalls_waiver_takes_no_name_from_any_generic_list() {
+        let lists: [(&str, &[&str]); 3] = [
+            ("PLACEHOLDERS", PLACEHOLDERS),
+            ("GENERIC", GENERIC),
+            ("LAYOUT_PROBES", LAYOUT_PROBES),
+        ];
+        let read_wrong: Vec<String> = (lists.iter())
+            .flat_map(|(list, names)| names.iter().map(move |n| (*list, *n)))
+            .filter(|(_, n)| !is_generic_folder(n) || waived(n))
+            .map(|(list, n)| format!("{list}: {n}"))
             .collect();
-        for name in all {
-            assert!(
-                is_generic_folder(name),
-                "{name} is listed as generic but {FILE}'s is_generic_folder does not read it so"
-            );
-            assert!(
-                !waived(name),
-                "{name}: thread_recall::named still names a thread by it \
-                 (crates/theseus-core/src/thread_recall.rs)"
-            );
-        }
+        assert!(
+            read_wrong.is_empty(),
+            "{FILE}: these are not read as generic, or thread_recall::named still names a thread \
+             by them: {read_wrong:?}"
+        );
     }
 
     /// The judge's layout names, probed through this rule: if the judge's list
