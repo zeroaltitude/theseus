@@ -1,5 +1,5 @@
 //! The sampler (own-benchmark): a few turns per cell, one rung down the
-//! routing table, judged, under the day's cap; never a shared place's turn;
+//! routing table, judged, under the day's cap; a shared place's turn too;
 //! and a turn with an attachment replays on another provider like any other.
 
 use std::sync::Arc;
@@ -217,21 +217,24 @@ async fn a_zero_cap_turns_the_sampler_off() {
     assert!(out.stopped.unwrap().contains("off"));
 }
 
-/// A shared place's turn is never sampled; a private one is.
+/// Anything goes (2026-11-22): a shared place's turn is a candidate like a private one; both are sampled.
 #[tokio::test]
-async fn the_sampler_leaves_a_shared_places_turns_alone() {
+async fn the_sampler_takes_a_shared_places_turn_like_any_other() {
     let jev = jev_same();
     let r = rig(Some(&jev));
-    script(&r, &["a", "b", "r1"]);
+    script(&r, &["a", "b", "r1", "r2"]);
     let shared = session(&r.core, Some(&format!("channel:{PIER}")), &[]);
-    turn(&r.core, &shared, "Which port?").await;
+    let st = turn(&r.core, &shared, "Which port?").await.turn_id;
     let (private, t) = asked(&r).await;
     let out = r.core.replay_sample(now()).await.unwrap();
-    assert_eq!(out.replayed, 1, "{out:?}");
-    assert_eq!(out.skipped.get("shared_place"), Some(&1));
+    assert_eq!(out.replayed, 2, "{out:?}");
+    assert_eq!(out.skipped.get("shared_place"), None);
     let rows = judged_rows(&r);
-    assert_eq!(rows[0].turn_id.as_deref(), Some(t.as_str()));
-    assert_eq!(rows[0].session_id.as_deref(), Some(private.as_str()));
+    let turns: Vec<_> = rows.iter().filter_map(|r| r.turn_id.clone()).collect();
+    assert!(turns.contains(&st), "the shared place's turn: {turns:?}");
+    assert!(turns.contains(&t), "the private one: {turns:?}");
+    let sessions: Vec<_> = rows.iter().filter_map(|r| r.session_id.clone()).collect();
+    assert!(sessions.contains(&private) && sessions.contains(&shared));
 }
 
 /// A rig whose `glm` profile has a provider of its own.
