@@ -60,6 +60,9 @@ struct Recent {
     places: HashMap<String, Last>,
     /// (turn, thread slug) of turns that ran in a thread, newest last.
     turns: VecDeque<(String, String)>,
+    /// Turns known to have run at home, newest last: a reply to one needs no
+    /// read of the rows (issue 44).
+    homes: VecDeque<String>,
     routed: VecDeque<Routed>,
     /// (turn, thread slug, what the turn's message grew into it) of turns
     /// whose message named something new, newest last: a move takes it back.
@@ -112,6 +115,20 @@ impl State {
         while r.turns.len() > TURNS {
             r.turns.pop_front();
         }
+    }
+
+    /// A turn ran at home.
+    pub fn home_ran(&self, turn: &str) {
+        let mut r = lock(&self.recent);
+        r.homes.push_back(turn.to_string());
+        while r.homes.len() > TURNS {
+            r.homes.pop_front();
+        }
+    }
+
+    /// Whether a turn is known to have run at home.
+    pub fn ran_at_home(&self, turn: &str) -> bool {
+        lock(&self.recent).homes.iter().any(|t| t == turn)
     }
 
     /// The turn's message grew `added` into the thread `slug`, unless a move

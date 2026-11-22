@@ -119,30 +119,32 @@ impl Board {
             .and_then(|slug| self.threads.get(slug))
     }
 
-    /// The threads a turn in a place of `class` may be routed to: the active
-    /// ones in a private place, none in a shared one (a thread is private
-    /// always), newest activity first.
-    pub fn live(&self, class: PlaceClass) -> Vec<&ThreadInfo> {
-        if class != PlaceClass::Private {
-            return Vec::new();
-        }
-        let mut live: Vec<&ThreadInfo> = self
-            .threads
+    /// The threads a message in a place of `class` may reach at all: every
+    /// one in a private place, none in a shared one (a thread is private
+    /// always). The one reading of the place for [`Board::live`] and
+    /// [`Board::nameable`].
+    fn in_place(&self, class: PlaceClass) -> impl Iterator<Item = &ThreadInfo> {
+        self.threads
             .values()
+            .filter(move |_| class == PlaceClass::Private)
+    }
+
+    /// The threads a turn in a place of `class` may be routed to: the active
+    /// ones of [`Board::in_place`], newest activity first.
+    pub fn live(&self, class: PlaceClass) -> Vec<&ThreadInfo> {
+        let mut live: Vec<&ThreadInfo> = self
+            .in_place(class)
             .filter(|t| t.state == ThreadState::Active)
             .collect();
         live.sort_by(|a, b| (b.last_active_ms, &a.slug).cmp(&(a.last_active_ms, &b.slug)));
         live
     }
 
-    /// The threads a message in a place of `class` may name, live or not: every
-    /// one in a private place, none in a shared one, as [`Board::live`]. An
-    /// address naming one that is not live is refused, never run at home.
+    /// The threads a message in a place of `class` may name, live or not
+    /// ([`Board::in_place`]). Which of them a reader may be told of is the
+    /// gate's (`view_gate::may_name_on`).
     pub fn nameable(&self, class: PlaceClass) -> Vec<&ThreadInfo> {
-        if class != PlaceClass::Private {
-            return Vec::new();
-        }
-        self.threads.values().collect()
+        self.in_place(class).collect()
     }
 
     /// The thread a thread now lives in: itself, or, when it was merged away,
