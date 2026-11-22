@@ -1064,6 +1064,52 @@ async fn a_sibling_session_at_this_place_is_in_scope_and_one_elsewhere_is_not() 
     );
 }
 
+/// **A person's message after a call parked at this place is in its request, LAST, and the call stays
+/// parked** (issue 44). A sibling's question waits on an approval (`owner_ask`); a message in this
+/// conversation opens a turn whose request lays that unanswered exchange (the place's window, its call
+/// closed by the harness's stub as main's renderer closes one) and then the person's words, as the last
+/// block of the last message. The question is neither answered nor reported as run: it still waits.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_after_a_call_parked_here_is_last_in_its_request_and_the_call_stays_parked() {
+    let jev = jev_says(RESHAPEABLE, 0.95);
+    let r = rig_judged(&jev, |_| {});
+    let here = session(&r.core);
+    let asking = beside(&r.core, &here);
+    r.calls(&[(
+        "owner_ask",
+        json!({"question": "Ship it?", "options": [{"label": "Yes"}, {"label": "No"}]}),
+    )]);
+    say(&r, &asking, "What should we do there?").await;
+    until("the question waits", || {
+        !r.core.confirm_list().unwrap().is_empty()
+    })
+    .await;
+
+    r.calls(&[]);
+    say(&r, &here, "And when does the tide turn?").await;
+    let last = (r.model.requests.lock().unwrap().last().unwrap().messages)
+        .last()
+        .unwrap()
+        .clone();
+    let tail = last["content"].as_array().unwrap().last().unwrap();
+    assert_eq!(
+        tail["type"], "text",
+        "the person's words close the request: {last}"
+    );
+    assert!(
+        tail["text"]
+            .as_str()
+            .unwrap()
+            .ends_with("And when does the tide turn?"),
+        "{last}"
+    );
+    assert_eq!(
+        r.core.confirm_list().unwrap().len(),
+        1,
+        "the parked question still waits: neither answered nor run"
+    );
+}
+
 /// **`[standing] yes_fact` ON: the block rides exactly this turn's request,
 /// with its contents.** The producer changed with this card — it was the
 /// matcher reading a yes, it is `Core::stage_answer_fact` now — and the gate

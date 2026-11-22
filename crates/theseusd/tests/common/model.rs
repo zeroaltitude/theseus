@@ -280,11 +280,14 @@ fn is_writers(req: &Value) -> bool {
 
 /// Whether the request's last message answers a tool call.
 fn carries_tool_result(req: &Value) -> bool {
+    // The LAST block: a new message laid after an earlier exchange's result (the view's window) merges into
+    // that user message, after it, and is the prompt to act on (issue 44).
     req["messages"]
         .as_array()
         .and_then(|m| m.last())
         .and_then(|m| m["content"].as_array())
-        .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"))
+        .and_then(|c| c.last())
+        .is_some_and(|b| b["type"] == "tool_result")
 }
 
 /// The last user message's text.

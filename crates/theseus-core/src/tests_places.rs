@@ -91,10 +91,14 @@ pub(crate) fn last_user(req: &ProviderRequest) -> String {
 }
 
 pub(crate) fn answers_a_call(req: &ProviderRequest) -> bool {
+    // The LAST block, not any block: a new message after a call the view lays unanswered (closed by the
+    // harness's stub, as main closes one) merges into that result's user message, after it, and is a
+    // person's words to act on, not a call's answer (issue 44).
     req.messages
         .last()
         .and_then(|m| m["content"].as_array())
-        .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"))
+        .and_then(|c| c.last())
+        .is_some_and(|b| b["type"] == "tool_result")
 }
 
 /// The wire names of the tools a request offered.
