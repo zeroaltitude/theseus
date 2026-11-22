@@ -493,12 +493,13 @@ impl TurnRunner {
         };
         // A view turn builds a compilation every turn (issue 44, issue 46): its records ride the
         // turn's next frame, and the pointer rides the turn's own session write at its end
-        // (`take_turns_fields`), so neither costs a frame of its own. A session never stored
-        // takes the path below.
-        let stored = store
-            .get_session::<serde::de::IgnoredAny>(&session.session_id)?
-            .is_some();
-        if c.strategy == crate::compiler::view::STRATEGY && stored {
+        // (`take_turns_fields`), so neither costs a frame of its own. A session never stored, or
+        // one this turn titles, takes the path below: a card the turn asks names the session by
+        // the title the store holds (`needs_you::asker_name`).
+        let titled = store
+            .get_session::<SessionRecord>(&session.session_id)?
+            .is_some_and(|r| r.title == session.title);
+        if c.strategy == crate::compiler::view::STRATEGY && titled {
             return records()?.into_iter().try_for_each(|r| store.defer(r));
         }
         let written = store.update_session(&session.session_id, |r| {
