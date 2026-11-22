@@ -15,8 +15,8 @@ use crate::view_gate::{place_name, Verified};
 const CENSUS_TURN: &str = "census";
 
 impl TurnRunner {
-    /// The place whose view `rec`'s next request is assembled by: a conversation's (a task's turns are the
-    /// transcript's until tasks take the view).
+    /// The place whose view `rec`'s next request is assembled by: a conversation's (a task's census stays the
+    /// transcript's).
     pub(crate) fn census_view_place(&self, rec: &SessionRecord) -> Option<String> {
         if rec.task.is_some() || rec.kind == theseus_protocol::SessionKind::Task {
             return None;
