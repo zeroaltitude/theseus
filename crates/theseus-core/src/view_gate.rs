@@ -58,6 +58,8 @@ use crate::turn::TurnRunner;
 pub const IMPORTED: &str = "imported";
 /// The longest a task's chain is followed to its thread.
 const DEPTH: usize = 4;
+/// The place a turn whose presence is not known draws on: no session's.
+const NOWHERE: &str = "nowhere";
 
 /// What the gate reads of the owner's mark of one message.
 pub trait OwnerMarks {
@@ -310,6 +312,12 @@ pub fn node_seal(
     if own != Seal::Clear {
         return own;
     }
+    moved_seal(store, board, asker, node)
+}
+
+/// The seal of the thread a split or a claim moved `node` into, for a reader
+/// in `asker`; clear when it was not moved.
+fn moved_seal(store: &Store, board: &Board, asker: Option<&str>, node: &str) -> Seal {
     match store.get_meta::<Option<crate::moved::MovedTo>>(&crate::moved::moved_of_key(node)) {
         Ok(Some(Some(m))) => seal_for(store, board, asker, &m.thread),
         Ok(_) => Seal::Clear,
@@ -319,6 +327,25 @@ pub fn node_seal(
             Seal::Unread
         }
     }
+}
+
+/// Whether a reader in `asker` may be shown the title of `session`, whose
+/// own seal it may read: a title is made from the session's first inputs,
+/// so not when any of its messages was moved into a thread held from it
+/// (`moved_seal`), nor when its messages or the threads cannot be read.
+pub fn title_shown(runner: &TurnRunner, asker: Option<&str>, session: &str) -> bool {
+    let Some(b) = board(runner, "a session's title") else {
+        return false;
+    };
+    let Ok(nodes) = runner.store.session_nodes(session) else {
+        return false;
+    };
+    nodes.iter().all(|(_, n)| match &n.body {
+        Body::UserMessage { .. } | Body::AssistantMessage { .. } => {
+            moved_seal(&runner.store, &b, asker, &n.id) == Seal::Clear
+        }
+        _ => true,
+    })
 }
 
 /// The nodes of `nodes` a reader in `asker` may read for their seal (by
@@ -639,14 +666,20 @@ pub fn held_threads(runner: &TurnRunner, asker: &str) -> Option<BTreeSet<String>
     let own = thread_of(&runner.store, &b, asker, 0).ok().flatten();
     let held = b
         .all()
-        .filter(|t| match thread_seal(&b, &t.slug) {
-            Seal::Clear => false,
-            Seal::Held => own.as_deref() != Some(t.slug.as_str()),
-            Seal::Unread => true,
-        })
+        .filter(|t| held_from(&b, own.as_deref(), &t.slug))
         .map(|t| t.slug.clone())
         .collect();
     Some(held)
+}
+
+/// Whether thread `slug` is held from a reader whose own thread is `own`:
+/// sealed, seal-pending or unread, and not its own.
+fn held_from(board: &Board, own: Option<&str>, slug: &str) -> bool {
+    match thread_seal(board, slug) {
+        Seal::Clear => false,
+        Seal::Held => own != Some(slug),
+        Seal::Unread => true,
+    }
 }
 
 /// The presence of `session`'s turn as a kept tail's reuse key holds it
@@ -658,14 +691,24 @@ pub fn presence_key(runner: &TurnRunner, session: &str) -> Option<(Present, Stri
 
 /// The threads of a place digest a turn of `session` may be shown: only
 /// where the owner is alone does it name other threads (they are other
-/// places); otherwise its own thread `here` alone. With the ledger off, as
-/// before.
+/// places); otherwise its own thread `here` alone. A thread held from it for
+/// its seal is neither named nor counted, whatever the ledger says: a count
+/// says it exists, and none at all when the threads cannot be read. With the
+/// ledger off, the rest as before.
 pub fn digest_threads<'b>(
     runner: &TurnRunner,
     session: &str,
     here: &str,
     live: Vec<&'b theseus_protocol::threads::ThreadInfo>,
 ) -> Vec<&'b theseus_protocol::threads::ThreadInfo> {
+    let Some(b) = board(runner, "the place digest") else {
+        return Vec::new();
+    };
+    let own = thread_of(&runner.store, &b, session, 0).ok().flatten();
+    let live: Vec<_> = live
+        .into_iter()
+        .filter(|t| !held_from(&b, own.as_deref(), &t.slug))
+        .collect();
     if !runner.cfg.context.ledger_on() {
         return live;
     }
@@ -760,6 +803,12 @@ impl RecallPlaces {
     fn narrowed_to(runner: &TurnRunner, asker: &str, asking: Option<&Asking>) -> Self {
         match asking {
             Some(a) if a.present == Present::OwnerAlone => Self::default(),
+            // Not known (a wake set by a wake, a mark that does not read):
+            // a place no session is in, so it reads nothing of history.
+            Some(a) if a.present == Present::Unknown => RecallPlaces {
+                own: Some(NOWHERE.into()),
+                channel: false,
+            },
             Some(a) => RecallPlaces {
                 own: Some(a.place.clone()),
                 channel: false,
