@@ -44,6 +44,14 @@ const MAX_BREAKPOINTS: usize = 4;
 pub const CLEAR_AT_TOKENS: u64 = 80_000;
 /// The newest results a pass keeps whole, in tokens.
 pub const KEEP_TOKENS: u64 = 40_000;
+/// The meta key of a window result laid as its receipt ([`receipted`]): its content is already the stub a
+/// clearing pass would make of it.
+pub const RECEIPT: &str = "view_receipt";
+
+/// Whether `r` is a window result laid as its receipt.
+pub fn is_receipt(r: &Node) -> bool {
+    matches!(&r.body, Body::ToolResult { meta, .. } if meta.get(RECEIPT) == Some(&Value::Bool(true)))
+}
 
 /// What a turn in a view place sends besides its own nodes, frozen at its first call.
 #[derive(Debug, Clone, Default)]
@@ -512,17 +520,18 @@ pub fn receipted(window: Vec<(u64, Stub)>, spoken: &HashSet<String>) -> Vec<(u64
             Some((id, (b["name"].as_str()?.to_string(), b["input"].clone())))
         })
         .collect();
+    // The note a clearing pass writes (`clearing::notes`): so a receipt is, byte for byte, the stub that
+    // clearing makes of the same result, and a cleared result reads the same whether its exchange is laid
+    // whole or spoken (the cache's prefix holds when an exchange's form changes).
     let answer_after = |i: usize| -> Option<String> {
         let turn = window[i].1.turn_id.clone();
         (window[i + 1..].iter())
             .take_while(|(_, n)| n.turn_id == turn)
             .find_map(|(_, n)| match &n.body {
-                Body::AssistantMessage { blocks, .. } => {
-                    let t = crate::provider::text_of(blocks);
-                    (!t.trim().is_empty()).then_some(t)
-                }
+                Body::AssistantMessage { blocks, .. } => Some(blocks),
                 _ => None,
             })
+            .and_then(|blocks| super::clearing::remember::note_of(blocks))
     };
     let notes: Vec<Option<String>> = (0..window.len()).map(answer_after).collect();
     window
@@ -536,21 +545,14 @@ pub fn receipted(window: Vec<(u64, Stub)>, spoken: &HashSet<String>) -> Vec<(u64
                 return (*p, n.clone());
             }
             let (name, input) = calls.get(tool_use_id).cloned().unwrap_or_default();
-            let note = notes[i].as_deref().map(|t| short(t, 200));
-            let text = super::clearing::stub_noted(&name, &input, n, note.as_deref());
+            let text = super::clearing::stub_noted(&name, &input, n, notes[i].as_deref());
             let mut node = (**n).clone();
-            if let Body::ToolResult { content, .. } = &mut node.body {
+            if let Body::ToolResult { content, meta, .. } = &mut node.body {
                 *content = text;
+                // Already its stub: a clearing pass that holds it lays it as it is (`render`).
+                meta[RECEIPT] = Value::Bool(true);
             }
             (*p, Stub::from(node))
         })
         .collect()
-}
-
-/// `s` cut at `max` characters, with an ellipsis when cut.
-fn short(s: &str, max: usize) -> String {
-    match s.char_indices().nth(max) {
-        Some((i, _)) => format!("{}…", &s[..i]),
-        None => s.to_string(),
-    }
 }
