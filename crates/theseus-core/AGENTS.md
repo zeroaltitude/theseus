@@ -2297,8 +2297,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     partner-confidential text veiled. Its description names the CLI commands it replaces and when to use it: the
     owner's DM once answered a question about a past month with four `proc_run`s of `theseus memory index search` while
     this tool was offered (the context held the CLI from before the tool existed). A `proc_run` of the daemon's own
-    CLI for what it answers ends with a `[native: memory_lookup {…} …]` line, after the cap (`native.rs`,
-    `ResultNode.hint`); the CLI still runs, since running it may be the work. Tests: `tests_memory_lookup.rs`,
+    CLI's search (`memory search`, `memory index search`) ends with a `[native: context_history {"words":…} …]`
+    line, after the cap (`native.rs`, `ResultNode.hint`; it named this tool until issue 46, and a session or span
+    command gets no line now, since the history tool does neither); the CLI still runs, since running it may be the
+    work. Tests: `tests_memory_lookup.rs`,
     `native::tests`.
   - **The MCP server's memory tools** (theseus-02i1h; `memory_lookup/mcp.rs`, `rpc/memory_read.rs`): `memory_search` and
     `memory_get` are one read-only method, `memory.lookup`, in `mcp_server::ALLOWED`, served by `memory_lookup`'s own

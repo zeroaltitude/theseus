@@ -712,9 +712,10 @@ fn the_description_and_schema_say_when_and_how() {
     assert_eq!(t.backend(), theseus_tools::Backend::Async);
 }
 
-/// The model of the owner's DM is offered the lookup (a private place),
-/// and a proc_run of the daemon's own CLI ends with the line naming the
-/// native call, after the cap: the March question's first wrong turn.
+/// The model of the owner's DM is offered the history tool, and a proc_run
+/// of the daemon's own CLI search ends with the line naming its call, after
+/// the cap: the March question's first wrong turn (issue 46: the history
+/// tool's words search, not the lookup).
 #[tokio::test]
 async fn a_proc_run_of_the_cli_in_the_owners_dm_ends_with_the_native_call() {
     use crate::tests_places::OWNER;
@@ -758,8 +759,8 @@ async fn a_proc_run_of_the_cli_in_the_owners_dm_ends_with_the_native_call() {
         crate::places::PlaceClass::Private
     );
     turn(&r.core, &dm, "do you remember March 2026?").await;
-    assert!(offered(&r.requests()[0]).contains(&"memory_lookup".to_string()));
-    let want = r#"[native: memory_lookup {"when":"March 2026"} does this in-process"#;
+    assert!(offered(&r.requests()[0]).contains(&"context_history".to_string()));
+    let want = r#"[native: context_history {"words":"March 2026"} does this in-process"#;
     let got = result_of(&r.core, &dm, "s1");
     assert!(
         got.contains("searched: memory index search -k 20 --json March 2026"),
