@@ -178,6 +178,7 @@ impl TurnRunner {
                 message: Some(p.message.unwrap_or_default().to_string()),
             },
             spec,
+            &self.view_budget(spec),
         )?;
         let source = GateSource {
             runner: self,

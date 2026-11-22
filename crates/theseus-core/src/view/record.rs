@@ -57,6 +57,37 @@ pub struct ViewRecord {
     pub dropped: Vec<Dropped>,
     pub residue: Vec<Residue>,
     pub tokens: u64,
+    /// The room the turn made when its request passed the budget (`turn::view_step::room`); none when it
+    /// made none. A record written before it reads as none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room: Option<Room>,
+}
+
+/// What a turn did to make room in its request (`turn::view_step::room`): numbers, and counts of its own
+/// results, never what a result held.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Room {
+    /// Times the turn made room.
+    pub made: u32,
+    /// The results its newest chain's clearing pass turned into their one-line stand-ins.
+    pub cleared: u64,
+    /// The newest results kept whole, in tokens, by the clearing pass every new chain of the turn runs
+    /// whatever its line; none: the line holds.
+    pub keep: Option<u64>,
+    /// Slot G's allowance (the window and the ladder), in tokens, when it was lowered.
+    pub here: Option<u64>,
+    /// What slot G held when the view was last assembled, in tokens.
+    pub held: u64,
+    /// The window a provider stated when it refused a request of the turn for its size, read at Theseus's
+    /// estimate.
+    pub window: Option<u64>,
+}
+
+impl Room {
+    /// The room as a record says it, with the results the newest pass cleared; none when none was made.
+    pub fn made(self, cleared: u64) -> Option<Self> {
+        (self.made > 0).then_some(Self { cleared, ..self })
+    }
 }
 
 impl ViewRecord {
@@ -69,6 +100,7 @@ impl ViewRecord {
             dropped: view.dropped,
             residue: view.residue,
             tokens: view.tokens,
+            room: None,
         }
     }
 
@@ -103,13 +135,23 @@ pub fn turn_record(turn: &str, compilation: &str, at_ms: u64) -> anyhow::Result<
 }
 
 /// Keep what a turn was shown: the view record, its turn's entry and its counts, deferred into the turn's
-/// next frame. The compiler calls it once for each view it builds, with the turn's own store handle. A turn
-/// or compilation id holding the key's separator is refused, and nothing is kept.
-pub fn keep(store: &Store, turn: &str, compilation: &str, view: &View) -> anyhow::Result<()> {
+/// next frame. The compiler calls it once for each view it builds, with the turn's own store handle, and the
+/// room the turn made, if any. A turn or compilation id holding the key's separator is refused, and nothing
+/// is kept.
+pub fn keep(
+    store: &Store,
+    turn: &str,
+    compilation: &str,
+    view: &View,
+    room: Option<Room>,
+) -> anyhow::Result<()> {
     if turn.contains(SEP) || compilation.contains(SEP) {
         anyhow::bail!("a view is not kept under an id holding the key's separator");
     }
-    let record = ViewRecord::new(compilation, view.clone());
+    let record = ViewRecord {
+        room,
+        ..ViewRecord::new(compilation, view.clone())
+    };
     let tally = Tally::of(&record);
     store.defer(view_record(&record)?)?;
     store.defer(turn_record(turn, compilation, view.pov.now_ms)?)?;

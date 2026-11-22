@@ -36,7 +36,7 @@ use crate::provider::{FakeProvider, ProviderError, ProviderRequest, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
 pub(crate) use crate::test_support::rows_2k as rows;
-use crate::turn::compaction::OVERAGE_CLASS;
+use crate::turn::overage::OVERAGE_CLASS;
 use crate::turn::{TurnError, TurnRequest};
 use crate::{Config, Core};
 
