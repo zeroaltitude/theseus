@@ -85,6 +85,27 @@ pub struct Frozen {
     /// The items today's recall found that the view laid (admitted), admitted again by a reassembly and
     /// re-asked before every call (`turn::view_step::recall`).
     pub recalled: Vec<crate::node::RecalledRef>,
+    /// The turn's sizes as its requests are finished and sent (`turn::view_step::room`), carried by every
+    /// reassembly.
+    pub fit: Fit,
+}
+
+/// A view turn's sizes beyond what its view charges, measured on its requests as they are sent: the room
+/// it makes reserves them, and the request that goes out is held to them (`turn::view_step::room`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Fit {
+    /// The last compile's estimate before the request was finished: its upper bound and its tokens.
+    pub base: (u64, u64),
+    /// The most a request's finishing (its tails) added to that, upper bound and tokens.
+    pub tail: (u64, u64),
+    /// What the view's assembly charged, last assembled.
+    pub charged: u64,
+    /// The request's tokens beyond what the view charged (the turn's own nodes, the tools, the tails).
+    pub own: u64,
+    /// The estimate of a request the provider refused for its size: every later one is strictly smaller.
+    pub under: Option<u64>,
+    /// Tokens more to reserve, from a shortfall the steps did not close (the last, floor-only step).
+    pub squeeze: u64,
 }
 
 impl Frozen {
