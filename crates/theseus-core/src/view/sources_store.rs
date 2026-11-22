@@ -40,12 +40,20 @@ pub struct Sessions {
     pub depends: std::cell::RefCell<std::collections::BTreeSet<String>>,
     /// How many times the store was read for a session.
     pub reads: std::cell::Cell<u32>,
-    /// The nodes a fork's ancestors wrote after the point each was forked from it (`fork::window`): no
-    /// exchange's nodes read here hold one.
-    pub after_point: std::cell::RefCell<std::collections::HashSet<String>>,
+    /// A fork's cut (`fork::cut`): no node an ancestor wrote past its point is read here, and an exchange's
+    /// reach against the point is asked of it. Empty for a session that is no fork.
+    pub cut: crate::fork::cut::Cut,
 }
 
 impl Sessions {
+    /// The sessions an assembly of a fork reads, cut at its point.
+    pub fn with_cut(cut: crate::fork::cut::Cut) -> Self {
+        Self {
+            cut,
+            ..Self::default()
+        }
+    }
+
     /// `session`'s nodes, read from the store the first time.
     pub fn of(
         &self,
@@ -70,11 +78,35 @@ impl Sessions {
         session: &str,
         turn: &str,
     ) -> anyhow::Result<Vec<(u64, crate::stub::Stub)>> {
-        let after = self.after_point.borrow();
         Ok((self.of(store, session)?.iter())
-            .filter(|(_, n)| n.turn_id.as_deref() == Some(turn) && !after.contains(&n.id))
+            .filter(|(p, n)| {
+                n.turn_id.as_deref() == Some(turn) && !self.cut.past(&n.session_id, *p)
+            })
             .cloned()
             .collect())
+    }
+
+    /// Where exchange `ex` stands against a fork's cut: inside for a session that is no fork.
+    pub fn reach(
+        &self,
+        store: &Store,
+        ex: &exchange::Exchange,
+    ) -> anyhow::Result<crate::fork::cut::Reach> {
+        if self.cut.is_empty() {
+            return Ok(crate::fork::cut::Reach::Inside);
+        }
+        self.cut.reach(store, ex)
+    }
+
+    /// Whether exchange `turn`'s `did` line may be laid: not when a fork's point falls in it or before it.
+    pub fn summarised(&self, store: &Store, turn: &str) -> anyhow::Result<bool> {
+        if self.cut.is_empty() {
+            return Ok(true);
+        }
+        Ok(match exchange::exchange(store, turn)? {
+            Some(ex) => self.reach(store, &ex)? == crate::fork::cut::Reach::Inside,
+            None => true,
+        })
     }
 }
 
@@ -135,6 +167,12 @@ impl StoreSources<'_> {
         let Some(ex) = exchange::exchange(self.store, turn_id)? else {
             return Ok(None);
         };
+        // A fork's cut, at the seam every selector reads (`fork::cut`): an exchange an ancestor began after
+        // its point is no candidate; one the point falls in is never summarised.
+        let reach = self.sessions.reach(self.store, &ex)?;
+        if reach == crate::fork::cut::Reach::Beyond {
+            return Ok(None);
+        }
         let (mut his, mut reply, mut tools, mut stubs, mut outside) = (0, 0, 0, 0, false);
         for (_, n) in self
             .sessions
@@ -195,7 +233,12 @@ impl StoreSources<'_> {
             reply,
             tools,
             stubs,
-            did: did::did(self.store, turn_id)?.map(|d| tokens(&d.line)),
+            did: match reach {
+                crate::fork::cut::Reach::Inside => {
+                    did::did(self.store, turn_id)?.map(|d| tokens(&d.line))
+                }
+                _ => None,
+            },
             handle: Handle(turn_id.to_string()),
         }))
     }
