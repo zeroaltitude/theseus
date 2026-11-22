@@ -405,18 +405,7 @@ async fn red_team_the_company_turn_sends_nothing_of_the_look() {
     assert_eq!(rec.outcome, Outcome::One, "{rec:?}");
     assert_eq!(rec.ids, vec!["xq_private_turn_9".to_string()]);
     // The general ledger, which any reader of the socket may tail, says nothing of the look.
-    let rows: Vec<(u64, LedgerRow)> = r.core.store.ledger_tail(2_000).unwrap();
-    for (_, row) in &rows {
-        let text = serde_json::to_string(row).unwrap();
-        assert!(
-            !text.contains("xq_private_turn_9"),
-            "a ledger row names the look's id: {text}"
-        );
-        assert!(
-            !text.contains("release"),
-            "a ledger row speaks of the look: {text}"
-        );
-    }
+    ledger_says_nothing_of(&r.core.store, "xq_private_turn_9");
     let sent = r.model.requests.lock().unwrap().clone();
     assert!(!sent.is_empty());
     for req in &sent {
@@ -442,6 +431,22 @@ async fn red_team_the_company_turn_sends_nothing_of_the_look() {
         !state.contains(MIXED),
         "the trigger read an unadmitted line of the session: {state}"
     );
+}
+
+/// No ledger row names `id` or speaks of a release.
+fn ledger_says_nothing_of(store: &Store, id: &str) {
+    let rows: Vec<(u64, LedgerRow)> = store.ledger_tail(2_000).unwrap();
+    for (_, row) in &rows {
+        let text = serde_json::to_string(row).unwrap();
+        assert!(
+            !text.contains(id),
+            "a ledger row names the look's id: {text}"
+        );
+        assert!(
+            !text.contains("release"),
+            "a ledger row speaks of the look: {text}"
+        );
+    }
 }
 
 /// The look's record waits for a moment between turns: while a turn runs, a finished look writes nothing.
