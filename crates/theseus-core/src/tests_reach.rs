@@ -109,6 +109,11 @@ fn conversation(core: &Core) -> String {
 }
 
 async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
+    try_turn(core, sid, input).await.unwrap()
+}
+
+/// A turn, as it ends: a failed one too.
+async fn try_turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSubmitResult> {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
@@ -128,7 +133,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
             answer_at: None,
         })
         .await
-        .unwrap()
 }
 
 /// The model of the scenarios: a parent that starts a task on `START`, and
@@ -201,7 +205,6 @@ fn ids(e: &ReachExposure) -> Vec<String> {
 /// the loops. The edge is keyed and scoped as §6.1 and §2.11 say, and its
 /// write moves no manifest: a store this build made is at its format.
 #[tokio::test]
-#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
     let r = rig(colours);
     let manifest = std::fs::read(r.dir.path().join("store/MANIFEST.json")).unwrap();
@@ -274,16 +277,32 @@ async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
             last.as_str()
         )
     );
-    // The exact compilations: on the view a turn is a new compilation every
-    // turn (issue 44), so the two parent turns after the copy each laid it,
-    // and no compilation of the parent's made before it did.
+    // The exact compilations, read from the kept view records (issue 44): a
+    // view of the copy's own turn (it is in that turn's tail), or one whose
+    // shown exchanges hold the copy's turn (a later turn's window).
+    let turn = copy.turn_id.clone().expect("the relay's turn");
+    let own: Vec<String> = (crate::view::record::of_turn(&r.core.store, &turn)
+        .unwrap()
+        .into_iter())
+    .map(|v| v.compilation)
+    .collect();
+    let shows = |c: &str| {
+        crate::view::record::read(&r.core.store, c)
+            .unwrap()
+            .is_some_and(|v| {
+                v.shown.iter().any(|s| {
+                    matches!(s.piece.range.space, crate::view::Space::Exchanges { .. })
+                        && s.piece.range.first.id == turn
+                })
+            })
+    };
     let holding: Vec<String> = r
         .core
         .store
         .session_compilations(&parent)
         .unwrap()
         .into_iter()
-        .filter(|c| c.as_of >= at)
+        .filter(|c| own.contains(&c.id) || shows(&c.id))
         .map(|c| c.id)
         .collect();
     assert_eq!(holding.len(), 2, "{holding:?}");
@@ -376,13 +395,16 @@ async fn reach_follows_a_brief_into_its_task() {
     assert_eq!(tcomps.len(), 1);
     assert_eq!(ids(&d.exposure), vec![tcomps[0].id.clone()]);
     assert_eq!(d.exposure.loops, 1);
-    // In the parent, the reply was read by the loop that answered the call.
+    // In the parent, the reply was read by the call that answered the call: on the view (issue 44) that
+    // call is its turn's compilation's, which is named.
+    let pcomps = r.core.store.session_compilations(&parent).unwrap();
+    assert_eq!(pcomps.len(), 1);
+    assert_eq!(ids(&got.direct), vec![pcomps[0].id.clone()]);
     assert_eq!(got.direct.loops, 1);
-    assert!(got.direct.compilations.is_empty());
     assert_eq!(
         got.totals,
         ReachTotals {
-            contexts: 3,
+            contexts: 4,
             sessions: 2
         }
     );
@@ -426,6 +448,58 @@ async fn a_session_with_no_edges_answers_its_own_exposure_only() {
     assert_eq!(got.direct, ReachExposure::default());
     assert_eq!(got.totals.contexts, 0);
     assert!(reach(&r.core.store, "msg_nowhere", None).unwrap().is_none());
+}
+
+/// An erased node still says where it went (issue 44): its tombstone is a later record of its id, but
+/// reach accounts from its first position and its kind, so the two turns that laid it are named, and the
+/// answer holds no erased word.
+#[tokio::test]
+async fn an_erased_node_still_says_where_it_went() {
+    let r = rig(|_| Scripted::text("Noted."));
+    let sid = conversation(&r.core);
+    turn(&r.core, &sid, "the first message").await;
+    turn(&r.core, &sid, "the second message").await;
+    let (_, first) = nodes(&r.core, &sid)[0].clone();
+    let before = reach(&r.core.store, &first.id, None).unwrap().unwrap();
+    assert_eq!(before.direct.compilations.len(), 2, "{before:?}");
+    let gone = first.erased(theseus_protocol::now_unix_ms(), "a test's erasure");
+    r.core.store.append(&[gone.record().unwrap()]).unwrap();
+    let after = reach(&r.core.store, &first.id, None).unwrap().unwrap();
+    assert_eq!(after.position, before.position, "its first position");
+    assert_eq!(after.direct, before.direct);
+    assert!(!after.partial);
+    let said = serde_json::to_string(&after).unwrap();
+    assert!(!said.contains("the first message"), "{said}");
+}
+
+/// A call that was sent and got no answer is still where the message went (issue 44): reach counts the
+/// call by its dispatch, not by a stored reply.
+#[tokio::test]
+async fn a_message_sent_in_a_call_that_failed_is_still_exposed() {
+    let r = rig(|_| {
+        Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
+            status: 400,
+            message: "refused for the test".into(),
+        })
+    });
+    let sid = conversation(&r.core);
+    let _ = try_turn(&r.core, &sid, "a message the model was sent").await;
+    let all = nodes(&r.core, &sid);
+    assert!(
+        !all.iter()
+            .any(|(_, n)| matches!(n.body, Body::AssistantMessage { .. })),
+        "no answer was stored: {all:?}"
+    );
+    let ask = (all.iter())
+        .find(|(_, n)| matches!(n.body, Body::UserMessage { .. }))
+        .expect("the message")
+        .1
+        .id
+        .clone();
+    let got = reach(&r.core.store, &ask, None).unwrap().unwrap();
+    assert!(got.direct.loops >= 1, "{got:?}");
+    assert_eq!(got.direct.compilations.len(), 1, "{got:?}");
+    assert_eq!(got.direct.compilations[0].session_id, sid);
 }
 
 /// A turn that reads a report writes no extra frame: the edge rides in the

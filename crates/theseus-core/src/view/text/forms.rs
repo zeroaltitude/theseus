@@ -102,6 +102,25 @@ pub fn whole(nodes: &[Node]) -> Vec<Said> {
         .collect()
 }
 
+/// The nodes whose own text `form` lays, of an exchange's `nodes` (issue 44; read by `node.reach`): in a
+/// `Line`, the person's first message, as both renderers take it; in `Spoken`, the parts it keeps whole,
+/// the person's words and the replies' text (a call and its result go as a stub, which is not their text);
+/// in `Whole`, every part of [`whole`]. A node that is no part of what was said (a recall, a summary, a
+/// reply with no text) is in none.
+pub fn laid(nodes: &[Node], form: Form) -> Vec<String> {
+    match form {
+        Form::Line => (nodes.iter())
+            .find(|n| matches!(n.body, Body::UserMessage { .. }))
+            .map(|n| vec![n.id.clone()])
+            .unwrap_or_default(),
+        Form::Spoken => (whole(nodes).into_iter())
+            .filter(|s| matches!(s.voice, Voice::Person | Voice::Theseus))
+            .map(|s| s.node)
+            .collect(),
+        Form::Whole => whole(nodes).into_iter().map(|s| s.node).collect(),
+    }
+}
+
 /// An exchange's spoken form: [`whole`] with each call and its result one stub ([`stub`]), where the call
 /// was. A result whose call is not among `nodes` is its stub alone.
 pub fn spoken(nodes: &[Node]) -> Vec<Said> {

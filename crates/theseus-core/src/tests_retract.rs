@@ -327,13 +327,22 @@ async fn a_fact_a_view_turn_was_sent_is_in_the_spread() {
     );
     c.runner.memory.set_ask(index_of(c, vec![src.clone()]));
     let a = asker(c, "What port does the Kestrel relay use?").await;
+    // The request the asking turn sent held the recalled fact.
+    assert!(
+        in_last_request(&r, "port 7714") >= 1,
+        "the recalled fact was sent"
+    );
     let (rcl, _) = recall_of(c, &a);
     let reach = crate::reach::reach(&c.store, &x, None).unwrap().unwrap();
     let copy = (reach.descendants.iter())
         .find(|d| d.session_id == a)
         .expect("the recall's copy");
     assert_eq!(copy.node_id, rcl);
-    assert!(copy.exposure.loops >= 1, "{reach:?}");
+    // The fact's own exposure names the asking session's turn: its view showed it as a recalled item.
+    assert!(
+        (reach.direct.compilations.iter()).any(|k| k.session_id == a),
+        "{reach:?}"
+    );
 
     let out = retract(c, &x).unwrap();
     let found: Vec<&str> = (out.exposures.iter())
@@ -341,6 +350,40 @@ async fn a_fact_a_view_turn_was_sent_is_in_the_spread() {
         .collect();
     assert!(found.contains(&src.as_str()), "{out:#?}");
     assert!(found.contains(&a.as_str()), "{out:#?}");
+}
+
+/// A fact one session said is laid by another session's turn at the same place with no copy to follow
+/// (the place's window, issue 44): reach names that session's compilation, and the retraction finds it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fact_laid_by_another_sessions_window_is_in_the_spread() {
+    let r = rig();
+    let c = &r.core;
+    bind(c);
+    let one = session(c, Some(DM), &[]);
+    turn(c, &one, FACT).await;
+    let x = (c.store.session_nodes(&one).unwrap().into_iter())
+        .find(|(_, n)| matches!(&n.body, Body::UserMessage { text, .. } if text == FACT))
+        .expect("the turn's message")
+        .1
+        .id;
+    let two = session(c, Some(DM), &[]);
+    turn(c, &two, "And what else?").await;
+    assert!(
+        in_last_request(&r, "port 7714") >= 1,
+        "the other session's request held the fact"
+    );
+    let reach = crate::reach::reach(&c.store, &x, None).unwrap().unwrap();
+    assert!(reach.descendants.is_empty(), "no copy: {reach:?}");
+    assert!(
+        (reach.direct.compilations.iter()).any(|k| k.session_id == two),
+        "{reach:?}"
+    );
+    assert_eq!(reach.totals.sessions, 2, "{reach:?}");
+    let out = retract(c, &x).unwrap();
+    assert!(
+        out.exposures.iter().any(|e| e.session_id == two),
+        "{out:#?}"
+    );
 }
 
 /// The live session's next turn carries the correction once; a session that

@@ -14,7 +14,7 @@ use crate::stub::{Kind, Stub};
 /// of another turn when it lays none), not moved away. Before a session's
 /// first turn there are none: what precedes it is its opening (a task's brief and pieces), which the view
 /// lays as the window's head (`turn::view_step::task`).
-pub(super) fn notes(nodes: &[(u64, Stub)], turn: &str, window: &HashSet<&str>) -> HashSet<String> {
+pub(crate) fn notes(nodes: &[(u64, Stub)], turn: &str, window: &HashSet<&str>) -> HashSet<String> {
     let Some(last) =
         (nodes.iter()).rposition(|(_, n)| n.turn_id.as_deref().is_some_and(|t| t != turn))
     else {

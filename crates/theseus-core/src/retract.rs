@@ -432,18 +432,33 @@ impl Core {
         let memory_session = self.memory_session()?;
         let mut out: Vec<Found> = Vec::new();
         let mut sessions: BTreeMap<String, Option<Sess>> = BTreeMap::new();
-        // The node's own session, if its context held it.
+        // Each session whose requests laid the node itself: its own, and on the view any other session whose
+        // turn laid it with no copy to follow (issue 44; each listed compilation names its session).
         let direct = &walk.direct;
-        if (!direct.compilations.is_empty() || direct.loops > 0)
-            && memory_session.as_deref() != Some(walk.session_id.as_str())
-        {
-            if let Some(s) = self.cached(&mut sessions, &walk.session_id)? {
+        let mut laid_in: Vec<&str> = Vec::new();
+        for c in &direct.compilations {
+            let sid = match c.session_id.is_empty() {
+                true => walk.session_id.as_str(),
+                false => c.session_id.as_str(),
+            };
+            if !laid_in.contains(&sid) {
+                laid_in.push(sid);
+            }
+        }
+        if laid_in.is_empty() && direct.loops > 0 {
+            laid_in.push(walk.session_id.as_str());
+        }
+        for sid in laid_in {
+            if memory_session.as_deref() == Some(sid) {
+                continue;
+            }
+            if let Some(s) = self.cached(&mut sessions, sid)? {
                 if !s.imported {
                     let k = if s.task { kind::TASK } else { kind::SESSION };
                     out.push(Found {
                         e: RetractExposure {
                             kind: k.into(),
-                            session_id: walk.session_id.clone(),
+                            session_id: sid.to_string(),
                             node_id: walk.node_id.clone(),
                             generation: 0,
                             place: s.place.clone(),
