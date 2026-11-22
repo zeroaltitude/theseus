@@ -330,7 +330,7 @@ fn listed_of(core: &Core, asker: &str, rec: SessionRecord) -> Option<Listed> {
     let kept = crate::view_gate::readable_nodes(&core.runner, Some(asker), nodes, |(_, n)| {
         (n.session_id.as_str(), n.id.as_str())
     });
-    let kept: Vec<&Node> = kept.iter().map(|(_, n)| n).filter(|n| said(n)).collect();
+    let kept: Vec<&Node> = kept.iter().map(|(_, n)| n).filter(|n| said(*n)).collect();
     if kept.len() == all {
         return Some(Listed {
             start: rec.created_at_unix_ms,
