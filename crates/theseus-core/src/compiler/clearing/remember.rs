@@ -44,8 +44,9 @@ pub fn note_of(blocks: &[Value]) -> Option<String> {
     ))
 }
 
-/// For each cleared result among `nodes` (in order), by its call's id, the
-/// note of the next answer after it, when that answer has text. A cleared
+/// For each cleared result among `nodes` (in order), by the result's own node
+/// id (not its call's id, which a provider may repeat between exchanges,
+/// issue 44), the note of the next answer after it, when that answer has text. A cleared
 /// result's next answer exists when it is cleared (the newest exchange's
 /// results stay whole) and never changes, so the note is stable.
 pub(in crate::compiler) fn notes<'n>(
@@ -60,11 +61,9 @@ pub(in crate::compiler) fn notes<'n>(
     let mut waiting: Vec<&str> = Vec::new();
     for n in nodes {
         match &n.body {
-            Body::ToolResult {
-                tool_use_id,
-                late: false,
-                ..
-            } if cleared.contains(n.id.as_str()) => waiting.push(tool_use_id),
+            Body::ToolResult { late: false, .. } if cleared.contains(n.id.as_str()) => {
+                waiting.push(n.id.as_str())
+            }
             Body::AssistantMessage { blocks, .. }
                 if !waiting.is_empty() && !replaced.contains(n.id.as_str()) =>
             {
