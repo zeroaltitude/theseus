@@ -30,7 +30,9 @@ the scorer that says held or missed per case for a strategy's context.
 [history ids]}}`. A case is `held` when every evidence id is held, the
 referent is held, no stale value is held alone and nothing forbidden is held;
 else `missed`, with which of those failed. Counts by class. A case the context
-has no entry for is `absent`, never `missed`.
+has no entry for is `absent`, never `missed`. A case that needs what the
+builder cannot make (`needs` outside `BUILDS`) is `not_built` in every score,
+whatever a context says of it, and listed by id with its reason.
 
 **Building** (`build`): each case in a scratch daemon of its own on an empty
 store (`scratch.py`), one CLI session per symbolic place in a directory of its
@@ -136,12 +138,22 @@ def verdict(case: dict, held: set[str]) -> dict:
             "why": why, "evidence_missing": len(missing), "leaked": len(leaked)}
 
 
+def not_built(case: dict) -> list[str]:
+    """What a case needs that the builder cannot make: such a case is never scored."""
+    return [n for n in case.get("needs") or [] if n not in BUILDS]
+
+
 def score(cases: dict, context: dict) -> dict:
-    """Each case's verdict, and counts by class (held, missed, absent) and by why."""
+    """Each case's verdict, and counts by class (held, missed, absent, not_built) and by why; the cases not
+    built, by id, with what they need."""
     held = context.get("held") or {}
-    rows, by_class, by_why = [], {}, Counter()
+    rows, by_class, by_why, unbuilt = [], {}, Counter(), {}
     for c in cases["cases"]:
         k = by_class.setdefault(c["class"], Counter())
+        if not_built(c):
+            k["not_built"] += 1
+            unbuilt[c["id"]] = not_built(c)
+            continue
         if c["id"] not in held:
             k["absent"] += 1
             continue
@@ -150,7 +162,7 @@ def score(cases: dict, context: dict) -> dict:
         k[v["verdict"]] += 1
         by_why.update(v["why"])
     return {"strategy": context.get("strategy"), "cases": rows,
-            "by_class": {k: dict(v) for k, v in by_class.items()}, "by_why": dict(by_why)}
+            "by_class": {k: dict(v) for k, v in by_class.items()}, "by_why": dict(by_why), "not_built": unbuilt}
 
 
 # ---- strategies' contexts, as history ids
@@ -188,7 +200,7 @@ def build_case(case: dict, bin_dir: Path, out: Path) -> dict:
     import scratch  # noqa: PLC0415  (the build alone needs the daemon's helpers)
     import standin  # noqa: PLC0415  (bench/recall, on scratch's path)
 
-    missing = [n for n in case.get("needs") or [] if n not in BUILDS]
+    missing = not_built(case)
     if missing:
         return {"case": case["id"], "not_built": missing}
     model = standin.StandIn([], REPLY)
@@ -210,7 +222,7 @@ def build_case(case: dict, bin_dir: Path, out: Path) -> dict:
                     sessions[h["place"]] = v.get("session_id") or v["id"]
                 r = d.cli("--json", "ask", "-s", sessions[h["place"]], "-", input=h["say"], cwd=cwd)
                 if r.returncode != 0:
-                    raise RuntimeError(f"{case['id']} {h['id']}: ask failed")
+                    raise scratch.Failed(f"E_ASK {case['id']} {h['id']} exit {r.returncode}")
                 row = scratch.ledger_rows(d, "context.turn")[-1]["data"]
                 exchange_of[h["id"]] = row["exchange"]
                 place_of[h["place"]] = row["place"]
@@ -224,7 +236,7 @@ def build_case(case: dict, bin_dir: Path, out: Path) -> dict:
                 return {"case": case["id"], "not_built": ["places_not_distinct"]}
             try:
                 preview = d.json("view", "preview", place, "--message", m["say"])
-            except RuntimeError:
+            except scratch.Failed:
                 # A build before `view preview`: the transcript's context alone.
                 return {"case": case["id"], "transcript": transcript_held(case), "view_not_built": "no_preview"}
     finally:
@@ -234,7 +246,10 @@ def build_case(case: dict, bin_dir: Path, out: Path) -> dict:
 
 
 def build(cases: dict, bin_dir: Path, out: Path) -> dict:
-    out.mkdir(parents=True, exist_ok=False)
+    import scratch  # noqa: PLC0415
+
+    out = scratch.check_out(out)
+    out.mkdir(parents=True, exist_ok=True)
     built = [build_case(c, bin_dir, out / c["id"]) for c in cases["cases"]]
     contexts = {}
     for strategy in ("transcript", "view"):
@@ -268,7 +283,8 @@ def main(argv: list[str] | None = None) -> int:
               + ", ".join(f"{k} {n}" for k, n in sorted(Counter(x['class'] for x in cases['cases']).items())))
     elif a.cmd == "score":
         r = score(cases, json.loads(Path(a.held).read_text()))
-        print(json.dumps({k: r[k] for k in ("strategy", "by_class", "by_why")}, indent=2, sort_keys=True))
+        print(json.dumps({k: r[k] for k in ("strategy", "by_class", "by_why", "not_built")}, indent=2,
+                         sort_keys=True))
     else:
         r = build(cases, Path(a.bin_dir), Path(a.out))
         print(json.dumps(r, indent=2, sort_keys=True))

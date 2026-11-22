@@ -2,26 +2,50 @@
 
 The context design (`docs/design/context-point-of-view.md`, §10) says nothing about the view is to be trusted
 before it is measured. These three tools answer three of §10's questions. Each runs on a **copy** of a store,
-never on the live one, and writes **ids, kinds and counts only**: no message, no piece's text, no place's name.
-`scripts/tests/test_view_kit.py` holds that on daemon answers full of marker strings.
+never on the live one, and writes **ids, kinds and counts only**: no message, no piece's text, no place's name,
+and no daemon diagnostics. `scripts/tests/test_view_kit.py` holds that on daemon answers, errors and stderr full
+of marker strings.
 
 | Tool | What it answers | What it costs |
 |---|---|---|
-| `replay.py` | For a place's last N exchanges: what the transcript's request was made of, beside what the view would have held. | Nothing: no model is called. |
+| `replay.py` | For a place's last N exchanges: the context recorded as sent, beside what the view would have held. | Nothing: no model is called. |
 | `cases.py` | Does a context hold what a good one must? A frozen set of labelled cases, the scorer, and a builder that makes each case's store by script. | Nothing: the builder's model is a local stand-in. |
-| `yardstick.py` | What do the rules miss that a judge would find? A judge reads every earlier exchange in overlapping windows; its answers are set beside the rules' choice. | A model call per window. Refused without `--cap-usd`. |
+| `yardstick.py` | What does a rule miss that a judge would find? A judge reads every earlier exchange in overlapping windows; its answers are set beside the rule's choice. | A model call per window, under a cap that is a bound. Refused without `--cap-usd`. |
 
-`scratch.py` is what they share: a scratch `theseusd` on a copy of the copy it is given, with its own state,
-socket and config, every provider pointed at an address nothing listens on, a spend limit of a cent, and
-Discord, the web UI, the MCP server and the index off. It refuses `~/.theseus`, `$THESEUS_STATE_DIR`, a
-directory a running process names, and a directory with no `store/wal`. It removes its copy when it stops.
+`scratch.py` is what they share: a scratch `theseusd` on a copy of the copy it is given.
+
+- It refuses `~/.theseus`, `$THESEUS_STATE_DIR`, anything inside or above either, a directory a running process
+  names, a directory with no `store/wal`, and a directory holding any link that leads out of it.
+- It refuses an output directory (`--out`, its links resolved) inside or above a live root or the input, before
+  anything is written.
+- The copy is made with links followed, so it holds none, in `<out>/daemon/` (mode 0700).
+- The daemon and the CLI get a minimal environment: the path and the locale, a home inside `<out>/daemon/`, and
+  no vault token, token file or provider key of yours.
+- Every provider points at an address nothing listens on, the spend limit is a cent, and Discord, the web UI,
+  the MCP server and the index are off.
+- The daemon's stderr is discarded; a failure is a fixed code (`E_CLI`, `E_LEDGER`, `E_HISTORY`,
+  `E_DAEMON_EXIT`, `E_DAEMON_TIMEOUT`, `E_JUDGE_…`).
+- On every end it stops the daemon and removes the copy, and that includes a failed start, an error and
+  SIGTERM. A removal that fails is printed with its path.
+
+**What a SIGKILL leaves.** Killing the kit with SIGKILL (or a crash of the machine) skips its cleanup: the copy
+stays at `<out>/daemon/state`, and the scratch daemon may still run. Remove both with
+
+```bash
+python3 bench/view/scratch.py clean --out <out>
+```
+
+which kills whatever names `<out>/daemon` and removes that directory.
+
+The kit needs Python 3.11 or newer (`tomllib`).
 
 ## The copy
 
-Copy a daemon's state directory while that daemon is stopped, or from a backup, into a directory of your own:
+Copy a daemon's state directory while that daemon is stopped, or from a backup, into a directory of your own,
+following links (the kit refuses a copy with a link that leads out of it):
 
 ```bash
-cp -a ~/.theseus /tmp/state-copy        # with the daemon stopped
+cp -aL ~/.theseus /tmp/state-copy        # with the daemon stopped
 ```
 
 The kit copies it again before it starts a daemon on it, so the copy you made is left as it was. Delete it when
@@ -35,14 +59,22 @@ python3 bench/view/replay.py --bin-dir target/release --store /tmp/state-copy \
 ```
 
 The place is named as the ledger names it (`theseus ledger exchanges` lists the places). For each of the place's
-last N exchanges, `rows.jsonl` holds one line: the transcript's side, read from the measuring row the turn wrote
-(`context.turn`: the sent context's parts in tokens, and whether the previous exchange was in it), and the view's
-side, from `theseus view preview <place> --turns N --json` (its tokens by slot, what the budget left out and why,
-the fallback a turn would have taken, the window and the folds, and whether it held the previous exchange).
-`summary.json` sums them. It sends the preview no message, so the view is assembled for an empty one.
+last N exchanges, `rows.jsonl` holds one line with two sides:
+
+- **the recorded side**, read from the measuring row the turn wrote (`context.turn`): the sent context's parts in
+  tokens, and whether the previous exchange was in it. The row does not record which strategy built that context,
+  so every row says `strategy: not_recorded`;
+- **the view's side**, from `theseus view preview <place> --turns N --json`: its tokens by slot, what the budget
+  left out and why, the fallback a turn would have taken, the window and the folds, and whether it held the
+  previous exchange. That last answer is read from the exchange ranges its pieces lay, interiors included; a
+  range the place's exchange order cannot resolve makes it unknown, not "absent".
+
+`summary.json` sums them. The replay sends the preview no message, so the view is assembled for an empty one.
+Every name it writes is checked against its field's closed set (the daemon's own enums) or the store's id shape;
+anything else is written `other`.
 
 A daemon whose preview has no `--turns` form gives only the place's next turn's view (`next_turn_view` in the
-summary); a daemon with no preview gives the transcript's side alone. The summary's `notes` say which.
+summary); a daemon with no preview gives the recorded side alone. The summary's `notes` say which.
 
 ## The labelled cases
 
@@ -57,38 +89,52 @@ first set, `cases/synthetic.v1.json`, is 24 cases in §10's six classes, written
 callback from another place, "the second option" later, a corrected fact, a task update, and a forbidden
 disclosure. `build` makes each case's store in a scratch daemon on a stand-in model (bench/recall's
 `standin.py`), then scores the transcript's context and the view's. It cannot make a task's record or a seal, so
-the task and forbidden classes are listed as `not_built`, never scored.
+the 8 task and forbidden cases are `not_built` in every score, `build`'s and `score`'s alike, and never scored.
 
 ## The yardstick
 
 ```bash
-# What it would cost, calling nothing:
+# What it would cost, calling nothing (it still copies the store and starts a scratch daemon):
 python3 bench/view/yardstick.py --store /tmp/state-copy --bin-dir target/release \
-  --place 'local:/path/of/the/place' --turns 20 --back 96 --out /tmp/yard-plan --dry-run --cap-usd 5
+  --place 'local:/path/of/the/place' --turns 20 --back 96 --out /tmp/yard-plan --dry-run --cap-usd 1
 # The run:
 ANTHROPIC_API_KEY=... python3 bench/view/yardstick.py --store /tmp/state-copy --bin-dir target/release \
-  --place 'local:/path/of/the/place' --turns 20 --back 96 --out /tmp/yard --cap-usd 5
+  --place 'local:/path/of/the/place' --turns 20 --back 96 --out /tmp/yard --cap-usd 1
 ```
 
 For each of the place's last `--turns` exchanges, the judge (`--model`, Haiku 5.5 unless named) reads up to
-`--back` exchanges before it, one line each (the person's words, cut at 480 characters), 24 to a request, each request starting 12 lines
-after the last, so every line is judged twice; its higher score is kept. The comparison counts, per turn and in
-sum, the lines the judge marked helpful that the rules held (`both`), that they did not (`judge_only`: what the
-rules miss), and the reverse. On a store the rules are the transcript's; on the cases (`--cases`, with a
-strategy's `--held` file), the strategy's.
+`--back` exchanges before it, one line each (the person's words, cut at 480 characters), 24 to a request, each
+request starting 12 lines after the last, so every line is judged twice; its higher score is kept. Of the lines
+the judge answered for, the comparison counts, per turn and in sum, those it marked helpful that the rule held
+(`both`), that it did not (`judge_only`: what the rule misses), and the reverse. A line no window answered for is
+in no cell; `coverage` counts the lines and those judged.
 
-**It sends the conversation's words to a model.** That is the owner's to allow, on his own store. It is refused
-without `--cap-usd`, never starts a call whose worst case could pass the cap, and `--dry-run` prints the calls
-and the worst case first. `--judge fake` (the tests') calls nothing.
+**The rule is not the transcript's real selection.** On a store it is the `same_session_heuristic`: every
+earlier exchange of the turn's own session counts as held, with compaction, summaries, recall and other
+sessions' place tails ignored, and only the chosen place's exchanges judged. On the cases it is a strategy's
+`--held` file, or `own_place_lines` without one. Every output says which (`rules_basis`). The 8 cases the
+builder cannot make are judged as fixtures only (`not_built_fixture_only`), never in the totals.
+
+**The cap is a bound.** The model and the endpoint must be known: a model with no price in the catalogue, or any
+`--api-base` but Anthropic's, is refused unless you state the prices (`--price-in`, `--price-out`, dollars a
+million tokens). Before each call it reserves the call's worst case: every byte of the request counted as a
+token, plus the message's framing, at the higher of the input and cache-write prices, plus 400 output tokens.
+It never starts a call whose reservation would pass the cap. A call's reservation is replaced by what the
+provider reported only when the stream finished and reported its usage; otherwise it stays spent. `--dry-run`
+prints the calls and the summed reservations, unrounded, against the cap.
+
+**It sends the conversation's words to a model.** That is the owner's to allow, on his own store. The judge
+reads only `ANTHROPIC_API_KEY` from your environment. `--judge fake` (the tests') calls nothing.
 
 ## What none of it can tell
 
-- The replay's transcript side is what the request WAS; its view side is assembled NOW, from the store as it
-  stands, for an empty message. Anything the store learned since (a `did` line written later, a fold, a seal, a
-  correction) shapes the view and did not exist then.
+- The replay's recorded side is what the request WAS, by whatever strategy built it; its view side is assembled
+  NOW, from the store as it stands, for an empty message. Anything the store learned since (a `did` line written
+  later, a fold, a seal, a correction, adopted history) shapes the view and did not exist then.
 - History from before the owner's mark has no proven place: no view holds it, so a replay over it measures the
-  fallback, not the view.
+  fallback, not the view. Adopted history has exchanges but no measuring rows.
 - The measuring row counts tokens by the compiler's estimate (3.6 bytes a token), not the provider's.
+- The yardstick's rule on a store is a heuristic, not the context a turn was sent; it cannot see other places.
 - Neither tool says whether an answer would have been better; §10's paired replay with a rubric does, and it is
   not built.
 - The synthetic cases are short and written for the kit; they say whether a context holds a line, not how often

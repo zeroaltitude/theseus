@@ -99,8 +99,8 @@
      "evidence": ["h2"], "referent": "h2", "current": "h2", "stale": ["h1"]},
     {"id": "fix-02", "class": "corrected_fact",
      "history": [
-       {"id": "h1", "place": "there", "say": "The client's main contact is in Lisbon."},
-       {"id": "h2", "place": "there", "say": "Sorry, the main contact moved to Porto."},
+       {"id": "h1", "place": "there", "say": "The client's main contact is in Varnholm."},
+       {"id": "h2", "place": "there", "say": "Sorry, the main contact moved to Quellbridge."},
        {"id": "h3", "place": "here", "say": "Plan the client visit."}],
      "message": {"place": "here", "say": "Which city do we fly to for the visit?"},
      "evidence": ["h2"], "referent": "h2", "current": "h2", "stale": ["h1"]},
