@@ -187,19 +187,26 @@ async fn a_continuations_own_call_answered_later_keeps_the_question() {
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
 }
 
-/// P1, fail closed: a turn no message opened whose chain cannot be read (the turn it continues has no
-/// exchange and nothing kept) fails plainly, and nothing is sent.
+/// A turn no message opened whose chain's presence cannot be read (the turn it continues has no exchange
+/// mark and nothing kept) is not failed (the conductor's decision 9, issue 44): it resumes under the unknown
+/// presence, which shows it only what its own session said at its own place. The question is laid once,
+/// and nothing of another place reaches it: a fact said in the owner's DM is absent.
 #[tokio::test]
-async fn a_resume_whose_chain_cannot_be_read_fails_plainly() {
+async fn a_resume_whose_chain_cannot_be_read_sees_only_its_own_session() {
+    const ASKED: &str = "where is the pilot boat?";
+    const ELSEWHERE: &str = "the pilot boat code in the DM is 8812";
     let fake = Arc::new(crate::provider::FakeProvider::scripted(vec![
         cut(),
-        Scripted::text("Should not be sent."),
+        Scripted::text("It is moored at the north quay."),
     ]));
-    let (c, sid, turn) = restart_rig(fake.clone(), None, "where is the pilot boat?").await;
+    let (c, sid, turn) = restart_rig(fake.clone(), None, ASKED).await;
+    let dm = session(&c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
+    let said = crate::node::Node::user(&dm, None, "discord", ELSEWHERE);
+    c.store.append(&[said.record().unwrap()]).unwrap();
     c.store
         .append(&[crate::exchange::exchange_record(&{
             let mut ex = crate::exchange::exchange(&c.store, &turn).unwrap().unwrap();
-            // An exchange whose ask's mark is gone, and nothing kept: what it continues cannot be read.
+            // An exchange whose ask's mark is gone, and nothing kept: its presence cannot be read.
             ex.ask = Some("msg-that-is-not-there".into());
             ex.messages.clear();
             (ex.end_ms, ex.stop) = (None, None);
@@ -207,18 +214,16 @@ async fn a_resume_whose_chain_cannot_be_read_fails_plainly() {
         })
         .unwrap()])
         .unwrap();
-    let e = resume(&c, &sid).await.unwrap_err();
-    let te = e.downcast_ref::<crate::turn::TurnError>().unwrap();
-    assert_eq!(te.class, "context_unreadable");
-    assert!(
-        format!("{:#}", te.source).contains("what it continues could not be read"),
-        "{:#}",
-        te.source
-    );
-    assert!(
-        (fake.requests().iter()).all(|q| !texts(q).contains(RESUMES)),
-        "nothing is sent"
-    );
+    let res = resume(&c, &sid)
+        .await
+        .expect("an unreadable presence resumes");
+    assert_eq!(res.output, "It is moored at the north quay.");
+    let q = (fake.requests().into_iter())
+        .rfind(|q| texts(q).contains(RESUMES))
+        .expect("the resumed turn's request");
+    let t = texts(&q);
+    assert_eq!(t.matches(ASKED).count(), 1, "the question, once: {t}");
+    assert!(!t.contains("8812"), "nothing of another place: {t}");
 }
 
 /// A Core with no driver (a restart's resume is made below), view set, its first call cut: a session

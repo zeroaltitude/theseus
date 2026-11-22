@@ -1041,14 +1041,46 @@ async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
                 texts(q)
             );
         }
-        let written = (c.store.session_nodes(&sid).unwrap().into_iter())
-            .filter(|(_, n)| matches!(n.body, crate::node::Body::Recall { .. }))
-            .map(|(_, n)| serde_json::to_string(&n.body).unwrap())
-            .collect::<Vec<_>>()
-            .join("\n");
+        // By the owner's decision of 2026-11-22 (A): the Recall note written at the first dispatch stays, a
+        // record of what was sent. (1) No request after the seal lays its item: not this turn's later calls
+        // (above), nor the session's next turn.
+        turn_as(c, &sid, "and the tide?", true).await;
+        let next = (r.requests().into_iter())
+            .rfind(|q| !q.tools.is_empty() && texts(q).contains("and the tide?"))
+            .expect("the next turn's request");
         assert!(
-            !written.contains("kelp") && !written.contains("5519"),
-            "{written}"
+            !texts(&next).contains("5519") && !texts(&next).contains("kelp"),
+            "refusal {refusal}: the next turn lays nothing of the sealed source: {}",
+            texts(&next)
+        );
+        // (2) The seal's own report of what had already crossed out of the thread names the asking session:
+        // what a person sealing the thread is told (opened again here, then sealed by the owner).
+        c.runner
+            .threads
+            .write(
+                &c.store,
+                |b| {
+                    let mut t = b.get("kelp").expect("kelp").clone();
+                    t.sealed = None;
+                    Ok(vec![t])
+                },
+                |_, _| Ok(vec![]),
+            )
+            .unwrap();
+        let sealed = c
+            .thread_seal(
+                &theseus_protocol::threads::ThreadSealParams {
+                    slug: "kelp".into(),
+                    reason: Some("embargo".into()),
+                    ..Default::default()
+                },
+                crate::tests_task_brief::cli(),
+            )
+            .unwrap();
+        assert!(
+            sealed.crossed.iter().any(|x| x.session_id == sid),
+            "refusal {refusal}: the seal reports the note that crossed: {:?}",
+            sealed.crossed
         );
     }
 }
@@ -1124,8 +1156,14 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
                 texts(q)
             );
         }
-        let notes: Vec<crate::node::Node> = (c.store.session_nodes(&sid).unwrap().into_iter())
+        // Every turn writes its Recall node (issue 44); the asking turn's are the ones of this case.
+        let nodes = c.store.session_nodes(&sid).unwrap();
+        let asking = (nodes.iter())
+            .find(|(_, n)| matches!(&n.body, crate::node::Body::UserMessage { text, .. } if text == ASKS))
+            .and_then(|(_, n)| n.turn_id.clone());
+        let notes: Vec<crate::node::Node> = (nodes.into_iter())
             .filter(|(_, n)| matches!(n.body, crate::node::Body::Recall { .. }))
+            .filter(|(_, n)| n.turn_id == asking)
             .map(|(_, n)| n)
             .collect();
         assert!(notes.len() <= 1, "{case}: one Recall node at most");

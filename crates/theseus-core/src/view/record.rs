@@ -33,9 +33,10 @@ pub use text::StoreText;
 
 /// `view.<compilation id>`.
 pub const VIEW_PREFIX: &str = "view.";
-/// `view_turn.<turn id>\u{1}<20-digit u64::MAX - ms>\u{1}<compilation id>`: a turn's views, newest first.
-/// Within one millisecond the order is by compilation id (the smaller is read as the newer), not by the
-/// order of the calls: production ids (`cmp_<UUIDv7>`) are apart by then.
+/// `view_turn.<turn id>\u{1}<20-digit u64::MAX - kept at>\u{1}<compilation id>`: a turn's views, newest
+/// first. "Kept at" is the order the views were kept in ([`kept_at`], microseconds, never the same twice in
+/// one process): a view kept again for a new chain of the turn reuses its assembly's time, which cannot
+/// order the two. A record written before it holds the assembly's milliseconds, and sorts as older.
 pub const VIEW_TURN_PREFIX: &str = "view_turn.";
 /// `view_tally.<compilation id>`: a view's counts ([`Tally`]).
 pub const VIEW_TALLY_PREFIX: &str = "view_tally.";
@@ -135,12 +136,12 @@ pub struct ViewOfTurn {
     pub compilation: String,
 }
 
-/// The index entry for `turn`'s view of `compilation`, built at `at_ms`: time inverted, so the newest is
-/// the first a prefix read meets.
-pub fn turn_record(turn: &str, compilation: &str, at_ms: u64) -> anyhow::Result<NewRecord> {
+/// The index entry for `turn`'s view of `compilation`, kept at `at` ([`kept_at`]): inverted, so the newest
+/// is the first a prefix read meets.
+pub fn turn_record(turn: &str, compilation: &str, at: u64) -> anyhow::Result<NewRecord> {
     let key = format!(
         "{VIEW_TURN_PREFIX}{turn}{SEP}{:020}{SEP}{compilation}",
-        u64::MAX - at_ms
+        u64::MAX - at
     );
     let of = ViewOfTurn {
         compilation: compilation.into(),
@@ -173,12 +174,28 @@ pub fn keep_made(
     };
     let tally = Tally::of(&record);
     store.defer(view_record(&record)?)?;
-    store.defer(turn_record(turn, compilation, view.pov.now_ms)?)?;
+    store.defer(turn_record(turn, compilation, kept_at())?)?;
     store.defer(NewRecord::json(
         kinds::META,
         Some(&format!("{VIEW_TALLY_PREFIX}{compilation}")),
         &tally,
     )?)
+}
+
+/// The order a view is kept in, as a time in microseconds: later for a later keep, never the same twice in
+/// one process.
+fn kept_at() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = theseus_protocol::now_unix_ms().saturating_mul(1_000);
+    let mut last = LAST.load(Ordering::Relaxed);
+    loop {
+        let next = now.max(last + 1);
+        match LAST.compare_exchange_weak(last, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return next,
+            Err(seen) => last = seen,
+        }
+    }
 }
 
 /// One view, by its compilation.

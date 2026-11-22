@@ -1969,8 +1969,8 @@ async fn a_session_keeps_its_memory_across_a_restart() {
     assert_eq!(req.messages.len(), 3, "{:?}", req.messages);
     assert_eq!(req.messages[0]["content"][0]["text"], "who are you?");
     assert_eq!(req.messages[1]["content"][0]["text"], "My name is Theseus.");
-    // Still one compilation: the restart did not recompile anything.
-    assert_eq!(core.store.session_compilations(&sid).unwrap().len(), 1);
+    // One compilation a turn, the view's (issue 44): the restart added none of its own.
+    assert_eq!(core.store.session_compilations(&sid).unwrap().len(), 2);
 }
 
 /// One writer at a time per session record (theseus-xeo): a second write
@@ -2497,6 +2497,9 @@ async fn a_plain_turn_stays_within_its_frame_budget() {
             // Recall is on by default (theseus-is8t): its row rides in a
             // frame the turn already writes.
             "recall.ran",
+            // A view turn's chain is a new compilation every turn (issue 44): its record and pointer ride
+            // a frame the turn already writes.
+            "context.recompiled",
             "context.compiled",
             "loop.started",
             "action.planned",
@@ -4070,28 +4073,27 @@ async fn an_edited_context_file_recompiles_once_and_an_unchanged_one_appends() {
             .map(|d| d[key].as_str().unwrap_or("").to_string())
             .collect()
     };
+    // The view (issue 44): every turn's request is a new compilation of its own; the edit reaches the
+    // next turn's system text, once, and the turn after carries the same.
     assert_eq!(
         field("context.recompiled", "trigger"),
-        ["new_session", "system_changed"]
+        ["view_turn", "view_turn", "view_turn", "view_turn"]
     );
-    assert_eq!(
-        field("context.compiled", "decision"),
-        ["recompile", "append", "recompile", "append"]
-    );
+    assert_eq!(field("context.compiled", "decision").len(), 4);
     let (before, after) = (system_of(&r, 1), system_of(&r, 2));
     assert!(before.contains("'Theseus'.") && !before.contains("'Ithaca'"));
     assert!(after.contains("'Ithaca'.") && !after.contains("'Theseus'"));
     assert_eq!(system_of(&r, 3), after);
     let comps = r.core.store.session_compilations(&sid).unwrap();
-    assert_eq!(comps.len(), 2);
-    assert_eq!(comps[1].trigger, "system_changed");
+    assert_eq!(comps.len(), 4);
+    assert_eq!(comps[2].trigger, "view_turn");
     assert_eq!(
-        comps[1].manifest.context_files[0].digest,
+        comps[2].manifest.context_files[0].digest,
         Some(sha16(edited))
     );
     assert_ne!(
-        comps[0].manifest.context_files[0].digest,
-        comps[1].manifest.context_files[0].digest
+        comps[1].manifest.context_files[0].digest,
+        comps[2].manifest.context_files[0].digest
     );
 }
 
@@ -4347,15 +4349,17 @@ async fn an_edited_persona_file_recompiles_once_and_an_unchanged_one_appends() {
             .map(|d| d[key].as_str().unwrap_or("").to_string())
             .collect()
     };
+    // The view (issue 44): one compilation a turn; the edit reaches the next turn's system text.
     assert_eq!(
         field("context.recompiled", "trigger"),
-        ["new_session", "system_changed"]
+        ["view_turn", "view_turn", "view_turn"]
     );
-    assert_eq!(
-        field("context.compiled", "decision"),
-        ["recompile", "recompile", "append"]
+    assert_eq!(field("context.compiled", "decision").len(), 3);
+    let second = system_of(&r, 1);
+    assert!(
+        second.contains("Speak briefly.") && !second.contains("Speak plainly."),
+        "{second}"
     );
-    assert!(system_of(&r, 1).ends_with("Speak briefly."));
     let comps = r.core.store.session_compilations(&sid).unwrap();
     assert_eq!(
         comps[1].manifest.context_files[0].digest,
@@ -4634,9 +4638,11 @@ fn image_attached(name: &str, bytes: &[u8]) -> theseus_protocol::Attachment {
 }
 
 /// The blobs a request's files made: the system blocks, which a compilation
-/// keeps by digest (own-benchmark), are not files.
+/// keeps by digest (own-benchmark), are not files, nor are the texts a view
+/// keeps for a replay of its turn (its front, window and beside block,
+/// `compiler::view::kept`), which every view record names.
 fn blob_files(r: &Rig) -> usize {
-    let system: std::collections::HashSet<String> = r
+    let mut system: std::collections::HashSet<String> = r
         .fake
         .requests()
         .iter()
@@ -4647,6 +4653,22 @@ fn blob_files(r: &Rig) -> usize {
                 .map(|t| crate::blobs::digest(t.as_bytes()))
         })
         .collect();
+    let store = &r.core.store;
+    for s in store
+        .list_sessions::<crate::session::SessionRecord>()
+        .unwrap()
+    {
+        for c in store.session_compilations(&s.session_id).unwrap() {
+            let Ok(Some(v)) = crate::view::record::read(store, &c.id) else {
+                continue;
+            };
+            if let Some(k) = v.kept {
+                system.insert(k.front);
+                system.extend(k.window);
+                system.extend(k.beside);
+            }
+        }
+    }
     std::fs::read_dir(r.core.store.blobs().dir())
         .map(|d| {
             d.filter_map(Result::ok)

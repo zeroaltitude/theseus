@@ -119,20 +119,19 @@ async fn a_live_turn_puts_its_recall_in_front_of_the_model() {
         assert_eq!(items[0].chunk, (0, HERON.len() as u32));
         let stored = serde_json::to_string(&all[at].1).unwrap();
         assert!(!stored.contains("old weir"), "a copy: {stored}");
-        // The request: the question, then the note, in one user turn.
+        // The request (the view, issue 44): the block beside the message, holding the note, then the
+        // question, in one user turn.
         let q = requests(&r).pop().unwrap();
         let texts = last_texts(&q);
-        assert_eq!(texts[0], "Where does the grey heron nest?");
-        assert!(
-            texts[1].starts_with("[Recalled by the harness: 1 note from earlier sessions,"),
-            "{}",
-            texts[1]
+        let (beside, asked) = (&texts[0], texts.last().unwrap());
+        assert_eq!(
+            crate::surface::strip_tag(asked),
+            "Where does the grey heron nest?"
         );
-        assert!(
-            texts[1].contains(&format!("    \"{HERON}\"")),
-            "{}",
-            texts[1]
-        );
+        const NOTE: &str = "[Recalled by the harness: 1 note from earlier sessions,";
+        assert!(beside.contains(NOTE), "{beside}");
+        let note = beside.split_once(NOTE).map_or("", |(_, n)| n);
+        assert!(note.contains(&format!("    \"{HERON}\"")), "{note}");
         // The row.
         let ran = rows(c, &b, "recall.ran");
         assert_eq!(ran.len(), 2, "both turns recalled in front of the model");
@@ -428,7 +427,7 @@ async fn a_turn_whose_request_carried_its_recall_writes_one_recall_node() {
     let q = requests(&r).pop().expect("a request");
     let carried = last_texts(&q)
         .iter()
-        .any(|t| t.starts_with("[Recalled by the harness:"));
+        .any(|t| t.contains("[Recalled by the harness:"));
     assert!(carried, "the request carries the note");
     assert_eq!(recall_nodes(c, &b).len(), 1, "one `Recall` node");
     assert_eq!(res.recalled, 1, "and the reply counts it");

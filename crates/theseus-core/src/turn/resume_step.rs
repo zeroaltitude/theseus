@@ -10,7 +10,10 @@
 //!   plainly rather than lay that place's conversation for another audience. A session that posts nowhere
 //!   answers where the work was asked.
 //! - **Its presence**: each continued turn's, read as a set-up's. One that cannot be read, or reads as
-//!   `Unknown`, would leave the request without the work: the view fails the turn plainly.
+//!   `Unknown`, is the unknown presence (the conductor's decision, issue 44): the turn is not failed, and
+//!   under it the view shows only what its own session said at its own place (`view_gate::own_turns`): the
+//!   question, the calls, the results, and nothing of another session or place. Only a place that cannot be
+//!   read, or work asked where the conversation does not answer now, fails it plainly.
 //!
 //! A task's turns are the task's own (their place and presence are set elsewhere): they keep the presences,
 //! and nothing here fails them.
@@ -75,12 +78,14 @@ impl TurnRunner {
             .map(|e| e.map(|e| e.place))
             .collect();
         t.exchange.set_continues(turns);
-        let first = places.first().cloned().flatten();
-        let Some(first) = first.filter(|_| places.iter().all(Option::is_some)) else {
-            t.exchange.cannot_resume(Unresumable::Unread);
+        // A continued turn with no exchange (a fault before its frame) gives no place to compare: the turn
+        // answers at its session's own place, under the presence it can prove, the unknown one when none
+        // (the conductor's decision 9): only its own session's words there.
+        let known: Vec<&String> = places.iter().flatten().collect();
+        let Some(first) = known.first().map(|p| (*p).clone()) else {
             return read;
         };
-        if places.iter().any(|p| p.as_deref() != Some(first.as_str())) {
+        if known.iter().any(|p| **p != first) {
             t.exchange.cannot_resume(Unresumable::Elsewhere);
             return read;
         }
@@ -97,7 +102,7 @@ impl TurnRunner {
     }
 
     /// The presence of each turn a turn no message opened continues, read as a set-up's at `class`. One
-    /// that cannot be read, or reads as `Unknown`, makes the turn unresumable (not a task's).
+    /// that cannot be read is `None`, which the gate reads as the unknown presence: the turn goes on.
     pub(super) fn continued_presence(
         &self,
         t: &mut Turn<'_>,
@@ -107,18 +112,11 @@ impl TurnRunner {
             Some(c) => c.to_vec(),
             None => self.continued_turns(t),
         };
-        let found: Vec<Option<Present>> = (turns.iter())
+        (turns.iter())
             .map(|id| {
                 let id = id.as_deref()?;
                 view_gate::continued(&self.store, class, id)
             })
-            .collect();
-        let lost = found
-            .iter()
-            .any(|p| p.is_none_or(|p| p == Present::Unknown));
-        if t.tc.task.is_none() && lost {
-            t.exchange.cannot_resume(Unresumable::Unread);
-        }
-        found
+            .collect()
     }
 }

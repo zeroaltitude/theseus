@@ -60,18 +60,21 @@ async fn a_view_turn_routing_moved_to_another_profile_is_rebuilt_as_sent() {
 /// A verdict that lands after the tools settled and folds deep, on the session's own model: the turn drops
 /// its first compile and makes the call's again at the deeper ceiling (`stays_on_its_own`). That one keeps
 /// its own view record, so a rebuild reads its view and is never refused as built before views kept one.
-/// (Such a turn's request is not reproduced byte for byte under either assembly today: the transcript's
-/// own rebuild of it refuses on its messages too, apart from the view.)
+/// Such a turn's request is not reproduced byte for byte under either assembly today (the transcript's own
+/// rebuild of it refuses on its messages too): the refusal is part `messages`, never a guessed request.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_view_turn_whose_tools_settled_again_keeps_its_view_record() {
     let (r, sid) = settled_again().await;
     let turn = crate::tests_route::session(&r.core, &sid)
         .last_turn_id
         .expect("a turn");
-    if let Err(e) = r.core.rebuild_first(&sid, &turn) {
-        assert_ne!(e.part, "compilation", "its record was found: {e}");
-        assert_ne!(e.part, "view", "its view was read: {e}");
-    }
+    // Its record and view are read; the request is not reproduced (the messages differ, as under the
+    // transcript: see the report), and the refusal says so.
+    let Err(e) = r.core.rebuild_first(&sid, &turn) else {
+        panic!("a deeper-tools settle's request was rebuilt: assert its bytes now");
+    };
+    assert_eq!(e.part, "messages", "{e}");
+    assert!(e.why.starts_with("rendered again from"), "{e}");
 }
 
 /// A view turn whose late verdict folds deep on the session's own model, checked to keep its record: its

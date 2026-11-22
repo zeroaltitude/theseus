@@ -60,8 +60,6 @@ pub(super) struct Held {
 /// Why a turn no message opened cannot be resumed soundly (`resume_step`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Unresumable {
-    /// What it continues could not be read: its presence, or its place.
-    Unread,
     /// What it continues was asked where this conversation does not answer now.
     Elsewhere,
 }

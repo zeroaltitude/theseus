@@ -17,8 +17,6 @@ pub(in crate::turn) enum ViewFailed {
     Assembly(String),
     /// The gate's reading moved under the view a third time within one call's preparation.
     Moved,
-    /// A turn no message opened could not read what it continues (its presence, or its place).
-    Resume,
     /// A turn no message opened continues work asked in a place it may not answer in now.
     ResumeHere,
 }
@@ -30,9 +28,6 @@ impl std::fmt::Display for ViewFailed {
             Self::Assembly(why) => write!(f, "the conversation's context could not be read: {why}"),
             Self::Moved => f.write_str(
                 "what this turn may see changed while it was being prepared; send it again",
-            ),
-            Self::Resume => f.write_str(
-                "this turn's work could not be resumed: what it continues could not be read",
             ),
             Self::ResumeHere => f.write_str(
                 "this turn's work cannot be resumed here: it was asked where this conversation does not answer now",
@@ -47,7 +42,6 @@ impl From<super::super::exchange_step::Unresumable> for ViewFailed {
     fn from(why: super::super::exchange_step::Unresumable) -> Self {
         use super::super::exchange_step::Unresumable;
         match why {
-            Unresumable::Unread => Self::Resume,
             Unresumable::Elsewhere => Self::ResumeHere,
         }
     }
@@ -60,7 +54,6 @@ impl ViewFailed {
             Self::Place => "place",
             Self::Assembly(_) => "assembly",
             Self::Moved => "moved",
-            Self::Resume => "resume",
             Self::ResumeHere => "resume_place",
         }
     }
