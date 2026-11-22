@@ -76,8 +76,16 @@ impl TurnRunner {
                 }
             }
         }
+        // A view turn that declined is the transcript's in full: the recall this call withheld for the
+        // view is carried now, as on any transcript turn (`recall_step::carries`).
+        let recarried;
+        let mut input: CompileInput<'_> = input;
+        if t.recall.withheld.is_some() && self.carries(t).is_none() {
+            t.recall.withheld = None;
+            recarried = self.recall_view(t, input.nodes.to_vec());
+            (input.nodes, input.sources) = (&recarried.0, &recarried.1);
+        }
         // After a view's compilation the transcript starts a new chain: the view's prefix is not its own.
-        let mut input = input;
         if input
             .current
             .is_some_and(|c| c.strategy == crate::compiler::view::STRATEGY)
@@ -97,6 +105,11 @@ impl TurnRunner {
         let held = t.view.as_ref().filter(|f| f.turn_id == turn);
         if held.is_some_and(|f| f.declined) {
             return Ok(Err(None));
+        }
+        // The provider said a request of this turn passed its window: the transcript's ring makes room
+        // by the provider's own numbers, and the turn stays the transcript's.
+        if crate::compiler::view::provider_overflowed(&input) {
+            return Ok(Err(Some(Fallback::OverBudget)));
         }
         if held.is_none() {
             if let Some(why) = self.view_unsound(t, input.nodes) {
@@ -172,6 +185,11 @@ impl TurnRunner {
             }
         }
         None
+    }
+
+    /// Whether this turn declined the view: it is the transcript's turn.
+    pub(super) fn view_declined_here(t: &Turn<'_>) -> bool {
+        (t.view.as_ref()).is_some_and(|f| f.turn_id == t.tc.turn_id && f.declined)
     }
 
     /// The turn is the transcript's from now on, and the ledger says why once.
