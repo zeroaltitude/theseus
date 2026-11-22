@@ -1055,32 +1055,10 @@ async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
         );
         // (2) The seal's own report of what had already crossed out of the thread names the asking session:
         // what a person sealing the thread is told (opened again here, then sealed by the owner).
-        c.runner
-            .threads
-            .write(
-                &c.store,
-                |b| {
-                    let mut t = b.get("kelp").expect("kelp").clone();
-                    t.sealed = None;
-                    Ok(vec![t])
-                },
-                |_, _| Ok(vec![]),
-            )
-            .unwrap();
-        let sealed = c
-            .thread_seal(
-                &theseus_protocol::threads::ThreadSealParams {
-                    slug: "kelp".into(),
-                    reason: Some("embargo".into()),
-                    ..Default::default()
-                },
-                crate::tests_task_brief::cli(),
-            )
-            .unwrap();
+        let crossed = resealed_crossed(c);
         assert!(
-            sealed.crossed.iter().any(|x| x.session_id == sid),
-            "refusal {refusal}: the seal reports the note that crossed: {:?}",
-            sealed.crossed
+            crossed.iter().any(|x| x.session_id == sid),
+            "refusal {refusal}: the seal reports the note that crossed: {crossed:?}"
         );
     }
 }
@@ -1168,13 +1146,72 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
             .collect();
         assert!(notes.len() <= 1, "{case}: one Recall node at most");
         if let Some(crate::node::Body::Recall { items, .. }) = notes.first().map(|n| &n.body) {
+            // By the owner's decision of 2026-11-22 (A): the note is a record of what the first request held
+            // (references, never words), and it stays; what changes is what the LATER requests lay.
             let ids: Vec<&str> = items.iter().map(|i| i.node_id.as_str()).collect();
-            assert_eq!(ids, [open_id.as_str()], "{case}: the admitted item alone");
+            assert!(
+                ids.contains(&open_id.as_str()),
+                "{case}: the items admitted at first dispatch, the open one among them: {ids:?}"
+            );
             for q in &asked[1..] {
                 assert_eq!(texts(q).matches(OPEN).count(), 1, "{case}: {}", texts(q));
             }
         }
+        // The turn after this one lays nothing of the held source.
+        for q in next_turn(&r, &sid).await {
+            assert!(
+                !texts(&q).contains("5519"),
+                "{case}: the next turn lays nothing of the held source: {}",
+                texts(&q)
+            );
+        }
+        // A seal's own report of what had already crossed names the asking session.
+        if !steer {
+            let crossed = resealed_crossed(c);
+            assert!(
+                crossed.iter().any(|x| x.session_id == sid),
+                "{case}: the seal reports the note that crossed: {crossed:?}"
+            );
+        }
     }
+}
+
+/// The requests of the session's next turn (it asks "and the tide?"), at least one.
+async fn next_turn(r: &Rig, sid: &str) -> Vec<ProviderRequest> {
+    turn_as(&r.core, sid, "and the tide?", true).await;
+    let after: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| !q.tools.is_empty() && texts(q).contains("and the tide?"))
+        .collect();
+    assert!(!after.is_empty(), "the next turn's requests");
+    after
+}
+
+/// The report a person gets when sealing `kelp`: what had already crossed out of the thread. The test seal
+/// (`seal_kelp`) is lifted first, so the owner's `thread.seal` is the one that reports.
+fn resealed_crossed(c: &crate::Core) -> Vec<theseus_protocol::threads::ThreadCrossed> {
+    c.runner
+        .threads
+        .write(
+            &c.store,
+            |b| {
+                let mut t = b.get("kelp").expect("kelp").clone();
+                t.sealed = None;
+                Ok(vec![t])
+            },
+            |_, _| Ok(vec![]),
+        )
+        .unwrap();
+    let sealed = c
+        .thread_seal(
+            &theseus_protocol::threads::ThreadSealParams {
+                slug: "kelp".into(),
+                reason: Some("embargo".into()),
+                ..Default::default()
+            },
+            crate::tests_task_brief::cli(),
+        )
+        .unwrap();
+    sealed.crossed
 }
 
 /// Every message saying `what`, in any session, moved into the thread `kelp` as a split records it.

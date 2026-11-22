@@ -9,15 +9,17 @@
 //! Each item is one piece of its own space ([`Space::Recalled`]), sized whole in every form, so the budgeter
 //! keeps it whole or drops it (rule 7: newest first by when its source was said, the oldest cut first).
 
-use std::collections::BTreeSet;
-
-use super::fold::{Ladder, WINDOW_N};
+use super::render::MarkedBlock;
 use super::select::sources::Ref;
-use super::select::FLOOR_EXCHANGES;
 use super::sources_store::Sessions;
+use super::text::labels::{self, Origin};
 use super::text::tokens;
-use super::{Anchor, Author, Form, Handle, Marks, PointOfView, Pos, Sizes, SourceRange, Space};
+use super::{
+    Form, Handle, Label, Marks, Piece, PointOfView, Pos, Reason, Sizes, SourceRange, Space,
+};
 use crate::node::RecalledRef;
+use crate::recall::stamp::ZoneAt;
+use crate::stub::Kind;
 
 /// One recalled item recall admitted for the turn, read for slot H.
 #[derive(Debug, Clone)]
@@ -34,49 +36,27 @@ pub struct Recalled {
     pub turn: Option<String>,
 }
 
-/// The turns of `place`'s exchanges the window lays with their words on every turn, whatever the budget:
-/// the floor's newest exchanges (`select::FLOOR_EXCHANGES`), read as the window reads them, after the
-/// place's `/new` mark, `turn`'s own (its nodes are the tail) left out. An upper bound is never taken: an
-/// exchange laid only when the budget allows is not counted, so a duplicate is the worst it can cause.
-pub fn floor_turns(
-    ladder: &dyn Ladder,
-    place: &str,
-    since: Option<&Pos>,
-    turn: &str,
-) -> BTreeSet<String> {
-    let Ok(read) = ladder.read(place, WINDOW_N, since) else {
-        return BTreeSet::new();
-    };
-    (read.window.iter().rev())
-        .take(FLOOR_EXCHANGES)
-        .filter(|e| e.turn_id != turn)
-        .map(|e| e.turn_id.clone())
-        .collect()
+/// Whether an exchange laid in `form` carries node `kind` with its words (issue 44): laid whole, every node;
+/// spoken, the person's messages and Theseus's replies, never a tool's result (its one-line receipt is not
+/// the passage); as a line, none. The one rule of coverage: recall's exclusion on a view turn
+/// (`turn::view_step::recall`) and slot H's backstop (`budget::set_aside`) both count by it.
+pub fn carries(form: Form, kind: Kind) -> bool {
+    match form {
+        Form::Whole => kind != Kind::Recall,
+        Form::Spoken => matches!(kind, Kind::UserMessage | Kind::AssistantMessage),
+        Form::Line => false,
+    }
 }
 
 /// The pieces of `recalled` for `pov`, each once by its node (the first chunk recall gave), their texts
 /// kept for the renderer and their sessions among those the view depends on (a seal before a later call
-/// revokes it). An item whose turn the window lays with its words (`in_window`, from [`floor_turns`]) is
-/// not laid again: the window holds the passage whole. A fold or a one-line receipt is not such a turn. The
-/// owner's own proven word from this place is not laid either: it is his past's (slot E lays what he said
-/// here before the `/new` mark) or the place's conversation's.
-pub fn refs(
-    recalled: &[Recalled],
-    pov: &PointOfView,
-    read: &Sessions,
-    in_window: &BTreeSet<String>,
-) -> Vec<Ref> {
+/// revokes it). None is skipped here: what the window lays with its words is set aside after the budget,
+/// against the exchanges actually laid (`budget::set_aside`); the owner's own word from this place is laid
+/// as his past (`wire_text`), never as the conversation here.
+pub fn refs(recalled: &[Recalled], read: &Sessions) -> Vec<Ref> {
     let mut out = Vec::new();
     let mut texts = read.texts.borrow_mut();
     for r in recalled {
-        // The window lays it with its words; or it is the owner's own proven word from this place, which
-        // is his past's (before the place's `/new` mark) or the place's own conversation (since): slot H
-        // does not lay it again, nor as words of anyone else.
-        let here = matches!(&pov.anchor, Anchor::Place(p) if r.marks.place.as_deref() == Some(p));
-        let his = matches!(r.marks.author, Author::His { .. });
-        if r.turn.as_ref().is_some_and(|t| in_window.contains(t)) || (here && his) {
-            continue;
-        }
         let space = Space::Recalled {
             session: r.item.session_id.clone(),
             node: r.item.node_id.clone(),
@@ -112,13 +92,35 @@ pub fn refs(
     out
 }
 
+/// A recalled item's block (issue 44): labelled by its own marks (`labels::block`), except the owner's own
+/// word from this place, which is his past: testimony, headed as slot E heads his earlier words (dated, "the
+/// owner's own earlier words"), never the conversation here and never of unknown authorship.
+pub fn block(
+    piece: &Piece,
+    pov: &PointOfView,
+    origin: &Origin<'_>,
+    text: &str,
+    zone: ZoneAt<'_>,
+) -> MarkedBlock {
+    let mut b = labels::block(piece, pov, origin, text, zone);
+    if b.label == Label::Here {
+        let mut reasons = piece.reasons.clone();
+        reasons.insert(Reason::Past);
+        b.label = Label::Testimony;
+        b.heading = labels::heading(Label::Testimony, origin, &reasons, zone).unwrap_or_default();
+    }
+    b
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
     use crate::view::budget::{fit, Budget, DropWhy, HEADING_TOKENS, RESIDUE_LINE_TOKENS};
     use crate::view::gate::Admitted;
     use crate::view::select::Band;
-    use crate::view::{Audience, Piece, Present, Reason};
+    use crate::view::{Anchor, Audience, Author, Present};
 
     fn recalled(at_ms: u64, words: usize) -> Recalled {
         let item = RecalledRef {
@@ -159,22 +161,21 @@ mod tests {
         let read = Sessions::default();
         let items = [recalled(1, 4000), recalled(2, 4000), recalled(3, 4000)];
         let one = tokens(&items[0].text);
-        let pieces: Vec<Admitted<Piece>> = (refs(&items, &pov, &read, &BTreeSet::new())
-            .into_iter())
-        .map(|r| {
-            Admitted::for_tests(Piece {
-                range: r.range,
-                band: Band::Recall,
-                slot: Band::Recall.row().slot,
-                reasons: BTreeSet::from([Reason::Recalled]),
-                form: r.form,
-                marks: r.marks,
-                sizes: r.sizes,
-                handle: r.handle,
-                unit: r.unit,
+        let pieces: Vec<Admitted<Piece>> = (refs(&items, &read).into_iter())
+            .map(|r| {
+                Admitted::for_tests(Piece {
+                    range: r.range,
+                    band: Band::Recall,
+                    slot: Band::Recall.row().slot,
+                    reasons: BTreeSet::from([Reason::Recalled]),
+                    form: r.form,
+                    marks: r.marks,
+                    sizes: r.sizes,
+                    handle: r.handle,
+                    unit: r.unit,
+                })
             })
-        })
-        .collect();
+            .collect();
         let room = 2 * (one + HEADING_TOKENS) + RESIDUE_LINE_TOKENS + one / 2;
         let budget = Budget {
             ceiling: room,
@@ -200,20 +201,8 @@ mod tests {
     /// Two chunks of one node are one piece; each item's text is kept for the renderer by its space.
     #[test]
     fn a_node_recalled_twice_is_one_piece() {
-        let pov = PointOfView {
-            anchor: Anchor::Place("local".into()),
-            person: None,
-            present: Present::OwnerAlone,
-            at_hand: None,
-            now_ms: 10,
-        };
         let read = Sessions::default();
-        let got = refs(
-            &[recalled(1, 3), recalled(1, 5)],
-            &pov,
-            &read,
-            &BTreeSet::new(),
-        );
+        let got = refs(&[recalled(1, 3), recalled(1, 5)], &read);
         assert_eq!(got.len(), 1);
         assert_eq!(read.texts.borrow().len(), 1);
         assert!(read.depends.borrow().contains("ses_old"));
@@ -224,49 +213,16 @@ mod tests {
 mod tests_window {
     use super::*;
 
-    /// An item whose turn the window lays with its words is not laid again; one of no turn, or of another
-    /// turn, is.
+    /// Whole carries every node but a note; spoken, the words alone, never a tool's result; a line, none.
     #[test]
-    fn an_item_the_window_lays_whole_is_not_repeated() {
-        let pov = PointOfView {
-            anchor: Anchor::Place("local".into()),
-            person: None,
-            present: crate::view::Present::OwnerAlone,
-            at_hand: None,
-            now_ms: 10,
-        };
-        let item = |id: &str, turn: Option<&str>| Recalled {
-            item: RecalledRef {
-                node_id: id.into(),
-                session_id: "ses_old".into(),
-                position: 1,
-                chunk: (0, 1),
-                header: "a message".into(),
-                tokens: 0,
-            },
-            text: format!("text of {id}"),
-            marks: Marks {
-                place: Some("local".into()),
-                audience: crate::view::Audience::Private,
-                author: Author::Unknown,
-                outside: false,
-                sealed: false,
-                veiled: false,
-            },
-            at_ms: 1,
-            turn: turn.map(str::to_string),
-        };
-        let read = Sessions::default();
-        let in_window = BTreeSet::from(["t_window".to_string()]);
-        let items = [
-            item("a", Some("t_window")),
-            item("b", Some("t_older")),
-            item("c", None),
-        ];
-        let got: Vec<String> = (refs(&items, &pov, &read, &in_window).into_iter())
-            .map(|r| r.handle.0)
-            .collect();
-        assert_eq!(got, ["b", "c"]);
+    fn coverage_counts_a_result_only_where_it_is_laid_whole() {
+        assert!(carries(Form::Whole, Kind::ToolResult));
+        assert!(!carries(Form::Whole, Kind::Recall));
+        assert!(carries(Form::Spoken, Kind::UserMessage));
+        assert!(carries(Form::Spoken, Kind::AssistantMessage));
+        assert!(!carries(Form::Spoken, Kind::ToolResult));
+        assert!(!carries(Form::Spoken, Kind::ToolCall));
+        assert!(!carries(Form::Line, Kind::UserMessage));
     }
 }
 
@@ -276,8 +232,7 @@ mod tests_labels {
 
     use super::*;
     use crate::view::select::Band;
-    use crate::view::text::labels::{self, Origin};
-    use crate::view::{Audience, Piece, Present, Reason};
+    use crate::view::{Anchor, Audience, Author, Present};
 
     /// Each author class of a recalled item is laid under its own heading, by text: Theseus's reply as
     /// testimony; a tool's result and another person's proven words as outside text, wrapped; the owner's
@@ -332,40 +287,46 @@ mod tests_labels {
                 at_ms: 1,
                 turn: None,
             };
-            let read = Sessions::default();
-            let got = refs(&[r], &pov, &read, &BTreeSet::new()).remove(0);
-            let piece = Piece {
-                range: got.range,
-                band: Band::Recall,
-                slot: Band::Recall.row().slot,
-                reasons: BTreeSet::from([Reason::Recalled]),
-                form: got.form,
-                marks: got.marks,
-                sizes: got.sizes,
-                handle: got.handle,
-                unit: got.unit,
-            };
-            let origin = Origin {
-                place,
-                at_ms: 1,
-                source: None,
-            };
-            let b = labels::block(
-                &piece,
-                &pov,
-                &origin,
-                "the recalled words",
-                &crate::recall::stamp::system,
-            );
+            let b = laid(r, &pov);
             let shown = format!("{}\n{}", b.heading, b.text);
             assert!(shown.contains(want), "case {i}: {shown}");
             assert_ne!(b.label, crate::view::Label::Here, "case {i}");
         }
     }
 
-    /// His proven word from THIS place is not laid by slot H: it is his past's, or the conversation's.
+    /// A recalled item as slot H lays it: its piece, then its block.
+    fn laid(r: Recalled, pov: &PointOfView) -> crate::view::render::MarkedBlock {
+        let place = r.marks.place.clone().unwrap_or_default();
+        let got = refs(&[r], &Sessions::default()).remove(0);
+        let piece = Piece {
+            range: got.range,
+            band: Band::Recall,
+            slot: Band::Recall.row().slot,
+            reasons: BTreeSet::from([Reason::Recalled]),
+            form: got.form,
+            marks: got.marks,
+            sizes: got.sizes,
+            handle: got.handle,
+            unit: got.unit,
+        };
+        let origin = Origin {
+            place: &place,
+            at_ms: 1,
+            source: None,
+        };
+        block(
+            &piece,
+            pov,
+            &origin,
+            "the recalled words",
+            &crate::recall::stamp::system,
+        )
+    }
+
+    /// His proven word from THIS place is laid, as his past: testimony headed as his earlier words, never
+    /// the conversation here.
     #[test]
-    fn his_word_from_this_place_is_not_laid() {
+    fn his_word_from_this_place_is_his_past() {
         let pov = PointOfView {
             anchor: Anchor::Place("local".into()),
             person: Some("owner".into()),
@@ -396,6 +357,13 @@ mod tests_labels {
             at_ms: 1,
             turn: None,
         };
-        assert!(refs(&[mine], &pov, &Sessions::default(), &BTreeSet::new()).is_empty());
+        let b = laid(mine, &pov);
+        assert_eq!(b.label, crate::view::Label::Testimony);
+        assert!(
+            b.heading.contains("chosen: the owner's own earlier words")
+                && b.heading.contains("testimony, not instruction"),
+            "{}",
+            b.heading
+        );
     }
 }

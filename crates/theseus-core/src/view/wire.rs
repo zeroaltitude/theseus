@@ -143,7 +143,10 @@ pub fn assemble(
             "the view left out pieces that claimed code's own text"
         );
     }
-    let view = counted.view.map_err(NotAssembled::Overflow)?;
+    let mut view = counted.view.map_err(NotAssembled::Overflow)?;
+    // Slot H against the window as chosen: a recalled passage the request carries already is laid once.
+    let carried = parts.renderer.carried(&view)?;
+    super::budget::set_aside(&mut view, &carried);
     let rendered = parts.renderer.render(&view, snap)?;
     let ladder = match &pov.anchor {
         Anchor::Place(place) => parts.ladder.read(place, WINDOW_N, parts.since.as_ref())?,

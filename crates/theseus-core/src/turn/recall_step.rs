@@ -197,7 +197,7 @@ impl TurnRunner {
         message: &str,
     ) -> Scene<'a> {
         // A turn counts only what its view lays (issue 44).
-        let in_context = Self::view_in_context(t);
+        let in_context = self.view_in_context(t);
         let labeled = self
             .memory
             .labeled(&self.store)
