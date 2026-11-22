@@ -337,7 +337,17 @@ async fn the_live_sessions_next_turn_carries_the_note_once() {
     assert_eq!(noted[0].data["node_id"], x);
 
     turn(c, &s, "And its log path?").await;
-    assert_eq!(in_last_request(&r, "Correction:"), 0);
+    // Anything goes (2026-11-22): nothing is withheld by place, so s's request lays a's exchange, the
+    // correction note in it, once. The note is still a's alone: none is written for s.
+    assert_eq!(in_last_request(&r, "Correction:"), 1);
+    let s_noted = rows(c, LedgerKind::FactCorrected)
+        .into_iter()
+        .filter(|r| r.session_id.as_deref() == Some(s.as_str()))
+        .count();
+    assert_eq!(
+        s_noted, 0,
+        "a session that only saw the fact gets no correction note"
+    );
 }
 
 /// A second retraction writes nothing and answers the first one's table.
