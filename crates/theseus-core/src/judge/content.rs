@@ -262,8 +262,8 @@ impl ContentItem {
 ///
 /// **A soft brake, not a reservation**: it reads what the day has SETTLED, before the batch's cost, and
 /// apart from the reservation, so replies in flight can still pass it, and their spend counts against the
-/// judge's hard cap and the daemon's ceiling as an input's does. Nothing here keeps a share for the inputs;
-/// that is why reply judging is off by default (`[content_based_security] judge_replies`).
+/// judge's hard cap and the daemon's ceiling as an input's does. Reply judging is on by default; the owner
+/// turns it off with `[content_based_security] judge_replies = false`.
 pub const REPLY_SHARE_PERCENT: u64 = 50;
 
 /// Whether a reply may be asked about with `spent` of the day's `limit` gone ([`REPLY_SHARE_PERCENT`]).
