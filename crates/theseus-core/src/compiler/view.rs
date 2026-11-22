@@ -6,7 +6,8 @@
 //! the ladder's nodes; then the window, the place's newest exchanges as REAL turns, read from the store
 //! across the sessions that ran them and rendered by the compiler's own renderer (calls paired with their
 //! results; their thinking not carried); then this turn: one block beside the new message, the message, and
-//! the turn's own calls. The window's end carries a cache mark, so the front is read from the cache on the
+//! the turn's own calls, after the notes written into its session since its previous turn
+//! (`between`). The window's end carries a cache mark, so the front is read from the cache on the
 //! next turn; what moves every turn comes after it.
 //!
 //! Frozen within a turn: the turn's first call builds a [`Frozen`] once (`turn::view_step`) and every later
@@ -21,6 +22,8 @@ use serde_json::Value;
 
 use super::*;
 use crate::stub::Stub;
+
+mod between;
 
 /// The compilation's `strategy`.
 pub const STRATEGY: &str = "view";
@@ -312,9 +315,11 @@ fn laid(
     let window = frozen.window.iter().map(|(_, n)| n.clone());
     let prefix: Vec<Stub> = front.chain(window).collect();
     // A recall note is the transcript's: in a view, recall is a selector's piece beside the message.
+    let notes = between::notes(nodes, turn);
     let own = nodes
         .iter()
-        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn) && n.kind != crate::stub::Kind::Recall)
+        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn) || notes.contains(&n.id))
+        .filter(|(_, n)| n.kind != crate::stub::Kind::Recall)
         .map(|(_, n)| match stripped.contains(&n.id) {
             true => unthought(n),
             false => n.clone(),
