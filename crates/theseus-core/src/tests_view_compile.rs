@@ -533,7 +533,7 @@ async fn a_view_turn_offers_the_resolved_deferred_tools() {
         turn(&r.core, &sid, "deferred: which tools?").await;
         let q = (r.requests().into_iter())
             .filter(|q| last_user(q).contains("deferred: which tools?"))
-            .last()
+            .next_back()
             .unwrap();
         offered.push(crate::tests_places::offered(&q));
     }

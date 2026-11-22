@@ -68,8 +68,11 @@ impl Snapshot for StoreSnapshot<'_> {
 /// materialization see the same nodes and window, whatever folds while the assembly runs.
 pub struct OnceLadder<'a> {
     inner: &'a dyn Ladder,
-    read: std::cell::RefCell<std::collections::HashMap<(String, usize, Option<Pos>), LadderRead>>,
+    read: std::cell::RefCell<std::collections::HashMap<ReadKey, LadderRead>>,
 }
+
+/// A ladder read's place, grain and `/new` mark.
+type ReadKey = (String, usize, Option<Pos>);
 
 impl<'a> OnceLadder<'a> {
     pub fn new(inner: &'a dyn Ladder) -> Self {

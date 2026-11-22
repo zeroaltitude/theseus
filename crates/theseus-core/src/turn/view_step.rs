@@ -72,12 +72,12 @@ impl TurnRunner {
         if self.view_revoked(t) {
             t.view = None;
             self.view_freeze(t, input.spec)?;
-            self.view_reset(t, input.nodes);
+            Self::view_reset(t, input.nodes);
         }
         self.view_freeze(t, input.spec)?;
         // A refused image under the turn's thinking, or a forced recompile: the same view, a new chain.
         if input.strip.is_some() || input.force.is_some() {
-            self.view_reset(t, input.nodes);
+            Self::view_reset(t, input.nodes);
         }
         let (store, turn) = (t.tc.store, t.tc.turn_id);
         let Some(f) = t.view.as_mut() else {
@@ -109,7 +109,7 @@ impl TurnRunner {
 
     /// A new chain for the turn: its next call makes a new compilation (the sent tails let go), and the
     /// turn's own answers so far are sent without their thinking, which the change invalidated.
-    fn view_reset(&self, t: &mut Turn<'_>, nodes: &[(u64, Stub)]) {
+    fn view_reset(t: &mut Turn<'_>, nodes: &[(u64, Stub)]) {
         let turn = t.tc.turn_id;
         let Some(f) = t.view.as_mut() else {
             return;

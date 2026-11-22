@@ -271,7 +271,7 @@ fn a_receipt_is_made_from_the_window_alone_and_never_changes() {
     let f0 = frozen("t1", &window);
     let spoken = std::collections::HashSet::from([window[2].id.clone()]);
     let mut f = f0.clone();
-    f.window = view::receipted(f0.window.clone(), &spoken);
+    f.window = view::receipted(f0.window, &spoken);
     let mut own = vec![Node::user("s", Some("t1"), "cli", "now")];
     let first = run(&f, &own, None);
     let receipt = |c: &Compiled| serde_json::to_string(&c.request.messages[2]).unwrap();
