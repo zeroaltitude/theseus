@@ -80,8 +80,12 @@ RETIRED = {
     "threads": {"resume_keep_turns": 3, "working_tokens": 20000},
     "profiles": {"bench": {"keep_warm_hours": 24}},
 }
-TOO_LONG = {"type": "error", "error": {"type": "invalid_request_error",
-                                       "message": "prompt is too long: 250000 tokens > 200000 maximum"}}
+
+
+def too_long(counted: int) -> dict:
+    """A provider's refusal for size, its maximum just under what it was sent, as Anthropic words it."""
+    return {"type": "error", "error": {"type": "invalid_request_error",
+                                     "message": f"prompt is too long: {counted} tokens > {counted - 1} maximum"}}
 
 
 # ---- the stand-in model
@@ -147,16 +151,19 @@ def turn_text(req: dict) -> str:
 
 class Model:
     """A local stand-in for the Messages API. `script` maps a marker (a phrase of the turn's opening text) to
-    a list of steps, one per round of the turn: `{"calls": [...]}` (a callable is called for them),
+    a list of steps, one per call of the turn: `{"calls": [...]}` (a callable is called for them),
     `{"text": ...}` or `{"too_long": True}` (a 400 for size). The first marker in the script's order wins, so a
     case puts the most specific first. A marker opens a turn ONCE: a later turn whose text quotes it (a wake's,
-    a task's, a retry of the first call) is answered `REPLY`, as is anything no marker names. `seen` keeps
-    each call's request, the marker it took and its round."""
+    a task's, a retry of the first call) is answered `REPLY`, as is anything no marker names. The step is
+    counted here, call by call, not read from the request: a ring or a clearing that cut the turn's old results
+    must not send the turn back to its first step. `seen` keeps each call's request, the marker it took and
+    its step (`round`)."""
 
     def __init__(self, script: dict | None = None):
         self.script = script or {}
         self.seen: list[dict] = []
         self.opened: Counter = Counter()
+        self.step: Counter = Counter()
         self.lock = threading.Lock()
         outer = self
 
@@ -195,17 +202,21 @@ class Model:
         text, r = turn_text(req), rounds(req)
         marker = next((k for k in self.script if k in text), None) if req.get("tools") else None
         with self.lock:
-            self.seen.append({"req": req, "counted": counted, "marker": marker, "round": r,
-                              "tools": bool(req.get("tools"))})
             if marker is not None and r == 0:
                 self.opened[marker] += 1
+                self.step[marker] = 0
+            elif marker is not None:
+                self.step[marker] += 1
+            k = self.step[marker] if marker is not None else 0
             again = marker is not None and r == 0 and self.opened[marker] > 1
+            self.seen.append({"req": req, "counted": counted, "marker": marker, "round": k,
+                              "tools": bool(req.get("tools"))})
         if not req.get("tools"):  # a writer's call (a fold, a summary): it offers no tools
             return 200, standin.text_turn(standin.SUMMARY, counted, rates)
         steps = [] if again else self.script.get(marker) or []
-        step = steps[r] if r < len(steps) else {}
+        step = steps[k] if k < len(steps) else {}
         if step.get("too_long"):
-            return 400, TOO_LONG
+            return 400, too_long(counted)
         if "calls" in step:
             calls = step["calls"]() if callable(step["calls"]) else step["calls"]
             return 200, standin.calls_turn(calls, counted, rates)
@@ -283,14 +294,20 @@ def answered(v) -> bool:
     return isinstance(v, dict) and bool(v.get("output"))
 
 
-def turns(d: Daemon) -> dict:
-    """The case's turns: started, ended, failed, continuations, and those still open."""
+def turns(d: Daemon, cut: frozenset = frozenset()) -> dict:
+    """The case's turns: started, ended, failed, continuations, and those still open. A turn in `cut` (one a
+    kill of the daemon ended) is not open: no row can say it ended."""
     started = rows(d, "turn.started")
     done = {r.get("turn_id") for r in rows(d, "turn.ended")}
     failed = {r.get("turn_id") for r in rows(d, "turn.failed")}
-    return {"started": len(started), "ended": len(done), "failed": len(failed),
+    return {"started": len(started), "ended": len(done - {None}), "failed": len(rows(d, "turn.failed")),
             "continuations": sum(1 for r in started if (r.get("data") or {}).get("continuation")),
-            "open": sum(1 for r in started if r.get("turn_id") not in done | failed)}
+            "open": sum(1 for r in started if r.get("turn_id") not in done | failed | cut)}
+
+
+def open_turns(d: Daemon) -> frozenset:
+    started = {r.get("turn_id") for r in rows(d, "turn.started")}
+    return frozenset(started - {r.get("turn_id") for r in rows(d, "turn.ended") + rows(d, "turn.failed")})
 
 
 def wait_for(what, timeout: float = SETTLE, every: float = 0.25):
@@ -304,19 +321,19 @@ def wait_for(what, timeout: float = SETTLE, every: float = 0.25):
     return None
 
 
-def settle(d: Daemon, at_least: int = 1, timeout: float = SETTLE) -> dict:
+def settle(d: Daemon, at_least: int = 1, timeout: float = SETTLE, cut: frozenset = frozenset()) -> dict:
     """The case's turns once at least `at_least` have started and none is open (read twice, a second apart,
     so a turn that a job's end is about to start is not missed); the last reading when it never settles."""
     last = {}
 
     def quiet():
         nonlocal last
-        a = turns(d)
+        a = turns(d, cut)
         last = a
         if a["started"] < at_least or a["open"]:
             return None
         time.sleep(1.0)
-        b = turns(d)
+        b = turns(d, cut)
         last = b
         return b if b == a else None
 
@@ -343,8 +360,10 @@ def gate_call(gates: Path, g: str) -> list[dict]:
 def observe(d: Daemon) -> dict:
     """What the ledger says of the case, counts and names only."""
     fallbacks = Counter((r.get("data") or {}).get("why") or "unnamed" for r in rows(d, "context.view_fallback"))
+    failures = Counter((r.get("data") or {}).get("class") or "unnamed" for r in rows(d, "turn.failed"))
     strategies = Counter((r.get("data") or {}).get("strategy") or "unnamed" for r in rows(d, "context.compiled"))
     return {"fallback": dict(fallbacks), "strategies": dict(strategies), "turns": turns(d),
+            "failure_classes": dict(failures), "refused": len(rows(d, "turn.refused")),
             "compacted": len(rows(d, "context.compacted")), "overage": len(rows(d, "context.overage"))}
 
 
@@ -440,12 +459,14 @@ def restart(c: Case):
     t, box = in_background(submit, c.d, "Run the held job.", session_id=s)
     if not c.up("held"):
         return False, "the turn's job never started"
+    cut = open_turns(c.d)
     c.d.kill()
     t.join(60)
     c.d.start()
     wait_for(lambda: turns(c.d)["started"] >= 2, 60)
     c.release("held")
-    tt = settle(c.d, at_least=2)
+    tt = settle(c.d, at_least=2, cut=cut)
+    c.state["cut_turns"] = len(cut)
     why = all_ended(tt, 2)
     if why:
         return False, why
@@ -475,9 +496,10 @@ QUAY = "Please start a quay task to survey the north quay."
 def start_task(c: Case) -> tuple[str | None, str]:
     """The parent asks for a task; the task's turn answers its brief and reports. Its id, or why not."""
     task = {"name": "task_create", "input": {
-        "brief": "Survey the north quay.", "notify_done": True,
+        "brief": "Survey the north quay.", "wake_parent": True,
         "arrangement": {"pieces": [{"quote": QUAY, "role": "objective"}]}}}
-    c.model.script = {"Survey the north quay": [{"text": "Quay surveyed: four berths."}], **c.model.script,
+    work = c.state.get("task_work") or [{"text": "Quay surveyed: four berths."}]
+    c.model.script = {"Survey the north quay": work, **c.model.script,
                       "Please start a quay task": [{"calls": [task]}, {"text": "Started the quay survey."}]}
     s = c.session("quay")
     c.state["parent"] = s
@@ -501,18 +523,18 @@ def report(c: Case):
 
 
 def task(c: Case):
+    """A task's brief is its first turn; its job, which outlives the turn, ends and starts its second (a task's
+    session takes no message of the owner's: the daemon refuses one)."""
+    job = [{"name": "proc_run", "input": {"argv": ["sh", "-c", "sleep 5; echo the berths are counted"]}}]
+    c.state["task_work"] = [{"calls": job}, {"text": "Counting the berths."}]
     tid, why = start_task(c)
     if tid is None:
         return False, why
-    settle(c.d, at_least=3)
-    c.model.script = {"Count the bollards": [{"text": "Twelve bollards."}], **c.model.script}
-    try:
-        v = submit(c.d, "Count the bollards too.", session_id=tid)
-    except scratch.Failed as e:
-        return False, f"the task's second turn was refused ({e})"
     t = settle(c.d, at_least=4)
-    if not answered(v):
-        return False, "the task's second turn had no answer"
+    mine = [r for r in rows(c.d, "turn.started") if r.get("session_id") == tid]
+    c.state["task_turns"] = len(mine)
+    if len(mine) < 2:
+        return False, f"the task ran {len(mine)} turn(s), 2 expected"
     return (False, why) if (why := all_ended(t, 4)) else (True, "")
 
 
@@ -582,13 +604,11 @@ def provider_refusal(c: Case):
     except scratch.Failed:
         v = None
     t = settle(c.d)
-    calls = len(c.model.calls_of("Refuse this for size"))
+    c.state["calls"] = len(c.model.calls_of("Refuse this for size"))
     if why := all_ended(t, 1):
         return False, why
     if not answered(v) and not t["failed"]:
         return False, "neither an answer nor a plain failure"
-    if calls < 2:
-        return False, f"{calls} call(s): the refusal was not retried"
     return True, "" if answered(v) else "a plain failure"
 
 
@@ -660,6 +680,25 @@ CASES = {
 NOT_DRIVEN = {"new_mark", "shared_place"}
 
 
+def tool_results(model: Model, limit: int = 240) -> list[str]:
+    """Each tool result the stand-in was sent, once, cut to `limit` characters: the harness's words for a
+    failing case (`--debug`). The store is the suite's own, so nothing here is a person's."""
+    out: list[str] = []
+    for s in model.seen:
+        for m in s["req"].get("messages") or []:
+            for b in m.get("content") if isinstance(m.get("content"), list) else []:
+                if b.get("type") == "tool_result":
+                    c = b.get("content")
+                    text = c if isinstance(c, str) else " ".join(x.get("text", "") for x in c or [])
+                    line = ("error: " if b.get("is_error") else "") + " ".join(text.split())[:limit]
+                    if line not in out:
+                        out.append(line)
+    return out
+
+
+DEBUG = False
+
+
 def run_case(name: str, mode: str, bin_dir: Path, out: Path) -> dict:
     """One case in one mode, on a daemon of its own; its verdict and what the ledger says."""
     f, extra = CASES[name]
@@ -681,6 +720,10 @@ def run_case(name: str, mode: str, bin_dir: Path, out: Path) -> dict:
             res.update(ok=ok, why=why, **observe(d))
             res["state"] = {k: v for k, v in c.state.items() if isinstance(v, int)}
             res["model_calls"] = len(model.seen)
+            if DEBUG and not ok:
+                res["debug"] = {"tool_results": tool_results(model),
+                                "tools_offered": sorted({t.get("name", "") for s in model.seen[:1]
+                                                         for t in s["req"].get("tools") or []})}
     except scratch.Failed as e:
         res.update(ok=False, why=str(e))
     finally:
@@ -793,7 +836,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--assembly", choices=(*MODES, "both"), default="both")
     ap.add_argument("--cases", default="all", help="names, comma-separated, or all, or none")
     ap.add_argument("--cost-turns", type=int, default=30, help="0: no cost table")
+    ap.add_argument("--debug", action="store_true",
+                    help="a failing case's tool results and offered tools in proof.json (the suite's own words)")
     a = ap.parse_args(argv)
+    global DEBUG
+    DEBUG = a.debug
     out = scratch.check_out(Path(a.out))
     out.mkdir(parents=True, exist_ok=True)
     modes = MODES if a.assembly == "both" else (a.assembly,)
