@@ -541,10 +541,9 @@ impl MemoryConfig {
 #[cfg(test)]
 pub(crate) fn the_templates_memory_section(m: &MemoryConfig) {
     assert_eq!(m.mode, MemoryMode::Live);
-    // Un-commented, the two profile lines pin `session`, the word an unset key
+    // Un-commented, the profile line pins `session`, the word an unset key
     // meant before Jev chose (theseus-ej6bj); everything else is the default.
     let pinned = MemoryConfig {
-        summary_profile: Some(SUMMARY_SESSION.into()),
         synth_profile: Some(SUMMARY_SESSION.into()),
         ..MemoryConfig::default()
     };
@@ -617,7 +616,6 @@ mod tests {
             "rerank_wait_ms = 601",
             "experiment = \" \"",
             "session_recall_cap_tokens = 100",
-            "summary_profile = \"\"",
             "assembled_budget_tokens = 0",
             "synth_profile = \"\"",
             "synth_limit_usd_per_day = -1.0",

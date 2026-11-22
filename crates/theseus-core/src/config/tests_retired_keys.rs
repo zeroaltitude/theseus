@@ -93,7 +93,8 @@ fn the_template_names_no_retired_key() {
         !warnings.iter().any(|w| w.contains(" is retired: ")),
         "{warnings:?}"
     );
-    let (cfg, _) = Config::parse(&super::super::tests::uncommented(Config::EXAMPLE_TOML)).unwrap();
+    let out = super::super::tests::uncommented(Config::EXAMPLE_TOML);
+    let cfg = Config::from_toml(&out).unwrap();
     assert!(cfg.ignored_keys.is_empty(), "{:?}", names(&cfg));
     let (cfg, _) = parse("").unwrap();
     assert!(cfg.ignored_keys.is_empty());

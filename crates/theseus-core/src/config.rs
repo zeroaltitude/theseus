@@ -1610,8 +1610,7 @@ impl Config {
     pub fn parse(text: &str) -> Result<(Self, Vec<String>)> {
         let cfg = Self::from_toml(text).context("parsing config TOML")?;
         cfg.validate()?;
-        let mut warnings = Vec::new();
-        warnings.extend(cfg.ignored_keys.iter().map(retired_keys::warning));
+        let mut warnings = retired_keys::warnings(&cfg.ignored_keys);
         warnings.extend(cfg.persona_warnings());
         warnings.extend(cfg.option_profile_warnings());
         let mut retired = cfg.routing.retired();

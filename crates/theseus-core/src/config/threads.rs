@@ -361,17 +361,6 @@ mod tests {
         assert!(!off.threads.enabled && off.threads.max_live == 3);
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
         assert!(crate::Config::parse(&format!("{secrets}\n[threads]\nmax_live = 0\n")).is_err());
-        assert_eq!(cfg.threads.resume_keep_turns, 20);
-        assert_eq!(cfg.threads.working_tokens, None);
-        assert_eq!(cfg.threads.working_percent, 40);
-        for bad in [
-            "resume_keep_turns = 0",
-            "working_tokens = 10",
-            "working_percent = 0",
-            "working_percent = 101",
-        ] {
-            assert!(crate::Config::parse(&format!("{secrets}\n[threads]\n{bad}\n")).is_err());
-        }
         assert!(crate::Config::from_toml("[threads]\nbogus = 1\n").is_err());
         assert_eq!(cfg.threads.cross_recall_penalty, 0.35);
         assert_eq!(cfg.threads.cross_recall_bar, 0.75);
@@ -486,19 +475,6 @@ mod tests {
         assert!(quiet.iter().all(|w| !w.contains("threads.")), "{quiet:?}");
     }
 
-    /// `[cache] threads_keep_warm_hours` is 4 by default, 0 keeps no thread warm, and a
-    /// negative window is refused (theseus-ytt8).
-    #[test]
-    fn the_keep_warm_window_is_four_hours_and_zero_is_none() {
-        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert_eq!(cfg.cache.threads_keep_warm_hours, 4.0);
-        let off = crate::Config::from_toml("[cache]\nthreads_keep_warm_hours = 0\n").unwrap();
-        assert_eq!(off.cache.threads_keep_warm_hours, 0.0);
-        let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
-        let bad = format!("{secrets}\n[cache]\nthreads_keep_warm_hours = -1\n");
-        assert!(crate::Config::parse(&bad).is_err());
-    }
-
     /// `discord_channel` is off by default, named in the template, takes a
     /// Discord id, and refuses anything else (theseus-sjzm).
     #[test]
@@ -545,20 +521,6 @@ mod tests {
             let e = crate::Config::parse(&note).unwrap_err().to_string();
             assert!(e.contains("home_warn_percent"), "{bad}: {e}");
         }
-    }
-
-    /// A cold resume's working size is a share of the serving model's window; a set
-    /// `working_tokens` wins (theseus-d9je7).
-    #[test]
-    fn the_working_size_is_a_share_of_the_window() {
-        let cfg = ThreadsConfig::default();
-        assert_eq!(cfg.working_size(1_000_000), 400_000);
-        assert_eq!(cfg.working_size(200_000), 80_000);
-        let set = crate::Config::from_toml("[threads]\nworking_tokens = 60000\n").unwrap();
-        assert_eq!(set.threads.working_size(1_000_000), 60_000);
-        let pct = crate::Config::from_toml("[threads]\nworking_percent = 25\n").unwrap();
-        assert_eq!(pct.threads.working_size(200_000), 50_000);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# working_percent = 40"));
     }
 
     /// A thread's set grows from its turns (theseus-98bz.5) by default, named

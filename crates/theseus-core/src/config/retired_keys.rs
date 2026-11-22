@@ -109,6 +109,11 @@ pub fn warning(i: &Ignored) -> String {
     )
 }
 
+/// The start's warnings for every key it ignored, in order.
+pub fn warnings(ignored: &[Ignored]) -> Vec<String> {
+    ignored.iter().map(warning).collect()
+}
+
 #[cfg(test)]
 #[path = "tests_retired_keys.rs"]
 mod tests;
