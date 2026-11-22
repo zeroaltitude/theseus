@@ -4,7 +4,7 @@
 //!
 //! Who is present is never the view's to say: the point of view's presence and anchor are the turn's
 //! verified ones (`crate::view_gate::Verified`, computed by `turn::gate_step` from the input's mark and the
-//! place read on its own), and the gate is the turn's permit (`view::permit::Permit::for_turn`). A channel
+//! place read on its own), and the gate is the turn's permit (`view::permit::Permit::scoped`, made by `fork::window::Fork::permit`). A channel
 //! bound private, or an agent's process at the terminal, is never the owner alone (decision 5).
 
 use std::collections::{HashMap, HashSet};
@@ -226,7 +226,20 @@ impl TurnRunner {
         let (asked, message) =
             given.map_or_else(|| message_of(store, sid, turn), |text| Ok((None, text)))?;
         let verified_pov = verified.pov().clone();
+        let own_place_only = verified.own_place_only();
+        if verified.scope_unread() {
+            anyhow::bail!(
+                "this session's execution cannot be read, so whether the self loop opened it cannot be decided"
+            );
+        }
         let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified);
+        if own_place_only && fork.inherits() {
+            // A self-loop session lays its own place only, and a fork's inherited run is another session's:
+            // the fork is refused plainly rather than answered without the run it was handed.
+            anyhow::bail!(
+                "this conversation is a fork of the self loop's session, whose view holds its own exchanges only,                  so the run it inherits cannot be laid: fork an ordinary conversation instead"
+            );
+        }
         let read = fork.sessions();
         let sources = StoreSources {
             store,

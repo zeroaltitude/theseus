@@ -19,24 +19,24 @@ use crate::view_gate::Verified;
 pub struct Permit(Option<HashSet<String>>);
 
 impl Permit {
-    /// The permit of the turn of `session`.
-    pub fn for_turn(runner: &crate::turn::TurnRunner, session: &str) -> Self {
-        Self::of(Verified::of_session(runner, session))
-    }
-
-    /// A permit for a point of view already verified, with no scope.
+    /// A permit with no scope (tests and readers that are no turn's view; a turn's is [`Self::scoped`]).
     pub fn of(_verified: Verified) -> Self {
         Permit(None)
     }
 
     /// The permit of `session`'s turn `turn` for `verified`: for a self-loop session's turn, its own place
-    /// only (`view_gate::own_turns` at the anchor); for every other turn, as [`Self::of`].
+    /// only (`view_gate::own_turns` at the anchor); an unread scope, nothing; every other turn, as [`Self::of`].
     pub fn scoped(
         store: &crate::store::Store,
         session: &str,
         turn: &str,
         verified: &Verified,
     ) -> Self {
+        if verified.scope_unread() {
+            // Whether the self loop opened the session cannot be read: nothing is admitted (a turn's view
+            // fails before this, `view_built`; this holds for every other reader of the scope).
+            return Permit(Some(HashSet::new()));
+        }
         match verified.own_place_only() {
             true => Permit(Some(
                 crate::view_gate::own_turns(store, session, turn, &verified.pov().anchor)
