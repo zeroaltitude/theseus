@@ -151,7 +151,6 @@ fn run(f: &Frozen, own: &[Node], current: Option<&Compilation>) -> Compiled {
             strip: None,
             overflowed: None,
             sources: &Default::default(),
-            signals: None,
             assembled: None,
             situation: &situation::Situation::Continuation,
             kept: None,
