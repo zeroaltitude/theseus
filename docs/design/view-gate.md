@@ -84,6 +84,19 @@ the rule under any name a file gives it. Both are heuristics over the sources, n
   (`other_places_change_nothing_the_gate_admits_over_generated_stores`); and the view the selectors and the
   budgeter make is the same with exchanges the gate denies added (`view/select/tests.rs`). What the renderer and the
   compiler send is not tested this way.
+- **Not behind the gate yet, on the old path**: kept tails (`turn::sent_tail`, the earlier tail a transcript turn
+  sends again), the place digest's count of held threads (with the ledger off, or for the owner alone, it says how
+  many are sealed), session listings, and the text a turn was already sent before a steer narrowed its presence.
+
+## Seals at the message
+
+A message a split or a claim moved into a thread (`moved.of.<node>`) is that thread's. `view_gate::Moved` reads it
+for the readers that show exchanges: an exchange with any message or reply moved into a thread that is sealed,
+seal-pending, unknown to the board or unreadable (every moved node, when the board cannot be read) is held whole,
+at read time, from the view's window and selectors, the fold ladder's read, the history tool and `view.show`; the
+reader's own thread is clear to it. A frozen view asks again after all of a call's preparation, before every send
+(`view_step::view_readmitted`): a difference compiles the call again, at most twice, and a third declines the turn
+(`moved`). The summary writers use `moved_at_all`: any move into any thread, whatever its seal (`ladder.md`).
 
 ## After the second review
 
