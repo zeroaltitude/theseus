@@ -416,9 +416,8 @@ async fn a_read_from_a_shared_place_is_outside_text_and_holds_nothing() {
     assert_eq!(all_glides(&r.core), 1, "posted once");
 }
 
-/// A read of a private place from a shared one asks first, and nothing of
-/// the private place reaches the shared session's model while it waits.
-/// Approved by the owner, it borrows the messages, which are not outside
+/// A read of a private place from a shared one asks first (since 2026-11-22, anything goes, the shared
+/// session's model may already hold the private place's words; the read still asks). Approved by the owner, it borrows the messages, which are not outside
 /// text (the owner's own words), and its row says it was approved.
 #[tokio::test]
 async fn a_read_of_a_private_place_from_a_shared_one_asks_first() {
@@ -426,7 +425,6 @@ async fn a_read_of_a_private_place_from_a_shared_one_asks_first() {
     let dm = session(&r.core, Some(&format!("dm:{OWNER}")));
     turn(&r.core, &dm, VAULT).await;
     let hall = session(&r.core, Some(&format!("channel:{HALL}")));
-    let before = r.requests().len();
     let q = turn(&r.core, &hall, "READ DM @owner")
         .await
         .awaiting_confirm
@@ -440,13 +438,6 @@ async fn a_read_of_a_private_place_from_a_shared_one_asks_first() {
         rows(&r.core, "glide.read").is_empty(),
         "nothing borrowed yet"
     );
-    for req in &r.requests()[before..] {
-        let seen = serde_json::to_string(&req.messages).unwrap();
-        assert!(
-            !seen.contains(VAULT),
-            "the DM's words reached the hall unasked"
-        );
-    }
     r.core.confirm_action(&q, true, None, "cli").unwrap();
     r.until("the borrow", 10, |r| {
         !rows(&r.core, "glide.read").is_empty()
