@@ -1193,8 +1193,7 @@ impl Shared {
         if mention_only {
             let mentions: Vec<u64> = m.mentions.iter().map(|u| u.id.get()).collect();
             let roles: Vec<u64> = m.mention_roles.iter().map(|r| r.get()).collect();
-            // A reply to a message this binding posted counts, however it was
-            // sent: a webhook signs a persona's, under another author.
+            // A reply to a message this binding posted counts.
             let said = m.reference.as_ref().and_then(|r| r.message_id);
             let said = said.or(m.referenced_message.as_ref().map(|r| r.id));
             let ours = said.is_some_and(|id| self.replies.turn(id.get()).is_some());
