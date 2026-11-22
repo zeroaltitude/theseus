@@ -91,7 +91,8 @@ impl Move {
 impl Core {
     /// The two read-only methods (threads were retired on 2026-11-22, issue
     /// 44): `thread.list` and `thread.show` read the stored records. Every
-    /// other `thread.*` method is unknown.
+    /// other `thread.*` method is refused in words, before anything is read
+    /// or written, as `thread.move` is (`rpc/import.rs`).
     pub(super) fn rpc_threads(
         &self,
         name: &str,
@@ -106,8 +107,8 @@ impl Core {
                 self.thread_show(&p.slug, conn.answerer(p.author.clone(), p.discord.clone()))
             }),
             _ => Err(RpcFailure::new(
-                error_code::METHOD_NOT_FOUND,
-                format!("unknown method {name}: threads were retired; `thread.list` and `thread.show` read the stored records"),
+                error_code::REFUSED,
+                format!("{name} is gone: threads were retired; `thread.list` and `thread.show` read the stored records"),
             )),
         }
     }
