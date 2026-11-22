@@ -27,9 +27,10 @@ const CONTENT_V4: &str = include_str!("../fixtures/eval/content.v4.json");
 const UNDO_V1: &str = include_str!("../fixtures/eval/undo.v1.json");
 const PRECEDENCE_V1: &str = include_str!("../fixtures/eval/precedence.v1.json");
 const DIRECTIVE_V1: &str = include_str!("../fixtures/eval/directive.v1.json");
+const TASK_WORDS_V1: &str = include_str!("../fixtures/eval/task_words.v1.json");
 
 /// The packs with a labelled set.
-pub const PACKS: [&str; 11] = [
+pub const PACKS: [&str; 12] = [
     "classify.v4",
     "recall_cross.v1",
     "families.v1",
@@ -41,6 +42,7 @@ pub const PACKS: [&str; 11] = [
     "precedence.v1",
     "directive.v1",
     "directive.v2",
+    "task_words.v1",
 ];
 
 #[derive(Debug, Clone, Deserialize)]
@@ -69,6 +71,7 @@ pub fn set(pack: &str) -> Result<Vec<LabelledCase>> {
         "precedence.v1" => PRECEDENCE_V1,
         // v2 is measured on v1's set: the same sentences, so the two versions are scored alike.
         "directive.v1" | "directive.v2" => DIRECTIVE_V1,
+        "task_words.v1" => TASK_WORDS_V1,
         other => bail!("no labelled set for {other} (have: {})", PACKS.join(", ")),
     };
     serde_json::from_str(text).with_context(|| format!("fixtures/eval/{pack}.json"))
@@ -118,6 +121,40 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// `task_words.v1`'s set (issue 44) holds the brief's traps, each expecting
+    /// `other`, so its card: a quoted or forwarded instruction, a question
+    /// about pausing, "don't stop", a narrowing that smuggles in new work, and
+    /// text from outside pasted into the turn; beside a clean narrowing, pause
+    /// and resume.
+    #[test]
+    fn task_words_v1s_set_holds_the_traps_and_each_keeps_the_card() {
+        let cases = set("task_words.v1").unwrap();
+        for trap in [
+            "trap_quoted_pause",
+            "trap_forwarded_stop",
+            "trap_question_about_pausing",
+            "trap_dont_stop",
+            "trap_narrowing_smuggles_work",
+            "trap_outside_text_in_the_turn",
+            "trap_widen",
+            "trap_bare_ok",
+        ] {
+            let c = cases.iter().find(|c| c.name == trap).expect(trap);
+            assert_eq!(c.expect["change"], "other", "{trap}");
+        }
+        for (clean, want) in [
+            ("clean_restrict_staging_only", "restricts"),
+            ("clean_pause", "pauses"),
+            ("clean_resume", "resumes"),
+        ] {
+            let c = cases.iter().find(|c| c.name == clean).expect(clean);
+            assert_eq!(c.expect["change"], want, "{clean}");
+        }
+        let names: std::collections::BTreeSet<&str> =
+            cases.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names.len(), cases.len(), "names are unique");
     }
 
     /// A sentence that asks for one act, once, was offered as a

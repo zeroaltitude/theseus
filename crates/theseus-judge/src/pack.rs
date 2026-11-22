@@ -59,6 +59,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
     ("compare.v1", include_str!("../packs/compare.v1.toml")),
     ("heard.v1", include_str!("../packs/heard.v1.toml")),
+    ("task_words.v1", include_str!("../packs/task_words.v1.toml")),
     ("people.v1", include_str!("../packs/people.v1.toml")),
     (
         "people_seen.v1",
@@ -439,6 +440,9 @@ pub enum Builder {
     /// `content.v1`'s: one item that entered a session, and what it was and
     /// where it came from (theseus-9ymz0).
     Content,
+    /// `task_words.v1`'s: one message of the operator's and the one task it
+    /// addresses (issue 44).
+    TaskWords,
     /// `delay.v1`'s: one delayed piece of work, its elapsed and cost, and
     /// each progress signal with whether it moved (theseus-5x8ry).
     Delay,

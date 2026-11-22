@@ -59,6 +59,9 @@ pub const HEARD_VERSION: u32 = 1;
 /// `allow_said.v1`'s builder (module `allow_said`, chat-acts-are-tools S43-1).
 pub const ALLOW_SAID_VERSION: u32 = 1;
 
+/// `task_words.v1`'s builder (module `task_words`, issue 44).
+pub const TASK_WORDS_VERSION: u32 = 1;
+
 /// `same_thing.v1`'s and `two_things.v1`'s builders (module `sweep`, theseus-nzzz4).
 pub const SAME_THING_VERSION: u32 = 1;
 pub const TWO_THINGS_VERSION: u32 = 1;
@@ -448,6 +451,9 @@ pub enum Input {
     Compare(CompareInput),
     /// `heard.v1`'s (theseus-s3dwj): a short or unclear transcript in a call.
     Heard(HeardInput),
+    /// `task_words.v1`'s (issue 44): one message of the operator's and the
+    /// one task it addresses.
+    TaskWords(TaskWordsInput),
     /// `allow_said.v1`'s (chat-acts-are-tools, S43-1): the operator's latest
     /// message and the held call the assistant decided it means.
     AllowSaid(AllowSaidInput),
@@ -504,6 +510,7 @@ impl Input {
             Input::RecallCross(_) => Builder::RecallCross,
             Input::Families(_) => Builder::Families,
             Input::Content(_) => Builder::Content,
+            Input::TaskWords(_) => Builder::TaskWords,
             Input::Delay(_) => Builder::Delay,
             Input::Precedence(_) => Builder::Precedence,
             Input::AllowSaid(_) => Builder::AllowSaid,
@@ -531,6 +538,7 @@ impl Input {
             Builder::PeopleSeen => Input::PeopleSeen(serde_json::from_str(json)?),
             Builder::Compare => Input::Compare(serde_json::from_str(json)?),
             Builder::Heard => Input::Heard(serde_json::from_str(json)?),
+            Builder::TaskWords => Input::TaskWords(serde_json::from_str(json)?),
             Builder::AllowSaid => Input::AllowSaid(serde_json::from_str(json)?),
             Builder::SameThing => Input::SameThing(serde_json::from_str(json)?),
             Builder::TwoThings => Input::TwoThings(serde_json::from_str(json)?),
@@ -589,6 +597,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::PeopleSeen(i) => people::people_seen(i, cap, scrub),
         Input::Compare(i) => compare::compare(i, cap, scrub),
         Input::Heard(i) => heard::heard(i, cap, scrub),
+        Input::TaskWords(i) => task_words::task_words(i, cap, scrub),
         Input::AllowSaid(i) => allow_said::allow_said(i, cap, scrub),
         Input::SameThing(i) => sweep::same_thing(i, cap, scrub),
         Input::TwoThings(i) => sweep::two_things(i, cap, scrub),
@@ -811,6 +820,7 @@ mod rerank;
 mod security2;
 mod sweep;
 mod sweep_names;
+mod task_words;
 
 pub use allow_said::AllowSaidInput;
 pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
@@ -830,6 +840,7 @@ pub use sweep::{
     TITLES as SWEEP_TITLES,
 };
 pub use sweep_names::{KindSide, NameItInput, SameKindInput};
+pub use task_words::TaskWordsInput;
 
 /// `security.v1`: the call (tool, class, posture and why), its arguments
 /// (argv, paths, and a URL as host, path, and query, each clipped), the

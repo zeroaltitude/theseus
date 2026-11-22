@@ -126,14 +126,25 @@ impl UpdateIn {
 /// his own current words (`words.rs`); why not otherwise. Read again under
 /// the task's lock when the call runs.
 pub fn by_words(tc: &TurnCtx<'_>, input: &Value) -> Result<super::words::Kind, super::words::Why> {
+    would(tc, input).and_then(|(kind, acting)| match acting {
+        true => Ok(kind),
+        false => Err(super::words::Why::Shadow),
+    })
+}
+
+/// What the rule makes of a `task.update` naming his words: the kind it
+/// would apply, and whether its judge acts; or why it keeps the card.
+fn would(tc: &TurnCtx<'_>, input: &Value) -> Result<(super::words::Kind, bool), super::words::Why> {
     use super::words::Why;
     let i = update_in(input).map_err(|_| Why::NoWords)?;
-    if i.said.is_none() || i.kind.is_none() {
+    let (Some(said), Some(_)) = (i.said.as_deref(), i.kind) else {
         return Err(Why::NoWords);
-    }
+    };
     let all = super::all(tc.store).map_err(|_| Why::NotOneTask)?;
     let rec = super::resolve(&all, &i.id).map_err(|_| Why::NotOneTask)?;
-    super::words::decide(&super::words::Records::of(tc), rec, &i.ask())
+    let ev = super::words::Records::of(tc);
+    let kind = super::words::decide(&ev, rec, &i.ask())?;
+    Ok((kind, super::words::Evidence::acting(&ev, said)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -735,7 +746,7 @@ fn update<'a>(
     // (theseus-ext.10); the owner's waits for the operator's yes.
     let touches_layer1 = i.patch.layer1().is_some();
     let layer1 = i.patch.layer1().filter(|_| rec.is_owners());
-    let by_words = his_words(tc, &rec, &i, layer1, approved)?;
+    let by_words = his_words(tc, &rec, &i, layer1, approved, &mut done)?;
     if let Some(deps) = &i.patch.deps {
         let all = super::all(tc.store).map_err(|e| format!("{e:#}"))?;
         for d in deps {
@@ -807,27 +818,45 @@ fn update<'a>(
 
 /// His own current words, read again under the task's lock (issue 44): the
 /// kind of a layer-1 change of the owner's task that ran without his yes,
-/// or the refusal; none for a change his yes ran, or no layer-1 change.
-fn his_words(
-    tc: &TurnCtx<'_>,
+/// or the refusal; none for a change his yes ran, or no layer-1 change. A
+/// change that applies spends his message's receipt, under the message's own
+/// lock, in the change's frame.
+fn his_words<'a>(
+    tc: &TurnCtx<'a>,
     rec: &TaskRecord,
     i: &UpdateIn,
     layer1: Option<&str>,
     approved: bool,
+    done: &mut Done<'a>,
 ) -> Result<Option<super::words::Kind>, String> {
     if layer1.is_none() || approved {
         return Ok(None);
     }
-    super::words::decide(&super::words::Records::of(tc), rec, &i.ask())
-        .map(Some)
-        .map_err(|_| {
-            format!(
-                "Not applied: a change to task {}'s {} is the operator's, and it ran \
+    if let Some(node) = i.said.as_deref() {
+        done.locks.push(super::judged::lock_said(tc, node));
+    }
+    let applied = super::words::applies(&super::words::Records::of(tc), rec, &i.ask());
+    if let (Ok(kind), Some(node)) = (applied, i.said.as_deref()) {
+        let r = super::judged::Receipt {
+            node: node.into(),
+            task: rec.id.clone(),
+            base_version: rec.version,
+            kind,
+            turn: tc.turn_id.into(),
+            acting: true,
+            at_ms: theseus_protocol::now_unix_ms(),
+        };
+        done.records
+            .push(super::judged::receipt_record(&r).map_err(|e| format!("{e:#}"))?);
+    }
+    applied.map(Some).map_err(|_| {
+        format!(
+            "Not applied: a change to task {}'s {} is the operator's, and it ran \
                  without the operator's yes",
-                rec.id,
-                layer1.unwrap_or_default()
-            )
-        })
+            rec.id,
+            layer1.unwrap_or_default()
+        )
+    })
 }
 
 /// The patch applied to `rec`: the fields it changed, and a retitle's mark.
@@ -1206,9 +1235,21 @@ pub fn create_item<'a>(
 
 /// The lock a layer-1 call's proposal is written under, as its question is
 /// asked: the task's, before the execution's.
-pub fn lock_for_call<'a>(tc: &TurnCtx<'a>, name: &str, input: &Value) -> Option<SessionLock<'a>> {
-    let id = owners_target(tc.store, name, input)?.id;
-    Some(tc.store.lock_task(&id))
+pub fn lock_for_call<'a>(tc: &TurnCtx<'a>, name: &str, input: &Value) -> Vec<SessionLock<'a>> {
+    let Some(rec) = owners_target(tc.store, name, input) else {
+        return Vec::new();
+    };
+    let mut locks = vec![tc.store.lock_task(&rec.id)];
+    // The message a change names is held too, through the proposal's frame:
+    // its shadow receipt is measured once (issue 44).
+    if let Some(said) = input
+        .get("said")
+        .and_then(Value::as_str)
+        .filter(|_| name == UPDATE)
+    {
+        locks.push(super::judged::lock_said(tc, said));
+    }
+    locks
 }
 
 /// A layer-1 call's proposal, written on its task in the frame that asks
@@ -1259,21 +1300,46 @@ pub fn proposed(
         at_ms: theseus_protocol::now_unix_ms(),
     });
     let mut detail = json!({"fields": fields, "card": card, "before": {"objective": rec.objective, "acceptance": rec.acceptance}});
-    // A proposal that named his words and fell to the card says why: the cards counted (issue 44).
+    // A proposal that named his words and fell to the card says why, and
+    // what the rule would have done: the cards counted, and the shadow's
+    // measure (issue 44). One that would have applied spends its message's
+    // receipt here, so a replay is counted as one.
+    let mut spent = None;
     if name == UPDATE && input.get("said").is_some() {
-        if let Err(why) = by_words(tc, input) {
-            detail["words"] = json!({
-                "said": input["said"],
-                "kind": input.get("kind").cloned().unwrap_or(Value::Null),
-                "card": why.as_str(),
-            });
-        }
+        // Its message's lock is the caller's (`lock_for_call`), held until
+        // this frame commits.
+        let said = input["said"].as_str().unwrap_or_default();
+        let (would, card) = match would(tc, input) {
+            // It would apply and its judge acts, yet the card asks: another
+            // rule of the gate held it, and his yes decides.
+            Ok((_, true)) => ("apply", "held"),
+            Ok((kind, false)) => {
+                spent = Some(super::judged::receipt_record(&super::judged::Receipt {
+                    node: said.into(),
+                    task: rec.id.clone(),
+                    base_version: rec.version,
+                    kind,
+                    turn: tc.turn_id.into(),
+                    acting: false,
+                    at_ms: theseus_protocol::now_unix_ms(),
+                })?);
+                ("apply", super::words::Why::Shadow.as_str())
+            }
+            Err(why) => ("card", why.as_str()),
+        };
+        detail["words"] = json!({
+            "said": input["said"],
+            "kind": input.get("kind").cloned().unwrap_or(Value::Null),
+            "card": card,
+            "would": would,
+        });
     }
     let c = change(tc, &rec, None, detail);
-    let records = vec![
+    let mut records = vec![
         record(&rec)?,
         facts::row_of(&tc.rec(), "change_proposed", &c)?,
     ];
+    records.extend(spent);
     Ok(Some((records, c)))
 }
 

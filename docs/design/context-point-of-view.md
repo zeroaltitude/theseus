@@ -66,7 +66,7 @@ an item held out since leaves nothing behind.
 - **6 and 7, together**: the assembler went straight into the compiler, behind the setting above, with no shadow
   run (`docs/design/view-compile.md`). The memory page, the record of what a turn was shown, `theseus view show`, and
   Theseus's own reading of its view (`look.theseus`) came with it (`docs/design/view-record.md`).
-- **8, in part**: a joined task's card; the change of objective without a card, built and switched off (§7).
+- **8, in part**: a joined task's card; the change of objective without a card, built, its judge in shadow (§7).
 - **Ahead of the plan, by the same day's trims**: routing by a guess is gone (a message goes to a thread only by its
   address; §9), and the rule by model provider is deleted (decision 8; §4). A failed explicit address is refused
   before anything else and runs nowhere; a thread the reader may not be told of is no thread in every form; a reply
@@ -766,19 +766,23 @@ step 8, after the card.
   flight, the task's last message cut at 300 tokens, each "as of" its time), only where the owner is alone. It is
   called in when the judge's `addressed_task` names exactly one task; a match on the task's name does not call it
   yet, because the name matcher is not wired into the view.
-- **Decision 6 is built and switched off.** The checks are written: an independent typed judgment of this exact
-  message naming this task, this version and a narrowing; the kind `narrows`; not a task's own session; the whole
-  id; the newest version, and his message not older than it; nothing from outside read since his message; his
-  mark, in person, of the current exchange of this session; and the owner alone. A narrowing keeps the objective
-  word for word and adds his whole message beside it, never a part the model chose; his words are kept by
-  reference (`task.words.<id>.<version>`). But the kind the model declares is its own label, and nothing else
-  checked that his words mean it ("also deploy it to production" sent as a narrowing widens the task). So the
-  first check is the independent judgment, and no judge pack asks that question yet: **every change keeps its
-  card**. On the `task.change_proposed` row a proposal that names his words and its kind falls to the card as
-  `no_judgment`; one that leaves out either falls to it as `no_words`. Turning it on needs three things first: that
-  question, asked of his marked message; outside text judged from the turn's admitted inputs and their marks
-  rather than from the session's nodes; and a one-use receipt, so that one message authorises at most one change to
-  one task.
+- **Decision 6 is built, and its judge runs in shadow.** The checks are written: an independent typed judgment
+  of this exact message naming this task, this version and a narrowing; the kind `narrows`; not a task's own
+  session; the whole id; the newest version, and his message not older than it; nothing the turn admitted from
+  outside or from another person; his mark, in person, of the current exchange of this session; his message's
+  one-use receipt not spent; and the owner alone. A narrowing keeps the objective word for word and adds his whole
+  message beside it, never a part the model chose; his words are kept by reference (`task.words.<id>.<version>`).
+  The kind the model declares is only its label: the judgment is `task_words.v1`'s, asked at the gate of a
+  `task.update` that names his message, only when `addressed_task` names exactly one task and the message is his
+  in person; it reads his message alone and the task, nothing of the proposal, and answers `restricts`, `pauses`,
+  `resumes` or `other` (kept as `task.judged.<node>`). Outside text is judged from the current exchange's nodes and
+  the turn's view, failing closed; one message spends one receipt (`task.receipt.<node>`), under a lock keyed by
+  the message. **A new pack starts in shadow**: the `task.change_proposed` row says what the rule would have done
+  (`words.would`: `apply` or `card`, and why: `shadow`, `no_judgment`, `misjudged`, `outside`, `spent`, …; one
+  that names his message but no kind is `no_words`), and every change still keeps its card. Promoting `task_words.v1`
+  (`theseus packs promote task_words.v1 --live`, the operator's act, citing a learning report) makes a clean
+  narrowing apply without one. A resume keeps its card in every state: it starts work again, which a misread
+  pause never does.
 - **A model-proposed pause was withdrawn.** `task.update` offers `narrows`, `widens` and `replaces` only, and has
   no pause field; a call that asks for a pause is refused. The pause as first built set a state on the record and held nothing that ran,
   and making it a real hold inside the kernel's frame was not a small change. The owner's own `task.pause` and

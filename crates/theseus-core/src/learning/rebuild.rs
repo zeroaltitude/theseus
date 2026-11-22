@@ -85,6 +85,10 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "a voice transcript's state is one utterance's text, the sentences it may echo and \
              its timing, which the record keeps only in the judgment's blob",
         ),
+        Builder::TaskWords => Some(
+            "a task-words state is the operator's message and the task as it stood at that \
+             moment, which the record keeps only in the judgment's blob",
+        ),
         Builder::SameThing
         | Builder::TwoThings
         | Builder::SameKind
