@@ -3,7 +3,7 @@
 //! anything (`own_bench::rebuild`).
 
 use super::super::compile_step::Keeping;
-use super::{Compiled, Turn};
+use super::{Compiled, Turn, TurnRunner};
 use crate::compiler::view::kept::{kept, Kept};
 use crate::compiler::view::Frozen;
 use crate::store::Store;
@@ -54,5 +54,22 @@ fn recalled_import(store: &Store, f: &Frozen) -> bool {
                 store.get_session::<crate::session::SessionRecord>(&r.session_id),
                 Ok(Some(rec)) if rec.imported.is_none()
             )
+    })
+}
+
+/// Whether anything a view laid is gone now: an exchange that is missing or does not read, or a node its
+/// recall laid (`recalled`) that is gone or erased (`Body::Erased`): its words must not be sent again. Anything
+/// goes (2026-11-22): no seal or move holds anything; the sessions are not read.
+pub(crate) fn held_now(
+    runner: &TurnRunner,
+    _asker: &str,
+    (_sessions, exchanges, recalled): (&[String], &[String], &[String]),
+) -> bool {
+    let store = &runner.store;
+    let gone =
+        (exchanges.iter()).any(|id| !matches!(crate::exchange::exchange(store, id), Ok(Some(_))));
+    gone || (recalled.iter()).any(|id| match store.get_node(id) {
+        Ok(Some((_, n))) => matches!(n.body, crate::node::Body::Erased { .. }),
+        Ok(None) | Err(_) => true,
     })
 }
