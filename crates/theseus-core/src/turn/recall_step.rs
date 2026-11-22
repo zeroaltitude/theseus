@@ -108,7 +108,7 @@ impl TurnRunner {
                 let begun = self.recall_begin(t, a.arm)?;
                 // On the heap: the turn's own future stays the size it was
                 // before the arms' work (32b) joined this one.
-                Box::pin(self.recall_live(t, Some(session), begun, a)).await;
+                Box::pin(self.recall_live(t, begun, a)).await;
                 None
             }
             // `live` with arm `none` (the exam's `none` daemon, 34b): today's
@@ -313,14 +313,8 @@ impl TurnRunner {
 
     /// Recall in front of the model: the answer now, the pack, and its
     /// `Recall` node with its edges, held for the compile and the plan
-    /// frame. Past the session's cap it pauses, and writes no node.
-    async fn recall_live(
-        &self,
-        t: &mut Turn<'_>,
-        session: Option<&SessionRecord>,
-        mut begun: Begun,
-        a: Assigned,
-    ) {
+    /// frame.
+    async fn recall_live(&self, t: &mut Turn<'_>, mut begun: Begun, a: Assigned) {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
         // The tier, if the verdict has landed; ordinary if not: never a wait.
@@ -329,17 +323,7 @@ impl TurnRunner {
         let mut m = self.recall_reranked(t, mode, a.arm, &begun, answer).await;
         self.memory.noted(&m);
         m.arm = Some(a.arm.as_str().into());
-        let cap = self.memory.cfg().session_recall_cap_tokens;
-        // An assembled section sits in the prefix: the tail's cap is not its.
-        let in_tail = session.map_or(0, |s| self.recall_tokens_in_tail(t, s));
-        if !m.admitted.is_empty() && in_tail + m.used_tokens > cap {
-            m.outcome = "paused".into();
-            m.why = Some(format!(
-                "the session's tail holds {in_tail} tokens of recall notes, and {} more would \
-                 pass session_recall_cap_tokens = {cap}",
-                m.used_tokens
-            ));
-        } else if !m.admitted.is_empty() {
+        if !m.admitted.is_empty() {
             self.hold_node(t, &m, a);
         }
         // The row keeps references, never copies.
@@ -402,30 +386,6 @@ impl TurnRunner {
         };
         defer_row(t, &f);
         t.announce_fact(&f);
-    }
-
-    /// The tokens of the recall notes in the session's tail: those after
-    /// its current compilation's `as_of`.
-    fn recall_tokens_in_tail(&self, t: &Turn<'_>, session: &SessionRecord) -> u64 {
-        let current = session
-            .compilation_id
-            .as_deref()
-            .and_then(|id| self.store.get_compilation(id).ok().flatten());
-        let as_of = current.as_ref().map_or(0, |c| c.as_of);
-        // An assembled prefix's section is its prefix's, not the tail's.
-        let section = current.and_then(|c| c.recall_id);
-        let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) else {
-            return 0;
-        };
-        nodes
-            .iter()
-            .filter(|(p, n)| *p > as_of && section.as_deref() != Some(n.id.as_str()))
-            .filter(|(_, n)| n.kind == crate::stub::Kind::Recall)
-            .map(|(_, n)| match &n.body {
-                Body::Recall { items, .. } => items.iter().map(|r| r.tokens).sum(),
-                _ => 0,
-            })
-            .sum()
     }
 
     /// The `Recall` node of `m`'s admitted items, each read from its source

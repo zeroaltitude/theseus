@@ -34,6 +34,9 @@ const WARM: &str = "nothing is kept warm between turns any more (a long wait ins
                     is)";
 const STUB: &str = "attachments are no longer replaced by stubs: there is no cold rewrite of a \
                     session any more";
+const CAP: &str =
+    "recall no longer pauses at a cap on a session's notes: each request lays recall \
+                   afresh, within the view's own budget for it";
 const COLD: &str = "a thread is no longer resumed cold from a cut transcript: the view reads its \
                     conversation's exchanges";
 
@@ -42,6 +45,7 @@ const COLD: &str = "a thread is no longer resumed cold from a cut transcript: th
 /// effort rule) and `[threads] resume_keep_turns` (the home-size warning). Those are live settings.
 pub const RETIRED: &[Retired] = &[
     r("context", "assembly", VIEW),
+    r("memory", "session_recall_cap_tokens", CAP),
     r("context", "kept_mb", KEPT),
     r("context", "ledger", LEDGER),
     r("memory", "summary_profile", SUMMARY),

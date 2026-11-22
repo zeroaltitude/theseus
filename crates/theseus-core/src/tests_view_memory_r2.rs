@@ -319,7 +319,6 @@ fn long_recall(c: &mut crate::Config) {
     view(c);
     c.memory.recall_budget_tokens = 2_000_000;
     c.memory.recall_max_items = NOTES;
-    c.memory.session_recall_cap_tokens = 20_000_000;
 }
 
 /// More notes than slot H's ceiling holds, each cut by recall to its own excerpt.

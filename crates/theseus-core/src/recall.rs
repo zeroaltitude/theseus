@@ -23,9 +23,7 @@
 //! a `derived_from` edge to each source (`via = "recall"`), which ride the
 //! provider call's plan frame with the `recall.ran` row: no frame of their
 //! own. It renders after the new message, read from each source by position
-//! (`render`). A session's recall notes in its tail are capped
-//! (`session_recall_cap_tokens`): past it recall pauses until the next
-//! recompile.
+//! (`render`).
 //! The operator's labels (`labels`) keep a node out as `labeled_wrong`.
 
 pub mod cite;
