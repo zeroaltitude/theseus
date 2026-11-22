@@ -303,7 +303,7 @@ async fn a_topics_guidance_is_in_the_system_block_under_its_header() {
 /// The design's second, under the view: a membership set between turns applies at the session's next turn,
 /// whose system text then carries the category's guidance (a changed system text starts a new chain).
 #[tokio::test]
-async fn a_membership_change_applies_at_the_next_turn() {
+async fn the_next_turn_carries_a_new_categorys_guidance() {
     let r = rig();
     r.topic("theseus", RULES);
     let sid = session(&r.core, None);
@@ -313,9 +313,21 @@ async fn a_membership_change_applies_at_the_next_turn() {
     r.member(&sid, &["theseus"]);
     turn(&r.core, &sid, "two").await;
     assert!(system_text(&r.last_request()).contains(RULES));
-    let m = r.compilation(&sid).manifest;
+    let c = r.compilation(&sid);
+    assert_eq!(c.strategy, crate::compiler::view::STRATEGY);
+    let m = c.manifest;
     assert_eq!(m.memberships.len(), 1);
     assert_eq!(m.memberships[0].category.as_str(), "topic:theseus");
+    assert_eq!(
+        m.guidance.len(),
+        1,
+        "the manifest records the guidance it carried"
+    );
+
+    // And it stays: the turn after carries it too, nothing asked for.
+    turn(&r.core, &sid, "three").await;
+    assert!(system_text(&r.last_request()).contains(RULES));
+    assert_eq!(r.compilation(&sid).manifest.memberships.len(), 1);
 }
 
 /// The design's third: an edit of guidance a session carries is one

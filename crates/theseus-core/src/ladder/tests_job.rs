@@ -114,6 +114,7 @@ async fn a_build_counts_and_prices_in_a_dry_run_then_writes_within_its_cap() {
         (total as u64, total as u64, 1)
     );
     assert!(dry.estimated_usd > 0.0 && !dry.needs_over_day_line);
+    assert!(!dry.skipped, "every laddered place is built");
     assert!(w.asks.lock().unwrap().is_empty(), "a dry run asks nothing");
     assert!(core.store.get_meta::<Day>(DAY_KEY).unwrap().is_none());
     // A cap of five calls: five lines, then it stops, and folds nothing.

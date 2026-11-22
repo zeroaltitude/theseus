@@ -4982,6 +4982,8 @@ async fn an_image_the_provider_refuses_is_shown_as_its_line_and_the_call_made_ag
     // Nor does the turn after it.
     let again = submit(&r.core, submit_params(Some(&sid), "Once more?", vec![])).await;
     assert_eq!(again["output"], "After the recompile.", "{again}");
+    let compiled = ledgered(&r, "context.compiled");
+    assert_eq!(compiled.last().unwrap()["strategy"], "view", "{compiled:?}");
     let reqs = r.fake.requests();
     assert_eq!(reqs.len(), 4);
     for q in &reqs[1..] {

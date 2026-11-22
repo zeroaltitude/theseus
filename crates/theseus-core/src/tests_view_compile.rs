@@ -201,8 +201,9 @@ async fn a_view_window_reads_the_place_across_its_sessions() {
     let after = session_in(c, None, &r.root);
     turn(c, &after, "beta: what came before").await;
     let q = asked(&r, "beta: what came before").pop().unwrap();
-    assert!(
-        texts(&q).contains("alpha: the earlier words"),
+    assert_eq!(
+        texts(&q).matches("alpha: the earlier words").count(),
+        1,
         "{}",
         texts(&q)
     );
