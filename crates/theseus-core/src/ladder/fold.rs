@@ -201,7 +201,8 @@ pub fn material(reads: &[(Read, did::Said)]) -> String {
             .map_or("(no message)".into(), |a| cut(a, ASK_CHARS));
         let reply = cut(r.reply.as_deref().unwrap_or(""), REPLY_CHARS);
         let body = format!(
-            "The person: {ask}\nWhat Theseus did: {}\nIts reply began: {reply}",
+            "{}: {ask}\nWhat Theseus did: {}\nIts reply began: {reply}",
+            super::did::said_by(r.author),
             said.text()
         );
         let body = match r.marks.outside {

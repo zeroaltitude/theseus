@@ -96,6 +96,9 @@ pub struct Read {
     pub ask: Option<String>,
     pub reply: Option<String>,
     pub marks: Marks,
+    /// Who said the message, by its own mark (`view::sources_store::author_of`): never the owner's on
+    /// anything less; none, or a process, is author unknown.
+    pub author: crate::view::Author,
 }
 
 /// The words of a person's message or of a reply; none for any other node.
@@ -135,11 +138,16 @@ pub fn read(store: &Store, turn: &str) -> anyhow::Result<Option<Read>> {
         .session_nodes(&ex.session_id)?
         .iter()
         .any(|(_, n)| n.turn_id.as_deref() == Some(turn) && outside(n));
+    let author = match &ex.ask {
+        Some(id) => crate::view::sources_store::author_of(store, id),
+        None => crate::view::Author::Unknown,
+    };
     Ok(Some(Read {
         ex,
         ask,
         reply,
         marks,
+        author,
     }))
 }
 
@@ -152,10 +160,26 @@ pub fn material(r: &Read) -> String {
         |a| cut(a, ASK_CHARS),
     );
     let reply = cut(r.reply.as_deref().unwrap_or(""), REPLY_CHARS);
-    let body = format!("The person's message:\n{ask}\n\nTheseus's final reply:\n{reply}");
+    let body = format!(
+        "{}:\n{ask}\n\nTheseus's final reply:\n{reply}",
+        said_by(r.author)
+    );
     match r.marks.outside {
         true => super::writer::outside(Some("a tool's result this exchange read"), &body),
         false => body,
+    }
+}
+
+/// Who said a message, as a summary's writer is told it: the owner's words as before; another person's,
+/// and words of unknown authorship, said to be neither his nor his instruction.
+pub fn said_by(author: crate::view::Author) -> &'static str {
+    use crate::view::Author;
+    match author {
+        Author::His { .. } => "The person's message",
+        Author::Other => "Another person's message (not the owner's)",
+        Author::Unknown | Author::Theseus => {
+            "A message whose author is unknown (not the owner's, nor his instruction)"
+        }
     }
 }
 

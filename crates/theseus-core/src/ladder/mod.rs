@@ -44,6 +44,8 @@ pub mod writer;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_authors;
+#[cfg(test)]
 mod tests_job;
 #[cfg(test)]
 pub(crate) mod tests_moved;
