@@ -276,21 +276,6 @@ pub(crate) async fn call(
     lookup(core, session.to_string(), Args::parse(&input)?).await
 }
 
-/// The page lines of recall's admitted items, as `lookup` renders them:
-/// tests reach the catalog's miss this way.
-#[cfg(test)]
-pub(crate) async fn rendered(
-    core: &Arc<Core>,
-    admitted: &[theseus_protocol::memory::RecallItem],
-) -> Result<String, String> {
-    let items = items_of(core, admitted).await?;
-    Ok(items
-        .iter()
-        .enumerate()
-        .map(|(i, it)| render(i as u64 + 1, it))
-        .collect())
-}
-
 /// One item of a page, as the answer says it.
 #[derive(Default)]
 struct Item {
