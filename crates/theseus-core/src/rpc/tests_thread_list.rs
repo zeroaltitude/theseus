@@ -214,37 +214,9 @@ fn write_old_store(core: &Core, sid: &str) {
         .unwrap();
 }
 
-/// The owner's store as an older build left it (issue 44, threads retired 2026-11-22): thread records written
-/// as RAW stored JSON (not by today's constructors), one of each shape an older build wrote (sealed, a pending
-/// seal, paused, done, split from, merged into, a parent, linked, a working set, a Discord surface, with and
-/// without a session), and one thread whose session holds an earlier exchange. After a restart, `thread.list`
-/// (default and done) and `thread.show` return every one with its fields; no stored thread record or binding
-/// changes by a byte; and the session that was a thread's runs an ordinary turn by its session id, with its
-/// earlier exchange in the request.
-#[tokio::test]
-async fn an_old_stores_threads_read_unchanged_and_a_threads_session_runs_as_any_other() {
-    use crate::provider::Scripted;
-    use crate::tests_day_ceiling::build;
-    let dir = tempfile::tempdir().unwrap();
-    let sid = {
-        let (core, _) = build(dir.path(), vec![Scripted::text("noted")], |_| {});
-        let rec =
-            crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
-        core.store.put_session(&rec.session_id, &rec).unwrap();
-        let first = submit_to(
-            &core,
-            &rec.session_id,
-            "The gauge at pier four reads 3.2 metres.",
-        )
-        .await;
-        assert!(first["result"].is_object(), "{first}");
-        write_old_store(&core, &rec.session_id);
-        rec.session_id
-    };
-    let (core, fake) = build(dir.path(), vec![Scripted::text("still 3.2")], |_| {});
-    let before = raw_threads(&core);
-    assert_eq!(before.len(), 7, "six records and one binding: {before:?}");
-
+/// What `thread.list` (default and done) and `thread.show` return over the old store `write_old_store`
+/// planted: every record, with every field it was written with.
+fn assert_listed(core: &Core, sid: &str) {
     let listed = core
         .thread_list(&ThreadListParams::default(), cli())
         .unwrap();
@@ -278,8 +250,20 @@ async fn an_old_stores_threads_read_unchanged_and_a_threads_session_runs_as_any_
     assert_eq!(t.surfaces, ["discord:channel:4242"]);
     assert_eq!(t.card, ["gauge 4 drifts"]);
     assert_eq!(t.links, ["moons"]);
-    assert_eq!(t.session_id.as_deref(), Some(sid.as_str()));
-    assert_eq!(show("embargo").sealed.unwrap().reason, "embargoed");
+    assert_eq!(t.session_id.as_deref(), Some(sid));
+    assert_eq!(t.topics, ["topic:tides"]);
+    assert_eq!(t.created_at_ms, 1_780_000_000_000);
+    // Shown as the later of the record's and its session's activity (the row's, not the store's).
+    assert!(
+        t.last_active_ms >= 1_790_000_000_000,
+        "{}",
+        t.last_active_ms
+    );
+    let seal = show("embargo").sealed.unwrap();
+    assert_eq!(
+        (seal.by.as_str(), seal.at_ms, seal.reason.as_str()),
+        ("the CLI", 1, "embargoed")
+    );
     assert_eq!(
         show("maybe").seal_pending.as_deref(),
         Some("it names a vault")
@@ -289,6 +273,7 @@ async fn an_old_stores_threads_read_unchanged_and_a_threads_session_runs_as_any_
         (moons.state, moons.parent.as_deref()),
         (ThreadState::Paused, Some("tides"))
     );
+    assert_eq!(moons.links, ["tides"], "the reverse link");
     let old = show("old");
     assert_eq!(
         (old.state, old.merged_into.as_deref()),
@@ -296,6 +281,45 @@ async fn an_old_stores_threads_read_unchanged_and_a_threads_session_runs_as_any_
     );
     assert_eq!(show("disk").split_from.as_deref(), Some("tides"));
     assert_eq!(show("disk").session_id, None);
+}
+
+/// The owner's store as an older build left it (issue 44, threads retired 2026-11-22): thread records written
+/// as RAW stored JSON (not by today's constructors), one of each shape an older build wrote (sealed, a pending
+/// seal, paused, done, split from, merged into, a parent, linked, a working set, a Discord surface, with and
+/// without a session), and one thread whose session holds an earlier exchange. After a restart, `thread.list`
+/// (default and done) and `thread.show` return every one with its fields; no stored thread record or binding
+/// changes by a byte; and the session that was a thread's runs an ordinary turn by its session id, with its
+/// earlier exchange in the request.
+#[tokio::test]
+async fn an_old_stores_threads_read_unchanged_and_a_threads_session_runs_as_any_other() {
+    use crate::provider::Scripted;
+    use crate::tests_day_ceiling::build;
+    let dir = tempfile::tempdir().unwrap();
+    let (sid, before) = {
+        let (core, _) = build(dir.path(), vec![Scripted::text("noted")], |_| {});
+        let rec =
+            crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+        core.store.put_session(&rec.session_id, &rec).unwrap();
+        let first = submit_to(
+            &core,
+            &rec.session_id,
+            "The gauge at pier four reads 3.2 metres.",
+        )
+        .await;
+        assert!(first["result"].is_object(), "{first}");
+        write_old_store(&core, &rec.session_id);
+        // The baseline, taken before the restarted core opens the store.
+        (rec.session_id, raw_threads(&core))
+    };
+    let (core, fake) = build(dir.path(), vec![Scripted::text("still 3.2")], |_| {});
+    assert_eq!(before.len(), 7, "six records and one binding: {before:?}");
+    assert_eq!(
+        raw_threads(&core),
+        before,
+        "the restart wrote nothing to the thread records or their bindings"
+    );
+
+    assert_listed(&core, &sid);
     assert_eq!(
         raw_threads(&core),
         before,
