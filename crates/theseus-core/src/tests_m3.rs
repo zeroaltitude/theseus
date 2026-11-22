@@ -4073,28 +4073,27 @@ async fn an_edited_context_file_recompiles_once_and_an_unchanged_one_appends() {
             .map(|d| d[key].as_str().unwrap_or("").to_string())
             .collect()
     };
+    // The view (issue 44): every turn's request is a new compilation of its own; the edit reaches the
+    // next turn's system text, once, and the turn after carries the same.
     assert_eq!(
         field("context.recompiled", "trigger"),
-        ["new_session", "system_changed"]
+        ["view_turn", "view_turn", "view_turn", "view_turn"]
     );
-    assert_eq!(
-        field("context.compiled", "decision"),
-        ["recompile", "append", "recompile", "append"]
-    );
+    assert_eq!(field("context.compiled", "decision").len(), 4);
     let (before, after) = (system_of(&r, 1), system_of(&r, 2));
     assert!(before.contains("'Theseus'.") && !before.contains("'Ithaca'"));
     assert!(after.contains("'Ithaca'.") && !after.contains("'Theseus'"));
     assert_eq!(system_of(&r, 3), after);
     let comps = r.core.store.session_compilations(&sid).unwrap();
-    assert_eq!(comps.len(), 2);
-    assert_eq!(comps[1].trigger, "system_changed");
+    assert_eq!(comps.len(), 4);
+    assert_eq!(comps[2].trigger, "view_turn");
     assert_eq!(
-        comps[1].manifest.context_files[0].digest,
+        comps[2].manifest.context_files[0].digest,
         Some(sha16(edited))
     );
     assert_ne!(
-        comps[0].manifest.context_files[0].digest,
-        comps[1].manifest.context_files[0].digest
+        comps[1].manifest.context_files[0].digest,
+        comps[2].manifest.context_files[0].digest
     );
 }
 
@@ -4350,15 +4349,17 @@ async fn an_edited_persona_file_recompiles_once_and_an_unchanged_one_appends() {
             .map(|d| d[key].as_str().unwrap_or("").to_string())
             .collect()
     };
+    // The view (issue 44): one compilation a turn; the edit reaches the next turn's system text.
     assert_eq!(
         field("context.recompiled", "trigger"),
-        ["new_session", "system_changed"]
+        ["view_turn", "view_turn", "view_turn"]
     );
-    assert_eq!(
-        field("context.compiled", "decision"),
-        ["recompile", "recompile", "append"]
+    assert_eq!(field("context.compiled", "decision").len(), 3);
+    let second = system_of(&r, 1);
+    assert!(
+        second.contains("Speak briefly.") && !second.contains("Speak plainly."),
+        "{second}"
     );
-    assert!(system_of(&r, 1).ends_with("Speak briefly."));
     let comps = r.core.store.session_compilations(&sid).unwrap();
     assert_eq!(
         comps[1].manifest.context_files[0].digest,
