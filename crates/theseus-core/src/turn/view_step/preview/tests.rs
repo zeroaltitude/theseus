@@ -454,7 +454,7 @@ async fn a_message_moved_into_a_sealed_thread_is_in_no_count() {
     let desk = crate::tests_places::session(c, None);
     turn(c, &desk, "desk: the embargoed figure is 4471").await;
     let asked = (c.store.session_nodes(&desk).unwrap().into_iter())
-        .find(|(_, n)| n.kind == crate::stub::Kind::UserMessage)
+        .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))
         .unwrap()
         .1;
     move_into_kelp(c, &asked.id);
@@ -476,7 +476,7 @@ async fn a_message_moved_into_a_sealed_thread_is_not_listed() {
     turn(c, &desk, "desk: the embargoed figure is 4471").await;
     let moved_turn = turns_of(c, &desk).remove(0);
     let asked = (c.store.session_nodes(&desk).unwrap().into_iter())
-        .find(|(_, n)| n.kind == crate::stub::Kind::UserMessage)
+        .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))
         .unwrap()
         .1;
     move_into_kelp(c, &asked.id);
