@@ -387,11 +387,10 @@ async fn a_bare_refusal_after_four_exchanges_shrinks_and_answers_on_one_retry() 
     for k in 0..4 {
         // About 7,000 tokens each: the oldest, past the window's floor of three, is what the retry cuts.
         let said = format!("earlier ({k}): {}", LINE.repeat(400));
-        turn_in(&r.core, &sid, &said)
-            .await
-            .expect("an earlier turn");
+        // Marked as a person's message, as a turn's is, so each exchange is in the place's window.
+        crate::tests_places::turn(&r.core, &sid, &said).await;
     }
-    let res = turn_in(&r.core, &sid, ASK).await.expect("the turn answers");
+    let res = crate::tests_places::turn(&r.core, &sid, ASK).await;
     assert_eq!(res.output, DONE, "{res:?}");
     let sent: Vec<ProviderRequest> = (r.requests().into_iter())
         .filter(|q| !q.tools.is_empty() && crate::tests_places::last_user(q).contains(ASK))
