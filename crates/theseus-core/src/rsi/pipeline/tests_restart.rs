@@ -27,7 +27,10 @@ async fn a_restart_mid_install_leaves_a_tree_the_next_start_closes_and_a_build_s
         })
     }));
     assert!(killed.is_err());
-    assert_eq!(left_open(&place.trees(), false), [tree.clone()]);
+    assert_eq!(
+        left_open(&place.trees(), false),
+        std::slice::from_ref(&tree)
+    );
     // This daemon opened it, so to this daemon it is a live pass's: the sweep leaves it.
     assert_eq!(r.core.close_dead_trees(), Vec::<Dead>::new());
     let t = r.tick().await;
@@ -60,5 +63,5 @@ async fn a_restart_mid_install_leaves_a_tree_the_next_start_closes_and_a_build_s
     );
     let t = r.tick().await;
     assert_eq!(t.started.len(), 1, "the slot is free: {t:?}");
-    assert_ne!(t.hold.as_deref(), Some("slots"));
+    assert_eq!(r.rows("self.pipeline.started").len(), 1);
 }

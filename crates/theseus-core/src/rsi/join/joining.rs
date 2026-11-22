@@ -2,6 +2,8 @@
 //! check, the lock, then each try's dry run and merge, main's gate on it,
 //! the signature and the push; the install after.
 
+use std::sync::PoisonError;
+
 use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_protocol::tasks::{TaskEvidence, TaskState};
@@ -157,32 +159,7 @@ impl Run<'_> {
             self.seams.installer.clone(),
             merge.clone(),
         );
-        // Under way from here, as the pipeline's view says (issue 41): a quiet loop is not this.
-        let under_way = crate::rsi::pipeline::Installing {
-            item: self.b.item.clone(),
-            title: self.b.why.lines().next().unwrap_or("").trim().to_string(),
-            branch: self.b.branch.clone(),
-            merge: merge.clone(),
-            since_ms: theseus_protocol::now_unix_ms(),
-        };
-        *self
-            .core
-            .rsi
-            .pipeline
-            .installing
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(under_way);
-        let started = blocking(move || i.start(&p, &m)).await;
-        if !matches!(started, Ok(Started::Unit(_))) {
-            // Ended with no restart to come: no install is under way.
-            *self
-                .core
-                .rsi
-                .pipeline
-                .installing
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-        }
+        let started = self.start_install(&merge, move || i.start(&p, &m)).await;
         match started {
             Ok(Started::Unit(unit)) => {
                 // Its unit copies the build in and restarts the daemon: still under way until then.
@@ -205,6 +182,30 @@ impl Run<'_> {
                 self.stop("install", &why, Value::Null);
             }
         }
+    }
+
+    /// The install's start, under way in the pipeline's view from here (issue 41: a quiet loop is not
+    /// this) until it ends with no restart to come; once its unit is started it stays so, since the
+    /// unit restarts the daemon.
+    async fn start_install(
+        &self,
+        merge: &str,
+        start: impl FnOnce() -> anyhow::Result<Started> + Send + 'static,
+    ) -> anyhow::Result<Started> {
+        let under_way = crate::rsi::pipeline::Installing {
+            item: self.b.item.clone(),
+            title: self.b.why.lines().next().unwrap_or("").trim().to_string(),
+            branch: self.b.branch.clone(),
+            merge: merge.to_string(),
+            since_ms: theseus_protocol::now_unix_ms(),
+        };
+        let installing = &self.core.rsi.pipeline.installing;
+        *installing.lock().unwrap_or_else(PoisonError::into_inner) = Some(under_way);
+        let started = blocking(start).await;
+        if !matches!(started, Ok(Started::Unit(_))) {
+            *installing.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        }
+        started
     }
 
     /// Under the lock: the tries. The merge when it reached main.
