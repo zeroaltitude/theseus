@@ -566,7 +566,7 @@ async fn the_owners_look_shows_a_recalled_item_and_withholds_it_once_sealed() {
     };
     let range = SourceRange {
         space: Space::Recalled {
-            session: thread.clone(),
+            session: thread,
             node: n.id.clone(),
         },
         first: at.clone(),
@@ -591,7 +591,7 @@ async fn the_owners_look_shows_a_recalled_item_and_withholds_it_once_sealed() {
             spoken: 10,
             line: 10,
         },
-        handle: Handle(n.id.clone()),
+        handle: Handle(n.id),
         unit: None,
     };
     let look = crate::view::record::source::GateSource {
