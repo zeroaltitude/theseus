@@ -1,7 +1,8 @@
 //! The run: items × arms × runs, each cell through the socket of the
 //! scratch daemon its arm names, as any protocol client drives it (§2.9's
 //! "the present: a task sent through the protocol to a scratch daemon on that
-//! store"). `arms.rs` starts the daemons, one per arm of the real pipeline.
+//! store"). `arms.rs` starts the daemons: one per arm of the real pipeline
+//! for a run's preflight, and one per cell (below).
 //!
 //! - **Arms.** `none`, `bm25` and `baseline` are arms of the real memory
 //!   pipeline: each is a scratch daemon of its own, in `[memory] mode =
@@ -11,13 +12,20 @@
 //!   `oracle` is the driver's: the item's gold, rendered as the core renders
 //!   a `Recall` node (`render.rs`), sent after the task to the `none` daemon.
 //! - **A cell** is one item under one arm, once: a fresh session, one turn on
-//!   the given profile. A call that waits for approval is declined, as an
-//!   operator who wants a text answer would; the continuation runs, and the
-//!   cell ends when the session's last turn does. The reply is every
-//!   assistant text of the session; the calls are its tool calls; its
-//!   recalls are the session's recall rows (`memory.recalls`), each of which
-//!   must name the cell's arm, or the cell is an error: a daemon that runs
-//!   another arm than its name says measures nothing.
+//!   the given profile. **A cell's request holds nothing any other cell
+//!   said.** On the view (issue 44) a request lays the owner's words of every
+//!   place (slot F, the last two days; slot E, older), not only its own
+//!   place's, so a place of its own per cell would not do: each cell runs on
+//!   a daemon of its own (`Plan::cells`), fresh from its arm's snapshot, as
+//!   the sealed scorer's runner does. What it holds is the exam's store and
+//!   nothing a cell said; it is stopped when the cell is done. A call that
+//!   waits for approval is declined, as an operator who wants a text answer
+//!   would; the continuation runs, and the cell ends when the session's last
+//!   turn does. The reply is every assistant text of the session; the calls
+//!   are its tool calls; its recalls are the session's recall rows
+//!   (`memory.recalls`), each of which must name the cell's arm, or the cell
+//!   is an error: a daemon that runs another arm than its name says measures
+//!   nothing.
 //! - **Pairing.** Cells are ordered by a seeded shuffle, run by run, with an
 //!   item's arms next to each other, so every arm of an item meets the same
 //!   provider weather.
@@ -181,6 +189,33 @@ pub struct Plan {
     pub out: PathBuf,
     /// Only this run's cells (`arms.rs` starts fresh daemons for each run).
     pub only_run: Option<u32>,
+    /// Each cell's daemon of its own; none: every cell on `sockets`' daemons (a request then holds what the
+    /// cells before it said there).
+    pub cells: Option<CellDaemons>,
+}
+
+/// A cell's daemon of its own: its socket, and what stops it when dropped.
+pub struct CellDaemon {
+    pub socket: PathBuf,
+    pub stop: Box<dyn Send>,
+}
+
+/// What starts a cell's daemon, from the daemon's name (`Arm::daemon`) and the cell's (`cell_name`).
+pub type CellDaemons = Arc<dyn Fn(&str, &str) -> Result<CellDaemon> + Send + Sync>;
+
+/// A cell's name, for its daemon's directory: `<item>-<arm>-r<run>`, the item's id kept to what a file name
+/// takes.
+pub fn cell_name(item: &str, arm: Arm, run: u32) -> String {
+    let id: String = (item.chars())
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("{id}-{}-r{run}", arm.as_str())
 }
 
 impl Plan {
@@ -443,6 +478,18 @@ fn cancel(c: &mut Client, sid: &str) {
 /// One cell, start to end. Never fails: a failure is the record's `error`.
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, run: u32) -> Record {
+    // The cell's own daemon starts before its clock does: its latency stays its turn's. Held to the end of the
+    // cell, which stops it.
+    let own = (plan.cells.as_ref()).map(|up| up(arm.daemon(), &cell_name(&item.id, arm, run)));
+    let socket = match &own {
+        None => plan.socket(arm).map(Path::to_path_buf),
+        Some(Ok(d)) => Ok(d.socket.clone()),
+        Some(Err(e)) => Err(anyhow::anyhow!("starting the cell's daemon: {e:#}")),
+    };
+    let connect = || match &socket {
+        Ok(p) => Client::connect(p),
+        Err(e) => Err(anyhow::anyhow!("{e:#}")),
+    };
     let started_at_ms = theseus_protocol::now_unix_ms();
     let t0 = Instant::now();
     let mut rec = Record {
@@ -468,7 +515,7 @@ pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, r
     let outcome = (|| -> Result<Client> {
         let input = input_for(&plan.notes, item, arm)?;
         rec.input_chars = input.chars().count();
-        let mut c = Client::connect(plan.socket(arm)?)?;
+        let mut c = connect()?;
         let label = format!("exam {} {} r{run}", item.id, arm.as_str());
         // A cell opens a fresh session, unless the item names a past session
         // of its own to continue (`Item::resume`): this daemon has never
@@ -552,7 +599,7 @@ pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, r
         Ok(c) => c,
         Err(e) => {
             rec.error = Some(format!("{e:#}"));
-            match plan.socket(arm).and_then(Client::connect) {
+            match connect() {
                 Ok(mut c) => {
                     if let Some(s) = &sid {
                         cancel(&mut c, s);
