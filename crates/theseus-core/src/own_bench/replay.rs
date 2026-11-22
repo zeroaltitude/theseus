@@ -187,7 +187,11 @@ impl Core {
             Body::Recall { items, .. } => items.iter().map(|it| it.session_id.clone()).collect(),
             _ => Vec::new(),
         });
-        let laid = (original.view.iter()).flat_map(|f| &f.recalled);
+        let record = (original.view.as_ref())
+            .and_then(|_| crate::view::record::read(&self.store, &original.compilation.id).ok())
+            .flatten();
+        let kept = record.and_then(|r| r.kept);
+        let laid = kept.iter().flat_map(|k| &k.recalled);
         let viewed = laid.filter_map(|id| self.store.get_node(id).ok().flatten());
         noted.chain(viewed.map(|(_, n)| n.session_id)).collect()
     }

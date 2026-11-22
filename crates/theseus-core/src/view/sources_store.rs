@@ -1,6 +1,6 @@
 //! The selectors' sources over the store (`super::select::sources`), for a turn in a place set to `view`:
 //! an exchange's facts from the ledger's record and its nodes, a fold node's sizes, a place's `/new` mark
-//! and the places a person has spoken in, and recall. What waits (`super::sources_waiting`), the things
+//! and the places a person has spoken in, and recall (`super::sources_recall`). What waits (`super::sources_waiting`), the things
 //! named and the name matcher (`super::sources_names`) and a task's card (`crate::task_graph::joined`) have
 //! sources of their own; their impls here, and facts about the person, answer nothing.
 
@@ -74,12 +74,13 @@ impl Sessions {
     }
 }
 
-/// The sources over `store`. `mark` is the turn's place and its `/new` mark, and `recalled` the nodes
-/// today's recall found for the turn's message, both read by the turn.
+/// The sources over `store`. `mark` is the turn's place and its `/new` mark, and `recalled` the items
+/// today's recall found for the turn's message and admitted (`turn::view_step::recall`), both read by the
+/// turn.
 pub struct StoreSources<'a> {
     pub store: &'a Store,
     pub mark: Option<(&'a str, Pos)>,
-    pub recalled: Vec<String>,
+    pub recalled: Vec<super::sources_recall::Recalled>,
     /// The gate's reading of a session's seal for this turn: true holds it out.
     pub sealed: &'a dyn Fn(&str) -> bool,
     /// The gate's node seal for this turn (`view_gate::Moved`): true when a message or the reply of the
@@ -257,45 +258,14 @@ impl TaskCards for StoreSources<'_> {
 }
 
 impl Recall for StoreSources<'_> {
-    /// Each recalled node as its exchange, in the line form (his words and the `did` line), once. A node
-    /// of history the ledger holds no exchange for has no marks, and is not offered (the gate would deny it).
-    fn recall(&self, _: &PointOfView, _: &str) -> anyhow::Result<Vec<Ref>> {
-        let mut seen = BTreeSet::new();
-        let mut out = Vec::new();
-        for id in &self.recalled {
-            let Some(turn) = self.store.get_node(id)?.and_then(|(_, n)| n.turn_id) else {
-                continue;
-            };
-            if !seen.insert(turn.clone()) {
-                continue;
-            }
-            let (Some(ex), Some(f)) = (exchange::exchange(self.store, &turn)?, self.facts(&turn)?)
-            else {
-                continue;
-            };
-            let pos = Pos {
-                at_ms: ex.start_ms,
-                id: turn,
-            };
-            let line = f.his + f.did.unwrap_or(0);
-            out.push(Ref {
-                range: super::SourceRange {
-                    space: super::Space::Exchanges { place: f.place },
-                    first: pos.clone(),
-                    last: pos,
-                },
-                marks: f.marks,
-                sizes: Sizes {
-                    whole: f.his + f.reply,
-                    spoken: f.his + f.reply,
-                    line,
-                },
-                handle: f.handle,
-                form: super::Form::Line,
-                unit: None,
-            });
-        }
-        Ok(out)
+    /// Every item today's recall found and admitted, laid as its `Recall` note renders it, once each
+    /// (`super::sources_recall`): what recall found, not the exchange it came from.
+    fn recall(&self, pov: &PointOfView, _: &str) -> anyhow::Result<Vec<Ref>> {
+        Ok(super::sources_recall::refs(
+            &self.recalled,
+            pov,
+            self.sessions,
+        ))
     }
 }
 

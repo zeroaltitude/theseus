@@ -777,6 +777,8 @@ mod tests_view_gate;
 #[cfg(test)]
 mod tests_view_hand_backs;
 #[cfg(test)]
+mod tests_view_memory;
+#[cfg(test)]
 mod tests_view_record;
 #[cfg(test)]
 mod tests_view_resume;
