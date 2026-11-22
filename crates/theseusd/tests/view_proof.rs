@@ -277,6 +277,13 @@ fn after_new_the_next_turn_holds_nothing_from_before_and_memory_still_answers() 
     });
     let after = r.turn(ana, None, "What should we chart next?");
     assert!(!after.is_empty(), "the turn after /new reached the model");
+    // The memory turn runs before the rule on `after` is asserted, so a failure of one does not hide the other.
+    let looked = r.turn(ana, None, "Look up the earlier buoy talk.");
+    let read = looked.iter().map(tool_results).collect::<String>();
+    assert!(
+        read.contains(BEFORE),
+        "the memory tool reads the conversation from before /new: {read}"
+    );
     for q in &after {
         assert!(
             !holds(q, BEFORE),
@@ -285,12 +292,6 @@ fn after_new_the_next_turn_holds_nothing_from_before_and_memory_still_answers() 
             where_held(q, BEFORE)
         );
     }
-    let looked = r.turn(ana, None, "Look up the earlier buoy talk.");
-    let read = looked.iter().map(tool_results).collect::<String>();
-    assert!(
-        read.contains(BEFORE),
-        "the memory tool reads the conversation from before /new: {read}"
-    );
     eprintln!("view proof /new: {}", r.strategies());
 }
 
