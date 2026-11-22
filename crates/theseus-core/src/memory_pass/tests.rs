@@ -940,10 +940,6 @@ async fn a_correction_supersedes_the_fact_and_recall_prefers_it() {
         .unwrap()
         .push_back(Scripted::text("You're welcome."));
     turn(c, &q, "Thanks, that is what I needed.").await;
-    // C's nodes get their vectors as B's did, so the pass gates them and attributes C's recall.
-    for (_, n) in c.store.session_nodes(&q).unwrap() {
-        index.near(&n.id, &[]);
-    }
     let used = || core_rows(c, &crate::fact::recall::scope(&q), "memory.used");
     until("both items attributed", || used().len() == 2).await;
     let u = used();
