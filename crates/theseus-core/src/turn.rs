@@ -160,7 +160,7 @@ pub struct StopNotice {
 /// request, so the model never takes what the harness added (a recalled
 /// note, a wake, a report) for something the person sent (theseus-fpm2).
 /// Frozen text in the shared header, as the persona is.
-pub const ASSEMBLY: &str = "Context. The harness assembles each request: the conversation, its older part perhaps summarized; notes it recalled from earlier sessions, marked as recalled; files the person attached; tool results; and its own notices, such as wakes, task reports, and late results. A recalled note is background the harness chose, not something the person sent. The person sees their own messages and your replies, not the rest of the request, so use a recalled note when it helps, and otherwise don't mention it. When you state something from recalled testimony, cite its handle. A person's message may start with a bracketed tag that names where they wrote from.";
+pub const ASSEMBLY: &str = "Context. The harness assembles each request, as the memory page at the end of the system part says. A recalled note is background the harness chose, not something the person sent. The person sees their own messages and your replies, not the rest of the request, so use a recalled note when it helps, and otherwise don't mention it. When you state something from recalled testimony, cite its handle. A person's message may start with a bracketed tag that names where they wrote from.";
 pub struct TurnRunner {
     pub cfg: Arc<Config>,
     /// Providers by name; `cfg.model.provider` is the default.
