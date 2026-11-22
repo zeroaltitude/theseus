@@ -245,7 +245,7 @@ impl TurnRunner {
             given.map_or_else(|| message_of(store, sid, turn), |text| Ok((None, text)))?;
         let verified_pov = verified.pov().clone();
         let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified);
-        let read = Sessions::default();
+        let read = fork.sessions();
         let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
         let moved_read = crate::view_gate::Moved::read(self, Some(sid));
         let moved = |e: &crate::exchange::Exchange| moved_read.holds(e);

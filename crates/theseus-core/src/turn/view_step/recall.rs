@@ -26,6 +26,11 @@ impl TurnRunner {
     ) -> (Vec<RecalledRef>, Vec<Recalled>) {
         let cache = Mutex::default();
         let mut sources = Sources::new();
+        // A fork lays nothing its ancestors said after the point each was forked from it (`fork::window`).
+        let after = crate::fork::window::after_point(&self.store, asker).unwrap_or_default();
+        let items: Vec<RecalledRef> = (items.into_iter())
+            .filter(|r| !after.holds_node(&r.node_id))
+            .collect();
         for r in &items {
             if let Some(n) = render::source(&self.store, r, &cache) {
                 sources.insert(r.node_id.clone(), n);
@@ -95,7 +100,7 @@ impl TurnRunner {
         };
         let since = crate::ladder::new_mark(store, &place)?;
         let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified);
-        let read = super::Sessions::default();
+        let read = fork.sessions();
         let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
         let moved_read = crate::view_gate::Moved::read(self, Some(sid));
         let moved = |e: &crate::exchange::Exchange| moved_read.holds(e);

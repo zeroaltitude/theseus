@@ -373,10 +373,12 @@ async fn reach_on_a_source_node_lists_the_fork() {
     );
     assert_eq!(fk.from, s);
     assert_eq!(fk.at_position, f.at_position);
+    // Issue 44: the fork's first compilation, made at the fork, and the one its view turn makes (a view
+    // turn is a new compilation every turn).
     assert_eq!(
         fk.exposure.compilations.len(),
-        1,
-        "the fork's first compilation"
+        2,
+        "the fork's first compilation and its turn's"
     );
     assert_eq!(fk.exposure.loops, 1, "the fork's one loop");
     assert!(reach.totals.sessions >= 2);
@@ -439,6 +441,37 @@ async fn a_fork_of_a_fork_works_and_reach_lists_both_generations() {
     assert_eq!(own_reach.forks[0].session_id, f2.session_id);
 }
 
+/// A fork of a fork whose two ancestors both went on after the points they were forked at (issue 44): the
+/// youngest fork's request holds its own turns and the run it inherits, and none of either ancestor's later
+/// turns.
+#[tokio::test]
+async fn a_fork_of_a_fork_holds_nothing_either_ancestor_said_after_its_point() {
+    let r = rig();
+    let (s, nodes) = three_turns(&r).await;
+    let f1 = fork(&r.core, &s, &nodes[3].0); // through the answer to "two"
+    turn(&r.core, &f1.session_id, "road one").await;
+    let own = nodes_of(&r.core, &f1.session_id);
+    let f2 = fork(&r.core, &f1.session_id, &own[1].0); // through its answer to "road one"
+    turn(&r.core, &s, "four").await;
+    turn(&r.core, &f1.session_id, "road one later").await;
+    turn(&r.core, &f2.session_id, "road two").await;
+    turn(&r.core, &f2.session_id, "road two again").await;
+
+    let text = serde_json::to_string(&plain(requests(&r).last().unwrap())).unwrap();
+    for want in [
+        "one",
+        "two",
+        "answer to road one",
+        "road two",
+        "road two again",
+    ] {
+        assert!(text.contains(want), "{want} missing: {text}");
+    }
+    for later in ["three", "four", "road one later"] {
+        assert!(!text.contains(later), "{later} leaked: {text}");
+    }
+}
+
 /// A restart keeps both sessions, and the fork compiles and answers.
 #[tokio::test]
 async fn a_restart_keeps_the_fork_and_it_still_compiles() {
@@ -446,6 +479,8 @@ async fn a_restart_keeps_the_fork_and_it_still_compiles() {
     let (s, nodes) = three_turns(&r).await;
     let f = fork(&r.core, &s, &nodes[3].0);
     turn(&r.core, &f.session_id, "before the restart").await;
+    let compiled = |c: &Core| c.store.session_compilations(&f.session_id).unwrap().len();
+    let before = compiled(&r.core);
 
     let model = Arc::new(Model::default());
     let core = Core::build(crate::rpc::Parts::for_tests(
@@ -461,14 +496,9 @@ async fn a_restart_keeps_the_fork_and_it_still_compiles() {
         assert!(text.contains(want), "{want} missing: {text}");
     }
     assert!(!text.contains("three"));
-    // One compilation still: the restart recompiled nothing.
-    assert_eq!(
-        core.store
-            .session_compilations(&f.session_id)
-            .unwrap()
-            .len(),
-        1
-    );
+    // The restart recompiled nothing: the one compilation since is the new turn's own (issue 44: a view
+    // turn is a new compilation every turn).
+    assert_eq!(compiled(&core), before + 1);
     let reach = crate::reach::reach(&core.store, &nodes[0].0, None)
         .unwrap()
         .unwrap();

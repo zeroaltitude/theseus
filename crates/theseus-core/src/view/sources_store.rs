@@ -40,6 +40,9 @@ pub struct Sessions {
     pub depends: std::cell::RefCell<std::collections::BTreeSet<String>>,
     /// How many times the store was read for a session.
     pub reads: std::cell::Cell<u32>,
+    /// The nodes a fork's ancestors wrote after the point each was forked from it (`fork::window`): no
+    /// exchange's nodes read here hold one.
+    pub after_point: std::cell::RefCell<std::collections::HashSet<String>>,
 }
 
 impl Sessions {
@@ -67,8 +70,9 @@ impl Sessions {
         session: &str,
         turn: &str,
     ) -> anyhow::Result<Vec<(u64, crate::stub::Stub)>> {
+        let after = self.after_point.borrow();
         Ok((self.of(store, session)?.iter())
-            .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
+            .filter(|(_, n)| n.turn_id.as_deref() == Some(turn) && !after.contains(&n.id))
             .cloned()
             .collect())
     }
