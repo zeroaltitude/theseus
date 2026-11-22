@@ -19,8 +19,11 @@ A new pack of its own, not a version of an existing one (`crates/theseus-judge/p
   owner handle), at a turn whose presence the gate made a private channel or shared (`leans_on::asked_of`). Never
   asked of another person's message, an agent's process, a message with no mark, or his message where he is alone.
 - **Asked from** `turn::gate_step`, right after the turn's presence is made, when `[context] ledger` is on.
-- **Its state** is the message and the last eight lines of the turn's own session, each `person` or `assistant`,
-  and nothing else: no other place, no memory, no recall, no author, no names. It is the place's own point of view.
+- **Its state** is the message and the last eight lines of the company PLACE's own admitted exchanges
+  (`release_card::company_tail`: the history tool's lens for that place and the turn's audience, the seal, and
+  messages moved into a thread, chosen after admission), each `person` or `assistant`, and nothing else: never the
+  session's raw nodes (a session can serve a private arrival too), no other place, no memory, no recall, no author.
+- **Sampled** by the pack's share: `[judge.packs."leans_on.v1"] sample = 0` asks nothing and looks at nothing.
 - **One Choice**: `stands_alone`, `said_here`, `not_said_here`, `unclear` (also its `no_match`). The design's own
   answers (nothing / what was just said / something earlier / a named thing / unclear) are asked as one question
   about this place.
@@ -42,8 +45,9 @@ A new pack of its own, not a version of an existing one (`crates/theseus-judge/p
 from the trigger's own task (never the turn's).
 
 - **Only on `not_said_here`.** Any other answer, or none, is no look.
-- **His private conversation** is the first direct conversation the bindings bind, as the ledger names places
-  (`discord:dm:<id>`). None bound: no look (`no_private_conversation`).
+- **His private conversation** is the ONE direct conversation the bindings bind whose person is a configured owner
+  and whose place reads private today (`discord:dm:<id>`). None, or more than one: no look
+  (`no_private_conversation`).
 - **Its own rules, never the company turn's permit.** The look is a history-tool lens (`history_tool::page::Lens`)
   anchored at his private conversation with the owner alone there; the company turn's presence and permit are not
   read. A candidate is an exchange of that conversation, of his own words (`person` is the owner), that the lens
@@ -57,8 +61,11 @@ from the trigger's own task (never the turn's).
   Words that match are a candidate, not a supported piece: before a card is offered for real, the rung-2 support
   check of §6 (a small model on the answering provider says whether the passage supports the reference, and code
   checks it named a candidate it was given) belongs between the search and the card.
-- **What it records**: one `context.release_look` ledger row for EVERY judgment of the trigger, whatever it
-  answered and whatever the look found, under no session and no turn: `company_turn`, `node`, `answer`, `mode`
+- **What it records**: one META record (`release.look.<turn>`) for EVERY judgment of the trigger, whatever it
+  answered and whatever the look found, in NO ledger row (the ledger is read by any reader of the socket), read only
+  through the owner-in-person release methods (`exchange.releases`), and written only in a moment between turns,
+  through the memory pass's writer handshake as the judge's sink writes, so a look of any length holds no turn's
+  frame: `company_turn`, `node`, `answer`, `mode`
   (`shadow`), `outcome` (`not_asked`, `no_private_conversation`, `no_index`, `nothing`, `one`, `several`), `found`
   (a count) and `ids` (at most three exchange ids, newest first). Never a piece's words.
 
@@ -66,8 +73,8 @@ from the trigger's own task (never the turn's).
 
 - The turn's request is built before and apart from both: neither the trigger nor the look writes anything the
   turn, its compile or its tools read. Nothing waits on either, so no delay depends on them.
-- The look's row is under no session and no turn, so nothing that reads a session's or a turn's rows finds it, and
-  one row is written for every trigger judgment, so even the number of rows does not depend on what was found.
+- The look's record is in no ledger row and is read only by the owner in person; one is written for every trigger
+  judgment, between turns, so neither a reader of the ledger nor a turn's timing learns what was found.
 - The look reads the owner's private conversation only in the trigger's spawned task, and hands nothing back.
 
 ## 4. The release, by the owner's own hand
@@ -90,6 +97,16 @@ from the trigger's own task (never the turn's).
 - **His terminal**: `theseus ledger release-offer <message>` (what the look would offer for a message of his in a
   channel, the piece's words shown to him alone), `ledger release <exchange> --to <place>`, `ledger releases`,
   `ledger withdraw <id>`.
+
+## 4b. Cost, and what a v2 would change (the outside review)
+
+- **Cost.** One judge call per eligible message of his in company (inside the shadow budget), its state stored as a
+  blob; on `not_said_here`, one search over his DM through the baseline memory arm, which includes the index's
+  vector search: local embedding work, not only a lexical lookup.
+- **Older same-place references.** "Not in the last eight lines" reads as "elsewhere, or long ago", so a reference to
+  something said in the same place long ago fires a needless look (case L18). A v2 would show the place's own
+  older history in summary (its ladder) or ask apart "said here, earlier" from "said elsewhere", and search the
+  company place's own admitted history before the DM.
 
 ## 5. State, and what turning it on takes
 
