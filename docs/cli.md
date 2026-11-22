@@ -173,8 +173,6 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
     the routing table. `theseus model bench --week`.
   - `model replay`: a past turn: rebuild its first request byte for byte and send it to another profile.
     `theseus model replay SESSION TURN -P sonnet`.
-  - `model prefix`: the prefix library: its report, picks, the cache writes they saved and the false fits.
-    `theseus model prefix`.
 - **`judge`**: Jev's judgments: the recent ones with pack, session, answers and cost. `theseus judge log`;
   `judge show ID`.
 - **`packs`**: the ladder: each Jev pack's rung, share and why, its rollback rules and last rows.

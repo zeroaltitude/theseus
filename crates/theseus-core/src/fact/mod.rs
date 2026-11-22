@@ -77,7 +77,6 @@ pub mod people;
 pub mod persona;
 pub mod persona_import;
 pub mod place;
-pub mod prefix;
 pub mod privacy;
 pub mod progress;
 pub mod project;
@@ -610,7 +609,6 @@ facts![
     rsi_pipeline::Queued,
     rsi_pipeline::Cleared,
     rsi_pipeline::Ended,
-    prefix::PrefixPicked<'static>,
     persona::PersonaEngaged<'static>,
     initiative::PromiseKept<'static>,
     initiative::PromiseUnkept<'static>,

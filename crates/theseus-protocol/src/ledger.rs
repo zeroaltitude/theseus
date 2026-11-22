@@ -247,7 +247,6 @@ ledger_kinds! {
     PlaceWarned = "place.warned",
     PolicyTightened = "policy.tightened",
     PolicyUntightened = "policy.untightened",
-    PrefixPicked = "prefix.picked",
     PrivacyWarned = "privacy.warned",
     ProfileAsked = "profile.asked",
     ProfileChanged = "profile.changed",

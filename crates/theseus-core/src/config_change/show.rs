@@ -93,7 +93,6 @@ pub(crate) fn effective(text: &str) -> Result<Value, String> {
         ("initiative", serde_json::to_value(&cfg.initiative)),
         ("watch_for", serde_json::to_value(&cfg.watch_for)),
         ("cockpit", serde_json::to_value(&cfg.cockpit)),
-        ("prefix", serde_json::to_value(&cfg.prefix)),
         ("notify", serde_json::to_value(&cfg.notify)),
         ("cache", serde_json::to_value(&cfg.cache)),
         ("people", serde_json::to_value(&cfg.people)),

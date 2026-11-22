@@ -24,36 +24,6 @@ impl Keeping {
 }
 
 impl TurnRunner {
-    /// Render the session into this loop's request: an append to the current
-    /// compilation, or a recompile (persisted with the session's pointer).
-    /// The images the provider refused in the session render as their line;
-    /// `strip` recompiles without the prefix's thinking (theseus-0s4).
-    /// The prefix library's pick for this loop's spec (theseus-rr15): at a
-    /// compile point (`point`), else the current compilation's plan replayed.
-    fn prefix_pick(
-        &self,
-        t: &Turn<'_>,
-        spec: &RequestSpec,
-        (current, nodes): (
-            Option<&crate::compiler::Compilation>,
-            &[(u64, crate::stub::Stub)],
-        ),
-        point: bool,
-        i: u32,
-    ) -> (
-        Option<RequestSpec>,
-        Option<std::sync::Arc<crate::prefix::Picked>>,
-    ) {
-        let at = crate::prefix::turn::At {
-            current,
-            nodes,
-            point,
-            first: i == 0,
-            class: t.tc.place().class,
-        };
-        self.prefix_spec(spec, at)
-    }
-
     /// The request's last block, in its order: the task view, the wakes and
     /// routines, the surface's standing records, the persona line, then the
     /// project's slice.
@@ -134,6 +104,10 @@ impl TurnRunner {
         (tasks, project)
     }
 
+    /// Render the session into this loop's request: an append to the current
+    /// compilation, or a recompile (persisted with the session's pointer).
+    /// The images the provider refused in the session render as their line;
+    /// `strip` recompiles without the prefix's thinking (theseus-0s4).
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn compile_step(
         &self,
@@ -163,10 +137,6 @@ impl TurnRunner {
         let cold = (i == 0).then(|| theseus_protocol::now_unix_ms() > session.last_active_ms + ttl);
         let read_before = crate::stub::read(&nodes);
         ph.mark("views");
-        // The prefix library's third layer, picked only at a compile point.
-        let point = current.is_none() || force;
-        let (prefix_spec, picked) = self.prefix_pick(t, spec, (current.as_ref(), &nodes), point, i);
-        let spec = prefix_spec.as_ref().unwrap_or(spec);
         let assembled = t.recall.assembled_id().map(str::to_string);
         let given = self.situation_of(t, &nodes, current.is_none(), session);
         let input = CompileInput {
@@ -207,11 +177,6 @@ impl TurnRunner {
             t.answer_at
         );
         t.tail = self.tails.begin(sid, (t.tc.turn_id, &key), &mut compiled);
-        compiled.prefix = picked.filter(|p| {
-            compiled.new_compilation
-                && compiled.compilation.manifest.prefix.as_ref() == Some(&p.plan.used)
-        });
-        self.prefix_touched(&compiled, spec);
         Self::recall_compiled(t, &mut compiled);
         t.fill = super::fill_step::Fill::of(&compiled, self.fill_window(spec));
         Self::cleared_recorded(t, &compiled, i);

@@ -66,7 +66,6 @@ mod pages;
 mod persona_cmd;
 mod policy_explain;
 mod postmortem;
-mod prefix_cmd;
 mod print;
 mod project;
 mod prompt;
@@ -822,9 +821,8 @@ enum Cmd {
     },
     /// Models and what they cost: `model bench [--week]` is your own benchmark (which model your own
     /// turns need, measured by replaying them one rung down the routing table), `model replay SESSION
-    /// TURN -P PROFILE` sends a past turn's first request to another profile (yours alone), `model
-    /// prefix` is the prefix library's picks and what they saved, and `model catalog` the models'
-    /// windows and prices.
+    /// TURN -P PROFILE` sends a past turn's first request to another profile (yours alone), and `model
+    /// catalog` the models' windows and prices.
     #[command(hide = true)]
     Model {
         #[command(subcommand)]

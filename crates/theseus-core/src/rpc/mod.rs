@@ -91,7 +91,6 @@ mod persona_import;
 mod persona_view;
 mod persona_write;
 mod policy;
-mod prefix;
 mod profile_pins;
 pub(crate) mod project_close;
 mod project_items;
@@ -146,6 +145,8 @@ pub(crate) mod content;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_cached_layers;
+#[cfg(test)]
 mod tests_exec_list;
 #[cfg(test)]
 mod tests_health_counts;
@@ -186,8 +187,6 @@ mod tests_persona_import;
 mod tests_pin_footer;
 #[cfg(test)]
 mod tests_place_digest;
-#[cfg(test)]
-mod tests_prefix;
 #[cfg(test)]
 mod tests_rewind;
 #[cfg(test)]
@@ -958,7 +957,6 @@ impl Core {
             standing: Default::default(),
             persona: Default::default(),
             threads: Default::default(),
-            prefix: Default::default(),
             cards: Default::default(),
             run_compiles: Default::default(),
             failed_turns: Default::default(),

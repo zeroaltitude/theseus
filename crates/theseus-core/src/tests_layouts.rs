@@ -102,8 +102,7 @@ pub(crate) const COMPILATION_BEFORE_LOADED: &str = r#"{"id":"cmp_000000000000000
 
 /// A compilation as format 33 wrote it, a thread's (theseus-h4a7's layers in
 /// its cache layout), before the prefix library named a header in its
-/// manifest (`prefix`, format 41, theseus-rr15): it reads with none, and its
-/// session's next compile point picks one.
+/// manifest (`prefix`, format 41, theseus-rr15, retired 2026-11-22): it reads with none.
 pub(crate) const COMPILATION_BEFORE_PREFIX: &str = r#"{"id":"cmp_00000000000000000000000000000341","schema":1,"session_id":"ses_00000000000000000000000000000341","created_at_ms":1790000000341,"trigger":"cold_resume","strategy":"ring","as_of":91,"includes":["msg_00000000000000000000000000000342"],"derived_from":"cmp_00000000000000000000000000000340","manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read","thread_note"],"catalog_version":"2026-10-01","context_window":1000000,"strip_thinking":true,"cache":{"caches":true,"min_tokens":1024,"blocks":[{"block":"header","prefix_bytes":21000,"marked":true},{"block":"persona","prefix_bytes":24000,"marked":true},{"block":"project","prefix_bytes":31000,"marked":true},{"block":"session","prefix_bytes":31060,"marked":false}]}},"situation":{"kind":"recompile","trigger":"cold_resume"}}"#;
 
 /// A task's session record as format 33 wrote it (theseus-nhew's build),
@@ -1425,12 +1424,11 @@ fn a_format_33_compilation_reads_with_no_header_and_a_header_writes_back_byte_fo
     assert_eq!(back, with);
 }
 
-/// A store of format 33, which holds a session and no header: the build
-/// opens it, loads an empty library, takes a header in a frame and moves the
-/// manifest to 34, which an older build then refuses; a reopened store holds
-/// the header and its hit log.
+/// A store of format 33, which holds a session and no header, then takes a prefix header and its hit log as the
+/// retired library wrote them: it opens, moves the manifest to the current format, and a reopened store still
+/// reads both records (nothing writes them now; old stores hold them).
 #[test]
-fn a_format_33_store_opens_with_no_headers_and_takes_one() {
+fn a_format_33_store_opens_with_no_headers_and_still_reads_one() {
     use theseus_store::NewRecord;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("store");
@@ -1443,44 +1441,30 @@ fn a_format_33_store_opens_with_no_headers_and_takes_one() {
     std::fs::write(&manifest, r#"{"format": 33, "engine": "redb"}"#).unwrap();
 
     let store = crate::store::Store::open(&path).unwrap();
-    let lib = crate::prefix::Library::default();
-    lib.loaded(&store).unwrap();
-    assert_eq!(lib.stats(0).headers, 0);
     let h: crate::prefix::Header = serde_json::from_str(PREFIX_HEADER_AT_41).unwrap();
     let hits = crate::prefix::Hits {
         reuses: 2,
         last_read_ms: 1_790_000_000_400,
     };
+    let (hk, tk) = (
+        format!("{}{}", crate::prefix::HEADER, h.digest),
+        format!("{}{}", crate::prefix::HITS, h.digest),
+    );
     store
         .append(&[
-            NewRecord::json(
-                kinds::META,
-                Some(&format!("{}{}", crate::prefix::HEADER, h.digest)),
-                &h,
-            )
-            .unwrap(),
-            NewRecord::json(
-                kinds::META,
-                Some(&format!("{}{}", crate::prefix::HITS, h.digest)),
-                &hits,
-            )
-            .unwrap(),
+            NewRecord::json(kinds::META, Some(&hk), &h).unwrap(),
+            NewRecord::json(kinds::META, Some(&tk), &hits).unwrap(),
         ])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     assert_eq!(moved["format"], 60);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
-    let lib = crate::prefix::Library::default();
-    lib.loaded(&again).unwrap();
-    assert_eq!(lib.stats(0).headers, 1);
-    let plan = lib
-        .replay(&crate::prefix::PrefixUse {
-            header: h.digest.clone(),
-            fresh: h.digest.clone(),
-        })
-        .unwrap();
-    assert_eq!(&*plan.header, h.text.as_str());
+    let read: crate::prefix::Header = again.get_meta(&hk).unwrap().unwrap();
+    assert_eq!(read, h);
+    assert_eq!(serde_json::to_string(&read).unwrap(), PREFIX_HEADER_AT_41);
+    let read: crate::prefix::Hits = again.get_meta(&tk).unwrap().unwrap();
+    assert_eq!(read, hits);
 }
 
 /// An extension's manifest as format 33 wrote it (43a's layout, unchanged

@@ -19,7 +19,6 @@ use crate::attach::Media;
 use crate::catalog::{Catalog, ThinkingMode, TokenRates};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::node::{Body, Node};
-use crate::prefix;
 use crate::provider::{tool_uses_in, Census, ProviderRequest, ID_TOKENS, MESSAGE_TOKENS};
 use theseus_protocol::memory::{BudgetDrop, BudgetReport};
 
@@ -110,7 +109,8 @@ pub struct Manifest {
     /// deferral, or with it off. An append takes these again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loaded: Option<Vec<String>>,
-    /// The prefix library's header the third layer is (theseus-rr15, format 41).
+    /// The retired prefix library's header the third layer was (theseus-rr15, format 41): an old
+    /// compilation's, still read; a new one records none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefix: Option<crate::prefix::PrefixUse>,
     // A manifest from 19a to the place rule (COMPILATION schema 4) also has
@@ -217,9 +217,6 @@ pub struct RequestSpec {
     /// What the walk used, once `compile` has rendered it: the manifest's.
     pub memberships: Vec<theseus_ontology::MembershipUsed>,
     pub guidance: Vec<theseus_ontology::GuidanceUsed>,
-    /// The prefix library's plan for the third layer (`prefix::applied`), and what it applied.
-    pub prefix: Option<Arc<crate::prefix::Plan>>,
-    pub prefix_used: Option<crate::prefix::PrefixUse>,
 }
 
 #[derive(Clone, Copy)]
@@ -479,8 +476,6 @@ pub struct Compiled {
     /// The thread card this request renders, when it has one: a new
     /// compilation's is stored with it (`thread.card.<compilation id>`).
     pub card: Option<String>,
-    /// The prefix library's pick this compile took, for its frame (theseus-rr15).
-    pub prefix: Option<Arc<crate::prefix::Picked>>,
 }
 
 /// A rendered request.
@@ -538,7 +533,7 @@ pub fn manifest_for(
         guidance: spec.guidance.clone(),
         standing: vec![],
         loaded: crate::tools_defer::loaded_of(spec),
-        prefix: spec.prefix_used.clone(),
+        prefix: None,
     }
 }
 
@@ -551,8 +546,7 @@ pub(crate) fn renderable(n: &(impl crate::stub::Shaped + ?Sized)) -> bool {
 /// The spec preparation every strategy runs before it renders: the spec an append renders and the one a
 /// recompile renders, with the walk's guidance composed into the third layer, the deferred tool set
 /// resolved (`tools_defer::forks`), and a thread card split into its recorded and current text
-/// (`card::split`). `None` for the first: the two are one spec. The prefix library's header is applied after
-/// (`prefix::applied`), on the spec a call renders.
+/// (`card::split`). `None` for the first: the two are one spec.
 pub(crate) fn prepared<'a>(
     input: &CompileInput<'a>,
 ) -> (

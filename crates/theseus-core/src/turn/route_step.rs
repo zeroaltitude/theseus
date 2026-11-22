@@ -637,7 +637,7 @@ impl TurnRunner {
                 .await;
         };
         // The first compile is not the call's: its rows go with it.
-        self.drop_first(t, &compiled);
+        Self::drop_first(t);
         self.routed_to(t, session, spec, slot, target, &d).await?;
         *provider = Some(p);
         Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await
@@ -774,7 +774,7 @@ impl TurnRunner {
         let context = compiled.est_tokens.saturating_sub(fixed);
         match (steering, verdict, reason) {
             (Some(s), _, _) => Some(self.decide_steer(t, session, s)),
-            (None, Some(v), None) => Some(self.decide_route(t, session, v, (context, fixed))),
+            (None, Some(v), None) => Some(self.decide_route(t, session, v, context)),
             _ => None,
         }
     }
@@ -803,49 +803,30 @@ impl TurnRunner {
 
     /// The switch rule over the usable profiles: Jev's pick, under the data
     /// rule's floor and the cache hold. `context` is the session's own, the
-    /// estimate less `fixed` ([`Self::fixed_prefix_tokens`]).
+    /// estimate less the universal prefix ([`Self::fixed_prefix_tokens`]).
     fn decide_route(
         &self,
         t: &Turn<'_>,
         session: &SessionRecord,
         v: &Verdict,
-        (context, fixed): (u64, u64),
+        context: u64,
     ) -> Decision {
         if t.route.brief {
             return self.decide_brief(t, v);
         }
         let profiles = self.route_profiles();
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
-        let ask = |context_tokens| {
-            routing::decide(
-                &self.cfg.routing,
-                &profiles,
-                &routing::Ask {
-                    verdict: v,
-                    base: &t.target.profile,
-                    context_tokens,
-                    hold: hold.as_ref(),
-                    images: t.route.images,
-                },
-            )
-        };
-        let d = ask(context);
-        // A switch held back because its target would write the session's own
-        // layers cold: what the prefix library holds warm on that model is
-        // read, not written (theseus-rr15). Only the warmth beyond the
-        // universal prefix counts, which `context` has already taken off.
-        let (routing::Reason::CacheHold, routing::HoldNext::Set(h)) = (d.reason, &d.hold) else {
-            return d;
-        };
-        let warm = self
-            .resolve_target(&t.target.profile, Some(&h.profile), None, None)
-            .map_or(0, |to| {
-                self.warm_prefix_tokens(&to, session.kind, t.tc.session_id, t.tc.place())
-            });
-        match warm.saturating_sub(fixed) {
-            0 => d,
-            beyond => ask(context.saturating_sub(beyond)),
-        }
+        routing::decide(
+            &self.cfg.routing,
+            &profiles,
+            &routing::Ask {
+                verdict: v,
+                base: &t.target.profile,
+                context_tokens: context,
+                hold: hold.as_ref(),
+                images: t.route.images,
+            },
+        )
     }
 
     /// The `route.decided` row, and what the turn's result says.
@@ -981,14 +962,9 @@ impl TurnRunner {
         before.unwrap_or_else(|| TargetRef::from(t.target))
     }
 
-    /// The first compile is not the call's: its deferred rows go, and its pick
-    /// in the prefix library, which `compile_step` made in memory
-    /// (theseus-i4y7l).
-    fn drop_first(&self, t: &mut Turn<'_>, compiled: &Compiled) {
+    /// The first compile is not the call's: its deferred rows go (theseus-i4y7l).
+    fn drop_first(t: &mut Turn<'_>) {
         t.route.deferred = None;
-        if let Some(p) = compiled.prefix.as_deref() {
-            self.prefix.discard(p);
-        }
     }
 
     /// The turn runs on its own model: the first compile kept, or made again
@@ -1022,7 +998,7 @@ impl TurnRunner {
             return Self::keep_first(t, session, compiled, spec, i);
         }
         let (force, strip, overflow) = again;
-        self.drop_first(t, &compiled);
+        Self::drop_first(t);
         self.defer_tools(t, spec);
         Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await
     }

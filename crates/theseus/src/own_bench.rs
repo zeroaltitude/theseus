@@ -1,5 +1,5 @@
 //! `theseus model bench [--week]` and `theseus model replay …` (own-benchmark,
-//! theseus-pw1q.12), with `model prefix` and `model catalog`: which model your own turns need, and
+//! theseus-pw1q.12), with `model catalog`: which model your own turns need, and
 //! one past turn's first request (or, with `--whole`, the whole turn) sent to another profile. The
 //! report reads rows; the replay spends money and is the owner's (refused inside a job,
 //! `client::OPERATORS`).
@@ -53,13 +53,6 @@ pub enum ModelCmd {
         #[arg(long)]
         whole: bool,
     },
-    /// The prefix library: its picks, the cache writes they saved, and the false fits with their
-    /// scores.
-    Prefix {
-        /// The newest picks read, at most (2,000).
-        #[arg(long)]
-        limit: Option<u32>,
-    },
     /// The model catalog: context windows, output limits, prices per million tokens.
     Catalog,
 }
@@ -84,9 +77,6 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ModelCmd) -> Result<()> {
                 compare: no_compare.then_some(false),
             };
             replay(conn, json, p).await
-        }
-        ModelCmd::Prefix { limit } => {
-            crate::prefix_cmd::run(conn, json, crate::prefix_cmd::PrefixCmd::Report { limit }).await
         }
         ModelCmd::Catalog => crate::cmd::catalog(conn, json).await,
     }

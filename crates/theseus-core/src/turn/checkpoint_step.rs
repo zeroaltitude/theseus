@@ -42,7 +42,7 @@ use crate::config::PackMode;
 use crate::judge::inbound::{author_of, place_kind, Inbound, RouteWait};
 use crate::routing::checkpoint::{self as cp, LoopLine, Seen, Tally, Trigger};
 use crate::routing::effort::{self, EffortDecision};
-use crate::routing::{self, Ask, Decision, Hold, HoldNext, Reason, Verdict};
+use crate::routing::{self, Ask, Decision, Hold, HoldNext, Verdict};
 use theseus_protocol::modes::PlanState;
 use theseus_protocol::route::TurnRoute;
 
@@ -508,7 +508,7 @@ impl TurnRunner {
         a: &mut Active,
         (v, f, cost): (&Verdict, &Flight, u64),
     ) -> Result<Option<Failure>> {
-        let d = self.checkpoint_decision(t, session, a, v);
+        let d = self.checkpoint_decision(t, a, v);
         match &d.hold {
             HoldNext::Keep => {}
             HoldNext::Clear => a.hold = None,
@@ -536,9 +536,7 @@ impl TurnRunner {
                 .filter(EffortDecision::applied)
                 .and_then(|e| e.sent.or(e.ran)),
         };
-        let cold = target
-            .as_ref()
-            .map(|(to, _)| self.cold_of(t, session, a.est, to));
+        let cold = target.as_ref().map(|(to, _)| self.cold_of(a.est, to));
         self.record_checkpoint(
             t,
             a,
@@ -614,53 +612,27 @@ impl TurnRunner {
     /// The rule's answer (`routing::decide`: Jev decides at each trigger, the
     /// owner: "I categorically disagree with caps"; the verdict's pick is where
     /// the task goes, up or down, and the cache hold is the one hysteresis),
-    /// weighing the task's own context as `decide_route` weighs a session's —
-    /// the estimate less the universal prefix (theseus-ataas) — and, for a
-    /// switch that holds, the prefix library's warmth beyond it on the held
-    /// target (theseus-rr15).
-    fn checkpoint_decision(
-        &self,
-        t: &Turn<'_>,
-        session: &SessionRecord,
-        a: &Active,
-        v: &Verdict,
-    ) -> Decision {
+    /// weighing the task's own context as `decide_route` weighs a session's:
+    /// the estimate less the universal prefix (theseus-ataas).
+    fn checkpoint_decision(&self, t: &Turn<'_>, a: &Active, v: &Verdict) -> Decision {
         let profiles = self.route_profiles();
-        let ask = |context_tokens| {
-            routing::decide(
-                &self.cfg.routing,
-                &profiles,
-                &Ask {
-                    verdict: v,
-                    base: &t.target.profile,
-                    context_tokens,
-                    hold: a.hold.as_ref(),
-                    images: t.route.images,
-                },
-            )
-        };
-        let context = a.est.saturating_sub(a.fixed);
-        let d = ask(context);
-        let (Reason::CacheHold, HoldNext::Set(h)) = (d.reason, &d.hold) else {
-            return d;
-        };
-        let warm = self
-            .resolve_target(&t.target.profile, Some(&h.profile), None, None)
-            .map_or(0, |to| self.warm_of(t, session, &to));
-        match warm.saturating_sub(a.fixed) {
-            0 => d,
-            beyond => ask(context.saturating_sub(beyond)),
-        }
+        routing::decide(
+            &self.cfg.routing,
+            &profiles,
+            &Ask {
+                verdict: v,
+                base: &t.target.profile,
+                context_tokens: a.est.saturating_sub(a.fixed),
+                hold: a.hold.as_ref(),
+                images: t.route.images,
+            },
+        )
     }
 
-    fn warm_of(&self, t: &Turn<'_>, session: &SessionRecord, to: &Target) -> u64 {
-        self.warm_prefix_tokens(to, session.kind, t.tc.session_id, t.tc.place())
-    }
-
-    /// What a move to `to` writes cold: the estimate less the warm prefix
-    /// there, and its price at `to`'s catalog cache-write rate.
-    fn cold_of(&self, t: &Turn<'_>, session: &SessionRecord, est: u64, to: &Target) -> (u64, f64) {
-        let tokens = est.saturating_sub(self.warm_of(t, session, to));
+    /// What a move to `to` writes cold: the whole estimate, and its price at
+    /// `to`'s catalog cache-write rate.
+    fn cold_of(&self, est: u64, to: &Target) -> (u64, f64) {
+        let tokens = est;
         let per_mtok = self
             .catalog
             .get(&to.model)

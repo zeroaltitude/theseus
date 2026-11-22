@@ -197,7 +197,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     play's files), `project` (the system-level files, then the guidance of the session's categories, a thread's
     `topics` among them: `Walk::with_topics`), and an unmarked `session` block (its directory). Nothing per request
     goes inside the three, so two sessions on a profile and a place class send them byte for byte; `layers.rs` is the
-    one place they are rendered (the prefix library, row T13, builds on it), and `context.compiled`'s `cache.layers`
+    one place they are rendered, and `context.compiled`'s `cache.layers`
     holds each one's digest (the stored manifest is unchanged: no store format). In a thread's session the thread's
     card heads the first message (`card.rs`), a snapshot kept as the META record `thread.card.<compilation id>` in the
     compilation's own frame; a view turn's chain takes the card as it stands at its first call.
@@ -206,27 +206,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     of a cold rewrite were removed 2026-11-22): its next turn's view reads its conversation's exchanges, as any
     turn's does, and `[threads] working_tokens` and `working_percent` are retired keys (a file naming them loads with
     a warning). Tests: `compiler/tests_layers.rs`, `rpc/tests_thread_context.rs`.
-  - **The prefix library** (theseus-rr15, T13; store format 41; `prefix.rs`, `prefix/`, `config/prefix.rs`,
-    `fact/prefix.rs`, `rpc/prefix.rs`): layer 3 (the project: the system-level files, then the topics' guidance) is
-    kept as a header by digest (META `prefix:<digest>`, its hit log `prefix.hits.<digest>`, a retirement
-    `prefix.retired.<digest>`, all in the frame of the compilation that minted or reused it) and reused byte for
-    byte. The pick runs only at a compile point (`prefix/turn.rs`: a new chain of the view, or a system that changed
-    under the session; never inside a chain): the nearest headers by sketch
-    (`prefix/sketch.rs`, a hashed bag of words, computed in the daemon) on the same lower layers and place class,
-    each scored by `fit` (the share of the fresh layer's bytes it covers; a changed or a foreign section never
-    fits), then reuse at `[prefix] confirm`, below it mint only when `p(reuse) × reads × delta > warm coarser`, else
-    the coarser header (`prefix/fit.rs`'s module doc is the rule). What the header lacks heads the session's block
-    (`prefix::applied`, in `compile_with`), and the manifest's `prefix` names the header, so an append replays the
-    same bytes from memory (`Library::replay`). Each pick is a `prefix.picked` row; `prefix.report` (`theseus model prefix
-    report`) joins them with the turn's cache read and what went wrong after (a correction, a re-ask): a reuse below
-    `act` that went wrong is a false fit. `[prefix] enabled = false` renders each session's own layers. A session's
-    and a place's standing records are the session's block's, not the header's (`standing::Block::local`), so layer
-    1 is the same for every session of a place class. Warmth is per header and model, in memory (each compile
-    touches its header): routing's cold estimate takes off what a warm header that fits holds on the switch's
-    target model, under that target's own lower layers (`warm_prefix_tokens`, asked only for a cache hold). The
-    keep-warm reads between turns are gone (removed 2026-11-22; only the read during a job wait stays). Not yet:
-    Jev's `prefix` pack (the fit is code's). Tests: `prefix/tests.rs`, `rpc/tests_prefix.rs`, `compiler/tests_layers.rs`, `tests_route_warm.rs`,
-    the layouts' format-34 samples.
+  - **The prefix library is gone** (theseus-rr15, retired 2026-11-22): no saved header of the third layer is reused
+    across sessions; the view renders each request's system sections afresh, with the same content. Two sessions
+    in two places on one project still send layers 1 to 3 byte for byte, from the view's own fixed front
+    (`rpc/tests_cached_layers.rs`). Old stores' records still decode and nothing writes them: META `prefix:<digest>`,
+    `prefix.hits.<digest>`, `prefix.retired.<digest>` (`prefix.rs`'s types), and a compilation's `manifest.prefix`;
+    old `prefix.picked` rows are read by their name, as every kind this build no longer writes. `[prefix]`'s keys are retired keys (a file naming them loads with a warning). Routing's
+    cold estimate no longer takes a warm header off a switch's cost: a cache hold weighs the whole context.
   - **Situations** (M6 35a, theseus-3nk.1): `compiler/situation.rs`. What a compile is for: the step tells it from
     what it holds (`TurnRunner::situation_of`, `turn/situation_step.rs`: no compilation yet is a conversation's or a
     task's start; a session's first compile in this run, `RunCompiles` in memory, with nothing its turn brought is a
@@ -698,10 +684,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   theseus-stwkb); (3) when another thread's notes are pulled: `cross_recall_needs_entity` (true) drops a hit whose
   chunk holds entities (`Tie::Apart`: index entities,
   none of the message's) of another stream, so a question's shape alone pulls none. Each key off restores the
-  earlier rule. (2) A prefix carries only the asking stream's own sections: `prefix::fit` refuses a header with a
-  section the fresh layer lacks, so no reuse can hold another stream's guidance (`prefix/tests.rs`,
-  `a_prefix_carries_only_the_asking_streams_own_sections`); the A1 vs A1n gap was a router decision (a new
-  stream's first message held in the sticky thread), so `[prefix] enabled` stays true. Tests:
+  earlier rule. (2) No saved prefix is reused across streams any more (the prefix library is gone, 2026-11-22), so
+  no reuse can hold another stream's guidance; the A1 vs A1n gap was a router decision (a new stream's first
+  message held in the sticky thread). Tests:
   `theseus-memory/src/tests_threads.rs`, `rpc/tests_thread_mix.rs`. **The cross judge and seals: removed 2026-11-22** (anything goes; issue 44). No turn asks
   `recall_cross.v1` (`turn/cross_step.rs` is gone; `judge/cross.rs` and its pack stay registered until the sweep), and
   `[threads] cross_recall_bar`, `cross_recall_judge` and `cross_recall_judge_k` are retired keys. A seal keeps nothing out
