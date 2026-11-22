@@ -112,32 +112,30 @@ fn declared_in(root: &Path) -> Vec<(String, String, bool)> {
 /// The public types that never cross the wire, as `<file> <name>`, each with why: no method, notification or result
 /// carries them, so they have no TypeScript. Any other public type is a wire type and the test below holds it to one.
 const NOT_WIRE: &[&str] = &[
-    "diff.rs Kind",                  // a diff row's kind, for rendering
-    "diff.rs Row",                   // a numbered diff row, for rendering
-    "flow.rs FlowInfo",              // the core's view of a loaded flow; no method returns it
-    "flow.rs FlowHandback",          // what a flow hands the model, as a tool's result
-    "grants.rs SessionGrant",        // what edits mode's rule reads, in the core
-    "initiative.rs Proactive",       // the order of first messages, in the core
-    "jsonrpc.rs Incoming",           // a message as read, before it is one of the wire's types
-    "outbox.rs Receipt",             // a channel's receipt, as the outbox stores it
-    "own_command.rs Way",            // what a verb of the command line does, for the shell's answer
-    "own_command.rs Entry",          // one row of that table
-    "own_command.rs Answered",       // the tool a shell look is answered with, in the core
-    "routines.rs RunMark",           // a run's stored mark
-    "routines.rs RoutinePing",       // a routine's stored memory of its pings
-    "rsi.rs SelfRowKind",            // the table of `self.*` row kinds
-    "sessions.rs StateRule",         // the windows a session's state is derived with
-    "sessions.rs StateOf",           // what the state rule reads of a session
-    "warm.rs Typist",                // a client's own memory of whom it told
-    "why.rs WhyInput",               // what a `why` is built from
-    "why.rs Why",                    // a `why`'s sections, before they are lines
-    "why.rs ToolCalled",             // a tool call, as a `why` counts it
-    "work_threads.rs GroupedThread", // a client's grouping of the board
-    "work_threads.rs Grouped",       // a client's grouping of the board
-    "notices/burst.rs Burst",        // the burst rule's memory, in a client
-    "work/ask.rs AskOption",         // `owner_ask`'s input: a tool's, inside a call's `input`
-    "work/ask.rs AskInput",          // `owner_ask`'s input: a tool's, inside a call's `input`
-    "work/ask.rs Choice",            // what an answer's option names, read from it
+    "diff.rs Kind",            // a diff row's kind, for rendering
+    "diff.rs Row",             // a numbered diff row, for rendering
+    "flow.rs FlowInfo",        // the core's view of a loaded flow; no method returns it
+    "flow.rs FlowHandback",    // what a flow hands the model, as a tool's result
+    "grants.rs SessionGrant",  // what edits mode's rule reads, in the core
+    "initiative.rs Proactive", // the order of first messages, in the core
+    "jsonrpc.rs Incoming",     // a message as read, before it is one of the wire's types
+    "outbox.rs Receipt",       // a channel's receipt, as the outbox stores it
+    "own_command.rs Way",      // what a verb of the command line does, for the shell's answer
+    "own_command.rs Entry",    // one row of that table
+    "own_command.rs Answered", // the tool a shell look is answered with, in the core
+    "routines.rs RunMark",     // a run's stored mark
+    "routines.rs RoutinePing", // a routine's stored memory of its pings
+    "rsi.rs SelfRowKind",      // the table of `self.*` row kinds
+    "sessions.rs StateRule",   // the windows a session's state is derived with
+    "sessions.rs StateOf",     // what the state rule reads of a session
+    "warm.rs Typist",          // a client's own memory of whom it told
+    "why.rs WhyInput",         // what a `why` is built from
+    "why.rs Why",              // a `why`'s sections, before they are lines
+    "why.rs ToolCalled",       // a tool call, as a `why` counts it
+    "notices/burst.rs Burst",  // the burst rule's memory, in a client
+    "work/ask.rs AskOption",   // `owner_ask`'s input: a tool's, inside a call's `input`
+    "work/ask.rs AskInput",    // `owner_ask`'s input: a tool's, inside a call's `input`
+    "work/ask.rs Choice",      // what an answer's option names, read from it
 ];
 
 /// The wire types: what [`declared`] finds, less [`NOT_WIRE`].

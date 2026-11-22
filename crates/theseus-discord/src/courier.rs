@@ -26,10 +26,8 @@ mod board;
 mod catchup;
 mod held;
 mod offer;
-mod persona;
 mod recall;
 mod subagent;
-mod thread;
 pub(crate) mod v2;
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -363,9 +361,6 @@ pub(crate) struct Lane {
     pub stale_board: Option<(u64, u64)>,
     /// An earlier run's board is to be looked for among the pins.
     pub seek_stale: bool,
-    /// A persona's signature: its webhook and the messages it wrote
-    /// (theseus-sjzm).
-    signing: persona::Signing,
     /// Components V2: the board's pace and the needs-you cards' pings (theseus-2j2ka).
     pub v2: v2::State,
     /// The outage this lane is coming back from (theseus-ss36w).
@@ -411,7 +406,6 @@ impl Lane {
             pin_refused: false,
             stale_board: None,
             seek_stale: false,
-            signing: Default::default(),
             v2: v2::State::default(),
             catchup: catchup::State::default(),
         }
@@ -1000,6 +994,7 @@ impl Lane {
             // (theseus-pw1q.8), a self-join's card or notice (theseus-pw1q.9), a narrower policy for a
             // hand role and the red after its apply (theseus-pw1q.15), and Jev's privacy warning
             // (theseus-gasov), and a home past its size (theseus-jg1eg): the owner's DM alone.
+            // An old seal or link card a store still holds is a plain note: threads are gone.
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "retraction"
             | "self_keel" | "seal_card" | "self_join" | "self_narrow" | "self_narrow_red"
             | "initiative" | "standing_card" | "digest" | "privacy_warning" | "onto_card"
@@ -1065,12 +1060,6 @@ impl Lane {
             .filter_map(|w| w["text"].as_str().map(str::to_string))
             .collect();
         render::wake_header(&mut parts, &wakes);
-        if let Some((tag, persona)) = self.thread_tag(body, &turn_id) {
-            if let Some(p) = persona {
-                persona::sign_parts(&mut parts, &p);
-            }
-            render::thread_tag(&mut parts, &tag);
-        }
         // Replying to the turn's message once: only when the stream posted
         // nothing of it.
         let prefix = format!("{turn_id}:");
@@ -1635,21 +1624,6 @@ impl Lane {
                     Buttons::JevLabel(judgment.to_string()),
                 )
             }
-            // A proposed seal (theseus-f2g0): Seal this thread, Not needed.
-            "seal_card" => (
-                body["text"].as_str().unwrap_or("").to_string(),
-                format!("seal:{}", a.correlation_id),
-                Buttons::Seal(crate::runtime::seal_slug(body)),
-            ),
-            // Jev's offer to link two threads (theseus-98bz.12): Link these threads, Not needed.
-            "link_card" => {
-                let (here, other) = crate::runtime::seal::link::pair_of(body);
-                (
-                    body["text"].as_str().unwrap_or("").to_string(),
-                    format!("link:{}", a.correlation_id),
-                    Buttons::Link(here, other),
-                )
-            }
             // What Theseus said first, in its persona's voice (theseus-slvl.9):
             // its key names the message, so a 👍 or 👎 on it finds it.
             "initiative" => (
@@ -1849,9 +1823,6 @@ impl Lane {
             std::borrow::Cow::Borrowed(_) => None,
         };
         let w = masked.as_ref().unwrap_or(w);
-        // A persona's text is signed (theseus-sjzm).
-        let signed = self.sign(w).await;
-        let w = signed.as_ref().map_or(w, |s| &s.write);
         let mut known = w
             .message
             .map(|m| (w.channel, m))
@@ -1865,11 +1836,7 @@ impl Lane {
             {
                 return Ok(Some((c, m)));
             }
-            let edited = match self.edit_hooked(m, &w.content).await {
-                Some(r) => r,
-                None => self.edit(c, m, &w.content, &w.buttons).await,
-            };
-            match edited {
+            match self.edit(c, m, &w.content, &w.buttons).await {
                 Ok(()) => {
                     self.touch(&w.key);
                     self.sent.insert(w.key.clone(), w.content.clone());
@@ -1911,23 +1878,16 @@ impl Lane {
         // otherwise leave the question unheard, theseus-31pgz). A ping it
         // makes still counts in the window, for the chat that follows.
         let ping = w.ping && paced && (asks(w) || self.shared.pings.open(w.channel, now, window));
-        let (m, landed) = match signed
-            .as_ref()
-            .and_then(|s| Some((s.hook.as_ref()?, &s.name)))
-        {
-            Some((hook, name)) => self.create_hooked(hook, name, w, ping).await?,
-            None => {
-                self.create(
-                    w.channel,
-                    &w.key,
-                    &w.content,
-                    &w.buttons,
-                    w.reply_to,
-                    (&w.mentions, w.ping, ping),
-                )
-                .await?
-            }
-        };
+        let (m, landed) = self
+            .create(
+                w.channel,
+                &w.key,
+                &w.content,
+                &w.buttons,
+                w.reply_to,
+                (&w.mentions, w.ping, ping),
+            )
+            .await?;
         if ping {
             self.shared.pings.mark(w.channel, now, window);
             if let Some(q) = card {
@@ -1994,8 +1954,6 @@ impl Lane {
             Buttons::JevLabel(judgment) => crate::runtime::jev_buttons(judgment),
             Buttons::Reminder(wake) => crate::runtime::remind_buttons(wake),
             Buttons::Horizon(wake, answers) => crate::runtime::horizon_buttons(wake, answers),
-            Buttons::Seal(slug) => crate::runtime::seal_buttons(slug),
-            Buttons::Link(h, o) => crate::runtime::seal::link::buttons(h, o),
             Buttons::OntoUndo(write) => crate::runtime::onto_buttons(write),
             Buttons::PersonaSoul(key) => crate::runtime::persona_soul::buttons(key),
             Buttons::SelfNote(items) => crate::runtime::self_note::buttons(items),
@@ -2072,8 +2030,6 @@ impl Lane {
             Buttons::JevLabel(judgment) => Some(crate::runtime::jev_buttons(judgment)),
             Buttons::Reminder(wake) => Some(crate::runtime::remind_buttons(wake)),
             Buttons::Horizon(wake, answers) => Some(crate::runtime::horizon_buttons(wake, answers)),
-            Buttons::Seal(slug) => Some(crate::runtime::seal_buttons(slug)),
-            Buttons::Link(h, o) => Some(crate::runtime::seal::link::buttons(h, o)),
             Buttons::OntoUndo(write) => Some(crate::runtime::onto_buttons(write)),
             Buttons::PersonaSoul(key) => Some(crate::runtime::persona_soul::buttons(key)),
             Buttons::SelfNote(items) => Some(crate::runtime::self_note::buttons(items)),

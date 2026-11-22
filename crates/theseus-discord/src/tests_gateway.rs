@@ -1087,18 +1087,15 @@ mod cards;
 mod content;
 mod horizon;
 mod keep_form;
-mod link;
 mod notify;
 mod onto;
 pub(crate) mod patience;
 mod persona_soul;
 mod remind;
 mod reply;
-mod seal;
 mod self_note;
 mod self_word;
 mod standing;
-mod threads;
 
 /// A message with a Jev notice's Noise button for `judgment`, posted in
 /// `channel` as the bot's, as a forged or stale copy would be. Its id.

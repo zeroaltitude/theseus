@@ -237,8 +237,6 @@ impl Shared {
         discord: Option<DiscordOrigin>,
     ) -> bool {
         self.orders_interaction(i, tx, who, discord.clone()).await
-            || self.thread_interaction(i, who, discord.clone()).await
-            || self.move_interaction(i, who, discord.clone()).await
             // `/project trust|untrust|trusted` (theseus-me9fc).
             || self.project_trust_interaction(i, who, discord.clone()).await
             || self.extensions_interaction(i, tx, who, discord).await
