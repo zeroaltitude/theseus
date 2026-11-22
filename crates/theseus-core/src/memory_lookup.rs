@@ -393,6 +393,18 @@ async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, St
     })
 }
 
+/// Whether `session` is an imported episode whose tag was erased.
+fn erased(core: &Core, session: &str) -> bool {
+    crate::import::is_imported(session)
+        && core
+            .store
+            .get_session::<crate::session::SessionRecord>(session)
+            .ok()
+            .flatten()
+            .and_then(|r| r.imported)
+            .is_some_and(|i| i.erased.is_some())
+}
+
 /// A date in the daemon's time zone, `2026-03-14`.
 fn day(ms: u64) -> String {
     crate::judge::spend::local_day(ms)
@@ -695,6 +707,14 @@ async fn items_of(
     }
     let mut items = Vec::new();
     for i in admitted {
+        // An index hit never outlives a tombstone (review G-R1): forgetting the index is best-effort, so
+        // the node and its session are read as they are now, and an erased one is no item.
+        let live = core.store.get_node(&i.node_id).ok().flatten();
+        if live.is_none_or(|(_, n)| matches!(n.body, crate::node::Body::Erased { .. }))
+            || erased(core, &i.session_id)
+        {
+            continue;
+        }
         let text = i.text.clone().unwrap_or_default();
         let item = match episodes.get(&i.session_id) {
             Some(e) => {

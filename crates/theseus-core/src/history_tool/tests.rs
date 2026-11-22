@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use super::open::open;
 use super::page::{render, Lens, READ_MOST};
-use super::{answer, Board, Count, OPENS_PER_TURN};
+use super::{anchor, answer, pov_of, Board, Count, OPENS_PER_TURN};
 use crate::exchange::{
     exchange_record, mark_record, touch, Exchange, Opener, OwnerMark, Peer, Root, OWNER,
 };
@@ -477,6 +477,118 @@ fn the_tool_is_offered_in_company_and_loads_in_a_dm_and_a_channel() {
 }
 
 // --- Through the core: the opens, and a played turn. ---
+
+fn exchange_of(
+    core: &crate::Core,
+    sid: &str,
+    turn: &str,
+    place: &str,
+    person: Option<&str>,
+    opened_by: Opener,
+) {
+    let ask = Node::user(sid, Some(turn), "owner", "hello");
+    let x = Exchange {
+        turn_id: turn.into(),
+        session_id: sid.into(),
+        place: place.into(),
+        private: true,
+        opened_by,
+        person: person.map(str::to_string),
+        start_ms: 1,
+        end_ms: None,
+        ask: (opened_by == Opener::Message).then(|| ask.id.clone()),
+        reply: None,
+        messages: vec![],
+        stop: None,
+        rebuilt: false,
+    };
+    let mut recs = vec![ask.record().unwrap(), exchange_record(&x).unwrap()];
+    if let Some(mut m) = mark_of(&ask, person, place) {
+        // A chat transport's owner: his handle proves who, not that he is alone.
+        if place.starts_with("discord:") {
+            m.in_person = place.starts_with("discord:dm:");
+            m.owner_handle = Some(true);
+        }
+        recs.push(mark_record(&m).unwrap());
+    }
+    core.store.append(&recs).unwrap();
+}
+
+/// Another place's exchange, opened: the owner's words carry his heading and stay behind the margin (the
+/// whose-words half of the cross-place test the cut deleted; review §6 item 1).
+#[test]
+fn another_places_exchange_opens_with_the_owners_heading_and_margined_words() {
+    let (_d, s) = store();
+    put(&s, &ex(1, DM, "ses_dm"));
+    let his = open(&lens(&s, HERE), &Handle("turn_0001".into())).unwrap();
+    assert!(
+        his.contains("[the owner said, in ") && his.contains("person: \u{2502} message 1"),
+        "{his}"
+    );
+}
+
+/// A shared channel's old session after `/new`: no direct target, its wake answers the channel. The wake's
+/// turn is anchored where its reply goes, even from an exchange the ledger once recorded at the terminal
+/// (the anchor half of the deleted wake test; review §6 item 2).
+#[tokio::test]
+async fn a_shared_channels_wake_after_new_is_anchored_where_its_reply_goes() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let old = session(&r.core, None);
+    r.core
+        .store
+        .put_meta(
+            &format!("{}{old}", crate::outbox::WAKE_TARGET_PREFIX),
+            &LOBBY.to_string(),
+        )
+        .unwrap();
+    exchange_of(&r.core, &old, "t_wake", HERE, None, Opener::Wake);
+    let ex = crate::exchange::exchange(&r.core.store, "t_wake").unwrap();
+    assert_eq!(
+        anchor(&r.core, &old, ex.as_ref(), None).as_deref(),
+        Some(LOBBY)
+    );
+    let pov = pov_of(&r.core, &old, "t_wake", None, PlaceClass::Shared);
+    assert_eq!(pov.anchor, Anchor::Place(LOBBY.into()));
+}
+
+/// The authority reader (`view_gate::present`, what the task objective's owner-in-person rule reads) tells
+/// the owner's in-person message at a surface he can be alone at from a channel's, an unmarked one's and an
+/// agent's: the mark half of the deleted private-channel test (review §6 item 3), never a history rule.
+#[test]
+fn the_authority_reader_tells_the_owner_in_person_from_a_channel_and_an_unmarked_input() {
+    use crate::view_gate::{present, Input, OwnerMarks};
+    use theseus_memory::gate::Present as P;
+    use theseus_memory::recall::Place;
+    struct Mark(Option<bool>);
+    impl OwnerMarks for Mark {
+        fn in_person(&self, _: &str) -> anyhow::Result<Option<bool>> {
+            Ok(self.0)
+        }
+    }
+    let p = |target: &str, m| present(&Place::Private, Some(target), Input::Message("n"), &Mark(m));
+    assert_eq!(p(DM, Some(true)), P::OwnerAlone, "his DM, in person");
+    assert_eq!(
+        p(HERE, Some(true)),
+        P::OwnerAlone,
+        "the terminal, in person"
+    );
+    assert_eq!(
+        p("discord:channel:11", Some(true)),
+        P::PrivateChannel,
+        "a channel bound private is never alone, his message or not"
+    );
+    assert_eq!(
+        p(HERE, None),
+        P::PrivateChannel,
+        "no mark: an agent's process"
+    );
+    assert_eq!(
+        p(DM, Some(false)),
+        P::PrivateChannel,
+        "his handle, not in person"
+    );
+}
 
 #[tokio::test]
 async fn twelve_opens_a_turn_then_the_allowance_is_told() {
