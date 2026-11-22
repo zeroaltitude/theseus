@@ -188,3 +188,87 @@ async fn an_older_summarys_account_is_withheld_where_it_could_credit_another_to_
     let kept = super::fold::node(&s, "fld_old").unwrap().unwrap();
     assert_eq!(kept.account, node.account, "nothing stored is rewritten");
 }
+
+/// An older node whose excerpts are the owner's but one whose source node is gone (item 4): a missing
+/// message is not proof that it was his, so the account and the title are withheld.
+#[tokio::test]
+async fn an_older_summary_over_a_missing_message_is_withheld() {
+    let (_d, s) = store();
+    let turn = exchange_at(&s, "ses_ch", CHANNEL, 1_000, false);
+    mark(&s, &turn, None);
+    let ex = exchange::exchange(&s, &turn).unwrap().unwrap();
+    let line = |node: &str| super::fold::HisLine {
+        node: node.into(),
+        correction: false,
+        standing: false,
+    };
+    let node = super::fold::FoldNode {
+        id: "fld_gone".into(),
+        place: CHANNEL.into(),
+        level: 1,
+        exchanges: vec![turn],
+        first_ms: ex.start_ms,
+        last_ms: ex.start_ms,
+        his: vec![line(ex.ask.as_deref().unwrap()), line("nd_gone")],
+        counted: 0,
+        children: vec![],
+        title: "The owner's gauges".into(),
+        account: "The owner asked for both gauges.".into(),
+        marks: super::marks_of(&ex),
+        model: Some("fake-small-1".into()),
+        writer: 1,
+        at_ms: ex.start_ms,
+    };
+    s.append(&super::fold::records(&node).unwrap()).unwrap();
+    let nodes = StoreLadder(&s).read(CHANNEL, N, None).unwrap().nodes;
+    let renderer = crate::view::wire_text::TextRenderer {
+        store: &s,
+        kernel: None,
+        sessions: None,
+        zone: &crate::recall::stamp::system,
+    };
+    let pov = PointOfView {
+        anchor: Anchor::Place(CHANNEL.into()),
+        person: Some(exchange::OWNER.into()),
+        present: Present::Private,
+        at_hand: None,
+        now_ms: 0,
+    };
+    let b = &renderer.ladder(&pov, &nodes).unwrap()[0];
+    assert!(!b.text.contains("The owner asked"), "{}", b.text);
+    assert!(b
+        .text
+        .contains("(written before authorship was recorded; not shown)"));
+}
+
+/// An older `did` line (item 4) over another person's message reads as not shown, by the one rule the
+/// history page and the view's line forms call (`did::shown_line`); over the owner's own, as written.
+#[test]
+fn an_older_did_line_is_shown_only_over_the_owners_proven_words() {
+    let (_d, s) = store();
+    let seeded = |who: Option<&'static str>| {
+        let turn = exchange_at(&s, "ses_ch", CHANNEL, 1_000, false);
+        mark(&s, &turn, who);
+        let ex = exchange::exchange(&s, &turn).unwrap().unwrap();
+        super::did::DidLine {
+            turn_id: turn,
+            session_id: ex.session_id.clone(),
+            line: "Recalibrated the gauge the owner asked for.".into(),
+            model: "fake-small-1".into(),
+            writer: 1,
+            marks: super::marks_of(&ex),
+            cost_usd: 0.0,
+            at_ms: ex.start_ms,
+        }
+    };
+    let other = seeded(Some("discord:7"));
+    assert_eq!(
+        super::did::shown_line(&s, &other),
+        super::did::UNAUTHORED_LINE
+    );
+    let his = seeded(None);
+    assert_eq!(super::did::shown_line(&s, &his), his.line);
+    let mut current = other;
+    current.writer = super::writer::WRITER_VERSION;
+    assert_eq!(super::did::shown_line(&s, &current), current.line);
+}

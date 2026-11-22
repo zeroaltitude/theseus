@@ -360,10 +360,16 @@ pub(crate) async fn answer(
         });
     }
     let before = board.position(turn, a.before.as_ref())?;
+    let fresh;
+    let fresh_held;
     if let Some(w) = a.words.as_deref().map(str::trim).filter(|w| !w.is_empty()) {
         let (root, _) = lens.root(a).map_err(|e| format!("{e:#}"))?;
         let scope = lens.scope(&root).map_err(|e| format!("{e:#}"))?;
         lens.words = Some(found(core, w, scope).await?);
+        // The node gate is read again after the await: a negative is never carried across it.
+        fresh = crate::view_gate::Moved::read(&core.runner, Some(session));
+        fresh_held = |e: &crate::exchange::Exchange| fresh.holds(e);
+        lens.moved = &fresh_held;
     }
     let walked = lens
         .walk(a, before, used.looks)

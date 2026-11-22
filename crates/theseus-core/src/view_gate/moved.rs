@@ -4,20 +4,19 @@
 //! gate decide a seal by the exchange's session; [`Moved::holds`] is the node half of the same rule, the
 //! gate's `node_seal` with the board read once: any message or reply of the exchange moved into a thread
 //! that is sealed, seal-pending, unknown to the board, or whose record does not read, holds the exchange
-//! whole. With the board unread, every moved node is held. The moved nodes' keys are read once per reader
-//! (one prefix read of `moved.of.`, as many records as messages were ever moved), so a node never moved
-//! costs a map lookup; a moved one, one keyed read, then the memo. With the keys unread, every node is
-//! looked up.
+//! whole. With the board unread, every moved node is held. Each node is looked up once (one keyed read,
+//! then the memo): its cost is bounded by what is shown, never by how many messages were ever moved. A
+//! `Moved` is read for one moment: it is built after the last await before the text it gates is read,
+//! and never carried across one (its memo is a snapshot).
 //!
 //! [`moved_at_all`] is the writers' rule (the ladder's `did` lines and its first-level folds, written once
 //! and kept): an exchange with any message or reply moved into any thread is folded by code and read by no
 //! model, whatever the thread's seal today, since a summary outlives a seal set later.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use theseus_memory::gate::Seal;
-use theseus_store::Store as _;
 
 use crate::exchange::Exchange;
 use crate::moved::{moved_of_key, MovedTo};
@@ -36,8 +35,6 @@ pub struct Moved<'a> {
     board: Option<Arc<Board>>,
     /// The thread the reader serves: its own thread is clear to it.
     own: Option<String>,
-    /// The nodes that have a `moved.of` record; none when they could not be read.
-    moved: Option<HashSet<String>>,
     memo: Mutex<HashMap<String, bool>>,
 }
 
@@ -53,30 +50,16 @@ impl<'a> Moved<'a> {
             .as_ref()
             .zip(asker)
             .and_then(|(b, a)| super::thread_of(store, b, a, 0).ok().flatten());
-        let prefix = moved_of_key("");
-        let moved = (store
-            .inner()
-            .latest_with_prefix(theseus_store::kinds::META, &prefix)
-            .ok())
-        .map(|rs| {
-            (rs.iter())
-                .filter_map(|r| r.key.as_deref()?.strip_prefix(&prefix).map(str::to_string))
-                .collect()
-        });
         Self {
             store,
             board,
             own,
-            moved,
             memo: Mutex::new(HashMap::new()),
         }
     }
 
     /// Whether node `id` is held from this reader: moved into a thread not proven clear for it.
     fn held(&self, id: &str) -> bool {
-        if self.moved.as_ref().is_some_and(|m| !m.contains(id)) {
-            return false;
-        }
         if let Some(h) = self.memo.lock().ok().and_then(|m| m.get(id).copied()) {
             return h;
         }
@@ -109,15 +92,16 @@ impl<'a> Moved<'a> {
     }
 }
 
-/// Whether any exchange of `turns` holds a message or reply moved into a thread, or cannot be read: the
+/// Whether any exchange of `turns` holds a message or reply moved into a thread, is missing, or cannot be
+/// read: the
 /// writers' rule again at dispatch, after the last await before a summary's request.
 pub fn sources_moved(store: &Store, turns: &[String]) -> bool {
     turns
         .iter()
         .any(|t| match crate::exchange::exchange(store, t) {
+            // Only a readable exchange whose nodes are all clear proves a source: a missing one holds.
             Ok(Some(e)) => moved_at_all(store, &e),
-            Ok(None) => false,
-            Err(_) => true,
+            Ok(None) | Err(_) => true,
         })
 }
 

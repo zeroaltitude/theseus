@@ -1362,3 +1362,58 @@ async fn the_owners_inspection_withholds_a_message_moved_into_a_sealed_thread() 
     move_into_kelp(c, "7741");
     assert!(!source.may_show(&range, None), "after it");
 }
+
+/// Absence is not proof (item 2): a shown exchange whose record is gone between two calls of one turn
+/// revokes the frozen view, and the second request holds nothing of it.
+#[tokio::test]
+async fn a_shown_exchange_removed_between_two_calls_is_held() {
+    use std::sync::{Arc, OnceLock};
+    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
+    let held = core.clone();
+    let r = crate::tests_places::rig_setup_scripted(
+        |c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)),
+        |_| {},
+        move |q| {
+            let last = last_user(q);
+            if last.contains("drop it now") && !crate::tests_places::answers_a_call(q) {
+                let c = held.get().expect("the core");
+                for s in (c.store.list_sessions::<crate::session::SessionRecord>()).unwrap() {
+                    for (_, n) in c.store.session_nodes(&s.session_id).unwrap() {
+                        let said = matches!(&n.body, crate::node::Body::UserMessage { text, .. }
+                            if text.contains("7741"));
+                        if let (true, Some(t)) = (said, n.turn_id.as_deref()) {
+                            let key = format!("{}{t}", crate::exchange::EXCHANGE_PREFIX);
+                            c.store
+                                .append(&[theseus_store::NewRecord::delete_meta(&key)])
+                                .unwrap();
+                        }
+                    }
+                }
+                return crate::provider::Scripted::tools(
+                    "Looking.",
+                    &[("s1", "fs_list", serde_json::json!({"path": "."}))],
+                );
+            }
+            crate::provider::Scripted::text("Done.")
+        },
+    );
+    let _ = core.set(r.core.clone());
+    let c = &r.core;
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: the figure is 7741", true).await;
+    turn_as(c, &desk, "desk: drop it now", true).await;
+    let calls: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| texts(q).contains("desk: drop it now"))
+        .collect();
+    assert_eq!(calls.len(), 2, "the turn made two calls");
+    assert!(
+        texts(&calls[0]).contains("7741"),
+        "before: {}",
+        texts(&calls[0])
+    );
+    assert!(
+        !texts(&calls[1]).contains("7741"),
+        "after: {}",
+        texts(&calls[1])
+    );
+}
