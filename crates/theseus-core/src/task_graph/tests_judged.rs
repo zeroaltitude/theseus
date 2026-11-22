@@ -484,7 +484,7 @@ fn proposed(core: &crate::rpc::Core) -> Vec<Value> {
 #[tokio::test]
 async fn in_shadow_his_clean_narrowing_would_apply_once_and_keeps_its_card() {
     let (_dir, core, model) = judging_core();
-    let before = super::get(&core.store, TASK).unwrap().unwrap();
+    let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
     let first = submit(&core, owner(), "hello", None).await;
     let said = "make it the north side only";
     let new = format!("{}; {said}", before.objective);
@@ -494,7 +494,7 @@ async fn in_shadow_his_clean_narrowing_would_apply_once_and_keeps_its_card() {
         Some((Operation::Restricts, false)),
     );
     submit(&core, owner(), said, Some(&first.session_id)).await;
-    let now = super::get(&core.store, TASK).unwrap().unwrap();
+    let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
     assert_eq!(
         (now.version, &now.objective),
         (1, &before.objective),
@@ -527,7 +527,7 @@ async fn in_shadow_his_clean_narrowing_would_apply_once_and_keeps_its_card() {
 #[tokio::test]
 async fn acting_his_clean_narrowing_applies_once_and_a_second_keeps_its_card() {
     let (_dir, core, model) = judging_core();
-    let before = super::get(&core.store, TASK).unwrap().unwrap();
+    let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
     let first = submit(&core, owner(), "hello", None).await;
     let said = "make it the north side only";
     let new = format!("{}; {said}", before.objective);
@@ -538,7 +538,7 @@ async fn acting_his_clean_narrowing_applies_once_and_a_second_keeps_its_card() {
         Some((Operation::Restricts, true)),
     );
     submit(&core, owner(), said, Some(&first.session_id)).await;
-    let now = super::get(&core.store, TASK).unwrap().unwrap();
+    let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
     assert_eq!(
         (now.version, now.objective.as_str()),
         (2, new.as_str()),
@@ -569,7 +569,7 @@ async fn a_page_in_the_turn_or_an_agents_process_keeps_the_card() {
     let agent = Client::new("sock#9", Surface::Cli).behind(Behind::Agent("claude".into()));
     for (client, page) in [(owner(), true), (agent, false)] {
         let (_dir, core, model) = judging_core();
-        let before = super::get(&core.store, TASK).unwrap().unwrap();
+        let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
         let first = submit(&core, client.clone(), "hello", None).await;
         let said = "make it the north side only";
         let new = format!("{}; {said}", before.objective);
@@ -580,7 +580,7 @@ async fn a_page_in_the_turn_or_an_agents_process_keeps_the_card() {
         );
         *model.page.lock().unwrap() = page;
         submit(&core, client, said, Some(&first.session_id)).await;
-        let now = super::get(&core.store, TASK).unwrap().unwrap();
+        let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
         assert_eq!(now.version, 1, "nothing changed");
         let rows = proposed(&core);
         assert_eq!(rows.len(), 1, "{rows:?}");
