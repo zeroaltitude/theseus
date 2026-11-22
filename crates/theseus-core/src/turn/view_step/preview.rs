@@ -2,8 +2,8 @@
 //! would get, opened by a message of the owner in person there, built by the turn's own assembler
 //! (`TurnRunner::view_built`: the same selectors, budget and gate) from the place as it stands now, and shown
 //! as `view show` shows a kept one. No model is called, nothing is sent, and nothing is written: no view
-//! record, no ledger row, and no cache a turn reads (the spec is `TurnRunner::preview_spec`, which resolves
-//! no thread card and compiles nothing).
+//! record, no ledger row: no persistent write and no compiled-context change (the spec is
+//! `TurnRunner::preview_spec`, which resolves no thread card and compiles nothing).
 //!
 //! The owner's alone (`rpc::views`): the daemon cannot tell which session an agent's process runs, so it
 //! previews for no agent. The point of view is the gate's (`view_gate::Verified::of_preview`), never the
@@ -20,7 +20,7 @@ use theseus_protocol::view::{
     ViewTally,
 };
 
-use super::{unledgered, Asked, Built, Fallback, RequestSpec, TurnRunner};
+use super::{fold_constituents, unledgered, Asked, Built, Fallback, RequestSpec, TurnRunner};
 use crate::ladder::view::StoreLadder;
 use crate::session::SessionRecord;
 use crate::store::Transcript;
@@ -46,36 +46,47 @@ pub struct Preview<'a> {
 }
 
 /// What a preview cannot say of a real turn, said with every preview.
-const LIMITS: [&str; 4] = [
+const LIMITS: [&str; 5] = [
     "a hypothetical turn opened by your message in person: no model was called and no recall was run, so \
      recall's pieces are not in it",
     "the system part is sized from an approximation of the next request's spec (no thread card, no \
      deferred tools)",
     "not predicted: route and continuation (decided by the turn that arrives) and over_budget on the \
      rendered request (decided when a turn compiles it)",
-    "nothing was written: no view record, no ledger row, no cache a turn reads",
+    "the pieces and totals listed are code's, exchanges' and folds': a joined task's card, facts and other \
+     pieces the view laid are not listed or counted here",
+    "nothing was written: no view record, no ledger row, no change to what a turn compiles",
 ];
 
 impl TurnRunner {
     /// The sessions of `place` the owner's look admits, newest first: a turn's own (no task, not imported)
-    /// that ran an exchange the place's window reads (its newest `WINDOW_N`, as a turn's; so history
-    /// adopted into the ledger counts with no change here) or whose place the gate reads as `place` today,
-    /// and whose own records the gate admits for the owner in person there today (its seal, which the look
-    /// does not lift; its place's class).
+    /// whose own records the gate admits for the owner in person there today (its seal, which the look
+    /// does not lift; its place's class), and that either ran an exchange the place's window reads (its
+    /// newest `WINDOW_N`, as a turn's; so adopted history counts with no change here) that the gate admits
+    /// whole (its session, and no message moved into a thread held from the look), or ran none there and
+    /// is the place's by today's reading. A session whose exchanges there are all held is no candidate.
     pub fn place_sessions(&self, place: &str) -> anyhow::Result<Vec<SessionRecord>> {
         use crate::view::fold::Ladder;
-        let ran: HashSet<String> =
-            (StoreLadder(&self.store).read(place, crate::view::fold::WINDOW_N, None)?)
-                .window
-                .into_iter()
-                .map(|e| e.session_id)
-                .collect();
+        let window =
+            (StoreLadder(&self.store).read(place, crate::view::fold::WINDOW_N, None)?).window;
+        let moved = crate::view_gate::Moved::read(self, None);
+        let mut ran = HashSet::new();
+        let mut admitted = HashSet::new();
+        for e in &window {
+            ran.insert(e.session_id.clone());
+            let pov = Verified::of_preview(self, &e.session_id, place);
+            let whole = matches!(crate::exchange::exchange(&self.store, &e.turn_id),
+                Ok(Some(x)) if x.place == place && !moved.holds(&x));
+            if whole && self.session_admitted(pov.pov(), &e.session_id) {
+                admitted.insert(e.session_id.clone());
+            }
+        }
         let mut all: Vec<SessionRecord> = (self.store.list_sessions::<SessionRecord>()?)
             .into_iter()
             .filter(|r| r.imported.is_none() && r.task.is_none())
-            .filter(|r| {
-                ran.contains(&r.session_id)
-                    || place_name(self, &r.session_id).as_deref() == Some(place)
+            .filter(|r| match ran.contains(&r.session_id) {
+                true => admitted.contains(&r.session_id),
+                false => place_name(self, &r.session_id).as_deref() == Some(place),
             })
             .filter(|r| {
                 let pov = Verified::of_preview(self, &r.session_id, place);
@@ -133,7 +144,7 @@ impl TurnRunner {
                 turn: PREVIEW_TURN,
                 // The owner in person, as a turn of his message names him.
                 person: Some(crate::exchange::OWNER.into()),
-                verified,
+                verified: Some(verified),
                 recalled: Vec::new(),
                 message: Some(p.message.unwrap_or_default().to_string()),
             },
@@ -239,19 +250,14 @@ impl TurnRunner {
         by_level
     }
 
-    /// Whether every exchange fold node `id` stands for resolves, and the gate admits its session.
+    /// Whether the gate admits fold node `id` whole to the owner's look: the gated ladder's own rule
+    /// (`fold_constituents`: every exchange resolves, none holds a moved message held from the look), and
+    /// every session it stands for admitted.
     fn fold_admitted(&self, pov: &PointOfView, id: &str) -> bool {
-        let Ok(Some(node)) = crate::ladder::fold::node(&self.store, id) else {
-            return false;
-        };
-        let Ok(read) = crate::ladder::fold::open(&self.store, &node) else {
-            return false;
-        };
-        !node.exchanges.is_empty()
-            && read.len() == node.exchanges.len()
-            && read
-                .iter()
-                .all(|e| self.session_admitted(pov, &e.session_id))
+        let moved = crate::view_gate::Moved::read(self, None);
+        let moved = |e: &crate::exchange::Exchange| moved.holds(e);
+        fold_constituents(&self.store, id, &moved)
+            .is_some_and(|all| all.iter().all(|s| self.session_admitted(pov, s)))
     }
 
     /// The earlier turns of `place`'s sessions the owner's look admits, counted from the nodes the gate

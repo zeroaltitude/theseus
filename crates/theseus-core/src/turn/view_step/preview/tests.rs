@@ -307,11 +307,18 @@ async fn only_the_owner_in_person_is_answered() {
 
 /// A thread `kelp`, bound to its own session, sealed as `seal` says.
 fn kelp(store: &crate::store::Store, seal: bool) -> String {
+    kelp_as(store, if seal { "sealed" } else { "clear" })
+}
+
+/// A thread `kelp`, bound to its own session: `sealed`, `pending` (a seal proposed) or `clear`.
+fn kelp_as(store: &crate::store::Store, how: &str) -> String {
     let r = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
     store.put_session(&r.session_id, &r).unwrap();
     let mut t = json!({"slug": "kelp", "title": "kelp"});
-    if seal {
-        t["sealed"] = json!({"by": "cli", "at_ms": 1, "reason": "embargo"});
+    match how {
+        "sealed" => t["sealed"] = json!({"by": "cli", "at_ms": 1, "reason": "embargo"}),
+        "pending" => t["seal_pending"] = json!("holds a figure"),
+        _ => {}
     }
     store.put_meta("thread:kelp", &t).unwrap();
     store
@@ -321,13 +328,17 @@ fn kelp(store: &crate::store::Store, seal: bool) -> String {
 }
 
 fn thread_rig(seal: bool) -> (Rig, String) {
+    thread_rig_as(if seal { "sealed" } else { "clear" })
+}
+
+fn thread_rig_as(how: &str) -> (Rig, String) {
     let thread = std::cell::RefCell::new(String::new());
     let r = rig_setup(
         |c| {
             c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
-        |s| *thread.borrow_mut() = kelp(s, seal),
+        |s| *thread.borrow_mut() = kelp_as(s, how),
     );
     (r, thread.into_inner())
 }
@@ -355,6 +366,147 @@ async fn a_sealed_thread_contributes_nothing_not_even_a_count() {
     }
     assert_eq!(sessions[0], (2, 2), "unsealed, both are counted");
     assert_eq!(sessions[1], (1, 1), "sealed, the thread is in no count");
+}
+
+/// An unsealed fork of a sealed thread's session inherits its prefix (the store's own fork point: the
+/// last inherited node's WAL position): the preview of the fork's place counts the fork's own turn alone,
+/// and names nothing of the prefix.
+#[tokio::test]
+async fn a_forks_inherited_prefix_of_a_sealed_session_is_in_no_count() {
+    let (r, thread) = thread_rig(true);
+    let c = &r.core;
+    turn(c, &thread, "kelp: the embargoed figure is 7741").await;
+    let source = c.store.transcript(&thread).unwrap();
+    let (position, last) = source.last().map(|(p, n)| (*p, n.id.clone())).unwrap();
+    let mut fork = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    fork.forked_from = Some(Box::new(theseus_protocol::ForkOrigin {
+        session: thread.clone(),
+        node: last,
+        position,
+        compilation: None,
+        at_ms: 1,
+    }));
+    c.store.put_session(&fork.session_id, &fork).unwrap();
+    let inherited = c.store.transcript(&fork.session_id).unwrap().len();
+    assert_eq!(
+        inherited,
+        source.len(),
+        "the fork inherits the thread's prefix"
+    );
+    turn(c, &fork.session_id, "fork: my own words").await;
+    let p = preview(&r.core, json!({"place": place(c, &fork.session_id)}))
+        .await
+        .unwrap();
+    assert_eq!(p.session, fork.session_id);
+    assert_eq!((p.earlier.sessions, p.earlier.turns), (1, 1), "{p:?}");
+    let said = serde_json::to_string(&p).unwrap();
+    let kelp_turn = turns_of(c, &thread).remove(0);
+    assert!(
+        !said.contains(&kelp_turn) && !said.contains(&thread),
+        "{said}"
+    );
+}
+
+/// A session whose only exchange at the place holds a message moved into a sealed thread is no candidate
+/// for the place and is in no count: the preview is another session's, and counts that one alone.
+#[tokio::test]
+async fn a_session_whose_only_exchange_is_held_is_no_candidate() {
+    let (r, _thread) = thread_rig(true);
+    let c = &r.core;
+    let held = crate::tests_places::session(c, None);
+    turn(c, &held, "held: the embargoed figure is 4471").await;
+    let asked = (c.store.session_nodes(&held).unwrap().into_iter())
+        .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))
+        .unwrap()
+        .1;
+    move_into_kelp(c, &asked.id);
+    let other = crate::tests_places::session(c, None);
+    turn(c, &other, "other: and now?").await;
+    let at = place(c, &other);
+    let p = preview(&r.core, json!({"place": at})).await.unwrap();
+    assert_eq!(p.session, other);
+    assert_eq!((p.earlier.sessions, p.earlier.turns), (1, 1), "{p:?}");
+    let said = serde_json::to_string(&p).unwrap();
+    assert!(!said.contains(&held), "{said}");
+    let ids: Vec<String> = c
+        .runner
+        .place_sessions(&at)
+        .unwrap()
+        .into_iter()
+        .map(|r| r.session_id)
+        .collect();
+    assert_eq!(ids, vec![other]);
+}
+
+/// A fold standing for an exchange that holds a message moved into a sealed or seal-pending thread is
+/// listed nowhere: no id, no level count, no size.
+#[tokio::test]
+async fn a_fold_over_a_moved_held_message_contributes_nothing() {
+    for how in ["sealed", "pending"] {
+        let (r, _thread) = thread_rig_as(how);
+        let c = &r.core;
+        let sid = session_in(c, None, &r.root);
+        turn(c, &sid, "first: the tide").await;
+        turn(c, &sid, "second: the moon").await;
+        let first = turns_of(c, &sid).remove(0);
+        fold_over(c, &first);
+        let asked = (c.store.session_nodes(&sid).unwrap().into_iter())
+            .find(|(_, n)| {
+                n.turn_id.as_deref() == Some(first.as_str())
+                    && matches!(n.body, crate::node::Body::UserMessage { .. })
+            })
+            .unwrap()
+            .1;
+        move_into_kelp(c, &asked.id);
+        let at = exchange::exchange(&c.store, &first).unwrap().unwrap().place;
+        let p = preview(&r.core, json!({"place": at})).await.unwrap();
+        assert!(p.folds.is_empty(), "{how}: {p:?}");
+        let said = serde_json::to_string(&p).unwrap();
+        assert!(!said.contains("fold-tide-1"), "{how}: {said}");
+        assert!(
+            !super::TurnRunner::fold_admitted(
+                &c.runner,
+                &crate::view_gate::Verified::of_preview(&c.runner, &sid, &at)
+                    .pov()
+                    .clone(),
+                "fold-tide-1"
+            ),
+            "{how}"
+        );
+    }
+}
+
+/// The floor's overflow names its exchange and size only when the reader's source admits that exchange;
+/// otherwise it says the floor does not fit, with no handle and no size.
+#[tokio::test]
+async fn an_overflow_names_its_exchange_only_when_admitted() {
+    let r = view_rig();
+    let c = &r.core;
+    let sid = session_in(c, None, &r.root);
+    turn(c, &sid, "first: the tide").await;
+    let mine = turns_of(c, &sid).remove(0);
+    let at = exchange::exchange(&c.store, &mine).unwrap().unwrap().place;
+    let source = GateSource {
+        runner: &c.runner,
+        pov: PointOfView {
+            anchor: at.clone(),
+            place: Place::Private,
+            present: Present::OwnerAlone,
+        },
+        asker: None,
+    };
+    let floor = |id: &str| crate::view::budget::Overflow::Floor {
+        handle: crate::view::Handle(id.into()),
+        tokens: 98_765,
+        room: 1_234,
+    };
+    let named = super::overflow_said(&source, &at, &floor(&mine));
+    assert!(named.contains(&mine) && named.contains("98765"), "{named}");
+    let held = super::overflow_said(&source, &at, &floor("turn_not_admitted"));
+    assert!(
+        !held.contains("turn_not_admitted") && !held.contains("98765") && !held.contains("1234"),
+        "{held}"
+    );
 }
 
 /// An exchange of `session` at `place`, as the ledger writes it.
