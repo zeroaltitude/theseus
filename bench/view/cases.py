@@ -34,8 +34,9 @@ has no entry for is `absent`, never `missed`.
 
 **Building** (`build`): each case in a scratch daemon of its own on an empty
 store (`scratch.py`), one CLI session per symbolic place in a directory of its
-own, each history line sent as a turn to a STAND-IN model (bench/recall's
-`standin.py`, a local process that answers "Noted." and charges nothing), the
+own (`ask --dir`, which makes the place `local:<dir>`), each history line
+sent as a turn to a STAND-IN model (bench/recall's `standin.py`, a local
+process that answers "Noted." and charges nothing), the
 exchange each line made read from the measuring row (`context.turn`). Then
 two contexts per case: the TRANSCRIPT's (every earlier line of the message's
 own place: one session per place, too short to compact), and the VIEW's
@@ -203,7 +204,8 @@ def build_case(case: dict, bin_dir: Path, out: Path) -> dict:
                 if h["place"] not in sessions:
                     v = d.json("sessions", "open", "--label", f"case-{h['place']}", cwd=cwd)
                     sessions[h["place"]] = v.get("session_id") or v["id"]
-                r = d.cli("--json", "ask", "-s", sessions[h["place"]], "-", input=h["say"], cwd=cwd)
+                # `--dir` makes the place (`local:<dir>`): a session opened by `sessions open` has no directory.
+                r = d.cli("--json", "ask", "-s", sessions[h["place"]], "--dir", str(cwd), "-", input=h["say"], cwd=cwd)
                 if r.returncode != 0:
                     raise RuntimeError(f"{case['id']} {h['id']}: ask failed")
                 row = scratch.ledger_rows(d, "context.turn")[-1]["data"]

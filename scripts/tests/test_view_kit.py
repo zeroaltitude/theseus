@@ -323,6 +323,8 @@ class RealDaemon(unittest.TestCase):
                          "--out", str(out)])
         s = json.loads((out / "summary.json").read_text())
         self.assertEqual(s["exchanges"], 2)
+        two = dict(case, id="m2", history=[*case["history"], {"id": "h3", "place": "there", "say": "x"}])
+        self.assertNotIn("not_built", vc.build_case(two, bins, tmp / "build2"), "two places came out as one")
         self.assertGreater(s["tokens"]["transcript"]["sum"]["total"], 0)
         if not has_preview(bins):
             self.assertEqual(s["notes"], [replay.NO_PREVIEW])
