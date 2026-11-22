@@ -834,7 +834,6 @@ impl Memory {
             in_context: &scene.in_context,
             labeled: &scene.labeled,
             links: &links,
-            now_ms: theseus_protocol::now_unix_ms(),
         };
         let mut params = begun.params(self.cfg.params(), (m.budget_tokens, scene.max_items));
         params.persona = scene.persona.as_ref().and_then(|p| p.boost(&candidates));
@@ -871,7 +870,6 @@ impl Memory {
             in_context: &scene.in_context,
             labeled: &scene.labeled,
             links,
-            now_ms: theseus_protocol::now_unix_ms(),
         };
         let params = self.params_of(m, scene.max_items);
         let marks = neighbour::marks(&candidates);

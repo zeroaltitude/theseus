@@ -99,7 +99,6 @@ impl Recalled {
             in_context: &self.in_context,
             labeled: &self.labeled,
             links: &self.links,
-            now_ms: self.now_ms,
         }
     }
 }

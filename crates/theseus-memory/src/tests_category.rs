@@ -41,7 +41,6 @@ fn run(category: Option<CategoryBoost>, cands: Vec<Candidate>) -> Pack {
         in_context: &none,
         labeled: &none,
         links: &[],
-        now_ms: 0,
     };
     let p = Params {
         category,

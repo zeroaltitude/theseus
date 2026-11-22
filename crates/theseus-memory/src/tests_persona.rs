@@ -48,7 +48,6 @@ fn run(persona: Option<PersonaBoost>, cands: Vec<Candidate>) -> Pack {
         in_context: &none,
         labeled: &none,
         links: &[],
-        now_ms: 0,
     };
     let p = Params {
         persona,
