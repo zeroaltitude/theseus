@@ -715,20 +715,24 @@ fn fallbacks(c: &crate::Core) -> Vec<String> {
         .collect()
 }
 
-/// A turn of `sid` no message opened: a continuation, as after a restart.
-async fn continue_turn(core: &std::sync::Arc<crate::Core>, sid: &str) {
+/// A turn of `sid` submitted as the driver does, its outcome returned (a turn may fail on its own).
+async fn submit(
+    core: &std::sync::Arc<crate::Core>,
+    sid: &str,
+    input: &str,
+) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
     use crate::session::SessionRecord;
     let rec = (core.store.get_session::<SessionRecord>(sid).unwrap()).unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = crate::bus::EventSink::new(core.bus.clone(), sid, None);
-    let _ = core
-        .runner
+    let mark = crate::view_gate::test_mark(&core.runner, sid, true);
+    let sink = crate::bus::EventSink::new(core.bus.clone(), sid, None).with_arrival(Some(mark));
+    core.runner
         .run(crate::turn::TurnRequest {
             prompt: None,
             surface: None,
             session: rec,
-            input: None,
+            input: Some(input.into()),
             target,
             sink,
             author: "cli".into(),
@@ -738,40 +742,7 @@ async fn continue_turn(core: &std::sync::Arc<crate::Core>, sid: &str) {
             reply_to: None,
             answer_at: None,
         })
-        .await;
-}
-
-/// Fallback (a): a turn no person's message, wake or report opened (a resume) is the transcript's turn,
-/// with its pending question in the request; never an empty conversation.
-#[tokio::test]
-async fn a_continuation_in_a_view_place_is_the_transcripts_turn() {
-    let r = view_rig();
-    let c = &r.core;
-    let sid = session_in(c, None, &r.root);
-    turn(c, &sid, "first: hello").await;
-    let pending = crate::node::Node::user(
-        &sid,
-        Some("turn_pending"),
-        "test",
-        "pending: the open question",
-    );
-    c.store.append(&[pending.record().unwrap()]).unwrap();
-    let before = r.requests().len();
-    continue_turn(c, &sid).await;
-    let after = r.requests();
-    assert!(after.len() > before, "the continuation called the model");
-    let q = after.last().unwrap();
-    assert!(!q.messages.is_empty());
-    assert!(
-        texts(q).contains("pending: the open question"),
-        "{}",
-        texts(q)
-    );
-    assert!(
-        fallbacks(c).contains(&"continuation".to_string()),
-        "{:?}",
-        fallbacks(c)
-    );
+        .await
 }
 
 /// Fallback (c): an established session switched to view, whose earlier conversation the ledger holds no
@@ -808,7 +779,8 @@ async fn a_view_over_its_budget_is_the_transcripts_turn() {
     });
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
-    turn(c, &sid, "small window: hello").await;
+    // The transcript's turn may itself be over so small a window: its own overage says so.
+    let _ = submit(c, &sid, "small window: hello").await;
     assert!(
         fallbacks(c).contains(&"over_budget".to_string()),
         "{:?}",

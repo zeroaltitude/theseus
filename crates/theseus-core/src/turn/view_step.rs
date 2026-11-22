@@ -150,9 +150,7 @@ impl TurnRunner {
     /// `rebuild-exchanges` has run).
     fn view_unsound(&self, t: &Turn<'_>, nodes: &[(u64, Stub)]) -> Option<Fallback> {
         let turn = t.tc.turn_id;
-        let opened = (nodes.iter())
-            .any(|(_, n)| n.turn_id.as_deref() == Some(turn) && n.kind == Kind::UserMessage);
-        if !opened {
+        if !opened(nodes, turn) {
             return Some(Fallback::Continuation);
         }
         let anchor = Verified::of_session(self, t.tc.session_id)
@@ -416,6 +414,12 @@ impl crate::view::fold::Ladder for GatedLadder<'_> {
         read.nodes = kept;
         Ok(read)
     }
+}
+
+/// Whether a person's message, a wake or a report of the turn's own opened it (they are written as the
+/// turn's own user messages); a continuation or a resume has none.
+fn opened(nodes: &[(u64, Stub)], turn: &str) -> bool {
+    (nodes.iter()).any(|(_, n)| n.turn_id.as_deref() == Some(turn) && n.kind == Kind::UserMessage)
 }
 
 /// Every source the selectors read: the store's, the turn's permit as their gate, the ladder read once,
@@ -820,6 +824,20 @@ mod tests {
             sent.starts_with("[earlier call: fs_write") && sent.len() < 800,
             "{sent}"
         );
+    }
+
+    /// Fallback (a): a turn with no message of its own (a continuation, a resume after a restart: the earlier
+    /// turn's unanswered message is not this turn's) is not opened, so it is the transcript's.
+    #[test]
+    fn a_turn_with_no_message_of_its_own_is_a_continuation() {
+        let earlier = Node::user("s", Some("t_earlier"), "cli", "the pending question");
+        let note = answer(
+            "t_now",
+            vec![json!({"type": "text", "text": "a clock line"})],
+        );
+        assert!(!opened(&laid(vec![earlier.clone(), note]), "t_now"));
+        let asked = Node::user("s", Some("t_now"), "cli", "and now?");
+        assert!(opened(&laid(vec![earlier, asked]), "t_now"));
     }
 
     /// Each session an assembly reads is read from the store once, however many exchanges of it are asked.
