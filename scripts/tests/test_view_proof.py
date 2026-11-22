@@ -107,6 +107,22 @@ class StandIn(unittest.TestCase):
         _, events = self.m.answer({"tools": TOOLS, "messages": [user("[Task] Survey the quay. Please start")]})
         self.assertIn('"task"', json.dumps(events))
 
+    def test_a_turn_takes_the_marker_not_yet_opened_and_keeps_it_through_its_calls(self):
+        """A task's brief quotes the parent's words, and a view's beside block can quote a task's brief: a turn's
+        first call takes the marker that has not opened a turn, and its later calls keep the turn's own."""
+        ls = {"calls": [{"name": "fs_list", "input": {}}]}
+        self.m.script = {"Survey": [ls, {"text": "surveyed"}], "Please start": [ls, {"text": "started"}],
+                         "Check it": [{"text": "checked"}]}
+        self.m.answer({"tools": TOOLS, "messages": [user("Please start")]})
+        self.assertEqual(self.m.seen[-1]["marker"], "Please start")
+        task = [user("[Task] Survey, as asked: Please start")]
+        self.m.answer({"tools": TOOLS, "messages": task})
+        self.assertEqual(self.m.seen[-1]["marker"], "Survey")
+        _, events = self.m.answer({"tools": TOOLS, "messages": [*task, call_msg(), result_msg()]})
+        self.assertIn("surveyed", json.dumps(events))
+        _, events = self.m.answer({"tools": TOOLS, "messages": [user("[card: Survey] Check it")]})
+        self.assertIn("checked", json.dumps(events))
+
     def test_a_refusal_for_size_then_an_answer(self):
         self.m.script = {"Refuse": [{"too_long": True}]}
         req = {"tools": TOOLS, "messages": [user("Refuse this")]}

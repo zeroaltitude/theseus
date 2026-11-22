@@ -152,9 +152,12 @@ def turn_text(req: dict) -> str:
 class Model:
     """A local stand-in for the Messages API. `script` maps a marker (a phrase of the turn's opening text) to
     a list of steps, one per call of the turn: `{"calls": [...]}` (a callable is called for them),
-    `{"text": ...}` or `{"too_long": True}` (a 400 for size). The first marker in the script's order wins, so a
-    case puts the most specific first. A marker opens a turn ONCE: a later turn whose text quotes it (a wake's,
-    a task's, a retry of the first call) is answered `REPLY`, as is anything no marker names. The step is
+    `{"text": ...}` or `{"too_long": True}` (a 400 for size). A turn's text may quote other markers (a task's
+    brief quotes the parent's words; a view's beside block, a task's card), so a turn's FIRST call takes the
+    first marker in the script's order that has not opened a turn yet, and a later call of a turn takes the
+    marker opened last among those it holds. A marker opens a turn ONCE: a later turn whose text holds only
+    markers already opened (a wake's, a report's, a retry of the first call) is answered `REPLY`, as is
+    anything no marker names. The step is
     counted here, call by call, not read from the request: a ring or a clearing that cut the turn's old results
     must not send the turn back to its first step. `seen` keeps each call's request, the marker it took and
     its step (`round`)."""
@@ -164,6 +167,7 @@ class Model:
         self.seen: list[dict] = []
         self.opened: Counter = Counter()
         self.step: Counter = Counter()
+        self.order: dict[str, int] = {}
         self.lock = threading.Lock()
         outer = self
 
@@ -200,10 +204,15 @@ class Model:
         rates = tk.rates_of(req.get("model", standin.MODEL))
         counted = tk.census_of_request(req).tokens(rates)
         text, r = turn_text(req), rounds(req)
-        marker = next((k for k in self.script if k in text), None) if req.get("tools") else None
+        held = [k for k in self.script if k in text] if req.get("tools") else []
         with self.lock:
+            if r == 0:
+                marker = next((k for k in held if not self.opened[k]), held[0] if held else None)
+            else:
+                marker = max(held, key=lambda k: self.order.get(k, -1), default=None)
             if marker is not None and r == 0:
                 self.opened[marker] += 1
+                self.order.setdefault(marker, len(self.order))
                 self.step[marker] = 0
             elif marker is not None:
                 self.step[marker] += 1
@@ -663,9 +672,10 @@ CASES = {
     "tool_loop": (tool_loop, {}),
     "continuation": (continuation, {"tools": {"proc_sync_secs": 2}}),
     "restart_mid_turn": (restart, {"tools": {"proc_sync_secs": 120}}),
-    "wake": (wake, {}),
+    # The terminal defers the reminders family behind the provider's tool search, which a stand-in cannot run.
+    "wake": (wake, {"tools": {"defer": {"enabled": False}}}),
     "report": (report, {}),
-    "task": (task, {}),
+    "task": (task, {"tools": {"proc_sync_secs": 2}}),
     "check": (check, {}),
     "fork": (fork, {}),
     "over_budget": (over_budget, {"context": {"working_window_tokens": 40000},
