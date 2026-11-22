@@ -375,6 +375,20 @@ impl TurnRunner {
         let ids: Vec<&str> = m.admitted.iter().map(|i| i.node_id.as_str()).collect();
         let handles = theseus_protocol::cite::handles_for(&ids);
         let persona = self.persona_scene(t.target.persona.as_deref());
+        // Where an old thread's session said a thing: its thread's place, since such a session speaks
+        // nowhere else (issue 46: its provenance, which nothing ranks by).
+        let board = self.threads.all(&self.store).ok();
+        let memo = self.memory.thread_memo();
+        let said_at = |session: &str| -> String {
+            let place = self.place_name(session);
+            if place != render::unplaced(session) {
+                return place;
+            }
+            board
+                .as_deref()
+                .and_then(|b| memo.slug_of(&self.store, b, session))
+                .map_or(place, |slug| theseus_protocol::threads::place_of(&slug))
+        };
         for (item, handle) in m.admitted.iter().zip(&handles) {
             let probe = RecalledRef {
                 node_id: item.node_id.clone(),
@@ -390,8 +404,8 @@ impl TurnRunner {
             };
             let excerpt = item.text.as_deref().unwrap_or_default();
             let chunk = render::frozen_range(&text_of(&source), excerpt);
-            let place = self.place_name(&item.session_id);
-            // Where and by whom it was said: its place, never a thread (issue 46).
+            let place = said_at(&item.session_id);
+            // Where and by whom it was said: its place, never a thread's ranking (issue 46).
             let mut header = render::item_header(&source, item.position, &place, chunk);
             header = crate::recall::neighbour::with_note(header, item);
             header = crate::recall::current::with_mark(header, item);

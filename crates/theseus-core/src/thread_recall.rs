@@ -1,7 +1,8 @@
 //! A session's thread, read once (theseus-f2g0): which thread an old
-//! session belongs to. Recall no longer reads it (issue 46): an item is
-//! ranked and headed by where and by whom it was said, never by a thread.
-//! What still asks is the old seal's crossing report (`rpc/thread_seal.rs`).
+//! session belongs to. Recall ranks by it no more (issue 46): it reads it
+//! only to say where an old thread's item was said, its thread's place
+//! (`thread:<slug>`), since such a session speaks nowhere else. The old
+//! seal's crossing report (`rpc/thread_seal.rs`) reads it too.
 //!
 //! - **A session's thread** is read from memory first (`Board::of_session`:
 //!   the session a thread's place runs on now), then from its record: the

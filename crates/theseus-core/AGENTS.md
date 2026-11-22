@@ -677,8 +677,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   rule extractor it brought is `thread_grow/extract.rs`. The session import (`import/`) is unrelated and unchanged.
   **Thread recall and seals** (theseus-f2g0; no store change; owner D12: Jev recommends, the owner seals).
   Since issue 46 recall reads no thread at all: no lens, no thread mark in a header (an old thread's note is headed by
-  its place, `thread:<slug>`, as any note is), no thread category, no name matcher; `thread_recall.rs` keeps only the
-  session-to-thread memo the seal's crossing report reads. What follows is the history. `thread_recall.rs` mapped a candidate's session to its thread (`Board::of_session`, else the record's supersession
+  its thread's place, `thread:<slug>`, where it was said, since such a session speaks nowhere else), no thread
+  category, no name matcher; `thread_recall.rs` keeps only the session-to-thread memo, which recall reads for that
+  place alone and the seal's crossing report reads too. What follows is the history. `thread_recall.rs` mapped a candidate's session to its thread (`Board::of_session`, else the record's supersession
   link naming `thread:<slug>`, else its task parent, kept in `Memory::thread_memo`) and builds the pure
   `theseus_memory::ThreadLens` over a recall's candidates (`Scene.threads`, `TurnRunner::thread_scene`: none while no
   thread exists, so a daemon without threads recalls as before). In a threaded session a candidate of *another*

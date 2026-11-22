@@ -154,7 +154,6 @@ ledger_kinds! {
     FlowRan = "flow.ran",
     FlowRetired = "flow.retired",
     GlidePosted = "glide.posted",
-    GlideRead = "glide.read",
     ImageNotShown = "image.not_shown",
     ImportBatch = "import.batch",
     ImportErased = "import.erased",
@@ -555,14 +554,16 @@ pub struct LedgerTailResult {
 mod tests {
     use super::*;
 
-    /// Rows of the kinds the cut stopped writing (issue 44: `session.recompile`'s request, a view's hand-back)
-    /// still read: a row's kind is a string, and the registry no longer names them.
+    /// Rows of the kinds the cut stopped writing (issue 44: `session.recompile`'s request, a view's hand-back;
+    /// issue 46: `channel.read`'s read) still read: a row's kind is a string, and the registry no longer names
+    /// them.
     #[test]
     fn rows_of_retired_kinds_still_read() {
         for kind in [
             "context.recompile_requested",
             "context.view_fallback",
             "recall.withheld",
+            "glide.read",
         ] {
             let old = format!(
                 r#"{{"position":41,"at_unix_ms":1790000000041,"kind":"{kind}","session_id":"ses_00000000000000000000000000000041","turn_id":null,"data":{{"strategy":"transcript","by":"the CLI"}}}}"#

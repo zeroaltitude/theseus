@@ -581,7 +581,7 @@ pub fn render_request(
     let strip = c.manifest.strip_thinking;
     // A replayed tool search stands only on a request that offers what it found (theseus-it6th).
     let offers = server_calls::Offers::of(&spec.tools);
-    let mut rendered = render_messages(
+    let rendered = render_messages(
         &prefix,
         &tail,
         strip,
