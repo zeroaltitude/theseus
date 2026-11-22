@@ -21,10 +21,8 @@
 //! - **Every turn carries its node** (issue 44, issue 46): a view turn's too,
 //!   so its count, citations, reach and retraction see what it recalled; the
 //!   view lays the items beside the message and keeps the node out of the
-//!   window and the turn's tail. `Recalled::withheld`, the `recall.withheld`
-//!   row (`recall_dropped`, theseus-ectzg) and the kept-for-view readmission
-//!   served the view's withholding and its hand-back, which no turn takes now;
-//!   old rows of the kind still read. (Two earlier gates, the small-talk bar and a model
+//!   window and the turn's tail. The withholding that once kept it out (the
+//!   `recall.withheld` row, theseus-ectzg) is gone; old rows still read. (Two earlier gates, the small-talk bar and a model
 //!   of restricted origin, are gone; their old rows still read.)
 
 use std::collections::BTreeSet;
@@ -198,7 +196,11 @@ impl TurnRunner {
         arm: MemoryArm,
         message: &str,
     ) -> Scene<'a> {
-        let in_context = Self::in_context(t);
+        // A view turn counts only what its view lays (issue 44); the transcript, all it carries.
+        let in_context = match self.on_transcript() {
+            false => Self::view_in_context(t),
+            true => Self::in_context(t),
+        };
         let labeled = self
             .memory
             .labeled(&self.store)

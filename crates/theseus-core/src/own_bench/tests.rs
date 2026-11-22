@@ -136,12 +136,9 @@ fn compilation_of(core: &Core, sid: &str) -> crate::compiler::Compilation {
 /// again, and every blob reads back as the text the request carried.
 #[tokio::test]
 async fn a_block_is_written_once_per_distinct_text_and_resolves_by_digest() {
+    use std::os::unix::fs::MetadataExt;
     let rig = rig(None);
     script(&rig, &[ORIGINAL, ORIGINAL]);
-    let (a, _) = asked(&rig).await;
-    let syncs = rig.core.store.blobs().syncs();
-    let (b, _) = asked(&rig).await;
-    let (ca, cb) = (compilation_of(&rig.core, &a), compilation_of(&rig.core, &b));
     let digests = |c: &crate::compiler::Compilation| -> Vec<String> {
         c.manifest
             .cache
@@ -152,12 +149,24 @@ async fn a_block_is_written_once_per_distinct_text_and_resolves_by_digest() {
             .map(|b| b.digest.clone().expect("a block is stamped"))
             .collect()
     };
-    let (da, db) = (digests(&ca), digests(&cb));
+    // Each block's file as the first session's compile left it: a block written again would be a new
+    // file renamed over it (`Blobs::put`). The view's other blobs (what a replay keeps) are not blocks.
+    let files = |ds: &[String]| -> Vec<u64> {
+        let blobs = rig.core.store.blobs();
+        ds.iter()
+            .map(|d| std::fs::metadata(blobs.path(d)).unwrap().ino())
+            .collect()
+    };
+    let (a, _) = asked(&rig).await;
+    let da = digests(&compilation_of(&rig.core, &a));
+    let before = files(&da);
+    let (b, _) = asked(&rig).await;
+    let db = digests(&compilation_of(&rig.core, &b));
     assert_eq!(da, db, "the same profile and no files: the same blocks");
     assert!(!da.is_empty());
     assert_eq!(
-        rig.core.store.blobs().syncs(),
-        syncs,
+        files(&da),
+        before,
         "the second session's compile wrote no block again"
     );
     let sent = rig.model.requests();

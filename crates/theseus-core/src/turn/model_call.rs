@@ -657,17 +657,18 @@ impl TurnRunner {
         Ok(o)
     }
 
-    /// A request past the window that the turn's ring cannot fit
-    /// (theseus-9p88): the retry passed it too (`retried`), or the ring could
-    /// drop nothing, so the same request would. The error names the window
-    /// and the estimate, and says what the operator can do.
+    /// A request past the window that the turn cannot fit (theseus-9p88):
+    /// the retry passed it too (`retried`), or nothing could be dropped or
+    /// cleared, so the same request would. The error names the window and
+    /// the estimate, and says what the operator can do. Its words name no
+    /// way of building the request.
     pub(super) fn window_failure(t: &mut Turn<'_>, o: &Overflowing, retried: bool) -> Failure {
         let message = format!(
-            "{}'s request is past its window{}: {}; Theseus estimated {} tokens against {}. The \
-             next message lets the ring drop this exchange, or start a new session.",
+            "{}'s request is past its window{}: {}; Theseus estimated {} tokens against {}. Send \
+             something smaller, or start a new session.",
             t.target.model,
             if retried {
-                " again, after a ring dropped earlier turns"
+                " again, after room was made for it"
             } else {
                 ", and nothing earlier in the session can be dropped to fit it"
             },

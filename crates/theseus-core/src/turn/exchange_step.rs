@@ -51,9 +51,27 @@ pub(super) struct Held {
     read_place: Option<Option<String>>,
     /// What woke a turn no message, wake or report opened, as its catch-up told it.
     occasion: Option<Occasion>,
+    /// The turns such a turn continues (`resume_step`): none inside for one that could not be found.
+    continues: Option<Vec<Option<String>>>,
+    /// Why such a turn cannot be resumed soundly (the view fails it plainly).
+    unresumable: Option<Unresumable>,
+}
+
+/// Why a turn no message opened cannot be resumed soundly (`resume_step`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Unresumable {
+    /// What it continues could not be read: its presence, or its place.
+    Unread,
+    /// What it continues was asked where this conversation does not answer now.
+    Elsewhere,
 }
 
 impl Held {
+    /// The exchange's place, once it is open (`turn::view_step`).
+    pub(super) fn place(&self) -> Option<&str> {
+        self.ex.as_ref().map(|e| e.place.as_str())
+    }
+
     /// The person of the message that opened it, and whether it carried a mark.
     pub(super) fn person(&self) -> (Option<String>, bool) {
         (
@@ -76,6 +94,24 @@ impl Held {
     /// What woke the turn, when no message of its own opened it.
     pub(super) fn occasion(&self) -> Option<Occasion> {
         self.occasion
+    }
+
+    /// The turns a turn no message opened continues, once read (`resume_step`).
+    pub(super) fn continues(&self) -> Option<&[Option<String>]> {
+        self.continues.as_deref()
+    }
+
+    pub(super) fn set_continues(&mut self, turns: Vec<Option<String>>) {
+        self.continues = Some(turns);
+    }
+
+    /// Why the turn cannot be resumed soundly, the first reason found.
+    pub(super) fn unresumable(&self) -> Option<Unresumable> {
+        self.unresumable
+    }
+
+    pub(super) fn cannot_resume(&mut self, why: Unresumable) {
+        self.unresumable.get_or_insert(why);
     }
 
     /// The turn's catch-up says what woke it (`Occasion::of`).
@@ -106,6 +142,12 @@ static UNREADABLE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::ne
 #[cfg(test)]
 pub(crate) fn route_unreadable(session: &str) {
     UNREADABLE.lock().unwrap().push(session.into());
+}
+
+/// Make `session`'s route readable again (a test's).
+#[cfg(test)]
+pub(crate) fn route_readable(session: &str) {
+    UNREADABLE.lock().unwrap().retain(|s| s != session);
 }
 
 fn defer(t: &Turn<'_>, rec: Option<theseus_store::NewRecord>) {
@@ -152,8 +194,18 @@ impl TurnRunner {
             },
             |m| Some(m.place.clone()),
         );
+        // A turn no message opened answers where the work it resumes was asked (`resume_step`).
+        let read = self.resumed_place(t, read);
         t.exchange.read_place = Some(read.clone());
         read
+    }
+
+    /// What a turn no person's message opened was given by the gate, kept beside its exchange so a turn
+    /// that continues it reads it (`exchange::given`), in the turn's frame.
+    pub(super) fn exchange_given(&self, t: &Turn<'_>, given: &crate::exchange::given::Given) {
+        if self.ledger_on(t) {
+            defer(t, crate::exchange::given::given_record(given).ok());
+        }
     }
 
     /// The index's things in `text`, named off the turn's path: the task

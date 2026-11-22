@@ -42,26 +42,38 @@ async fn a_view_turns_first_request_is_rebuilt_byte_for_byte() {
     assert_eq!((got.ask.as_str(), got.said.text.as_str()), (ASK, ORIGINAL));
 }
 
-/// Two turns of one conversation whose front did not change keep it once: the second names the same front
-/// blob, so the store holds one file for both, and each turn is rebuilt.
+/// Turns of one conversation whose front did not change keep it once: each names the same front blob, so
+/// the store holds one file for all of them. The third turn's window is the second's and one more
+/// exchange, and the exchanges both laid keep their blobs (a populated window, so that is a real check).
+/// Each turn is rebuilt.
 #[tokio::test]
 async fn a_front_that_did_not_change_is_kept_once() {
     let rig = view_rig();
-    script(&rig, &[ORIGINAL, "Still 7714."]);
+    script(&rig, &[ORIGINAL, "Still 7714.", "The heron relay is 7716."]);
     let sid = session(&rig.core, None, &[]);
     let first = turn(&rig.core, &sid, ASK).await.turn_id;
     let second = turn(&rig.core, &sid, "And the heron relay?").await.turn_id;
-    let (a, b) = (kept_of(&rig.core, &first), kept_of(&rig.core, &second));
-    assert_eq!(a.front, b.front, "the same front, one blob");
-    assert!(rig.core.store.blobs().path(&a.front).exists());
-    // The second turn's window is the first turn's exchange: one blob that joined it, nothing else new.
-    assert_eq!(b.window.len(), a.window.len() + 1, "{a:?} {b:?}");
+    let third = turn(&rig.core, &sid, "And the wren relay?").await.turn_id;
+    let [a, b, c] = [&first, &second, &third].map(|t| kept_of(&rig.core, t));
+    // This rig's front has no fixed block or ladder: one blob of an empty list, the same for all three.
     assert_eq!(
-        b.window[..a.window.len()],
-        a.window[..],
+        (&a.front, &b.front),
+        (&c.front, &c.front),
+        "the same front blob"
+    );
+    let blobs = rig.core.store.blobs();
+    assert!(blobs.path(&a.front).exists());
+    // The second turn's window is the first turn's exchange; the third's is that one and the second's.
+    assert_eq!(b.window.len(), a.window.len() + 1, "{a:?} {b:?}");
+    assert_eq!(c.window.len(), b.window.len() + 1, "{b:?} {c:?}");
+    assert!(!b.window.is_empty(), "a populated window");
+    assert_eq!(
+        c.window[..b.window.len()],
+        b.window[..],
         "older exchanges keep their blobs"
     );
-    for t in [&first, &second] {
+    assert!(c.window.iter().all(|d| blobs.path(d).exists()));
+    for t in [&first, &second, &third] {
         rig.core.rebuild_first(&sid, t).expect("rebuildable");
     }
 }
@@ -167,4 +179,36 @@ async fn a_view_turn_is_replayed_with_its_own_request() {
     let replayed = rig.core.rows_since(LedgerKind::TurnReplayed, 0).unwrap();
     assert_eq!(replayed.len(), 1);
     assert_eq!(replayed[0].turn_id.as_deref(), Some(t.as_str()));
+}
+
+/// A turn's end waits for its blobs' writes a bounded while: with every write held past it, the turn still
+/// completes, and its replay is refused in words (naming the missing blob) with no partial request; once
+/// the writes land on their own, it is rebuilt.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_completes_while_its_blobs_writes_are_held() {
+    use std::time::Duration;
+    let rig = view_rig();
+    script(&rig, &[ORIGINAL]);
+    let sid = session(&rig.core, None, &[]);
+    let release = rig.core.store.blobs().hold_puts();
+    let asked = tokio::time::timeout(Duration::from_secs(60), turn(&rig.core, &sid, ASK));
+    let t = asked
+        .await
+        .expect("the turn completed, its writes held")
+        .turn_id;
+    let Err(e) = rig.core.rebuild_first(&sid, &t) else {
+        panic!("rebuilt while its blobs were not written");
+    };
+    // The first of its blobs a rebuild reads: the view's (none on a first turn here), then the system's.
+    assert!(["view", "system"].contains(&e.part), "{e}");
+    assert!(e.why.contains("is missing"), "{e}");
+    drop(release);
+    let t0 = std::time::Instant::now();
+    while rig.core.rebuild_first(&sid, &t).is_err() {
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "the writes never landed"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }

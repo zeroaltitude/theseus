@@ -951,92 +951,62 @@ async fn said_before(c: &std::sync::Arc<crate::Core>, sid: &str) {
     }
 }
 
-/// Round 2 fix, item 1: the kept recall of a view call is admitted again ITEM BY ITEM at a late decline: a
-/// source sealed since leaves nothing, neither its text nor its header (its thread's title).
-#[tokio::test]
-async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
+/// What the late-seal tests' model does at the first call of the turn that asks `question`, after the
+/// gate's reading was changed (`act`): refuse it for its size (the view makes room and calls again,
+/// reassembled under the gate of now, `view_step::room`), or call a tool (the ordinary next call). Every
+/// other request is answered in words.
+fn late_seal_script(
+    question: &'static str,
+    refusal: bool,
+    act: impl Fn() + Send + Sync + 'static,
+) -> impl Fn(&ProviderRequest) -> crate::provider::Scripted + Send + Sync + 'static {
     use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::{Arc, OnceLock};
-    const SECRET: &str = "the kelp vault code is 5519";
-    let calls = Arc::new(AtomicU32::new(0));
-    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
-    let (seen, held) = (calls.clone(), core.clone());
-    let thread = std::cell::RefCell::new(String::new());
-    let r = crate::tests_places::rig_setup_scripted(
-        |c| {
-            c.memory.mode = crate::config::MemoryMode::Live;
-            c.threads.enabled = true;
-        },
-        |s| *thread.borrow_mut() = kelp(s, false),
-        move |q| {
-            if q.tools.is_empty() {
-                return crate::provider::Scripted::text("aside");
+    let asked = AtomicU32::new(0);
+    move |q| {
+        if q.tools.is_empty() || !last_user(q).contains(question) {
+            return crate::provider::Scripted::text("Hello.");
+        }
+        if asked.fetch_add(1, Ordering::SeqCst) > 0 {
+            return crate::provider::Scripted::text("Done.");
+        }
+        act();
+        match refusal {
+            true => {
+                crate::provider::Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
+                    status: 400,
+                    message: "invalid_request_error: prompt is too long".into(),
+                })
             }
-            match seen.fetch_add(1, Ordering::SeqCst) {
-                // The earlier turns, whose oldest exchange is the window the view cuts to make room.
-                n if n < EARLIER => crate::provider::Scripted::text("Hello."),
-                EARLIER => {
-                    // After the view's first call: the recalled source's thread is sealed, and the call
-                    // is refused for its size. Since the cut the view makes room and calls again, smaller
-                    // (`view_step::room`), reassembled under the gate of now.
-                    seal_kelp(held.get().unwrap());
-                    crate::provider::Scripted::Fail(
-                        crate::provider::ProviderError::InvalidRequest {
-                            status: 400,
-                            message: "invalid_request_error: prompt is too long".into(),
-                        },
-                    )
-                }
-                _ => crate::provider::Scripted::text("Done."),
-            }
-        },
-    );
-    let _ = core.set(r.core.clone());
-    let c = &r.core;
-    let thread = thread.into_inner();
-    let n = crate::node::Node::user(&thread, None, "test", SECRET);
-    c.store.append(&[n.record().unwrap()]).unwrap();
-    (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![thread.clone()]));
-    let sid = session_in(c, None, &r.root);
-    said_before(c, &sid).await;
-    turn(c, &sid, "what is the vault code?").await;
-    let asked: Vec<ProviderRequest> = (r.requests().into_iter())
-        .filter(|q| !q.tools.is_empty() && texts(q).contains("what is the vault code?"))
-        .collect();
-    assert!(asked.len() >= 2, "{}", asked.len());
-    for q in &asked[1..] {
-        assert!(!texts(q).contains("5519"), "{}", texts(q));
-        assert!(
-            !texts(q).contains("kelp"),
-            "no header names the sealed source: {}",
-            texts(q)
-        );
+            false => crate::provider::Scripted::tools(
+                "Looking.",
+                &[("r1", "fs_list", serde_json::json!({"path": "."}))],
+            ),
+        }
     }
-    let written = (c.store.session_nodes(&sid).unwrap().into_iter())
-        .filter(|(_, n)| matches!(n.body, crate::node::Body::Recall { .. }))
-        .map(|(_, n)| serde_json::to_string(&n.body).unwrap())
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        !written.contains("kelp") && !written.contains("5519"),
-        "{written}"
-    );
 }
 
-/// Last pass: a MIXED kept pack at a late decline, the held-out item by a seal (`steer = false`) or by a
-/// steer that narrows the presence (`steer = true`): exactly the admitted item survives (its text once in
-/// each later request, one Recall node holding it alone), and nothing of the other.
+/// The user message of `session` that says `what`: a real turn's, with its exchange.
+fn said_in(c: &crate::Core, session: &str, what: &str) -> String {
+    (c.store.session_nodes(session).unwrap().into_iter())
+        .find(
+            |(_, n)| matches!(&n.body, crate::node::Body::UserMessage { text, .. } if text == what),
+        )
+        .map(|(_, n)| n.id)
+        .expect("the source's message")
+}
+
+/// Round 2 fix, item 1, under the cut: a recalled source the gate admitted on the view's first call (a real
+/// turn's message, with its exchange, in a thread) is sealed before the next call, which is a retry after a
+/// size refusal or an ordinary tool call: the next request holds nothing of it, neither its text nor its
+/// header (its thread's title).
 #[tokio::test]
-async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
-    use std::sync::atomic::{AtomicU32, Ordering};
+async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
     use std::sync::{Arc, OnceLock};
-    const HELD: &str = "the held vault code is 5519";
-    const OPEN: &str = "the open tide turns at noon";
-    for steer in [false, true] {
-        let calls = Arc::new(AtomicU32::new(0));
+    const SECRET: &str = "the kelp vault code is 5519";
+    const ASKS: &str = "what is the vault code?";
+    for refusal in [true, false] {
         let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
-        let desk: Arc<OnceLock<String>> = Arc::default();
-        let (seen, held, at) = (calls.clone(), core.clone(), desk.clone());
+        let held = core.clone();
         let thread = std::cell::RefCell::new(String::new());
         let r = crate::tests_places::rig_setup_scripted(
             |c| {
@@ -1044,31 +1014,75 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
                 c.threads.enabled = true;
             },
             |s| *thread.borrow_mut() = kelp(s, false),
-            move |q| {
-                if q.tools.is_empty() {
-                    return crate::provider::Scripted::text("aside");
-                }
-                match seen.fetch_add(1, Ordering::SeqCst) {
-                    // The earlier turns, whose oldest exchange is the window the view cuts to make room.
-                    n if n < EARLIER => crate::provider::Scripted::text("Hello."),
-                    EARLIER => {
-                        let c = held.get().unwrap();
-                        match steer {
-                            true => crate::view_gate::steered(&c.runner, at.get().unwrap(), None),
-                            false => seal_kelp(c),
-                        }
-                        // Refused for its size: the view makes room and calls again, smaller,
-                        // reassembled under the gate of now (`view_step::room`).
-                        crate::provider::Scripted::Fail(
-                            crate::provider::ProviderError::InvalidRequest {
-                                status: 400,
-                                message: "invalid_request_error: prompt is too long".into(),
-                            },
-                        )
-                    }
-                    _ => crate::provider::Scripted::text("Done."),
-                }
+            late_seal_script(ASKS, refusal, move || seal_kelp(held.get().unwrap())),
+        );
+        let _ = core.set(r.core.clone());
+        let c = &r.core;
+        let thread = thread.into_inner();
+        turn_as(c, &thread, SECRET, true).await;
+        (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![thread.clone()]));
+        let sid = session_in(c, None, &r.root);
+        said_before(c, &sid).await;
+        turn_as(c, &sid, ASKS, true).await;
+        let asked: Vec<ProviderRequest> = (r.requests().into_iter())
+            .filter(|q| !q.tools.is_empty() && texts(q).contains(ASKS))
+            .collect();
+        assert!(asked.len() >= 2, "refusal {refusal}: {}", asked.len());
+        assert!(
+            texts(&asked[0]).contains("5519"),
+            "refusal {refusal}: the first call laid the source: {}",
+            texts(&asked[0])
+        );
+        for q in &asked[1..] {
+            assert!(!texts(q).contains("5519"), "{}", texts(q));
+            assert!(
+                !texts(q).contains("kelp"),
+                "no header names the sealed source: {}",
+                texts(q)
+            );
+        }
+        let written = (c.store.session_nodes(&sid).unwrap().into_iter())
+            .filter(|(_, n)| matches!(n.body, crate::node::Body::Recall { .. }))
+            .map(|(_, n)| serde_json::to_string(&n.body).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !written.contains("kelp") && !written.contains("5519"),
+            "{written}"
+        );
+    }
+}
+
+/// Last pass, under the cut: a MIXED pack of real turns' messages, both admitted on the view's first call,
+/// the held-out one then held by a seal (`steer = false`) or by a steer that narrows the presence
+/// (`steer = true`), before a retry after a size refusal or an ordinary tool call: exactly the admitted
+/// item survives (its text in each later request, once in a Recall node at most, holding it alone), and
+/// nothing of the other.
+#[tokio::test]
+async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
+    use std::sync::{Arc, OnceLock};
+    const HELD: &str = "the held vault code is 5519";
+    const OPEN: &str = "the open tide turns at noon";
+    const ASKS: &str = "what do you remember of the tide and the vault?";
+    for (steer, refusal) in [(false, true), (true, true), (false, false), (true, false)] {
+        let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
+        let desk: Arc<OnceLock<String>> = Arc::default();
+        let (held, at) = (core.clone(), desk.clone());
+        let thread = std::cell::RefCell::new(String::new());
+        let act = move || {
+            let c = held.get().unwrap();
+            match steer {
+                true => crate::view_gate::steered(&c.runner, at.get().unwrap(), None),
+                false => seal_kelp(c),
+            }
+        };
+        let r = crate::tests_places::rig_setup_scripted(
+            |c| {
+                c.memory.mode = crate::config::MemoryMode::Live;
+                c.threads.enabled = true;
             },
+            |s| *thread.borrow_mut() = kelp(s, false),
+            late_seal_script(ASKS, refusal, act),
         );
         let _ = core.set(r.core.clone());
         let c = &r.core;
@@ -1081,44 +1095,45 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
             false => thread,
         };
         let open_session = crate::tests_places::session(c, None);
-        let held_node = crate::node::Node::user(&held_session, None, "test", HELD);
-        let open_node = crate::node::Node::user(&open_session, None, "test", OPEN);
-        let open_id = open_node.id.clone();
-        c.store
-            .append(&[held_node.record().unwrap(), open_node.record().unwrap()])
-            .unwrap();
+        turn_as(c, &held_session, HELD, true).await;
+        turn_as(c, &open_session, OPEN, true).await;
+        let open_id = said_in(c, &open_session, OPEN);
         let index = crate::tests_private_view::index_of(c, vec![held_session, open_session]);
         c.runner.memory.set_ask(index);
         let sid = crate::tests_places::session(c, None);
         let _ = desk.set(sid.clone());
         said_before(c, &sid).await;
-        turn(c, &sid, "what do you remember of the tide and the vault?").await;
+        turn_as(c, &sid, ASKS, true).await;
+        let case = format!("steer {steer}, refusal {refusal}");
         let asked: Vec<ProviderRequest> = (r.requests().into_iter())
-            .filter(|q| !q.tools.is_empty() && texts(q).contains("the tide and the vault?"))
+            .filter(|q| !q.tools.is_empty() && texts(q).contains(ASKS))
             .collect();
-        assert!(asked.len() >= 2, "steer {steer}: {}", asked.len());
+        assert!(asked.len() >= 2, "{case}: {}", asked.len());
+        let first = texts(&asked[0]);
+        assert!(
+            first.contains("5519") && first.contains(OPEN),
+            "{case}: the first call laid both: {first}"
+        );
         for q in &asked[1..] {
-            assert!(!texts(q).contains("5519"), "steer {steer}: {}", texts(q));
+            assert!(!texts(q).contains("5519"), "{case}: {}", texts(q));
+            // The open source's place is the desk's own, so its exchange is laid in the window as well as
+            // recalled: it is kept, though not once.
+            assert!(
+                texts(q).contains(OPEN),
+                "{case}: the open item is kept: {}",
+                texts(q)
+            );
         }
         let notes: Vec<crate::node::Node> = (c.store.session_nodes(&sid).unwrap().into_iter())
             .filter(|(_, n)| matches!(n.body, crate::node::Body::Recall { .. }))
             .map(|(_, n)| n)
             .collect();
-        assert!(notes.len() <= 1, "steer {steer}: one Recall node at most");
+        assert!(notes.len() <= 1, "{case}: one Recall node at most");
         if let Some(crate::node::Body::Recall { items, .. }) = notes.first().map(|n| &n.body) {
             let ids: Vec<&str> = items.iter().map(|i| i.node_id.as_str()).collect();
-            assert_eq!(
-                ids,
-                [open_id.as_str()],
-                "steer {steer}: the admitted item alone"
-            );
+            assert_eq!(ids, [open_id.as_str()], "{case}: the admitted item alone");
             for q in &asked[1..] {
-                assert_eq!(
-                    texts(q).matches(OPEN).count(),
-                    1,
-                    "steer {steer}: {}",
-                    texts(q)
-                );
+                assert_eq!(texts(q).matches(OPEN).count(), 1, "{case}: {}", texts(q));
             }
         }
     }

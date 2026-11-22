@@ -36,7 +36,7 @@ fn failure(e: &anyhow::Error) -> (String, String) {
 }
 
 /// A turn of `sid` with no mark: where it arrived is not said, so its place is where its reply goes.
-async fn unmarked(c: &Arc<crate::Core>, sid: &str, input: &str) -> anyhow::Result<()> {
+pub(crate) async fn unmarked(c: &Arc<crate::Core>, sid: &str, input: &str) -> anyhow::Result<()> {
     use crate::session::SessionRecord;
     let rec = (c.store.get_session::<SessionRecord>(sid).unwrap()).unwrap();
     let (live, _) = c.live_profile();

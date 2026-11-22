@@ -534,29 +534,47 @@ fn set_up_exchange(
     crate::exchange::exchange(store, &turn).ok()?
 }
 
-/// The presence of an exchange at `class`: the narrowest of its messages'
-/// marks, its steers included, so a steer that narrowed it narrows what it
-/// set up. None when its ask has no mark; a steer with none is not alone.
+/// The presence of an exchange at `class`: its ask's mark, or, with no marked ask (a wake, a report, a
+/// continuation), the presence its turn was given (`exchange::given`, the narrowest of what it continued);
+/// then narrowed by each of its steers, so a steer that narrowed it narrows what it set up. An exchange not
+/// yet ended (a crash cut it) is narrowed by its turn's durable messages too: a steer is written before the
+/// exchange lists it. None when nothing proves its opening; a steer with no mark is not alone.
 fn exchange_presence(
     store: &Store,
     class: &Place,
     ex: &crate::exchange::Exchange,
 ) -> Option<Present> {
-    let ask = ex.ask.as_deref()?;
-    let ids: Vec<&str> = match ex.messages.is_empty() {
-        true => vec![ask],
-        false => ex.messages.iter().map(String::as_str).collect(),
+    let ask = ex.ask.as_deref();
+    let marked = ask.and_then(|a| crate::exchange::mark(store, a).ok().flatten());
+    let mut out = match marked {
+        Some(m) => present_of_mark(class, &m),
+        None => crate::exchange::given::given(store, &ex.turn_id)
+            .ok()
+            .flatten()?
+            .present(),
     };
-    let mut out = None::<Present>;
-    for id in ids {
-        let p = match crate::exchange::mark(store, id).ok().flatten() {
-            Some(m) => present_of_mark(class, &m),
-            None if id == ask => return None,
-            None => Present::PrivateChannel,
+    let mut steers: Vec<&str> = (ex.messages.iter().map(String::as_str))
+        .filter(|id| Some(*id) != ask)
+        .collect();
+    let durable;
+    if ex.end_ms.is_none() {
+        let Ok(nodes) = store.session_nodes(&ex.session_id) else {
+            return Some(Present::Unknown);
         };
-        out = Some(out.map_or(p, |o| o.max(p)));
+        durable = (nodes.into_iter())
+            .filter(|(_, n)| n.turn_id.as_deref() == Some(ex.turn_id.as_str()))
+            .filter(|(_, n)| matches!(n.body, Body::UserMessage { .. }))
+            .map(|(_, n)| n.id)
+            .collect::<Vec<String>>();
+        steers.extend((durable.iter().map(String::as_str)).filter(|id| Some(*id) != ask));
     }
-    out
+    for id in steers {
+        out = out.max(match crate::exchange::mark(store, id).ok().flatten() {
+            Some(m) => present_of_mark(class, &m),
+            None => Present::PrivateChannel,
+        });
+    }
+    Some(out)
 }
 
 /// The presence of the turn of `session` that made the call `call_id` (a
