@@ -1095,12 +1095,14 @@ memory or time.
    can be accepted from another place ("go"). **Yes**, with the three limits: only where he is alone; only for
    messages recorded as typed by him; an act still needs his message in the current exchange and exactly one
    thing it can apply to.
+   *Superseded on 2026-11-22: anything goes.*
 2. **In company, Theseus is shown nothing he said privately. Yes.** When a message of his there seems to lean on
    something that is not in that place, Theseus says so from the visible message alone ("if that is from a
    private conversation, I cannot bring it here"), without confirming that anything matching exists.
    Separately, in his private conversation and under that place's own rules, a card can offer to release one
    piece; nothing crosses without his press (step 3b). This is stricter than his earlier ruling, which is about
    what is shown in a place, not what the model may hold; the reason is that a model shown a thing can leak it.
+   *Superseded on 2026-11-22: anything goes.*
 3. **Look before asking. Yes.** Up to about a second and a half of search before the first word, then visible
    looking back by the model itself, rather than asking at once.
 4. **History whose author cannot be proven** (his terminal messages from before the mark; sessions imported
@@ -1110,6 +1112,7 @@ memory or time.
 5. **A channel is never "alone". Yes.** A private channel that others may join, and an agent's session at the
    terminal, see only their own place from step 2 on. It does not matter who is in the channel today: in his
    words, "someone could join after and read the history".
+   *Superseded on 2026-11-22: anything goes.*
 6. **A change to a task's objective in his own current words is applied without a card** when it only narrows or
    pauses the task, under the four checks of §7. **Yes.** Anything that widens or replaces still gets the card.
    To be revisited if the fourth check (only narrows or pauses) makes for too many cards; step 8 counts them.
