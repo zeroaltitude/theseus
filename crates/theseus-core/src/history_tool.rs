@@ -41,7 +41,7 @@ use theseus_tools::{
 
 use crate::config::memory::MemoryArm;
 use crate::exchange::{self, Exchange, Opener};
-use crate::view::history::{HistoryArgs, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES};
+use crate::view::history::{HistoryArgs, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, PointOfView, Present};
 use crate::Core;
@@ -380,16 +380,15 @@ pub(crate) async fn answer(
         fresh_held = |e: &crate::exchange::Exchange| fresh.holds(e);
         lens.moved = &fresh_held;
     }
-    let before_at = before.as_ref().map(|c| c.at_ms);
+    let bare = bare_first(a, here) && used.looks < LOOKS_PER_TURN;
     let walked = lens
         .walk(a, before, used.looks)
         .map_err(|e| format!("{e:#}"))?;
-    let stretch = released_stretch(a, here, before_at, &walked);
     let resume = walked.resume.map(|at| board.keep(turn, at));
     let p = walked.page;
-    let (released, shown) = match stretch {
-        Some((after, upto)) => released_lines(core, here, after, upto),
-        None => (String::new(), 0),
+    let (released, shown) = match bare {
+        true => released_lines(core, here),
+        false => (String::new(), 0),
     };
     Ok(ToolOutput {
         text: format!(
@@ -406,43 +405,20 @@ pub(crate) async fn answer(
 /// What a released message's handle begins with (`crate::release`).
 const RELEASED: &str = "rel_";
 
-/// The stretch of release time a page of this place's own history covers: from its cursor (or now) back to where
-/// the next page begins (or the beginning, when history is exhausted). None for a narrowed call, or a look the
-/// turn's allowance did not grant: released messages ride the place's own pages and their bounds.
-fn released_stretch(
-    a: &HistoryArgs,
-    here: &str,
-    before_at: Option<u64>,
-    w: &page::Walked,
-) -> Option<(u64, u64)> {
-    let elsewhere = a
+/// Whether a call is a bare first page of this place: no cursor or token, no other place, thing, or words. Only it
+/// lists the place's released messages, so what it lists hangs on no position in history.
+fn bare_first(a: &HistoryArgs, here: &str) -> bool {
+    let here_only = a
         .place
         .as_deref()
         .map(str::trim)
-        .is_some_and(|p| !p.is_empty() && p != here);
-    if elsewhere
-        || a.thing.is_some()
-        || a.words.is_some()
-        || matches!(w.page.end, PageEnd::AllowanceUsed)
-    {
-        return None;
-    }
-    let upto = before_at.unwrap_or(u64::MAX);
-    let after = match w.page.end {
-        PageEnd::HistoryExhausted => 0,
-        _ => w
-            .page
-            .next
-            .as_ref()
-            .or(w.resume.as_ref())
-            .map_or(0, |c| c.at_ms),
-    };
-    Some((after, upto))
+        .is_none_or(|p| p.is_empty() || p == here);
+    a.before.is_none() && here_only && a.thing.is_none() && a.words.is_none()
 }
 
-/// The released messages of a page's stretch, each its words only (cut as a line is), and how many it lists.
-fn released_lines(core: &Core, here: &str, after: u64, upto: u64) -> (String, usize) {
-    let (shown, more) = crate::release::listed(core, here, after, upto);
+/// The released messages a bare first page lists, each its words only (cut as a line is), and how many it lists.
+fn released_lines(core: &Core, here: &str) -> (String, usize) {
+    let (shown, more) = crate::release::listed(core, here);
     let mut out = String::new();
     for (id, at, words) in &shown {
         out.push_str(&format!(
@@ -454,7 +430,7 @@ fn released_lines(core: &Core, here: &str, after: u64, upto: u64) -> (String, us
     }
     if more > 0 {
         out.push_str(&format!(
-            "\n({more} more released messages of this stretch are not listed.)"
+            "\n({more} more released messages are not listed.)"
         ));
     }
     (out, shown.len())

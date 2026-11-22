@@ -89,11 +89,12 @@ fn to_key(to: &str, node: &str) -> String {
     format!("{TO_PREFIX}{to}{SEP}{node}")
 }
 
-/// Whether `node` was ever moved into a thread, whatever its seal; unreadable is moved.
+/// Whether `node` was ever moved into a thread, whatever its seal: any move record at all, even the one an
+/// unsplit or an unclaim leaves when it puts the message back, is moved; so is a record that does not read.
 fn moved(store: &Store, node: &str) -> bool {
     !matches!(
         store.get_meta::<Option<crate::moved::MovedTo>>(&crate::moved::moved_of_key(node)),
-        Ok(None | Some(None))
+        Ok(None)
     )
 }
 
@@ -172,17 +173,11 @@ pub fn released_to(store: &Store, to: &str) -> Vec<Release> {
     out
 }
 
-/// What one history page lists in `here`: the readable releases made in `(after, upto]` (release time, the page's
-/// own stretch), newest first, [`PER_PAGE`] at most, each `(id, at_ms, words)`; and how many more that stretch holds.
-pub fn listed(
-    core: &Core,
-    here: &str,
-    after: u64,
-    upto: u64,
-) -> (Vec<(String, u64, String)>, usize) {
+/// What a bare first page of `here` lists: its readable releases, newest first, [`PER_PAGE`] at most, each
+/// `(id, at_ms, words)`; and how many more there are. No position of history bounds it.
+pub fn listed(core: &Core, here: &str) -> (Vec<(String, u64, String)>, usize) {
     let all: Vec<(String, u64, String)> = released_to(&core.store, here)
         .into_iter()
-        .filter(|r| r.at_ms > after && r.at_ms <= upto)
         .filter_map(|r| readable(core, &r).map(|t| (r.id, r.at_ms, t)))
         .collect();
     let more = all.len().saturating_sub(PER_PAGE);

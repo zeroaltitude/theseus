@@ -271,8 +271,9 @@ async fn rpc_as(
     }
 }
 
-/// Through the real connection: an agent's process at the terminal and an unnamed connection are refused before
-/// anything is read or written; the owner's own terminal is answered.
+/// Through the real connection, each method with valid parameters (a release to a second place, an offer, the
+/// list, and a withdrawal of a live release): an agent's process at the terminal and an unnamed connection are
+/// refused before anything is read or written, and nothing changes; the owner's own terminal is answered.
 #[tokio::test]
 async fn an_agents_process_or_an_unnamed_connection_cannot_release() {
     use crate::approval::{Client, Surface};
@@ -281,21 +282,38 @@ async fn an_agents_process_or_an_unnamed_connection_cannot_release() {
     let r = crate::tests_places::rig();
     let dm = crate::tests_places::session(&r.core, Some("dm:42"));
     let ask = said(&r.core, "t_rpc", &dm, HARMLESS, &[]);
-    let params = json!({"message": ask.id, "digest": digest(HARMLESS), "to": DEN});
+    let rel = grant(&r.core, &ask.id, &digest(HARMLESS), DEN, "cli").unwrap();
+    let calls = [
+        (
+            method::EXCHANGE_RELEASE,
+            json!({"message": ask.id, "digest": digest(HARMLESS), "to": PIER}),
+        ),
+        (method::EXCHANGE_OFFER, json!({"message": ask.id})),
+        (method::EXCHANGE_RELEASES, json!({})),
+        (method::EXCHANGE_WITHDRAW, json!({"id": rel.id})),
+    ];
     let agent = || Client::new("sock#1", Surface::Cli).behind(Behind::Agent("claude".into()));
     let unnamed = || Client::new("test", Surface::Unnamed);
     for client in [agent(), unnamed()] {
-        for m in [
-            method::EXCHANGE_RELEASE,
-            method::EXCHANGE_OFFER,
-            method::EXCHANGE_RELEASES,
-        ] {
+        for (m, params) in &calls {
             let line = rpc_as(&r.core, client.clone(), m, params.clone()).await;
-            assert!(line.contains("\"error\""), "{m}: {line}");
-            assert!(!line.contains(HARMLESS), "{m}: {line}");
+            assert!(
+                line.contains("\"error\"") && line.contains("refused: "),
+                "{m}: {line}"
+            );
+            assert!(
+                !line.contains(HARMLESS) && !line.contains(&rel.id),
+                "{m}: {line}"
+            );
         }
     }
-    assert!(released_to(&r.core.store, DEN).is_empty());
+    assert!(
+        released_to(&r.core.store, PIER).is_empty(),
+        "no release made"
+    );
+    let still = live(&r.core.store, DEN, &ask.id).expect("the release is not withdrawn");
+    assert_eq!(still.id, rel.id);
+    assert_eq!(all(&r.core.store).unwrap().len(), 1);
     let owner = Client::new("sock#2", Surface::Cli).behind(Behind::Owner);
     let offered = rpc_as(
         &r.core,
@@ -307,5 +325,166 @@ async fn an_agents_process_or_an_unnamed_connection_cannot_release() {
     assert!(
         offered.contains(HARMLESS) && offered.contains(&digest(HARMLESS)),
         "{offered}"
+    );
+}
+
+/// The released message's words overwritten after the grant: the digest no longer matches, and neither the page
+/// nor the handle shows the old words or the new.
+#[tokio::test]
+async fn a_message_overwritten_after_the_grant_shows_nothing() {
+    let r = crate::tests_places::rig();
+    let dm = crate::tests_places::session(&r.core, Some("dm:42"));
+    let den = crate::tests_places::session(&r.core, Some("channel:7"));
+    let ask = said(&r.core, "t_over", &dm, HARMLESS, &[]);
+    let rel = grant(&r.core, &ask.id, &digest(HARMLESS), DEN, "cli").unwrap();
+    let mut over = Node::user(&dm, Some("t_over"), "owner", "OVERWRITTEN-SENTINEL");
+    over.id = ask.id.clone();
+    r.core.store.append(&[over.record().unwrap()]).unwrap();
+    let (_, now) = r.core.store.get_node(&ask.id).unwrap().unwrap();
+    assert!(
+        matches!(&now.body, crate::node::Body::UserMessage { text, .. } if text == "OVERWRITTEN-SENTINEL"),
+        "the store reads the new words"
+    );
+    let board = Board::default();
+    let page = read(&r.core, &board, &den, DEN, json!({})).await;
+    let opened = read(&r.core, &board, &den, DEN, json!({"open": rel.id})).await;
+    for text in [&page, &opened] {
+        assert!(!text.contains(LABEL), "{text}");
+        for s in [HARMLESS, "OVERWRITTEN-SENTINEL"] {
+            assert!(!text.contains(s), "{s} shown: {text}");
+        }
+    }
+}
+
+/// The lines a page lists its released messages on, and its "more" line: everything from the first label on.
+fn released_part(page: &str) -> String {
+    page.find(&format!("\n[{LABEL}]"))
+        .map_or_else(String::new, |i| page[i..].to_string())
+}
+
+/// What is listed hangs on no position in history: the same releases, then the same place with hundreds of held
+/// touches added (a look stopped by the tool's reading limit), list byte for byte the same on a bare first call;
+/// a call continued with the opaque token, or with a cursor, lists none, and each still opens by its handle.
+#[tokio::test]
+async fn released_messages_are_listed_on_a_bare_first_call_alone() {
+    use crate::history_tool::page::READ_MOST;
+    let r = crate::tests_places::rig();
+    let dm = crate::tests_places::session(&r.core, Some("dm:42"));
+    let den = crate::tests_places::session(&r.core, Some("channel:7"));
+    let mut ids = Vec::new();
+    for i in 0..(PER_PAGE + 2) {
+        let words = format!("plan number {i}");
+        let ask = said(&r.core, &format!("t_{i}"), &dm, &words, &[]);
+        ids.push(
+            grant(&r.core, &ask.id, &digest(&words), DEN, "cli")
+                .unwrap()
+                .id,
+        );
+    }
+    let quiet = read(&r.core, &Board::default(), &den, DEN, json!({})).await;
+    let listed = released_part(&quiet);
+    assert_eq!(listed.matches(LABEL).count(), PER_PAGE, "{quiet}");
+    assert!(listed.contains("2 more released messages"), "{quiet}");
+    // Held touches: this place's timeline names exchanges no reader is admitted to.
+    let base = theseus_protocol::now_unix_ms();
+    let held: Vec<_> = (0..(READ_MOST as u64 + 50))
+        .filter_map(|i| {
+            touch(
+                Root::Place(DEN),
+                &format!("t_held_{i}"),
+                "ses_held",
+                base + i,
+            )
+        })
+        .collect();
+    r.core.store.append(&held).unwrap();
+    let board = Board::default();
+    let limited = read(&r.core, &board, &den, DEN, json!({})).await;
+    assert!(limited.contains("reading limit"), "{limited}");
+    assert_eq!(released_part(&limited), listed, "byte for byte");
+    let token = json!({"before": {"at_ms": 0, "turn_id": "resume:0"}});
+    let continued = read(&r.core, &board, &den, DEN, token).await;
+    assert!(!continued.starts_with("ERR"), "{continued}");
+    let cursor = json!({"before": {"at_ms": base, "turn_id": "t_held_0"}});
+    let later = read(&r.core, &board, &den, DEN, cursor).await;
+    for text in [&continued, &later] {
+        assert_eq!(text.matches(LABEL).count(), 0, "{text}");
+        assert!(!text.contains("more released messages"), "{text}");
+    }
+    for id in [&ids[0], &ids[PER_PAGE + 1]] {
+        let opened = read(&r.core, &Board::default(), &den, DEN, json!({"open": id})).await;
+        assert!(opened.contains(LABEL), "{opened}");
+    }
+}
+
+/// A message released, then split into a thread, then put back by the unsplit: the unsplit leaves a move record,
+/// and a message that was ever moved is shared again only by a new message. Not shown, and not granted again.
+#[tokio::test]
+async fn a_message_split_out_and_put_back_stays_unreleased() {
+    use theseus_protocol::threads::{ThreadSplitParams, ThreadUnsplitParams};
+    let r = crate::tests_places::rig();
+    let cli = || crate::approval::Answerer {
+        label: "the CLI".into(),
+        surface: crate::approval::Surface::Cli,
+        discord: None,
+        agent: None,
+    };
+    let dm = crate::tests_places::session(&r.core, Some("dm:42"));
+    let den = crate::tests_places::session(&r.core, Some("channel:7"));
+    crate::tests_places::turn(&r.core, &dm, "good morning").await;
+    let answer = reply(&dm, "t_split", "the reply to it");
+    let ask = said(
+        &r.core,
+        "t_split",
+        &dm,
+        HARMLESS,
+        std::slice::from_ref(&answer),
+    );
+    let rel = grant(&r.core, &ask.id, &digest(HARMLESS), DEN, "cli").unwrap();
+    let shown = read(&r.core, &Board::default(), &den, DEN, json!({})).await;
+    assert!(shown.contains(HARMLESS), "{shown}");
+    let at = |id: &str| {
+        let nodes = r.core.store.transcript(&dm).unwrap();
+        nodes
+            .iter()
+            .find(|(_, n)| n.id == id)
+            .map(|(p, _)| *p)
+            .unwrap()
+    };
+    let split = ThreadSplitParams {
+        from: dm.clone(),
+        slug: "offsite".into(),
+        range: Some([at(&ask.id), at(&answer.id)]),
+        ..Default::default()
+    };
+    let into = r
+        .core
+        .thread_split(&split, cli())
+        .map_err(|e| e.message)
+        .unwrap();
+    let unsplit = ThreadUnsplitParams {
+        split: into.split.clone(),
+        ..Default::default()
+    };
+    r.core
+        .thread_unsplit(&unsplit, cli())
+        .map_err(|e| e.message)
+        .unwrap();
+    let back: Option<Option<crate::moved::MovedTo>> = r
+        .core
+        .store
+        .get_meta(&crate::moved::moved_of_key(&ask.id))
+        .unwrap();
+    assert_eq!(back, Some(None), "the unsplit leaves its record");
+    let board = Board::default();
+    let page = read(&r.core, &board, &den, DEN, json!({})).await;
+    let opened = read(&r.core, &board, &den, DEN, json!({"open": rel.id})).await;
+    for text in [&page, &opened] {
+        assert!(!text.contains(HARMLESS), "{text}");
+    }
+    assert!(piece(&r.core, &ask.id).is_err());
+    assert!(
+        grant(&r.core, &ask.id, &digest(HARMLESS), PIER, "cli").is_err(),
+        "moved and put back: never granted"
     );
 }

@@ -20,13 +20,16 @@ by his own act.** Nothing does it for him.
   says it is his, of a private place's exchange; its session neither sealed nor seal-pending as seen by no one
   (`Core::ladder_hidden`, with no thread's own exception, so a reader inside that very thread is no exception);
   never moved into any thread, whatever that thread's seal. A read also needs the words to match the digest.
+  Any move record counts, the one an unsplit or an unclaim leaves when it puts the message back too: a message that
+  was ever moved is shared again only by a new message.
 - **Once.** Grants and withdrawals are serialized: one message is released to one place by one record, however
   many requests race; a second release of it there is refused, withdrawn or not. A withdrawal is a second record
   (`release.end.<id>`); nothing is rewritten. What was already shown or sent cannot be unsent, and the withdrawal
   says so. An unknown or withdrawn id writes nothing.
-- **The reader** is the history tool in the named place alone. A page of that place's own history lists the
-  releases made in the stretch of time the page covers (from its cursor back to the next page's), at most ten, with
-  how many more; nothing on a look the turn's allowance did not grant, and nothing on a narrowed call. Each line is
+- **The reader** is the history tool in the named place alone. Only a bare first call there (no cursor or token,
+  no other place, thing, or words) lists its releases: newest first, at most ten, with how many more, counted in
+  the page's lines. Every later page, a narrowed call, and a look the turn's allowance did not grant list none, so
+  what is listed hangs on no position in history; every release still opens by its handle. Each line is
   the message's words, cut as a line is, labelled "released here by the owner from another conversation", and its
   handle (`rel_…`); opening the handle gives the words in full under the same label, and counts as an open. The
   view's slots and the transcript do not carry a released message.
