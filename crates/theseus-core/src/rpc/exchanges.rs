@@ -43,7 +43,7 @@ impl Core {
         (home, place): (&str, String),
         runs_in: &str,
     ) -> Option<OwnerMark> {
-        if !self.cfg.context.ledger_on() || p.prompt.is_some() {
+        if p.prompt.is_some() {
             return None;
         }
         let discord = p.speaking.as_ref().map(|s| s.discord.clone());

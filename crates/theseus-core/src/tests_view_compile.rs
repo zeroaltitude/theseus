@@ -448,30 +448,6 @@ async fn a_view_place_offers_the_history_tool_as_the_transcript_does() {
     assert_eq!(offered[0], offered[1]);
 }
 
-/// The view runs the transcript's spec preparation: with tools deferred (the owner's direct conversation
-/// defers them) a view turn offers the resolved set the transcript's turn does, not the raw catalog. The
-/// transcript's turn is one with the ledger off, which only a test can set.
-#[tokio::test]
-async fn a_view_turn_offers_the_resolved_deferred_tools() {
-    let mut offered = Vec::new();
-    for view in [true, false] {
-        let r = crate::tests_places::rig_deferring(
-            |c| c.context.ledger = (!view).then_some(false),
-            |_| crate::provider::Scripted::text("Hello."),
-        );
-        let sid = session_in(&r.core, None, &r.root);
-        turn(&r.core, &sid, "deferred: which tools?").await;
-        let q = (r.requests().into_iter())
-            .rfind(|q| last_user(q).contains("deferred: which tools?"))
-            .unwrap();
-        offered.push(crate::tests_places::offered(&q));
-    }
-    assert_eq!(
-        offered[0], offered[1],
-        "the view offers the transcript's resolved set"
-    );
-}
-
 /// The view runs the transcript's spec preparation: a conversation whose ontology membership carries
 /// guidance has that guidance in its view request's system part.
 #[tokio::test]
