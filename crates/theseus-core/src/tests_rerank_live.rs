@@ -183,6 +183,11 @@ async fn five_rerank_timeouts_open_reranks_breaker_alone() {
         "{:?}",
         h.breakers
     );
+    assert!(
+        !h.breakers.iter().any(|b| b.starts_with("recall_cross")),
+        "the retired cross judge has no breaker: {:?}",
+        h.breakers
+    );
     // The sixth rerank skips at once; loop.v1 still goes out, and answers.
     let loops_before = loop_rows(&c.store).len();
     turn(c, &here, "And the kettle?").await;
