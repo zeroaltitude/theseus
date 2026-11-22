@@ -64,11 +64,7 @@ impl Provider for RunsOnce {
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
         Box::pin(async move {
-            let answered = req
-                .messages
-                .last()
-                .and_then(|m| m["content"].as_array())
-                .is_some_and(|b| b.iter().any(|b| b["type"] == "tool_result"));
+            let answered = crate::tests_places::answers_a_call(req);
             let argv: Vec<&str> = self.argv.iter().map(String::as_str).collect();
             let answer = match answered {
                 true => Scripted::text("Done."),
