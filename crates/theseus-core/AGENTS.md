@@ -210,8 +210,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     across sessions; the view renders each request's system sections afresh, with the same content. Two sessions
     in two places on one project still send layers 1 to 3 byte for byte, from the view's own fixed front
     (`rpc/tests_cached_layers.rs`). Old stores' records still decode and nothing writes them: META `prefix:<digest>`,
-    `prefix.hits.<digest>`, `prefix.retired.<digest>` (`prefix.rs`'s types), a compilation's `manifest.prefix`, and
-    `prefix.picked` rows. `[prefix]`'s keys are retired keys (a file naming them loads with a warning). Routing's
+    `prefix.hits.<digest>`, `prefix.retired.<digest>` (`prefix.rs`'s types), and a compilation's `manifest.prefix`;
+    old `prefix.picked` rows are read by their name, as every kind this build no longer writes. `[prefix]`'s keys are retired keys (a file naming them loads with a warning). Routing's
     cold estimate no longer takes a warm header off a switch's cost: a cache hold weighs the whole context.
   - **Situations** (M6 35a, theseus-3nk.1): `compiler/situation.rs`. What a compile is for: the step tells it from
     what it holds (`TurnRunner::situation_of`, `turn/situation_step.rs`: no compilation yet is a conversation's or a
