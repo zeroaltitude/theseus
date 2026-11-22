@@ -32,7 +32,10 @@ fn script(req: &ProviderRequest) -> Scripted {
     if answers_a_call(req) {
         return Scripted::text("Done.");
     }
-    let last = last_user(req);
+    // On the view a recalled note or who is speaking may come before the person's words (issue 44):
+    // what they asked is the message's last line.
+    let all = last_user(req);
+    let last = all.lines().last().unwrap_or_default();
     let id = format!("g{}", req.messages.len());
     if let Some(rest) = last.strip_prefix("POST ") {
         let (to, text) = rest.split_once(" :: ").unwrap();
