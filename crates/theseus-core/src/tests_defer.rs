@@ -1113,3 +1113,44 @@ async fn a_look_called_after_the_shell_answer_is_counted_used_and_the_family_loa
         offered(req)
     );
 }
+
+/// Round 2, lane A, item 5 (issue 44): `tools_find` across three calls of a turn in a place set to `view`:
+/// the family it found is offered and callable on the later calls, and the change of the tool set starts
+/// one new chain (a new compilation on the call after the find), as the transcript recompiles on it.
+#[tokio::test]
+async fn a_view_turn_loads_a_found_family_on_a_new_chain() {
+    use crate::config::assembly::{Assembly, AssemblySetting};
+    let r = rig_deferring(
+        |c| {
+            c.catalog.insert(
+                "claude-sonnet-5-5".into(),
+                CatalogRow {
+                    tool_search: Some(false),
+                    ..Default::default()
+                },
+            );
+            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+        },
+        script,
+    );
+    let sid = session(&r.core, None);
+    say(&r.core, &sid, "FINDCALL").await;
+    let reqs: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| !q.tools.is_empty())
+        .collect();
+    assert!(reqs.len() >= 3, "{}", reqs.len());
+    assert!(!offered(&reqs[0]).contains(&"term_open".to_string()));
+    assert!(offered(&reqs[1]).contains(&"term_open".to_string()));
+    let result = result_of(&r.core, &sid, "c1");
+    assert!(!result.contains("is not loaded"), "{result}");
+    let decisions: Vec<String> = (rows(&r.core, "context.compiled").into_iter())
+        .filter(|row| row["session_id"] == sid.as_str())
+        .filter_map(|row| row["decision"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(
+        decisions[..3],
+        ["recompile", "recompile", "append"],
+        "{decisions:?}"
+    );
+    assert!(crate::test_support::rows(&r.core, "context.view_fallback").is_empty());
+}
