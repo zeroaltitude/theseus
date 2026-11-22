@@ -332,15 +332,6 @@ impl Telemetry {
             .tools_event(event, place, family);
     }
 
-    /// A keep-warm read (theseus-ezeg), by outcome: read, refused, failed.
-    pub fn record_keep_warm(&self, outcome: &str) {
-        let Some(s) = self.shared() else { return };
-        s.metrics
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .keep_warm(outcome);
-    }
-
     /// A voice call's reply or report cut short (`voice.cut`), by why:
     /// words, superseded, call_ended (theseus-qb8o).
     pub fn record_voice_cut(&self, why: &str) {

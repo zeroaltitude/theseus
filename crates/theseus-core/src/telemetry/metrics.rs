@@ -327,12 +327,6 @@ const VOICE_DEAF: Instrument = Instrument {
     unit: "",
     kind: Kind::IntSum,
 };
-const KEEP_WARM_READS: Instrument = Instrument {
-    name: "theseus.keep_warm.reads",
-    description: "Keep-warm reads of a quiet conversation's cached prefix (`keep_warm`, theseus-ezeg), by outcome: read, refused, failed",
-    unit: "",
-    kind: Kind::IntSum,
-};
 const VOICE_RESUMED: Instrument = Instrument {
     name: "theseus.voice.resumed",
     description:
@@ -389,7 +383,6 @@ const INSTRUMENTS: [&Instrument; 48] = [
     &VOICE_CUTS,
     &VOICE_RESUMED,
     &VOICE_DEAF,
-    &KEEP_WARM_READS,
     &TOOLS_EVENTS,
 ];
 
@@ -809,12 +802,6 @@ impl Metrics {
             _ => &VOICE_RESUMED,
         };
         self.add(i, vec![("theseus.voice.why", Attr::S(why.to_string()))], 1);
-    }
-
-    /// A keep-warm read (theseus-ezeg), by its outcome.
-    pub(super) fn keep_warm(&mut self, outcome: &str) {
-        let attrs = vec![("theseus.keep_warm.outcome", Attr::S(outcome.to_string()))];
-        self.add(&KEEP_WARM_READS, attrs, 1);
     }
 
     /// A routed turn's wait (theseus-ddbi), with `theseus.route.late`.

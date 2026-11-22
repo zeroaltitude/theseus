@@ -113,11 +113,11 @@ impl TurnRunner {
             .filter(|_| entry.is_some_and(|e| e.caches))
             .filter(|_| !crate::compiler::effort::takes(spec, entry, model))
             .and_then(|asked| {
-                let previous = self.keep_warm.last_effort(t.tc.session_id, model);
+                let previous = self.last_request.last_effort(t.tc.session_id, model);
                 effort::sticky(asked, previous, tokens, self.cfg.cache.keep_warm_min_tokens)
                     .filter(|held| !(checkpoint && asked > *held))
             });
-        let window = self.keep_warm.last_hold(t.tc.session_id, model);
+        let window = self.last_request.last_hold(t.tc.session_id, model);
         match held {
             Some(_) if !checkpoint && effort::reverts(window, answer) => EffortDecision {
                 reason: EffortReason::StickyReverted,
@@ -139,7 +139,7 @@ impl TurnRunner {
             .route
             .effort
             .is_some_and(|d| d.sent == spec.effort && d.reason == EffortReason::Sticky);
-        self.keep_warm
+        self.last_request
             .sent(t.tc.session_id, model, spec.effort, held);
     }
 }

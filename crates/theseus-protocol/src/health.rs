@@ -244,15 +244,16 @@ pub struct BinaryStatus {
 pub struct PromptCacheHealth {
     /// Every profile, by name.
     pub profiles: Vec<ProfileTtl>,
-    /// `[cache] keep_warm_every_minutes`: how long after a session's last call
-    /// its read goes.
+    /// Always 0: nothing is kept warm any more (2026-11-22). Kept for a client
+    /// that still reads it.
     pub keep_warm_minutes: f64,
     /// Sessions kept warm now: in their window, their reads not stopped.
     pub kept: u64,
     /// Sessions whose reads stopped (refused or failed) until their next
     /// message.
     pub stopped: u64,
-    /// Today's reads (local day) and what they cost.
+    /// Today's reads (local day) and what they cost: always 0 since nothing is
+    /// kept warm (2026-11-22); the CLI's `theseus health` reads them.
     pub reads_today: u64,
     pub usd_today: f64,
 }

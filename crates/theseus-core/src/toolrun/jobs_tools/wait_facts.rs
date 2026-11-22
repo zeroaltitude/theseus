@@ -193,11 +193,10 @@ impl Clock {
         f: &Found,
         silence: &Silence,
         asked: u64,
-        reads: u32,
     ) -> Option<ToolOutput> {
         let seen = self.read(core, f, silence, Some(asked));
         let meta = json!({KEY: f.name, "correlation_id": f.corr, "state": "running",
-            "beat": true, "silent_secs": silence.quiet().as_secs(), "warm_reads": reads});
+            "beat": true, "silent_secs": silence.quiet().as_secs()});
         (!seen.peek.held).then(|| ToolOutput {
             text: text(&seen),
             meta,

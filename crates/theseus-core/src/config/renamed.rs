@@ -20,7 +20,6 @@ pub const RENAMED: &[(&str, &str)] = &[
     ("persona.import_files", "persona_import.import_files"),
     ("persona.own_boost", "persona_import.own_boost"),
     ("model.cache_ttl", "cache.ttl"),
-    ("cache.keep_warm_minutes", "cache.keep_warm_every_minutes"),
     ("watches", "watch_for"),
     ("routing.data.private_topics", "privacy.sensitive_names"),
     ("self.sealed_dir", "self.sealed.dir"),
@@ -160,10 +159,6 @@ mod tests {
         (
             "[model]\ncache_ttl = \"1h\"\n",
             "`[model] cache_ttl` was renamed to `[cache] ttl`",
-        ),
-        (
-            "[cache]\nkeep_warm_minutes = 50\n",
-            "`[cache] keep_warm_minutes` was renamed to `[cache] keep_warm_every_minutes`",
         ),
         (
             "[watches]\nmax_days = 10\n",

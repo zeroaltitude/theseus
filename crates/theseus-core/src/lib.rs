@@ -72,10 +72,9 @@ pub mod item_labels;
 pub(crate) mod job_model;
 pub mod jobs_left;
 pub mod judge;
-pub mod keep_warm;
 pub mod keep_warm_threads;
-pub mod keep_warm_wait;
 pub mod ladder;
+pub mod last_request;
 pub mod learning;
 pub mod ledger;
 pub mod ledger_gap;
@@ -418,8 +417,6 @@ mod tests_judge_reads;
 #[cfg(test)]
 mod tests_judge_surfaces;
 #[cfg(test)]
-mod tests_keep_warm;
-#[cfg(test)]
 mod tests_kept;
 #[cfg(test)]
 mod tests_ladder;
@@ -469,6 +466,8 @@ mod tests_observability;
 mod tests_offer;
 #[cfg(test)]
 mod tests_old_store;
+#[cfg(test)]
+mod tests_one_hour;
 #[cfg(test)]
 mod tests_one_turn;
 #[cfg(test)]

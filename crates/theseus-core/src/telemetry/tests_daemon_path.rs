@@ -1,4 +1,4 @@
-//! The judge's and keep-warm's feeds on the daemon's path (theseus-qqhd): a core
+//! The judge's feeds on the daemon's path (theseus-qqhd): a core
 //! whose parts bring no pipeline and whose config names the receiver's
 //! endpoint, so `install_telemetry` builds the exporter after serving
 //! (`Core::build_telemetry`) and hands it to each of them there. A test core
@@ -80,25 +80,4 @@ async fn a_judgment_on_the_daemons_path_is_counted() {
         point_with(&m, "theseus.judge.calls", &answered)["asInt"],
         "1"
     );
-}
-
-/// Keep-warm's counts (its data-gate count included) are exported on the
-/// daemon's path too: `build_telemetry` hands the pipeline to its cell, which
-/// a core built without one leaves empty.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn keep_warm_exports_on_the_daemons_path() {
-    let rx = Receiver::start(vec![]).await;
-    let dir = tempfile::tempdir().unwrap();
-    let mut cfg = config(dir.path(), None);
-    cfg.telemetry.otlp_endpoint = Some(rx.endpoint());
-    cfg.validate().unwrap();
-    let store = Store::open(&dir.path().join("store")).unwrap();
-    let fake = Arc::new(crate::provider::FakeProvider::default());
-    let mut p = Parts::for_tests(cfg, fake, store);
-    p.telemetry = None;
-    let core = Core::build(p).unwrap();
-    assert!(core.runner.keep_warm.telemetry.get().is_none());
-    core.clone().install_telemetry().await;
-    assert!(core.telemetry().enabled(), "the exporter is built");
-    assert!(core.runner.keep_warm.telemetry.get().is_some());
 }

@@ -2,8 +2,8 @@
 //! paused clock through the whole core: a job that ends at 300 s ends a wait
 //! asked for 900 s at 300 s, one that runs goes the whole 900 s, a person's
 //! message at 120 s ends it at once, `[tools] job_wait_max_secs` caps it, and
-//! a wait that outlasts the request's cache reads it again before it lapses
-//! (once per cache lifetime, none on a short wait). A job here is held by the
+//! a wait that outlasts the request's cache sends nothing of its own (issue 44,
+//! 2026-11-22: no saved request is sent again). A job here is held by the
 //! test (`Gated`) until the test says it ends, so its end is a moment on the
 //! clock, not a process's.
 //!
@@ -21,7 +21,6 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
 use crate::bus::EventSink;
-use crate::keep_warm::MAX_TOKENS;
 use crate::node::{Body, ResultStatus};
 use crate::policy::Posture;
 use crate::provider::{
@@ -63,8 +62,12 @@ impl Gated {
     }
 }
 
-/// Turns answer from the script and a keep-warm read (the smallest output)
-/// from a provider of its own, so a read does not use up the script.
+/// The smallest output, which the deleted keep-warm read asked for: a call at it would be a saved request
+/// sent again, and goes to a provider of its own so the tests can say none was made.
+const MAX_TOKENS: u32 = 1;
+
+/// Turns answer from the script, and a call at the smallest output (`MAX_TOKENS`) from a provider of its
+/// own, so such a call does not use up the script and is counted.
 struct Split {
     turns: Arc<FakeProvider>,
     reads: Arc<FakeProvider>,
@@ -229,7 +232,7 @@ impl Rig {
             .collect()
     }
 
-    /// The keep-warm reads the wait sent, in order.
+    /// The calls at the smallest output the wait sent (none: nothing is sent again), in order.
     fn warm_reads(&self) -> Vec<ProviderRequest> {
         self.reads.requests()
     }
@@ -371,121 +374,25 @@ async fn a_wait_with_no_timeout_is_a_foreground_runs_wait() {
     assert!(text.starts_with("Still running after 60 s."), "{text}");
 }
 
-/// `until` the turn has ended, noting when the count of reads grew.
-async fn reads_while(r: &Rig, turn: JoinHandle<TurnSubmitResult>, t0: Instant) -> Vec<Duration> {
-    let mut at = Vec::new();
-    while !turn.is_finished() {
-        tokio::time::sleep(Duration::from_secs(2)).await;
-        while at.len() < r.warm_reads().len() {
-            at.push(t0.elapsed());
-        }
-    }
-    turn.await.unwrap();
-    at
-}
-
-/// A 900 s wait on a five-minute cache reads it again before it lapses, at
-/// 240 s, 480 s and 720 s: the very request that asked for the wait, at the
-/// smallest output, each a `keep_warm` row marked `during_wait`, counted and
-/// priced like any other read. The next call reads what it kept.
+/// A 900 s wait on a five-minute cache sends nothing of its own (issue 44, 2026-11-22: no saved request is
+/// sent again): no call at the smallest output, no `keep_warm` row, no `warm_reads` in its result; the turn's
+/// own calls are the script's three, each with its money checks as any call has.
 #[tokio::test(start_paused = true)]
-async fn a_wait_past_the_cache_lifetime_reads_the_cache_before_it_lapses() {
+async fn a_wait_past_the_cache_lifetime_sends_no_call_of_its_own() {
     let r = rig(script(900), |_| {});
     let s = r.session();
     let turn = r.submit(&s, "build it");
     r.until_calls(2).await;
-    let t0 = Instant::now();
-    let at = reads_while(&r, turn, t0).await;
-    assert_eq!(at.len(), 3, "reads at {at:?}");
-    for (got, want) in at.iter().zip([240, 480, 720]) {
-        let want = Duration::from_secs(want);
-        assert!(
-            *got + Duration::from_secs(1) >= want && *got < want + Duration::from_secs(5),
-            "{at:?}"
-        );
-    }
-    // The request that asked for the wait, read again.
-    let asked = r.turns.requests()[1].clone();
-    for read in r.warm_reads() {
-        let mut same = read.clone();
-        same.max_tokens = asked.max_tokens;
-        assert_eq!(same, asked, "a read is the kept request");
-        assert_eq!(read.max_tokens, MAX_TOKENS);
-    }
-    let rows = r.rows("keep_warm");
-    assert_eq!(rows.len(), 3);
-    assert!(
-        rows.iter().all(|w| w["data"]["during_wait"] == true),
-        "{rows:?}"
+    turn.await.unwrap();
+    assert!(r.warm_reads().is_empty(), "the wait sent nothing again");
+    assert!(r.rows("keep_warm").is_empty());
+    assert_eq!(
+        r.turns.requests().len(),
+        3,
+        "the turn's own calls are the script's"
     );
-    let (today, _) = r
-        .core
-        .runner
-        .keep_warm
-        .counts(&crate::keep_warm::today(&r.core.kernel));
-    assert_eq!(today, 3, "counted on the day");
-    // The turn's own calls are the script's three.
-    assert_eq!(r.turns.requests().len(), 3);
     let (_, _, meta) = r.result(&s.session_id, "t2");
-    assert_eq!(meta["warm_reads"], 3);
-}
-
-/// A job that ends at 300 s was read once, at 240 s; a wait shorter than the
-/// first read is due reads nothing.
-#[tokio::test(start_paused = true)]
-async fn a_wait_that_ends_before_the_cache_lapses_reads_it_once_or_not_at_all() {
-    let r = rig(script(900), |_| {});
-    let s = r.session();
-    let turn = r.submit(&s, "build it");
-    r.until_calls(2).await;
-    tokio::time::sleep(Duration::from_secs(300)).await;
-    r.gate.finish();
-    turn.await.unwrap();
-    assert_eq!(r.warm_reads().len(), 1, "one read, at 240 s");
-
-    let short = rig(script(200), |_| {});
-    let s = short.session();
-    short.submit(&s, "build it").await.unwrap();
-    assert_eq!(short.turns.requests().len(), 3);
-    assert!(short.warm_reads().is_empty(), "a 200 s wait reads nothing");
-}
-
-/// The `keep_warm_min_tokens` the small-prefix rig sets: a line above this rig's
-/// prefix, which counts the tool catalog whole even for a deferred family. The
-/// rig's three waits measured 19,925, 20,083 and 20,189 tokens on the #86 tree
-/// (the p3b persona's Spoken-aloud line, the p3h `task_wait` and `task_fan_out`
-/// definitions and the restored `task.create` descriptions all joined the
-/// request), so the line it was swept to, 20,000, sat between its waits and the
-/// later two crossed it: a prefix the test holds to be small was no longer
-/// under the line. 21,000 leaves 800 tokens above the largest; the assertion is
-/// unchanged: a prefix under the line is a cheap rewrite, not read. The cause is
-/// the token count, not `keep_warm_wait::caches`' widening: the request carries
-/// the top-level breakpoint, so both readings of it agree.
-/// And 21,500 since `context_history` joined every request's tools (issue 44): its definition passed the line.
-/// And 25,000 on the view (issue 44): its request carries the memory page (at most 1,000 tokens) and the view's
-/// own framing, and passed 21,500; the line is a guideline, set with headroom and listed for the owner.
-const SMALL_PREFIX: u64 = 25_000;
-
-/// A one-hour cache is read at `[cache] keep_warm_every_minutes`, so a wait of the
-/// longest length reads nothing; a prefix under `keep_warm_min_tokens` is
-/// not read either.
-#[tokio::test(start_paused = true)]
-async fn an_hour_long_cache_and_a_small_prefix_are_not_read() {
-    let r = rig_with(script(900), true, |_| {});
-    let s = r.session();
-    r.submit(&s, "build it").await.unwrap();
-    assert!(
-        r.warm_reads().is_empty(),
-        "an hour's cache lapses after the wait"
-    );
-
-    let small = rig(script(900), |c| c.cache.keep_warm_min_tokens = SMALL_PREFIX);
-    let s = small.session();
-    small.submit(&s, "build it").await.unwrap();
-    assert!(
-        small.warm_reads().is_empty(),
-        "a small prefix is a cheap rewrite"
-    );
+    assert!(meta.get("warm_reads").is_none(), "{meta}");
 }
 
 #[path = "tests_wait_beat.rs"]
@@ -669,4 +576,9 @@ async fn a_five_minute_job_costs_fewer_calls_and_dollars_with_the_longer_wait() 
     assert!(a20.calls * 4 < b20.calls, "{out}");
     assert!(a20.micros < b20.micros, "{out}");
     assert_eq!(b5.reads + b20.reads, 0, "the old wait never reads");
+    assert_eq!(
+        a5.reads + a20.reads,
+        0,
+        "nor does the long one: nothing is sent again"
+    );
 }

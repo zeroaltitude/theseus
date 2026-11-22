@@ -742,8 +742,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   **A thread's working set grows from its turns** (theseus-98bz.5; `thread_grow.rs`, `rpc/thread_grow.rs`, `[threads] working_set_grows`): after a turn in a thread (`routing.slug`, else `Board::of_session`), one page of the session's nodes after the turn's start gives its calls' paths (relative to the session's directory: the file and its first component as a root) and the message's entities (`thread_grow::extract::working_set`) join the set, but for what another live thread holds; one frame with a `thread.edited` row by the harness, only when the set changed. A list takes nothing past `thread_join::MAX_SET` (64), and nothing is evicted yet. A message's bare file name (`slow.sh`) grows nothing, only a path does (`thread_grow::paths_only`); a message the owner moves takes back what its words grew into the thread it ran in (`thread_ungrow`, from `State::take_grew`), and the thread it moves to grows from the message's resubmitted turn (theseus-iw50k). **A generic folder names no thread** (theseus-2uhsy, the owner's option (b), 2026-11-07): a root that is `notes`, `misc`, `stuff` or any name `generic_folder::is_generic_folder` reads as generic (its `PLACEHOLDERS`, the judge's layout directories `mine::is_layout_dir`, and the router's `GENERIC` words) is not grown into a set (`touched_in`), and one a stored set already holds is read as no name by the router's entity hits and the recall waiver (`thread_recall::named`), so no stored thread needs mending. A new placeholder goes in `generic_folder.rs`; its `every_generic_name_is_refused_by_every_reader` walks every entry through the three readers and names the file to correct. Tests: `rpc/tests_thread_grow.rs`, `thread_grow::tests`, `generic_folder::tests`.
   **The bench's clock** (theseus-98bz.3; `[threads] bench_clock`, false, a test hook): a `turn.submit` carrying `route_at_ms` (`TurnSubmitParams.route_at_ms`) is placed at that clock, `ask -s` included, and refused when the key is off; the threadbench sends each message's plan time. Tests: `rpc/tests_thread_bench.rs`.
 - **Threads kept warm** (theseus-ytt8, T9; `keep_warm_threads.rs`): removed 2026-11-22. No thread is kept warm
-  between turns: the view builds each turn's request afresh, and the only keep-warm read left runs during a job wait
-  (`keep_warm_wait`). `[threads] keep_warm_hours` and `[cache] threads_keep_warm_hours` are retired keys (a file naming
+  between turns: the view builds each turn's request afresh, and since 2026-11-22 nothing is read again during a
+  wait either. `[threads] keep_warm_hours` and `[cache] threads_keep_warm_hours` are retired keys (a file naming
   them loads with a warning). What stays is the day's numbers (`ThreadCacheStats`, `stats_of` over the day's
   `provider.call` and `keep_warm` rows), on `thread show`/`list` and health's `threads.cache`; the fields of the old
   reads are still sent, as zero, for a cockpit page left open since the upgrade. Tests: `keep_warm_threads::tests`.
@@ -904,14 +904,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `proc_sync_secs`: the job's end, a person's message (steer's signal) and a stop still end it at once, so the cap only
   bounds a wait nothing ends. The result's "Still running after N s" names the real wait, and what was asked when the
   cap cut it; the tool's description gets the cap appended (`jobs_tools::say_wait_cap`). The wait measures with
-  `tokio::time::Instant`, so a paused clock drives it. **A wait that outlasts the cache keeps it warm**
-  (`keep_warm_wait.rs`): a response that asks for a `job_wait` has `TurnRunner::stash_for_wait` keep the request it
-  answers (one clone, only for such a response, only for a request that caches and a prefix of at least `[cache]
-  keep_warm_min_tokens`); the wait sends it again at `MAX_TOKENS` through `keep_warm_send` (the between-turns read's own
-  send: reserved, held on the day ceiling, booked as a `keep_warm` row whose data says `during_wait`) every 4 minutes
-  of a 5-minute entry, or `[cache] keep_warm_every_minutes` of an hour's, beside its other events, so a settle, a message or a
-  stop ends it and a read in flight is dropped unbooked. The stash dies with the turn (`KeepWarm::turn_ended`). Tests:
-  `tests_wait_cost.rs` (paused clock, `Gated` launcher holding the job; the measure prints with `--nocapture`).
+  `tokio::time::Instant`, so a paused clock drives it. **A wait sends nothing of its own** (issue 44, 2026-11-22: no
+  saved request is sent again): the keep-warm read during a wait, its stash and `[cache] keep_warm_every_minutes`
+  (a retired key) are gone, so a wait that outlasts the provider's cache leaves the next call to write it again. A task
+  wait's room (the fan-in bound) and the sticky effort's last request live in `last_request.rs`. Old `keep_warm` rows
+  still read. Tests: `tests_wait_cost.rs` (paused clock, `Gated` launcher holding the job; the measure prints with
+  `--nocapture`).
   **`task.wait` is the turn's wait on its own tasks** (theseus-z9mze.2; `task_wait.rs`, an async tool run through `run_job_tool`'s
   dispatch, family `task`): it holds the turn until the tasks it names have ended, then writes each ended task's report as
   the relayed harness node `read_reports` writes (`task:<short>`, never a `Kind::ToolResult`, so clearing cannot stub a

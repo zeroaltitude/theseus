@@ -222,7 +222,6 @@ max_loops = 40
 # ([profiles.<name>]); one that says none takes this.
 [cache]
 # ttl = "1h"                            # how long the provider keeps cached prefixes: 5m (the default) | 1h; a 1-hour entry costs 2x input to write instead of 1.25x
-# keep_warm_every_minutes = 55          # during a long job wait inside a turn, how often its cached prefix is read; 0 < it < 60
 # keep_warm_min_tokens = 20000          # the smallest prefix worth a read during a wait (and that keeps a turn's effort sticky), estimated
 
 # ---------------------------------------------------------------- context files

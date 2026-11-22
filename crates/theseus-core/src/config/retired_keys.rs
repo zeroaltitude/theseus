@@ -30,8 +30,9 @@ const LEDGER: &str = "the exchange ledger is what the view reads, so it can no l
                       off";
 const SUMMARY: &str = "compaction and its summary call are gone: a turn that outgrows the window \
                        makes room itself, or fails plainly";
-const WARM: &str = "nothing is kept warm between turns any more (a long wait inside a turn still \
-                    is)";
+const WARM: &str = "nothing is kept warm between turns any more";
+const WAIT: &str = "nothing is kept warm during a wait any more (2026-11-22): no saved request is \
+                    sent again";
 const STUB: &str = "attachments are no longer replaced by stubs: there is no cold rewrite of a \
                     session any more";
 const COLD: &str = "a thread is no longer resumed cold from a cut transcript: the view reads its \
@@ -39,21 +40,24 @@ const COLD: &str = "a thread is no longer resumed cold from a cut transcript: th
 const THREADS: &str = "threads are no longer containers (2026-11-22): a thread's own recall, its \
                        growth, its home's size and its seals are gone";
 
-/// The whole list (the map of the cut, §6 step 8), less two keys something that stays still reads:
-/// `[cache] keep_warm_every_minutes` and `keep_warm_min_tokens` (the read during a job wait; the sticky
-/// effort rule). Those are live settings. The thread keys whose readers went on 2026-11-22 are here too.
+/// The whole list (the map of the cut, §6 step 8), less the one key something that stays still reads:
+/// `[cache] keep_warm_min_tokens` (the sticky effort rule), a live setting. The thread keys whose readers
+/// went on 2026-11-22 are here too, and `[cache] keep_warm_every_minutes`, whose one reader (the read
+/// during a wait) went that day.
 pub const RETIRED: &[Retired] = &[
     r("context", "assembly", VIEW),
     r("context", "kept_mb", KEPT),
     r("context", "ledger", LEDGER),
     r("memory", "summary_profile", SUMMARY),
     r("cache", "keep_warm_hours", WARM),
+    r("cache", "keep_warm_every_minutes", WAIT),
     r("cache", "threads_keep_warm_hours", WARM),
     r("cache", "stub_min_tokens", STUB),
     r("cache", "stub_after_turns", STUB),
     r("profiles.*", "keep_warm_hours", WARM),
     // Their older names (they were `config/renamed.rs` rows): retired with them, not asked to be renamed.
     r("model", "keep_warm_hours", WARM),
+    r("cache", "keep_warm_minutes", WAIT),
     r("threads", "keep_warm_hours", WARM),
     r("threads", "working_tokens", COLD),
     r("threads", "working_percent", COLD),

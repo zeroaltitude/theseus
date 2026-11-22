@@ -688,39 +688,17 @@ async fn the_request_after_a_wait_keeps_the_prefix_and_no_clearing_ran() {
     );
 }
 
-/// Keep-warm: a wait past a five-minute cache's lifetime reads the request
-/// again before it lapses, each read a `keep_warm` row marked `during_wait`,
-/// and the index counts them. A task nothing drives never ends, so the wait
-/// runs its whole 900 s on tokio's paused clock.
-mod warm {
+/// A wait sends nothing of its own (issue 44, 2026-11-22: no saved request is sent again): a task wait
+/// past a five-minute cache's lifetime makes no provider call while it waits, so the provider sees the
+/// script's three calls and no more, and no `keep_warm` row is written. A task nothing drives never ends, so
+/// the wait runs its whole 900 s on tokio's paused clock.
+mod quiet {
     use super::*;
-    use crate::keep_warm::MAX_TOKENS;
-    use crate::provider::{DeltaSink, FakeProvider, Provider, ProviderFuture};
+    use crate::provider::FakeProvider;
     use crate::store::Store;
 
-    struct Split {
-        turns: Arc<FakeProvider>,
-        reads: Arc<FakeProvider>,
-    }
-
-    impl Provider for Split {
-        fn name(&self) -> &str {
-            "fake"
-        }
-        fn stream_message<'a>(
-            &'a self,
-            req: &'a ProviderRequest,
-            on_delta: DeltaSink<'a>,
-        ) -> ProviderFuture<'a> {
-            match req.max_tokens == MAX_TOKENS {
-                true => self.reads.stream_message(req, on_delta),
-                false => self.turns.stream_message(req, on_delta),
-            }
-        }
-    }
-
     #[tokio::test(start_paused = true)]
-    async fn a_task_wait_past_the_cache_lifetime_reads_the_cache_before_it_lapses() {
+    async fn a_task_wait_past_the_cache_lifetime_sends_no_call_of_its_own() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("work");
         std::fs::create_dir_all(&root).unwrap();
@@ -740,12 +718,8 @@ mod warm {
             ),
             Scripted::text("Done."),
         ]));
-        let reads = Arc::new(FakeProvider::default());
-        let split = Arc::new(Split {
-            turns: turns.clone(),
-            reads: reads.clone(),
-        });
-        let core = crate::Core::build(crate::rpc::Parts::for_tests(cfg, split, store)).unwrap();
+        let core =
+            crate::Core::build(crate::rpc::Parts::for_tests(cfg, turns.clone(), store)).unwrap();
         let sid = parent_session(&core);
         let (c, s2) = (core.clone(), sid.clone());
         let run = tokio::spawn(async move { turn(&c, &s2, ASK).await });
@@ -758,22 +732,15 @@ mod warm {
             );
         }
         run.await.unwrap();
-        let said = result_of(&core, &sid, "w_1").0;
-        assert_eq!(
-            reads.requests().len(),
-            3,
-            "reads at 240, 480 and 720 s: {said}"
-        );
-        let rows = crate::test_support::rows_100k(&core, "keep_warm");
-        assert_eq!(rows.len(), 3, "{rows:?}");
-        assert!(rows.iter().all(|w| w["during_wait"] == true), "{rows:?}");
         let (text, meta) = result_of(&core, &sid, "w_1");
-        assert_eq!(meta["warm_reads"], 3, "{text}");
         assert!(text.contains("1 still running"), "{text}");
         assert_eq!(
             turns.requests().len(),
             3,
-            "the turn's own calls are the script's"
+            "the turn's own calls are the script's, and the wait made none: {text}"
         );
+        let rows = crate::test_support::rows_100k(&core, "keep_warm");
+        assert!(rows.is_empty(), "{rows:?}");
+        assert!(meta.get("warm_reads").is_none(), "{meta}");
     }
 }

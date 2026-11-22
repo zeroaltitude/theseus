@@ -11,8 +11,8 @@ export type PromptCacheHealth = {
  */
 profiles: Array<ProfileTtl>, 
 /**
- * `[cache] keep_warm_every_minutes`: how long after a session's last call
- * its read goes.
+ * Always 0: nothing is kept warm any more (2026-11-22). Kept for a client
+ * that still reads it.
  */
 keep_warm_minutes: number, 
 /**
@@ -25,6 +25,7 @@ kept: number,
  */
 stopped: number, 
 /**
- * Today's reads (local day) and what they cost.
+ * Today's reads (local day) and what they cost: always 0 since nothing is
+ * kept warm (2026-11-22); the CLI's `theseus health` reads them.
  */
 reads_today: number, usd_today: number, };

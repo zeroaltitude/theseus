@@ -8,7 +8,7 @@ use theseus_protocol::SessionKind;
 use crate::config::PersonaConfig;
 use crate::first_request::budget;
 use crate::tests_first_request::{rig_of, OWNER_SHAPE};
-use crate::tests_keep_warm as kw;
+use crate::tests_one_hour as kw;
 use crate::Core;
 
 const PERSONAS: [&str; 5] = ["alder", "brook", "cinder", "dune", "ember"];

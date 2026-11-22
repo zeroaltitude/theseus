@@ -4,9 +4,9 @@
 //! keep-warm reads and what they saved). Health's `threads.cache` holds a
 //! minute's copy, so the health path never scans the ledger.
 //!
-//! No thread is kept warm between turns any more (issue 44: the view builds
-//! each turn's request afresh); a keep-warm read now runs only during a job
-//! wait (`keep_warm_wait`). The fields of the old reads (`ThreadsHealth`'s
+//! Nothing is kept warm any more (issue 44): not between turns, and since
+//! 2026-11-22 not during a wait either. The day's `keep_warm` rows of an older
+//! build are still read and counted. The fields of the old reads (`ThreadsHealth`'s
 //! `keep_warm_hours`, `ThreadsCache`'s `kept` and `skipped_today`, an entry's
 //! `kept`) are still sent, as zero, for a cockpit page left open since the
 //! upgrade.
@@ -259,7 +259,7 @@ impl crate::rpc::Core {
     fn read_threads_cache(&self) -> ThreadsCache {
         let sessions = self.warm_thread_sessions();
         let stats = self.thread_cache_stats(&sessions);
-        let day = crate::keep_warm::today(&self.kernel);
+        let day = today(&self.kernel);
         let Some(board) = self.runner.threads.held() else {
             return ThreadsCache {
                 day,
@@ -336,6 +336,12 @@ fn event_of(row: &LedgerRow) -> Option<Event> {
         }),
         _ => None,
     }
+}
+
+/// The local day, as the day ceiling reads it.
+fn today(kernel: &theseus_kernel::Kernel) -> String {
+    let c = kernel.day_ceiling();
+    c.day_of(c.now()).0
 }
 
 #[cfg(test)]

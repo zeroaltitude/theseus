@@ -21,19 +21,19 @@
 //!   does; helper turns are `Class::Task`, the lowest, and a few waiting
 //!   parents would otherwise starve the tasks they wait on.
 //! - **The cache.** The wait appends no node while it waits and compiles
-//!   nothing, so the parent's request after it has the same prefix. It reads
-//!   the turn's cache again before it lapses (`keep_warm_wait`).
+//!   nothing, and sends nothing of its own: no saved request is sent again
+//!   (issue 44, 2026-11-22). A wait that outlasts the provider's cache leaves
+//!   the next call to write it again.
 //! - **The fan-in is bounded** so that N reports arriving at once cannot push
 //!   a long conversation over its clearing line: each report to
 //!   `report_chars`, all of them to `[tools] fan_in_chars` and to half the room
-//!   before the clearing line (`KeepWarm::room`, recorded when the response
+//!   before the clearing line (`LastRequest::room`, recorded when the response
 //!   that called the wait was sent); past that each report is cut to its share,
 //!   and its whole text is kept in the session's outputs.
 //!
 //! `task.fan_out` starts helpers and then calls [`wait_on_tasks`] with the ones
 //! it opened, so there is one wait.
 
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -432,11 +432,6 @@ pub(crate) async fn wait_on_tasks(
         fan_out: ask.fan_out.as_deref(),
         timeout_s: ask.timeout.as_secs(),
     });
-    let warmth = core.runner.keep_warm.warmth(&session_id);
-    let mut reading: Option<
-        Pin<Box<dyn std::future::Future<Output = crate::keep_warm::Outcome> + Send + '_>>,
-    > = None;
-    let mut reads = 0u32;
     let mut lent = Lent {
         core: core.clone(),
         exec: ask.turn.execution_id.clone(),
@@ -470,7 +465,6 @@ pub(crate) async fn wait_on_tasks(
             tried = true;
             lent.lent = rt.admission.lend(&ask.turn.execution_id);
         }
-        let due = warmth.as_ref().and_then(|w| w.due_before(until));
         let nap = left.min(crate::toolrun::waits::LOOK);
         let nap = if tried {
             nap
@@ -481,19 +475,6 @@ pub(crate) async fn wait_on_tasks(
             () = &mut settled => {}
             () = steer.raised() => {}
             () = tokio::time::sleep(nap) => {}
-            () = async { tokio::time::sleep_until(due.unwrap_or(until)).await },
-                if due.is_some() && reading.is_none() => {
-                if let Some(w) = warmth.as_ref().filter(|w| w.claim(Instant::now())) {
-                    reads += 1;
-                    let runner = &core.runner;
-                    let session = session_id.as_str();
-                    reading = Some(Box::pin(async move { w.read(runner, session).await }));
-                }
-            }
-            out = async { reading.as_mut().unwrap().await }, if reading.is_some() => {
-                reading = None;
-                tracing::debug!(?out, "task_wait: the turn's cache was read");
-            }
         }
     }
     lent.ended = true;
@@ -502,8 +483,7 @@ pub(crate) async fn wait_on_tasks(
         lent.lent = false;
     }
     let waited = t0.elapsed();
-    let taken =
-        theseus_store::blocking(|| deliver(&core, &session_id, &ask, waited, (reads, interrupted)));
+    let taken = theseus_store::blocking(|| deliver(&core, &session_id, &ask, waited, interrupted));
     taken
         .map(|out| (out, None, None))
         .map_err(|e| ToolFailure::new(format!("the tasks' reports could not be brought in: {e:#}")))
@@ -691,10 +671,10 @@ fn deliver(
     session: &str,
     ask: &WaitAsk,
     waited: Duration,
-    (warm_reads, interrupted): (u32, bool),
+    interrupted: bool,
 ) -> anyhow::Result<ToolOutput> {
     let turn = &ask.turn;
-    let room = core.runner.keep_warm.room(session);
+    let room = core.runner.last_request.room(session);
     let (total, bound) = fan_in_bound(core, room);
     let wrote = take(core, session, ask, total)?;
     let rec = fact::Rec {
@@ -780,13 +760,7 @@ fn deliver(
     }
     record_ended(&rec, ask, &rows, (wrote.delivered.len(), waited));
     let figures = (total, bound, room);
-    Ok(index(
-        ask,
-        &rows,
-        waited,
-        (warm_reads, interrupted),
-        figures,
-    ))
+    Ok(index(ask, &rows, waited, interrupted, figures))
 }
 
 /// The wait's `task.wait.ended` row (theseus-z9mze.6): how its tasks stood when it ended.
@@ -952,7 +926,7 @@ fn index(
     ask: &WaitAsk,
     rows: &[Row],
     waited: Duration,
-    (warm_reads, interrupted): (u32, bool),
+    interrupted: bool,
     (total, bound, room): (usize, &str, Option<(u64, u64)>),
 ) -> ToolOutput {
     let count = |s: &str| rows.iter().filter(|r| r.state == s).count();
@@ -1030,7 +1004,6 @@ fn index(
         })).collect::<Vec<_>>(),
         "waited_ms": waited.as_millis() as u64,
         "timed_out": running,
-        "warm_reads": warm_reads,
         "fan_in": {"bound": bound, "chars": total, "room": room.map(|(t, l)| json!({"tokens": t, "limit": l}))},
     });
     if let Some(f) = &ask.fan_out {

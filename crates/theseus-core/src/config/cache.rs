@@ -8,24 +8,19 @@
 //! `[cache]` holds that default, and what is the daemon's, not a profile's:
 //!
 //! - `ttl` (`5m`): a profile's default.
-//! - `keep_warm_every_minutes` (55): how often a job wait reads a one-hour
-//!   cache again while it waits (`crate::keep_warm_wait`). Under the 1-hour
-//!   TTL by 5 minutes: the provider's clock starts at its own receipt of the
-//!   last call, and a read that lands after the entry expired writes it whole
-//!   again at 2x instead of reading it at 0.025x of input.
-//! - `keep_warm_min_tokens` (20,000): a request estimated under this is not
-//!   kept warm during a wait, and the sticky effort rule holds only above it
-//!   (`turn::effort_step`). A read and a rewrite both scale with the prefix
-//!   (on Fable 5.1 one 1-hour write costs as much as 80 reads), so the floor
-//!   is for what does not: a small prompt's cold write is cents.
+//! - `keep_warm_min_tokens` (20,000): the sticky effort rule holds only above
+//!   it (`turn::effort_step`): a change of effort rewrites the cache, and a
+//!   small prompt's cold write is cents. (Its name is from the keep-warm read
+//!   it once also floored.)
 //!
-//! The keep-warm reads BETWEEN turns, their windows (`keep_warm_hours`,
-//! `threads_keep_warm_hours`) and the stubs of a cold rewrite
-//! (`stub_min_tokens`, `stub_after_turns`) went with the transcript (issue 44).
+//! Nothing is kept warm any more (issue 44): the reads BETWEEN turns, their
+//! windows (`keep_warm_hours`, `threads_keep_warm_hours`) and the stubs of a
+//! cold rewrite (`stub_min_tokens`, `stub_after_turns`) went with the
+//! transcript; the read during a wait, and its `keep_warm_every_minutes`,
+//! went on 2026-11-22. They are retired keys (`config::retired_keys`).
 
 use std::collections::BTreeMap;
 
-use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
 use super::ProfileConfig;
@@ -114,21 +109,16 @@ impl super::Config {
     }
 }
 
-/// `[cache]`: the cache's lifetime, and the keep-warm read of a job wait (theseus-ezeg).
+/// `[cache]`: the cache's lifetime, and the floor of the sticky effort rule (theseus-ezeg).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CacheConfig {
     #[serde(default, skip_serializing_if = "CacheTtl::is_default")]
     pub ttl: CacheTtl,
-    #[serde(default = "default_keep_warm_minutes")]
-    pub keep_warm_every_minutes: f64,
     #[serde(default = "default_keep_warm_min_tokens")]
     pub keep_warm_min_tokens: u64,
 }
 
-fn default_keep_warm_minutes() -> f64 {
-    55.0
-}
 fn default_keep_warm_min_tokens() -> u64 {
     20_000
 }
@@ -137,7 +127,6 @@ impl Default for CacheConfig {
     fn default() -> Self {
         Self {
             ttl: CacheTtl::default(),
-            keep_warm_every_minutes: default_keep_warm_minutes(),
             keep_warm_min_tokens: default_keep_warm_min_tokens(),
         }
     }
@@ -147,27 +136,13 @@ impl CacheConfig {
     pub fn is_default(&self) -> bool {
         *self == Self::default()
     }
-
-    /// The keep-warm interval, in ms.
-    pub fn interval_ms(&self) -> u64 {
-        (self.keep_warm_every_minutes * 60_000.0) as u64
-    }
-
-    /// Each value in range, and the interval under the 1-hour TTL: a read
-    /// past it finds the entry gone and writes it whole.
-    pub(crate) fn validate(&self, _cfg: &super::Config) -> Result<()> {
-        let m = self.keep_warm_every_minutes;
-        if !(m > 0.0 && m < 60.0) {
-            bail!("[cache] keep_warm_every_minutes must be above 0 and under 60 (the 1-hour cache's life), not {m}");
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::Config;
+    use anyhow::Result;
 
     fn with(from: &str, to: &str) -> Result<Config> {
         assert!(Config::EXAMPLE_TOML.contains(from), "{from}");

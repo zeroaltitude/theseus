@@ -226,9 +226,8 @@ pub struct TurnRunner {
     pub(crate) spend_marks: budget_step::SpendMarks,
     /// The models found to refuse per-message effort, for this run (theseus-posww).
     pub effort_refusals: effort_step::EffortRefusals,
-    /// A job wait's keep-warm request, a task wait's room, and the sticky
-    /// effort's last request (theseus-7m7w.3).
-    pub keep_warm: crate::keep_warm::KeepWarm,
+    /// A task wait's room, and the sticky effort's last request (`last_request`).
+    pub last_request: crate::last_request::LastRequest,
     /// A minute's copy of the day's thread cache numbers (theseus-ytt8).
     pub(crate) cache_numbers: crate::keep_warm_threads::CacheNumbers,
     /// The self budget's account (theseus-pw1q.3).
@@ -1358,7 +1357,7 @@ impl TurnRunner {
         // restart (issue 28): a faulted turn's is posted below, as the answer of a turn that
         // failed; a task's is dropped.
         let unposted = self.tools.profile.sweep(&failure_sink.session_id);
-        self.keep_warm.turn_ended(&failure_sink.session_id);
+        self.last_request.turn_ended(&failure_sink.session_id);
         clock_step::turn_ended(&failure_sink.session_id);
         if let Ok((res, _, _)) = &r {
             self.judge.after_turn(res, task_of.is_some());
@@ -2094,11 +2093,9 @@ impl TurnRunner {
                 Self::stopped(t, &by);
                 break;
             }
-            // The fallback's answer, going back to the routed model, warms
-            // nothing: the routed prefix is the one the next call reads. Its
-            // task wait's room is still recorded (`stash_for_wait`).
-            let going_back = Self::returns_to_routed(t, &resp);
-            self.stash_for_wait(&t.tc, &uses, &compiled, &spec, t.target, going_back);
+            // A task wait's fan-in is bounded by the room this request leaves (`last_request`).
+            self.last_request
+                .record_wait_room(t.tc.session_id, &uses, &compiled);
             let answered = boxed(|| self.run_tools(t, &resp, &uses, &node, i)).await?;
             // An answer cut at the window (theseus-9p88): none of its calls
             // ran, and the call is made once more on a ring, which leaves the
