@@ -311,7 +311,8 @@ async fn a_sealed_threads_pending_confirmation_is_absent_and_harmless() {
 async fn a_recorded_card_of_a_thread_sealed_since_is_not_shown_or_counted() {
     use crate::view::record::show::Reader;
     use crate::view::record::source::GateSource;
-    use theseus_memory::gate::{Place, PointOfView, Present};
+    use theseus_memory::gate::{PointOfView, Present};
+    use theseus_memory::recall::Place;
     let r = kelp_rig(false);
     let c = &r.core;
     let desk = session_in(c, None, &r.root);

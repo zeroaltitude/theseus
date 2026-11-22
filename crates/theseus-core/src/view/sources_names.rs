@@ -456,7 +456,7 @@ mod tests {
         let store = Store::open(&dir.path().join("store")).unwrap();
         let permit = Permit::of(Verified::for_tests(rule::PointOfView {
             anchor: "local".into(),
-            place: rule::Place::Private,
+            place: theseus_memory::recall::Place::Private,
             present: rule::Present::OwnerAlone,
         }));
         let pov = PointOfView {
@@ -476,7 +476,9 @@ mod tests {
             &depends,
         );
         let ok = a.exchange(e);
-        (ok, depends.borrow().contains("ses_1"))
+        drop(a);
+        let depended = depends.borrow().contains("ses_1");
+        (ok, depended)
     }
 
     /// KEY: an exchange's words are admitted only when its session's CURRENT place and audience read and
