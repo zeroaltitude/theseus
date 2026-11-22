@@ -112,6 +112,17 @@ fn create(input: &Value) -> String {
     format!("{ASK} CREATE {input}")
 }
 
+/// The owner's `ASK`, said on its own in `parent`, and an arrangement that names it by node (a quote of it
+/// would also match the message that starts the task, whose input holds the quote).
+async fn asked_apart(core: &Arc<Core>, parent: &str) -> Value {
+    crate::test_support::turn(core, parent, ASK).await;
+    let node = (core.store.session_nodes(parent).unwrap().into_iter())
+        .find(|(_, n)| matches!(&n.body, Body::UserMessage { text, .. } if text == ASK))
+        .map(|(_, n)| n.id)
+        .expect("the owner's message");
+    json!({"pieces": [{"node": node, "role": "objective"}]})
+}
+
 /// The task the parent's last call opened, by the brief its session holds.
 fn task_by_brief(core: &Core, brief: &str) -> Execution {
     (core.kernel.tasks(None).unwrap().into_iter())
@@ -257,8 +268,8 @@ async fn a_check_takes_the_view_and_holds_nothing_of_the_checked_tasks_turns() {
     let parent = parent_session(&r.core);
     // The message the arrangement quotes, apart from the one that starts the maker: the check's pieces
     // copy the quoted message, and it should not carry the maker's brief.
-    crate::test_support::turn(&r.core, &parent, ASK).await;
-    let made = json!({"brief": MAKER, "arrangement": arranged(), "fidelity_ack": true});
+    let arrangement = asked_apart(&r.core, &parent).await;
+    let made = json!({"brief": MAKER, "arrangement": arrangement, "fidelity_ack": true});
     crate::test_support::turn(&r.core, &parent, &format!("CREATE {made}")).await;
     let maker = task_by_brief(&r.core, MAKER);
     complete(&r.core, &maker).await;
@@ -318,8 +329,8 @@ async fn a_report_to_a_task_is_a_view_turn_at_the_tasks_place() {
     let parent = parent_session(&r.core);
     // The quoted message apart: the outer task's arrangement copies it, and the subtask's quote must be
     // found in the outer task's brief alone.
-    crate::test_support::turn(&r.core, &parent, ASK).await;
-    let input = json!({"brief": OUTER, "arrangement": arranged(), "fidelity_ack": true});
+    let arrangement = asked_apart(&r.core, &parent).await;
+    let input = json!({"brief": OUTER, "arrangement": arrangement, "fidelity_ack": true});
     crate::test_support::turn(&r.core, &parent, &format!("CREATE {input}")).await;
     let outer = task_by_brief(&r.core, OUTER);
     let t0 = std::time::Instant::now();
