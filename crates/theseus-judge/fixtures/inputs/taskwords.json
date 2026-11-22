@@ -1,0 +1,9 @@
+{
+  "message": "make it staging only",
+  "title": "Deploy the service",
+  "objective": "Deploy the service to staging and production.",
+  "acceptance": [
+    "Both answer on /health."
+  ],
+  "state": "running"
+}

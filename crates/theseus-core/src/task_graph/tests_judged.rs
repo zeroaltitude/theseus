@@ -294,14 +294,12 @@ fn every_trap_and_every_pause_or_resume_through_update_keeps_the_card() {
 
 /// A model that, asked once, calls `task.update` with each of `calls`,
 /// naming the newest message of the session; before it answers, the judge's
-/// answer for that message is kept (as the gate's ask keeps it), and, when
-/// `page` says so, a page is read into the session.
+/// answer for that message is kept (as the gate's ask keeps it).
 struct Judging {
     store: crate::store::Store,
     session: Mutex<Option<String>>,
     calls: Mutex<Vec<Value>>,
     judged: Mutex<Option<(Operation, bool)>>,
-    page: Mutex<bool>,
 }
 
 impl Judging {
@@ -311,8 +309,7 @@ impl Judging {
         *self.judged.lock().unwrap() = judged;
     }
 
-    /// The newest message of `session`, with the judge's answer kept for it
-    /// and a page read after it when asked.
+    /// The newest message of `session`, with the judge's answer kept for it.
     fn prepare(&self, session: &str) -> Option<String> {
         let node = self
             .store
@@ -338,29 +335,6 @@ impl Judging {
             };
             let r = NewRecord::json(kinds::META, Some(&format!("{JUDGED_PREFIX}{node}")), &kept);
             self.store.append(&[r.unwrap()]).unwrap();
-        }
-        if std::mem::take(&mut *self.page.lock().unwrap()) {
-            let body = crate::node::Body::ToolResult {
-                tool_use_id: "tu_page".into(),
-                tool: "http.fetch".into(),
-                status: crate::node::ResultStatus::Ok,
-                is_error: false,
-                content: "a page".into(),
-                correlation_id: None,
-                bytes_total: 6,
-                truncated: false,
-                full_ref: None,
-                duration_ms: None,
-                late: false,
-                meta: Value::Null,
-                image: None,
-                external: Some(theseus_tools::External {
-                    url: "http://site.test/page.html".into(),
-                }),
-                payload: None,
-            };
-            let n = crate::node::Node::tool_result(session, None, None, body);
-            self.store.append(&[n.record().unwrap()]).unwrap();
         }
         Some(node)
     }
@@ -405,6 +379,31 @@ impl crate::provider::Provider for Judging {
     }
 }
 
+/// A page read into `session`: a result marked as outside text.
+fn read_a_page(store: &crate::store::Store, session: &str) {
+    let body = crate::node::Body::ToolResult {
+        tool_use_id: "tu_page".into(),
+        tool: "http.fetch".into(),
+        status: crate::node::ResultStatus::Ok,
+        is_error: false,
+        content: "a page".into(),
+        correlation_id: None,
+        bytes_total: 6,
+        truncated: false,
+        full_ref: None,
+        duration_ms: None,
+        late: false,
+        meta: Value::Null,
+        image: None,
+        external: Some(theseus_tools::External {
+            url: "http://site.test/page.html".into(),
+        }),
+        payload: None,
+    };
+    let n = crate::node::Node::tool_result(session, None, None, body);
+    store.append(&[n.record().unwrap()]).unwrap();
+}
+
 fn judging_core() -> (tempfile::TempDir, Arc<crate::rpc::Core>, Arc<Judging>) {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = crate::Config::example();
@@ -415,7 +414,6 @@ fn judging_core() -> (tempfile::TempDir, Arc<crate::rpc::Core>, Arc<Judging>) {
         session: Default::default(),
         calls: Default::default(),
         judged: Default::default(),
-        page: Default::default(),
     });
     let core =
         crate::rpc::Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
@@ -479,8 +477,8 @@ fn proposed(core: &crate::rpc::Core) -> Vec<Value> {
 /// His clean narrowing at the terminal, with the judge's `restricts` asked in
 /// shadow: the proposal's row says it WOULD apply (`card: shadow`), the card
 /// still asks and nothing changes, and the message's receipt is spent once. A
-/// replay of the same message in the same turn is counted as a card
-/// (`spent`).
+/// replay of the same message, read over the same turn's records, is
+/// `spent`.
 #[tokio::test]
 async fn in_shadow_his_clean_narrowing_would_apply_once_and_keeps_its_card() {
     let (_dir, core, model) = judging_core();
@@ -490,26 +488,23 @@ async fn in_shadow_his_clean_narrowing_would_apply_once_and_keeps_its_card() {
     let new = format!("{}; {said}", before.objective);
     model.next(
         &first.session_id,
-        vec![narrow(&new), narrow(&new)],
+        vec![narrow(&new)],
         Some((Operation::Restricts, false)),
     );
-    submit(&core, owner(), said, Some(&first.session_id)).await;
+    let res = submit(&core, owner(), said, Some(&first.session_id)).await;
     let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
     assert_eq!(
         (now.version, &now.objective),
         (1, &before.objective),
         "nothing changed"
     );
+    assert_eq!(core.confirm_list().unwrap().len(), 1, "the card asks");
     assert!(crate::test_support::ledger_rows_100k(&core, "task.change_accepted").is_empty());
     let rows = proposed(&core);
-    assert_eq!(rows.len(), 2, "both wait on a card: {rows:?}");
+    assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(
         (rows[0]["would"].as_str(), rows[0]["card"].as_str()),
         (Some("apply"), Some("shadow"))
-    );
-    assert_eq!(
-        (rows[1]["would"].as_str(), rows[1]["card"].as_str()),
-        (Some("card"), Some("spent"))
     );
     let node = rows[0]["said"].as_str().unwrap();
     let r = receipt(&core.store, node)
@@ -519,6 +514,25 @@ async fn in_shadow_his_clean_narrowing_would_apply_once_and_keeps_its_card() {
         (r.task.as_str(), r.base_version, r.acting),
         (TASK, 1, false)
     );
+    // The same message again, over the same turn's records: spent.
+    let ev = crate::task_graph::words::Records {
+        store: &core.store,
+        outbox: &core.outbox,
+        session: &res.session_id,
+        turn: &res.turn_id,
+        class: crate::places::PlaceClass::Private,
+        task: false,
+        outside: false,
+    };
+    let ask = Ask {
+        named: TASK,
+        version: 1,
+        said: Some(node),
+        kind: Some(Kind::Narrows),
+        objective: Some(&new),
+        ..Ask::default()
+    };
+    assert_eq!(decide(&ev, &now, &ask), Err(Why::Spent));
 }
 
 /// With its judge acting, his clean narrowing applies at once, without a
@@ -561,39 +575,48 @@ async fn acting_his_clean_narrowing_applies_once_and_a_second_keeps_its_card() {
     assert_eq!(core.confirm_list().unwrap().len(), 1, "one card asks");
 }
 
-/// Text from outside read in the same turn, and an agent's process at the
-/// terminal saying the same words, keep the card even with an acting judge
-/// that said `restricts`.
-#[tokio::test]
-async fn a_page_in_the_turn_or_an_agents_process_keeps_the_card() {
-    let agent = Client::new("sock#9", Surface::Cli).behind(Behind::Agent("claude".into()));
-    for (client, page) in [(owner(), true), (agent, false)] {
-        let (_dir, core, model) = judging_core();
-        let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
-        let first = submit(&core, client.clone(), "hello", None).await;
-        let said = "make it the north side only";
-        let new = format!("{}; {said}", before.objective);
-        model.next(
-            &first.session_id,
-            vec![narrow(&new)],
-            Some((Operation::Restricts, true)),
-        );
-        *model.page.lock().unwrap() = page;
-        submit(&core, client, said, Some(&first.session_id)).await;
-        let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
-        assert_eq!(now.version, 1, "nothing changed");
-        let rows = proposed(&core);
-        assert_eq!(rows.len(), 1, "{rows:?}");
-        assert_eq!(rows[0]["would"], "card");
-        if page {
-            assert_eq!(rows[0]["card"], "outside");
-        }
-        let node = rows[0]["said"].as_str().unwrap();
-        assert!(
-            receipt(&core.store, node).unwrap().is_none(),
-            "nothing spent"
-        );
+/// A page the session read before his message, and an agent's process at
+/// the terminal saying the same words, keep the card even with an acting
+/// judge that said `restricts`; nothing is spent.
+async fn keeps_its_card(client: Client, page: bool) {
+    let (_dir, core, model) = judging_core();
+    let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+    let first = submit(&core, client.clone(), "hello", None).await;
+    if page {
+        read_a_page(&core.store, &first.session_id);
     }
+    let said = "make it the north side only";
+    let new = format!("{}; {said}", before.objective);
+    model.next(
+        &first.session_id,
+        vec![narrow(&new)],
+        Some((Operation::Restricts, true)),
+    );
+    submit(&core, client, said, Some(&first.session_id)).await;
+    let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+    assert_eq!(now.version, 1, "nothing changed");
+    let rows = proposed(&core);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["would"], "card");
+    if page {
+        assert_eq!(rows[0]["card"], "outside");
+    }
+    let node = rows[0]["said"].as_str().unwrap();
+    assert!(
+        receipt(&core.store, node).unwrap().is_none(),
+        "nothing spent"
+    );
+}
+
+#[tokio::test]
+async fn a_page_read_before_his_words_keeps_the_card() {
+    keeps_its_card(owner(), true).await;
+}
+
+#[tokio::test]
+async fn an_agents_process_at_the_terminal_keeps_the_card() {
+    let agent = Client::new("sock#9", Surface::Cli).behind(Behind::Agent("claude".into()));
+    keeps_its_card(agent, false).await;
 }
 
 /// Evidence 2 over real turns: his turn at the terminal admits nothing from
@@ -626,4 +649,13 @@ async fn the_admitted_inputs_of_real_turns() {
         ex.as_ref()
     ));
     assert!(!steered(&core.store, &his.session_id));
+    // A page the session read, even before his message, is admitted too.
+    read_a_page(&core.store, &his.session_id);
+    let ex = crate::exchange::exchange(&core.store, &his.turn_id).unwrap();
+    assert!(outside_admitted(
+        &core.store,
+        &his.session_id,
+        &his.turn_id,
+        ex.as_ref()
+    ));
 }

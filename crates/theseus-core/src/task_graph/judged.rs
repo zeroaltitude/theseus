@@ -184,12 +184,13 @@ fn asked_of(
 }
 
 /// Whether anything the turn admitted came from outside, or from anyone but
-/// the owner in person (evidence 2). The window opens at the current
-/// exchange's ask: every node from there is his marked message, Theseus's
-/// own reply or call, or a result not marked as outside; a note the harness
-/// relayed (a task's report, a clock line) counts as outside, since its
-/// source is not proven here. No piece of the turn's view came from outside
-/// or from another person. Anything that cannot be read counts as outside.
+/// the owner in person (evidence 2). No result the session ever read is
+/// marked as outside (a transcript shows them all). From the current
+/// exchange's ask, every node is his marked message, Theseus's own reply or
+/// call, or a plain result; a note the harness relayed there (a task's
+/// report, a clock line) counts as outside, since its source is not proven
+/// here. No piece of the turn's view came from outside or from another
+/// person. Anything that cannot be read counts as outside.
 pub fn outside_admitted(
     store: &crate::store::Store,
     session: &str,
@@ -209,12 +210,15 @@ pub fn outside_admitted(
         matches!(crate::exchange::mark(store, id),
             Ok(Some(m)) if m.in_person && m.person().as_deref() == Some(crate::exchange::OWNER))
     };
-    let outside_node = nodes[from..].iter().any(|(_, n)| match &n.body {
-        Body::UserMessage { .. } => n.origin != Origin::Operator || !his(&n.id),
-        Body::AssistantMessage { .. } | Body::ToolCall { .. } => false,
-        Body::ToolResult { .. } => crate::external::is_outside(n),
-        _ => true,
-    });
+    let read = nodes.iter().any(|(_, n)| crate::external::is_outside(n));
+    let outside_node = read
+        || nodes[from..].iter().any(|(_, n)| match &n.body {
+            Body::UserMessage { .. } => n.origin != Origin::Operator || !his(&n.id),
+            Body::AssistantMessage { .. } | Body::ToolCall { .. } | Body::ToolResult { .. } => {
+                false
+            }
+            _ => true,
+        });
     outside_node || outside_viewed(store, turn)
 }
 
