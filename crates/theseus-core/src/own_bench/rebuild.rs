@@ -62,6 +62,10 @@ pub struct Original {
     pub sources: Sources,
     /// The view the request was laid from, read back from its blobs; none for a transcript's turn.
     pub view: Option<Frozen>,
+    /// What its view record named it laid from (the sessions, the exchanges, the nodes its recall laid),
+    /// read once with the view (`kept_view`): a crossing reads its sources here, never again from the
+    /// store. None for a transcript's turn.
+    pub laid: Option<crate::compiler::view::kept::Kept>,
     /// The request, and the digest that matched.
     pub request: ProviderRequest,
     pub digest: String,
@@ -191,9 +195,13 @@ impl Core {
                 )
             })?;
         let nodes: Transcript = transcript[..at].to_vec();
-        let view = (compilation.strategy == crate::compiler::view::STRATEGY)
-            .then(|| self.kept_view(&compilation, (session_id, turn), &nodes))
-            .transpose()?;
+        let (view, laid) = match compilation.strategy == crate::compiler::view::STRATEGY {
+            true => {
+                let (f, k) = self.kept_view(&compilation, (session_id, turn), &nodes)?;
+                (Some(f), Some(k))
+            }
+            false => (None, None),
+        };
         let mut spec = self.kept_spec(&session, &compilation)?;
         let recalls = nodes
             .iter()
@@ -220,6 +228,7 @@ impl Core {
                 nodes,
                 sources,
                 view,
+                laid,
                 request,
                 digest,
                 ask,
@@ -300,7 +309,7 @@ impl Core {
         compilation: &Compilation,
         (session_id, turn): (&str, &str),
         nodes: &Transcript,
-    ) -> Result<Frozen, NotRebuildable> {
+    ) -> Result<(Frozen, crate::compiler::view::kept::Kept), NotRebuildable> {
         let record = crate::view::record::read(&self.store, &compilation.id)
             .map_err(|e| no("view", format!("{e:#}")))?;
         let k = record
@@ -316,7 +325,7 @@ impl Core {
         if let Some(tool) = crate::compiler::view::kept::carried(&f, own.map(|(_, n)| &**n)) {
             return Err(no("view", view_carried(tool)));
         }
-        Ok(f)
+        Ok((f, k))
     }
 
     /// The spec the compilation's requests were rendered from: this
