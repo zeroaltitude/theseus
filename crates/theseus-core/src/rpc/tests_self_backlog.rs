@@ -127,7 +127,7 @@ fn invalid_input(c: &Core, tool: &str, at: u64) {
 
 /// Now, read after the seeding: the index dates a row by the frame's write
 /// time, so a night reads the rows written before it.
-fn tick() -> u64 {
+pub(super) fn tick() -> u64 {
     theseus_protocol::now_unix_ms()
 }
 
@@ -148,7 +148,7 @@ fn listed_at(c: &Core, now_ms: u64) -> Vec<theseus_protocol::rsi::SelfBacklogIte
 
 /// One day of the ledger: three failed turns (one cause), two invalid inputs
 /// (a noisy cause that needs two), one refused act twice (a keel cause).
-fn seed_day(c: &Core, t0: u64) {
+pub(super) fn seed_day(c: &Core, t0: u64) {
     for i in 0..3 {
         failed_turn(
             c,

@@ -104,6 +104,9 @@ pub struct Lens<'a> {
     pub in_view: Option<Cursor>,
     /// The turns the words index found, when words were given.
     pub words: Option<HashSet<String>>,
+    /// The asking session: what it ran itself at this place is always shown to it, whoever is present (the
+    /// view's rule, `view::permit::Permit::speaking`), its moved messages held out as ever.
+    pub own: Option<&'a str>,
 }
 
 /// A walk's page, and where a walk stopped by its bound would resume (kept by the tool, never shown).
@@ -117,11 +120,16 @@ impl Lens<'_> {
     /// proven unsealed, or a message of it moved into a thread not proven unsealed. This place's own exchanges, a private one only to a private reader. Another place's
     /// only where the owner is alone, and only his own exchanges of a private place.
     pub fn admits(&self, ex: &Exchange) -> bool {
-        if matches!(self.present, Present::Unknown)
-            || ex.place == exchange::rebuild::UNKNOWN
+        if ex.place == exchange::rebuild::UNKNOWN
             || (self.hidden)(&ex.session_id)
             || (self.moved)(ex)
         {
+            return false;
+        }
+        if self.own == Some(ex.session_id.as_str()) && ex.place == self.here {
+            return true;
+        }
+        if matches!(self.present, Present::Unknown) {
             return false;
         }
         let private_reader = matches!(self.present, Present::OwnerAlone | Present::Private);
