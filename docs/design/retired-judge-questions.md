@@ -31,10 +31,12 @@ no longer makes `continue.v1`'s call of its own.
   feature, which only dev-dependencies enable: no build of the daemon or the simulator carries them).
 - **A settings file** that still has a `[judge.packs."<retired>"]` table loads; the table is ignored and named in
   one line at startup.
-- **Kept embedded**: `route.v10`, though `route.v11` acts. The route family's labelled cases file is written for
-  it (`packs/route.v10.cases.toml`), `judge replay --cases` defaults to the file's pack, and the route tests
-  hold `route.v11` to it question by question. Retiring it means re-pointing that file and those tests at
-  `route.v11` first.
+- **`route.v10`, retired later** (issue 46): its file is under `packs/retired/` like the others, its rollback
+  rules are in `pack::RETIRED_ROLLBACK` (a stored adoption of it is checked by them), and its ladder adoption
+  row went. The route family's labelled cases file keeps its name (`packs/route.v10.cases.toml`, which the bench
+  and the scripts read) and now declares `route.v11`, the acting pack, which `judge replay --cases` asks by
+  default. The file is still read for v10's own text (`route_cases::read_as`, both ways), so
+  `--pack-file packs/retired/route.v10.toml` replays it.
 - **Kept**: `categorize.v1`. It is a shadow too, but its exchange-end point also carries the core handle, the due
   rule and the marks that `people.v1`, `people_seen.v1` and the card's observer read, and
   `ontology.proposals` still lists and answers the proposals it already made.

@@ -1,4 +1,5 @@
-//! `route.v10` and its cases (theseus-h66v4, row 1): the pack is embedded and
+//! `route.v10` and its cases (theseus-h66v4, row 1), retired with its file kept
+//! under `packs/retired/` (issue 46; the cases now declare `route.v11`): the pack
 //! lints (no computation words, `confirm <= act`, every `no_match` among its
 //! options, its rollback rules real), holds the design's text but for the
 //! owner's two edits of 2026-10-29 22:46, and carries v8's (so v9's)
@@ -26,7 +27,7 @@ const T: Thresholds = Thresholds {
 };
 
 fn pack() -> Arc<Pack> {
-    by_name("route.v10").expect("route.v10 is embedded")
+    crate::pack::retired("route.v10").expect("route.v10 is retired, its file kept")
 }
 
 fn set() -> CaseSet {
@@ -278,7 +279,7 @@ fn persona_seal_and_personal_are_the_earlier_packs_word_for_word() {
 #[test]
 fn the_cases_hold_the_designs_counts_and_ids() {
     let s = set();
-    assert_eq!(s.pack, "route.v10");
+    assert_eq!(s.pack, "route.v11");
     // 62 replay cases: L1 to L20, W1 to W38 (W39 and W40 are daemon tests), the
     // three switch-cost cases W41 to W43, and W44, the second half of the pair
     // the owner made of W33 on 2026-11-03 ("If a stall is due to bad planning,
@@ -876,7 +877,7 @@ fn an_effort_pick_under_the_bar_is_graded_as_high() {
 #[test]
 fn the_bar_and_the_no_match_are_the_replayed_packs_own() {
     // Separately, because the pack now says why its default is what it is between the two lines.
-    let text = include_str!("../packs/route.v10.toml")
+    let text = include_str!("../packs/retired/route.v10.toml")
         .replacen("confirm = 0.40", "confirm = 0.80", 1)
         .replacen("no_match = \"parent\"", "no_match = \"opus\"", 1);
     let p = Pack::parse(&text).unwrap();

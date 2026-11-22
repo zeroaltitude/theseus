@@ -433,9 +433,8 @@ impl Core {
             return out;
         }
         let since = crate::learning::local_midnight(theseus_protocol::now_unix_ms());
-        let tags: Vec<String> = crate::day_ceiling::SPEND_KINDS
-            .iter()
-            .map(|k| theseus_store::pages::ledger_kind(k))
+        let tags: Vec<String> = crate::day_ceiling::counted_kinds()
+            .map(theseus_store::pages::ledger_kind)
             .collect();
         let mut before = None;
         loop {

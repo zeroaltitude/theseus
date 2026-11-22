@@ -20,5 +20,8 @@ async fn a_plain_turns_route_row_gains_only_where_it_ran() {
     assert_eq!(d["provider"], res.provider.as_str(), "{d}");
     assert!(d.get("cn").is_none(), "{d}");
     assert!(d.get("data_gate").is_none(), "{d}");
-    assert!(res.route.unwrap().data.is_none());
+    // The route carries no data part (theseus-a1wvq.11's, retired 2026-11-21).
+    assert!(!serde_json::to_string(&res.route.unwrap())
+        .unwrap()
+        .contains("\"data\""));
 }
