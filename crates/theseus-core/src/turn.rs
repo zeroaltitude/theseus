@@ -33,7 +33,7 @@ use theseus_store::{frames_written_here, NewRecord};
 use crate::advancer::{Advancer, Decision, LoopOutcome, UntilNoToolCalls};
 use crate::bus::{EventSink, SessionBus};
 use crate::catalog::Catalog;
-use crate::compiler::{compile, situation, CompileInput, Compiled, Overflowed, RequestSpec};
+use crate::compiler::{situation, CompileInput, Compiled, Overflowed, RequestSpec};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::content::{footer_labels, ItemKind};
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};

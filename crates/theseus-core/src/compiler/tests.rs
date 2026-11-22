@@ -113,7 +113,7 @@ fn run(
 ) -> Compiled {
     let nodes: Vec<(u64, crate::stub::Stub)> =
         nodes.iter().map(|(p, n)| (*p, n.clone().into())).collect();
-    compile(CompileInput {
+    super::tests_parts::on_view(CompileInput {
         session_id: "s",
         current,
         nodes: &nodes,
@@ -645,7 +645,7 @@ fn a_model_that_does_not_cache_gets_no_breakpoints() {
     let sp = two_blocks("claude-opus-5", 4_000, 2_000);
     let nodes: Vec<(u64, crate::stub::Stub)> =
         hi().into_iter().map(|(p, n)| (p, n.into())).collect();
-    let c = compile(CompileInput {
+    let c = super::tests_parts::on_view(CompileInput {
         session_id: "s",
         current: None,
         nodes: &nodes,
