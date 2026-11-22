@@ -264,6 +264,8 @@ Properties that hold for all of it.
 
 ## 4. The point of view, and the gate
 
+*Superseded on 2026-11-22: anything goes. Every turn's point of view is the widest (the owner alone, in a private place, at its own anchor), whoever is present; nothing is held by presence, a seal, a veil or a move. The place's class still decides tools and publishing. What follows is the design as it was.*
+
 A point of view is computed once at the start of a turn, from one snapshot of the store, and recorded on the view:
 
 `{anchor: a place or a task · person · present · at hand · now}`
@@ -859,6 +861,8 @@ slot F is built, the search is not, and the sizes are unmeasured. In (c), the ca
 `addressed_task` names the task, and the change keeps its card (§7).
 
 ## 9. What becomes of threads, sessions and places; what stays a wall
+
+*Superseded on 2026-11-22: threads are not containers. No message is sent to a thread's own session; `theseus thread list` and `thread show` read the stored records, and every other thread command is gone. What follows is the design as it was.*
 
 - **A place** is an address, an audience and a timeline. It holds no conversation of its own.
 - **A session** is one run: the execution and the provider's chain of one point of view. Two places run at
