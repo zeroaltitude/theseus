@@ -59,7 +59,8 @@ impl TurnRunner {
         ));
         // What woke a turn no message, wake or report of its own opened: the view says it (issue 44).
         let opened = has_input || reported + woke > 0;
-        let occasion = view_step::occasion::Occasion::of(opened, &late, resumed.wrote > 0 || reset || raised);
+        let occasion =
+            view_step::occasion::Occasion::of(opened, &late, resumed.wrote > 0 || reset || raised);
         t.exchange.caught_up(occasion);
         t.record(&fact::turn::CaughtUp {
             t0,

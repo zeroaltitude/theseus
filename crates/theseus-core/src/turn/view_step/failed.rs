@@ -47,7 +47,10 @@ impl ViewFailed {
 impl TurnRunner {
     /// The turn's failure for `e` from a view compile: a [`ViewFailed`] is the turn's plain failure; any
     /// other error is returned as it was.
-    pub(in crate::turn) fn view_failure(t: &mut Turn<'_>, e: anyhow::Error) -> anyhow::Result<Failure> {
+    pub(in crate::turn) fn view_failure(
+        t: &mut Turn<'_>,
+        e: anyhow::Error,
+    ) -> anyhow::Result<Failure> {
         let Some(v) = e.downcast_ref::<ViewFailed>() else {
             return Err(e);
         };

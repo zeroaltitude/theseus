@@ -767,7 +767,11 @@ async fn an_established_session_without_its_exchanges_is_the_views_turn() {
     c.store.append(&[earlier.record().unwrap()]).unwrap();
     turn(c, &sid, "apply the second option").await;
     let q = r.requests().pop().unwrap();
-    assert!(texts(&q).contains("apply the second option"), "{}", texts(&q));
+    assert!(
+        texts(&q).contains("apply the second option"),
+        "{}",
+        texts(&q)
+    );
     assert!(!texts(&q).contains("the blue one"), "{}", texts(&q));
     let strategies: Vec<String> = (crate::test_support::rows(c, "context.compiled").into_iter())
         .filter_map(|r| r["strategy"].as_str().map(str::to_string))
