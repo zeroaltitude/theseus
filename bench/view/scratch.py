@@ -32,13 +32,15 @@ How it is kept apart from the owner's daemon:
 - **nothing left behind**: on a normal end, a failed construction, a failed
   start, a health timeout, an exception or SIGTERM, the daemon is stopped
   (`shutdown`; whatever that raises or however long it hangs, then a kill of
-  the daemon's own process group, which the kit started) and the copy is
-  removed; a removal that fails is printed to stderr with its path. The
-  teardown runs to its end whatever one step raises. SIGTERM is trapped from
+  the daemon's own process group while the kit still holds the unreaped
+  child) and the copy is removed; a removal that fails is printed to stderr
+  with its path. The teardown runs to its end whatever one step raises; a
+  kill or reap that failed is then `E_CLEANUP <scratch directory> pid <pid>`. SIGTERM is trapped from
   before the copy starts until the removal has finished: during the removal
   it is held, and raised once the removal is done;
 - **what a SIGKILL leaves is for a person to remove**: the scratch
-  directory's absolute path is the first line every run prints (on stderr).
+  directory's absolute path is the first line every run prints (on stderr);
+  the store copy in it is removed at a run's end, the directory stays.
   A run killed with SIGKILL leaves that directory, which holds the copy, and
   maybe its daemon; the kit has no verb that deletes or kills on its own
   (the README says how to check and remove it by hand).
@@ -230,10 +232,11 @@ class Scratch:
         self.home = self.dir / "home"
         self.env = child_env(self.home, env)
         self._trapped, self._old_term, self._stopping, self._term_pending = False, None, False, False
+        self._old_chld, self._lost = None, False
         self._trap_term()  # from before the first write until the removal has finished
         # The first line of every run: what a person removes by hand if the run is killed with SIGKILL.
-        print(f"view kit: scratch directory {self.dir} (holds a store copy while it runs; removed at its end)",
-              file=sys.stderr, flush=True)
+        print(f"view kit: scratch directory {self.dir} (its store copy, state/, is removed at the end of the run; "
+              "the directory itself stays)", file=sys.stderr, flush=True)
         made = False
         try:
             self.dir.parent.mkdir(parents=True, exist_ok=True)
@@ -281,8 +284,8 @@ class Scratch:
                                          start_new_session=True)  # its own group: the teardown kills that
             t0 = time.monotonic()
             while True:
-                if self.proc.poll() is not None:
-                    raise Failed(f"E_DAEMON_EXIT {self.proc.returncode}")
+                if self._exited():  # read without reaping: the teardown still holds the child, and its group
+                    raise Failed("E_DAEMON_EXIT")
                 try:
                     if self.cli("health", timeout=10).returncode == 0:
                         return self
@@ -304,34 +307,79 @@ class Scratch:
         with contextlib.suppress(ValueError):  # not the main thread: no handler
             self._old_term = signal.signal(signal.SIGTERM, on_term)
             self._trapped = True
+            # An inherited SIGCHLD-ignore makes the kernel reap the daemon the moment it exits, and its pid and
+            # group id could then be reused before the teardown signals: for the kit's lifetime SIGCHLD is the
+            # default, so the exited daemon stays the kit's unreaped child until the kit itself reaps it.
+            if signal.getsignal(signal.SIGCHLD) == signal.SIG_IGN:
+                self._old_chld = signal.signal(signal.SIGCHLD, signal.SIG_DFL)
 
     def _untrap(self) -> None:
         if self._trapped:
             with contextlib.suppress(ValueError, TypeError):
                 signal.signal(signal.SIGTERM, self._old_term if self._old_term is not None else signal.SIG_DFL)
+                if self._old_chld is not None:
+                    signal.signal(signal.SIGCHLD, self._old_chld)
+            self._old_chld = None
             self._trapped = False
 
+    def _custody(self) -> str:
+        """`running`, `exited` (exited, NOT reaped: still the kit's child, so its pid and its group's id cannot
+        be given to another process) or `lost` (reaped by anything, `os.waitpid` elsewhere or the kernel under
+        SIGCHLD-ignore included: the number may now be anyone's). Read without reaping (`WNOWAIT`). Lost is
+        recorded, and is final."""
+        if self._lost or self.proc is None or self.proc.returncode is not None:
+            self._lost = True
+            return "lost"
+        try:
+            r = os.waitid(os.P_PID, self.proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        except ChildProcessError:  # ECHILD: not the kit's child any more
+            self._lost = True
+            return "lost"
+        return "running" if r is None else "exited"
+
+    def _exited(self) -> bool:
+        return self._custody() != "running"
+
     def stop(self) -> list[str]:
-        """The teardown, to its end whatever a step raises: shutdown (any failure or hang ignored), a kill of
-        the daemon's own process group, the copy removed, the prior SIGTERM handler restored; then a SIGTERM
-        held during it is raised."""
+        """The teardown, to its end whatever a step raises: shutdown (any failure or hang ignored); the wait
+        for the daemon to exit, without reaping it; SIGKILL to the daemon's own process group while the kit
+        still holds the unreaped child (whatever the daemon left in it goes too); the reap; the copy removed;
+        the prior SIGTERM (and SIGCHLD) handlers restored. A kill or a reap that fails, or a child reaped by
+        anything else (`_custody`: its group may no longer be its own, so it is never signalled), is not lost:
+        once every step has been tried, it is `Failed("E_CLEANUP <scratch directory> pid <pid>")`. Then a SIGTERM held during the teardown is raised."""
         self._stopping = True
         killed: list[str] = []
+        lost: int | None = None
         try:
             try:
-                if self.proc is not None and self.proc.poll() is None:
+                if self.proc is not None and not self._exited():
                     with contextlib.suppress(Exception):
                         self.cli("shutdown", timeout=SHUTDOWN_WAIT)
-                    with contextlib.suppress(subprocess.TimeoutExpired):
-                        self.proc.wait(STOP_WAIT)
+                    t0 = time.monotonic()
+                    while not self._exited() and time.monotonic() - t0 < STOP_WAIT:
+                        time.sleep(0.05)
             finally:
                 if self.proc is not None:
-                    if self.proc.poll() is None:  # still our child, unreaped: its group is still its own
-                        with contextlib.suppress(ProcessLookupError, PermissionError):
-                            os.killpg(self.proc.pid, signal.SIGKILL)
-                        killed.append(f"theseusd {self.proc.pid}")
-                        with contextlib.suppress(subprocess.TimeoutExpired):
+                    pid = self.proc.pid
+                    # The custody check and the signal are adjacent, and nothing of the kit reaps in between: the
+                    # kit never calls poll() or wait() on the daemon before this point, it runs no reaper thread,
+                    # and SIGCHLD is not ignored while it runs (`_trap_term`).
+                    if self._custody() == "lost":
+                        lost = pid  # never signalled: its group id is no longer the kit's to signal
+                        # Marked as ended, so the dropped handle is not polled later by subprocess's own cleanup.
+                        self.proc.returncode = -1
+                    else:
+                        try:
+                            os.killpg(pid, signal.SIGKILL)  # the leader is unreaped: the group is still its own
+                            killed.append(f"theseusd group {pid}")
+                        except ProcessLookupError:
+                            pass
+                        except OSError:
+                            lost = pid
+                        try:
                             self.proc.wait(STOP_WAIT)
+                        except (subprocess.TimeoutExpired, OSError):
+                            lost = pid
                     self.proc = None
         finally:
             try:
@@ -340,6 +388,9 @@ class Scratch:
             finally:
                 self._untrap()
                 self._stopping = False
+        if lost is not None:
+            self._term_pending = False
+            raise Failed(f"E_CLEANUP {self.dir} pid {lost}")
         if self._term_pending:
             self._term_pending = False
             raise SystemExit(SIGTERM_EXIT)
