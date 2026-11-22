@@ -1708,7 +1708,6 @@ mod tests {
         "rpc/disk_watch.rs",
         "rpc/question_waits.rs",
         "rpc/routines_watch.rs",
-        "rpc/thread_seal.rs",
         "rsi/digest.rs",
         "rsi/digest/notice.rs",
         "rsi/narrow.rs",
