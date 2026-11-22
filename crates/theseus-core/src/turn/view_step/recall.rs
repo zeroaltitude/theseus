@@ -50,27 +50,89 @@ impl TurnRunner {
     }
 
     /// What a view turn's recall counts as already in front of the model (issue 44): the turn's own nodes
-    /// (its tail), and the nodes of this session's exchanges the window lays with their words on every turn
-    /// (`sources_recall::floor_turns`). A `Recall` note's sources exclude nothing (slot H is laid afresh each
-    /// turn), nor does an older node of the session no window holds, nor a node of no exchange.
-    pub(in crate::turn) fn view_in_context(t: &super::super::Turn<'_>) -> BTreeSet<String> {
+    /// (its tail), and what the window's floor lays with its words on every turn ([`Self::view_floor`]),
+    /// by node. A `Recall` note's sources exclude nothing (slot H is laid afresh each turn), nor does a node
+    /// the floor lays only as a receipt, nor an older node of the session no window holds.
+    pub(in crate::turn) fn view_in_context(&self, t: &super::super::Turn<'_>) -> BTreeSet<String> {
         let (store, turn) = (t.tc.store, t.tc.turn_id);
-        let floor = t.exchange.place().map_or_else(BTreeSet::new, |place| {
-            let since = crate::ladder::new_mark(store, place).ok().flatten();
-            let ladder = crate::ladder::view::StoreLadder(store);
-            crate::view::sources_recall::floor_turns(&ladder, place, since.as_ref(), turn)
+        let mut out = self.view_floor(t).unwrap_or_else(|e| {
+            tracing::warn!(error = %format!("{e:#}"),
+                "recall: the view's floor cannot be read; only the turn's own nodes count as in context");
+            BTreeSet::new()
         });
         let Ok(nodes) = store.transcript(t.tc.session_id) else {
-            return BTreeSet::new();
+            return out;
         };
         let moves = crate::moved::read(&nodes);
-        (nodes.iter())
-            .filter(|(_, n)| n.kind != crate::stub::Kind::Recall && !moves.hidden.contains(&n.id))
-            .filter(|(_, n)| {
-                (n.turn_id.as_deref()).is_some_and(|id| id == turn || floor.contains(id))
-            })
-            .map(|(_, n)| n.id.clone())
-            .collect()
+        out.extend(
+            (nodes.iter())
+                .filter(|(_, n)| {
+                    n.kind != crate::stub::Kind::Recall && !moves.hidden.contains(&n.id)
+                })
+                .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
+                .map(|(_, n)| n.id.clone()),
+        );
+        out
+    }
+
+    /// The nodes the window's floor lays with their words, read as the view's assembly reads them: the
+    /// same verified presence, mark, fork, gated ladder and facts, the floor chosen over what the gate
+    /// admits (`select::Here`), each exchange counted by the form the floor asks for it
+    /// (`sources_recall::carries`: the newest whole, the other two spoken). The floor is never cut, so
+    /// what it lays here the assembled view lays too.
+    fn view_floor(&self, t: &super::super::Turn<'_>) -> anyhow::Result<BTreeSet<String>> {
+        use crate::view::select::{Band, Here, Selector};
+        let (store, sid, turn) = (t.tc.store, t.tc.session_id, t.tc.turn_id);
+        let snap = super::StoreSnapshot {
+            now_ms: self.kernel.now_ms(),
+            timeline: super::StoreTimeline(store),
+            at_hand: None,
+        };
+        let verified = super::Verified::of_session(self, sid);
+        let pov = super::verified_pov(&verified, t.exchange.person().0, snap.now_ms);
+        let super::Anchor::Place(place) = pov.anchor.clone() else {
+            return Ok(BTreeSet::new());
+        };
+        let since = crate::ladder::new_mark(store, &place)?;
+        let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified);
+        let read = super::Sessions::default();
+        let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
+        let moved_read = crate::view_gate::Moved::read(self, Some(sid));
+        let moved = |e: &crate::exchange::Exchange| moved_read.holds(e);
+        let sources = super::StoreSources {
+            store,
+            mark: since.map(|m| (place.as_str(), m)),
+            recalled: Vec::new(),
+            sealed: &held,
+            moved: &moved,
+            sessions: &read,
+        };
+        let store_ladder = fork.ladder(store);
+        let gated = super::GatedLadder::new(&store_ladder, store, &held, &moved);
+        let ladder = super::OnceLadder::new(&gated);
+        let moving = self.moving(store, (&permit, &pov, &moved_read), &[], &read)?;
+        let cards = super::StoreCards {
+            store,
+            kernel: &self.kernel,
+            names: &sources,
+            homes: self,
+            judged: None,
+        };
+        let src = super::sources_of(&permit, (&sources, &moving), &ladder, &cards, "");
+        let mut out = BTreeSet::new();
+        for p in Here::new(Band::Floor, src).select(&pov, &snap)? {
+            let id = &p.range.first.id;
+            let Some(ex) = crate::exchange::exchange(store, id)? else {
+                continue;
+            };
+            let nodes = read.exchange(store, &ex.session_id, id)?;
+            out.extend(
+                (nodes.iter())
+                    .filter(|(_, n)| crate::view::sources_recall::carries(p.form, n.kind))
+                    .map(|(_, n)| n.id.clone()),
+            );
+        }
+        Ok(out)
     }
 
     /// Whether an item the frozen view lays is held out now (a seal, a move): the view is reassembled.
