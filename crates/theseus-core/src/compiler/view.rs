@@ -22,6 +22,17 @@ use serde_json::Value;
 use super::*;
 use crate::stub::Stub;
 
+pub mod kept;
+
+/// What a render reads besides the nodes: the blobs, what the session does not show, the cut answer a call
+/// replaces, and the recall's sources.
+type RenderMedia<'a> = (
+    Option<&'a crate::blobs::Blobs>,
+    &'a [crate::session::NotShown],
+    Option<&'a str>,
+    &'a crate::recall::render::Sources,
+);
+
 /// The compilation's `strategy`.
 pub const STRATEGY: &str = "view";
 /// The compilation's `trigger`: every turn in a view place builds its own.
@@ -190,9 +201,12 @@ fn compiled_from(
     let entry = input.catalog.get(&spec.model);
     let window = input.window_override.or(entry.map(|e| e.context_window));
     let rates = entry.map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
+    // A cut answer this call replaces is left out, as the transcript leaves it (theseus-9p88).
+    let retrying = input.overflowed.and_then(|o| o.retrying.as_deref());
+    let media = (input.blobs, input.hidden, retrying, input.sources);
     let made = |c: &Compilation| {
         let split = split(c, laid);
-        let rendered = render(spec, input.catalog, &split, &laid.0, input);
+        let rendered = render(spec, input.catalog, &split, &laid.0, media);
         let counted = counted_part(&laid.0, &split, &rendered.request);
         let est = estimate(&rendered.request, rates, counted);
         (split, rendered, est)
@@ -383,11 +397,8 @@ fn render(
     catalog: &Catalog,
     split: &Compilation,
     nodes: &[(u64, Stub)],
-    input: &CompileInput<'_>,
+    media: RenderMedia<'_>,
 ) -> Rendered {
-    // A cut answer this call replaces is left out, as the transcript leaves it (theseus-9p88).
-    let retrying = input.overflowed.and_then(|o| o.retrying.as_deref());
-    let media = (input.blobs, input.hidden, retrying, input.sources);
     let mut rendered = render_kept(spec, catalog, split, nodes, media, None);
     let first_tail = nodes
         .iter()
@@ -434,6 +445,20 @@ fn mark_front(rendered: &mut Rendered, first_tail: Option<&str>, spec: &RequestS
             o.remove("cache_control");
         }
     }
+}
+
+/// A view turn's request rendered again from its frozen view (`kept::frozen`), the compilation it was
+/// stored as, and the session's nodes before its answer: the bytes [`compile`] sent, for a replay
+/// (`own_bench::rebuild`). `spec` is the request's own, its system blocks read back from their blobs.
+pub fn rendered_again(
+    (spec, catalog): (&RequestSpec, &Catalog),
+    c: &Compilation,
+    frozen: &Frozen,
+    nodes: &[(u64, Stub)],
+    media: RenderMedia<'_>,
+) -> ProviderRequest {
+    let laid = laid(nodes, frozen, &frozen.stripped);
+    render(spec, catalog, &split(c, &laid), &laid.0, media).request
 }
 
 /// The turn's own answers so far, by node id.

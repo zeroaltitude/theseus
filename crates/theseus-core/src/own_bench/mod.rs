@@ -38,6 +38,8 @@ pub mod whole;
 mod tests;
 #[cfg(test)]
 mod tests_sampler;
+#[cfg(test)]
+mod tests_view;
 
 use theseus_protocol::LedgerKind;
 
