@@ -66,8 +66,8 @@ _(Amended 2026-10-01, theseus-in3, Part III Item 33: the web apps follow the pus
   one model call: where its time went, its tokens and what the cache saved, its cost recomputed at today's prices
   beside the record, the provider's headroom, the context it saw, and what it said. Each lives in the address, so
   it can be linked to, and each reads the ledger only while it is open.
-- It acts through the protocol's own controls, each confirmed first: open a session (`session.open`), recompile
-  one (`session.recompile`), cancel a task (`task.cancel`), make a profile live (`profile.use`), beside stop,
+- It acts through the protocol's own controls, each confirmed first: open a session (`session.open`), ~~recompile
+  one (`session.recompile`)~~ _(removed 2026-11-22: the view builds every turn afresh)_, cancel a task (`task.cancel`), make a profile live (`profile.use`), beside stop,
   cancel, answer, trust, and tighten from Item 23. _(Since 2026-10-04 the cockpit also has the Judgment section (23b): each pack's mode, version, calls, cost and Jev's time per workload class, a log, one judgment's fields, answers and state, and each judgment beside the loop it judged; with it a security score's pill beside "should have asked" (24), each judgment's label buttons and the Learning panel (25c), and a check's 🔍 basis in the task view (28a). Part III Items 119, 120, 129 and 132.)_
 
 **The Narrative** (the owner, 2026-09-28, 20:38; theseus-5fy, e3ba8d6, 810aa6d, 12a4805). In the owner's words: "I want every architectural part of the session/turn/loop/model call structure to have a narrative output that goes straight into an output channel that shows up in the web interface in a new pane called 'the narrative.' If narrative: true is in the config, the pane exists as a new tab in the web UI and the narrative output populates it. If false, the outputs never happen, and the pane never displays." The narrative is the fourth window onto a turn, beside the trace (§3.3a), the ledger (§3.10), and telemetry (§3.20). It is written for a person watching live, not for a tool, and unlike the other three it is never stored.
