@@ -965,8 +965,14 @@ fn self_session(c: &crate::Core, label: &str) -> String {
 #[tokio::test]
 async fn a_self_loop_session_lays_its_own_place_only_and_an_ordinary_one_the_widest() {
     use crate::tests_view_hand_backs::unmarked;
-    let r = view_rig();
+    // The self loop acting, its budget resumed, so its sessions' turns run (as `rpc::tests_self_view`).
+    let r = rig_with(|c| c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act);
     let c = &r.core;
+    c.self_resume(
+        &theseus_protocol::rsi::SelfResumeParams::default(),
+        &crate::approval::Answerer::from("the CLI"),
+    )
+    .unwrap();
     let dm = crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
     turn_as(c, &dm, "dm: the lighthouse lamp is amber", true).await;
     let fixer = self_session(c, "self fix: kelp");
