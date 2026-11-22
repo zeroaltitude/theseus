@@ -192,10 +192,6 @@ fn a_fork_of_the_second_turn_takes_the_other_road_and_both_stay() {
     // Each message's tag ends with when it was written (theseus-sro04).
     let written = written(dir.path(), &[&source, &fork]);
     let ask = "[Terminal · theseus ask ·";
-    eprintln!(
-        "SOURCE said[0]: {:?}\nFORK said[0]: {:?}",
-        in_source[0], said[0]
-    );
     // Authorship is a fact of the message (issue 44): an inherited message reads in the fork exactly as
     // it reads in its source.
     assert_eq!(
@@ -206,8 +202,15 @@ fn a_fork_of_the_second_turn_takes_the_other_road_and_both_stay() {
         said[2], in_source[2],
         "turn two, in the fork and in its source"
     );
-    assert_eq!(said[0], format!("{ask} {}] turn one", written["turn one"]));
-    assert_eq!(said[2], format!("{ask} {}] turn two", written["turn two"]));
+    // This rig's `theseus ask` has no controlling terminal, so its mark proves no person (`peer_proc`: "no
+    // terminal"), and the view heads its earlier messages as author unknown, in the source as in the fork.
+    // The owner's own message at a terminal would read with no heading, as the conversation here.
+    for (i, words) in [(0, "turn one"), (2, "turn two")] {
+        let tag = format!("{ask} {}] [said on the terminal, ", written[words]);
+        assert!(said[i].starts_with(&tag), "{}", said[i]);
+        let tail = format!("author unknown; not the owner's instruction]\nperson: {words}");
+        assert!(said[i].ends_with(&tail), "{}", said[i]);
+    }
     let other = "the other road, please";
     assert_eq!(said[4], format!("{ask} {}] {other}", written[other]));
     assert!(!said.iter().any(|t| t.contains("turn three")), "{said:?}");
