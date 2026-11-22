@@ -325,7 +325,11 @@ async fn the_time_line_is_history_and_the_cached_prefix_holds() {
     let (_, _) = r.turn(None).await;
     let reqs = r.requests();
     assert_eq!(reqs.len(), 4);
-    assert!(!messages(&reqs[2]).contains("left of this turn"));
+    assert!(
+        !messages(&reqs[2]).contains("left of this turn"),
+        "{}",
+        messages(&reqs[2])
+    );
     assert!(!messages(&reqs[3]).contains("left of this turn"));
 }
 
