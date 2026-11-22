@@ -96,6 +96,7 @@ pub fn builder_identity(pack: &Pack) -> (&'static str, u32) {
         Builder::PeopleSeen => ("people_seen", PEOPLE_SEEN_VERSION),
         Builder::Compare => ("compare", COMPARE_VERSION),
         Builder::Heard => ("heard", HEARD_VERSION),
+        Builder::TaskWords => ("task_words", crate::builders::TASK_WORDS_VERSION),
         Builder::SameThing => ("same_thing", SAME_THING_VERSION),
         Builder::TwoThings => ("two_things", TWO_THINGS_VERSION),
         Builder::SameKind => ("same_kind", SAME_KIND_VERSION),

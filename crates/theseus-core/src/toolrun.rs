@@ -1201,6 +1201,10 @@ impl ToolRuntime {
         let ctx = self.ctx_in(tc);
         let mut proposal = Self::proposal_for(tool, &call.input, &ctx);
         let planned = tool.plan(&call.input, &ctx);
+        // A change in the owner's own words: the judge reads his message first (issue 44).
+        if let Some(judge) = self.judge.get() {
+            crate::task_graph::judged::ask(judge, tc, tool.name(), &call.input).await;
+        }
         // Layer 1 guards only the owner's tasks (theseus-ext.10).
         let planned = planned.map(|p| {
             crate::task_graph::tools::authority_for(

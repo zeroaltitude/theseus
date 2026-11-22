@@ -86,6 +86,10 @@ struct Fake {
     task_session: bool,
     /// The independent judgment recorded, if any: none, as today.
     judged: Option<JudgedChange>,
+    /// The messages whose receipt is spent.
+    spent: Vec<String>,
+    /// The judgment was asked while its pack acted.
+    acting: bool,
 }
 
 impl Fake {
@@ -100,6 +104,8 @@ impl Fake {
             outside: false,
             task_session: false,
             judged: None,
+            spent: Vec::new(),
+            acting: false,
         }
     }
 
@@ -162,6 +168,12 @@ impl Evidence for Fake {
     }
     fn judged(&self, node: &str) -> Option<JudgedChange> {
         self.judged.clone().filter(|j| j.node == node)
+    }
+    fn spent(&self, node: &str) -> bool {
+        self.spent.iter().any(|n| n == node)
+    }
+    fn acting(&self, _: &str) -> bool {
+        self.acting
     }
 }
 
@@ -701,6 +713,12 @@ impl Evidence for WithJudgment<'_> {
     }
     fn judged(&self, node: &str) -> Option<JudgedChange> {
         Some(self.1.clone()).filter(|j| j.node == node)
+    }
+    fn spent(&self, node: &str) -> bool {
+        self.0.spent(node)
+    }
+    fn acting(&self, node: &str) -> bool {
+        self.0.acting(node)
     }
 }
 
