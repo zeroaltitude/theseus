@@ -1462,6 +1462,7 @@ fn a_format_33_store_opens_with_no_headers_and_still_reads_one() {
     let again = crate::store::Store::open(&path).unwrap();
     let read: crate::prefix::Header = again.get_meta(&hk).unwrap().unwrap();
     assert_eq!(read, h);
+    assert_eq!(serde_json::to_string(&read).unwrap(), PREFIX_HEADER_AT_41);
     let read: crate::prefix::Hits = again.get_meta(&tk).unwrap().unwrap();
     assert_eq!(read, hits);
 }
