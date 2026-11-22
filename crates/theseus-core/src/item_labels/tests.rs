@@ -304,3 +304,25 @@ fn a_removal_kept_on_the_item_covers_its_own_session_alone() {
         "the source's item keeps it"
     );
 }
+
+/// **4. A cut is never clean.** An answer read in part (`truncated`) reads `failed (truncated)`, and so does
+/// a reply the batch's piece bound cut out whole; a flag it raised still stands.
+#[test]
+fn an_item_read_in_part_is_never_clean() {
+    let s = ContentFlags::default();
+    let mut i = ItemLabels::new("n1", ItemKind::Reply, "reply", 1);
+    let mut part = asked("answered", vec![no(Flag::Secret)]);
+    part.truncated = true;
+    i.asked(part);
+    assert_eq!(
+        view("n1", Some(&i), read(&s), vec![]).line(),
+        "failed (truncated)"
+    );
+    let mut cut = ItemLabels::new("n2", ItemKind::Reply, "reply", 1);
+    cut.asked(asked("truncated", vec![]));
+    assert_eq!(state(Some(&cut), read(&s)), "failed");
+    let mut s2 = ContentFlags::default();
+    let raised = of_kind(Flag::Personal, "n1", 2, ItemKind::Reply);
+    land(&mut s2, Some(&mut i), raised, 1);
+    assert_eq!(state(Some(&i), read(&s2)), "labelled");
+}

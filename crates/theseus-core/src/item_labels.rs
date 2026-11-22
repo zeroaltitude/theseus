@@ -43,7 +43,9 @@ pub struct Asked {
     pub pack: String,
     pub at_ms: u64,
     /// `answered`, `shadow` (answered, in the pack's shadow mode: nothing raised), or why there is no answer:
-    /// `failed` (twice), `refused` (the day's budget), `unbuilt` (no state or client).
+    /// `failed` (twice), `refused` (the day's budget, or a reply's share of it), `unbuilt` (no state or client),
+    /// `truncated` (a reply the batch's piece bound left no piece for). An answer with `truncated` set below
+    /// was read in part, and is never read as clean.
     pub outcome: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answers: Vec<Answer>,
@@ -249,7 +251,8 @@ pub fn state(item: Option<&ItemLabels>, r: Reading<'_>) -> &'static str {
         return "labelled";
     }
     match &item.asked {
-        Some(a) if a.answered() => "clean",
+        // Answered, but not all of it was read (`truncated`): never clean (issue 44).
+        Some(a) if a.answered() && !a.truncated => "clean",
         Some(_) => "failed",
         // Only a source that needs no model wrote it: what it raised was removed.
         None if !item.raised.is_empty() => "clean",
@@ -282,7 +285,11 @@ pub fn view(
     if let Some(a) = &item.asked {
         v.pack = Some(a.pack.clone());
         v.at_ms = Some(a.at_ms);
-        v.why = (!a.answered()).then(|| a.outcome.clone());
+        v.why = match (a.answered(), a.truncated) {
+            (false, _) => Some(a.outcome.clone()),
+            (true, true) => Some("truncated".into()),
+            (true, false) => None,
+        };
         v.questions = Flag::ALL
             .into_iter()
             .map(|f| match a.answers.iter().find(|x| x.question == f) {

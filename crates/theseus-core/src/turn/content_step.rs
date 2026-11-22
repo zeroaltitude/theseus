@@ -68,14 +68,27 @@ impl TurnRunner {
     /// name's label at once (`land_deterministic`, which takes the session's lock), and the thread that holds
     /// the hold for the turn's last frame must not take it again (the review of round 1). A turn that fails
     /// before `finish` queues none: its written replies read "not judged then".
+    ///
+    /// **Off unless the owner turns it on** (`[content_based_security] judge_replies`, false by default): a
+    /// reply's ask shares the judge's day and the daemon's ceiling with the inputs', whose judgment feeds the
+    /// injection label, and no allowance of its own can be reserved for it without changing how an input is
+    /// admitted (issue 44, round 3). Off, no reply is offered at all, and each reads "not judged then".
+    ///
+    /// Only the model's words are items: an assistant node no provider call wrote (no `correlation_id`: the
+    /// personal step's fixed held reply) is the harness's own text, and is not asked about.
     pub(super) fn content_replies(&self, t: &Turn<'_>) {
-        if t.tc.task.is_some() {
+        if t.tc.task.is_some() || !self.cfg.content_based_security.judge_replies {
             return;
         }
         let items: Vec<ContentItem> = (t.said.iter())
             .filter_map(|(_, id)| {
                 let (_, node) = t.tc.store.get_node(id).ok().flatten()?;
-                let Body::AssistantMessage { blocks, .. } = &node.body else {
+                let Body::AssistantMessage {
+                    blocks,
+                    correlation_id: Some(_),
+                    ..
+                } = &node.body
+                else {
                     return None;
                 };
                 let text = crate::provider::text_of(blocks);

@@ -600,14 +600,13 @@ async fn the_same_bytes_are_asked_as_a_tool_result_and_never_as_block_3() {
     assert!(item.kind.asks_injection(), "asked, as every result is");
 
     // 4. The block-3 copy is offered to nothing. The positive bar is the
-    //    count: exactly the three items this turn has, the operator's message,
-    //    that one result and the reply (issue 44: a reply is judged as inputs
-    //    are), so an item built for block 3 would make four.
+    //    count: exactly the two items this turn has, the operator's message
+    //    and that one result, so an item built for block 3 would make three.
     let submitted = r.core.runner.judge.content_submitted();
     assert_eq!(
         submitted.len(),
-        3,
-        "the operator's message, the one result and the reply: {submitted:?}"
+        2,
+        "the operator's message and the one result: {submitted:?}"
     );
     assert!(submitted.contains(&item.node), "{submitted:?}");
     for id in &submitted {
