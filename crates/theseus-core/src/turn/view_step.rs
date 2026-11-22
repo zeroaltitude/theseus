@@ -13,6 +13,10 @@ mod failed;
 pub(in crate::turn) mod occasion;
 pub(super) mod preview;
 
+#[cfg(test)]
+pub(crate) use super::exchange_step::route_unreadable;
+#[cfg(test)]
+pub(crate) use failed::fail_next_assembly;
 pub(in crate::turn) use failed::ViewFailed;
 
 use super::{compile, CompileInput, Compiled, RequestSpec, Turn, TurnRunner};
@@ -286,6 +290,8 @@ impl TurnRunner {
             recalled: recalled(t),
             message: None,
         };
+        #[cfg(test)]
+        failed::injected(sid)?;
         let built = self.view_built(asked, spec)?;
         // Rule 9: a floor too large for the view's budget is the transcript's to handle (its ring and
         // compaction, or its own words on an overage), not a small view.

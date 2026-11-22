@@ -36,16 +36,18 @@ view needs `[context] ledger` on (the default); a settings file that sets a plac
 not load. A task's turn has no place and is always the transcript's. There is no `shadow` value: a place is
 either the transcript's or the view's.
 
-**A turn the view cannot assemble soundly runs as the transcript's turn.** Before its first call, a turn in a view
-place checks that it can be assembled, and if not it is the transcript's turn from then to its end, with its recall
-carried as on any transcript turn. The reason is written on the ledger (`context.view_fallback`) and is one of a
-closed list: `continuation` (no person's message, wake or report of its own opened the turn), `route` (the gate's
-anchor is not the place the exchange opened in), `unledgered_history` (the session's recent turns include some the
-ledger holds no exchange for), `over_budget` (the request is over the budget, the floor alone is too large for the
-view's budget, or the provider said a request of the turn passed its window), `assembly_error`, and `moved` (the
-gate's reading changed under the view a third time in one call). A turn's recall is kept across a view call that was
-sent, and if the turn then declines it is admitted again item by item under the presence and seals of that moment;
-an item held out since leaves nothing behind.
+**A turn over the view's budget runs as the transcript's turn** (`context.view_fallback`, `over_budget`: the
+request is over the budget, the floor alone is too large for the view's budget, or the provider said a request of
+the turn passed its window), with its recall carried as on any transcript turn. A turn's recall is kept across a
+view call that was sent, and if the turn then declines it is admitted again item by item under the presence and
+seals of that moment; an item held out since leaves nothing behind. **Every other case is the view's own.** A turn
+no person's message, wake or report opened (a background job ended, a call it waited on was answered, it resumes
+after a restart or a failed attempt) is assembled with an empty message and one line beside it saying what woke it.
+A turn's place is read once, where its message arrived or else where its reply is delivered (a wake's or a report's
+target too), and is both its exchange's place and its gate's anchor. An earlier turn the ledger holds no exchange
+for is out of the view's reach. A turn whose place cannot be read, whose context cannot be read during assembly, or
+whose gate reading moves a third time within one call fails plainly, in words a person can act on, and nothing is
+sent: never a partial view.
 
 **Built, step by step** (§11's numbers):
 
@@ -94,8 +96,8 @@ turn whose message carries the owner's mark takes its place and person from the 
 come only from that mark, and a message has a mark only if it was submitted after the ledger came into the build: a
 session's binding is where it posts now, not proof of where a message arrived or who typed it. So **unmarked
 history from before the owner's mark has no proven place**: its rebuilt exchanges are of place `unknown` with no
-person, and no place's window, ladder or history tool holds them. Before the rebuild, a turn in a place with such
-history declines the view (`unledgered_history`). The rebuild erases nothing: a view place keeps every exchange
+person, and no place's window, ladder or history tool holds them. Before the rebuild, such history is out of the
+view's reach, and the turn takes the view all the same. The rebuild erases nothing: a view place keeps every exchange
 that was written as it happened or carries a mark, and only its unmarked older history is out of its reach. No mark
 is ever made backwards.
 
@@ -313,8 +315,8 @@ count.
 - **The rule by model provider is deleted** (decision 8), not only on the trimming list.
 - **Within a turn**, a seal set or a presence narrowed between two calls reassembles the view under the new
   permit, on a new chain. The same check, and the moved-message check above, run after all of a call's
-  preparation and before every send: a difference compiles the call again, at most twice, and a third makes the turn
-  the transcript's (`moved`). A joined task card's home session is among the sessions whose seal revokes the view.
+  preparation and before every send: a difference compiles the call again, at most twice, and a third fails the call
+  plainly ("what this turn may see changed while it was being prepared; send it again"), sending nothing. A joined task card's home session is among the sessions whose seal revokes the view.
 - **The registry test** pins each file's count of decisions by place as it was when the gate landed, and fails
   when one grows. **The property** is held over generated stores for what the gate admits and for the view the
   selectors make; the same test on the bytes sent is not written.
@@ -376,8 +378,8 @@ text; the owner reads any turn's with `theseus view show` (`docs/design/view-rec
 by a message of the owner in person there, built by the turn's own assembler (the same selectors, budget and gate)
 from the place as it stands now. It is the owner's alone (the CLI or the web page with no agent's process behind
 it); a piece's text is shown only at his own terminal. It calls no model, sends nothing and writes nothing that
-persists: no view record, no ledger row, no cache a turn reads. It does not predict `route` or `continuation`
-(decided by the turn that arrives) or `over_budget` on the rendered request, runs no recall (so recall's pieces are
+persists: no view record, no ledger row, no cache a turn reads. It does not predict a turn no message
+opens, or `over_budget` on the rendered request, runs no recall (so recall's pieces are
 not in it), and sizes the system part from an approximation of the next request. It lists and counts only what the
 reader's gate admits, node by node: exchanges, the fixed code pieces and fold nodes; a piece of another kind (a
 joined task's card, say) is neither listed nor counted.

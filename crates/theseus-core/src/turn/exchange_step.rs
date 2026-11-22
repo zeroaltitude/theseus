@@ -85,6 +85,16 @@ impl Held {
     }
 }
 
+/// A test's seam: the sessions whose route (`speaks_at`) reads as unreadable.
+#[cfg(test)]
+static UNREADABLE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Make `session`'s route unreadable to its turns (a test's).
+#[cfg(test)]
+pub(crate) fn route_unreadable(session: &str) {
+    UNREADABLE.lock().unwrap().push(session.into());
+}
+
 fn defer(t: &Turn<'_>, rec: Option<theseus_store::NewRecord>) {
     if let Some(r) = rec {
         if let Err(e) = t.tc.store.defer(r) {
@@ -118,6 +128,10 @@ impl TurnRunner {
         }
         let read = t.exchange.mark.as_ref().map_or_else(
             || {
+                #[cfg(test)]
+                if UNREADABLE.lock().unwrap().contains(t.tc.session_id) {
+                    return None;
+                }
                 (self.outbox.speaks_at(t.tc.session_id))
                     .ok()
                     .map(|at| crate::exchange::place_of(at.as_deref(), t.tc.dir))

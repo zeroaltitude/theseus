@@ -768,6 +768,8 @@ mod tests_unlabel;
 #[cfg(test)]
 mod tests_view_compile;
 #[cfg(test)]
+mod tests_view_hand_backs;
+#[cfg(test)]
 mod tests_view_gate;
 #[cfg(test)]
 mod tests_view_record;

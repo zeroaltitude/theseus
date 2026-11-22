@@ -68,6 +68,27 @@ impl TurnRunner {
     }
 }
 
+/// A test's seam: the sessions whose next view assembly meets a read failure.
+#[cfg(test)]
+static READ_FAULT: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Make the next view assembly of `session` fail on a read (a test's).
+#[cfg(test)]
+pub(crate) fn fail_next_assembly(session: &str) {
+    READ_FAULT.lock().unwrap().push(session.into());
+}
+
+/// The read failure a test asked for `session`, once.
+#[cfg(test)]
+pub(super) fn injected(session: &str) -> anyhow::Result<()> {
+    let mut faults = READ_FAULT.lock().unwrap();
+    if let Some(i) = faults.iter().position(|s| s == session) {
+        faults.remove(i);
+        anyhow::bail!("a record of the conversation did not decode");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
