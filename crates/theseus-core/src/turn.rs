@@ -132,7 +132,7 @@ mod surface_step;
 mod target;
 pub(crate) mod tier;
 mod title_step;
-mod view_step;
+pub(crate) mod view_step;
 pub use view_step::preview::Preview;
 
 pub use request::TurnRequest;
@@ -1992,6 +1992,12 @@ impl TurnRunner {
                 }
                 retrying = Some(o);
             }
+            // After every await of the compile, before the provider: a view admitted under a reading the
+            // gate no longer gives is compiled again (issue 44, `view_step::view_readmitted`).
+            let compiled = match self.view_readmitted(t, session, &spec, compiled, i).await? {
+                Ok(c) => c,
+                Err(f) => return Ok(Next::Fail(f)),
+            };
             let said_before = (t.output.len(), t.said.len());
             self.spend_checked(t, session)?;
             let on = routed_to.as_deref().unwrap_or(provider);

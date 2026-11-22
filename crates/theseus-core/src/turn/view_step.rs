@@ -88,7 +88,7 @@ impl TurnRunner {
         if t.recall.withheld.is_some() && self.carries(t).is_none() {
             t.recall.withheld = None;
             // After a view call was dispatched, the recall it withheld comes back once.
-            Self::recall_readmitted(t);
+            self.recall_readmitted(t);
             recarried = self.recall_view(t, input.nodes.to_vec());
             (input.nodes, input.sources) = (&recarried.0, &recarried.1);
         }
@@ -183,6 +183,39 @@ impl TurnRunner {
         unledgered(t.tc.store, nodes, turn).then_some(Fallback::Unledgered)
     }
 
+    /// After every await of a call's compile and before the provider (issue 44): the frozen view's verified
+    /// point of view and its sessions' seals against the gate's reading now. A difference compiles the call
+    /// again (the compile step reassembles under the new permit, on a new chain), at most twice; a third
+    /// difference makes the turn the transcript's (`moved`). The request that goes out is the last one
+    /// compiled, its tail kept as the turn loop keeps one.
+    pub(super) async fn view_readmitted(
+        &self,
+        t: &mut Turn<'_>,
+        session: &mut crate::session::SessionRecord,
+        spec: &RequestSpec,
+        compiled: Compiled,
+        i: u32,
+    ) -> anyhow::Result<Result<Compiled, super::Failure>> {
+        let mut compiled = compiled;
+        for again in 0..=VIEW_READMISSIONS {
+            if !(self.view_revoked(t) || self.view_moved(t)) {
+                return Ok(Ok(compiled));
+            }
+            if again == VIEW_READMISSIONS {
+                Self::view_declined(t, Some(Fallback::Moved));
+            }
+            compiled =
+                match Box::pin(self.compile_step(t, session, spec, None, None, None, i)).await? {
+                    Ok(mut c) => {
+                        self.tails.finish(t.tc.session_id, &mut c, t.tail.take());
+                        c
+                    }
+                    Err(f) => return Ok(Err(f)),
+                };
+        }
+        Ok(Ok(compiled))
+    }
+
     /// Whether this turn declined the view: it is the transcript's turn.
     pub(super) fn view_declined_here(t: &Turn<'_>) -> bool {
         (t.view.as_ref()).is_some_and(|f| f.turn_id == t.tc.turn_id && f.declined)
@@ -206,7 +239,8 @@ impl TurnRunner {
 
     /// Whether the gate reads the turn's point of view differently from when its view was assembled.
     pub(super) fn view_moved(&self, t: &Turn<'_>) -> bool {
-        let Some(f) = t.view.as_ref().filter(|f| f.turn_id == t.tc.turn_id) else {
+        // A declined turn has no view to move (it is the transcript's).
+        let Some(f) = (t.view.as_ref()).filter(|f| f.turn_id == t.tc.turn_id && !f.declined) else {
             return false;
         };
         let now = Verified::of_session(self, t.tc.session_id);
@@ -381,6 +415,34 @@ impl TurnRunner {
 /// The headroom the compiler keeps beside the reply for the turn's own calls, in tokens.
 const CALL_HEADROOM: u64 = 4_096;
 
+/// How many times one call is compiled again when the gate's reading moved under its view.
+const VIEW_READMISSIONS: u32 = 2;
+
+/// A test's seam: what runs at the start of the next `env_tail` of a session (after the view's assembly,
+/// before the call is sent), once.
+#[cfg(test)]
+type EnvHook = Box<dyn FnOnce() + Send>;
+
+#[cfg(test)]
+static AT_ENV_TAIL: std::sync::Mutex<Vec<(String, EnvHook)>> = std::sync::Mutex::new(Vec::new());
+
+/// Run `f` at the next `env_tail` of `session`.
+#[cfg(test)]
+pub(crate) fn env_tail_hook(session: &str, f: EnvHook) {
+    AT_ENV_TAIL.lock().unwrap().push((session.to_string(), f));
+}
+
+#[cfg(test)]
+pub(super) fn at_env_tail(session: &str) {
+    let hook = {
+        let mut hooks = AT_ENV_TAIL.lock().unwrap();
+        (hooks.iter().position(|(s, _)| s == session)).map(|i| hooks.remove(i).1)
+    };
+    if let Some(f) = hook {
+        f();
+    }
+}
+
 /// How many of the session's newest earlier turns must have their exchange before a view reads it.
 const UNLEDGERED_LOOK: usize = 40;
 
@@ -447,6 +509,8 @@ pub(super) enum Fallback {
     OverBudget,
     /// The assembly failed.
     AssemblyError,
+    /// The gate's reading moved under the view a third time in one call.
+    Moved,
 }
 
 impl Fallback {
@@ -457,6 +521,7 @@ impl Fallback {
             Self::Unledgered => "unledgered_history",
             Self::OverBudget => "over_budget",
             Self::AssemblyError => "assembly_error",
+            Self::Moved => "moved",
         }
     }
 }
@@ -677,9 +742,11 @@ fn window_of(
     if !cards.is_empty() {
         let all = crate::task_graph::all(store)?;
         for id in cards {
-            if let Some(rec) = all.iter().find(|r| r.id == id) {
-                sessions.push(crate::task_graph::home(&all, rec));
-            }
+            // Fail closed: a shown card whose home cannot be read is no view (the turn declines).
+            let Some(rec) = all.iter().find(|r| r.id == id) else {
+                anyhow::bail!("a shown task card's home cannot be resolved");
+            };
+            sessions.push(crate::task_graph::home(&all, rec));
         }
     }
     sessions.sort();

@@ -461,12 +461,6 @@ impl TurnRunner {
                 t, session, spec, provider, slot, force, strip, overflow, i, rx,
             )
             .await;
-        // Re-admission before dispatch (issue 44): a view assembled before the route's wait under a reading
-        // the gate no longer gives (a source sealed, the presence narrowed) is not sent; the compile step
-        // reassembles under the new permit, on a new chain.
-        if matches!(compiled, Ok(Ok(_))) && (self.view_revoked(t) || self.view_moved(t)) {
-            compiled = Box::pin(self.compile_step(t, session, spec, None, None, overflow, i)).await;
-        }
         if let Ok(Ok(c)) = &mut compiled {
             self.apply_effort(t, spec, c);
             Self::persona_line(t, c);
