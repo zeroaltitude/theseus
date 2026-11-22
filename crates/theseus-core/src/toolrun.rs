@@ -1744,12 +1744,6 @@ impl ToolRuntime {
                 &call.input,
                 correlation_id,
             ),
-            crate::thread_context::NOTE => {
-                crate::thread_context::note(tc, &call.input).map(|(done, records)| {
-                    edit.records.extend(records);
-                    done
-                })
-            }
             crate::ask::OWNER_ASK => crate::ask::result(tc, &call.input, correlation_id),
             name if crate::policy::modes::is_plan(name) => self
                 .run_plan(tc, name, &call.input, correlation_id)
@@ -2021,7 +2015,6 @@ pub fn build_runtime(
             max_ahead_ms: cfg.kernel.to_kernel_config().wakes.max_ahead_ms,
         }));
         r.register(Arc::new(crate::watch_tool::WatchTool));
-        r.register(Arc::new(crate::thread_context::ThreadNote));
         r.register(Arc::new(crate::ask::OwnerAsk));
         r.register(Arc::new(crate::project_tool::ProjectAttach));
         crate::chat_acts::register(cfg, &mut r);
