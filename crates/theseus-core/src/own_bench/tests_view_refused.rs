@@ -100,17 +100,21 @@ async fn a_missing_or_corrupt_view_blob_is_refused_naming_its_part() {
         for part in ["front", "window", "beside block"] {
             let (rig, sid, t) = two_turns().await;
             let k = kept_of(&rig.core, &t);
+            // A part this turn laid nothing of: its record names a blob that is not there.
+            let absent = |edit: fn(&mut Kept, String)| {
+                let d = crate::blobs::digest(format!("a {part} never written").as_bytes());
+                edit_kept(&rig.core, &t, |k| edit(k, d.clone()));
+                d
+            };
             let digest = match part {
-                "front" => k.blocks[0].clone(),
+                "front" => match k.blocks.first() {
+                    Some(d) => d.clone(),
+                    None => absent(|k, d| k.blocks.push(d)),
+                },
                 "window" => k.window.last().expect("a populated window").clone(),
                 _ => match k.beside.clone() {
                     Some(d) => d,
-                    // No beside block on this turn: its record names one that is not there.
-                    None => {
-                        let d = crate::blobs::digest(b"a beside block never written");
-                        edit_kept(&rig.core, &t, |k| k.beside = Some(d.clone()));
-                        d
-                    }
+                    None => absent(|k, d| k.beside = Some(d)),
                 },
             };
             spoil(&rig.core, &digest, corrupt);
@@ -189,7 +193,7 @@ async fn a_view_turn_whose_recalled_node_was_sealed_since_is_refused() {
     turn_as(c, &thread, "kelp: the embargoed figure is 7741", true).await;
     let node = (c.store.session_nodes(&thread).unwrap().into_iter())
         .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))
-        .map(|(_, n)| n.id.clone())
+        .map(|(_, n)| n.id)
         .expect("a kelp message");
     let desk = crate::tests_places::session(c, None);
     let t = turn_as(c, &desk, "desk: and now?", true).await.turn_id;

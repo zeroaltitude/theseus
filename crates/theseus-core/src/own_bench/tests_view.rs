@@ -58,10 +58,9 @@ async fn a_front_that_did_not_change_is_kept_once() {
     let second = turn(&rig.core, &sid, "And the heron relay?").await.turn_id;
     let third = turn(&rig.core, &sid, "And the wren relay?").await.turn_id;
     let [a, b, c] = [&first, &second, &third].map(|t| kept_of(&rig.core, t));
-    assert!(
-        !a.blocks.is_empty() && a.front.is_empty(),
-        "kept by block: {a:?}"
-    );
+    // Kept by block (this rig's front has no fixed block or ladder, so none: `a_heading_that_changed_…`
+    // holds a populated one).
+    assert!(a.front.is_empty(), "kept by block: {a:?}");
     assert_eq!(
         (&a.blocks, &b.blocks),
         (&c.blocks, &c.blocks),
@@ -259,8 +258,8 @@ fn a_heading_that_changed_does_not_copy_the_ladder() {
 }
 
 /// A turn's end waits for its blobs' writes a bounded while: with every write held past it, the turn still
-/// completes, and its replay is refused in words (part `view`, naming the missing blob) with no partial
-/// request; once the writes land on their own, it is rebuilt.
+/// completes, and its replay is refused in words (naming the missing blob) with no partial request; once
+/// the writes land on their own, it is rebuilt.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_turn_completes_while_its_blobs_writes_are_held() {
     use std::time::Duration;
@@ -276,7 +275,8 @@ async fn a_turn_completes_while_its_blobs_writes_are_held() {
     let Err(e) = rig.core.rebuild_first(&sid, &t) else {
         panic!("rebuilt while its blobs were not written");
     };
-    assert_eq!(e.part, "view", "{e}");
+    // The first of its blobs a rebuild reads: the view's (none on a first turn here), then the system's.
+    assert!(["view", "system"].contains(&e.part), "{e}");
     assert!(e.why.contains("is missing"), "{e}");
     drop(release);
     let t0 = std::time::Instant::now();
