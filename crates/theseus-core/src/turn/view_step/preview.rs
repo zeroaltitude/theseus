@@ -24,9 +24,6 @@ use crate::view::record::ViewRecord;
 use crate::view_gate::{place_name, seal_of, Verified};
 use theseus_memory::gate::{Present, Seal};
 
-/// How many of a place's newest exchanges are read to find its sessions.
-const PLACE_WINDOW: usize = 200;
-
 /// The turn id a preview's pieces are made under: no turn has it.
 const PREVIEW_TURN: &str = "preview";
 
@@ -44,16 +41,17 @@ pub struct Preview<'a> {
 
 impl TurnRunner {
     /// The sessions of `place`, newest first: a turn's own (no task, not imported) that ran an exchange
-    /// the place's window reads (so history adopted into the ledger counts with no change here), or whose
+    /// the place's window reads (its newest `WINDOW_N`, as a turn reads it) (so history adopted into the ledger counts with no change here), or whose
     /// place the gate reads as `place` today; and none the gate holds for the owner's look (sealed, seal
     /// pending, unreadable), which lifts no seal.
     pub fn place_sessions(&self, place: &str) -> anyhow::Result<Vec<SessionRecord>> {
         use crate::view::fold::Ladder;
-        let ran: HashSet<String> = (StoreLadder(&self.store).read(place, PLACE_WINDOW, None)?)
-            .window
-            .into_iter()
-            .map(|e| e.session_id)
-            .collect();
+        let ran: HashSet<String> =
+            (StoreLadder(&self.store).read(place, crate::view::fold::WINDOW_N, None)?)
+                .window
+                .into_iter()
+                .map(|e| e.session_id)
+                .collect();
         let mut all: Vec<SessionRecord> = (self.store.list_sessions::<SessionRecord>()?)
             .into_iter()
             .filter(|r| r.imported.is_none() && r.task.is_none())
