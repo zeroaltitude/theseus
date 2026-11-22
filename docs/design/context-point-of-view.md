@@ -36,18 +36,18 @@ view needs `[context] ledger` on (the default); a settings file that sets a plac
 not load. A task's turn has no place and is always the transcript's. There is no `shadow` value: a place is
 either the transcript's or the view's.
 
-**A turn over the view's budget runs as the transcript's turn** (`context.view_fallback`, `over_budget`: the
-request is over the budget, the floor alone is too large for the view's budget, or the provider said a request of
-the turn passed its window), with its recall carried as on any transcript turn. A turn's recall is kept across a
-view call that was sent, and if the turn then declines it is admitted again item by item under the presence and
-seals of that moment; an item held out since leaves nothing behind. **Every other case is the view's own.** A turn
-no person's message, wake or report opened (a background job ended, a call it waited on was answered, it resumes
-after a restart or a failed attempt) is assembled with an empty message and one line beside it saying what woke it.
-A turn's place is read once, where its message arrived or else where its reply is delivered (a wake's or a report's
+**Nothing a view turn meets hands it back to the transcript.** A request over the budget is the view's to make
+room for (`turn/view_step/room.rs`): it clears the turn's old tool results to their stand-ins, then lowers slot G's
+allowance to none, each a new chain, under the provider's stated window once it refused a request for its size;
+only when the floor and the turn's own nodes still do not fit does the turn fail, before anything is sent, on the
+core overage (`context_overage`). A turn no person's message, wake or report opened (a background job ended, a call
+it waited on was answered, it resumes after a restart or a failed attempt) is assembled with an empty message and
+one line beside it saying what woke it; its presence is that of the turn it continues, read as a set-up's. A
+turn's place is read once, where its message arrived or else where its reply is delivered (a wake's or a report's
 target too), and is both its exchange's place and its gate's anchor. An earlier turn the ledger holds no exchange
-for is out of the view's reach. A turn whose place cannot be read, whose context cannot be read during assembly, or
-whose gate reading moves a third time within one call fails plainly, in words a person can act on, and nothing is
-sent: never a partial view.
+for is out of the view's reach. A turn whose place cannot be read, whose context cannot be read during assembly,
+or whose gate reading moves a third time within one call fails plainly, in words a person can act on, and nothing
+is sent: never a partial view. No `context.view_fallback` row is written.
 
 **Built, step by step** (§11's numbers):
 
@@ -77,7 +77,7 @@ sent: never a partial view.
   route pack `route.v10` is retired, and `profile.list` still sends `cleared: true` for each profile, for a cockpit
   page left open since before the upgrade.
 - **The view's hardening**: recall kept across a sent view call is admitted again item by item if the turn declines;
-  a floor too large for the view's budget declines to the transcript (`over_budget`); and after all of a call's
+  a floor too large for the view's budget fails the turn on the core overage; and after all of a call's
   preparation, before every send, the view is checked against the gate again (§5.1, §4).
 - **The preview**: `theseus view preview PLACE` shows what the place's next turn would be given, by the turn's own
   assembler, without calling a model or writing anything (§5.1).
@@ -382,7 +382,7 @@ by a message of the owner in person there, built by the turn's own assembler (th
 from the place as it stands now. It is the owner's alone (the CLI or the web page with no agent's process behind
 it); a piece's text is shown only at his own terminal. It calls no model, sends nothing and writes nothing that
 persists: no view record, no ledger row, no cache a turn reads. It does not predict a turn no message
-opens, or `over_budget` on the rendered request, runs no recall (so recall's pieces are
+opens, or the room a long turn makes in its own request, runs no recall (so recall's pieces are
 not in it), and sizes the system part from an approximation of the next request. It lists and counts only what the
 reader's gate admits, node by node: exchanges, the fixed code pieces and fold nodes; a piece of another kind (a
 joined task's card, say) is neither listed nor counted.
@@ -437,8 +437,8 @@ and admitted again item by item under the presence and seals of that moment befo
    and the turn says exactly that instead of answering from a silently incomplete view: it names what did not
    fit, gives its handle, and asks for a narrower question or a deep look. Every such case is recorded.
 
-**As built**, rule 9 is not this: a floor too large for the view's budget declines the turn to the transcript
-(`over_budget`, recorded on the ledger), and no note is laid in the view.
+**As built**, rule 9 is not this: a floor too large for the view's budget fails the turn before any call, on the
+core overage (`context_overage`, recorded on the ledger), and no note is laid in the view.
 
 **Forms.** A piece is shown *whole* (as it was said, with its tool traffic), *spoken* (his words and the reply's
 text; tool traffic as one-line stubs), or as a *line* (`he asked → Theseus did`, his ask verbatim). Every piece,

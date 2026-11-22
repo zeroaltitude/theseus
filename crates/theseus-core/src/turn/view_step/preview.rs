@@ -20,7 +20,7 @@ use theseus_protocol::view::{
     ViewTally,
 };
 
-use super::{fold_constituents, Asked, Built, Fallback, RequestSpec, TurnRunner};
+use super::{fold_constituents, Asked, Built, RequestSpec, TurnRunner};
 use crate::ladder::view::StoreLadder;
 use crate::session::SessionRecord;
 use crate::store::Transcript;
@@ -54,8 +54,8 @@ const LIMITS: [&str; 5] = [
      recall's pieces are not in it",
     "the system part is sized from an approximation of the next request's spec (no thread card, no \
      deferred tools)",
-    "not predicted: route and continuation (decided by the turn that arrives) and over_budget on the \
-     rendered request (decided when a turn compiles it)",
+    "not predicted: route and continuation (decided by the turn that arrives) and the room a long turn \
+     makes in its own request (decided when a turn compiles it)",
     "the pieces and totals listed are code's, exchanges' and folds': a joined task's card, facts and other \
      pieces the view laid are not listed or counted here",
     "nothing was written: no view record, no ledger row, no change to what a turn compiles",
@@ -177,6 +177,7 @@ impl TurnRunner {
                 items: Vec::new(),
             },
             spec,
+            &self.view_budget(spec),
         )?;
         let source = GateSource {
             runner: self,
@@ -210,8 +211,6 @@ impl TurnRunner {
                 BTreeMap::new(),
             ),
         };
-        // Earlier turns with no exchange are out of the view's reach, not a hand-back (issue 44).
-        let fallback = overflow.is_some().then_some(Fallback::OverBudget);
         let budget = self.view_budget(spec);
         Ok(ViewPreviewResult {
             place: p.place.into(),
@@ -221,7 +220,9 @@ impl TurnRunner {
             tally: view.as_ref().map(tally_of).unwrap_or_default(),
             window: view.as_ref().map_or(0, window_of),
             view,
-            fallback: fallback.map(|f| f.as_str().to_string()),
+            // Nothing hands a turn back: a floor that cannot fit is said by `overflow` (the turn fails on
+            // it), and earlier turns with no exchange are out of the view's reach (issue 44).
+            fallback: None,
             overflow,
             budget: ViewBudget {
                 provider_window: budget.provider_window,
