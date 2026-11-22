@@ -50,7 +50,14 @@ fn post_script(req: &ProviderRequest) -> Scripted {
     if answers_a_call(req) {
         return Scripted::text("Done.");
     }
-    match last_user(req).strip_prefix("POST ") {
+    // What was asked is the message's last line (a heading may come before the person's words).
+    let said = last_user(req);
+    match said
+        .lines()
+        .last()
+        .unwrap_or_default()
+        .strip_prefix("POST ")
+    {
         Some(rest) => {
             let (to, text) = rest.split_once(" :: ").unwrap();
             Scripted::tools(
@@ -258,5 +265,67 @@ async fn two_responses_of_one_turn_that_repeat_a_call_id_each_get_their_own_resu
     assert!(
         second.contains("beta-9") && !second.contains("alpha-7"),
         "{second}"
+    );
+}
+
+/// **A continuation answers the call of the turn it continues, in its own session, never another's.** Session A
+/// posts and waits on its approval (turn 1); session B at the same place posts with the SAME id and waits too;
+/// A's call is approved and runs in a later turn of A, whose result is under that turn. A request that lays all
+/// three, A's call, then B's, then A's result, shows A's call with its result and B's call still with the stub:
+/// B's parked call does not read as having run, with A's result.
+#[tokio::test]
+async fn a_resumed_result_answers_its_own_sessions_call_and_never_another_sessions_parked_one() {
+    let r = rig_scripted(|_| {}, post_script);
+    bind(&r.core);
+    let hall = format!("channel:{HALL}");
+    let a = session(&r.core, Some(&hall));
+    let asks = turn(&r.core, &a, "POST #pier :: from A").await;
+    assert!(asks.awaiting_confirm.is_some(), "A asks: {asks:?}");
+    let b = session(&r.core, Some(&hall));
+    let asks = turn(&r.core, &b, "POST #pier :: from B").await;
+    assert!(asks.awaiting_confirm.is_some(), "B asks: {asks:?}");
+
+    let q = (r.core.confirm_list().unwrap().into_iter())
+        .find(|q| q.session_id == a)
+        .expect("A's question");
+    r.core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap();
+    // A's call ran in a later turn of A, which answered after its result.
+    r.until("A's resumed turn", 15, |r| {
+        let nodes = r.core.store.session_nodes(&a).unwrap();
+        let ran = (nodes.iter()).position(
+            |(_, n)| matches!(&n.body, Body::ToolResult { tool_use_id, late: false, .. } if tool_use_id == SAME),
+        );
+        ran.is_some_and(|i| {
+            (nodes[i + 1..].iter()).any(|(_, n)| matches!(n.body, Body::AssistantMessage { .. }))
+        })
+    })
+    .await;
+
+    let now = session(&r.core, Some(&hall));
+    turn(&r.core, &now, "and now?").await;
+    let req = r
+        .requests()
+        .into_iter()
+        .find(|q| last_user(q).contains("and now?"))
+        .expect("the new turn's request");
+    let theirs = first_result(after_call(&req, "text", "from B"));
+    assert!(
+        theirs.starts_with(STUB),
+        "B's parked call is closed with the stub, never A's result: {theirs}"
+    );
+    let ours = first_result(after_call(&req, "text", "from A"));
+    assert!(
+        !ours.starts_with(STUB),
+        "A's resumed call carries its result: {ours}"
+    );
+    assert!(
+        r.core
+            .confirm_list()
+            .unwrap()
+            .iter()
+            .any(|q| q.session_id == b),
+        "B's question still waits"
     );
 }

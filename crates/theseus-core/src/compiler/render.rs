@@ -127,16 +127,24 @@ pub(super) struct Ctx<'a, 'n> {
 /// result is never placed twice. When every call with its id in its exchange is already answered, it is the
 /// latest one's answer again (a call answered twice keeps its last result, as before). A result whose own
 /// exchange holds no call with its id was written by a turn that continues another (a call resumed after its
-/// approval: `turn::resume_step`'s "the turn that made each call its own results answer"): it answers the
-/// latest unanswered call with its id standing before it, the call that turn continues. A call no result
-/// answers is closed with the harness's stub ([`repaired`]), never with another call's output: a call parked
-/// on an approval never reads as having run. Late results are not paired here.
+/// approval: `turn::resume_step::continued_turns`, "the turn that made each call its own results answer"). It
+/// answers the unanswered call with its id OF THE TURN IT CONTINUES: the turn of its session's gate record
+/// of the call (the `ToolCall` with its correlation, else the first with its id, as `continued_turns` reads
+/// it). Where that record is not among `nodes`, it answers the latest unanswered call with its id standing
+/// before it IN ITS OWN SESSION. Never a call of another session: a request lays many sessions' exchanges, and
+/// another session's parked call with the same id must not read as having run. A result that finds no call
+/// is not laid, as an unpaired result never was. A call no result answers is closed with the harness's stub
+/// ([`repaired`]), never with another call's output: a call parked on an approval never reads as having run.
+/// Late results are not paired here.
 pub(super) fn results_of<'n>(
     nodes: impl Iterator<Item = &'n Node>,
 ) -> HashMap<(&'n str, &'n str), &'n Node> {
     let mut results = HashMap::new();
-    // The calls seen so far with each id, in order: the assistant node and its exchange.
-    let mut calls: HashMap<&'n str, Vec<(&'n str, Option<&'n str>)>> = HashMap::new();
+    // The calls seen so far with each id, in order: the assistant node, its exchange and its session.
+    let mut calls: HashMap<&'n str, Vec<Call<'n>>> = HashMap::new();
+    // The gate's record of each call, by session and id, in order: its exchange and its correlation.
+    let mut gated: HashMap<(&'n str, &'n str), Vec<(Option<&'n str>, Option<&'n str>)>> =
+        HashMap::new();
     let mut answered: HashSet<(&'n str, &'n str)> = HashSet::new();
     for n in nodes {
         match &n.body {
@@ -145,28 +153,54 @@ pub(super) fn results_of<'n>(
                     .filter(|b| b["type"] == "tool_use")
                     .filter_map(|b| b["id"].as_str())
                 {
-                    (calls.entry(id).or_default()).push((n.id.as_str(), n.turn_id.as_deref()));
+                    (calls.entry(id).or_default()).push((
+                        n.id.as_str(),
+                        n.turn_id.as_deref(),
+                        n.session_id.as_str(),
+                    ));
                 }
             }
+            Body::ToolCall {
+                tool_use_id,
+                correlation_id,
+                ..
+            } => (gated
+                .entry((n.session_id.as_str(), tool_use_id.as_str()))
+                .or_default())
+            .push((n.turn_id.as_deref(), correlation_id.as_deref())),
             Body::ToolResult {
                 tool_use_id,
                 late: false,
+                correlation_id,
                 ..
             } => {
                 let id = tool_use_id.as_str();
                 let Some(before) = calls.get(id) else {
                     continue;
                 };
-                let open = |c: &&(&'n str, Option<&'n str>)| !answered.contains(&(c.0, id));
-                let own: Vec<&(&'n str, Option<&'n str>)> = (before.iter())
-                    .filter(|(_, turn)| *turn == n.turn_id.as_deref())
+                let open = |c: &&Call<'n>| !answered.contains(&(c.0, id));
+                let own: Vec<&Call<'n>> = (before.iter())
+                    .filter(|c| c.1 == n.turn_id.as_deref())
                     .collect();
                 let call = match own.iter().copied().find(open) {
-                    Some(c) => Some(*c),
-                    None if !own.is_empty() => own.last().map(|c| **c),
-                    None => before.iter().rev().find(open).copied(),
+                    Some(c) => Some(c),
+                    None if !own.is_empty() => own.last().copied(),
+                    None => {
+                        let mine = || before.iter().filter(|c| c.2 == n.session_id.as_str());
+                        let record = gated.get(&(n.session_id.as_str(), id)).and_then(|g| {
+                            (g.iter())
+                                .find(|r| r.1.is_some() && r.1 == correlation_id.as_deref())
+                                .or_else(|| g.first())
+                        });
+                        match record {
+                            Some((Some(turn), _)) => {
+                                mine().filter(|c| c.1 == Some(*turn)).find(open)
+                            }
+                            _ => mine().rev().find(open),
+                        }
+                    }
                 };
-                if let Some((node, _)) = call {
+                if let Some(&(node, _, _)) = call {
                     answered.insert((node, id));
                     results.insert((node, id), n);
                 }
@@ -176,6 +210,9 @@ pub(super) fn results_of<'n>(
     }
     results
 }
+
+/// A call as [`results_of`] reads it: the assistant node that makes it, its exchange, its session.
+type Call<'n> = (&'n str, Option<&'n str>, &'n str);
 
 /// Nodes → provider messages. Tool results are placed in one user message
 /// right after the assistant message whose `tool_use` blocks they answer,
