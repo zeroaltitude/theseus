@@ -63,10 +63,11 @@ impl TextRenderer<'_> {
 
     /// Exchange `turn`'s `did` line as shown, unless a fork's point falls in or before it (`fork::cut`).
     fn summary(&self, turn: &str) -> anyhow::Result<Option<String>> {
-        if let Some(s) = self.sessions {
-            if !s.summarised(self.store, turn)? {
-                return Ok(None);
-            }
+        let summarised = (self.sessions)
+            .map(|s| s.summarised(self.store, turn))
+            .transpose()?;
+        if summarised == Some(false) {
+            return Ok(None);
         }
         Ok(did::did(self.store, turn)?.map(|d| did::shown_line(self.store, &d)))
     }

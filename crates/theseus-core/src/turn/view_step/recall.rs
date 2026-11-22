@@ -205,8 +205,8 @@ mod tests {
 
     /// Recall's own read of a fork's cut fails plainly when the fork's point cannot be read (issue 44, round
     /// 2): it never answers as though the session were no fork.
-    #[test]
-    fn a_forks_recall_fails_when_its_point_cannot_be_read() {
+    #[tokio::test]
+    async fn a_forks_recall_fails_when_its_point_cannot_be_read() {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = crate::Config::example();
         cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
