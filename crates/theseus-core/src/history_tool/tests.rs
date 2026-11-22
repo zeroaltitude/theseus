@@ -159,6 +159,7 @@ fn lens<'a>(
         private: &all_private,
         in_view: None,
         words: None,
+        own: None,
     }
 }
 
@@ -1062,4 +1063,76 @@ pub(super) async fn submit(
     let _ = srv.await;
     assert!(r.error.is_none(), "{:?}", r.error);
     serde_json::from_value(r.result.unwrap()).unwrap()
+}
+
+/// A turn always reads what its own session said at its own place, whoever is present (the cut's rule,
+/// `Lens::own`): with no proof of who is present it pages and opens its own exchanges here, and nothing of
+/// another session here, of its own elsewhere, or of its own moved into a thread not proven clear.
+#[test]
+fn an_unknown_presence_reads_its_own_sessions_history_here_and_nothing_else() {
+    let (_d, s) = store();
+    put(&s, &ex(1, HERE, "ses_own"));
+    put(&s, &ex(2, HERE, "ses_other"));
+    put(&s, &ex(3, DM, "ses_own"));
+    put(&s, &ex(4, HERE, "ses_own"));
+    let moved = |e: &Exchange| e.turn_id == "turn_0004";
+    let mut l = lens(&s, HERE, Present::Unknown, &no);
+    assert!(walk(&l, &HistoryArgs::default(), None, 0).lines.is_empty());
+    l.own = Some("ses_own");
+    assert_eq!(
+        turns(&walk(&l, &HistoryArgs::default(), None, 0)),
+        vec!["turn_0004", "turn_0001"]
+    );
+    l.moved = &moved;
+    assert_eq!(
+        turns(&walk(&l, &HistoryArgs::default(), None, 0)),
+        vec!["turn_0001"]
+    );
+    assert!(open(&l, &Handle("turn_0001".into()))
+        .unwrap()
+        .contains("reply to message 1"));
+    for other in ["turn_0002", "turn_0003", "turn_0004"] {
+        assert!(open(&l, &Handle(other.into())).is_err(), "{other}");
+    }
+}
+
+/// A task's place is never summarised, so its window is bounded: the newest 2N of its exchanges; what is
+/// older is still opened and paged by the task's own history. Another place's unfolded window is not cut.
+#[test]
+fn a_tasks_window_holds_its_newest_two_n_and_history_reaches_the_rest() {
+    use crate::ladder::N;
+    let (_d, s) = store();
+    let task = "task:tsk_long";
+    for i in 1..=(2 * N as u64 + 5) {
+        put(
+            &s,
+            &Ex {
+                private: true,
+                ..ex(i, task, "ses_long")
+            },
+        );
+        put(&s, &ex(100 + i, HERE, "ses_here"));
+    }
+    let read = crate::ladder::read::ladder(&s, task, None).unwrap();
+    assert!(read.rungs.is_empty());
+    assert_eq!(read.window.len(), 2 * N);
+    assert_eq!(read.window.first().unwrap().turn_id, "turn_0006");
+    let here = crate::ladder::read::ladder(&s, HERE, None).unwrap();
+    assert_eq!(here.window.len(), 2 * N + 5, "not a task's place");
+    let mut l = lens(&s, task, Present::Unknown, &no);
+    l.own = Some("ses_long");
+    assert!(open(&l, &Handle("turn_0001".into()))
+        .unwrap()
+        .contains("reply to message 1"));
+    let mut seen = Vec::new();
+    let mut before = None;
+    for _ in 0..10 {
+        let p = l.walk(&HistoryArgs::default(), before.clone(), 0).unwrap();
+        seen.extend(turns(&p.page));
+        match p.resume.or_else(|| p.page.next.clone()) {
+            Some(c) => before = Some(c),
+            None => break,
+        }
+    }
+    assert!(seen.iter().any(|t| t == "turn_0001"), "{seen:?}");
 }

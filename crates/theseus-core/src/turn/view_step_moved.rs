@@ -50,6 +50,7 @@ fn page(s: &Store, moved: &Moved<'_>) -> (Vec<String>, PageEnd) {
         private: &private,
         in_view: None,
         words: None,
+        own: None,
     };
     let p = lens.walk(&HistoryArgs::default(), None, 0).unwrap().page;
     (p.lines.into_iter().map(|l| l.handle.0).collect(), p.end)

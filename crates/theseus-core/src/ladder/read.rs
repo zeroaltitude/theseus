@@ -109,6 +109,12 @@ pub fn ladder(store: &Store, place: &str, since: Option<&Pos>) -> anyhow::Result
         first_cover = cover.clone();
     }
     l.window = window(store, place, since, first_cover.as_ref())?;
+    // A task's place is never summarised (`build::ladder_after`): its window holds its newest 2N, the most a
+    // laddered place holds before a fold is due; older exchanges are reached by the history tool.
+    if l.rungs.is_empty() && crate::task_graph::place::task_of(place).is_some() {
+        let over = l.window.len().saturating_sub(2 * super::N);
+        l.window.drain(..over);
+    }
     Ok(l)
 }
 

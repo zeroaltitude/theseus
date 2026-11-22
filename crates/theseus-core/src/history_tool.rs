@@ -267,7 +267,8 @@ pub fn anchor(
         .map(|t| exchange::place_of(t.as_deref(), dir))
 }
 
-/// The turn's point of view.
+/// The turn's point of view. A task's or a self session's is the one its view is assembled under
+/// (`view_gate::Verified`: its own place and the presence its turn computed).
 pub(crate) fn pov_of(
     core: &Core,
     session: &str,
@@ -276,6 +277,9 @@ pub(crate) fn pov_of(
     class: crate::places::PlaceClass,
 ) -> PointOfView {
     let ex = exchange::exchange(&core.store, turn).ok().flatten();
+    if crate::view_gate::worker(&core.runner, session) {
+        return worker_pov(core, session, ex.as_ref());
+    }
     let here = anchor(core, session, ex.as_ref(), dir);
     let present = match here {
         Some(_) => presence(core, session, ex.as_ref(), class),
@@ -289,6 +293,26 @@ pub(crate) fn pov_of(
         anchor: Anchor::Place(here.unwrap_or_else(|| exchange::rebuild::UNKNOWN.into())),
         person,
         present,
+        at_hand: None,
+        now_ms: theseus_protocol::now_unix_ms(),
+    }
+}
+
+/// A task's or a self session's point of view: its view's, anchor and presence (`view_gate::Verified`).
+fn worker_pov(core: &Core, session: &str, ex: Option<&Exchange>) -> PointOfView {
+    use theseus_memory::gate::Present as G;
+    let v = crate::view_gate::Verified::of_session(&core.runner, session);
+    let v = v.pov();
+    PointOfView {
+        anchor: Anchor::Place(v.anchor.clone()),
+        person: (ex.filter(|e| e.opened_by == Opener::Message)).and_then(|e| e.person.clone()),
+        present: match v.present {
+            G::OwnerAlone => Present::OwnerAlone,
+            G::PrivateChannel => Present::Private,
+            G::Shared => Present::Shared,
+            G::Open => Present::Open,
+            G::Unknown => Present::Unknown,
+        },
         at_hand: None,
         now_ms: theseus_protocol::now_unix_ms(),
     }
@@ -313,7 +337,8 @@ pub(crate) async fn answer(
     let Anchor::Place(here) = &pov.anchor else {
         return Err("context.history reads a place's history, and this turn has none".into());
     };
-    if pov.present == Present::Unknown {
+    // Who is present unknown: only what this session itself said here is read (`page::Lens::own`).
+    if pov.present == Present::Unknown && here == exchange::rebuild::UNKNOWN {
         return Err(
             "context.history reads nothing here: who can see this conversation cannot be established".into(),
         );
@@ -342,6 +367,7 @@ pub(crate) async fn answer(
         private: &private,
         in_view: page::in_view(&core.store, session, here).map_err(|e| format!("{e:#}"))?,
         words: None,
+        own: Some(session),
     };
     if let Some(h) = &a.open {
         if used.opens >= OPENS_PER_TURN {

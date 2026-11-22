@@ -61,7 +61,9 @@ impl Fork {
         let pov = verified.pov();
         let alone = pov.present == Present::OwnerAlone && pov.place == Place::Private;
         let own = inherited.iter().map(|e| e.turn_id.clone());
+        let spoken = crate::view_gate::own_turns(store, session, turn, &pov.anchor);
         let permit = Permit::of(verified).owning(own.collect::<Vec<_>>());
+        let permit = permit.speaking(spoken);
         let fork = Self {
             inherited,
             alone,
