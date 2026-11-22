@@ -943,7 +943,7 @@ fn an_unreadable_transcript_record_counts_as_outside() {
     let store = corrupted(dir.path(), |s| {
         let m = crate::node::Node::user(S, Some("trn_now"), "operator", "make it staging only");
         s.append(&[m.record().unwrap()]).unwrap();
-        ask = m.id.clone();
+        ask = m.id;
         let body = crate::node::Body::ToolResult {
             tool_use_id: "tu_1".into(),
             tool: "fs.read".into(),
