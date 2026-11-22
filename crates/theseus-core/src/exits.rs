@@ -13,7 +13,7 @@
 //!
 //! The exits it covers:
 //! - the provider request, in `Substituting`, which wraps every provider
-//!   (the turn's calls, keep-warm during a wait, the token counter) and
+//!   (the turn's calls, compaction, keep-warm, the token counter) and
 //!   substitutes the copy it sends, never the caller's request, so the
 //!   compiler's digest and the prompt cache see the same request as before;
 //! - the Discord courier's messages (`theseus-discord`'s `Lane::write`),
