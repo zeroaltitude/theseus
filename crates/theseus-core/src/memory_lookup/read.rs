@@ -8,10 +8,9 @@
 //!   episode's summary on its first page. Tool calls and results are left
 //!   out, and so is an imported message of outside text: the answer counts
 //!   what it left out, so it never reads as the whole.
-//! - **Veiled as the rest is.** An imported session takes its episode's
-//!   sensitivity, and a personal or partner-confidential one, or one whose
-//!   labels cannot be read, shows its dates and authors and never its text.
-//!   The place rule is the caller's: only a private session asks.
+//! - **Labelled, never veiled.** An imported session takes its episode's
+//!   sensitivity, which the page names beside its text (anything goes,
+//!   2026-11-22).
 //! - **A span's own sessions.** With no words, book or topic, a span lists
 //!   the sessions this harness held in it (not the imported ones, which the
 //!   catalog lists) before the imported episodes, each with its title.
@@ -22,7 +21,7 @@ use serde_json::json;
 use theseus_protocol::import::ImportSessionsParams;
 use theseus_tools::ToolOutput;
 
-use super::{catalog, day, some, span_words, veils, Args, Item, UNREAD};
+use super::{catalog, day, some, span_words, Args, Item, UNREAD};
 use crate::node::{Body, Node};
 use crate::recall::when::When;
 use crate::session::SessionRecord;
@@ -34,7 +33,6 @@ pub(super) const MESSAGE_MAX: u64 = 1_500;
 /// One session's messages, a page of them: what `session` asks.
 pub(super) async fn session(
     core: &Arc<Core>,
-    asker: &str,
     a: &Args,
     when: Option<&When>,
     (offset, limit, budget): (u64, u64, u64),
@@ -42,28 +40,23 @@ pub(super) async fn session(
     let id = some(&a.session).unwrap_or_default().to_string();
     let c = core.clone();
     let sid = id.clone();
-    let nodes = tokio::task::spawn_blocking(move || c.store.session_nodes(&sid))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("session {id} could not be read: {e:#}"))?;
+    // Each imported node by its newest record (`import::shown`): an erased one is its tombstone, never the
+    // payload its earlier record still holds in the store (review G-R1).
+    let nodes = tokio::task::spawn_blocking(move || {
+        let nodes = c.store.session_nodes(&sid)?;
+        crate::import::shown(&c.store, nodes)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("session {id} could not be read: {e:#}"))?;
     if nodes.is_empty() {
         return Err(format!(
             "no session is named {id}: give a session id an earlier answer named (ses_…)"
         ));
     }
     let (source, sensitivity, span, summary) = labels_of(core, &id, &nodes).await?;
-    let veiled = veils(sensitivity.as_deref());
-    // A message a split or a claim moved into a sealed thread is held out
-    // (the gate's `node_seal`), whatever the session's own seal; and so is
-    // the session's title, which may have been made from it.
-    let all = nodes.len();
-    let nodes = crate::view_gate::readable_nodes(&core.runner, Some(asker), nodes, |(_, n)| {
-        (n.session_id.as_str(), n.id.as_str())
-    });
-    let source = match nodes.len() < all && source.starts_with("this harness") {
-        true => "this harness".to_string(),
-        false => source,
-    };
+    // An erased episode's summary is erased with it.
+    let summary = summary.filter(|_| !super::erased(core, &id));
     let (messages, left) = readable(&nodes, when);
     let total = messages.len() as u64;
     let mut text =
@@ -74,10 +67,7 @@ pub(super) async fn session(
         when.map(|w| format!(" in {}", w.said)).unwrap_or_default(),
     );
     if let Some(s) = summary.filter(|_| offset == 0) {
-        text.push_str(&match veiled {
-            true => "\nIts summary is veiled.".to_string(),
-            false => format!("\nIts summary: {}", one_line(&s)),
-        });
+        text.push_str(&format!("\nIts summary: {}", one_line(&s)));
     }
     let mut used = text.len() as u64 / 4;
     let mut shown = 0u64;
@@ -88,21 +78,11 @@ pub(super) async fn session(
         .take(limit as usize)
         .enumerate()
     {
-        let body = match veiled {
-            true => format!(
-                "[{} · veiled: its text stays veiled here, as on the cockpit's Context page; the owner opens it there]",
-                sensitivity.as_deref().unwrap_or_default().replace('-', " ")
-            ),
-            false => clipped(&one_line(&crate::recall::text_of(n)), cut as usize),
-        };
+        let body = clipped(&one_line(&crate::recall::text_of(n)), cut as usize);
         // A volatile value is read with the time it was true at, never as a
         // bare fact (M6 §2.11, theseus-3nk): the recall render's one rule and
-        // one wording, over the text this line shows. Veiled text shows
-        // nothing to read, so it is never marked.
-        let mark = match veiled {
-            true => None,
-            false => crate::recall::render::volatile_at(&body, n.created_at_ms),
-        };
+        // one wording, over the text this line shows.
+        let mark = crate::recall::render::volatile_at(&body, n.created_at_ms);
         let line = format!(
             "\n{}. {} · {}{}\n   {body}",
             offset + i as u64 + 1,
@@ -140,7 +120,7 @@ pub(super) async fn session(
             "mode": "session", "session": id,
             "when": when.cloned(),
             "total": total, "shown": shown, "cursor": offset,
-            "next": more.then_some(next), "veiled": veiled, "tokens": used,
+            "next": more.then_some(next), "veiled": false, "tokens": used,
         }),
     })
 }
@@ -241,14 +221,7 @@ async fn labels_of(
 
 /// The sessions this harness held in `span`, newest first: those with a
 /// turn, whose time from their start to their last activity meets it.
-/// A sealed thread's sessions (or one whose seal is proposed) are left out,
-/// as they are by id, and a channel bound private lists only its own.
-pub(super) async fn own_sessions(
-    core: &Arc<Core>,
-    asker: &str,
-    places: &crate::view_gate::RecallPlaces,
-    span: &When,
-) -> Result<Vec<Item>, String> {
+pub(super) async fn own_sessions(core: &Arc<Core>, span: &When) -> Result<Vec<Item>, String> {
     let c = core.clone();
     let mut all: Vec<SessionRecord> = tokio::task::spawn_blocking(move || c.store.live_sessions())
         .await
@@ -259,12 +232,6 @@ pub(super) async fn own_sessions(
         r.turns > 0
             && span.from_ms.is_none_or(|f| end >= f)
             && span.to_ms.is_none_or(|t| r.created_at_unix_ms < t)
-    });
-    let runner = &core.runner;
-    all.retain(|r| {
-        crate::view_gate::seal_of(runner, Some(asker), &r.session_id)
-            == theseus_memory::gate::Seal::Clear
-            && places.may_read(runner, &r.session_id)
     });
     all.sort_by_key(|r| std::cmp::Reverse(r.last_active_ms.max(r.created_at_unix_ms)));
     Ok(all

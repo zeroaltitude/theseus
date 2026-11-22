@@ -3,7 +3,7 @@
 //! sends the output in order from where it was asked, then its end; a client
 //! that falls behind hears `events.lost` and recovers by peeking; a job's
 //! `last_line` goes out at most once a second however much it prints; and a
-//! connection that reads no private text may read no private job. Jobs run in
+//! connection that reads no private text may stop no private job. Jobs run in
 //! process (`InlineLauncher`), as `tests_job_handles` runs them, and a task
 //! stands in for the daemon's drain.
 
@@ -529,10 +529,9 @@ async fn last_line_goes_out_at_most_once_a_second_under_a_chatty_job() {
     );
 }
 
-/// A surface that reads no private text is told no job exists for a private
-/// session's, to peek and to follow; the owner's surface reads it. A guarded
-/// scope hands over no `last_line`, and a job of a shared place's session is
-/// never sampled.
+/// The owner's surface reads a job (and since 2026-11-22 every surface may).
+/// A guarded scope hands over no `last_line`, and a job of a shared place's
+/// session is never sampled.
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn a_shared_place_reads_no_private_job_and_gets_no_last_line() {
     use crate::places::BoundPlace;
@@ -540,13 +539,6 @@ async fn a_shared_place_reads_no_private_job_and_gets_no_last_line() {
     let (job, _) = start_job(&r).await;
     let mut cli = Wire::connect(&r.core, Surface::Cli, 1 << 20);
     peek_until(&mut cli, &job, |p| p.bytes > 0).await;
-    for surface in [Surface::Discord, Surface::Unnamed] {
-        let mut shared = Wire::connect(&r.core, surface, 1 << 20);
-        let p = shared.call(method::WORK_PEEK, json!({"id": job})).await;
-        assert_eq!(p.error.expect("refused").code, error_code::NOT_FOUND);
-        let f = shared.call(method::ACTION_OUTPUT, json!({"id": job})).await;
-        assert_eq!(f.error.expect("refused").code, error_code::NOT_FOUND);
-    }
     // The MCP server's own allow-list never offers either method.
     let mut mcp = Wire::connect(&r.core, Surface::Mcp, 1 << 20);
     let p = mcp.call(method::WORK_PEEK, json!({"id": job})).await;
@@ -643,6 +635,38 @@ async fn job_stop_obeys_the_place_rule() {
     // text, so the place rule still hides a private session's job from it.
     // (An untrusted surface is refused first: `untrusted_channels_may_not_stop_a_job`.)
     let mut shared = Wire::connect(&r.core, Surface::Discord, 1 << 20);
+    let s = shared
+        .call(
+            method::JOB_STOP,
+            json!({"id": job, "discord": owner_in("1", Some("2"))}),
+        )
+        .await;
+    assert_eq!(s.error.expect("refused").code, error_code::NOT_FOUND);
+    let a = r.core.kernel.action(&job).unwrap().unwrap();
+    assert!(!a.state.is_settled(), "still running: {:?}", a.state);
+    stop_of(cli.call(method::JOB_STOP, json!({"id": job})).await);
+}
+
+/// The read and the act split (2026-11-22): a surface that reads no private
+/// text now peeks at and follows a private session's job, and its stop is
+/// still refused by the place rule, the act gate's input.
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn a_guarded_surface_reads_a_private_job_and_still_may_not_stop_it() {
+    let r = rig_with("echo private work; sleep 60");
+    let (job, _) = start_job(&r).await;
+    let mut cli = Wire::connect(&r.core, Surface::Cli, 1 << 20);
+    peek_until(&mut cli, &job, |p| p.bytes > 0).await;
+    let mut shared = Wire::connect(&r.core, Surface::Discord, 1 << 20);
+    let p = shared.call(method::WORK_PEEK, json!({"id": job})).await;
+    assert!(p.error.is_none(), "the peek reads: {:?}", p.error);
+    let f = shared
+        .call(method::ACTION_OUTPUT, json!({"id": job, "from": 0}))
+        .await;
+    assert!(f.error.is_none(), "the follow reads: {:?}", f.error);
+    let off = shared
+        .call(method::ACTION_UNFOLLOW, json!({"id": job}))
+        .await;
+    assert!(off.error.is_none(), "{:?}", off.error);
     let s = shared
         .call(
             method::JOB_STOP,

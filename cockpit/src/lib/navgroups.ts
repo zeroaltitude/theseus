@@ -14,8 +14,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   { id: 'bench', label: 'Bench', items: ['/benchmarks', '/speed'] },
 ]
 
-/** Views with no rail item of their own that belong to a group: a session's deck and a thread's page are live work. */
-const ALSO: Record<string, string> = { '/session': 'live', '/threads': 'live', '/': 'live' }
+/** Views with no rail item of their own that belong to a group: a session's deck is live work. */
+const ALSO: Record<string, string> = { '/session': 'live', '/': 'live' }
 
 /** The group holding the view at `pathname` (the longest item that prefixes it), or null. */
 export function groupOf(pathname: string): string | null {

@@ -2,8 +2,8 @@
 //! message and admitted, laid as its `Recall` note renders it (`recall::render::item`), whatever it was: a
 //! turn of a conversation with an exchange, a conversation from before the ledger, an imported session, a
 //! node that is no turn's. Admission is recall's own, run by the turn before assembly
-//! (`turn::view_step::recall`): the place rule and the node seal of `view_gate::readmit_sources`, then the
-//! gate's reading of the source session's marks here, as for any piece. Nothing is laid that a transcript
+//! (`turn::view_step::recall`); then the gate's reading of the source session's marks here, as for any piece
+//! (anything goes, 2026-11-22: no place or seal holds one). Nothing is laid that a transcript
 //! turn's `Recall` note would not have carried for this reader.
 //!
 //! Each item is one piece of its own space ([`Space::Recalled`]), sized whole in every form, so the budgeter
@@ -36,14 +36,15 @@ pub struct Recalled {
     pub turn: Option<String>,
 }
 
-/// Whether an exchange laid in `form` carries node `kind` with its words (issue 44): laid whole, every node;
-/// spoken, the person's messages and Theseus's replies, never a tool's result (its one-line receipt is not
-/// the passage); as a line, none. The one rule of coverage: recall's exclusion on a view turn
-/// (`turn::view_step::recall`) and slot H's backstop (`budget::set_aside`) both count by it.
+/// Whether an exchange laid in `form` carries node `kind` with its words (issue 44): laid whole or spoken,
+/// what was said (the person's messages and Theseus's replies); as a line, none. A tool's result is never
+/// counted as carried, in any form: clearing can turn a whole exchange's result into a receipt after slot H
+/// set its copy aside, and the recalled result would then reach the model zero times. Twice is acceptable;
+/// zero is not. The one rule of coverage: recall's exclusion on a view turn (`turn::view_step::recall`) and
+/// slot H's backstop (`budget::set_aside`) both count by it.
 pub fn carries(form: Form, kind: Kind) -> bool {
     match form {
-        Form::Whole => kind != Kind::Recall,
-        Form::Spoken => matches!(kind, Kind::UserMessage | Kind::AssistantMessage),
+        Form::Whole | Form::Spoken => matches!(kind, Kind::UserMessage | Kind::AssistantMessage),
         Form::Line => false,
     }
 }
@@ -183,6 +184,7 @@ mod tests {
             provider_window: u64::MAX,
             reserve: 0,
             floor_only: false,
+            bare: false,
         };
         let v = fit(&pov, pieces, &budget).expect("no floor here");
         let shown: Vec<(&str, Form, u64)> = (v.shown.iter())
@@ -214,16 +216,20 @@ mod tests {
 mod tests_window {
     use super::*;
 
-    /// Whole carries every node but a note; spoken, the words alone, never a tool's result; a line, none.
+    /// Whole and spoken carry what was said, never a tool's result or a note; a line, none.
     #[test]
-    fn coverage_counts_a_result_only_where_it_is_laid_whole() {
-        assert!(carries(Form::Whole, Kind::ToolResult));
+    fn coverage_never_counts_a_tool_result() {
+        assert!(carries(Form::Whole, Kind::AssistantMessage));
         assert!(!carries(Form::Whole, Kind::Recall));
         assert!(carries(Form::Spoken, Kind::UserMessage));
         assert!(carries(Form::Spoken, Kind::AssistantMessage));
         assert!(!carries(Form::Spoken, Kind::ToolResult));
         assert!(!carries(Form::Spoken, Kind::ToolCall));
         assert!(!carries(Form::Line, Kind::UserMessage));
+        assert!(
+            !carries(Form::Whole, Kind::ToolResult),
+            "a result is never carried"
+        );
     }
 }
 

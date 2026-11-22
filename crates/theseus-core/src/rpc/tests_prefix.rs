@@ -13,7 +13,7 @@ use theseus_protocol::{StandingAddParams, StandingKind, StandingScope};
 
 use crate::approval::{Answerer, Surface};
 use crate::bus::EventSink;
-use crate::provider::{FakeProvider, ProviderRequest, Scripted};
+use crate::provider::{ProviderRequest, Scripted};
 use crate::session::SessionRecord;
 use crate::tests_day_ceiling::build;
 use crate::turn::TurnRequest;
@@ -154,13 +154,14 @@ fn choices(core: &Core) -> Vec<String> {
         .collect()
 }
 
-/// Two sessions in two places, and two threads, on one project render
-/// layers 1 to 3 byte for byte: nothing of a session, a place, a thread or a
-/// day is inside them. A session's own standing record goes to its own block.
+/// Two sessions in two places on one project render layers 1 to 3 byte for
+/// byte: nothing of a session, a place or a day is inside them (the provider's
+/// cache). A session's own standing record goes to its own block. (Threads
+/// were retired on 2026-11-22: their case left this test.)
 #[tokio::test]
 async fn sessions_threads_and_places_on_one_project_send_layers_one_to_three_byte_for_byte() {
     let dir = tempfile::tempdir().unwrap();
-    let (core, fake) = build(dir.path(), texts(4), |c| project(dir.path(), c));
+    let (core, fake) = build(dir.path(), texts(2), |c| project(dir.path(), c));
     crate::tests_day_ceiling::bind_dm(&core);
     let (a, b) = (session(&core, None), session(&core, Some("dm:5150")));
     let add = |scope: StandingScope, text: &str| {
@@ -182,17 +183,9 @@ async fn sessions_threads_and_places_on_one_project_send_layers_one_to_three_byt
     );
     say(&core, &a, "the levels today").await;
     say(&core, &b, "the levels today").await;
-    let (t1, t2) = (
-        thread(&core, "tide-gauges", &[]),
-        thread(&core, "moon-tables", &[]),
-    );
-    say(&core, &t1, "first").await;
-    say(&core, &t2, "second").await;
     let r = fake.requests();
-    assert_eq!(r.len(), 4);
+    assert_eq!(r.len(), 2);
     assert_eq!(layers(&r[0]), layers(&r[1]), "two sessions, two places");
-    assert_eq!(layers(&r[2]), layers(&r[3]), "two threads");
-    assert_eq!(layers(&r[0]), layers(&r[2]), "a session and a thread");
     assert!(text(&r[0], 0).contains("Quote every level in metres."));
     assert!(text(&r[0], 2).contains("The harbour log."));
     // The session's own order is in its own block, never in a layer.
@@ -200,59 +193,12 @@ async fn sessions_threads_and_places_on_one_project_send_layers_one_to_three_byt
     for q in &r {
         for i in 0..3 {
             let t = text(q, i);
-            for own in [&*a, &*b, &*t1, &*t2, "harbour clerk", "Directory:", "2026-"] {
+            for own in [&*a, &*b, "harbour clerk", "Directory:", "2026-"] {
                 assert!(!t.contains(own), "{own} is inside layer {}", i + 1);
             }
         }
     }
     assert!(!text(&r[1], 3).contains("harbour clerk"));
-}
-
-/// A second thread on a warm project reuses the project's header verbatim,
-/// and its topic's guidance goes after the cached prefix; its appends repeat
-/// those bytes; the picks ride their compilations' frames.
-#[tokio::test]
-async fn a_second_thread_on_the_project_reuses_its_header_and_its_topic_follows_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let (core, fake) = build(dir.path(), texts(3), |c| project(dir.path(), c));
-    topic(&core, "tides", "Quote every level in metres.");
-    let a = thread(&core, "harbour", &[]);
-    say(&core, &a, "the harbour").await;
-    let b = thread(&core, "gauges", &["topic:tides"]);
-    say(&core, &b, "the gauges").await;
-    say(&core, &b, "and again").await;
-    let r = fake.requests();
-    assert_eq!(text(&r[1], 2), text(&r[0], 2), "the header, verbatim");
-    assert!(!text(&r[1], 2).contains("metres"));
-    assert!(
-        text(&r[1], 3).contains("Quote every level in metres."),
-        "{}",
-        text(&r[1], 3)
-    );
-    assert_eq!(r[2].system, r[1].system, "the append repeats the bytes");
-    assert_eq!(choices(&core), ["mint", "reuse"]);
-    let p = &picks(&core)[1];
-    assert!(p["fit"].as_f64().unwrap() >= 0.90, "{p}");
-    assert_eq!(p["below_act"], false);
-    let rec: SessionRecord = core.store.get_session(&b).unwrap().unwrap();
-    let c = core
-        .store
-        .get_compilation(rec.compilation_id.as_deref().unwrap())
-        .unwrap()
-        .unwrap();
-    let used = c.manifest.prefix.unwrap();
-    assert_eq!(used.header, p["header"].as_str().unwrap());
-    assert_ne!(used.header, used.fresh);
-    // A restarted daemon reads the headers back and picks the same bytes.
-    let model = Arc::new(FakeProvider::scripted(texts(1)));
-    let again = Core::build(crate::rpc::Parts::for_tests(
-        (*core.cfg).clone(),
-        model.clone(),
-        core.store.clone(),
-    ))
-    .unwrap();
-    say(&again, &b, "after a restart").await;
-    assert_eq!(model.requests()[0].system, r[1].system);
 }
 
 /// A near-miss project (the same layout, another test command) is not

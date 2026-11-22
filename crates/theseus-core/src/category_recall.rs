@@ -6,15 +6,13 @@
 //!
 //! - **What is shared** is read from memory: the asker's and the candidate's
 //!   stored memberships (`Ontology::memberships`, the held snapshot, never a
-//!   scan), the thread the session belongs to (`ThreadScene::of`, the same
-//!   reading the thread lens makes, so a note from another thread that shares
-//!   a project or topic is lifted and still named by its thread), and the
-//!   project its record carries.
-//! - **Nothing is admitted** by it. The place rule and every filter run
-//!   before the pipeline ranks, and the term moves only the rank. It is off
-//!   in a shared place, whose interpretations are never read, when
-//!   `[ontology] recall_boost` is 0, and while the ontology holds no
-//!   category.
+//!   scan), the thread the session belongs to (`ThreadScene::slug_of`, the
+//!   reading that names a note's thread in its heading), and the project its
+//!   record carries.
+//! - **Nothing is admitted** by it. Every filter runs before the pipeline
+//!   ranks, and the term moves only the rank. It is off when `[ontology]
+//!   recall_boost` is 0, and while the ontology holds no category; it reads
+//!   in every place (anything goes, 2026-11-22).
 //! - The asking session's own notes are not lifted: they share everything.
 
 use std::collections::BTreeMap;
@@ -60,8 +58,8 @@ impl CategoryScene {
             .into_iter()
             .map(|m| (m.category.to_string(), weight(m.category.kind())))
             .collect();
-        if let Some(t) = self.threads.as_ref().and_then(|t| t.of(session)) {
-            keys.insert(format!("thread:{}", t.slug), weight("thread"));
+        if let Some(slug) = self.threads.as_ref().and_then(|t| t.slug_of(session)) {
+            keys.insert(format!("thread:{slug}"), weight("thread"));
         }
         let project = self
             .store
@@ -108,17 +106,18 @@ impl CategoryScene {
 
 impl TurnRunner {
     /// The categories' part of a turn's ambient recall for `session`, or
-    /// none: the term is off, the place is shared, the ontology holds no
-    /// category, or the session holds none.
+    /// none: the term is off, the ontology holds no category, or the session
+    /// holds none. `_private` is read no more (anything goes): the term
+    /// reads in every place; the parameter goes with the sweep.
     pub fn category_scene(
         &self,
         session: Option<&str>,
-        private: bool,
+        _private: bool,
         threads: Option<&ThreadScene>,
     ) -> Option<CategoryScene> {
         let gain = self.cfg.ontology.recall_boost;
         let session = session?;
-        if gain <= 0.0 || !private {
+        if gain <= 0.0 {
             return None;
         }
         let snapshot = self.ontology.held()?;
@@ -139,17 +138,15 @@ impl TurnRunner {
 impl TurnRunner {
     /// The names of the categories `session` is filed under, for route.v6's
     /// `persona` question as evidence (theseus-jrf4c): the interpreted kinds'
-    /// (a person is not one), by their path, from the held snapshot. None in
-    /// a shared place, whose interpretations are never read, and while the
-    /// ontology is not built.
+    /// (a person is not one), by their path, from the held snapshot. None
+    /// while the ontology is not built. `_class` is read no more (anything
+    /// goes): the names are read in every place; the parameter goes with the
+    /// sweep.
     pub(crate) fn category_names(
         &self,
         session: &str,
-        class: crate::places::PlaceClass,
+        _class: crate::places::PlaceClass,
     ) -> Vec<String> {
-        if class == crate::places::PlaceClass::Shared {
-            return Vec::new();
-        }
         let Some(o) = self.ontology.held() else {
             return Vec::new();
         };

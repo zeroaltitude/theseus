@@ -159,6 +159,18 @@ pub enum ItemKind {
     TaskBrief,
     /// A task's report, entering the parent.
     TaskReport,
+    /// Theseus's own reply: a turn's output, kept on its final message (issue 44). Asked all four
+    /// questions, `injection` included, as a task's report is and for the same reason: it is a model's
+    /// words, written after reading whatever the turn read, so a poisoned page can shape it, and it is read
+    /// again by every later turn. It reports to a person rather than instructing Theseus, so the brief's
+    /// exemption (steering by design) does not hold for it. A task's turns are not asked it: their output
+    /// is the report the parent asks.
+    ///
+    /// **What is said of it is kept on the item alone** ([`ItemKind::on_session`]): a reply's label never
+    /// goes on its session, so nothing that acts on a session's labels (the injection label's freeze, the
+    /// card, the footer) reads a reply. Those effects were decided for what comes IN; the owner has not
+    /// decided any for what goes out.
+    Reply,
 }
 
 impl ItemKind {
@@ -171,7 +183,15 @@ impl ItemKind {
             ItemKind::SearchResult => "search_result",
             ItemKind::TaskBrief => "task_brief",
             ItemKind::TaskReport => "task_report",
+            ItemKind::Reply => "reply",
         }
+    }
+
+    /// Whether a label raised on an item of this kind goes on its session too, where the act effects read
+    /// it. Every input's does; Theseus's own reply's is kept on the item alone, and writes no row and tells
+    /// no one (issue 44).
+    pub fn on_session(self) -> bool {
+        self != ItemKind::Reply
     }
 
     /// Whether the injection question is asked of an item of this kind.

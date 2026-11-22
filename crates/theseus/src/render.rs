@@ -75,7 +75,6 @@ pub mod task_history;
 pub mod task_tree;
 mod tasks;
 pub mod thread;
-mod threads_cache;
 pub mod time;
 mod wakes;
 mod warm;
@@ -1466,6 +1465,10 @@ pub fn reach_lines(r: &theseus_protocol::NodeReachResult) -> Vec<Line> {
             exposed(first, last)
         ),
     )];
+    // What Jev says about the node itself (issue 44).
+    if let Some(l) = &r.labels {
+        lines.push(Line::new(Tag::Plain, format!("labels: {}", l.line())));
+    }
     reach_generation(
         &mut lines,
         format!(
@@ -1877,7 +1880,6 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         .chain(defer::defer_lines(h.tools_defer.as_ref()))
         .chain(warm::warm_lines(h.warm.as_ref(), now_ms))
         .chain(cache::cache_lines(h.cache.as_ref()))
-        .chain(threads_cache::threads_lines(h.threads.as_ref()))
     {
         push(o, tag, &line);
     }

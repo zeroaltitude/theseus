@@ -212,9 +212,9 @@ async fn a_same_kind_distractor_is_demoted_under_the_subject_bar() {
     }
 }
 
-/// An admitted note's frozen header names its session (short id and title);
-/// rendering the node twice gives one set of bytes, and a second request
-/// begins with the first's.
+/// An admitted note's frozen header names its session (its short id, never its title), and
+/// rendering the node twice gives one set of bytes. (A view turn lays recall afresh beside each message;
+/// no later request begins with an earlier one's bytes.)
 #[tokio::test]
 async fn a_recalled_notes_header_names_its_session_and_stays_frozen() {
     let r = live(0.0, 0.0);
@@ -237,11 +237,11 @@ async fn a_recalled_notes_header_names_its_session_and_stays_frozen() {
     let Body::Recall { items, .. } = &note.body else {
         unreachable!()
     };
+    // The session by its id, never by its title (issue 44).
     let short = crate::recall::evidence::short(&a);
     assert!(
-        items[0]
-            .header
-            .contains(&format!("session {short} \"Relay migration\"")),
+        items[0].header.contains(&format!("session {short}"))
+            && !items[0].header.contains("Relay migration"),
         "{}",
         items[0].header
     );
@@ -250,15 +250,4 @@ async fn a_recalled_notes_header_names_its_session_and_stays_frozen() {
     let once = crate::recall::render::render(items, &sources);
     assert_eq!(once, crate::recall::render::render(items, &sources));
     assert!(once.contains("a note about another subject is not an answer"));
-    // The next request carries the same note, byte for byte.
-    c.runner.memory.set_ask(ask(vec![spec(c, &a, 0, 0.9)]));
-    turn(c, &b, "And the alder relay?").await;
-    let reqs = r.model.requests.lock().unwrap().clone();
-    let first = serde_json::to_string(&reqs[0].messages).unwrap();
-    let last = serde_json::to_string(&reqs[reqs.len() - 1].messages).unwrap();
-    let head = |s: &str| {
-        let at = s.find("(1) ").unwrap();
-        s[at..at + 160].to_string()
-    };
-    assert_eq!(head(&first), head(&last));
 }

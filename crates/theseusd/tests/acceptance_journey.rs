@@ -1114,7 +1114,8 @@ impl Journey {
             )
             .unwrap()
         };
-        turn("first");
+        // A first message with substance: the measured turn re-titles nothing, so it is a plain turn.
+        turn("the first turn of this session");
         let plain = turn("a plain turn");
         let frames = plain["trace"]["attrs"]["frames"].as_u64().unwrap();
         assert!(frames <= 4, "h9tu1 6: a plain turn wrote {frames} frames");

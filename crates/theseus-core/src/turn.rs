@@ -75,7 +75,6 @@ pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;
 mod compile_step;
-mod cross_step;
 mod cut_step;
 pub(crate) mod data_step;
 mod defer_step;
@@ -90,9 +89,7 @@ mod exchange_step;
 mod fallback_step;
 mod families_step;
 mod fill_step;
-mod gate_step;
 pub(crate) mod helper_step;
-pub(crate) mod home_size_step;
 mod inbound_step;
 mod join_step;
 mod later_step;
@@ -245,9 +242,6 @@ pub struct TurnRunner {
     pub tails: sent_tail::SentTails,
     /// The turns' shared part of their exchanges (issue 44).
     pub exchanges: crate::exchange::Board,
-    /// Each session's presence, as its latest turn computed it (issue 44,
-    /// `view_gate`).
-    pub presence: crate::view_gate::Presences,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -396,8 +390,6 @@ struct Turn<'a> {
     /// `None` once any call's price is unknown.
     cost: Option<f64>,
     tool_calls: u32,
-    /// The home's size is weighed once a turn: a routed move compiles loop 0 twice.
-    home_weighed: bool,
     /// The model's latest response.
     last: Option<ModelResponse>,
     /// The tool call waiting on a confirm.
@@ -434,9 +426,6 @@ struct Turn<'a> {
     /// The wakes this turn took (DD8): each one's id and line, which the
     /// reply's post shows above it.
     wakes: Vec<Value>,
-    /// The calls that set the wakes this turn took, for its presence
-    /// (`gate_step`).
-    set_ups: Vec<String>,
     /// Where the first of them was set from, for a reply whose session posts
     /// nowhere now.
     wake_target: Option<String>,
@@ -591,7 +580,6 @@ impl<'a> Turn<'a> {
             usage: Usage::default(),
             cost: Some(0.0),
             tool_calls: 0,
-            home_weighed: false,
             last: None,
             awaiting: None,
             budget_question: None,
@@ -606,7 +594,6 @@ impl<'a> Turn<'a> {
             reply_to: None,
             answer_at: None,
             wakes: Vec::new(),
-            set_ups: Vec::new(),
             wake_target: None,
             woke_by: Vec::new(),
             booked: false,
@@ -1656,7 +1643,7 @@ impl TurnRunner {
             session.failing = None;
         }
         let sid = session.session_id.clone();
-        let turn_id = self.turn_id_for(&sid);
+        let turn_id = crate::new_id("turn");
         let task_of = session.task.clone();
         let place = self.view_of(&sid);
         let dir = session.dir.clone();
@@ -1834,7 +1821,6 @@ impl TurnRunner {
             self.content_brief(t);
         }
         self.exchange_open(t, prompted);
-        self.gate_asking(t);
 
         // 3. The loops, while the model has something new to read.
         let mut run_model = Self::has_news(t, input.is_some() || caught_up > 0)?;
@@ -1948,7 +1934,12 @@ impl TurnRunner {
                     self.tails.finish(t.tc.session_id, &mut c, t.tail.take());
                     Some(c)
                 }
-                Err(f) if !t.route.held => return Ok(Next::Fail(f)),
+                // A request that could not be made smaller than the one the provider refused for its
+                // size: the window's failure, in its words (nothing earlier could be dropped).
+                Err(f) if !t.route.held => match (&overflow, f.class == WINDOW_CLASS) {
+                    (Some(o), true) => return Ok(Next::Fail(Self::window_failure(t, o, false))),
+                    _ => return Ok(Next::Fail(f)),
+                },
                 Err(_) => None,
             };
             // A reach for the owner's personal details in a shared place: the

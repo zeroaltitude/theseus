@@ -207,11 +207,6 @@ pub mod method {
         /// A place's ladder built from its history (issue 44, step 4; `ladder`): its `did` lines and folds,
         /// with a dry run that counts and prices, and a cap.
         EXCHANGE_LADDER = "exchange.ladder",
-        /// One message the owner shares to one place by his own act (issue 44, step 3b; `release`): exactly what a
-        /// release of a message would share, and its digest; the release; the releases; and a withdrawal. His own
-        /// terminal or the web UI, in person.
-        EXCHANGE_OFFER = "exchange.offer", EXCHANGE_RELEASE = "exchange.release",
-        EXCHANGE_RELEASES = "exchange.releases", EXCHANGE_WITHDRAW = "exchange.withdraw",
         /// One turn, whole (theseus-x9swu; `inspect::TurnInspectParams`): the cockpit's inspector at
         /// `/session/<id>/turn/<turn>`. A read; thinking and texts to a private place only.
         TURN_INSPECT = "turn.inspect",
@@ -337,8 +332,6 @@ pub mod notify {
         WORK_CHANGED = "work.changed", WORK_NOTICE = "work.notice",
         /// A thread changed (theseus-sjzm, `threads::ThreadChanged`).
         THREAD_CHANGED = "thread.changed",
-        /// The router placed a message in a thread's session (theseus-7kjb7, `thread_placed::ThreadPlaced`), to the connection that sent it and to every watcher of the home session.
-        THREAD_PLACED = "thread.placed",
         /// A followed job's output (`job_follow.rs`): a chunk from a byte to the connection that asked, then its end.
         ACTION_OUTPUT_CHUNK = "action.output.chunk", ACTION_OUTPUT_END = "action.output.end",
         /// Self-improvement's switch moved (theseus-pw1q.19): `rsi::SelfChanged`, to every connection that watches

@@ -96,8 +96,8 @@ assistant. When the routing service is on, it is also asked whether each message
 personal details, or to open a conversation with other people in which they could come out. A confident yes sends the
 owner a warning in their own direct messages and is recorded. Where only the owner writes, it holds nothing back. In a
 shared place the reply is held: no model is called, the person who asked is told "I don't share that here.", and the
-owner's direct message says who asked, where, what they wrote and why it tripped. In a shared place, Theseus does not
-recall the owner's private conversations in the first place.
+owner's direct message says who asked, where, what they wrote and why it tripped. Since 2026-11-22 ("anything
+goes"), recall and the context are the same in every place: the owner puts Theseus only in places he trusts.
 
 ## Google API Services User Data Policy
 

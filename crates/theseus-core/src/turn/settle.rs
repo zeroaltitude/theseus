@@ -357,6 +357,9 @@ impl TurnRunner {
         // (theseus-xeo). The record rides in the turn's last frame, where
         // the rows before it here and after it wait too; the span times its
         // making, and the frame's write is `end_turn`'s.
+        // Its replies, each asked the content questions off the path (issue 44), queued BEFORE the hold
+        // below is taken: a configured name's label lands at once, under the session's lock.
+        self.content_replies(&t);
         let hold = match t.tc.store.defer_session(t.tc.session_id, |r| {
             r.take_turns_fields(session);
             labels = footer_labels(&self.cfg.cockpit, t.tc.session_id, r.data.as_deref());

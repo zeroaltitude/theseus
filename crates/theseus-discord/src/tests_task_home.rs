@@ -10,7 +10,6 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use theseus_core::approval::{Client, Surface};
 use theseus_core::provider::{FakeProvider, Scripted};
-use theseus_protocol::threads::ThreadNewParams;
 use theseus_protocol::wakes::{WakeCreateParams, WakeEditResult};
 use theseus_sim::fake_discord::{Msg, BOT_ID, DEFAULT_GUILD};
 
@@ -18,7 +17,7 @@ use crate::render::board_v2;
 use crate::rpc_client::RpcClient;
 use crate::runtime::default_forum::{BOT_BITS, OWNER_BITS};
 use crate::tests_default_forum::{
-    bindings, cli, dm_lines, forum_up, guild, post_with, posts, rig_in, tune, REEL,
+    bindings, dm_lines, forum_up, guild, post_with, posts, rig_in, tune, REEL,
 };
 use crate::tests_gateway::{Rig, ANA, ANA_DM, LAB};
 use crate::tests_task_threads::{
@@ -120,28 +119,6 @@ fn gated_asks(dir: &Path, name: &str) -> Vec<Scripted> {
         ),
         Scripted::text("Written."),
     ]
-}
-
-/// `#reel` runs the thread `tides`, so that a task started there has an index
-/// card for its place.
-async fn tides(r: &Rig) {
-    r.core
-        .thread_new(
-            &ThreadNewParams {
-                slug: "tides".into(),
-                title: Some("Tides".into()),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
-    until(r, "#reel runs the thread", || {
-        r.core
-            .threads()
-            .get("tides")
-            .is_some_and(|t| !t.surfaces.is_empty())
-    })
-    .await;
 }
 
 /// `#lab` as a voice binding: a place with no thread home.
@@ -416,21 +393,21 @@ async fn task_home_off_is_todays_dm() {
     );
 }
 
-/// A task of an activity thread has an index card: its card is its post's, not
-/// the thread's channel's, and no one is mentioned in the channel.
+/// A private channel with task threads off gives its task an index card and no
+/// place of its own: the task answers at its post, its card is its post's,
+/// not the channel's, and no one is mentioned in the channel (theseus-90qqy).
 #[tokio::test]
 async fn a_tasks_card_goes_to_its_post_not_the_channel() {
     let r = rig(
         vec![start(&[REEF]), Scripted::text("Started this.")],
         |dir| vec![(REEF, gated_asks(dir, "reef.txt"))],
-        &bindings(true, ""),
+        &bindings(true, "task_threads = false\n"),
         |_| {},
         |_| {},
     )
     .await;
     let forum = forum_up(&r).await;
-    tides(&r).await;
-    r.say((ANA, "ana"), Some(REEL), ASK);
+    r.say((ANA, "ana"), Some(LAB), ASK);
     until(&r, "its index card", || {
         post_with(&r, forum, "Reef-chart").is_some()
     })
@@ -447,12 +424,12 @@ async fn a_tasks_card_goes_to_its_post_not_the_channel() {
         !cards(&r, post.id).is_empty()
     })
     .await;
-    replied(&r, REEL, "Started this.").await;
-    assert!(cards(&r, REEL).is_empty(), "no card in the channel");
+    replied(&r, LAB, "Started this.").await;
+    assert!(cards(&r, LAB).is_empty(), "no card in the channel");
     assert!(
-        r.posted(REEL).iter().all(|m| m.mentions.is_empty()),
+        r.posted(LAB).iter().all(|m| m.mentions.is_empty()),
         "no one is mentioned in the channel: {:#?}",
-        r.posted(REEL)
+        r.posted(LAB)
     );
 }
 

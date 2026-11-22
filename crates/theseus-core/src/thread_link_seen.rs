@@ -100,6 +100,8 @@ fn count(store: &Store, outbox: &Outbox, pair: &Pair, text: &str, dm: bool) -> R
 impl TurnRunner {
     /// Count each pair once for the recall that just admitted notes across it. Spawned: the write
     /// and the post belong to no turn's frames, and nothing waits for them.
+    // Its one caller, the cross judge's step, is gone (p17): this goes with the link offer.
+    #[allow(dead_code)]
     pub(crate) fn link_seen(&self, pairs: Vec<Pair>) {
         if pairs.is_empty() || !self.cfg.threads.link_proposals {
             return;

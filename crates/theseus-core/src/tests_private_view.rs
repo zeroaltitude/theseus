@@ -114,14 +114,16 @@ pub(crate) fn with_person(c: &Core, sid: &str) {
 }
 
 /// A stand-in index over `sessions`: each of their nodes, newest first, at
-/// the time it was written.
+/// the time it was written. Never a `Recall` note, as the real index never
+/// holds one (`memory_pass::eligible`, the recursion exclusion).
 pub(crate) fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
     let store = core.store.clone();
     Arc::new(move |p| -> AskFuture {
         let mut hits = Vec::new();
         for sid in &sessions {
             for (position, n) in store.session_nodes(sid).unwrap() {
-                if p.as_of.is_none_or(|a| position < a) {
+                let note = matches!(n.body, crate::node::Body::Recall { .. });
+                if !note && p.as_of.is_none_or(|a| position < a) {
                     hits.push((position, n));
                 }
             }

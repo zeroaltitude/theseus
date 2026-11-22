@@ -280,11 +280,20 @@ fn is_writers(req: &Value) -> bool {
 
 /// Whether the request's last message answers a tool call.
 fn carries_tool_result(req: &Value) -> bool {
+    // Nothing was said after the results: the last block that is not one of the harness's tail blocks (the
+    // task view, the date, the block beside the message: `is_view`, which `prompt` skips too) is a result. A
+    // new message laid after an earlier exchange's result (the view's window) merges into that user message,
+    // after it, and is the prompt to act on (issue 44).
     req["messages"]
         .as_array()
         .and_then(|m| m.last())
         .and_then(|m| m["content"].as_array())
-        .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"))
+        .and_then(|c| {
+            c.iter()
+                .rev()
+                .find(|b| !theseus_core::task_graph::view::is_view(b))
+        })
+        .is_some_and(|b| b["type"] == "tool_result")
 }
 
 /// The last user message's text.

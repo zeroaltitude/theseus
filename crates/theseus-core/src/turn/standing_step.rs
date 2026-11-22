@@ -83,9 +83,8 @@ impl TurnRunner {
             persona,
         };
         let now = theseus_protocol::now_unix_ms();
-        // A record kept from a message of another conversation is shown only
-        // where the gate admits that conversation for this turn: its place
-        // under the turn's presence, and its seal (issue 44).
+        // A record kept from a message that is gone or cannot be read is not
+        // shown (`view_gate::standing_held`); no place or seal holds one.
         let held = crate::view_gate::standing_held(
             self,
             session_id,

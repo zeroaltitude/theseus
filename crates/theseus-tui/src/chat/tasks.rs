@@ -80,7 +80,11 @@ impl Chat {
 
     /// `work.watch` for this conversation, as a screen a person looks at.
     pub(super) fn watch_work(sid: &str) -> Effect {
-        Self::watch_with(sid, &[])
+        call(
+            method::WORK_WATCH,
+            json!({ "roots": [sid], "limit": 0, "interactive": true }),
+            Purpose::WorkWatch,
+        )
     }
 
     /// `session.watch` of one session: its events reach this connection.
@@ -89,29 +93,6 @@ impl Chat {
             method::SESSION_WATCH,
             json!({ "session_id": sid }),
             Purpose::Watch,
-        )
-    }
-
-    /// `session.unwatch` of one session: its events stop.
-    pub(super) fn unwatch_session(sid: &str) -> Effect {
-        call(
-            method::SESSION_UNWATCH,
-            json!({ "session_id": sid }),
-            Purpose::Watch,
-        )
-    }
-
-    /// The same watch with the sessions of turns the router placed in
-    /// threads (theseus-umb8a). A connection holds one `work.watch`, and a
-    /// new one replaces the roots of the last, so this names them all.
-    pub(super) fn watch_with(sid: &str, also: &[String]) -> Effect {
-        let roots: Vec<&str> = std::iter::once(sid)
-            .chain(also.iter().map(String::as_str))
-            .collect();
-        call(
-            method::WORK_WATCH,
-            json!({ "roots": roots, "limit": 0, "interactive": true }),
-            Purpose::WorkWatch,
         )
     }
 

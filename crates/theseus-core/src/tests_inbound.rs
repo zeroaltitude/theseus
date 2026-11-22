@@ -293,6 +293,24 @@ async fn a_slash_command_is_not_judged() {
     assert_eq!(classify[0].turn_id.as_deref(), Some(next.turn_id.as_str()));
 }
 
+/// The retired thread address is a message like any other (issue 44): `/t harbour-log …`, submitted through
+/// `turn.submit` as a person types it, is judged at the inbound point, with its whole literal text, while a
+/// genuine slash command still is not (`a_slash_command_is_not_judged`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_that_begins_with_the_retired_thread_address_is_judged() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig_on(texts(1), Some(&jev), inbound_only);
+    let said = "/t harbour-log remember the north-wall measurement";
+    let res =
+        crate::tests_routines::rpc(&r.core, "turn.submit", serde_json::json!({"input": said}))
+            .await
+            .unwrap();
+    let classify = until_inbound(&r.core.store, 1).await;
+    assert_eq!(classify.len(), 1, "{classify:?}");
+    assert_eq!(classify[0].turn_id.as_deref(), res["turn_id"].as_str());
+    assert!(jev.connections() >= 1, "the inbound pack was asked");
+}
+
 /// A task's first turn (its brief, which its parent wrote), the wake's turn
 /// that continues it, and the parent's turn its report starts are no
 /// person's messages: only the parent's own message is judged.

@@ -23,6 +23,10 @@
 //!   says `truncated`.
 //! - `context`: the operator's one paragraph on what the assistant is and which of its work is public, handed to the
 //!   pack verbatim. **Parsed and exposed only**: the pack is fed it by a later row (R9).
+//! - `judge_replies`: whether Theseus's own replies are asked the four questions too, each kept on its own
+//!   item and never on the session (issue 44). **On by default; the owner may turn it off.** A reply's ask is
+//!   paid from the same judge day as an input's, and replies stop at `REPLY_SHARE_PERCENT` of the day's settled
+//!   spend (`judge::content`): past it a reply is recorded `refused` on its item, and the inputs keep the rest.
 
 use serde::{Deserialize, Serialize};
 
@@ -47,6 +51,10 @@ pub struct ContentBasedSecurityConfig {
     pub max_pieces: usize,
     #[serde(default)]
     pub context: String,
+    /// Whether Theseus's own replies are asked the content questions too (issue 44): **on by default; the owner
+    /// may turn it off**. Their labels stay on their items alone either way.
+    #[serde(default = "on")]
+    pub judge_replies: bool,
 }
 
 fn on() -> bool {
@@ -75,6 +83,7 @@ impl Default for ContentBasedSecurityConfig {
             wait_ms: None,
             max_pieces: default_max_pieces(),
             context: String::new(),
+            judge_replies: on(),
         }
     }
 }

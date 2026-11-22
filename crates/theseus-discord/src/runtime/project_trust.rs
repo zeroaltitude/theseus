@@ -124,7 +124,7 @@ fn parsed_item(options: &[CommandDataOption]) -> Option<(&str, Vec<(&str, String
     parsed(inner)
 }
 
-/// A subcommand and its string options, as `/thread`'s `parsed` reads them.
+/// A subcommand and its string options.
 fn parsed(options: &[CommandDataOption]) -> Option<(&str, Vec<(&str, String)>)> {
     let sub = options.first()?;
     let CommandOptionValue::SubCommand(inner) = &sub.value else {

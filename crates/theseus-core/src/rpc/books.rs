@@ -3,17 +3,12 @@
 //!
 //! - **Reads, off the serving workers.** Each runs on the blocking pool: a
 //!   few rows of the index's terms, and a record per episode a page shows.
-//! - **For a place.** `session_id` names the session the question is asked
-//!   for, as `memory.search`'s does; none is the connection's own place. A
-//!   place is private only on a surface that reads private text (the CLI,
-//!   the web UI), as `import.sessions` rules it, and in a private session if
-//!   one is named. Any other gets the books' counts and each episode's
-//!   times and labels' sensitivity, never its text (`books::WITHHELD`).
+//! - **For every surface and place** (2026-11-22). `session_id`, when given,
+//!   must name a session; nothing is withheld for its place or the surface.
 
 use std::sync::Arc;
 
 use serde_json::Value;
-use theseus_memory::recall::Place;
 use theseus_protocol::books::{BooksListParams, BooksPageParams};
 use theseus_protocol::{error_code, method};
 
@@ -35,14 +30,14 @@ impl Core {
                 } else {
                     parse(params)?
                 };
-                self.books_private(conn, p.session_id.as_deref())?;
+                self.books_session(p.session_id.as_deref())?;
                 let core = self.clone();
                 serde_json::to_value(blocking(move || books::list(&core.store)).await?)
             }
             method::BOOKS_PAGE => {
                 let p: BooksPageParams = parse(params)?;
-                let private = self.books_private(conn, p.session_id.as_deref())?;
-                let q = books::Query::of(&p, private)
+                self.books_session(p.session_id.as_deref())?;
+                let q = books::Query::of(&p, true)
                     .map_err(|why| RpcFailure::new(error_code::INVALID_PARAMS, why))?;
                 let core = self.clone();
                 serde_json::to_value(blocking(move || books::page(&core.store, &q)).await?)
@@ -61,16 +56,12 @@ impl Core {
         out.map_err(|e| RpcFailure::invalid(e.into()))
     }
 
-    /// Whether a question asked on `conn`, for `session_id`'s place if it
-    /// names one, is asked for a private place: only on a surface that
-    /// reads private text, and only in a private session.
-    fn books_private(&self, conn: Conn<'_>, session_id: Option<&str>) -> Result<bool, RpcFailure> {
-        let surface = conn.surface.reads_private();
-        let Some(sid) = session_id else {
-            return Ok(surface);
-        };
-        self.session_exists(sid)?;
-        Ok(surface && matches!(self.runner.place_of(sid), Place::Private))
+    /// The session a question names, if it names one, must exist.
+    fn books_session(&self, session_id: Option<&str>) -> Result<(), RpcFailure> {
+        match session_id {
+            Some(sid) => self.session_exists(sid),
+            None => Ok(()),
+        }
     }
 }
 

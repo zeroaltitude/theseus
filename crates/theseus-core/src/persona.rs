@@ -10,8 +10,7 @@
 //! - **What the header carries** (`owned`): the built-in default text
 //!   (`persona/default.md`) unless the persona in play has a file of its own
 //!   in this request, which replaces it whole. A persona whose files cannot
-//!   be read, or are withheld from a shared place, compiles on the default,
-//!   never thinner.
+//!   be read compiles on the default, never thinner.
 //! - **What changed** (`Board::observe`): each compile compares the persona's
 //!   files' digests and its fields' with those it last saw (a META key
 //!   `persona.seen.<name>`, which rides the turn's next frame), and a
@@ -42,7 +41,7 @@ pub const SESSION_PREFIX: &str = "persona.session.";
 pub fn owned(files: &[ContextFile]) -> bool {
     files
         .iter()
-        .any(|f| f.file.persona.is_some() && f.file.digest.is_some() && f.file.withheld.is_none())
+        .any(|f| f.file.persona.is_some() && f.file.digest.is_some())
 }
 
 /// What a compile saw of a persona: each file's digest by path (empty when it
@@ -77,15 +76,11 @@ pub fn digest_of(s: &Seen) -> String {
 }
 
 /// A persona's sighting from its view and the files this request carries.
-/// None when a file is withheld (a shared place's request sees part of the
-/// persona, which says nothing of what changed).
 pub fn sighting(view: &PersonaView, files: &[ContextFileRef], at_ms: u64) -> Option<Seen> {
     let key = view.key.as_deref()?;
-    let mine = || files.iter().filter(|f| f.persona.as_deref() == Some(key));
-    if mine().any(|f| f.withheld.is_some()) {
-        return None;
-    }
-    let files = mine()
+    let files = files
+        .iter()
+        .filter(|f| f.persona.as_deref() == Some(key))
         .map(|f| (f.path.clone(), f.digest.clone().unwrap_or_default()))
         .collect();
     let field = |v: &Option<String>| v.as_deref().map(digest).unwrap_or_default();

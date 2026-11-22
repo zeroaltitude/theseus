@@ -37,7 +37,7 @@ export interface OpsRow {
   /** Its work state (`WorkState`), or a task record's state when the board holds no view of it. */
   state?: string
   paused: boolean
-  /** A conversation at rest: a Graph anchor and a Threads header, never a Board row nor a count. The builder gives it
+  /** A conversation at rest: a Graph anchor, never a Board row nor a count. The builder gives it
    *  no column; nothing else tests this flag for a column or a count. */
   rest?: boolean
   view?: WorkView
@@ -58,7 +58,6 @@ export interface OpsRow {
   /** The profile it runs on: `moved_to` when a checkpoint moved it, else its session's profile or model. */
   model?: string
   place?: string
-  thread?: string
   /** The session that owns it: a job's, a wake's. */
   sessionId?: string
   /** When a scheduled row is due. */
@@ -115,7 +114,7 @@ export function boardRows({ views, tasks, sessions, lines = {}, records = [], qu
     const s = bySession.get(r.id)
     out.push(draft({
       id: r.id, kind: 'task', title: r.title, short: r.short, state: r.view?.state ?? r.info?.state, paused: r.paused,
-      view: r.view, task: r, session: s, model: modelOf(r.view, s), place: r.place, thread: r.view?.thread, sessionId: r.id, parent: r.view?.parent,
+      view: r.view, task: r, session: s, model: modelOf(r.view, s), place: r.place, sessionId: r.id, parent: r.view?.parent,
       activityMs: r.activityMs,
     }))
   }
@@ -129,7 +128,7 @@ export function boardRows({ views, tasks, sessions, lines = {}, records = [], qu
       const s = v.session_id ? bySession.get(v.session_id) : undefined
       out.push(draft({
         id, kind: v.kind, title: v.title || s?.title || s?.label || v.attention.label, short: id.slice(-6), state: v.state, paused: v.paused === true,
-        view: v, session: s, model: modelOf(v, s), place: v.place, thread: v.thread, sessionId: v.session_id, parent: v.parent, activityMs: v.at_ms,
+        view: v, session: s, model: modelOf(v, s), place: v.place, sessionId: v.session_id, parent: v.parent, activityMs: v.at_ms,
       }))
     } else if (v.kind === 'wake' || v.kind === 'routine' || v.kind === 'watch') {
       // Due today: a Board card. Later, or a watch: a row for the Graph's "+ future", with no column and no count.
@@ -137,7 +136,7 @@ export function boardRows({ views, tasks, sessions, lines = {}, records = [], qu
       seen.add(v.id)
       out.push(draft({
         id: v.id, kind: v.kind, title: v.title || v.attention.label, short: v.id.slice(-6), state: v.state, paused: v.paused === true,
-        view: v, thread: v.thread, place: v.place, sessionId: v.session_id, parent: v.parent, dueMs: v.next_at_ms, activityMs: v.at_ms,
+        view: v, place: v.place, sessionId: v.session_id, parent: v.parent, dueMs: v.next_at_ms, activityMs: v.at_ms,
       }))
     }
   }
@@ -185,7 +184,7 @@ export function boardRows({ views, tasks, sessions, lines = {}, records = [], qu
     const ended = t.state === 'done' || t.state === 'failed' || t.state === 'abandoned'
     const row = draft({
       id: t.id, kind: 'step', title: t.title, short: t.id.slice(-6), state: t.state, paused: false, recordId: t.id, record: t, plan,
-      parent: t.kind === 'project' ? undefined : t.parent ?? t.origin.session, thread: undefined,
+      parent: t.kind === 'project' ? undefined : t.parent ?? t.origin.session,
       endedMs: ended ? t.updated_at_ms : undefined, activityMs: t.updated_at_ms,
     })
     steps.push(row)
@@ -195,7 +194,7 @@ export function boardRows({ views, tasks, sessions, lines = {}, records = [], qu
     if ((v.kind !== 'step' && v.kind !== 'project') || seen.has(v.id)) continue
     seen.add(v.id)
     const row = draft({
-      id: v.id, kind: 'step', title: v.title || v.attention.label, short: v.id.slice(-6), state: v.state, paused: v.paused === true, view: v, thread: v.thread, place: v.place,
+      id: v.id, kind: 'step', title: v.title || v.attention.label, short: v.id.slice(-6), state: v.state, paused: v.paused === true, view: v, place: v.place,
       sessionId: v.session_id, parent: v.parent, plan: v.kind === 'project', activityMs: v.at_ms,
     })
     steps.push(row)
@@ -259,7 +258,7 @@ export function boardRows({ views, tasks, sessions, lines = {}, records = [], qu
   for (const i of loose) {
     out.push({
       id: i.key, kind: 'ask', bucket: 'needs', column: 'needs', counted: true, asks: 1, title: i.title, short: i.key.slice(-6), state: 'needs_you', paused: false,
-      thread: i.view?.thread ?? i.thread?.slug, sessionId: i.sessionId, item: i, activityMs: i.since,
+      sessionId: i.sessionId, item: i, activityMs: i.since,
     })
   }
   for (const r of out) r.data = r.view?.data ?? r.session?.data
@@ -344,7 +343,6 @@ export interface FilterContext { now: number; spentToday: ReadonlySet<string>; r
 /** Does every chip of `f` hold `r`? */
 export function matchesFilters(r: OpsRow, f: Filters, cx: FilterContext): boolean {
   if (f.bucket && !inBucket(r, f.bucket as Bucket, cx.now, cx.spentToday)) return false
-  if (f.thread && r.thread !== f.thread) return false
   if (f.model && r.model !== f.model) return false
   if (f.place && r.place !== f.place) return false
   if (f.kind && r.kind !== f.kind) return false
@@ -447,7 +445,7 @@ export function counterLabel(b: Bucket, calls: OwnerCalls = OWNER_CALLS): string
 /** The filter chip on the canvas: the counter's words and its number, `paused·queued · 4`, and its × clears it. */
 export const chipWords = (b: Bucket, n: number, calls: OwnerCalls = OWNER_CALLS): string => `${counterLabel(b, calls)} · ${n}`
 
-/** What a counter's click keeps as faint context: each kept card's ancestors up to the thread's head, and the jobs and
+/** What a counter's click keeps as faint context: each kept card's ancestors up to its root, and the jobs and
  *  the carried steps of kept cards. Never a kept card itself. */
 export function contextOf(rows: readonly OpsRow[], kept: ReadonlySet<string>): Set<string> {
   const named = new Map<string, OpsRow>()
@@ -492,9 +490,9 @@ export const DATA_MARKS: readonly DataMark[] = ['open', 'private', 'sensitive']
 export const locked = (r: { data?: DataMark }): boolean => r.data === 'private' || r.data === 'sensitive'
 
 /** The chips' choices, from the rows on the board: each distinct value, in order. */
-export function chipChoices(rows: readonly OpsRow[]): { thread: string[]; model: string[]; place: string[]; kind: string[]; state: string[] } {
+export function chipChoices(rows: readonly OpsRow[]): { model: string[]; place: string[]; kind: string[]; state: string[] } {
   const of = (f: (r: OpsRow) => string | undefined) => [...new Set(rows.map(f).filter((x): x is string => !!x))].sort()
-  return { thread: of((r) => r.thread), model: of((r) => r.model), place: of((r) => r.place), kind: of((r) => r.kind), state: of((r) => r.state) }
+  return { model: of((r) => r.model), place: of((r) => r.place), kind: of((r) => r.kind), state: of((r) => r.state) }
 }
 
 /** Is a row's task alive (not ended)? Its acts (pause, stop) are only for the living. */

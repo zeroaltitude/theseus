@@ -243,8 +243,9 @@ async fn roots_scope_the_digest_to_one_tasks_own_timeline() {
     s.drain.abort();
 }
 
-/// A connection that reads no private text names its conversations, is told of
-/// those of a shared place alone, and reads their words scrubbed.
+/// A connection that reads no private text reads the words scrubbed of
+/// secrets and may answer nothing; since 2026-11-22 it is told of every root it
+/// names, a private place's too.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_shared_place_sees_only_its_roots_scrubbed() {
     use crate::places::BoundPlace;
@@ -294,16 +295,7 @@ async fn a_shared_place_sees_only_its_roots_scrubbed() {
         .await
         .unwrap();
     assert_eq!(of_kind(&whole, DigestKind::Reported).len(), 2, "{whole:?}");
-    // The binding must name conversations.
-    let refused = r
-        .core
-        .work_digest_for(WorkDigestParams::default(), Surface::Unnamed)
-        .await;
-    assert!(
-        refused.is_err(),
-        "a surface that reads no private text names its roots"
-    );
-    // Naming both, it is told of the shared one's task alone, scrubbed.
+    // Naming both, it is told of both, scrubbed.
     for since in [0, whole.from] {
         let told = r
             .core
@@ -317,7 +309,6 @@ async fn a_shared_place_sees_only_its_roots_scrubbed() {
             )
             .await
             .unwrap();
-        assert_eq!(told.lines.len(), 1, "one place's task: {:?}", told.lines);
         let words = serde_json::to_string(&told).unwrap();
         assert!(!words.contains(&token), "the scrubber ran: {words}");
         assert!(
@@ -325,9 +316,6 @@ async fn a_shared_place_sees_only_its_roots_scrubbed() {
             "it may answer nothing"
         );
     }
-    // Naming only a private conversation, a surface that reads no private
-    // text is cut to nothing.
-    told_nothing_naming_a_private_one(&r.core, &private, whole.from).await;
     // The in-process Discord binding is told of its private DM too, and of
     // nothing it did not name.
     let dm = r
@@ -343,26 +331,6 @@ async fn a_shared_place_sees_only_its_roots_scrubbed() {
         .await
         .unwrap();
     assert_eq!(dm.lines.len(), 1);
-}
-
-/// What a surface that reads no private text may name is empty when it names
-/// only a private conversation, so the place rule (`WorkScope::sees`) is what
-/// cuts it to nothing, from either position.
-async fn told_nothing_naming_a_private_one(core: &Arc<Core>, private: &str, from: u64) {
-    for since in [0, from] {
-        let none = core
-            .work_digest_for(
-                WorkDigestParams {
-                    since: Some(since),
-                    roots: Some(vec![private.to_string()]),
-                    ..Default::default()
-                },
-                Surface::Unnamed,
-            )
-            .await
-            .unwrap();
-        assert!(none.lines.is_empty(), "{:?}", none.lines);
-    }
 }
 
 // ------------------------------------------------------------ the digest post

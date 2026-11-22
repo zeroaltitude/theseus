@@ -381,39 +381,6 @@ impl Core {
     /// `session.list`: every session, or only those `ids` names
     /// (theseus-in3), read by id: a client that meets a new session in
     /// `execution.changed` asks for its title.
-    /// `session.list` for a surface: one that reads no private text
-    /// (`Surface::reads_private`) is given an imported session's row with
-    /// its own words withheld (theseus-a7pr) — its `title`, and the
-    /// `with_text` fields `first_text`, `last_text` and `prompts`, which
-    /// `words_of` reads straight out of its messages. The withhold is here,
-    /// after every path the list can take (the `ids` read, a directory's
-    /// scan, a page, and the whole list), so it is one door rather than
-    /// four. `docs/design/imported-surface.md` is the rule.
-    pub(super) fn session_list_on(
-        &self,
-        p: theseus_protocol::SessionListParams,
-        surface: crate::approval::Surface,
-    ) -> Result<theseus_protocol::SessionListResult, RpcFailure> {
-        self.session_list_for(p, surface.reads_private())
-    }
-
-    /// `session_list_on`, by whether the asker reads private text.
-    pub(crate) fn session_list_for(
-        &self,
-        p: theseus_protocol::SessionListParams,
-        private: bool,
-    ) -> Result<theseus_protocol::SessionListResult, RpcFailure> {
-        let mut r = self.session_list_of(p)?;
-        if !private {
-            for s in &mut r.sessions {
-                if crate::import::is_imported(&s.session_id) {
-                    withhold_session_words(s);
-                }
-            }
-        }
-        Ok(r)
-    }
-
     pub(super) fn session_list_of(
         &self,
         p: theseus_protocol::SessionListParams,
@@ -933,15 +900,14 @@ impl Core {
 
     /// Run one turn for a client, streaming its events to that connection.
     /// What the owner named is their choice, never routed (25e); the pane's
-    /// carried profile is not. `route` says whether a message that names no
-    /// thread finds its own (theseus-rha2); a move runs its message again
-    /// with it off, at the place the owner chose.
+    /// carried profile is not. A message runs in the place it was written:
+    /// a thread it names (`p.thread`, an address in its words) is ignored,
+    /// since threads are gone (2026-11-22).
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub(super) async fn turn_submit(
         &self,
-        mut p: TurnSubmitParams,
+        p: TurnSubmitParams,
         conn: Conn<'_>,
-        route: bool,
     ) -> Result<theseus_protocol::TurnSubmitResult, RpcFailure> {
         if p.prompt.is_some() && !(p.input.trim().is_empty() && p.attachments.is_empty()) {
             return Err(RpcFailure::new(
@@ -969,34 +935,16 @@ impl Core {
         // A turn from a holding session's job holds what that one holds, in
         // the session it opens or the one it names (theseus-b5cl).
         let dir = super::session_dir::check(p.dir.as_deref())?;
-        let answer_at = Self::thread_answer_at(&p)?;
-        self.refuse_bench_clock(&p)?;
-        let mut session = match (&p.session_id, &p.thread) {
-            (Some(_), Some(_)) => {
-                return Err(RpcFailure::new(
-                    error_code::INVALID_PARAMS,
-                    "a turn names a session or a thread, not both",
-                ))
-            }
-            // The thread's current session, opened on first use (theseus-nhew).
-            (None, Some(slug)) => self.thread_session(
-                slug,
-                conn.answerer(
-                    p.author.clone(),
-                    p.speaking.as_ref().map(|s| s.discord.clone()),
-                ),
-            )?,
-            (Some(id), None) => self.session(id)?,
-            (None, None) => self.open_session(SessionOpenParams {
+        let mut session = match &p.session_id {
+            Some(id) => self.session(id)?,
+            None => self.open_session(SessionOpenParams {
                 opened_from: p.opened_from.clone(),
                 dir: dir.clone(),
                 ..SessionOpenParams::default()
             })?,
         };
-        // A message that names a thread runs there, in a place with threads
-        // (theseus-rha2); nothing else changes for a place without.
         let place_home = session.session_id.clone();
-        // Where it arrived, before routing can send it elsewhere (issue 44).
+        // Where it arrived (issue 44).
         let arrived = crate::exchange::place_of(
             self.outbox
                 .try_target(&place_home)
@@ -1005,10 +953,6 @@ impl Core {
                 .as_deref(),
             session.dir.as_deref(),
         );
-        let routing = match route {
-            true => self.route_to_thread(&mut p, conn, &mut session)?,
-            false => None,
-        };
         // A directory it names moves the session there: the turn's session
         // write keeps it (theseus-aab7). Outside the roots, the CLI says so.
         let outside = crate::rpc::session_dir::moved(&self.tools, &mut session, dir);
@@ -1024,13 +968,6 @@ impl Core {
         // phrases in this exact spot and acted before the turn ran.
         self.hear_for_chat_acts(&p, conn, &session.session_id);
         let arrival = self.arrival_of(&p, conn, (&place_home, arrived), &session.session_id);
-        // The place's own session, which the move tool looks for the placed
-        // message by: the session this message was routed into may be the
-        // thread it names, and the placed message is not in that.
-        self.tools
-            .chat_acts
-            .heard
-            .stage_home(&session.session_id, &place_home);
         // A one-run daemon's client follows the session's later turns, so
         // its connection hears them from the start (theseus-mqxk).
         if self.outbox.one_shot.follow_ms().is_some() {
@@ -1100,9 +1037,6 @@ impl Core {
         .with_arrival(arrival);
         self.note_agent_input(&session.session_id, sink.agent.as_deref());
         let voice = p.surface.as_deref() == Some("voice");
-        let this_session = session.session_id.clone();
-        // The thread it runs in grows from what it did (theseus-98bz.5).
-        let grow = self.grow_for(routing.as_ref(), &session, &p.input);
         let result = self
             .runner
             .run(TurnRequest {
@@ -1118,30 +1052,13 @@ impl Core {
                 arrived: Some(conn.arrived),
                 reply_to: p.reply_to,
                 prompt,
-                answer_at,
+                answer_at: None,
                 surface: crate::standing::surface_name(conn.surface, voice),
             })
             .await;
-        if let Some(routing) = &routing {
-            self.thread_routed_turn(routing, result.as_ref().ok());
-        }
-        // A move the model asked for in this turn (`chat.move_to_thread`)
-        // runs now that the turn is over, as the matcher it replaced did. It is
-        // taken whatever the turn's end: one that failed carries nothing out,
-        // and the move is not kept for a later turn the owner did not mean it for.
-        if let (Some(m), true) = (
-            self.tools.chat_acts.take_move(&this_session),
-            result.is_ok(),
-        ) {
-            Box::pin(self.carry_out_move(m, conn)).await;
-        }
-        if let (Some(g), Ok(r)) = (&grow, &result) {
-            self.thread_grow(g, &r.turn_id);
-        }
         match result {
             Ok(mut r) => {
                 r.outside_roots = outside;
-                r.thread = routing.map(|r| r.tag);
                 self.telemetry().record_turn(&r);
                 self.telemetry()
                     .record_node_cache(&self.store.node_cache().health());
@@ -1363,34 +1280,11 @@ impl Core {
         Ok(changed)
     }
 
-    #[cfg(test)]
+    /// `session.history`: the same words for every surface (2026-11-22).
     pub(crate) fn session_history(
         &self,
         p: theseus_protocol::SessionHistoryParams,
     ) -> Result<theseus_protocol::SessionHistoryResult, RpcFailure> {
-        self.session_history_for(p, true)
-    }
-
-    /// `session.history` as `surface` asks it.
-    pub(super) fn history_on(
-        &self,
-        p: theseus_protocol::SessionHistoryParams,
-        surface: crate::approval::Surface,
-    ) -> Result<theseus_protocol::SessionHistoryResult, RpcFailure> {
-        self.session_history_for(p, surface.reads_private())
-    }
-
-    /// `session.history` for a surface: one that reads no private text
-    /// (`Surface::reads_private`) is given an imported session's nodes with
-    /// their text withheld (theseus-a7pr). An imported session is the owner's
-    /// own history, private under the place rule whatever place its episode
-    /// names (`recall::place_of`), as `books` withholds an episode's text.
-    pub(crate) fn session_history_for(
-        &self,
-        p: theseus_protocol::SessionHistoryParams,
-        private: bool,
-    ) -> Result<theseus_protocol::SessionHistoryResult, RpcFailure> {
-        let withhold = !private && crate::import::is_imported(&p.session_id);
         let rec = self.session(&p.session_id)?;
         let pending = self.kernel.pending_confirms()?;
         let mine: Vec<theseus_kernel::Action> = pending
@@ -1416,31 +1310,18 @@ impl Core {
         let known = cards.as_deref().unwrap_or(&page.nodes);
         let asks = self.pending_by_execution(&mine, Some((&p.session_id, known)));
         let cites = self.page_cites(&p.session_id, &page.nodes)?;
-        let mut info = self.session_info(&rec, &asks);
-        if withhold {
-            withhold_session_words(&mut info);
-        }
+        let info = self.session_info(&rec, &asks);
         Ok(theseus_protocol::SessionHistoryResult {
-            // The session block is withheld with its nodes (theseus-a7pr):
-            // its `title` is up to sixty characters of the imported
-            // session's first message, so it is the same words one door up.
             session: info,
             pending_confirms: self.confirms_of(&pending, &rec, known),
             nodes: page
                 .nodes
                 .iter()
                 .map(|(pos, n)| self.marked_answer(self.marked_moved(Self::node_info(*pos, n))))
-                .map(|i| match withhold {
-                    true => withheld_node(i),
-                    false => i,
-                })
                 .collect(),
             next: page.next,
             older: page.older,
-            cites: match withhold {
-                true => Vec::new(),
-                false => cites,
-            },
+            cites,
         })
     }
 
@@ -1563,28 +1444,6 @@ impl Core {
         Ok(theseus_protocol::CompilationListResult { compilations: out })
     }
 
-    /// `node.list` as a test asks it: the owner's surface. Production reaches
-    /// the list only through [`Core::node_list_on`], so no route can forget
-    /// the surface (theseus-a7pr).
-    #[cfg(test)]
-    pub(super) fn node_list(
-        &self,
-        p: theseus_protocol::NodeListParams,
-    ) -> Result<theseus_protocol::NodeListResult, RpcFailure> {
-        self.node_list_for(p, true)
-    }
-
-    /// `node.list` as `surface` asks it: a surface that reads no private text
-    /// is given an imported session's nodes with their text withheld, as
-    /// `session.history` gives them (theseus-a7pr).
-    pub(super) fn node_list_on(
-        &self,
-        p: theseus_protocol::NodeListParams,
-        surface: crate::approval::Surface,
-    ) -> Result<theseus_protocol::NodeListResult, RpcFailure> {
-        self.node_list_for(p, surface.reads_private())
-    }
-
     /// A result node that holds another profile's answer says how the turn that asked ended when
     /// it did not end well (`detail.subagent_ended`, `stopped` or `failed`): the history and the
     /// cockpit draw the answer from the node, so they can say what the other surfaces do.
@@ -1609,10 +1468,10 @@ impl Core {
         info
     }
 
-    pub(crate) fn node_list_for(
+    /// `node.list`: the same words for every surface (2026-11-22).
+    pub(super) fn node_list(
         &self,
         p: theseus_protocol::NodeListParams,
-        private: bool,
     ) -> Result<theseus_protocol::NodeListResult, RpcFailure> {
         let n = p.n.unwrap_or(100).min(2000);
         // A kind or a session reads its tag's newest `n` (theseus-96w2);
@@ -1646,13 +1505,7 @@ impl Core {
         Ok(theseus_protocol::NodeListResult {
             nodes: nodes
                 .iter()
-                .map(|(pos, node)| {
-                    let info = self.marked_answer(Self::node_info(*pos, node));
-                    match !private && crate::import::is_imported(&node.session_id) {
-                        true => withheld_node(info),
-                        false => info,
-                    }
-                })
+                .map(|(pos, node)| self.marked_answer(Self::node_info(*pos, node)))
                 .collect(),
             total: self.store.node_count()?,
         })
@@ -1666,16 +1519,33 @@ impl Core {
         p: theseus_protocol::NodeReachParams,
     ) -> Result<theseus_protocol::NodeReachResult, RpcFailure> {
         use crate::reach::Named;
-        if let Some(r) = crate::reach::reach(&self.store, &p.node_id, p.max_generations)? {
-            return Ok(r);
-        }
-        let id = match crate::reach::resolve(&self.store, &p.node_id)? {
-            Named::One(id) => id,
-            Named::Unknown(why) => return Err(RpcFailure::new(error_code::NOT_FOUND, why)),
-            Named::Refused(why) => return Err(RpcFailure::new(error_code::INVALID_PARAMS, why)),
+        let mut r = match crate::reach::reach(&self.store, &p.node_id, p.max_generations)? {
+            Some(r) => r,
+            None => {
+                let id = match crate::reach::resolve(&self.store, &p.node_id)? {
+                    Named::One(id) => id,
+                    Named::Unknown(why) => return Err(RpcFailure::new(error_code::NOT_FOUND, why)),
+                    Named::Refused(why) => {
+                        return Err(RpcFailure::new(error_code::INVALID_PARAMS, why))
+                    }
+                };
+                crate::reach::reach(&self.store, &id, p.max_generations)?.ok_or_else(|| {
+                    RpcFailure::new(error_code::NOT_FOUND, format!("no node {id:?}"))
+                })?
+            }
         };
-        crate::reach::reach(&self.store, &id, p.max_generations)?
-            .ok_or_else(|| RpcFailure::new(error_code::NOT_FOUND, format!("no node {id:?}")))
+        // What Jev says about the node itself, beside where it went (issue 44).
+        r.labels = Some(self.item_labels(&r.node_id)?);
+        Ok(r)
+    }
+
+    /// What Jev says about `node`, with its exchange's topics (`item_labels::of_node`).
+    pub(crate) fn item_labels(
+        &self,
+        node: &str,
+    ) -> anyhow::Result<theseus_protocol::ItemLabelsView> {
+        let o = self.runner.ontology.snapshot(&self.store).ok();
+        crate::item_labels::of_node(&self.store, o.as_deref(), node)
     }
 
     pub(super) fn action_confirm(
@@ -2125,31 +1995,4 @@ pub(crate) fn ledger_tags(kind: Option<&str>, session: Option<&str>) -> Vec<Stri
             None => ledger_kind(k),
         })
         .collect()
-}
-
-/// An imported session as a surface that reads no private text sees it:
-/// its id, its counts, its state and its labels, never its own words
-/// (theseus-a7pr). The five fields here are every one of `SessionInfo`'s
-/// that is drawn from the session's messages, checked against the type
-/// rather than assumed: `title` and `title_was` are `session::title_from`
-/// of its summary or its first message (`import::write` fills them, so up
-/// to sixty characters of it), and `first_text`, `last_text` and `prompts`
-/// are what `session.list { with_text }` reads from its nodes
-/// (`rpc::session_find::words_of`). `withheld_node` is its twin a level
-/// down; `docs/design/imported-surface.md` is the rule both serve.
-pub(crate) fn withhold_session_words(i: &mut theseus_protocol::SessionInfo) {
-    i.title = None;
-    i.title_was = None;
-    i.first_text = None;
-    i.last_text = None;
-    i.prompts = None;
-}
-
-/// An imported node as a surface that reads no private text sees it: who,
-/// when and how big, never what it said (theseus-a7pr).
-pub(crate) fn withheld_node(mut i: theseus_protocol::NodeInfo) -> theseus_protocol::NodeInfo {
-    i.text = crate::books::WITHHELD.into();
-    i.thinking = String::new();
-    i.detail = Value::Null;
-    i
 }

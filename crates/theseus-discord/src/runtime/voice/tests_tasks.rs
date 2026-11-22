@@ -114,7 +114,6 @@ impl Rig {
             views,
             gone: Vec::new(),
             notices: Vec::new(),
-            threads: Vec::new(),
         };
         self.core.bus.publish_work(&out, &self.core.tools.scrubber);
     }

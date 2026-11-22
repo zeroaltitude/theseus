@@ -188,21 +188,22 @@ async fn a_listing_three_back() -> (crate::tests_places::Rig, String, String, St
 }
 
 /// The listing's exchange, third newest and laid with its tool results whole (ample room), and its result
-/// recalled too: the result is in the request once.
+/// recalled too: the result is in the request twice, the window's and slot H's. A result is never counted as
+/// carried (clearing could make the window's a receipt after the set-aside); twice is acceptable, zero is not.
 #[tokio::test]
-async fn a_floor_exchanges_result_laid_whole_and_recalled_is_laid_once() {
+async fn a_floor_exchanges_result_laid_whole_and_recalled_is_never_lost() {
     let (r, old, _, _) = a_listing_three_back().await;
     let c = &r.core;
     c.runner.memory.set_ask(index_of(c, vec![old]));
     let new = session_in(c, None, &r.root);
     turn(c, &new, ASKED).await;
     let sent = texts(&last_call(&r));
-    assert_eq!(sent.matches(LISTED).count(), 1, "{sent}");
+    assert_eq!(sent.matches(LISTED).count(), 2, "{sent}");
 }
 
-/// Slot H's backstop over the exchanges as laid, read from the store: the listing's exchange laid spoken
-/// (its result's body cut to a receipt) does not cover the recalled result, which stays; laid whole, it
-/// does, and the recalled result is set aside as in the window, not counted as left out.
+/// Slot H's backstop over the exchanges as laid, read from the store: the listing's exchange, laid spoken (its
+/// result's body cut to a receipt) or whole, never covers the recalled result, which stays in slot H; nothing
+/// is set aside and nothing is counted as left out.
 #[tokio::test]
 async fn a_result_the_window_lays_only_as_a_receipt_stays_in_slot_h() {
     let (r, old, listed, result) = a_listing_three_back().await;
@@ -255,7 +256,7 @@ async fn a_result_the_window_lays_only_as_a_receipt_stays_in_slot_h() {
         sessions: None,
         zone: &crate::recall::stamp::system,
     };
-    for (form, kept) in [(Form::Spoken, true), (Form::Whole, false)] {
+    for (form, kept) in [(Form::Spoken, true), (Form::Whole, true)] {
         let laid = piece(
             Space::Exchanges {
                 place: place.clone(),
@@ -318,7 +319,6 @@ fn long_recall(c: &mut crate::Config) {
     view(c);
     c.memory.recall_budget_tokens = 2_000_000;
     c.memory.recall_max_items = NOTES;
-    c.memory.session_recall_cap_tokens = 20_000_000;
 }
 
 /// More notes than slot H's ceiling holds, each cut by recall to its own excerpt.
@@ -423,190 +423,35 @@ async fn every_recalled_item_cut_leaves_the_left_out_line_alone() {
     );
 }
 
-/// Every message saying `what`, in any session, moved into the thread `kelp` as a split records it.
-fn move_into_kelp(c: &crate::Core, what: &str) {
-    for s in (c.store.list_sessions::<crate::session::SessionRecord>()).unwrap() {
-        for (_, n) in c.store.session_nodes(&s.session_id).unwrap() {
-            if matches!(&n.body, crate::node::Body::UserMessage { text, .. } if text.contains(what))
-            {
-                let to = serde_json::json!({"thread": "kelp", "split": "spl_x"});
-                c.store
-                    .put_meta(&crate::moved::moved_of_key(&n.id), &to)
-                    .unwrap();
-            }
-        }
-    }
-}
-
-/// A clear reply whose exchange the window withholds whole, because its message moved into a sealed
-/// thread: recall admits the reply on its own, and slot H lays it (once), though the exchange was among
-/// the place's newest three; the moved message is laid as no passage.
+/// A plain recalled item still names its session in its header: its id and when it was said; and no
+/// title, though its session has one.
 #[tokio::test]
-async fn a_clear_reply_of_an_exchange_the_window_withholds_is_laid_in_slot_h() {
-    const ASK: &str = "desk: the embargoed figure is 7741";
-    const REPLY: &str = "the Hollowmere ledger balances at the end of each month";
-    let r = crate::tests_places::rig_setup_scripted(
-        |c| {
-            c.memory.mode = crate::config::MemoryMode::Live;
-            view(c);
-            c.threads.enabled = true;
-        },
-        |s| {
-            crate::tests_view_compile::kelp(s, true);
-        },
-        |q| match crate::tests_places::last_user(q).contains("7741") && !q.tools.is_empty() {
-            true => Scripted::text(REPLY),
-            false => Scripted::text("Noted."),
-        },
-    );
+async fn a_recalled_items_header_names_its_session_by_id_place_and_time() {
+    const SAID: &str = "the Hollowmere orchard gate code is kept in the blue tin";
+    const TITLE: &str = "Kestrel tin ledger";
+    let (r, _) = owners_rig(view);
     let c = &r.core;
-    let old = session_in(c, None, &r.root);
-    turn(c, &old, ASK).await;
-    move_into_kelp(c, "7741");
-    c.runner.memory.set_ask(index_of(c, vec![old]));
-    let new = session_in(c, None, &r.root);
-    turn(c, &new, ASKED).await;
-    let q = last_call(&r);
-    let sent = texts(&q);
-    assert_eq!(sent.matches(REPLY).count(), 1, "{sent}");
-    // The moved message is laid as no passage and no turn. Recall's own item header still names the
-    // reply's session by a title made of that message (`recall::evidence`): reported, not this lane's.
-    let passage = format!("\n    \"{ASK}\"");
-    for (role, text) in blocks_with(&q, ASK) {
-        assert!(
-            role == "user" && !text.contains(&passage) && text != ASK,
-            "{text}"
-        );
-    }
-}
-
-/// A recalled message moved into a sealed thread is not laid; moved between two calls of one turn, it is
-/// laid in the first and gone from the next.
-#[tokio::test]
-async fn a_recalled_message_moved_into_a_sealed_thread_is_not_laid_nor_kept_after_the_move() {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::{Arc, OnceLock};
-    const SECRET: &str = "the Hollowmere desk figure is 6620";
-    for between in [false, true] {
-        let seen = Arc::new(AtomicU32::new(0));
-        let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
-        let (count, held) = (seen.clone(), core.clone());
-        let r = crate::tests_places::rig_setup_scripted(
-            |c| {
-                c.memory.mode = crate::config::MemoryMode::Live;
-                view(c);
-                c.threads.enabled = true;
-            },
-            |s| {
-                crate::tests_view_compile::kelp(s, true);
-            },
-            move |q| {
-                if q.tools.is_empty() {
-                    return Scripted::text("aside");
-                }
-                if answers_a_call(q) {
-                    return Scripted::text("Done.");
-                }
-                if count.fetch_add(1, Ordering::SeqCst) == 0 && between {
-                    move_into_kelp(held.get().unwrap(), "6620");
-                }
-                Scripted::tools(
-                    "Looking.",
-                    &[("b1", "fs_list", serde_json::json!({"path": "."}))],
-                )
-            },
-        );
-        let _ = core.set(r.core.clone());
-        let c = &r.core;
-        let desk = crate::tests_places::session(c, None);
-        let n = crate::node::Node::user(&desk, None, "test", SECRET);
-        c.store.append(&[n.record().unwrap()]).unwrap();
-        if !between {
-            move_into_kelp(c, "6620");
-        }
-        c.runner.memory.set_ask(index_of(c, vec![desk]));
-        let sid = session_in(c, None, &r.root);
-        turn(c, &sid, ASKED).await;
-        let asked: Vec<String> = (r.requests().into_iter())
-            .filter(|q| !q.tools.is_empty())
-            .map(|q| texts(&q))
-            .collect();
-        assert!(asked.len() >= 2, "{}", asked.len());
-        assert_eq!(asked[0].contains("6620"), between, "{}", asked[0]);
-        for q in &asked[1..] {
-            assert!(!q.contains("6620"), "between {between}: {q}");
-        }
-    }
-}
-
-/// `view show --text` of a recalled item, as the owner's own look reads it: its source's text while the
-/// source is clear, and withheld once its thread is sealed (the look lifts no seal).
-#[tokio::test]
-async fn the_owners_look_shows_a_recalled_item_and_withholds_it_once_sealed() {
-    use crate::view::record::show::{PieceText as _, Source as _};
-    const SECRET: &str = "the kelp vault code for the Hollowmere hives is 5519";
-    let thread = std::cell::RefCell::new(String::new());
-    let r = crate::tests_places::rig_setup(
-        |c| {
-            c.memory.mode = crate::config::MemoryMode::Live;
-            view(c);
-            c.threads.enabled = true;
-        },
-        |s| *thread.borrow_mut() = crate::tests_view_compile::kelp(s, false),
-    );
-    let c = &r.core;
-    let thread = thread.into_inner();
-    let n = crate::node::Node::user(&thread, None, "test", SECRET);
+    let notes = crate::tests_places::session(c, None);
+    let n = crate::node::Node::user(&notes, None, "test", SAID);
     c.store.append(&[n.record().unwrap()]).unwrap();
-    let at = Pos {
-        at_ms: n.created_at_ms,
-        id: n.id.clone(),
-    };
-    let range = SourceRange {
-        space: Space::Recalled {
-            session: thread,
-            node: n.id.clone(),
-        },
-        first: at.clone(),
-        last: at,
-    };
-    let piece = Piece {
-        range: range.clone(),
-        band: Band::Recall,
-        slot: Band::Recall.row().slot,
-        reasons: BTreeSet::from([Reason::Recalled]),
-        form: Form::Whole,
-        marks: Marks {
-            place: None,
-            audience: Audience::Private,
-            author: Author::Unknown,
-            outside: false,
-            sealed: false,
-            veiled: false,
-        },
-        sizes: Sizes {
-            whole: 10,
-            spoken: 10,
-            line: 10,
-        },
-        handle: Handle(n.id),
-        unit: None,
-    };
-    let look = crate::view::record::source::GateSource {
-        runner: &c.runner,
-        pov: theseus_memory::gate::PointOfView {
-            anchor: "local".into(),
-            place: theseus_memory::recall::Place::Private,
-            present: theseus_memory::gate::Present::OwnerAlone,
-        },
-        asker: None,
-    };
-    assert!(look.may_show(&range, None), "clear: shown");
-    let text = crate::view::record::StoreText(&c.store).text(&piece);
+    let mut rec = (c.store.get_session::<crate::session::SessionRecord>(&notes))
+        .unwrap()
+        .unwrap();
+    rec.title = Some(TITLE.into());
+    c.store.put_session(&notes, &rec).unwrap();
+    c.runner.memory.set_ask(index_of(c, vec![notes.clone()]));
+    let sid = session_in(c, None, &r.root);
+    turn(c, &sid, ASKED).await;
+    let q = last_call(&r);
+    let held = blocks_with(&q, SAID);
+    let (_, text) = held.first().expect("recalled");
+    let short = crate::recall::evidence::short(&notes);
+    let line = (text.lines())
+        .find(|l| l.contains(&format!("session {short}")))
+        .unwrap_or_else(|| panic!("the header names its session: {text}"));
     assert!(
-        text.is_some_and(|t| t.contains(SECRET)),
-        "its source's text"
+        line.contains(" in ") && line.contains("said "),
+        "place and time: {line}"
     );
-    crate::tests_view_compile::seal_kelp(c);
-    assert!(!look.may_show(&range, None), "sealed since: withheld");
+    assert!(!texts(&q).contains(TITLE), "no title anywhere: {line}");
 }

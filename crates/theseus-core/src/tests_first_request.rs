@@ -120,12 +120,23 @@ fn pressure(tokens: u64, max: u64) -> String {
     format!(", {room} tokens of room{warn}")
 }
 
-/// Every kind of place is within its budget (cli and task 8,000, the DM 15,000), and the DM's is the larger.
+/// The owner's word of 2026-11-22 on these budgets: "2000-4000 tokens budget is fine -- these aren't rules but
+/// general guidelines". A first request is held to its place's budget plus this headroom; the budgets themselves
+/// (`first_request`, which the tools' demotion reads) are unchanged.
+pub(crate) const HEADROOM: u64 = 4_000;
+
+/// A place's budget as a guideline: the budget and the owner's headroom.
+pub(crate) fn guideline(place: &str) -> Option<u64> {
+    budget(place).map(|b| b + HEADROOM)
+}
+
+/// Every kind of place is within its budget as a guideline with headroom (cli and task 8,000 and 4,000 more, the
+/// DM 15,000 and 4,000 more: the owner's word of 2026-11-22), and the DM's is the larger.
 #[test]
 fn every_kind_of_place_is_within_its_budget() {
     let (core, _dir) = rig();
     for place in PLACES {
-        let Some(max) = budget(place) else {
+        let Some(max) = guideline(place) else {
             assert_eq!(place, "harness");
             continue;
         };
@@ -143,7 +154,9 @@ fn every_kind_of_place_is_within_its_budget() {
     // the defaults read 7,516): every kind of place within its budget there too.
     let (owner, _dir) = rig_of(OWNER_SHAPE);
     for place in PLACES {
-        let Some(max) = budget(place) else { continue };
+        let Some(max) = guideline(place) else {
+            continue;
+        };
         let tokens = owner.first_request(place).unwrap().tokens;
         eprintln!(
             "first request, the owner's shape, {place}: {tokens} tokens (budget {max}){}",
@@ -158,7 +171,9 @@ fn every_kind_of_place_is_within_its_budget() {
     // and the profiles' tools, which every place defers by default, so the budgets are the owner's own.
     let (started, _sdir) = rig_started(OWNER_SHAPE);
     for place in PLACES {
-        let Some(max) = budget(place) else { continue };
+        let Some(max) = guideline(place) else {
+            continue;
+        };
         let tokens = started.first_request(place).unwrap().tokens;
         eprintln!("first request, the owner's shape, started from a file, {place}: {tokens} tokens (budget {max})");
         assert!(
@@ -211,7 +226,7 @@ fn a_loaded_tool_is_named_in_the_allowlist_with_its_reason() {
 /// The line that names the profiles (issue 37) rides in the turn's tail, which the census does not
 /// read, so its cost is counted here the census's own way (its characters at the model's rate for
 /// text) and added to every kind of place's first request on the owner's shape: no place is put
-/// over its budget by it, and no budget moves.
+/// over its budget by it (a guideline with headroom: the owner's word of 2026-11-22), and no budget moves.
 #[test]
 fn the_profile_line_fits_every_places_room() {
     let (owner, _dir) = rig_of(OWNER_SHAPE);
@@ -219,7 +234,9 @@ fn the_profile_line_fits_every_places_room() {
     let line =
         crate::profile_tool::names::line(names).expect("the owner's shape has several profiles");
     for place in PLACES {
-        let Some(max) = budget(place) else { continue };
+        let Some(max) = guideline(place) else {
+            continue;
+        };
         let first = owner.first_request(place).unwrap().tokens;
         let rates = crate::catalog::TokenRates::of(
             &owner.cfg.profile(&owner.cfg.model.live).unwrap().model,

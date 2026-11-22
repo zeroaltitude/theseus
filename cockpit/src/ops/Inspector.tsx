@@ -1,10 +1,10 @@
 // The inspector (theseus-jid7t.3, .6): the selection's facts and verbs. A task's or conversation's card whole, with its
 // questions answered in place (`ConfirmCard`), its verbs, its numbers, Live (its narrative, the model's words, its
 // running job's output), its last turns with the composer, its Record and what stands for it; a job's command, eta and
-// followed output; a queue item's full card; a thread's panel with its verbs.
+// followed output; a queue item's full card.
 import { Link } from 'react-router'
 import { Box, CircleStop, ExternalLink, Lock, MousePointerClick, OctagonX, Pause, Play } from 'lucide-react'
-import type { CalendarEvent, CalendarWindow, ConfirmRequest, JobStopResult, SessionInfo, SessionModeResult, TaskRecord, ThreadRow } from '@protocol'
+import type { CalendarEvent, CalendarWindow, ConfirmRequest, JobStopResult, TaskRecord } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { Fragment, useEffect, useState } from 'react'
 import { ConfirmCard } from '@/components/ConfirmCard'
@@ -15,7 +15,6 @@ import { canCloseProject, cardFacts, lifeWords, reportFacts, type CardFacts } fr
 import { reportTextOf } from '@/lib/taskboard'
 import type { QueueItem } from './queue'
 import { Answers } from './Queue'
-import { ThreadBody } from './ThreadPanel'
 import { useOpsAct } from './act'
 import { TWICE_MS } from './keys'
 import { useOpsUi } from './ui'
@@ -24,7 +23,7 @@ import { EventDetail } from './EventDetail'
 import { Facts, RecordBlock, Section, StandingBlock } from './InspectorSections'
 import { JoinPane } from './JoinPane'
 import { Live } from './Live'
-import { bodyOf, carriedWords, dismissOf, jobFacts, jobStoppable, NONE_KEYS, NONE_WORDS, recordFacts, runningJob, stepView, taskFacts, type FactLine } from './sections'
+import { bodyOf, carriedWords, dismissOf, jobFacts, jobStoppable, NONE_KEYS, NONE_WORDS, recordFacts, runningJob, stepView, taskFacts } from './sections'
 import type { Bucket } from './address'
 import { StickyChip } from './ModelMenu'
 import { RehomeSheet, RescheduleSheet } from './TaskSheets'
@@ -43,7 +42,7 @@ export interface InspectorCx {
   onMenu: (m: 'model' | 'mode', sid: string) => void
   /** The parent's row, when the selection reports to one (`p`). */
   onParent: (sessionId: string) => void
-  /** Join a session by its id or a thread by its slug (the Join pane). */
+  /** Join a session by its id (the Join pane). */
   onJoin: (id: string) => void
   /** The id in the Join pane: its session's composer is there, so the inspector keeps no second one. */
   joined: string | null
@@ -52,7 +51,6 @@ export interface InspectorCx {
 export type Selection =
   | { kind: 'row'; row: OpsRow }
   | { kind: 'item'; item: QueueItem }
-  | { kind: 'thread'; slug: string }
   | { kind: 'mark'; key: string }
   // ops-timeline (theseus-jid7t.5): a calendar event, drawn redacted when the page is.
   | { kind: 'event'; ev: CalendarEvent; cal: CalendarWindow; redact: boolean }
@@ -60,7 +58,6 @@ export type Selection =
   | { kind: 'none'; counts?: ReadonlyArray<{ b: Bucket; label: string; n: number }>; onFilter?: (b: Bucket) => void }
 
 export function Inspector({ sel, confirms, past, now, cx }: { sel: Selection; confirms: readonly ConfirmRequest[]; past: number | null; now: number; cx: InspectorCx }) {
-  if (sel.kind === 'thread') return <ThreadJoin slug={sel.slug} cx={cx} />
   if (sel.kind === 'item') return <ItemWhole i={sel.item} past={past} />
   if (sel.kind === 'row' && bodyOf(sel.row) === 'job') return <JobWhole r={sel.row} now={now} />
   if (sel.kind === 'row' && bodyOf(sel.row) === 'step') return <StepWhole r={sel.row} confirms={confirms.filter((c) => c.session_id === sel.row.sessionId)} past={past} now={now} cx={cx} />
@@ -83,27 +80,6 @@ function NoneWhole({ sel }: { sel: Extract<Selection, { kind: 'none' }> }) {
         </Section>
       )}
       <Section title="Keys"><dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">{NONE_KEYS.map((k) => <Fragment key={k.keys}><dt><span className="kbd">{k.keys}</span></dt><dd>{k.words}</dd></Fragment>)}</dl></Section>
-    </div>
-  )
-}
-
-function ThreadJoin({ slug, cx }: { slug: string; cx: InspectorCx }) {
-  const { on } = useOpsAct()
-  // Beside the Join pane: the thread's mode and data mark, its session's, then the thread page (card, working set).
-  const { data: row } = useRpc<ThreadRow>('thread.show', { slug }, 0)
-  const sid = row?.thread.session_id ?? undefined
-  const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
-  const { data: mode } = useRpc<SessionModeResult>('session.mode', { session_id: sid }, 0, { enabled: !!sid })
-  const mark = sl?.sessions.find((x) => x.session_id === sid)?.data ?? 'open'
-  const lines: FactLine[] = sid ? [{ label: 'mode', value: mode?.mode ?? '…' }, { label: 'data', value: mark, tone: mark === 'open' ? undefined : 'wait' }] : [{ label: 'session', value: 'opens with the first message' }]
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2 px-2.5 pt-2.5">
-        <ActBtn verb="join" on={on} tone="live" onClick={() => cx.onJoin(slug)} title="i: talk to the thread; its first message opens its session">i · Join and chat</ActBtn>
-        {mark !== 'open' && <Pill tone="wait" title="the floor keeps this to models of US origin"><Lock size={10} /> {mark}</Pill>}
-      </div>
-      <div className="px-2.5"><Facts lines={lines} /></div>
-      <ThreadBody slug={slug} live wide={false} />
     </div>
   )
 }
@@ -173,7 +149,6 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">
         {f.model && <><dt className="text-ink-faint">model</dt><dd className="num text-model">◇ {f.model}{r.view?.moved_to ? ' (moved by a checkpoint)' : ''}{r.sessionId && <span className="ml-1.5"><StickyChip sessionId={r.sessionId} /></span>}</dd></>}
         {f.place && <><dt className="text-ink-faint">place</dt><dd className="num text-ink" title={f.placeTip}>{f.place}</dd></>}
-        {r.thread && <><dt className="text-ink-faint">thread</dt><dd className="num"><Link className="text-live" to={`/threads/${r.thread}`}>{r.thread}</Link></dd></>}
         {f.progress && <><dt className="text-ink-faint">progress</dt><dd className="num text-ink">{f.progress}</dd></>}
         {f.doing && <><dt className="text-ink-faint">doing</dt><dd className="text-ink-dim">{f.doing}</dd></>}
         {f.due && <><dt className="text-ink-faint">due</dt><dd className="num text-think">{f.due}</dd></>}

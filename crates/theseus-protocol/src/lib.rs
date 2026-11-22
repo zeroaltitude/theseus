@@ -22,7 +22,10 @@ pub mod census;
 pub mod check;
 pub mod cite;
 pub mod content;
-pub use content::{ContentUnlabelParams, LabelLink, LabelRaised, LabelView, UnlabelResult};
+pub use content::{
+    ContentUnlabelParams, ItemFlag, ItemLabelsView, ItemQuestion, LabelLink, LabelRaised,
+    LabelView, UnlabelResult,
+};
 pub mod context;
 mod cost;
 pub mod exchange;
@@ -116,7 +119,6 @@ pub mod term;
 #[cfg(test)]
 mod tests_task_info;
 pub mod thread_cache;
-mod thread_placed;
 pub mod thread_route;
 pub mod threads;
 mod tighten;
@@ -136,7 +138,6 @@ mod window;
 pub mod work;
 mod work_digest;
 pub mod work_system;
-mod work_threads;
 mod work_watch;
 
 pub use actions::{ActionInfo, ActionListParams, ActionListResult};
@@ -188,7 +189,6 @@ pub use status::*;
 pub use submit::{SessionOpenParams, TurnSubmitParams};
 pub use tasks::{TaskDetail, TaskListParams, TaskListResult};
 pub use term::{TerminalInfo, TerminalLeft};
-pub use thread_placed::*;
 pub use tighten::*;
 pub use time::now_unix_ms;
 pub use toolinfo::{ToolInfo, ToolListResult};
@@ -199,7 +199,6 @@ pub use watches::{
 };
 pub use window::*;
 pub use work_digest::*;
-pub use work_threads::{group as group_threads, Grouped, GroupedThread, WARM_MS};
 pub use work_watch::*;
 
 use serde::{Deserialize, Serialize};

@@ -1,7 +1,6 @@
 //! `context.explain` (theseus-7n3e): a turn's parts are the bytes its
-//! request carried, they say when they changed since, a place that is not
-//! private reads their sizes alone, and the read warns of nothing a turn
-//! would.
+//! request carried, they say when they changed since, and the read warns of
+//! nothing a turn would.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -160,25 +159,6 @@ async fn a_turn_s_parts_are_the_system_blocks_its_request_carried() {
         Some(false),
         "the first turn's file was the one-word rule"
     );
-}
-
-/// A place that is not private reads the sizes and digests, and no text.
-#[tokio::test]
-async fn a_place_that_is_not_private_reads_no_text() {
-    let (r, path) = rig(vec![Scripted::text("Four.")], "RULES.md");
-    std::fs::write(&path, "Answer in one word.\n").unwrap();
-    aged(Path::new(&path));
-    let res = turn(&r.core, None, "what is 2 + 2?").await;
-    let x = explain(&r.core, &res.session_id, None, false);
-    assert!(x.withheld.is_some());
-    assert!(x.title.is_none());
-    assert!(x.parts.iter().all(|p| p.text.is_none()), "{:?}", x.parts);
-    assert!(x
-        .parts
-        .iter()
-        .any(|p| p.block == "context" && p.bytes > 0 && p.digest.is_some()));
-    let private = explain(&r.core, &res.session_id, None, true);
-    assert_eq!(x.digest_now, private.digest_now);
 }
 
 /// The read warns of nothing: a missing context file is still the turn's

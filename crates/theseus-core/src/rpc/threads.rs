@@ -1,11 +1,11 @@
-//! `thread.new`, `.list`, `.show`, `.edit`, `.pause`, `.resume`, `.done` and
-//! `.reopen` (theseus-nhew), and the thread a `turn.submit` names. A thread is
-//! private always, so every one is the owner's, from a private place, judged
-//! as the standing records' writes are (`judge_act(Act::Thread)`), and the CLI
-//! refuses the writes inside a job. A write is one frame: the thread's record
-//! and its ledger row. `thread.done` also leaves the card to memory as a note
-//! in the thread's session and retires that session, each a frame of its own
-//! after the thread's.
+//! `thread.list` and `.show`, read-only: threads were retired on 2026-11-22
+//! (issue 44), and these read the stored records. A thread is private
+//! always, so each read is the owner's, from a private place, judged as the
+//! standing records' writes are (`judge_act(Act::Thread)`).
+//!
+//! The writers below (`thread_new`, `thread_edit`, the state moves) answer no
+//! method any more. They stay only as fixture writers for tests in other
+//! units' files, and go with the sweep.
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -14,8 +14,8 @@ use anyhow::{anyhow, bail, Result};
 use serde_json::json;
 use theseus_protocol::threads::{
     place_of, slug_ok, ThreadEditParams, ThreadInfo, ThreadListParams, ThreadListResult,
-    ThreadNameParams, ThreadNewParams, ThreadRow, ThreadState, ThreadUnclaimParams, WorkingSet,
-    MAX_CARD, MAX_LINE_CHARS, MAX_TOPICS,
+    ThreadNameParams, ThreadNewParams, ThreadRow, ThreadState, WorkingSet, MAX_CARD,
+    MAX_LINE_CHARS, MAX_TOPICS,
 };
 use theseus_protocol::{error_code, method, SessionOpenParams};
 use theseus_store::{kinds, NewRecord, Page};
@@ -89,7 +89,9 @@ impl Move {
 }
 
 impl Core {
-    /// The eight methods, each as the connection's answerer.
+    /// The two read-only methods (threads were retired on 2026-11-22, issue
+    /// 44): `thread.list` and `thread.show` read the stored records. Every
+    /// other `thread.*` method is refused.
     pub(super) fn rpc_threads(
         &self,
         name: &str,
@@ -97,44 +99,21 @@ impl Core {
         conn: Conn<'_>,
     ) -> Result<serde_json::Value, RpcFailure> {
         match name {
-            method::THREAD_NEW => route(params, |p: ThreadNewParams| {
-                self.thread_new(&p, conn.answerer(p.author.clone(), p.discord.clone()))
-            }),
             method::THREAD_LIST => route(params, |p: ThreadListParams| {
                 self.thread_list(&p, conn.answerer(p.author.clone(), p.discord.clone()))
             }),
             method::THREAD_SHOW => route(params, |p: ThreadNameParams| {
                 self.thread_show(&p.slug, conn.answerer(p.author.clone(), p.discord.clone()))
             }),
-            method::THREAD_EDIT => route(params, |p: ThreadEditParams| {
-                self.thread_edit(&p, conn.answerer(p.author.clone(), p.discord.clone()))
-            }),
-            method::THREAD_PAUSE => route(params, |p: ThreadNameParams| {
-                self.thread_pause(&p.slug, conn.answerer(p.author, p.discord))
-            }),
-            method::THREAD_RESUME => route(params, |p: ThreadNameParams| {
-                self.thread_resume(&p.slug, conn.answerer(p.author, p.discord))
-            }),
-            method::THREAD_MERGE
-            | method::THREAD_UNMERGE
-            | method::THREAD_SPLIT
-            | method::THREAD_SPLIT_PLAN
-            | method::THREAD_UNSPLIT => self.rpc_thread_joins(name, params, conn),
-            method::THREAD_LINK | method::THREAD_UNLINK => {
-                self.rpc_thread_links(name, params, conn)
-            }
-            method::THREAD_UNCLAIM => route(params, |p: ThreadUnclaimParams| {
-                self.thread_unclaim(&p, conn.answerer(p.author.clone(), p.discord.clone()))
-            }),
-            method::THREAD_DONE => route(params, |p: ThreadNameParams| {
-                self.thread_done(&p.slug, conn.answerer(p.author, p.discord))
-            }),
-            method::THREAD_SEAL | method::THREAD_UNSEAL | method::THREAD_SEAL_DISMISS => {
-                super::thread_seal::route_seal(self, name, params, conn)
-            }
-            _ => route(params, |p: ThreadNameParams| {
-                self.thread_reopen(&p.slug, conn.answerer(p.author, p.discord))
-            }),
+            // The other names stay in the protocol until the sweep takes them out: each is
+            // refused, so a client that still sends one is told why.
+            _ => Err(RpcFailure::new(
+                error_code::REFUSED,
+                format!(
+                    "{name}: threads were retired on 2026-11-22; `thread.list` and `thread.show` \
+                     read the stored records"
+                ),
+            )),
         }
     }
 
@@ -149,44 +128,9 @@ impl Core {
         })
     }
 
-    /// The threads as the work board groups them, with what their sessions
-    /// hold (context tokens, today's dollars): a read for a person, as
-    /// `thread.list` is, taken when a `work.watch` begins.
-    pub(super) fn thread_groups(&self) -> Vec<theseus_protocol::ThreadGroup> {
-        let board = self.threads();
-        let (mut live, done): (Vec<ThreadInfo>, Vec<ThreadInfo>) = board
-            .all()
-            .cloned()
-            .partition(|t| t.state != ThreadState::Done);
-        let mut out: Vec<theseus_protocol::ThreadGroup> = self
-            .thread_rows(&mut live)
-            .into_iter()
-            .map(|r| {
-                let mut g = crate::threads::group_of(&r.thread);
-                g.context_tokens = r.context_tokens;
-                g.today_usd = Some(r.today_usd);
-                g
-            })
-            .collect();
-        out.extend(done.iter().map(crate::threads::group_of));
-        out
-    }
-
-    /// Tell the work board of every change to the threads (theseus-5i8i),
-    /// once: a write or a bind sends the groups on to the watchers.
-    pub(super) fn install_thread_feed(self: &std::sync::Arc<Self>) {
-        let weak = std::sync::Arc::downgrade(self);
-        self.runner.threads.on_change(Box::new(move |board| {
-            if let Some(core) = weak.upgrade() {
-                core.push.set_threads(&core, board.groups());
-            }
-        }));
-    }
-
     /// Read the threads now, off the start path: after serving, on the
     /// blocking pool. A reader that comes sooner reads them itself, once.
     pub fn warm_threads(self: &std::sync::Arc<Self>) {
-        self.install_thread_feed();
         let core = std::sync::Arc::downgrade(self);
         tokio::task::spawn_blocking(move || {
             let Some(core) = core.upgrade() else { return };
@@ -225,6 +169,10 @@ impl Core {
     }
 
     /// `thread.new`.
+    ///
+    /// No method reaches this (threads were retired on 2026-11-22): a fixture
+    /// writer for other units' tests, until the sweep.
+    #[doc(hidden)]
     pub fn thread_new(
         &self,
         p: &ThreadNewParams,
@@ -472,6 +420,10 @@ impl Core {
     }
 
     /// `thread.edit`: each field given replaces what the thread held.
+    ///
+    /// No method reaches this (threads were retired on 2026-11-22): a fixture
+    /// writer for other units' tests, until the sweep.
+    #[doc(hidden)]
     pub fn thread_edit(
         &self,
         p: &ThreadEditParams,
@@ -579,6 +531,7 @@ impl Core {
     }
 
     /// `thread.pause`: an active thread takes no message until resumed.
+    #[doc(hidden)]
     pub fn thread_pause(
         &self,
         slug: &str,
@@ -588,6 +541,7 @@ impl Core {
     }
 
     /// `thread.resume`.
+    #[doc(hidden)]
     pub fn thread_resume(
         &self,
         slug: &str,
@@ -598,6 +552,7 @@ impl Core {
 
     /// `thread.done`: the thread ends, its session retires and its card goes
     /// to memory.
+    #[doc(hidden)]
     pub fn thread_done(
         &self,
         slug: &str,
@@ -607,6 +562,7 @@ impl Core {
     }
 
     /// `thread.reopen`.
+    #[doc(hidden)]
     pub fn thread_reopen(
         &self,
         slug: &str,
@@ -753,13 +709,6 @@ impl Core {
             ));
         }
         self.thread_session_of(slug, target, "discord")
-    }
-
-    /// `thread_session`, the owner already judged: the router's own call, for a
-    /// message in a private place (the board offers a shared place none), and a
-    /// move's, which judged its presser (theseus-rha2).
-    pub(super) fn thread_session_open(&self, slug: &str) -> Result<SessionRecord, RpcFailure> {
-        self.thread_session_of(slug, "the owner", "the thread router")
     }
 
     fn thread_session_of(

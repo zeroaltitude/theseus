@@ -39,14 +39,16 @@ impl Core {
         conn: super::server::Conn<'_>,
     ) -> Result<serde_json::Value, RpcFailure> {
         match name {
-            theseus_protocol::method::MEMORY_LOOKUP => reply(
-                self.rpc_memory_lookup(super::server::parse(params)?, conn.surface)
-                    .await?,
-            ),
-            _ => reply(
-                self.memory_search_for(super::server::parse(params)?, conn.surface.reads_private())
-                    .await?,
-            ),
+            theseus_protocol::method::MEMORY_LOOKUP => {
+                // A decode error echoes the value it could not read: the vault's values substituted, as every
+                // memory reply's words (review of round 3). The same code.
+                let p = super::server::parse(params).map_err(|mut e| {
+                    e.message = crate::memory_lookup::mcp::said(self, &e.message);
+                    e
+                })?;
+                reply(self.rpc_memory_lookup(p, conn.surface).await?)
+            }
+            _ => reply(self.memory_search(super::server::parse(params)?).await?),
         }
     }
 
@@ -71,8 +73,12 @@ impl Core {
             other => {
                 return Err(RpcFailure::new(
                     error_code::INVALID_PARAMS,
-                    format!("memory.lookup's op is search or get, not {other:?}"),
-                ))
+                    // It echoes what was asked: the vault's values substituted, as every reply's words.
+                    crate::memory_lookup::mcp::said(
+                        self,
+                        &format!("memory.lookup's op is search or get, not {other:?}"),
+                    ),
+                ));
             }
         };
         let read = match tool {

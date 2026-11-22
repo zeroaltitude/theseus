@@ -78,8 +78,11 @@ impl Core {
         }
     }
 
-    /// The job a request names, if this connection may read it.
-    fn job_for(&self, id: &str, conn: &Conn<'_>) -> Result<Job, RpcFailure> {
+    /// The job a request names. Every connection may read any job's output
+    /// (2026-11-22). `acting` is `job.stop`'s: an act still keeps the place
+    /// rule as its input (a connection that reads no private text stops only
+    /// a shared place's job), because that is an act gate, not a read.
+    fn job_for(&self, id: &str, conn: &Conn<'_>, acting: bool) -> Result<Job, RpcFailure> {
         let none = || RpcFailure::new(error_code::NOT_FOUND, format!("no job {id}"));
         let action = self
             .kernel
@@ -88,7 +91,8 @@ impl Core {
             .flatten()
             .filter(|a| a.tool == "proc.run" && a.dispatched_at_ms.is_some())
             .ok_or_else(none)?;
-        if !conn.surface.reads_private()
+        if acting
+            && !conn.surface.reads_private()
             && !matches!(self.runner.place_of(&action.session_id), Place::Shared(_))
         {
             return Err(none());
@@ -125,7 +129,7 @@ impl Core {
                 },
                 Err(e) => RpcFailure::invalid(e),
             })?;
-        let job = self.job_for(&p.id, &conn)?;
+        let job = self.job_for(&p.id, &conn, true)?;
         let by = who.label.clone();
         let s = crate::toolrun::jobs_tools::stop_job(self, &p.id, &job.action, &by)
             .await
@@ -153,7 +157,7 @@ impl Core {
         p: WorkPeekParams,
         conn: Conn<'_>,
     ) -> Result<WorkPeekResult, RpcFailure> {
-        let job = self.job_for(&p.id, &conn)?;
+        let job = self.job_for(&p.id, &conn, false)?;
         // The board's usual time of the job's program: seeded when it is not.
         self.push.ensure(self).await?;
         let p_id = p.id.clone();
@@ -181,7 +185,7 @@ impl Core {
         p: ActionOutputParams,
         conn: Conn<'_>,
     ) -> Result<ActionOutputResult, RpcFailure> {
-        let job = self.job_for(&p.id, &conn)?;
+        let job = self.job_for(&p.id, &conn, false)?;
         let file = File::open(&job.path).ok();
         let size = file
             .as_ref()

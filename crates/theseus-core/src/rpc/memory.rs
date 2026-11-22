@@ -64,14 +64,12 @@ impl Core {
                 }
             },
         };
-        // A channel bound private recalls as a place of one (the gate's decision 5).
-        let places = crate::view_gate::RecallPlaces::of(&self.runner, p.session_id.as_deref());
         let (place, in_context) = match &p.session_id {
             Some(sid) => {
                 self.session_exists(sid)?;
                 let nodes = self.store.session_nodes(sid)?;
                 let ids: BTreeSet<String> = nodes.into_iter().map(|(_, n)| n.id).collect();
-                (places.asker(self.runner.place_of(sid)), ids)
+                (self.runner.place_of(sid), ids)
             }
             None => (Place::Private, BTreeSet::new()),
         };
@@ -80,14 +78,6 @@ impl Core {
         let deadline = Duration::from_millis(memory.cfg().recall_deadline_ms).max(SEARCH_DEADLINE);
         let mut begun = memory.begin(p.query.clone(), p.as_of, p.k.unwrap_or(K), arm, deadline);
         let answer = begun.answer().await;
-        let mut answer = answer;
-        let threads = p
-            .session_id
-            .as_deref()
-            .and_then(|s| self.runner.thread_scene(Some(s), &p.query, false));
-        // Seals hold on every path, threads on or off (the gate).
-        let asker = p.session_id.as_deref();
-        let sealed = crate::view_gate::seal_out(&self.runner, asker, &mut answer.0);
         let scene = Scene {
             mode: "search",
             session_id: p.session_id.as_deref(),
@@ -98,20 +88,17 @@ impl Core {
             budget_tokens: None,
             max_items: None,
             science: memory.science_for(arm),
-            threads,
             persona: None,
             category: None,
         };
-        let mut m = memory.manifest(
+        Ok(memory.manifest(
             &scene,
             &begun,
             answer,
-            |s| places.of_session(&self.runner, s),
+            |s| self.runner.place_of(s),
             |ids| crate::recall::links(&self.store, ids),
             true,
-        );
-        crate::view_gate::count_sealed(&mut m, sealed);
-        Ok(m)
+        ))
     }
 
     /// `memory.recalls`: the session's recall rows, newest last, each

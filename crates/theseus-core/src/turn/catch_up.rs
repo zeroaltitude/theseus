@@ -123,7 +123,6 @@ impl TurnRunner {
             tc.record(&fact::turn::WakeCameDue { fired: f });
         }
         t.wake_target = fired.iter().find_map(|f| f.wake.target.clone());
-        t.set_ups = fired.iter().map(|f| f.wake.by.clone()).collect();
         t.wakes = fired
             .iter()
             .map(|f| json!({"wake_id": f.wake.id, "text": crate::wake::fired_text(f), "late_ms": f.late_ms}))
@@ -156,14 +155,8 @@ impl TurnRunner {
                     let Some(r) = crate::task::load_report(&self.store, &self.kernel, id)? else {
                         continue;
                     };
-                    // A report whose sources may not be shown where it is
-                    // delivered now is a notice here; its body stays in the
-                    // task's session (the gate).
-                    let shown = crate::view_gate::report_shown(self, tc.session_id, &r.task);
-                    let text = match shown {
-                        true => r.node_text(),
-                        false => crate::view_gate::withheld_report(&r.short),
-                    };
+                    // A report is delivered whole where its work reports.
+                    let text = r.node_text();
                     let n = Node::relayed(
                         tc.session_id,
                         Some(tc.turn_id),
@@ -176,7 +169,7 @@ impl TurnRunner {
                     // relayed node copies the task's last message, so
                     // `node.reach` follows it from there. A task that did
                     // not finish relays no message, and has no edge.
-                    if let Some(last) = r.node.as_ref().filter(|_| shown) {
+                    if let Some(last) = r.node.as_ref() {
                         records.push(
                             crate::graph::Edge::new(
                                 crate::graph::EdgeKind::DerivedFrom,

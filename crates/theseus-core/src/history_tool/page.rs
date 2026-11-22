@@ -1,10 +1,7 @@
-//! A page of `context.history`: the ledger's touch index read as the view's timeline, the checks every line
-//! passes, and the page in words.
+//! A page of `context.history`: the ledger's touch index read as the view's timeline, and the page in words.
 //!
-//! Paging runs over what the caller may read: a page's `next` is always the position of an exchange it
-//! showed, and whether there is more, whether history is exhausted, and the allowance's sentence are decided
-//! by admitted exchanges alone, so inserting or deleting exchanges this point of view may not see changes no
-//! byte of an answer. One exception is told as what it is: a walk that reads [`READ_MOST`] touches without
+//! A page's `next` is always the position of an exchange it showed, and whether there is more, whether
+//! history is exhausted, and the allowance's sentence are decided by the exchanges read. One exception is told as what it is: a walk that reads [`READ_MOST`] touches without
 //! finishing its page stops as a limit of the tool, never as the end of history, and its resume position is
 //! kept by the tool for the turn behind an opaque token (`super::Board`), never shown.
 
@@ -21,7 +18,7 @@ use crate::view::history::{
     History, HistoryArgs, HistoryLine, HistoryPage, PageEnd, LOOKS_PER_TURN, PAGE_EXCHANGES,
 };
 use crate::view::timeline::{Cursor, ExchangeRef, Timeline, TimelineRoot};
-use crate::view::{Handle, PointOfView, Present};
+use crate::view::{Handle, PointOfView};
 
 /// The person's words on a line, and a reply's beginning, at most (characters).
 pub const WORDS_CHARS: usize = 300;
@@ -86,27 +83,18 @@ impl Timeline for Ledger<'_> {
     }
 }
 
-/// What a page may show, seen from one point of view: the place rule and the seal.
+/// What a page reads: every exchange of the timeline walked, for every reader (anything goes, 2026-11-22).
 pub struct Lens<'a> {
     pub store: &'a Store,
     /// The place the turn is in (`exchange::place_of`).
     pub here: String,
-    pub present: Present,
-    /// Whether a session's words are held out: true unless it is proven neither sealed nor seal-pending
-    /// (`Core::ladder_hidden`), the asking session itself aside.
-    pub hidden: &'a (dyn Fn(&str) -> bool + Sync),
-    /// Whether an exchange holds a message or a reply moved into a thread not proven clear for this reader
-    /// (`view_gate::Moved`): it is held whole, before any page, count or cursor is made.
-    pub moved: &'a (dyn Fn(&Exchange) -> bool + Sync),
-    /// Whether a session's place is private, by the place rule.
-    pub private: &'a (dyn Fn(&str) -> bool + Sync),
     /// Where a bare call begins ([`in_view`]).
     pub in_view: Option<Cursor>,
     /// The turns the words index found, when words were given.
     pub words: Option<HashSet<String>>,
-    /// The asking session: what it ran itself at this place is always shown to it, whoever is present (the
-    /// view's rule, `view::permit::Permit::speaking`), its moved messages held out as ever.
-    pub own: Option<&'a str>,
+    /// The asking session's cut, when it is a fork (`fork::cut`): an exchange the fork point falls in, or one
+    /// an ancestor began after it, is not in the fork's history, by position. Empty for any other session.
+    pub cut: crate::fork::cut::Cut,
 }
 
 /// A walk's page, and where a walk stopped by its bound would resume (kept by the tool, never shown).
@@ -116,32 +104,6 @@ pub struct Walked {
 }
 
 impl Lens<'_> {
-    /// Whether `ex` may be shown here. Nothing for an unknown audience, an unknown place, a session not
-    /// proven unsealed, or a message of it moved into a thread not proven unsealed. This place's own exchanges, a private one only to a private reader. Another place's
-    /// only where the owner is alone, and only his own exchanges of a private place.
-    pub fn admits(&self, ex: &Exchange) -> bool {
-        if ex.place == exchange::rebuild::UNKNOWN
-            || (self.hidden)(&ex.session_id)
-            || (self.moved)(ex)
-        {
-            return false;
-        }
-        if self.own == Some(ex.session_id.as_str()) && ex.place == self.here {
-            return true;
-        }
-        if matches!(self.present, Present::Unknown) {
-            return false;
-        }
-        let private_reader = matches!(self.present, Present::OwnerAlone | Present::Private);
-        if ex.place == self.here {
-            return !ex.private || private_reader;
-        }
-        self.present == Present::OwnerAlone
-            && ex.private
-            && ex.person.as_deref() == Some(OWNER)
-            && (self.private)(&ex.session_id)
-    }
-
     /// The timeline a call reads, and whether a bare call's start applies to it.
     pub fn root(&self, a: &HistoryArgs) -> Result<(TimelineRoot, bool)> {
         let some = |s: &Option<String>| {
@@ -152,23 +114,33 @@ impl Lens<'_> {
         };
         match (some(&a.place), some(&a.thing)) {
             (Some(_), Some(_)) => bail!("narrow by a place or by a thing, not both"),
-            (Some(p), None) if p == self.here => Ok((TimelineRoot::Place(p), true)),
-            (Some(_), None) if self.present != Present::OwnerAlone => bail!(
-                "other places are read only where the owner is alone; here, only this place's history is read"
-            ),
-            (Some(p), None) => Ok((TimelineRoot::Place(p), false)),
+            (Some(p), None) => {
+                let bare = p == self.here;
+                Ok((TimelineRoot::Place(p), bare))
+            }
             (None, Some(t)) => Ok((TimelineRoot::Thing(t), false)),
             (None, None) => Ok((TimelineRoot::Place(self.here.clone()), true)),
         }
     }
 
-    /// The exchange `r` names, when it may be shown here.
+    /// The exchange `r` names, unless a fork's cut holds it ([`Lens::forked`]). Every page, every count and
+    /// every words search's scope reads exchanges through here.
     fn admitted(&self, r: &ExchangeRef) -> Result<Option<Exchange>> {
-        Ok(exchange::exchange(self.store, &r.turn_id)?.filter(|ex| self.admits(ex)))
+        let Some(ex) = exchange::exchange(self.store, &r.turn_id)? else {
+            return Ok(None);
+        };
+        Ok((!self.forked(&ex)?).then_some(ex))
     }
 
-    /// The sessions of the admitted exchanges of `root`, from its newest on, within [`READ_MOST`] touches:
-    /// what a words search is scoped to before it ranks anything.
+    /// Whether a fork's cut holds `ex` out of its history: the exchange its point falls in, or one an
+    /// ancestor began after it, by position (`fork::cut::Cut::reach`). A read that fails is an error.
+    pub fn forked(&self, ex: &Exchange) -> Result<bool> {
+        Ok(!self.cut.is_empty()
+            && self.cut.reach(self.store, ex)? != crate::fork::cut::Reach::Inside)
+    }
+
+    /// The sessions of the exchanges of `root`, from its newest on, within [`READ_MOST`] touches: what a words
+    /// search is scoped to before it ranks anything.
     pub fn scope(&self, root: &TimelineRoot) -> Result<HashSet<String>> {
         let tl = Ledger(self.store);
         let (mut out, mut before, mut read) = (HashSet::new(), None, 0);

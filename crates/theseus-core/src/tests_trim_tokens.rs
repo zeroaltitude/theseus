@@ -5,9 +5,10 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use crate::first_request::{budget, FirstRequest};
+use crate::first_request::FirstRequest;
 use crate::provider::FakeProvider;
 use crate::store::Store;
+use crate::tests_first_request::guideline;
 use crate::{Config, Core};
 
 const OWNER_SHAPE: &str = include_str!("../fixtures/owner_shape.toml");
@@ -46,13 +47,14 @@ fn first(core: &Core, place: &str) -> FirstRequest {
 }
 
 /// The owner's cli with the tasks and aws learned (the census of 2026-10-17 read 13,665 tokens exact):
-/// the first request stays inside its 8,000, and what was demoted is still one search away.
+/// the first request stays inside its 8,000 as a guideline with 4,000 of headroom (the owner's word of
+/// 2026-11-22), and what was demoted is still one search away.
 #[test]
 fn the_owner_shaped_cli_with_learned_tasks_fits_8000() {
     let (core, _dir) = rig_of(OWNER_SHAPE);
     seed(&core, "cli", &["tasks", "aws"]);
     let req = first(&core, "cli");
-    let max = budget("cli").unwrap();
+    let max = guideline("cli").unwrap();
     assert!(req.tokens <= max, "{} tokens over {max}", req.tokens);
     assert!(!req.loaded.contains(&"task_create".to_string()));
     assert!(!req.loaded.contains(&"aws_call".to_string()));
@@ -101,7 +103,8 @@ fn the_dm_default_keeps_wake_at_and_defers_tasks() {
     ] {
         assert!(!dm.loaded.contains(&t.to_string()), "{t}");
     }
-    assert!(dm.tokens < 10_500, "the DM reads {} tokens", dm.tokens);
+    // A guideline with headroom: 10,500 and 4,000 more (the owner's word of 2026-11-22).
+    assert!(dm.tokens < 14_500, "the DM reads {} tokens", dm.tokens);
     let channel = PlaceKind::Channel.defaults();
     assert!(channel.contains(&"tasks") && channel.contains(&"reminders"));
     assert!(!PlaceKind::Cli.defaults().contains(&"reminders"));

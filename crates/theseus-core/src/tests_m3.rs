@@ -714,10 +714,15 @@ async fn proc_run_returns_in_turn_and_a_slow_one_comes_back_later_as_a_late_resu
     let ks = kinds(&r.core, &res.session_id);
     assert!(ks.contains(&"tool_result:ok:late".to_string()), "{ks:?}");
     let last = r.fake.requests().pop().unwrap();
-    let late = last.messages.last().unwrap()["content"][0]["text"]
-        .as_str()
+    // The view leads a turn no message opened with its occasion's line, beside the late result: every text
+    // block of the last message (issue 44).
+    let late = (last.messages.last().unwrap()["content"]
+        .as_array()
         .unwrap()
-        .to_string();
+        .iter())
+    .filter_map(|b| b["text"].as_str())
+    .collect::<Vec<_>>()
+    .join("\n");
     assert!(
         late.contains("Background result") && late.contains("slow done"),
         "{late}"
@@ -2473,6 +2478,45 @@ fn ledger_after(core: &Core, after: u64) -> Vec<String> {
 /// each was its own frame. The template turns the narrative on, and a
 /// subscriber is watching: the narrative is never stored, so it adds no
 /// frame (theseus-5fy).
+/// The one turn that re-titles a conversation (its first message with substance, after a first that had none:
+/// `turn::title_step`) writes ONE frame more than a plain turn: its new compilation and the session record go
+/// at once, in a frame of their own, so a card asked in that very turn names the conversation by its new title
+/// (`turn::settle::persist_compilation`; the owner's decision of 2026-11-22: the cost is stated, not hidden).
+/// The next turn is back at the plain turn's budget, so a second early write cannot creep in unnoticed.
+#[tokio::test]
+async fn the_turn_that_re_titles_a_conversation_writes_one_frame_more_and_the_next_is_back_at_four()
+{
+    let r = rig(vec![
+        Scripted::text("first"),
+        Scripted::text("the heron nests by the weir"),
+        Scripted::text("hello"),
+    ]);
+    let first = turn(&r.core, None, "warm up").await;
+    let sid = first.session_id.clone();
+    let frames = |before: u64| r.core.store.stats().unwrap().frames_appended - before;
+    let before = r.core.store.stats().unwrap().frames_appended;
+    let res = turn(&r.core, Some(&sid), "Where does the grey heron nest?").await;
+    assert_eq!(res.loops, 1);
+    assert_eq!(
+        frames(before),
+        5,
+        "the re-titling turn: the plain turn's four and its early write"
+    );
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    assert_eq!(
+        rec.title_was,
+        vec!["warm up".to_string()],
+        "it re-titled the conversation"
+    );
+    let before = r.core.store.stats().unwrap().frames_appended;
+    turn(&r.core, Some(&sid), "and the herons by the old mill?").await;
+    assert!(
+        frames(before) <= 4,
+        "the next turn is a plain turn again: {}",
+        frames(before)
+    );
+}
+
 #[tokio::test]
 async fn a_plain_turn_stays_within_its_frame_budget() {
     let r = rig(vec![Scripted::text("first"), Scripted::text("hello")]);
@@ -2832,7 +2876,7 @@ async fn a_two_loop_tool_turn_is_narrated_part_by_part() {
         ("turn", "24 characters of input"),
         ("loop", "Loop 1 of up to 40"),
         ("context", "new compilation"),
-        ("context", "because the session is new"),
+        ("context", "(view) because of view_turn"),
         ("model", "Calling claude-sonnet-5-5 on anthropic: reserving"),
         ("model", "answered in"),
         ("model", "it stopped to call 1 tool"),
@@ -3021,7 +3065,7 @@ async fn the_narrative_follows_an_approval_and_a_background_job() {
 
 /// The template's live profile is Sonnet 5.5: a call reserves its
 /// 128,000-token output cap at $10 per million ($1.28) plus its input
-/// estimate at $2. A $1.40 limit fits the first call, not the second once
+/// estimate at $2. A $1.60 limit fits the first call, not the second once
 /// the first's 30,000 words out (about $0.30) are spent, and fits the second
 /// again after a reset.
 fn over_budget_rig(then: Vec<Scripted>) -> Rig {
@@ -3031,7 +3075,10 @@ fn over_budget_rig(then: Vec<Scripted>) -> Rig {
     )];
     script.extend(then);
     rig_with(script, |c| {
-        c.kernel.spend_limit_usd = 1.40;
+        // The view's waiting call (loop 0's 30,000 words beside the front, at the estimate's margin, and
+        // 128,000 output tokens reserved) needs about $1.45: a limit that call fits once reset, and does not
+        // fit after loop 0's spend. $1.40 was the transcript's request (issue 44; budgets are guidelines).
+        c.kernel.spend_limit_usd = 1.60;
         c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
     })
 }
@@ -3107,12 +3154,12 @@ async fn a_session_at_its_limit_asks_and_an_approved_reset_makes_the_waiting_cal
     assert_eq!(
         req.reason,
         format!(
-            "This session has spent {} of its $1.40 limit. Reset its spend to $0 and continue?",
+            "This session has spent {} of its $1.60 limit. Reset its spend to $0 and continue?",
             crate::narrative::dollars(spent)
         )
     );
     let b = req.budget.clone().unwrap();
-    assert_eq!((b.spent_usd, b.limit_usd), (micros_to_usd(spent), 1.4));
+    assert_eq!((b.spent_usd, b.limit_usd), (micros_to_usd(spent), 1.6));
     assert!(b.needed_usd > 1.28, "{b:?}");
     let pending = r.core.pending_confirms(&sid).unwrap();
     assert_eq!(pending.len(), 1);
@@ -3171,7 +3218,7 @@ async fn a_session_at_its_limit_asks_and_an_approved_reset_makes_the_waiting_cal
     assert_eq!(reset.len(), 1);
     assert_eq!(reset[0]["by"], "discord:zeroaltitude");
     assert_eq!(reset[0]["spent_before_usd"], json!(micros_to_usd(spent)));
-    assert_eq!(reset[0]["limit_usd"], json!(1.4));
+    assert_eq!(reset[0]["limit_usd"], json!(1.6));
     assert_eq!(reset[0]["correlation_id"], json!(q));
     assert!(r.core.pending_confirms(&sid).unwrap().is_empty());
 
@@ -6270,8 +6317,11 @@ mod parallel {
         assert_eq!(again.tool_calls, 7);
         let reqs = r.fake.requests();
         assert_eq!(reqs.len(), 4);
-        assert_eq!(reqs[3].messages, reqs[1].messages);
-        assert_eq!(reqs[3].digest(), reqs[1].digest());
+        // A new session at the same place: the view lays the place's earlier exchange before the turn's own
+        // (issue 44), so the turn's own messages are the same, byte for byte, and so is everything else.
+        let own = &reqs[3].messages[reqs[3].messages.len() - reqs[1].messages.len()..];
+        assert_eq!(own, &reqs[1].messages[..]);
+        assert_eq!(reqs[3].system, reqs[1].system);
         let written = labels(&r.core, &again.session_id);
         let results: Vec<&String> = written.iter().filter(|l| l.starts_with("result")).collect();
         let in_order: Vec<String> = order.iter().map(|id| format!("result {id}")).collect();

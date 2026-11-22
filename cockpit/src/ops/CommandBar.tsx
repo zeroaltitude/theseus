@@ -31,7 +31,7 @@ const COUNTERS: ReadonlyArray<{ b: Bucket; key?: string; tone: Tone; glyph: stri
   { b: 'spent', tone: 'money', glyph: '$' },
 ]
 
-const LENS_KEYS: Record<Lens, string> = { graph: 'g g', board: 'g b', timeline: 'g t', threads: 'g h', tasks: 'no key' }
+const LENS_KEYS: Record<Lens, string> = { graph: 'g g', board: 'g b', timeline: 'g t', tasks: 'no key' }
 
 /** The last hour, one sample a minute: a timer that reads nothing. */
 const SAMPLES = 60
@@ -77,7 +77,7 @@ export function CommandBar({ calls = OWNER_CALLS, counts, f, onFilter, lens, onL
         </div>
         {lens === 'board' && <HelpButton id="ops.board" title="Board" />}
         {lens === 'graph' && <><HelpButton id="ops.graph" title="Graph" /><HelpButton id="ops.words" title="Words" /></>}
-        {(['thread', 'model', 'place', 'kind', 'state', 'project', 'ended', 'data'] as const).map((k) => (
+        {(['model', 'place', 'kind', 'state', 'project', 'ended', 'data'] as const).map((k) => (
           <Chip key={k} k={k} value={f[k]} choices={choices[k] ?? []} onPick={(v) => onFilter(k, v)} />
         ))}
         <label className="ml-auto flex min-w-56 items-center gap-2 rounded-lg px-2.5 py-1 text-[12px] ring-1 ring-line focus-within:ring-live/60">
@@ -148,7 +148,7 @@ function CounterTable({ hist, calls }: { hist: Record<Bucket, number[]>; calls: 
   )
 }
 
-const CHIP_WORDS: Record<string, string> = { thread: 'thread', model: 'model', place: 'place', kind: 'kind', state: 'state', project: 'project', ended: 'ended within', data: 'data' }
+const CHIP_WORDS: Record<string, string> = { model: 'model', place: 'place', kind: 'kind', state: 'state', project: 'project', ended: 'ended within', data: 'data' }
 const ENDED = ['1h', '3h', '1d', '7d']
 
 function Chip({ k, value, choices, onPick }: { k: FilterKey; value?: string; choices: string[]; onPick: (v: string | null) => void }) {

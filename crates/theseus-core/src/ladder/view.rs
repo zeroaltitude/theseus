@@ -77,7 +77,6 @@ pub struct StoreFolds<'a> {
     pub store: &'a Store,
     pub writer: &'a dyn Writer,
     pub flags: &'a dyn Flags,
-    pub hidden: &'a (dyn Fn(&str) -> bool + Sync),
 }
 
 impl StoreFolds<'_> {
@@ -105,7 +104,6 @@ impl StoreFolds<'_> {
         let step = Step {
             writer: self.writer,
             flags: self.flags,
-            hidden: self.hidden,
             purse: &purse,
         };
         let _one = super::WRITING.lock().await;

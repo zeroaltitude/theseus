@@ -100,7 +100,6 @@ fn self_families() -> Vec<(&'static str, String)> {
 
 /// Turn warnings, spend and AWS, Google, and personas.
 fn spend_families() -> Vec<(&'static str, String)> {
-    let home = crate::turn::home_size_step::warning_text("DM @owner", 40_000, 1_000_000, None);
     use crate::turn::personal_step;
     let privacy = personal_step::warning_text(
         "draw_out",
@@ -160,7 +159,6 @@ fn spend_families() -> Vec<(&'static str, String)> {
     let google = crate::google::tend::lapse_text("wren@example.com");
     let persona = crate::turn::persona_step::missing_text("wren", "/p/SOUL.md", "denied");
     vec![
-        ("home size", home),
         ("privacy warning", privacy),
         ("privacy held", privacy_held),
         ("day ceiling", ceiling),
@@ -267,7 +265,6 @@ fn no_unasked_message_names_the_small_model() {
         all.push(("privacy warning", warning_text("expose", 0.9, class, "q")));
     }
     all.push(("privacy hold", held_text("draw", 0.9, ("a", "b"), "q")));
-    all.push(("seal reason", crate::judge::seal::reason(0.9)));
     all.push((
         "a rule's name",
         crate::rule_notice::RULES

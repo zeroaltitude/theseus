@@ -336,19 +336,19 @@ impl Core {
             method::SESSION_OPEN => route(params, |p| self.session_open_on(surface, p)),
             m if super::sessions::OWN.contains(&m) => self.rpc_sessions(m, params, conn),
             m if super::retry::OWN.contains(&m) => self.rpc_retry(m, params, conn),
-            method::TURN_SUBMIT => reply(self.turn_submit(parse(params)?, conn, true).await?),
+            method::TURN_SUBMIT => reply(self.turn_submit(parse(params)?, conn).await?),
             method::PROFILE_LIST => reply(self.profile_list()),
             method::PROFILE_USE => route(params, |p| self.profile_use(p, conn)),
             method::PROFILE_RELEASE => reply(self.profile_release(conn)?),
             method::PROFILE_PINS => reply(self.profile_pins().map_err(RpcFailure::invalid)?),
             method::PROFILE_UNPIN => route(or_empty(params), |p| self.profile_unpin(p, conn)),
-            method::SESSION_HISTORY => route(params, |p| self.history_on(p, conn.surface)),
+            method::SESSION_HISTORY => route(params, |p| self.session_history(p)),
             // The first watch of any kind seeds the push (theseus-tq04).
             method::SESSION_WATCH => reply(self.session_watch(parse(params)?, conn).await?),
             method::SESSION_UNWATCH => route(params, |p| Ok(self.session_unwatch(p, conn))),
             method::CATALOG_LIST => reply(self.catalog_list()),
             method::COMPILATION_LIST => route(params, |p| self.compilation_list(p)),
-            method::NODE_LIST => route(params, |p| self.node_list_on(p, conn.surface)),
+            method::NODE_LIST => route(params, |p| self.node_list(p)),
             method::NODE_REACH => self.rpc_node_reach(params).await,
             method::ACTION_CONFIRM => route(params, |p| self.action_confirm(p, conn)),
             method::WORK_ANSWER => route(params, |p| self.work_answer(p, conn)),
@@ -389,7 +389,7 @@ impl Core {
             // Its filters are optional: no params lists every wake.
             method::WAKE_LIST => route(or_empty(params), |p| self.wake_list(p)),
             method::WAKE_CANCEL => route(params, |p| self.wake_cancel(p, conn)),
-            m @ (method::LEDGER_TAIL | method::LEDGER_WINDOW) => self.ledger_reads(m, params, conn),
+            m @ (method::LEDGER_TAIL | method::LEDGER_WINDOW) => self.ledger_reads(m, params),
             method::NARRATIVE_WATCH | method::NARRATIVE_UNWATCH if !self.narrator.on() => {
                 Err(narration_off())
             }
@@ -403,7 +403,7 @@ impl Core {
             method::SESSION_WAIT => reply(self.session_wait(parse(params)?, conn).await?),
             m if super::index_rebuild::OWN.contains(&m) => self.rpc_index(m, params, conn).await,
             m @ (method::MEMORY_SEARCH | method::MEMORY_LOOKUP) => self.mem(m, params, conn).await,
-            m @ (method::MEMORY_RECALLS | method::MEMORY_CITES) => self.mem_reads(m, params, conn),
+            m @ (method::MEMORY_RECALLS | method::MEMORY_CITES) => self.mem_reads(m, params),
             method::MEMORY_LABEL | method::FACT_RETRACT => self.rpc_acts(&req.method, params, conn),
             // Jev's judgments (M5 23b): their rows, and one with its state.
             method::JUDGE_LIST | method::JUDGE_GET => self.rpc_reads(&req.method, params),

@@ -4,10 +4,7 @@
 //! pressure (the machine quiet before each replay), and under
 //! `[route_bench] replay_day_usd`: the day's spend is read back from the rows, and
 //! a replay whose reservation would pass what is left is not made (the check
-//! is before the call, never after). Never a shared place's turn, and never
-//! one whose replay would send a sealed thread's, a veiled recall's or an
-//! attachment's bytes to a provider other than the original's
-//! (`Core::crossing`).
+//! is before the call, never after). A shared place's turn is sampled too.
 
 use crate::sweep_notice::SweepId;
 use std::collections::{BTreeMap, HashSet};
@@ -20,7 +17,7 @@ use theseus_protocol::LedgerKind;
 use tokio::time::Instant;
 
 use super::rebuild::NotRebuildable;
-use super::replay::{CapReached, Crossing};
+use super::replay::CapReached;
 use super::{rung, BY_SAMPLER};
 use crate::fact::own_bench::RouteReplayJudged;
 use crate::learning::tender::{due, tend};
@@ -180,10 +177,6 @@ impl Core {
                 continue;
             };
             for c in turns {
-                if self.runner.class_of(&c.session) == crate::places::PlaceClass::Shared {
-                    skip(&mut out, "shared_place");
-                    continue;
-                }
                 // A replay costs something: at the cap, the next one is the stop.
                 self.runner
                     .sweep_heads_up(SweepId::RouteBench, cap, spent, 1);
@@ -284,8 +277,6 @@ impl Core {
                 }
                 let why = if let Some(n) = e.downcast_ref::<NotRebuildable>() {
                     format!("not_rebuildable:{}", n.part)
-                } else if e.downcast_ref::<Crossing>().is_some() {
-                    "crossing".to_string()
                 } else {
                     tracing::warn!(turn = %c.turn, error = %format!("{e:#}"), "a sampled replay failed");
                     "failed".to_string()

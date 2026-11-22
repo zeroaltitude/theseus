@@ -38,8 +38,11 @@ pub fn open(lens: &Lens<'_>, h: &Handle) -> Result<String, String> {
     let none = || format!("no exchange {} can be opened here", flat(h.0.trim()));
     let ex = exchange::exchange(lens.store, h.0.trim())
         .map_err(|_| none())?
-        .filter(|e| lens.admits(e))
         .ok_or_else(none)?;
+    // A fork opens nothing its cut holds (`Lens::forked`): it reads as no exchange here.
+    if lens.forked(&ex).map_err(|e| format!("{e:#}"))? {
+        return Err(none());
+    }
     let nodes = nodes(lens, &ex).map_err(|e| format!("{e:#}"))?;
     Ok(render(lens, &ex, &nodes))
 }

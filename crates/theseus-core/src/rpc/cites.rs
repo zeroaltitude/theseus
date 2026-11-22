@@ -2,16 +2,14 @@
 //! replies cite, for a surface that draws a reply from its history. Each
 //! handle is resolved in the session's own `Recall` nodes, newest first, as
 //! the turn resolved it; a handle no recall of the session gave is left out.
-//! In a shared place's session a source from a private place, or imported,
-//! is left out too. A read.
+//! A read.
 
 use theseus_protocol::cite::{handles_in, Citation, MemoryCitesParams, MemoryCitesResult};
 use theseus_protocol::error_code;
 
-use super::server::{Conn, RpcFailure};
+use super::server::RpcFailure;
 use super::Core;
 use crate::node::Body;
-use crate::places::PlaceClass;
 use crate::recall::cite::item_for;
 use crate::stub::Kind;
 
@@ -24,15 +22,12 @@ impl Core {
         &self,
         name: &str,
         params: serde_json::Value,
-        conn: Conn<'_>,
     ) -> Result<serde_json::Value, RpcFailure> {
         match name {
             theseus_protocol::method::MEMORY_CITES => {
                 super::server::route(params, |p| self.memory_cites(p))
             }
-            _ => super::server::route(params, |p| {
-                self.memory_recalls_for(p, conn.surface.reads_private())
-            }),
+            _ => super::server::route(params, |p| self.memory_recalls(p)),
         }
     }
 
@@ -75,10 +70,8 @@ impl Core {
     }
 
     /// Each handle in the session's own `Recall` nodes, newest first, as the
-    /// turn resolved it; one no recall of the session gave is left out, and
-    /// in a shared place's session so is a source it may not show.
+    /// turn resolved it; one no recall of the session gave is left out.
     fn cites_of(&self, session_id: &str, handles: &[String]) -> Result<Vec<Citation>, RpcFailure> {
-        let shared = self.runner.class_of(session_id) != PlaceClass::Private;
         let nodes = self.store.transcript(session_id)?;
         let mut cites = Vec::new();
         for handle in handles {
@@ -90,7 +83,7 @@ impl Core {
                     Body::Recall { items, .. } => item_for(items, handle),
                     _ => None,
                 });
-            cites.extend(found.and_then(|item| self.runner.citation(item, shared)));
+            cites.extend(found.and_then(|item| self.runner.citation(item)));
         }
         Ok(cites)
     }

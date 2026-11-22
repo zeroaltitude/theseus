@@ -17,6 +17,7 @@ const EVERY: &str = "[model]\n\
                      ledger = false\n\
                      [memory]\n\
                      summary_profile = \"session\"\n\
+                     session_recall_cap_tokens = 64000\n\
                      [cache]\n\
                      keep_warm_hours = 24\n\
                      threads_keep_warm_hours = 4\n\
@@ -26,6 +27,19 @@ const EVERY: &str = "[model]\n\
                      keep_warm_hours = 2\n\
                      working_tokens = 60000\n\
                      working_percent = 40\n\
+                     cross_recall_penalty = 0.35\n\
+                     cross_recall_bar = 0.75\n\
+                     cross_recall_beats_own = true\n\
+                     cross_recall_needs_entity = true\n\
+                     base_distance = true\n\
+                     own_top_admissible = true\n\
+                     cross_recall_judge = true\n\
+                     cross_recall_judge_k = 3\n\
+                     working_set_grows = true\n\
+                     bench_clock = false\n\
+                     resume_keep_turns = 20\n\
+                     home_warn_percent = 50\n\
+                     seal_recommend = false\n\
                      [profiles.quick]\n\
                      provider = \"anthropic\"\n\
                      model = \"claude-haiku-5-5\"\n\
@@ -99,21 +113,17 @@ fn the_template_names_no_retired_key() {
     assert!(cfg.ignored_keys.is_empty());
 }
 
-/// The three keys something still reads are live, not retired: a file that sets them is read, and a value
-/// out of range still fails the load.
+/// The two keys something still reads are live, not retired: a file that sets them is read, and a value
+/// out of range still fails the load. (`[threads] resume_keep_turns` was the third until the home-size
+/// warning went with the threads, 2026-11-22: it is retired now.)
 #[test]
 fn the_keys_something_still_reads_are_live() {
-    let (cfg, _) = parse(
-        "[cache]\nkeep_warm_every_minutes = 30\nkeep_warm_min_tokens = 5000\n\
-         [threads]\nresume_keep_turns = 7\n",
-    )
-    .unwrap();
+    let (cfg, _) =
+        parse("[cache]\nkeep_warm_every_minutes = 30\nkeep_warm_min_tokens = 5000\n").unwrap();
     assert!(cfg.ignored_keys.is_empty(), "{:?}", names(&cfg));
     assert_eq!(cfg.cache.keep_warm_every_minutes, 30.0);
     assert_eq!(cfg.cache.keep_warm_min_tokens, 5000);
-    assert_eq!(cfg.threads.resume_keep_turns, 7);
     assert!(parse("[cache]\nkeep_warm_every_minutes = 60\n").is_err());
-    assert!(parse("[threads]\nresume_keep_turns = 0\n").is_err());
 }
 
 /// An older name of a retired key loads with the retired key's warning; an older name of a live key still

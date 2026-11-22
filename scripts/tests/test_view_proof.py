@@ -187,7 +187,7 @@ class Words(unittest.TestCase):
     def test_every_case_of_the_addendum_is_named(self):
         self.assertEqual(set(proof.CASES), {
             "message_and_follow_up", "steer", "tool_loop", "continuation", "restart_mid_turn", "wake", "report",
-            "task", "check", "fork", "over_budget", "provider_refusal", "seal_between_calls", "new_mark",
+            "task", "check", "fork", "over_budget", "provider_refusal", "new_mark",
             "shared_place", "retired_keys"})
 
     def test_the_verdict_lines(self):

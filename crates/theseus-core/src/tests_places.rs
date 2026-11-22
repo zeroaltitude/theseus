@@ -91,10 +91,19 @@ pub(crate) fn last_user(req: &ProviderRequest) -> String {
 }
 
 pub(crate) fn answers_a_call(req: &ProviderRequest) -> bool {
+    // Nothing was said after the results: the last block that is not one of the harness's tail blocks (the
+    // task view, the date, the block beside the message: `task_graph::view::is_view`, which a stand-in skips
+    // as not the person's words) is a result. A person's words after a result (a new message merged into the
+    // result's user message, as main's renderer merges one) are a prompt, not a call's answer (issue 44).
     req.messages
         .last()
         .and_then(|m| m["content"].as_array())
-        .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"))
+        .and_then(|c| {
+            c.iter()
+                .rev()
+                .find(|b| !crate::task_graph::view::is_view(b))
+        })
+        .is_some_and(|b| b["type"] == "tool_result")
 }
 
 /// The wire names of the tools a request offered.
@@ -431,7 +440,8 @@ pub(crate) const SHARED_TOOLS: &[&str] = &[
 /// The brief's first test: in a guild channel nobody bound private, the
 /// model is offered only the public tools, and the gate refuses a program
 /// and a file outside the public tree, which never run; the public file is
-/// read. Its system block carries the public context file alone.
+/// read. Its system block carries the public context file (and, since
+/// 2026-11-22, every other one too: context is withheld by no place).
 #[tokio::test]
 async fn a_shared_place_is_offered_and_allowed_only_the_public_tools() {
     let r = rig();
@@ -444,12 +454,8 @@ async fn a_shared_place_is_offered_and_allowed_only_the_public_tools() {
     assert!(system.contains("This place is shared"), "{system}");
     assert!(system.contains(OPEN), "the public context file: {system}");
     assert!(
-        !system.contains(SECRET),
-        "the owner's context file: {system}"
-    );
-    assert!(
-        system.contains("withheld: this place is shared"),
-        "{system}"
+        system.contains(SECRET),
+        "the owner's context file, carried whole since 2026-11-22: {system}"
     );
 
     let program = result_of(&r.core, &shared, "p1");
@@ -559,7 +565,6 @@ async fn a_task_takes_its_parents_class() {
     .await;
     let task = r.asked("count the files");
     assert_eq!(offered(&task[0]), SHARED_TOOLS, "the task's catalog");
-    assert!(!system_text(&task[0]).contains(SECRET));
     let refused = refused(&r.core);
     assert!(
         refused
@@ -594,7 +599,6 @@ async fn a_wake_answered_in_a_shared_place_is_that_places_turn() {
         SHARED_TOOLS,
         "the wake's turn is the channel's"
     );
-    assert!(!system_text(wake).contains(SECRET));
 }
 
 /// Health names each place with its class, and warns of a channel bound
@@ -870,7 +874,6 @@ async fn a_channel_in_a_trusted_guild_gets_everything_and_one_bound_shared_does_
     turn(&r.core, &hall, "hello").await;
     let req = &r.requests()[before];
     assert_eq!(offered(req), SHARED_TOOLS);
-    assert!(!system_text(req).contains(SECRET));
 
     let places = |r: &Rig| -> Vec<(String, PlaceClass, bool, bool)> {
         let h = r.core.health().places.unwrap();

@@ -6,13 +6,13 @@
 // inspector (`EventDetail`).
 //
 // It reads `work.agenda` and `wake.list` when the week shown changes or the push says the future moved, and the work
-// board's views from the one `work.watch` the Threads views keep: a page left alone makes no request
+// board's views from the page's one `work.watch`: a page left alone makes no request
 // (lib/agendawatch.ts). The calendar is the page's one read (`ops/calendarwatch.ts`), passed in. The week, the zoom and
 // the selection are in the address (`?w=`, `?day=`, `?sel=`); redact mode (`?redact=1`) masks a sensitive calendar on
 // every surface drawn here, through `ops/calendar.ts`.
 import { useEffect, useMemo, useState } from 'react'
 import { CalendarClock, Eye, Flag, Hourglass, Lock, Repeat, Undo2 } from 'lucide-react'
-import { useThreadBoard } from '@/lib/threadwatch'
+import { useWorkBoard } from '@/lib/workwatch'
 import { useFuture, useRoutineRuns } from '@/lib/agendawatch'
 import { useTick } from '@/lib/hooks'
 import { useTableView } from '@/lib/chartview'
@@ -50,7 +50,7 @@ export function TimelineLens({ weeks, day, sel, redact, q, cal, past, onSel, onW
   const fullWindow = useFullGraph('Timeline')
   const win = useMemo(() => weekWindow(now, weeks), [Math.floor(now / 3_600_000), weeks]) // eslint-disable-line
   const shown = useMemo(() => zoomed(win, day), [win, day])
-  const board = useThreadBoard()
+  const board = useWorkBoard()
   const views = useMemo(() => Object.values(board.board.views), [board.board.views])
   const future = useMemo(() => views.filter((v) => ['wake', 'routine', 'watch', 'project'].includes(v.kind) || v.next_at_ms != null), [views])
   const held = useMemo(() => new Set(future.map((v) => v.id)), [future])

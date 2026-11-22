@@ -374,8 +374,8 @@ fn the_window_lays_the_floor_spoken_the_rest_spoken_and_tool_results_whole() {
     let floor = select(&s, Band::Floor, Present::Shared);
     assert_eq!(
         floor.iter().map(|p| p.form).collect::<Vec<_>>(),
-        [Form::Whole, Form::Spoken, Form::Spoken],
-        "the newest exchange keeps its tool results"
+        [Form::Spoken, Form::Spoken, Form::Spoken],
+        "the floor is the newest exchanges' words; their tool results are the window's"
     );
     assert_eq!(floor[1].sizes.spoken, 10 + 2_000 + 5);
     assert_eq!(
@@ -385,14 +385,10 @@ fn the_window_lays_the_floor_spoken_the_rest_spoken_and_tool_results_whole() {
         },
         "a retrieved word of his never authorises"
     );
-    assert!(
-        select(&s, Band::Floor, Present::Unknown).is_empty(),
-        "unknown admits nothing"
-    );
 }
 
 #[test]
-fn elsewhere_is_his_last_two_days_and_his_newest_in_five_places_only_where_he_is_alone() {
+fn elsewhere_is_his_last_two_days_and_his_newest_in_five_places() {
     let mut s = Store::default();
     s.ex.push(ex("here", "local", 1));
     s.ex.push(ex("a1", "a", 2));
@@ -417,8 +413,6 @@ fn elsewhere_is_his_last_two_days_and_his_newest_in_five_places_only_where_he_is
         10 + 1_500,
         "a long reply is its two ends"
     );
-    assert!(select(&s, Band::ElsewhereWords, Present::Private).is_empty());
-    assert!(select(&s, Band::ElsewhereWords, Present::Shared).is_empty());
 }
 
 #[test]
@@ -451,10 +445,6 @@ fn the_past_thins_with_age_and_a_fragment_is_never_bare() {
         ids(&select(&s, Band::PastOlder, Present::OwnerAlone)),
         ["d61"]
     );
-    assert!(
-        select(&s, Band::Past7, Present::Shared).is_empty(),
-        "in company: this place only"
-    );
 }
 
 #[test]
@@ -476,7 +466,6 @@ fn in_play_named_waiting_and_recall_ask_for_their_sources() {
         card_of(select(&s, Band::Waiting, Present::OwnerAlone)),
         ["card:question"]
     );
-    assert!(select(&s, Band::Waiting, Present::Private).is_empty());
     assert_eq!(
         card_of(select(&s, Band::Recall, Present::Private)),
         ["card:recalled"]
@@ -485,15 +474,6 @@ fn in_play_named_waiting_and_recall_ask_for_their_sources() {
         select(&s, Band::Reached, Present::OwnerAlone).is_empty(),
         "no search before the first word"
     );
-}
-
-/// Slot H with an unknown presence lays nothing recalled (issue 44), where any known one lays it.
-#[test]
-fn recall_lays_nothing_for_an_unknown_presence() {
-    let s = Store::default();
-    let laid = select(&s, Band::Recall, Present::OwnerAlone);
-    assert_eq!(laid.len(), 1, "a known presence lays it");
-    assert!(select(&s, Band::Recall, Present::Unknown).is_empty());
 }
 
 #[test]
@@ -682,25 +662,27 @@ fn a_unit_with_a_member_the_gate_denies_is_left_out_whole() {
 }
 
 #[test]
-fn the_newest_exchange_keeps_its_tool_results_or_the_turn_overflows() {
+fn the_newest_exchange_keeps_its_words_and_its_tool_results_go_when_there_is_no_room() {
     let mut s = Store::default();
     for i in 0..3 {
         s.ex.push(ex(&format!("t{i}"), "local", 10 - i));
     }
     s.ex[2].tools = 160_000;
-    let a = assembled(&s, &AllowPrivate, "");
-    let v = a.view.expect("the whole fits, G's allowance aside");
-    let newest = v
-        .shown
-        .iter()
-        .find(|x| x.piece.handle.0 == "x:t2")
-        .expect("shown");
-    assert_eq!(newest.form, Form::Whole);
     let (frame, now) = parts();
     let table = table(sources(&s, ""), frame, now);
     let small = Budget::new(100_000, 8_000);
     let r = assemble(&pov(Present::OwnerAlone), &s, &table, &AllowPrivate, &small).expect("reads");
-    assert!(matches!(r, Err(budget::Overflow::Floor { .. })));
+    let v = r.expect("the floor's words fit: no tool result of a previous exchange is mandatory");
+    let newest = v
+        .shown
+        .iter()
+        .find(|x| x.piece.handle.0 == "x:t2")
+        .expect("its words are the floor");
+    assert_eq!(newest.form, Form::Spoken);
+    assert!(
+        !(v.shown.iter()).any(|x| x.piece.handle.0 == "x:t2" && x.form == Form::Whole),
+        "its tool results are not laid whole when there is no room"
+    );
 }
 
 #[test]
@@ -791,7 +773,7 @@ proptest! {
         ceiling in 0u64..20_000,
         here in 0u64..20_000,
     ) {
-        let budget = Budget { ceiling, here_allowance: here, provider_window: 400_000, reserve: 0, floor_only: false };
+        let budget = Budget { ceiling, here_allowance: here, provider_window: 400_000, reserve: 0, floor_only: false, bare: false };
         let mut s = Store { ex: base, ..Store::default() };
         s.ex.sort_by(|a, b| a.turn.cmp(&b.turn));
         s.ex.dedup_by(|a, b| a.turn == b.turn);

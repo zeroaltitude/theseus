@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 mod failed;
 pub(crate) mod kept;
-pub(in crate::turn) mod occasion;
+pub(crate) mod occasion;
 pub(super) mod preview;
 mod recall;
 mod room;
@@ -50,7 +50,6 @@ use crate::view::wire::{assemble, Assembled, NotAssembled, Parts, StoreSnapshot,
 use crate::view::wire_text::TextRenderer;
 use crate::view::{Anchor, Form, Handle, Label, PointOfView, Pos, Present, Reasons, Slot, Space};
 use crate::view_gate::Verified;
-use theseus_memory::gate::Seal;
 
 impl TurnRunner {
     /// This loop's compile, from the turn's view (assembled on its first call). A view that cannot be
@@ -80,12 +79,9 @@ impl TurnRunner {
             if t.exchange.place_unread() {
                 return Err(ViewFailed::Place.into());
             }
-            if let Some(why) = t.exchange.unresumable() {
-                return Err(ViewFailed::from(why).into());
-            }
-        } else if self.view_revoked(t) || self.view_moved(t) {
-            // A source sealed since, or a presence that changed (a steer narrowed it): reassembled under
-            // the new permit, on a new chain, with the room the turn made.
+        } else if self.view_gone(t) {
+            // Something it laid was removed or erased since (absence is not proof): reassembled, on a new
+            // chain, with the room the turn made.
             self.view_refrozen(t, input.spec, None)?;
             Self::view_reset(t, input.nodes);
         }
@@ -118,13 +114,12 @@ impl TurnRunner {
         Ok(compiled)
     }
 
-    /// After every await of a call's compile and before the provider (issue 44): the frozen view's verified
-    /// point of view and its sessions' seals against the gate's reading now. A difference compiles the call
-    /// again (the compile step reassembles under the new permit, on a new chain), at most twice; a third
-    /// difference fails the call plainly (`ViewFailed::Moved`), and nothing is sent. Then the size check
-    /// (`room::view_size`) on the finished request; a recompile for size comes back to the admission check
-    /// too (at most `room::SIZINGS` of them). The request that goes out is the last one compiled, its tail
-    /// kept as the turn loop keeps one.
+    /// After every await of a call's compile and before the provider (issue 44): whether anything the frozen
+    /// view laid was removed or erased since ([`Self::view_gone`]: erase stays, absence is not proof), which
+    /// compiles the call again at most twice and fails it plainly a third time (`ViewFailed::Gone`); then the
+    /// size check (`room::view_size`) on the finished request, a recompile for size coming back to both (at
+    /// most `room::SIZINGS` of them). The request that goes out is the last one compiled, its tail kept as
+    /// the turn loop keeps one. Anything goes (2026-11-22): no presence, seal or move is asked again.
     pub(super) async fn view_readmitted(
         &self,
         t: &mut Turn<'_>,
@@ -133,15 +128,13 @@ impl TurnRunner {
         compiled: Compiled,
         i: u32,
     ) -> anyhow::Result<Result<Compiled, super::Failure>> {
-        // One bounded loop: every recompile, for admission or for size, comes back to the admission check
-        // and then the size check, so nothing compiled after an await is sent unchecked.
-        let (mut compiled, mut moved, mut sized) = (compiled, 0, 0);
+        let (mut compiled, mut gone, mut sized) = (compiled, 0, 0);
         loop {
-            if self.view_revoked(t) || self.view_moved(t) {
-                if moved == VIEW_READMISSIONS {
-                    return Ok(Err(Self::view_failed(t, &ViewFailed::Moved)));
+            if self.view_gone(t) {
+                if gone == VIEW_REASSEMBLIES {
+                    return Ok(Err(Self::view_failed(t, &ViewFailed::Gone)));
                 }
-                moved += 1;
+                gone += 1;
             } else {
                 match room::view_size(t, &mut compiled, sized == room::SIZINGS) {
                     room::Size::Fits => return Ok(Ok(compiled)),
@@ -162,25 +155,14 @@ impl TurnRunner {
         }
     }
 
-    /// Whether the gate reads the turn's point of view differently from when its view was assembled.
-    pub(super) fn view_moved(&self, t: &Turn<'_>) -> bool {
-        let Some(f) = (t.view.as_ref()).filter(|f| f.turn_id == t.tc.turn_id) else {
-            return false;
-        };
-        let now = Verified::of_session(self, t.tc.session_id);
-        f.verified.as_ref() != Some(now.pov())
-    }
-
-    /// Whether a session the frozen view lays has been sealed since it was assembled (the gate's own
-    /// reading, for this turn's session).
-    pub(super) fn view_revoked(&self, t: &Turn<'_>) -> bool {
+    /// Whether an exchange the frozen view lays is gone now, or a node its recall laid is gone or erased
+    /// (`kept::held_now`).
+    pub(super) fn view_gone(&self, t: &Turn<'_>) -> bool {
         let Some(f) = t.view.as_ref().filter(|f| f.turn_id == t.tc.turn_id) else {
             return false;
         };
-        // A session sealed, or a message it shows moved into a thread or that thread sealed, since it was
-        // assembled; or a recalled item it lays held out now (`recall::view_recall_revoked`).
-        kept::held_now(self, t.tc.session_id, (&f.sessions, &f.exchanges, &[]))
-            || self.view_recall_revoked(t.tc.session_id, &f.recalled)
+        let recalled: Vec<String> = (f.recalled.iter()).map(|r| r.node_id.clone()).collect();
+        kept::held_now(self, t.tc.session_id, (&[], &f.exchanges, &recalled))
     }
 
     /// A new chain for the turn: its next call makes a new compilation (the sent tails let go), and the
@@ -246,23 +228,18 @@ impl TurnRunner {
         let verified_pov = verified.pov().clone();
         let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified)?;
         let read = fork.sessions();
-        let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
-        let moved_read = crate::view_gate::Moved::read(self, Some(sid));
-        let moved = |e: &crate::exchange::Exchange| moved_read.holds(e);
         let sources = StoreSources {
             store,
             mark: since.clone().map(|m| (place.as_str(), m)),
             recalled,
-            sealed: &held,
-            moved: &moved,
             sessions: &read,
             own: Some(turn),
         };
         // One read of the ladder for the whole assembly: every selector, the text and the window see it.
         let store_ladder = fork.ladder(store);
-        let gated = GatedLadder::new(&store_ladder, store, &held, &moved);
-        let ladder = OnceLadder::new(&gated);
-        let moving = self.moving(store, (&permit, &pov, &moved_read), &items, &read)?;
+        let resolved = ResolvedLadder::new(&store_ladder, store);
+        let ladder = OnceLadder::new(&resolved);
+        let moving = self.moving(store, (&permit, &pov), &items, &read)?;
         let cards = StoreCards {
             store,
             kernel: &self.kernel,
@@ -295,9 +272,9 @@ impl TurnRunner {
             // (`room`), a preview reports it.
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
-        let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
-        sessions.extend(gated.sessions.borrow().iter().cloned());
-        let exchanges = laid_exchanges(&window, turn, &gated.exchanges.borrow(), &a);
+        let (window, mut sessions) = window_of((store, &read, sid), &a, &pov, turn, renderer.zone)?;
+        sessions.extend(resolved.sessions.borrow().iter().cloned());
+        let exchanges = laid_exchanges(&window, turn, &resolved.exchanges.borrow(), &a);
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
         let frozen = Frozen {
@@ -307,7 +284,7 @@ impl TurnRunner {
             sessions: sorted(sessions),
             exchanges,
             verified: Some(verified_pov),
-            beside: fork.note(a.parts.beside.as_ref().map(block)),
+            beside: a.parts.beside.as_ref().map(block),
             memory_page,
             record: Some(a.view.clone()),
             ..Frozen::default()
@@ -324,7 +301,7 @@ impl TurnRunner {
     fn moving<'a>(
         &'a self,
         store: &'a Store,
-        (permit, pov, moved): (&'a Permit, &'a PointOfView, &'a crate::view_gate::Moved<'a>),
+        (permit, pov): (&'a Permit, &'a PointOfView),
         items: &[String],
         read: &'a Sessions,
     ) -> anyhow::Result<Moving<'a>> {
@@ -332,7 +309,7 @@ impl TurnRunner {
         let called = match self.threads.core() {
             Some(core) => {
                 let tasks = crate::task_graph::all(store)?;
-                let admits = ViewAdmits::new((permit, pov), (store, self, moved), tasks, depends);
+                let admits = ViewAdmits::new((permit, pov), (store, self), tasks, depends);
                 Some(Called::build(core, admits, items.to_vec(), texts)?)
             }
             None => None,
@@ -371,8 +348,8 @@ impl TurnRunner {
 /// The headroom the compiler keeps beside the reply for the turn's own calls, in tokens.
 const CALL_HEADROOM: u64 = 4_096;
 
-/// How many times one call is compiled again when the gate's reading moved under its view.
-const VIEW_READMISSIONS: u32 = 2;
+/// How many times one call is compiled again when something its view laid was removed under it.
+const VIEW_REASSEMBLIES: u32 = 2;
 
 /// A test's seam: what runs at the start of the next `env_tail` of a session (after the view's assembly,
 /// before the call is sent), once.
@@ -406,8 +383,8 @@ pub(super) struct Asked<'a> {
     pub sid: &'a str,
     pub turn: &'a str,
     pub person: Option<String>,
-    /// The gate's point of view, never the caller's word: a preview's; none reads the turn's
-    /// (`Verified::of_session`) where a turn always read it, after the clock.
+    /// The gate's point of view, never the caller's word: a turn's at its own place
+    /// (`Verified::of_turn`), or a preview's; none reads the session's (`Verified::of_session`).
     pub verified: Option<Verified>,
     /// The items today's recall found and admitted, read for slot H (none for a preview, which runs no
     /// recall).
@@ -441,45 +418,29 @@ impl Built {
     }
 }
 
-/// The ladder as the gate reads it today: a fold node is kept only when every exchange it stands for
-/// resolves to a session, none of those sessions is sealed, seal pending or unreadable now, and none of
-/// those exchanges holds a message or reply moved into a thread not proven clear (`view_gate::Moved`; a
-/// fold built before the move is held so); its words AND its account go together. The sessions and the
-/// exchanges of those kept are recorded, so a seal or a move before a later call revokes them too.
-struct GatedLadder<'a> {
+/// The ladder as the model's assembly reads it: a fold node is kept only when every exchange it stands for
+/// resolves now (a removed thing is not sent again); the sessions and the exchanges of those kept are
+/// recorded, so a removal before a later call or a replay revokes them too (`view_gone`, `kept::held_now`).
+/// No presence, seal or move holds a fold.
+struct ResolvedLadder<'a> {
     inner: &'a dyn crate::view::fold::Ladder,
     store: &'a Store,
-    held: &'a dyn Fn(&str) -> bool,
-    moved: &'a dyn Fn(&crate::exchange::Exchange) -> bool,
     sessions: std::cell::RefCell<Vec<String>>,
     exchanges: std::cell::RefCell<Vec<String>>,
 }
 
-impl<'a> GatedLadder<'a> {
-    fn new(
-        inner: &'a dyn crate::view::fold::Ladder,
-        store: &'a Store,
-        held: &'a dyn Fn(&str) -> bool,
-        moved: &'a dyn Fn(&crate::exchange::Exchange) -> bool,
-    ) -> Self {
+impl<'a> ResolvedLadder<'a> {
+    fn new(inner: &'a dyn crate::view::fold::Ladder, store: &'a Store) -> Self {
         Self {
             inner,
             store,
-            held,
-            moved,
             sessions: Default::default(),
             exchanges: Default::default(),
         }
     }
-
-    /// Every exchange fold node `id` stands for; none when any cannot be resolved, or any holds a moved
-    /// message the reader may not read.
-    fn constituents(&self, id: &str) -> Option<Vec<crate::exchange::Exchange>> {
-        fold_constituents(self.store, id, self.moved)
-    }
 }
 
-impl crate::view::fold::Ladder for GatedLadder<'_> {
+impl crate::view::fold::Ladder for ResolvedLadder<'_> {
     fn read(
         &self,
         place: &str,
@@ -489,12 +450,9 @@ impl crate::view::fold::Ladder for GatedLadder<'_> {
         let mut read = self.inner.read(place, n, since)?;
         let mut kept = Vec::new();
         for node in read.nodes {
-            let Some(exchanges) = self.constituents(&node.handle.0) else {
+            let Some(exchanges) = fold_constituents(self.store, &node.handle.0) else {
                 continue;
             };
-            if exchanges.iter().any(|e| (self.held)(&e.session_id)) {
-                continue;
-            }
             for e in exchanges {
                 self.sessions.borrow_mut().push(e.session_id);
                 self.exchanges.borrow_mut().push(e.turn_id);
@@ -506,18 +464,13 @@ impl crate::view::fold::Ladder for GatedLadder<'_> {
     }
 }
 
-/// Every exchange fold node `id` stands for; none when any cannot be resolved, or any holds a moved message
-/// the reader may not read (`moved`, `view_gate::Moved::holds`). The gated ladder's rule, and a preview's
-/// listing of a fold.
-pub(super) fn fold_constituents(
-    store: &Store,
-    id: &str,
-    moved: &dyn Fn(&crate::exchange::Exchange) -> bool,
-) -> Option<Vec<crate::exchange::Exchange>> {
+/// Every exchange fold node `id` stands for; none when any cannot be resolved: the model's assembly's rule
+/// ([`ResolvedLadder`]) and a preview's listing of a fold.
+pub(super) fn fold_constituents(store: &Store, id: &str) -> Option<Vec<crate::exchange::Exchange>> {
     let node = crate::ladder::fold::node(store, id).ok()??;
     let read = crate::ladder::fold::open(store, &node).ok()?;
     let whole = !node.exchanges.is_empty() && read.len() == node.exchanges.len();
-    (whole && !read.iter().any(moved)).then_some(read)
+    whole.then_some(read)
 }
 
 /// `v` in order, each once.
@@ -528,8 +481,8 @@ fn sorted(mut v: Vec<String>) -> Vec<String> {
 }
 
 /// Every exchange a view lays or folds, once each: the window's (but `turn`'s own), the kept folds'
-/// constituents, and the ends of every shown exchange piece's range. Their messages' node seals are asked
-/// again before each call.
+/// constituents, and the ends of every shown exchange piece's range. Each is read again before each call
+/// (`view_gone`): one removed since revokes the view.
 fn laid_exchanges(
     window: &[(u64, Stub)],
     turn: &str,
@@ -544,7 +497,7 @@ fn laid_exchanges(
                 s.piece.range.last.id.clone(),
             ]
         });
-    // The exchanges a shown card read its excerpts from (its provenance): a move since revokes it too.
+    // The exchanges a shown card read its excerpts from (its provenance): a removal since revokes it too.
     let read = (a.view.shown.iter()).flat_map(|s| match &s.piece.range.space {
         Space::Card { from: Some(p), .. } => p.exchanges.clone(),
         _ => Vec::new(),
@@ -639,6 +592,15 @@ fn verified_pov(verified: &Verified, person: Option<String>, now_ms: u64) -> Poi
 
 /// The items today's recall found for this turn (its pending note), before the view admits them
 /// (`recall::view_recall`).
+///
+/// Read once, at the turn's first freeze, and that is enough: recall is settled before a turn's first
+/// call, so nothing lands after the freeze. The pending note is written only by the first loop's recall
+/// (`recall_first`), which the turn loop awaits before that loop's compile, where the view is frozen. It
+/// answers within its deadline or not at all (a late pack is dropped), the rerank's wait and refill run
+/// inside it, a later loop asks nothing, and a late verdict only marks the pack already held. Held by
+/// `tests_route::a_quick_picks_later_loop_keeps_its_recall` and
+/// `tests_route::a_routed_turn_still_writes_and_sends_its_recall`: every call of the turn, the switched
+/// model's included, carries the note once.
 fn recalled(t: &Turn<'_>) -> Vec<crate::node::RecalledRef> {
     match t.recall.pending.as_ref().map(|n| &n.body) {
         Some(Body::Recall { items, .. }) => items.clone(),
@@ -669,7 +631,7 @@ fn message_of(store: &Store, sid: &str, turn: &str) -> anyhow::Result<(Option<St
 /// card, a waiting line or a fact was read from (`Sessions::depends`) among them, so a seal of any before a
 /// later call revokes the view.
 fn window_of(
-    (store, read): (&Store, &Sessions),
+    (store, read, sid): (&Store, &Sessions, &str),
     a: &Assembled,
     pov: &PointOfView,
     turn: &str,
@@ -681,7 +643,7 @@ fn window_of(
         .map(|s| (s.piece.range.first.id.as_str(), s.form))
         .collect();
     // A task's opening heads its window (`task::window_head`); any other place's window opens empty.
-    let (mut window, mut spoken) = (task::window_head(store, pov)?, HashSet::new());
+    let (mut window, mut spoken) = (task::window_head(store, sid, pov)?, HashSet::new());
     let mut laid = Vec::new();
     for e in a.ladder.window.iter().filter(|e| e.turn_id != turn) {
         let Some(form) = here.get(e.turn_id.as_str()) else {
@@ -1014,7 +976,3 @@ mod tests {
         assert_eq!(read.reads.get(), 2);
     }
 }
-
-#[cfg(test)]
-#[path = "view_step_moved.rs"]
-mod moved_tests;

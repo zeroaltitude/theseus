@@ -1352,3 +1352,56 @@ async fn a_summary_needs_every_node_of_its_exchange_proven_before_the_point() {
         assert!(!read.summarised(store, t).unwrap(), "{t}: its did line");
     }
 }
+
+/// A fork's history tool holds nothing its source said at or after the fork point, by position (issue 44): a
+/// page of the fork's place lists the inherited exchange before the point and not the source's later one, and
+/// an open of the later one reads as no exchange here. The same lens with no cut lists and opens it.
+#[tokio::test]
+async fn a_forks_history_tool_holds_nothing_past_its_point() {
+    use crate::history_tool::page::Lens;
+    let r = rig();
+    let (s, nodes) = three_turns(&r).await;
+    let f = fork(&r.core, &s, &nodes[3].0); // through the answer to "two"
+    turn(&r.core, &f.session_id, "other road").await;
+    let (one, three) = (turn_of(&r.core, &nodes[0].0), turn_of(&r.core, &nodes[4].0));
+    let lens = |cut| Lens {
+        store: &r.core.store,
+        here: "local".into(),
+        in_view: None,
+        words: None,
+        cut,
+    };
+    let args = crate::view::history::HistoryArgs::default();
+    let page = |l: &Lens<'_>| -> Vec<String> {
+        let walked = l.walk(&args, None, 0).unwrap();
+        walked
+            .page
+            .lines
+            .iter()
+            .map(|x| x.handle.0.clone())
+            .collect()
+    };
+    let plain = lens(Default::default());
+    let cut = crate::fork::cut::Cut::of(&r.core.store, &f.session_id).unwrap();
+    let forked = lens(cut);
+    let all = page(&plain);
+    assert!(
+        all.contains(&one) && all.contains(&three),
+        "the control: {all:?}"
+    );
+    let got = page(&forked);
+    assert!(
+        got.contains(&one),
+        "the inherited exchange before the point: {got:?}"
+    );
+    assert!(
+        !got.contains(&three),
+        "the source's later exchange: {got:?}"
+    );
+    let later = crate::view::Handle(three);
+    assert!(crate::history_tool::open::open(&plain, &later).is_ok());
+    assert!(
+        crate::history_tool::open::open(&forked, &later).is_err(),
+        "a fork opens nothing past its point"
+    );
+}

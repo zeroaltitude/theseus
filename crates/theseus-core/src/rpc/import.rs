@@ -35,10 +35,6 @@ use crate::approval::Refusal;
 use crate::import::{catalog, notes, people, summary_id_of, topics, write};
 use crate::node::Body;
 
-/// Why a place that is not private reads no imported text.
-pub(crate) const WITHHELD: &str = "an imported session is the owner's own history, private \
-     whatever place its episode names: its text goes only to a private place (the CLI, the web UI)";
-
 /// How long an erase waits for the tender's forget: it rewrites vector
 /// files, so longer than a query.
 const FORGET_DEADLINE: Duration = Duration::from_secs(70);
@@ -102,7 +98,7 @@ impl Core {
             return self.rpc_packs(name, params, conn);
         }
         if super::context::prefixed(name) {
-            return self.rpc_context(name, params, conn).await;
+            return self.rpc_context(name, params).await;
         }
         if name.starts_with("books.") || super::exchanges::OWN.contains(&name) {
             return self.rpc_books(name, params, conn).await;
@@ -137,8 +133,12 @@ impl Core {
         if name.starts_with("card.") {
             return self.rpc_card(name, params, conn).await;
         }
+        // Threads are gone (2026-11-22): a message is no longer moved into one.
         if name == method::THREAD_MOVE {
-            return super::server::reply(self.thread_move_message(parse(params)?, conn).await?);
+            return Err(RpcFailure::new(
+                error_code::REFUSED,
+                "thread.move is gone: threads were retired, and a message runs where it was written",
+            ));
         }
         if name.starts_with("thread.") {
             return self.rpc_threads(name, params, conn);
@@ -179,7 +179,7 @@ impl Core {
             return super::server::route(params, |p| self.persona_list(p));
         }
         if name == method::PREFIX_REPORT {
-            return super::server::reply(self.prefix_report(parse(params)?, conn.surface).await?);
+            return super::server::reply(self.prefix_report(parse(params)?).await?);
         }
         if name.starts_with("initiative.") {
             return self.rpc_initiative(name, params, conn);
@@ -304,9 +304,8 @@ impl Core {
             }
             method::IMPORT_SESSIONS => {
                 let p: ImportSessionsParams = parse(params)?;
-                let private = conn.surface.reads_private();
                 let core = self.clone();
-                let r = blocking(move || core.import_sessions(&p, private)).await?;
+                let r = blocking(move || core.import_sessions(&p, true)).await?;
                 serde_json::to_value(r)
             }
             method::IMPORT_TOPICS => return self.import_topics(params, conn).await,
@@ -326,28 +325,21 @@ impl Core {
 
     /// `import.sessions` (theseus-7n3e): the projection at the import's
     /// counts now, queried. The page's summaries are read when asked, a node
-    /// each. A place that is not private reads the labels and the counts
-    /// alone: no title, no summary, no place name, and no search of words.
+    /// each, for every surface (2026-11-22). `_private` is no longer read; it
+    /// stays for its callers until the sweep.
     pub(crate) fn import_sessions(
         &self,
         p: &ImportSessionsParams,
-        private: bool,
+        _private: bool,
     ) -> anyhow::Result<ImportSessionsResult> {
         let t0 = std::time::Instant::now();
         let list = write::list(&self.store)?;
         let (cat, built_ms) = self.episodes.at(&self.store, &list)?;
-        let mut p = p.clone();
-        if !private {
-            p.q = None;
-        }
-        let a = catalog::query(&cat, &p);
+        let a = catalog::query(&cat, p);
         let mut episodes = Vec::with_capacity(a.page.len());
         for i in a.page {
             let mut e = cat.episode(i);
-            if !private {
-                e.title = None;
-                e.place_name = None;
-            } else if p.summaries && e.summary && !e.erased {
+            if p.summaries && e.summary && !e.erased {
                 if let Some((_, n)) = self.store.get_node(&summary_id_of(&e.session_id))? {
                     if let Body::ImportedSummary { text, cites, .. } = n.body {
                         e.summary_text = Some(text);
@@ -363,7 +355,7 @@ impl Core {
             offset: p.offset.unwrap_or(0).min(a.total),
             episodes,
             facets: a.facets,
-            withheld: (!private).then(|| WITHHELD.to_string()),
+            withheld: None,
             version: cat.version.clone(),
             built_ms,
             ms: t0.elapsed().as_secs_f64() * 1e3,

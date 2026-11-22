@@ -123,7 +123,7 @@ async fn sources(r: &Rig) -> (String, [Citation; 2], String) {
     let recall = Node::recall(&dm, "turn_cite", "rcl_cite", "baseline", items.clone());
     r.core.store.append(&[recall.record().unwrap()]).unwrap();
     let cites = [(&items[0], 0), (&items[1], 1)].map(|(i, k)| {
-        let c = r.core.runner.citation(i, false).expect("a citation");
+        let c = r.core.runner.citation(i).expect("a citation");
         assert_eq!(c.handle, handles[k]);
         c
     });

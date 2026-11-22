@@ -2,13 +2,14 @@
 //! bands: the floor (the words of the newest three exchanges), the rest of the window's words, the window's
 //! tool results, and the ladder's nodes. A window exchange is one range: its words are asked for spoken and
 //! its tool results whole, so rule 3 merges them and the cut takes the tool traffic away at the tool
-//! results' place in the order, never the words of the floor. The newest exchange is asked for whole by the
-//! floor itself: its tool results stay, or the turn is the typed overflow. Which exchanges are the floor is
-//! chosen over those the gate admits, so a denied exchange never pushes a permitted one out of it.
+//! results' place in the order, never the words of the floor. The newest exchange's tool results are the
+//! window's like any other's: laid whole when there is room, as their receipts when there is not. Which
+//! exchanges are the floor is chosen over those the gate admits, so a denied exchange never pushes a
+//! permitted one out of it.
 
 use super::super::fold::{FoldNode, WINDOW_N};
 use super::super::timeline::ExchangeRef;
-use super::super::{Anchor, Form, Piece, PointOfView, Present, Reason, SourceRange, Space};
+use super::super::{Anchor, Form, Piece, PointOfView, Reason, SourceRange, Space};
 use super::make::{self, Cut};
 use super::sources::Sources;
 use super::{Band, Selector, Snapshot};
@@ -16,20 +17,11 @@ use super::{Band, Selector, Snapshot};
 /// The floor: the words of the newest this-many exchanges of the window are never cut.
 pub const FLOOR_EXCHANGES: usize = 3;
 
-/// The place a point of view's here-slots read, if it is anchored to one and may see anything.
+/// The place a point of view's here-slots read, if it is anchored to one.
 pub(super) fn anchor_place(pov: &PointOfView) -> Option<&str> {
-    match (&pov.anchor, pov.present) {
-        (_, Present::Unknown) | (Anchor::Task(_), _) => None,
-        (Anchor::Place(p), _) => Some(p),
-    }
-}
-
-/// The place slot G reads: the anchor's; with an unknown presence only where the gate still shows it what
-/// its own session said there (`view::gate::Gate::speaks_unknown`), and the gate holds out everything else.
-fn window_place<'p>(pov: &'p PointOfView, gate: &dyn super::super::gate::Gate) -> Option<&'p str> {
-    match (&pov.anchor, pov.present) {
-        (Anchor::Place(p), Present::Unknown) => gate.speaks_unknown().then_some(p.as_str()),
-        _ => anchor_place(pov),
+    match &pov.anchor {
+        Anchor::Task(_) => None,
+        Anchor::Place(p) => Some(p),
     }
 }
 
@@ -79,13 +71,11 @@ impl<'a> Here<'a> {
             })
             .collect();
         let floor_from = admitted.len().saturating_sub(FLOOR_EXCHANGES);
-        let newest = admitted.len().saturating_sub(1);
         admitted
             .into_iter()
             .enumerate()
             .filter_map(|(i, w)| {
                 let (reason, form) = match self.band {
-                    Band::Floor if i == newest => (Reason::Floor, Form::Whole),
                     Band::Floor if i >= floor_from => (Reason::Floor, Form::Spoken),
                     Band::WindowWords if i < floor_from => (Reason::Window, Form::Spoken),
                     Band::WindowTools if w.f.tools > 0 => (Reason::Window, Form::Whole),
@@ -131,7 +121,7 @@ impl Selector for Here<'_> {
     }
 
     fn select(&self, pov: &PointOfView, _: &dyn Snapshot) -> anyhow::Result<Vec<Piece>> {
-        let Some(place) = window_place(pov, self.src.gate) else {
+        let Some(place) = anchor_place(pov) else {
             return Ok(Vec::new());
         };
         let (window, nodes) = read(&self.src, place)?;

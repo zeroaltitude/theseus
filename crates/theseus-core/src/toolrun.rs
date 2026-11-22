@@ -753,7 +753,7 @@ impl ToolRuntime {
             };
             return format!(
                 "Tools. You act through tools; every call is recorded, checked against policy, and may wait for the operator's confirmation.\n\
-                 - This place is shared: people besides the operator read it. So you are offered only the public tools here, and {files}: nothing of the operator's own (their other files, programs, AWS) reaches this place.\n\
+                 - This place is shared: people besides the operator read it. So you are offered only the public tools here, and {files}: no tool here reaches the operator's other files, programs or AWS.\n\
                  - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.\n\
                  - A declined call is final for that request: tell the operator and do not route around it.{}",
                 postures,
@@ -1744,12 +1744,6 @@ impl ToolRuntime {
                 &call.input,
                 correlation_id,
             ),
-            crate::thread_context::NOTE => {
-                crate::thread_context::note(tc, &call.input).map(|(done, records)| {
-                    edit.records.extend(records);
-                    done
-                })
-            }
             crate::ask::OWNER_ASK => crate::ask::result(tc, &call.input, correlation_id),
             name if crate::policy::modes::is_plan(name) => self
                 .run_plan(tc, name, &call.input, correlation_id)
@@ -2021,8 +2015,6 @@ pub fn build_runtime(
             max_ahead_ms: cfg.kernel.to_kernel_config().wakes.max_ahead_ms,
         }));
         r.register(Arc::new(crate::watch_tool::WatchTool));
-        r.register(Arc::new(crate::thread_context::ThreadNote));
-        r.register(Arc::new(crate::thread_split::ThreadSplitTool));
         r.register(Arc::new(crate::ask::OwnerAsk));
         r.register(Arc::new(crate::project_tool::ProjectAttach));
         crate::chat_acts::register(cfg, &mut r);

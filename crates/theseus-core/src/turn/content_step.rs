@@ -60,6 +60,48 @@ impl TurnRunner {
         }
     }
 
+    /// The turn's replies, judged as inputs are (issue 44): **each assistant node the turn said, its own
+    /// text under its own id**, never the turn's joined output. A task's turns are not: their output is the
+    /// report its parent judges ([`ItemKind::TaskReport`]).
+    ///
+    /// Called from `finish` **before the turn's session hold is taken**: `ask_content` lands a configured
+    /// name's label at once (`land_deterministic`, which takes the session's lock), and the thread that holds
+    /// the hold for the turn's last frame must not take it again (the review of round 1). A turn that fails
+    /// before `finish` queues none: its written replies read "not judged then".
+    ///
+    /// **On by default; the owner may turn it off** (`[content_based_security] judge_replies`). A reply's ask is
+    /// paid from the same judge day as an input's (whose judgment feeds the injection label), and replies stop
+    /// at `REPLY_SHARE_PERCENT` of the day's settled spend; they never make an input wait (their own worker, an
+    /// ordinary permit). Off, no reply is offered at all, and each reads "not judged then".
+    ///
+    /// Only the model's words are items: an assistant node no provider call wrote (no `correlation_id`: the
+    /// personal step's fixed held reply) is the harness's own text, and is not asked about.
+    pub(super) fn content_replies(&self, t: &Turn<'_>) {
+        if t.tc.task.is_some() || !self.cfg.content_based_security.judge_replies {
+            return;
+        }
+        let items: Vec<ContentItem> = (t.said.iter())
+            .filter_map(|(_, id)| {
+                let (_, node) = t.tc.store.get_node(id).ok().flatten()?;
+                let Body::AssistantMessage {
+                    blocks,
+                    correlation_id: Some(_),
+                    ..
+                } = &node.body
+                else {
+                    return None;
+                };
+                let text = crate::provider::text_of(blocks);
+                (!text.trim().is_empty()).then(|| {
+                    ContentItem::new(id, ItemKind::Reply, "reply", &text, node.created_at_ms)
+                })
+            })
+            .collect();
+        if !items.is_empty() {
+            self.judge.ask_content(t.tc.session_id, items);
+        }
+    }
+
     /// A task's first turn has no message: its brief is its first item.
     pub(super) fn content_brief(&self, t: &Turn<'_>) {
         let sid = t.tc.session_id;

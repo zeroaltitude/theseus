@@ -17,15 +17,14 @@ use crate::ceiling::PlaceView;
 use crate::compiler::situation;
 use crate::compiler::RequestSpec;
 use crate::context_files::ContextFile;
-use crate::places::PlaceClass;
 use crate::turn::{Target, TurnRunner, ASSEMBLY, PERSONA};
 
 /// A request's system parts as the next turn would build them.
 pub struct Built {
     /// The header's parts, named: what `system_blocks` joins.
     pub header: Vec<(&'static str, String)>,
-    /// The context files, each its section (a shared place's withheld ones
-    /// their header and why).
+    /// The context files, each its section (whole in every place since
+    /// 2026-11-22).
     pub files: Vec<ContextFile>,
     /// The guidance's sections, in order: the preamble (no guidance of its
     /// own), then each category's, with what the manifest records of it.
@@ -88,10 +87,7 @@ impl TurnRunner {
         let paths =
             self.cfg
                 .context_paths(&self.personas(), target.persona.as_deref(), target.engages);
-        let mut files = self.context_files.peek(&paths);
-        if place.class == PlaceClass::Shared {
-            crate::context_files::withhold_shared(&mut files);
-        }
+        let files = self.context_files.peek(&paths);
         let mut spec = self.spec_of(target, kind, place, files.clone());
         spec.session_text = self.session_block(
             rec.as_ref().and_then(|r| r.dir.as_deref()),
