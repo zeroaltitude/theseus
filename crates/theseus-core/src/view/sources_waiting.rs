@@ -4,8 +4,9 @@
 //! id and one line. Nothing new is recorded, and an answered question or a task that moved on is simply no
 //! longer read.
 //!
-//! The selector lays slot C only where the owner is alone; each line is still a piece with its own
-//! session's marks, so the gate decides it like any other (a sealed thread's question is not shown).
+//! The selector lays slot C only where the owner is alone; each line is asked of the gate with its own
+//! session's marks BEFORE it is read into the turn (a sealed thread's question is not shown, and the view
+//! does not depend on a session it showed nothing of), and again as any piece is.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -13,15 +14,19 @@ use std::collections::{BTreeMap, BTreeSet};
 use theseus_kernel::Kernel;
 use theseus_protocol::tasks::TaskState;
 
+use super::gate::Gate;
 use super::select::sources::{Ref, Waiting};
+use super::sources_names::admitted;
 use super::text::tokens;
-use super::{Form, Handle, Pos, Sizes, SourceRange, Space};
+use super::{Form, Handle, PointOfView, Pos, Sizes, SourceRange, Space};
 use crate::exchange::OWNER;
 use crate::store::Store;
 use crate::task_graph::joined::Homes;
 
 /// The view's [`Waiting`] over the store and the kernel.
 pub struct StoreWaiting<'a> {
+    pub gate: &'a dyn Gate,
+    pub pov: &'a PointOfView,
     pub store: &'a Store,
     pub kernel: &'a Kernel,
     /// A session's marks as the gate reads them.
@@ -33,23 +38,31 @@ pub struct StoreWaiting<'a> {
 }
 
 impl StoreWaiting<'_> {
-    /// One waiting record: its id, when it began, the session it belongs to, and its line.
-    fn item(&self, id: &str, at_ms: u64, session: &str, line: String) -> Ref {
+    /// One waiting record: its id, when it began, the session it belongs to, and its line; none when the
+    /// gate does not admit it, and then nothing of it is read into the turn.
+    fn item(&self, id: &str, at_ms: u64, session: &str, line: String) -> Option<Ref> {
+        let marks = self.homes.marks(session);
+        if !admitted(self.gate, self.pov, marks.clone(), at_ms) {
+            return None;
+        }
         let size = tokens(&line);
-        let space = Space::Waiting { id: id.to_string() };
+        let space = Space::Waiting {
+            id: id.to_string(),
+            from: vec![session.to_string()],
+        };
         self.texts.borrow_mut().insert(space.clone(), line);
         self.depends.borrow_mut().insert(session.to_string());
         let pos = Pos {
             at_ms,
             id: id.to_string(),
         };
-        Ref {
+        Some(Ref {
             range: SourceRange {
                 space,
                 first: pos.clone(),
                 last: pos,
             },
-            marks: self.homes.marks(session),
+            marks,
             sizes: Sizes {
                 whole: size,
                 spoken: size,
@@ -58,7 +71,7 @@ impl StoreWaiting<'_> {
             handle: Handle(id.to_string()),
             form: Form::Line,
             unit: None,
-        }
+        })
     }
 }
 
@@ -78,14 +91,14 @@ impl Waiting for StoreWaiting<'_> {
                 "{}: waiting for your answer: {}{about}",
                 a.correlation_id, a.tool
             );
-            out.push(self.item(&a.correlation_id, a.planned_at_ms, &a.session_id, line));
+            out.extend(self.item(&a.correlation_id, a.planned_at_ms, &a.session_id, line));
         }
         let tasks = crate::task_graph::all(self.store)?;
         let waits = |s: TaskState| matches!(s, TaskState::WaitingHuman | TaskState::Proposed);
         for t in tasks.iter().filter(|t| waits(t.state)) {
             let line = format!("{}: task {}: {}", t.id, t.state.as_str(), t.title);
             let home = crate::task_graph::home(&tasks, t);
-            out.push(self.item(&t.id, t.updated_at_ms, &home, line));
+            out.extend(self.item(&t.id, t.updated_at_ms, &home, line));
         }
         Ok(out)
     }

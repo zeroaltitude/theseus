@@ -89,6 +89,25 @@ impl<'a> Moved<'a> {
     pub fn holds(&self, ex: &Exchange) -> bool {
         nodes(ex).any(|n| self.held(n))
     }
+
+    /// The sessions of the threads `ex`'s messages and reply were moved into, as the board knows them: a
+    /// reader that shows `ex` depends on them (a seal of one later revokes what it showed).
+    pub fn sessions(&self, ex: &Exchange) -> Vec<String> {
+        let Some(b) = &self.board else {
+            return Vec::new();
+        };
+        nodes(ex)
+            .filter_map(|n| {
+                (self
+                    .store
+                    .get_meta::<Option<MovedTo>>(&moved_of_key(n))
+                    .ok())
+                .flatten()
+                .flatten()
+            })
+            .filter_map(|m| b.get(&m.thread).and_then(|t| t.session_id.clone()))
+            .collect()
+    }
 }
 
 /// Whether any message or reply of `ex` was moved into a thread, or where it went cannot be read: the

@@ -657,7 +657,7 @@ async fn a_seal_between_two_calls_of_a_turn_ends_the_chain() {
 }
 
 /// Seal the thread `kelp` through the thread board's own write.
-fn seal_kelp(c: &crate::Core) {
+pub(crate) fn seal_kelp(c: &crate::Core) {
     c.runner
         .threads
         .write(
@@ -714,7 +714,7 @@ fn an_assembly_reads_the_ladder_once() {
 }
 
 /// The `context.view_fallback` rows' reasons.
-fn fallbacks(c: &crate::Core) -> Vec<String> {
+pub(crate) fn fallbacks(c: &crate::Core) -> Vec<String> {
     (crate::test_support::rows(c, "context.view_fallback").into_iter())
         .filter_map(|r| r["why"].as_str().map(str::to_string))
         .collect()

@@ -73,25 +73,99 @@ fn cards_counted(store: &crate::store::Store, turn: &str) -> usize {
         .sum()
 }
 
-/// KEY: a message naming a numbered item brings the item's card beside it: the item, and the words of the
-/// exchange it was said in before.
+/// A session of the desk that serves `project`: its numbered items are scoped by it.
+fn serving(c: &crate::Core, root: &std::path::Path, project: &str) -> String {
+    let sid = session_in(c, None, root);
+    (c.store)
+        .update_session(&sid, |s| {
+            s.project = Some(project.into());
+            Ok(vec![])
+        })
+        .unwrap();
+    sid
+}
+
+const SCOPED: &str = "item:project:prj_tide#issue-33";
+
+/// The lines of the card whose title ends with `(<thing>)`, in `all`.
+fn card_of<'a>(all: &'a str, thing: &str) -> Option<String> {
+    let at = all.find(&format!("({thing})"))?;
+    Some(all[at..].lines().take(6).collect::<Vec<_>>().join("\n"))
+}
+
+/// KEY: a message naming a numbered item brings the item's card beside it, scoped by the project of the
+/// place it was said in: the words of the exchange it was said in before. An unscoped "issue 33" (a session
+/// that serves no project) is a candidate, never one thing: it brings no card, and its words are not on the
+/// scoped item's card.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_message_naming_a_numbered_item_brings_its_card() {
     let r = view_rig();
     let c = &r.core;
     c.runner.pass.set_index(Arc::new(Items));
-    let sid = session_in(c, None, &r.root);
-    turn_as(c, &sid, "the tide gauge: see issue 33 first", true).await;
+    let loose = session_in(c, None, &r.root);
+    turn_as(c, &loose, "the harbour log: issue 33 is the leak", true).await;
     touched(&c.store, "item:issue-33").await;
+    let sid = serving(c, &r.root, "prj_tide");
+    turn_as(c, &sid, "the tide gauge: see issue 33 first", true).await;
+    touched(&c.store, SCOPED).await;
     let t = turn_as(c, &sid, "and where is issue 33 now?", true).await;
-    let q = asked(&r, "and where is issue 33 now?").pop().unwrap();
-    let all = texts(&q);
-    assert!(all.contains("Item: issue-33 (item:issue-33)"), "{all}");
+    let all = texts(&asked(&r, "and where is issue 33 now?").pop().unwrap());
+    let card = card_of(&all, SCOPED).unwrap_or_else(|| panic!("no card: {all}"));
     assert!(
-        all.contains("\"the tide gauge: see issue 33 first\""),
-        "{all}"
+        card.contains("\"the tide gauge: see issue 33 first\""),
+        "{card}"
+    );
+    assert!(
+        !card.contains("harbour log"),
+        "the unscoped one stays apart: {card}"
     );
     assert!(cards_counted(&c.store, &t.turn_id) >= 1);
+
+    let t = turn_as(c, &loose, "and where is issue 33 today?", true).await;
+    let all = texts(&asked(&r, "and where is issue 33 today?").pop().unwrap());
+    assert!(
+        !all.contains("(item:"),
+        "an unscoped item is no one thing: {all}"
+    );
+    assert_eq!(cards_counted(&c.store, &t.turn_id), 0);
+}
+
+/// KEY: an item whose message was moved into a sealed thread brings no excerpt and selects no card (the
+/// node seal, `view_gate::Moved`, is asked before its words are read or counted).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_item_whose_ask_was_moved_into_a_sealed_thread_brings_nothing() {
+    let r = kelp_rig(true);
+    let c = &r.core;
+    c.runner.pass.set_index(Arc::new(Items));
+    let sid = serving(c, &r.root, "prj_tide");
+    let first = turn_as(c, &sid, "the tide gauge: see issue 33 first", true).await;
+    touched(&c.store, SCOPED).await;
+    crate::ladder::tests_moved::move_ask(&c.store, &first.turn_id, "kelp");
+    let t = turn_as(c, &sid, "and where is issue 33 now?", true).await;
+    let all = texts(&asked(&r, "and where is issue 33 now?").pop().unwrap());
+    assert!(card_of(&all, SCOPED).is_none(), "{all}");
+    assert!(!all.contains("tide gauge"), "{all}");
+    assert_eq!(cards_counted(&c.store, &t.turn_id), 0);
+}
+
+/// A card keeps each excerpt's author: words an agent's process typed (no person's mark) are outside text
+/// inside the owner's card, never his.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cards_excerpt_keeps_its_author() {
+    let r = view_rig();
+    let c = &r.core;
+    c.runner.pass.set_index(Arc::new(Items));
+    let sid = serving(c, &r.root, "prj_tide");
+    turn_as(c, &sid, "agent: see issue 33 first", false).await;
+    touched(&c.store, SCOPED).await;
+    turn_as(c, &sid, "and where is issue 33 now?", true).await;
+    let all = texts(&asked(&r, "and where is issue 33 now?").pop().unwrap());
+    let card = card_of(&all, SCOPED).unwrap_or_else(|| panic!("no card: {all}"));
+    assert!(
+        card.contains("author unknown (not the owner's instruction)"),
+        "{card}"
+    );
+    assert!(!card.contains("\"agent: see issue 33 first\""), "{card}");
 }
 
 /// A rig in `view` with threads on and the thread `kelp`, sealed as `seal` says.
@@ -150,13 +224,13 @@ async fn a_sealed_threads_thing_is_absent_and_uncounted() {
     assert_eq!(cards_counted(&c.store, &t.turn_id), 0);
 }
 
-/// A question for the owner's answer, parked by a turn of a session of its own, as a tool the policy
-/// stopped for approval parks it.
-fn plant(core: &crate::Core, root: &std::path::Path) -> String {
+/// A question for the owner's answer, parked by a turn of session `sid`, as a tool the policy stopped for
+/// approval parks it.
+fn plant(core: &crate::Core, sid: &str) -> String {
     use serde_json::{json, Value};
     use theseus_kernel::{Authority, Proposal, RetryClass, TurnEnd, Wake};
     let k = &core.kernel;
-    let sid = session_in(core, None, root);
+    let sid = sid.to_string();
     let mut rec = (core.store)
         .get_session::<crate::session::SessionRecord>(&sid)
         .unwrap()
@@ -194,7 +268,7 @@ fn plant(core: &crate::Core, root: &std::path::Path) -> String {
 async fn a_waiting_confirmation_is_listed_and_disappears_when_answered() {
     let r = view_rig();
     let c = &r.core;
-    let question = plant(c, &r.root);
+    let question = plant(c, &session_in(c, None, &r.root));
     let line = format!("{question}: waiting for your answer: aws.stack.apply");
     let desk = session_in(c, None, &r.root);
     turn_as(c, &desk, "desk: anything for me?", true).await;
@@ -208,21 +282,104 @@ async fn a_waiting_confirmation_is_listed_and_disappears_when_answered() {
     assert!(!texts(&q).contains(&question), "{}", texts(&q));
 }
 
-/// KEY: the owner alone is told the facts his held person records (its name and role line); an agent's
-/// process at the terminal, which is no person and never the owner alone, is told none of them.
+/// KEY: a question parked by a sealed thread's turn is not listed, and the view does not depend on its
+/// session: the turn is not compiled again and again for it (no `moved` fallback).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sealed_threads_pending_confirmation_is_absent_and_harmless() {
+    let thread = std::cell::RefCell::new(String::new());
+    let r = crate::tests_places::rig_setup(
+        |c| {
+            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+            c.threads.enabled = true;
+        },
+        |s| *thread.borrow_mut() = kelp(s, true),
+    );
+    let c = &r.core;
+    let question = plant(c, &thread.into_inner());
+    let desk = session_in(c, None, &r.root);
+    turn_as(c, &desk, "desk: anything for me?", true).await;
+    let q = asked(&r, "desk: anything for me?").pop().unwrap();
+    assert!(!texts(&q).contains(&question), "{}", texts(&q));
+    let why = crate::tests_view_compile::fallbacks(c);
+    assert!(!why.iter().any(|w| w == "moved"), "{why:?}");
+}
+
+/// KEY: a view's record re-checks a card's sources before it shows or counts it: the owner's own reading
+/// of a turn that was shown a thread's card no longer lists it once the thread is sealed, and its totals
+/// count one piece fewer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recorded_card_of_a_thread_sealed_since_is_not_shown_or_counted() {
+    use crate::view::record::show::Reader;
+    use crate::view::record::source::GateSource;
+    use theseus_memory::gate::{Place, PointOfView, Present};
+    let r = kelp_rig(false);
+    let c = &r.core;
+    let desk = session_in(c, None, &r.root);
+    let t = turn_as(c, &desk, "desk: what about thread:kelp?", true).await;
+    let rec = crate::view::record::of_turn(&c.store, &t.turn_id)
+        .unwrap()
+        .pop()
+        .unwrap();
+    let anchor = match &rec.pov.anchor {
+        crate::view::Anchor::Place(p) => p.clone(),
+        crate::view::Anchor::Task(t) => format!("task:{t}"),
+    };
+    let shown = || {
+        let source = GateSource {
+            runner: &c.runner,
+            pov: PointOfView {
+                anchor: anchor.clone(),
+                place: Place::Private,
+                present: Present::OwnerAlone,
+            },
+            asker: None,
+        };
+        let reader = Reader {
+            source: &source,
+            text: None,
+            restricted: false,
+        };
+        reader.show(&rec)
+    };
+    let before = shown();
+    assert!(serde_json::to_string(&before)
+        .unwrap()
+        .contains("thread:kelp"));
+    crate::tests_view_compile::seal_kelp(c);
+    let after = shown();
+    assert!(
+        !serde_json::to_string(&after)
+            .unwrap()
+            .contains("thread:kelp"),
+        "{after:?}"
+    );
+    assert_eq!(
+        after.totals.shown + after.totals.dropped,
+        before.totals.shown + before.totals.dropped - 1
+    );
+}
+
+/// KEY: the owner alone is told who is speaking (his held person's name) and his own guidance for it; the
+/// role line written outside the people pack (here by the operator) is not laid, since no reader clears it;
+/// an agent's process at the terminal, which is no person and never the owner alone, is told none of it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_facts_about_the_person_reach_the_owner_alone() {
-    use theseus_ontology::{Category, CategoryId, Origin, Record};
+    use theseus_ontology::{Category, CategoryId, Guidance, Origin, Record};
     const ROLE: &str = "keeps the harbour's books and owns the tide gauge";
+    const GUIDED: &str = "Answer Ada in short lines.";
     let r = view_rig();
     let c = &r.core;
-    let me = CategoryId::parse(&format!("person:{}", crate::tests_places::OWNER)).unwrap();
+    let me_again = || CategoryId::parse(&format!("person:{}", crate::tests_places::OWNER)).unwrap();
+    let me = me_again();
     let mut held = Category::new(me, "Ada", "ada");
     held.description = ROLE.into();
     (c.runner.ontology)
         .write(
             &c.store,
-            vec![Record::Category(held)],
+            vec![
+                Record::Category(held),
+                Record::Guidance(Guidance::new(me_again(), GUIDED, 1, "ada")),
+            ],
             Origin::Operator,
             |_| Ok(vec![]),
         )
@@ -231,12 +388,14 @@ async fn the_facts_about_the_person_reach_the_owner_alone() {
     turn_as(c, &desk, "desk: good morning", true).await;
     let q = asked(&r, "desk: good morning").pop().unwrap();
     assert!(texts(&q).contains("Who is speaking: Ada"), "{}", texts(&q));
-    assert!(texts(&q).contains(ROLE), "{}", texts(&q));
+    assert!(texts(&q).contains(GUIDED), "{}", texts(&q));
+    assert!(!texts(&q).contains(ROLE), "{}", texts(&q));
 
     let agent = session_in(c, None, &r.root);
     turn_as(c, &agent, "agent: good morning", false).await;
     let q = asked(&r, "agent: good morning").pop().unwrap();
-    assert!(!texts(&q).contains(ROLE), "{}", texts(&q));
+    assert!(!texts(&q).contains("Who is speaking"), "{}", texts(&q));
+    assert!(!texts(&q).contains(GUIDED), "{}", texts(&q));
 }
 
 /// A topic named by its key brings its card, with the owner's guidance, to the owner alone: a topic is the

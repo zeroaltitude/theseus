@@ -1,11 +1,12 @@
 //! Facts about the person speaking (slot B; design §5.1), from the ontology's person records: the held
 //! person the speaker is (the owner by the place rule's owner handles, another person by the chat author's
-//! handle), as its name, its role line and the owner's guidance for it. Nothing new is recorded.
+//! handle), as its name and the owner's own guidance for it. Nothing new is recorded.
 //!
-//! A person record holds role facts only, never an evaluation (`theseus_ontology::person`): a role line
-//! the people pack judged evaluative or sensitive was dropped before it was proposed, and nothing here
-//! reads anything else of a person. The facts are the owner's own filing, marked so (`FILING`): the gate
-//! admits them to the owner alone.
+//! The person's role line (`description`) is NOT laid: no reader clears it by the memory rules (no
+//! protected categories, no evaluation of a named person). The people pack drops an evaluative or sensitive
+//! role line it proposes, but an operator's or an import's description passes no such check, and the store
+//! does not say which wrote it. Until a policy-cleared reader exists, the name and the guidance only. The
+//! facts are the owner's own filing, marked so (`FILING`): the gate admits them to the owner alone.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -41,9 +42,6 @@ impl People for StorePeople<'_> {
             return Ok(Vec::new());
         };
         let mut lines = vec![format!("Who is speaking: {}", c.name)];
-        if !c.description.trim().is_empty() {
-            lines.push(format!("- {}", c.description.trim()));
-        }
         if let Some(g) = self.ontology.guidance(&c.id) {
             if !g.text.trim().is_empty() {
                 lines.push(format!("- Guidance: {}", g.text.trim()));

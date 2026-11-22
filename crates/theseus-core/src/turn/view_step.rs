@@ -298,6 +298,7 @@ impl TurnRunner {
             verified: Verified::of_session(self, sid),
             recalled: recalled(t),
             message: message_of(store, sid, turn)?,
+            items: t.exchange.items().to_vec(),
         };
         let built = self.view_built(asked, spec)?;
         // Rule 9: a floor too large for the view's budget is the transcript's to handle (its ring and
@@ -321,6 +322,7 @@ impl TurnRunner {
             verified,
             recalled,
             message: (asked, message),
+            items,
         } = asked;
         let snap = StoreSnapshot {
             now_ms: self.kernel.now_ms(),
@@ -336,8 +338,8 @@ impl TurnRunner {
         let permit = Permit::of(verified);
         let read = Sessions::default();
         let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
-        let moved = crate::view_gate::Moved::read(self, Some(sid));
-        let moved = |e: &crate::exchange::Exchange| moved.holds(e);
+        let moved_read = crate::view_gate::Moved::read(self, Some(sid));
+        let moved = |e: &crate::exchange::Exchange| moved_read.holds(e);
         let sources = StoreSources {
             store,
             mark: since.clone().map(|m| (place.as_str(), m)),
@@ -356,7 +358,7 @@ impl TurnRunner {
             sessions: Default::default(),
         };
         let ladder = OnceLadder::new(&gated);
-        let moving = self.moving(store, (&permit, &pov), t.exchange.items(), &read)?;
+        let moving = self.moving(store, (&permit, &pov, &moved_read), &items, &read)?;
         let cards = StoreCards {
             store,
             kernel: &self.kernel,
@@ -423,7 +425,7 @@ impl TurnRunner {
     fn moving<'a>(
         &'a self,
         store: &'a Store,
-        (permit, pov): (&'a Permit, &'a PointOfView),
+        (permit, pov, moved): (&'a Permit, &'a PointOfView, &'a crate::view_gate::Moved<'a>),
         items: &[String],
         read: &'a Sessions,
     ) -> anyhow::Result<Moving<'a>> {
@@ -431,7 +433,7 @@ impl TurnRunner {
         let called = match self.threads.core() {
             Some(core) => {
                 let tasks = crate::task_graph::all(store)?;
-                let admits = ViewAdmits::new(permit, pov, self, tasks, depends);
+                let admits = ViewAdmits::new((permit, pov), (store, self, moved), tasks, depends);
                 Some(Called::build(core, admits, items.to_vec(), texts)?)
             }
             None => None,
@@ -439,6 +441,8 @@ impl TurnRunner {
         Ok(Moving {
             called,
             waiting: StoreWaiting {
+                gate: permit,
+                pov,
                 store,
                 kernel: &self.kernel,
                 homes: self,
@@ -512,6 +516,8 @@ pub(super) struct Asked<'a> {
     pub recalled: Vec<String>,
     /// The person's message, by node and text.
     pub message: (Option<String>, String),
+    /// The message's numbered items, as the exchange's naming told them (none for a preview).
+    pub items: Vec<String>,
 }
 
 /// A view as assembled: what a turn freezes, and the assembly (or the floor's overflow).

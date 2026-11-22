@@ -210,13 +210,22 @@ pub enum Space {
     Folds { place: String, level: u8 },
     /// A thing's facts (ids are fact ids).
     Facts { thing: String },
-    /// A thing's card.
-    Card { thing: String },
+    /// A thing's card. `from` is its provenance by id (the sessions its records were read from), kept so
+    /// the view's record re-checks them before it shows or counts the card (`record::source`).
+    Card {
+        thing: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        from: Vec<String>,
+    },
     /// A task's records.
     Task { task: String },
     /// A record waiting between Theseus and the owner: a question for his answer, a task waiting on him
     /// (`sources_waiting`; ids are the record's own).
-    Waiting { id: String },
+    Waiting {
+        id: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        from: Vec<String>,
+    },
     /// Code's own text with no source in the store: the frame, the clock, residue lines.
     Code { part: String },
 }

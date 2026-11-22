@@ -92,6 +92,7 @@ impl TurnRunner {
                 verified,
                 recalled: Vec::new(),
                 message: (None, p.message.unwrap_or_default().to_string()),
+                items: Vec::new(),
             },
             spec,
         )?;

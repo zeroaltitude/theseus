@@ -61,6 +61,11 @@ pub trait Admits {
     fn guidance(&self, _g: &Guidance) -> bool {
         false
     }
+    /// Who wrote the words that opened an admitted exchange, when they are not the owner's: the card keeps
+    /// them as outside text, under this name. None: shown as his words.
+    fn by(&self, _e: &Exchange) -> Option<&'static str> {
+        None
+    }
 }
 
 /// The record a thing of the table is held by.
@@ -112,6 +117,8 @@ pub struct Card {
 pub struct Said {
     pub exchange: Exchange,
     pub ask: Option<String>,
+    /// Its author, when not the owner ([`Admits::by`]).
+    pub by: Option<&'static str>,
 }
 
 /// What a card is made from, read once.
@@ -185,10 +192,13 @@ pub fn compose(src: Sources<'_>) -> Card {
     }
     for s in src.said.iter().take(EXCHANGES) {
         let ex = &s.exchange;
-        let words = s.ask.as_deref().map_or_else(
-            || "(no words)".into(),
-            |a| format!("\"{}\"", cut(a, ASK_CHARS)),
-        );
+        let words = match (s.ask.as_deref(), s.by) {
+            (None, _) => "(no words)".into(),
+            (Some(a), None) => format!("\"{}\"", cut(a, ASK_CHARS)),
+            (Some(a), Some(by)) => {
+                crate::view::text::labels::wrap_outside(Some(by), &cut(a, ASK_CHARS))
+            }
+        };
         lines.push(format!(
             "{} in {}: {words}",
             crate::recall::stamp::date(ex.start_ms),
@@ -248,7 +258,12 @@ fn said(store: &crate::store::Store, thing: &str, gate: &dyn Admits) -> anyhow::
                 Some(id) => store.get_node(id)?.map(|(_, n)| crate::recall::text_of(&n)),
                 None => None,
             };
-            out.push(Said { exchange: ex, ask });
+            let by = gate.by(&ex);
+            out.push(Said {
+                exchange: ex,
+                ask,
+                by,
+            });
             if out.len() == EXCHANGES {
                 return Ok(out);
             }
@@ -455,6 +470,7 @@ mod tests {
                 rebuilt: false,
             },
             ask: Some(format!("words of exchange {n}")),
+            by: None,
         }
     }
 

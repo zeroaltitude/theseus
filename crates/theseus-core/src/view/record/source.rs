@@ -8,7 +8,9 @@
 //!   range of one, and through the place's touch index for a longer one, read back at most
 //!   [`RANGE_MAX`] exchanges; a range that does not resolve whole is not shown.
 //! - Code's own text (the frame, the clock): every reader's; it has no source.
-//! - A fold node, a fact, a card, a task: no session this build can prove today, so not shown.
+//! - A named thing's card and a waiting record: the owner alone, and every session it was read from (its
+//!   `from`, ids only) readable and clear today; the facts about the person: the owner alone.
+//! - A fold node, a task: no session this build can prove today, so not shown.
 //! - A piece whose stored marks say sealed or veiled stays out (marks only grow).
 
 use std::collections::BTreeSet;
@@ -70,11 +72,16 @@ impl Source for GateSource<'_> {
         let place = match &range.space {
             Space::Code { .. } => return true,
             Space::Exchanges { place } => place,
-            // A named thing's card, what waits and the facts about the person: the owner alone, its
-            // stored seal clear (above).
-            Space::Card { .. } | Space::Waiting { .. } | Space::Facts { .. } => {
+            // A named thing's card and what waits: the owner alone, and every session it was read from
+            // readable and clear today; the facts about the person (the owner's filing): the owner alone.
+            Space::Card { from, .. } | Space::Waiting { from, .. } => {
                 return self.pov.present == Present::OwnerAlone
+                    && from.iter().all(|s| {
+                        let m = view_gate::session_marks(self.runner, self.asker, s, Veil::Clear);
+                        Gate::check(&self.pov, &m).is_ok()
+                    })
             }
+            Space::Facts { .. } => return self.pov.present == Present::OwnerAlone,
             _ => return false,
         };
         let Some(sessions) = self.sessions(place, range) else {
