@@ -361,6 +361,19 @@ mod tests {
         assert!(!off.threads.enabled && off.threads.max_live == 3);
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
         assert!(crate::Config::parse(&format!("{secrets}\n[threads]\nmax_live = 0\n")).is_err());
+        assert_eq!(cfg.threads.resume_keep_turns, 20);
+        assert_eq!(cfg.threads.working_tokens, None);
+        assert_eq!(cfg.threads.working_percent, 40);
+        // The cold resume's keys are retired (issue 44): any value loads, ignored and named.
+        for bad in [
+            "resume_keep_turns = 0",
+            "working_tokens = 10",
+            "working_percent = 0",
+            "working_percent = 101",
+        ] {
+            let (c, _) = crate::Config::parse(&format!("{secrets}\n[threads]\n{bad}\n")).unwrap();
+            assert_eq!(c.ignored_keys.len(), 1, "{bad}");
+        }
         assert!(crate::Config::from_toml("[threads]\nbogus = 1\n").is_err());
         assert_eq!(cfg.threads.cross_recall_penalty, 0.35);
         assert_eq!(cfg.threads.cross_recall_bar, 0.75);
