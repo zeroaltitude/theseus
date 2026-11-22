@@ -40,6 +40,7 @@ import { BoardLens } from '@/ops/BoardLens'
 import { TasksTab } from '@/ops/TasksTab'
 import { Queue } from '@/ops/Queue'
 import { toggleBucket } from '@/ops/tiles'
+import { selfHeldLine } from '@/ops/selfheld'
 import { Inspector, type Selection } from '@/ops/Inspector'
 import { CommandBar } from '@/ops/CommandBar'
 import { KeysOverlay } from '@/ops/KeysOverlay'
@@ -195,9 +196,10 @@ export default function Ops() {
   const [dockFocus, setDockFocus] = useState(false)
   const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 0)
   const { data: cat } = useRpc<CatalogList>('catalog.list', undefined, 0)
-  // The self loop held on its slots for hours (issue 41): said here, with the one act that clears it.
-  const { data: hl } = useRpc<HealthResult>('health', undefined, 60_000)
-  const selfHeld = hl?.self_held
+  // The self loop held on its slots for hours (issue 41): said here, with the one act that clears it. Read once: the
+  // shell's heartbeat keeps `health` fresh, so the page sets no timer of its own.
+  const { data: hl } = useRpc<HealthResult>('health', undefined, 0)
+  const selfHeld = selfHeldLine(hl, !!world)
   const [flash, setFlash] = useState<string | null>(null)
   useEffect(() => { if (!flash) return; const t = window.setTimeout(() => setFlash(null), 3500); return () => window.clearTimeout(t) }, [flash])
   const searchRef = useRef<HTMLInputElement>(null)
@@ -434,9 +436,9 @@ export default function Ops() {
           <History size={14} /> As of {stamp(world.t)}, folded from the ledger. Acting needs the present: return to LIVE in the ship&rsquo;s log below.
         </div>
       )}
-      {!world && selfHeld && (
+      {selfHeld && (
         <div role="status" data-testid="self-held" className="flex items-center gap-2 rounded-lg bg-wait/[0.06] px-3 py-2 text-[12px] text-wait ring-1 ring-wait/30">
-          {selfHeld.charAt(0).toUpperCase() + selfHeld.slice(1)}
+          {selfHeld}
         </div>
       )}
       <CommandBar counts={counts} f={a.f} onFilter={filter} lens={a.lens} onLens={lens} choices={choices} q={a.q} onQ={(q) => set({ q })} n={n} of={of}
