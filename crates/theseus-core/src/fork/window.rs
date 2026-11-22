@@ -43,6 +43,7 @@ pub const NOT_SHOWN: &str =
 /// place (where that run is the fork's own history).
 pub struct Fork {
     inherited: Vec<ExchangeRef>,
+    moved_in: Vec<ExchangeRef>,
     alone: bool,
     session: String,
     turn: String,
@@ -64,8 +65,14 @@ impl Fork {
         let spoken = crate::view_gate::own_turns(store, session, turn, &pov.anchor);
         let permit = Permit::of(verified).owning(own.collect::<Vec<_>>());
         let permit = permit.speaking(spoken);
+        // A thread a split moved turns into lays them (`fork::split`); one that cannot be read lays none.
+        let moved_in = super::split::moved_in(store, session).unwrap_or_else(|e| {
+            tracing::warn!(session, error = %format!("{e:#}"), "a split's moved turns cannot be read here");
+            Vec::new()
+        });
         let fork = Self {
             inherited,
+            moved_in,
             alone,
             session: session.into(),
             turn: turn.into(),
@@ -78,6 +85,8 @@ impl Fork {
         ForkLadder {
             inner: StoreLadder(store),
             inherited: &self.inherited,
+            session: &self.session,
+            moved_in: &self.moved_in,
         }
     }
 
@@ -103,6 +112,9 @@ impl Fork {
 pub struct ForkLadder<'a> {
     inner: StoreLadder<'a>,
     inherited: &'a [ExchangeRef],
+    /// The session read, and the exchanges a live split moved into it (`fork::split`).
+    session: &'a str,
+    moved_in: &'a [ExchangeRef],
 }
 
 /// The exchanges of the run `session` inherits as a fork, oldest first: each inherited turn whose exchange
@@ -151,12 +163,16 @@ impl Ladder for ForkLadder<'_> {
     /// first. No count is cut here: the window's admission and the budgeter choose.
     fn read(&self, place: &str, n: usize, since: Option<&Pos>) -> anyhow::Result<LadderRead> {
         let mut read = self.inner.read(place, n, since)?;
-        if self.inherited.is_empty() {
+        // An exchange is laid where its opening message lives now (`fork::split`).
+        let store = self.inner.0;
+        (read.window).retain(|e| !super::split::moved_away(store, self.session, &e.turn_id));
+        if self.inherited.is_empty() && self.moved_in.is_empty() {
             return Ok(read);
         }
         let own: HashSet<String> = read.window.iter().map(|e| e.turn_id.clone()).collect();
         let after = |e: &ExchangeRef| since.is_none_or(|s| pos(e) > *s);
         let mut window: Vec<ExchangeRef> = (self.inherited.iter())
+            .chain(self.moved_in.iter())
             .filter(|e| after(e) && !own.contains(&e.turn_id))
             .cloned()
             .chain(std::mem::take(&mut read.window))

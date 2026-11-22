@@ -292,6 +292,8 @@ impl TurnRunner {
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
         let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
+        // A split out of this session leaves its one line where its range began (`fork::split`).
+        let window = crate::fork::split::with_lines(store, sid, window)?;
         sessions.extend(gated.sessions.borrow().iter().cloned());
         let exchanges = laid_exchanges(&window, turn, &gated.exchanges.borrow(), &a);
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
