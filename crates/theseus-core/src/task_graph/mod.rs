@@ -35,6 +35,7 @@
 pub mod joined;
 pub mod judged;
 pub mod lease;
+pub mod place;
 pub mod plan;
 pub mod retitle;
 pub mod tools;

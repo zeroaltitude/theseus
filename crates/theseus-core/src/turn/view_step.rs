@@ -1,6 +1,6 @@
 //! A turn in a place set to `view` (issue 44, `[context] assembly`; `compiler::view`): which assembly the
 //! turn's place has, and its view, assembled once on its first call and frozen for the rest of the turn.
-//! A task's turn has no place and is always the transcript's.
+//! A task's turns are at the task's own place, `task:<task id>` (`view_step::task`).
 //!
 //! Who is present is never the view's to say: the point of view's presence and anchor are the turn's
 //! verified ones (`crate::view_gate::Verified`, computed by `turn::gate_step` from the input's mark and the
@@ -13,6 +13,7 @@ mod failed;
 pub(in crate::turn) mod occasion;
 pub(super) mod preview;
 mod room;
+pub(super) mod task;
 
 #[cfg(test)]
 pub(crate) use super::exchange_step::route_unreadable;
@@ -60,10 +61,10 @@ impl TurnRunner {
         )
     }
 
-    /// How this turn's requests are assembled: `[context] assembly` for its place. With no such setting,
-    /// the transcript, and nothing is read.
+    /// How this turn's requests are assembled: `[context] assembly` for its place (a task's, its own). With
+    /// no such setting, the transcript, and nothing is read.
     pub(super) fn assembly_here(&self, t: &Turn<'_>) -> Assembly {
-        if self.cfg.context.assembly.is_none() || t.tc.task.is_some() {
+        if self.cfg.context.assembly.is_none() {
             return Assembly::Transcript;
         }
         self.cfg.context.assembly_for(&self.place_here(t))
@@ -730,17 +731,20 @@ fn recalled(t: &Turn<'_>) -> Vec<String> {
     }
 }
 
-/// The person's message this turn answers, by node and text; none and empty for a turn no message opened.
+/// The person's message this turn answers, by node and text (a task's first turn, its brief); none and
+/// empty for a turn no message opened.
 fn message_of(store: &Store, sid: &str, turn: &str) -> anyhow::Result<(Option<String>, String)> {
-    Ok(store
-        .transcript(sid)?
-        .iter()
+    let own = (store.transcript(sid)?.iter())
         .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
         .find_map(|(_, n)| match &n.body {
             Body::UserMessage { text, .. } => Some((Some(n.id.clone()), text.clone())),
             _ => None,
-        })
-        .unwrap_or_default())
+        });
+    match own {
+        Some(m) => Ok(m),
+        None => Ok((task::brief_of(store, sid, turn)?)
+            .map_or_else(Default::default, |(id, text)| (Some(id), text))),
+    }
 }
 
 /// The window as the view shows it: the nodes of each exchange the budgeter kept in slot G, oldest first,
@@ -761,7 +765,8 @@ fn window_of(
         .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }))
         .map(|s| (s.piece.range.first.id.as_str(), s.form))
         .collect();
-    let (mut window, mut spoken) = (Vec::new(), HashSet::new());
+    // A task's opening heads its window (`task::window_head`); any other place's window opens empty.
+    let (mut window, mut spoken) = (task::window_head(store, pov)?, HashSet::new());
     let mut laid = Vec::new();
     for e in a.ladder.window.iter().filter(|e| e.turn_id != turn) {
         let Some(form) = here.get(e.turn_id.as_str()) else {
