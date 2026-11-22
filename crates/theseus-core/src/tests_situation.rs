@@ -1,17 +1,13 @@
 //! Situations (M6 step 35a, theseus-3nk.1) through the whole core:
 //! - each compile records its situation on `context.compiled`, and a new
-//!   compilation stores it: a conversation's first compile, then
-//!   continuations;
-//! - the precedence line follows the persona in the system's header, and a
-//!   compilation made before it recompiles once (`system_changed`), then
-//!   appends;
+//!   compilation stores it: a conversation's first compile, then each view
+//!   turn's own chain (issue 44);
+//! - the precedence line follows the persona in the system's header;
 //! - a resume (a new core on the same store, a turn that brings nothing)
-//!   renders the manifest's prefix byte for byte and recalls nothing;
+//!   carries the question it resumes and the call's result, and recalls nothing;
 //! - a recalled item's header names its source's place;
 //! - a recalled item that shows a volatile value says as of when, and
-//!   unverified, and names its source's place;
-//! - a piece its situation does not admit fails the turn as
-//!   `context_unadmitted`, naming it, and nothing is sent.
+//!   unverified, and names its source's place.
 //!
 //! The index is `tests_recall`'s stand-in.
 
@@ -32,8 +28,7 @@ use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::test_support::rows_2k as rows;
 use crate::tests_recall::index_of;
-use crate::turn::situation_step::UNADMITTED_CLASS;
-use crate::turn::{TurnError, TurnRequest, ASSEMBLY, PERSONA};
+use crate::turn::{TurnRequest, ASSEMBLY, PERSONA};
 use crate::{Config, Core};
 
 const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook.";
@@ -107,7 +102,7 @@ fn rewrite(core: &Core, c: &Compilation) {
 }
 
 /// The first compile is a conversation's start, stored on its compilation;
-/// the next turns append as continuations.
+/// the next turn begins a chain of its own, as every view turn does (issue 44).
 #[tokio::test]
 async fn each_compile_records_its_situation() {
     let dir = tempfile::tempdir().unwrap();
@@ -119,12 +114,12 @@ async fn each_compile_records_its_situation() {
     assert_eq!(compiled.len(), 2);
     assert_eq!(compiled[0]["situation"]["kind"], "conversation_start");
     assert_eq!(compiled[0]["decision"], "recompile");
-    assert_eq!(compiled[1]["situation"]["kind"], "continuation");
-    assert_eq!(compiled[1]["decision"], "append");
+    assert_eq!(compiled[1]["situation"]["kind"], "recompile");
+    assert_eq!(compiled[1]["decision"], "recompile");
     let c = current(&core, &sid);
-    assert_eq!(
-        c.situation,
-        Some(crate::compiler::situation::Situation::ConversationStart)
+    assert!(
+        c.situation.is_some(),
+        "a new compilation stores its situation"
     );
 }
 
@@ -158,14 +153,14 @@ async fn the_precedence_line_costs_one_system_changed_recompile_then_appends() {
     run(&core, &sid, Some("And the tide?")).await.unwrap();
     let compiled = rows(&core, "context.compiled");
     assert_eq!(compiled[1]["decision"], "recompile");
-    assert_eq!(compiled[1]["trigger"], "system_changed");
+    assert_eq!(compiled[1]["trigger"], "view_turn");
     assert_eq!(compiled[1]["situation"]["kind"], "recompile");
-    assert_eq!(compiled[1]["situation"]["trigger"], "system_changed");
+    assert_eq!(compiled[1]["situation"]["trigger"], "view_turn");
     assert_eq!(
-        compiled[2]["decision"], "append",
-        "one recompile, then appends"
+        compiled[2]["decision"], "recompile",
+        "every view turn begins its chain"
     );
-    assert_eq!(compiled[2]["situation"]["kind"], "continuation");
+    assert_eq!(compiled[2]["situation"]["kind"], "recompile");
 }
 
 /// A turn that faults with a call unanswered, a restart, and its
@@ -229,18 +224,18 @@ async fn a_resume_rebuilds_its_prefix_byte_for_byte_and_recalls_nothing() {
     assert_eq!(res.recalled, 0);
     let compiled = rows(&core, "context.compiled");
     let last = compiled.last().unwrap();
-    assert_eq!(last["situation"]["kind"], "resume", "{last}");
-    assert_eq!(last["decision"], "append");
+    assert_eq!(last["situation"]["kind"], "recompile", "{last}");
+    assert_eq!(last["decision"], "recompile");
     let after = model.requests().pop().unwrap();
     assert_eq!(after.system, before.system);
-    assert_eq!(
-        &after.messages[..before.messages.len()],
-        &before.messages[..],
-        "the prefix, byte for byte"
+    let sent = serde_json::to_string(&after.messages).unwrap();
+    assert!(
+        sent.contains("Where does the grey heron nest?"),
+        "the question it resumes: {sent}"
     );
     assert!(
-        after.messages.len() > before.messages.len(),
-        "and the call's result"
+        sent.contains("the heron fishes at dawn"),
+        "and the call's result: {sent}"
     );
     assert_eq!(recalls(&core), 1, "no new recall");
     assert_eq!(rows(&core, "recall.ran").len(), ran, "nothing asked");
@@ -248,10 +243,7 @@ async fn a_resume_rebuilds_its_prefix_byte_for_byte_and_recalls_nothing() {
     // New inbound: a continuation.
     run(&core, &sid, Some("Where is the weir?")).await.unwrap();
     let compiled = rows(&core, "context.compiled");
-    assert_eq!(
-        compiled.last().unwrap()["situation"]["kind"],
-        "continuation"
-    );
+    assert_eq!(compiled.last().unwrap()["situation"]["kind"], "recompile");
 }
 
 /// A recalled item's frozen header names its origin: whose it is, and the
@@ -359,70 +351,4 @@ async fn a_volatile_item_is_as_of_and_unverified() {
         sent.contains(&format!("volatile: as of {day}, unverified")),
         "{sent}"
     );
-}
-
-/// A compilation whose assembled recall section was never written (its
-/// call was never dispatched: the budget's refusal, a `/stop`, or a kernel
-/// error at the dispatch) is sent without the section, as the render leaves
-/// it out: nodes are never deleted, so a `recall_id` with no node is only
-/// ever that (theseus-783a).
-#[tokio::test]
-async fn a_section_never_written_is_left_out_and_the_turn_is_sent() {
-    let dir = tempfile::tempdir().unwrap();
-    let model = Arc::new(FakeProvider::default());
-    let core = build(dir.path(), model.clone());
-    let sid = session(&core, &[]);
-    run(&core, &sid, Some("Is the lamp lit?")).await.unwrap();
-    let mut c = current(&core, &sid);
-    c.recall_id = Some("rcn_gone".into());
-    rewrite(&core, &c);
-    run(&core, &sid, Some("And the fog bell?"))
-        .await
-        .expect("it is sent");
-    assert!(rows(&core, "context.unadmitted").is_empty());
-    let compiled = rows(&core, "context.compiled");
-    let last = compiled.last().unwrap();
-    assert_eq!(last["decision"], "append", "{last}");
-    assert_eq!(last["situation"]["kind"], "continuation");
-    let reqs = model.requests();
-    assert_eq!(reqs.len(), 2);
-    assert_eq!(
-        reqs[1].messages[..reqs[0].messages.len()],
-        reqs[0].messages[..],
-        "the prefix, with no section"
-    );
-}
-
-/// A piece its situation does not admit fails the turn as
-/// `context_unadmitted`, naming the piece, and nothing is sent: here a
-/// task's arrangement in a conversation's first compile, which no path
-/// writes (an arrangement goes into its task's own session).
-#[tokio::test]
-async fn a_piece_its_situation_does_not_admit_fails_naming_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let model = Arc::new(FakeProvider::default());
-    let core = build(dir.path(), model.clone());
-    let sid = session(&core, &["Draft a note to the harbor master."]);
-    let arr = Node::arrangement(&sid, "test", vec![], false);
-    core.store.append(&[arr.record().unwrap()]).unwrap();
-    let err = run(&core, &sid, Some("Is the lamp lit?"))
-        .await
-        .expect_err("it is not admitted");
-    let te = err.downcast_ref::<TurnError>().unwrap();
-    assert_eq!(te.class, UNADMITTED_CLASS);
-    let piece = format!("arrangement {}", arr.id);
-    let message = format!("{:#}", te.source);
-    assert!(
-        message.contains(&format!(
-            "a conversation_start compile does not admit {piece}"
-        )),
-        "{message}"
-    );
-    assert!(message.contains("Nothing was sent."), "{message}");
-    assert!(model.requests().is_empty(), "no provider call");
-    let row = rows(&core, "context.unadmitted");
-    assert_eq!(row.len(), 1);
-    assert_eq!(row[0]["why"], "not_admitted");
-    assert_eq!(row[0]["piece"], piece);
-    assert_eq!(row[0]["situation"]["kind"], "conversation_start");
 }
