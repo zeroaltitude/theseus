@@ -114,3 +114,100 @@ pub fn unlabel_url(base: &str, session_id: &str, flag: &str) -> String {
         base.trim_end_matches('/')
     )
 }
+
+/// What Jev says about one item (issue 44): the content answers kept on the item itself, beside its node,
+/// as `node.reach` and `theseus view show` read them. A description, never a permission: nothing withholds
+/// on it.
+///
+/// `state` is `labelled` (something was raised and stands), `clean` (asked, and nothing raised or all of it
+/// removed by the owner), `failed` (the ask failed, was refused or could not be built: `why` says which;
+/// never read as clean), or `not_judged` (no record: an item from before items kept their labels, or one
+/// that was never asked).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ItemLabelsView {
+    pub node: String,
+    pub state: String,
+    /// The item's kind (`operator_message`, `tool_result`, `reply`, …) and its source; absent when not judged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub source: Option<String>,
+    /// The pack asked (`content.v4`), when it was answered, and why it was not when it was not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub pack: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub at_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+    /// Each of the four questions: `yes`, `no`, or `not_asked`.
+    pub questions: Vec<ItemQuestion>,
+    /// Each flag raised on the item, by the pack or by a source that needs no model.
+    pub flags: Vec<ItemFlag>,
+    /// The categories `onto.v1` filed the item's exchange under (`topic:rust-harness`).
+    pub topics: Vec<String>,
+}
+
+impl ItemLabelsView {
+    /// One line for a person: `personal (confirm 0.91, content.v4)`, `asked, clean`, `failed (failed)`,
+    /// `not judged then`; a flag the owner removed reads `personal removed`, and the exchange's topics follow.
+    pub fn line(&self) -> String {
+        let flags: Vec<String> = (self.flags.iter())
+            .map(|f| match &f.removed {
+                Some(_) => format!("{} removed", f.flag),
+                None => format!("{} ({} {:.2}, {})", f.flag, f.band, f.confidence, f.pack),
+            })
+            .collect();
+        let what = match self.state.as_str() {
+            "not_judged" => "not judged then".to_string(),
+            "failed" => format!("failed ({})", self.why.as_deref().unwrap_or("unknown")),
+            "clean" if flags.is_empty() => "asked, clean".to_string(),
+            "clean" => format!("asked, clean; {}", flags.join(", ")),
+            _ => flags.join(", "),
+        };
+        match self.topics.is_empty() {
+            true => what,
+            false => format!("{what}; topics {}", self.topics.join(", ")),
+        }
+    }
+}
+
+/// One content question's answer about an item.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ItemQuestion {
+    pub question: String,
+    /// `yes`, `no` (or another of the pack's choices), or `not_asked`.
+    pub said: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub band: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub confidence: Option<f64>,
+}
+
+/// One flag raised on an item.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ItemFlag {
+    pub flag: String,
+    pub band: String,
+    pub confidence: f64,
+    pub source: String,
+    /// `content.v4`, or `deterministic` for a label no model raised.
+    pub pack: String,
+    pub at_ms: u64,
+    /// `by via`, when the owner removed it (from this item, or from its session after the item entered).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub removed: Option<String>,
+}

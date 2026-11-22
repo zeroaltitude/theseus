@@ -51,12 +51,12 @@ pub enum TaskCmd {
         /// Why, in your words; it rides the preference.
         reason: Option<String>,
     },
-    /// Send a task's report to another home, no model turn: a conversation, or `thread:<slug>`.
+    /// Send a task's report to another conversation, no model turn.
     /// Its budget stays carved from its original parent. Yours alone (refused inside a job).
     Rehome {
         /// The task: its id, or the end of it (four characters at least).
         id: String,
-        /// The new home: a conversation (its id, or the end of it), or `thread:<slug>`.
+        /// The new home: a conversation (its id, or the end of it).
         home: String,
     },
     /// Move a deferred task's start, no model turn: `--at fri 9:00` or `--in-time 2h`. Yours alone

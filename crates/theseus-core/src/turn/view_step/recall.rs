@@ -1,14 +1,12 @@
-//! What slot H may lay of the turn's recall (issue 44: memory intact on the view): the items today's recall
-//! found, admitted as a transcript turn's `Recall` note admits them before each compile
-//! (`view_gate::readmit_sources`: the place rule under the turn's presence, and each source's node seal),
-//! then read for the view (`view::sources_recall`): the note's own rendering of each, and its source
-//! session's marks as the gate reads them now. The view's gate then asks those marks as for any piece, so
-//! the view lays no more than the note carried, and never in company what it did not.
+//! What slot H lays of the turn's recall (issue 44: memory intact on the view): the items today's recall
+//! found, each whose source still reads, read for the view (`view::sources_recall`): the note's own
+//! rendering of each, and its source session's place and who wrote it. Anything goes (2026-11-22): no
+//! presence, seal or move holds an item out.
 
 use std::collections::BTreeSet;
 use std::sync::Mutex;
 
-use theseus_memory::gate::{Seal, Veil};
+use theseus_memory::gate::Veil;
 use theseus_memory::recall::Place;
 
 use super::super::TurnRunner;
@@ -18,7 +16,7 @@ use crate::view::sources_recall::Recalled;
 use crate::view::{Audience, Author, Marks};
 
 impl TurnRunner {
-    /// Of `items`, those a turn of `asker` may be shown now, and each as slot H reads it.
+    /// Of `items`, those whose source still reads, and each as slot H reads it.
     pub(super) fn view_recall(
         &self,
         asker: &str,
@@ -26,12 +24,16 @@ impl TurnRunner {
     ) -> (Vec<RecalledRef>, Vec<Recalled>) {
         let cache = Mutex::default();
         let mut sources = Sources::new();
+        // A fork lays nothing its ancestors said after the point each was forked from it (`fork::window`).
+        let after = crate::fork::window::after_point(&self.store, asker).unwrap_or_default();
+        let items: Vec<RecalledRef> = (items.into_iter())
+            .filter(|r| !after.holds_node(&r.node_id))
+            .collect();
         for r in &items {
             if let Some(n) = render::source(&self.store, r, &cache) {
                 sources.insert(r.node_id.clone(), n);
             }
         }
-        crate::view_gate::readmit_sources(self, asker, &mut sources);
         let (mut kept, mut laid) = (Vec::new(), Vec::new());
         for r in items {
             let Some(n) = sources.get(&r.node_id) else {
@@ -76,7 +78,7 @@ impl TurnRunner {
     }
 
     /// The nodes the window's floor lays with their words, read as the view's assembly reads them: the
-    /// same verified presence, mark, fork, gated ladder and facts, the floor chosen over what the gate
+    /// same point of view, mark, fork, ladder and facts, the floor chosen over what the gate
     /// admits (`select::Here`), each exchange counted by the form the floor asks for it
     /// (`sources_recall::carries`: spoken). The floor is never cut, so
     /// what it lays here the assembled view lays too.
@@ -88,30 +90,24 @@ impl TurnRunner {
             timeline: super::StoreTimeline(store),
             at_hand: None,
         };
-        let verified = super::Verified::of_session(self, sid);
+        let verified = super::Verified::of_turn(self, sid, t.exchange.read_place());
         let pov = super::verified_pov(&verified, t.exchange.person().0, snap.now_ms);
         let super::Anchor::Place(place) = pov.anchor.clone() else {
             return Ok(BTreeSet::new());
         };
         let since = crate::ladder::new_mark(store, &place)?;
         let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified);
-        let read = super::Sessions::default();
-        let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
-        let moved_read = crate::view_gate::Moved::read(self, Some(sid));
-        let moved = |e: &crate::exchange::Exchange| moved_read.holds(e);
+        let read = fork.sessions();
         let sources = super::StoreSources {
             store,
             mark: since.map(|m| (place.as_str(), m)),
             recalled: Vec::new(),
-            sealed: &held,
-            moved: &moved,
             sessions: &read,
             own: Some(turn),
         };
         let store_ladder = fork.ladder(store);
-        let gated = super::GatedLadder::new(&store_ladder, store, &held, &moved);
-        let ladder = super::OnceLadder::new(&gated);
-        let moving = self.moving(store, (&permit, &pov, &moved_read), &[], &read)?;
+        let ladder = super::OnceLadder::new(&store_ladder);
+        let moving = self.moving(store, (&permit, &pov), &[], &read)?;
         let cards = super::StoreCards {
             store,
             kernel: &self.kernel,
@@ -136,13 +132,8 @@ impl TurnRunner {
         Ok(out)
     }
 
-    /// Whether an item the frozen view lays is held out now (a seal, a move): the view is reassembled.
-    pub(super) fn view_recall_revoked(&self, asker: &str, laid: &[RecalledRef]) -> bool {
-        !laid.is_empty() && self.view_recall(asker, laid.to_vec()).0.len() != laid.len()
-    }
-
-    /// A recalled source's marks: its session's place, class and seal as the gate reads them for `asker`,
-    /// and who wrote it as far as it is proven. Theseus's reply is his own side; a tool's result is outside
+    /// A recalled source's marks: its session's place and class as the gate reads them for `asker`, and
+    /// who wrote it as far as it is proven. Theseus's reply is his own side; a tool's result is outside
     /// text; a message is the owner's only by his mark, another person's by the chat's proof, else of
     /// unknown author (imported text, anything said before the ledger: decision 4).
     fn recall_marks(&self, asker: &str, n: &Node) -> Marks {
@@ -170,7 +161,7 @@ impl TurnRunner {
             },
             author,
             outside,
-            sealed: m.seal != Seal::Clear,
+            sealed: false,
             veiled: false,
         }
     }

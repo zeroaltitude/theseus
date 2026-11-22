@@ -1,10 +1,8 @@
-//! `thread.link` and `thread.unlink` (theseus-98bz.11): the owner's word that two threads belong
-//! together. A link makes each thread's notes reach the other's recall with no distance
-//! (`ThreadScene` takes a thread's links into `waived`); it never crosses a seal. Threads are the
-//! owner's, so each is judged as the other thread acts are, and no model tool reaches them.
+//! The writer of a link between two threads (theseus-98bz.11). Threads were retired on
+//! 2026-11-22 (issue 44): `thread.link` and `thread.unlink` are gone, and this writer is kept only
+//! as a fixture writer for another unit's test (`tests_thread_mix.rs`), until the sweep.
 //!
-//! One frame holds both records and the `thread.linked` or `thread.unlinked` row. A link that
-//! holds, and an unlink of one that is absent, write nothing.
+//! One frame holds both records and the `thread.linked` row. A link that holds writes nothing.
 
 use std::collections::BTreeSet;
 
@@ -12,7 +10,7 @@ use anyhow::{anyhow, bail, Result};
 use theseus_protocol::method;
 use theseus_protocol::threads::{ThreadInfo, ThreadLinkParams, ThreadRow};
 
-use super::server::{route, Conn, RpcFailure};
+use super::server::RpcFailure;
 use super::thread_join::no_thread;
 use super::Core;
 use crate::approval::Answerer;
@@ -24,23 +22,6 @@ use crate::threads::Board;
 const MAX_LINKS: usize = 8;
 
 impl Core {
-    /// The two methods, each as the connection's answerer.
-    pub(super) fn rpc_thread_links(
-        &self,
-        name: &str,
-        params: serde_json::Value,
-        conn: Conn<'_>,
-    ) -> Result<serde_json::Value, RpcFailure> {
-        route(params, |p: ThreadLinkParams| {
-            let who = conn.answerer(p.author.clone(), p.discord.clone());
-            if name == method::THREAD_LINK {
-                self.thread_link(&p, who)
-            } else {
-                self.thread_unlink(&p, who)
-            }
-        })
-    }
-
     /// `thread.link`: `slug` and `other` hold each other in their `links`.
     pub fn thread_link(
         &self,
@@ -48,15 +29,6 @@ impl Core {
         who: impl Into<Answerer>,
     ) -> Result<ThreadRow, RpcFailure> {
         self.link_change(p, who.into(), method::THREAD_LINK)
-    }
-
-    /// `thread.unlink`: neither holds the other, whatever the seal (it only tightens).
-    pub fn thread_unlink(
-        &self,
-        p: &ThreadLinkParams,
-        who: impl Into<Answerer>,
-    ) -> Result<ThreadRow, RpcFailure> {
-        self.link_change(p, who.into(), method::THREAD_UNLINK)
     }
 
     fn link_change(

@@ -46,12 +46,16 @@ pub fn render(items: &[RecalledRef], sources: &Sources) -> String {
 }
 
 /// One item as a `Recall` node renders it, after its number: its header and its quoted text, its lines
-/// indented under it. An item's header (a session's title, a tool's path) is shown only when its source
+/// indented under it. An item's header (its session's id and place, a tool's path) is shown only when its source
 /// survived admission: a source held out since, or unread, leaves no header (issue 44). The view's slot H
 /// lays each recalled item with this (`view::sources_store`).
 pub fn item(r: &RecalledRef, source: Option<&Node>) -> String {
     match source.and_then(|n| shown(n, r.chunk)) {
-        Some(text) => format!("{}\n    \"{}\"", r.header, text.replace('\n', "\n    ")),
+        Some(text) => format!(
+            "{}\n    \"{}\"",
+            super::evidence::untitled(&r.header, &r.session_id),
+            text.replace('\n', "\n    ")
+        ),
         None => format!("(its source, {}, cannot be read)", r.node_id),
     }
 }
@@ -225,23 +229,14 @@ pub fn shown_text(n: &Node, (start, end): (u32, u32)) -> String {
 }
 
 /// An item's whole frozen header: `header`, then its evidence line (what it
-/// is about and which session it came from: `recall::evidence`,
-/// theseus-55hlu; none for a source whose session cannot be read), ended by
+/// is about and which session it came from, by its id, never its title:
+/// `recall::evidence`, theseus-55hlu, issue 44), ended by
 /// the volatile mark when the text it shows over `chunk` holds a volatile
 /// value (35a).
-pub fn item_header(
-    n: &Node,
-    position: u64,
-    place: &str,
-    chunk: (u32, u32),
-    session: Option<&crate::session::SessionRecord>,
-) -> String {
+pub fn item_header(n: &Node, position: u64, place: &str, chunk: (u32, u32)) -> String {
     let shown = shown_text(n, chunk);
     let header = header_in(n, position, place, &shown, &stamp::system);
-    let header = match super::evidence::evidence(n, session) {
-        Some(line) => format!("{header}, {line}"),
-        None => header,
-    };
+    let header = format!("{header}, {}", super::evidence::evidence(n));
     match volatile(n, &shown) {
         Some(mark) => format!("{header}, {mark}"),
         None => header,
@@ -454,14 +449,14 @@ mod tests {
         let heron = Node::user("ses_weir", None, "cli", "The heron nests by the weir.");
         assert_eq!(volatile(&heron, "The heron nests by the weir."), None);
         assert_eq!(
-            item_header(&gauge, 42, "#harbor", (0, 73), None),
+            item_header(&gauge, 42, "#harbor", (0, 73)),
             format!(
                 "a message from cli in #harbor, {} (as of @42), session weir, volatile: as of {}, unverified",
                 stamp::header_time(gauge.created_at_ms, &all),
                 stamp::date(gauge.created_at_ms)
             )
         );
-        assert!(!item_header(&gauge, 42, "#harbor", (0, 40), None).contains("volatile"));
+        assert!(!item_header(&gauge, 42, "#harbor", (0, 40)).contains("volatile"));
     }
 
     /// An item recalled before 35a renders the header it was frozen with,

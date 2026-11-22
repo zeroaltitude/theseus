@@ -24,7 +24,6 @@ use theseus_protocol::{
 use tokio::signal::unix::{signal, SignalKind};
 
 mod ask;
-mod thread;
 
 use crate::herdr::{self, Reporter};
 use crate::keys::{Input, Source};
@@ -98,8 +97,6 @@ enum Purpose {
     Reread,
     /// `session.typing`: a notice, whose answer says nothing a person needs.
     Typing,
-    /// The current thread, read again for the status line (theseus-j0yh).
-    ThreadRow,
 }
 
 /// How long one try to reach the daemon again may take.
@@ -195,12 +192,6 @@ pub async fn watch(
     let mut hangup = signal(SignalKind::hangup())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
     let mut early = Vec::new();
-    // The thread this terminal chose, when no session is named (theseus-j0yh).
-    let thread = match (interactive, &session) {
-        (true, None) => thread::at_start(conn, &mut early).await,
-        _ => None,
-    };
-    let session = session.or_else(|| thread.as_ref().and_then(|t| t.thread.session_id.clone()));
     let sid = match session {
         // Named whole: the read below finds it, or refuses it; named by an
         // end: by the one rule (theseus-0n1v).
@@ -262,15 +253,6 @@ pub async fn watch(
         title_asked_at: 0,
         profile_read_at: turns,
         typist: Default::default(),
-        open_thread: thread
-            .as_ref()
-            .filter(|t| t.thread.session_id.is_none())
-            .map(|t| t.thread.slug.clone()),
-        home_sid: thread.is_none().then(|| sid.clone()),
-        thread,
-        listed: Vec::new(),
-        rebind_to: None,
-        status_due: false,
         tasks: Default::default(),
         of_task,
         to_main: None,
@@ -303,9 +285,6 @@ pub async fn watch(
         w.show_questions()?;
     }
     w.ask();
-    if w.thread.is_some() {
-        w.print_status();
-    }
 
     let mut stdin = interactive.then(Source::open);
     // Where to come back to; a spawned daemon has no socket, and its end is the watch's.
@@ -318,7 +297,6 @@ pub async fn watch(
                 Ok(Some(Message::Notification(n))) => w.on_note(conn, n).await.map(|()| Step::Go),
                 Ok(Some(Message::Response(r))) => {
                     w.on_response(r);
-                    w.follow(conn).await?;
                     w.redirect(conn).await.map(|()| Step::Go)
                 }
                 Ok(Some(Message::Request(_))) => Ok(Step::Go),
@@ -456,18 +434,6 @@ struct Watch {
     profile_read_at: u64,
     /// Whether the daemon has been told someone types (theseus-tnky).
     typist: theseus_protocol::warm::Typist,
-    /// The current thread (theseus-j0yh): none is the home conversation.
-    thread: Option<theseus_protocol::threads::ThreadRow>,
-    /// The slug of a thread with no session yet: the next message opens it.
-    open_thread: Option<String>,
-    /// The session the watch left when a thread was chosen, to go back to.
-    home_sid: Option<String>,
-    /// The last `/t` listing, which `/t N` counts in.
-    listed: Vec<theseus_protocol::threads::ThreadRow>,
-    /// A session to move to once the response in hand is dealt with.
-    rebind_to: Option<String>,
-    /// The thread's row is due again for the status line.
-    status_due: bool,
     /// The conversation's tasks, told as lines (theseus-mnd9g).
     tasks: crate::task_lines::TaskLines,
     /// What a task's pane needs to send a message to main once the task has ended.
@@ -795,9 +761,6 @@ impl Watch {
         if text.is_empty() {
             return Ok(());
         }
-        if let Some(arg) = thread::command(text) {
-            return self.thread_cmd(conn, arg).await;
-        }
         if only_an_answer(text) {
             self.printer.settle();
             eprintln!("  nothing waits for an answer now (it was answered or withdrawn): `{text}` was not sent");
@@ -808,11 +771,7 @@ impl Watch {
         // and a session started on another model (`ask -P glm`) then changed
         // models under the pane without a word (theseus-nu3z).
         let mut params = json!({"session_id": self.sid, "input": text, "author": AUTHOR});
-        if let Some(slug) = &self.open_thread {
-            // A thread with no session: this message opens it.
-            params = json!({"thread": slug, "input": text, "author": AUTHOR});
-        }
-        if let (Some(profile), None) = (&self.profile, &self.open_thread) {
+        if let Some(profile) = &self.profile {
             params["profile"] = json!(profile);
             // Carried, not chosen: routing may still move the turn (25e).
             params["carried"] = json!(true);
@@ -823,7 +782,6 @@ impl Watch {
         }
         let id = conn.send(method::TURN_SUBMIT, params).await?;
         self.pending.insert(id, Purpose::Turn(text.to_string()));
-        self.print_tag();
         if let Some(rep) = &mut self.reporter {
             rep.working_now();
         }
@@ -924,8 +882,6 @@ impl Watch {
                     rep.restore();
                 }
             }
-            (Purpose::Turn(_), None) => self.opened(r.result),
-            (Purpose::ThreadRow, None) => self.thread_row(r.result),
             (Purpose::Info, None) => {
                 let info = r
                     .result
@@ -944,7 +900,6 @@ impl Watch {
                     }
                     rep.set_title(info.and_then(|s| s.title));
                 }
-                self.status_due = self.thread.is_some();
             }
             (Purpose::Reread, None) => {
                 if let Some(read) = r

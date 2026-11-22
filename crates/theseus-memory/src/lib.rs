@@ -8,8 +8,8 @@
 //!   step and `memory.search` run;
 //! - [`rerank`]: the `+rerank` arm's reorder of the top 20 by Jev's answers,
 //!   and the pack it would admit (step 32c);
-//! - [`gate`]: the gate's rule over a point of view and a piece's marks
-//!   (issue 44, step 2), which the core's gate runs.
+//! - [`gate`]: the gate's types and its one rule left: a piece whose place
+//!   cannot be read is not shown (issue 44; anything goes since 2026-11-22).
 //!
 //! The research arms `+retention` (FSRS-6, 32a), `+activation` (spreading
 //! activation, 32b) and `+synthesis` (31b) never ran live and are gone, with
@@ -20,14 +20,11 @@ pub mod gate;
 pub mod recall;
 pub mod rerank;
 pub mod science;
-pub mod threads;
 
 #[cfg(test)]
 mod tests_category;
 #[cfg(test)]
 mod tests_persona;
-#[cfg(test)]
-mod tests_threads;
 
 pub use floor::Floor;
 pub use recall::{
@@ -35,6 +32,3 @@ pub use recall::{
     Place, Reason,
 };
 pub use science::{Baseline, MemoryScience, ScienceId};
-pub use threads::{
-    Cause as ThreadCause, Distant, SessionThread, ThreadLens, Verdict as ThreadVerdict,
-};

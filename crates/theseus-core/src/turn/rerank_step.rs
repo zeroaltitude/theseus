@@ -10,20 +10,63 @@
 //!   turn's path, as 32c's shadow recalls are; `off` reranks none. The mode
 //!   is read before the candidates are cloned.
 //! - **Bounded.** In time and answered, the node holds the pack again in
-//!   Jev's order (`Memory::refill`: the same filters, the place rule first
-//!   and the owner's labels, and the same budget); otherwise recall's own
-//!   order stands. The manifest's `rerank` says which, and why.
+//!   Jev's order (`Memory::refill`: the same filters, the owner's labels
+//!   among them, and the same budget); otherwise recall's own order stands.
+//!   The manifest's `rerank` says which, and why.
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
+use theseus_memory::recall::Place;
+use theseus_memory::MemoryScience;
 use theseus_protocol::memory::RecallManifest;
 
-use super::cross_step::Parts;
 use super::{Turn, TurnRunner};
 use crate::config::memory::MemoryArm;
 use crate::config::PackMode;
 use crate::judge::rerank::Recalled;
-use crate::recall::{Answer, Begun};
+use crate::recall::{Answer, Begun, Scene};
+
+/// A recall's scene, owned: what a pack again needs once the turn is
+/// borrowed again.
+struct Parts {
+    place: Place,
+    in_context: BTreeSet<String>,
+    labeled: BTreeSet<String>,
+    budget_tokens: Option<u64>,
+    max_items: Option<usize>,
+    science: std::sync::Arc<dyn MemoryScience>,
+}
+
+impl Parts {
+    /// A scene's owned parts.
+    fn of(s: Scene<'_>) -> Self {
+        Parts {
+            place: s.place,
+            in_context: s.in_context,
+            labeled: s.labeled,
+            budget_tokens: s.budget_tokens,
+            max_items: s.max_items,
+            science: s.science,
+        }
+    }
+
+    fn scene<'a>(&self, mode: &'a str, session: &'a str, turn: &'a str) -> Scene<'a> {
+        Scene {
+            mode,
+            session_id: Some(session),
+            turn_id: Some(turn),
+            place: self.place.clone(),
+            in_context: self.in_context.clone(),
+            labeled: self.labeled.clone(),
+            budget_tokens: self.budget_tokens,
+            max_items: self.max_items,
+            science: self.science.clone(),
+            persona: None,
+            category: None,
+        }
+    }
+}
 
 impl TurnRunner {
     /// The manifest of a recall in front of the model under `arm`'s
@@ -35,63 +78,43 @@ impl TurnRunner {
         mode: &str,
         arm: MemoryArm,
         begun: &Begun,
-        mut answer: (Answer, Duration),
+        answer: (Answer, Duration),
     ) -> RecallManifest {
         let rerank = self.judge.rerank_mode(t.tc.session_id);
-        let places = crate::view_gate::RecallPlaces::of(self, Some(t.tc.session_id));
-        let scene = self.scene(t, mode, arm, &begun.said);
-        // Seals hold on every path, threads on or off, before the rerank
-        // or Jev reads a candidate (the gate).
-        let sealed = crate::view_gate::seal_out(self, Some(t.tc.session_id), &mut answer.0);
-        let crossed = self.cfg.threads.cross_recall_judge && scene.threads.is_some();
-        if rerank == PackMode::Off && !crossed {
-            let mut m = self.memory.manifest(
+        let scene = self.scene(t, mode, arm);
+        if rerank == PackMode::Off {
+            return self.memory.manifest(
                 &scene,
                 begun,
                 answer,
-                |s| places.of_session(self, s),
+                |s| self.place_of(s),
                 |ids| crate::recall::links(&self.store, ids),
                 true,
             );
-            crate::view_gate::count_sealed(&mut m, sealed);
-            return m;
         }
         let (mut m, candidates, links, ranks) = self.memory.manifest_ranked(
             &scene,
             begun,
             answer,
-            |s| places.of_session(self, s),
+            |s| self.place_of(s),
             |ids| crate::recall::links(&self.store, ids),
             true,
         );
         // What the rerank reads of the scene, taken now: the rest of it
         // borrows the turn, which the mark and the span need.
-        let mut parts = Parts::of(scene);
-        // Jev's read of the near misses another stream's notes are (theseus-98bz.10).
-        let pool = (candidates.as_slice(), links.as_slice(), &ranks);
-        self.cross_judged(t, mode, &mut parts, &mut m, pool, &begun.query)
-            .await;
-        // The sealed drops are said once the pack is final: Jev's admission
-        // and the rerank's refill write the drops again from the pack.
-        if rerank == PackMode::Off {
-            crate::view_gate::count_sealed(&mut m, sealed);
-            return m;
-        }
-        let lens = parts.lens(&candidates);
+        let parts = Parts::of(scene);
         let live = rerank == PackMode::Live;
         let recalled = |candidates| Recalled {
             recall_id: m.recall_id.clone(),
             session_id: t.tc.session_id.to_string(),
             turn_id: t.tc.turn_id.to_string(),
             message: begun.query.clone(),
-            place: parts.place.clone(),
             in_context: parts.in_context.clone(),
             labeled: parts.labeled.clone(),
             candidates,
             links: links.clone(),
             params: self.memory.params_of(&m, parts.max_items),
             science: parts.science.clone(),
-            threads: lens.clone(),
             admitted: m
                 .admitted
                 .iter()
@@ -102,7 +125,6 @@ impl TurnRunner {
         if !live {
             let r = recalled(candidates);
             self.judge.at_recall(&mut t.trace, r);
-            crate::view_gate::count_sealed(&mut m, sealed);
             return m;
         }
         let r = recalled(candidates.clone());
@@ -114,7 +136,6 @@ impl TurnRunner {
                 .refill(&scene, &mut m, candidates, &links, ranks, order);
         }
         m.rerank = Some(waited.manifest());
-        crate::view_gate::count_sealed(&mut m, sealed);
         m
     }
 }

@@ -102,22 +102,14 @@ fn engagement_is_shadow_and_off_until_the_owner_says_otherwise() {
     use super::{Config, PersonaEngage};
     let cfg = Config::from_toml(Config::EXAMPLE_TOML).unwrap();
     assert_eq!(cfg.threads.persona_engage, PersonaEngage::Shadow);
-    assert!(!cfg.threads.seal_recommend);
-    for line in [
-        "# persona_engage = \"shadow\"",
-        "# seal_recommend = false",
-        "# shareable = false",
-    ] {
+    for line in ["# persona_engage = \"shadow\"", "# shareable = false"] {
         assert!(Config::EXAMPLE_TOML.contains(line), "{line}");
     }
-    let on = Config::parse(&doc(
-        "[threads]\npersona_engage = \"act\"\nseal_recommend = true\n\n\
-         [personas.pier]\nshareable = true\n\n[personas.quiet_one]\n",
-    ))
+    let on = Config::parse(&doc("[threads]\npersona_engage = \"act\"\n\n\
+         [personas.pier]\nshareable = true\n\n[personas.quiet_one]\n"))
     .unwrap()
     .0;
     assert_eq!(on.threads.persona_engage, PersonaEngage::Act);
-    assert!(on.threads.seal_recommend);
     assert!(on.personas["pier"].shareable && !on.personas["quiet_one"].shareable);
     assert!(
         crate::personas::Book::of_config(&on).engaging(),

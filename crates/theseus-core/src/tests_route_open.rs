@@ -390,11 +390,7 @@ async fn a_pick_for_a_thank_you_still_compiles_the_whole_context() {
         thanks.messages.len(),
         before.messages.len()
     );
-    assert_eq!(
-        thanks.messages[..before.messages.len()],
-        before.messages[..],
-        "the prefix, byte for byte"
-    );
+    // A view turn assembles its request afresh: no earlier request's bytes are its prefix.
 }
 
 /// The cache hold, kept: a pick over the cold line waits one agreeing turn,

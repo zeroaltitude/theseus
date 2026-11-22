@@ -37,7 +37,6 @@ pub mod build;
 pub mod did;
 pub mod fold;
 pub mod read;
-pub mod seal;
 pub mod view;
 pub mod writer;
 

@@ -608,8 +608,6 @@ events! {
     WorkNotice(crate::notices::Notice) = notify::WORK_NOTICE,
     /// A thread changed (theseus-sjzm).
     ThreadChanged(crate::threads::ThreadChanged) = notify::THREAD_CHANGED,
-    /// The router placed a message in a thread's session (theseus-7kjb7).
-    ThreadPlaced(crate::thread_placed::ThreadPlaced) = notify::THREAD_PLACED,
     /// A followed job's output, to the connection that follows it.
     ActionOutputChunk(crate::job_follow::ActionOutputChunk) = notify::ACTION_OUTPUT_CHUNK,
     ActionOutputEnd(crate::job_follow::ActionOutputEnd) = notify::ACTION_OUTPUT_END,
@@ -644,7 +642,6 @@ impl Event {
             Event::JudgeNoticed(e) => Some(&e.session_id),
             Event::TaskChanged(e) => Some(&e.session_id),
             Event::WakeNoticed(e) => Some(&e.session_id),
-            Event::ThreadPlaced(e) => Some(&e.session_id),
             Event::StandingNoticed(e) => Some(&e.session_id),
             Event::SessionMode(e) => Some(&e.session_id),
             Event::WorkChanged(_)
@@ -685,7 +682,6 @@ impl Event {
             Event::NarrativeLine(e) => e.turn_id.as_deref(),
             Event::JudgeScored(e) => Some(&e.turn_id),
             Event::JudgeNoticed(e) => Some(&e.turn_id),
-            Event::ThreadPlaced(e) => Some(&e.turn_id),
             Event::ProfileChanged(_)
             | Event::ConfirmRequested(_)
             | Event::ConfirmResolved(_)
