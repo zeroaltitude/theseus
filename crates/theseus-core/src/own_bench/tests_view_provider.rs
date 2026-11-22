@@ -1,13 +1,10 @@
-//! A turn built from a view is replayed only with its own provider (issue 44): `turn.replay` of it to a
-//! profile on another provider is refused in words and nothing reaches either provider, while a profile of
-//! its own provider still replays it. (A stored turn of the old kind keeps main's rules for another
-//! provider, unchanged: `tests_sampler::an_attachment_is_never_sent_to_another_provider`.)
+//! A turn built from a view is replayed on any provider's model (anything goes, 2026-11-22): `turn.replay`
+//! of it to a profile on another provider sends it there, and a profile of its own provider replays it too.
 
 use std::sync::Arc;
 
 use theseus_protocol::own_bench::TurnReplayParams;
 
-use super::replay::{Crossing, VIEW_HOME};
 use super::tests::script;
 use crate::provider::FakeProvider;
 use crate::tests_recall::{session, turn, Rig};
@@ -51,7 +48,7 @@ async fn settled(r: &Rig) -> usize {
 }
 
 #[tokio::test]
-async fn a_view_turn_is_replayed_only_with_its_own_provider() {
+async fn a_view_turn_is_replayed_on_another_providers_model() {
     let (r, zai) = two_providers();
     script(
         &r,
@@ -68,16 +65,9 @@ async fn a_view_turn_is_replayed_only_with_its_own_provider() {
         compare: Some(false),
         ..Default::default()
     };
-    let sent = settled(&r).await;
-    let err = r.core.turn_replay(p("glm"), "cli").await.unwrap_err();
-    assert!(err.downcast_ref::<Crossing>().is_some(), "{err:#}");
-    assert!(format!("{err:#}").contains(VIEW_HOME), "{err:#}");
-    assert!(
-        zai.requests().is_empty(),
-        "nothing reached the other provider"
-    );
-    assert_eq!(r.model.requests().len(), sent, "nor its own");
-    // A profile of its own provider still replays it.
+    settled(&r).await;
+    r.core.turn_replay(p("glm"), "cli").await.unwrap();
+    assert_eq!(zai.requests().len(), 1, "the other provider was sent it");
     let ok = r.core.turn_replay(p("haiku"), "cli").await.unwrap();
     assert!(!ok.replay.text.is_empty(), "the replay answered");
 }

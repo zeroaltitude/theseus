@@ -1,12 +1,11 @@
 //! own-benchmark refuses a view turn it cannot replay as it was, in words and before any model is called
 //! (issue 44): a blob of its front, window or beside block missing or not what its name says, each named; a
 //! record durable while none of its blobs were written (a turn cancelled or crashed before its batch
-//! landed); a message it laid moved since into a sealed thread; a node its recall laid sealed since; and a
-//! ladder fold's constituent sealed since.
+//! landed). A message it laid moved since into a thread no longer refuses it (anything goes, 2026-11-22).
 
 use theseus_protocol::own_bench::TurnReplayParams;
 
-use super::rebuild::{NotRebuildable, VIEW_HELD};
+use super::rebuild::NotRebuildable;
 use super::tests::{board, script};
 use crate::compiler::view::kept::Kept;
 use crate::config::MemoryMode;
@@ -141,92 +140,21 @@ async fn a_record_whose_blobs_were_never_written_is_refused() {
     assert!(e.why.contains("is missing"), "{e}");
 }
 
-/// A thread's rig: the view on, threads on, `kelp` a thread sealed as `seal` says.
-fn thread_rig(seal: bool) -> (crate::tests_places::Rig, String) {
-    use crate::tests_view_compile::kelp;
-    let thread = std::cell::RefCell::new(String::new());
-    let r = crate::tests_places::rig_setup(
-        |c| {
-            c.threads.enabled = true;
-        },
-        |s| *thread.borrow_mut() = kelp(s, seal),
-    );
-    let thread = thread.into_inner();
-    (r, thread)
-}
-
-/// A message the view laid, moved since into a sealed thread: refused, `VIEW_HELD`.
+/// A message the view laid, moved since into a thread: rebuilt as before.
 #[tokio::test]
-async fn a_view_turn_whose_laid_message_moved_since_is_refused() {
-    use crate::tests_view_compile::turn_as;
-    const SAID: &str = "desk: the embargoed figure is 7741";
-    let (r, _) = thread_rig(true);
+async fn a_view_turn_whose_laid_message_moved_since_is_still_rebuilt() {
+    let (r, sid, t) = two_turns().await;
     let c = &r.core;
-    let desk = crate::tests_places::session(c, None);
-    turn_as(c, &desk, SAID, true).await;
-    let t = turn_as(c, &desk, "desk: and now?", true).await.turn_id;
-    c.rebuild_first(&desk, &t)
+    c.rebuild_first(&sid, &t)
         .expect("rebuildable before the move");
-    for (_, n) in c.store.session_nodes(&desk).unwrap() {
-        if matches!(&n.body, crate::node::Body::UserMessage { text, .. } if text == SAID) {
+    for (_, n) in c.store.session_nodes(&sid).unwrap() {
+        if matches!(&n.body, crate::node::Body::UserMessage { .. }) {
             let to = serde_json::json!({"thread": "kelp", "split": "spl_x"});
             c.store
                 .put_meta(&crate::moved::moved_of_key(&n.id), &to)
                 .unwrap();
         }
     }
-    let e = refused(c, || r.requests().len(), &desk, &t).await;
-    assert_eq!((e.part, e.why.as_str()), ("view", VIEW_HELD));
-}
-
-/// A node the view's recall laid, sealed since (its thread sealed): refused, `VIEW_HELD`. The record names
-/// the node as a recall would.
-#[tokio::test]
-async fn a_view_turn_whose_recalled_node_was_sealed_since_is_refused() {
-    use crate::tests_view_compile::{seal_kelp, turn_as};
-    let (r, thread) = thread_rig(false);
-    let c = &r.core;
-    turn_as(c, &thread, "kelp: the embargoed figure is 7741", true).await;
-    let node = (c.store.session_nodes(&thread).unwrap().into_iter())
-        .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))
-        .map(|(_, n)| n.id)
-        .expect("a kelp message");
-    let desk = crate::tests_places::session(c, None);
-    let t = turn_as(c, &desk, "desk: and now?", true).await.turn_id;
-    edit_kept(c, &t, |k| {
-        k.recalled.push(node);
-        k.sessions.retain(|s| *s != thread);
-        k.exchanges.clear();
-    });
-    c.rebuild_first(&desk, &t).expect("rebuildable while clear");
-    seal_kelp(c);
-    let e = refused(c, || r.requests().len(), &desk, &t).await;
-    assert_eq!((e.part, e.why.as_str()), ("view", VIEW_HELD));
-}
-
-/// A ladder fold's constituent (its exchange and session, which the view lists beside the window's)
-/// sealed after the turn: refused, `VIEW_HELD`.
-#[tokio::test]
-async fn a_view_turn_whose_folds_constituent_was_sealed_since_is_refused() {
-    use crate::tests_view_compile::{seal_kelp, turn_as};
-    let (r, thread) = thread_rig(false);
-    let c = &r.core;
-    let kt = turn_as(c, &thread, "kelp: the embargoed figure is 7741", true)
-        .await
-        .turn_id;
-    let desk = crate::tests_places::session(c, None);
-    let t = turn_as(c, &desk, "desk: and now?", true).await.turn_id;
-    // The kelp exchange as a fold's constituent: listed, whether or not the window laid it.
-    edit_kept(c, &t, |k| {
-        if !k.sessions.contains(&thread) {
-            k.sessions.push(thread.clone());
-        }
-        if !k.exchanges.contains(&kt) {
-            k.exchanges.push(kt.clone());
-        }
-    });
-    c.rebuild_first(&desk, &t).expect("rebuildable while clear");
-    seal_kelp(c);
-    let e = refused(c, || r.requests().len(), &desk, &t).await;
-    assert_eq!((e.part, e.why.as_str()), ("view", VIEW_HELD));
+    c.rebuild_first(&sid, &t)
+        .expect("rebuildable after the move");
 }

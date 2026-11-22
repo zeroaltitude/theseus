@@ -2,9 +2,8 @@
 //! `did` line on a background job's model, its call reserved and priced; a
 //! task's end and a place on the transcript start none; the build counts and
 //! prices in a dry run, and spends within the smaller of its cap and the
-//! day's line, failed calls counted; `/new` is a durable mark; and a source is
-//! summarised only when its provenance proves it unsealed. Every name is
-//! invented.
+//! day's line, failed calls counted; `/new` is a durable mark; and every
+//! source is summarised, whatever its provenance. Every name is invented.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -263,18 +262,12 @@ async fn new_is_a_durable_mark_for_a_bound_place_and_a_terminal_has_none() {
     assert!(build(PLACE).await.is_err());
 }
 
+/// Anything goes (2026-11-22): a thread's earlier session, whatever its thread's seal, is summarised like
+/// any other.
 #[tokio::test]
-async fn a_source_is_summarised_only_when_its_provenance_proves_it_unsealed() {
+async fn a_threads_earlier_session_is_summarised_like_any_other() {
     let (_d, core, _) = core(&[]);
     let plain = session(&core);
-    assert!(!core.ladder_hidden(&plain));
-    assert!(
-        core.ladder_hidden("ses_never_recorded"),
-        "no record: not proven"
-    );
-    assert!(core.ladder_hidden(&format!("{}x", crate::import::SESSION_PREFIX)));
-    // A thread's earlier session: its supersession link names the thread,
-    // which the board does not hold (or holds sealed): held either way.
     let mut old = SessionRecord::new(SessionKind::Conversation, None);
     old.superseded_by = Some(SessionLink {
         session_id: plain.clone(),
@@ -282,16 +275,12 @@ async fn a_source_is_summarised_only_when_its_provenance_proves_it_unsealed() {
         place: Some("thread:tide-gauges".into()),
     });
     core.store.put_session(&old.session_id, &old).unwrap();
-    assert!(core.ladder_hidden(&old.session_id));
     let w = Fake::default();
     let turn = exchange_at(&core.store, &old.session_id, PLACE, 1_000, false);
-    let hidden = |sid: &str| core.ladder_hidden(sid);
     let purse = DayPurse::new(&core.store, None, false);
-    let out = did::write(&core.store, &w, &turn, &hidden, &purse)
-        .await
-        .unwrap();
-    assert_eq!(out, Outcome::Hidden);
-    assert!(w.asks.lock().unwrap().is_empty());
+    let out = did::write(&core.store, &w, &turn, &purse).await.unwrap();
+    assert!(matches!(out, Outcome::Written(_)), "{out:?}");
+    assert_eq!(w.asks.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]

@@ -37,10 +37,6 @@ fn mark(s: &Store, turn: &str, other: Option<&str>) {
     s.append(&[exchange::mark_record(&m).unwrap()]).unwrap();
 }
 
-fn none(_: &str) -> bool {
-    false
-}
-
 /// `2N` exchanges of the channel, marked by `who(i)`, the oldest `N` folded: the rendered fold, and what
 /// the fold's writer read.
 async fn fold(who: impl Fn(u64) -> Option<Option<&'static str>>) -> (String, String) {
@@ -56,7 +52,6 @@ async fn fold(who: impl Fn(u64) -> Option<Option<&'static str>>) -> (String, Str
     let step = Step {
         writer: &w,
         flags: &NoFlags,
-        hidden: &none,
         purse: &purse,
     };
     let out = read::fold_step(&s, CHANNEL, None, &step).await.unwrap();

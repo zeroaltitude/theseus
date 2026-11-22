@@ -266,15 +266,10 @@ pub async fn first_level(
     let (Some((first, _)), Some((last, _))) = (reads.first(), reads.last()) else {
         return (Err("no exchanges".into()), Written::default());
     };
-    let mut sessions: Vec<String> = reads.iter().map(|(r, _)| r.ex.session_id.clone()).collect();
-    sessions.sort();
-    sessions.dedup();
     let ask = Ask {
         work: Work::Fold,
         text: material(reads),
         sources: reads.len() as u32,
-        sessions,
-        exchanges: reads.iter().map(|(r, _)| r.ex.turn_id.clone()).collect(),
     };
     let w = writer.write(ask, purse).await;
     let Some((title, account)) = w.text.as_deref().and_then(parse) else {
@@ -304,38 +299,10 @@ pub async fn first_level(
     (Ok(node), w)
 }
 
-/// What a node over a sealed or veiled source says in place of an account.
+/// What a first-level node over a sealed or veiled source said in place of an account, before anything goes
+/// (2026-11-22): no node is made so any more. One already written is read and shown as it stands (a node is
+/// written once for its range, `write_once`); its exchanges are opened by its handle like any other's.
 pub const HIDDEN: &str = "Not summarised: a source of these exchanges is sealed or veiled.";
-
-/// A first-level node over `reads` with a sealed or veiled source, built by
-/// code: no model reads them; the person's words stay by reference, and the
-/// handle opens them where the owner may.
-pub fn hidden(reads: &[(Read, did::Said)], flags: &dyn Flags) -> FoldNode {
-    let first = reads.first().map(|(r, _)| &r.ex);
-    let last = reads.last().map(|(r, _)| &r.ex);
-    FoldNode {
-        id: crate::new_id("fld"),
-        place: first.map(|e| e.place.clone()).unwrap_or_default(),
-        level: 1,
-        exchanges: reads.iter().map(|(r, _)| r.ex.turn_id.clone()).collect(),
-        first_ms: first.map_or(0, |e| e.start_ms),
-        last_ms: last.map_or(0, |e| e.start_ms),
-        his: his_lines(reads, flags),
-        counted: 0,
-        children: Vec::new(),
-        title: format!("{} exchanges, not summarised", reads.len()),
-        account: HIDDEN.into(),
-        // The lens does not say which of the two: both, failing closed.
-        marks: Marks {
-            sealed: true,
-            veiled: true,
-            ..node_marks(reads.iter().map(|(r, _)| &r.marks))
-        },
-        model: None,
-        writer: super::writer::WRITER_VERSION,
-        at_ms: theseus_protocol::now_unix_ms(),
-    }
-}
 
 /// A node of the level above `children` (oldest first, one level, one
 /// place), built by code from their fields alone.

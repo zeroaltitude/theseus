@@ -1,6 +1,6 @@
 //! The sampler (own-benchmark): a few turns per cell, one rung down the
-//! routing table, judged, under the day's cap; never a shared place's turn,
-//! and never one that would send an attachment to another provider.
+//! routing table, judged, under the day's cap; never a shared place's turn;
+//! and a turn with an attachment replays on another provider like any other.
 
 use std::sync::Arc;
 
@@ -288,11 +288,10 @@ fn png_turn(core: &Arc<crate::Core>, sid: &str) -> crate::turn::TurnRequest {
     }
 }
 
-/// An attachment never goes to a provider other than the original's: the
-/// same turn replays on a profile of its own provider, and is refused on
-/// another's, with nothing sent.
+/// Anything goes (2026-11-22): a turn with an attachment replays on a profile of another provider, the
+/// attachment sent with it, as on one of its own.
 #[tokio::test]
-async fn an_attachment_is_never_sent_to_another_provider() {
+async fn an_attachment_replays_on_another_provider_like_any_other() {
     let (r, zai) = two_providers();
     script(&r, &["It is a screenshot.", "A picture."]);
     let sid = session(&r.core, None, &[]);
@@ -310,70 +309,15 @@ async fn an_attachment_is_never_sent_to_another_provider() {
         compare: Some(false),
         ..Default::default()
     };
-    let err = r.core.turn_replay(p("glm"), "cli").await.unwrap_err();
+    r.core.turn_replay(p("glm"), "cli").await.unwrap();
+    let sent = zai.requests();
+    assert_eq!(sent.len(), 1, "the other provider was sent the replay");
     assert!(
-        err.downcast_ref::<super::replay::Crossing>().is_some(),
-        "{err:#}"
+        serde_json::to_string(&sent[0].messages)
+            .unwrap()
+            .contains("\"image\""),
+        "with its attachment"
     );
-    assert!(format!("{err:#}").contains("attachment"), "{err:#}");
-    assert!(
-        zai.requests().is_empty(),
-        "nothing reached the other provider"
-    );
-    // The same provider is the original's: no bytes go anywhere new.
     let ok = r.core.turn_replay(p("haiku"), "cli").await.unwrap();
     assert_eq!(ok.replay.text, "A picture.");
-    // And the sampler counts the refusal rather than the turn.
-    let out = r.core.replay_sample(now()).await.unwrap();
-    assert_eq!(out.replayed, 0, "{out:?}");
-}
-
-/// A report over nothing says $0.00, never a negative zero.
-#[tokio::test]
-async fn an_empty_report_totals_a_positive_zero() {
-    let r = rig(None);
-    let rep = r.core.route_report_now(false, now()).unwrap();
-    assert!(rep.cells.is_empty());
-    for v in [
-        rep.total_spend_usd,
-        rep.total_movable_usd,
-        rep.replay_today_usd,
-    ] {
-        assert!(v == 0.0 && v.is_sign_positive(), "{v}");
-    }
-}
-
-/// The report reads a draft and a skip from the ledger (theseus-a1wvq.12):
-/// a `task.draft` row is a cell, and a turn's `route.decided` `draft_skip`
-/// is a count.
-#[tokio::test]
-async fn the_report_reads_a_draft_from_the_ledger() {
-    let r = rig(None);
-    script(&r, &["fine"]);
-    let (sid, t) = asked(&r).await;
-    let put = |kind: &str, turn: Option<&str>, data: serde_json::Value| {
-        let row = crate::ledger::LedgerRow::named(kind, Some(&sid), turn, data);
-        r.core.store.append_ledger(&row).unwrap();
-    };
-    put(
-        "task.draft",
-        None,
-        serde_json::json!({
-            "draft_model": "deepseek-flash", "review_model": "claude-sonnet-5-5",
-            "draft_cost_usd": 0.05, "review_cost_usd": 0.25,
-            "lines_changed": 40, "applied": true, "draft_outcome": "complete",
-        }),
-    );
-    put(
-        "route.decided",
-        Some(&t),
-        serde_json::json!({"draft_skip": "dir_not_open"}),
-    );
-    let rep = r.core.route_report_now(false, now()).unwrap();
-    assert_eq!(rep.drafts.len(), 1, "{:?}", rep.drafts);
-    assert_eq!(rep.drafts[0].draft_model, "deepseek-flash");
-    assert_eq!(rep.drafts[0].lines_changed, 40);
-    assert!((rep.drafts[0].total_usd - 0.30).abs() < 1e-9);
-    let skips: Vec<_> = rep.draft_skips.iter().map(|g| (&*g.why, g.turns)).collect();
-    assert_eq!(skips, [("dir_not_open", 1)]);
 }

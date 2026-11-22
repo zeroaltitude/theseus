@@ -1,5 +1,5 @@
 //! The daemon's side of the ladder: the job at an exchange's end (its `did`
-//! line, then its place's fold step) in a place assembled as a view, what is sealed or veiled, where a
+//! line, then its place's fold step) in a place assembled as a view, where a
 //! place's latest `/new` is, the person's lines that made a standing record,
 //! and the build of a place's history ([`Core::ladder_build`]), with a dry
 //! run that counts and prices, and a cap.
@@ -149,9 +149,8 @@ impl Core {
         }
         let since = blocking(|| super::new_mark(&self.store, &ex.place))?;
         let writer = ModelWriter(self.clone());
-        let hidden = |sid: &str| self.ladder_hidden(sid);
         let purse = DayPurse::new(&self.store, None, false);
-        match did::write(&self.store, &writer, turn, &hidden, &purse).await? {
+        match did::write(&self.store, &writer, turn, &purse).await? {
             Outcome::Failed { why, .. } => tracing::info!(turn, %why, "ladder: no did line"),
             Outcome::NotEnded => return Ok(()),
             _ => {}
@@ -160,7 +159,6 @@ impl Core {
         let step = Step {
             writer: &writer,
             flags: &flags,
-            hidden: &hidden,
             purse: &purse,
         };
         let s = read::fold_step(&self.store, &ex.place, since.as_ref(), &step).await?;
@@ -218,7 +216,7 @@ impl Core {
             let Some(r) = blocking(|| did::read(&self.store, &e.turn_id))? else {
                 continue;
             };
-            if r.ex.end_ms.is_some() && r.reply.is_some() && !self.ladder_hidden(&r.ex.session_id) {
+            if r.ex.end_ms.is_some() && r.reply.is_some() {
                 todo.push(r);
             }
         }
@@ -240,11 +238,9 @@ impl Core {
             return Ok(b);
         }
         let flags = self.ladder_flags();
-        let hidden = |sid: &str| self.ladder_hidden(sid);
         let step = Step {
             writer,
             flags: &flags,
-            hidden: &hidden,
             purse: &purse,
         };
         let s = read::fold_step(&self.store, place, since.as_ref(), &step).await?;
@@ -263,9 +259,8 @@ impl Core {
         purse: &DayPurse<'_>,
         b: &mut Built,
     ) -> anyhow::Result<bool> {
-        let hidden = |sid: &str| self.ladder_hidden(sid);
         for r in todo {
-            match did::write(&self.store, writer, &r.ex.turn_id, &hidden, purse).await? {
+            match did::write(&self.store, writer, &r.ex.turn_id, purse).await? {
                 Outcome::Written(_) => b.lines += 1,
                 Outcome::Failed { why, .. } => {
                     b.stopped = Some(why);
@@ -288,8 +283,6 @@ fn estimate(writer: &dyn Writer, todo: &[did::Read], folds: usize) -> f64 {
                 work: Work::Did,
                 text: did::material(r),
                 sources: 1,
-                sessions: Vec::new(),
-                exchanges: Vec::new(),
             })
         })
         .sum();
@@ -299,8 +292,6 @@ fn estimate(writer: &dyn Writer, todo: &[did::Read], folds: usize) -> f64 {
             work: Work::Fold,
             text: "x".repeat(most),
             sources: N as u32,
-            sessions: Vec::new(),
-            exchanges: Vec::new(),
         })
         .unwrap_or(0.0);
     lines + fold * folds as f64

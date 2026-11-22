@@ -79,14 +79,7 @@ impl TurnRunner {
                     .and_then(Result::ok)
             }
         };
-        // Only the threads the gate admits for this turn are named, or
-        // counted: other threads where the owner is alone (the gate).
-        let live = crate::view_gate::digest_threads(
-            self,
-            t.tc.session_id,
-            &here,
-            board.live(PlaceClass::Private),
-        );
+        let live = board.live(PlaceClass::Private);
         // Latched for the turn before any request carries it (issue 44), and
         // the trace says what was actually carried.
         let digest = answer
@@ -106,7 +99,6 @@ impl TurnRunner {
                 "waited_ms": t0.elapsed().as_millis() as u64,
                 "answered": answer.is_some(),
                 "shown": digest.as_ref().map_or(0, |d| d.shown),
-                "embargoed": digest.as_ref().map_or(0, |d| d.embargoed),
             }),
         );
         t.digest.text = digest.map(|d| d.text);
