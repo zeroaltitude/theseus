@@ -391,9 +391,11 @@ fn env(dir: &Path) -> Vec<(OsString, Option<OsString>)> {
     ]
 }
 
-/// Whether the second cell to run (of two, by their start) was sent a word of the first's: the first's task,
-/// or the reply it was given, anywhere in a request whose last message is the second's task.
-fn second_heard_first(recs: &[drive::Record], exam: &Exam, bodies: &[Value]) -> bool {
+/// What the second cell to run (of two, by their start) was sent of the first's words, if anything: the
+/// first's task, or the reply it was given when the second was given another, anywhere in a request whose last
+/// user message holds the second's task (its turn's, and any the daemon sends after it, which hold its own
+/// reply).
+fn second_heard_first(recs: &[drive::Record], exam: &Exam, bodies: &[Value]) -> Option<String> {
     let mut recs: Vec<&drive::Record> = recs.iter().collect();
     recs.sort_by_key(|r| r.started_at_ms);
     assert_eq!(recs.len(), 2, "two cells");
@@ -410,12 +412,14 @@ fn second_heard_first(recs: &[drive::Record], exam: &Exam, bodies: &[Value]) -> 
         .map(Value::to_string)
         .collect();
     assert!(!asked.is_empty(), "the second cell's request was seen");
-    let words = [first, recs[0].reply.clone()];
-    asked.iter().any(|b| {
-        words
-            .iter()
-            .any(|w| !w.is_empty() && b.contains(w.as_str()))
-    })
+    // Both `none` cells are told they are not known, in the same words: those are no word of the first's alone.
+    let mut words = vec![first];
+    if recs[0].reply != recs[1].reply {
+        words.push(recs[0].reply.clone());
+    }
+    words
+        .into_iter()
+        .find(|w| !w.is_empty() && asked.iter().any(|b| b.contains(w.as_str())))
 }
 
 /// Two cells of the `none` arm, one item each, one after the other in one run: the second cell's request holds
@@ -475,18 +479,19 @@ fn a_cells_request_holds_nothing_any_other_cell_said() {
     // The driver as it was: both cells on the run's one `none` daemon.
     let (old, heard, shared) = on_one_daemon(&plan, &exam, &m, dir.path());
     assert!(old.iter().all(|r| r.error.is_none()), "{old:?}");
+    let old_heard = second_heard_first(&old, &exam, &heard);
     assert!(
-        second_heard_first(&old, &exam, &heard),
+        old_heard.is_some(),
         "on one daemon the second cell's request lays the first's words"
     );
-
-    assert!(
-        !second_heard_first(&recs, &exam, &model.bodies.lock().unwrap()),
+    let now_heard = second_heard_first(&recs, &exam, &model.bodies.lock().unwrap());
+    assert_eq!(
+        now_heard, None,
         "a daemon per cell: the second cell's request holds no word of the first's"
     );
     eprintln!(
-        "two cells: {alone:?} by arms::run (the run's daemon, its preflight, a daemon per cell), {shared:?} \
-         on one daemon already up"
+        "on one daemon the second heard {old_heard:?}; two cells: {alone:?} by arms::run (the run's \
+         daemon, its preflight, a daemon per cell), {shared:?} on one daemon already up"
     );
 }
 
