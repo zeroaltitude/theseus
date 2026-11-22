@@ -29,7 +29,6 @@ pub use index::IndexConfig;
 pub mod card;
 mod cockpit;
 pub mod content_based_security;
-mod data_floor;
 pub(crate) mod import;
 mod judge;
 mod limits;
@@ -74,7 +73,7 @@ pub use prefix::PrefixConfig;
 pub use route::RouteConfig;
 pub use sessions::SessionsConfig;
 pub use standing::StandingConfig;
-pub use threads::{PersonaEngage, ThreadsConfig, Unsure};
+pub use threads::{PersonaEngage, ThreadsConfig};
 pub use watches::WatchesConfig;
 pub mod defer;
 mod sparse;
@@ -86,7 +85,7 @@ pub use aws::{
 };
 pub use google::{GoogleConfig, GoogleCredentialNames};
 pub use google_calendars::{primary_spec, CalendarEntry, CalendarSpec, CalendarTable};
-pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig, UNDO_PACK};
+pub use judge::{JudgeConfig, JudgePackConfig, PackMode, UNDO_PACK};
 pub use limits::{
     default_fan_in_chars, default_fan_out_max_wait_secs, default_fan_out_wait_secs,
     default_helper_floor_usd, default_helper_max_output_tokens, default_job_wait_beat_secs,
@@ -98,7 +97,7 @@ pub use web::{WebToolsConfig, WEB_TIMEOUT_MAX_SECS};
 pub use lookup::{find_config, Lookup, DEFAULT_CONFIG, NO_CONFIG, SYSTEM_CONFIG};
 pub use lsp::{LspConfig, LspServerConfig};
 pub use memory::{MemoryConfig, MemoryMode};
-pub use routing::{RoutingConfig, RoutingMode};
+pub use routing::RoutingConfig;
 pub use sparse::{sparse_note, SPARSE_HEADER};
 pub mod mcp;
 pub mod mcp_server;
@@ -202,8 +201,8 @@ pub struct Config {
     /// `[privacy]`: the one list of sensitive names (theseus-oejh3), `config/privacy.rs`.
     #[serde(default, skip_serializing_if = "privacy::PrivacyConfig::is_default")]
     pub privacy: privacy::PrivacyConfig,
-    /// `[content_based_security]`: what a content flag does, and the switch for models of restricted origin
-    /// (theseus-9ymz0, theseus-gyjyo.2), `config/content_based_security.rs`.
+    /// `[content_based_security]`: what a content flag does (theseus-9ymz0, theseus-gyjyo.2),
+    /// `config/content_based_security.rs`.
     #[serde(
         default,
         skip_serializing_if = "content_based_security::ContentBasedSecurityConfig::is_default"
@@ -1222,9 +1221,8 @@ pub struct ProviderConfig {
     #[serde(default)]
     pub timeouts: Option<crate::provider::Timeouts>,
     /// The operator's word for where this host's models come from, for a
-    /// host Theseus does not know (a company proxy to Anthropic). Without
-    /// it an unknown host is `unknown`, which is restricted; on a China-origin
-    /// host only `cn` is accepted.
+    /// host Theseus does not know (a company proxy to Anthropic): what the
+    /// model menu shows. Without it an unknown host is `unknown`.
     #[serde(default)]
     pub origin: Option<crate::catalog::ModelOrigin>,
 }
@@ -1644,12 +1642,72 @@ impl Config {
                 }
             ));
         }
+        // The research arms and the canary mode (the owner, 2026-11-21):
+        // what each retired key now does, in one line.
+        warnings.extend(cfg.memory.retirement());
+        // What the trim of unused judge questions and modes retired (issue 44):
+        // nothing reads any of it now. Where a value the file sets did
+        // something, the one line says what changes with it.
+        let mut trimmed = cfg.judge.retired();
+        trimmed.extend(cfg.routing.trimmed());
+        trimmed.extend(cfg.memory.trimmed());
+        if !trimmed.is_empty() {
+            let mut changed = Vec::new();
+            if cfg.routing.was_shadow() {
+                changed.push(format!(
+                    "routing now follows `[judge.packs.\"{}\"] rung` and may act live",
+                    crate::judge::inbound::ROUTE_PACK
+                ));
+            }
+            if cfg.memory.small_talk_bar_was_on() {
+                changed.push("small-talk turns now carry admitted recall".to_string());
+            }
+            let changed = match changed.is_empty() {
+                true => String::new(),
+                false => format!(". What changes: {}", changed.join("; ")),
+            };
+            warnings.push(format!(
+                "{} retired (nothing reads it any more): read and ignored, remove {}{changed}",
+                trimmed.join(", "),
+                match trimmed.len() {
+                    1 => "it",
+                    _ => "them",
+                }
+            ));
+        }
+        // Routing by a guess and the thread importer (the owner, 2026-11-21).
+        let threads = cfg.threads.retired();
+        if !threads.is_empty() {
+            warnings.push(format!(
+                "{} retired (a message goes to a thread by its address only, and the thread \
+                 importer is gone): read and ignored, remove {}",
+                threads.join(", "),
+                match threads.len() {
+                    1 => "it",
+                    _ => "them",
+                }
+            ));
+        }
         if cfg.server.drafts_dir.is_some() {
             warnings.push(
                 "[server] drafts_dir is retired: the China-origin draft is gone, so the key \
                  does nothing; remove it"
                     .into(),
             );
+        }
+        // The restricted-origin rule (the owner, 2026-11-21): its two keys are
+        // read and ignored, so a config written before still loads.
+        let cn = cfg.content_based_security.retired();
+        if !cn.is_empty() {
+            warnings.push(format!(
+                "{} retired (no model is kept off a session for its origin any more): read and \
+                 ignored, remove {}",
+                cn.join(", "),
+                match cn.len() {
+                    1 => "it",
+                    _ => "them",
+                }
+            ));
         }
         if cfg.policy.earned.is_some() {
             warnings.push(
@@ -1685,16 +1743,6 @@ impl Config {
                 anyhow::bail!(
                     "providers.{name}.api_key_secret = {:?} has no matching entry under [secrets]",
                     p.api_key_secret
-                );
-            }
-            if p.origin
-                .is_some_and(|o| o != crate::catalog::ModelOrigin::Cn)
-                && crate::catalog::is_cn_endpoint(&p.api_base)
-            {
-                anyhow::bail!(
-                    "providers.{name}.origin: {} is a China-origin endpoint, so its origin can only be \
-                     \"cn\"",
-                    p.api_base
                 );
             }
         }
@@ -1810,8 +1858,6 @@ impl Config {
         self.people.validate()?;
         self.card.validate()?;
         self.ontology.validate()?;
-        self.validate_data_floor()?;
-        self.content_based_security.validate()?;
         self.privacy.validate()?;
         self.import.validate()?;
         self.validate_voice()?;
@@ -1983,17 +2029,6 @@ impl Config {
                     );
                 }
             }
-            if row
-                .origin
-                .is_some_and(|o| o != crate::catalog::ModelOrigin::Cn)
-                && builtin
-                    .get(id)
-                    .is_some_and(|b| b.origin == crate::catalog::ModelOrigin::Cn)
-            {
-                anyhow::bail!(
-                    "catalog.\"{id}\".origin: a China-origin model's origin is not configurable"
-                );
-            }
             if let Err(missing) = row.over(builtin.get(id)) {
                 anyhow::bail!(
                     "catalog.\"{id}\" is not a built-in model, so its table needs {}",
@@ -2052,6 +2087,7 @@ impl Config {
         })?;
         let m = &cfg.model;
         let doc: toml::Table = text.parse()?;
+        cfg.memory.note_retired(&doc);
         let mut profiles = inherit::profiles(&doc)?;
         profiles
             .entry("default".into())
@@ -2098,16 +2134,6 @@ impl Config {
     pub(crate) fn serve_default_from_cn(&mut self) {
         let p = self.resolved.providers.get_mut("anthropic");
         p.expect("the implicit provider").api_base = "https://api.z.ai/api/anthropic".into();
-    }
-
-    /// A test's `[model]` served from a host the operator vouches is of EU
-    /// origin (theseus-xs5ah).
-    #[cfg(test)]
-    pub(crate) fn serve_default_from_eu(&mut self) {
-        let p = self.resolved.providers.get_mut("anthropic");
-        let p = p.expect("the implicit provider");
-        p.api_base = "https://api.example.eu/anthropic".into();
-        p.origin = Some(crate::catalog::ModelOrigin::Eu);
     }
 
     /// A test whose GLM profiles were only a second, cheaper model
@@ -2260,9 +2286,10 @@ impl Config {
         system.chain(own).collect()
     }
 
-    /// A profile's model origin (theseus-a1wvq): its provider's endpoint, its
-    /// model and the catalog's row for it, by [`crate::catalog::origin_of`].
-    /// A profile or provider that does not resolve is `unknown`.
+    /// A profile's model origin as the owner is shown it (theseus-a1wvq): its
+    /// provider's endpoint and word and the catalog's row for its model, by
+    /// [`crate::catalog::origin_of`]. A profile or provider that does not
+    /// resolve is `unknown`.
     pub fn profile_origin(
         &self,
         profile: &str,
@@ -2274,29 +2301,7 @@ impl Config {
         let Some(prov) = self.all_providers().get(&p.provider) else {
             return crate::catalog::ModelOrigin::Unknown;
         };
-        crate::catalog::origin_of(&prov.api_base, prov.origin, &p.model, catalog.get(&p.model))
-    }
-
-    /// Whether a profile may be sent private data (theseus-xs5ah), by
-    /// [`crate::catalog::cleared_for_sensitive`]; a profile or provider that
-    /// does not resolve is not.
-    pub fn profile_cleared_for_sensitive(
-        &self,
-        profile: &str,
-        catalog: &crate::catalog::Catalog,
-    ) -> bool {
-        let Some(p) = self.all_profiles().get(profile) else {
-            return false;
-        };
-        let Some(prov) = self.all_providers().get(&p.provider) else {
-            return false;
-        };
-        crate::catalog::cleared_for_sensitive(
-            &prov.api_base,
-            prov.origin,
-            &p.model,
-            catalog.get(&p.model),
-        )
+        crate::catalog::origin_of(&prov.api_base, prov.origin, catalog.get(&p.model))
     }
 
     /// Every provider by name, with the implicit `anthropic` one synthesized
@@ -2435,3 +2440,5 @@ mod tests_option_profiles;
 mod tests_persona;
 #[cfg(test)]
 mod tests_sensitivity;
+#[cfg(test)]
+mod tests_trimmed;

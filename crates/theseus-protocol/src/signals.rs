@@ -1,8 +1,8 @@
 //! CONTINUE's candidate signals (M5 25b; design `m5-judgment.md` §2.4; spec
 //! §4.4a, step 2): what a compile saw that might make the current
-//! compilation stale, each deterministic and cheap. `context.compiled`
-//! carries every one that fired, and a compile that fired one and no
-//! deterministic trigger asks `continue.v1` in shadow.
+//! compilation stale. `context.compiled` carried every one that fired until
+//! `continue.v1`, their one reader, was retired; this build writes none, and
+//! the type stays so a row an older daemon wrote still decodes.
 
 use serde::{Deserialize, Serialize};
 

@@ -200,13 +200,13 @@ test('a task’s own record rides on its row: the row keeps its session id and a
 test('an ask maps to its card: two asks on one task are one needs card with asks 2; a loose ask is a row of its own', () => {
   const b = board()
   const q = queueOf({ confirms: [confirm('act_c1', { session_id: 'ses_t2' }), confirm('act_c2', { session_id: 'ses_t2', tool: 'fs.delete' })], views: b.views })
-  const loose = queueOf({ confirms: [], views: [], asks: [{ ask: { ask_id: 'ask_9', session_id: 'ses_nowhere', question: 'Which tide?', options: [], message: 'm', expires_ms: NOW + HOUR } as never, heard_ms: NOW }] })
+  const loose = queueOf({ confirms: [confirm('act_c9', { session_id: 'ses_nowhere', execution_id: 'exe_nowhere' })], views: [] })
   const rows = boardRows({ ...b, queue: [...q.filter((i) => i.confirm), ...loose], now: NOW })
   const t2 = rows.find((r) => r.id === 'ses_t2')!
   assert.equal(t2.asks, 2)
   assert.equal(t2.bucket, 'needs', 'a card with an ask needs you, whatever it was doing')
   assert.equal(t2.column, 'needs')
-  const ask = rows.find((r) => r.id === 'a:ask_9')!
+  const ask = rows.find((r) => r.id === 'q:act_c9')!
   assert.deepEqual([ask.kind, ask.bucket, ask.column, ask.counted, ask.asks, ask.thread], ['ask', 'needs', 'needs', true, 1, undefined], 'no thread: it is in Home')
   assert.equal(rows.filter((r) => r.kind === 'ask').length, 1)
 })

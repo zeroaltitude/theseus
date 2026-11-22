@@ -275,14 +275,6 @@ fn the_band_is_plus_or_minus_twenty_percent_inclusive() {
     assert_eq!(classify(0.0, 5.0), AboutTheSame);
 }
 
-/// The price rule's candidates and route.v10's `model` options are one list: an
-/// option this rule cannot see is one Jev is never told is cheaper, and a
-/// candidate the pack does not offer is a name Jev cannot act on.
-#[test]
-fn the_candidates_are_exactly_route_v10s_model_options() {
-    assert_eq!(super::SWITCH_CANDIDATES, crate::routing::model::OPTIONS);
-}
-
 /// theseus-h66v4.1: every case's `switch_cost` in the route.v10 test set is
 /// what the daemon's own rule says for that case's state, and since
 /// theseus-h66v4.8 its `cheaper_model` too. The judge crate cannot see the

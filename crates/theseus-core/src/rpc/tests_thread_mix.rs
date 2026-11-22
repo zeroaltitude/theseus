@@ -27,8 +27,7 @@ use crate::tests_recall::{rig_with, session, Rig};
 
 /// A canary rig, with the three keys at `on` (their default is true).
 fn rig(on: bool) -> Rig {
-    rig_with(MemoryMode::Canary, |c| {
-        c.memory.canary_fraction = 1.0;
+    rig_with(MemoryMode::Live, |c| {
         c.threads.cross_recall_beats_own = on;
         c.threads.cross_recall_needs_entity = on;
         c.threads.base_distance = on;
@@ -169,8 +168,7 @@ async fn another_threads_note_is_pulled_on_a_shared_entity_not_a_shape() {
 /// only its owner decides), A's own to B, and a sealed B's never ambient.
 #[tokio::test]
 async fn a_node_a_split_moved_is_its_threads_in_recall() {
-    let r = rig_with(MemoryMode::Canary, |c| {
-        c.memory.canary_fraction = 1.0;
+    let r = rig_with(MemoryMode::Live, |c| {
         c.threads.base_distance = false;
     });
     let c = &r.core;
@@ -355,8 +353,7 @@ struct Variant {
 
 async fn tally(v: Variant) -> Tally {
     use theseus_protocol::threads::{ThreadEditParams, ThreadLinkParams, WorkingSet};
-    let r = rig_with(MemoryMode::Canary, |c| {
-        c.memory.canary_fraction = 1.0;
+    let r = rig_with(MemoryMode::Live, |c| {
         c.threads.own_top_admissible = !v.old_own_top;
     });
     let c = &r.core;

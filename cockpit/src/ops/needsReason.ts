@@ -1,13 +1,12 @@
 // Why each card on the Needs-you column waits on the owner (theseus-nuqut). Pure: `npm test` runs it
-// (test/ops-task-tab.test.ts). A tool or budget ask carries its reason (`ConfirmRequest`), a router ask its
-// question (`ThreadAsk`, read by `thread.ask_list` and heard by `thread.asked`), and a card that waits with no ask
-// to answer says its state.
+// (test/ops-task-tab.test.ts). A tool or budget ask carries its reason (`ConfirmRequest`), and a card that waits with
+// no ask to answer says its state.
 import type { OpsRow } from './board.ts'
 import { askKeysOf, type QueueItem } from './queue.ts'
 
 /** What one item waits for, in a phrase; never empty. */
 export function reasonOf(i: QueueItem): string {
-  const words = i.ask ? i.ask.question : i.confirm ? i.confirm.plain?.why || i.confirm.plain?.held || i.confirm.reason : i.title
+  const words = i.confirm ? i.confirm.plain?.why || i.confirm.plain?.held || i.confirm.reason : i.title
   return words || i.title || i.kind
 }
 

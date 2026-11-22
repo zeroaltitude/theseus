@@ -675,7 +675,6 @@ impl Core {
             name: "learn",
             pin: self.cfg.judge.learn.writer_profile.as_deref(),
             job: theseus_judge::builders::JobKind::Learn { pack: pack.into() },
-            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };
         let (target, _) = rt
             .block_on(self.runner.job_target(&live, site))

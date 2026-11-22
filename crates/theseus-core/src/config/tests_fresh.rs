@@ -31,7 +31,7 @@ fn a_config_with_nothing_in_memory_recalls_live_on_baseline() {
     for (word, mode) in [
         ("off", MemoryMode::Off),
         ("shadow", MemoryMode::Shadow),
-        ("canary", MemoryMode::Canary),
+        ("canary", MemoryMode::Live),
         ("live", MemoryMode::Live),
     ] {
         let cfg = parse("", &format!("[memory]\nmode = \"{word}\"")).unwrap();

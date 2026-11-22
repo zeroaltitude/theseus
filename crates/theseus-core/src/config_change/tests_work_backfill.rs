@@ -75,8 +75,9 @@ fn retitle_the_old_way(r: &Rig, id: &str, title: &str, by: &str) {
         .unwrap();
 }
 
-/// An owner's project that a model retitled before the mark existed is that model's session's words: held
-/// from a restricted turn, its flags taken by an unrestricted one. The owner's milestone beside it is theirs.
+/// An owner's project that a model retitled before the mark existed is that model's session's words: its
+/// flags are taken by the turn given them, a turn bound for a model of restricted origin as much as any
+/// (nothing is held from one since 2026-11-21). The owner's milestone beside it is theirs.
 #[tokio::test]
 async fn an_old_retitle_is_the_retitling_sessions_words() {
     for restricted in [true, false] {
@@ -97,18 +98,9 @@ async fn an_old_retitle_is_the_retitling_sessions_words() {
         let here = conversation(&r).await;
         let text = said(&r, &here, json!({"what": ["projects"]})).await;
         assert!(text.contains("next Outer harbour"), "{text}");
-        match restricted {
-            true => {
-                assert!(!text.contains("Reef survey"), "{text}");
-                assert!(text.contains("held back"), "{text}");
-                assert!(flags(&r, &here).is_none());
-            }
-            false => {
-                assert!(text.contains("Reef survey"), "{text}");
-                let f = flags(&r, &here).expect("the renamer's flags are taken");
-                assert!(f.has(Flag::Confidential));
-            }
-        }
+        assert!(text.contains("Reef survey"), "{text}");
+        let f = flags(&r, &here).expect("the renamer's flags are taken");
+        assert!(f.has(Flag::Confidential));
     }
 }
 
@@ -280,9 +272,9 @@ fn a_look_over_many_edited_titles_reads_the_cap_once() {
 }
 
 /// A look at an owner's project edited otherwise (version 2) whose title's row is out of the walk's reach:
-/// at the cap (2,001 task rows, the title's the oldest) it is unproven and held from a restricted turn, in
-/// plain words that name no conversation; on an unrestricted turn it is given and nothing is taken. The
-/// owner's milestone (never edited) is theirs in both.
+/// at the cap (2,001 task rows, the title's the oldest) it is unproven: given, and nothing is taken, on a
+/// turn bound for a model of restricted origin as on any (2026-11-21). The owner's milestone (never edited)
+/// is theirs in both.
 #[tokio::test]
 async fn a_title_out_of_the_walks_reach_is_held_as_unproven() {
     for restricted in [true, false] {
@@ -306,26 +298,11 @@ async fn a_title_out_of_the_walks_reach_is_held_as_unproven() {
         let here = conversation(&r).await;
         let text = said(&r, &here, json!({"what": ["projects"]})).await;
         assert!(text.contains("next Outer harbour"), "{text}");
-        match restricted {
-            true => {
-                assert!(!text.contains("Reef survey"), "{text}");
-                assert!(
-                    text.contains("(held back: its writer could not be established)"),
-                    "{text}"
-                );
-                assert!(
-                    !text.contains("that conversation"),
-                    "names no conversation: {text}"
-                );
-            }
-            false => {
-                assert!(
-                    text.contains("Reef survey") && !text.contains("held back"),
-                    "{text}"
-                );
-                assert!(flags(&r, &here).is_none(), "no session to take flags from");
-            }
-        }
+        assert!(
+            text.contains("Reef survey") && !text.contains("held back"),
+            "{text}"
+        );
+        assert!(flags(&r, &here).is_none(), "no session to take flags from");
     }
 }
 
@@ -398,9 +375,8 @@ fn in_the_shape_building_window_a_short_ledger_is_read_whole_and_a_long_one_is_c
 }
 
 /// A record a model made, edited (version above 1), with its title's row out of the walk's reach: the original
-/// words are still its maker's conversation's, so a restricted turn is held from them with the plain line
-/// ("its writer could not be established"), and an unrestricted turn is given them AND takes that
-/// conversation's flags on, as it did before the walk was cut safe.
+/// words are still its maker's conversation's, so a turn is given them AND takes that conversation's flags
+/// on, as it did before the walk was cut safe; a turn bound for a model of restricted origin too (2026-11-21).
 #[tokio::test]
 async fn an_unproven_title_a_model_made_still_has_its_makers_flags_taken_on() {
     for restricted in [true, false] {
@@ -433,19 +409,7 @@ async fn an_unproven_title_a_model_made_still_has_its_makers_flags_taken_on() {
         );
         let here = conversation(&r).await;
         let text = said(&r, &here, json!({"what": ["projects"]})).await;
-        match restricted {
-            true => {
-                assert!(!text.contains("Harbour survey"), "{text}");
-                assert!(
-                    text.contains("(held back: its writer could not be established)"),
-                    "{text}"
-                );
-                assert!(flags(&r, &here).is_none());
-            }
-            false => {
-                assert!(text.contains("Harbour survey"), "{text}");
-                assert!(flags(&r, &here).is_some(), "the maker's flags are taken on");
-            }
-        }
+        assert!(text.contains("Harbour survey"), "{text}");
+        assert!(flags(&r, &here).is_some(), "the maker's flags are taken on");
     }
 }

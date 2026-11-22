@@ -53,8 +53,6 @@ pub struct RouteDecided<'a> {
     pub injection: Option<Value>,
     /// Where the profile runs, and its origin (theseus-a1wvq.11).
     pub ran: Ran<'a>,
-    /// The data rule's part: absent on a checkpoint's row.
-    pub data: Option<RouteData<'a>>,
     /// What route.v10 adds (theseus-h66v4): absent while another pack acts, so
     /// the row is byte for byte what it was.
     pub open: Option<RouteOpen>,
@@ -62,8 +60,7 @@ pub struct RouteDecided<'a> {
 
 /// route.v10's part of a `route.decided` row: the acting pack, what Jev picked
 /// and how sure, the block it picked (the pack's own words), and the words
-/// that qualify the reason (`-P fable`,
-/// `restricted_models=not_allowed`, `deepseek: no key`).
+/// that qualify the reason (`-P fable`, `deepseek: no key`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RouteOpen {
     pub pack: String,
@@ -79,15 +76,6 @@ pub struct Ran<'a> {
     pub provider: Option<&'a str>,
     pub model: Option<&'a str>,
     pub origin: &'a str,
-}
-
-/// The data rule on a turn's route row. `gate` is an open word: why the rule
-/// kept the turn off a restricted-origin profile, written only when it did.
-pub struct RouteData<'a> {
-    /// `allowed`, a flag's word, or `never` (`cn_models`): whether the session may
-    /// use a model of restricted origin, as the turn found its labels.
-    pub cn: &'a str,
-    pub gate: Option<&'a str>,
 }
 
 /// What a task checkpoint's `route.decided` row adds to the turn's own.
@@ -119,12 +107,6 @@ impl Fact for RouteDecided<'_> {
         row["provider"] = json!(self.ran.provider);
         row["model"] = json!(self.ran.model);
         row["origin"] = json!(self.ran.origin);
-        if let Some(d) = &self.data {
-            row["cn"] = json!(d.cn);
-            if let Some(g) = d.gate {
-                row["data_gate"] = json!(g);
-            }
-        }
         if let Some(s) = self.effort_sent {
             row["effort_sent"] = json!(s);
         }
@@ -202,19 +184,16 @@ impl Fact for RouteDecided<'_> {
                 self.profile, self.reason
             ),
         };
-        let gate = match self.data.as_ref().and_then(|d| d.gate) {
-            Some(g) => format!(" Kept off a restricted-origin model: {g}."),
-            None => String::new(),
-        };
-        say.line(Model, format!("{line}{effort}{gate}"));
+        say.line(Model, format!("{line}{effort}"));
     }
 }
 
 /// `route.corrected` (theseus-q31l): the owner's correction of a turn's
 /// routing, keyed `rcx_<id>` and scoped `route.corrections`, in one frame
 /// with the owner's label on the turn's route judgment, when it wrote one.
-/// Its provenance is the owner's own message, reaction, or press, by id. The
-/// live layer is rebuilt from these rows after serving.
+/// Its provenance is the reaction or press, by id. (Rows from before the
+/// owner's words stopped counting also carry `words` and `rerun`, which are no
+/// longer written.)
 pub struct RouteCorrected<'a> {
     pub id: &'a str,
     /// The corrected turn, and its route judgment, when it had one.
@@ -230,18 +209,15 @@ pub struct RouteCorrected<'a> {
     pub to: &'a str,
     /// Where the session runs from its next turn, if it moves.
     pub profile: Option<&'a str>,
-    /// Where a close message runs: the layer's entry, when it steers.
+    /// Where the session's next turn runs: the steer, when there is one.
     pub steer: Value,
     /// The owner's label, when the mode was wrong.
     pub label: Option<&'a str>,
-    pub rerun: bool,
     pub who: &'a str,
-    /// `message`, `reaction`, `button`, `cockpit`, `cli`.
+    /// `reaction`, `button`, `cockpit`, `cli`.
     pub via: &'a str,
-    /// The message's node, the reaction, or the press, by id.
+    /// The reaction or the press, by id.
     pub provenance: &'a str,
-    /// The corrected message's content words, which a close one shares.
-    pub words: &'a [String],
     pub at_ms: u64,
 }
 
@@ -253,8 +229,8 @@ impl Fact for RouteCorrected<'_> {
             "id": self.id, "turn": self.turn, "judgment": self.judgment, "pack": self.pack,
             "session": self.session, "mode": self.mode, "ran": self.ran, "to": self.to,
             "profile": self.profile, "steer": self.steer, "label": self.label,
-            "rerun": self.rerun, "who": self.who, "via": self.via,
-            "provenance": self.provenance, "words": self.words, "at_ms": self.at_ms,
+            "who": self.who, "via": self.via,
+            "provenance": self.provenance, "at_ms": self.at_ms,
         })
     }
 
@@ -271,15 +247,10 @@ impl Fact for RouteCorrected<'_> {
             ),
             _ => String::new(),
         };
-        let again = if self.rerun {
-            ", and answers it again there"
-        } else {
-            ""
-        };
         say.line(
             Model,
             format!(
-                "{} corrected turn {}'s routing (it ran on {}): {}{label}{moved}{again} (by {} {}).",
+                "{} corrected turn {}'s routing (it ran on {}): {}{label}{moved} (by {} {}).",
                 self.who, self.turn, self.ran, self.to, self.via, self.provenance
             ),
         );
@@ -335,7 +306,6 @@ mod tests {
                 model: None,
                 origin: "unknown",
             },
-            data: None,
             open: None,
         });
         let lines = narrator.tail();

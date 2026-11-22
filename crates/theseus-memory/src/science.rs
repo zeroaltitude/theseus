@@ -7,15 +7,10 @@
 //!
 //! Step 30a reads `id`, `min_score`, and `rank` (the recall step in shadow,
 //! and `memory.search`). `gate` is read by the memory pass (row 57, 31a),
-//! `schedule` by the retention projection (row 58, 32a), `activate` by the
-//! adjacency projection (row 59, 32b), and `decay_sweep` by tiering (row 60,
-//! 33); the baseline's answers to them are §2.3's table's.
-
-use std::collections::BTreeMap;
-
-use crate::activation::Adjacency;
-use crate::fsrs::Retention;
-use crate::AccessEvent;
+//! and `decay_sweep` by tiering (row 60, 33); the baseline's answers to them
+//! are §2.3's table's. The verbs of the retention and activation arms
+//! (`schedule`, `activate`: rows 58 and 59) went with those arms, which never
+//! ran live.
 
 /// A science and the parameter set it runs: `baseline@<digest>`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,13 +78,10 @@ pub struct Scored {
     pub score: f64,
 }
 
-/// What a ranking may weigh beside the scores: the turn's time, and the
-/// candidates' retention by node (32a; filled by the core for a science
-/// that reads it, else empty).
+/// What a ranking may weigh beside the scores: the turn's time.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RankCtx {
     pub now_ms: u64,
-    pub retention: BTreeMap<String, Retention>,
 }
 
 /// §5.1's verbs, each a pure function of its inputs.
@@ -104,17 +96,6 @@ pub trait MemoryScience: Send + Sync {
     /// The gate's thresholds, merge then supersede, for the row that
     /// records its decision.
     fn gate_thresholds(&self) -> (f32, f32);
-    /// One step of a node's retention fold (row 58, 32a: the retention
-    /// projection); `None`: the science keeps no retention.
-    fn schedule(&self, prior: Option<&Retention>, ev: &AccessEvent) -> Option<Retention>;
-    /// The nodes the seeds' activation reaches (row 59, 32b: the adjacency
-    /// projection), strongest first.
-    fn activate(
-        &self,
-        g: &dyn Adjacency<String>,
-        seeds: &[(String, f32)],
-        budget: usize,
-    ) -> Vec<(String, f32)>;
     /// Hints for tiering (row 60, 33): the nodes that may leave the
     /// resident tier, coldest first.
     fn decay_sweep(&self, now_ms: u64, view: &[Heat]) -> Vec<Demotion>;
@@ -123,81 +104,6 @@ pub trait MemoryScience: Send + Sync {
     /// Whether recall reads the memory pass's edges and prefers the newer
     /// node (31a's "deterministic freshness and provenance rules").
     fn prefers_newer(&self) -> bool;
-    /// Whether `rank` reads the candidates' retention (`RankCtx`), so the
-    /// core fills it from the projection (32a).
-    fn reads_retention(&self) -> bool {
-        false
-    }
-    /// What recall does with a synthesis (31b): only the `+synthesis` arm's
-    /// science admits one, and only a checked one.
-    fn synthesis(&self, _node_id: &str) -> SynthesisAdmit {
-        SynthesisAdmit::NotThisArm
-    }
-}
-
-/// A science's word on one synthesis (31b).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SynthesisAdmit {
-    /// This arm admits no synthesis.
-    NotThisArm,
-    /// Its citations were not checked and supported.
-    Unchecked,
-    /// A candidate like any other.
-    Admit,
-}
-
-/// The `+synthesis` arm's science (31b): `baseline`'s in every verb, and
-/// the checked syntheses as candidates.
-#[derive(Clone, Debug, PartialEq)]
-pub struct WithSyntheses {
-    pub base: Baseline,
-    /// The syntheses whose citations were checked and supported.
-    pub checked: std::sync::Arc<std::collections::BTreeSet<String>>,
-}
-
-impl MemoryScience for WithSyntheses {
-    fn id(&self) -> ScienceId {
-        ScienceId {
-            name: "baseline+synthesis",
-            params: self.base.id().params,
-        }
-    }
-    fn min_score(&self) -> f64 {
-        self.base.min_score()
-    }
-    fn gate(&self, fresh: &Fresh, near: &[Neighbour]) -> GateDecision {
-        self.base.gate(fresh, near)
-    }
-    fn gate_thresholds(&self) -> (f32, f32) {
-        self.base.gate_thresholds()
-    }
-    fn schedule(&self, prior: Option<&Retention>, ev: &AccessEvent) -> Option<Retention> {
-        self.base.schedule(prior, ev)
-    }
-    fn activate(
-        &self,
-        g: &dyn Adjacency<String>,
-        seeds: &[(String, f32)],
-        budget: usize,
-    ) -> Vec<(String, f32)> {
-        self.base.activate(g, seeds, budget)
-    }
-    fn decay_sweep(&self, now_ms: u64, view: &[Heat]) -> Vec<Demotion> {
-        self.base.decay_sweep(now_ms, view)
-    }
-    fn rank(&self, fused: Vec<Scored>, ctx: &RankCtx) -> Vec<Scored> {
-        self.base.rank(fused, ctx)
-    }
-    fn prefers_newer(&self) -> bool {
-        self.base.prefers_newer()
-    }
-    fn synthesis(&self, node_id: &str) -> SynthesisAdmit {
-        if self.checked.contains(node_id) {
-            SynthesisAdmit::Admit
-        } else {
-            SynthesisAdmit::Unchecked
-        }
-    }
 }
 
 /// The baseline (§2.3): no retention model and no activation. It ranks by
@@ -284,19 +190,6 @@ impl MemoryScience for Baseline {
         (self.merge_cosine, self.supersede_cosine)
     }
 
-    fn schedule(&self, _prior: Option<&Retention>, _ev: &AccessEvent) -> Option<Retention> {
-        None
-    }
-
-    fn activate(
-        &self,
-        _g: &dyn Adjacency<String>,
-        _seeds: &[(String, f32)],
-        _budget: usize,
-    ) -> Vec<(String, f32)> {
-        Vec::new()
-    }
-
     fn decay_sweep(&self, now_ms: u64, view: &[Heat]) -> Vec<Demotion> {
         let mut out: Vec<Demotion> = view
             .iter()
@@ -339,8 +232,6 @@ pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::activation::AdjacencyList;
-    use crate::{Access, Outcome};
 
     fn near(id: &str, cosine: f32) -> Neighbour {
         Neighbour {
@@ -384,20 +275,6 @@ mod tests {
             GateDecision::MergeInto("a".into())
         );
         assert_eq!(b.gate(&plain, &[near("a", f32::NAN)]), GateDecision::Store);
-    }
-
-    /// No retention, and no activation.
-    #[test]
-    fn the_baseline_keeps_no_retention_and_spreads_nothing() {
-        let b = Baseline::default();
-        let ev = AccessEvent {
-            at_ms: 1,
-            access: Access::Used(Outcome::Ok),
-        };
-        assert_eq!(b.schedule(None, &ev), None);
-        let mut g = AdjacencyList::default();
-        g.link("a".to_string(), "b".to_string(), crate::EdgeKind::Neighbour);
-        assert!(b.activate(&g, &[("a".into(), 1.0)], 10).is_empty());
     }
 
     /// The fused order, ties by key, whatever order the index listed them in.

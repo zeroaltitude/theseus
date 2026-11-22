@@ -64,7 +64,7 @@ tempfile = "3"
 # The sealed scorer's test reads what it logs (theseus-pw1q.5); in the lock already.
 tracing-subscriber.workspace = true
 # The fake Jev, for the judge's tests.
-theseus-judge = { path = "../theseus-judge", features = ["fake"] }
+theseus-judge = { path = "../theseus-judge", features = ["fake", "retired-packs"] }
 # The loopback fake Google, for the Google tests.
 theseus-google = { path = "../theseus-google", features = ["fake"] }
 # The paused clock for tests that prove a wait never happens (theseus-ksfu);

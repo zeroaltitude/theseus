@@ -2,7 +2,7 @@
 //! the data's window; each arm's pass rate with its interval and n, over
 //! all items and each half; the paired differences, clustered by item
 //! (`baseline − none`, `bm25 − none`, `oracle − none`, `baseline − bm25`,
-//! `oracle − baseline`, `+retention − baseline`), each saying `gain`, `loss` or `insufficient`; cost
+//! `oracle − baseline`), each saying `gain`, `loss` or `insufficient`; cost
 //! per pass and recall's latency; the decision per feature, with the clause
 //! of the plan's rule that decided it; what could not be measured, and why;
 //! then each item. Markdown, written frozen (`freeze`).
@@ -172,24 +172,15 @@ fn hex(b: &[u8]) -> String {
 }
 
 /// The arms in the report's order.
-pub const ARMS: [&str; 6] = [
-    "none",
-    "bm25",
-    "baseline",
-    "+retention",
-    "+activation",
-    "oracle",
-];
+pub const ARMS: [&str; 4] = ["none", "bm25", "baseline", "oracle"];
 
 /// The paired differences the report gives, `b − a`, as `(a, b)`.
-pub const PAIRS: [(&str, &str); 7] = [
+pub const PAIRS: [(&str, &str); 5] = [
     ("none", "baseline"),
     ("none", "bm25"),
     ("none", "oracle"),
     ("bm25", "baseline"),
     ("baseline", "oracle"),
-    ("baseline", "+retention"),
-    ("baseline", "+activation"),
 ];
 
 /// What a difference's interval can say: `gain` when it lies above zero,
@@ -507,16 +498,11 @@ pub fn render(records: &[Record], exam: &Exam, source: &str) -> String {
 }
 
 /// The features the rule decides, as `(feature, a, b)`: `baseline` (recall
-/// itself) against `none`; vectors, `baseline` against `bm25`; and FSRS-6
-/// retention in the rank, `+retention` against `baseline` (32a).
-pub const FEATURES: [(&str, &str, &str); 3] = [
+/// itself) against `none`; and vectors, `baseline` against `bm25`. (FSRS-6
+/// retention in the rank, 32a's `+retention`, was retired with its arm.)
+pub const FEATURES: [(&str, &str, &str); 2] = [
     ("recall (`baseline` against `none`)", "none", "baseline"),
     ("vectors (`baseline` against `bm25`)", "bm25", "baseline"),
-    (
-        "retention (`+retention` against `baseline`)",
-        "baseline",
-        "+retention",
-    ),
 ];
 
 /// The private family's items that failed under `b` in a run where `a`
@@ -548,7 +534,7 @@ fn decisions(
 ) {
     let _ = writeln!(o, "## The decision per feature");
     let _ = writeln!(o);
-    let _ = writeln!(o, "Under the plan's rule: clause 1, a disclosure the feature caused: off, and a P1 bug; clause 2, on by default only if the canary shows no harm (its one-sided 90% interval excludes a drop of more than 5 points), it gains on a primary metric, the exam's held-out half agrees in sign, and its recall p95 stays within budget; clause 3, otherwise off by default, and \"insufficient\" counts as otherwise.");
+    let _ = writeln!(o, "Under the plan's rule: clause 1, a disclosure the feature caused: off, and a P1 bug, which this report checks from the exam's records. Clause 2 turned a feature on only on a live canary's evidence; the canary mode of recall is retired (2026-11-21), so clause 2 (and clause 3, its otherwise) is not evaluated by this report, and live rollout evidence is not in its input. Where clause 1 does not hold, the exam's own measurements are given, and the decision is not made here.");
     let _ = writeln!(o);
     let _ = writeln!(
         o,
@@ -559,7 +545,7 @@ fn decisions(
         if !arms.contains(&a) || !arms.contains(&b) {
             let _ = writeln!(
                 o,
-                "| {name} | off by default | 3 | not run: the records hold no `{}` cells | – |",
+                "| {name} | not decided here | – | not run: the records hold no `{}` cells | – |",
                 if arms.contains(&a) { b } else { a }
             );
             continue;
@@ -585,10 +571,10 @@ fn decisions(
         } else {
             let pr = paired(cells, a, b, |c| !c.held_out);
             (
-                "off by default",
-                "3",
+                "not decided here",
+                "2 (retired)",
                 format!(
-                    "insufficient: clause 2 needs the canary, which has no data yet (n = 0 sessions per arm; the plan's minimum is 120); the exam alone never turns a feature on (held-in n = {} items)",
+                    "no disclosure in these records; the canary rule (clause 2) is retired and not evaluated by this report, and live rollout evidence is not in its input; the exam alone never turns a feature on (held-in n = {} items)",
                     pr.items
                 ),
             )
@@ -605,7 +591,7 @@ fn decisions(
 fn unmeasured(o: &mut String, recs: &[Record], arms: &[&str]) {
     let _ = writeln!(o, "## What could not be measured, and why");
     let _ = writeln!(o);
-    let _ = writeln!(o, "- **The canary**: no canary data exists yet (the operator's daemon runs `[memory] mode = \"shadow\"`), so task success, false completion, stale recall, re-supply, and disclosure in live traffic have n = 0, and clause 2 cannot hold for any feature.");
+    let _ = writeln!(o, "- **Live rollout**: evidence from live traffic (task success, false completion, stale recall, re-supply, and disclosure) is not in this report's input, which is the exam's records alone. The canary rule that would have read it (clause 2) is retired with the canary mode, and this report does not evaluate it.");
     let vectorless: Vec<&CellRecall> = recs
         .iter()
         .filter(|r| r.arm == "baseline")
@@ -839,43 +825,6 @@ mod tests {
         rs
     }
 
-    /// Every number below is computed by hand from the fixture, with
-    /// t(1) = 12.706, t(3) = 3.1824 and t(5) = 2.5706.
-    /// `+activation` is paired with `baseline`, its one difference, when
-    /// the records hold both.
-    #[test]
-    fn activation_is_paired_with_baseline() {
-        let exam = Exam::parse(EXAM_V2).unwrap();
-        let ids: Vec<&str> = exam
-            .file
-            .items
-            .iter()
-            .filter(|i| !i.held_out)
-            .take(2)
-            .map(|i| i.id.as_str())
-            .collect();
-        let mut rs = Vec::new();
-        for (arm, passes) in [("baseline", [false, true]), ("+activation", [true, true])] {
-            for (k, pass) in passes.iter().enumerate() {
-                rs.push(rec(ids[k], arm, 1, Some(*pass)));
-            }
-        }
-        let md = render(&rs, &exam, "x.jsonl");
-        assert!(
-            md.contains("| `+activation − baseline` | held in | 2 | 50% "),
-            "{md}"
-        );
-        assert!(md.contains("| +activation | "), "{md}");
-        // Without `+activation` cells there is no such row, and the arm is
-        // named as not run (32a's line, beside it on the stack).
-        let md = render(&rs[..2], &exam, "x.jsonl");
-        assert!(!md.contains("`+activation − baseline`"), "{md}");
-        assert!(
-            md.contains("- **`+activation`**: not run in these records."),
-            "{md}"
-        );
-    }
-
     #[test]
     fn the_report_reads_as_computed_by_hand() {
         let exam = Exam::parse(EXAM_V2).unwrap();
@@ -916,10 +865,16 @@ mod tests {
         has("| none | 14 | 3 | $0.1400 | $0.04667 |");
         // oracle's 14 for 14.
         has("| oracle | 14 | 14 | $0.1400 | $0.01000 |");
-        // The decisions: no canary, so clause 3, with the exam's n.
-        has("| recall (`baseline` against `none`) | off by default | 3 | insufficient: clause 2 needs the canary, which has no data yet (n = 0 sessions per arm; the plan's minimum is 120); the exam alone never turns a feature on (held-in n = 4 items) | insufficient (+58); insufficient (+50) |");
-        has("| vectors (`baseline` against `bm25`) | off by default | 3 |");
-        has("- **The canary**: no canary data exists yet");
+        // The decisions: no disclosure, and the canary rule retired, so not
+        // decided here, with the exam's own measurements and n.
+        has("| recall (`baseline` against `none`) | not decided here | 2 (retired) | no disclosure in these records; the canary rule (clause 2) is retired and not evaluated by this report, and live rollout evidence is not in its input; the exam alone never turns a feature on (held-in n = 4 items) | insufficient (+58); insufficient (+50) |");
+        has("| vectors (`baseline` against `bm25`) | not decided here | 2 (retired) |");
+        has("- **Live rollout**: evidence from live traffic");
+        has("is not in this report's input");
+        has("clause 2 (and clause 3, its otherwise) is not evaluated by this report");
+        // It never claims to know what mode a daemon runs.
+        assert!(!md.contains("mode = \"shadow\""), "{md}");
+        assert!(!md.contains("no data yet"), "{md}");
         has("- **The replay**");
     }
 

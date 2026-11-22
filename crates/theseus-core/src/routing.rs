@@ -109,9 +109,6 @@ pub enum Reason {
     /// The owner's correction, or the layer's entry close to the message,
     /// placed the turn ahead of the verdict (theseus-q31l).
     Correction,
-    /// The message names a sensitive name and the turn's profile was not of
-    /// US origin, so the `[model]` default runs (theseus-oejh3, theseus-xs5ah).
-    DataGate,
 }
 
 impl Reason {
@@ -127,7 +124,6 @@ impl Reason {
             Reason::Pinned => "pinned",
             Reason::Shadow => "shadow",
             Reason::Correction => "correction",
-            Reason::DataGate => "data_gate",
         }
     }
 }
@@ -208,9 +204,6 @@ pub struct Profile {
     /// A short turn's cost at catalog prices, in dollars (none: unpriced).
     pub short_cost: Option<f64>,
     pub vision: bool,
-    /// Origin `cn` or `unknown`: such a profile runs only for a cleared ask
-    /// (theseus-a1wvq.4).
-    pub restricted: bool,
 }
 
 /// What a `turn.submit` names that is the owner's choice: a provider or a
@@ -262,11 +255,8 @@ pub fn short_cost(e: &CatalogEntry) -> f64 {
 pub type Profiles = BTreeMap<String, Profile>;
 
 impl Profile {
-    fn runs(&self, images: bool, cleared: bool) -> bool {
-        self.unusable.is_none()
-            && self.short_cost.is_some()
-            && (self.vision || !images)
-            && (!self.restricted || cleared)
+    fn runs(&self, images: bool) -> bool {
+        self.unusable.is_none() && self.short_cost.is_some() && (self.vision || !images)
     }
 }
 
@@ -284,9 +274,6 @@ pub struct Ask<'a> {
     pub context_tokens: u64,
     pub hold: Option<&'a Hold>,
     pub images: bool,
-    /// An open request can be built for this ask, so a restricted profile may
-    /// run (false until the open-request row, theseus-a1wvq.8).
-    pub cleared: bool,
 }
 
 /// What the hold becomes.
@@ -331,7 +318,7 @@ pub fn steer_to(
         hold: HoldNext::Clear,
     };
     match profiles.get(profile) {
-        Some(p) if !p.runs(a.images, a.cleared) => return stay(Reason::Fallback),
+        Some(p) if !p.runs(a.images) => return stay(Reason::Fallback),
         Some(_) => {}
         None => return stay(Reason::Fallback),
     }
@@ -368,13 +355,10 @@ mod tests {
             unusable: None,
             short_cost: Some(cost),
             vision,
-            restricted: false,
         }
     }
 
-    /// The template's five, at their catalog costs for a short turn. They stay
-    /// `restricted: false`: these fixtures weigh cost order, not origin
-    /// (`tests_cn` marks the `zai` ones restricted).
+    /// The template's five, at their catalog costs for a short turn.
     pub(super) fn five() -> Profiles {
         let c = crate::catalog::Catalog::builtin();
         let mut out = Profiles::new();
@@ -414,7 +398,6 @@ mod tests {
             context_tokens: est,
             hold: None,
             images: false,
-            cleared: false,
         }
     }
 

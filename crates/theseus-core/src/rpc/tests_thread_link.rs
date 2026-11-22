@@ -177,8 +177,7 @@ async fn a_linked_threads_note_passes_the_lens_unpaid() {
 /// (it pays nothing), where an unlinked one, at its paid score, ranks below and drops.
 #[tokio::test]
 async fn a_linked_note_ranks_at_its_own_score() {
-    let r: Rig = rig_with(MemoryMode::Canary, |c| {
-        c.memory.canary_fraction = 1.0;
+    let r: Rig = rig_with(MemoryMode::Live, |c| {
         c.threads.own_top_admissible = true;
     });
     let c = &r.core;
@@ -353,8 +352,7 @@ fn only_the_owner_links() {
 /// notes of C once B is merged into C (and still those of B, which the merge left in place).
 #[tokio::test]
 async fn a_link_follows_a_merged_thread() {
-    let r: Rig = rig_with(MemoryMode::Canary, |c| {
-        c.memory.canary_fraction = 1.0;
+    let r: Rig = rig_with(MemoryMode::Live, |c| {
         c.threads.own_top_admissible = true;
     });
     let c = &r.core;

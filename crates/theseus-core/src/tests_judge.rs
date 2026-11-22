@@ -125,8 +125,6 @@ pub(crate) fn rig_on(
 ) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = judge_config(dir.path(), jev);
-    // The router's ask tests predate `unsure = "guess"` (theseus-ttlze).
-    cfg.threads.unsure = crate::config::Unsure::Ask;
     tweak(&mut cfg);
     cfg.validate().unwrap();
     let store = Store::open(&dir.path().join("store")).unwrap();
@@ -277,7 +275,6 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
             "loop.v1: shadow",
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v4: off",
-            "role.v1: off",
             "split.v1: off",
             "route.v11: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-11-14))",
         "directive.v2: off",
@@ -286,14 +283,12 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
         "two_things.v1: live",
         "same_kind.v1: live",
         "name_it.v1: live",
-            "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",
             "recall_cross.v1: live",
             "families.v1: live",
             "memory.v1: shadow",
             "attribution.v1: shadow",
-            "citation.v1: shadow",
             "compare.v1: shadow",
             "heard.v1: live",
             "people.v1: live",
@@ -498,7 +493,6 @@ async fn an_off_judge_or_pack_calls_nothing() {
             "loop.v1: off",
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v4: off",
-            "role.v1: off",
             "split.v1: off",
             "route.v11: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-11-14))",
         "directive.v2: off",
@@ -507,14 +501,12 @@ async fn an_off_judge_or_pack_calls_nothing() {
         "two_things.v1: live",
         "same_kind.v1: live",
         "name_it.v1: live",
-            "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",
             "recall_cross.v1: live",
             "families.v1: live",
             "memory.v1: shadow",
             "attribution.v1: shadow",
-            "citation.v1: shadow",
             "compare.v1: shadow",
             "heard.v1: live",
             "people.v1: live",

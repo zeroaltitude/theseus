@@ -84,11 +84,8 @@ pub struct RecallWithheld<'a> {
     pub admitted: u32,
     /// The profile the request was bound for.
     pub profile: &'a str,
-    /// Which gate withheld it: `restricted_origin` (a model of restricted
-    /// origin, theseus-9ymz0) or `small_talk` (the small-talk bar,
-    /// theseus-fpm2). The two are separate rules and a count of one must not
-    /// take in the other, so the row says which rather than leaving a reader
-    /// to infer it from the profile.
+    /// Why it was withheld: `view` (a place set to `view`, issue 44). Old rows
+    /// may say `restricted_origin` or `small_talk`, two gates since deleted.
     pub why: &'a str,
 }
 

@@ -159,7 +159,6 @@ impl ModelWriter {
                 sources: ask.sources,
                 owner_material: true,
             },
-            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };
         self.0
             .runner

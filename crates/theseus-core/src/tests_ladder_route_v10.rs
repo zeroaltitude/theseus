@@ -52,7 +52,8 @@ fn route_v10_is_armed_with_its_own_three_rules_and_no_others() {
 }
 
 /// A pack whose file declares no pins rule keeps the adoption's: route.v8 still
-/// rolls back on 3 pins in a day.
+/// rolls back on 3 pins in a day, retired from the binary or not (issue 44: its
+/// rules are its own file's, never the wired route.v11's).
 #[test]
 fn an_earlier_route_pack_keeps_the_adopted_three_pins() {
     for pack in ["route.v5", "route.v8"] {
@@ -65,6 +66,45 @@ fn an_earlier_route_pack_keeps_the_adopted_three_pins() {
             "{pack}"
         );
     }
+}
+
+/// A stored adoption of a retired route version (a store from before issue 44)
+/// is rechecked by that version's own rules after a restart: the third pin of a
+/// day rolls route.v8 back, as it always did, where route.v11's five would not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stored_route_v8_adoption_is_rechecked_by_its_own_rules() {
+    const V8: &str = "route.v8";
+    let dir = tempfile::tempdir().unwrap();
+    let c = core_at(dir.path());
+    c.runner
+        .judge
+        .ladder()
+        .write(theseus_protocol::packs::PackModeRow {
+            pack: V8.into(),
+            mode: Rung::Live.as_str().into(),
+            from: Rung::Off.as_str().into(),
+            who: "owner".into(),
+            by: "owner".into(),
+            via: "adoption".into(),
+            why: "the owner's decision of 2026-10-23".into(),
+            ..theseus_protocol::packs::PackModeRow::default()
+        })
+        .unwrap();
+    drop(c);
+    let c = core_at(dir.path());
+    let j = &c.runner.judge;
+    assert_eq!(j.ladder().standing(V8).rung, Rung::Live, "read back");
+    let day = j.today();
+    for n in 1..=2 {
+        j.land(V8, CanaryEvent::Pinned { day: day.clone() });
+        assert_eq!(j.ladder().standing(V8).rung, Rung::Live, "pin {n}");
+    }
+    j.land(V8, CanaryEvent::Pinned { day });
+    let s = j.ladder().standing(V8);
+    assert_eq!(
+        (s.rung, s.rule.as_deref()),
+        (Rung::RolledBack, Some("pins_per_day"))
+    );
 }
 
 /// The fifth pin rolls v10 back, the fourth does not (the third, where the

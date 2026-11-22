@@ -54,7 +54,11 @@ use crate::{Config, Core};
 /// the family (compaction, commitments, tiering, standing_ring, private_view,
 /// situation, home_size, route_keep, projects) rang one more test at 49,000 and
 /// none from 49,500 to 52,000, the sweep's end. 50,000 is inside that band.
-const WINDOW: u64 = 50_000;
+/// And 50,000 until the view's lanes and the trims met in one tree (issue 44):
+/// their tools block, swept over the same family (71 tests), rings 14 tests at
+/// 49,000 and 49,500 and none from 50,000 to 53,000, the sweep's end. 50,000 is
+/// that band's low edge; 51,500 is its middle.
+const WINDOW: u64 = 51_500;
 /// The window of the session-summary rig (`session_rig`): its override test's
 /// probe and its glm turn must ring at the same turn, which holds in a band
 /// that moves with the tools block. 48,000 was in it until `routine.create`
@@ -1484,22 +1488,4 @@ async fn a_slow_jev_does_not_hold_a_compaction() {
         "the summary was written"
     );
     jev.release();
-}
-
-/// The owner-material floor is the labels': a session with a label that keeps
-/// restricted models off is told `not_allowed`, and a pick of Flash is refused.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_labelled_session_is_told_not_allowed_and_never_summarized_on_flash() {
-    let jev = theseus_judge::fake::FakeJev::start().unwrap();
-    jev_chat(&jev);
-    pick_summary(&jev, "deepseek_flash", 0.97);
-    // `cn_models = never`: no model of restricted origin reads any session.
-    let r = rig_jev(&jev, None, true, |c| {
-        c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never;
-    });
-    let sid = session(&r.core);
-    until_recompiled(&r, &sid, 6_000).await;
-    let asks = summary_asks(&jev);
-    assert!(!asks.is_empty());
-    assert!(!models_asked(&r).contains(&"deepseek-flash".to_string()));
 }

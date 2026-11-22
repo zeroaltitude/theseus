@@ -9,7 +9,7 @@
 // confirms it.
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
-import { CalendarClock, Circle, CircleAlert, CircleCheck, CircleDollarSign, CircleDot, CircleHelp, CirclePause, CircleX, Clock, Inbox, Keyboard, ListTodo, Loader, Lock, MessageCircle, MessagesSquare, PencilLine, Plus, Radio, ShieldQuestion, Split, type LucideIcon } from 'lucide-react'
+import { CalendarClock, Circle, CircleAlert, CircleCheck, CircleDollarSign, CircleDot, CircleHelp, CirclePause, CircleX, Clock, Inbox, Keyboard, ListTodo, Loader, Lock, MessageCircle, MessagesSquare, PencilLine, Plus, Radio, ShieldQuestion, type LucideIcon } from 'lucide-react'
 import type { ConfirmRequest, SessionInfo, SessionListResult, TaskListResult } from '@protocol'
 import { useConn, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
@@ -24,7 +24,6 @@ import type { QueueItem } from '@/ops/queue'
 import { cardFacts, itemFacts, ITEM_LOOK, lifeWords, waitingFacts } from '@/ops/facts'
 import { plannedRecords } from '@/lib/taskboard'
 import { rowFor } from '@/ops/sections'
-import { useRouterAsks } from '@/ops/asks'
 import { Answers } from '@/ops/Queue'
 import { Inspector } from '@/ops/Inspector'
 import { JoinPane } from '@/ops/JoinPane'
@@ -47,7 +46,7 @@ const LOOK: Readonly<Record<OpsRow['bucket'], { Icon: LucideIcon; tone: string }
   todo: { Icon: Circle, tone: 'idle' }, rest: { Icon: MessageCircle, tone: 'idle' }, ended: { Icon: CircleCheck, tone: 'ok' },
 }
 /** Each kind of ask's mark (its tone is `ITEM_LOOK`'s). */
-const ASK_ICON: Readonly<Record<QueueItem['kind'], LucideIcon>> = { approval: ShieldQuestion, budget: CircleDollarSign, change: PencilLine, question: CircleHelp, failure: CircleX, seal: Lock, ask: Split }
+const ASK_ICON: Readonly<Record<QueueItem['kind'], LucideIcon>> = { approval: ShieldQuestion, budget: CircleDollarSign, change: PencilLine, question: CircleHelp, failure: CircleX, seal: Lock }
 type PaneTab = 'talk' | 'details'
 
 export default function SimpleOps() {
@@ -66,7 +65,6 @@ export default function SimpleOps() {
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 1500)
   const { data: sl } = useRpc<SessionListResult>('session.list', undefined, 5000)
   const history = useHistoryRows()
-  const asks = useRouterAsks(now)
   const linked = useConn((s) => s.status === 'open')
 
   const views = useMemo(() => Object.values(board.views), [board.views])
@@ -77,7 +75,7 @@ export default function SimpleOps() {
   const confirms = cl?.confirms ?? NONE
 
   // The one work set (`./ops/workset.ts`): the Operations page's steps, so a number here is the number there.
-  const work = useMemo(() => workSetOf({ views, tasks, sessions, records, confirms, groups, asks, history: history.rows, now }), [views, tasks, sessions, records, confirms, groups, asks, history.rows, now])
+  const work = useMemo(() => workSetOf({ views, tasks, sessions, records, confirms, groups, history: history.rows, now }), [views, tasks, sessions, records, confirms, groups, history.rows, now])
   const { queue, rows, cols, counts, waiting, next, resting, planned } = work
   const spend = { usd: work.spendUsd }
 

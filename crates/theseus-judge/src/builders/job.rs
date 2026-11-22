@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{inbound, InboundInput, Prepared, RestrictedModels, RouteFacts};
+use super::{inbound, InboundInput, Prepared, RouteFacts};
 use crate::state::Scrub;
 
 /// The most characters of a free-text part of a job's paragraph.
@@ -170,37 +170,13 @@ impl JobKind {
             ),
         }
     }
-
-    /// The job works on private material: only US options may be listed.
-    pub fn private(&self) -> bool {
-        match self {
-            JobKind::Compaction { .. } => false,
-            JobKind::Synthesis { owner_material, .. } => *owner_material,
-            JobKind::SelfBuilder { private, .. } | JobKind::SelfReviewer { private, .. } => {
-                *private
-            }
-            // Each of these reads the owner's own material (the keys of
-            // `config::data_floor::owner_material_profiles`).
-            JobKind::Card { .. }
-            | JobKind::CardObserve { .. }
-            | JobKind::Initiative { .. }
-            | JobKind::People { .. }
-            | JobKind::Threads { .. }
-            | JobKind::Learn { .. }
-            | JobKind::OntologyName { .. } => true,
-        }
-    }
 }
 
 /// The job's `inbound` input: its paragraph as the message, `job` as the
-/// place, and the facts. Private material floors `restricted_models` at
-/// `not_allowed` whatever the facts say, and nothing here ever loosens it. A
-/// reviewer's state names the builder's model beside the task's.
+/// place, and the facts as the daemon gives them. A reviewer's state names the
+/// builder's model beside the task's.
 pub fn job_input(i: &JobInput) -> InboundInput {
     let mut facts = i.facts.clone();
-    if i.kind.private() {
-        facts.restricted_models = RestrictedModels::NotAllowed;
-    }
     if let JobKind::SelfReviewer {
         builder_model: Some(m),
         ..

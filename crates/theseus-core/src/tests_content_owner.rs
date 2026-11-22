@@ -305,8 +305,8 @@ async fn the_owners_own_dm_is_the_operators_words_and_is_never_asked_the_injecti
     );
 }
 
-/// And the same when the router places that message in a thread, which is what
-/// happened to him: the turn ran in `theseus-design-oct`'s session, not his
+/// And the same when the message is placed in a thread (by its address now; by
+/// the router's guess when it happened to him): the turn ran in `theseus-design-oct`'s session, not his
 /// DM's. A thread's virtual place is private unconditionally
 /// (`places::class_alone`, theseus-nhew), so the place half was never the
 /// problem; the `owner` half has to survive the move too.
@@ -314,19 +314,15 @@ async fn the_owners_own_dm_is_the_operators_words_and_is_never_asked_the_injecti
 async fn and_so_is_one_the_router_placed_in_a_thread() {
     let jev = FakeJev::start().unwrap();
     jev_says_injection(&jev);
-    jev.script(
-        "thread",
-        Jev::Choice {
-            option: "design-oct".into(),
-            confidence: 0.95,
-        },
-    );
     let r = rig(&jev);
     let c = &r.core;
     thread(c, "design-oct", "theseus");
     let dm = place_session(c, &format!("dm:{OWNER}"));
     let res = Wire::open(c)
-        .submit(his_dm(&dm, "untrust the theseus repository please"))
+        .submit(his_dm(
+            &dm,
+            "#design-oct untrust the theseus repository please",
+        ))
         .await;
     let placed = res.session_id.clone();
     assert_ne!(placed, dm, "the router placed it away from his DM: {res:?}");

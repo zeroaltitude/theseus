@@ -350,13 +350,16 @@ async fn a_calls_path_decides_public_when_the_source_names_none() {
     assert_eq!(public("n2"), None, "the call named a private one");
 }
 
-/// The pack that is live is `content.v4` (theseus-3i6d1); v1 to v3 stay
-/// embedded for their stored judgments.
+/// The pack that is live is `content.v4` (theseus-3i6d1); v1 to v3 are
+/// retired from the binary (issue 44) and still parse from their files, so a
+/// stored judgment of one replays by `--pack-file`.
 #[test]
-fn the_live_pack_is_content_v4_and_the_older_ones_stay_embedded() {
+fn the_live_pack_is_content_v4_and_the_older_ones_stay_readable() {
     assert_eq!(PACK, "content.v4");
-    for old in ["content.v1", "content.v2", "content.v3", "content.v4"] {
-        assert!(theseus_judge::pack::by_name(old).is_some(), "{old}");
+    assert!(theseus_judge::pack::by_name(PACK).is_some());
+    for old in ["content.v1", "content.v2", "content.v3"] {
+        assert!(theseus_judge::pack::by_name(old).is_none(), "{old}");
+        assert!(theseus_judge::pack::retired(old).is_some(), "{old}");
     }
     assert_eq!(
         crate::judge::wired_mode(PACK),
@@ -703,7 +706,7 @@ async fn a_failure_is_not_carried_into_the_next_batch() {
         .collect();
     assert_eq!(nodes, ["n1", "n2"], "each rowed once");
     assert_eq!(notices(&r).len(), 1, "a Jev that stays down is told once");
-    assert_eq!(r.core.runner.verdicts.outstanding(&sid), 0);
+    assert!(!r.core.runner.judge.content_busy(&sid));
 }
 
 /// Test 19. A reservation the day's budget refuses writes `content.unjudged`
@@ -972,78 +975,8 @@ async fn an_item_with_no_text_is_not_asked() {
     assert_eq!(read.kind, ItemKind::ToolResult);
 }
 
-/// A waiting turn's side: with items queued and Jev holding its answers, the
-/// session has an ask open, a short wait gives up, and the landing ends a long
-/// one. The wait is the counter's (`Handle::drained`).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_open_ask_wakes_its_waiter_when_the_items_land() {
-    let jev = FakeJev::start().unwrap();
-    no(&jev);
-    jev.set_mode(FakeMode::Held);
-    let r = rig(&jev, |_| {});
-    let sid = session(&r);
-    let svc = r.core.runner.judge.clone();
-    let handle = &r.core.runner.verdicts;
-    assert_eq!(handle.outstanding(&sid), 0);
-    assert!(
-        handle.drained(&sid, Duration::from_millis(10)).await,
-        "nothing queued: nothing to wait for"
-    );
-    svc.ask_content(
-        &sid,
-        vec![item_in(&r, &sid, "n1", ItemKind::ToolResult, "text")],
-    );
-    assert_eq!(handle.outstanding(&sid), 1);
-    assert!(
-        !handle.drained(&sid, Duration::from_millis(150)).await,
-        "held: the wait gives up"
-    );
-    let core = r.core.clone();
-    let sid2 = sid.clone();
-    let waiter = tokio::spawn(async move {
-        core.runner
-            .verdicts
-            .drained(&sid2, Duration::from_secs(15))
-            .await
-    });
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    jev.release();
-    assert!(waiter.await.unwrap(), "the landing ended the wait");
-    assert_eq!(handle.outstanding(&sid), 0);
-    assert_eq!(rows(&r, "content.judged").len(), 1);
-}
-
-/// The counter a turn waits on (theseus-gyjyo.6) is the asks open for the
-/// session: one for each item queued, back to none when they land, and a
-/// number a turn can wait on without reading the transcript.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_outstanding_count_is_the_asks_open_for_the_session() {
-    let jev = FakeJev::start().unwrap();
-    no(&jev);
-    let r = rig(&jev, |_| {});
-    let sid = session(&r);
-    let svc = r.core.runner.judge.clone();
-    let handle = &r.core.runner.verdicts;
-    assert_eq!(handle.outstanding(&sid), 0, "nothing was asked");
-    assert!(handle.drained(&sid, Duration::ZERO).await, "no wait owed");
-    svc.ask_content(
-        &sid,
-        vec![
-            item_in(&r, &sid, "n1", ItemKind::ToolResult, "one"),
-            item_in(&r, &sid, "n2", ItemKind::ToolResult, "two"),
-        ],
-    );
-    assert_eq!(handle.outstanding(&sid), 2, "one ask for each item queued");
-    assert_eq!(handle.outstanding("ses_other"), 0, "per session");
-    assert!(
-        handle.drained(&sid, Duration::from_secs(15)).await,
-        "the landing ended the wait"
-    );
-    assert_eq!(handle.outstanding(&sid), 0, "and the count came down");
-}
-
 /// With `[content_based_security] session_flags = false`, the judge off, or the pack off, nothing is
-/// asked and nothing waits.
+/// asked.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn with_it_off_nothing_is_asked() {
     for how in ["config", "pack"] {
@@ -1053,9 +986,6 @@ async fn with_it_off_nothing_is_asked() {
             if how == "config" {
                 c.judge.packs.remove(PACK);
                 c.content_based_security.session_flags = false;
-                // With the flags off `follow_flags` has no labels to read and the config refuses to start.
-                c.content_based_security.cn_models =
-                    crate::config::content_based_security::CnModels::Never;
             }
         });
         let sid = session(&r);
@@ -1063,7 +993,7 @@ async fn with_it_off_nothing_is_asked() {
             &sid,
             vec![item_in(&r, &sid, "n1", ItemKind::ToolResult, "text")],
         );
-        assert_eq!(r.core.runner.verdicts.outstanding(&sid), 0, "{how}");
+        assert!(!r.core.runner.judge.content_busy(&sid), "{how}");
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(jev.seen().is_empty(), "{how}");
         assert!(rows(&r, "content.judged").is_empty(), "{how}");
@@ -1479,7 +1409,6 @@ async fn a_name_raises_nothing_with_the_flags_off() {
     let r = rig(&jev, |c| {
         c.privacy.sensitive_names = vec!["Examplecorp".into()];
         c.content_based_security.session_flags = false;
-        c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never;
     });
     let sid = session(&r);
     r.core.runner.judge.ask_content(
@@ -1657,7 +1586,6 @@ async fn a_deterministic_label_lands_only_with_the_flags_on() {
     no(&jev);
     let off = rig(&jev, |c| {
         c.content_based_security.session_flags = false;
-        c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never;
     });
     let on = rig(&jev, |_| {});
     for (r, lands) in [(&off, false), (&on, true)] {
@@ -1725,21 +1653,20 @@ fn points(r: &Rig) -> u64 {
 
 /// Wait until the session has no ask open.
 async fn drained(r: &Rig, sid: &str) {
-    assert!(
-        r.core
-            .runner
-            .verdicts
-            .drained(sid, Duration::from_secs(20))
-            .await,
-        "an ask was still open after 20 s"
-    );
+    let t0 = Instant::now();
+    while r.core.runner.judge.content_busy(sid) {
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "an ask was still open after 20 s"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 /// **The re-ask, once** (theseus-gyjyo.7). An ask that fails is asked one more
 /// time, then rowed (`content.unjudged`, why `failed`) and told to the owner
-/// in the session's place, and the session goes on: nothing is raised, so it
-/// stays eligible for a model of restricted origin. This is the owner's trade
-/// (review §8, Q2): an item whose ask failed twice can reach such a model
+/// in the session's place, and the session goes on: nothing is raised. This is
+/// the owner's trade (review §8, Q2): an item whose ask failed twice stays
 /// unlabelled, with a notice.
 ///
 /// Exactly twice: a Jev that stays down costs two decision points for the
@@ -1772,54 +1699,6 @@ async fn a_failed_ask_is_asked_once_more_then_rowed_and_told() {
     );
     let f = flags(&r, &sid);
     assert!(f.labels.is_empty(), "nothing raised");
-    assert!(
-        f.disqualifies_cn().is_none(),
-        "the session stays eligible for a model of restricted origin"
-    );
-}
-
-/// **The notice says what is true of the session** (theseus-gyjyo.7, review
-/// J2). A session that already carries a label keeping a model of restricted
-/// origin off it, and whose Jev then goes down, is told that its other labels
-/// still keep those models off, and not that they are "still allowed".
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_notice_of_a_labelled_session_says_its_labels_still_keep_cn_off() {
-    use crate::content::deterministic;
-    let jev = FakeJev::start().unwrap();
-    no(&jev);
-    jev.set_mode(FakeMode::Down);
-    let r = rig(&jev, |_| {});
-    let sid = session_with_a_place(&r);
-    let l = deterministic::label(
-        Flag::Secret,
-        "n0",
-        ItemKind::ToolResult,
-        "fs.read".into(),
-        1,
-    );
-    r.core.runner.judge.land_deterministic(&sid, vec![(l, 1)]);
-    assert!(flags(&r, &sid).disqualifies_cn().is_some());
-    r.core.runner.judge.ask_content(
-        &sid,
-        vec![result_in(&r, &sid, "n1", "text the judge never reads")],
-    );
-    until(&r, "content.unjudged", 1).await;
-    drained(&r, &sid).await;
-    let told: Vec<String> = notices(&r)
-        .into_iter()
-        .filter(|t| t.contains("could not be checked"))
-        .collect();
-    assert_eq!(told.len(), 1, "one notice: {told:?}");
-    assert!(
-        told[0].contains("this session's other labels still keep China-origin models off"),
-        "{}",
-        told[0]
-    );
-    assert!(
-        !told[0].contains("still allowed"),
-        "the session is kept off, so it must not say they are allowed: {}",
-        told[0]
-    );
 }
 
 /// An ask that fails once and answers the second time is judged as any other:
@@ -1970,7 +1849,7 @@ async fn a_fork_cut_while_a_check_is_out_gets_its_label() {
     for s in [&clean, &sid] {
         until(&r, "content.judged", 1).await;
         let t0 = Instant::now();
-        while r.core.runner.verdicts.outstanding(s) > 0 && t0.elapsed() < Duration::from_secs(10) {
+        while r.core.runner.judge.content_busy(s) && t0.elapsed() < Duration::from_secs(10) {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     }
@@ -1986,11 +1865,7 @@ async fn a_fork_cut_while_a_check_is_out_gets_its_label() {
     );
     let _after = item_in(&r, &sid, "n2", ItemKind::OperatorMessage, "a later line");
     r.core.runner.judge.ask_content(&sid, vec![item]);
-    assert_eq!(
-        r.core.runner.verdicts.outstanding(&sid),
-        1,
-        "the check is out"
-    );
+    assert!(r.core.runner.judge.content_busy(&sid), "the check is out");
     // Forked while it is out: one that holds the item, one cut before it.
     let holding = fork_at(&r, &sid, "n2");
     let cut_before = fork_at(&r, &sid, "n0");
@@ -2001,10 +1876,10 @@ async fn a_fork_cut_while_a_check_is_out_gets_its_label() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     jev.release();
     let t0 = Instant::now();
-    while r.core.runner.verdicts.outstanding(&sid) > 0 && t0.elapsed() < Duration::from_secs(15) {
+    while r.core.runner.judge.content_busy(&sid) && t0.elapsed() < Duration::from_secs(15) {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    assert_eq!(r.core.runner.verdicts.outstanding(&sid), 0, "it landed");
+    assert!(!r.core.runner.judge.content_busy(&sid), "it landed");
     assert!(
         flags(&r, &sid).has(Flag::Injection),
         "the source is labelled"

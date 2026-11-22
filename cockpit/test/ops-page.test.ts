@@ -68,9 +68,8 @@ test('the keys answer only the selected card’s own item: no view or no session
 })
 
 test('a page left alone renders nothing new: its lists hold still between renders', () => {
-  // The router's asks were a fresh array every render, so the queue's keys changed every render and the arrival
-  // effect set state every render: an endless loop that starved every navigation (the lens switch did nothing).
-  assert.match(src('ops/asks.ts'), /return useMemo\(\(\) => asks\.filter\(\(x\) => x\.ask\.expires_ms > now\), \[asks, now\]\)/)
+  // A fresh array every render (the router's asks were one, before they were removed) changed the queue's keys every
+  // render, and the arrival effect set state every render: an endless loop that starved every navigation.
   assert.match(page, /const came = arrived\(was, queue\)\n\s+if \(came\.length\) setFresh\(new Set\(came\)\)/)
   assert.match(page, /const NONE: never\[\] = \[\]/)
 })

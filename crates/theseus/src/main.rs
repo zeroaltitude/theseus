@@ -655,7 +655,7 @@ enum Cmd {
     /// A session's content labels: what entered it (a tool result, a page, a pasted file) and was
     /// judged to carry. `injection` tells you something tried to steer the assistant, and stops its
     /// calls that act only under `[content_based_security] injection = "refuse"`; `secret`, `confidential` and
-    /// `personal` keep it off a China-origin model. `theseus content SESSION` lists them;
+    /// `personal` mark what it holds. `theseus content SESSION` lists them;
     /// `theseus content remove SESSION FLAG` (or `--all`) removes one, which is yours alone to do.
     /// SESSION is its id, or at least its last four characters.
     #[command(hide = true, subcommand_precedence_over_arg = true)]
@@ -1176,25 +1176,16 @@ enum MemoryCmd {
         /// How many hits to ask the index for (at most 100).
         #[arg(short, long, default_value_t = 40)]
         k: usize,
-        /// The arm whose sources and science rank it (default `baseline`): `+retention` shows
-        /// each item's retrievability, stability, difficulty and last review; `+activation`
-        /// what spreading activation reached and added; `+synthesis` admits the checked
-        /// syntheses.
-        #[arg(long, value_parser = ["bm25", "baseline", "+retention", "+activation", "+synthesis"])]
+        /// The arm whose sources and science rank it (default `baseline`): `bm25` asks the
+        /// index's words and entities alone.
+        #[arg(long, value_parser = ["bm25", "baseline"])]
         arm: Option<String>,
         /// Only nodes written before this WAL position are candidates (as a turn's recall at
         /// that position would see them).
         #[arg(long, value_name = "POSITION")]
         as_of: Option<u64>,
     },
-    /// Consolidation now: clusters of notes recall admits together become cited syntheses,
-    /// checked by Jev. The operator's, refused inside a job.
-    Consolidate {
-        /// List the clusters it would synthesize, and write nothing.
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// What each of SESSION's turns recalled (canary, live) or would have (shadow), newest last.
+    /// What each of SESSION's turns recalled (live) or would have (shadow), newest last.
     Recalled {
         session: String,
         /// The newest this many (at most 200).
@@ -1289,11 +1280,8 @@ enum JudgeCmd {
     Learn(judge_runs::LearnArgs),
     /// Correct a turn's routing: it should have run on a profile, a task class, `stronger`, or
     /// `cheaper`. Labels its route judgment as yours and moves the session there from its next
-    /// turn; a later message close to it runs there too. The operator's alone: refused inside a
-    /// Theseus job, and from a shared place.
+    /// turn. The operator's alone: refused inside a Theseus job, and from a shared place.
     Correct(judge_correct::CorrectArgs),
-    /// The live correction layer: each correction that steers a close message, newest first.
-    Corrections,
     /// The prove: loop.v1's canary against its control, from the ledger's finished tasks, at
     /// equal total spend, per task and per dollar; "insufficient" with its counts until each arm
     /// has its labeled tasks. A read.

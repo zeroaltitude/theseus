@@ -121,10 +121,6 @@ use std::path::Path;
 /// that is safe. Keyed by the path under `src/`.
 const EXEMPT: &[(&str, &str)] = &[
     (
-        "config/data_floor.rs",
-        "validation tests of the config: no rig, nothing is judged",
-    ),
-    (
         "learning/tests_report_undo.rs",
         "points the judge at 127.0.0.1:9: nothing is judged",
     ),
@@ -206,7 +202,9 @@ fn every_file_that_enables_the_judge_sets_a_budget_or_says_why_not() {
               until_judged's 20 s guard) or build through tests_judge::judge_config; \
               only if nothing in the file waits on a verdict, add it to EXEMPT with the reason",
         drop: "the file now sets a budget or no longer enables the judge: delete its EXEMPT row",
-        least: 5,
+        // Four since `config/data_floor.rs` went with the restricted-origin rule
+        // (2026-11-21): its tests named a `judge.api_base` and asked nothing.
+        least: 4,
         stale_fails: true,
     };
     crate::complete::check(

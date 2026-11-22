@@ -1,7 +1,6 @@
 // The needs-you queue (theseus-jid7t.3): one list of everything waiting on the owner, the longest waiting first (the
 // TUI's tab order), each item answered in place. Pure: `npm test` runs it (test/ops-queue.test.ts). The page passes in
-// what it already holds: `confirm.list`'s questions, the work board's views, the task records, the thread groups, and
-// the router's questions the push brought.
+// what it already holds: `confirm.list`'s questions, the work board's views, the task records and the thread groups.
 //
 // - A tool approval, a budget ask and a task change are `confirm.list`'s; each is one card, answered by `work.answer`.
 // - A task change proposed and not yet in the list (its record's `proposal`) is a change too, by its card's id.
@@ -9,13 +8,13 @@
 //   question as its confirm, so it is not listed twice.
 // - A failure is a task's or conversation's view that failed and still asks for someone (`execution.dismiss` clears
 //   it): retry, dismiss or open. Under the time machine it is an execution that ended failed, blocked or out of budget.
-// - A seal recommended and not yet answered, a message the router holds while it asks which thread it is for.
+// - A seal recommended and not yet answered.
 // The cursor is an item's key, never an index: a new item slides in where its age puts it and the cursor stays on the
 // item it was on (`keepCursor`).
-import type { ConfirmRequest, ExecutionInfo, TaskRecord, ThreadAsk, ThreadGroup, WorkView } from '@protocol'
+import type { ConfirmRequest, ExecutionInfo, TaskRecord, ThreadGroup, WorkView } from '@protocol'
 import { deadlineOf } from '../lib/heldquestion.ts'
 
-export type ItemKind = 'approval' | 'budget' | 'change' | 'question' | 'failure' | 'seal' | 'ask'
+export type ItemKind = 'approval' | 'budget' | 'change' | 'question' | 'failure' | 'seal'
 
 export interface QueueItem {
   key: string
@@ -33,7 +32,6 @@ export interface QueueItem {
   view?: WorkView
   execution?: ExecutionInfo
   thread?: ThreadGroup
-  ask?: ThreadAsk
   proposal?: { record: TaskRecord }
 }
 
@@ -42,8 +40,6 @@ export interface QueueInput {
   views: readonly WorkView[]
   records?: readonly TaskRecord[]
   groups?: readonly ThreadGroup[]
-  /** The router's open questions, each with when the page heard it. */
-  asks?: ReadonlyArray<{ ask: ThreadAsk; heard_ms: number }>
   /** Under the time machine: the executions as they stood (the board holds no views then). */
   executions?: readonly ExecutionInfo[]
   /** The time machine shows the past (`world != null`). Absent, it is guessed from the views, as before the page passed it. */
@@ -122,9 +118,6 @@ export function queueOf(q: QueueInput): QueueItem[] {
     if (!g.seal_pending) continue
     out.push({ key: `s:${g.slug}`, kind: 'seal', since: g.last_active_ms, owner: g.title, title: `Seal it: ${g.seal_pending}`, sessionId: g.session_id, thread: g })
   }
-  for (const { ask, heard_ms } of q.asks ?? []) {
-    out.push({ key: `a:${ask.ask_id}`, kind: 'ask', since: heard_ms, owner: ask.place ?? title(ask.session_id), title: ask.question, sessionId: ask.session_id, expiresAt: ask.expires_ms, ask })
-  }
   return out.sort((a, b) => a.since - b.since || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
 }
 
@@ -198,7 +191,6 @@ export type Answer =
   | { verb: 'decline'; note?: string }
   | { verb: 'choice'; n: number; note?: string }
   | { verb: 'retry' | 'dismiss' | 'seal' | 'seal_dismiss' }
-  | { verb: 'thread_answer'; key: string }
 
 /** One answer to an item as the one protocol call that makes it, with the question to confirm first where the page
  *  asks one; null when the item has no such answer (a retry of a conversation). Every question is `work.answer`, as every surface answers it. */
@@ -233,7 +225,5 @@ export function answerOf(i: QueueItem, a: Answer): { method: string; params: Rec
       return i.thread ? { method: 'thread.seal', params: { slug: i.thread.slug, reason: i.thread.seal_pending }, ask: `Seal ${i.thread.title}? Its notes stop reaching any other thread’s recall.` } : null
     case 'seal_dismiss':
       return i.thread ? { method: 'thread.seal_dismiss', params: { slug: i.thread.slug } } : null
-    case 'thread_answer':
-      return i.ask ? { method: 'thread.answer', params: { ask_id: i.ask.ask_id, choice: a.key } } : null
   }
 }

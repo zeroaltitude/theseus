@@ -163,18 +163,17 @@ impl Staged {
 /// The turn's side (`compile_step::tail_blocks`): the fact staged for this
 /// turn, attached to the compiled request after the cached prefix, its tokens
 /// counted in the estimate. Returns the text it attached; `None`, and the
-/// request untouched, where the owner is not alone, for a model of restricted
-/// origin, or when no fact was staged for this turn.
+/// request untouched, where the owner is not alone, or when no fact was staged
+/// for this turn.
 pub(crate) fn attach(
     staged: &Staged,
     session: &str,
     turn: &str,
     class: theseus_protocol::PlaceClass,
     place: Option<&str>,
-    restricted: bool,
     compiled: &mut crate::compiler::Compiled,
 ) -> Option<String> {
-    if restricted || !crate::capture::owner_alone(class, place) {
+    if !crate::capture::owner_alone(class, place) {
         return None;
     }
     let text = staged.text_for(session, turn)?;

@@ -130,7 +130,6 @@ pub(crate) async fn reviewer_for(
             // owner's sessions: owner material, US options only.
             private: true,
         },
-        restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
     };
     let target = core
         .runner

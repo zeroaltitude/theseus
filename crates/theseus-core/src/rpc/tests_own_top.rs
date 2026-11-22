@@ -22,8 +22,7 @@ use crate::tests_recall::{rig_with, session, Rig};
 const ASK: &str = "Regenerate the report with the new cutoff.";
 
 fn rig(admissible: bool) -> Rig {
-    rig_with(MemoryMode::Canary, |c| {
-        c.memory.canary_fraction = 1.0;
+    rig_with(MemoryMode::Live, |c| {
         c.threads.own_top_admissible = admissible;
     })
 }
@@ -106,7 +105,6 @@ pub(super) async fn recall_in(
         budget_tokens: None,
         max_items: None,
         science: memory.science_for(MemoryArm::Baseline),
-        activation: None,
         threads: c
             .runner
             .thread_scene(Some(asker), message, true)

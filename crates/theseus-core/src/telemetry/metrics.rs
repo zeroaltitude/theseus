@@ -126,7 +126,7 @@ const PUSH_LOST: Instrument = Instrument {
 const WARMS: Instrument = Instrument {
     name: "theseus.warm",
     description:
-        "A person's first keystroke warmed something (theseus-tnky): the provider's connection or the index tender's model, by outcome (warm, opened, failed, or refused by the data gate)",
+        "A person's first keystroke warmed something (theseus-tnky): the provider's connection or the index tender's model, by outcome (warm, opened or failed)",
     unit: "",
     kind: Kind::IntSum,
 };
@@ -208,12 +208,6 @@ const TASKS_OPEN: Instrument = Instrument {
     kind: Kind::IntLast,
 };
 
-const RETENTION_NODES: Instrument = Instrument {
-    name: "theseus.memory.retention.nodes",
-    description: "Nodes with an FSRS-6 retention in memory's projection (M6 32a)",
-    unit: "",
-    kind: Kind::IntLast,
-};
 const ACTIVATE: Instrument = Instrument {
     name: "theseus.recall.activate_ms",
     description: "Spreading activation's refresh and spread in a recall (M6 32b), by outcome",
@@ -272,13 +266,6 @@ const ROUTE_WAIT: Instrument = Instrument {
     description: "What each turn route.v1 acts on waited for its verdict after the first compile (M5 25e), by whether the verdict missed the bound",
     unit: "ms",
     kind: Kind::Histogram,
-};
-
-const ROUTE_DATA_GATE: Instrument = Instrument {
-    name: "theseus.route.data_gate",
-    description: "Turns and calls the data rule kept off a restricted-origin model, by caller and why (theseus-a1wvq.11)",
-    unit: "",
-    kind: Kind::IntSum,
 };
 
 const CANCELS: Instrument = Instrument {
@@ -369,7 +356,7 @@ const VOICE_RESUMED: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 52] = [
+const INSTRUMENTS: [&Instrument; 50] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -397,11 +384,9 @@ const INSTRUMENTS: [&Instrument; 52] = [
     &JUDGE_ERRORS,
     &JUDGE_DISAGREEMENTS,
     &ROUTE_WAIT,
-    &ROUTE_DATA_GATE,
     &LANE_WAIT,
     &TASK_CHANGES,
     &TASKS_OPEN,
-    &RETENTION_NODES,
     &ACTIVATE,
     &ACTIVATED,
     &RECALL_INDEX,
@@ -856,15 +841,6 @@ impl Metrics {
         self.record(&ROUTE_WAIT, attrs, wait.as_secs_f64() * 1000.0);
     }
 
-    /// A turn or call the data rule kept off a restricted-origin model.
-    pub(super) fn data_gate(&mut self, what: &str, why: &str) {
-        let attrs = vec![
-            ("theseus.data_gate.what", Attr::S(what.to_string())),
-            ("theseus.data_gate.why", Attr::S(why.to_string())),
-        ];
-        self.add(&ROUTE_DATA_GATE, attrs, 1);
-    }
-
     /// An ordered request's wait in its lane (theseus-klo2's review,
     /// finding 7), with `theseus.rpc.method`.
     pub(super) fn lane_wait(&mut self, method: &str, wait: std::time::Duration) {
@@ -888,11 +864,6 @@ impl Metrics {
 
     /// The durability tender (AWS step 15): what it shipped, or the lag it
     /// closed as it caught up.
-    /// The retention projection's size (M6 32a).
-    pub(super) fn retention(&mut self, nodes: u64) {
-        self.point(&RETENTION_NODES, Vec::new()).int = nodes;
-    }
-
     pub(super) fn durability(&mut self, m: crate::aws::durable::Measure) {
         use crate::aws::durable::Measure;
         match m {

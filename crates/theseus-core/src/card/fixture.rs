@@ -27,7 +27,7 @@ pub const BASE_MS: u64 = 1_791_633_600_000;
 const DAY: u64 = 86_400_000;
 
 pub fn rfc3339(ms: u64) -> String {
-    crate::threads_import::fixture::rfc3339(ms)
+    crate::aws::hands::start::utc(ms)
 }
 
 /// One invented episode.

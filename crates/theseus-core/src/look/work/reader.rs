@@ -2,16 +2,12 @@
 //! and the rule for words that come from another conversation.
 //!
 //! **Another conversation's words** (a task's title, a question's reason, a reminder's note, a
-//! routine's name) are marked as such by the part that gives them. They are held back only when the
-//! asking turn's own model is one the session's labels could keep off (`TurnRunner::restricted_profile`,
-//! the predicate the data gate and the route's floor read for a turn's target) AND the conversation they
-//! come from holds data marked anything but open (`content_wait::mark_of`, read from its labels): a text
-//! carrying a secret, a confidential or a personal item could otherwise reach such a model before its
-//! judgment lands. For any other model the words are given, marked, and judged as every tool's result is
-//! (`content::judges`), by the data gate and the session's label rule. **And** a session that was given
-//! another conversation's marked words takes that conversation's flags on ([`Reader::taken`], landed by
-//! `work::words`), so a later turn of it on a model of restricted origin is refused by the data gate's own
-//! rule and does not wait on a judgment to arrive.
+//! routine's name) are marked as such by the part that gives them, and given, as every tool's result is
+//! (`content::judges`). They were held back from a turn bound for a model of restricted origin until that
+//! rule was deleted (2026-11-21). **And** a session that was given the words of a conversation whose data
+//! is marked anything but open (`content_wait::mark_of`, read from its labels) takes that conversation's
+//! `secret`, `confidential` and `personal` flags on ([`Reader::taken`], landed by `work::words`): its own
+//! mark then says what it now holds, which is what who may see what by place reads.
 //!
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Mutex;
@@ -24,21 +20,17 @@ use crate::Core;
 pub(super) struct Reader<'a> {
     pub core: &'a Core,
     pub here: &'a str,
-    /// Whether the asking turn's model is one the labels could keep off: another conversation's marked
-    /// words are held back from it.
-    pub restricted: bool,
     /// What each other conversation's labels mark it as, read once.
     marks: Mutex<HashMap<String, Option<&'static str>>>,
-    /// The other conversations whose marked words were given (to an unrestricted turn).
+    /// The other conversations whose marked words were given.
     given: Mutex<BTreeSet<String>>,
 }
 
 impl<'a> Reader<'a> {
-    pub(super) fn new(core: &'a Core, here: &'a str, restricted: bool) -> Self {
+    pub(super) fn new(core: &'a Core, here: &'a str) -> Self {
         Self {
             core,
             here,
-            restricted,
             marks: Mutex::default(),
             given: Mutex::default(),
         }
@@ -50,8 +42,8 @@ impl<'a> Reader<'a> {
         place_words(&self.core.runner.place_name(session))
     }
 
-    /// `text`, as a line of at most `max` characters, when `session` is this conversation; when it is
-    /// another, the same, or the note that it is held back.
+    /// `text`, as a line of at most `max` characters; when `session` is another conversation whose
+    /// data is marked, it is noted, so that this session takes its flags on.
     pub(super) fn words(&self, session: &str, text: &str, max: usize) -> String {
         // Another conversation's words reach this turn only where the gate
         // admits that conversation for it: its place, for a turn that is not
@@ -61,17 +53,12 @@ impl<'a> Reader<'a> {
                     or a sealed thread's)"
                 .into();
         }
-        match self.holds(session) {
-            Some(mark) if session != self.here => {
-                format!("(held back: that conversation holds data marked {mark})")
-            }
-            _ => super::clip(text, max),
-        }
+        self.note_given(session);
+        super::clip(text, max)
     }
 
     /// `text`, as a line of at most `max` characters, in the hand that wrote it: the owner's, given as
-    /// theirs; a model's, the words of the session it wrote them in ([`Reader::words`]: held back from a
-    /// restricted turn when that conversation is marked, taken on by an unrestricted one).
+    /// theirs; a model's, the words of the session it wrote them in ([`Reader::words`]).
     pub(super) fn hand(&self, hand: &crate::content::Hand, text: &str, max: usize) -> String {
         match hand {
             crate::content::Hand::Owner => super::clip(text, max),
@@ -80,24 +67,13 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// `text` whose writer could not be established: held from a restricted turn, with a line that says
-    /// so and names no conversation, whether or not a maker is known. To any other turn it is given: as
-    /// that maker's words when the record says a model made it (`maker`, so its flags are taken on as for
-    /// any of that conversation's words), else as they stand with nothing to take.
+    /// `text` whose writer could not be established: as that maker's words when the record says a model
+    /// made it (`maker`, so its flags are taken on as for any of that conversation's words), else as they
+    /// stand with nothing to take.
     pub(super) fn unproven(&self, maker: Option<&str>, text: &str, max: usize) -> String {
-        match (self.restricted, maker) {
-            (true, _) => "(held back: its writer could not be established)".into(),
-            (false, Some(session)) => self.words(session, text, max),
-            (false, None) => super::clip(text, max),
-        }
-    }
-
-    /// `text` from notes Theseus imported (a proposal's words), as a line: held back from a model that
-    /// could not be sent them, as another conversation's marked words are.
-    pub(super) fn imported(&self, text: &str, max: usize) -> String {
-        match self.restricted {
-            true => "(held back: it comes from imported notes, and this turn's model is of restricted origin)".into(),
-            false => super::clip(text, max),
+        match maker {
+            Some(session) => self.words(session, text, max),
+            None => super::clip(text, max),
         }
     }
 
@@ -126,26 +102,17 @@ impl<'a> Reader<'a> {
             )
     }
 
-    /// Whether another conversation's words are held back, and the mark that holds them. A
-    /// conversation that is marked and whose words are given anyway (the turn is not of restricted
-    /// origin) is noted, so that the session takes its flags on.
-    fn holds(&self, session: &str) -> Option<&'static str> {
-        if session == self.here {
-            return None;
-        }
-        let mark = self.mark(session)?;
-        match self.restricted {
-            true => Some(mark),
-            false => {
-                self.given.lock().unwrap().insert(session.to_string());
-                None
-            }
+    /// Note another conversation whose words are given and whose data is marked, so that the session
+    /// takes its flags on.
+    fn note_given(&self, session: &str) {
+        if session != self.here && self.mark(session).is_some() {
+            self.given.lock().unwrap().insert(session.to_string());
         }
     }
 
     /// The flags this session takes on: those, among the labels of the conversations whose marked words
-    /// it was given, that keep a model of restricted origin off (`Flag::disqualifies_cn`: the labels
-    /// that made them marked; an `injection` label marks nothing and is not taken). Each flag once.
+    /// it was given, that made them marked (`secret`, `confidential`, `personal`; an `injection` label
+    /// marks nothing and is not taken). Each flag once.
     pub(super) fn taken(&self) -> Vec<crate::content::Flag> {
         let given: Vec<String> = self.given.lock().unwrap().iter().cloned().collect();
         let mut out: Vec<crate::content::Flag> = Vec::new();
@@ -161,7 +128,8 @@ impl<'a> Reader<'a> {
                 .iter()
                 .flat_map(|d| &d.labels)
             {
-                if l.flag.disqualifies_cn() && !out.contains(&l.flag) {
+                let marks = !matches!(l.flag, crate::content::Flag::Injection);
+                if marks && !out.contains(&l.flag) {
                     out.push(l.flag);
                 }
             }

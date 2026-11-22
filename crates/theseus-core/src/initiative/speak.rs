@@ -168,7 +168,6 @@ impl Core {
             name: "initiative",
             pin: self.cfg.initiative.profile.as_deref(),
             job: theseus_judge::builders::JobKind::Initiative { kind: kind.into() },
-            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };
         self.runner.job_target(&live, site).await.map(|(t, _)| t)
     }
@@ -315,10 +314,6 @@ pub fn headed(kind: &str, text: &str) -> String {
         "morning" => (
             "Morning note",
             "what happened in the last day, told once each morning",
-        ),
-        "consolidation" => (
-            "Something the night's consolidation noticed",
-            "from the nightly pass over your memory",
         ),
         _ => ("A note from Theseus", "said on its own initiative"),
     };

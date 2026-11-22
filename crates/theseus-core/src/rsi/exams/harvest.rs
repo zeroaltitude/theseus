@@ -3,8 +3,12 @@
 //! what they are handed; [`Core::exam_raws`] reads it from the store.
 //!
 //! Every text is built from the row's fields and nothing else; the pass
-//! scrubs it. A source that cannot make a check (a correction with no words
-//! to test, a fact correction whose note does not parse) makes no candidate.
+//! scrubs it. The one read beyond the row: a `route.corrected` row written
+//! since the owner's words stopped being read carries no `words`, so
+//! [`Core::exam_raws`] reads the corrected message from the row's own session
+//! and turn and hands it to [`from_rows`] as the row's `message`. A source
+//! that cannot make a check (a correction with no message or words to test, a
+//! fact correction whose note does not parse) makes no candidate.
 
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -100,27 +104,37 @@ pub fn from_rows(rows: &[Row], is_self: &dyn Fn(&str) -> bool) -> Vec<Raw> {
 
 type Made = (String, String, String);
 
-/// `route.corrected`: where a message like it should have run.
+/// `route.corrected`: where a message like it should have run. A row from
+/// before the owner's words stopped being read has the message's content
+/// `words`; a later one has the `message` itself, read back by
+/// [`Core::exam_raws`] from the row's session and turn.
 fn route_corrected(d: &Value) -> Option<Made> {
     let words: Vec<&str> = d["words"]
-        .as_array()?
-        .iter()
+        .as_array()
+        .into_iter()
+        .flatten()
         .filter_map(Value::as_str)
         .take(12)
         .collect();
+    let said = match (words.is_empty(), text(d, "message")) {
+        (false, _) => format!(
+            "A message with these content words arrived in a session: {}.",
+            words.join(" ")
+        ),
+        (true, Some(m)) => format!("A message arrived in a session: \"{}\".", cut(m)),
+        (true, None) => return None,
+    };
     let to = text(d, "to")?;
     // `mode deep_coding` names the mode; `fable` a profile.
     let name = to.strip_prefix("mode ").unwrap_or(to).trim();
     let ran = text(d, "ran").unwrap_or("its profile");
-    if words.is_empty() || name.is_empty() {
+    if name.is_empty() {
         return None;
     }
     Some((
         format!(
-            "Routing. A message with these content words arrived in a session: {}. Its turn ran \
-             on {ran}. Where should a turn for a message like it run? Answer with the profile or \
-             mode name.",
-            words.join(" ")
+            "Routing. {said} Its turn ran on {ran}. Where should a turn for a message like it \
+             run? Answer with the profile or mode name."
         ),
         format!("reply has word {}", q(name)),
         format!(
@@ -374,6 +388,36 @@ impl Core {
         exec.is_some_and(|e| crate::task_graph::principal_of(&self.kernel, &e) == "self")
     }
 
+    /// For each `route.corrected` row with no `words`, the corrected
+    /// message: the user message of the row's turn in the row's session,
+    /// set as the row's `message`. A message that cannot be read leaves the
+    /// row as it was, and [`from_rows`] makes no candidate of it.
+    pub fn read_corrected_messages(&self, rows: &mut [Row]) {
+        for (_, row) in rows.iter_mut() {
+            if row.kind != LedgerKind::RouteCorrected.as_str() || row.data.get("words").is_some() {
+                continue;
+            }
+            let (Some(session), Some(turn)) = (text(&row.data, "session"), text(&row.data, "turn"))
+            else {
+                continue;
+            };
+            let Ok(nodes) = self.store.session_nodes_once(session) else {
+                continue;
+            };
+            let message = nodes.iter().find_map(|(_, n)| match &n.body {
+                crate::node::Body::UserMessage { text, .. }
+                    if n.turn_id.as_deref() == Some(turn) =>
+                {
+                    Some(text.clone())
+                }
+                _ => None,
+            });
+            if let (Some(m), Some(d)) = (message, row.data.as_object_mut()) {
+                d.insert("message".into(), Value::String(m));
+            }
+        }
+    }
+
     /// Every candidate the sources offer in `[since_ms, until_ms]`, oldest
     /// first. `now_ms` fixes the train split's edge.
     pub fn exam_raws(&self, since_ms: u64, until_ms: u64, now_ms: u64) -> Result<Vec<Raw>> {
@@ -382,6 +426,7 @@ impl Core {
         for kind in KINDS {
             rows.extend(rows_of(self, kind, since_ms, until_ms)?);
         }
+        self.read_corrected_messages(&mut rows);
         let mut raws = from_rows(&rows, &is_self);
         let holdout_start = crate::learning::local_midnight(now_ms)
             .saturating_sub(self.cfg.judge.holdout_days * 86_400_000);

@@ -141,7 +141,6 @@ pub(super) fn compile_in(
         strip: None,
         overflowed,
         sources: &Default::default(),
-        signals: None,
         assembled: None,
         situation: &situation::Situation::Continuation,
         kept: None,

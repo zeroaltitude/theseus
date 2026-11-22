@@ -90,8 +90,7 @@ fn scored(c: &Arc<Core>, picks: Vec<(String, f64)>) -> Ask {
 }
 
 fn rig(default_persona: Option<&str>, boost: f64) -> Rig {
-    rig_with(MemoryMode::Canary, |c| {
-        c.memory.canary_fraction = 1.0;
+    rig_with(MemoryMode::Live, |c| {
         c.personas.insert(
             "wren".into(),
             PersonaConfig {

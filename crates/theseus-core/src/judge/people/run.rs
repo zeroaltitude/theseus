@@ -111,7 +111,6 @@ impl Core {
             name: "people",
             pin: self.runner.cfg.people.extract_profile.as_deref(),
             job: theseus_judge::builders::JobKind::People { lines },
-            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };
         let (target, _) = self
             .runner
@@ -208,8 +207,6 @@ impl Core {
     /// its row written.
     pub(crate) async fn propose_people(&self, s: Session<'_>) -> Result<Pass, String> {
         let (target, provider) = self.people_extractor(s.lines.len() as u32).await?;
-        // The lines are this session's: its labels hold the call.
-        let provider = crate::data_gate::bound(provider, s.sid);
         let request = self.people_request(&target.model, s.title, &s.lines);
         let need = self
             .audit_reserve(&request)

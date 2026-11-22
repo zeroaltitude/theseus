@@ -83,11 +83,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `Buttons::Seal`); a press is `thread.seal` or `thread.seal_dismiss` as the presser, with the place it came from, so the
   core judges it (the owner, from a private place); a seal's reply to the presser says what had already crossed into other
   threads. `/thread list` marks a sealed thread 🔒 (🔒? while a seal is proposed).
-- **The thread router's question and `/move`** (theseus-rha2, `runtime/thread_ask.rs`): the core's `thread.asked` is posted
-  by the place's actor as one line with a button for each choice (`thr:<ask id>:<key>`); a press is `thread.answer` as
-  the presser (the core judges it: the owner, from a private place) and the card becomes the answer (an update-message
-  callback). The card is best effort: with none, the message runs at home when `[threads] ask_wait_secs` ends. `/move
-  thread:` is `thread.move` for the last message the core placed in this place. Tests: `tests_gateway/thread_ask.rs`.
+- **`/move`** (theseus-rha2, `runtime/thread_move.rs`): `/move thread:` is `thread.move` for the last message the core
+  placed in this place. The router asks nothing since 2026-11-21 (a message goes to a thread by its address only), so
+  there is no question card.
 - **A question with options** (theseus-j7cje; `render/ask.rs`, `runtime/ask.rs`, `courier/ask.rs`): the card of an `owner_ask` question
   draws its options numbered with one button each (`Buttons::Ask`, `ask:<n>:<question id>`, five to a row), and a press is
   `work.answer` as the presser, which the core judges; "something else" takes words, so it is answered from the CLI.
@@ -661,10 +659,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   with the `LOST` notice. Sender reports alone are no evidence: a silent speaker sends no packets and keeps reporting.
   The counts (`SsrcCount::sent`) are songbird_io's, which believes a report's count only when it grew no faster than a
   sender sends. Tests: `deaf.rs`'s own and `runtime/voice/tests_deaf.rs`.
-- **"Typing…" waits for no one** (theseus-sro04, `runtime/thread_ask.rs::typing`): a place types while its turn runs, or
-  while its submit is outstanding, but not while that submit waits on the router's question to the owner (a question
-  in the core's `threads.route.waiting()` for the place's session). A spoken turn is never asked about at all: the
-  core runs it at home (`rpc/thread_flow.rs`).
+- **"Typing…"** (theseus-sro04, `runtime/thread_move.rs::typing`): a place types while its turn runs, or while its
+  submit is outstanding and not stopping.
 
 ## Invariants
 

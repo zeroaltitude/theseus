@@ -74,7 +74,7 @@ mod mythos;
 mod peak;
 pub use peak::price_period_at;
 mod switch;
-pub use switch::{switch_cost, Switch, CANDIDATES as SWITCH_CANDIDATES};
+pub use switch::{switch_cost, Switch};
 
 pub const BUILTIN_VERSION: &str = "2026-11-18.1";
 
@@ -123,9 +123,11 @@ pub fn thinking_off(model: &str, entry: Option<&CatalogEntry>) -> Option<serde_j
     }
 }
 
-/// Where a model was made (theseus-a1wvq): the owner's data rule reads it.
-/// A model of `cn` or `unknown` origin is restricted: it sees only a request
-/// cleared as open. Named `ModelOrigin` because `crate::node::Origin` exists.
+/// Where a model was made (theseus-a1wvq), as the owner is shown it: a
+/// profile's origin in the model menu and a route row's. No rule reads it:
+/// the one that kept a session off a model of `cn` or `unknown` origin was
+/// deleted on 2026-11-21. Named `ModelOrigin` because `crate::node::Origin`
+/// exists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelOrigin {
@@ -136,95 +138,35 @@ pub enum ModelOrigin {
     Unknown,
 }
 
-/// The origins private data may go to (theseus-xs5ah, the owner: such data
-/// "must be routed to us-based models"): a motif drawn from private sessions
-/// (`rsi::mint::data_rule`), which is all that reads it now. An allowlist, so
-/// an origin not listed here, `unknown` included, is refused. A name in
-/// `[privacy] sensitive_names` and a Google result are not read against it:
-/// each raises a removable label (theseus-gyjyo.4, theseus-gyjyo.5).
-const SENSITIVE_ORIGINS: [ModelOrigin; 1] = [ModelOrigin::Us];
-
-impl ModelOrigin {
-    pub fn restricted(self) -> bool {
-        matches!(self, ModelOrigin::Cn | ModelOrigin::Unknown)
-    }
-
-    /// Whether a model of this origin may be sent private data: never a
-    /// restricted one, and then only an origin on the allowlist.
-    pub fn cleared_for_sensitive(self) -> bool {
-        !self.restricted() && SENSITIVE_ORIGINS.contains(&self)
+/// An origin's word, as the config and the rows write it.
+pub(crate) fn origin_word(o: ModelOrigin) -> &'static str {
+    match o {
+        ModelOrigin::Us => "us",
+        ModelOrigin::Eu => "eu",
+        ModelOrigin::Cn => "cn",
+        ModelOrigin::Unknown => "unknown",
     }
 }
 
-/// Hosts of China-origin endpoints: the host or any subdomain of it.
-const CN_HOSTS: [&str; 7] = [
-    "deepseek.com",
-    "z.ai",
-    "bigmodel.cn",
-    "moonshot.ai",
-    "moonshot.cn",
-    "kimi.ai",
-    "kimi.com",
-];
-
-/// A model's origin, first match wins (theseus-a1wvq): a China-origin
-/// endpoint, whatever model id it is asked for (DeepSeek's Anthropic endpoint
-/// serves any `claude*` id with a DeepSeek model); a China-origin family on
-/// any host (OpenRouter, Bedrock, self-hosted weights); the catalog row's `cn`;
-/// on Anthropic's first party or a loopback host, the row's origin; any other
-/// host, what the provider vouches for, else `Unknown`. A row's `us` never
-/// vouches for a host it was not served from.
+/// A model's origin as the owner is shown it, first match wins: the catalog
+/// row's `cn` on any host; on Anthropic's first party or a loopback host, the
+/// row's origin; any other host, what the provider vouches for, else
+/// `Unknown`. A row's `us` never vouches for a host it was not served from.
+/// Nothing is guessed from a host or a model's name.
 pub fn origin_of(
     api_base: &str,
     vouched: Option<ModelOrigin>,
-    model: &str,
     entry: Option<&CatalogEntry>,
 ) -> ModelOrigin {
-    if is_cn_endpoint(api_base) {
-        return ModelOrigin::Cn;
-    }
-    let host = host_of(api_base);
-    let id = model.to_ascii_lowercase();
-    let family = id.rsplit('/').next().unwrap_or(&id);
-    if id.contains("deepseek")
-        || id.contains("kimi")
-        || id.contains("moonshot")
-        || family.starts_with("glm")
-        || id.contains("z-ai")
-        || id.contains("zai-org")
-    {
-        return ModelOrigin::Cn;
-    }
     let row = entry.map_or(ModelOrigin::Unknown, |e| e.origin);
     if row == ModelOrigin::Cn {
         return ModelOrigin::Cn;
     }
+    let host = host_of(api_base);
     if host == "api.anthropic.com" || matches!(host.as_str(), "127.0.0.1" | "::1" | "localhost") {
         return row;
     }
     vouched.unwrap_or(ModelOrigin::Unknown)
-}
-
-/// Whether private data may go to `model` (theseus-xs5ah): its origin is on the allowlist, and the catalog's
-/// own row says `us` as well. A host the operator vouches `us` for (a proxy,
-/// an aggregator) may serve families the catalog does not know; their rows
-/// are `unknown`, so the vouch alone clears nothing.
-pub fn cleared_for_sensitive(
-    api_base: &str,
-    vouched: Option<ModelOrigin>,
-    model: &str,
-    entry: Option<&CatalogEntry>,
-) -> bool {
-    origin_of(api_base, vouched, model, entry).cleared_for_sensitive()
-        && entry.is_some_and(|e| e.origin == ModelOrigin::Us)
-}
-
-/// Whether a URL's host is a China-origin endpoint or a subdomain of one.
-pub fn is_cn_endpoint(api_base: &str) -> bool {
-    let host = host_of(api_base);
-    CN_HOSTS
-        .iter()
-        .any(|h| host == *h || host.strip_suffix(h).is_some_and(|p| p.ends_with('.')))
 }
 
 /// The lowercased host of a URL: no scheme, userinfo, port, path, or the
@@ -1956,12 +1898,6 @@ mod tests {
         assert_eq!(f.cache_read_per_mtok, 0.025 * f.input_per_mtok);
         assert_eq!(f.provider, "anthropic");
         assert_eq!(f.origin, ModelOrigin::Us);
-        assert!(cleared_for_sensitive(
-            "https://api.anthropic.com",
-            None,
-            "claude-fable-5-2",
-            Some(f)
-        ));
         assert_eq!(f.thinking, ThinkingMode::Always);
         assert_eq!(f.default_effort, Some(Effort::High));
         assert!(f.effort && f.per_message_effort && f.caches);
@@ -2091,27 +2027,14 @@ mod tests {
                 other => panic!("{id}: provider {other} has no origin rule"),
             };
             assert_eq!(e.origin, want, "{id}");
-            assert_eq!(e.origin.restricted(), want == ModelOrigin::Cn, "{id}");
         }
-        assert!(ModelOrigin::Unknown.restricted() && !ModelOrigin::Eu.restricted());
         assert_eq!(ModelOrigin::default(), ModelOrigin::Unknown);
     }
 
-    /// The sensitive names go only to a model of US origin (theseus-xs5ah): an
-    /// allowlist, so `eu` is refused as well as the restricted `cn` and
-    /// `unknown`, and an origin added later is refused until it is listed.
+    /// A new model's row without `origin` is unknown; the operator may say
+    /// `us` or `eu`; a word that is none of the four fails.
     #[test]
-    fn only_a_us_model_is_cleared_for_private_data() {
-        assert!(ModelOrigin::Us.cleared_for_sensitive());
-        for o in [ModelOrigin::Eu, ModelOrigin::Cn, ModelOrigin::Unknown] {
-            assert!(!o.cleared_for_sensitive(), "{o:?}");
-        }
-    }
-
-    /// A new model's row without `origin` is unknown, so restricted; the
-    /// operator may say `us` or `eu`; a word that is none of the four fails.
-    #[test]
-    fn a_config_model_without_origin_is_unknown_and_restricted() {
+    fn a_config_model_without_origin_is_unknown() {
         let row = |origin: Option<ModelOrigin>| CatalogRow {
             provider: Some("anthropic".into()),
             context_window: Some(200_000),
@@ -2128,7 +2051,6 @@ mod tests {
             ("acme-2".to_string(), row(Some(ModelOrigin::Eu))),
         ]));
         assert_eq!(c.get("acme-1").unwrap().origin, ModelOrigin::Unknown);
-        assert!(c.get("acme-1").unwrap().origin.restricted());
         assert_eq!(c.get("acme-2").unwrap().origin, ModelOrigin::Eu);
         // A table over a built-in row keeps its origin unless it names one.
         let over = CatalogRow {
@@ -2143,58 +2065,22 @@ mod tests {
         assert_eq!(good.origin, Some(ModelOrigin::Eu));
     }
 
-    /// Origin is judged by the endpoint and the family as well as by the row
-    /// (the owner, 2026-10-17): DeepSeek's Anthropic endpoint serves any
-    /// `claude*` id with a DeepSeek model, so the id proves nothing there.
+    /// A profile's origin, as the owner is shown it: the row's `cn` on any
+    /// host; the row's origin on Anthropic's first party and loopback; the
+    /// provider's word, else unknown, on any other host. Nothing is guessed
+    /// from a host or a model's name since the restricted-origin rule went
+    /// (2026-11-21).
     #[test]
-    fn a_china_endpoint_or_family_is_cn_whatever_the_model_id_says() {
+    fn an_origin_is_the_rows_or_the_providers_word_and_never_a_guess() {
         use ModelOrigin::*;
         let c = Catalog::builtin();
         let of = |base: &str, vouched: Option<ModelOrigin>, model: &str| {
-            origin_of(base, vouched, model, c.get(model))
+            origin_of(base, vouched, c.get(model))
         };
         let sonnet = "claude-sonnet-5-5";
-        assert_eq!(of("https://api.deepseek.com/anthropic", None, sonnet), Cn);
-        assert_eq!(
-            of("https://api.deepseek.com/anthropic", Some(Us), sonnet),
-            Cn
-        );
-        assert_eq!(of("https://api.z.ai/api/anthropic", None, sonnet), Cn);
-        assert_eq!(
-            of("https://open.bigmodel.cn/api/anthropic", None, sonnet),
-            Cn
-        );
-        assert_eq!(of("https://DEEPSEEK.com./x", None, sonnet), Cn);
-        assert_eq!(of("https://u:p@api.z.ai:443/x", None, sonnet), Cn);
-        // The family, on any host.
-        assert_eq!(
-            of(
-                "https://proxy.example.com",
-                None,
-                "deepseek/deepseek-v4-flash"
-            ),
-            Cn
-        );
-        assert_eq!(
-            of("https://proxy.example.com", Some(Us), "z-ai/glm-5.3"),
-            Cn
-        );
-        assert_eq!(
-            of("https://proxy.example.com", Some(Us), "zai-org/GLM-5.3"),
-            Cn
-        );
-        assert_eq!(
-            of("https://api.z.ai/api/anthropic", None, "glm-5.3-flash"),
-            Cn
-        );
+        // The row's `cn`, wherever it is served.
+        assert_eq!(of("https://proxy.example.com", Some(Us), "glm-5.3"), Cn);
         assert_eq!(of("http://localhost:9", None, "glm-5.3-flash"), Cn);
-        // A GLM the catalog does not know, behind a host that vouches `us`:
-        // the family alone says where it was made.
-        assert_eq!(of("https://proxy.example.com", Some(Us), "glm-6"), Cn);
-        assert_eq!(
-            of("https://proxy.example.com", Some(Us), "acme/GLM-6-Air"),
-            Cn
-        );
         // Anthropic's first party and loopback: the row's origin.
         assert_eq!(of("https://api.anthropic.com", None, sonnet), Us);
         assert_eq!(of("http://127.0.0.1:8080", None, sonnet), Us);
@@ -2206,14 +2092,20 @@ mod tests {
             Unknown
         );
         // Any other host: the provider's word, else unknown; a row's `us`
-        // never vouches for a host.
+        // never vouches for a host, and no host or name is guessed at.
         assert_eq!(of("https://proxy.example.com", None, sonnet), Unknown);
         assert_eq!(of("https://proxy.example.com", Some(Us), sonnet), Us);
         assert_eq!(of("https://proxy.example.com", Some(Eu), sonnet), Eu);
-        // A look-alike is not a subdomain.
-        assert_eq!(of("https://notdeepseek.com", None, sonnet), Unknown);
         assert_eq!(
-            of("https://deepseek.com.evil.example", None, sonnet),
+            of("https://api.deepseek.com/anthropic", None, sonnet),
+            Unknown
+        );
+        assert_eq!(
+            of(
+                "https://proxy.example.com",
+                None,
+                "deepseek/deepseek-v4-flash"
+            ),
             Unknown
         );
     }

@@ -17,8 +17,7 @@
 //! in (`capture::owner_alone`), spawned after the turn's last frame and one
 //! decision a session at a time, a due rule (`categorize::due`) and a mark of
 //! its own (META `card.observe.<session>`), the lines scrubbed, the call
-//! through the session's Google and privacy marks and so the data gate (a
-//! China-origin `[card] profile` is refused there), reserved on `[card]
+//! through the session's Google and privacy marks, reserved on `[card]
 //! day_usd` and the day ceiling first.
 //!
 //! - **Which lines.** Only the owner's own human messages after the mark: a
@@ -277,7 +276,7 @@ impl Core {
         now: u64,
     ) -> Result<Seen> {
         let (records, held_texts, earlier) = blocking(|| self.observe_context(sid, now))?;
-        let (r, cost) = match self.observe_ask(sid, lines, &records, now).await? {
+        let (r, cost) = match self.observe_ask(lines, &records, now).await? {
             Asked::Answer(r, cost) => (r, cost),
             Asked::Not(seen) => return Ok(seen),
         };
@@ -369,15 +368,8 @@ impl Core {
 
     /// The model call: scrubbed, through the session's marks, reserved on the
     /// card's day line and the day ceiling first.
-    async fn observe_ask(
-        &self,
-        sid: &str,
-        lines: &[OwnerLine],
-        records: &[Shown],
-        now: u64,
-    ) -> Result<Asked> {
+    async fn observe_ask(&self, lines: &[OwnerLine], records: &[Shown], now: u64) -> Result<Asked> {
         let (target, provider, _) = self.observe_model(lines.len() as u32).await?;
-        let provider = crate::data_gate::bound(provider, sid);
         let scrubber = self.tools.scrubber.clone();
         let how = self.runner.catalog.forcing(&target.model);
         let request =

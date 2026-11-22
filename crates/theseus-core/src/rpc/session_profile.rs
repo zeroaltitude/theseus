@@ -10,13 +10,10 @@
 //!   then this hold (`sticky_named`, in `turn.submit`; `target_as_ran`, for
 //!   the continuations, wakes and tasks' turns), then the last turn's and the
 //!   place's and the live one. Routing may still move a turn that was not
-//!   pinned; the floor moves a refused base as it moves any, `moved_to` saying
-//!   so (`turn/data_step.rs`). A turn fixes its model once it starts, so a
+//!   pinned. A turn fixes its model once it starts, so a
 //!   running task takes the hold at its next turn, never mid-call.
-//! - **The refusal** is the floor's own question (`TurnRunner::profile_refusal`): a
-//!   profile that does not resolve, or of restricted origin for a session that
-//!   carries a label that keeps one off. Nothing is written and the answer says
-//!   why.
+//! - **The refusal** is `TurnRunner::profile_refusal`'s: a profile that does
+//!   not resolve. Nothing is written and the answer says why.
 //! - **Authority** is `session.retire`'s: the owner, from a private place.
 
 use std::sync::Arc;
@@ -144,17 +141,15 @@ impl Core {
         };
         let next = match p.profile.as_deref() {
             Some(name) => {
-                let mark = crate::content_wait::mark_of(&self.store, sid);
                 // A name Theseus once shipped that no profile answers to is told where it went
                 // (decided on the config, not on the words of the refusal below).
                 let gone = (!self.cfg.all_profiles().contains_key(name))
                     .then(|| crate::config::renamed::renamed_profile(name))
                     .flatten();
-                if let Some(why) = gone.or_else(|| self.runner.profile_refusal(mark, name)) {
+                if let Some(why) = gone.or_else(|| self.runner.profile_refusal(name)) {
                     done.refused = Some(why);
                     return Ok(done);
                 }
-                done.note = self.runner.per_turn_note(mark, name);
                 Some(Sticky {
                     profile: name.to_string(),
                     was: held

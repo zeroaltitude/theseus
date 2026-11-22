@@ -423,9 +423,6 @@ impl TurnRunner {
         let class = t.tc.class;
         let place = self.outbox.try_target(sid).ok().flatten();
         let route = self.route_mode(t.target, sid);
-        let restricted = theseus_judge::builders::RestrictedModels::allowed_if(
-            self.cn_read(t) == super::data_step::Cn::Allowed,
-        );
         let rx = self.judge.at_checkpoint(
             &mut t.trace,
             Inbound {
@@ -447,7 +444,6 @@ impl TurnRunner {
                 capture: false,
                 data_names: self.cfg.privacy.data_names(),
                 attachments: Vec::new(),
-                restricted,
             },
         );
         a.flight = rx.map(|rx| Flight {
@@ -514,10 +510,6 @@ impl TurnRunner {
         (v, f, cost): (&Verdict, &Flight, u64),
     ) -> Result<Option<Failure>> {
         let d = self.checkpoint_decision(t, session, a, v);
-        let d = match self.data_floor(t, Some(d)) {
-            Ok(d) => d.expect("a decision"),
-            Err(failure) => return Ok(Some(failure)),
-        };
         match &d.hold {
             HoldNext::Keep => {}
             HoldNext::Clear => a.hold = None,
@@ -627,10 +619,7 @@ impl TurnRunner {
     /// weighing the task's own context as `decide_route` weighs a session's —
     /// the estimate less the universal prefix (theseus-ataas) — and, for a
     /// switch that holds, the prefix library's warmth beyond it on the held
-    /// target (theseus-rr15). The labels are read as not
-    /// clearing a restricted model, as this step has always asked
-    /// (`cleared: false`; a brief's ask reads `floor().cn_ok`, theseus-7l8lr
-    /// pass 2, F3).
+    /// target (theseus-rr15).
     fn checkpoint_decision(
         &self,
         t: &Turn<'_>,
@@ -638,7 +627,7 @@ impl TurnRunner {
         a: &Active,
         v: &Verdict,
     ) -> Decision {
-        let profiles = self.route_profiles(t.route.floor());
+        let profiles = self.route_profiles();
         let ask = |context_tokens| {
             routing::decide(
                 &self.cfg.routing,
@@ -649,7 +638,6 @@ impl TurnRunner {
                     context_tokens,
                     hold: a.hold.as_ref(),
                     images: t.route.images,
-                    cleared: false,
                 },
             )
         };
@@ -720,7 +708,6 @@ impl TurnRunner {
             }),
             injection: None,
             ran: self.ran_of(profile),
-            data: None,
             open: None,
         });
     }

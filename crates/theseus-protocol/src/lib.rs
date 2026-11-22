@@ -119,7 +119,6 @@ pub mod thread_cache;
 mod thread_placed;
 pub mod thread_route;
 pub mod threads;
-pub mod threads_import;
 mod tighten;
 pub mod time;
 mod toolinfo;

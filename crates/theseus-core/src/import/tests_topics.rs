@@ -138,7 +138,7 @@ const N: usize = 300;
 
 /// The rig: kept whole by its test, since it holds the store's directory.
 fn rig() -> Rig {
-    rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 1.0)
+    rig_with(MemoryMode::Live, |_| {})
 }
 
 fn snapshot(c: &Core) -> Arc<Ontology> {

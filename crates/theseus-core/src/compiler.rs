@@ -285,9 +285,6 @@ pub struct CompileInput<'a> {
     pub overflowed: Option<&'a Overflowed>,
     /// The sources the session's `Recall` nodes render (M6 30b).
     pub sources: &'a crate::recall::render::Sources,
-    /// CONTINUE's candidate signals' thresholds and the clock (M5 25b);
-    /// `None` reads none.
-    pub signals: Option<crate::signals::SignalsAt>,
     /// The assembled strategy's recall section (M6 30c): a new compilation
     /// renders this `Recall` node first in its prefix (`recall_id`).
     pub assembled: Option<&'a str>,
@@ -523,9 +520,6 @@ pub struct Compiled {
     /// The context files the request carries as their headers alone: a
     /// shared place's that are not marked public (the place rule).
     pub withheld: u64,
-    /// CONTINUE's candidate signals that fired, and the sizes beside them
-    /// (M5 25b). They decide nothing here.
-    pub signals: crate::signals::Signals,
     /// The situation it settled in (M6 35a): what its request may admit.
     pub situation: situation::Situation,
     /// The clearing pass this compile made (theseus-3ki0), for its row.
@@ -881,7 +875,7 @@ fn compile_with(
         prefix_nodes,
         tail_nodes,
         repairs,
-        tail_from,
+        tail_from: _,
     } = rendered;
     let messages = request.messages.len();
     let digest = request.digest();
@@ -904,18 +898,6 @@ fn compile_with(
         compilation.budget = Some(budget.clone());
         compilation.situation = Some(situation.clone());
     }
-    let signals = input.signals.map_or_else(Default::default, |at| {
-        let seen = crate::signals::Seen {
-            nodes: input.nodes,
-            compilation: &compilation,
-            request: &request,
-            tail_from,
-            tokens: est.tokens,
-            window,
-            rates,
-        };
-        crate::signals::read(&at, &seen)
-    });
     ph.mark("report");
     ph.log(input.nodes, &format!(", {} messages", messages));
     Compiled {
@@ -933,7 +915,6 @@ fn compile_with(
         repairs,
         cache: cache_layout(spec, input.catalog),
         withheld: withheld as u64,
-        signals,
         situation,
         cleared,
         card: spec.card.as_ref().map(|c| c.shown.clone()),

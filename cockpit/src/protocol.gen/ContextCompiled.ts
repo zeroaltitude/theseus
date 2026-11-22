@@ -68,8 +68,9 @@ class?: PlaceClass,
  */
 withheld?: number, 
 /**
- * CONTINUE's candidate signals that fired (M5 25b): a compile that
- * fired one and no trigger asks `continue.v1` in shadow.
+ * CONTINUE's candidate signals that fired (M5 25b). No longer written
+ * (`continue.v1` was retired with them); read so an older row still
+ * decodes.
  */
 signals?: Array<CompileSignal>, 
 /**

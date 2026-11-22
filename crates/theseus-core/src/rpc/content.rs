@@ -1,8 +1,9 @@
 //! Removing a content label (theseus-9ymz0, design §6.3): the operator clears
 //! one flag from a session (Discord's `/trust` is this removal for `injection`). A label is raised
 //! by what entered the session and removed only by the operator, so a session
-//! that carries `injection` stays frozen, and one that carries `secret`,
-//! `confidential` or `personal` stays off the China-origin models, until this.
+//! that carries `injection` stays frozen (under `injection = "refuse"`), and
+//! one that carries `secret`, `confidential` or `personal` stays marked, until
+//! this.
 //!
 //! It loosens, so it is judged as an answer is (`judge_act(Act::Unlabel)`):
 //! only from the owner, from a private place, never from a job's process. It
@@ -80,18 +81,13 @@ pub(crate) fn label_notice(l: &Label, mode: InjectionMode) -> String {
             "⚑ **injection** — {what} tried to steer me. Nothing is refused here \
              (`[content_based_security] injection = \"notify\"`); you can clear the flag."
         ),
-        (Flag::Secret, _) => format!(
-            "⚑ **secret** — China-origin models are off for this session: {what} showed the \
-             value of a credential."
-        ),
-        (Flag::Confidential, _) => format!(
-            "⚑ **confidential** — China-origin models are off for this session: {what} showed \
-             an organisation's non-public matter."
-        ),
-        (Flag::Personal, _) => format!(
-            "⚑ **personal** — China-origin models are off for this session: {what} showed a \
-             person's private information."
-        ),
+        (Flag::Secret, _) => format!("⚑ **secret** — {what} showed the value of a credential."),
+        (Flag::Confidential, _) => {
+            format!("⚑ **confidential** — {what} showed an organisation's non-public matter.")
+        }
+        (Flag::Personal, _) => {
+            format!("⚑ **personal** — {what} showed a person's private information.")
+        }
     }
 }
 
@@ -351,7 +347,8 @@ mod tests {
             &label(Flag::Secret, ItemKind::OperatorMessage),
             InjectionMode::Refuse,
         );
-        assert!(sec.starts_with("⚑ **secret** — China-origin models are off for this session"));
+        assert!(sec.starts_with("⚑ **secret** — "), "{sec}");
+        assert!(!sec.contains("China-origin"), "no model is kept off: {sec}");
         assert!(sec.contains("your message from `http.fetch"), "{sec}");
         for f in [Flag::Confidential, Flag::Personal] {
             let t = label_notice(&label(f, ItemKind::FetchedPage), InjectionMode::Refuse);

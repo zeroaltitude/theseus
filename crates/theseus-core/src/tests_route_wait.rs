@@ -67,9 +67,8 @@ fn billed(body: &Value) -> Usage {
 }
 
 /// (b): route.v10 alone in one request (the model and the personal question), `effort.v1`, `work.v1`
-/// and `split.v1` each alone in theirs, `classify.v4` and `role.v1` in the batch; six judgments, each
-/// recorded once, and each request's cost is its own packs' (the batch's two share theirs by question
-/// count).
+/// and `split.v1` each alone in theirs, `classify.v4` in the batch; five judgments, each recorded
+/// once, and each request's cost is its own packs'.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() {
     let jev = FakeJev::start().unwrap();
@@ -78,7 +77,7 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
     let res = turn(&r.core, None, "Weigh two designs for the log.", None).await;
     assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
     until_calls(&jev, 5).await;
-    let rows = until_judged(&r.core.store, 6).await;
+    let rows = until_judged(&r.core.store, 5).await;
     let by_pack: BTreeMap<String, usize> = rows.iter().fold(BTreeMap::new(), |mut m, j| {
         *m.entry(j["pack"].as_str().unwrap().to_string())
             .or_default() += 1;
@@ -89,7 +88,6 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
         BTreeMap::from([
             ("classify.v4".to_string(), 1),
             ("effort.v1".to_string(), 1),
-            ("role.v1".to_string(), 1),
             ("route.v11".to_string(), 1),
             ("split.v1".to_string(), 1),
             ("work.v1".to_string(), 1)

@@ -192,7 +192,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
   'session.unlabel': e(
     'Take one content label off one session, from the link every reply\u2019s footer carries, at any time after the label went up.',
     'The session and the label are the address you followed, and the line under them says what that label does to the session. Nothing changes until you press Remove: the page asks once because the removal cannot be undone from here, and because removing injection gives up the refusal that `[content_based_security] injection = "refuse"` would otherwise apply. What happened is said in the daemon\u2019s own words, including when the label is already off.',
-    'A label a reply shows is a label the session is still carrying: it keeps the session off a model of restricted origin, and injection says something tried to steer it — the call still ran, and only `[content_based_security] injection = "refuse"` refuses its writes, programs and sends. Taking one off is how the operator says the item that raised it was fine, and the label and its removal stay in the ledger either way.'),
+    'A label a reply shows is a label the session is still carrying: secret, confidential and personal mark what the session holds, and injection says something tried to steer it — the call still ran, and only `[content_based_security] injection = "refuse"` refuses its writes, programs and sends. Taking one off is how the operator says the item that raised it was fine, and the label and its removal stay in the ledger either way.'),
 
   // ---- the Agenda (theseus-p17fd)
   'agenda.week': e(
@@ -511,10 +511,6 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'See how far each of Jev’s checks is trusted (watching only, or acting), and move it up or back.',
     'One row per check (e.g. loop.v1 decides when to nudge an unfinished turn; classify.v4 sorts each message). Its badge says its level: shadow = Jev answers but nothing acts on it; live = Theseus acts on the answer. The rules under it are its safety limits (e.g. how many labels a day). Promote moves it one level up; Roll back moves it down at once.',
     'A check only starts steering Theseus once it has proved itself in shadow. If one starts making bad calls, roll it back immediately; its earlier level is restored.'),
-  'judgment.corrections': e(
-    'Show your corrections of how messages are routed to a model.',
-    'One row per correction: the message it was made on and the profile you steered it to.',
-    'Corrections steer similar messages next time. Remove one that is no longer right.'),
   'judgment.versions': e(
     'Show the versions the learning loop wrote for each check.',
     'One lineage per check; pick any two versions to see what differs. Buttons promote or reject one.',

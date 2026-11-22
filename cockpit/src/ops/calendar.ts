@@ -159,7 +159,7 @@ export function eventMatches(ev: CalendarEvent, cal: CalendarWindow, redact: boo
 }
 
 /** The privacy rule a sensitive calendar's event shows in the Selected panel. */
-export const PRIVACY_NOTE = 'This calendar is sensitive. Its events reach only a model of US origin, never a shared place, and no ledger row names them. These verbs send its time and its calendar’s name, never its title, place, attendees or links: the task or chat reads it with the calendar tool.'
+export const PRIVACY_NOTE = 'This calendar is sensitive. Its events never reach a shared place, and no ledger row names them. These verbs send its time and its calendar’s name, never its title, place, attendees or links: the task or chat reads it with the calendar tool.'
 
 // ---------------------------------------------------------------- the verbs
 
@@ -171,8 +171,8 @@ export const EVENT_VERBS: readonly EventVerb[] = ['join', 'google', 'remind', 'p
 export type Payload =
   | { kind: 'link'; href: string }
   | { kind: 'call'; method: 'wake.create'; params: { when: string; note: string } }
-  | { kind: 'sheet'; brief: string; title: string; usOnly: boolean }
-  | { kind: 'ask'; label: string; input: string; usOnly: boolean }
+  | { kind: 'sheet'; brief: string; title: string }
+  | { kind: 'ask'; label: string; input: string }
   | { kind: 'none'; why: string }
 
 /** How long before the start Remind me fires. */
@@ -201,12 +201,12 @@ export function eventVerbPayload(ev: CalendarEvent, cal: CalendarWindow, verb: E
       return { kind: 'call', method: 'wake.create', params: { when: new Date(at).toISOString(), note: `Coming up: ${name}.` } }
     }
     case 'prep': return {
-      kind: 'sheet', usOnly: sens,
+      kind: 'sheet',
       title: sens ? `Prep: the ${cal.label} event at ${hm(ev.start_ms)}` : `Prep: ${ev.title ?? `the ${cal.label} event`}`,
       brief: `Prepare me for ${name}. Read it with the calendar tool (calendar ${cal.label}${sens ? '; it is sensitive' : ''}), then gather what I need for it and report back.`,
     }
     case 'ask': return {
-      kind: 'ask', usOnly: sens, label: sens ? `about the ${cal.label} event` : `about ${ev.title ?? 'an event'}`,
+      kind: 'ask', label: sens ? `about the ${cal.label} event` : `about ${ev.title ?? 'an event'}`,
       input: `I'd like to talk about ${name} on my ${cal.label} calendar. Read it with the calendar tool first.`,
     }
   }
@@ -232,10 +232,6 @@ export function askCalls(sessionId: string, p: { label: string; input: string },
 /** The floor's words when `session.profile` answered that it refuses the profile (an ok answer with `refused` set);
  *  the chat then sends no first turn and never falls back to another profile. */
 export const profileRefusal = (r: { refused?: string }): string | undefined => r.refused
-
-// ---------------------------------------------------------------- the New task sheet's profiles
-
-export const US_ONLY_WORDS = 'this event’s calendar is sensitive: US models only'
 
 // ---------------------------------------------------------------- Coming up
 

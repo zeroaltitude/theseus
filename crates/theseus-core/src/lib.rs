@@ -44,7 +44,6 @@ pub mod context_parts;
 pub mod correction;
 pub mod cpu;
 pub mod crash;
-pub mod data_gate;
 pub mod day_ceiling;
 pub mod disk;
 pub mod egress;
@@ -141,7 +140,6 @@ pub mod scrub;
 pub mod secrets;
 pub mod self_card;
 pub mod session;
-pub mod signals;
 pub mod split_turns;
 pub mod standing;
 pub mod standing_ack;
@@ -175,7 +173,6 @@ pub mod thread_route;
 pub mod thread_split;
 pub mod thread_title;
 pub mod threads;
-pub mod threads_import;
 pub mod tighten;
 pub mod tool_set;
 pub mod tool_words;
@@ -259,14 +256,6 @@ mod tests_accept_batch;
 #[cfg(test)]
 mod tests_act_open;
 #[cfg(test)]
-mod tests_activation;
-#[cfg(test)]
-mod tests_activation_arm;
-#[cfg(test)]
-mod tests_activation_pace;
-#[cfg(test)]
-mod tests_activation_search;
-#[cfg(test)]
 mod tests_actor;
 #[cfg(test)]
 mod tests_apart;
@@ -282,8 +271,6 @@ mod tests_ask;
 mod tests_audit;
 #[cfg(test)]
 mod tests_backfill;
-#[cfg(test)]
-mod tests_bg_gate;
 #[cfg(test)]
 mod tests_binding;
 #[cfg(test)]
@@ -327,17 +314,9 @@ mod tests_compaction;
 #[cfg(test)]
 mod tests_config;
 #[cfg(test)]
-mod tests_consolidate;
-#[cfg(test)]
-mod tests_content_cut;
-#[cfg(test)]
-mod tests_content_floor;
-#[cfg(test)]
-mod tests_content_floor_wait;
-#[cfg(test)]
 mod tests_content_freeze;
 #[cfg(test)]
-mod tests_content_gate;
+mod tests_content_items;
 #[cfg(test)]
 mod tests_content_kind;
 #[cfg(test)]
@@ -350,14 +329,6 @@ mod tests_content_race;
 mod tests_context;
 #[cfg(test)]
 mod tests_continuations;
-#[cfg(test)]
-mod tests_continue;
-#[cfg(test)]
-mod tests_continue_slow;
-#[cfg(test)]
-mod tests_data_gate;
-#[cfg(test)]
-mod tests_data_open;
 #[cfg(test)]
 mod tests_day_ceiling;
 #[cfg(test)]
@@ -372,8 +343,6 @@ mod tests_detour;
 mod tests_disk_watch;
 #[cfg(test)]
 mod tests_dispatch;
-#[cfg(test)]
-mod tests_dm_rig;
 #[cfg(test)]
 mod tests_effort_beta;
 #[cfg(test)]
@@ -493,6 +462,8 @@ mod tests_money;
 #[cfg(test)]
 mod tests_names;
 #[cfg(test)]
+mod tests_names_label;
+#[cfg(test)]
 mod tests_never;
 #[cfg(test)]
 mod tests_notices;
@@ -541,6 +512,8 @@ mod tests_overflow;
 #[cfg(test)]
 mod tests_owner_note;
 #[cfg(test)]
+mod tests_pace;
+#[cfg(test)]
 mod tests_payload;
 #[cfg(test)]
 mod tests_people_proposals;
@@ -560,8 +533,6 @@ mod tests_personas;
 mod tests_places;
 #[cfg(test)]
 mod tests_priced_off_peak;
-#[cfg(test)]
-mod tests_private_authored;
 #[cfg(test)]
 mod tests_private_view;
 #[cfg(test)]
@@ -627,7 +598,7 @@ mod tests_rerank_live;
 #[cfg(test)]
 mod tests_resident_peak;
 #[cfg(test)]
-mod tests_retention;
+mod tests_retired_reads;
 #[cfg(test)]
 mod tests_retract;
 #[cfg(test)]

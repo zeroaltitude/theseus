@@ -176,7 +176,9 @@ mod tests {
     #[test]
     fn a_pack_without_decide_above_reads_as_its_confirm_line() {
         let name = "security.v1";
-        let pack = by_name(name).unwrap();
+        let pack = by_name(name)
+            .or_else(|| crate::pack::retired(name))
+            .unwrap();
         let ask = |risky: f64, steered: f64| {
             decide(
                 &pack,

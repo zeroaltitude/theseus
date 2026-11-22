@@ -67,8 +67,8 @@ pub mod method {
         /// Undo a tightening: the tool goes back to what the config says. It loosens, so it takes the same trusted answer as an approval.
         POLICY_UNTIGHTEN = "policy.untighten",
         /// Remove a content label from a session (theseus-9ymz0, `content::ContentUnlabelParams`): an `injection` label
-        /// stops its calls that act, and a `secret`, `confidential` or `personal` one keeps it off a China-origin model,
-        /// until the operator removes it. It loosens, so it takes the same trusted answer as an approval.
+        /// stops its calls that act (under `injection = "refuse"`), and a `secret`, `confidential` or `personal` one marks
+        /// what the session holds, until the operator removes it. It loosens, so it takes the same trusted answer as an approval.
         CONTENT_UNLABEL = "content.unlabel",
         /// Publish an item into a place's conversation (the place rule, theseus-nbsh): the owner's act, from a private place.
         PLACE_PUBLISH = "place.publish",
@@ -88,8 +88,7 @@ pub mod method {
         ONTOLOGY_PROPOSALS = "ontology.proposals",
         ONTOLOGY_PROPOSAL_ACCEPT = "ontology.proposal.accept",
         /// The owner's standing orders, preferences and facts (theseus-a7vi, `standing::StandingListParams`): a read, and the owner's two writes.
-        THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", THREAD_IMPORT = "thread.import", CARD_PROPOSE = "card.propose", CARD_LIST = "card.list", CARD_ANSWER = "card.answer", CARD_DONE = "card.done", CARD_OBSERVED = "card.observed", THREAD_SEAL = "thread.seal", THREAD_UNSEAL = "thread.unseal", THREAD_SEAL_DISMISS = "thread.seal_dismiss", THREAD_ANSWER = "thread.answer", THREAD_MOVE = "thread.move", THREAD_MERGE = "thread.merge", THREAD_UNMERGE = "thread.unmerge", THREAD_SPLIT = "thread.split", THREAD_SPLIT_PLAN = "thread.split_plan", THREAD_UNSPLIT = "thread.unsplit", THREAD_LINK = "thread.link", THREAD_UNLINK = "thread.unlink", THREAD_UNCLAIM = "thread.unclaim", PREFIX_REPORT = "prefix.report",
-        THREAD_ASK_LIST = "thread.ask_list",
+        THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", CARD_PROPOSE = "card.propose", CARD_LIST = "card.list", CARD_ANSWER = "card.answer", CARD_DONE = "card.done", CARD_OBSERVED = "card.observed", THREAD_SEAL = "thread.seal", THREAD_UNSEAL = "thread.unseal", THREAD_SEAL_DISMISS = "thread.seal_dismiss", THREAD_MOVE = "thread.move", THREAD_MERGE = "thread.merge", THREAD_UNMERGE = "thread.unmerge", THREAD_SPLIT = "thread.split", THREAD_SPLIT_PLAN = "thread.split_plan", THREAD_UNSPLIT = "thread.unsplit", THREAD_LINK = "thread.link", THREAD_UNLINK = "thread.unlink", THREAD_UNCLAIM = "thread.unclaim", PREFIX_REPORT = "prefix.report",
         /// The personas and the built-in default (theseus-slvl.2): a read.
         PERSONA_LIST = "persona.list", PERSONA_IMPORT = "persona.import", PERSONA_CARD_CONFIRM = "persona.card_confirm", PERSONA_ADD = "persona.add", PERSONA_SOUL = "persona.soul", PERSONA_SOUL_READ = "persona.soul_read", PERSONA_SET = "persona.set", PERSONA_RETIRE = "persona.retire", PERSONA_DEFAULT = "persona.default", // an agent's workspace carried over as a persona, and its card kept (theseus-a8n7)
         INITIATIVE_RATE = "initiative.rate", INITIATIVE_WEEK = "initiative.week", // a thumbs up or down on what Theseus said first; the week (theseus-slvl.9)
@@ -166,8 +165,6 @@ pub mod method {
         /// An operator's label on a node recall offered or should have (`memory::MemoryLabelParams`; M6 step 30b):
         /// `wrong` and `stale` keep it out of recall. Acting: the owner, from a private place.
         MEMORY_LABEL = "memory.label",
-        /// Consolidation now (M6 31b; `memory::MemoryConsolidateParams`). Acting.
-        MEMORY_CONSOLIDATE = "memory.consolidate",
         /// What an MCP client asks of private memory (`memory::MemoryLookupParams`; theseus-02i1h). A read.
         MEMORY_LOOKUP = "memory.lookup",
         /// Mark a node wrong and find where it went (`retract::FactRetractParams`; theseus-2ced): the `wrong` label, a correction note for each live session that used it, its syntheses stale, one card for the tasks to re-run. Acting: the owner, from a private place.
@@ -185,8 +182,8 @@ pub mod method {
         JUDGE_LABEL = "judge.label",
         LEARNING_REPORT = "learning.report",
         /// The owner's correction of a turn's routing (theseus-q31l; `route::RouteCorrectParams`), judged as
-        /// `judge.label` is; and the live correction layer (`route::RouteCorrectionsResult`), a read.
-        ROUTE_CORRECT = "route.correct", ROUTE_CORRECTIONS = "route.corrections",
+        /// `judge.label` is.
+        ROUTE_CORRECT = "route.correct",
         /// The owner's runs over the ledger (M5 25d; `judge_runs`): a candidate replayed, an audit,
         /// a backfill (only under the owner's consent); and `judge.prove`, the prove's report (L3), a read.
         JUDGE_REPLAY = "judge.replay", JUDGE_AUDIT = "judge.audit", JUDGE_BACKFILL = "judge.backfill", JUDGE_LEARN = "judge.learn", JUDGE_PROVE = "judge.prove",
@@ -330,8 +327,8 @@ pub mod notify {
         /// The work board's frame (theseus-hkx30): `work_watch::WorkChanged`, to
         /// every `work.watch` subscriber; and the policy's `notices::Notice`.
         WORK_CHANGED = "work.changed", WORK_NOTICE = "work.notice",
-        /// A thread changed (theseus-sjzm, `threads::ThreadChanged`); the router asks which thread a message is about (theseus-rha2, `thread_route::ThreadAsk`).
-        THREAD_CHANGED = "thread.changed", THREAD_ASKED = "thread.asked",
+        /// A thread changed (theseus-sjzm, `threads::ThreadChanged`).
+        THREAD_CHANGED = "thread.changed",
         /// The router placed a message in a thread's session (theseus-7kjb7, `thread_placed::ThreadPlaced`), to the connection that sent it and to every watcher of the home session.
         THREAD_PLACED = "thread.placed",
         /// A followed job's output (`job_follow.rs`): a chunk from a byte to the connection that asked, then its end.

@@ -162,7 +162,7 @@ const BARE: &[(&str, &str)] = &[
     ("theseus-core/src/rsi/tests_pr.rs", "test-only"),
     ("theseus-core/src/rsi/tests_tree.rs", "test-only"),
     ("theseus-core/src/telemetry/tests_cancel.rs", "test-only"),
-    ("theseus-core/src/tests_activation_pace.rs", "test-only"),
+    ("theseus-core/src/tests_pace.rs", "test-only"),
     (
         "theseus-core/src/tests_floor_shapes.rs",
         "test-only: `really_ran` is the floor's spelling ORACLE -- it runs each \

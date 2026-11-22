@@ -527,6 +527,10 @@ async fn a_state_is_rebuilt_when_the_builder_changed_and_left_out_when_it_cant_b
         json!({"session": res.session_id, "blob": "gone"}),
     );
     c.store.append(&[call_row(&g, 11)]).unwrap();
+    // `security.v1` is retired from the binary (issue 44): the incumbent stands
+    // in from its file, as a replay of its judgments needs it by name.
+    let v1 = theseus_judge::pack::retired("security.v1").unwrap();
+    c.runner.judge.stand_in("security.v1", (*v1).clone());
     let before = jev.seen().len();
     let out = c
         .judge_replay(
@@ -646,7 +650,7 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
     .await;
     assert!(wired.contains("loop.v1 is wired"), "{wired}");
     let other = refuse(JudgeReplayParams {
-        candidate: Some("security.v1".into()),
+        candidate: Some("route.v10".into()),
         report: Some(report.clone()),
         ..Default::default()
     })
@@ -674,7 +678,7 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
     );
 }
 
-const CONTENT_V3: &str = include_str!("../../theseus-judge/packs/content.v3.toml");
+const CONTENT_V3: &str = include_str!("../../theseus-judge/packs/retired/content.v3.toml");
 
 /// A stored `content.v3` judgment of one item, the way the daemon writes it:
 /// the state's blob staged and named in the context, and, when `recorded`,
@@ -692,7 +696,15 @@ fn content_judgment_by(
     text: &str,
     recorded: bool,
 ) -> Judgment {
-    let pack = theseus_judge::pack::by_name(pack).unwrap();
+    // `content.v2` and `content.v3` are retired from the binary (issue 44): a
+    // replay finds its incumbent by name, so each stands in from its file.
+    let pack = theseus_judge::pack::by_name(pack)
+        .or_else(|| {
+            let p = theseus_judge::pack::retired(pack)?;
+            c.runner.judge.stand_in(pack, (*p).clone());
+            Some(p)
+        })
+        .unwrap();
     let input = Input::Content(theseus_judge::builders::ContentInput {
         text: text.into(),
         kind: kind.into(),
@@ -953,7 +965,7 @@ async fn a_v3_judgment_is_replayed_with_its_fields_as_judged() {
     let c = &r.core;
     let mut j = content_judgment(c, "jdg_v3", "tool_result", "A page about herons.", true);
     // The stored state, with the fields as they stood when it was judged.
-    let pack = theseus_judge::pack::by_name("content.v3").unwrap();
+    let pack = theseus_judge::pack::retired("content.v3").unwrap();
     let input = Input::Content(theseus_judge::builders::ContentInput {
         text: "A page about herons.".into(),
         kind: "tool_result".into(),
@@ -975,4 +987,62 @@ async fn a_v3_judgment_is_replayed_with_its_fields_as_judged() {
     let sent = jev.seen()[0].body["state"].clone();
     assert_eq!(sent["context"], "As it stood.", "{sent}");
     assert_eq!(sent["project"], "~/projects/lantern");
+}
+
+/// The archived `security.v1` (issue 44: two header comments no longer name a
+/// person) is the text its stored judgments recorded under the original
+/// digest: a replay of it as a candidate is not refused for its name, and any
+/// other text under that name still is.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_archived_security_v1_is_the_text_its_judgments_recorded() {
+    // sha256 of `crates/theseus-judge/packs/security.v1.toml` at 9840525d.
+    const ORIGINAL: &str = "e155cb50f418728c9d30b2137c3cc9889a8281d6dd2d5108d6723782cd698a19";
+    let jev = scripted_fake();
+    let r = rig(texts(1), &jev, |_| {});
+    let c = &r.core;
+    let (state, _) = loop_state(c, "anything");
+    let ctx = json!({"session": "ses_a", "blob": "gone"});
+    let mut old = judgment(
+        "jdg_v1_orig",
+        "security.v1",
+        &state,
+        vec![noul("risky", 0.3)],
+        ctx.clone(),
+    );
+    old.pack_sha256 = ORIGINAL.into();
+    let v3 = judgment(
+        "jdg_v3",
+        "security.v3",
+        &state,
+        vec![noul("risky", 0.3)],
+        ctx,
+    );
+    c.store
+        .append(&[call_row(&old, 10), call_row(&v3, 11)])
+        .unwrap();
+    let archived = include_str!("../../theseus-judge/packs/retired/security.v1.toml");
+    let replay = |text: String| {
+        let c = c.clone();
+        async move {
+            c.judge_replay(
+                JudgeReplayParams {
+                    pack_text: Some(text),
+                    judgments: vec!["jdg_v3".into()],
+                    ..Default::default()
+                },
+                "cli",
+            )
+            .await
+            .map_err(|e| e.to_string())
+        }
+    };
+    if let Err(e) = replay(archived.to_string()).await {
+        assert!(!e.contains("already recorded under another text"), "{e}");
+    }
+    let edited = archived.replacen("# security.v1:", "# security.v1, edited:", 1);
+    let e = replay(edited).await.unwrap_err();
+    assert!(
+        e.contains("security.v1 is already recorded under another text"),
+        "{e}"
+    );
 }

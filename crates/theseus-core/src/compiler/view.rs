@@ -175,7 +175,6 @@ pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
             .iter()
             .filter(|f| f.withheld.is_some())
             .count() as u64,
-        signals: Default::default(),
         situation,
         cleared,
         card: None,

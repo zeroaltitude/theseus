@@ -1,6 +1,10 @@
 //! route.v10's state facts as the daemon computes them (theseus-9f72b): the
-//! price period from the clock, the restricted-model rule from the session's
-//! labels, the last reply's model and a task's models from its nodes.
+//! price period from the clock, the last reply's model and a task's models
+//! from its nodes.
+//!
+//! `restricted_models` is always `allowed`: no model is kept off a session
+//! for its origin since 2026-11-21. The key stays in the state until a route
+//! pack version drops it, so the live pack's state keeps its shape.
 //!
 //! Nothing here asks Jev to compute: the hour is read from the instant given,
 //! so a test passes the instant and no clock is mocked.
@@ -14,12 +18,7 @@ use crate::node::{Body, Node};
 /// The facts for an ask about the message after `before`, the session's nodes
 /// up to it (a checkpoint's is the whole task session): `task` is a task's
 /// session, whose every writing model is listed once, oldest first.
-pub(crate) fn facts_of(
-    before: &[Node],
-    task: bool,
-    restricted: RestrictedModels,
-    now_ms: u64,
-) -> RouteFacts {
+pub(crate) fn facts_of(before: &[Node], task: bool, now_ms: u64) -> RouteFacts {
     let models = || {
         before.iter().filter_map(|n| match &n.body {
             Body::AssistantMessage { model, .. } => Some(model.as_str()),
@@ -39,12 +38,12 @@ pub(crate) fn facts_of(
     let period = price_period_at(now_ms);
     // The warm model is the one that answered last: its cache holds the prefix.
     // What a switch would cost this message, and which model the cheaper one
-    // is, is the catalog's arithmetic at this hour's prices and under the
-    // session's data rule, not Jev's (theseus-h66v4.1, theseus-h66v4.8).
-    let switch = switch_cost(builtin(), last, est, period, restricted);
+    // is, is the catalog's arithmetic at this hour's prices, not Jev's
+    // (theseus-h66v4.1, theseus-h66v4.8).
+    let switch = switch_cost(builtin(), last, est, period, RestrictedModels::Allowed);
     RouteFacts {
         price_period: period,
-        restricted_models: restricted,
+        restricted_models: RestrictedModels::Allowed,
         last_reply_model: last.map(Box::from),
         task_models,
         est_tokens: Some(est),

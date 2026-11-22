@@ -208,7 +208,9 @@ fn the_effort_and_work_slices_are_their_own_states() {
         .iter()
         .map(|p| {
             crate::builders::prepare(
-                &crate::pack::by_name(p).unwrap(),
+                &crate::pack::by_name(p)
+                    .or_else(|| crate::pack::retired(p))
+                    .unwrap(),
                 &crate::builders::Input::Inbound(bare.clone()),
                 &NoScrub,
             )

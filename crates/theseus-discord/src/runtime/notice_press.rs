@@ -50,8 +50,6 @@ impl Shared {
             self.content_press(i, press, who, discord).await;
         } else if let Some(press) = super::self_note::parse(custom_id) {
             self.self_note_press(i, press, who).await;
-        } else if let Some(press) = super::thread_ask::parse(custom_id) {
-            self.thread_ask_press(i, press, who, discord).await;
         } else if let Some(press) = super::ask::parse(custom_id) {
             self.ask_press(i, press, who, discord).await;
         } else if let Some(q) = super::ask::parse_again(custom_id) {
