@@ -299,3 +299,60 @@ async fn an_unsplit_puts_both_requests_back() {
         "no line after an unsplit"
     );
 }
+
+/// A range moved into a thread later sealed: no reader the thread is not clear to gets a word of it (the
+/// home's request lays neither the range nor its words in the line), and the thread itself still lays it.
+#[tokio::test]
+async fn a_range_in_a_sealed_thread_reaches_no_one_the_thread_is_not_clear_to() {
+    let r = rig();
+    let c = &r.core;
+    let sid = home_with(&r, 0, 5).await;
+    split(
+        c,
+        ThreadSplitParams {
+            from: format!("home@{PLACE}"),
+            slug: "vault".into(),
+            range: Some(span(c, &sid, 1, 2)),
+            ..Default::default()
+        },
+    );
+    let p = theseus_protocol::threads::ThreadSealParams {
+        slug: "vault".into(),
+        reason: Some("embargo".into()),
+        ..Default::default()
+    };
+    c.thread_seal(&p, cli()).unwrap();
+    let home = asked(&r, &sid, "What is left at home?").await;
+    for n in 1..=2 {
+        assert!(
+            !home.contains(&format!("marker-{n}")),
+            "no word of the sealed range at home: {home}"
+        );
+    }
+    for n in [0, 3, 4] {
+        assert!(once(&home, n), "marker-{n} stays");
+    }
+    let other = c
+        .open_session(SessionOpenParams::default())
+        .unwrap()
+        .session_id;
+    let elsewhere = asked(&r, &other, "Anything about the markers?").await;
+    assert!(
+        !elsewhere.contains("marker-1") && !elsewhere.contains("marker-2"),
+        "nor elsewhere"
+    );
+    let vault = c
+        .threads()
+        .get("vault")
+        .unwrap()
+        .session_id
+        .clone()
+        .unwrap();
+    let theirs = asked(&r, &vault, "What is in the vault?").await;
+    for n in 1..=2 {
+        assert!(
+            once(&theirs, n),
+            "the sealed thread lays its own range: marker-{n}"
+        );
+    }
+}
