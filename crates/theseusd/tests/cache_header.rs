@@ -207,11 +207,27 @@ fn bytes(v: &Value) -> String {
     serde_json::to_string(v).unwrap()
 }
 
-/// Everything but the messages.
+/// Everything but the messages; the system blocks without their breakpoints.
 fn header_fields(req: &Value) -> Value {
     let mut m = req.as_object().unwrap().clone();
     m.remove("messages");
+    if let Some(system) = m.get_mut("system") {
+        *system = unmarked(system);
+    }
     Value::Object(m)
+}
+
+/// The system blocks without their `cache_control`: a session whose first request lays the place's earlier
+/// exchanges (issue 44) spends one of the four breakpoints on them, so its system blocks carry one fewer.
+/// The blocks' bytes are the same; where the breakpoints fall is the request's own.
+fn unmarked(system: &Value) -> Value {
+    let mut blocks = system.clone();
+    for b in blocks.as_array_mut().into_iter().flatten() {
+        if let Some(o) = b.as_object_mut() {
+            o.remove("cache_control");
+        }
+    }
+    blocks
 }
 
 /// Everything but the messages and the conversation's breakpoint, which a
@@ -313,7 +329,7 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
             "{profile}: the tools differ between the first session and {what}"
         );
         assert!(
-            bytes(&a["system"]) == bytes(&other["system"]),
+            bytes(&unmarked(&a["system"])) == bytes(&unmarked(&other["system"])),
             "{profile}: the system blocks differ between the first session and {what}:\n{}\n{}",
             bytes(&a["system"]),
             bytes(&other["system"])

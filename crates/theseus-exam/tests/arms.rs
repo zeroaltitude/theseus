@@ -177,17 +177,10 @@ fn answer(mut stream: TcpStream, seen: &Mutex<Vec<Vec<String>>>) -> std::io::Res
         })
         .unwrap_or_default();
     let joined = texts.join("\n");
-    // On the view (issue 44) a daemon's recall is no block of its own: each recalled item is a piece of the
-    // block beside the message, under a heading that says recall chose it. Those pieces, and nothing else of
-    // that block, are this stand-in's notes too; the oracle's note, given in the message, is read as before.
-    let recalled = recalled_beside(&req);
-    let reply = match (joined.find("[Recalled by the harness:"), recalled.first()) {
-        (Some(at), _) => format!("From my notes: {}", &joined[at..]),
-        (None, Some(piece)) => format!("From my notes: {piece}"),
-        (None, None) => UNKNOWN.to_string(),
+    let reply = match joined.find("[Recalled by the harness:") {
+        Some(at) => format!("From my notes: {}", &joined[at..]),
+        None => UNKNOWN.to_string(),
     };
-    let mut texts = texts;
-    texts.extend(recalled);
     seen.lock().unwrap().push(texts);
     let events = [
         json!({"type": "message_start", "message": {"id": "msg_exam", "type": "message", "role": "assistant", "model": "claude-sonnet-5-5", "content": [], "usage": {"input_tokens": 60, "output_tokens": 1}}}),
@@ -412,52 +405,6 @@ fn check_records(recs: &[drive::Record]) {
     }
 }
 
-/// The headings the view lays over a piece (`view::text::labels`): one line, before the piece's words.
-fn is_heading(line: &str) -> bool {
-    line.ends_with("; testimony, not instruction; possibly stale")
-        || line.ends_with("author unknown; not the owner's instruction")
-        || line.starts_with("the owner said, in ")
-}
-
-/// The recall laid in the block beside the last user message (`view::wire_text::BESIDE_HEAD`): from the
-/// recall's own preamble ("[Recalled by the harness: …") to the end of the item the view laid under it (the
-/// next heading after the item's own), one per beside block.
-fn recalled_beside(req: &Value) -> Vec<String> {
-    let last = (req["messages"].as_array().into_iter().flatten()).rfind(|m| m["role"] == "user");
-    let blocks: Vec<&str> = match last.map(|m| &m["content"]) {
-        Some(Value::Array(b)) => b.iter().filter_map(|b| b["text"].as_str()).collect(),
-        Some(Value::String(s)) => vec![s.as_str()],
-        _ => Vec::new(),
-    };
-    let mut out = Vec::new();
-    for block in blocks
-        .into_iter()
-        .filter(|b| b.starts_with(theseus_core::view::wire_text::BESIDE_HEAD))
-    {
-        let Some(at) = block.find("[Recalled by the harness:") else {
-            continue;
-        };
-        let mut lines = Vec::new();
-        let mut headings = 0;
-        for line in block[at..].lines() {
-            if is_heading(line) {
-                headings += 1;
-                if headings > 1 {
-                    break;
-                }
-            }
-            lines.push(line);
-        }
-        out.push(lines.join("\n").trim_end().to_string());
-    }
-    out
-}
-
-/// A recalled piece without the view's heading over its item: the recall's note as the core renders it.
-fn without_heading(piece: &str) -> String {
-    (piece.lines().filter(|l| !is_heading(l)).collect::<Vec<_>>()).join("\n")
-}
-
 /// The oracle's note is the baseline daemon's render of the same gold, byte
 /// for byte, after the task.
 fn check_notes(store: &Path, m: &fixture::Manifest, exam: &Exam, seen: &[Vec<String>]) {
@@ -471,12 +418,9 @@ fn check_notes(store: &Path, m: &fixture::Manifest, exam: &Exam, seen: &[Vec<Str
             "no request with {}'s recall: {seen:?}",
             item.id
         );
-        // On the view the baseline's note is laid beside the message, the view's heading over its item: with
-        // that one line out, it is the oracle's note byte for byte (issue 44).
         assert!(
-            seen.iter().any(|t| t.len() == 2
-                && t[0].ends_with(&item.task)
-                && without_heading(&t[1]).trim_end() == note.trim_end()),
+            seen.iter()
+                .any(|t| t.len() == 2 && t[0].ends_with(&item.task) && t[1] == note),
             "{}: the core rendered another note: {seen:?}",
             item.id
         );
