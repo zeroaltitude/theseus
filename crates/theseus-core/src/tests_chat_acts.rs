@@ -918,6 +918,33 @@ async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
 
 // ------------------------------- 5. the place scope, and what the turn is told
 
+/// A sibling session that answers where `sid` answers, as a task's own asks
+/// do: its parent's place, by `Outbox::show_at`.
+///
+/// ⛔ **`show_at`, not `bind_place`** — and that distinction is the whole
+/// reason this construction was thought unavailable. `bind_place` gives a
+/// place to ONE session and a second bind takes it from the first; `show_at`
+/// says where a session ANSWERS, and any number of sessions may answer at one
+/// place. The matchers' own cases used `show_at`, and the rule they proved
+/// (`chat_acts::run::waiting_here` / `held_here`, moved here whole) is
+/// unchanged, so the construction they used still works.
+fn beside(core: &Arc<Core>, sid: &str) -> String {
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    let here = core
+        .outbox
+        .target(sid)
+        .expect("this session answers somewhere, or there is no place to share");
+    core.outbox.show_at(&rec.session_id, Some(&here)).unwrap();
+    assert_eq!(
+        core.outbox.target(&rec.session_id),
+        core.outbox.target(sid),
+        "the sibling answers where this session answers"
+    );
+    assert_ne!(rec.session_id, sid);
+    rec.session_id
+}
+
 /// A question, as the scope rules and `stage_answer_fact` take them.
 fn a_question(id: &str, tool: &str) -> theseus_protocol::ConfirmRequest {
     theseus_protocol::ConfirmRequest {
@@ -945,6 +972,142 @@ fn facts(r: &Rig) -> Vec<String> {
                 .map(str::to_string)
         })
         .collect()
+}
+
+/// **The POSITIVE half of the place scope.** A sibling session that answers
+/// at this one's place is in scope here — a task's own asks and its own held
+/// calls reach the owner where its parent's do — and a session at a place of
+/// its own is not.
+///
+/// Both halves matter and only the negative one had a successor when the
+/// matchers went: `waiting_here` and `held_here` moved out of
+/// `rpc/answer_in_words.rs` and `rpc/allow_in_words.rs` WHOLE, filter
+/// included, and no case on the branch had two sessions sharing a place, so
+/// `core.outbox.target(&q.session_id) == here` was reached by nothing. A rule
+/// that only ever excludes is indistinguishable from `q.session_id == session`.
+///
+/// The last act here is the whole-core half: the owner speaks in HIS
+/// conversation, the model calls the allow tool, and the call held in the
+/// SIBLING is the one allowed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sibling_session_at_this_place_is_in_scope_and_one_elsewhere_is_not() {
+    let jev = jev_says(RESHAPEABLE, 0.95);
+    let r = rig_judged(&jev, |_| {});
+    let here = session(&r.core);
+    let sib_held = beside(&r.core, &here);
+    let sib_ask = beside(&r.core, &here);
+    // A session that answers at a place of its own: an ordinary channel.
+    let elsewhere = crate::tests_places::session(&r.core, Some("channel:4242"));
+
+    // A call held in one sibling, a question waiting in the other. Neither
+    // is this conversation's.
+    let p = a_held_write(&r, &sib_held).await;
+    r.calls(&[(
+        "owner_ask",
+        json!({"question": "Ship it?", "options": [{"label": "Yes"}, {"label": "No"}]}),
+    )]);
+    say(&r, &sib_ask, "What should we do there?").await;
+    until("the sibling's question waits", || {
+        !r.core.confirm_list().unwrap().is_empty()
+    })
+    .await;
+
+    // In scope HERE, by the place they share — the assertion that had no
+    // successor.
+    let mine = crate::chat_acts::held_here(&r.core, &here).unwrap();
+    assert_eq!(
+        mine.len(),
+        1,
+        "the sibling's hold is in scope here: {mine:?}"
+    );
+    assert_eq!(mine[0].session_id, sib_held, "and it is the sibling's");
+    let asked = crate::chat_acts::waiting_here(&r.core, &here).unwrap();
+    assert_eq!(
+        asked.len(),
+        1,
+        "the sibling's question is in scope here: {asked:?}"
+    );
+    assert_eq!(asked[0].session_id, sib_ask, "and it is the sibling's");
+
+    // And a session at a place of its own sees neither, which is the half
+    // that was already proven and is kept beside the new one.
+    assert!(
+        crate::chat_acts::held_here(&r.core, &elsewhere)
+            .unwrap()
+            .is_empty(),
+        "another place sees nothing held here"
+    );
+    assert!(
+        crate::chat_acts::waiting_here(&r.core, &elsewhere)
+            .unwrap()
+            .is_empty(),
+        "another place sees nothing waiting here"
+    );
+
+    // Whole core: his own conversation, his own message, the model's choice —
+    // and the SIBLING's hold is what the allowance names.
+    r.calls(&[("chat_allow_held_call", json!({}))]);
+    say(&r, &here, HIS_OVERRIDE).await;
+    let allowed = rows(&r, "tool.hold_allowed");
+    assert_eq!(allowed.len(), 1, "one allowance: {allowed:?}");
+    assert_eq!(
+        allowed[0]["hold"],
+        held(&r)[0].id,
+        "the hold allowed is the one held in the sibling: {allowed:?}"
+    );
+    assert_eq!(held(&r)[0].session_id, sib_held, "which is the sibling's");
+    assert_eq!(allowed[0]["route"], "chat.allow_held_call");
+    assert_eq!(
+        std::fs::read_to_string(&p).unwrap(),
+        WAS,
+        "allowing it is not running it"
+    );
+}
+
+/// **A person's message after a call parked at this place is in its request, LAST, and the call stays
+/// parked** (issue 44). A sibling's question waits on an approval (`owner_ask`); a message in this
+/// conversation opens a turn whose request lays that unanswered exchange (the place's window, its call
+/// closed by the harness's stub as main's renderer closes one) and then the person's words, as the last
+/// block of the last message. The question is neither answered nor reported as run: it still waits.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_after_a_call_parked_here_is_last_in_its_request_and_the_call_stays_parked() {
+    let jev = jev_says(RESHAPEABLE, 0.95);
+    let r = rig_judged(&jev, |_| {});
+    let here = session(&r.core);
+    let asking = beside(&r.core, &here);
+    r.calls(&[(
+        "owner_ask",
+        json!({"question": "Ship it?", "options": [{"label": "Yes"}, {"label": "No"}]}),
+    )]);
+    say(&r, &asking, "What should we do there?").await;
+    until("the question waits", || {
+        !r.core.confirm_list().unwrap().is_empty()
+    })
+    .await;
+
+    r.calls(&[]);
+    say(&r, &here, "And when does the tide turn?").await;
+    let last = (r.model.requests.lock().unwrap().last().unwrap().messages)
+        .last()
+        .unwrap()
+        .clone();
+    let tail = last["content"].as_array().unwrap().last().unwrap();
+    assert_eq!(
+        tail["type"], "text",
+        "the person's words close the request: {last}"
+    );
+    assert!(
+        tail["text"]
+            .as_str()
+            .unwrap()
+            .ends_with("And when does the tide turn?"),
+        "{last}"
+    );
+    assert_eq!(
+        r.core.confirm_list().unwrap().len(),
+        1,
+        "the parked question still waits: neither answered nor run"
+    );
 }
 
 /// **`[standing] yes_fact` ON: the block rides exactly this turn's request,
