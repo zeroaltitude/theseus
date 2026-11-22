@@ -30,8 +30,11 @@ pub mod permit;
 pub mod record;
 pub mod render;
 pub mod select;
+pub mod sources_store;
 pub mod text;
 pub mod timeline;
+pub mod wire;
+pub mod wire_text;
 
 #[cfg(test)]
 mod tests;

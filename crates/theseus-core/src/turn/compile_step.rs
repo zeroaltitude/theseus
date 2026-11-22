@@ -194,7 +194,8 @@ impl TurnRunner {
         };
         // Where the ring cut, a summary in its place (30c); past the window
         // with nothing left to drop, the turn fails before any call.
-        let mut compiled = Box::pin(self.compact(t, compile(input), input, i)).await?;
+        // A place set to `view` builds it from the turn's view instead (issue 44, `view_step`).
+        let mut compiled = Box::pin(self.compile_here(t, input, i)).await?;
         ph.mark("compile");
         // The earlier requests' tails go back where they were sent, before
         // this one's own is attached (`sent_tail`).

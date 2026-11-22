@@ -119,6 +119,10 @@ pub(super) const RESTRICTED: &str = "restricted_origin";
 /// so this turn's own notes were held back.
 pub(super) const SMALL_TALK: &str = "small_talk";
 
+/// A `recall.withheld` row's `why`: the turn's place is set to `view` (issue 44), where recall is a
+/// selector's result in the block beside the message and no note is written into the session.
+pub(super) const VIEW: &str = "view";
+
 impl TurnRunner {
     /// The first loop's recall. In front of the model, it is read now and
     /// its node held for the compile; in shadow, its query goes out and the
@@ -687,6 +691,9 @@ impl TurnRunner {
     fn carries(&self, t: &Turn<'_>, profile: &str) -> Option<&'static str> {
         if !self.recall_carries(profile) {
             return Some(RESTRICTED);
+        }
+        if self.assembly_here(t) == crate::config::assembly::Assembly::View {
+            return Some(VIEW);
         }
         self.small_talk_bar(t).then_some(SMALL_TALK)
     }

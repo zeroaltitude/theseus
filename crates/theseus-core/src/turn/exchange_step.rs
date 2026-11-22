@@ -45,6 +45,19 @@ pub(super) struct Held {
 }
 
 impl Held {
+    /// The exchange's place, once it is open (`turn::view_step`).
+    pub(super) fn place(&self) -> Option<&str> {
+        self.ex.as_ref().map(|e| e.place.as_str())
+    }
+
+    /// The person of the message that opened it, and whether it carried a mark.
+    pub(super) fn person(&self) -> (Option<String>, bool) {
+        (
+            self.mark.as_ref().and_then(|m| m.person()),
+            self.mark.is_some(),
+        )
+    }
+
     /// The mark of the message that opened the turn, when one was written
     /// (the gate reads it, `turn::gate_step`).
     pub(super) fn mark(&self) -> Option<&OwnerMark> {
