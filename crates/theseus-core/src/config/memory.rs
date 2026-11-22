@@ -115,11 +115,6 @@ pub struct MemoryConfig {
     /// The experiment's name: each `memory.arm` row names it.
     #[serde(default = "default_experiment")]
     pub experiment: String,
-    /// The tokens of recall notes a session's tail may hold; past it, recall
-    /// pauses until the next recompile. Long sessions are fine (the owner,
-    /// theseus-d9je7): it limits the tail, not a turn's pack.
-    #[serde(default = "default_session_cap")]
-    pub session_recall_cap_tokens: u64,
     /// The pack's tokens: an ordinary prompt's (theseus-d9je7, `turn::tier`).
     #[serde(default = "default_budget")]
     pub recall_budget_tokens: u64,
@@ -225,9 +220,6 @@ fn default_rerank_wait_ms() -> u64 {
 fn default_experiment() -> String {
     "m6-1".into()
 }
-fn default_session_cap() -> u64 {
-    64_000
-}
 fn default_assembled_budget() -> u64 {
     4_000
 }
@@ -274,7 +266,6 @@ impl Default for MemoryConfig {
             retired_arm: None,
             retired_canary: false,
             experiment: default_experiment(),
-            session_recall_cap_tokens: default_session_cap(),
             recall_budget_tokens: default_budget(),
             recall_max_items: default_max_items(),
             deep_recall_tokens: default_deep_tokens(),
@@ -383,13 +374,6 @@ impl MemoryConfig {
             ("recall_budget_tokens", self.recall_budget_tokens),
             ("deep_recall_tokens", self.deep_recall_tokens),
         ] {
-            if self.session_recall_cap_tokens < tokens {
-                bail!(
-                    "memory.session_recall_cap_tokens = {} is under {key} = {tokens}: no \
-                     recall would fit",
-                    self.session_recall_cap_tokens,
-                );
-            }
             if tokens == 0 {
                 bail!("memory.{key} = 0: a pack with no tokens admits nothing");
             }
@@ -580,7 +564,6 @@ mod tests {
             "rerank_wait_ms = 0",
             "rerank_wait_ms = 601",
             "experiment = \" \"",
-            "session_recall_cap_tokens = 100",
             "assembled_budget_tokens = 0",
             "synth_profile = \"\"",
             "synth_limit_usd_per_day = -1.0",
