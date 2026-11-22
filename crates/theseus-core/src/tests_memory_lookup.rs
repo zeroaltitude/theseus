@@ -194,7 +194,7 @@ async fn erased_hits_ranked_first_cost_no_live_hit_across_pages() {
     let kept = import(&r.core, &live);
     crate::import::write::erase(&r.core.store, "gone-2026", Some("a test"), "cli").unwrap();
     // The index ranks the erased episodes' records first, and never forgets them.
-    let mut order = erased.clone();
+    let mut order = erased;
     order.extend(kept.iter().cloned());
     r.core.runner.memory.set_ask(index_over(&r.core, order));
     let cli = session(&r.core, None);
