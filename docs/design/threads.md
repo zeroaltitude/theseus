@@ -25,19 +25,35 @@ over (`Handoff`), so `classify`'s request is the one it was, its `thread` questi
 answer to place a message, and a later pack version drops the question. `thread.move` (`/move`) stays as the owner's
 own act: "that was for X" moves the message and runs it again there.
 
-**An address that cannot be honoured is refused, and runs nowhere.** `/t <word>` naming no thread; a `#slug`,
-`/t slug` or "in the <title> thread:" naming a thread that is paused or done; an addressed thread whose session does
-not open: each ends the submission refused, with one line that says why and how to send it again (Discord posts it
-as a warning). No turn starts and nothing is written in the place's session. A thread's state is told only where the
-gate proves its seal clear for the place (`view_gate::may_name_thread`); a sealed or seal-pending thread, or one
-whose records cannot be read, is refused with exactly the line for a thread that does not exist. In a shared place
-only `/t word` is refused, always as "no thread". A `#word` or "in the … thread:" that names no thread at all is no
-address and runs at home.
+**The order, as built** (`rpc/thread_flow.rs`, `addressed`). First, a message that carries an explicit word naming no
+live thread is checked: if it names a paused or done thread the reader may be told of, or it is a `/t word` naming
+nothing the reader may be told of, it is refused at once and runs nowhere (`thread_route::failed_explicit`). Then
+the place and the words (`thread_route::address`: the place a thread alone lists, then the explicit word). Only
+then the replied-to turn: a reply to a turn that ran in a live thread goes there; a reply to a turn whose thread is
+paused or done is refused when the reader may be told of that thread, and runs at home otherwise.
 
-**A reply finds its thread after a restart.** The router's memory of which turn ran in which thread is a cache
-(`thread_flow.rs`). The record is the `thread.routed` row each placed turn writes in its first frame: a reply to a
-turn the memory does not hold reads that row (`routed_thread_of`), and Discord finds the turn a reply points at from
-its own `discord.message.out` rows when its in-memory map has lost it.
+**What is refused, and what it says.** A refusal ends the submission with one line (`REFUSED`; Discord posts it as a
+warning); no turn starts and nothing is written in the place's session. "There is no thread <word>" for a `/t`
+naming nothing; "the thread <word> is paused" (with `theseus thread resume`) or "is done" (with `theseus thread
+reopen`) for a thread the reader may be told of; and "could not be opened" for an addressed thread whose session
+does not open, which names the thread by the word the sender typed, or by its title only when the reader may be
+told of it.
+
+**A thread the reader may not be told of is no thread, in every form.** Whether a reader may be told of a thread
+(its name, its state, that it exists) is the gate's: only when its seal is proven clear for that reader
+(`view_gate::may_name_on`; its own thread is clear to it). A sealed or seal-pending paused or done thread, or one
+whose records cannot be read, gives `/t` the "no thread" line, and a `#word`, "in the … thread:" or a reply runs
+at home, as for a thread that does not exist. This is about threads that are not live: an **active** thread, sealed
+or not, is addressable by name and by reply as before, and its own session keeps its wall. In a shared place no
+thread is nameable, so a `/t word` there is refused as "no thread" and nothing else is.
+
+**A reply finds its thread after a restart, within bounds.** The router's memory of which turn ran in which thread
+holds the newest 512 turns and is a cache (`thread_flow.rs`). The record is the `thread.routed` row each placed turn
+writes in its first frame: a reply to a turn the memory does not hold reads the newest 4,096 such rows
+(`routed_thread_of`), and a turn found to have run at home is remembered as such. Discord finds the turn a reply
+points at from its own newest 5,000 `discord.message.out` rows when its in-memory map has lost it. A reply older
+than those bounds runs at home. **A reply does not follow a turn a split moved**: it goes to the thread the turn
+ran in.
 
 The entity readers (`entity_hits`, `new_entities`) are not routing: they name what a message says of a working set,
 for Jev's line about a thread, a working set's growth and the generic-folder check.

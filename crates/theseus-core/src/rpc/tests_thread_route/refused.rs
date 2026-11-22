@@ -292,3 +292,55 @@ async fn a_failed_explicit_address_never_falls_through_to_the_reply_or_the_place
     assert!(texts_of(c, &bound).is_empty());
     assert_eq!(texts_of(c, &session_of(c, "pr-round")).len(), ran_in_a);
 }
+
+/// An explicit address is read before the turn a message replies to, and
+/// nothing of a reply's target is said before the gate: `/t <live>` on a
+/// reply to another thread's turn runs in `<live>`; `/t missing` on a reply
+/// to a sealed thread's turn gets the plain missing line, as on a reply to an
+/// unknown turn; and in a place that may name no thread, a reply to the
+/// sealed thread's turn runs exactly as a reply to an unknown turn does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_explicit_address_comes_before_the_reply_and_a_hidden_reply_reads_as_unknown() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, 10);
+    let c = &r.core;
+    two_threads(c);
+    thread(c, "embargo", "ledger fix", ws(&[], &[], &[]));
+    let dm = home(c, Some(&format!("dm:{OWNER}")));
+    thread_answer(&jev, "pr-round", 0.5);
+    let in_pr = submit(c, &dm, "#pr-round check the lint run").await;
+    let in_embargo = submit(c, &dm, "#embargo what is left").await;
+    c.thread_seal(
+        &ThreadSealParams {
+            slug: "embargo".into(),
+            ..Default::default()
+        },
+        cli(),
+    )
+    .unwrap();
+    c.thread_pause("embargo", cli()).unwrap();
+    let mut w = Wire::open(c);
+    let id = w
+        .send(
+            method::TURN_SUBMIT,
+            params(&dm, "/t security-fix rotate the key", Some(&in_pr.turn_id)),
+        )
+        .await;
+    let res: TurnSubmitResult =
+        serde_json::from_value(w.response(id).await["result"].clone()).expect("the turn ran");
+    assert_eq!(res.session_id, session_of(c, "security-fix"));
+    let hidden = outcome(c, &dm, "/t missing do X", Some(&in_embargo.turn_id)).await;
+    let unknown = outcome(c, &dm, "/t missing do X", Some("turn_unknown")).await;
+    assert_eq!(hidden, unknown);
+    assert!(
+        hidden.starts_with("refused: Not run: there is no thread \u{201c}missing\u{201d}"),
+        "{hidden}"
+    );
+    let shared = home(c, Some("channel:777"));
+    let hidden = outcome(c, &shared, "and then?", Some(&in_embargo.turn_id)).await;
+    let unknown = outcome(c, &shared, "and then?", Some("turn_unknown")).await;
+    assert_eq!(
+        (hidden.as_str(), unknown.as_str()),
+        ("ran at home", "ran at home")
+    );
+}

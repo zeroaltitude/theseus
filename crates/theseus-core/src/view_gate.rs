@@ -54,7 +54,7 @@ use crate::threads::Board;
 use crate::turn::TurnRunner;
 
 mod moved;
-pub use moved::{moved_at_all, Moved};
+pub use moved::{moved_at_all, sources_moved, Moved};
 
 /// What the gate names an imported session's place: the owner's own history,
 /// from no place of this daemon's.

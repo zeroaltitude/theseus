@@ -48,8 +48,14 @@ impl Work {
 }
 
 /// The version of the instructions below: kept on every record written from
-/// them, so a line written again under new words is told apart.
-pub const WRITER_VERSION: u32 = 1;
+/// them, so a line written again under new words is told apart. 2: each
+/// message's author is told to the writer (`did::said_by`).
+pub const WRITER_VERSION: u32 = 2;
+
+/// The first version whose writer was told each message's author: a summary
+/// of an earlier one may credit another's or an unknown author's words to the
+/// owner, so it is not shown where that could mislead, nor fed to a new one.
+pub const AUTHORSHIP_SINCE: u32 = 2;
 
 const DID_INSTRUCTIONS: &str = "Below are a person's message to Theseus, an assistant, and \
 Theseus's final reply. In one line of at most 200 characters, say what Theseus did, found or \
@@ -75,6 +81,10 @@ pub struct Ask {
     /// The sessions it was read from: checked again for a seal just before
     /// the call is sent.
     pub sessions: Vec<String>,
+    /// The exchanges it was read from, by turn: checked again for a message
+    /// moved into a thread just before the call is sent
+    /// (`view_gate::sources_moved`).
+    pub exchanges: Vec<String>,
 }
 
 /// What the instructions add when the material holds outside text.
@@ -173,9 +183,14 @@ impl ModelWriter {
             Ok(t) => t,
             Err(why) => return Written::not(why),
         };
-        // The model was picked across an await: a seal set since holds.
+        // The model was picked across an await: a seal set since, or a message
+        // moved into a thread since, holds. Nothing awaits between here and
+        // the request.
         if ask.sessions.iter().any(|s| self.0.ladder_hidden(s)) {
             return Written::not("a source was sealed or veiled before the call was sent");
+        }
+        if crate::view_gate::sources_moved(&self.0.store, &ask.exchanges) {
+            return Written::not("a source's message moved into a thread before the call was sent");
         }
         let runner = &self.0.runner;
         let Some(provider) = runner.providers.get(&target.provider).cloned() else {
