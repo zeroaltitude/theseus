@@ -4,19 +4,16 @@
 //! still serve the other thread tests.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde_json::json;
 use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
-use theseus_protocol::memory::RecallManifest;
 use theseus_protocol::threads::ThreadNewParams;
 
 use super::Core;
 use crate::approval::{Answerer, Surface};
-use crate::config::memory::MemoryArm;
 use crate::config::MemoryMode;
 use crate::node::{Body, Node};
-use crate::recall::{Ask, AskFuture, Scene};
+use crate::recall::{Ask, AskFuture};
 use crate::tests_recall::{rig_with, session, turn, Rig};
 
 pub(super) fn cli() -> Answerer {
@@ -115,42 +112,6 @@ pub(super) fn scored_with(
             })
         })
     })
-}
-
-/// A turn's recall as the pipeline runs it for `asker` saying `message`,
-/// without a turn.
-pub(super) async fn ambient(c: &Arc<Core>, asker: &str, message: &str, ask: Ask) -> RecallManifest {
-    let memory = &c.runner.memory;
-    memory.set_ask(ask);
-    let mut begun = memory.begin(
-        message.to_string(),
-        None,
-        40,
-        MemoryArm::Baseline,
-        Duration::from_millis(250),
-    );
-    let answer = begun.answer().await;
-    let scene = Scene {
-        mode: "live",
-        session_id: Some(asker),
-        turn_id: None,
-        place: c.runner.place_of(asker),
-        in_context: Default::default(),
-        labeled: Default::default(),
-        budget_tokens: None,
-        max_items: None,
-        science: memory.science_for(MemoryArm::Baseline),
-        persona: None,
-        category: None,
-    };
-    memory.manifest(
-        &scene,
-        &begun,
-        answer,
-        |s| c.runner.place_of(s),
-        |_| Vec::new(),
-        true,
-    )
 }
 
 /// A recalled note from another thread begins its header with the thread's

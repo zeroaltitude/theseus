@@ -24,7 +24,7 @@ with the tide table. Keep going until you have read them all.";
 
 struct Rig {
     core: Arc<Core>,
-    model: Arc<FakeProvider>,
+    _model: Arc<FakeProvider>,
     _glm: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
@@ -86,7 +86,7 @@ fn rig_tweaked(
     let core = Core::build(parts).unwrap();
     Rig {
         core,
-        model,
+        _model: model,
         _glm: glm,
         _dir: dir,
     }
