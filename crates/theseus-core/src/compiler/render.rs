@@ -125,15 +125,19 @@ pub(super) struct Ctx<'a, 'n> {
 /// before it and is not yet answered. Ids a provider repeats (one that numbers its calls per response) then
 /// pair in order, between two responses of one turn and between two exchanges laid in one request, and a
 /// result is never placed twice. When every call with its id in its exchange is already answered, it is the
-/// latest one's answer again (a call answered twice keeps its last result, as before). A call no result of
-/// its own exchange answers is closed with the harness's stub ([`repaired`]), never with another call's
-/// output: a call parked on an approval never reads as having run. Late results are not paired here.
+/// latest one's answer again (a call answered twice keeps its last result, as before). A result whose own
+/// exchange holds no call with its id was written by a turn that continues another (a call resumed after its
+/// approval: `turn::resume_step`'s "the turn that made each call its own results answer"): it answers the
+/// latest unanswered call with its id standing before it, the call that turn continues. A call no result
+/// answers is closed with the harness's stub ([`repaired`]), never with another call's output: a call parked
+/// on an approval never reads as having run. Late results are not paired here.
 pub(super) fn results_of<'n>(
     nodes: impl Iterator<Item = &'n Node>,
 ) -> HashMap<(&'n str, &'n str), &'n Node> {
     let mut results = HashMap::new();
-    // The calls seen so far, by exchange and id, in order: the assistant node, and whether it is answered.
-    let mut calls: HashMap<(Option<&'n str>, &'n str), Vec<(&'n str, bool)>> = HashMap::new();
+    // The calls seen so far with each id, in order: the assistant node and its exchange.
+    let mut calls: HashMap<&'n str, Vec<(&'n str, Option<&'n str>)>> = HashMap::new();
+    let mut answered: HashSet<(&'n str, &'n str)> = HashSet::new();
     for n in nodes {
         match &n.body {
             Body::AssistantMessage { blocks, .. } => {
@@ -141,8 +145,7 @@ pub(super) fn results_of<'n>(
                     .filter(|b| b["type"] == "tool_use")
                     .filter_map(|b| b["id"].as_str())
                 {
-                    (calls.entry((n.turn_id.as_deref(), id)).or_default())
-                        .push((n.id.as_str(), false));
+                    (calls.entry(id).or_default()).push((n.id.as_str(), n.turn_id.as_deref()));
                 }
             }
             Body::ToolResult {
@@ -150,15 +153,23 @@ pub(super) fn results_of<'n>(
                 late: false,
                 ..
             } => {
-                let Some(open) = calls.get_mut(&(n.turn_id.as_deref(), tool_use_id.as_str()))
-                else {
+                let id = tool_use_id.as_str();
+                let Some(before) = calls.get(id) else {
                     continue;
                 };
-                let at = (open.iter())
-                    .position(|(_, answered)| !answered)
-                    .unwrap_or(open.len() - 1);
-                open[at].1 = true;
-                results.insert((open[at].0, tool_use_id.as_str()), n);
+                let open = |c: &&(&'n str, Option<&'n str>)| !answered.contains(&(c.0, id));
+                let own: Vec<&(&'n str, Option<&'n str>)> = (before.iter())
+                    .filter(|(_, turn)| *turn == n.turn_id.as_deref())
+                    .collect();
+                let call = match own.iter().copied().find(open) {
+                    Some(c) => Some(*c),
+                    None if !own.is_empty() => own.last().map(|c| **c),
+                    None => before.iter().rev().find(open).copied(),
+                };
+                if let Some((node, _)) = call {
+                    answered.insert((node, id));
+                    results.insert((node, id), n);
+                }
             }
             _ => {}
         }

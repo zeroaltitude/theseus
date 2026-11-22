@@ -553,8 +553,11 @@ fn unthought(n: &Stub) -> Stub {
 pub fn receipted(window: Vec<(u64, Stub)>, spoken: &HashSet<String>) -> Vec<(u64, Stub)> {
     // A result's call is one of its own exchange (issue 44): a window lays many exchanges, and a provider that
     // numbers its calls per response repeats ids between them. Within an exchange the earliest call with the
-    // id names it, as the render pairs it (`render::results_of`).
+    // id names it, as the render pairs it (`render::results_of`); a result whose exchange holds no call with
+    // its id (a turn that continues another) is named by the latest call with its id.
     let mut calls: std::collections::HashMap<(Option<String>, String), (String, Value)> =
+        std::collections::HashMap::new();
+    let mut latest: std::collections::HashMap<String, (String, Value)> =
         std::collections::HashMap::new();
     for (_, n) in &window {
         let Body::AssistantMessage { blocks, .. } = &n.body else {
@@ -566,6 +569,7 @@ pub fn receipted(window: Vec<(u64, Stub)>, spoken: &HashSet<String>) -> Vec<(u64
             };
             (calls.entry((n.turn_id.clone(), id.to_string())))
                 .or_insert_with(|| (name.to_string(), b["input"].clone()));
+            latest.insert(id.to_string(), (name.to_string(), b["input"].clone()));
         }
     }
     // The note a clearing pass writes (`clearing::notes`): so a receipt is, byte for byte, the stub that
@@ -592,10 +596,10 @@ pub fn receipted(window: Vec<(u64, Stub)>, spoken: &HashSet<String>) -> Vec<(u64
             if !spoken.contains(&n.id) {
                 return (*p, n.clone());
             }
-            let (name, input) = (calls
-                .get(&(n.turn_id.clone(), tool_use_id.clone()))
-                .cloned())
-            .unwrap_or_default();
+            let (name, input) = (calls.get(&(n.turn_id.clone(), tool_use_id.clone())))
+                .or_else(|| latest.get(tool_use_id))
+                .cloned()
+                .unwrap_or_default();
             let text = super::clearing::stub_noted(&name, &input, n, notes[i].as_deref());
             let mut node = (**n).clone();
             if let Body::ToolResult { content, meta, .. } = &mut node.body {
