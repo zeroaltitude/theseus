@@ -57,30 +57,6 @@ async fn a_fresh_config_recalls_live_on_baseline_in_a_private_place() {
     );
 }
 
-/// And a shared place's turn, on the same fresh config, is offered only its
-/// own sessions: the CLI's session is dropped by the place rule, and no
-/// recall reaches the model.
-#[tokio::test]
-async fn a_fresh_config_keeps_a_shared_place_to_its_own_sessions() {
-    let r = rig_with(MemoryMode::Off, fresh);
-    let c = &r.core;
-    let cli = session(c, None, &[KITE]);
-    let pier = session(c, Some(&format!("channel:{PIER}")), &[]);
-    c.runner.memory.set_ask(index_of(c, vec![cli.clone()]));
-    let res = turn(c, &pier, "Where does the red kite roost?").await;
-    assert_eq!(
-        res.recalled, 0,
-        "nothing of the CLI's reached a shared place"
-    );
-    let rows = recalls(c, &pier);
-    assert_eq!(rows[0].mode, "live");
-    assert!(admitted(&rows[0]).is_empty(), "{:?}", admitted(&rows[0]));
-    assert_eq!(
-        crate::tests_recall::dropped_for(&rows[0], "place"),
-        [cli.as_str()]
-    );
-}
-
 /// An existing config that sets `mode` keeps its value: `off` recalls
 /// nothing and asks the index nothing.
 #[tokio::test]

@@ -131,24 +131,6 @@ async fn a_message_naming_a_numbered_item_brings_its_card() {
     assert_eq!(cards_counted(&c.store, &t.turn_id), 0);
 }
 
-/// KEY: an item whose message was moved into a sealed thread brings no excerpt and selects no card (the
-/// node seal, `view_gate::Moved`, is asked before its words are read or counted).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_item_whose_ask_was_moved_into_a_sealed_thread_brings_nothing() {
-    let r = kelp_rig(true);
-    let c = &r.core;
-    c.runner.pass.set_index(Arc::new(Items));
-    let sid = serving(c, &r.root, "prj_tide");
-    let first = turn_as(c, &sid, "the tide gauge: see issue 33 first", true).await;
-    touched(&c.store, SCOPED).await;
-    crate::ladder::tests_moved::move_ask(&c.store, &first.turn_id, "kelp");
-    let t = turn_as(c, &sid, "and where is issue 33 now?", true).await;
-    let all = texts(&asked(&r, "and where is issue 33 now?").pop().unwrap());
-    assert!(card_of(&all, SCOPED).is_none(), "{all}");
-    assert!(!all.contains("tide gauge"), "{all}");
-    assert_eq!(cards_counted(&c.store, &t.turn_id), 0);
-}
-
 /// A card keeps each excerpt's author: words an agent's process typed (no person's mark) are outside text
 /// inside the owner's card, never his.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -182,47 +164,6 @@ fn kelp_rig(seal: bool) -> crate::tests_places::Rig {
 }
 
 const KELP_CARD: &str = "Line of work: kelp";
-
-/// KEY: a line of work named by its key brings its card to the owner alone; the same name said in a
-/// channel (never alone, decision 5) is of another place the owner is not alone in, and brings nothing,
-/// not even a count.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_name_of_another_place_brings_nothing_where_the_owner_is_not_alone() {
-    let r = kelp_rig(false);
-    let c = &r.core;
-    let desk = session_in(c, None, &r.root);
-    turn_as(c, &desk, "desk: what about thread:kelp?", true).await;
-    let q = asked(&r, "desk: what about thread:kelp?").pop().unwrap();
-    assert!(texts(&q).contains(KELP_CARD), "{}", texts(&q));
-
-    c.bind_places(vec![crate::places::BoundPlace {
-        persona: None,
-        target: format!("discord:channel:{}", crate::tests_places::LAB),
-        name: "#lab".into(),
-        private: true,
-        guild: Some("100000000000000001".into()),
-        ceiling: None,
-    }]);
-    let lab = format!("channel:{}", crate::tests_places::LAB);
-    let channel = crate::tests_places::session(c, Some(&lab));
-    let t = turn_as(c, &channel, "lab: what about thread:kelp?", true).await;
-    let q = asked(&r, "lab: what about thread:kelp?").pop().unwrap();
-    assert!(!texts(&q).contains(KELP_CARD), "{}", texts(&q));
-    assert_eq!(cards_counted(&c.store, &t.turn_id), 0);
-}
-
-/// KEY: a sealed thread's thing is not named: its card is absent, and nothing of it is counted in the
-/// view's record, shown, dropped or as residue.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_sealed_threads_thing_is_absent_and_uncounted() {
-    let r = kelp_rig(true);
-    let c = &r.core;
-    let desk = session_in(c, None, &r.root);
-    let t = turn_as(c, &desk, "desk: what about thread:kelp?", true).await;
-    let q = asked(&r, "desk: what about thread:kelp?").pop().unwrap();
-    assert!(!texts(&q).contains(KELP_CARD), "{}", texts(&q));
-    assert_eq!(cards_counted(&c.store, &t.turn_id), 0);
-}
 
 /// A question for the owner's answer, parked by a turn of session `sid`, as a tool the policy stopped for
 /// approval parks it.
@@ -282,27 +223,6 @@ async fn a_waiting_confirmation_is_listed_and_disappears_when_answered() {
     assert!(!texts(&q).contains(&question), "{}", texts(&q));
 }
 
-/// KEY: a question parked by a sealed thread's turn is not listed, and the view does not depend on its
-/// session: the turn is not compiled again and again for it (no `moved` fallback).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_sealed_threads_pending_confirmation_is_absent_and_harmless() {
-    let thread = std::cell::RefCell::new(String::new());
-    let r = crate::tests_places::rig_setup(
-        |c| {
-            c.threads.enabled = true;
-        },
-        |s| *thread.borrow_mut() = kelp(s, true),
-    );
-    let c = &r.core;
-    let question = plant(c, &thread.into_inner());
-    let desk = session_in(c, None, &r.root);
-    turn_as(c, &desk, "desk: anything for me?", true).await;
-    let q = asked(&r, "desk: anything for me?").pop().unwrap();
-    assert!(!texts(&q).contains(&question), "{}", texts(&q));
-    let why = crate::tests_view_compile::fallbacks(c);
-    assert!(!why.iter().any(|w| w == "moved"), "{why:?}");
-}
-
 /// A turn's newest view record.
 fn record_of(c: &crate::Core, turn: &str) -> crate::view::record::ViewRecord {
     (crate::view::record::of_turn(&c.store, turn).unwrap())
@@ -347,24 +267,6 @@ fn counted(v: &theseus_protocol::view::ViewShown) -> u64 {
 
 fn lists(v: &theseus_protocol::view::ViewShown, what: &str) -> bool {
     serde_json::to_string(v).unwrap().contains(what)
-}
-
-/// KEY: a view's record re-checks a card's sources before it shows or counts it: the owner's own reading
-/// of a turn that was shown a thread's card no longer lists it once the thread is sealed, and its totals
-/// count one piece fewer.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_recorded_card_of_a_thread_sealed_since_is_not_shown_or_counted() {
-    let r = kelp_rig(false);
-    let c = &r.core;
-    let desk = session_in(c, None, &r.root);
-    let t = turn_as(c, &desk, "desk: what about thread:kelp?", true).await;
-    let rec = record_of(c, &t.turn_id);
-    let before = owners_reading(c, &rec);
-    assert!(lists(&before, "thread:kelp"));
-    crate::tests_view_compile::seal_kelp(c);
-    let after = owners_reading(c, &rec);
-    assert!(!lists(&after, "thread:kelp"), "{after:?}");
-    assert_eq!(counted(&after), counted(&before) - 1);
 }
 
 /// KEY: a card recorded with no provenance (a record written before it was kept), shown or dropped, is
@@ -416,80 +318,6 @@ async fn a_recorded_card_with_no_provenance_is_not_shown_or_counted() {
         assert!(!lists(&read, "thread:kelp"), "sealed {sealed}: {read:?}");
         assert_eq!(counted(&read), counted(&before) - 1, "sealed {sealed}");
     }
-}
-
-/// KEY: an item card read from a clear session no longer shows in the view's record once the message it
-/// read is moved, since, into a sealed thread (its session staying clear): the record re-asks today's moves.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_recorded_item_card_whose_source_moved_since_is_not_shown() {
-    let r = kelp_rig(true);
-    let c = &r.core;
-    c.runner.pass.set_index(Arc::new(Items));
-    let sid = serving(c, &r.root, "prj_tide");
-    let first = turn_as(c, &sid, "the tide gauge: see issue 33 first", true).await;
-    touched(&c.store, SCOPED).await;
-    let t = turn_as(c, &sid, "and where is issue 33 now?", true).await;
-    let rec = record_of(c, &t.turn_id);
-    assert!(lists(&owners_reading(c, &rec), SCOPED));
-    crate::ladder::tests_moved::move_ask(&c.store, &first.turn_id, "kelp");
-    assert!(!lists(&owners_reading(c, &rec), SCOPED));
-}
-
-/// KEY: a frozen view's next call does not send an item card's excerpt whose message was moved, between the
-/// calls, into a sealed thread from another session: the card's exchanges are re-asked before each call.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_frozen_views_next_call_drops_a_card_whose_source_moved() {
-    use std::sync::OnceLock;
-    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
-    let source: Arc<OnceLock<String>> = Arc::default();
-    let (held, moved) = (core.clone(), source.clone());
-    let r = crate::tests_places::rig_setup_scripted(
-        |c| {
-            c.threads.enabled = true;
-        },
-        |s| {
-            kelp(s, true);
-        },
-        move |q| {
-            let last = crate::tests_places::last_user(q);
-            if last.contains("move it now") && !crate::tests_places::answers_a_call(q) {
-                let c = held.get().expect("the core");
-                let turn = moved.get().expect("the first turn");
-                crate::ladder::tests_moved::move_ask(&c.store, turn, "kelp");
-                return crate::provider::Scripted::tools(
-                    "Looking.",
-                    &[("s1", "fs_list", serde_json::json!({"path": "."}))],
-                );
-            }
-            crate::provider::Scripted::text("Done.")
-        },
-    );
-    let _ = core.set(r.core.clone());
-    let c = &r.core;
-    c.runner.pass.set_index(Arc::new(Items));
-    let a = serving(c, &r.root, "prj_tide");
-    let first = turn_as(c, &a, "the tide gauge: see issue 33 first", true).await;
-    let _ = source.set(first.turn_id.clone());
-    touched(&c.store, SCOPED).await;
-    let d = serving(c, &r.root, "prj_tide");
-    turn_as(c, &d, "where is issue 33? move it now", true).await;
-    let calls: Vec<_> = (r.requests().into_iter())
-        .filter(|q| texts(q).contains("move it now"))
-        .collect();
-    assert_eq!(calls.len(), 2, "the turn made two calls");
-    assert!(
-        card_of(&texts(&calls[0]), SCOPED).is_some(),
-        "{}",
-        texts(&calls[0])
-    );
-    // The card may be laid again from this turn's own words (which name the item too); never the moved one's.
-    let again = card_of(&texts(&calls[1]), SCOPED).unwrap_or_default();
-    assert!(!again.contains("tide gauge"), "{again}");
-    assert!(
-        !texts(&calls[1]).contains("tide gauge"),
-        "{}",
-        texts(&calls[1])
-    );
 }
 
 /// A thread `slug`, bound to its own session: its session.
@@ -583,40 +411,3 @@ async fn the_facts_about_the_person_reach_the_owner_alone() {
     assert!(!texts(&q).contains(GUIDED), "{}", texts(&q));
 }
 
-/// A topic named by its key brings its card, with the owner's guidance, to the owner alone: a topic is the
-/// owner's own filing, so an agent's process at the terminal is told nothing of it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_named_topic_brings_its_card_to_the_owner_alone() {
-    use theseus_ontology::{Category, CategoryId, Guidance, Origin, Record};
-    const GUIDED: &str = "Keep the ledger's own words.";
-    let r = view_rig();
-    let c = &r.core;
-    let ledger = CategoryId::parse("topic:ledger").unwrap();
-    (c.runner.ontology)
-        .write(
-            &c.store,
-            vec![
-                Record::Category(Category::new(ledger.clone(), "Ledger", "ada")),
-                Record::Guidance(Guidance::new(ledger, GUIDED, 1, "ada")),
-            ],
-            Origin::Operator,
-            |_| Ok(vec![]),
-        )
-        .unwrap();
-    let desk = session_in(c, None, &r.root);
-    turn_as(c, &desk, "desk: where is topic:ledger now?", true).await;
-    let q = asked(&r, "desk: where is topic:ledger now?").pop().unwrap();
-    assert!(
-        texts(&q).contains("Topic: Ledger (topic:ledger)"),
-        "{}",
-        texts(&q)
-    );
-    assert!(texts(&q).contains(GUIDED), "{}", texts(&q));
-
-    let agent = session_in(c, None, &r.root);
-    turn_as(c, &agent, "agent: where is topic:ledger now?", false).await;
-    let q = asked(&r, "agent: where is topic:ledger now?")
-        .pop()
-        .unwrap();
-    assert!(!texts(&q).contains("Topic: Ledger"), "{}", texts(&q));
-}

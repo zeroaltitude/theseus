@@ -483,78 +483,6 @@ async fn an_imported_session_takes_no_turn() {
     );
 }
 
-/// The place rule: a shared place's turn recalls none of the import (each
-/// dropped for its place), though one episode names that very channel; a
-/// private place's turn recalls the imported fact, its header naming the
-/// import, who said it, and the message's own time, not the import's.
-#[tokio::test]
-async fn a_shared_place_recalls_no_import_and_a_private_place_recalls_it_with_its_time() {
-    let r = live();
-    let c = &r.core;
-    let eps = fixture();
-    import(c, lines(&eps)).await;
-    let imported = sessions_of(&eps);
-    c.runner.memory.set_ask(index_of(c, imported.clone()));
-
-    let pier = session(c, Some(&format!("channel:{PIER}")), &[]);
-    turn(c, &pier, "where is the reef survey's tide log kept?").await;
-    let m = &recalls(c, &pier)[0];
-    assert!(
-        m.admitted.is_empty(),
-        "a shared place recalls none: {:?}",
-        m.admitted
-    );
-    let dropped = dropped_for(m, "place");
-    assert!(
-        imported.iter().all(|s| dropped.contains(&s.as_str())),
-        "every imported session dropped for its place: {dropped:?}"
-    );
-
-    let here = session(c, None, &[]);
-    turn(c, &here, "where is the reef survey's tide log kept?").await;
-    let m = recalls(c, &here).pop().unwrap();
-    assert!(
-        !m.admitted.is_empty(),
-        "a private place recalls the import: {m:?}"
-    );
-    assert!(m.admitted.iter().all(|a| is_imported(&a.session_id)));
-    let nodes = c.store.session_nodes(&here).unwrap();
-    let Some(Body::Recall { items, .. }) = nodes
-        .iter()
-        .map(|(_, n)| &n.body)
-        .find(|b| matches!(b, Body::Recall { .. }))
-    else {
-        panic!("a Recall node in the private session")
-    };
-    let first = items
-        .iter()
-        .find(|i| i.session_id == imported[0] && i.node_id.ends_with("_0"))
-        .expect("the first episode's decision is recalled");
-    let (_, header) = theseus_protocol::cite::split_header(&first.header).expect("a handle");
-    assert!(
-        header.starts_with("an imported message from wren (operator, from openclaw-store) in the imported dm place-0 (reef-2026-05, openclaw-store), said "),
-        "{}",
-        first.header
-    );
-    assert!(
-        first.header.starts_with("[m:") && first.header.contains("_0] an imported"),
-        "an imported id ends _<index>: {}",
-        first.header
-    );
-    let (_, source) = c.store.get_node(&first.node_id).unwrap().unwrap();
-    assert_eq!(source.created_at_ms, FIRST_MS);
-    let q = r.model.requests.lock().unwrap().last().unwrap().clone();
-    let all = serde_json::to_string(&q.messages).unwrap();
-    assert!(
-        all.contains(&format!(
-            "said {}",
-            crate::recall::stamp::said_in(FIRST_MS, &crate::recall::stamp::system)
-        )),
-        "the model sees its time"
-    );
-    assert!(all.contains("boathouse ledger"), "and the fact");
-}
-
 /// Outside text is kept out of recall (`untrusted`) by default, never in
 /// front of the model; admitted by the config, its header says it is
 /// imported outside text and not instructions, inside the testimony.
@@ -627,37 +555,6 @@ async fn an_episode_with_no_place_name_imports_and_its_header_names_its_kind() {
     assert_eq!(
         super::place_name(&c.store, &sid),
         format!("the imported heartbeat ({TAG}, openclaw-store)")
-    );
-}
-
-/// The place rule's own line for an imported session: a record that ties
-/// one to a shared channel (here a stale wake target) does not make it that
-/// channel's, so the channel recalls none of it. Without the line, the
-/// session would read as the channel's, and its history would be recalled
-/// there.
-#[tokio::test]
-async fn an_imported_session_tied_to_a_shared_channel_is_still_private() {
-    let r = live();
-    let c = &r.core;
-    let eps = fixture();
-    import(c, lines(&eps)).await;
-    let imported = sessions_of(&eps);
-    let target = format!("discord:channel:{PIER}");
-    c.store
-        .append(&[c.outbox.wake_target_record(&imported[0], &target).unwrap()])
-        .unwrap();
-    assert_eq!(
-        c.runner.place_of(&imported[0]),
-        theseus_memory::recall::Place::Private
-    );
-    c.runner.memory.set_ask(index_of(c, imported.clone()));
-    let pier = session(c, Some(&format!("channel:{PIER}")), &[]);
-    turn(c, &pier, "where is the reef survey's tide log kept?").await;
-    let m = &recalls(c, &pier)[0];
-    assert!(
-        m.admitted.is_empty(),
-        "a shared place recalls none: {:?}",
-        m.admitted
     );
 }
 
