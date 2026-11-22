@@ -18,12 +18,11 @@ use theseus_protocol::import::{ImportEpisodesParams, ImportEraseResult, ImportLi
 use theseus_protocol::method;
 
 use super::episode;
-use super::tests::{call, import, index_of, lines, live, sessions_of};
+use super::session_id_of;
+use super::tests::{call, import, lines, live, sessions_of};
 use super::write;
-use super::{session_id_of, Integrity};
 use crate::node::Body;
 use crate::session::SessionRecord;
-use crate::tests_recall::{dropped_for, recalls, session, turn, PIER};
 
 const TAG: &str = "claude-code-2026-10-11";
 

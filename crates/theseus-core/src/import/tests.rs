@@ -30,7 +30,7 @@ use crate::config::MemoryMode;
 use crate::node::{Body, Node, Origin};
 use crate::recall::{Ask, AskFuture};
 use crate::session::SessionRecord;
-use crate::tests_recall::{dropped_for, recalls, rig_with, session, turn, Rig, PIER};
+use crate::tests_recall::{recalls, rig_with, session, turn, Rig, PIER};
 use crate::Core;
 
 pub(super) const TAG: &str = "reef-2026-05";

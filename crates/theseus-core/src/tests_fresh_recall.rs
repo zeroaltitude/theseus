@@ -11,7 +11,7 @@ use theseus_protocol::index::IndexQueryParams;
 use crate::config::memory::MemoryArm;
 use crate::config::{MemoryConfig, MemoryMode};
 use crate::recall::AskFuture;
-use crate::tests_recall::{admitted, index_of, recalls, rig_with, session, turn, PIER};
+use crate::tests_recall::{admitted, index_of, recalls, rig_with, session, turn};
 
 const KITE: &str = "Remember: the red kite roosts in the beeches above Tarnwick.";
 
