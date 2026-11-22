@@ -122,3 +122,44 @@ pub struct ExchangeLadderResult {
     #[cfg_attr(test, ts(optional))]
     pub stopped: Option<String>,
 }
+
+/// `exchange.adopt` (issue 44): the owner's own act, one place at a time,
+/// that the unplaced history of the sessions bound to that place alone was
+/// held in it. It gives a place, never a person; `undo` takes one back.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ExchangeAdoptParams {
+    /// The place, as the ledger names it (`discord:dm:<id>`, `local:<dir>`).
+    pub place: String,
+    /// Count what it would place, and write nothing.
+    pub dry_run: bool,
+    /// Take back the adoption of this id instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub undo: Option<String>,
+}
+
+/// What an adoption found and placed, or what an undo took back. Counts only.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ExchangeAdoptResult {
+    pub dry_run: bool,
+    pub place: String,
+    /// The adoption written, or the one taken back; none for a dry run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub id: Option<String>,
+    pub undone: bool,
+    /// The sessions it adopts from, and their exchanges it places (or took
+    /// back), and the place's touches written (or ended).
+    pub sessions: u64,
+    pub exchanges: u64,
+    pub touches: u64,
+    /// Turns of those sessions with no exchange yet: the rebuild has not run
+    /// for them, and nothing is adopted until it has.
+    pub unledgered: u64,
+    /// What is left, and why, each reason counted.
+    pub left: BTreeMap<String, u64>,
+}
