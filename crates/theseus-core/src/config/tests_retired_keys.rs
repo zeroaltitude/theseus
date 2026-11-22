@@ -150,3 +150,24 @@ fn a_retired_cache_key_loads_whatever_its_value() {
         assert_eq!(cfg.cache, CacheConfig::default(), "{text}");
     }
 }
+
+/// `[context] assembly` in its table form, which named places, is retired whole: inline or as a section of
+/// its own, it loads, is named once, and nothing of it is read.
+#[test]
+fn the_assembly_table_naming_places_is_retired_whole() {
+    for text in [
+        "[context]\nassembly = { default = \"transcript\", places = { \"discord:dm:42\" = \"view\" } }\n",
+        "[context]\nfiles = []\n[context.assembly]\ndefault = \"view\"\nplaces = { \"local\" = \"transcript\" }\n",
+    ] {
+        let (cfg, warnings) = parse(text).expect(text);
+        assert_eq!(names(&cfg), ["context.assembly"], "{text}");
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|w| w.starts_with("context.assembly is retired: "))
+                .count(),
+            1,
+            "{text}: {warnings:?}"
+        );
+    }
+}
