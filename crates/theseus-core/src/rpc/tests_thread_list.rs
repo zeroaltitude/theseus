@@ -165,6 +165,55 @@ async fn submit_to(core: &Arc<Core>, sid: &str, input: &str) -> serde_json::Valu
     serde_json::to_value(answer).unwrap()
 }
 
+/// The old store's raw thread records and one place binding (see the test below).
+fn write_old_store(core: &Core, sid: &str) {
+    use theseus_store::{kinds, NewRecord};
+    let raw = |slug: &str, v: serde_json::Value| {
+        NewRecord::json(kinds::META, Some(&crate::threads::key(slug)), &v).unwrap()
+    };
+    let place = |slug: &str, sid: &str| {
+        NewRecord::json(
+            kinds::META,
+            Some(&format!(
+                "{}{}",
+                crate::outbox::PLACE_META_PREFIX,
+                theseus_protocol::threads::place_of(slug)
+            )),
+            &sid.to_string(),
+        )
+        .unwrap()
+    };
+    core.store
+        .append(&[
+            raw(
+                "tides",
+                serde_json::json!({"slug": "tides", "title": "Tide gauges", "goal": "recalibrate gauge 4",
+                    "topics": ["topic:tides"], "card": ["gauge 4 drifts"],
+                    "working_set": {"repos": ["gauge-log"], "hosts": ["tides.example"]},
+                    "surfaces": ["discord:channel:4242"], "links": ["moons"],
+                    "session_id": sid, "last_active_ms": 1_790_000_000_000u64,
+                    "created_at_ms": 1_780_000_000_000u64}),
+            ),
+            place("tides", sid),
+            raw(
+                "embargo",
+                serde_json::json!({"slug": "embargo", "title": "Embargoed fix",
+                    "sealed": {"by": "the CLI", "at_ms": 1u64, "reason": "embargoed"}}),
+            ),
+            raw(
+                "maybe",
+                serde_json::json!({"slug": "maybe", "title": "Maybe private",
+                    "seal_pending": "it names a vault"}),
+            ),
+            raw("moons", serde_json::json!({"slug": "moons", "title": "Moons", "state": "paused",
+                "links": ["tides"], "parent": "tides"})),
+            raw("old", serde_json::json!({"slug": "old", "title": "Old work", "state": "done",
+                "merged_into": "tides"})),
+            raw("disk", serde_json::json!({"slug": "disk", "title": "Disk", "split_from": "tides"})),
+        ])
+        .unwrap();
+}
+
 /// The owner's store as an older build left it (issue 44, threads retired 2026-11-22): thread records written
 /// as RAW stored JSON (not by today's constructors), one of each shape an older build wrote (sealed, a pending
 /// seal, paused, done, split from, merged into, a parent, linked, a working set, a Discord surface, with and
@@ -176,7 +225,6 @@ async fn submit_to(core: &Arc<Core>, sid: &str, input: &str) -> serde_json::Valu
 async fn an_old_stores_threads_read_unchanged_and_a_threads_session_runs_as_any_other() {
     use crate::provider::Scripted;
     use crate::tests_day_ceiling::build;
-    use theseus_store::{kinds, NewRecord};
     let dir = tempfile::tempdir().unwrap();
     let sid = {
         let (core, _) = build(dir.path(), vec![Scripted::text("noted")], |_| {});
@@ -190,50 +238,7 @@ async fn an_old_stores_threads_read_unchanged_and_a_threads_session_runs_as_any_
         )
         .await;
         assert!(first["result"].is_object(), "{first}");
-        let raw = |slug: &str, v: serde_json::Value| {
-            NewRecord::json(kinds::META, Some(&crate::threads::key(slug)), &v).unwrap()
-        };
-        let place = |slug: &str, sid: &str| {
-            NewRecord::json(
-                kinds::META,
-                Some(&format!(
-                    "{}{}",
-                    crate::outbox::PLACE_META_PREFIX,
-                    theseus_protocol::threads::place_of(slug)
-                )),
-                &sid.to_string(),
-            )
-            .unwrap()
-        };
-        core.store
-            .append(&[
-                raw(
-                    "tides",
-                    serde_json::json!({"slug": "tides", "title": "Tide gauges", "goal": "recalibrate gauge 4",
-                        "topics": ["topic:tides"], "card": ["gauge 4 drifts"],
-                        "working_set": {"repos": ["gauge-log"], "hosts": ["tides.example"]},
-                        "surfaces": ["discord:channel:4242"], "links": ["moons"],
-                        "session_id": rec.session_id, "last_active_ms": 1_790_000_000_000u64,
-                        "created_at_ms": 1_780_000_000_000u64}),
-                ),
-                place("tides", &rec.session_id),
-                raw(
-                    "embargo",
-                    serde_json::json!({"slug": "embargo", "title": "Embargoed fix",
-                        "sealed": {"by": "the CLI", "at_ms": 1u64, "reason": "embargoed"}}),
-                ),
-                raw(
-                    "maybe",
-                    serde_json::json!({"slug": "maybe", "title": "Maybe private",
-                        "seal_pending": "it names a vault"}),
-                ),
-                raw("moons", serde_json::json!({"slug": "moons", "title": "Moons", "state": "paused",
-                    "links": ["tides"], "parent": "tides"})),
-                raw("old", serde_json::json!({"slug": "old", "title": "Old work", "state": "done",
-                    "merged_into": "tides"})),
-                raw("disk", serde_json::json!({"slug": "disk", "title": "Disk", "split_from": "tides"})),
-            ])
-            .unwrap();
+        write_old_store(&core, &rec.session_id);
         rec.session_id
     };
     let (core, fake) = build(dir.path(), vec![Scripted::text("still 3.2")], |_| {});
