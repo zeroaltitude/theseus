@@ -18,6 +18,12 @@ first: string, last: string, band: string, form: string, tokens: number, reasons
  */
 label: string, 
 /**
+ * What Jev says about the items the piece is read from (issue 44), one line each, `<node>: <what>`:
+ * the ask and the reply of a piece's first and last exchange, or a recalled node. Absent for a piece
+ * made from items (a fold, a card, a fact): its labels are its sources'.
+ */
+labels: Array<string>, 
+/**
  * The piece's text, when asked for and allowed; none when its source holds no text this build reads.
  */
 text?: string, };
