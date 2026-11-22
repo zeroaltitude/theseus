@@ -49,12 +49,6 @@ pub struct Original {
     pub sources: Sources,
     /// The view the request was laid from, read back from its blobs; none for a transcript's turn.
     pub view: Option<Frozen>,
-    /// What its view record named it laid from (the sessions, the exchanges, the nodes its recall laid),
-    /// read once with the view (`kept_view`): a crossing reads its sources here, never again from the
-    /// store. None for a transcript's turn.
-    pub laid: Option<crate::compiler::view::kept::Kept>,
-    /// When the turn began: its first node's time (the compilation's, when no node of it is read).
-    pub started_ms: u64,
     /// The request, and the digest that matched.
     pub request: ProviderRequest,
     pub digest: String,
@@ -184,11 +178,9 @@ impl Core {
                 )
             })?;
         let nodes: Transcript = transcript[..at].to_vec();
-        let started_ms = started(&transcript[..=at], turn).unwrap_or(compilation.created_at_ms);
-        let kept = (compilation.strategy == crate::compiler::view::STRATEGY)
+        let view = (compilation.strategy == crate::compiler::view::STRATEGY)
             .then(|| self.kept_view(&compilation, (session_id, turn)))
             .transpose()?;
-        let (view, laid) = kept.map_or((None, None), |(f, k)| (Some(f), Some(k)));
         let mut spec = self.kept_spec(&session, &compilation)?;
         let recalls = nodes
             .iter()
@@ -215,8 +207,6 @@ impl Core {
                 nodes,
                 sources,
                 view,
-                laid,
-                started_ms,
                 request,
                 digest,
                 ask,
@@ -290,13 +280,12 @@ impl Core {
 
     /// The view a view turn's request was laid from, read back from the blobs its record names, once the
     /// gate of now has said none of what it laid is held: a turn from before views kept it is refused in
-    /// words, as is one a source of which was sealed or moved since. It is returned with what the record
-    /// names it laid from.
+    /// words, as is one a source of which was sealed or moved since.
     fn kept_view(
         &self,
         compilation: &Compilation,
         (session_id, turn): (&str, &str),
-    ) -> Result<(Frozen, crate::compiler::view::kept::Kept), NotRebuildable> {
+    ) -> Result<Frozen, NotRebuildable> {
         let record = crate::view::record::read(&self.store, &compilation.id)
             .map_err(|e| no("view", format!("{e:#}")))?;
         let k = record
@@ -308,7 +297,7 @@ impl Core {
         }
         let f = crate::compiler::view::kept::frozen(self.store.blobs(), &k, (session_id, turn))
             .map_err(|why| no("view", why))?;
-        Ok((f, k))
+        Ok(f)
     }
 
     /// The spec the compilation's requests were rendered from: this
@@ -414,14 +403,6 @@ pub(super) type Laid<'a> = (
     &'a Sources,
     Option<&'a Frozen>,
 );
-
-/// When `turn` began: its first node's time among `nodes`.
-fn started(nodes: &[(u64, crate::stub::Stub)], turn: &str) -> Option<u64> {
-    (nodes.iter())
-        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
-        .map(|(_, n)| n.created_at_ms)
-        .min()
-}
 
 /// The last user message's text among `nodes`.
 fn last_user_text(nodes: &Transcript) -> String {
