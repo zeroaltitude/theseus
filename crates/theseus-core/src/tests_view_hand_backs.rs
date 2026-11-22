@@ -341,6 +341,15 @@ async fn a_turn_resumed_after_a_restart_shows_the_cut_exchange_in_its_window() {
         .find(|q| !q.tools.is_empty())
         .unwrap();
     legal(&q);
+    for (i, m) in q.messages.iter().enumerate() {
+        let t = m.to_string();
+        eprintln!("DIAG msg {i} {}: {}", m["role"], t.chars().take(150).collect::<String>());
+    }
+    let p = c.runner.presence.get(&sid).unwrap();
+    eprintln!("DIAG presence {:?} at {}", p.present(), p.place());
+    eprintln!("DIAG cut place {} ask {:?}", ex.place, ex.ask);
+    let mark = crate::exchange::mark(&c.store, ex.ask.as_deref().unwrap_or_default());
+    eprintln!("DIAG mark {:?}", mark.map(|m| m.map(|m| (m.place, m.in_person))));
     assert!(texts(&q).contains(RESUMES), "{}", texts(&q));
     assert!(
         texts(&q).contains(ASKED),
