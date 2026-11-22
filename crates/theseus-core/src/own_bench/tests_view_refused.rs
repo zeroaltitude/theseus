@@ -107,10 +107,7 @@ async fn a_missing_or_corrupt_view_blob_is_refused_naming_its_part() {
                 d
             };
             let digest = match part {
-                "front" => match k.blocks.first() {
-                    Some(d) => d.clone(),
-                    None => absent(|k, d| k.blocks.push(d)),
-                },
+                "front" => k.front.clone(),
                 "window" => k.window.last().expect("a populated window").clone(),
                 _ => match k.beside.clone() {
                     Some(d) => d,
@@ -135,7 +132,7 @@ async fn a_missing_or_corrupt_view_blob_is_refused_naming_its_part() {
 async fn a_record_whose_blobs_were_never_written_is_refused() {
     let (rig, sid, t) = two_turns().await;
     let k = kept_of(&rig.core, &t);
-    for d in k.blocks.iter().chain(&k.window).chain(&k.beside) {
+    for d in std::iter::once(&k.front).chain(&k.window).chain(&k.beside) {
         spoil(&rig.core, d, false);
     }
     let n = || rig.model.requests().len();
