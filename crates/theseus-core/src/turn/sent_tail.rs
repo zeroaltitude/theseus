@@ -30,7 +30,7 @@
 //! thinking stripped, so the first request sent is one the provider's
 //! binding accepts.
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
 
 use serde_json::{json, Value};
@@ -86,6 +86,14 @@ fn admissible(s: &Sent, now: &Under) -> bool {
 struct Held {
     by_session: HashMap<String, Vec<Sent>>,
     recent: VecDeque<String>,
+    /// Sessions a tail was let go of, at a turn or by a warm read: until a
+    /// stripped compilation starts their new chain, every request of theirs
+    /// starts one, and no warm read is sent (issue 44).
+    stale: HashSet<String>,
+    /// Run once at the next `fresh`, for a test that changes what tails are
+    /// admitted under between the snapshot and the put-back.
+    #[cfg(test)]
+    hook: Option<Box<dyn FnOnce() + Send>>,
 }
 
 /// Each session's kept tails.
@@ -195,10 +203,24 @@ impl SentTails {
     /// put back (sent to `now.key`) may not be sent again. Asked before the request is compiled,
     /// so the compile strips the thinking those tails were under.
     pub(super) fn fresh(&self, session: &str, now: &Under) -> bool {
+        #[cfg(test)]
+        {
+            let hook = self.0.lock().unwrap_or_else(|e| e.into_inner()).hook.take();
+            if let Some(f) = hook {
+                f();
+            }
+        }
         let h = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        h.by_session
-            .get(session)
-            .is_some_and(|v| v.iter().any(|s| s.key == now.key && !admissible(s, now)))
+        h.stale.contains(session)
+            || h.by_session
+                .get(session)
+                .is_some_and(|v| v.iter().any(|s| s.key == now.key && !admissible(s, now)))
+    }
+
+    /// Run `f` once at the next `fresh`, after a request's snapshot is read.
+    #[cfg(test)]
+    pub(crate) fn hook_for_tests(&self, f: impl FnOnce() + Send + 'static) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).hook = Some(Box::new(f));
     }
 
     /// The tails a conversation's earlier requests sent, put back on a request made for it
@@ -210,6 +232,9 @@ impl SentTails {
     pub(crate) fn warm(&self, session: &str, now: &Under, compiled: &mut Compiled) -> bool {
         let held = {
             let mut h = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            if h.stale.contains(session) {
+                return false;
+            }
             let Some(v) = h.by_session.get_mut(session) else {
                 return true;
             };
@@ -221,6 +246,7 @@ impl SentTails {
                 return true;
             };
             let ok = v.last().is_some_and(|s| admissible(s, &newest));
+            let was = v.len();
             v.retain(|s| {
                 admissible(
                     s,
@@ -230,7 +256,9 @@ impl SentTails {
                     },
                 )
             });
-            if !ok {
+            // A tail let go: the chain it was on needs a new one first.
+            if !ok || v.len() < was {
+                h.stale.insert(session.to_string());
                 return false;
             }
             v.clone()
@@ -262,7 +290,18 @@ impl SentTails {
             let mut h = self.0.lock().unwrap_or_else(|e| e.into_inner());
             h.recent.retain(|s| s != session);
             h.recent.push_back(session.to_string());
-            h.by_session.get(session).cloned().unwrap_or_default()
+            let held = h.by_session.get(session).cloned().unwrap_or_default();
+            // A stripped compile starts the new chain; one that would let a
+            // tail go without it leaves the session needing one.
+            let lets_go = held
+                .iter()
+                .any(|s| s.key == now.key && !admissible(s, &now));
+            match stripped {
+                true => h.stale.remove(session),
+                false if lets_go => h.stale.insert(session.to_string()),
+                false => false,
+            };
+            held
         };
         let (kept, here) = put_back(compiled, held, (Some(&now.key), &now), stripped);
         let m = &mut compiled.request.messages[last];

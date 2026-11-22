@@ -17,6 +17,7 @@ cache?: ThreadsCache,
 /**
  * Threads whose record of the conversation they run on cannot be read
  * (issue 44): until it reads again, recall holds out every conversation
- * whose thread it cannot prove. A count, never which.
+ * whose thread it cannot prove. A count, never which; absent when none,
+ * and for every reader but the owner in person.
  */
-unread_bindings: number, };
+unread_bindings?: number, };

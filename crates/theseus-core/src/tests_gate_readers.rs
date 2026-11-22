@@ -269,7 +269,10 @@ async fn health_counts_a_binding_that_cannot_be_read_until_it_is_bound_again() {
         "the MCP server"
     );
     assert_eq!(
-        r.core.health().threads.map(|t| t.unread_bindings),
+        r.core
+            .health()
+            .threads
+            .map(|t| t.unread_bindings.unwrap_or(0)),
         Some(0),
         "health read inside the daemon is as before"
     );
@@ -743,4 +746,162 @@ async fn the_memory_listing_counts_only_admitted_messages() {
         .unwrap()
         .text;
     assert!(!got.contains(&home), "not listed: {got}");
+}
+
+/// No request of `r` carried the provider's remedy for a refused prefix: a
+/// refusal is always answered by one repeat that names it.
+fn none_refused(reqs: &[crate::provider::ProviderRequest], what: &str) {
+    for q in reqs {
+        let remedy = q.thinking.as_ref().and_then(|t| t.get("block_binding"));
+        assert!(remedy.is_none(), "{what}: a repeat with the remedy");
+    }
+}
+
+/// A warm read that lets a tail go leaves the session needing a new chain:
+/// after a thinking turn and a seal, two warm reads send nothing (the second
+/// finds the kept tails emptied, and still sends nothing), and the next turn
+/// starts a new chain the binding accepts.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_warm_read_after_a_seal_sends_nothing_and_leaves_a_new_chain_owed() {
+    use crate::keep_warm::Outcome;
+    use crate::provider::{Binding, FakeProvider, Scripted};
+    use crate::tests_binding::{say, thinks_then_reads};
+    use crate::tests_keep_warm::{build_with, one_hour, reads};
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::write(work.join("harbor.txt"), "the tide turns at four\n").unwrap();
+    let mut c = one_hour(24);
+    c.project.tail_facts = Some(true);
+    c.tools.projects_dir = Some(work.canonicalize().unwrap().to_string_lossy().into_owned());
+    let fake = std::sync::Arc::new(FakeProvider {
+        binding: Some(Binding::Refuse),
+        ..FakeProvider::scripted(vec![
+            Scripted::Blocks {
+                blocks: vec![
+                    json!({"type": "thinking", "thinking": "a tide question"}),
+                    json!({"type": "text", "text": "Four."}),
+                ],
+                stop_reason: "end_turn".into(),
+            },
+            thinks_then_reads("toolu_b"),
+            Scripted::text("Still four."),
+        ])
+    });
+    let core = build_with(dir.path(), c, fake.clone());
+    let sid =
+        crate::tests_keep_warm::session(&core, theseus_protocol::SessionKind::Conversation, None);
+    core.runner.keep_warm.message(&sid, true);
+    say(&core, &sid, "what does the tide table say?")
+        .await
+        .unwrap();
+    core.thread_new(
+        &ThreadNewParams {
+            slug: "kelp".into(),
+            title: Some("kelp".into()),
+            ..Default::default()
+        },
+        cli(),
+    )
+    .unwrap();
+    seal_core(&core, "kelp");
+    let live = core.live_profile().0;
+    for n in 0..2 {
+        let read = core.runner.keep_warm_once(&sid, &live).await;
+        assert!(
+            !matches!(read, Outcome::Read { .. }),
+            "warm read {n}: {read:?}"
+        );
+    }
+    assert!(reads(&fake).is_empty(), "no warm read was sent");
+    let second = say(&core, &sid, "and again?").await.unwrap();
+    assert_eq!(second.output, "Still four.", "{second:?}");
+    none_refused(&fake.requests(), "the turn after");
+}
+
+/// A seal that lands after a request's snapshot was read, while its compile
+/// awaits, is seen before the request leaves: the first send of the next
+/// turn holds no old tail and needs no remedy from the provider.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_seal_during_the_compile_is_seen_before_the_send() {
+    use crate::provider::{Binding, Scripted};
+    use crate::tests_binding::{private_session, rig as strict, thinks_then_reads};
+    let r = strict(
+        Binding::Refuse,
+        vec![
+            thinks_then_reads("toolu_a"),
+            Scripted::text("Four."),
+            thinks_then_reads("toolu_b"),
+            Scripted::text("Still four."),
+        ],
+    );
+    r.core
+        .thread_new(
+            &ThreadNewParams {
+                slug: "kelp".into(),
+                title: Some("kelp".into()),
+                ..Default::default()
+            },
+            cli(),
+        )
+        .unwrap();
+    let sid = private_session(&r.core);
+    said_as(&r, &sid, "what does the tide table say?", true).await;
+    let core = std::sync::Arc::downgrade(&r.core);
+    r.core.runner.tails.hook_for_tests(move || {
+        if let Some(c) = core.upgrade() {
+            seal_core(&c, "kelp");
+        }
+    });
+    let two = said_as(&r, &sid, "and again?", true).await;
+    assert_eq!(two.output, "Still four.", "{two:?}");
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 4, "no request refused and repeated");
+    none_refused(&reqs, "the seal during the compile");
+    let first = serde_json::to_string(&reqs[2].messages).unwrap();
+    assert_eq!(first.matches(HEAD).count(), 1, "no old tail: {first}");
+    assert!(!first.contains("\"thinking\""), "a new chain: {first}");
+}
+
+/// A real split, written by the kernel's frame, into an open thread counts
+/// as a move: an older tail is let go though no thread joined the held ones.
+/// (A split into a sealed thread from an unsealed conversation is refused:
+/// turns never cross a seal.)
+#[tokio::test]
+async fn a_split_through_the_kernel_lets_older_tails_go() {
+    use theseus_protocol::threads::ThreadSplitParams;
+    let r = tailed();
+    thread(&r, "kelp");
+    r.core.thread_session("kelp", cli()).unwrap();
+    let home = session(&r.core, None);
+    turn_as(&r.core, &home, "the mooring ledger", true).await;
+    let desk = session(&r.core, None);
+    turn_as(&r.core, &desk, "the first word", true).await;
+    let held = view_gate::held_threads(&r.core.runner, &desk);
+    let before = r.core.store.moves();
+    let nodes = r.core.store.session_nodes(&home).unwrap();
+    let first = nodes
+        .iter()
+        .find(|(_, n)| crate::recall::text_of(n).contains("mooring"))
+        .map(|(p, _)| *p)
+        .unwrap();
+    let last = nodes.last().map(|(p, _)| *p).unwrap();
+    r.core
+        .thread_split(
+            &ThreadSplitParams {
+                from: home.clone(),
+                into: Some("kelp".into()),
+                range: Some([first, last]),
+                ..Default::default()
+            },
+            cli(),
+        )
+        .unwrap();
+    assert!(
+        r.core.store.moves() > before,
+        "the split's frame is counted"
+    );
+    assert_eq!(view_gate::held_threads(&r.core.runner, &desk), held);
+    turn_as(&r.core, &desk, "the second word", true).await;
+    assert_eq!(dates(&r, "the second word"), 1, "the split let it go");
 }

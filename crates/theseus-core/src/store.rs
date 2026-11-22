@@ -157,9 +157,6 @@ pub struct Store {
     /// The task records being written now (39a): the same lock, by `tsk_…`
     /// id, taken after a session's and before an execution's.
     tasks: Arc<SessionLocks>,
-    /// Writes that moved a node into a thread or changed a thread's binding
-    /// (`moves`), by every handle on this store.
-    moves: Arc<std::sync::atomic::AtomicU64>,
     /// Full transcript reads, by this store and its turn handles.
     #[cfg(test)]
     reads: Arc<std::sync::atomic::AtomicU64>,
@@ -678,6 +675,16 @@ impl Store {
                 "store recovered on open"
             );
         }
+        // A node moved into a thread, or a thread's binding written: what a
+        // kept tail is not sent again across (`moves`, issue 44).
+        inner.watch_keys(vec![
+            "moved.of.".into(),
+            format!(
+                "{}{}",
+                crate::outbox::PLACE_META_PREFIX,
+                theseus_protocol::threads::PLACE_PREFIX
+            ),
+        ]);
         Ok(Self {
             inner: Arc::new(inner),
             dir: dir.to_path_buf(),
@@ -689,7 +696,6 @@ impl Store {
             sessions: Arc::default(),
             watcher: Arc::default(),
             tasks: Arc::default(),
-            moves: Arc::default(),
             #[cfg(test)]
             reads: Default::default(),
             #[cfg(test)]
@@ -968,34 +974,18 @@ impl Store {
         self.commit(&[]).map(|_| ())
     }
 
+    /// How many frames have moved a node into a thread (`moved.of.<node>`) or
+    /// changed a thread's binding since this store opened, whoever wrote them
+    /// (this handle, a turn's, the kernel's): a kept tail made at one count is
+    /// not sent again at another (`turn::sent_tail`, issue 44). Counted by the
+    /// WAL store once each frame has landed (`WalStore::watch_keys`).
+    pub fn moves(&self) -> u64 {
+        self.inner.watched()
+    }
+
     /// Every write: one frame, with the store's parked rows and a turn's
     /// waiting rows in front.
-    /// How many writes have moved a node into a thread (`moved.of.<node>`) or
-    /// changed a thread's binding since this store opened: a kept tail made
-    /// at one count is not sent again at another (`turn::sent_tail`, issue
-    /// 44). Counted once the write has landed.
-    pub fn moves(&self) -> u64 {
-        self.moves.load(std::sync::atomic::Ordering::Acquire)
-    }
-
     fn commit(&self, records: &[NewRecord]) -> Result<Vec<u64>> {
-        let written = self.commit_frame(records)?;
-        let binding = format!(
-            "{}{}",
-            crate::outbox::PLACE_META_PREFIX,
-            theseus_protocol::threads::PLACE_PREFIX
-        );
-        let moved = records
-            .iter()
-            .filter_map(|r| r.key.as_deref())
-            .any(|k| k.starts_with("moved.of.") || k.starts_with(&binding));
-        if moved {
-            self.moves.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        }
-        Ok(written)
-    }
-
-    fn commit_frame(&self, records: &[NewRecord]) -> Result<Vec<u64>> {
         match &self.turn {
             Some(t) => t.commit(
                 &self.inner,
@@ -1889,7 +1879,6 @@ pub(crate) mod tests {
             sessions: Arc::default(),
             watcher: Arc::default(),
             tasks: Arc::default(),
-            moves: Arc::default(),
             reads: Default::default(),
             faults: Default::default(),
             plain_faults: Default::default(),

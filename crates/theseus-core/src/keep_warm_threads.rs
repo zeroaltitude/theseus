@@ -306,7 +306,7 @@ impl crate::rpc::Core {
         Some(ThreadsHealth {
             keep_warm_hours: self.cfg.cache.threads_keep_warm_hours,
             cache: Some(self.threads_cache()),
-            unread_bindings: unread,
+            unread_bindings: (unread > 0).then_some(unread),
         })
     }
 

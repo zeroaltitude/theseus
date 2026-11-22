@@ -80,7 +80,11 @@ pub(crate) fn private_session(core: &Core) -> String {
     rec.session_id
 }
 
-async fn say(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSubmitResult> {
+pub(crate) async fn say(
+    core: &Arc<Core>,
+    sid: &str,
+    input: &str,
+) -> anyhow::Result<TurnSubmitResult> {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();

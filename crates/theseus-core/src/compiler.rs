@@ -702,6 +702,11 @@ fn compile_with(
     if let (None, Some(why), Some(_)) = (&decided, input.strip, input.current) {
         decided = Some((why.to_string(), "transcript", true));
     }
+    // An explicit strip dominates a recompile that would keep the thinking (a
+    // readable switch): the history under it changed (issue 44, a kept tail).
+    if let (Some(d), Some(_), Some(_)) = (decided.as_mut(), input.strip, input.current) {
+        d.2 = true;
+    }
     // A range the session moved to a thread stays out of a recompile, one
     // line in its place (theseus-q9b85); a frozen compilation that holds
     // what has moved, or lacks what came back, recompiles once.

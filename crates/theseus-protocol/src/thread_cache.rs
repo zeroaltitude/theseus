@@ -118,6 +118,9 @@ pub struct ThreadsHealth {
     pub cache: Option<ThreadsCache>,
     /// Threads whose record of the conversation they run on cannot be read
     /// (issue 44): until it reads again, recall holds out every conversation
-    /// whose thread it cannot prove. A count, never which.
-    pub unread_bindings: u64,
+    /// whose thread it cannot prove. A count, never which; absent when none,
+    /// and for every reader but the owner in person.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub unread_bindings: Option<u64>,
 }

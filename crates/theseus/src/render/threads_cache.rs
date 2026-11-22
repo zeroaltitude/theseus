@@ -12,7 +12,7 @@ use super::{plural, Tag};
 pub fn threads_lines(t: Option<&ThreadsHealth>) -> Vec<(Tag, String)> {
     let Some(t) = t else { return Vec::new() };
     let mut out = window_lines(t);
-    let unread = match t.unread_bindings {
+    let unread = match t.unread_bindings.unwrap_or(0) {
         0 => None,
         1 => Some("1 thread's binding to its conversation cannot be read: until it reads".into()),
         n => Some(format!(
@@ -110,7 +110,7 @@ mod tests {
                 kept: 1,
                 skipped_today: 2,
             }),
-            unread_bindings: 0,
+            unread_bindings: None,
         };
         let lines = threads_lines(Some(&t));
         assert_eq!(lines[0].0, Tag::Warn);
@@ -128,7 +128,7 @@ mod tests {
         let off = ThreadsHealth {
             keep_warm_hours: 0.0,
             cache: None,
-            unread_bindings: 0,
+            unread_bindings: None,
         };
         assert_eq!(
             threads_lines(Some(&off))[0].1,
@@ -143,7 +143,7 @@ mod tests {
         let t = |n| ThreadsHealth {
             keep_warm_hours: 4.0,
             cache: None,
-            unread_bindings: n,
+            unread_bindings: (n > 0).then_some(n),
         };
         assert_eq!(threads_lines(Some(&t(0))).len(), 1);
         let one = threads_lines(Some(&t(1)));

@@ -64,7 +64,9 @@ CALIBRATION = [
     # lines out for one: clippy, run with `too-many-lines-threshold = 85` in a scratch clippy.toml, prints 86.
     # 86 until the review's fix decided a kept tail's fate before the compile (`tail_under`, one counted line):
     # clippy, at the same scratch threshold, prints 87.
-    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 87),
+    # 87 until the re-review's fix read a tail's admission again after the compile (`tail_rechecked`, one
+    # counted line): clippy, at the same scratch threshold, prints 88.
+    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 88),
 ]
 
 

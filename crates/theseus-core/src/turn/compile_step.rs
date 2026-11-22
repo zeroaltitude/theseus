@@ -68,6 +68,29 @@ impl TurnRunner {
         (under, strip.or(fresh.then_some("tail_let_go")))
     }
 
+    /// What this request's tails are admitted under, read again after the compile's awaits (issue
+    /// 44): when it changed meanwhile (a seal, a steer, a move landed) so that a tail the chain was
+    /// built on may not be sent again, and this compile is not already a new chain, the request is
+    /// compiled again as one, its thinking stripped, before anything is put back or sent.
+    async fn tail_rechecked(
+        &self,
+        t: &mut Turn<'_>,
+        (under, input, i): (super::Under, CompileInput<'_>, u32),
+        compiled: Compiled,
+    ) -> Result<(super::Under, Compiled)> {
+        let sid = t.tc.session_id;
+        let now = crate::view_gate::tail_under(self, sid, under.key.clone());
+        let stripped = compiled.new_compilation && compiled.compilation.manifest.strip_thinking;
+        if now == under || stripped || !self.tails.fresh(sid, &now) {
+            return Ok((now, compiled));
+        }
+        let again = CompileInput {
+            strip: Some("tail_let_go"),
+            ..input
+        };
+        Ok((now, Box::pin(self.compile_here(t, again, i)).await?))
+    }
+
     /// The request's last block, in its order: the task view, the wakes and
     /// routines, the surface's standing records, the persona line, then the
     /// project's slice.
@@ -201,7 +224,8 @@ impl TurnRunner {
         // Where the ring cut, a summary in its place (30c); past the window
         // with nothing left to drop, the turn fails before any call.
         // A place set to `view` builds it from the turn's view instead (issue 44, `view_step`).
-        let mut compiled = Box::pin(self.compile_here(t, input, i)).await?;
+        let compiled = Box::pin(self.compile_here(t, input, i)).await?;
+        let (under, mut compiled) = self.tail_rechecked(t, (under, input, i), compiled).await?;
         ph.mark("compile");
         // The earlier requests' tails go back where they were sent, before
         // this one's own is attached (`sent_tail`).

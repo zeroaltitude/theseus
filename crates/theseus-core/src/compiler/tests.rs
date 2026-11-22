@@ -276,6 +276,50 @@ fn a_system_or_model_change_recompiles_and_strips_the_prefixs_thinking() {
     );
 }
 
+/// A tail let go needs a new chain whatever else recompiles (issue 44): the
+/// readable first-party switch that keeps the thinking strips it when the
+/// compile is asked to strip.
+#[test]
+fn an_explicit_strip_dominates_a_readable_switch() {
+    let mut said = vec![
+        (1, Node::user("s", None, "web", "hi")),
+        (
+            2,
+            assistant(vec![thinking(), json!({"type": "text", "text": "hello"})]),
+        ),
+        (3, Node::user("s", None, "web", "again")),
+    ];
+    if let Body::AssistantMessage { model, .. } = &mut said[1].1.body {
+        *model = "claude-sonnet-5-5".into();
+    }
+    let c1 = run(&said[..1], None, &spec("claude-sonnet-5-5", "A"), 1);
+    let opus = spec("claude-opus-5-5", "A");
+    let nodes: Vec<(u64, crate::stub::Stub)> =
+        said.iter().map(|(p, n)| (*p, n.clone().into())).collect();
+    let c = compile(CompileInput {
+        session_id: "s",
+        current: Some(&c1.compilation),
+        nodes: &nodes,
+        last_position: 3,
+        spec: &opus,
+        catalog: &Catalog::builtin(),
+        force: None,
+        window_override: None,
+        blobs: None,
+        hidden: &[],
+        strip: Some("tail_let_go"),
+        overflowed: None,
+        sources: &Default::default(),
+        assembled: None,
+        situation: &situation::Situation::Continuation,
+        kept: None,
+    });
+    assert_eq!(c.trigger.as_deref(), Some("model_changed"));
+    assert!(c.compilation.manifest.strip_thinking);
+    let kept = c.request.messages[1]["content"].as_array().unwrap().len();
+    assert_eq!(kept, 1, "{:?}", c.request.messages);
+}
+
 #[test]
 fn opus_reads_sonnets_thinking_across_a_first_party_switch_and_not_the_reverse() {
     let nodes = vec![

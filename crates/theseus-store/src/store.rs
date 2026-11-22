@@ -424,6 +424,31 @@ struct Inner {
     /// Says the state has dropped, which is the index's close (theseus-q0re4). Last, so it is
     /// dropped last.
     closed: crate::leak::CloseMark,
+    /// Frames that wrote a watched key (`WalStore::watch_keys`).
+    watched: Watched,
+}
+
+/// Frames that wrote a key under one of a few prefixes (`WalStore::watch_keys`), counted once each has
+/// landed: the one boundary every writer's frame passes, the kernel's and a turn's included.
+#[derive(Default)]
+struct Watched {
+    prefixes: std::sync::OnceLock<Vec<String>>,
+    count: AtomicU64,
+}
+
+impl Watched {
+    fn saw(&self, batch: &[NewRecord]) {
+        let Some(p) = self.prefixes.get() else {
+            return;
+        };
+        let keys = batch.iter().filter_map(|r| r.key.as_deref());
+        if keys
+            .into_iter()
+            .any(|k| p.iter().any(|x| k.starts_with(x.as_str())))
+        {
+            self.count.fetch_add(1, Ordering::AcqRel);
+        }
+    }
 }
 
 /// Where a build of the index's shape is (`WalStore::build_shape`).
@@ -475,6 +500,17 @@ pub fn frames_written_here() -> u64 {
 /// (theseus-w7dk): a turn's own frames and a neighbour's alike, which is what
 /// a stall is. The clock read is the writer's, twice a batch.
 impl WalStore {
+    /// Count, from now on, each frame that writes a key under one of `prefixes`. Set once: a second
+    /// call is ignored.
+    pub fn watch_keys(&self, prefixes: Vec<String>) {
+        let _ = self.inner.watched.prefixes.set(prefixes);
+    }
+
+    /// How many frames `watch_keys` has counted.
+    pub fn watched(&self) -> u64 {
+        self.inner.watched.count.load(Ordering::Acquire)
+    }
+
     pub fn slowest_frame_since(&self, since: std::time::Instant) -> Option<FrameTime> {
         self.inner.frame_times.slowest_since(since)
     }
@@ -1465,6 +1501,7 @@ impl Inner {
             #[cfg(test)]
             warned: AtomicU64::new(0),
             frame_times: FrameTimes::default(),
+            watched: Watched::default(),
             #[cfg(test)]
             commit_extra_ms: AtomicU64::new(0),
             index_fail: std::sync::atomic::AtomicU32::new(0),
@@ -2159,6 +2196,7 @@ impl Store for WalStore {
             let positions = answered
                 .recv()
                 .map_err(|_| anyhow::anyhow!("the store's writer stopped before it answered"))??;
+            s.watched.saw(batch);
             // One job is one frame, written by the writer for this caller.
             WRITTEN_HERE.with(|n| n.set(n.get() + 1));
             Ok(positions)
