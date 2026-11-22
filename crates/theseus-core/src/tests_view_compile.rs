@@ -734,3 +734,201 @@ async fn a_size_repair_comes_back_to_the_size_check() {
     let text = texts(&sent[0]);
     assert!(text.contains("5519"), "the repair lays the source: {text}");
 }
+
+/// A fold over `turn_id`'s exchange at its place, with an account the requests can be searched for.
+fn fold_over_exchange(c: &crate::Core, turn_id: &str, account: &str) {
+    let ex = crate::exchange::exchange(&c.store, turn_id)
+        .unwrap()
+        .unwrap();
+    let node = crate::ladder::fold::FoldNode {
+        id: format!("fold-{turn_id}"),
+        place: ex.place.clone(),
+        level: 1,
+        exchanges: vec![turn_id.to_string()],
+        first_ms: ex.start_ms,
+        last_ms: ex.start_ms,
+        his: vec![],
+        counted: 0,
+        children: vec![],
+        title: "the figure".into(),
+        account: account.into(),
+        marks: crate::view::Marks {
+            place: Some(ex.place.clone()),
+            audience: crate::view::Audience::Private,
+            author: crate::view::Author::Theseus,
+            outside: false,
+            sealed: false,
+            veiled: false,
+        },
+        model: None,
+        writer: 1,
+        at_ms: ex.start_ms,
+    };
+    c.store
+        .append(&crate::ladder::fold::records(&node).unwrap())
+        .unwrap();
+}
+
+/// The exchange record of the turn that said `what`, in any session, removed.
+fn remove_exchange_saying(c: &crate::Core, what: &str) {
+    for s in (c.store.list_sessions::<crate::session::SessionRecord>()).unwrap() {
+        for (_, n) in c.store.session_nodes(&s.session_id).unwrap() {
+            let said = matches!(&n.body, crate::node::Body::UserMessage { text, .. }
+                if text.contains(what));
+            if let (true, Some(t)) = (said, n.turn_id.as_deref()) {
+                let key = format!("{}{t}", crate::exchange::EXCHANGE_PREFIX);
+                c.store
+                    .append(&[theseus_store::NewRecord::delete_meta(&key)])
+                    .unwrap();
+            }
+        }
+    }
+}
+
+/// The turn id of the first message saying `what` in `sid`.
+fn turn_saying(c: &crate::Core, sid: &str, what: &str) -> String {
+    (c.store.session_nodes(sid).unwrap().into_iter())
+        .find_map(|(_, n)| match &n.body {
+            crate::node::Body::UserMessage { text, .. } if text.contains(what) => n.turn_id,
+            _ => None,
+        })
+        .unwrap()
+}
+
+/// A removed thing is not sent again (round 2, item 1): a fold whose constituent exchange was removed before
+/// the assembly is not laid; with it present, the same fold is.
+#[tokio::test]
+async fn a_fold_whose_constituent_was_removed_before_the_assembly_is_not_laid() {
+    const ACCOUNT: &str = "ACCOUNT: the figure 7741 was discussed";
+    let r = view_rig();
+    let c = &r.core;
+    let other = crate::tests_places::session(c, None);
+    turn_as(c, &other, "other: the figure is 7741", true).await;
+    fold_over_exchange(c, &turn_saying(c, &other, "the figure is 7741"), ACCOUNT);
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: before the removal", true).await;
+    let before = asked(&r, "desk: before the removal").pop().unwrap();
+    assert!(texts(&before).contains(ACCOUNT), "{}", texts(&before));
+    remove_exchange_saying(c, "the figure is 7741");
+    turn_as(c, &desk, "desk: after the removal", true).await;
+    let after = asked(&r, "desk: after the removal").pop().unwrap();
+    assert!(!texts(&after).contains(ACCOUNT), "{}", texts(&after));
+}
+
+/// Round 2, item 1: a fold the frozen view laid whose constituent exchange is removed between two calls of
+/// one turn is not in the second call's request (its constituents are the view's dependencies).
+#[tokio::test]
+async fn a_fold_whose_constituent_is_removed_between_two_calls_is_not_sent_again() {
+    use std::sync::{Arc, OnceLock};
+    const ACCOUNT: &str = "ACCOUNT: the figure 7741 was discussed";
+    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
+    let held = core.clone();
+    let r = crate::tests_places::rig_setup_scripted(
+        |_| {},
+        |_| {},
+        move |q| {
+            if last_user(q).contains("drop it now") && !crate::tests_places::answers_a_call(q) {
+                remove_exchange_saying(held.get().expect("the core"), "the figure is 7741");
+                return crate::provider::Scripted::tools(
+                    "Looking.",
+                    &[("s1", "fs_list", serde_json::json!({"path": "."}))],
+                );
+            }
+            crate::provider::Scripted::text("Done.")
+        },
+    );
+    let _ = core.set(r.core.clone());
+    let c = &r.core;
+    let other = crate::tests_places::session(c, None);
+    turn_as(c, &other, "other: the figure is 7741", true).await;
+    fold_over_exchange(c, &turn_saying(c, &other, "the figure is 7741"), ACCOUNT);
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: drop it now", true).await;
+    let calls: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| texts(q).contains("desk: drop it now"))
+        .collect();
+    assert_eq!(calls.len(), 2, "the turn made two calls");
+    assert!(
+        texts(&calls[0]).contains(ACCOUNT),
+        "before: {}",
+        texts(&calls[0])
+    );
+    assert!(
+        !texts(&calls[1]).contains(ACCOUNT),
+        "after: {}",
+        texts(&calls[1])
+    );
+}
+
+/// Round 2, item 4: the removal bound. Something the view laid is removed under it after each of three
+/// assemblies of one call: the call fails plainly (`ViewFailed::Gone`), and nothing is sent.
+#[tokio::test]
+async fn a_third_removal_in_one_call_fails_it_plainly_and_sends_nothing() {
+    use std::sync::{Arc, OnceLock};
+    let r = view_rig();
+    let c = &r.core;
+    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::new(OnceLock::new());
+    let _ = core.set(c.clone());
+    let desk = crate::tests_places::session(c, None);
+    for i in 0..3 {
+        turn_as(c, &desk, &format!("desk {i}: the buoy {i} is red"), true).await;
+    }
+    for i in 0..3 {
+        let held = core.clone();
+        crate::turn::view_step::env_tail_hook(
+            &desk,
+            Box::new(move || {
+                remove_exchange_saying(held.get().unwrap(), &format!("the buoy {i} is red"))
+            }),
+        );
+    }
+    let e = submit(c, &desk, "tidy the harbour notes")
+        .await
+        .unwrap_err();
+    let te = e.downcast_ref::<crate::turn::TurnError>().unwrap();
+    assert_eq!(te.class, "context_unreadable");
+    assert!(
+        format!("{:#}", te.source).contains("was removed while it was being prepared"),
+        "{:#}",
+        te.source
+    );
+    let sent: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| texts(q).contains("tidy the harbour notes"))
+        .collect();
+    assert!(sent.is_empty(), "nothing is sent: {}", sent.len());
+}
+
+/// Round 2, item 4: a source removed during a size repair's await (after the repair compile's assembly)
+/// is not in the request that goes out.
+#[tokio::test]
+async fn a_source_removed_during_a_size_repair_is_not_sent() {
+    use std::sync::{Arc, OnceLock};
+    const ASKS: &str = "what is the buoy now?";
+    let r = view_rig();
+    let c = &r.core;
+    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::new(OnceLock::new());
+    let _ = core.set(c.clone());
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: the buoy code is 6620", true).await;
+    let (held, again) = (core.clone(), desk.clone());
+    crate::turn::view_step::env_tail_hook(
+        &desk,
+        Box::new(move || {
+            crate::turn::view_step::env_tail_hook(
+                &again,
+                Box::new(move || {
+                    remove_exchange_saying(held.get().unwrap(), "the buoy code is 6620")
+                }),
+            )
+        }),
+    );
+    crate::turn::view_step::force_resize(&desk);
+    turn_as(c, &desk, ASKS, true).await;
+    let sent: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| texts(q).contains(ASKS))
+        .collect();
+    assert!(!sent.is_empty(), "a call went out");
+    for q in &sent {
+        assert!(!texts(q).contains("6620"), "{}", texts(q));
+    }
+}

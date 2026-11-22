@@ -101,7 +101,8 @@ impl TurnRunner {
             own: Some(turn),
         };
         let store_ladder = fork.ladder(store);
-        let ladder = super::OnceLadder::new(&store_ladder);
+        let resolved = super::ResolvedLadder::new(&store_ladder, store);
+        let ladder = super::OnceLadder::new(&resolved);
         let moving = self.moving(store, (&permit, &pov), &[], &read)?;
         let cards = super::StoreCards {
             store,

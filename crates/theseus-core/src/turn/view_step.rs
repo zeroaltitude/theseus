@@ -237,7 +237,8 @@ impl TurnRunner {
         };
         // One read of the ladder for the whole assembly: every selector, the text and the window see it.
         let store_ladder = fork.ladder(store);
-        let ladder = OnceLadder::new(&store_ladder);
+        let resolved = ResolvedLadder::new(&store_ladder, store);
+        let ladder = OnceLadder::new(&resolved);
         let moving = self.moving(store, (&permit, &pov), &items, &read)?;
         let cards = StoreCards {
             store,
@@ -271,8 +272,9 @@ impl TurnRunner {
             // (`room`), a preview reports it.
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
-        let (window, sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
-        let exchanges = laid_exchanges(&window, turn, &a);
+        let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
+        sessions.extend(resolved.sessions.borrow().iter().cloned());
+        let exchanges = laid_exchanges(&window, turn, &resolved.exchanges.borrow(), &a);
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
         let frozen = Frozen {
@@ -357,6 +359,12 @@ type EnvHook = Box<dyn FnOnce() + Send>;
 #[cfg(test)]
 static AT_ENV_TAIL: std::sync::Mutex<Vec<(String, EnvHook)>> = std::sync::Mutex::new(Vec::new());
 
+/// Run `f` at the next `env_tail` of `session`.
+#[cfg(test)]
+pub(crate) fn env_tail_hook(session: &str, f: EnvHook) {
+    AT_ENV_TAIL.lock().unwrap().push((session.to_string(), f));
+}
+
 #[cfg(test)]
 pub(super) fn at_env_tail(session: &str) {
     let hook = {
@@ -410,8 +418,54 @@ impl Built {
     }
 }
 
-/// Every exchange fold node `id` stands for; none when any cannot be resolved: a preview's listing of a
-/// fold.
+/// The ladder as the model's assembly reads it: a fold node is kept only when every exchange it stands for
+/// resolves now (a removed thing is not sent again); the sessions and the exchanges of those kept are
+/// recorded, so a removal before a later call or a replay revokes them too (`view_gone`, `kept::held_now`).
+/// No presence, seal or move holds a fold.
+struct ResolvedLadder<'a> {
+    inner: &'a dyn crate::view::fold::Ladder,
+    store: &'a Store,
+    sessions: std::cell::RefCell<Vec<String>>,
+    exchanges: std::cell::RefCell<Vec<String>>,
+}
+
+impl<'a> ResolvedLadder<'a> {
+    fn new(inner: &'a dyn crate::view::fold::Ladder, store: &'a Store) -> Self {
+        Self {
+            inner,
+            store,
+            sessions: Default::default(),
+            exchanges: Default::default(),
+        }
+    }
+}
+
+impl crate::view::fold::Ladder for ResolvedLadder<'_> {
+    fn read(
+        &self,
+        place: &str,
+        n: usize,
+        since: Option<&Pos>,
+    ) -> anyhow::Result<crate::view::fold::LadderRead> {
+        let mut read = self.inner.read(place, n, since)?;
+        let mut kept = Vec::new();
+        for node in read.nodes {
+            let Some(exchanges) = fold_constituents(self.store, &node.handle.0) else {
+                continue;
+            };
+            for e in exchanges {
+                self.sessions.borrow_mut().push(e.session_id);
+                self.exchanges.borrow_mut().push(e.turn_id);
+            }
+            kept.push(node);
+        }
+        read.nodes = kept;
+        Ok(read)
+    }
+}
+
+/// Every exchange fold node `id` stands for; none when any cannot be resolved: the model's assembly's rule
+/// ([`ResolvedLadder`]) and a preview's listing of a fold.
 pub(super) fn fold_constituents(store: &Store, id: &str) -> Option<Vec<crate::exchange::Exchange>> {
     let node = crate::ladder::fold::node(store, id).ok()??;
     let read = crate::ladder::fold::open(store, &node).ok()?;
@@ -427,9 +481,14 @@ fn sorted(mut v: Vec<String>) -> Vec<String> {
 }
 
 /// Every exchange a view lays or folds, once each: the window's (but `turn`'s own), the kept folds'
-/// constituents, and the ends of every shown exchange piece's range. Their messages' node seals are asked
-/// again before each call.
-fn laid_exchanges(window: &[(u64, Stub)], turn: &str, a: &Assembled) -> Vec<String> {
+/// constituents, and the ends of every shown exchange piece's range. Each is read again before each call
+/// (`view_gone`): one removed since revokes the view.
+fn laid_exchanges(
+    window: &[(u64, Stub)],
+    turn: &str,
+    folded: &[String],
+    a: &Assembled,
+) -> Vec<String> {
     let shown = (a.view.shown.iter())
         .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }))
         .flat_map(|s| {
@@ -438,7 +497,7 @@ fn laid_exchanges(window: &[(u64, Stub)], turn: &str, a: &Assembled) -> Vec<Stri
                 s.piece.range.last.id.clone(),
             ]
         });
-    // The exchanges a shown card read its excerpts from (its provenance): a move since revokes it too.
+    // The exchanges a shown card read its excerpts from (its provenance): a removal since revokes it too.
     let read = (a.view.shown.iter()).flat_map(|s| match &s.piece.range.space {
         Space::Card { from: Some(p), .. } => p.exchanges.clone(),
         _ => Vec::new(),
@@ -446,6 +505,7 @@ fn laid_exchanges(window: &[(u64, Stub)], turn: &str, a: &Assembled) -> Vec<Stri
     let mut out: Vec<String> = (window.iter())
         .filter_map(|(_, n)| n.turn_id.clone())
         .filter(|t| t != turn)
+        .chain(folded.iter().cloned())
         .chain(shown)
         .chain(read)
         .collect();

@@ -106,6 +106,12 @@ impl Held {
 #[cfg(test)]
 static UNREADABLE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
+/// Whether `session`'s route reads as unreadable (a test's).
+#[cfg(test)]
+pub(super) fn route_is_unreadable(session: &str) -> bool {
+    UNREADABLE.lock().unwrap().iter().any(|s| s == session)
+}
+
 /// Make `session`'s route unreadable to its turns (a test's).
 #[cfg(test)]
 pub(crate) fn route_unreadable(session: &str) {

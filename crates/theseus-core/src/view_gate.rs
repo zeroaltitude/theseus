@@ -159,29 +159,22 @@ pub fn thread_of(
     }
 }
 
-/// Whether a reader in `asker` may be told of thread `slug` (its name, its
-/// state, that it exists), decided on `board`, the one snapshot the caller
-/// then words its answer from: only when its seal is proven clear for that
-/// reader. A sealed or seal-pending thread, or one that cannot be read, is
-/// to this reader as if there were no such thread (issue 44).
+/// Whether a reader in `asker` may be told of thread `slug`: always (anything goes, 2026-11-22; no seal
+/// holds a thread's name). A pass-through until its callers go (the sweep).
 pub fn may_name_on(_store: &Store, _board: &Board, _asker: &str, _slug: &str) -> bool {
     // Anything goes (2026-11-22): no seal holds a thread's name.
     true
 }
 
-/// The seal of `session` for a reader in `asker`, whatever `[threads]
-/// enabled` says: `Held` when it serves a sealed thread, or one whose seal
-/// is proposed, and the asker is not that thread; `Unread` when that cannot
-/// be proven either way.
+/// The seal of `session` for a reader in `asker`: always `Clear` (anything goes, 2026-11-22). A
+/// pass-through until its callers go (the sweep).
 pub fn seal_of(_runner: &TurnRunner, _asker: Option<&str>, _session: &str) -> Seal {
     // Anything goes (2026-11-22): no seal or pending seal holds anything.
     Seal::Clear
 }
 
-/// The seal of one node, for a reader in `asker`: its session's, and, where
-/// a split or a claim moved it into a thread (`moved.of.<node>`), that
-/// thread's too. A `moved.of` record that does not decode, or names a thread
-/// the board does not hold, is `Unread`.
+/// The seal of one node, for a reader in `asker`: always `Clear`, whatever a split or a claim moved
+/// (anything goes, 2026-11-22). A pass-through until its callers go (the sweep).
 pub fn node_seal(
     _store: &Store,
     _board: &Board,
@@ -272,22 +265,27 @@ pub fn digest_threads<'b>(
     live
 }
 
-/// The standing records, of `(id, source)`, a turn of `asker` may not be shown: none (anything goes,
-/// 2026-11-22). A pass-through until its caller goes (the sweep).
+/// The standing records, of `(id, source)`, a turn may not be shown: each kept from a message
+/// (`capture:<node>`) whose message is gone or cannot be read (a removed thing is not sent again). A record
+/// from no conversation (the owner's own surfaces) is source-free. Anything goes (2026-11-22): no place,
+/// presence or seal holds one.
 pub fn standing_held<'r>(
-    _runner: &TurnRunner,
+    runner: &TurnRunner,
     _asker: &str,
-    _records: impl Iterator<Item = (&'r str, &'r str)>,
+    records: impl Iterator<Item = (&'r str, &'r str)>,
 ) -> std::collections::HashSet<String> {
-    std::collections::HashSet::new()
+    records
+        .filter(|(_, source)| {
+            source
+                .strip_prefix("capture:")
+                .is_some_and(|node| !matches!(runner.store.get_node(node), Ok(Some(_))))
+        })
+        .map(|(id, _)| id.to_string())
+        .collect()
 }
 
-/// How recall reads places for one asker. Narrowed to one place, the asker
-/// reads as that place and its own sessions as it, and every other session
-/// as it always has, which the place rule then drops for `place`. A channel
-/// bound private is always narrowed to itself (decision 5); so is a turn that
-/// is not the owner alone, to its exact arrival place.
-/// Otherwise places read as before.
+/// How recall reads places for one asker: every asker reads every place (anything goes, 2026-11-22); it is
+/// never narrowed. Kept for its callers until the sweep.
 #[derive(Clone, Debug, Default)]
 pub struct RecallPlaces {
     own: Option<String>,
@@ -337,9 +335,8 @@ impl RecallPlaces {
     }
 }
 
-/// The verified point of view of one turn, for the view's gate: made here
-/// alone, from the turn's presence and today's reading of its place, never
-/// from what a caller says of itself.
+/// The point of view of one turn, for the view's gate: made here alone, the widest at the turn's own
+/// place ([`widest`]), never from what a caller says of itself.
 #[derive(Clone, Debug)]
 pub struct Verified(PointOfView);
 
