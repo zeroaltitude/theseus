@@ -33,6 +33,7 @@ fn message(text: &str) -> Inbound {
         guild: None,
         thread: None,
         reply_turn: None,
+        reply_unheld: None,
         task: None,
     }
 }
@@ -242,6 +243,7 @@ async fn a_prompt_is_refused_while_a_steered_request_runs_alone() {
 fn a_steer_carries_the_message_it_answers_and_the_turn_it_replies_to() {
     let m = Inbound {
         reply_turn: Some("turn_9".into()),
+        reply_unheld: None,
         ..message("and this")
     };
     let p = steer_params("ses_1", &m);

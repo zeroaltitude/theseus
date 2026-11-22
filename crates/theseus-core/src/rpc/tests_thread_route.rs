@@ -29,6 +29,8 @@ use crate::tests_inbound::inbound_only;
 use crate::tests_judge::{rig_on, texts, Rig};
 
 mod exchange;
+mod refused;
+mod restart;
 mod tail;
 
 /// The owner, and a second place of theirs.

@@ -43,7 +43,10 @@
 //!   learning loop's writer (`judge.proposal`'s `writer_usd`), and the
 //!   people's extractor (`people.extracted`, theseus-wy7y), and the card's observer
 //!   (`card.observed`, theseus-6f8t0), and the keep-warm reads (`keep_warm`,
-//!   theseus-ezeg, booked to their sessions).
+//!   theseus-ezeg, booked to their sessions);
+//! - the retired thread importer's rows written earlier today
+//!   (`thread.imported`, `RETIRED_SPEND_KINDS`): no build writes them now,
+//!   and what they cost is still today's.
 
 use std::time::Instant;
 
@@ -77,6 +80,27 @@ pub const SPEND_KINDS: [&str; 16] = [
     "initiative.spoke",
     "onto.named",
 ];
+
+/// Kinds no build writes now whose rows still carry model spend the owner
+/// paid for: a retired kind that is still COUNTED, so an upgrade on the day
+/// such a row was written never hands that much headroom back (the thread
+/// importer's `thread.imported`, retired in issue 44). Not in `SPEND_KINDS`,
+/// whose kinds this build writes (`LedgerKind`); read with it by the day
+/// (`counted_kinds`). Removing one makes a stored total scan again without it.
+pub const RETIRED_SPEND_KINDS: [&str; 1] = ["thread.imported"];
+
+/// Every kind whose rows of today the day counts: the written and the retired.
+pub fn counted_kinds() -> impl Iterator<Item = &'static str> {
+    SPEND_KINDS
+        .iter()
+        .chain(RETIRED_SPEND_KINDS.iter())
+        .copied()
+}
+
+/// The counted kinds as a stored total names them.
+fn kinds_named() -> String {
+    counted_kinds().collect::<Vec<_>>().join(",")
+}
 
 /// The once-a-day row's kind.
 pub const CEILING_KIND: &str = "spend.ceiling";
@@ -138,8 +162,8 @@ struct CeilingAt {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct Total {
     rule: u32,
-    /// `SPEND_KINDS`, as the build that wrote this read them: a kind added
-    /// since is not in the sum.
+    /// The counted kinds (`counted_kinds`), as the build that wrote this read
+    /// them: a kind added since is not in the sum.
     kinds: String,
     day: String,
     since_ms: u64,
@@ -155,7 +179,7 @@ impl Total {
     fn new(since_ms: u64, day: &str) -> Self {
         Self {
             rule: TOTAL_RULE,
-            kinds: SPEND_KINDS.join(","),
+            kinds: kinds_named(),
             day: day.to_string(),
             since_ms,
             ..Self::default()
@@ -166,7 +190,7 @@ impl Total {
     /// not ahead of the log (a store restored from an older copy).
     fn fits(&self, since_ms: u64, day: &str, last_position: u64) -> bool {
         self.rule == TOTAL_RULE
-            && self.kinds == SPEND_KINDS.join(",")
+            && self.kinds == kinds_named()
             && self.day == day
             && self.since_ms == since_ms
             && self.through.is_none_or(|t| t <= last_position)
@@ -224,7 +248,7 @@ impl Total {
 
 /// The tags of the kinds the day's read pages by.
 fn day_tags() -> Vec<String> {
-    let mut tags: Vec<String> = SPEND_KINDS.iter().map(|k| ledger_kind(k)).collect();
+    let mut tags: Vec<String> = counted_kinds().map(ledger_kind).collect();
     tags.push(ledger_kind(CEILING_KIND));
     tags.push(ledger_kind(WARNING_KIND));
     tags

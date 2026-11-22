@@ -129,9 +129,6 @@ fn model_lines(r: &SessionProfileResult) -> Vec<String> {
     if let Some(prev) = &r.previous {
         out.push(format!("was {prev}"));
     }
-    if let Some(n) = &r.note {
-        out.push(n.clone());
-    }
     out
 }
 

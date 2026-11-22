@@ -26,6 +26,10 @@ pub(super) struct Inbound {
     /// The turn whose reply this message replies to (theseus-rha2): the
     /// router places the message in that turn's thread, certain.
     pub(super) reply_turn: Option<String>,
+    /// A message of this bot's the message replies to whose turn this
+    /// process does not hold (sent before a restart): the turn is read back
+    /// from its durable row as the message is submitted (issue 44).
+    pub(super) reply_unheld: Option<u64>,
     /// The task whose Follow mirror this message replies to
     /// (theseus-esxyb): the owner's word to that task.
     pub(super) task: Option<String>,

@@ -36,10 +36,20 @@ pub fn preamble(n: usize) -> String {
 pub fn render(items: &[RecalledRef], sources: &Sources) -> String {
     let mut out = preamble(items.len());
     for (i, r) in items.iter().enumerate() {
-        out.push_str(&format!("\n({}) {}\n    ", i + 1, r.header));
+        // An item's header (a session's title, a tool's path) is shown only when its source survived
+        // admission: a source held out since, or unread, leaves no header (issue 44).
         match sources.get(&r.node_id).and_then(|n| shown(n, r.chunk)) {
-            Some(text) => out.push_str(&format!("\"{}\"", text.replace('\n', "\n    "))),
-            None => out.push_str(&format!("(its source, {}, cannot be read)", r.node_id)),
+            Some(text) => out.push_str(&format!(
+                "\n({}) {}\n    \"{}\"",
+                i + 1,
+                r.header,
+                text.replace('\n', "\n    ")
+            )),
+            None => out.push_str(&format!(
+                "\n({}) (its source, {}, cannot be read)",
+                i + 1,
+                r.node_id
+            )),
         }
     }
     out
@@ -364,8 +374,7 @@ mod tests {
              \"Remember: the grey heron nests by the old weir.\n    It fishes at dawn.\"\n\
              (2) a message from cli in ses_millbrook, 2026-09-29 10:29 UTC (as of @17942)\n    \
              \"…tide tables…\"\n\
-             (3) a reply in ses_weir, 2026-09-28 08:00 UTC (as of @12)\n    \
-             (its source, msg_gone, cannot be read)"
+             (3) (its source, msg_gone, cannot be read)"
         );
         assert!(preamble(1).starts_with("[Recalled by the harness: 1 note from"));
     }

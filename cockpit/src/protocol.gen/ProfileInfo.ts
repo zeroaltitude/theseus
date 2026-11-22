@@ -6,11 +6,6 @@ export type ProfileInfo = { name: string, provider: string, model: string,
  */
 max_output_tokens: number, has_system: boolean, live: boolean, origin?: string, 
 /**
- * Whether the floor clears this profile for private and sensitive content: US origin and a catalog row of
- * `us`.
- */
-cleared?: boolean, 
-/**
  * The effort the profile is configured at (`low` to `max`); absent when it sets none and the model's
  * own default stands. The cockpit groups the profiles of one model by it (theseus-yxkww).
  */

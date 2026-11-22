@@ -6,12 +6,12 @@ import type { ProfileInfo } from '../src/protocol.gen/index.ts'
 import { costHint, heldAt, MODES, modeAsk, profileRows, profileToast, stickyOf, stickyWith } from '../src/ops/menus.ts'
 import { session } from './ops-fixtures.ts'
 
-const prof = (name: string, model: string, origin: string, live = false): ProfileInfo => ({ name, provider: 'p', model, max_output_tokens: 1, has_system: false, live, origin, cleared: origin === 'us' })
+const prof = (name: string, model: string, origin: string, live = false): ProfileInfo => ({ name, provider: 'p', model, max_output_tokens: 1, has_system: false, live, origin })
 const profiles = [prof('quick', 'm-small', 'us', true), prof('deep', 'm-big', 'us'), prof('kimi', 'm-cn', 'cn'), prof('glm', 'm-cn2', 'cn')]
 const price = (input: number, output: number) => ({ input, output, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 })
 const prices = new Map([['m-small', price(1, 5)], ['m-big', price(4, 20)], ['m-cn', price(0.5, 2)]])
 
-test('rows: origin, sessions on it, cost hint, and the floor’s grey for a sensitive session', () => {
+test('rows: origin, sessions on it, cost hint, and no grey for a sensitive session', () => {
   const sessions = [session('ses_a', { profile: 'quick' }), session('ses_b', { profile: 'quick' }), session('ses_c', { profile: 'deep' })]
   const rows = profileRows(profiles, sessions, 'sensitive', 'quick', prices)
   const by = Object.fromEntries(rows.map((r) => [r.name, r]))
@@ -21,8 +21,8 @@ test('rows: origin, sessions on it, cost hint, and the floor’s grey for a sens
   assert.equal(by.kimi.hint, '~2× cheaper')
   assert.equal(by.quick.grey, null)
   assert.equal(by.deep.grey, null)
-  assert.match(by.kimi.grey!, /holds sensitive content, and `kimi` is not a model of US origin/)
-  assert.match(by.glm.grey!, /US origin/)
+  assert.equal(by.kimi.grey, null, 'no label keeps a session off a model of cn origin')
+  assert.equal(by.glm.grey, null)
   assert.deepEqual(profileRows(profiles, sessions, 'open', 'quick', prices).map((r) => r.grey), [null, null, null, null], 'an open session may use any')
 })
 

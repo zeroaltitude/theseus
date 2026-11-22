@@ -639,7 +639,6 @@ fn ops_verbs() {
         profile: Some("sonnet".into()),
         previous: None,
         refused: None,
-        note: Some("the floor decides each turn".into()),
     };
     wire("ops/session_profile", &both(json!(p), json!(r)));
     let p = TaskRehomeParams {
@@ -685,8 +684,16 @@ fn the_ops_fields_are_optional_on_the_wire() {
         "max_output_tokens": 1, "has_system": false, "live": false}))
     .unwrap();
     assert_eq!(p.origin, None);
-    assert_eq!(p.cleared, None);
-    assert!(!serde_json::to_string(&p).unwrap().contains("cleared"));
+    // An older daemon's `cleared` (retired 2026-11-21) is accepted and ignored.
+    let old: ProfileInfo =
+        serde_json::from_value(json!({"name": "a", "provider": "b", "model": "c",
+        "max_output_tokens": 1, "has_system": false, "live": false, "cleared": false}))
+        .unwrap();
+    assert!(!serde_json::to_string(&old).unwrap().contains("cleared"));
+    assert_eq!(
+        serde_json::to_value(&old).unwrap(),
+        serde_json::to_value(&p).unwrap()
+    );
     let marked = SessionInfo {
         data: Some(DataMark::Sensitive),
         ..s

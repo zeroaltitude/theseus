@@ -9,6 +9,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+pub(super) mod preview;
+
 use super::{compile, CompileInput, Compiled, RequestSpec, Turn, TurnRunner};
 use crate::compiler::view::Frozen;
 use crate::config::assembly::Assembly;
@@ -86,7 +88,7 @@ impl TurnRunner {
         if t.recall.withheld.is_some() && self.carries(t).is_none() {
             t.recall.withheld = None;
             // After a view call was dispatched, the recall it withheld comes back once.
-            Self::recall_readmitted(t);
+            self.recall_readmitted(t);
             recarried = self.recall_view(t, input.nodes.to_vec());
             (input.nodes, input.sources) = (&recarried.0, &recarried.1);
         }
@@ -178,18 +180,40 @@ impl TurnRunner {
         if t.exchange.place() != Some(anchor.as_str()) {
             return Some(Fallback::Route);
         }
-        let mut seen = HashSet::new();
-        let earlier = (nodes.iter().rev())
-            .filter(|(_, n)| n.kind == Kind::UserMessage)
-            .filter_map(|(_, n)| n.turn_id.as_deref())
-            .filter(|id| *id != turn && seen.insert(*id))
-            .take(UNLEDGERED_LOOK);
-        for id in earlier.collect::<Vec<_>>() {
-            if !matches!(crate::exchange::exchange(t.tc.store, id), Ok(Some(_))) {
-                return Some(Fallback::Unledgered);
+        unledgered(t.tc.store, nodes, turn).then_some(Fallback::Unledgered)
+    }
+
+    /// After every await of a call's compile and before the provider (issue 44): the frozen view's verified
+    /// point of view and its sessions' seals against the gate's reading now. A difference compiles the call
+    /// again (the compile step reassembles under the new permit, on a new chain), at most twice; a third
+    /// difference makes the turn the transcript's (`moved`). The request that goes out is the last one
+    /// compiled, its tail kept as the turn loop keeps one.
+    pub(super) async fn view_readmitted(
+        &self,
+        t: &mut Turn<'_>,
+        session: &mut crate::session::SessionRecord,
+        spec: &RequestSpec,
+        compiled: Compiled,
+        i: u32,
+    ) -> anyhow::Result<Result<Compiled, super::Failure>> {
+        let mut compiled = compiled;
+        for again in 0..=VIEW_READMISSIONS {
+            if !(self.view_revoked(t) || self.view_moved(t)) {
+                return Ok(Ok(compiled));
             }
+            if again == VIEW_READMISSIONS {
+                Self::view_declined(t, Some(Fallback::Moved));
+            }
+            compiled =
+                match Box::pin(self.compile_step(t, session, spec, None, None, None, i)).await? {
+                    Ok(mut c) => {
+                        self.tails.finish(t.tc.session_id, &mut c, t.tail.take());
+                        c
+                    }
+                    Err(f) => return Ok(Err(f)),
+                };
         }
-        None
+        Ok(Ok(compiled))
     }
 
     /// Whether this turn declined the view: it is the transcript's turn.
@@ -215,7 +239,8 @@ impl TurnRunner {
 
     /// Whether the gate reads the turn's point of view differently from when its view was assembled.
     pub(super) fn view_moved(&self, t: &Turn<'_>) -> bool {
-        let Some(f) = t.view.as_ref().filter(|f| f.turn_id == t.tc.turn_id) else {
+        // A declined turn has no view to move (it is the transcript's).
+        let Some(f) = (t.view.as_ref()).filter(|f| f.turn_id == t.tc.turn_id && !f.declined) else {
             return false;
         };
         let now = Verified::of_session(self, t.tc.session_id);
@@ -256,18 +281,48 @@ impl TurnRunner {
             return Ok(());
         }
         let (sid, turn, store) = (t.tc.session_id, t.tc.turn_id, t.tc.store);
+        let asked = Asked {
+            store,
+            sid,
+            turn,
+            person: t.exchange.person().0,
+            verified: Verified::of_session(self, sid),
+            recalled: recalled(t),
+            message: message_of(store, sid, turn)?,
+        };
+        let built = self.view_built(asked, spec)?;
+        // Rule 9: a floor too large for the view's budget is the transcript's to handle (its ring and
+        // compaction, or its own words on an overage), not a small view.
+        if let Err(o) = built.assembled {
+            return Err(anyhow::Error::new(FloorOverflow(o)));
+        }
+        t.view = Some(built.frozen);
+        Ok(())
+    }
+
+    /// A view assembled for `asked`: what a turn freezes, and the assembly it was made from (the floor's
+    /// overflow, rule 9, when it could not fit). The one assembler: a turn's and a preview's
+    /// (`view_step::preview`).
+    pub(super) fn view_built(&self, asked: Asked<'_>, spec: &RequestSpec) -> anyhow::Result<Built> {
+        let Asked {
+            store,
+            sid,
+            turn,
+            person,
+            verified,
+            recalled,
+            message: (asked, message),
+        } = asked;
         let snap = StoreSnapshot {
             now_ms: self.kernel.now_ms(),
             timeline: StoreTimeline(store),
             at_hand: None,
         };
-        let verified = Verified::of_session(self, sid);
-        let pov = verified_pov(&verified, t.exchange.person().0, snap.now_ms);
+        let pov = verified_pov(&verified, person, snap.now_ms);
         let Anchor::Place(place) = pov.anchor.clone() else {
             anyhow::bail!("a view turn is anchored to a place");
         };
         let since = crate::ladder::new_mark(store, &place)?;
-        let (asked, message) = message_of(store, sid, turn)?;
         let verified_pov = verified.pov().clone();
         let permit = Permit::of(verified);
         let read = Sessions::default();
@@ -275,7 +330,7 @@ impl TurnRunner {
         let sources = StoreSources {
             store,
             mark: since.clone().map(|m| (place.as_str(), m)),
-            recalled: recalled(t),
+            recalled,
             sealed: &held,
             sessions: &read,
         };
@@ -316,9 +371,9 @@ impl TurnRunner {
         let a = match assemble(&pov, &snap, &parts, &self.view_budget(spec)) {
             Ok(a) => a,
             Err(NotAssembled::Read(e)) => return Err(e.context("the view's read")),
-            // Rule 9: a floor too large for the view's budget is the transcript's to handle (its ring and
-            // compaction, or its own words on an overage), not a small view.
-            Err(NotAssembled::Overflow(o)) => return Err(anyhow::Error::new(FloorOverflow(o))),
+            // Rule 9: the floor did not fit. The assembler says so by its numbers; a turn declines on it
+            // (`view_freeze`), a preview reports it.
+            Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
         let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
         sessions.extend(gated.sessions.borrow().iter().cloned());
@@ -326,7 +381,7 @@ impl TurnRunner {
         sessions.dedup();
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
-        t.view = Some(Frozen {
+        let frozen = Frozen {
             turn_id: turn.into(),
             compilation_id: None,
             front: front.map(block).collect(),
@@ -336,11 +391,14 @@ impl TurnRunner {
             verified: Some(verified_pov),
             beside: a.parts.beside.as_ref().map(block),
             memory_page,
-            record: Some(a.view),
+            record: Some(a.view.clone()),
             card: None,
             declined: false,
-        });
-        Ok(())
+        };
+        Ok(Built {
+            frozen,
+            assembled: Ok(a),
+        })
     }
 
     /// The view's one budget: the provider's window, less the reply's room.
@@ -357,8 +415,86 @@ impl TurnRunner {
 /// The headroom the compiler keeps beside the reply for the turn's own calls, in tokens.
 const CALL_HEADROOM: u64 = 4_096;
 
+/// How many times one call is compiled again when the gate's reading moved under its view.
+const VIEW_READMISSIONS: u32 = 2;
+
+/// A test's seam: what runs at the start of the next `env_tail` of a session (after the view's assembly,
+/// before the call is sent), once.
+#[cfg(test)]
+type EnvHook = Box<dyn FnOnce() + Send>;
+
+#[cfg(test)]
+static AT_ENV_TAIL: std::sync::Mutex<Vec<(String, EnvHook)>> = std::sync::Mutex::new(Vec::new());
+
+/// Run `f` at the next `env_tail` of `session`.
+#[cfg(test)]
+pub(crate) fn env_tail_hook(session: &str, f: EnvHook) {
+    AT_ENV_TAIL.lock().unwrap().push((session.to_string(), f));
+}
+
+#[cfg(test)]
+pub(super) fn at_env_tail(session: &str) {
+    let hook = {
+        let mut hooks = AT_ENV_TAIL.lock().unwrap();
+        (hooks.iter().position(|(s, _)| s == session)).map(|i| hooks.remove(i).1)
+    };
+    if let Some(f) = hook {
+        f();
+    }
+}
+
 /// How many of the session's newest earlier turns must have their exchange before a view reads it.
 const UNLEDGERED_LOOK: usize = 40;
+
+/// What one view is assembled for: a turn's (`view_freeze`), or a preview's of a place's next turn.
+pub(super) struct Asked<'a> {
+    pub store: &'a Store,
+    /// The session whose turn it is: the reader a seal of its own thread does not hold out.
+    pub sid: &'a str,
+    pub turn: &'a str,
+    pub person: Option<String>,
+    /// The gate's point of view: the turn's, never the caller's word.
+    pub verified: Verified,
+    /// The nodes today's recall found (none for a preview, which runs no recall).
+    pub recalled: Vec<String>,
+    /// The person's message, by node and text.
+    pub message: (Option<String>, String),
+}
+
+/// A view as assembled: what a turn freezes, and the assembly (or the floor's overflow).
+pub(super) struct Built {
+    pub frozen: Frozen,
+    pub assembled: Result<Assembled, Overflow>,
+}
+
+impl Built {
+    /// Rule 9: the floor did not fit. Nothing is laid: a turn declines to the transcript on it, and a
+    /// preview says the floor's numbers.
+    fn overflowed(turn: &str, o: Overflow, memory_page: String) -> Self {
+        let frozen = Frozen {
+            turn_id: turn.into(),
+            memory_page,
+            ..Frozen::default()
+        };
+        Built {
+            frozen,
+            assembled: Err(o),
+        }
+    }
+}
+
+/// Whether any of the newest [`UNLEDGERED_LOOK`] turns of `nodes` before `turn` has no exchange in the
+/// ledger: a view would drop it silently, so the turn is the transcript's.
+pub(super) fn unledgered(store: &Store, nodes: &[(u64, Stub)], turn: &str) -> bool {
+    let mut seen = HashSet::new();
+    let earlier: Vec<&str> = (nodes.iter().rev())
+        .filter(|(_, n)| n.kind == Kind::UserMessage)
+        .filter_map(|(_, n)| n.turn_id.as_deref())
+        .filter(|id| *id != turn && seen.insert(*id))
+        .take(UNLEDGERED_LOOK)
+        .collect();
+    (earlier.into_iter()).any(|id| !matches!(crate::exchange::exchange(store, id), Ok(Some(_))))
+}
 
 /// Why a turn in a view place is the transcript's: a closed list, said in `context.view_fallback`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -373,6 +509,8 @@ pub(super) enum Fallback {
     OverBudget,
     /// The assembly failed.
     AssemblyError,
+    /// The gate's reading moved under the view a third time in one call.
+    Moved,
 }
 
 impl Fallback {
@@ -383,6 +521,7 @@ impl Fallback {
             Self::Unledgered => "unledgered_history",
             Self::OverBudget => "over_budget",
             Self::AssemblyError => "assembly_error",
+            Self::Moved => "moved",
         }
     }
 }
@@ -603,9 +742,11 @@ fn window_of(
     if !cards.is_empty() {
         let all = crate::task_graph::all(store)?;
         for id in cards {
-            if let Some(rec) = all.iter().find(|r| r.id == id) {
-                sessions.push(crate::task_graph::home(&all, rec));
-            }
+            // Fail closed: a shown card whose home cannot be read is no view (the turn declines).
+            let Some(rec) = all.iter().find(|r| r.id == id) else {
+                anyhow::bail!("a shown task card's home cannot be resolved");
+            };
+            sessions.push(crate::task_graph::home(&all, rec));
         }
     }
     sessions.sort();
