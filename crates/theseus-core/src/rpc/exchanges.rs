@@ -160,7 +160,7 @@ impl Core {
             method::EXCHANGE_OFFER
             | method::EXCHANGE_RELEASE
             | method::EXCHANGE_RELEASES
-            | method::EXCHANGE_WITHDRAW => return self.rpc_release(name, params, conn).await,
+            | method::EXCHANGE_WITHDRAW => return self.rpc_release(name, params, conn),
             other => {
                 return Err(RpcFailure::new(
                     error_code::METHOD_NOT_FOUND,
@@ -175,15 +175,17 @@ impl Core {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OfferParams {
-    /// A message of the owner's in company, by its node.
+    /// A message of the owner's, by its node.
     message: String,
 }
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReleaseParams {
-    /// The exchange, by its turn.
-    exchange: String,
+    /// The message, by its node.
+    message: String,
+    /// The digest of its words as the owner was shown them (`exchange.offer`).
+    digest: String,
     /// The place it is released to, as the ledger names places.
     to: String,
 }
@@ -197,18 +199,13 @@ struct WithdrawParams {
 impl Core {
     /// The release methods (`crate::release`): the owner in person, by the proof his other acts ask, before
     /// anything is read; an agent's process, the MCP server and an unnamed connection are refused.
-    async fn rpc_release(
-        self: Arc<Self>,
-        name: &str,
-        params: Value,
-        conn: Conn<'_>,
-    ) -> Result<Value, RpcFailure> {
+    fn rpc_release(&self, name: &str, params: Value, conn: Conn<'_>) -> Result<Value, RpcFailure> {
         let who = conn.answerer(None, None);
         if let Err(why) = crate::places::owner_in_person_of(
             &who,
             &self.runner.place_rule,
             &self.cfg,
-            "a piece of a private conversation is released by the owner alone",
+            "a message of a private conversation is released by the owner alone",
             "",
         ) {
             return Err(RpcFailure::new(
@@ -217,28 +214,21 @@ impl Core {
             ));
         }
         self.release_act(name, params, conn.surface.as_str())
-            .await
             .map_err(|e| RpcFailure::new(error_code::REFUSED, format!("{e:#}")))
     }
 
-    async fn release_act(
-        self: Arc<Self>,
-        name: &str,
-        params: Value,
-        surface: &str,
-    ) -> anyhow::Result<Value> {
+    fn release_act(&self, name: &str, params: Value, surface: &str) -> anyhow::Result<Value> {
         Ok(match name {
             method::EXCHANGE_OFFER => {
+                // Exactly what a release of this message would show, and its digest to release it by.
                 let p: OfferParams = serde_json::from_value(params)?;
-                return self.clone().release_offer(&p.message).await;
+                let piece = crate::release::piece(self, &p.message)?;
+                serde_json::json!({"message": piece.node, "from": piece.from, "words": piece.text,
+                                   "digest": piece.digest, "label": crate::release::LABEL})
             }
             method::EXCHANGE_RELEASE => {
                 let p: ReleaseParams = serde_json::from_value(params)?;
-                let moved = crate::view_gate::Moved::read(&self.runner, None);
-                let held = |ex: &crate::exchange::Exchange| {
-                    self.ladder_hidden(&ex.session_id) || moved.holds(ex)
-                };
-                let r = crate::release::grant(&self.store, &p.exchange, &p.to, surface, &held)?;
+                let r = crate::release::grant(self, &p.message, &p.digest, &p.to, surface)?;
                 serde_json::json!({"release": r, "label": crate::release::LABEL})
             }
             method::EXCHANGE_WITHDRAW => {
@@ -247,51 +237,12 @@ impl Core {
                 serde_json::json!({"ended": e, "note": crate::release::UNSENT})
             }
             _ => {
-                let all = crate::release::all(&self.store)?;
-                let rows: Vec<Value> = all
+                let rows: Vec<Value> = crate::release::all(&self.store)?
                     .into_iter()
                     .map(|(r, end)| serde_json::json!({"release": r, "ended": end}))
                     .collect();
-                let looks = crate::release_card::looks(&self.store)?;
-                serde_json::json!({"releases": rows, "looks": looks})
+                serde_json::json!({"releases": rows})
             }
         })
-    }
-
-    /// What the release card's look would offer for the owner's message `node` in company: its place, the
-    /// outcome, and each candidate's words (shown to him alone, at his own terminal).
-    async fn release_offer(self: Arc<Self>, node: &str) -> anyhow::Result<Value> {
-        let mark = crate::exchange::mark(&self.store, node)?
-            .ok_or_else(|| anyhow::anyhow!("no message {node} with the owner's mark"))?;
-        if mark.person().as_deref() != Some(crate::exchange::OWNER) {
-            anyhow::bail!("message {node} is not the owner's");
-        }
-        let (_, n) = self
-            .store
-            .get_node(node)?
-            .ok_or_else(|| anyhow::anyhow!("no message {node}"))?;
-        let crate::node::Body::UserMessage { text, .. } = &n.body else {
-            anyhow::bail!("{node} is not a message");
-        };
-        let look = crate::release_card::look(&self, text).await;
-        let candidates: Vec<Value> = look
-            .ids
-            .iter()
-            .filter_map(|t| crate::exchange::exchange(&self.store, t).ok().flatten())
-            .map(|ex| {
-                let words = ex
-                    .ask
-                    .as_deref()
-                    .and_then(|a| self.store.get_node(a).ok().flatten())
-                    .map(|(_, n)| crate::recall::text_of(&n))
-                    .unwrap_or_default();
-                serde_json::json!({"exchange": ex.turn_id, "from": ex.place,
-                                   "at_ms": ex.start_ms, "words": words})
-            })
-            .collect();
-        Ok(serde_json::json!({
-            "message": node, "place": mark.place, "outcome": look.outcome,
-            "found": look.found, "candidates": candidates,
-        }))
     }
 }

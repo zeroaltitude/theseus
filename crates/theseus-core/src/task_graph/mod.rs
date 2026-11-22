@@ -33,6 +33,7 @@
 //!   the words behind each change are kept by reference.
 
 pub mod joined;
+pub mod judged;
 pub mod lease;
 pub mod plan;
 pub mod retitle;

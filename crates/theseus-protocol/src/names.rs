@@ -207,9 +207,9 @@ pub mod method {
         /// A place's ladder built from its history (issue 44, step 4; `ladder`): its `did` lines and folds,
         /// with a dry run that counts and prices, and a cap.
         EXCHANGE_LADDER = "exchange.ladder",
-        /// A piece the owner releases by his own hand (issue 44, step 3b; `release`): what the release card's
-        /// look would offer for a message of his in company; one exchange of his private place released to
-        /// one other place; the releases; and a withdrawal. His own terminal or the web UI, in person.
+        /// One message the owner shares to one place by his own act (issue 44, step 3b; `release`): exactly what a
+        /// release of a message would share, and its digest; the release; the releases; and a withdrawal. His own
+        /// terminal or the web UI, in person.
         EXCHANGE_OFFER = "exchange.offer", EXCHANGE_RELEASE = "exchange.release",
         EXCHANGE_RELEASES = "exchange.releases", EXCHANGE_WITHDRAW = "exchange.withdraw",
         /// One turn, whole (theseus-x9swu; `inspect::TurnInspectParams`): the cockpit's inspector at

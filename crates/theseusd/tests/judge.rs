@@ -181,9 +181,7 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "delay.v1: live",
             // Live from theseus-p5kln: `[judge] reversibility` is on by
             // default, the owner's own word of 2026-11-12.
-            "undo.v1: live",
-            // The release card's trigger, a new pack in shadow (issue 44, step 3b).
-            "leans_on.v1: shadow"
+            "undo.v1: live"
         ])
     );
     assert_eq!(rig.rows("pack.mode").len(), 3, "one adoption row each");

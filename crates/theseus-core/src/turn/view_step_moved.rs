@@ -48,7 +48,6 @@ fn page(s: &Store, moved: &Moved<'_>) -> (Vec<String>, PageEnd) {
         hidden: &clear,
         moved: &held,
         private: &private,
-        released: &crate::history_tool::page::none_released,
         in_view: None,
         words: None,
     };

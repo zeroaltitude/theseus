@@ -60,17 +60,20 @@ pub enum LedgerCmd {
         #[arg(long)]
         over_day_line: bool,
     },
-    /// For a message of yours in a channel (its node id), what Theseus would offer from your private
-    /// conversation: the one piece it leans on, in its own words. Nothing is released by looking.
+    /// Show exactly what releasing a message of yours (its node id) would share: its words, its place, and the
+    /// digest to release it by. Nothing is released by looking.
     ReleaseOffer {
         /// The message, by its node id.
         message: String,
     },
-    /// Release one exchange of your private conversation (by its id) to one other place: there, that piece and
-    /// nothing else becomes readable, marked as released by you. Yours alone, from your own terminal.
+    /// Share this exact message of a private conversation to one other place: there, its words and nothing else
+    /// become readable, marked as released by you. Yours alone, from your own terminal.
     Release {
-        /// The exchange, by its turn id.
-        exchange: String,
+        /// The message, by its node id.
+        message: String,
+        /// The digest `release-offer` showed: the words you saw are the words released.
+        #[arg(long)]
+        digest: String,
         /// The place it is released to (`discord:channel:<id>`).
         #[arg(long)]
         to: String,
@@ -120,11 +123,15 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
             )
             .await
         }
-        LedgerCmd::Release { exchange, to } => {
+        LedgerCmd::Release {
+            message,
+            digest,
+            to,
+        } => {
             return crate::exchanges_cmd::release(
                 conn,
                 method::EXCHANGE_RELEASE,
-                serde_json::json!({ "exchange": exchange, "to": to }),
+                serde_json::json!({ "message": message, "digest": digest, "to": to }),
             )
             .await
         }

@@ -1,212 +1,311 @@
-//! A piece released by the owner's own hand (issue 44, step 3b): the red-team cases of the release. A released
-//! piece is admitted in the place the record names and nowhere else, and nothing else of its place is; a
-//! withdrawal ends it; only his own words of a private place are released, never a sealed or moved one, also when
-//! sealed after the release; a record is made once, and an unknown or replayed id does nothing; an agent's
-//! process cannot make one.
+//! Share this exact message to this place (issue 44): through the history tool's real reader and the real
+//! connection. Only the message's words are shown, in the named place alone; one strict check at the release and
+//! at every read (a seal set later, the reader inside that very thread, a move to a clear thread); one record
+//! however many grants race; the page's own bounds; and no connection but the owner's own reaches a record.
+
+use std::sync::Arc;
+
+use serde_json::{json, Value};
 
 use super::*;
-use crate::exchange::{exchange_record, Opener};
-use crate::history_tool::page::{none_released, released_here, Lens};
+use crate::exchange::{
+    exchange_record, mark_record, touch, Exchange, Opener, OwnerMark, Peer, Root,
+};
+use crate::history_tool::{answer, Board};
 use crate::node::Node;
-use crate::view::Present;
+use crate::view::history::{HistoryArgs, LOOKS_PER_TURN};
+use crate::view::{Anchor, PointOfView, Present};
 
 const DM: &str = "discord:dm:42";
 const DEN: &str = "discord:channel:7";
 const PIER: &str = "discord:channel:8";
+const HARMLESS: &str = "the offsite is on Friday";
 
-fn store() -> (tempfile::TempDir, Store) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(&dir.path().join("store")).unwrap();
-    (dir, store)
-}
-
-fn put(store: &Store, turn: &str, session: &str, place: &str, person: &str) {
-    let ask = Node::user(session, Some(turn), "owner", "the plan is the lighthouse");
+/// One exchange of the owner's at `place` in `session`: his message, and `rest` (reply, steer, later nodes) in it.
+fn said(core: &Core, turn: &str, session: &str, words: &str, rest: &[Node]) -> Node {
+    let ask = Node::user(session, Some(turn), "owner", words);
+    let mark = OwnerMark {
+        node: ask.id.clone(),
+        in_person: true,
+        owner_handle: None,
+        peer: Peer::Person,
+        agent: None,
+        surface: "discord".into(),
+        place: DM.into(),
+        arrived_session: session.into(),
+        ran_session: session.into(),
+        author: None,
+        at_ms: ask.created_at_ms,
+    };
+    let mut messages = vec![ask.id.clone()];
+    messages.extend(rest.iter().map(|n| n.id.clone()));
     let x = Exchange {
         turn_id: turn.into(),
         session_id: session.into(),
-        place: place.into(),
-        private: place != PIER,
+        place: DM.into(),
+        private: true,
         opened_by: Opener::Message,
-        person: Some(person.into()),
-        start_ms: 1_000,
-        end_ms: Some(1_500),
+        person: Some(OWNER.into()),
+        start_ms: ask.created_at_ms,
+        end_ms: None,
         ask: Some(ask.id.clone()),
-        reply: None,
-        messages: vec![ask.id.clone()],
-        stop: Some("end_turn".into()),
+        reply: rest.first().map(|n| n.id.clone()),
+        messages,
+        stop: None,
         rebuilt: false,
     };
-    store
-        .append(&[ask.record().unwrap(), exchange_record(&x).unwrap()])
-        .unwrap();
+    let mut recs = vec![
+        ask.record().unwrap(),
+        mark_record(&mark).unwrap(),
+        exchange_record(&x).unwrap(),
+    ];
+    recs.extend(rest.iter().map(|n| n.record().unwrap()));
+    recs.extend(touch(Root::Place(DM), turn, session, x.start_ms));
+    core.store.append(&recs).unwrap();
+    ask
 }
 
-fn ex(store: &Store, turn: &str) -> Exchange {
-    exchange::exchange(store, turn).unwrap().unwrap()
+fn reply(session: &str, turn: &str, text: &str) -> Node {
+    let mut n = Node::user(session, Some(turn), "assistant", text);
+    n.origin = crate::node::Origin::Agent;
+    n
 }
 
-fn clear(_: &Exchange) -> bool {
-    false
-}
-
-fn no(_: &str) -> bool {
-    false
-}
-
-fn yes(_: &str) -> bool {
-    true
-}
-
-/// Whether a reader in `here` (others present) admits `turn`, by the history tool's lens, with `hidden` the
-/// seal's answer for sessions and `moved` for exchanges.
-fn admits(
-    s: &Store,
-    here: &str,
-    turn: &str,
-    hidden: &(dyn Fn(&str) -> bool + Sync),
-    moved: &(dyn Fn(&Exchange) -> bool + Sync),
-) -> bool {
-    let released = released_here(s, here);
-    let lens = Lens {
-        store: s,
-        here: here.into(),
-        present: Present::Shared,
-        hidden,
-        moved,
-        private: &yes,
-        released: &released,
-        in_view: None,
-        words: None,
+/// The history tool's answer for a turn of `session` anchored at `place`, others present.
+async fn read(core: &Arc<Core>, board: &Board, session: &str, place: &str, args: Value) -> String {
+    let pov = PointOfView {
+        anchor: Anchor::Place(place.into()),
+        person: Some(OWNER.into()),
+        present: Present::Private,
+        at_hand: None,
+        now_ms: 0,
     };
-    lens.admits(&ex(s, turn))
+    let a: HistoryArgs = serde_json::from_value(args).unwrap();
+    match answer(core, board, (session, "t_reader"), &pov, &a).await {
+        Ok(o) => o.text,
+        Err(e) => format!("ERR {e}"),
+    }
 }
 
-/// Released to the den, the piece is admitted in the den alone, and nothing else of the DM is; withdrawn, it is
-/// admitted nowhere, and the withdrawal cannot be repeated or replayed.
-#[test]
-fn a_released_piece_is_admitted_in_the_place_it_names_alone_and_withdrawing_ends_it() {
-    let (_d, s) = store();
-    put(&s, "t_piece", "ses_dm", DM, OWNER);
-    put(&s, "t_other", "ses_dm", DM, OWNER);
-    assert!(
-        !admits(&s, DEN, "t_piece", &no, &clear),
-        "before any release"
-    );
-    let r = grant(&s, "t_piece", DEN, "cli", &clear).unwrap();
-    assert_eq!((r.from.as_str(), r.to.as_str()), (DM, DEN));
-    assert!(admits(&s, DEN, "t_piece", &no, &clear));
-    assert!(
-        !admits(&s, DEN, "t_other", &no, &clear),
-        "nothing else of the DM"
-    );
-    assert!(
-        !admits(&s, PIER, "t_piece", &no, &clear),
-        "no place the record does not name"
-    );
-    assert_eq!(released_to(&s, DEN).len(), 1);
-    assert!(released_to(&s, PIER).is_empty());
-    // A lens that reads no release admits nothing of it, as every reader but the history tool's.
-    let lens = Lens {
-        store: &s,
-        here: DEN.into(),
-        present: Present::Shared,
-        hidden: &no,
-        moved: &clear,
-        private: &yes,
-        released: &none_released,
-        in_view: None,
-        words: None,
-    };
-    assert!(!lens.admits(&ex(&s, "t_piece")));
-    withdraw(&s, &r.id, "cli").unwrap();
-    assert!(!admits(&s, DEN, "t_piece", &no, &clear), "withdrawn");
-    assert!(released_to(&s, DEN).is_empty());
-    assert!(
-        withdraw(&s, &r.id, "cli").is_err(),
-        "a withdrawal is made once"
-    );
-    assert!(
-        withdraw(&s, "rel_forged", "cli").is_err(),
-        "an unknown id does nothing"
-    );
-    assert!(
-        grant(&s, "t_piece", DEN, "cli", &clear).is_err(),
-        "a release is made once, withdrawn or not"
-    );
-    let all = all(&s).unwrap();
-    assert_eq!(all.len(), 1);
-    assert!(
-        all[0].1.is_some(),
-        "the end is a second record; the release is kept"
-    );
-}
-
-/// Only the owner's own words of a private place are released, to another place, and never a sealed or moved
-/// piece; a piece sealed or moved AFTER its release is admitted nowhere.
-#[test]
-fn a_sealed_or_moved_piece_is_never_released_also_when_sealed_after() {
-    let (_d, s) = store();
-    put(&s, "t_guest", "ses_dm", DM, "discord:9");
-    put(&s, "t_open", "ses_pier", PIER, OWNER);
-    put(&s, "t_piece", "ses_dm", DM, OWNER);
-    assert!(
-        grant(&s, "t_guest", DEN, "cli", &clear).is_err(),
-        "not his words"
-    );
-    assert!(
-        grant(&s, "t_open", DEN, "cli", &clear).is_err(),
-        "not a private place's"
-    );
-    assert!(
-        grant(&s, "t_piece", DM, "cli", &clear).is_err(),
-        "not to its own place"
-    );
-    assert!(
-        grant(&s, "t_piece", DEN, "cli", &|_: &Exchange| true).is_err(),
-        "sealed now"
-    );
-    assert!(
-        grant(&s, "t_none", DEN, "cli", &clear).is_err(),
-        "no such exchange"
-    );
-    grant(&s, "t_piece", DEN, "cli", &clear).unwrap();
-    assert!(admits(&s, DEN, "t_piece", &no, &clear));
-    let sealed = |sid: &str| sid == "ses_dm";
-    assert!(
-        !admits(&s, DEN, "t_piece", &sealed, &clear),
-        "sealed after the release"
-    );
-    let moved = |e: &Exchange| e.turn_id == "t_piece";
-    assert!(
-        !admits(&s, DEN, "t_piece", &no, &moved),
-        "moved after the release"
-    );
-}
-
-/// A release is written only by the owner in person: an agent's process at the terminal, and a channel, are
-/// refused by the proof every release method asks before it reads anything (`rpc::exchanges`).
+/// The real reader shows the released message's words alone, labelled, in the named place alone: on the page and
+/// when opened. The reply's private sentinel, another person's steer and a node added after the grant never appear.
 #[tokio::test]
-async fn an_agents_process_or_a_channel_cannot_release() {
-    use crate::approval::{Answerer, Surface};
-    let rig = crate::tests_places::rig();
-    let rule = &rig.core.runner.place_rule;
-    let cfg = &rig.core.cfg;
-    let who = |surface, agent: Option<&str>, discord| Answerer {
-        label: "x".into(),
-        surface,
-        discord,
-        agent: agent.map(str::to_string),
-    };
-    let ok = |a: &Answerer| crate::places::owner_in_person_of(a, rule, cfg, "", "").is_ok();
-    assert!(ok(&who(Surface::Cli, None, None)), "his own terminal");
-    assert!(
-        !ok(&who(Surface::Cli, Some("claude"), None)),
-        "an agent's process"
+async fn only_the_released_message_is_shown_and_only_where_it_was_released() {
+    let r = crate::tests_places::rig();
+    let dm = crate::tests_places::session(&r.core, Some("dm:42"));
+    let den = crate::tests_places::session(&r.core, Some("channel:7"));
+    let steer = Node::user(&dm, Some("t_src"), "guest", "GUEST-STEER-SENTINEL");
+    let ask = said(
+        &r.core,
+        "t_src",
+        &dm,
+        HARMLESS,
+        &[reply(&dm, "t_src", "PRIVATE-REPLY-SENTINEL"), steer],
     );
-    assert!(!ok(&who(Surface::Mcp, None, None)), "the MCP server");
+    let shown = piece(&r.core, &ask.id).unwrap();
+    assert_eq!(shown.text, HARMLESS);
+    let rel = grant(&r.core, &ask.id, &shown.digest, DEN, "cli").unwrap();
+    // Added to the exchange after the grant.
+    r.core
+        .store
+        .append(&[reply(&dm, "t_src", "LATER-SENTINEL").record().unwrap()])
+        .unwrap();
+    let board = Board::default();
+    let page = read(&r.core, &board, &den, DEN, json!({})).await;
+    let opened = read(&r.core, &board, &den, DEN, json!({"open": rel.id})).await;
+    for text in [&page, &opened] {
+        assert!(text.contains(HARMLESS) && text.contains(LABEL), "{text}");
+        for s in [
+            "PRIVATE-REPLY-SENTINEL",
+            "GUEST-STEER-SENTINEL",
+            "LATER-SENTINEL",
+        ] {
+            assert!(!text.contains(s), "{s} escaped: {text}");
+        }
+    }
+    let elsewhere = read(&r.core, &board, &den, PIER, json!({})).await;
+    assert!(!elsewhere.contains(HARMLESS), "{elsewhere}");
+    let opened_elsewhere = read(&r.core, &board, &den, PIER, json!({"open": rel.id})).await;
+    assert!(!opened_elsewhere.contains(HARMLESS), "{opened_elsewhere}");
+    // Words that are not the words he was shown are not released; a release is made once.
+    assert!(grant(&r.core, &ask.id, &digest("other words"), PIER, "cli").is_err());
+    assert!(grant(&r.core, &ask.id, &shown.digest, DEN, "cli").is_err());
+    withdraw(&r.core.store, &rel.id, "cli").unwrap();
+    let after = read(&r.core, &board, &den, DEN, json!({"open": rel.id})).await;
+    assert!(!after.contains(HARMLESS), "{after}");
+    assert!(withdraw(&r.core.store, &rel.id, "cli").is_err());
+    assert!(withdraw(&r.core.store, "rel_forged", "cli").is_err());
+}
+
+/// One strict check at every read, with no thread's own exception: released, then its thread is sealed, and a
+/// company arrival routed into that very thread reads nothing; released, then moved into a CLEAR thread, nothing.
+#[tokio::test]
+async fn a_seal_or_a_move_after_the_release_ends_it_even_inside_that_thread() {
+    use theseus_protocol::threads::{ThreadNewParams, ThreadSealParams};
+    let r = crate::tests_places::rig();
+    let cli = || crate::approval::Answerer {
+        label: "the CLI".into(),
+        surface: crate::approval::Surface::Cli,
+        discord: None,
+        agent: None,
+    };
+    let new = ThreadNewParams {
+        slug: "kelp".into(),
+        title: Some("Kelp".into()),
+        ..Default::default()
+    };
+    r.core.thread_new(&new, cli()).unwrap();
+    let kelp = r.core.thread_session("kelp", cli()).unwrap().session_id;
+    let dm = crate::tests_places::session(&r.core, Some("dm:42"));
+    let in_thread = said(&r.core, "t_kelp", &kelp, "the kelp plan", &[]);
+    let in_dm = said(&r.core, "t_dm", &dm, "the dm plan", &[]);
+    let a = grant(&r.core, &in_thread.id, &digest("the kelp plan"), DEN, "cli").unwrap();
+    let b = grant(&r.core, &in_dm.id, &digest("the dm plan"), DEN, "cli").unwrap();
+    let board = Board::default();
+    let page = read(&r.core, &board, &kelp, DEN, json!({})).await;
     assert!(
-        !ok(&who(Surface::Unnamed, None, None)),
-        "an unnamed connection"
+        page.contains("the kelp plan") && page.contains("the dm plan"),
+        "{page}"
+    );
+    let seal = ThreadSealParams {
+        slug: "kelp".into(),
+        reason: Some("embargoed".into()),
+        ..Default::default()
+    };
+    r.core.thread_seal(&seal, cli()).unwrap();
+    r.core
+        .store
+        .put_meta(
+            &crate::moved::moved_of_key(&in_dm.id),
+            &crate::moved::MovedTo {
+                thread: "open".into(),
+                split: "s".into(),
+            },
+        )
+        .unwrap();
+    let board = Board::default();
+    let page = read(&r.core, &board, &kelp, DEN, json!({})).await;
+    for (id, words) in [(&a.id, "the kelp plan"), (&b.id, "the dm plan")] {
+        assert!(!page.contains(words), "{page}");
+        let opened = read(&r.core, &board, &kelp, DEN, json!({"open": id})).await;
+        assert!(!opened.contains(words), "{opened}");
+    }
+    assert!(
+        grant(&r.core, &in_dm.id, &digest("the dm plan"), PIER, "cli").is_err(),
+        "moved: never released"
+    );
+}
+
+/// Two grants of one message to one place racing: one record; its withdrawal ends admission.
+#[tokio::test(flavor = "multi_thread")]
+async fn racing_grants_make_one_record() {
+    let r = crate::tests_places::rig();
+    let dm = crate::tests_places::session(&r.core, Some("dm:42"));
+    let ask = said(&r.core, "t_race", &dm, HARMLESS, &[]);
+    let d = digest(HARMLESS);
+    let goes: Vec<_> = (0..8)
+        .map(|_| {
+            let (core, id, d) = (r.core.clone(), ask.id.clone(), d.clone());
+            std::thread::spawn(move || grant(&core, &id, &d, DEN, "cli"))
+        })
+        .collect();
+    let won: Vec<Release> = goes
+        .into_iter()
+        .filter_map(|g| g.join().unwrap().ok())
+        .collect();
+    assert_eq!(won.len(), 1, "{won:?}");
+    assert_eq!(released_to(&r.core.store, DEN).len(), 1);
+    withdraw(&r.core.store, &won[0].id, "cli").unwrap();
+    assert!(released_to(&r.core.store, DEN).is_empty());
+    assert!(live(&r.core.store, DEN, &ask.id).is_none());
+}
+
+/// Released messages ride the page's bounds: a page lists ten and says how many more; a look past the turn's
+/// allowance lists none.
+#[tokio::test]
+async fn released_messages_keep_to_the_pages_bounds() {
+    let r = crate::tests_places::rig();
+    let dm = crate::tests_places::session(&r.core, Some("dm:42"));
+    let den = crate::tests_places::session(&r.core, Some("channel:7"));
+    for i in 0..(PER_PAGE + 2) {
+        let words = format!("plan number {i}");
+        let ask = said(&r.core, &format!("t_{i}"), &dm, &words, &[]);
+        grant(&r.core, &ask.id, &digest(&words), DEN, "cli").unwrap();
+    }
+    let board = Board::default();
+    let page = read(&r.core, &board, &den, DEN, json!({})).await;
+    assert_eq!(page.matches(LABEL).count(), PER_PAGE, "{page}");
+    assert!(page.contains("2 more released messages"), "{page}");
+    for _ in 1..LOOKS_PER_TURN {
+        read(&r.core, &board, &den, DEN, json!({})).await;
+    }
+    let spent = read(&r.core, &board, &den, DEN, json!({})).await;
+    assert_eq!(spent.matches(LABEL).count(), 0, "{spent}");
+}
+
+/// One request over a real connection of `client`, and its answer's line.
+async fn rpc_as(
+    core: &Arc<Core>,
+    client: crate::approval::Client,
+    method: &str,
+    params: Value,
+) -> String {
+    use theseus_protocol::{Id, Request};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (ours, theirs) = tokio::io::duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(theirs);
+    let _srv = tokio::spawn(core.clone().serve_connection(sr, sw, client));
+    let (cr, mut cw) = tokio::io::split(ours);
+    let line = serde_json::to_string(&Request::new(Id::Num(1), method, params)).unwrap();
+    cw.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+    let mut lines = BufReader::new(cr).lines();
+    loop {
+        let line = tokio::time::timeout(std::time::Duration::from_secs(10), lines.next_line())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        if line.contains("\"id\":1") {
+            return line;
+        }
+    }
+}
+
+/// Through the real connection: an agent's process at the terminal and an unnamed connection are refused before
+/// anything is read or written; the owner's own terminal is answered.
+#[tokio::test]
+async fn an_agents_process_or_an_unnamed_connection_cannot_release() {
+    use crate::approval::{Client, Surface};
+    use crate::peer_proc::Behind;
+    use theseus_protocol::method;
+    let r = crate::tests_places::rig();
+    let dm = crate::tests_places::session(&r.core, Some("dm:42"));
+    let ask = said(&r.core, "t_rpc", &dm, HARMLESS, &[]);
+    let params = json!({"message": ask.id, "digest": digest(HARMLESS), "to": DEN});
+    let agent = || Client::new("sock#1", Surface::Cli).behind(Behind::Agent("claude".into()));
+    let unnamed = || Client::new("test", Surface::Unnamed);
+    for client in [agent(), unnamed()] {
+        for m in [
+            method::EXCHANGE_RELEASE,
+            method::EXCHANGE_OFFER,
+            method::EXCHANGE_RELEASES,
+        ] {
+            let line = rpc_as(&r.core, client.clone(), m, params.clone()).await;
+            assert!(line.contains("\"error\""), "{m}: {line}");
+            assert!(!line.contains(HARMLESS), "{m}: {line}");
+        }
+    }
+    assert!(released_to(&r.core.store, DEN).is_empty());
+    let owner = Client::new("sock#2", Surface::Cli).behind(Behind::Owner);
+    let offered = rpc_as(
+        &r.core,
+        owner,
+        method::EXCHANGE_OFFER,
+        json!({"message": ask.id}),
+    )
+    .await;
+    assert!(
+        offered.contains(HARMLESS) && offered.contains(&digest(HARMLESS)),
+        "{offered}"
     );
 }

@@ -1,137 +1,40 @@
-# Releasing one private piece in company: the trigger and the look (issue 44, step 3b)
+# Share this exact message to this place (issue 44, step 3b, the simple shape)
 
-The owner's decision 2 (`context-point-of-view.md` §15): in company, Theseus is shown nothing he said privately.
-When a message of his there seems to lean on something that is not in that place, Theseus says so from the visible
-message alone, without confirming that anything matching exists. Separately, in his private conversation and under
-that place's own rules, a card can offer to release one piece; nothing crosses without his press. The plan calls
-this step 3b ("code lays a second view anchored at his private conversation for the same message; it searches there
-and posts there, with the card that can release one piece. The shared view never learns what was found").
+The owner's decision 2 (`context-point-of-view.md` §15): in company, Theseus is shown nothing he said privately. This
+note describes the one way something private crosses: **the owner shares one exact message of his to one place,
+by his own act.** Nothing does it for him.
 
-This note says what is built and in what state: the trigger and the look, both in shadow. The card and the release
-are not built; the last section says what they take.
+## What is built
 
-## 1. The trigger: `leans_on.v1`, a new pack, in shadow
+- **The record** (`theseus-core`'s `release.rs`): `release.id.<id>`, indexed by `release.to.<place>\u{1f}<node>`.
+  It names ONE message of his (its node, and a digest of its words as he was shown them), the place it is from, the
+  ONE place it is released to, the surface, and the time. Only that message's words are ever shown: not the reply
+  to it, not another person's steer in the same exchange, not a tool's stub, not anything added later.
+- **His act alone.** `exchange.offer` shows him exactly the words a release would share and their digest;
+  `exchange.release` (message, digest, place) writes the record; `exchange.releases` lists them; `exchange.withdraw`
+  ends one. All four answer only his terminal or the web UI, in person (`places::owner_in_person_of`, asked before
+  anything is read): an agent's process, the MCP server, a chat transport and an unnamed connection are refused.
+  CLI: `theseus ledger release-offer <message>`, `ledger release <message> --digest <d> --to <place>`,
+  `ledger releases`, `ledger withdraw <id>`.
+- **One check, at the release and at every read** (`release::piece`), failing closed: a message whose owner's mark
+  says it is his, of a private place's exchange; its session neither sealed nor seal-pending as seen by no one
+  (`Core::ladder_hidden`, with no thread's own exception, so a reader inside that very thread is no exception);
+  never moved into any thread, whatever that thread's seal. A read also needs the words to match the digest.
+- **Once.** Grants and withdrawals are serialized: one message is released to one place by one record, however
+  many requests race; a second release of it there is refused, withdrawn or not. A withdrawal is a second record
+  (`release.end.<id>`); nothing is rewritten. What was already shown or sent cannot be unsent, and the withdrawal
+  says so. An unknown or withdrawn id writes nothing.
+- **The reader** is the history tool in the named place alone. A page of that place's own history lists the
+  releases made in the stretch of time the page covers (from its cursor back to the next page's), at most ten, with
+  how many more; nothing on a look the turn's allowance did not grant, and nothing on a narrowed call. Each line is
+  the message's words, cut as a line is, labelled "released here by the owner from another conversation", and its
+  handle (`rel_…`); opening the handle gives the words in full under the same label, and counts as an open. The
+  view's slots and the transcript do not carry a released message.
 
-A new pack of its own, not a version of an existing one (`crates/theseus-judge/packs/leans_on.v1.toml`; its builder
-`builders/leans_on.rs`; asked by `theseus-core`'s `judge/leans_on.rs`).
+## Not built, and not planned until the owner asks
 
-- **Asked of** the owner's own message only (his mark's person is the owner: in person, or a chat author who holds an
-  owner handle), at a turn whose presence the gate made a private channel or shared (`leans_on::asked_of`). Never
-  asked of another person's message, an agent's process, a message with no mark, or his message where he is alone.
-- **Asked from** `turn::gate_step`, right after the turn's presence is made, when `[context] ledger` is on.
-- **Its state** is the message and the last eight lines of the company PLACE's own admitted exchanges
-  (`release_card::company_tail`: the history tool's lens for that place and the turn's audience, the seal, and
-  messages moved into a thread, chosen after admission), each `person` or `assistant`, and nothing else: never the
-  session's raw nodes (a session can serve a private arrival too), no other place, no memory, no recall, no author.
-- **Sampled** by the pack's share: `[judge.packs."leans_on.v1"] sample = 0` asks nothing and looks at nothing.
-- **One Choice**: `stands_alone`, `said_here`, `not_said_here`, `unclear` (also its `no_match`). The design's own
-  answers (nothing / what was just said / something earlier / a named thing / unclear) are asked as one question
-  about this place.
-- **Off the turn's path.** It returns at once; the session's read, the state, its blob, the shadow budget's
-  reservation and the call are a spawned task's, as `memory.v1`'s are. A slow, failing or absent judge changes no
-  turn. Its row is `judge.call`, scoped `judge:leans_on`.
-- **In shadow.** `judge::WIRED` names it at `Shadow`, so its ladder line is shadow (and every test rig that
-  switches off the wired packs but its own switches it off too): the design's §6 says a new acting question is promoted the way the build already requires (a frozen holdout of 200 labelled
-  judgments, or the owner's forced promotion). Nothing acts on its answer: the company turn is the same turn,
-  byte for byte, whatever it says. `[judge.packs."leans_on.v1"] rung = "off"` switches it off.
-- **Labelled cases**: `packs/leans_on.v1.cases.toml`, sixteen invented, with the traps (a reference satisfied in the
-  place, a general question). `builders::leans_on::tests::leans_on_cases` holds each label to the pack's options and
-  each state to the message and the place's lines. Measuring the pack against them is a replay against the judge,
-  the ladder's step before any promotion.
-
-## 2. The second look, under his private conversation's rules, in shadow
-
-`theseus-core`'s `release_card.rs`. Once the trigger is judged, its answer is handed to the look, in a task spawned
-from the trigger's own task (never the turn's).
-
-- **Only on `not_said_here`.** Any other answer, or none, is no look.
-- **His private conversation** is the ONE direct conversation the bindings bind whose person is a configured owner
-  and whose place reads private today (`discord:dm:<id>`). None, or more than one: no look
-  (`no_private_conversation`).
-- **Its own rules, never the company turn's permit.** The look is a history-tool lens (`history_tool::page::Lens`)
-  anchored at his private conversation with the owner alone there; the company turn's presence and permit are not
-  read. A candidate is an exchange of that conversation, of his own words (`person` is the owner), that the lens
-  admits: the place rule, and the seal failing closed (`Core::ladder_hidden`: a session not proven unsealed, or an
-  imported one, is held out). The company place's exchanges are never candidates; neither is another person's
-  words, or another conversation's.
-- **By the means that exist**: the words index, scoped first to the sessions the lens admits on that conversation's
-  timeline (`history_tool::found`, the history tool's own words search), with the message as the query.
-- **What it decides.** One candidate is the one case a card would offer. Several are no card: the design's §6 asks
-  which of up to three, and a card that asks which is a later step; the smaller safe thing is no card. None is none.
-  Words that match are a candidate, not a supported piece: before a card is offered for real, the rung-2 support
-  check of §6 (a small model on the answering provider says whether the passage supports the reference, and code
-  checks it named a candidate it was given) belongs between the search and the card.
-- **What it records**: one META record (`release.look.<turn>`) for EVERY judgment of the trigger, whatever it
-  answered and whatever the look found, in NO ledger row (the ledger is read by any reader of the socket), read only
-  through the owner-in-person release methods (`exchange.releases`), and written only in a moment between turns,
-  through the memory pass's writer handshake as the judge's sink writes, so a look of any length holds no turn's
-  frame: `company_turn`, `node`, `answer`, `mode`
-  (`shadow`), `outcome` (`not_asked`, `no_private_conversation`, `no_index`, `nothing`, `one`, `several`), `found`
-  (a count) and `ids` (at most three exchange ids, newest first). Never a piece's words.
-
-## 3. What the company turn learns: nothing
-
-- The turn's request is built before and apart from both: neither the trigger nor the look writes anything the
-  turn, its compile or its tools read. Nothing waits on either, so no delay depends on them.
-- The look's record is in no ledger row and is read only by the owner in person; one is written for every trigger
-  judgment, between turns, so neither a reader of the ledger nor a turn's timing learns what was found.
-- The look reads the owner's private conversation only in the trigger's spawned task, and hands nothing back.
-
-## 4. The release, by the owner's own hand
-
-`theseus-core`'s `release.rs`; the gate's reading in `history_tool::page::Lens`.
-
-- **The record** (`release.id.<id>`, and its index `release.to.<place>\u{1f}<exchange>`): one exchange of a
-  private place of his, the place it is from, the ONE place it is released to, the surface, the time. Written only
-  through `exchange.release`, behind `places::owner_in_person_of` (his terminal or the web UI, in person; an
-  agent's process, the MCP server and an unnamed connection are refused before anything is read).
-- **What may be released**: his own words by his mark, of a private place, to another place, with no seal on its
-  session and no message of it moved into a thread not proven clear. One record per exchange and place, ever.
-- **Withdrawal** (`exchange.withdraw`) writes `release.end.<id>`; nothing is rewritten. It says that what was
-  already shown or sent cannot be unsent. An unknown or already withdrawn id writes nothing.
-- **The gate's reading**: the history tool's lens admits, AFTER the seal and the moved messages, the one exchange a
-  live record releases to the lens's own place, and the release's rules are asked again at that read, failing
-  closed. Its line is labelled "released here by the owner from another conversation", and a bare first page in
-  that place lists it, so the next turn there sees it when it looks back. Every other reader passes
-  `none_released` and admits nothing new; the view's slots and the transcript do not carry a released piece.
-- **His terminal**: `theseus ledger release-offer <message>` (what the look would offer for a message of his in a
-  channel, the piece's words shown to him alone), `ledger release <exchange> --to <place>`, `ledger releases`,
-  `ledger withdraw <id>`.
-
-## 4b. Cost, and what a v2 would change (the outside review)
-
-- **Cost.** One judge call per eligible message of his in company (inside the shadow budget), its state stored as a
-  blob; on `not_said_here`, one search over his DM through the baseline memory arm, which includes the index's
-  vector search: local embedding work, not only a lexical lookup.
-- **Older same-place references.** "Not in the last eight lines" reads as "elsewhere, or long ago", so a reference to
-  something said in the same place long ago fires a needless look (case L18). A v2 would show the place's own
-  older history in summary (its ladder) or ask apart "said here, earlier" from "said elsewhere", and search the
-  company place's own admitted history before the DM.
-
-## 5. State, and what turning it on takes
-
-| Piece | State | To change it |
-|---|---|---|
-| `leans_on.v1`, the trigger | **shadow**: asked and recorded, acted on by nothing | the owner's promotion (`theseus packs promote leans_on.v1 --live`, his forced promotion with the numbers), or a holdout of 200 labelled judgments; switched off by `[judge.packs."leans_on.v1"] rung = "off"` |
-| the look | **shadow**: runs after a `not_said_here`, records ids and counts only, shows and sends nothing | nothing to turn on until the card exists |
-| the release and the gate's reading | **live for the owner's own act**: nothing is released until he releases it from his terminal | nothing to switch; it is his act |
-| the card | **not built** | below |
-
-## 6. Not built: the card
-
-- **The card**, by the existing path the card questions use (`card/dm.rs`): one outbox post of a new kind through
-  `Outbox::stage_to_operator`, to his direct conversation, drawn with two buttons by the Discord binding
-  (`theseus-discord`'s `runtime/card_question.rs` is the model), saying where he was asked (the place by the name he
-  knows it by), the piece's words in full, and that what is released cannot be unsent. Only for `one`, and only
-  after the support check above.
-- **Its press**: a press handler in the Discord binding beside the card question's, calling a method the binding
-  may reach (the exchange methods are the terminal's and the web UI's), judged as the card question's answer is (the
-  presser is an owner, in his direct conversation; anyone else, an agent, or a forged offer id is refused), which
-  writes the same release record. The card is posted only when `leans_on.v1` ACTS (its ladder line live) and the
-  look found exactly one candidate.
-- **Red-team tests the step closes on**: the company model's request never holds the piece or any sign of the look;
-  another person in the place cannot trigger or press anything; a forged answer from an agent is refused; a sealed
-  piece is never offered; a released piece is admitted in that place alone, and a withdrawal ends it. The first,
-  second and fourth are held for the trigger and the look, and the release's (admitted in that place alone, withdrawn,
-  sealed or moved before or after, an agent refused) by `release::tests`; a press by another person or a forged card
-  answer need the card.
+The automatic offer: a judge deciding that a message in company leans on something private, a look through his
+private conversation, and a card in his direct conversation offering to release what it found. It was built in
+shadow on this branch and deleted: nothing asks a judge, nothing searches his private conversation on a company
+message, and nothing is recorded about one. If it is wanted later, it would end in the same release record above,
+made by his press.

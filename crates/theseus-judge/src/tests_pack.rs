@@ -1040,8 +1040,8 @@ fn the_loaders_rules_hold_on_all_the_packs() {
         "loop.v1, security.v3, classify.v4, categorize.v1, rerank.v1, memory.v1, attribution.v1, route.v11, \
          effort.v1, work.v1, citation.v1, people.v1, people_seen.v1, compare.v1, heard.v1, directive.v2, \
          onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1, \
-         content.v4, split.v1, undo.v1, delay.v1, precedence.v1, allow_said.v1 and leans_on.v1 (the versions \
-         issue 44 retired are under packs/retired/)"
+         content.v4, split.v1, undo.v1, delay.v1, precedence.v1, allow_said.v1 and task_words.v1 (the \
+         versions issue 44 retired are under packs/retired/)"
     );
     for (file, text) in six {
         let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

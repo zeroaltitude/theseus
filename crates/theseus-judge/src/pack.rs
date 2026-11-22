@@ -59,6 +59,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
     ("compare.v1", include_str!("../packs/compare.v1.toml")),
     ("heard.v1", include_str!("../packs/heard.v1.toml")),
+    ("task_words.v1", include_str!("../packs/task_words.v1.toml")),
     ("people.v1", include_str!("../packs/people.v1.toml")),
     (
         "people_seen.v1",
@@ -80,8 +81,6 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("delay.v1", include_str!("../packs/delay.v1.toml")),
     ("undo.v1", include_str!("../packs/undo.v1.toml")),
     ("allow_said.v1", include_str!("../packs/allow_said.v1.toml")),
-    // issue 44, step 3b: a new pack, in shadow (`judge::WIRED`).
-    ("leans_on.v1", include_str!("../packs/leans_on.v1.toml")),
 ];
 
 /// The versions this build retired from [`EMBEDDED`] (issue 44): the shadows
@@ -441,6 +440,9 @@ pub enum Builder {
     /// `content.v1`'s: one item that entered a session, and what it was and
     /// where it came from (theseus-9ymz0).
     Content,
+    /// `task_words.v1`'s: one message of the operator's and the one task it
+    /// addresses (issue 44).
+    TaskWords,
     /// `delay.v1`'s: one delayed piece of work, its elapsed and cost, and
     /// each progress signal with whether it moved (theseus-5x8ry).
     Delay,
@@ -450,9 +452,6 @@ pub enum Builder {
     /// `allow_said.v1`'s: the operator's latest message and the held call the
     /// assistant decided it means (chat-acts-are-tools, S43-1).
     AllowSaid,
-    /// `leans_on.v1`'s: the owner's message in company and the lines that
-    /// place shows before it (issue 44, step 3b).
-    LeansOn,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).

@@ -41,7 +41,6 @@ pub mod heard;
 pub mod inbound;
 pub(crate) mod job;
 pub mod ladder;
-pub mod leans_on;
 pub mod lineage;
 pub mod loop_end;
 pub mod mark;
@@ -57,6 +56,7 @@ pub mod sink;
 pub mod small_talk;
 pub mod spend;
 pub mod stop;
+pub mod task_words;
 #[cfg(test)]
 mod tests_ahead;
 #[cfg(test)]
@@ -133,9 +133,6 @@ pub const WIRED: &[(&str, PackMode)] = &[
     // word, 2026-11-12, "i would like it wired and switched on". `[judge]
     // reversibility = false` lowers it to shadow without a build.
     (undo::PACK_NAME, PackMode::Live),
-    // The release card's trigger (issue 44, step 3b): a new acting question
-    // starts in shadow and is promoted on the ladder.
-    (leans_on::PACK, PackMode::Shadow),
 ];
 
 /// The mode `WIRED` gives `pack` (shadow for one it does not list).

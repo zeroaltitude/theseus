@@ -85,6 +85,10 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "a voice transcript's state is one utterance's text, the sentences it may echo and \
              its timing, which the record keeps only in the judgment's blob",
         ),
+        Builder::TaskWords => Some(
+            "a task-words state is the operator's message and the task as it stood at that \
+             moment, which the record keeps only in the judgment's blob",
+        ),
         Builder::SameThing
         | Builder::TwoThings
         | Builder::SameKind
@@ -103,10 +107,6 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
         Builder::AllowSaid => Some(
             "an allow check's state is the operator's message and the call held at that moment, \
              which the record keeps only in the judgment's blob",
-        ),
-        Builder::LeansOn => Some(
-            "a leans-on state is a message and the lines its place showed before it at that \
-             moment, which the record keeps only in the judgment's blob",
         ),
         Builder::Precedence => Some(
             "a precedence state is the pairs of testimony a reader held together at that moment, \

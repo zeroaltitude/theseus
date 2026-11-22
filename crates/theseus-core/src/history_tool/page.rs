@@ -100,9 +100,6 @@ pub struct Lens<'a> {
     pub moved: &'a (dyn Fn(&Exchange) -> bool + Sync),
     /// Whether a session's place is private, by the place rule.
     pub private: &'a (dyn Fn(&str) -> bool + Sync),
-    /// Whether the owner released an exchange of another place to this one (`crate::release`), asked only
-    /// after the seal and the moved messages have admitted it ([`released_here`]; [`none_released`] elsewhere).
-    pub released: &'a (dyn Fn(&Exchange) -> bool + Sync),
     /// Where a bare call begins ([`in_view`]).
     pub in_view: Option<Cursor>,
     /// The turns the words index found, when words were given.
@@ -113,20 +110,6 @@ pub struct Lens<'a> {
 pub struct Walked {
     pub page: HistoryPage,
     pub resume: Option<Cursor>,
-}
-
-/// No exchange is released to the reader: a lens that reads no release.
-pub fn none_released(_: &Exchange) -> bool {
-    false
-}
-
-/// A reader's [`Lens::released`] in place `here`: a live release of the exchange to `here`, and the release's
-/// rules asked again (the seal and the moved messages were asked by `admits` before).
-pub fn released_here<'a>(
-    store: &'a Store,
-    here: &'a str,
-) -> impl Fn(&Exchange) -> bool + Sync + 'a {
-    move |ex: &Exchange| crate::release::admitted(store, here, ex, false)
 }
 
 impl Lens<'_> {
@@ -144,10 +127,6 @@ impl Lens<'_> {
         let private_reader = matches!(self.present, Present::OwnerAlone | Present::Private);
         if ex.place == self.here {
             return !ex.private || private_reader;
-        }
-        // One exchange the owner released to this place by his own hand, and nothing else of its place.
-        if (self.released)(ex) {
-            return true;
         }
         self.present == Present::OwnerAlone
             && ex.private
@@ -210,7 +189,10 @@ impl Lens<'_> {
             .map(|n| spoken(&n))
             .unwrap_or_default();
         let did = match crate::ladder::did::said(self.store, &ex.turn_id) {
-            Ok(crate::ladder::did::Said::Line(d)) => Some(cut(&d.line, REPLY_CHARS)),
+            Ok(crate::ladder::did::Said::Line(d)) => Some(cut(
+                &crate::ladder::did::shown_line(self.store, &d),
+                REPLY_CHARS,
+            )),
             _ => None,
         };
         let reply = ex
@@ -220,10 +202,6 @@ impl Lens<'_> {
             .and_then(|id| node(self.store, id))
             .map(|n| spoken(&n))
             .filter(|r| !r.trim().is_empty());
-        let words = match ex.place != self.here && (self.released)(ex) {
-            true => format!("[{}] {words}", crate::release::LABEL),
-            false => words,
-        };
         HistoryLine {
             handle: Handle(ex.turn_id.clone()),
             place: ex.place.clone(),

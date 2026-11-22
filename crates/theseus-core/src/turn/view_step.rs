@@ -264,9 +264,9 @@ impl TurnRunner {
         // A message it shows moved into a thread, or that thread sealed, since it was assembled.
         let moved = crate::view_gate::Moved::read(self, Some(sid));
         (f.exchanges.iter()).any(|id| match crate::exchange::exchange(&self.store, id) {
+            // Only a readable exchange whose nodes are all clear proves admission: a missing one revokes.
             Ok(Some(e)) => moved.holds(&e),
-            Ok(None) => false,
-            Err(_) => true,
+            Ok(None) | Err(_) => true,
         })
     }
 
@@ -299,7 +299,7 @@ impl TurnRunner {
             sid,
             turn,
             person: t.exchange.person().0,
-            verified: Verified::of_session(self, sid),
+            verified: None,
             recalled: recalled(t),
             message: None,
         };
@@ -331,6 +331,7 @@ impl TurnRunner {
             timeline: StoreTimeline(store),
             at_hand: None,
         };
+        let verified = verified.unwrap_or_else(|| Verified::of_session(self, sid));
         let pov = verified_pov(&verified, person, snap.now_ms);
         let Anchor::Place(place) = pov.anchor.clone() else {
             anyhow::bail!("a view turn is anchored to a place");
@@ -355,14 +356,7 @@ impl TurnRunner {
         };
         // One read of the ladder for the whole assembly: every selector, the text and the window see it.
         let store_ladder = StoreLadder(store);
-        let gated = GatedLadder {
-            inner: &store_ladder,
-            store,
-            held: &held,
-            moved: &moved,
-            sessions: Default::default(),
-            exchanges: Default::default(),
-        };
+        let gated = GatedLadder::new(&store_ladder, store, &held, &moved);
         let ladder = OnceLadder::new(&gated);
         let cards = StoreCards {
             store,
@@ -474,8 +468,9 @@ pub(super) struct Asked<'a> {
     pub sid: &'a str,
     pub turn: &'a str,
     pub person: Option<String>,
-    /// The gate's point of view: the turn's, never the caller's word.
-    pub verified: Verified,
+    /// The gate's point of view, never the caller's word: a preview's; none reads the turn's
+    /// (`Verified::of_session`) where a turn always read it, after the clock.
+    pub verified: Option<Verified>,
     /// The nodes today's recall found (none for a preview, which runs no recall).
     pub recalled: Vec<String>,
     /// The message given (a preview's); none reads the turn's own, by node and text, at the point a turn
@@ -562,14 +557,27 @@ struct GatedLadder<'a> {
     exchanges: std::cell::RefCell<Vec<String>>,
 }
 
-impl GatedLadder<'_> {
+impl<'a> GatedLadder<'a> {
+    fn new(
+        inner: &'a dyn crate::view::fold::Ladder,
+        store: &'a Store,
+        held: &'a dyn Fn(&str) -> bool,
+        moved: &'a dyn Fn(&crate::exchange::Exchange) -> bool,
+    ) -> Self {
+        Self {
+            inner,
+            store,
+            held,
+            moved,
+            sessions: Default::default(),
+            exchanges: Default::default(),
+        }
+    }
+
     /// Every exchange fold node `id` stands for; none when any cannot be resolved, or any holds a moved
     /// message the reader may not read.
     fn constituents(&self, id: &str) -> Option<Vec<crate::exchange::Exchange>> {
-        let node = crate::ladder::fold::node(self.store, id).ok()??;
-        let read = crate::ladder::fold::open(self.store, &node).ok()?;
-        let whole = !node.exchanges.is_empty() && read.len() == node.exchanges.len();
-        (whole && !read.iter().any(|e| (self.moved)(e))).then_some(read)
+        fold_constituents(self.store, id, self.moved)
     }
 }
 
@@ -598,6 +606,20 @@ impl crate::view::fold::Ladder for GatedLadder<'_> {
         read.nodes = kept;
         Ok(read)
     }
+}
+
+/// Every exchange fold node `id` stands for; none when any cannot be resolved, or any holds a moved message
+/// the reader may not read (`moved`, `view_gate::Moved::holds`). The gated ladder's rule, and a preview's
+/// listing of a fold.
+pub(super) fn fold_constituents(
+    store: &Store,
+    id: &str,
+    moved: &dyn Fn(&crate::exchange::Exchange) -> bool,
+) -> Option<Vec<crate::exchange::Exchange>> {
+    let node = crate::ladder::fold::node(store, id).ok()??;
+    let read = crate::ladder::fold::open(store, &node).ok()?;
+    let whole = !node.exchanges.is_empty() && read.len() == node.exchanges.len();
+    (whole && !read.iter().any(moved)).then_some(read)
 }
 
 /// `v` in order, each once.
@@ -879,7 +901,8 @@ fn as_line(
     let Some((p, ask)) = nodes.into_iter().find(|(_, n)| n.kind == Kind::UserMessage) else {
         return Ok(Vec::new());
     };
-    let did = crate::ladder::did::did(store, &handle.0)?.map(|d| d.line);
+    let did = crate::ladder::did::did(store, &handle.0)?
+        .map(|d| crate::ladder::did::shown_line(store, &d));
     let mut node = (*ask).clone();
     if let Body::UserMessage { text, .. } = &mut node.body {
         *text = forms::line(text, did.as_deref(), handle);

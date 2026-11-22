@@ -56,7 +56,8 @@ pub fn fold_block_by(
         true => labels::wrap_outside(Some("tool results in these exchanges"), &node.account),
         false => node.account.clone(),
     };
-    let all_his = (words.iter()).all(|(a, w)| w.is_none() || matches!(a, Author::His { .. }));
+    // Positive proof for every message, readable or not: a missing source is not his.
+    let all_his = (words.iter()).all(|(a, _)| matches!(a, Author::His { .. }));
     // A summary written before its writer was told each message's author may credit another's words, or an
     // unknown author's, to the owner: its title and account are withheld unless every message it stands for
     // is shown here as his (a first-level node lists them all). Its excerpts stay, each by its own mark.

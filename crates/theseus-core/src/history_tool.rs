@@ -41,7 +41,7 @@ use theseus_tools::{
 
 use crate::config::memory::MemoryArm;
 use crate::exchange::{self, Exchange, Opener};
-use crate::view::history::{HistoryArgs, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES};
+use crate::view::history::{HistoryArgs, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, PointOfView, Present};
 use crate::Core;
@@ -145,11 +145,6 @@ pub enum Count {
 impl Board {
     pub fn attach(&self, core: &Arc<Core>) {
         let _ = self.core.set(Arc::downgrade(core));
-    }
-
-    /// The core, once built and while it lives.
-    pub fn core(&self) -> Option<Arc<Core>> {
-        self.core.get()?.upgrade()
     }
 
     /// `turn`'s use before this call, and this call counted. Past [`TURNS_KEPT`] turns, only turns `done`
@@ -338,7 +333,6 @@ pub(crate) async fn answer(
     let hidden = |s: &str| s != session && core.ladder_hidden(s);
     let moved = crate::view_gate::Moved::read(&core.runner, Some(session));
     let moved = |e: &crate::exchange::Exchange| moved.holds(e);
-    let released = page::released_here(&core.store, here);
     let mut lens = page::Lens {
         store: &core.store,
         here: here.clone(),
@@ -346,7 +340,6 @@ pub(crate) async fn answer(
         hidden: &hidden,
         moved: &moved,
         private: &private,
-        released: &released,
         in_view: page::in_view(&core.store, session).map_err(|e| format!("{e:#}"))?,
         words: None,
     };
@@ -360,69 +353,111 @@ pub(crate) async fn answer(
                 meta: json!({"open": null, "opens": used.opens, "of": OPENS_PER_TURN}),
             });
         }
-        let text = open::open(&lens, h)?;
+        let text = match h.0.starts_with(RELEASED) {
+            // A message the owner released to this place: its words only (`crate::release`).
+            true => crate::release::opened(core, here, &h.0).ok_or_else(|| {
+                format!(
+                    "nothing is released to this place under {}",
+                    page::flat(&h.0)
+                )
+            })?,
+            false => open::open(&lens, h)?,
+        };
         return Ok(ToolOutput {
             text,
             meta: json!({"open": page::flat(&h.0), "opens": used.opens + 1, "of": OPENS_PER_TURN}),
         });
     }
     let before = board.position(turn, a.before.as_ref())?;
+    let fresh;
+    let fresh_held;
     if let Some(w) = a.words.as_deref().map(str::trim).filter(|w| !w.is_empty()) {
         let (root, _) = lens.root(a).map_err(|e| format!("{e:#}"))?;
         let scope = lens.scope(&root).map_err(|e| format!("{e:#}"))?;
         lens.words = Some(found(core, w, scope).await?);
+        // The node gate is read again after the await: a negative is never carried across it.
+        fresh = crate::view_gate::Moved::read(&core.runner, Some(session));
+        fresh_held = |e: &crate::exchange::Exchange| fresh.holds(e);
+        lens.moved = &fresh_held;
     }
+    let before_at = before.as_ref().map(|c| c.at_ms);
     let walked = lens
         .walk(a, before, used.looks)
         .map_err(|e| format!("{e:#}"))?;
+    let stretch = released_stretch(a, here, before_at, &walked);
     let resume = walked.resume.map(|at| board.keep(turn, at));
     let p = walked.page;
-    let bare = a.place.is_none() && a.thing.is_none() && a.words.is_none() && a.before.is_none();
-    let released = match bare {
-        true => released_lines(&lens),
-        false => String::new(),
+    let (released, shown) = match stretch {
+        Some((after, upto)) => released_lines(core, here, after, upto),
+        None => (String::new(), 0),
     };
     Ok(ToolOutput {
         text: format!(
-            "{released}{}",
+            "{}{released}",
             page::render(&p, here, used.looks, resume.as_ref())
         ),
         meta: json!({
-            "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
+            "lines": p.lines.len() + shown, "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
             "look": used.looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
         }),
     })
 }
 
-/// The exchanges the owner released to this place from another conversation (`crate::release`), each passing
-/// the lens like any line: the seal, the moved messages and the release's rules, failing closed.
-fn released_lines(lens: &page::Lens<'_>) -> String {
+/// What a released message's handle begins with (`crate::release`).
+const RELEASED: &str = "rel_";
+
+/// The stretch of release time a page of this place's own history covers: from its cursor (or now) back to where
+/// the next page begins (or the beginning, when history is exhausted). None for a narrowed call, or a look the
+/// turn's allowance did not grant: released messages ride the place's own pages and their bounds.
+fn released_stretch(
+    a: &HistoryArgs,
+    here: &str,
+    before_at: Option<u64>,
+    w: &page::Walked,
+) -> Option<(u64, u64)> {
+    let elsewhere = a
+        .place
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|p| !p.is_empty() && p != here);
+    if elsewhere
+        || a.thing.is_some()
+        || a.words.is_some()
+        || matches!(w.page.end, PageEnd::AllowanceUsed)
+    {
+        return None;
+    }
+    let upto = before_at.unwrap_or(u64::MAX);
+    let after = match w.page.end {
+        PageEnd::HistoryExhausted => 0,
+        _ => w
+            .page
+            .next
+            .as_ref()
+            .or(w.resume.as_ref())
+            .map_or(0, |c| c.at_ms),
+    };
+    Some((after, upto))
+}
+
+/// The released messages of a page's stretch, each its words only (cut as a line is), and how many it lists.
+fn released_lines(core: &Core, here: &str, after: u64, upto: u64) -> (String, usize) {
+    let (shown, more) = crate::release::listed(core, here, after, upto);
     let mut out = String::new();
-    for r in crate::release::released_to(lens.store, &lens.here) {
-        let Some(ex) = exchange::exchange(lens.store, &r.exchange).ok().flatten() else {
-            continue;
-        };
-        if !lens.admits(&ex) {
-            continue;
-        }
-        let words = ex
-            .ask
-            .as_deref()
-            .and_then(|id| lens.store.get_node(id).ok().flatten())
-            .map(|(_, n)| page::cut(&page::spoken(&n), 300))
-            .unwrap_or_default();
+    for (id, at, words) in &shown {
         out.push_str(&format!(
-            "{} ({}): \"{}\" [open: {}]\n",
+            "\n[{}] {}: \"{}\" (open: {id})",
             crate::release::LABEL,
-            page::when(ex.start_ms),
-            page::flat(&words),
-            ex.turn_id
+            page::when(*at),
+            page::flat(&page::cut(words, 300)),
         ));
     }
-    if !out.is_empty() {
-        out.push('\n');
+    if more > 0 {
+        out.push_str(&format!(
+            "\n({more} more released messages of this stretch are not listed.)"
+        ));
     }
-    out
+    (out, shown.len())
 }
 
 /// The turns the words index finds for `words` among `scope`, the sessions this point of view may read on the
