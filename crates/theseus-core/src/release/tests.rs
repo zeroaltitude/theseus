@@ -385,8 +385,9 @@ async fn released_messages_are_listed_on_a_bare_first_call_alone() {
     let listed = released_part(&quiet);
     assert_eq!(listed.matches(LABEL).count(), PER_PAGE, "{quiet}");
     assert!(listed.contains("2 more released messages"), "{quiet}");
-    // Held touches: this place's timeline names exchanges no reader is admitted to.
-    let base = theseus_protocol::now_unix_ms();
+    // Held touches: this place's timeline names exchanges no reader is admitted to, all older than the reader's
+    // session (a bare page walks from what its view already holds back).
+    let base = 1_000;
     let held: Vec<_> = (0..(READ_MOST as u64 + 50))
         .filter_map(|i| {
             touch(
