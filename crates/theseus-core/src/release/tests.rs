@@ -292,15 +292,17 @@ async fn an_agents_process_or_an_unnamed_connection_cannot_release() {
         (method::EXCHANGE_RELEASES, json!({})),
         (method::EXCHANGE_WITHDRAW, json!({"id": rel.id})),
     ];
+    // The authorization refusal, before anything is read: never a parse error or a missing record.
+    let refused = format!(
+        "\"error\":{{\"code\":{}",
+        theseus_protocol::error_code::REFUSED
+    );
     let agent = || Client::new("sock#1", Surface::Cli).behind(Behind::Agent("claude".into()));
     let unnamed = || Client::new("test", Surface::Unnamed);
     for client in [agent(), unnamed()] {
         for (m, params) in &calls {
             let line = rpc_as(&r.core, client.clone(), m, params.clone()).await;
-            assert!(
-                line.contains("\"error\"") && line.contains("refused: "),
-                "{m}: {line}"
-            );
+            assert!(line.contains(&refused), "{m}: {line}");
             assert!(
                 !line.contains(HARMLESS) && !line.contains(&rel.id),
                 "{m}: {line}"
