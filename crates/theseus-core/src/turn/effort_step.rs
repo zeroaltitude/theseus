@@ -133,7 +133,7 @@ impl TurnRunner {
     }
 
     /// Records the level a call's request carried: what the next turn's
-    /// sticky rule and a keep-warm read of this session replay.
+    /// sticky rule replays.
     pub(super) fn note_sent(&self, t: &Turn<'_>, spec: &RequestSpec, model: &str) {
         let held = t
             .route

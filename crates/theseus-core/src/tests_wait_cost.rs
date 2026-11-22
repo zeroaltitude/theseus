@@ -7,9 +7,11 @@
 //! test (`Gated`) until the test says it ends, so its end is a moment on the
 //! clock, not a process's.
 //!
-//! `a_five_minute_job_costs_fewer_calls_and_dollars_with_the_longer_wait`
-//! prints the stand-in model's calls, tokens and dollars before and after
-//! (`--nocapture`); `docs/benchmarks` holds its numbers.
+//! `a_five_minute_job_costs_fewer_calls_with_the_longer_wait` prints the
+//! stand-in model's calls, tokens and dollars before and after
+//! (`--nocapture`); `docs/benchmarks` holds its numbers. It asserts the calls
+//! only: since nothing is sent again during a wait, the longer wait no longer
+//! costs fewer dollars.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -545,7 +547,7 @@ async fn measure(job_secs: u64, max_secs: u64) -> Measure {
 /// 900 s. Before (the old clamp, `job_wait_max_secs = proc_sync_secs`) it is
 /// told "Still running" every minute and calls again; after, it waits once.
 #[tokio::test(start_paused = true)]
-async fn a_five_minute_job_costs_fewer_calls_and_dollars_with_the_longer_wait() {
+async fn a_five_minute_job_costs_fewer_calls_with_the_longer_wait() {
     let mut out = String::new();
     let mut got = Vec::new();
     for (name, job, max) in [
