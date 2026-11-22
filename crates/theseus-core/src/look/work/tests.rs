@@ -215,4 +215,3 @@ fn a_projects_line_counts_its_tasks_and_names_none() {
         with.len() - bare.len()
     );
 }
-

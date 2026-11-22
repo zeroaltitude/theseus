@@ -20,20 +20,6 @@ pub(crate) fn history(s: &Store, n: u64) -> Vec<String> {
         .collect()
 }
 
-/// Thread `slug`'s record, sealed when `sealed`, and a session bound to it; that session's id.
-pub(crate) fn thread(s: &Store, slug: &str, sealed: bool) -> String {
-    let r = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
-    s.put_session(&r.session_id, &r).unwrap();
-    let mut t = serde_json::json!({"slug": slug, "title": slug});
-    if sealed {
-        t["sealed"] = serde_json::json!({"by": "cli", "at_ms": 1, "reason": "embargo"});
-    }
-    s.put_meta(&format!("thread:{slug}"), &t).unwrap();
-    s.put_meta(&format!("discord.session.thread:{slug}"), &r.session_id)
-        .unwrap();
-    r.session_id
-}
-
 /// `turn`'s message moved into thread `slug`, as a split records it.
 pub(crate) fn move_ask(s: &Store, turn: &str, slug: &str) {
     let ask = exchange::exchange(s, turn).unwrap().unwrap().ask.unwrap();

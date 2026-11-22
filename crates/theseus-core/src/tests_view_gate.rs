@@ -11,15 +11,13 @@ use theseus_memory::gate::Present;
 use theseus_memory::recall::Place;
 
 use crate::places::BoundPlace;
-use crate::tests_memory_lookup::{index_over, script};
-use crate::tests_places::{rig_scripted, session, turn, Rig, LAB, OWNER};
+use crate::tests_memory_lookup::script;
+use crate::tests_places::{rig_scripted, session, Rig, LAB};
 use crate::view_gate::{self, OwnerMarks};
 use crate::Core;
 
 /// A guild channel bound shared.
 const PIER: u64 = 141_421_356_237_309_504;
-/// What the owner said at his terminal; no other place may be shown it.
-const HIS: &str = "the harbour gate code is 0451";
 
 /// The marks of a fake ledger: a node's in-person answer, or a read error.
 struct Fake(BTreeMap<&'static str, Option<bool>>);

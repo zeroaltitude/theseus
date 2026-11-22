@@ -107,7 +107,12 @@ pub fn may_name_on(_store: &Store, _board: &Board, _asker: &str, _slug: &str) ->
 
 /// A whole session's marks: its place, today's reading of it, no seal (anything goes, 2026-11-22), and
 /// `veil` as its caller read it.
-pub fn session_marks(runner: &TurnRunner, _asker: Option<&str>, session: &str, veil: Veil) -> Marks {
+pub fn session_marks(
+    runner: &TurnRunner,
+    _asker: Option<&str>,
+    session: &str,
+    veil: Veil,
+) -> Marks {
     Marks {
         place: place_name(runner, session),
         class: runner.place_of(session),
