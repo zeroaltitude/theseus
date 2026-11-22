@@ -137,7 +137,6 @@ impl Core {
             profile: previous.clone(),
             previous: previous.clone(),
             refused: None,
-            note: None,
         };
         let next = match p.profile.as_deref() {
             Some(name) => {

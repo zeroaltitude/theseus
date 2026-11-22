@@ -608,8 +608,7 @@ impl TurnRunner {
             effort: v.effort.as_ref().map(|e| e.level.clone()),
             effort_reason: effort.map(|e| e.reason.as_str().into()),
             effort_applied: applied.map(|e| effort::name(e).into()),
-            persona: had.as_ref().and_then(|r| r.persona.clone()),
-            data: had.and_then(|r| r.data),
+            persona: had.and_then(|r| r.persona),
         });
     }
 

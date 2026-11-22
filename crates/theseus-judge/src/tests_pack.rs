@@ -74,12 +74,12 @@ fn every_choice_question_declares_a_no_match() {
     );
     // And the default is carried onto every question as it is asked, which
     // is how it reaches the answer record.
-    let route = by_name("route.v10").expect("route.v10");
+    let route = by_name("route.v11").expect("route.v11");
     let asked = route.ask(&Dynamic::default());
     let model = asked
         .iter()
         .find(|a| a.def == "model")
-        .expect("route.v10 asks `model`");
+        .expect("route.v11 asks `model`");
     assert_eq!(model.no_match.as_deref(), Some("parent"));
 }
 
@@ -91,7 +91,7 @@ fn an_answer_runs_jevs_option_above_the_bar_and_the_declared_default_under_it() 
     use crate::band::band;
     use crate::client::Answer;
     use crate::judge::AnswerRecord;
-    let route = by_name("route.v10").expect("route.v10");
+    let route = by_name("route.v11").expect("route.v11");
     let def = route.question("model").expect("`model`");
     let rec = |confidence: f64| {
         let answer = Answer::Choice {
@@ -1036,8 +1036,8 @@ fn the_loaders_rules_hold_on_all_the_packs() {
     let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
     assert_eq!(
         six.len(),
-        30,
-        "loop.v1, security.v3, classify.v4, categorize.v1, rerank.v1, memory.v1, attribution.v1, route.v10 and v11, \
+        29,
+        "loop.v1, security.v3, classify.v4, categorize.v1, rerank.v1, memory.v1, attribution.v1, route.v11, \
          effort.v1, work.v1, citation.v1, people.v1, people_seen.v1, compare.v1, heard.v1, directive.v2, \
          onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1, \
          content.v4, split.v1, undo.v1, delay.v1, precedence.v1 and allow_said.v1 (the versions issue 44 \

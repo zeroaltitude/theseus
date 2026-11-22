@@ -95,7 +95,14 @@ async fn a_cn_profile_on_a_labelled_session_is_set() {
     let got = hold(&r.core, &sid, Some("glm"));
     assert_eq!(got.refused, None);
     assert_eq!(got.profile.as_deref(), Some("glm"));
-    assert_eq!(got.note, None, "nothing to caveat");
+    assert!(
+        !serde_json::to_value(&got)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("note"),
+        "nothing to caveat"
+    );
 }
 
 #[tokio::test]
@@ -111,7 +118,14 @@ async fn an_eu_profile_on_a_labelled_session_is_set_as_a_us_one_is() {
     let set = hold(&r.core, &sid, Some("opus"));
     assert_eq!(set.refused, None);
     assert_eq!(set.profile.as_deref(), Some("opus"));
-    assert_eq!(set.note, None, "a US profile has nothing to caveat");
+    assert!(
+        !serde_json::to_value(&set)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("note"),
+        "a US profile has nothing to caveat"
+    );
 }
 
 #[tokio::test]
@@ -125,7 +139,14 @@ async fn a_cn_profile_on_an_open_session_is_set_with_no_caveat() {
     let got = hold(&r.core, &sid, Some("glm"));
     assert_eq!(got.refused, None);
     assert_eq!(got.profile.as_deref(), Some("glm"));
-    assert_eq!(got.note, None, "no floor decides each turn any more");
+    assert!(
+        !serde_json::to_value(&got)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("note"),
+        "no floor decides each turn any more"
+    );
 }
 
 #[tokio::test]

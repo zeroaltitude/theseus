@@ -234,7 +234,8 @@ fn a_refused_answer_prints_the_reason_and_exits_one() {
     assert_eq!(out.status.code(), Some(1));
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("not a model of US origin"), "{err}");
-    assert!(String::from_utf8_lossy(&out.stdout).contains("nothing was written"));
+    // An older daemon's `note` (retired 2026-11-21) is read and ignored; the answer still says what happened.
+    assert!(String::from_utf8_lossy(&out.stdout).contains("nothing changed"));
 }
 
 #[test]

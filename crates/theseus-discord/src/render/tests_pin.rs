@@ -6,7 +6,7 @@
 //! the one case and fail the other.
 
 use serde_json::json;
-use theseus_protocol::route::{RoutePersona, TurnData, TurnRoute};
+use theseus_protocol::route::{RoutePersona, TurnRoute};
 use theseus_protocol::TurnSubmitResult;
 
 use super::footer;
@@ -64,19 +64,15 @@ fn a_pin_on_the_default_model_reads_pinned_and_the_default_does_not() {
     );
 }
 
-/// A turn the data rule moved off a pinned restricted model ran the default
-/// and says `data gate`, not `pinned`; a result from before routing carries no
-/// route and words as it always did.
+/// A turn an older daemon's data rule moved off a pinned restricted model ran
+/// the default and says neither `pinned` nor, since that rule went
+/// (2026-11-21), `data gate`; a result from before routing carries no route and
+/// words as it always did.
 #[test]
 fn a_gated_turn_and_a_turn_with_no_route_are_not_pinned() {
-    let mut gated = ran("data_gate");
-    gated.route.as_mut().unwrap().data = Some(TurnData {
-        cn: "confidential".into(),
-        gate: Some("confidential".into()),
-        origin: "us".into(),
-    });
+    let gated = ran("data_gate");
     let f = footer(&gated);
-    assert!(f.contains("data gate: confidential"), "{f}");
+    assert!(!f.contains("data gate"), "{f}");
     assert!(!f.contains("pinned"), "{f}");
     let mut none = ran("pinned");
     none.route = None;
