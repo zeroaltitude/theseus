@@ -210,7 +210,6 @@ impl TurnRunner {
             item.text = None;
         }
         let t1 = t.trace.now_us();
-        Self::mark_would_drop(t, &mut m);
         // The row waits for the route (theseus-n7nc).
         if t.route.deciding() {
             t.recall.held.push((m, t0, t1));
@@ -222,37 +221,8 @@ impl TurnRunner {
     /// The route is known (theseus-n7nc): the rows held while routing decided
     /// are recorded.
     pub(super) fn recall_routed(t: &mut Turn<'_>) {
-        for (mut m, t0, t1) in std::mem::take(&mut t.recall.held) {
-            Self::mark_would_drop(t, &mut m);
+        for (m, t0, t1) in std::mem::take(&mut t.recall.held) {
             Self::record_ran(t, &m, t0, t1);
-        }
-    }
-
-    /// Shadow of the small-talk bar (theseus-fpm2): when the turn's verdict
-    /// says `low` effort, the manifest records how many admitted notes a bar
-    /// would have left out. Nothing is dropped; the budget is the one already
-    /// fixed, so this never waits. A `paused` manifest records none: no build
-    /// pauses recall since the session cap was deleted (2026-11-22), so only an
-    /// old row says it, and its notes were never attached.
-    ///
-    /// **The decision is the route step's, not this step's**
-    /// (`tier::ShadowMark`, card `b4-fpm2-f4-sibling-hole`). The two
-    /// predicates it reads, `low_effort` and `low_effort_carried`, are the
-    /// mark's own readers and nothing else: this step does not work out for
-    /// itself whether the turn belongs in the sample. A refused mark names
-    /// the case it refused for — a verdict that said `high`, no verdict at
-    /// all, or a verdict that MISSED the route's own wait — and the route row
-    /// carries that word, so the sample's shortfall is countable instead of
-    /// being a fact a reader has to take from a doc comment.
-    fn mark_would_drop(t: &Turn<'_>, m: &mut RecallManifest) {
-        let Some(b) = t.route.injection.as_ref().filter(|b| b.low_effort()) else {
-            return;
-        };
-        if m.outcome != "paused" && !m.admitted.is_empty() {
-            m.would_drop = Some(m.admitted.len() as u64);
-            // theseus-ectzg, B4 L79: SEPARATE — a carried verdict (the
-            // previous message's) is told apart from this turn's own.
-            m.would_drop_carried = Some(b.low_effort_carried());
         }
     }
 

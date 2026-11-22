@@ -119,66 +119,17 @@ pub struct RecallManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub arm: Option<String>,
-    /// In shadow (theseus-fpm2): the turn's verdict said its reply needs `low`
-    /// effort, small talk, and this many admitted notes are what a small-talk
-    /// bar would have left out. Nothing was dropped: the notes were attached
-    /// as before. Absent when the verdict did not say so, and for a manifest
-    /// that paused at the session's recall cap: its notes were admitted but
-    /// never attached, so no bar had anything to drop, and for one that
-    /// admitted no notes at all. Absent, too, for a turn
-    /// whose verdict missed the route's own wait (`routing.max_wait_ms`): the
-    /// verdict lands for the session's next message, and nothing marks this
-    /// turn afterwards, so that greeting is missing from the sample. A count
-    /// over these rows is of the low-effort turns whose verdict arrived in
-    /// time, not of every one; a verdict that arrives inside the wait, after
-    /// the pack fixed its budget without it, is counted. A turn whose own
-    /// verdict is late can still be marked from the PREVIOUS message's late
-    /// verdict, which the route carries to it (theseus-ectzg, B4 L79: the
-    /// owner's decision is SEPARATE, not drop — a count over these rows
-    /// tells the two apart by [`Self::would_drop_carried`], which is set
-    /// whenever this field is). The count is of
-    /// ADMITTED notes: a restricted-origin model's withholding is decided
-    /// after the compile and is not visible where this is written; a
-    /// `recall.withheld` row with the same `recall_id` says it.
-    ///
-    /// Read it: `theseus memory recalled SESSION` prints a line per recall and
-    /// a total; across sessions, `theseus ledger -k recall.ran -n <N> --json`
-    /// (`theseus ledger` is hidden from `theseus help`; `--json` is needed, the
-    /// plain form cuts each row's data at 160 characters) returns the newest
-    /// N recall rows of every session, and the rows with `data.would_drop` are
-    /// the count.
-    ///
-    /// The bar for promoting the drop from shadow to live is the owner's to
-    /// set; a candidate: at least 200 low-effort turns read this way, and for
-    /// the notes the bar would have dropped, the replies cited (`memory.cites`)
-    /// under 5%; plus proof that `effort.v1` calls real greetings `low`, which
-    /// no test shows (the tests script the verdict).
-    ///
-    /// **This field's meaning did not change when the bar was built**
-    /// (theseus-fpm2): `[memory] small_talk_bar` (never set, and retired
-    /// unpromoted, issue 44) made the withholding real, and this stays
-    /// the count of what a bar WOULD have dropped, written before the compile
-    /// knows, so a series counted over these rows reads the same number with
-    /// the bar on or off. What was actually withheld is the `recall.withheld`
-    /// row with the same `recall_id`, whose `why` is `small_talk` for the bar
-    /// and `restricted_origin` for a model of restricted origin. The bar's own
-    /// sample is a subset of this one: a `low` verdict that lands after the
-    /// pack but inside the route's wait is marked here and was not there when
-    /// the request was built, so its notes were carried.
+    /// The small-talk bar's shadow count (theseus-fpm2): how many admitted
+    /// notes a bar would have dropped on a turn its verdict called `low`.
+    /// **No longer written** (D8a, 2026-11-22: the bar and its shadow study
+    /// went); rows written before still carry it, and `theseus memory
+    /// recalled` still prints it for them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub would_drop: Option<u64>,
-    /// Set whenever [`Self::would_drop`] is: `true` when the `low` verdict
-    /// that marked it is the PREVIOUS message's, carried to this turn by the
-    /// route (`injection_read`/`raise_low_effort` read a verdict whose
-    /// `Verdict::turn` differs from this turn's own id); `false` when it is
-    /// this turn's own, in-time or late-but-own, verdict (theseus-ectzg, B4
-    /// L79, decided SEPARATE: "the would-drop shadow sample tells a carried
-    /// verdict from the turn's own \[a flag on the sample\]"). A count over
-    /// `would_drop` that does not filter this flag mixes a turn's own
-    /// small-talk shadow with the turn before it's. `None` is a row written
-    /// before this flag existed: it is unknown, not evidence that the verdict
-    /// was this turn's own, and an owner-facing total must report it apart.
+    /// Set with [`Self::would_drop`] on old rows: `true` when the `low` verdict
+    /// that marked it was the previous message's, carried to the turn by the
+    /// route; `false` for the turn's own. No longer written (D8a).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub would_drop_carried: Option<bool>,

@@ -162,7 +162,8 @@ pub struct MemoryConfig {
     /// `small_talk_bar` withheld a greeting's recalled notes on a `low`
     /// verdict (theseus-fpm2). It was never set and is retired (issue 44):
     /// read, warned of ([`Self::trimmed`]), ignored and never written back.
-    /// The shadow count it would have promoted, `would_drop`, stays.
+    /// The shadow count it would have promoted, `would_drop`, went with it
+    /// (D8a); old manifests that carry one still read.
     #[serde(default, skip_serializing)]
     pub(crate) small_talk_bar: Option<toml::Value>,
     /// The tokens of the recall section an assembled prefix carries (30c):
