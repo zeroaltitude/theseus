@@ -464,3 +464,89 @@ async fn an_answer_cut_twice_fails_the_turn() {
     );
     assert_eq!(thens(&r.core), ["park"]);
 }
+
+/// Z.ai's refusal without numbers, as above, in a conversation with a reminder pending: its note rides every
+/// request as the request's tail, so the refused request was measured with it. The retry's first smaller
+/// candidate is a new chain, charged no tail until it is finished, so it looks smaller than the refused one
+/// and is not once finished; the size repair then recompiles without the refusal's own input. The turn still
+/// knows it was refused, so the repair takes the bare floor (the earlier exchange left out, the note kept), and
+/// the turn answers.
+#[tokio::test]
+async fn a_size_repair_after_a_refusal_still_answers_on_the_bare_request() {
+    const NOTE: &str = "check the north wall's tide gauge and write down what it reads";
+    let body = r#"{"type":"error","error":{"type":"invalid_request_error","code":"1261","message":"[1261][prompt is too long][20260101000000aaaa0000000000000b]"},"request_id":"20260101000000aaaa0000000000000b"}"#;
+    let refused = ProviderError::from_status(400, body, &reqwest::header::HeaderMap::new());
+    let r = rig(vec![
+        Scripted::text("The harbor opens at dawn."),
+        Scripted::Fail(refused),
+        Scripted::text("The tide turns at four."),
+    ]);
+    let sid = session(&r.core);
+    turn(&r.core, &sid, "when does the harbor open?")
+        .await
+        .unwrap();
+    crate::tests_route::call(
+        &r.core,
+        "wake.create",
+        json!({"when": "in 2h", "note": NOTE, "session_id": sid}),
+    )
+    .await;
+    let second = turn(&r.core, &sid, "and the tide?").await.unwrap();
+    assert_eq!(second.output, "The tide turns at four.");
+
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 3, "the refused call and its one retry");
+    assert!(
+        text_of(&reqs[1]).contains(NOTE),
+        "the refused request carried the note as its tail"
+    );
+    assert!(text_of(&reqs[2]).contains(NOTE), "and so does the retry");
+    assert!(
+        !text_of(&reqs[2]).contains("when does the harbor open?"),
+        "the retry is the bare floor: {:?}",
+        reqs[2].messages
+    );
+    assert_eq!(last_user_text(&reqs[2]), "and the tide?");
+    assert!(rows(&r.core, "turn.failed").is_empty());
+}
+
+/// When the bare floor answers, the request says what it left out (the newest exchanges here, their count, an
+/// estimate and the handle that opens them), and the next turn's request is back on the normal floor: the
+/// earlier exchange is there again, in its words.
+#[tokio::test]
+async fn a_bare_retry_says_what_it_left_out_and_the_next_turn_is_back_on_the_floor() {
+    let r = rig(vec![
+        Scripted::text("The harbor opens at dawn."),
+        too_long(250_000, 200_000),
+        Scripted::text("The tide turns at four."),
+        Scripted::text("You're welcome."),
+    ]);
+    let sid = session(&r.core);
+    turn(&r.core, &sid, "when does the harbor open?")
+        .await
+        .unwrap();
+    let second = turn(&r.core, &sid, "and the tide?").await.unwrap();
+    assert_eq!(second.output, "The tide turns at four.");
+    let reqs = r.fake.requests();
+    let retry = text_of(&reqs[2]);
+    assert!(
+        !retry.contains("when does the harbor open?"),
+        "the retry left the earlier exchange out: {retry}"
+    );
+    assert!(
+        retry.contains("1 more of the newest exchanges here") && retry.contains("left out; open"),
+        "and says so, with the handle that opens it: {retry}"
+    );
+
+    let third = turn(&r.core, &sid, "thanks").await.unwrap();
+    assert_eq!(third.output, "You're welcome.");
+    let next = text_of(&r.fake.requests()[3]);
+    assert!(
+        next.contains("when does the harbor open?") && next.contains("The harbor opens at dawn."),
+        "the next turn is back on the normal floor: {next}"
+    );
+    assert!(
+        !next.contains("more of the newest exchanges here"),
+        "and has nothing of the bare floor's line: {next}"
+    );
+}

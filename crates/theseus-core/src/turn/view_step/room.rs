@@ -118,8 +118,12 @@ impl TurnRunner {
             Self::view_reset(t, input.nodes);
             compiled = rendered(t, input)?;
         }
-        // After a refusal, a smaller request than the refused one is sent whenever one exists.
-        if input.overflowed.is_some() && (floored(t) || !fits(t, &compiled)) {
+        // After a refusal, a smaller request than the refused one is sent whenever one exists. The refusal is the
+        // turn's own state (`Fit::under`, set above from the call's input), so a size repair of the retry, which
+        // recompiles without that input, may still take the bare floor.
+        let refused =
+            input.overflowed.is_some() || t.view.as_ref().is_some_and(|f| f.fit.under.is_some());
+        if refused && (floored(t) || !fits(t, &compiled)) {
             let bare = Room {
                 here: Some(0),
                 keep: Some(0),
