@@ -175,6 +175,66 @@ async fn an_erased_import_is_read_as_nothing_by_session_or_by_words() {
     assert!(!found.contains("cursor"), "no next page: {found}");
 }
 
+/// A stale hit never costs a live one (review G-R1 r2): with erased episodes ranked first, a page of one
+/// at a time returns every live hit, none twice, over its pages, and the last page says that is all.
+#[tokio::test]
+async fn erased_hits_ranked_first_cost_no_live_hit_across_pages() {
+    let r = rig_scripted(|_| {}, script);
+    let gone = |n: usize| {
+        let mut e = episode(n, "public", "2026-03-03T18:00:00Z", HIDDEN);
+        e["import_tag"] = json!("gone-2026");
+        e["hash"] = json!(crate::import::episode::hash_of(&e));
+        e
+    };
+    let live = [
+        episode(20, "public", "2026-03-10T18:00:00Z", SHOWN),
+        episode(21, "public", "2026-03-17T18:00:00Z", SHOWN),
+    ];
+    let erased = import(&r.core, &[gone(10), gone(11)]);
+    let kept = import(&r.core, &live);
+    crate::import::write::erase(&r.core.store, "gone-2026", Some("a test"), "cli").unwrap();
+    // The index ranks the erased episodes' records first, and never forgets them.
+    let mut order = erased.clone();
+    order.extend(kept.iter().cloned());
+    r.core.runner.memory.set_ask(index_over(&r.core, order));
+    let cli = session(&r.core, None);
+    let (mut lines, mut cursor, mut last) = (Vec::new(), 0u64, String::new());
+    for _ in 0..12 {
+        let got = call(
+            &r.core,
+            &cli,
+            json!({"words": "parser", "limit": 1, "cursor": cursor}),
+        )
+        .await
+        .unwrap();
+        assert!(!got.contains(HIDDEN), "{got}");
+        // Each item: its header (less its number) and its body line after it.
+        let ls: Vec<&str> = got.lines().collect();
+        for (i, l) in ls.iter().enumerate() {
+            if l.contains(" · ses_") {
+                let head = l.split_once(". ").map_or(*l, |(_, rest)| rest);
+                lines.push(format!("{head}\n{}", ls.get(i + 1).unwrap_or(&"")));
+            }
+        }
+        last = got.clone();
+        match got.split("cursor ").nth(1) {
+            Some(rest) => cursor = rest.trim_end_matches('.').trim().parse().unwrap(),
+            None => break,
+        }
+    }
+    for sid in &kept {
+        assert!(
+            lines.iter().any(|l| l.contains(sid.as_str())),
+            "{sid}: {lines:?}"
+        );
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for l in &lines {
+        assert!(seen.insert(l.clone()), "twice: {l}");
+    }
+    assert!(last.contains("that is all"), "{last}");
+}
+
 /// The local month an instant falls in, `2026-03`, in the daemon's zone.
 fn local_month(ms: u64) -> String {
     crate::judge::spend::local_day(ms)[..7].to_string()

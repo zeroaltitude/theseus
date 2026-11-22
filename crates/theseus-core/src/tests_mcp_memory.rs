@@ -198,6 +198,75 @@ async fn a_vault_value_is_substituted_in_every_mcp_memory_reply() {
     }
 }
 
+/// An MCP error's words and `conversation_status`'s last reply carry the vault's values substituted too
+/// (review G-R2 r2): an error that echoes what was asked, and the newest reply as the status reads it
+/// (`memory_lookup::mcp_last_reply` over the session's `session.history`, the MCP's own route).
+#[tokio::test]
+async fn an_mcp_error_and_the_status_reply_carry_the_vault_value_substituted() {
+    let secret = "marsh-kelp-vault-value-77";
+    let r = rig(true);
+    r.core
+        .secrets
+        .hold("marsh_vault", crate::secrets::Secret::new(secret.into()));
+    // An error that echoes the asked span.
+    let e = ask(
+        &r.core,
+        json!({"op": "search", "words": "ferry", "since": secret, "client": "c"}),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        !e.message.contains(secret) && e.message.contains("[redacted:marsh_vault]"),
+        "{}",
+        e.message
+    );
+    // The RPC's own error, which echoes the op.
+    let e = ask(&r.core, json!({"op": secret, "client": "c"}))
+        .await
+        .unwrap_err();
+    assert!(
+        !e.message.contains(secret) && e.message.contains("[redacted:marsh_vault]"),
+        "{}",
+        e.message
+    );
+    // The newest reply a session holds, read as conversation_status reads it.
+    let sid = session(&r.core, None);
+    let reply = crate::node::Node::assistant(
+        &sid,
+        "turn_x",
+        0,
+        crate::node::Body::AssistantMessage {
+            blocks: vec![json!({"type": "text", "text": format!("the key is {secret}")})],
+            model: "m".into(),
+            provider: "p".into(),
+            stop_reason: None,
+            usage: Default::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+            effort: None,
+        },
+    );
+    r.core.store.append(&[reply.record().unwrap()]).unwrap();
+    let h = rpc(
+        &r.core,
+        Surface::Mcp,
+        method::SESSION_HISTORY,
+        json!({"session_id": sid, "n": 40}),
+    )
+    .await
+    .unwrap();
+    let nodes = h["nodes"].as_array().cloned().unwrap_or_default();
+    let last = crate::memory_lookup::mcp_last_reply(&r.core, &nodes).expect("a reply");
+    assert!(
+        !last.contains(secret) && last.contains("[redacted:marsh_vault]"),
+        "{last}"
+    );
+}
+
 /// `get` by a citation's id returns that node, flagged, with its session's
 /// neighbours in order, a few on each side.
 #[tokio::test]

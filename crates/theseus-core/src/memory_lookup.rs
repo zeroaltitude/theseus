@@ -393,6 +393,19 @@ async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, St
     })
 }
 
+/// The newest reply among a `session.history` answer's nodes, as MCP's `conversation_status` and
+/// `conversation_send` read it (`theseusd::mcp`).
+pub fn mcp_last_reply(_core: &Core, nodes: &[Value]) -> Option<String> {
+    nodes
+        .iter()
+        .rev()
+        .find(|n| {
+            n["kind"] == "assistant_message" && n["text"].as_str().is_some_and(|t| !t.is_empty())
+        })
+        .and_then(|n| n["text"].as_str())
+        .map(String::from)
+}
+
 /// Whether `session` is an imported episode whose tag was erased.
 fn erased(core: &Core, session: &str) -> bool {
     crate::import::is_imported(session)
