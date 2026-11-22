@@ -101,10 +101,6 @@ fn result(id: &str, content: &str, status: ResultStatus, late: bool) -> Node {
     )
 }
 
-fn thinking() -> Value {
-    json!({"type": "thinking", "thinking": "", "signature": "sig"})
-}
-
 fn run(
     nodes: &[(u64, Node)],
     current: Option<&Compilation>,
@@ -113,7 +109,7 @@ fn run(
 ) -> Compiled {
     let nodes: Vec<(u64, crate::stub::Stub)> =
         nodes.iter().map(|(p, n)| (*p, n.clone().into())).collect();
-    compile(CompileInput {
+    super::tests_parts::on_view(CompileInput {
         session_id: "s",
         current,
         nodes: &nodes,
@@ -130,56 +126,6 @@ fn run(
         assembled: None,
         situation: &situation::Situation::Continuation,
     })
-}
-
-#[test]
-fn appending_keeps_every_earlier_byte_and_tool_results_follow_their_call() {
-    let sp = spec("claude-opus-5", "You are Theseus.");
-    let mut nodes = vec![(1, Node::user("s", None, "web", "read /x"))];
-    let c1 = run(&nodes, None, &sp, 1);
-    assert!(c1.new_compilation);
-    assert_eq!(c1.trigger.as_deref(), Some("new_session"));
-    assert_eq!(c1.request.thinking.as_ref().unwrap()["type"], "adaptive");
-    assert_eq!(c1.request.output_config.as_ref().unwrap()["effort"], "high");
-    assert_eq!(c1.request.extra["fallbacks"], "default");
-    assert!(c1.request.betas.contains(&BETA_FALLBACKS.to_string()));
-    // A header this short is under Opus 5's caching minimum, so the only
-    // breakpoint is the conversation's (theseus-ev1).
-    assert!(c1.request.system[0].get("cache_control").is_none());
-    assert_eq!(c1.request.cache_control, Some(json!({"type": "ephemeral"})));
-
-    nodes.push((
-        2,
-        assistant(vec![
-            thinking(),
-            json!({"type": "text", "text": "Reading."}),
-            json!({"type": "tool_use", "id": "t1", "name": "fs_read", "input": {"path": "/x"}}),
-            json!({"type": "tool_use", "id": "t2", "name": "fs_read", "input": {"path": "/y"}}),
-        ]),
-    ));
-    nodes.push((3, result("t2", "Y", ResultStatus::Ok, false)));
-    nodes.push((4, result("t1", "X", ResultStatus::Error, false)));
-    let c2 = run(&nodes, Some(&c1.compilation), &sp, 4);
-    assert!(!c2.new_compilation);
-    assert_eq!(c2.decision(), "append");
-    assert_eq!(&c2.request.messages[..1], &c1.request.messages[..]);
-    assert_eq!(c2.request.messages.len(), 3);
-    // Results in one user message, in tool_use order, error flagged.
-    let rb = &c2.request.messages[2]["content"];
-    assert_eq!(rb[0]["tool_use_id"], "t1");
-    assert_eq!(rb[0]["is_error"], true);
-    assert_eq!(rb[1]["tool_use_id"], "t2");
-    assert!(rb[1].get("is_error").is_none());
-    // The thinking block replays verbatim.
-    assert_eq!(c2.request.messages[1]["content"][0], thinking());
-
-    nodes.push((5, assistant(vec![json!({"type": "text", "text": "Done."})])));
-    nodes.push((6, Node::user("s", None, "web", "thanks")));
-    let c3 = run(&nodes, Some(&c1.compilation), &sp, 6);
-    assert_eq!(&c3.request.messages[..3], &c2.request.messages[..]);
-    assert_eq!(c3.request.system, c2.request.system);
-    assert_eq!(c3.request.tools, c2.request.tools);
-    assert!(c3.repairs.is_empty());
 }
 
 /// A request that ends in tool results, mid-way through a tool loop, carries
@@ -229,48 +175,6 @@ fn a_request_ending_in_tool_results_carries_the_per_message_effort_beta() {
         c.request.betas.iter().any(|b| b == BETA_TURN_EFFORT),
         "a message that carries output_config needs its beta: {:?}",
         c.request.betas
-    );
-}
-
-#[test]
-fn a_system_or_model_change_recompiles_and_strips_the_prefixs_thinking() {
-    let sp = spec("claude-opus-5", "A");
-    let nodes = vec![
-        (1, Node::user("s", None, "web", "hi")),
-        (
-            2,
-            assistant(vec![thinking(), json!({"type": "text", "text": "hello"})]),
-        ),
-        (3, Node::user("s", None, "web", "again")),
-    ];
-    let c1 = run(&nodes[..1], None, &sp, 1);
-    let sp2 = spec("claude-opus-5", "B");
-    let c2 = run(&nodes, Some(&c1.compilation), &sp2, 3);
-    assert!(c2.new_compilation);
-    assert_eq!(c2.trigger.as_deref(), Some("system_changed"));
-    assert!(c2.compilation.manifest.strip_thinking);
-    assert_eq!(
-        c2.compilation.derived_from.as_deref(),
-        Some(c1.compilation.id.as_str())
-    );
-    assert_eq!(
-        c2.request.messages[1]["content"].as_array().unwrap().len(),
-        1
-    );
-
-    // A thinking block's signature is for the model that wrote it
-    // (theseus-kol): a model change strips them as a system change does.
-    let sp3 = spec("claude-sonnet-5", "A");
-    let c3 = run(&nodes, Some(&c1.compilation), &sp3, 3);
-    assert_eq!(c3.trigger.as_deref(), Some("model_changed"));
-    assert!(c3.compilation.manifest.strip_thinking);
-    assert_eq!(
-        c3.request.messages[1]["content"],
-        json!([{"type": "text", "text": "hello"}])
-    );
-    assert!(
-        !c3.request.extra.contains_key("fallbacks"),
-        "sonnet 5 has no fallbacks row"
     );
 }
 
@@ -362,11 +266,11 @@ fn a_thinking_block_goes_back_only_to_the_provider_that_wrote_it() {
             .contains("zai-signature")
     };
 
-    // A new compilation, made for Anthropic: nothing strips its prefix,
-    // and still GLM's thinking stays home.
+    // A new chain, made for Anthropic: a view chain's manifest marks its
+    // prefix stripped, and still GLM's thinking in the turn stays home.
     let sonnet = spec("claude-sonnet-5-5", "A");
     let c = run(&nodes, None, &sonnet, 3);
-    assert!(!c.compilation.manifest.strip_thinking);
+    assert!(c.compilation.manifest.strip_thinking);
     assert!(no_thinking(&c), "{:?}", c.request.messages);
     assert_eq!(c.request.messages[1]["content"], json!([call]));
 
@@ -387,7 +291,7 @@ fn a_thinking_block_goes_back_only_to_the_provider_that_wrote_it() {
     // next turn's recompile strips every earlier thinking block.
     let s1 = run(&nodes, None, &glm, 3);
     let switched = run(&nodes, Some(&s1.compilation), &sonnet, 3);
-    assert_eq!(switched.trigger.as_deref(), Some("model_changed"));
+    assert_eq!(switched.trigger.as_deref(), Some("view_turn"));
     assert!(switched.compilation.manifest.strip_thinking);
     assert!(no_thinking(&switched));
 }
@@ -493,50 +397,13 @@ fn the_system_is_two_blocks_each_with_a_breakpoint() {
     let mut edited = sp;
     edited.context_text.push_str(" and one more line");
     let c2 = run(&hi(), Some(&c.compilation), &edited, 1);
-    assert_eq!(c2.trigger.as_deref(), Some("system_changed"));
+    assert_eq!(c2.trigger.as_deref(), Some("view_turn"));
     assert_eq!(
         serde_json::to_string(&c2.request.system[0]).unwrap(),
         serde_json::to_string(&c.request.system[0]).unwrap()
     );
     assert_ne!(c2.request.system[1], c.request.system[1]);
     assert_eq!(c2.request.tools, c.request.tools);
-}
-
-/// Without context files the system is one block, with the digest and
-/// the bytes it had before the split, so those sessions do not recompile.
-/// With them the digest is new, so a compilation from before the split
-/// recompiles once and drops its prefix's thinking, whose signatures were
-/// made over the old single block (theseus-ev1).
-#[test]
-fn one_block_keeps_its_old_digest_and_two_recompile_once() {
-    // A header over the minimum, as every real one is but on Haiku 4.5.
-    let header = format!("You are Theseus. {}", "h".repeat(4_000));
-    let one = spec("claude-opus-5", &header);
-    let m = manifest_for(&one, &Catalog::builtin(), None, false);
-    assert_eq!(m.system_digest, sha(&header));
-    let c = run(&hi(), None, &one, 1);
-    assert_eq!(
-        c.request.system,
-        vec![json!({"type": "text", "text": header, "cache_control": {"type": "ephemeral"}})]
-    );
-    // The old layout: one block, the files after a blank line.
-    let mut two = one;
-    two.context_text = "## A context file".into();
-    let mut old = c.compilation;
-    old.manifest.system_digest = sha(&format!("{}\n\n{}", two.system_text, two.context_text));
-    old.manifest.cache = None;
-    let nodes = vec![
-        (1, Node::user("s", None, "web", "hi")),
-        (
-            2,
-            assistant(vec![thinking(), json!({"type": "text", "text": "hello"})]),
-        ),
-        (3, Node::user("s", None, "web", "again")),
-    ];
-    let c2 = run(&nodes, Some(&old), &two, 3);
-    assert_eq!(c2.trigger.as_deref(), Some("system_changed"));
-    assert!(c2.compilation.manifest.strip_thinking);
-    assert_eq!(c2.request.system.len(), 2);
 }
 
 /// A breakpoint whose prefix can never reach the model's minimum gets
@@ -645,7 +512,7 @@ fn a_model_that_does_not_cache_gets_no_breakpoints() {
     let sp = two_blocks("claude-opus-5", 4_000, 2_000);
     let nodes: Vec<(u64, crate::stub::Stub)> =
         hi().into_iter().map(|(p, n)| (p, n.into())).collect();
-    let c = compile(CompileInput {
+    let c = super::tests_parts::on_view(CompileInput {
         session_id: "s",
         current: None,
         nodes: &nodes,

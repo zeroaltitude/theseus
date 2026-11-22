@@ -162,10 +162,6 @@ pub(super) fn failed(t: &mut Turn<'_>, class: &str) {
 }
 
 impl TurnRunner {
-    fn ledger_on(&self, _: &Turn<'_>) -> bool {
-        self.cfg.context.ledger_on()
-    }
-
     /// The turn's place, read once and the same for its exchange and its gate (issue 44): where its
     /// message arrived (its mark's), else where its reply is delivered (`speaks_at`: a wake's or a
     /// report's target too). None when that cannot be read: a route that cannot be read is no place,
@@ -199,10 +195,8 @@ impl TurnRunner {
 
     /// What a turn no person's message opened was given by the gate, kept beside its exchange so a turn
     /// that continues it reads it (`exchange::given`), in the turn's frame.
-    pub(super) fn exchange_given(&self, t: &Turn<'_>, given: &crate::exchange::given::Given) {
-        if self.ledger_on(t) {
-            defer(t, crate::exchange::given::given_record(given).ok());
-        }
+    pub(super) fn exchange_given(t: &Turn<'_>, given: &crate::exchange::given::Given) {
+        defer(t, crate::exchange::given::given_record(given).ok());
     }
 
     /// The index's things in `text`, named off the turn's path: the task
@@ -310,7 +304,6 @@ impl TurnRunner {
     /// submission carried (a steer's with it), is written beside it. The one
     /// that opens the turn is its ask; a steer joins the exchange's messages.
     pub(super) fn exchange_heard(
-        &self,
         t: &mut Turn<'_>,
         node: &Node,
         arrival: Option<&OwnerMark>,
@@ -319,9 +312,6 @@ impl TurnRunner {
         let crate::node::Body::UserMessage { text, .. } = &node.body else {
             return;
         };
-        if !self.ledger_on(t) {
-            return;
-        }
         let mark = arrival.map(|m| OwnerMark {
             node: node.id.clone(),
             ran_session: t.tc.session_id.into(),
@@ -348,9 +338,6 @@ impl TurnRunner {
     /// touches; the naming of its message's things starts here, keyed at its
     /// start, and the counts of the place's last reply's are taken for its row.
     pub(super) fn exchange_open(&self, t: &mut Turn<'_>, prompted: bool) {
-        if !self.ledger_on(t) {
-            return;
-        }
         let sid = t.tc.session_id;
         // A task's first turn answers its brief, written before the turn: its ask.
         let brief = (t.tc.task.is_some() && t.exchange.ask.is_none())

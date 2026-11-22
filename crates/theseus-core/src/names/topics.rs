@@ -121,15 +121,12 @@ pub fn touches(
 
 /// [`touches`] for the sink's frame: the batch's judgments the ontology may
 /// act on, at `[ontology] act`, against the snapshot, with the plans the
-/// frame's `filing` came to. Nothing while `[context] ledger` is off.
+/// frame's `filing` came to.
 pub(crate) fn of_batch(
     core: &crate::rpc::Core,
     batch: &[Judgment],
     filing: Option<&crate::judge::onto::stage::Pending<'_>>,
 ) -> Vec<NewRecord> {
-    if !core.cfg.context.ledger_on() {
-        return Vec::new();
-    }
     let wanted: Vec<&Judgment> = batch
         .iter()
         .filter(|j| crate::judge::onto::stage::acts(j))
