@@ -92,8 +92,9 @@ or noise on a judgment), which a removed content label also writes.
 
 ## K
 
-**keep-warm**: after a conversation's last turn, one small request every `[cache] keep_warm_every_minutes` that reads the
-cached prefix and so keeps it from expiring (`crates/theseus-core/src/keep_warm.rs`).
+**keep-warm**: retired (2026-11-22). A small request that re-read a cached prefix so it would not expire, between turns
+and, last, during a long wait; nothing is sent again now. An older build's `keep_warm` ledger rows are still counted
+(`crates/theseus-core/src/keep_warm_threads.rs`), and `[cache] keep_warm_every_minutes` loads with a warning.
 
 ## M
 
