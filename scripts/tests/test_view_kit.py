@@ -78,6 +78,9 @@ def fail(code=1):
 if cmd == 'health':
     sys.exit(1 if fx.get('health') == 'never' else 0)
 if cmd == 'shutdown':
+    if fx.get('shutdown') == 'hang':
+        import time
+        time.sleep(30)
     pid = int(open(os.path.join(os.path.dirname(sock), 'fake.pid')).read())
     os.kill(pid, signal.SIGTERM)
     sys.exit(0)
@@ -345,8 +348,7 @@ class FakeDaemon(unittest.TestCase):
                 state = d.state
         self.assertIn("E_REMOVE", self.stderr.getvalue())
         self.assertIn(str(state), self.stderr.getvalue())
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(scratch.clean(self.tmp / "o"), 0)
+        shutil.rmtree(self.tmp / "o")  # by hand, as the README says
         self.assertFalse((self.tmp / "o" / "daemon").exists())
 
     def test_errors_of_the_cli_the_ledger_and_the_history_are_fixed_codes(self):
@@ -367,43 +369,6 @@ class FakeDaemon(unittest.TestCase):
 
 
     # ---- round 2
-
-    def test_clean_refuses_a_live_root_and_kills_and_removes_nothing(self):
-        import subprocess
-        bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "--state-dir",
-                                      str(self.live / "store")])
-        self.addCleanup(bystander.kill)
-        before = sorted(self.live.rglob("*"))
-        for out in (self.tmp, self.live, self.live / "store", self.live / "inside"):
-            with self.assertRaises(scratch.Refused):
-                scratch.clean(out, self.env)
-        self.assertIsNone(bystander.poll())
-        self.assertEqual(sorted(self.live.rglob("*")), before)
-
-    def test_clean_acts_only_on_the_kit_s_own_directory_and_its_recorded_daemon(self):
-        import subprocess
-        stray = self.tmp / "stray" / "daemon"
-        stray.mkdir(parents=True)
-        (stray / "keep").write_text("x")
-        with self.assertRaises(scratch.Refused):  # no manifest: not the kit's
-            scratch.clean(self.tmp / "stray", self.env)
-        (stray / scratch.MANIFEST).write_text(json.dumps({"kit": scratch.KIT, "id": "0" * 32, "dir": "/elsewhere"}))
-        with self.assertRaises(scratch.Refused):  # a manifest naming another directory
-            scratch.clean(self.tmp / "stray", self.env)
-        self.assertTrue((stray / "keep").exists())
-        d = scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env).start()
-        # A decoy with the very same arguments, whose pid the manifest does not record: never killed.
-        decoy = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "--state-dir", str(d.state)])
-        self.addCleanup(decoy.kill)
-        recorded = json.loads((d.dir / scratch.MANIFEST).read_text())["daemon_pid"]
-        self.assertEqual(recorded, d.proc.pid)
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(scratch.clean(self.tmp / "o", self.env), 0)  # the kit was "killed": what it left
-        self.assertIsNotNone(d.proc.wait(10))
-        self.assertIsNone(decoy.poll())
-        self.assertFalse(d.dir.exists())
-        d.proc = None
-        d._untrap()
 
     def test_sigterm_during_the_copy_removes_what_was_copied(self):
         real = shutil.copytree
@@ -438,7 +403,7 @@ class FakeDaemon(unittest.TestCase):
         patch.stop()
         self.assertIn("E_SIGTERM", str(e.exception))
         self.assertFalse(state.exists())
-        self.assertFalse(scratch.naming(self.tmp / "o" / "daemon"))
+        self.assertFalse(scratch.drive.processes_naming(self.tmp / "o" / "daemon"))
         self.assertEqual(signal.getsignal(signal.SIGTERM), before)
 
     def test_a_cli_timeout_is_a_fixed_code_without_its_command_line(self):
@@ -500,6 +465,44 @@ class FakeDaemon(unittest.TestCase):
             vc.beneath(self.tmp / "o", self.tmp / "o" / "a" / ".." / "..")
 
 
+    # ---- round 3
+
+    def test_the_kit_has_no_verb_that_kills_or_deletes(self):
+        import subprocess
+        self.assertFalse(hasattr(scratch, "clean"))
+        victim = self.tmp / "victim" / "daemon"
+        victim.mkdir(parents=True)
+        (victim / "keep").write_text("x")
+        r = subprocess.run([sys.executable, str(VIEW / "scratch.py"), "clean", "--out", str(self.tmp / "victim")],
+                           capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertTrue((victim / "keep").exists())
+
+    def test_a_run_prints_its_scratch_directory_first(self):
+        out = self.tmp / "out"
+        with contextlib.redirect_stdout(io.StringIO()):
+            replay.main(["--bin-dir", str(self.bins), "--store", str(self.store), "--place", PLACE,
+                         "--turns", "4", "--out", str(out)])
+        first = self.stderr.getvalue().splitlines()[0]
+        self.assertIn(str((out / "daemon").resolve()), first)
+        self.assertTrue(first.startswith("view kit: scratch directory "))
+
+    def test_a_hanging_shutdown_still_ends_the_daemon_removes_the_copy_and_restores_the_handler(self):
+        f = fixture(True)
+        f["shutdown"] = "hang"
+        self.fx(f)
+        before = signal.getsignal(signal.SIGTERM)
+        with unittest.mock.patch.object(scratch, "SHUTDOWN_WAIT", 0.5), \
+                unittest.mock.patch.object(scratch, "STOP_WAIT", 0.5):
+            with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+                pid, state = d.proc.pid, d.state
+        with self.assertRaises(ProcessLookupError):  # killed and reaped
+            os.kill(pid, 0)
+        self.assertFalse(state.exists())
+        self.assertEqual(signal.getsignal(signal.SIGTERM), before)
+        self.assertFalse(scratch.drive.processes_naming(self.tmp / "o" / "daemon" / "state"))
+
+
 class SSE(BaseHTTPRequestHandler):
     events: list[dict] = []
 
@@ -508,7 +511,8 @@ class SSE(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self.rfile.read(int(self.headers.get("content-length", "0")))
-        body = "".join(f"event: {e['type']}\ndata: {json.dumps(e)}\n\n" for e in self.events).encode()
+        body = "".join(e if isinstance(e, str) else f"event: {e['type']}\ndata: {json.dumps(e)}\n\n"
+                       for e in self.events).encode()
         self.send_response(200)
         self.send_header("content-type", "text/event-stream")
         self.send_header("content-length", str(len(body)))
@@ -704,6 +708,55 @@ class Pieces(unittest.TestCase):
                    for w in ys.windows(len(probes[0]["ids"])))
         self.assertAlmostEqual(r["spent_usd"], held)
         self.assertEqual(r["reservations_kept"], r["calls"])
+
+    def test_a_malformed_line_after_a_usage_delta_keeps_the_whole_reservation(self):
+        start = {"type": "message_start", "message": {"usage": {"input_tokens": 5, "output_tokens": 1}}}
+        early = {"type": "message_delta", "usage": {"output_tokens": 3}}
+        more = {"type": "content_block_delta", "delta": {"type": "text_delta", "text": '{"scores": [2]}'}}
+        base = self.serve([start, early, more, "data: {not json\n\n", {"type": "message_stop"}])
+        _, usage, done = ys.ask(base, "k", "x", ys.SYSTEM, "u")
+        self.assertFalse(done)
+        prices = ys.Prices("x", base, 1.0, 5.0)
+        probes, _ = ys.probes_from_cases(self.cases, None)
+        one = probes[:1]
+        r = ys.run(one, ys.ModelJudge("x", base, "k"), prices, 1.0)
+        held = sum(prices.reserve(ys.SYSTEM, ys.prompt(one[0]["message"], [one[0]["texts"][i] for i in w]))
+                   for w in ys.windows(len(one[0]["ids"])))
+        self.assertAlmostEqual(r["spent_usd"], held)
+        self.assertEqual(r["reservations_kept"], r["calls"])
+        # Content after the usage delta, with no malformed line, is not settled either.
+        _, _, done = ys.ask(self.serve([start, early, more, {"type": "message_stop"}]), "k", "x", ys.SYSTEM, "u")
+        self.assertFalse(done)
+
+    def test_an_invalid_status_line_is_a_fixed_code_with_no_word_of_it(self):
+        import socketserver
+
+        class Bogus(socketserver.BaseRequestHandler):
+            def handle(self):
+                self.request.recv(65536)
+                self.request.sendall(f"BOGUS {MARKERS[0]} {MARKERS[1]}\r\n\r\n".encode())
+
+        srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Bogus)
+        srv.daemon_threads = True
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            with self.assertRaises(ys.JudgeFailed) as e:
+                ys.ask(base, "k", "x", ys.SYSTEM, "u")
+            prices = ys.Prices("x", base, 1.0, 5.0)
+            probes, _ = ys.probes_from_cases(self.cases, None)
+            r = ys.run(probes[:1], ys.ModelJudge("x", base, "k"), prices, 1.0)
+        self.assertEqual(str(e.exception), "E_JUDGE_PROTOCOL")
+        self.assertIsNone(e.exception.__context__)
+        self.assertIsNone(e.exception.__cause__)
+        self.assertEqual(r["stopped"], "E_JUDGE_PROTOCOL")
+        self.assertGreater(r["spent_usd"], 0)  # the reservation stays spent
+        for m in MARKERS:
+            for t in (out.getvalue(), err.getvalue(), str(e.exception), repr(e.exception), json.dumps(r)):
+                self.assertNotIn(m, t)
 
     def test_a_stream_error_is_a_fixed_code_and_its_reservation_stays_spent(self):
         SSE.events = [{"type": "message_start", "message": {"usage": {"input_tokens": 5, "output_tokens": 1}}},

@@ -6,7 +6,6 @@
         d.json("view", "preview", place)
     with Scratch(bin_dir, out) as d:                # an empty store (the labelled cases build theirs)
 
-    python3 bench/view/scratch.py clean --out DIR   # what a killed run left: its daemon and its copy
 
 How it is kept apart from the owner's daemon:
 
@@ -32,31 +31,26 @@ How it is kept apart from the owner's daemon:
   row or an event;
 - **nothing left behind**: on a normal end, a failed construction, a failed
   start, a health timeout, an exception or SIGTERM, the daemon is stopped
-  (`shutdown`, a kill after `STOP_WAIT`, then the processes whose arguments
-  name `out/daemon` exactly) and the copy is removed; a removal that fails is
-  printed to stderr with its path. SIGTERM is trapped from before the copy
-  starts until the removal has finished: during the removal it is held, and
-  raised once the removal is done. A SIGKILL of the kit leaves `out/daemon`
-  (the copy) and maybe the daemon: `clean` removes both;
-- **`clean` touches only what the kit made**: the kit writes an ownership
-  manifest (`MANIFEST`: the kit's name, a random id, its pid, the time, the
-  directory, and the daemon's pid once started) in `out/daemon` when it
-  creates it. `clean` refuses any path that is, holds or lies inside a live
-  root BEFORE anything else, acts only on a directory whose manifest is the
-  kit's and names that directory, and kills only the daemon pid the manifest
-  records, after checking that the pid's arguments name that directory's
-  state.
+  (`shutdown`; whatever that raises or however long it hangs, then a kill of
+  the daemon's own process group, which the kit started) and the copy is
+  removed; a removal that fails is printed to stderr with its path. The
+  teardown runs to its end whatever one step raises. SIGTERM is trapped from
+  before the copy starts until the removal has finished: during the removal
+  it is held, and raised once the removal is done;
+- **what a SIGKILL leaves is for a person to remove**: the scratch
+  directory's absolute path is the first line every run prints (on stderr).
+  A run killed with SIGKILL leaves that directory, which holds the copy, and
+  maybe its daemon; the kit has no verb that deletes or kills on its own
+  (the README says how to check and remove it by hand).
 
 Standard library only.
 """
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import json
 import os
-import secrets
 import shutil
 import signal
 import subprocess
@@ -80,8 +74,8 @@ SERVE_WAIT = drive.SERVE_WAIT
 STOP_WAIT = drive.STOP_WAIT
 # The only variables of the caller's environment a child is given.
 ENV_KEPT = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ")
-MANIFEST = ".view-kit-manifest.json"
-KIT = "theseus-bench-view-kit"
+# How long the daemon is given to answer `shutdown`, and then to exit, before its process group is killed.
+SHUTDOWN_WAIT = 10.0
 # The kit's own verbs, the only words a failure code may carry.
 VERBS = {"view", "rpc", "history", "ask", "sessions", "health", "shutdown"}
 LEDGER_PAGE = drive.LEDGER_PAGE
@@ -209,8 +203,8 @@ def remove(path: Path) -> bool:
     errors: list[str] = []
     shutil.rmtree(path, onerror=lambda fn, p, exc: errors.append(p))
     if Path(path).exists():
-        print(f"view kit: E_REMOVE: COULD NOT REMOVE the store copy at {path}: remove it by hand "
-              f"(python3 bench/view/scratch.py clean --out {Path(path).parent.parent})", file=sys.stderr)
+        print(f"view kit: E_REMOVE: COULD NOT REMOVE the store copy at {path}: check that no process uses it, "
+              "then remove it by hand (bench/view/README.md)", file=sys.stderr)
         return False
     return True
 
@@ -237,15 +231,15 @@ class Scratch:
         self.env = child_env(self.home, env)
         self._trapped, self._old_term, self._stopping, self._term_pending = False, None, False, False
         self._trap_term()  # from before the first write until the removal has finished
+        # The first line of every run: what a person removes by hand if the run is killed with SIGKILL.
+        print(f"view kit: scratch directory {self.dir} (holds a store copy while it runs; removed at its end)",
+              file=sys.stderr, flush=True)
         made = False
         try:
             self.dir.parent.mkdir(parents=True, exist_ok=True)
             os.mkdir(self.dir, 0o700)
             made = True
             self.dir.chmod(0o700)
-            self.manifest = {"kit": KIT, "id": secrets.token_hex(16), "pid": os.getpid(),
-                             "created_unix": int(time.time()), "dir": str(self.dir), "daemon_pid": None}
-            self._write_manifest()
             self.home.mkdir(mode=0o700)
             if src is not None:
                 # Links followed: none leads out (check_copy), so the copy holds plain files only.
@@ -257,9 +251,6 @@ class Scratch:
                 remove(self.dir)
             self._untrap()
             raise
-
-    def _write_manifest(self) -> None:
-        (self.dir / MANIFEST).write_text(json.dumps(self.manifest))
 
     def cli(self, *args: str, input: str | None = None, timeout: float = 120.0,
             cwd: Path | None = None) -> subprocess.CompletedProcess:
@@ -286,9 +277,8 @@ class Scratch:
             self.proc = subprocess.Popen([str(self.theseusd), "--config", str(self.cfg), "--state-dir",
                                           str(self.state), "--socket", str(self.sock)],
                                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                         stderr=subprocess.DEVNULL, env=self.env, cwd=self.home)
-            self.manifest["daemon_pid"] = self.proc.pid
-            self._write_manifest()
+                                         stderr=subprocess.DEVNULL, env=self.env, cwd=self.home,
+                                         start_new_session=True)  # its own group: the teardown kills that
             t0 = time.monotonic()
             while True:
                 if self.proc.poll() is not None:
@@ -311,7 +301,7 @@ class Scratch:
                 self._term_pending = True
                 return
             raise SystemExit(SIGTERM_EXIT)
-        with contextlib.suppress(ValueError):  # not the main thread: no handler, `clean` remains
+        with contextlib.suppress(ValueError):  # not the main thread: no handler
             self._old_term = signal.signal(signal.SIGTERM, on_term)
             self._trapped = True
 
@@ -322,24 +312,34 @@ class Scratch:
             self._trapped = False
 
     def stop(self) -> list[str]:
+        """The teardown, to its end whatever a step raises: shutdown (any failure or hang ignored), a kill of
+        the daemon's own process group, the copy removed, the prior SIGTERM handler restored; then a SIGTERM
+        held during it is raised."""
         self._stopping = True
         killed: list[str] = []
-        if self.proc is not None:
-            if self.proc.poll() is None:
-                with contextlib.suppress(subprocess.TimeoutExpired, OSError):
-                    self.cli("shutdown", timeout=10)
-                try:
-                    self.proc.wait(STOP_WAIT)
-                except subprocess.TimeoutExpired:
-                    self.proc.kill()
-                    self.proc.wait()
-                    killed.append(f"theseusd {self.proc.pid}")
-            self.proc = None
-        killed += kill_naming(self.dir)
-        if self.state.exists():
-            remove(self.state)
-        self._untrap()
-        self._stopping = False
+        try:
+            try:
+                if self.proc is not None and self.proc.poll() is None:
+                    with contextlib.suppress(Exception):
+                        self.cli("shutdown", timeout=SHUTDOWN_WAIT)
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        self.proc.wait(STOP_WAIT)
+            finally:
+                if self.proc is not None:
+                    if self.proc.poll() is None:  # still our child, unreaped: its group is still its own
+                        with contextlib.suppress(ProcessLookupError, PermissionError):
+                            os.killpg(self.proc.pid, signal.SIGKILL)
+                        killed.append(f"theseusd {self.proc.pid}")
+                        with contextlib.suppress(subprocess.TimeoutExpired):
+                            self.proc.wait(STOP_WAIT)
+                    self.proc = None
+        finally:
+            try:
+                if self.state.exists():
+                    remove(self.state)
+            finally:
+                self._untrap()
+                self._stopping = False
         if self._term_pending:
             self._term_pending = False
             raise SystemExit(SIGTERM_EXIT)
@@ -355,41 +355,6 @@ class Scratch:
 def verb(args) -> str:
     """The kit's own verb among a CLI call's arguments, or `cli`: never an argument's data."""
     return next((a for a in args if a in VERBS), "cli")
-
-
-def args_of(pid: int) -> list[str] | None:
-    try:
-        return [x.decode(errors="replace") for x in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0") if x]
-    except OSError:
-        return None
-
-
-def naming(d: Path) -> list[tuple[int, str]]:
-    """The processes one of whose arguments IS `d` or a path inside it (not a substring of a longer path)."""
-    d = str(Path(d).resolve())
-    out = []
-    for e in Path("/proc").iterdir():
-        if not e.name.isdigit() or int(e.name) == os.getpid():
-            continue
-        a = args_of(int(e.name))
-        if a and any(x == d or x.startswith(d + "/") for x in a):
-            out.append((int(e.name), Path(a[0]).name))
-    return out
-
-
-def kill_naming(d: Path) -> list[str]:
-    """What still names `d` after STOP_WAIT, killed."""
-    killed: list[str] = []
-    t0 = time.monotonic()
-    while left := naming(d):
-        if time.monotonic() - t0 > STOP_WAIT:
-            for pid, prog in left:
-                with contextlib.suppress(ProcessLookupError):
-                    os.kill(pid, signal.SIGKILL)
-                killed.append(f"{prog} {pid}")
-            break
-        time.sleep(0.05)
-    return killed
 
 
 def ledger_rows(d: Scratch, kind: str) -> list[dict]:
@@ -437,48 +402,5 @@ def history_nodes(d: Scratch, session: str) -> list[dict]:
     return [n for p in reversed(pages) for n in p]
 
 
-def clean(out: Path, env: dict | None = None) -> int:
-    """What a killed run left under `out`: its daemon, by the pid its manifest records, then `out/daemon`.
-    Refused (nothing killed, nothing removed) for a path that is, holds or lies inside a live root, and for a
-    directory without the kit's own manifest naming it."""
-    out = Path(out).expanduser().resolve()
-    d = out / "daemon"
-    for live in live_dirs(env):
-        if _overlaps(out, live) or _overlaps(d, live):
-            raise Refused(f"view kit: clean refused: {out} is, holds or lies inside a live state directory")
-    if not d.exists():
-        print(f"view kit: nothing to clean at {d}")
-        return 0
-    if d.is_symlink():
-        raise Refused(f"view kit: clean refused: {d} is a link")
-    try:
-        m = json.loads((d / MANIFEST).read_text())
-    except (OSError, json.JSONDecodeError):
-        raise Refused(f"view kit: clean refused: {d} holds no manifest of the kit (it did not make it)") from None
-    if not isinstance(m, dict) or m.get("kit") != KIT or m.get("dir") != str(d) \
-            or not isinstance(m.get("id"), str) or len(m["id"]) != 32:
-        raise Refused(f"view kit: clean refused: {d}'s manifest is not the kit's, or names another directory")
-    pid = m.get("daemon_pid")
-    if isinstance(pid, int) and not isinstance(pid, bool) and pid > 1:
-        a = args_of(pid)
-        state = str(d / "state")
-        if a and "--state-dir" in a and a[a.index("--state-dir") + 1:a.index("--state-dir") + 2] == [state]:
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(pid, signal.SIGKILL)
-            print(f"view kit: killed the scratch daemon {pid}")
-    ok = remove(d)
-    print(f"view kit: {'removed' if ok else 'could NOT remove'} {d}")
-    return 0 if ok else 1
-
-
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="The view kit's scratch daemon: clean what a killed run left.")
-    sub = ap.add_subparsers(dest="cmd", required=True)
-    c = sub.add_parser("clean")
-    c.add_argument("--out", required=True)
-    a = ap.parse_args(argv)
-    return clean(Path(a.out))
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit("view kit: scratch.py is the kit's library and has no verbs; see bench/view/README.md")

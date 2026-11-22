@@ -198,13 +198,18 @@ def counters(u) -> tuple[dict, bool]:
 
 def ask(base_url: str, key: str, model: str, system: str, user: str, timeout: float = 120.0
         ) -> tuple[str, dict, bool]:
-    """One streamed Messages call: its text, its usage, and whether the stream ended (`message_stop`). A
-    failure is `JudgeFailed` with a fixed code."""
+    """One streamed Messages call: its text, its usage, and whether that usage may settle the call's
+    reservation. It may only when the stream was read whole and in order: every `data:` line parsed as an
+    event; the last `message_delta` carried a whole usage report (output included); after it came nothing but
+    `message_stop` (and `ping`); and the stream ended there. An earlier delta's count is never final. Any
+    failure, of the request, the protocol or the stream, is `JudgeFailed` with a fixed code, raised outside
+    every handler, so no exception in its chain holds a word of the response."""
     body = json.dumps({"model": model, "max_tokens": MAX_OUT, "stream": True, "system": system,
                        "messages": [{"role": "user", "content": user}]}).encode()
     req = urllib.request.Request(base_url.rstrip("/") + "/v1/messages", data=body, method="POST", headers={
         "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01"})
     text, start, final, stopped, bad = [], {}, None, False, False
+    failure = None
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             for raw in r:
@@ -214,8 +219,15 @@ def ask(base_url: str, key: str, model: str, system: str, user: str, timeout: fl
                 try:
                     e = json.loads(line[5:])
                 except json.JSONDecodeError:
+                    e = None
+                if not isinstance(e, dict):
+                    bad = True  # a malformed event: nothing of this stream settles
                     continue
-                t = e.get("type") if isinstance(e, dict) else None
+                t = e.get("type")
+                if stopped:
+                    bad = True  # anything after the stop
+                elif final is not None and t not in ("message_stop", "ping", "message_delta"):
+                    bad = True  # the usage delta was not terminal
                 if t == "message_start":
                     # Its output count is the stream's first, not its last: only the input is read here.
                     u, ok = counters((e.get("message") or {}).get("usage"))
@@ -224,19 +236,24 @@ def ask(base_url: str, key: str, model: str, system: str, user: str, timeout: fl
                 elif t == "message_delta":
                     u, ok = counters(e.get("usage"))
                     bad |= not ok or "output_tokens" not in u
-                    final = {**(final or {}), **u}
-                elif t == "content_block_delta" and (e.get("delta") or {}).get("type") == "text_delta":
+                    final = u  # the latest replaces, never adds to, an earlier count
+                elif t == "content_block_delta" and isinstance(e.get("delta"), dict) \
+                        and e["delta"].get("type") == "text_delta":
                     text.append(str(e["delta"].get("text", "")))
                 elif t == "message_stop":
                     stopped = True
                 elif t == "error":
-                    raise JudgeFailed("E_JUDGE_STREAM")
+                    failure = "E_JUDGE_STREAM"
+                    break
     except urllib.error.HTTPError as e:
-        raise JudgeFailed(f"E_JUDGE_HTTP {e.code}") from None
-    except (urllib.error.URLError, OSError, TimeoutError):
-        raise JudgeFailed("E_JUDGE_NETWORK") from None
+        failure = f"E_JUDGE_HTTP {int(e.code) if isinstance(e.code, int) else 0}"
+    except (urllib.error.URLError, TimeoutError, ConnectionError):
+        failure = "E_JUDGE_NETWORK"
+    except Exception:  # http.client's protocol errors (BadStatusLine, ...) and anything else of the exchange
+        failure = "E_JUDGE_PROTOCOL"
+    if failure is not None:
+        raise JudgeFailed(failure)
     usage = {**start, **(final or {})}
-    # Settled only on a finished stream whose final usage was read whole: else the caller keeps its reservation.
     done = stopped and not bad and final is not None and "output_tokens" in final and "input_tokens" in usage
     return "".join(text), usage, done
 

@@ -28,20 +28,25 @@ of marker strings.
 - On every end it stops the daemon and removes the copy, and that includes a failed start, an error and
   SIGTERM. SIGTERM is trapped from before the copy starts until the removal has finished; one that arrives
   during the removal waits for it. A removal that fails is printed with its path.
-- It writes an ownership manifest (`.view-kit-manifest.json`: the kit's name, a random id, its pid, the time,
-  the directory, the daemon's pid) in `<out>/daemon/` when it makes that directory.
+- The teardown runs to its end whatever one step raises: a shutdown that fails or hangs is followed by a kill
+  of the daemon's own process group, then the removal, then the prior SIGTERM handler is restored.
 
-**What a SIGKILL leaves.** Killing the kit with SIGKILL (or a crash of the machine) skips its cleanup: the copy
-stays at `<out>/daemon/state`, and the scratch daemon may still run. Remove both with
+**What a SIGKILL leaves.** The first line every run prints (on stderr) is its scratch directory's absolute path:
 
-```bash
-python3 bench/view/scratch.py clean --out <out>
+```
+view kit: scratch directory /tmp/replay/daemon (holds a store copy while it runs; removed at its end)
 ```
 
-which refuses, before doing anything, a path that is, holds or lies inside a live state directory. It acts only
-on a `<out>/daemon` whose manifest is the kit's and names that directory. It kills only the daemon pid the
-manifest records, and only if that process's `--state-dir` is that directory's `state`. Then it removes the
-directory.
+Killing the kit with SIGKILL (or a crash of the machine) skips its cleanup: that directory stays, and it holds the
+store copy (`state/`); the scratch daemon may still run. The kit has no verb that kills or deletes on its own.
+Remove it by hand:
+
+```bash
+d=/tmp/replay/daemon                       # the path the run printed, exactly
+pgrep -af -- "$d" || echo "nothing runs on it"
+# if a theseusd is listed with --state-dir "$d/state", stop that one process: kill <its pid>
+rm -rf -- "$d"
+```
 
 The kit needs Python 3.11 or newer (`tomllib`).
 
@@ -149,3 +154,15 @@ reads only `ANTHROPIC_API_KEY` from your environment. `--judge fake` (the tests'
   not built.
 - The synthetic cases are short and written for the kit; they say whether a context holds a line, not how often
   a person's own conversations need one.
+
+## What this kit does not protect against
+
+- **It is not an OS sandbox.** The scratch daemon and the CLI run as your user, with your file permissions; the
+  kit's isolation is its checks of paths and its minimal environment, not a confinement.
+- **A race by a process of the same user.** The checks run before the copy and the writes; a process of your user
+  could swap a directory or a link for another between a check and its use.
+- **The yardstick sends conversation lines to a model provider.** That is what it is for: run on a real store,
+  the person's own words leave the machine, under the cap they set.
+- **The replay's "recorded" side is not the transcript strategy's selection.** It is what the measuring row
+  recorded as sent, by whichever strategy built it; the yardstick's rule on a store is a same-session heuristic.
+  Neither reconstructs how a past turn's context was chosen.
