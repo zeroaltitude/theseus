@@ -19,8 +19,9 @@ use super::{Anchor, Audience, Piece, PointOfView, Present};
 use crate::view_gate::Verified;
 
 /// The gate the view's pieces pass, for one turn; with the exchanges it reads as the turn's own history (an
-/// explicit fork's inherited run, `crate::fork::window`).
-pub struct Permit(Verified, HashSet<String>);
+/// explicit fork's inherited run, `crate::fork::window`), and the exchanges its own session ran at its anchor
+/// ([`Permit::speaking`]).
+pub struct Permit(Verified, HashSet<String>, HashSet<String>);
 
 impl Permit {
     /// The permit of the turn of `session`, as that turn computed its presence.
@@ -30,7 +31,28 @@ impl Permit {
 
     /// A permit for a point of view already verified.
     pub fn of(verified: Verified) -> Self {
-        Permit(verified, HashSet::new())
+        Permit(verified, HashSet::new(), HashSet::new())
+    }
+
+    /// This permit, with `turns` the exchanges the asking turn's own session ran at the turn's anchor
+    /// (`view_gate::own_turns`): a turn always sees what its own session said in the same place, whoever is
+    /// present, an unknown presence included; their seals, veils and moved messages hold them out as ever.
+    /// Nothing of another session, nothing of another place (the conductor's decision for the cut, on the
+    /// owner's word that privacy is to be simpler where it stops things working).
+    pub fn speaking(mut self, turns: impl IntoIterator<Item = String>) -> Self {
+        self.2.extend(turns);
+        self
+    }
+
+    /// Whether `piece` is an exchange the asking session ran at the turn's anchor.
+    fn spoken(&self, pov: &PointOfView, piece: &Piece) -> bool {
+        let r = &piece.range;
+        let anchor = &self.0.pov().anchor;
+        matches!(&r.space, super::Space::Exchanges { .. })
+            && matches!(&pov.anchor, Anchor::Place(p) if p == anchor)
+            && piece.marks.place.as_deref() == Some(anchor.as_str())
+            && self.2.contains(&r.first.id)
+            && self.2.contains(&r.last.id)
     }
 
     /// This permit, reading the exchanges `turns` as the turn's own history where the owner is alone in a
@@ -103,7 +125,14 @@ pub fn marks(piece: &Piece) -> rule::Marks {
 }
 
 impl Gate for Permit {
+    fn speaks_unknown(&self) -> bool {
+        !self.2.is_empty()
+    }
+
     fn admit(&self, pov: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
+        if self.spoken(pov, &piece) {
+            return super::gate::admit_spoken(&self.0, pov, piece);
+        }
         match self.own(pov, &piece) {
             true => super::gate::admit_own(&self.0, pov, piece),
             false => super::gate::admit_checked(&self.0, pov, piece),
@@ -250,6 +279,42 @@ mod tests {
         let elsewhere = pov("discord:dm:7", Present::OwnerAlone);
         assert!(alone
             .admit(&elsewhere, piece(Some("local"), Audience::Private))
+            .is_none());
+    }
+
+    /// A turn always sees what its own session said at its anchor, whoever is present (the cut's rule): an
+    /// unknown presence is shown those exchanges and nothing else; a seal still holds one out.
+    #[test]
+    fn a_turn_is_shown_what_its_own_session_said_at_its_anchor_whoever_is_present() {
+        let unknown = || {
+            Permit::of(Verified::for_tests(rule::PointOfView {
+                anchor: "local".into(),
+                place: Place::Private,
+                present: rule::Present::Unknown,
+            }))
+        };
+        let at = pov("local", Present::Unknown);
+        let own = || piece(Some("local"), Audience::Private);
+        assert!(
+            unknown().admit(&at, own()).is_none(),
+            "not its own: nothing"
+        );
+        let p = unknown().speaking(["t1".to_string()]);
+        assert!(p.admit(&at, own()).is_some());
+        assert!(p
+            .admit(&at, piece(Some("discord:dm:7"), Audience::Private))
+            .is_none());
+        let mut other = own();
+        (other.range.first.id, other.range.last.id) = ("t2".into(), "t2".into());
+        assert!(
+            p.admit(&at, other).is_none(),
+            "another turn, another session's"
+        );
+        let mut sealed = own();
+        sealed.marks.sealed = true;
+        assert!(p.admit(&at, sealed).is_none());
+        assert!(p
+            .admit(&pov("discord:dm:7", Present::Unknown), own())
             .is_none());
     }
 
