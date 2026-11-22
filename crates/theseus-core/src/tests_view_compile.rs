@@ -73,9 +73,62 @@ fn view_rig() -> Rig {
 /// The conversation's requests whose newest user message says `what`, in the order they were sent: a
 /// request with tools (the ladder's own model calls, a did line's, offer none).
 fn asked(r: &Rig, what: &str) -> Vec<ProviderRequest> {
-    (r.requests().into_iter())
+    let got: Vec<ProviderRequest> = (r.requests().into_iter())
         .filter(|q| !q.tools.is_empty() && last_user(q).contains(what))
-        .collect()
+        .collect();
+    got.iter().for_each(legal);
+    got
+}
+
+/// The provider's rules on an unscrubbed request: it opens with the person; roles alternate; every call
+/// has its result in the very next message and every result answers a call of the message before it, each
+/// once; no message is empty; at most four cache breakpoints.
+fn legal(q: &ProviderRequest) {
+    let ids = |m: &Value, kind: &str, key: &str| -> Vec<String> {
+        (m["content"].as_array().into_iter().flatten())
+            .filter(|b| b["type"] == kind)
+            .filter_map(|b| b[key].as_str().map(str::to_string))
+            .collect()
+    };
+    assert_eq!(
+        q.messages.first().map(|m| &m["role"]),
+        Some(&Value::from("user"))
+    );
+    for (i, m) in q.messages.iter().enumerate() {
+        let content = m["content"].as_array().map_or(0, Vec::len);
+        assert!(
+            content > 0 || m["content"].is_string(),
+            "message {i} is empty"
+        );
+        if i > 0 {
+            assert_ne!(
+                m["role"],
+                q.messages[i - 1]["role"],
+                "roles alternate at {i}"
+            );
+        }
+        let uses = ids(m, "tool_use", "id");
+        let answered = q
+            .messages
+            .get(i + 1)
+            .map_or(vec![], |n| ids(n, "tool_result", "tool_use_id"));
+        for u in &uses {
+            assert_eq!(
+                answered.iter().filter(|a| *a == u).count(),
+                1,
+                "call {u} answered once"
+            );
+        }
+        let results = ids(m, "tool_result", "tool_use_id");
+        let asked = (i.checked_sub(1)).map_or(vec![], |p| ids(&q.messages[p], "tool_use", "id"));
+        for r in &results {
+            assert!(
+                asked.contains(r),
+                "result {r} answers a call of the message before"
+            );
+        }
+    }
+    assert!(breakpoints(q) <= 4, "{} breakpoints", breakpoints(q));
 }
 
 /// A request's messages without their cache marks: what the provider's prefix is compared by.
@@ -154,6 +207,7 @@ async fn a_view_place_sends_its_window_as_real_turns_frozen_within_a_turn() {
         assert!(all.contains(said), "the window carries {said:?}: {all}");
     }
     paired(third);
+    calls.iter().for_each(legal);
     // Frozen within a turn: the second call's request begins with the first's messages, byte for byte.
     let (a, b) = (plain(&second[0]), plain(&second[1]));
     assert_eq!(
@@ -611,4 +665,45 @@ fn seal_kelp(c: &crate::Core) {
             |_, _| Ok(vec![]),
         )
         .unwrap();
+}
+
+/// One ladder read per assembly: a fold that lands between two reads of the same place does not reach the
+/// assembly, so every admitted range has one representation.
+#[test]
+fn an_assembly_reads_the_ladder_once() {
+    use crate::view::fold::{Ladder, LadderRead};
+    use crate::view::timeline::ExchangeRef;
+    use std::cell::Cell;
+    struct Folding(Cell<u32>);
+    impl Ladder for Folding {
+        fn read(
+            &self,
+            _: &str,
+            _: usize,
+            _: Option<&crate::view::Pos>,
+        ) -> anyhow::Result<LadderRead> {
+            self.0.set(self.0.get() + 1);
+            let e = |i: u32| ExchangeRef {
+                turn_id: format!("t{i}"),
+                session_id: "s".into(),
+                at_ms: u64::from(i),
+            };
+            // The first read sees two exchanges; any later read would see them folded away.
+            let window = match self.0.get() {
+                1 => vec![e(1), e(2)],
+                _ => vec![e(3)],
+            };
+            Ok(LadderRead {
+                nodes: Vec::new(),
+                window,
+            })
+        }
+    }
+    let inner = Folding(Cell::new(0));
+    let once = crate::view::wire::OnceLadder::new(&inner);
+    let a = once.read("local", 20, None).unwrap();
+    let b = once.read("local", 20, None).unwrap();
+    assert_eq!(a, b);
+    assert_eq!(a.window.len(), 2);
+    assert_eq!(inner.0.get(), 1, "the store's ladder is read once");
 }
