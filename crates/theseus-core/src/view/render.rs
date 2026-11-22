@@ -65,4 +65,9 @@ pub trait Renderer {
     fn memory_page(&self) -> (u32, &'static str);
     /// Read the pieces' ranges from the snapshot and lay them out in wire order.
     fn render(&self, view: &View, snap: &dyn Snapshot) -> anyhow::Result<RequestParts>;
+    /// The nodes `view`'s shown exchanges lay with their words (`sources_recall::carries`): a recalled
+    /// passage among them is not laid again (`budget::set_aside`). None, for a renderer that reads none.
+    fn carried(&self, _view: &View) -> anyhow::Result<std::collections::BTreeSet<String>> {
+        Ok(std::collections::BTreeSet::new())
+    }
 }

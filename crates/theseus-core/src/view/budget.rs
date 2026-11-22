@@ -124,6 +124,9 @@ pub enum DropWhy {
     OverBudget,
     /// Its correction's unit was cut (rule 4).
     UnitCut,
+    /// A recalled passage the request already carries with its words, in an exchange laid whole or spoken
+    /// ([`set_aside`], issue 44): it is there, so it is not counted as left out.
+    InWindow,
 }
 
 /// A piece not shown, and why.
@@ -223,6 +226,19 @@ pub fn fit(
     })
 }
 
+/// Slot H's backstop (issue 44): a recalled piece whose node is among `carried` (what the shown exchanges
+/// lay with their words, `TextRenderer::carried`) is set aside as [`DropWhy::InWindow`]: one copy, the
+/// window's. The residue is not changed: nothing was left out.
+pub fn set_aside(view: &mut View, carried: &std::collections::BTreeSet<String>) {
+    let held = |p: &Piece| matches!(&p.range.space, super::Space::Recalled { node, .. } if carried.contains(node));
+    let (aside, shown): (Vec<Shown>, Vec<Shown>) = std::mem::take(&mut view.shown)
+        .into_iter()
+        .partition(|s| held(&s.piece));
+    view.shown = shown;
+    view.dropped
+        .extend(aside.iter().map(|s| drop_of(&s.piece, DropWhy::InWindow)));
+}
+
 /// A piece's unit (rule 4): a current fact tied to its correction. A window exchange is history, never a
 /// unit, whatever its source says.
 pub(in crate::view) fn unit_of(p: &Piece) -> Option<&str> {
@@ -256,7 +272,7 @@ fn drop_of(p: &Piece, why: DropWhy) -> Dropped {
 /// Rule 7's count: per band, what was cut (a merged piece is shown, so it is not counted).
 fn residue(dropped: &[Dropped]) -> Vec<Residue> {
     let mut out: Vec<Residue> = Vec::new();
-    for d in dropped.iter().filter(|d| d.why != DropWhy::Merged) {
+    for d in (dropped.iter()).filter(|d| !matches!(d.why, DropWhy::Merged | DropWhy::InWindow)) {
         match out.iter_mut().find(|r| r.band == d.band) {
             Some(r) => {
                 r.pieces = r.pieces.saturating_add(1);
