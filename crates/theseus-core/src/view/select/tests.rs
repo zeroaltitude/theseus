@@ -699,6 +699,10 @@ fn the_newest_exchange_keeps_its_words_and_its_tool_results_go_when_there_is_no_
         .find(|x| x.piece.handle.0 == "x:t2")
         .expect("its words are the floor");
     assert_eq!(newest.form, Form::Spoken);
+    assert!(
+        !(v.shown.iter()).any(|x| x.piece.handle.0 == "x:t2" && x.form == Form::Whole),
+        "its tool results are not laid whole when there is no room"
+    );
 }
 
 #[test]
