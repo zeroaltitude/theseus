@@ -133,7 +133,7 @@ refusal_fallbacks = true
 
 # The profiles that run the models Jev chooses among (route.v11): Haiku 5.5, Sonnet 5.5,
 # Opus 5.5, Fable 5.2 and DeepSeek Flash. A profile is also a pin: `-P`, `theseus profile use`,
-# a place's profile, or a key that names a profile.
+# a place's profile, or a key such as [memory] synth_profile.
 [profiles.opus]
 provider = "anthropic"
 model = "claude-opus-5-5"
@@ -1150,7 +1150,7 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # recall_floor = 0.0                      # the relevance floor: a candidate whose fused score is under this share (0 to 1) of the best its answering sources allow is not admitted, and a pack of none brings no Recall node; 0 admits all
 # recall_subject_bar = 0.0                # the share (0 to 1) of that best a candidate about another subject of the question's kind must reach (a host, path or crate the question did not name); 0: no bar
 # include_external = false                # whether fetched text may be recalled
-# assembled_budget_tokens = 4000          # the recall section a task's first compile and a compaction carry (live)
+# assembled_budget_tokens = 4000          # the recall section a task's first compile carries (live)
 # The nightly dream ([ontology] dream_guidance) writes a category's first
 # guidance. The nightly synthesis writer these keys once served is retired
 # (2026-11-21); a synthesis a store already holds stays readable.

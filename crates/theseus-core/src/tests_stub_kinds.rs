@@ -9,7 +9,7 @@
 use serde_json::json;
 use theseus_protocol::Usage;
 
-use crate::compiler::compaction::is_summary;
+use crate::compiler::summary::is_summary;
 use crate::consolidate::{CitationCheck, Stage};
 use crate::node::{Body, Node, ResultStatus};
 use crate::store::Store;

@@ -46,8 +46,8 @@ pub mod cancel;
 pub mod capture;
 pub mod card;
 pub mod check;
-pub mod compaction;
 pub mod content;
+pub mod context;
 pub mod data;
 pub mod disk;
 pub mod driver;
@@ -308,9 +308,8 @@ facts![
     turn::ContextFileMissing<'static>,
     turn::LoopOpened,
     turn::ContextCompiled<'static>,
-    compaction::Compacted<'static>,
-    compaction::Overage<'static>,
-    compaction::Cleared<'static>,
+    context::Overage<'static>,
+    context::Cleared<'static>,
     recall::RecallShadow<'static>,
     recall::RecallRan<'static>,
     recall::RecallWithheld<'static>,

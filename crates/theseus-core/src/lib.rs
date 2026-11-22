@@ -311,8 +311,6 @@ mod tests_coding_hint;
 #[cfg(test)]
 mod tests_commitments;
 #[cfg(test)]
-mod tests_compaction;
-#[cfg(test)]
 mod tests_config;
 #[cfg(test)]
 mod tests_content_freeze;
@@ -682,8 +680,6 @@ mod tests_split_shadow;
 mod tests_stack;
 #[cfg(test)]
 mod tests_standing;
-#[cfg(test)]
-mod tests_standing_ring;
 #[cfg(test)]
 mod tests_status_cache;
 #[cfg(test)]

@@ -2,9 +2,10 @@
 //! theseus-g1gl): an answer another model of the same provider wrote renders
 //! without its thinking, while the writing model's own request, and a request
 //! that names it as the refusal's fallback (`RequestSpec::fallback`, the
-//! render's `also`), keep it, as does the one pair the provider documents as
-//! readable (`compiler/readable.rs`). The fakes write no thinking, so only
-//! these tests hold `compiler.rs`'s `wrote_model != media.model`.
+//! render's `also`), keep it. A turn sends no earlier turn's thinking at all
+//! (the view strips it), so this is the rule within a turn: a refusal's
+//! fallback answers inside it. The fakes write no thinking, so only these
+//! tests hold the render's `wrote_model != media.model`.
 
 use std::sync::Arc;
 
@@ -19,9 +20,6 @@ use crate::stub::Stub;
 
 const WROTE: &str = "claude-sonnet-5-5";
 const OTHER: &str = "claude-haiku-5-5";
-/// The one model the provider documents as reading `WROTE`'s blocks
-/// (`compiler/readable.rs`).
-const READER: &str = "claude-opus-5-5";
 
 fn spec(model: &str, fallback: Option<&str>) -> RequestSpec {
     RequestSpec {
@@ -112,7 +110,6 @@ fn run(spec: &RequestSpec) -> Compiled {
         sources: &Default::default(),
         assembled: None,
         situation: &crate::compiler::situation::Situation::ConversationStart,
-        kept: None,
     })
 }
 
@@ -149,49 +146,4 @@ fn thinking_another_model_wrote_is_left_out_and_its_writer_keeps_it() {
         1,
         "a request whose fallback wrote it keeps it"
     );
-}
-
-/// The render path `compiler.rs`'s own gate does not cover: a plain compile,
-/// no prefix and so no switch trigger, where `render.rs`'s clause alone
-/// decides. It asks `readable` what `compiler.rs` asks it — the request's
-/// `first_party` — and not whether the provider's key is spelled
-/// `anthropic`. A key is the operator's word for a host; only its `api_base`
-/// says whose API answers (`provider.rs`, `is_first_party`), and a key named
-/// `anthropic` pointing at a company proxy is a documented case.
-#[test]
-fn the_readable_pair_follows_first_party_and_not_the_providers_key() {
-    // The control: Anthropic's own API under its own key reads the pair.
-    let own_key = run(&spec(READER, None));
-    assert_eq!(
-        thinking(&own_key).len(),
-        1,
-        "the documented pair keeps its blocks: {:?}",
-        own_key.request.messages
-    );
-
-    // Anthropic's own API under another key reads it too.
-    let other_key = run(&RequestSpec {
-        provider: "anthropic-eu".into(),
-        ..spec(READER, None)
-    });
-    assert_eq!(
-        thinking(&other_key).len(),
-        1,
-        "a first-party provider keyed otherwise still reads the pair: {:?}",
-        other_key.request.messages
-    );
-
-    // A proxy keyed `anthropic` is not Anthropic's API and answers no beta
-    // of ours, so the writer's signature goes nowhere.
-    let proxied = run(&RequestSpec {
-        first_party: false,
-        ..spec(READER, None)
-    });
-    assert!(
-        thinking(&proxied).is_empty(),
-        "a provider keyed `anthropic` that is not first party gets none: {:?}",
-        proxied.request.messages
-    );
-    let text = serde_json::to_string(&proxied.request.messages).unwrap();
-    assert!(text.contains("High water is at noon."), "{text}");
 }

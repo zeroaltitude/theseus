@@ -1,7 +1,6 @@
 //! The loop's compile step (moved out of turn.rs at cloud compaction-roots' join, M6 30c, to keep the
-//! turn loop under its line ceiling): this loop's request, an append or a recompile; where the ring
-//! would cut, a compaction (`turn::compaction`); the task view (39a); the overage check; and the
-//! `context.compiled` record.
+//! turn loop under its line ceiling): this loop's request, an append or a recompile; the task view
+//! (39a); the overage check; and the `context.compiled` record.
 
 use super::*;
 
@@ -188,15 +187,11 @@ impl TurnRunner {
             sources: &sources,
             assembled: assembled.as_deref(),
             situation: &given,
-            // The render kept across turns, under this view of the nodes:
-            // the old attachments a cold rewrite stubbed (theseus-0l3g).
-            kept: Some((&self.kept, Self::stubbed_key(&stubbed))),
         };
-        // Where the ring cut, a summary in its place (30c); past the window
-        // with nothing left to drop, the turn fails before any call.
+        // Past the window with nothing left to drop, the turn fails before any call.
         // A place set to `view` builds it from the turn's view instead (issue 44, `view_step`).
         // A view that cannot be assembled soundly fails the turn plainly, before anything is sent.
-        let mut compiled = match Box::pin(self.compile_here(t, input, i)).await {
+        let mut compiled = match Box::pin(self.compile_here(t, input)).await {
             Ok(c) => c,
             Err(e) => return Self::view_failure(t, e).map(Err),
         };
@@ -275,19 +270,10 @@ impl TurnRunner {
         Self::exchange_sent(t, (nodes, compiled, spec), cold, summary);
     }
 
-    /// The view of the nodes the kept render is held under (theseus-0l3g): a
-    /// digest of the old attachments a cold rewrite stubbed.
-    fn stubbed_key(stubbed: &[theseus_protocol::StubbedFile]) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        format!("{stubbed:?}").hash(&mut h);
-        h.finish()
-    }
-
     /// A clearing pass (theseus-3ki0): one row a pass.
     fn cleared_recorded(t: &mut Turn<'_>, compiled: &Compiled, i: u32) {
         if let Some(pass) = compiled.cleared {
-            t.record(&fact::compaction::Cleared {
+            t.record(&fact::context::Cleared {
                 compilation_id: &compiled.compilation.id,
                 pass,
                 limit: compiled.budget.limit_tokens,

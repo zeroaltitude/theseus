@@ -832,7 +832,6 @@ impl TurnRunner {
             sources: &sources,
             assembled: None,
             situation: &situation,
-            kept: None,
         };
         let mut compiled = crate::compiler::compile(input);
         // What the turns sent after the conversation, where they sent it: the next turn's request

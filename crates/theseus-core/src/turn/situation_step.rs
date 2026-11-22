@@ -6,7 +6,7 @@
 use anyhow::Result;
 
 use super::{Failure, Turn, TurnRunner};
-use crate::compiler::{compaction, situation, Compiled};
+use crate::compiler::{situation, Compiled};
 use crate::fact::situation::{words, Unadmitted};
 use crate::session::SessionRecord;
 use crate::stub::{Kind, Stub};
@@ -35,9 +35,7 @@ impl TurnRunner {
     }
 
     /// After the compile, the check (`unadmitted`); a request that passes
-    /// marks its session compiled in this run. A compaction wrote its
-    /// summary, and may hold an assembled section, since `nodes` was read:
-    /// the check reads them too.
+    /// marks its session compiled in this run.
     pub(super) fn admitted(
         &self,
         t: &mut Turn<'_>,
@@ -47,13 +45,8 @@ impl TurnRunner {
         i: u32,
     ) -> Result<Option<Failure>> {
         let sid = t.tc.session_id;
-        let reread = match compiled.compilation.strategy == compaction::STRATEGY {
-            true => Some(self.recall_view(t, t.tc.store.transcript(sid)?).0),
-            false => None,
-        };
-        let checked = reread.as_deref().unwrap_or(nodes);
         let last = self.store.last_position();
-        if let Some(f) = Self::unadmitted(t, compiled, checked, last, task_view, i) {
+        if let Some(f) = Self::unadmitted(t, compiled, nodes, last, task_view, i) {
             return Ok(Some(f));
         }
         if let Some(f) = Self::standing_dropped(t, compiled, i) {

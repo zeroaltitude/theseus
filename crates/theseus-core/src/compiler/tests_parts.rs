@@ -1,6 +1,6 @@
 //! One long instruction (theseus-3ki0): old results cleared past the
-//! clearing line, and the ring's cut points inside a turn, the instruction
-//! pinned. Pure compiles over invented sessions.
+//! clearing line; and the parts the compiler's tests build sessions from.
+//! Pure compiles over invented sessions.
 
 use serde_json::{json, Value};
 use theseus_protocol::Usage;
@@ -143,7 +143,6 @@ pub(super) fn compile_in(
         sources: &Default::default(),
         assembled: None,
         situation: &situation::Situation::Continuation,
-        kept: None,
     })
 }
 
@@ -177,104 +176,6 @@ pub(super) fn closed(c: &Compiled) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-pub(super) fn first_text(c: &Compiled) -> String {
-    c.request.messages[0]["content"][0]["text"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string()
-}
-
-/// A session whose range holds only its first message rings inside its
-/// turn: at an exchange boundary, the instruction first and verbatim, no
-/// call without its result, under the window.
-#[test]
-fn a_single_instruction_rings_inside_its_turn_with_the_instruction_pinned() {
-    // 40 exchanges of 1,500 characters: under the clearing size, so the
-    // ring alone makes room.
-    let nodes = one_turn(40, |_| 1_500);
-    let c = compile_in(&nodes, None, Some(16_000), None);
-    assert_eq!(c.compilation.strategy, "ring", "{:?}", c.trigger);
-    assert_eq!(c.trigger.as_deref(), Some("overflow"));
-    assert!(c.budget.overage.is_none(), "{:?}", c.budget);
-    assert_eq!(
-        first_text(&c),
-        INSTRUCTION,
-        "the instruction heads it, verbatim"
-    );
-    assert_eq!(c.request.messages[1]["role"], "assistant");
-    closed(&c).unwrap();
-    // It cut: the early exchanges are gone, the newest kept.
-    let text = serde_json::to_string(&c.request.messages).unwrap();
-    assert!(!text.contains("\"c0\"") && text.contains("\"c39\""));
-    let cut = &c.budget.dropped[0];
-    assert_eq!(
-        (cut.tier.as_str(), cut.reason.as_str()),
-        ("ring", "overflow")
-    );
-    assert_eq!(c.compilation.includes[0], nodes[0].1.id, "pinned");
-    // Its estimate is under the ring's target.
-    let budget = 16_000 - 1_000 - 4_096;
-    assert!(c.est_tokens <= budget * 6 / 10, "{}", c.est_tokens);
-}
-
-/// A cut never leaves a call without its result: where an earlier call's
-/// result comes after a later answer, no cut falls between them.
-#[test]
-fn a_cut_inside_a_turn_never_splits_a_call_from_its_result() {
-    let big = "w".repeat(30_000);
-    let nodes: Vec<(u64, Node)> = vec![
-        Node::user("s", None, "web", INSTRUCTION),
-        // The first answer is the weight to drop; its call's result comes
-        // after the second answer, so the second answer is no cut point.
-        answer(vec![
-            json!({"type": "text", "text": big}),
-            call("c1", "a.rs"),
-        ]),
-        answer(vec![call("c2", "b.rs")]),
-        result("c1", "one"),
-        result("c2", "two"),
-        answer(vec![call("c3", "c.rs")]),
-        result("c3", "three"),
-        answer(vec![call("c4", "d.rs")]),
-        result("c4", "four"),
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(i, n)| (i as u64 + 1, n))
-    .collect();
-    let c = compile_in(&nodes, None, Some(12_000), None);
-    assert_eq!(c.compilation.strategy, "ring");
-    closed(&c).unwrap();
-    let text = serde_json::to_string(&c.request.messages).unwrap();
-    assert!(!text.contains("www"), "the weight is dropped");
-    // The first kept answer is the third: its calls' results all follow it.
-    let kept_call = &c.request.messages[1]["content"][0]["id"];
-    assert_eq!(kept_call, "c3", "{:?}", c.request.messages[1]);
-    assert!(!text.contains("\"two\"") && text.contains("\"three\""));
-}
-
-/// A session of two messages rings as before: at the second message, even
-/// when that keeps it over the target, never inside its turn.
-#[test]
-fn a_two_message_session_rings_at_its_second_message_as_before() {
-    let mut nodes = one_turn(3, |_| 1_500);
-    let n = nodes.len() as u64;
-    nodes.push((n + 1, Node::user("s", None, "web", "and the docs too")));
-    for k in 0..30 {
-        let id = format!("d{k}");
-        let p = n + 2 + k * 2;
-        nodes.push((p, answer(vec![call(&id, "docs.md")])));
-        nodes.push((p + 1, result(&id, &"y".repeat(1_500))));
-    }
-    let c = compile_in(&nodes, None, Some(16_000), None);
-    assert_eq!(c.compilation.strategy, "ring");
-    assert_eq!(first_text(&c), "and the docs too");
-    let text = serde_json::to_string(&c.request.messages).unwrap();
-    assert!(text.contains("\"d0\""), "nothing of its turn is cut");
-    assert!(!text.contains(INSTRUCTION));
-    closed(&c).unwrap();
 }
 
 /// Past the clearing line, results older than the newest ones within

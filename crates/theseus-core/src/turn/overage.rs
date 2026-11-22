@@ -5,7 +5,7 @@
 
 use super::{Failure, Turn, TurnRunner};
 use crate::compiler::Compiled;
-use crate::fact::compaction::{overage_words, Overage};
+use crate::fact::context::{overage_words, Overage};
 
 /// The failure class of a turn whose request does not fit the model's window, by the estimate, before
 /// anything is sent (30c).

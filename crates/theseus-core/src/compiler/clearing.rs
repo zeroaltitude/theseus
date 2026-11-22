@@ -51,9 +51,9 @@ pub const CLEAR_AT_TOKENS: u64 = 150_000;
 /// The newest results kept whole, in tokens. With the trigger above, a pass
 /// leaves about 40K of results, so its rewrite is small and the model keeps
 /// what it read last, not what it read first (the hunt re-read 66 % of its
-/// lines after the old rule cleared its opening files). Chosen from the
-/// replay's grid (`tests_replay.rs`): the cheapest cell of the owner's ranges
-/// within 5 %, the lower mean context winning the tie.
+/// lines after the old rule cleared its opening files). Chosen from a
+/// model-free replay's grid (theseus-5lzox): the cheapest cell of the owner's
+/// ranges within 5 %, the lower mean context winning the tie.
 pub const KEEP_TOKENS: u64 = 40_000;
 /// A result this long or shorter stays whole.
 pub const MIN_CHARS: usize = 2_000;
@@ -108,6 +108,11 @@ pub(super) struct Made {
     pub pass: Pass,
 }
 
+/// How a compile makes a new compilation: its trigger, strategy, whether it
+/// strips the prefix's thinking, its includes, and the manifest it takes.
+pub(super) type Make<'m> =
+    dyn Fn(String, &str, bool, Vec<String>, &super::Manifest) -> super::Compilation + 'm;
+
 /// A clearing pass over `c`, rendered as `request` and estimated at
 /// `est`, when its results not yet cleared (`live`) pass `CLEAR_AT_TOKENS` or
 /// the estimate passes `CLEAR_AT` % of the budget, and a pass would take the
@@ -126,7 +131,7 @@ pub(super) fn clear(
     input: &CompileInput<'_>,
     at: &At<'_>,
     (c, request, est): (&Compilation, &ProviderRequest, &Estimate),
-    make: &super::ring::Make<'_>,
+    make: &Make<'_>,
 ) -> Option<Made> {
     let (at_tokens, keep_tokens) = rule();
     let by_percent = est.tokens > at.budget * CLEAR_AT / 100;

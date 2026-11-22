@@ -10,7 +10,7 @@
 
 use serde_json::{json, Value};
 
-use super::tests_ring::{answer, spec};
+use super::tests_parts::{answer, spec};
 use super::*;
 use crate::tools_defer::{SEARCH_TOOL, SEARCH_TYPE};
 
@@ -78,7 +78,6 @@ fn run(blocks: Vec<Value>, tools: Vec<Value>) -> Compiled {
         sources: &Default::default(),
         assembled: None,
         situation: &situation::Situation::Continuation,
-        kept: None,
     })
 }
 

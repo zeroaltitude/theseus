@@ -74,7 +74,6 @@ pub mod delay_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;
-pub mod compaction;
 mod compile_step;
 mod cross_step;
 mod cut_step;
@@ -235,8 +234,6 @@ pub struct TurnRunner {
     /// A minute's copy of the day's thread cache numbers (theseus-ytt8).
     pub(crate) cache_numbers: crate::keep_warm_threads::CacheNumbers,
     pub stubs: crate::compiler::stubs::InForce,
-    /// Each session's render, kept across turns (theseus-0l3g).
-    pub kept: Arc<crate::compiler::kept::Kept>,
     /// The self budget's account (theseus-pw1q.3).
     pub self_budget: crate::rsi::budget::Budget,
     /// What the harness made of the owner's yes, staged at `turn.submit` for

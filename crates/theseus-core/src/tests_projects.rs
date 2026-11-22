@@ -12,13 +12,12 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use theseus_kernel::Purpose;
 use theseus_protocol::tasks::{TaskKind, TaskState};
-use theseus_protocol::{Message, Request, Usage};
+use theseus_protocol::{Message, Request};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::approval::{Client, Surface};
-use crate::provider::{FakeProvider, ProviderRequest, Scripted};
 use crate::tests_task_graph::{results, rig, rows, session, turn, until, Rig};
-use crate::{Config, Core};
+use crate::Core;
 
 async fn rpc(core: &Arc<Core>, method: &str, params: Value) -> Result<Value, String> {
     let (ours, theirs) = tokio::io::duplex(64 * 1024);
@@ -500,139 +499,6 @@ async fn the_model_plans_a_milestone_and_attaches_its_conversation() {
 }
 
 // ------------------------------------------------------------- the slice
-
-/// And 48,000 until `task_fan_out` joined the catalog (theseus-z9mze.3): its definition grows the tools
-/// block by about 500 tokens. 48,250 and up hold (to 52,000, the sweep's end) for this suite, and 48,500 and up for the
-/// others in this family of tests; 49,000 is the middle of the near end of that band. And 49,000 until
-/// `card_observed` joined the catalog (theseus-6f8t0: deferred, counted whole here; 49,200 and 49,400 still
-/// fail in this family, 49,600 to 53,000 hold: a sweep at its join); 50,000 is inside the near end again.
-const WINDOW: u64 = 50_000;
-
-fn summary(text: &str) -> Scripted {
-    Scripted::Billed {
-        usage: Usage {
-            input_tokens: 9_000,
-            output_tokens: 60,
-            ..Default::default()
-        },
-        then: Box::new(Scripted::text(text)),
-    }
-}
-
-fn words(tag: &str, tokens: usize) -> String {
-    let mut s = format!("{tag} ");
-    while s.len() < tokens * 4 {
-        s.push_str("the keeper logged the tide and the wind before the lamp was lit. ");
-    }
-    s
-}
-
-/// The text of a request's last message.
-fn last_text(q: &ProviderRequest) -> String {
-    match &q.messages.last().unwrap()["content"] {
-        Value::String(s) => s.clone(),
-        Value::Array(b) => b
-            .iter()
-            .filter_map(|b| b["text"].as_str())
-            .collect::<Vec<_>>()
-            .join("\n"),
-        _ => String::new(),
-    }
-}
-
-fn slice_block(q: &ProviderRequest) -> Option<String> {
-    let blocks = q.messages.last().unwrap()["content"].as_array()?;
-    let last = blocks.last()?["text"].as_str()?;
-    last.starts_with(crate::project::slice::HEAD)
-        .then(|| last.to_string())
-}
-
-/// An attached conversation's request ends with the project's slice, in every
-/// request, through three compactions; a conversation with no project carries
-/// none.
-#[tokio::test(flavor = "multi_thread")]
-async fn an_attached_conversation_keeps_the_slice_through_three_compactions() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("work");
-    std::fs::create_dir_all(&root).unwrap();
-    let mut cfg = Config::example();
-    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
-    cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
-    cfg.tools.roots = vec![];
-    cfg.memory.summary_profile = Some("glm".into());
-    // glm only summarizes here: an unrestricted model (theseus-a1wvq.3).
-    cfg.serve_glm_unrestricted();
-    cfg.catalog.insert(
-        "claude-sonnet-5-5".into(),
-        crate::catalog::CatalogRow {
-            context_window: Some(WINDOW),
-            max_output_tokens: Some(2_000),
-            ..Default::default()
-        },
-    );
-    let model = Arc::new(FakeProvider::scripted(vec![]));
-    let glm = Arc::new(FakeProvider::scripted(
-        (1..=8)
-            .map(|n| summary(&format!("SUMMARY {n}: the tides so far.")))
-            .collect(),
-    ));
-    let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
-    let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
-    parts.providers.insert("zai".into(), glm.clone());
-    let core = Core::build(parts).unwrap();
-    let p = core
-        .project_create(
-            &serde_json::from_value(spec(json!({"review": "none"}))).unwrap(),
-            "the CLI",
-        )
-        .unwrap();
-    let project = p.project.id.clone();
-    let attached = session(&core);
-    let plain = session(&core);
-    core.project_attach(
-        &theseus_protocol::projects::ProjectAttachParams {
-            session: attached.clone(),
-            project: Some(project.clone()),
-            ..Default::default()
-        },
-        "the CLI",
-    )
-    .unwrap();
-    // A plain conversation: one turn, no slice.
-    turn(&core, &plain, "hello there").await;
-    let q = model.requests().pop().unwrap();
-    assert!(slice_block(&q).is_none(), "{}", last_text(&q));
-    let mut compactions = 0;
-    for k in 0..40 {
-        turn(&core, &attached, &words(&format!("turn{k}"), 6_000)).await;
-        let q = model.requests().pop().unwrap();
-        let slice = slice_block(&q)
-            .unwrap_or_else(|| panic!("turn {k}: no slice in the last block: {}", last_text(&q)));
-        assert!(slice.contains(&project), "{slice}");
-        assert!(slice.contains("Chart every mooring"), "the goal: {slice}");
-        assert!(slice.contains("⚑"), "the milestones: {slice}");
-        assert!(slice.contains("Survey the moorings"), "{slice}");
-        assert!(
-            slice.len() as u64 <= crate::project::slice::MAX_TOKENS * 3,
-            "{} bytes: {slice}",
-            slice.len()
-        );
-        compactions = glm.requests().len();
-        if compactions >= 3 {
-            break;
-        }
-    }
-    assert_eq!(compactions, 3, "three compactions happened");
-    // And the next request, after the third, still has it.
-    turn(&core, &attached, "and after the last compaction?").await;
-    let q = model.requests().pop().unwrap();
-    assert!(slice_block(&q).is_some(), "{}", last_text(&q));
-    // `context.explain` names it, which `theseus why` prints.
-    let why = rpc(&core, "context.explain", json!({"session_id": attached}))
-        .await
-        .unwrap();
-    assert_eq!(why["compiled"]["project"]["project"], project, "{why}");
-}
 
 /// The model plans a project with a weekly review: the review is a routine,
 /// which spends money on a schedule, so the call waits on one card. A no

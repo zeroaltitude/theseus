@@ -293,7 +293,6 @@ impl TurnRunner {
             sources: &sources,
             assembled: None,
             situation: &situation,
-            kept: None,
         };
         let compiled = match &view_place {
             Some((r, place)) => self.census_view_compile(r, place, input)?,

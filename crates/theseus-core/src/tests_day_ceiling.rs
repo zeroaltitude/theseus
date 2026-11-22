@@ -594,13 +594,13 @@ fn the_card_observer_is_a_spend_kind() {
 fn every_fact_row_that_carries_dollars_is_counted_by_the_day_or_says_why_not() {
     /// The ledger kinds the walk finds today: one per `impl Fact` whose row
     /// names `"cost_usd"`. Raise it with a new priced row; a walk that finds
-    /// fewer has read less than it did.
-    const FOUND: usize = 19;
+    /// fewer has read less than it did. (19 until the cut removed compaction's
+    /// `context.compacted` row, issue 44.)
+    const FOUND: usize = 18;
     const NOT_SPEND_KINDS: &[(&str, &str)] = &[
         ("provider.call", "its call is an action row, counted as action.succeeded"),
         ("provider.cut", "its call is an action row, counted as action.failed"),
         ("context.recompiled", "a compile's estimate, no call of its own"),
-        ("context.compacted", "its summary call is an action row (correlation_id), counted there"),
         ("profile.asked", "its call is an action row (correlation_id), counted as action.succeeded"),
         ("turn.failed", "a roll-up of the turn's action rows"),
         ("turn.ended", "a roll-up of the turn's action rows"),

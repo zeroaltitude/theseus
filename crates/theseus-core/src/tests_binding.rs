@@ -152,33 +152,6 @@ async fn a_persons_turn_with_a_tool_step_sends_its_first_step_again() {
     assert_stable(&r);
 }
 
-/// The turn's last request, and the same turn's earlier one, given the
-/// answer between them: a second turn in the same conversation replays the
-/// first's thinking, so its first request must carry the first's last one.
-#[tokio::test]
-async fn a_second_turn_replays_the_first_turns_thinking_as_it_was_sent() {
-    let r = rig(
-        Binding::Refuse,
-        vec![
-            thinks_then_reads("toolu_a"),
-            Scripted::text("Four."),
-            thinks_then_reads("toolu_b"),
-            Scripted::text("Still four."),
-        ],
-    );
-    let sid = private_session(&r.core);
-    say(&r.core, &sid, "what does the tide table say?")
-        .await
-        .unwrap();
-    let res = say(&r.core, &sid, "and again?").await.unwrap();
-    assert_eq!(res.output, "Still four.", "{res:?}");
-    let reqs = r.fake.requests();
-    assert_eq!(reqs.len(), 4);
-    // The second turn's first request is the first turn's last, extended.
-    assert_same_prefix(&reqs[1], &reqs[2]);
-    assert_same_prefix(&reqs[2], &reqs[3]);
-}
-
 /// The self join's review: one check turn in a session of the self principal,
 /// the turn that failed on `claude-fable-5-2` at its second step.
 #[tokio::test(flavor = "multi_thread")]
@@ -514,70 +487,4 @@ async fn a_tail_block_the_model_has_is_not_sent_again_within_its_turn() {
         "{:?}",
         reqs[2].messages
     );
-}
-
-/// A keep-warm read between two turns (the landing's gate found it): the read is the prefix the
-/// next turn sends, so a read made without the turns' kept tails warmed bytes the next turn did
-/// not use, and its thinking was replayed under a changed prefix. A turn that thinks, the read,
-/// then a turn with a tool step, all through the stand-in that enforces the binding: the read is
-/// accepted, its messages are the next turn's first ones, and nothing drifts.
-#[tokio::test]
-async fn a_keep_warm_read_between_turns_sends_what_the_next_turn_sends() {
-    use crate::keep_warm::{Outcome, MAX_TOKENS};
-    use crate::tests_keep_warm::{build_with, one_hour, reads, session};
-    let dir = tempfile::tempdir().unwrap();
-    let work = dir.path().join("work");
-    std::fs::create_dir_all(&work).unwrap();
-    std::fs::write(work.join("harbor.txt"), "the tide turns at four\n").unwrap();
-    let mut c = one_hour(24);
-    c.project.tail_facts = Some(true);
-    c.tools.projects_dir = Some(work.canonicalize().unwrap().to_string_lossy().into_owned());
-    let fake = Arc::new(FakeProvider {
-        binding: Some(Binding::Refuse),
-        ..FakeProvider::scripted(vec![
-            Scripted::Blocks {
-                blocks: vec![
-                    json!({"type": "thinking", "thinking": "a tide question"}),
-                    json!({"type": "text", "text": "Four."}),
-                ],
-                stop_reason: "end_turn".into(),
-            },
-            Scripted::text("."),
-            thinks_then_reads("toolu_a"),
-            Scripted::text("Still four."),
-        ])
-    });
-    let core = build_with(dir.path(), c, fake.clone());
-    let sid = session(&core, SessionKind::Conversation, None);
-    core.runner.keep_warm.message(&sid, true);
-    say(&core, &sid, "what does the tide table say?")
-        .await
-        .unwrap();
-    let live = core.live_profile().0;
-    let read = core.runner.keep_warm_once(&sid, &live).await;
-    assert!(matches!(read, Outcome::Read { .. }), "{read:?}");
-    let second = say(&core, &sid, "and again?").await.unwrap();
-    assert_eq!(second.output, "Still four.", "{second:?}");
-    let all = fake.requests();
-    let read = reads(&fake).pop().expect("the read reached the provider");
-    assert_eq!(read.max_tokens, MAX_TOKENS);
-    let next = all
-        .iter()
-        .find(|q| q.max_tokens != MAX_TOKENS && q.messages.len() > read.messages.len() - 1)
-        .expect("the next turn's first request");
-    let n = read.messages.len() - 1;
-    assert_eq!(
-        unmarked(&json!(read.messages[..n])),
-        unmarked(&json!(next.messages[..n])),
-        "the read is the next turn's prefix"
-    );
-    let turn_two: Vec<_> = all
-        .iter()
-        .filter(|q| q.max_tokens != MAX_TOKENS && q.messages.len() > n)
-        .cloned()
-        .collect();
-    assert!(turn_two.len() >= 2, "{} requests", turn_two.len());
-    for w in turn_two.windows(2) {
-        assert_same_prefix(&w[0], &w[1]);
-    }
 }

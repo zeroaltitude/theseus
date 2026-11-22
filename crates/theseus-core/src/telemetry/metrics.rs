@@ -97,20 +97,6 @@ const WAKE_LATE: Instrument = Instrument {
     unit: "ms",
     kind: Kind::Histogram,
 };
-const COMPACTIONS: Instrument = Instrument {
-    name: "theseus.compactions",
-    description:
-        "Where the ring would cut (M6 30c): a summary written (compaction), or the ring, by outcome",
-    unit: "",
-    kind: Kind::IntSum,
-};
-const COMPACTION_TOKENS: Instrument = Instrument {
-    name: "theseus.compaction.tokens",
-    description: "A compaction's summary, in output tokens",
-    unit: "",
-    kind: Kind::Histogram,
-};
-
 const PUSH_EVENTS: Instrument = Instrument {
     name: "theseus.push.events",
     description: "Notifications the push made (theseus-in3), by method",
@@ -356,7 +342,7 @@ const VOICE_RESUMED: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 50] = [
+const INSTRUMENTS: [&Instrument; 48] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -368,8 +354,6 @@ const INSTRUMENTS: [&Instrument; 50] = [
     &TOOL_DURATION,
     &WAKES_FIRED,
     &WAKE_LATE,
-    &COMPACTIONS,
-    &COMPACTION_TOKENS,
     &PUSH_EVENTS,
     &PUSH_LOST,
     &WARMS,
@@ -566,7 +550,6 @@ impl Metrics {
             self.files_read(t);
             self.aws_requests(t);
             self.tasks(t);
-            self.compactions(t);
             self.activations(t);
         }
     }
@@ -662,7 +645,6 @@ impl Metrics {
             self.provider_calls(t);
             self.wakes(t);
             self.tasks(t);
-            self.compactions(t);
         }
     }
 
@@ -1042,20 +1024,6 @@ impl Metrics {
                 vec![("theseus.wake.repeat", Attr::B(repeat))],
                 late_ms,
             );
-        }
-    }
-
-    /// Each compaction the turn ran or fell back from (30c), by outcome, and
-    /// each summary's tokens.
-    fn compactions(&mut self, trace: &Span) {
-        let mut out = Vec::new();
-        spans::compactions(trace, &mut out);
-        for (outcome, tokens) in out {
-            let attrs = vec![("theseus.compaction.outcome", Attr::S(outcome.clone()))];
-            self.add(&COMPACTIONS, attrs.clone(), 1);
-            if outcome == "compaction" {
-                self.record(&COMPACTION_TOKENS, attrs, tokens as f64);
-            }
         }
     }
 

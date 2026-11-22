@@ -121,3 +121,15 @@ fn the_line_says_what_changes_with_each_retired_mode() {
         assert!(!l.contains("What changes"), "{l}");
     }
 }
+
+/// What the cut retired from the old way of building a request (issue 44): `[memory] summary_profile`
+/// (compaction's summary), which the owner-shaped settings file sets, loads whatever its value, does nothing,
+/// and a load warning names it. An unknown key in the section is still refused. (`[context] kept_mb` is the
+/// retired-keys table's alone, the del-turn lane's.)
+#[test]
+fn an_old_settings_file_with_compactions_summary_profile_loads() {
+    let (_, warnings) = parse("[memory]\nsummary_profile = \"haiku\"\n").unwrap();
+    let named = warnings.iter().any(|w| w.contains("summary_profile"));
+    assert!(named, "{warnings:?}");
+    assert!(parse("[memory]\nsummary_profil = \"off\"\n").is_err());
+}

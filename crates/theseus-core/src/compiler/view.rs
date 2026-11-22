@@ -384,7 +384,7 @@ fn render(
     nodes: &[(u64, Stub)],
     media: RenderMedia<'_>,
 ) -> Rendered {
-    let mut rendered = render_kept(spec, catalog, split, nodes, media, None);
+    let mut rendered = render_request(spec, catalog, split, nodes, media);
     let first_tail = nodes
         .iter()
         .find(|(p, _)| *p > split.as_of)

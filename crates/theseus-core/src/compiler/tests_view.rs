@@ -158,7 +158,6 @@ fn run_with(s: &RequestSpec, f: &Frozen, own: &[Node], current: Option<&Compilat
             sources: &Default::default(),
             assembled: None,
             situation: &situation::Situation::Continuation,
-            kept: None,
         },
         f,
     )

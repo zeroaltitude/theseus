@@ -64,10 +64,9 @@ impl TurnRunner {
         &self,
         t: &mut Turn<'_>,
         input: CompileInput<'_>,
-        i: u32,
     ) -> anyhow::Result<Compiled> {
         if self.on_transcript() {
-            return Box::pin(self.compact(t, compile(input), input, i)).await;
+            return Ok(compile(input));
         }
         // The message's numbered items, named off the path since the exchange opened, are what its view's
         // names are matched with.
