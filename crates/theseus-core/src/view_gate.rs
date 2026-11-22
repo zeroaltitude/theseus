@@ -697,7 +697,7 @@ fn held_from(board: &Board, own: Option<&str>, slug: &str) -> bool {
 /// What a kept tail of `session` made or sent now is made under
 /// (`turn::sent_tail`): said at `key`, its turn's presence, the threads held
 /// from it, and the store's moves, each read before the request is compiled.
-pub fn tail_under(runner: &TurnRunner, session: &str, key: String) -> crate::turn::Under {
+pub(crate) fn tail_under(runner: &TurnRunner, session: &str, key: String) -> crate::turn::Under {
     let moves = runner.store.moves();
     crate::turn::Under {
         key,
