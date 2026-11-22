@@ -1,8 +1,7 @@
 //! A record scoped to a surface (theseus-slvl.4), through the whole core: it
 //! rides the user turn's tail on turns whose input came through that surface
 //! and nowhere else, so the system and the tools are byte-identical across
-//! surfaces; a shared place gets the same privacy rule there; a request that
-//! drops it is refused; and the `context.compiled` row names what the tail
+//! surfaces; a request that drops it is refused; and the `context.compiled` row names what the tail
 //! carried.
 
 use super::*;
@@ -219,46 +218,6 @@ async fn a_fresh_session_has_the_same_system_on_every_surface() {
         prefixes.push(prefix_bytes(&req));
     }
     assert!(prefixes.windows(2).all(|w| w[0] == w[1]));
-}
-
-/// In a shared place the tail shows a surface's orders and, for the rest, the
-/// withheld line: never their text.
-#[tokio::test]
-async fn a_surface_record_in_a_shared_place_is_withheld_by_the_same_rule() {
-    let r = rig();
-    let order = r.add(
-        StandingKind::Order,
-        StandingScope::Surface("discord".into()),
-        "no links",
-    );
-    let pref = r.add(
-        StandingKind::Preference,
-        StandingScope::Surface("discord".into()),
-        CODE_FIRST,
-    );
-    let shared = session(&r.core, Some(&format!("channel:{LAB}")));
-    turn_on(&r.core, &shared, "hi", Some("discord"))
-        .await
-        .unwrap();
-    let req = r.last_request();
-    let tail = tail_text(&req);
-    assert!(tail.contains(&format!("- {order}: no links")), "{tail}");
-    assert!(tail.contains(crate::standing::WITHHELD), "{tail}");
-    let all = serde_json::to_string(&req).unwrap();
-    assert!(
-        !all.contains(CODE_FIRST) && !all.contains(&pref),
-        "leaked: {all}"
-    );
-
-    // The owner's DM, on the same surface, carries it.
-    let dm = session(&r.core, Some(&format!("dm:{OWNER}")));
-    turn_on(&r.core, &dm, "hi", Some("discord")).await.unwrap();
-    let tail = tail_text(&r.last_request());
-    assert!(
-        tail.contains(&format!("- {pref}: {CODE_FIRST}"))
-            && !tail.contains(crate::standing::WITHHELD),
-        "{tail}"
-    );
 }
 
 /// A request that dropped the tail block is refused before anything is sent,

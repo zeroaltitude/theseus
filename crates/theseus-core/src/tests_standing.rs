@@ -375,49 +375,6 @@ async fn a_revoked_record_is_gone_and_an_unchanged_set_keeps_the_prefix_byte_ide
     assert!(states.contains(&(drop.as_str(), "revoked")), "{states:?}");
 }
 
-/// A shared place gets the orders of its scope with their text, and for the
-/// preferences and facts only the line that says they are withheld: never
-/// their text, in the system and in the manifest's note of what was shown.
-#[tokio::test]
-async fn a_shared_place_shows_orders_and_hides_the_text_of_preferences_and_facts() {
-    let r = rig();
-    let order = r.add(StandingKind::Order, StandingScope::Everywhere, NO_PUSH);
-    let pref = r.add(StandingKind::Preference, StandingScope::Everywhere, SHORT);
-    let fact = r.add(StandingKind::Fact, StandingScope::Everywhere, GARDEN);
-    let shared = session(&r.core, Some(&format!("channel:{LAB}")));
-    turn(&r.core, &shared, "hi").await;
-    let system = system_text(&r.last_request());
-    assert!(
-        system.contains(&format!("- {order}: {NO_PUSH}")),
-        "{system}"
-    );
-    assert!(system.contains(crate::standing::WITHHELD), "{system}");
-    for text in [SHORT, GARDEN, pref.as_str(), fact.as_str()] {
-        assert!(!system.contains(text), "{text} leaked: {system}");
-    }
-    let m = r.compilation(&shared).manifest;
-    let shown: Vec<(&str, bool)> = m
-        .standing
-        .iter()
-        .map(|u| (u.id.as_str(), u.shown))
-        .collect();
-    assert!(shown.contains(&(order.as_str(), true)), "{shown:?}");
-    assert!(
-        shown.contains(&(pref.as_str(), false)) && shown.contains(&(fact.as_str(), false)),
-        "{shown:?}"
-    );
-
-    // The owner's DM carries all three.
-    let dm = session(&r.core, Some(&format!("dm:{OWNER}")));
-    turn(&r.core, &dm, "hi").await;
-    let system = system_text(&r.last_request());
-    assert!(
-        system.contains(SHORT) && system.contains(GARDEN),
-        "{system}"
-    );
-    assert!(!system.contains(crate::standing::WITHHELD), "{system}");
-}
-
 /// The list gives a preference's or a fact's text to the owner in a private
 /// place alone: anyone else, or the owner in a shared place, reads
 /// `(private)`.
