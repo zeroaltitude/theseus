@@ -22,7 +22,10 @@ pub mod census;
 pub mod check;
 pub mod cite;
 pub mod content;
-pub use content::{ContentUnlabelParams, LabelLink, LabelRaised, LabelView, UnlabelResult};
+pub use content::{
+    ContentUnlabelParams, ItemFlag, ItemLabelsView, ItemQuestion, LabelLink, LabelRaised,
+    LabelView, UnlabelResult,
+};
 pub mod context;
 mod cost;
 pub mod exchange;

@@ -1466,6 +1466,10 @@ pub fn reach_lines(r: &theseus_protocol::NodeReachResult) -> Vec<Line> {
             exposed(first, last)
         ),
     )];
+    // What Jev says about the node itself (issue 44).
+    if let Some(l) = &r.labels {
+        lines.push(Line::new(Tag::Plain, format!("labels: {}", l.line())));
+    }
     reach_generation(
         &mut lines,
         format!(

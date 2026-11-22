@@ -46,6 +46,7 @@ use theseus_judge::{
 use super::{spend, Beside, JudgeService, ScrubWith};
 use crate::content::{self, ContentFlags, Flag, ItemKind, Label};
 use crate::fact::content::{AnswerRow, ContentJudged, ContentLabelled, ContentUnjudged};
+use crate::item_labels;
 use crate::node::{Body, Node};
 
 /// The pack: the four content questions about one item.
@@ -640,8 +641,12 @@ impl JudgeService {
         let written = self.store.update_session(session, |rec| {
             let mut flags = take_flags(rec);
             let mut rows = Vec::new();
+            // Each item's own record (`item_labels`), in this frame, from the same answer.
+            let mut items = item_labels::Pending::default();
+            let now = theseus_protocol::now_unix_ms();
             for (at, l) in landings.iter().enumerate() {
                 let it = &l.item;
+                keep_ask(&mut items, &self.store, l, now);
                 match l.unjudged {
                     Some(why) => rows.push(crate::fact::row(
                         &ContentUnjudged {
@@ -669,7 +674,9 @@ impl JudgeService {
                     None => {}
                 }
                 for label in &l.raised {
-                    if flags.raise_after(label.clone(), it.entered_ms) {
+                    let item =
+                        items.of(&self.store, (&it.node, it.kind, &it.source, it.entered_ms));
+                    if item_labels::land(&mut flags, item, label.clone(), it.entered_ms) {
                         fresh.push((at, label));
                         rows.push(crate::fact::row(
                             &ContentLabelled {
@@ -687,6 +694,7 @@ impl JudgeService {
                 }
             }
             put_flags(rec, flags);
+            rows.extend(items.records()?);
             Ok(rows)
         });
         match &written {
@@ -877,13 +885,24 @@ impl JudgeService {
             self.store.update_session(session, |rec| {
                 let mut flags = take_flags(rec);
                 let mut rows = Vec::new();
+                let mut items = item_labels::Pending::default();
                 for (label, entered_ms) in &labels {
-                    if flags.raise_after(label.clone(), *entered_ms) {
+                    // A label that names its node is kept on that item too; every source names one.
+                    let took = match label.node.as_deref() {
+                        Some(node) => {
+                            let item = items
+                                .of(&self.store, (node, label.kind, &label.source, *entered_ms));
+                            item_labels::land(&mut flags, item, label.clone(), *entered_ms)
+                        }
+                        None => flags.raise_after(label.clone(), *entered_ms),
+                    };
+                    if took {
                         fresh.push(label);
                         rows.push(crate::fact::row(&labelled(label), Some(session), None)?);
                     }
                 }
                 put_flags(rec, flags);
+                rows.extend(items.records()?);
                 Ok(rows)
             })
         });
@@ -914,6 +933,38 @@ impl JudgeService {
         {
             told(session, label);
         }
+    }
+}
+
+/// The pack's ask of `l`, kept on its item's record in this frame: an item that was asked, or whose ask
+/// failed; one with no text to ask about keeps nothing.
+fn keep_ask(items: &mut item_labels::Pending, store: &crate::store::Store, l: &Landing, now: u64) {
+    if l.unjudged.is_none() && l.pieces == 0 {
+        return;
+    }
+    let it = &l.item;
+    let item = items.of(store, (&it.node, it.kind, &it.source, it.entered_ms));
+    item.asked(asked_of(l, now));
+}
+
+/// The pack's ask of one landing, as its item keeps it: the answers it holds, and `answered` or why not.
+fn asked_of(l: &Landing, at_ms: u64) -> item_labels::Asked {
+    item_labels::Asked {
+        pack: PACK.into(),
+        at_ms,
+        outcome: l.unjudged.unwrap_or("answered").into(),
+        answers: (l.answers.iter())
+            .filter_map(|a| {
+                Some(item_labels::Answer {
+                    question: Flag::parse(a.question)?,
+                    choice: a.choice.clone(),
+                    confidence: a.confidence,
+                    band: a.band,
+                })
+            })
+            .collect(),
+        pieces: l.pieces,
+        truncated: l.truncated,
     }
 }
 

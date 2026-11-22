@@ -107,6 +107,11 @@ pub struct ViewPiece {
     /// The heading the model is told it is under: `here`, `his_word_elsewhere`, `testimony`, `author_unknown`,
     /// `outside_text`.
     pub label: String,
+    /// What Jev says about the items the piece is read from (issue 44), one line each, `<node>: <what>`:
+    /// the ask and the reply of a piece's first and last exchange, or a recalled node. Absent for a piece
+    /// made from items (a fold, a card, a fact): its labels are its sources'.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<String>,
     /// The piece's text, when asked for and allowed; none when its source holds no text this build reads.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -344,6 +349,9 @@ pub fn lines(v: &ViewShown) -> String {
                 x.label,
                 x.reasons.join(", ")
             );
+            for l in &x.labels {
+                let _ = writeln!(out, "      jev {l}");
+            }
             if let Some(t) = &x.text {
                 for line in t.lines() {
                     let _ = writeln!(out, "      | {line}");

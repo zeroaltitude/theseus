@@ -159,6 +159,13 @@ pub enum ItemKind {
     TaskBrief,
     /// A task's report, entering the parent.
     TaskReport,
+    /// Theseus's own reply: a turn's output, kept on its final message (issue 44). Asked all four
+    /// questions, `injection` included, as a task's report is and for the same reason: it is a model's
+    /// words, written after reading whatever the turn read, so a poisoned page can shape it, and it is read
+    /// again by every later turn. It reports to a person rather than instructing Theseus, so the brief's
+    /// exemption (steering by design) does not hold for it. A task's turns are not asked it: their output
+    /// is the report the parent asks.
+    Reply,
 }
 
 impl ItemKind {
@@ -171,6 +178,7 @@ impl ItemKind {
             ItemKind::SearchResult => "search_result",
             ItemKind::TaskBrief => "task_brief",
             ItemKind::TaskReport => "task_report",
+            ItemKind::Reply => "reply",
         }
     }
 

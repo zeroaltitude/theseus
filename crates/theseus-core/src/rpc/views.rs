@@ -217,11 +217,18 @@ impl Core {
             },
             asker: None,
         };
-        Reader {
+        let mut shown = Reader {
             source: &source,
             text,
             restricted: false,
         }
-        .show(v)
+        .show(v);
+        // What Jev says about each piece's items (issue 44): data for a person, nothing withheld on it.
+        let o = self.runner.ontology.snapshot(&self.store).ok();
+        for p in shown.slots.iter_mut().flat_map(|s| s.pieces.iter_mut()) {
+            let at = (p.kind.as_str(), p.first.as_str(), p.last.as_str());
+            p.labels = crate::item_labels::piece_lines(&self.store, o.as_deref(), at);
+        }
+        shown
     }
 }

@@ -329,6 +329,7 @@ fn fold_piece(s: &Shown, pov: &crate::view::PointOfView) -> ViewPiece {
         tokens: s.tokens,
         reasons: p.reasons.iter().map(name).collect(),
         label: name(&Label::of(p, pov)),
+        labels: Vec::new(),
         text: None,
     }
 }
