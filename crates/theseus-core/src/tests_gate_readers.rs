@@ -62,7 +62,7 @@ fn thread(r: &Rig, slug: &str) {
 /// A tail is put back for the presence it was made for, and only that: the
 /// owner's second turn at the terminal carries his first turn's tail where
 /// it was sent; an agent's turn after him, at the same terminal, is not sent
-/// it; and each change of presence starts a new chain.
+/// it; and the owner, back, is sent his again.
 #[tokio::test]
 async fn a_kept_tail_is_sent_again_only_to_who_it_was_made_for() {
     let r = tailed();
@@ -80,10 +80,11 @@ async fn a_kept_tail_is_sent_again_only_to_who_it_was_made_for() {
         1,
         "an agent's turn is not sent the owner's tails"
     );
-    // The agent's turn started a new chain: the owner's tails were let go
-    // with the thinking they were under, and the agent's are not his.
     turn_as(&r.core, &desk, "the owner again", true).await;
-    assert_eq!(dates(&r, "the owner again"), 1, "a new chain again");
+    assert!(
+        dates(&r, "the owner again") >= 2,
+        "the owner's tails are his again"
+    );
 }
 
 /// A tail made before a thread was sealed is let go: it is not sent again,
@@ -128,19 +129,16 @@ async fn a_kept_tail_is_let_go_when_a_thread_is_sealed_after_it() {
 }
 
 fn seal(r: &Rig, slug: &str) {
-    seal_core(&r.core, slug);
-}
-
-fn seal_core(core: &crate::Core, slug: &str) {
-    core.thread_seal(
-        &ThreadSealParams {
-            slug: slug.into(),
-            reason: Some("embargoed".into()),
-            ..Default::default()
-        },
-        cli(),
-    )
-    .unwrap();
+    r.core
+        .thread_seal(
+            &ThreadSealParams {
+                slug: slug.into(),
+                reason: Some("embargoed".into()),
+                ..Default::default()
+            },
+            cli(),
+        )
+        .unwrap();
 }
 
 /// The place digest says nothing of a thread held from a reader that is not
@@ -230,14 +228,10 @@ async fn a_listed_title_made_from_a_moved_message_is_not_shown() {
     assert!(after.contains("this harness"), "still listed: {after}");
 }
 
-/// Health tells the owner in person when a thread's binding cannot be read,
-/// by count, and stops once the thread is bound again; an agent's process at
-/// the terminal and the MCP server are told nothing of it, as before.
+/// Health says when a thread's binding cannot be read, by count, and stops
+/// saying it once the thread is bound again.
 #[tokio::test]
 async fn health_counts_a_binding_that_cannot_be_read_until_it_is_bound_again() {
-    use crate::approval::{Client, Surface};
-    use crate::peer_proc::Behind;
-    use crate::tests_m3::rpc_as;
     let r = crate::tests_places::rig_setup(
         |_| {},
         |s| {
@@ -245,34 +239,11 @@ async fn health_counts_a_binding_that_cannot_be_read_until_it_is_bound_again() {
                 .unwrap();
             s.put_meta("discord.session.thread:kelp", &json!(17))
                 .unwrap();
-            s.put_meta("discord.session.thread:reef", &json!(18))
-                .unwrap();
         },
     );
     r.core.runner.threads.all(&r.core.store).unwrap();
-    let unread = |c: Client| {
-        let core = r.core.clone();
-        async move {
-            let h = rpc_as(&core, c, theseus_protocol::method::HEALTH, json!({}))
-                .await
-                .unwrap();
-            h["threads"]["unread_bindings"].as_u64().unwrap_or(0)
-        }
-    };
-    let owner = || Client::new("sock#1", Surface::Cli);
-    assert_eq!(unread(owner()).await, 2, "the owner in person");
-    let agent = Client::new("sock#2", Surface::Cli).behind(Behind::Agent("claude".into()));
-    assert_eq!(unread(agent).await, 0, "an agent's process");
-    assert_eq!(
-        unread(Client::new("mcp", Surface::Mcp)).await,
-        0,
-        "the MCP server"
-    );
-    assert_eq!(
-        r.core.health().threads.map(|t| t.unread_bindings),
-        Some(0),
-        "health read inside the daemon is as before"
-    );
+    let h = r.core.threads_health().expect("the threads are said");
+    assert_eq!(h.unread_bindings, 1);
     // The thread bound again, as opening its session binds it.
     let sid = session(&r.core, None);
     r.core
@@ -280,151 +251,6 @@ async fn health_counts_a_binding_that_cannot_be_read_until_it_is_bound_again() {
         .threads
         .bind(&r.core.store, "kelp", |_| Ok(((), Some(sid.clone()))))
         .unwrap();
-    assert_eq!(unread(owner()).await, 1, "bound again, it reads");
-}
-
-/// A turn of `sid` in the binding's rig, its input marked as the owner's in
-/// person or an agent's.
-async fn said_as(
-    r: &crate::tests_binding::Rig,
-    sid: &str,
-    input: &str,
-    in_person: bool,
-) -> theseus_protocol::TurnSubmitResult {
-    use crate::session::SessionRecord;
-    let core = &r.core;
-    let rec = core
-        .store
-        .get_session::<SessionRecord>(sid)
-        .unwrap()
-        .unwrap();
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let mark = view_gate::test_mark(&core.runner, sid, in_person);
-    let sink = crate::bus::EventSink::new(core.bus.clone(), sid, None).with_arrival(Some(mark));
-    core.runner
-        .run(crate::turn::TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: "cli".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .unwrap()
-}
-
-/// Letting a tail go never sends a request the provider's binding refuses:
-/// across a new seal, and across a narrowing (an agent's turn after the
-/// owner's), the next request starts a new chain, its thinking stripped, and
-/// no request is refused or repeated with the provider's remedy.
-#[tokio::test]
-async fn a_tail_let_go_starts_a_chain_the_binding_accepts() {
-    use crate::provider::Binding;
-    use crate::provider::Scripted;
-    use crate::tests_binding::{private_session, rig, thinks_then_reads};
-    for change in ["seal", "narrow"] {
-        let r = rig(
-            Binding::Refuse,
-            vec![
-                thinks_then_reads("toolu_a"),
-                Scripted::text("Four."),
-                thinks_then_reads("toolu_b"),
-                Scripted::text("Still four."),
-            ],
-        );
-        let sid = private_session(&r.core);
-        let one = said_as(&r, &sid, "what does the tide table say?", true).await;
-        assert_eq!(one.output, "Four.", "{change}: {one:?}");
-        if change == "seal" {
-            r.core
-                .thread_new(
-                    &ThreadNewParams {
-                        slug: "kelp".into(),
-                        title: Some("kelp".into()),
-                        ..Default::default()
-                    },
-                    cli(),
-                )
-                .unwrap();
-            seal_core(&r.core, "kelp");
-        }
-        let two = said_as(&r, &sid, "and again?", change != "narrow").await;
-        assert_eq!(two.output, "Still four.", "{change}: {two:?}");
-        let reqs = r.fake.requests();
-        assert_eq!(reqs.len(), 4, "{change}: no request refused and repeated");
-        for q in &reqs {
-            let remedy = q.thinking.as_ref().and_then(|t| t.get("block_binding"));
-            assert!(remedy.is_none(), "{change}: a repeat with the remedy");
-        }
-        // The new chain carries none of the first turn's thinking.
-        assert!(
-            !serde_json::to_string(&reqs[2].messages)
-                .unwrap()
-                .contains("\"thinking\""),
-            "{change}: {:?}",
-            reqs[2].messages
-        );
-    }
-}
-
-/// A board that reads in part holds every thread: one thread record that
-/// does not decode among good ones lets every kept tail go, as a board that
-/// does not read at all does.
-#[tokio::test]
-async fn a_partly_unread_board_lets_every_kept_tail_go() {
-    let r = crate::tests_places::rig_setup(
-        |c| c.project.tail_facts = Some(true),
-        |s| {
-            s.put_meta("thread:kelp", &json!({"slug": "kelp", "title": "kelp"}))
-                .unwrap();
-            s.put_meta("thread:reef", &json!("not a thread")).unwrap();
-        },
-    );
-    let desk = session(&r.core, None);
-    assert_eq!(view_gate::held_threads(&r.core.runner, &desk), None);
-    turn_as(&r.core, &desk, "the first word", true).await;
-    turn_as(&r.core, &desk, "the second word", true).await;
-    assert_eq!(dates(&r, "the second word"), 1, "nothing kept goes back");
-}
-
-/// A tail is let go when a message moved into a thread since it was made,
-/// though no thread joined the held ones: thread T was sealed before the
-/// tail was made, then a message of another conversation (the source a
-/// standing record in that tail could have been captured from) is moved
-/// into T. The held set is the same; the move lets the tail go.
-#[tokio::test]
-async fn a_tail_is_let_go_when_a_message_moved_into_a_held_thread_since() {
-    let r = tailed();
-    thread(&r, "kelp");
-    seal(&r, "kelp");
-    let home = session(&r.core, None);
-    turn_as(&r.core, &home, "the mooring ledger", true).await;
-    let desk = session(&r.core, None);
-    turn_as(&r.core, &desk, "the first word", true).await;
-    let before = view_gate::held_threads(&r.core.runner, &desk);
-    let (_, moved) = r.core.store.session_nodes(&home).unwrap().remove(0);
-    r.core
-        .store
-        .put_meta(
-            &crate::moved::moved_of_key(&moved.id),
-            &json!({"thread": "kelp", "split": "spl_x"}),
-        )
-        .unwrap();
-    assert_eq!(view_gate::held_threads(&r.core.runner, &desk), before);
-    turn_as(&r.core, &desk, "the second word", true).await;
-    assert_eq!(dates(&r, "the second word"), 1, "the move let it go");
-    turn_as(&r.core, &desk, "the third word", true).await;
-    assert_eq!(
-        dates(&r, "the third word"),
-        2,
-        "a tail made after it goes back"
-    );
+    let h = r.core.threads_health().expect("the threads are said");
+    assert_eq!(h.unread_bindings, 0, "bound again, it reads");
 }

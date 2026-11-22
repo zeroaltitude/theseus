@@ -839,11 +839,10 @@ impl TurnRunner {
         };
         let mut compiled = crate::compiler::compile(input);
         // What the turns sent after the conversation, where they sent it: the next turn's request
-        // carries it, so the read does too (`turn::sent_tail`); when the newest may not be sent
-        // again now, its next turn starts a new chain, and nothing is read.
-        let now = crate::view_gate::tail_under(self, sid, String::new());
-        let kept = self.tails.warm(sid, &now, &mut compiled);
-        Ok((current.is_some() && kept, compiled))
+        // carries it, so the read does too (`turn::sent_tail`), under the seals as they are now.
+        let now = crate::view_gate::held_threads(self, sid);
+        self.tails.warm(sid, now.as_ref(), &mut compiled);
+        Ok((current.is_some(), compiled))
     }
 }
 

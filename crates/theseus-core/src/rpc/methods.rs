@@ -216,22 +216,6 @@ impl Core {
         h
     }
 
-    /// `health_now`, for the caller `who`: the owner in person, at his
-    /// terminal or the web UI (`places::owner_in_person`), is also told how
-    /// many threads' bindings do not read (issue 44). Any other caller (an
-    /// agent's process, the MCP server, a transport) is told nothing of it:
-    /// a count says a thread exists.
-    pub async fn health_for(&self, who: &crate::approval::Answerer) -> HealthResult {
-        use crate::approval::Surface;
-        let mut h = self.health_now().await;
-        let owner = matches!(who.surface, Surface::Cli | Surface::Web)
-            && crate::places::owner_in_person(who, &self.runner.place_rule, &self.cfg).is_ok();
-        if owner {
-            h.threads = self.threads_health_for(true);
-        }
-        h
-    }
-
     /// The daemon stops (roadmap row 51): the index tender gets SIGTERM and
     /// is never waited for, unless the daemon restarts in place onto the
     /// vault's changed note, whose next image takes the tender over.
