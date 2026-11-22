@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# theseus-stats-landing: STATS.md is counted again at every landing on `main` (issue 45), with no one remembering.
+#
+# Installed by `scripts/stats-hook.sh install` into the repository's shared hooks directory, as `post-merge` (a
+# `git merge` that commits) and as `post-commit` (the `git commit` after a `git merge --no-commit`). It acts only on
+# a MERGE made on the branch `main`: HEAD is `refs/heads/main` and HEAD has two parents. Then it runs
+# scripts/stats.py on the merge's tree and, when STATS.md changed, folds it into that merge (`commit --amend`, which
+# keeps the merge's parents, so STATS.md's "Counted at the merge of B into A" stays true of the commit that carries
+# it). Any other commit, on any other branch, a fast-forward, or a detached HEAD, is left alone: so branches never
+# touch STATS.md, and no two branches conflict on it.
+#
+# Why after the merge and not before it: git runs `pre-merge-commit` before it writes MERGE_HEAD and after it has
+# written the merge's tree, so a file staged there names no merged commit and is not in the merge.
+#
+# The build sizes: when the main tree's optimised build (`$CARGO_TARGET_DIR` or `target`, profile `release`) has a
+# build stamp, they are read from it again, under the commit that stamp names; else the sizes already in STATS.md are
+# kept as they were.
+#
+# Not covered, by design:
+#   - the self loop's join, which merges in a detached tree (rsi/join/git.rs): HEAD is not `main` there, and how the
+#     loop counts is a separate change, reviewed before it lands;
+#   - a fast-forward landing (there is no merge to fold into), and a landing made by pushing a merge made in another
+#     clone (the count happens where the merge is made).
+#
+# The amend signs as the repository's settings sign. A count or an amend that fails never undoes the landing: it says
+# so, and the merge stays as it was.
+set -u
+[ -z "${THESEUS_STATS_FOLDING:-}" ] || exit 0  # the amend below runs post-commit again
+[ "$(git symbolic-ref -q HEAD)" = refs/heads/main ] || exit 0
+[ "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 3 ] || exit 0
+root=$(git rev-parse --show-toplevel) || exit 0
+[ -f "$root/scripts/stats.py" ] || exit 0
+prof="${CARGO_TARGET_DIR:-$root/target}/release"
+sizes=()
+[ -f "$prof/.theseus-build-stamp" ] && sizes=(--sizes-from "$prof")
+if ! python3 -I "$root/scripts/stats.py" --root "$root" "${sizes[@]}"; then
+  echo "stats: the count failed; the merge stays as it was" >&2
+  exit 0
+fi
+if git -C "$root" ls-files --error-unmatch STATS.md >/dev/null 2>&1 && git -C "$root" diff --quiet -- STATS.md; then
+  exit 0
+fi
+git -C "$root" add -- STATS.md &&
+  THESEUS_STATS_FOLDING=1 git -C "$root" commit -q --amend --no-edit --no-verify -- STATS.md ||
+  echo "stats: STATS.md was counted but not folded into the merge; commit it by hand" >&2
+exit 0

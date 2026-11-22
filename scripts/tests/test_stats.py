@@ -160,8 +160,8 @@ class StatsTest(unittest.TestCase):
         os.makedirs(os.path.join(self.root, "scripts"), exist_ok=True)
         shutil.copy(os.path.join(HERE, "..", "stats.py"), os.path.join(self.root, "scripts", "stats.py"))
         hooks = os.path.join(self.root, ".git", "hooks")
-        for name in ("pre-merge-commit", "pre-commit"):
-            shutil.copy(os.path.join(HERE, "..", "hooks", "pre-merge-commit"), os.path.join(hooks, name))
+        for name in ("post-merge", "post-commit"):
+            shutil.copy(os.path.join(HERE, "..", "hooks", "post-merge"), os.path.join(hooks, name))
             os.chmod(os.path.join(hooks, name), 0o755)
         self.git("checkout", "-q", "-B", "main")
         self.git("add", "-A")
@@ -191,11 +191,12 @@ class StatsTest(unittest.TestCase):
         self.git("checkout", "-q", "main")
         base = self.git("rev-parse", "--short=8", "HEAD")
         self.git("merge", "-q", "--no-ff", "--no-commit", "two")
-        self.git("commit", "-q", "-m", "land two")  # the --no-commit landing: counted by pre-commit
+        self.git("commit", "-q", "-m", "land two")  # the --no-commit landing: counted by post-commit
         self.assertIn(f"Counted at the merge of {two} into {base}, over", self.git("show", "HEAD:STATS.md"))
+        self.assertEqual(self.git("rev-list", "--parents", "-n", "1", "HEAD").split()[1][:8], base, "parents kept")
         three = branch("three")
-        self.git("checkout", "-q", "main")
-        self.git("merge", "-q", "--no-ff", "--no-verify", "-m", "land three", "three")  # as the self loop joins
+        self.git("checkout", "-q", "--detach", "main")
+        self.git("merge", "-q", "--no-ff", "--no-verify", "-m", "join three", "three")  # as the self loop joins
         self.assertNotIn(three, self.git("show", "HEAD:STATS.md"))
 
     def test_the_same_tree_gives_the_same_bytes(self):

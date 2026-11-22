@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# STATS.md's landing count (issue 45): install or check scripts/hooks/pre-merge-commit, which counts STATS.md again
-# in every merge onto `main` (its own header says how, and what it does not cover).
+# STATS.md's landing count (issue 45): install or check scripts/hooks/post-merge, which counts STATS.md again
+# into every merge made on `main` (its own header says how, and what it does not cover).
 #
-#   scripts/stats-hook.sh install   copy the hook into the repository's shared hooks directory as `pre-merge-commit`
-#                                   and `pre-commit`; a no-op when the installed copies are current; refuses to
+#   scripts/stats-hook.sh install   copy the hook into the repository's shared hooks directory as `post-merge`
+#                                   and `post-commit`; a no-op when the installed copies are current; refuses to
 #                                   replace a hook of either name it did not write, and to run from a linked worktree
 #   scripts/stats-hook.sh check     say whether both are installed and current; exit 1 when not
 #
@@ -14,9 +14,9 @@
 # (install); 2 usage.
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
-SRC=$ROOT/scripts/hooks/pre-merge-commit
+SRC=$ROOT/scripts/hooks/post-merge
 MARK=theseus-stats-landing
-NAMES=(pre-merge-commit pre-commit)
+NAMES=(post-merge post-commit)
 
 common=$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir) || exit 2
 gd=$(git -C "$ROOT" rev-parse --path-format=absolute --git-dir) || exit 2

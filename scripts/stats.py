@@ -17,9 +17,9 @@ Sizes: `--sizes-from` reads an optimised build's profile directory (`$CARGO_TARG
 (`/usr/local/lib/theseus/<commit>`), and may be given more than once (the root helper's directory too). A part of the sizes not asked for is copied
 from the STATS.md already there, so a recount at a landing leaves the sizes measured at the last install alone.
 
-At a landing, `scripts/hooks/pre-merge-commit` (installed by `scripts/stats-hook.sh install`) runs this during a merge
-onto `main` and stages STATS.md into the merge, so the count is the merge's own; a merge in progress is named by
-MERGE_HEAD and HEAD, the parents the commit will have.
+At a landing, `scripts/hooks/post-merge` (installed by `scripts/stats-hook.sh install`) runs this after a merge made on
+`main` and folds STATS.md into that merge, so the count is the merge's own. A merge still in progress (`git merge
+--no-commit`) is named by MERGE_HEAD and HEAD, the parents the commit will have.
 
 Nothing here reads a clock: the same tree and the same arguments give the same bytes.
 Python 3, standard library only.
@@ -347,7 +347,7 @@ def render(root, rows, old, sizes_from, installed):
     merging = subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", "--short=8", "MERGE_HEAD"],
                              capture_output=True, text=True).stdout.strip()
     if merging:
-        # A merge being committed (the landing hook): its parents are HEAD and MERGE_HEAD, and the merge's own
+        # A merge not yet committed (`git merge --no-commit`): its parents will be HEAD and MERGE_HEAD, and its own
         # changes are staged, so only what is not yet staged is uncommitted.
         at = f"the merge of {merging} into {head}"
         dirty = git(root, "diff", "--name-only", "--", ".", ":!STATS.md").strip()
