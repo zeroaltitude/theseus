@@ -3,13 +3,14 @@
 //! (an existing thread's at its tail); a split from a thread leaves that thread's window too; an unsplit puts
 //! both back. Real splits through the RPC, real turns, the requests the model was sent read back.
 
-use serde_json::{json, Value};
+use std::sync::Arc;
+
+use serde_json::Value;
 use theseus_protocol::threads::{ThreadNewParams, ThreadSplitParams, ThreadUnsplitParams};
 use theseus_protocol::SessionOpenParams;
 
 use crate::approval::{Answerer, Surface};
 use crate::config::MemoryMode;
-use crate::node::{Body, Node};
 use crate::provider::Scripted;
 use crate::tests_recall::{rig_with, turn, Rig};
 use crate::tests_view_compile::texts;
@@ -26,46 +27,18 @@ fn cli() -> Answerer {
     }
 }
 
-fn rig(n: usize) -> Rig {
+fn rig() -> Rig {
     let r = rig_with(MemoryMode::Off, |_| {});
-    (r.model.script.lock().unwrap()).extend((0..n).map(|i| Scripted::text(&format!("reply {i}"))));
+    (r.model.script.lock().unwrap()).extend((0..60).map(|i| Scripted::text(&format!("reply {i}"))));
     r
 }
 
-/// Turn `n` as the loop writes it: the message and the reply, each carrying `marker-<n>`.
-fn add_turn(c: &Core, sid: &str, n: usize) {
-    let turn_id = format!("turn_s{n:04}");
-    let q = Node::user(
-        sid,
-        Some(&turn_id),
-        "owner",
-        &format!("Question {n} about marker-{n}"),
-    );
-    let a = Node::assistant(
-        sid,
-        &turn_id,
-        0,
-        Body::AssistantMessage {
-            blocks: vec![json!({"type": "text", "text": format!("Answer {n} marker-{n}")})],
-            model: "fake".into(),
-            provider: "fake".into(),
-            stop_reason: Some("end_turn".into()),
-            usage: Default::default(),
-            cost_usd: None,
-            catalog_version: None,
-            request_id: None,
-            correlation_id: None,
-            compilation_id: None,
-            request_digest: None,
-            effort: None,
-        },
-    );
-    c.store
-        .append(&[q.record().unwrap(), a.record().unwrap()])
-        .unwrap();
+/// Turn `n`, a real one: its message carries `marker-<n>`.
+async fn say(c: &Arc<Core>, sid: &str, n: usize) {
+    turn(c, sid, &format!("Question {n} about marker-{n}")).await;
 }
 
-/// A home bound to a place, with turns `from..to`, then one real turn that makes their exchanges.
+/// A home bound to a place, with real turns `from..to`.
 async fn home_with(r: &Rig, from: usize, to: usize) -> String {
     let c = &r.core;
     let sid = c
@@ -74,9 +47,8 @@ async fn home_with(r: &Rig, from: usize, to: usize) -> String {
         .session_id;
     c.outbox.bind_place(PLACE, &sid).unwrap();
     for i in from..to {
-        add_turn(c, &sid, i);
+        say(c, &sid, i).await;
     }
-    turn(c, &sid, "And what is the plan for the neap week?").await;
     sid
 }
 
@@ -97,11 +69,24 @@ fn pos(c: &Core, sid: &str, needle: &str) -> u64 {
         .0
 }
 
+/// The positions of turns `a` to `b`, whole: the first message through the last node of turn `b`.
 fn span(c: &Core, sid: &str, a: usize, b: usize) -> [u64; 2] {
-    [
-        pos(c, sid, &format!("Question {a} about")),
-        pos(c, sid, &format!("Answer {b} marker")),
-    ]
+    let nodes = c.store.transcript(sid).unwrap();
+    let last = pos(c, sid, &format!("Question {b} about"));
+    let turn = (nodes
+        .iter()
+        .find(|(p, _)| *p == last)
+        .unwrap()
+        .1
+        .turn_id
+        .clone())
+    .unwrap();
+    let end = (nodes.iter())
+        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn.as_str()))
+        .map(|(p, _)| *p)
+        .max()
+        .unwrap();
+    [pos(c, sid, &format!("Question {a} about")), end]
 }
 
 /// The text of the request the model was sent for `text`'s turn (its first call).
@@ -132,7 +117,7 @@ fn census(c: &Core, sid: &str) -> String {
 
 #[tokio::test]
 async fn a_homes_moved_range_leaves_its_next_request_for_one_line_and_the_thread_lays_it() {
-    let r = rig(8);
+    let r = rig();
     let c = &r.core;
     let sid = home_with(&r, 0, 9).await;
     let range = span(c, &sid, 3, 6);
@@ -187,12 +172,12 @@ async fn a_homes_moved_range_leaves_its_next_request_for_one_line_and_the_thread
         at(3) < at(4) && at(4) < at(5) && at(5) < at(6),
         "in their order"
     );
-    assert!(!theirs.contains("marker-2\"") && !theirs.contains("Question 7 about"));
+    assert!(!theirs.contains("Question 2 about") && !theirs.contains("Question 7 about"));
 }
 
 #[tokio::test]
 async fn a_split_into_an_existing_thread_lays_the_range_at_its_tail() {
-    let r = rig(8);
+    let r = rig();
     let c = &r.core;
     let sid = home_with(&r, 0, 7).await;
     let dev = thread(c, "dev");
@@ -225,14 +210,13 @@ async fn a_split_into_an_existing_thread_lays_the_range_at_its_tail() {
 
 #[tokio::test]
 async fn a_split_from_a_thread_leaves_the_threads_request_too() {
-    let r = rig(8);
+    let r = rig();
     let c = &r.core;
     let _home = home_with(&r, 0, 2).await;
     let dev = thread(c, "dev");
     for i in 10..15 {
-        add_turn(c, &dev, i);
+        say(c, &dev, i).await;
     }
-    turn(c, &dev, "Where are we on the build?").await;
     let range = span(c, &dev, 11, 12);
     split(
         c,
@@ -275,7 +259,7 @@ async fn a_split_from_a_thread_leaves_the_threads_request_too() {
 
 #[tokio::test]
 async fn an_unsplit_puts_both_requests_back() {
-    let r = rig(8);
+    let r = rig();
     let c = &r.core;
     let sid = home_with(&r, 0, 7).await;
     let dev = thread(c, "dev");
