@@ -274,28 +274,21 @@ async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
             last.as_str()
         )
     );
-    // The exact compilations: the recompile's, which is the parent's current
-    // one, and no other of the parent's holds it.
-    let current = r
-        .core
-        .store
-        .get_session::<SessionRecord>(&parent)
-        .unwrap()
-        .unwrap()
-        .compilation_id
-        .unwrap();
+    // The exact compilations: on the view a turn is a new compilation every
+    // turn (issue 44), so the two parent turns after the copy each laid it,
+    // and no compilation of the parent's made before it did.
     let holding: Vec<String> = r
         .core
         .store
         .session_compilations(&parent)
         .unwrap()
         .into_iter()
-        .filter(|c| c.includes.contains(&copy.id))
+        .filter(|c| c.as_of >= at)
         .map(|c| c.id)
         .collect();
-    assert_eq!(holding, vec![current]);
+    assert_eq!(holding.len(), 2, "{holding:?}");
     assert_eq!(ids(&d.exposure), holding);
-    assert_eq!(d.exposure.compilations[0].strategy, "transcript");
+    assert!(d.exposure.compilations.iter().all(|c| c.strategy == "view"));
     // Two loops held it: the recompiled turn's, and the next turn's.
     assert_eq!(d.exposure.loops, 2);
     let replies: Vec<u64> = nodes(&r.core, &parent)
@@ -309,7 +302,7 @@ async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
     assert_eq!(
         got.totals,
         ReachTotals {
-            contexts: 3,
+            contexts: 4,
             sessions: 2
         }
     );
@@ -412,15 +405,18 @@ async fn a_session_with_no_edges_answers_its_own_exposure_only() {
     let all = nodes(&r.core, &sid);
     let first = &all[0].1;
     let got = reach(&r.core.store, &first.id, None).unwrap().unwrap();
+    // A view turn is a new compilation every turn (issue 44): the first
+    // turn's requests laid the message as its own, the second's in its window.
     let comps = r.core.store.session_compilations(&sid).unwrap();
-    assert_eq!(comps.len(), 1);
-    assert_eq!(ids(&got.direct), vec![comps[0].id.clone()]);
+    assert_eq!(comps.len(), 2);
+    let comps: Vec<String> = comps.into_iter().map(|c| c.id).collect();
+    assert_eq!(ids(&got.direct), comps);
     assert_eq!(got.direct.loops, 2, "each turn's loop held it");
     assert!(got.descendants.is_empty() && !got.partial);
     assert_eq!(
         got.totals,
         ReachTotals {
-            contexts: 3,
+            contexts: 4,
             sessions: 1
         }
     );

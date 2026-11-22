@@ -306,6 +306,43 @@ async fn a_retraction_finds_every_exposure_and_sorts_each_right() {
     );
 }
 
+/// A fact a view turn was sent is in the retraction's spread (issue 44): said in a turn, it went in that
+/// turn's own requests, so its session is found; recalled into a later turn of another session, that
+/// session is found too. `node.reach` says the same: never "nowhere" for what the model was sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fact_a_view_turn_was_sent_is_in_the_spread() {
+    let r = rig();
+    let c = &r.core;
+    let src = session(c, None, &[]);
+    turn(c, &src, FACT).await;
+    let x = (c.store.session_nodes(&src).unwrap().into_iter())
+        .find(|(_, n)| matches!(&n.body, Body::UserMessage { text, .. } if text == FACT))
+        .expect("the turn's message")
+        .1
+        .id;
+    let reach = crate::reach::reach(&c.store, &x, None).unwrap().unwrap();
+    assert!(
+        reach.direct.loops >= 1 && !reach.direct.compilations.is_empty(),
+        "{reach:?}"
+    );
+    c.runner.memory.set_ask(index_of(c, vec![src.clone()]));
+    let a = asker(c, "What port does the Kestrel relay use?").await;
+    let (rcl, _) = recall_of(c, &a);
+    let reach = crate::reach::reach(&c.store, &x, None).unwrap().unwrap();
+    let copy = (reach.descendants.iter())
+        .find(|d| d.session_id == a)
+        .expect("the recall's copy");
+    assert_eq!(copy.node_id, rcl);
+    assert!(copy.exposure.loops >= 1, "{reach:?}");
+
+    let out = retract(c, &x).unwrap();
+    let found: Vec<&str> = (out.exposures.iter())
+        .map(|e| e.session_id.as_str())
+        .collect();
+    assert!(found.contains(&src.as_str()), "{out:#?}");
+    assert!(found.contains(&a.as_str()), "{out:#?}");
+}
+
 /// The live session's next turn carries the correction once; a session that
 /// only saw the fact, and a task, get none.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

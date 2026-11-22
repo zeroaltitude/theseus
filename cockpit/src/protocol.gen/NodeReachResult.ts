@@ -12,6 +12,7 @@ export type NodeReachResult = { node_id: string, session_id: string, position: n
 forks?: Array<ReachFork>, totals: ReachTotals, 
 /**
  * The walk stopped short: a node at `max_generations` has copies of
- * its own, or the walk reached its cap of copies.
+ * its own, the walk reached its cap of copies, or the record of what a
+ * view turn laid could not be read (what it sent is then unknown).
  */
 partial: boolean, };

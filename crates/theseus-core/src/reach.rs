@@ -7,6 +7,13 @@
 //!   left it in the tail (after `as_of`), as `render_request` builds the
 //!   request. Every compilation today admits only its own session's nodes, so
 //!   no index is needed.
+//! - **A view turn** (issue 44): its compilation's `includes` is the frozen window alone. What else its
+//!   requests laid is read when asked, from the view record kept for it (`view::record`, the one `view
+//!   show` reads): each recalled item, and each exchange laid with the form it was laid in (a person's words
+//!   in every form, a reply's in the spoken and whole, tool traffic in the whole alone). And each call lays
+//!   the turn's own nodes written before it. A node is exposed in every request it was laid in, whatever slot
+//!   laid it; a fold lays its account, not its sources, so a fold's sources are not counted. A view record
+//!   that cannot be read leaves the answer `partial`: never a silent "nowhere".
 //! - **Descendants**: the edges into the node (the scope `in:<node>`), each a
 //!   copy in another session, with its own exposure, generation by
 //!   generation.
@@ -36,8 +43,9 @@ use theseus_store::kinds;
 
 use crate::compiler::Compilation;
 use crate::graph::{Edge, EdgeKind};
-use crate::node::Node;
+use crate::node::{Body, Node};
 use crate::store::Store;
+use crate::view::{Form, Pos, Space};
 
 /// Generations of copies followed when the request names none.
 pub const DEFAULT_GENERATIONS: u32 = 3;
@@ -121,7 +129,9 @@ pub fn reach(
             .iter()
             .map(|k| (reached[*k].position, &reached[*k].node))
             .collect();
-        for (k, e) in ks.iter().zip(exposures(store, session, &nodes)?) {
+        let (got, unread) = exposures(store, session, &nodes)?;
+        partial |= unread;
+        for (k, e) in ks.iter().zip(got) {
             exposure[*k] = e;
         }
     }
@@ -210,10 +220,9 @@ fn forks_of(store: &Store, root: &Reached, max: u32) -> Result<(Vec<ReachFork>, 
                 }
                 let at = c.inherits.as_ref().map_or(0, |i| i.through_position);
                 let nodes = [(root.position, &root.node)];
-                let exposure = exposures(store, &c.session_id, &nodes)?
-                    .into_iter()
-                    .next()
-                    .unwrap_or_default();
+                let (got, unread) = exposures(store, &c.session_id, &nodes)?;
+                partial |= unread;
+                let exposure = got.into_iter().next().unwrap_or_default();
                 next.push(c.session_id.clone());
                 out.push(ReachFork {
                     session_id: c.session_id,
@@ -258,6 +267,9 @@ fn copies_of(store: &Store, id: &str) -> Result<Vec<Edge>> {
 #[derive(Deserialize)]
 struct Reply {
     created_at_ms: u64,
+    /// The turn whose call this reply answers: a view turn's calls lay the turn's own nodes before them.
+    #[serde(default)]
+    turn_id: Option<String>,
     body: ReplyBody,
 }
 
@@ -274,13 +286,95 @@ enum ReplyBody {
 
 /// Each node's exposure in `session`, from one scan of it after the
 /// earliest of `nodes`. A loop's compilation made before that is read by
-/// its id.
-fn exposures(store: &Store, session: &str, nodes: &[(u64, &Node)]) -> Result<Vec<ReachExposure>> {
+/// its id. True as well when a view turn's record could not be read: what it
+/// laid beyond its window is then unknown, and the answer says so.
+fn exposures(
+    store: &Store,
+    session: &str,
+    nodes: &[(u64, &Node)],
+) -> Result<(Vec<ReachExposure>, bool)> {
     let from = nodes.iter().map(|(p, _)| *p).min().unwrap_or(0);
+    let Scanned {
+        compilations,
+        made,
+        loops,
+    } = scan(store, session, from)?;
+    // What each view turn laid beyond its window, read once a compilation.
+    let mut laid: HashMap<&str, Option<ViewLaid>> = HashMap::new();
+    for (id, (_, c)) in &compilations {
+        if c.strategy == crate::compiler::view::STRATEGY {
+            laid.insert(id.as_str(), ViewLaid::read(store, id));
+        }
+    }
+    let unread = laid.values().any(Option::is_none);
+    let mut out = Vec::with_capacity(nodes.len());
+    for (p, n) in nodes {
+        let at_exchange = exchange_at(store, n)?;
+        let holds = |c: &Compilation| {
+            c.includes.contains(&n.id)
+                || crate::fork::inherited(c, *p)
+                || laid
+                    .get(c.id.as_str())
+                    .and_then(Option::as_ref)
+                    .is_some_and(|v| v.lays(n, at_exchange.as_ref()))
+        };
+        let mut e = ReachExposure::default();
+        let seen = |at: u64, e: &mut ReachExposure| {
+            e.first_ms = Some(e.first_ms.map_or(at, |f| f.min(at)));
+            e.last_ms = Some(e.last_ms.map_or(at, |l| l.max(at)));
+        };
+        let in_tail = crate::compiler::renderable(n);
+        // The loops that laid it, and the compilations they answer.
+        let mut by_loop: BTreeSet<&str> = BTreeSet::new();
+        for (at, ms, c, turn) in &loops {
+            if at <= p {
+                continue;
+            }
+            let Some((_, c)) = compilations.get(c) else {
+                continue;
+            };
+            let tail = match c.strategy == crate::compiler::view::STRATEGY {
+                // A view turn's call lays the turn's own nodes written before it.
+                true => turn.is_some() && n.turn_id == *turn,
+                false => in_tail && *p > c.as_of,
+            };
+            if holds(c) || tail {
+                e.loops += 1;
+                by_loop.insert(c.id.as_str());
+                seen(*ms, &mut e);
+            }
+        }
+        for id in &made {
+            let (at, c) = &compilations[id];
+            if (at > p && holds(c)) || by_loop.contains(id.as_str()) {
+                e.compilations.push(ReachCompilation {
+                    compilation_id: c.id.clone(),
+                    strategy: c.strategy.clone(),
+                    created_at_ms: c.created_at_ms,
+                });
+                seen(c.created_at_ms, &mut e);
+            }
+        }
+        out.push(e);
+    }
+    Ok((out, unread))
+}
+
+/// A loop: its reply's position, its time, its compilation and its turn.
+type Loop = (u64, u64, String, Option<String>);
+
+/// One scan of a session from `from`: its compilations (each with its position; a loop's made before `from`
+/// read by its id, at 0), the ids of those made in the scan, in order, and its loops.
+struct Scanned {
+    compilations: HashMap<String, (u64, Compilation)>,
+    made: Vec<String>,
+    loops: Vec<Loop>,
+}
+
+fn scan(store: &Store, session: &str, from: u64) -> Result<Scanned> {
     let mut compilations: HashMap<String, (u64, Compilation)> = HashMap::new();
     let mut made: Vec<String> = Vec::new();
-    // Each loop: its reply's position, its time, and its compilation.
-    let mut loops: Vec<(u64, u64, String)> = Vec::new();
+    let mut loops: Vec<Loop> = Vec::new();
     for r in store.scope_after(session, from)? {
         match r.kind {
             kinds::COMPILATION => {
@@ -298,54 +392,98 @@ fn exposures(store: &Store, session: &str, nodes: &[(u64, &Node)]) -> Result<Vec
                     compilation_id: Some(c),
                 } = reply.body
                 {
-                    loops.push((r.position, reply.created_at_ms, c));
+                    loops.push((r.position, reply.created_at_ms, c, reply.turn_id));
                 }
             }
             _ => {}
         }
     }
-    for (_, _, c) in &loops {
+    for (_, _, c, _) in &loops {
         if !compilations.contains_key(c) {
             if let Some(x) = store.get_compilation(c)? {
                 compilations.insert(c.clone(), (0, x));
             }
         }
     }
-    let mut out = Vec::with_capacity(nodes.len());
-    for (p, n) in nodes {
-        let holds = |c: &Compilation| c.includes.contains(&n.id) || crate::fork::inherited(c, *p);
-        let mut e = ReachExposure::default();
-        let seen = |at: u64, e: &mut ReachExposure| {
-            e.first_ms = Some(e.first_ms.map_or(at, |f| f.min(at)));
-            e.last_ms = Some(e.last_ms.map_or(at, |l| l.max(at)));
+    Ok(Scanned {
+        compilations,
+        made,
+        loops,
+    })
+}
+
+/// Where a node's exchange sits in its place's timeline: the place and the position a view piece names it
+/// by. None for a node of no turn, or of a turn with no exchange.
+fn exchange_at(store: &Store, n: &Node) -> Result<Option<(String, Pos)>> {
+    let Some(turn) = n.turn_id.as_deref() else {
+        return Ok(None);
+    };
+    Ok(crate::exchange::exchange(store, turn)?.map(|x| {
+        let at = Pos {
+            at_ms: x.start_ms,
+            id: x.turn_id,
         };
-        for id in &made {
-            let (at, c) = &compilations[id];
-            if at > p && holds(c) {
-                e.compilations.push(ReachCompilation {
-                    compilation_id: c.id.clone(),
-                    strategy: c.strategy.clone(),
-                    created_at_ms: c.created_at_ms,
-                });
-                seen(c.created_at_ms, &mut e);
+        (x.place, at)
+    }))
+}
+
+/// What one view turn laid beyond its compilation's window, from its kept record.
+struct ViewLaid {
+    /// The recalled items' nodes.
+    recalled: BTreeSet<String>,
+    /// Each exchange range laid, its place, and the form it was laid in.
+    exchanges: Vec<(String, Pos, Pos, Form)>,
+}
+
+impl ViewLaid {
+    /// The record kept for `compilation`; None when it cannot be read or was never kept.
+    fn read(store: &Store, compilation: &str) -> Option<Self> {
+        let v = match crate::view::record::read(store, compilation) {
+            Ok(Some(v)) => v,
+            Ok(None) => return None,
+            Err(e) => {
+                tracing::warn!(compilation, error = %format!("{e:#}"),
+                    "a view record cannot be read: reach says partial");
+                return None;
+            }
+        };
+        let mut out = Self {
+            recalled: BTreeSet::new(),
+            exchanges: Vec::new(),
+        };
+        for s in v.shown {
+            let r = s.piece.range;
+            match r.space {
+                Space::Recalled { node, .. } => {
+                    out.recalled.insert(node);
+                }
+                Space::Exchanges { place } => out.exchanges.push((place, r.first, r.last, s.form)),
+                // A fold lays its account, not its sources; a card, a fact, a task or what waits is no node.
+                _ => {}
             }
         }
-        let in_tail = crate::compiler::renderable(n);
-        for (at, ms, c) in &loops {
-            if at <= p {
-                continue;
-            }
-            let Some((_, c)) = compilations.get(c) else {
-                continue;
-            };
-            if holds(c) || (in_tail && *p > c.as_of) {
-                e.loops += 1;
-                seen(*ms, &mut e);
-            }
-        }
-        out.push(e);
+        Some(out)
     }
-    Ok(out)
+
+    /// Whether this view laid `n`'s text: as a recalled item, or in an exchange laid in a form that carries it.
+    fn lays(&self, n: &Node, at: Option<&(String, Pos)>) -> bool {
+        if self.recalled.contains(&n.id) {
+            return true;
+        }
+        let Some((place, at)) = at else {
+            return false;
+        };
+        let carried = |form: Form| match n.body {
+            Body::UserMessage { .. } => true,
+            Body::AssistantMessage { .. } => form != Form::Line,
+            _ => form == Form::Whole,
+        };
+        self.exchanges.iter().any(|(p, first, last, form)| {
+            p == place
+                && (first.id == at.id || last.id == at.id || (first <= at && at <= last))
+                && carried(*form)
+        })
+    }
 }
 
 /// The fewest characters of an id's end that name a node (theseus-glyw): an
