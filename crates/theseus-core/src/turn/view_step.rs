@@ -10,6 +10,7 @@
 use std::collections::{HashMap, HashSet};
 
 pub(super) mod preview;
+mod room;
 
 use super::{compile, CompileInput, Compiled, RequestSpec, Turn, TurnRunner};
 use crate::compiler::view::Frozen;
@@ -77,9 +78,6 @@ impl TurnRunner {
             match self.view_compile(t, input) {
                 Ok(Ok(c)) => return Ok(c),
                 Ok(Err(why)) => Self::view_declined(t, why),
-                Err(e) if e.is::<FloorOverflow>() => {
-                    Self::view_declined(t, Some(Fallback::OverBudget))
-                }
                 Err(e) => {
                     tracing::warn!(error = %format!("{e:#}"), "the view could not be assembled");
                     Self::view_declined(t, Some(Fallback::AssemblyError));
@@ -121,20 +119,14 @@ impl TurnRunner {
         if held.is_some_and(|f| f.declined) {
             return Ok(Err(None));
         }
-        // The provider said a request of this turn passed its window: the transcript's ring makes room
-        // by the provider's own numbers, and the turn stays the transcript's.
-        if crate::compiler::view::provider_overflowed(&input) {
-            return Ok(Err(Some(Fallback::OverBudget)));
-        }
         if held.is_none() {
             if let Some(why) = self.view_unsound(t, input.nodes) {
                 return Ok(Err(Some(why)));
             }
         } else if self.view_revoked(t) || self.view_moved(t) {
             // A source sealed since, or a presence that changed (a steer narrowed it): reassembled under
-            // the new permit, on a new chain.
-            t.view = None;
-            self.view_freeze(t, input.spec)?;
+            // the new permit, on a new chain, with the room the turn made.
+            self.view_refrozen(t, input.spec, None)?;
             Self::view_reset(t, input.nodes);
         }
         self.view_freeze(t, input.spec)?;
@@ -143,14 +135,12 @@ impl TurnRunner {
             Self::view_reset(t, input.nodes);
         }
         let store = t.tc.store;
+        // Over the budget as rendered, or refused by the provider for its size: the view makes its own room
+        // (`room`), and a request it cannot fit fails on its overage.
+        let compiled = self.view_roomed(t, input)?;
         let Some(f) = t.view.as_mut() else {
             anyhow::bail!("the turn's view was not assembled");
         };
-        let compiled = crate::compiler::view::compile(input, f);
-        // Over the budget as rendered: the transcript's ring and compaction make room, not a stuck place.
-        if compiled.budget.overage.is_some() {
-            return Ok(Err(Some(Fallback::OverBudget)));
-        }
         if compiled.new_compilation {
             if f.compilation_id.is_some() {
                 // A new chain in the middle of the turn (an effective spec that changed).
@@ -161,9 +151,14 @@ impl TurnRunner {
             f.compilation_id = Some(compiled.compilation.id.clone());
             f.card.clone_from(&compiled.card);
             if let Some(view) = f.record.take() {
-                if let Err(e) =
-                    crate::view::record::keep(store, turn, &compiled.compilation.id, &view)
-                {
+                let room = f.room.made(compiled.cleared.map_or(0, |p| p.results));
+                if let Err(e) = crate::view::record::keep_made(
+                    store,
+                    turn,
+                    &compiled.compilation.id,
+                    &view,
+                    room,
+                ) {
                     tracing::warn!(error = %format!("{e:#}"), "the view's record was not kept");
                 }
             }
@@ -293,36 +288,24 @@ impl TurnRunner {
     }
 
     /// The turn's view, assembled on its first call and kept in `t.view` for its later ones (frozen within
-    /// a turn); a new turn assembles afresh.
+    /// a turn); a new turn assembles afresh. A floor too large for the budget (rule 9) lays nothing: its
+    /// calls fail on the floor's overage (`room`), never a small view.
     fn view_freeze(&self, t: &mut Turn<'_>, spec: &RequestSpec) -> anyhow::Result<()> {
         if t.view.as_ref().is_some_and(|f| f.turn_id == t.tc.turn_id) {
             return Ok(());
         }
-        let (sid, turn, store) = (t.tc.session_id, t.tc.turn_id, t.tc.store);
-        let asked = Asked {
-            store,
-            sid,
-            turn,
-            person: t.exchange.person().0,
-            verified: None,
-            recalled: recalled(t),
-            message: None,
-            items: t.exchange.items().to_vec(),
-        };
-        let built = self.view_built(asked, spec)?;
-        // Rule 9: a floor too large for the view's budget is the transcript's to handle (its ring and
-        // compaction, or its own words on an overage), not a small view.
-        if let Err(o) = built.assembled {
-            return Err(anyhow::Error::new(FloorOverflow(o)));
-        }
-        t.view = Some(built.frozen);
-        Ok(())
+        self.view_refrozen(t, spec, None)
     }
 
-    /// A view assembled for `asked`: what a turn freezes, and the assembly it was made from (the floor's
-    /// overflow, rule 9, when it could not fit). The one assembler: a turn's and a preview's
+    /// A view assembled for `asked` under `budget`: what a turn freezes, and the assembly it was made from
+    /// (the floor's overflow, rule 9, when it could not fit). The one assembler: a turn's and a preview's
     /// (`view_step::preview`).
-    pub(super) fn view_built(&self, asked: Asked<'_>, spec: &RequestSpec) -> anyhow::Result<Built> {
+    pub(super) fn view_built(
+        &self,
+        asked: Asked<'_>,
+        spec: &RequestSpec,
+        budget: &Budget,
+    ) -> anyhow::Result<Built> {
         let Asked {
             store,
             sid,
@@ -391,11 +374,11 @@ impl TurnRunner {
         };
         let block = |b: &MarkedBlock| Frozen::block(sid, turn, &b.heading, &b.text);
         let memory_page = renderer.memory_page().1.to_string();
-        let a = match assemble(&pov, &snap, &parts, &self.view_budget(spec)) {
+        let a = match assemble(&pov, &snap, &parts, budget) {
             Ok(a) => a,
             Err(NotAssembled::Read(e)) => return Err(e.context("the view's read")),
-            // Rule 9: the floor did not fit. The assembler says so by its numbers; a turn declines on it
-            // (`view_freeze`), a preview reports it.
+            // Rule 9: the floor did not fit. The assembler says so by its numbers; a turn fails on it
+            // (`room`), a preview reports it.
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
         let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
@@ -405,18 +388,15 @@ impl TurnRunner {
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
         let frozen = Frozen {
             turn_id: turn.into(),
-            compilation_id: None,
             front: front.map(block).collect(),
             window,
-            stripped: HashSet::new(),
             sessions: sorted(sessions),
             exchanges,
             verified: Some(verified_pov),
             beside: a.parts.beside.as_ref().map(block),
             memory_page,
             record: Some(a.view.clone()),
-            card: None,
-            declined: false,
+            ..Frozen::default()
         };
         Ok(Built {
             frozen,
@@ -534,7 +514,7 @@ pub(super) struct Built {
 }
 
 impl Built {
-    /// Rule 9: the floor did not fit. Nothing is laid: a turn declines to the transcript on it, and a
+    /// Rule 9: the floor did not fit. Nothing is laid: a turn fails on the floor's overage (`room`), and a
     /// preview says the floor's numbers.
     fn overflowed(turn: &str, o: Overflow, memory_page: String) -> Self {
         let frozen = Frozen {
@@ -571,8 +551,6 @@ pub(super) enum Fallback {
     Route,
     /// The session's recent conversation has turns the ledger holds no exchange for.
     Unledgered,
-    /// The rendered request is over the budget.
-    OverBudget,
     /// The assembly failed.
     AssemblyError,
     /// The gate's reading moved under the view a third time in one call.
@@ -585,7 +563,6 @@ impl Fallback {
             Self::Continuation => "continuation",
             Self::Route => "route",
             Self::Unledgered => "unledgered_history",
-            Self::OverBudget => "over_budget",
             Self::AssemblyError => "assembly_error",
             Self::Moved => "moved",
         }
@@ -793,22 +770,6 @@ fn verified_pov(verified: &Verified, person: Option<String>, now_ms: u64) -> Poi
         now_ms,
     }
 }
-
-/// The view's floor does not fit its budget (rule 9): the turn declines to the transcript (`over_budget`).
-#[derive(Debug)]
-pub(super) struct FloorOverflow(Overflow);
-
-impl std::fmt::Display for FloorOverflow {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Overflow::Floor { tokens, room, .. } = &self.0;
-        write!(
-            f,
-            "the view's floor is {tokens} tokens against {room} of room"
-        )
-    }
-}
-
-impl std::error::Error for FloorOverflow {}
 
 /// The nodes today's recall found for this turn (its pending note, never written in a view place).
 fn recalled(t: &Turn<'_>) -> Vec<String> {
