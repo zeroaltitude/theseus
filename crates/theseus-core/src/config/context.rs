@@ -89,14 +89,6 @@ impl ContextConfig {
         Ok(())
     }
 
-    /// The keys the cut retired (issue 44) that this section sets: what
-    /// [`crate::Config::parse`] warns of, once.
-    pub fn trimmed(&self) -> Vec<String> {
-        (self.kept_mb.iter())
-            .map(|_| "context.kept_mb".into())
-            .collect()
-    }
-
     /// Whether the exchange ledger is written.
     pub fn ledger_on(&self) -> bool {
         self.ledger.unwrap_or(true)

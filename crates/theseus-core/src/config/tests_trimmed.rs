@@ -123,18 +123,13 @@ fn the_line_says_what_changes_with_each_retired_mode() {
 }
 
 /// What the cut retired from the old way of building a request (issue 44): `[memory] summary_profile`
-/// (compaction's summary) and `[context] kept_mb` (the kept render) load whatever their value, do nothing,
-/// and a load warning names each. An unknown key in either section is still refused.
+/// (compaction's summary), which the owner-shaped settings file sets, loads whatever its value, does nothing,
+/// and a load warning names it. An unknown key in the section is still refused. (`[context] kept_mb` is the
+/// retired-keys table's alone, the del-turn lane's.)
 #[test]
-fn an_old_settings_file_with_the_cuts_retired_keys_loads() {
-    let text = "[memory]\nsummary_profile = \"haiku\"\n\n[context]\nkept_mb = 64\n";
-    let (_, warnings) = parse(text).unwrap();
-    for key in ["summary_profile", "kept_mb"] {
-        assert!(
-            warnings.iter().any(|w| w.contains(key)),
-            "{key}: {warnings:?}"
-        );
-    }
+fn an_old_settings_file_with_compactions_summary_profile_loads() {
+    let (_, warnings) = parse("[memory]\nsummary_profile = \"haiku\"\n").unwrap();
+    let named = warnings.iter().any(|w| w.contains("summary_profile"));
+    assert!(named, "{warnings:?}");
     assert!(parse("[memory]\nsummary_profil = \"off\"\n").is_err());
-    assert!(parse("[context]\nkept_mbs = 1\n").is_err());
 }
