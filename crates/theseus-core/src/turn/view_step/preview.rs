@@ -176,6 +176,7 @@ impl TurnRunner {
                 verified: Some(verified),
                 recalled: Vec::new(),
                 message: Some(p.message.unwrap_or_default().to_string()),
+                items: Vec::new(),
             },
             spec,
         )?;

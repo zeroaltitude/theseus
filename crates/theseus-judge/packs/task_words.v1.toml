@@ -14,10 +14,11 @@
 #
 # WHAT IT DECIDES, AND HOW IT STARTS. A new pack starts in shadow (m5-judgment §2.7): its answer is recorded,
 # `task_graph/words.rs` records what it WOULD have done (a `task.change_proposed` row's `words.would`), and every
-# change still goes to the operator's card. Only an operator's promotion makes it act, and then only `restricts`
-# and `pauses` at the act band, inside every other check of `words.rs`. `resumes` is asked so a resume is never
-# mistaken for something else, and it always keeps its card: a resume starts spending and acting again, which a
-# misread pause never does. Anything else, and any answer under the band, keeps the card.
+# change still goes to the operator's card. Only an operator's promotion makes it act, and then ONLY NARROWING:
+# `restricts` at the act band, inside every other check of `words.rs`. A PAUSE STILL GOES TO THE CARD: `pauses` is
+# asked and recorded, but `task.update` offers no pause, and the durable cardless pause path is not built.
+# `resumes` is asked so a resume is never mistaken for something else, and it always keeps its card: a resume
+# starts spending and acting again. Anything else, and any answer under the band, keeps the card.
 id = "task_words"
 version = 1
 jev_model = "jev-1.13.0"

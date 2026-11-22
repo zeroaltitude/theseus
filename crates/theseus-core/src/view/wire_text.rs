@@ -4,9 +4,10 @@
 //! message; and the ladder's nodes as fold blocks. The window is not the renderer's: the compiler renders
 //! the window's exchanges as real turns (`compiler::view`).
 //!
-//! A piece is read by its range: an exchange of a place from the store, in the piece's form. A piece of a
-//! space this renderer does not read yet (a card, a fact, a task) is left out of the text; it stays in the
-//! view, so the view's record still says it was chosen.
+//! A piece is read by its range: an exchange of a place from the store, in the piece's form; a named
+//! thing's card, a waiting line and the facts about the person as the turn's sources read them
+//! (`super::sources_store::Sessions::texts`). A piece with no text read is left out of the text; it stays in
+//! the view, so the view's record still says it was chosen.
 
 use super::budget::View;
 use super::fold::FoldNode;
@@ -70,6 +71,9 @@ impl TextRenderer<'_> {
         match &p.range.space {
             Space::Exchanges { .. } => {}
             Space::Task { task } => return self.task_card(p, task, pov),
+            Space::Card { .. } | Space::Waiting { .. } | Space::Facts { .. } => {
+                return Ok(self.read_text(p, form, pov))
+            }
             _ => return Ok(Vec::new()),
         }
         let place = p.marks.place.as_deref().unwrap_or("an unknown place");
@@ -132,6 +136,27 @@ impl TextRenderer<'_> {
         let block = labels::try_block(p, pov, &origin, &text, self.zone)
             .unwrap_or_else(|_| labels::block(p, pov, &origin, &text, self.zone));
         Ok(vec![block])
+    }
+
+    /// A piece whose text the turn's sources read (a card, a waiting line, the facts about the person), as
+    /// one block of its own provenance: whole, or its first line alone in the line form.
+    fn read_text(&self, p: &Piece, form: Form, pov: &PointOfView) -> Vec<MarkedBlock> {
+        let read = self
+            .sessions
+            .and_then(|s| s.texts.borrow().get(&p.range.space).cloned());
+        let Some(text) = read else {
+            return Vec::new();
+        };
+        let text = match form {
+            Form::Line => text.lines().next().unwrap_or_default().to_string(),
+            Form::Whole | Form::Spoken => text,
+        };
+        let origin = Origin {
+            place: p.marks.place.as_deref().unwrap_or("an unknown place"),
+            at_ms: p.range.last.at_ms,
+            source: None,
+        };
+        vec![labels::block(p, pov, &origin, &text, self.zone)]
     }
 
     /// The ladder's nodes as fold blocks, oldest first, the person's words read from the store.
