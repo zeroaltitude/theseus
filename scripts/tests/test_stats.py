@@ -183,7 +183,11 @@ class StatsTest(unittest.TestCase):
         self.assertEqual(self.git("ls-tree", "--name-only", "HEAD", "STATS.md"), "")
         self.git("checkout", "-q", "main")
         base = self.git("rev-parse", "--short=8", "HEAD")
-        self.git("merge", "-q", "--no-ff", "-m", "land one", "one")
+        who = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+        out = subprocess.run(["git", "-C", self.root, *who, "merge", "-q", "--no-ff", "-m", "land one", "one"],
+                             env=GIT_ENV, capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(self.git("ls-tree", "--name-only", "HEAD", "STATS.md"), "STATS.md", f"hook said: {out.stderr}")
         landed = self.git("show", "HEAD:STATS.md")
         self.assertIn(f"Counted at the merge of {one} into {base}, over", landed)
         self.assertEqual(self.git("status", "--porcelain"), "", "the count is in the merge, not left over")
