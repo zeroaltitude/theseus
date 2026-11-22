@@ -26,7 +26,10 @@ of marker strings.
 - The daemon's stderr is discarded; a failure is a fixed code (`E_CLI`, `E_LEDGER`, `E_HISTORY`,
   `E_DAEMON_EXIT`, `E_DAEMON_TIMEOUT`, `E_JUDGE_…`).
 - On every end it stops the daemon and removes the copy, and that includes a failed start, an error and
-  SIGTERM. A removal that fails is printed with its path.
+  SIGTERM. SIGTERM is trapped from before the copy starts until the removal has finished; one that arrives
+  during the removal waits for it. A removal that fails is printed with its path.
+- It writes an ownership manifest (`.view-kit-manifest.json`: the kit's name, a random id, its pid, the time,
+  the directory, the daemon's pid) in `<out>/daemon/` when it makes that directory.
 
 **What a SIGKILL leaves.** Killing the kit with SIGKILL (or a crash of the machine) skips its cleanup: the copy
 stays at `<out>/daemon/state`, and the scratch daemon may still run. Remove both with
@@ -35,7 +38,10 @@ stays at `<out>/daemon/state`, and the scratch daemon may still run. Remove both
 python3 bench/view/scratch.py clean --out <out>
 ```
 
-which kills whatever names `<out>/daemon` and removes that directory.
+which refuses, before doing anything, a path that is, holds or lies inside a live state directory. It acts only
+on a `<out>/daemon` whose manifest is the kit's and names that directory. It kills only the daemon pid the
+manifest records, and only if that process's `--state-dir` is that directory's `state`. Then it removes the
+directory.
 
 The kit needs Python 3.11 or newer (`tomllib`).
 
@@ -87,7 +93,9 @@ python3 bench/view/cases.py score bench/view/cases/synthetic.v1.json /tmp/vc/hel
 The format, `view-cases.v1`, is in `cases.py`'s own text; it is frozen, and a change is a new format name. The
 first set, `cases/synthetic.v1.json`, is 24 cases in §10's six classes, written for the kit: a callback here, a
 callback from another place, "the second option" later, a corrected fact, a task update, and a forbidden
-disclosure. `build` makes each case's store in a scratch daemon on a stand-in model (bench/recall's
+disclosure. A case's id, its history ids and its symbolic places are safe names (`[A-Za-z0-9_.-]{1,64}`,
+never `.` or `..`): the builder joins ids and places as directories under `--out`, checks each one lies beneath
+it before the first write, and refuses a set that names anything else. `build` makes each case's store in a scratch daemon on a stand-in model (bench/recall's
 `standin.py`), then scores the transcript's context and the view's. It cannot make a task's record or a seal, so
 the 8 task and forbidden cases are `not_built` in every score, `build`'s and `score`'s alike, and never scored.
 
@@ -120,7 +128,9 @@ builder cannot make are judged as fixtures only (`not_built_fixture_only`), neve
 million tokens). Before each call it reserves the call's worst case: every byte of the request counted as a
 token, plus the message's framing, at the higher of the input and cache-write prices, plus 400 output tokens.
 It never starts a call whose reservation would pass the cap. A call's reservation is replaced by what the
-provider reported only when the stream finished and reported its usage; otherwise it stays spent. `--dry-run`
+provider reported only when the stream finished (`message_stop`) after a final usage report with nonnegative
+whole counts, read from the four counters the kit knows (input, output, cache read, cache write; anything else
+is dropped). With no final report, a malformed one, or a negative count, the reservation stays spent. `--dry-run`
 prints the calls and the summed reservations, unrounded, against the cap.
 
 **It sends the conversation's words to a model.** That is the owner's to allow, on his own store. The judge

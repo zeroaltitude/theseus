@@ -90,6 +90,9 @@ if cmd == 'rpc' and a[1] == 'ledger.tail':
     print(json.dumps({'rows': rows, 'total': len(rows)}))
     sys.exit(0)
 if cmd == 'history':
+    if fx.get('history') == 'slow':
+        import time
+        time.sleep(5)
     if fx.get('history') == 'garbage':
         print(fx['cli_stderr'])
         sys.exit(0)
@@ -363,6 +366,140 @@ class FakeDaemon(unittest.TestCase):
         self.leaks(everything_written(self.tmp / "o", ""))
 
 
+    # ---- round 2
+
+    def test_clean_refuses_a_live_root_and_kills_and_removes_nothing(self):
+        import subprocess
+        bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "--state-dir",
+                                      str(self.live / "store")])
+        self.addCleanup(bystander.kill)
+        before = sorted(self.live.rglob("*"))
+        for out in (self.tmp, self.live, self.live / "store", self.live / "inside"):
+            with self.assertRaises(scratch.Refused):
+                scratch.clean(out, self.env)
+        self.assertIsNone(bystander.poll())
+        self.assertEqual(sorted(self.live.rglob("*")), before)
+
+    def test_clean_acts_only_on_the_kit_s_own_directory_and_its_recorded_daemon(self):
+        import subprocess
+        stray = self.tmp / "stray" / "daemon"
+        stray.mkdir(parents=True)
+        (stray / "keep").write_text("x")
+        with self.assertRaises(scratch.Refused):  # no manifest: not the kit's
+            scratch.clean(self.tmp / "stray", self.env)
+        (stray / scratch.MANIFEST).write_text(json.dumps({"kit": scratch.KIT, "id": "0" * 32, "dir": "/elsewhere"}))
+        with self.assertRaises(scratch.Refused):  # a manifest naming another directory
+            scratch.clean(self.tmp / "stray", self.env)
+        self.assertTrue((stray / "keep").exists())
+        d = scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env).start()
+        # A decoy with the very same arguments, whose pid the manifest does not record: never killed.
+        decoy = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "--state-dir", str(d.state)])
+        self.addCleanup(decoy.kill)
+        recorded = json.loads((d.dir / scratch.MANIFEST).read_text())["daemon_pid"]
+        self.assertEqual(recorded, d.proc.pid)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(scratch.clean(self.tmp / "o", self.env), 0)  # the kit was "killed": what it left
+        self.assertIsNotNone(d.proc.wait(10))
+        self.assertIsNone(decoy.poll())
+        self.assertFalse(d.dir.exists())
+        d.proc = None
+        d._untrap()
+
+    def test_sigterm_during_the_copy_removes_what_was_copied(self):
+        real = shutil.copytree
+        before = signal.getsignal(signal.SIGTERM)
+
+        def copy_then_term(*a, **k):
+            real(*a, **k)
+            os.kill(os.getpid(), signal.SIGTERM)
+            time.sleep(5)
+
+        with unittest.mock.patch.object(scratch.shutil, "copytree", copy_then_term), \
+                self.assertRaises(SystemExit) as e:
+            scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env)
+        self.assertIn("E_SIGTERM", str(e.exception))
+        self.assertFalse((self.tmp / "o" / "daemon").exists())
+        self.assertEqual(signal.getsignal(signal.SIGTERM), before)
+
+    def test_sigterm_during_the_removal_waits_for_it_then_stops(self):
+        real = shutil.rmtree
+        before = signal.getsignal(signal.SIGTERM)
+
+        def term_then_remove(*a, **k):
+            os.kill(os.getpid(), signal.SIGTERM)
+            return real(*a, **k)
+
+        with self.assertRaises(SystemExit) as e:
+            with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+                state = d.state
+                patch = unittest.mock.patch.object(scratch.shutil, "rmtree", term_then_remove)
+                patch.start()
+                self.addCleanup(patch.stop)
+        patch.stop()
+        self.assertIn("E_SIGTERM", str(e.exception))
+        self.assertFalse(state.exists())
+        self.assertFalse(scratch.naming(self.tmp / "o" / "daemon"))
+        self.assertEqual(signal.getsignal(signal.SIGTERM), before)
+
+    def test_a_cli_timeout_is_a_fixed_code_without_its_command_line(self):
+        f = fixture(True)
+        f["history"] = "slow"
+        self.fx(f)
+        with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+            with self.assertRaises(scratch.Failed) as e:
+                d.cli("--json", "history", "--full", MARKERS[0], timeout=0.5)
+        self.assertEqual(str(e.exception), "E_CLI_TIMEOUT history")
+        self.assertIsNone(e.exception.__context__)
+        self.leaks(str(e.exception), repr(e.exception.__cause__))
+
+    def test_the_yardstick_on_a_store_writes_only_ids_of_the_store_s_shape_and_known_counters(self):
+        f = fixture(True)
+        good = [turn_row(i, tid(i), None, "none") for i in range(1, 4)]
+        bad = [dict(turn_row(9, MARKERS[0], None, "none")),
+               dict(turn_row(10, tid(10), None, "none"), session_id=MARKERS[2])]
+        f["ledger"] = good + bad
+        f["nodes"] = [{"kind": "user_message", "turn_id": t, "text": f"words {t}", "position": i + 1}
+                      for i, t in enumerate([tid(1), tid(2), tid(3), MARKERS[0], tid(10)])]
+        self.fx(f)
+
+        class Stub:
+            def __init__(self, *a, **k):
+                pass
+
+            def __call__(self, probe, idx, user):
+                return [2] * len(idx), {"input_tokens": 5, "output_tokens": 5, MARKERS[1]: 1}, True
+
+        out = self.tmp / "yard"
+        buf = io.StringIO()
+        with unittest.mock.patch.object(ys, "ModelJudge", Stub), \
+                unittest.mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "k", **self.env}), \
+                contextlib.redirect_stdout(buf):
+            ys.main(["--store", str(self.store), "--bin-dir", str(self.bins), "--place", PLACE, "--out", str(out),
+                     "--cap-usd", "1"])
+        r = json.loads((out / "yardstick.json").read_text())
+        self.assertEqual([t["turn"] for t in r["turns"]], [tid(2), tid(3)])
+        self.assertEqual(set(r["usage"]), {"input_tokens", "output_tokens"})
+        self.assertEqual(r["rules_basis"], ys.SAME_SESSION)
+        self.leaks(everything_written(out, buf.getvalue()))
+
+    def test_a_case_path_that_would_leave_the_output_is_refused_before_any_write(self):
+        base = vc.load(SETS)["cases"][0]
+        bad_place = dict(base, history=[dict(base["history"][0], place=str(self.live / "new-dir"))])
+        bad_id = dict(base, id="..")
+        for c in (bad_place, bad_id, dict(base, message={"place": "../x", "say": "y"})):
+            with self.assertRaises(vc.Invalid):
+                vc.check({"format": vc.FORMAT, "cases": [c]})
+            with self.assertRaises(vc.Invalid):
+                vc.build_case(c, self.bins, self.tmp / "case-out")
+            with self.assertRaises(vc.Invalid):
+                vc.build({"format": vc.FORMAT, "cases": [c]}, self.bins, self.tmp / "set-out")
+        self.assertFalse((self.tmp / "case-out").exists())
+        self.assertFalse((self.tmp / "set-out").exists())
+        self.assertFalse((self.live / "new-dir").exists())
+        with self.assertRaises(vc.Invalid):
+            vc.beneath(self.tmp / "o", self.tmp / "o" / "a" / ".." / "..")
+
+
 class SSE(BaseHTTPRequestHandler):
     events: list[dict] = []
 
@@ -528,6 +665,45 @@ class Pieces(unittest.TestCase):
         self.assertEqual(r["total"], {"both": 0, "judge_only": 0, "rules_only": 0, "neither": 0})
         self.assertEqual(r["coverage"]["judged"], 0)
         self.assertGreater(r["coverage"]["lines"], 0)
+
+    def serve(self, events: list[dict]) -> str:
+        SSE.events = events
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), SSE)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return f"http://127.0.0.1:{srv.server_address[1]}"
+
+    def test_a_reservation_is_released_only_on_a_final_usage_read_whole(self):
+        start = {"type": "message_start", "message": {"usage": {"input_tokens": 5, "output_tokens": 1}}}
+        stop = {"type": "message_stop"}
+        text = {"type": "content_block_delta", "delta": {"type": "text_delta", "text": '{"scores": [2]}'}}
+        cases = {
+            "start and stop, no final usage": ([start, text, stop], False),
+            "a malformed final delta": ([start, text, {"type": "message_delta", "usage": {"output_tokens": "7"}},
+                                         stop], False),
+            "a negative count": ([start, text, {"type": "message_delta", "usage": {"output_tokens": -7}}, stop],
+                                 False),
+            "a delta without usage": ([start, text, {"type": "message_delta", "usage": None}, stop], False),
+            "a whole stream": ([start, text, {"type": "message_delta", "usage": {"output_tokens": 7,
+                                                                                  MARKERS[0]: 3}}, stop], True),
+        }
+        for name, (events, settled) in cases.items():
+            base = self.serve(events)
+            _, usage, done = ys.ask(base, "k", "x", ys.SYSTEM, "u")
+            self.assertEqual(done, settled, name)
+            self.assertLessEqual(set(usage), set(ys.USAGE_KEYS), name)
+            if settled:
+                self.assertEqual(usage["output_tokens"], 7)
+
+    def test_a_judge_reporting_negative_counts_keeps_its_reservation(self):
+        probes, _ = ys.probes_from_cases(self.cases, None)
+        r = ys.run(probes[:1], lambda p, idx, user: ([0] * len(idx), {"input_tokens": -10 ** 9,
+                                                                      "output_tokens": 1}, True), self.prices, 1.0)
+        held = sum(self.prices.reserve(ys.SYSTEM, ys.prompt(probes[0]["message"], [probes[0]["texts"][i] for i in w]))
+                   for w in ys.windows(len(probes[0]["ids"])))
+        self.assertAlmostEqual(r["spent_usd"], held)
+        self.assertEqual(r["reservations_kept"], r["calls"])
 
     def test_a_stream_error_is_a_fixed_code_and_its_reservation_stays_spent(self):
         SSE.events = [{"type": "message_start", "message": {"usage": {"input_tokens": 5, "output_tokens": 1}}},

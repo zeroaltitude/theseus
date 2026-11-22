@@ -32,10 +32,20 @@ How it is kept apart from the owner's daemon:
   row or an event;
 - **nothing left behind**: on a normal end, a failed construction, a failed
   start, a health timeout, an exception or SIGTERM, the daemon is stopped
-  (`shutdown`, a kill after `STOP_WAIT`, then whatever still names
-  `out/daemon`) and the copy is removed; a removal that fails is printed to
-  stderr with its path. A SIGKILL of the kit leaves `out/daemon` (the copy)
-  and maybe the daemon: `clean` removes both.
+  (`shutdown`, a kill after `STOP_WAIT`, then the processes whose arguments
+  name `out/daemon` exactly) and the copy is removed; a removal that fails is
+  printed to stderr with its path. SIGTERM is trapped from before the copy
+  starts until the removal has finished: during the removal it is held, and
+  raised once the removal is done. A SIGKILL of the kit leaves `out/daemon`
+  (the copy) and maybe the daemon: `clean` removes both;
+- **`clean` touches only what the kit made**: the kit writes an ownership
+  manifest (`MANIFEST`: the kit's name, a random id, its pid, the time, the
+  directory, and the daemon's pid once started) in `out/daemon` when it
+  creates it. `clean` refuses any path that is, holds or lies inside a live
+  root BEFORE anything else, acts only on a directory whose manifest is the
+  kit's and names that directory, and kills only the daemon pid the manifest
+  records, after checking that the pid's arguments name that directory's
+  state.
 
 Standard library only.
 """
@@ -46,6 +56,7 @@ import argparse
 import contextlib
 import json
 import os
+import secrets
 import shutil
 import signal
 import subprocess
@@ -69,8 +80,15 @@ SERVE_WAIT = drive.SERVE_WAIT
 STOP_WAIT = drive.STOP_WAIT
 # The only variables of the caller's environment a child is given.
 ENV_KEPT = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ")
+MANIFEST = ".view-kit-manifest.json"
+KIT = "theseus-bench-view-kit"
+# The kit's own verbs, the only words a failure code may carry.
+VERBS = {"view", "rpc", "history", "ask", "sessions", "health", "shutdown"}
 LEDGER_PAGE = drive.LEDGER_PAGE
 LEDGER_MAX = drive.LEDGER_MAX
+
+
+SIGTERM_EXIT = "view kit: E_SIGTERM: stopped; the daemon is stopped and the copy removed"
 
 
 class Refused(SystemExit):
@@ -214,45 +232,63 @@ class Scratch:
             raise Refused(f"view kit: the output {out} is inside or above the store copy it reads")
         self.proc: subprocess.Popen | None = None
         self.dir = out / "daemon"
-        self.dir.parent.mkdir(parents=True, exist_ok=True)
-        os.mkdir(self.dir, 0o700)
-        self.dir.chmod(0o700)
         self.state, self.sock, self.cfg = self.dir / "state", self.dir / "sock", self.dir / "config.toml"
         self.home = self.dir / "home"
+        self.env = child_env(self.home, env)
+        self._trapped, self._old_term, self._stopping, self._term_pending = False, None, False, False
+        self._trap_term()  # from before the first write until the removal has finished
+        made = False
         try:
+            self.dir.parent.mkdir(parents=True, exist_ok=True)
+            os.mkdir(self.dir, 0o700)
+            made = True
+            self.dir.chmod(0o700)
+            self.manifest = {"kit": KIT, "id": secrets.token_hex(16), "pid": os.getpid(),
+                             "created_unix": int(time.time()), "dir": str(self.dir), "daemon_pid": None}
+            self._write_manifest()
             self.home.mkdir(mode=0o700)
             if src is not None:
                 # Links followed: none leads out (check_copy), so the copy holds plain files only.
                 shutil.copytree(src, self.state, symlinks=False, ignore_dangling_symlinks=True)
             self.cfg.write_text(drive.toml_dumps(config(tomllib.loads(PROFILE.read_text()), api_base, model)))
         except BaseException:
-            remove(self.dir)
+            self._stopping = True
+            if made:
+                remove(self.dir)
+            self._untrap()
             raise
-        self.env = child_env(self.home, env)
-        self._trapped, self._old_term = False, None
+
+    def _write_manifest(self) -> None:
+        (self.dir / MANIFEST).write_text(json.dumps(self.manifest))
 
     def cli(self, *args: str, input: str | None = None, timeout: float = 120.0,
             cwd: Path | None = None) -> subprocess.CompletedProcess:
-        return subprocess.run([str(self.theseus), "--socket", str(self.sock), *args], input=input,
-                              capture_output=True, text=True, timeout=timeout, cwd=cwd, env=self.env)
+        """The CLI; a timeout is `Failed("E_CLI_TIMEOUT <verb>")`, never the command line it ran."""
+        try:
+            return subprocess.run([str(self.theseus), "--socket", str(self.sock), *args], input=input,
+                                  capture_output=True, text=True, timeout=timeout, cwd=cwd, env=self.env)
+        except subprocess.TimeoutExpired:
+            pass  # raised below, outside this block, so no exception holds the command line as its context
+        raise Failed(f"E_CLI_TIMEOUT {verb(args)}")
 
     def json(self, *args: str, **kw):
         """`theseus --json <args>`'s value, or `Failed` with a fixed code and the kit's own verb."""
         r = self.cli("--json", *args, **kw)
         if r.returncode != 0:
-            raise Failed(f"E_CLI {args[0]} exit {r.returncode}")
+            raise Failed(f"E_CLI {verb(args)} exit {r.returncode}")
         try:
             return json.loads(r.stdout)
         except json.JSONDecodeError:
-            raise Failed(f"E_CLI_JSON {args[0]}") from None
+            raise Failed(f"E_CLI_JSON {verb(args)}") from None
 
     def start(self) -> "Scratch":
         try:
-            self._trap_term()
             self.proc = subprocess.Popen([str(self.theseusd), "--config", str(self.cfg), "--state-dir",
                                           str(self.state), "--socket", str(self.sock)],
                                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                          stderr=subprocess.DEVNULL, env=self.env, cwd=self.home)
+            self.manifest["daemon_pid"] = self.proc.pid
+            self._write_manifest()
             t0 = time.monotonic()
             while True:
                 if self.proc.poll() is not None:
@@ -260,7 +296,7 @@ class Scratch:
                 try:
                     if self.cli("health", timeout=10).returncode == 0:
                         return self
-                except subprocess.TimeoutExpired:
+                except Failed:  # one slow answer is not a verdict; SERVE_WAIT decides
                     pass
                 if time.monotonic() - t0 > SERVE_WAIT:
                     raise Failed("E_DAEMON_TIMEOUT")
@@ -271,12 +307,22 @@ class Scratch:
 
     def _trap_term(self) -> None:
         def on_term(signum, frame):
-            raise SystemExit("view kit: E_SIGTERM: stopped; the daemon is stopped and the copy removed")
+            if self._stopping:  # the removal finishes first; the signal is raised after it
+                self._term_pending = True
+                return
+            raise SystemExit(SIGTERM_EXIT)
         with contextlib.suppress(ValueError):  # not the main thread: no handler, `clean` remains
             self._old_term = signal.signal(signal.SIGTERM, on_term)
             self._trapped = True
 
+    def _untrap(self) -> None:
+        if self._trapped:
+            with contextlib.suppress(ValueError, TypeError):
+                signal.signal(signal.SIGTERM, self._old_term if self._old_term is not None else signal.SIG_DFL)
+            self._trapped = False
+
     def stop(self) -> list[str]:
+        self._stopping = True
         killed: list[str] = []
         if self.proc is not None:
             if self.proc.poll() is None:
@@ -290,12 +336,13 @@ class Scratch:
                     killed.append(f"theseusd {self.proc.pid}")
             self.proc = None
         killed += kill_naming(self.dir)
-        if self._trapped:
-            with contextlib.suppress(ValueError, TypeError):
-                signal.signal(signal.SIGTERM, self._old_term if self._old_term is not None else signal.SIG_DFL)
-            self._trapped = False
         if self.state.exists():
             remove(self.state)
+        self._untrap()
+        self._stopping = False
+        if self._term_pending:
+            self._term_pending = False
+            raise SystemExit(SIGTERM_EXIT)
         return killed
 
     def __enter__(self) -> "Scratch":
@@ -305,11 +352,36 @@ class Scratch:
         self.stop()
 
 
+def verb(args) -> str:
+    """The kit's own verb among a CLI call's arguments, or `cli`: never an argument's data."""
+    return next((a for a in args if a in VERBS), "cli")
+
+
+def args_of(pid: int) -> list[str] | None:
+    try:
+        return [x.decode(errors="replace") for x in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0") if x]
+    except OSError:
+        return None
+
+
+def naming(d: Path) -> list[tuple[int, str]]:
+    """The processes one of whose arguments IS `d` or a path inside it (not a substring of a longer path)."""
+    d = str(Path(d).resolve())
+    out = []
+    for e in Path("/proc").iterdir():
+        if not e.name.isdigit() or int(e.name) == os.getpid():
+            continue
+        a = args_of(int(e.name))
+        if a and any(x == d or x.startswith(d + "/") for x in a):
+            out.append((int(e.name), Path(a[0]).name))
+    return out
+
+
 def kill_naming(d: Path) -> list[str]:
     """What still names `d` after STOP_WAIT, killed."""
     killed: list[str] = []
     t0 = time.monotonic()
-    while left := drive.processes_naming(d):
+    while left := naming(d):
         if time.monotonic() - t0 > STOP_WAIT:
             for pid, prog in left:
                 with contextlib.suppress(ProcessLookupError):
@@ -365,16 +437,35 @@ def history_nodes(d: Scratch, session: str) -> list[dict]:
     return [n for p in reversed(pages) for n in p]
 
 
-def clean(out: Path) -> int:
-    """What a killed run left under `out`: the processes naming `out/daemon`, then the directory."""
-    d = Path(out).expanduser().resolve() / "daemon"
+def clean(out: Path, env: dict | None = None) -> int:
+    """What a killed run left under `out`: its daemon, by the pid its manifest records, then `out/daemon`.
+    Refused (nothing killed, nothing removed) for a path that is, holds or lies inside a live root, and for a
+    directory without the kit's own manifest naming it."""
+    out = Path(out).expanduser().resolve()
+    d = out / "daemon"
+    for live in live_dirs(env):
+        if _overlaps(out, live) or _overlaps(d, live):
+            raise Refused(f"view kit: clean refused: {out} is, holds or lies inside a live state directory")
     if not d.exists():
         print(f"view kit: nothing to clean at {d}")
         return 0
-    for pid, prog in drive.processes_naming(d):
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
-        print(f"view kit: killed {prog} {pid}")
+    if d.is_symlink():
+        raise Refused(f"view kit: clean refused: {d} is a link")
+    try:
+        m = json.loads((d / MANIFEST).read_text())
+    except (OSError, json.JSONDecodeError):
+        raise Refused(f"view kit: clean refused: {d} holds no manifest of the kit (it did not make it)") from None
+    if not isinstance(m, dict) or m.get("kit") != KIT or m.get("dir") != str(d) \
+            or not isinstance(m.get("id"), str) or len(m["id"]) != 32:
+        raise Refused(f"view kit: clean refused: {d}'s manifest is not the kit's, or names another directory")
+    pid = m.get("daemon_pid")
+    if isinstance(pid, int) and not isinstance(pid, bool) and pid > 1:
+        a = args_of(pid)
+        state = str(d / "state")
+        if a and "--state-dir" in a and a[a.index("--state-dir") + 1:a.index("--state-dir") + 2] == [state]:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+            print(f"view kit: killed the scratch daemon {pid}")
     ok = remove(d)
     print(f"view kit: {'removed' if ok else 'could NOT remove'} {d}")
     return 0 if ok else 1

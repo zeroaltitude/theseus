@@ -10,11 +10,13 @@ the scorer that says held or missed per case for a strategy's context.
 **The format** (`view-cases.v1`, frozen: a change is a new format name):
 `{"format", "set", "cases": [...]}`, and each case
 
-- `id`, and `class`: `callback_here`, `callback_elsewhere`,
+- `id` (a safe name: `SAFE`, one path component, never `.` or `..`), and
+  `class`: `callback_here`, `callback_elsewhere`,
   `second_option_later`, `corrected_fact`, `task_update`,
   `forbidden_disclosure` (§10's classes);
 - `history`: the scripted messages, oldest first, each `{"id", "place",
-  "say"}`; a place is a symbolic name (`here`, `there`), one place each;
+  "say"}`; a place is a symbolic name (`here`, `there`), a safe name like an
+  id, one place each;
 - `message`: `{"place", "say"}`, the message the context is assembled for;
 - `evidence`: the history ids a good context must hold, all of them;
 - `referent`: the history id the message's reference resolves to, or null;
@@ -54,6 +56,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -62,6 +65,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 FORMAT = "view-cases.v1"
+# A case's id and a symbolic place: one path component the builder may join under its output, nothing else.
+SAFE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 CLASSES = ("callback_here", "callback_elsewhere", "second_option_later", "corrected_fact", "task_update",
            "forbidden_disclosure")
 NEEDS = ("task", "seal")
@@ -80,6 +85,18 @@ def load(path: Path) -> dict:
     return s
 
 
+def safe(name) -> bool:
+    return isinstance(name, str) and bool(SAFE.fullmatch(name)) and name not in (".", "..")
+
+
+def beneath(root: Path, p: Path) -> Path:
+    """`p`, resolved, or `Invalid` when it is not strictly beneath `root` (resolved)."""
+    root, q = Path(root).resolve(), Path(p).resolve()
+    if root not in q.parents:
+        raise Invalid(f"a destination outside the output: {q}")
+    return q
+
+
 def check(s: dict) -> None:
     """Raise `Invalid` with every fault of a case set, or return."""
     faults = []
@@ -88,7 +105,7 @@ def check(s: dict) -> None:
     seen = set()
     for c in s.get("cases") or []:
         cid = c.get("id")
-        if not cid or cid in seen:
+        if not safe(cid) or cid in seen:
             faults.append(f"case id {cid!r} missing or repeated")
         seen.add(cid)
         if c.get("class") not in CLASSES:
@@ -96,10 +113,12 @@ def check(s: dict) -> None:
         ids = [h.get("id") for h in c.get("history") or []]
         if not ids or len(set(ids)) != len(ids):
             faults.append(f"{cid}: history ids missing or repeated")
-        if not all(h.get("place") and h.get("say") for h in c.get("history") or []):
+        if not all(safe(h.get("id")) for h in c.get("history") or []):
+            faults.append(f"{cid}: a history id that is not a safe name")
+        if not all(safe(h.get("place")) and h.get("say") for h in c.get("history") or []):
             faults.append(f"{cid}: a history line without place or say")
         m = c.get("message") or {}
-        if not (m.get("place") and m.get("say")):
+        if not (safe(m.get("place")) and m.get("say")):
             faults.append(f"{cid}: message without place or say")
         refs = list(c.get("evidence") or []) + list(c.get("stale") or []) + list(c.get("forbidden") or [])
         refs += [x for x in (c.get("referent"), c.get("current")) if x is not None]
@@ -200,9 +219,12 @@ def build_case(case: dict, bin_dir: Path, out: Path) -> dict:
     import scratch  # noqa: PLC0415  (the build alone needs the daemon's helpers)
     import standin  # noqa: PLC0415  (bench/recall, on scratch's path)
 
+    check({"format": FORMAT, "cases": [case]})  # safe names before any path is made of them
     missing = not_built(case)
     if missing:
         return {"case": case["id"], "not_built": missing}
+    out = Path(out).resolve()
+    dirs = {h["place"]: beneath(out, out / "places" / h["place"]) for h in case["history"]}
     model = standin.StandIn([], REPLY)
     try:
         with scratch.Scratch(bin_dir, out, api_base=model.base, model=standin.MODEL) as d:
@@ -211,7 +233,7 @@ def build_case(case: dict, bin_dir: Path, out: Path) -> dict:
             place_of: dict[str, str] = {}
             order: dict[str, list[str]] = {}
             for h in case["history"]:
-                cwd = out / "places" / h["place"]
+                cwd = dirs[h["place"]]
                 cwd.mkdir(parents=True, exist_ok=True)
                 if h["place"] not in sessions:
                     # Opened with its directory, which makes its place `local:<dir>` from its first turn on:
@@ -249,8 +271,10 @@ def build(cases: dict, bin_dir: Path, out: Path) -> dict:
     import scratch  # noqa: PLC0415
 
     out = scratch.check_out(out)
+    check(cases)
+    dests = [beneath(out, out / c["id"]) for c in cases["cases"]]  # every one, before the first write
     out.mkdir(parents=True, exist_ok=True)
-    built = [build_case(c, bin_dir, out / c["id"]) for c in cases["cases"]]
+    built = [build_case(c, bin_dir, d) for c, d in zip(cases["cases"], dests)]
     contexts = {}
     for strategy in ("transcript", "view"):
         ctx = {"strategy": strategy, "held": {b["case"]: b[strategy] for b in built if strategy in b}}

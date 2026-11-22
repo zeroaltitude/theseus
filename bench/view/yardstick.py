@@ -76,6 +76,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "recall"))
 
 import cases as vc  # noqa: E402
+from replay import ID  # noqa: E402
 from generate import PRICES  # noqa: E402
 
 WINDOW = 24
@@ -95,6 +96,10 @@ SYSTEM = ("You judge relevance. You are shown one MESSAGE a person sent and numb
           "score per line, in order.")
 SAME_SESSION = "same_session_heuristic"
 OWN_PLACE = "own_place_lines"
+
+
+def is_id(v) -> bool:
+    return isinstance(v, str) and bool(ID.fullmatch(v))
 
 
 class CapNeeded(SystemExit):
@@ -171,6 +176,25 @@ def parse(text: str, n: int) -> list[int]:
 
 # ---- judges: each returns (scores or None, usage, complete)
 
+# The provider's usage counters the kit reads: nothing else of a usage object is kept or written.
+USAGE_KEYS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+
+
+def counters(u) -> tuple[dict, bool]:
+    """The allow-listed counters of a usage object, and whether every one present was a nonnegative integer
+    (a usage object that is not one is not valid either). Other keys are dropped, never kept."""
+    if not isinstance(u, dict):
+        return {}, False
+    out, ok = {}, True
+    for k in USAGE_KEYS:
+        if k in u:
+            v = u[k]
+            if isinstance(v, int) and not isinstance(v, bool) and v >= 0:
+                out[k] = v
+            else:
+                ok = False
+    return out, ok
+
 
 def ask(base_url: str, key: str, model: str, system: str, user: str, timeout: float = 120.0
         ) -> tuple[str, dict, bool]:
@@ -180,7 +204,7 @@ def ask(base_url: str, key: str, model: str, system: str, user: str, timeout: fl
                        "messages": [{"role": "user", "content": user}]}).encode()
     req = urllib.request.Request(base_url.rstrip("/") + "/v1/messages", data=body, method="POST", headers={
         "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01"})
-    text, usage, done = [], {}, False
+    text, start, final, stopped, bad = [], {}, None, False, False
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             for raw in r:
@@ -193,20 +217,27 @@ def ask(base_url: str, key: str, model: str, system: str, user: str, timeout: fl
                     continue
                 t = e.get("type") if isinstance(e, dict) else None
                 if t == "message_start":
-                    usage.update((e.get("message") or {}).get("usage") or {})
+                    # Its output count is the stream's first, not its last: only the input is read here.
+                    u, ok = counters((e.get("message") or {}).get("usage"))
+                    bad |= not ok
+                    start.update({k: v for k, v in u.items() if k != "output_tokens"})
                 elif t == "message_delta":
-                    usage.update(e.get("usage") or {})
+                    u, ok = counters(e.get("usage"))
+                    bad |= not ok or "output_tokens" not in u
+                    final = {**(final or {}), **u}
                 elif t == "content_block_delta" and (e.get("delta") or {}).get("type") == "text_delta":
                     text.append(str(e["delta"].get("text", "")))
                 elif t == "message_stop":
-                    done = True
+                    stopped = True
                 elif t == "error":
                     raise JudgeFailed("E_JUDGE_STREAM")
     except urllib.error.HTTPError as e:
         raise JudgeFailed(f"E_JUDGE_HTTP {e.code}") from None
     except (urllib.error.URLError, OSError, TimeoutError):
         raise JudgeFailed("E_JUDGE_NETWORK") from None
-    usage = {k: v for k, v in usage.items() if isinstance(v, int) and not isinstance(v, bool)}
+    usage = {**start, **(final or {})}
+    # Settled only on a finished stream whose final usage was read whole: else the caller keeps its reservation.
+    done = stopped and not bad and final is not None and "output_tokens" in final and "input_tokens" in usage
     return "".join(text), usage, done
 
 
@@ -259,12 +290,14 @@ def probes_from_store(d, place: str, turns: int, back: int) -> tuple[list[dict],
     same-session heuristic (module text)."""
     import scratch  # noqa: PLC0415
 
+    # Only rows whose session and exchange are ids of the store's shape: nothing else is used or written.
     rows = [r for r in scratch.ledger_rows(d, "context.turn")
-            if isinstance(r.get("data"), dict) and r["data"].get("place") == place]
+            if isinstance(r.get("data"), dict) and r["data"].get("place") == place
+            and is_id(r.get("session_id")) and is_id(r["data"].get("exchange"))]
     words: dict[str, str] = {}
-    for sid in sorted({r.get("session_id") for r in rows if isinstance(r.get("session_id"), str)}):
+    for sid in sorted({r["session_id"] for r in rows}):
         for node in scratch.history_nodes(d, sid):
-            if node.get("kind") == "user_message" and isinstance(node.get("turn_id"), str):
+            if node.get("kind") == "user_message" and is_id(node.get("turn_id")):
                 words[node["turn_id"]] = (words.get(node["turn_id"], "") + " " + str(node.get("text", ""))).strip()
     ex = [(r["data"]["exchange"], r.get("session_id")) for r in rows if r["data"].get("exchange") in words]
     out = []
@@ -312,11 +345,12 @@ def run(probes: list[dict], judge, prices: Prices, cap_usd: float, model: str = 
             except JudgeFailed as e:
                 stopped = str(e)  # the reservation stays spent
                 break
-            if done and "input_tokens" in u and "output_tokens" in u:
-                spent += prices.charge(u) - hold
+            u, valid = counters(u)
+            if done and valid and "input_tokens" in u and "output_tokens" in u:
+                spent += max(prices.charge(u), 0.0) - hold
                 usage.update(u)
             else:
-                kept += 1
+                kept += 1  # fail closed: the reservation stays spent
             if scores is None:
                 unparsed += 1
                 continue
