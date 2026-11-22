@@ -410,4 +410,3 @@ async fn the_facts_about_the_person_reach_the_owner_alone() {
     assert!(!texts(&q).contains("Who is speaking"), "{}", texts(&q));
     assert!(!texts(&q).contains(GUIDED), "{}", texts(&q));
 }
-

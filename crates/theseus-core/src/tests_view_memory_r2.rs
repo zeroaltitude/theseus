@@ -471,4 +471,3 @@ async fn a_recalled_items_header_names_its_session_by_id_place_and_time() {
     );
     assert!(!texts(&q).contains(TITLE), "no title anywhere: {line}");
 }
-

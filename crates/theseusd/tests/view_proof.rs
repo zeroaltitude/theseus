@@ -388,4 +388,3 @@ fn after_new_nothing_before_is_the_conversation_his_words_are_his_past_and_memor
     }
     eprintln!("view proof /new: {}", r.strategies());
 }
-

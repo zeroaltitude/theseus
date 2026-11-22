@@ -250,4 +250,3 @@ fn labelled_import(c: &crate::Core, sensitivity: &str, text: &str, n: u8) -> Str
     c.store.append(&[node.record().unwrap()]).unwrap();
     sid
 }
-
