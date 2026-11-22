@@ -306,60 +306,268 @@ async fn a_sealed_threads_pending_confirmation_is_absent_and_harmless() {
     assert!(!why.iter().any(|w| w == "moved"), "{why:?}");
 }
 
+/// A turn's newest view record.
+fn record_of(c: &crate::Core, turn: &str) -> crate::view::record::ViewRecord {
+    (crate::view::record::of_turn(&c.store, turn).unwrap())
+        .into_iter()
+        .next()
+        .expect("a view record")
+}
+
+/// The owner's own reading of `rec` today, as `theseus view show` reads it.
+fn owners_reading(
+    c: &crate::Core,
+    rec: &crate::view::record::ViewRecord,
+) -> theseus_protocol::view::ViewShown {
+    use crate::view::record::show::Reader;
+    use crate::view::record::source::GateSource;
+    use theseus_memory::gate::{PointOfView, Present};
+    use theseus_memory::recall::Place;
+    let anchor = match &rec.pov.anchor {
+        crate::view::Anchor::Place(p) => p.clone(),
+        crate::view::Anchor::Task(t) => format!("task:{t}"),
+    };
+    let source = GateSource {
+        runner: &c.runner,
+        pov: PointOfView {
+            anchor,
+            place: Place::Private,
+            present: Present::OwnerAlone,
+        },
+        asker: None,
+    };
+    let reader = Reader {
+        source: &source,
+        text: None,
+        restricted: false,
+    };
+    reader.show(rec)
+}
+
+fn counted(v: &theseus_protocol::view::ViewShown) -> u64 {
+    v.totals.shown + v.totals.dropped
+}
+
+fn lists(v: &theseus_protocol::view::ViewShown, what: &str) -> bool {
+    serde_json::to_string(v).unwrap().contains(what)
+}
+
 /// KEY: a view's record re-checks a card's sources before it shows or counts it: the owner's own reading
 /// of a turn that was shown a thread's card no longer lists it once the thread is sealed, and its totals
 /// count one piece fewer.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_recorded_card_of_a_thread_sealed_since_is_not_shown_or_counted() {
-    use crate::view::record::show::Reader;
-    use crate::view::record::source::GateSource;
-    use theseus_memory::gate::{PointOfView, Present};
-    use theseus_memory::recall::Place;
     let r = kelp_rig(false);
     let c = &r.core;
     let desk = session_in(c, None, &r.root);
     let t = turn_as(c, &desk, "desk: what about thread:kelp?", true).await;
-    let rec = crate::view::record::of_turn(&c.store, &t.turn_id)
-        .unwrap()
-        .pop()
-        .unwrap();
-    let anchor = match &rec.pov.anchor {
-        crate::view::Anchor::Place(p) => p.clone(),
-        crate::view::Anchor::Task(t) => format!("task:{t}"),
-    };
-    let shown = || {
-        let source = GateSource {
-            runner: &c.runner,
-            pov: PointOfView {
-                anchor: anchor.clone(),
-                place: Place::Private,
-                present: Present::OwnerAlone,
-            },
-            asker: None,
-        };
-        let reader = Reader {
-            source: &source,
-            text: None,
-            restricted: false,
-        };
-        reader.show(&rec)
-    };
-    let before = shown();
-    assert!(serde_json::to_string(&before)
-        .unwrap()
-        .contains("thread:kelp"));
+    let rec = record_of(c, &t.turn_id);
+    let before = owners_reading(c, &rec);
+    assert!(lists(&before, "thread:kelp"));
     crate::tests_view_compile::seal_kelp(c);
-    let after = shown();
+    let after = owners_reading(c, &rec);
+    assert!(!lists(&after, "thread:kelp"), "{after:?}");
+    assert_eq!(counted(&after), counted(&before) - 1);
+}
+
+/// KEY: a card recorded with no provenance (a record written before it was kept), shown or dropped, is
+/// unproven: neither is listed or counted, its source sealed or not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recorded_card_with_no_provenance_is_not_shown_or_counted() {
+    use crate::view::budget::{DropWhy, Dropped};
+    let r = kelp_rig(false);
+    let c = &r.core;
+    let desk = session_in(c, None, &r.root);
+    let t = turn_as(c, &desk, "desk: what about thread:kelp?", true).await;
+    let rec = record_of(c, &t.turn_id);
+    let before = owners_reading(c, &rec);
+    let strip = |space: &mut Space| {
+        if let Space::Card { from, .. } | Space::Waiting { from, .. } = space {
+            *from = None;
+        }
+    };
+    let mut legacy = rec.clone();
+    legacy
+        .shown
+        .iter_mut()
+        .for_each(|s| strip(&mut s.piece.range.space));
+    let card = (legacy.shown.iter())
+        .find(|s| matches!(s.piece.range.space, Space::Card { .. }))
+        .expect("the card was shown")
+        .clone();
+    legacy.dropped.push(Dropped {
+        range: card.piece.range.clone(),
+        slot: card.piece.slot,
+        band: card.piece.band,
+        reasons: card.piece.reasons.clone(),
+        handle: card.piece.handle.clone(),
+        tokens: card.tokens,
+        why: DropWhy::OverBudget,
+    });
+    let space = serde_json::to_value(&card.piece.range.space).unwrap();
     assert!(
-        !serde_json::to_string(&after)
-            .unwrap()
-            .contains("thread:kelp"),
-        "{after:?}"
+        space["card"].get("from").is_none(),
+        "as written before: {space}"
     );
-    assert_eq!(
-        after.totals.shown + after.totals.dropped,
-        before.totals.shown + before.totals.dropped - 1
+    let legacy: crate::view::record::ViewRecord =
+        serde_json::from_value(serde_json::to_value(&legacy).unwrap()).unwrap();
+    for sealed in [false, true] {
+        if sealed {
+            crate::tests_view_compile::seal_kelp(c);
+        }
+        let read = owners_reading(c, &legacy);
+        assert!(!lists(&read, "thread:kelp"), "sealed {sealed}: {read:?}");
+        assert_eq!(counted(&read), counted(&before) - 1, "sealed {sealed}");
+    }
+}
+
+/// KEY: an item card read from a clear session no longer shows in the view's record once the message it
+/// read is moved, since, into a sealed thread (its session staying clear): the record re-asks today's moves.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recorded_item_card_whose_source_moved_since_is_not_shown() {
+    let r = kelp_rig(true);
+    let c = &r.core;
+    c.runner.pass.set_index(Arc::new(Items));
+    let sid = serving(c, &r.root, "prj_tide");
+    let first = turn_as(c, &sid, "the tide gauge: see issue 33 first", true).await;
+    touched(&c.store, SCOPED).await;
+    let t = turn_as(c, &sid, "and where is issue 33 now?", true).await;
+    let rec = record_of(c, &t.turn_id);
+    assert!(lists(&owners_reading(c, &rec), SCOPED));
+    crate::ladder::tests_moved::move_ask(&c.store, &first.turn_id, "kelp");
+    assert!(!lists(&owners_reading(c, &rec), SCOPED));
+}
+
+/// KEY: a frozen view's next call does not send an item card's excerpt whose message was moved, between the
+/// calls, into a sealed thread from another session: the card's exchanges are re-asked before each call.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_frozen_views_next_call_drops_a_card_whose_source_moved() {
+    use std::sync::OnceLock;
+    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
+    let source: Arc<OnceLock<String>> = Arc::default();
+    let (held, moved) = (core.clone(), source.clone());
+    let r = crate::tests_places::rig_setup_scripted(
+        |c| {
+            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+            c.threads.enabled = true;
+        },
+        |s| {
+            kelp(s, true);
+        },
+        move |q| {
+            let last = crate::tests_places::last_user(q);
+            if last.contains("move it now") && !crate::tests_places::answers_a_call(q) {
+                let c = held.get().expect("the core");
+                let turn = moved.get().expect("the first turn");
+                crate::ladder::tests_moved::move_ask(&c.store, turn, "kelp");
+                return crate::provider::Scripted::tools(
+                    "Looking.",
+                    &[("s1", "fs_list", serde_json::json!({"path": "."}))],
+                );
+            }
+            crate::provider::Scripted::text("Done.")
+        },
     );
+    let _ = core.set(r.core.clone());
+    let c = &r.core;
+    c.runner.pass.set_index(Arc::new(Items));
+    let a = serving(c, &r.root, "prj_tide");
+    let first = turn_as(c, &a, "the tide gauge: see issue 33 first", true).await;
+    let _ = source.set(first.turn_id.clone());
+    touched(&c.store, SCOPED).await;
+    let d = serving(c, &r.root, "prj_tide");
+    turn_as(c, &d, "where is issue 33? move it now", true).await;
+    let calls: Vec<_> = (r.requests().into_iter())
+        .filter(|q| texts(q).contains("move it now"))
+        .collect();
+    assert_eq!(calls.len(), 2, "the turn made two calls");
+    assert!(
+        card_of(&texts(&calls[0]), SCOPED).is_some(),
+        "{}",
+        texts(&calls[0])
+    );
+    assert!(
+        card_of(&texts(&calls[1]), SCOPED).is_none(),
+        "{}",
+        texts(&calls[1])
+    );
+    assert!(
+        !texts(&calls[1]).contains("tide gauge"),
+        "{}",
+        texts(&calls[1])
+    );
+}
+
+/// A thread `slug`, bound to its own session: its session.
+fn thread_named(store: &crate::store::Store, slug: &str) -> String {
+    let r = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    store.put_session(&r.session_id, &r).unwrap();
+    let t = serde_json::json!({"slug": slug, "title": slug});
+    store.put_meta(&format!("thread:{slug}"), &t).unwrap();
+    store
+        .put_meta(&format!("discord.session.thread:{slug}"), &r.session_id)
+        .unwrap();
+    r.session_id
+}
+
+/// Seal thread `slug` through the board's own write.
+fn seal(c: &crate::Core, slug: &str) {
+    c.runner
+        .threads
+        .write(
+            &c.store,
+            |b| {
+                let mut v = serde_json::to_value(b.get(slug).expect("the thread")).unwrap();
+                v["sealed"] = serde_json::json!({"by": "cli", "at_ms": 2, "reason": "embargo"});
+                Ok(vec![serde_json::from_value(v)?])
+            },
+            |_, _| Ok(vec![]),
+        )
+        .unwrap();
+}
+
+/// A card reads only the standing records its facts need: a fact of an unrelated thread's session is not
+/// part of kelp's card's provenance, and sealing that thread leaves kelp's recorded card listed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sealing_an_unrelated_standing_records_session_leaves_the_card() {
+    use theseus_protocol::{StandingAddParams, StandingKind, StandingScope};
+    let sessions = std::cell::RefCell::new((String::new(), String::new()));
+    let r = crate::tests_places::rig_setup(
+        |c| {
+            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+            c.threads.enabled = true;
+        },
+        |s| *sessions.borrow_mut() = (thread_named(s, "kelp"), thread_named(s, "reef")),
+    );
+    let c = &r.core;
+    let (kelp_sid, reef_sid) = sessions.into_inner();
+    for (sid, text) in [
+        (&kelp_sid, "kelp is kept dry"),
+        (&reef_sid, "reef is a secret"),
+    ] {
+        let p = StandingAddParams {
+            kind: StandingKind::Fact,
+            text: text.into(),
+            scope: StandingScope::Session(sid.clone()),
+            ..Default::default()
+        };
+        c.standing_add(&p, "the CLI").unwrap();
+    }
+    let desk = session_in(c, None, &r.root);
+    let t = turn_as(c, &desk, "desk: what about thread:kelp?", true).await;
+    let q = asked(&r, "desk: what about thread:kelp?").pop().unwrap();
+    assert!(texts(&q).contains("kelp is kept dry"), "{}", texts(&q));
+    let rec = record_of(c, &t.turn_id);
+    let from = (rec.shown.iter())
+        .find_map(|s| match &s.piece.range.space {
+            Space::Card { from: Some(p), .. } => Some(p.clone()),
+            _ => None,
+        })
+        .expect("kelp's card, with its provenance");
+    assert!(from.sessions.contains(&kelp_sid), "{from:?}");
+    assert!(!from.sessions.contains(&reef_sid), "{from:?}");
+    seal(c, "reef");
+    assert!(lists(&owners_reading(c, &rec), "thread:kelp"));
 }
 
 /// KEY: the owner alone is told who is speaking (his held person's name) and his own guidance for it; the
