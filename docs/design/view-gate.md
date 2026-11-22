@@ -103,3 +103,21 @@ the rule under any name a file gives it. Both are heuristics over the sources, n
   (`standing_held`).
 - **`view::gate::Admitted::new` is private to its module**; `admit_checked` beside it is the gate's construction
   (the contract's authorized amendment), with a `cfg(test)` constructor for the view's own tests.
+
+## The last readers on the old path
+
+- **Earlier tails** (`turn::sent_tail`): who is present, and where the turn arrived (`presence_key`), is part of
+  the key a kept tail is put back under, so a tail made where the owner was alone is not sent to a narrower
+  audience. Each tail keeps the threads held from its reader when it was made (`held_threads`); a tail is let go
+  when a thread is held now that was not then, or when the threads cannot be read. The keep-warm read applies the
+  same seals. A tail does not record which thread's words it holds, so a new seal lets every older tail go, not
+  only those that held that thread's words: it may cost a cache read, never a leak.
+- **The place digest** is given no thread held from its reader (`digest_threads`, whatever the ledger says), so it
+  neither names nor counts one: a count says a thread exists.
+- **The session listing** shows no title for a session with a message moved into a thread held from the reader
+  (`title_shown`): a title is made from a session's first inputs. The session is still listed.
+- **Health** counts the thread bindings that do not read (`threads.unread_bindings`, never which), the condition
+  under which recall holds out every session whose thread it cannot prove. Binding the thread again clears it.
+- **A turn whose presence is `Unknown`** (a wake set by a wake: the set-up turn had no message, so no mark) reads
+  nothing of history through recall's places, its own place's included. A wake set by a turn with a message takes
+  that message's presence (`set_up`), as before.
