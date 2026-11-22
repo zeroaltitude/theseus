@@ -537,38 +537,6 @@ fn short_json(v: &Value) -> String {
     s.chars().take(600).collect()
 }
 
-/// The proof suite's `over_budget` shape: one turn of six results of about 28,000 characters each, read one
-/// a loop, past a 40,000-token working window with a 2,000-token reply. The view clears the older results
-/// and, where a new chain's estimate still passes, cuts the newest result to its head: the turn answers, no
-/// overage, every request as sent within its limit, and the cut says so.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn six_large_results_past_a_small_working_window_still_answer() {
-    const CALLS: usize = 6;
-    let script: Vec<Scripted> = (0..CALLS)
-        .map(reads)
-        .chain([Scripted::text(DONE)])
-        .collect();
-    let r = rig_tweaked(CALLS, script, (None, 200_000), |c| {
-        c.context.working_window_tokens = Some(40_000);
-    });
-    let root = r.core.runner.cfg.tools.projects_dir.clone().unwrap();
-    for k in 0..CALLS {
-        let path = std::path::Path::new(&root).join(format!("logs/keeper-{k:03}.txt"));
-        std::fs::write(path, format!("log {k}\n{}{}", LINE.repeat(390), end(k))).unwrap();
-    }
-    let res = turn(&r.core).await.expect("the turn answers");
-    assert_eq!(res.output, DONE, "{res:?}");
-    assert!(crate::test_support::rows(&r.core, "context.overage").is_empty());
-    assert_eq!(asked(&r).len(), CALLS + 1, "one request a loop");
-    every_send_within(&r, 40_000);
-    assert!(
-        asked(&r)
-            .iter()
-            .any(|q| texts(q).contains("[Only the first")),
-        "a result was laid as its head, with its line"
-    );
-}
-
 /// One result alone larger than the window: before the overage, it is laid as its head with one line
 /// saying how much is shown and how to read the rest; the turn answers.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

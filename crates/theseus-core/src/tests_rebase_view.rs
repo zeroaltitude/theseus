@@ -83,7 +83,9 @@ async fn a_bare_history_call_begins_where_the_views_window_does() {
         .filter(|(_, f)| *f == Form::Whole)
         .map(|(t, _)| t.as_str())
         .collect();
-    assert!(!whole.is_empty(), "{laid:?}");
+    // The floor lays the newest exchanges' words; a tool-less exchange is laid whole by no band (issue 44's
+    // closing cut: no previous exchange is a mandatory whole), so a bare call pages from the newest earlier one.
+    assert!(whole.is_empty(), "{laid:?}");
     assert!(
         !laid.iter().any(|(t, _)| *t == turns[0] || *t == turns[4]),
         "the window starts mid-history: {laid:?}"
