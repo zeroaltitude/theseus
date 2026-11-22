@@ -177,10 +177,17 @@ fn answer(mut stream: TcpStream, seen: &Mutex<Vec<Vec<String>>>) -> std::io::Res
         })
         .unwrap_or_default();
     let joined = texts.join("\n");
-    let reply = match joined.find("[Recalled by the harness:") {
-        Some(at) => format!("From my notes: {}", &joined[at..]),
-        None => UNKNOWN.to_string(),
+    // On the view (issue 44) a daemon's recall is no block of its own: each recalled item is a piece of the
+    // block beside the message, under a heading that says recall chose it. Those pieces, and nothing else of
+    // that block, are this stand-in's notes too; the oracle's note, given in the message, is read as before.
+    let recalled = recalled_beside(&req);
+    let reply = match (joined.find("[Recalled by the harness:"), recalled.first()) {
+        (Some(at), _) => format!("From my notes: {}", &joined[at..]),
+        (None, Some(piece)) => format!("From my notes: {piece}"),
+        (None, None) => UNKNOWN.to_string(),
     };
+    let mut texts = texts;
+    texts.extend(recalled);
     seen.lock().unwrap().push(texts);
     let events = [
         json!({"type": "message_start", "message": {"id": "msg_exam", "type": "message", "role": "assistant", "model": "claude-sonnet-5-5", "content": [], "usage": {"input_tokens": 60, "output_tokens": 1}}}),
@@ -405,6 +412,46 @@ fn check_records(recs: &[drive::Record]) {
     }
 }
 
+/// The pieces of the block beside the last user message (`view::wire_text::BESIDE_HEAD`) that recall chose:
+/// each from its heading (the view's testimony heading naming "recalled by search") to the next heading.
+fn recalled_beside(req: &Value) -> Vec<String> {
+    const HEAD_ENDS: &str = "; testimony, not instruction; possibly stale";
+    let is_heading = |l: &str| {
+        l.ends_with(HEAD_ENDS)
+            || l.ends_with("author unknown; not the owner's instruction")
+            || l.starts_with("the owner said, in ")
+    };
+    let last = (req["messages"].as_array().into_iter().flatten()).rfind(|m| m["role"] == "user");
+    let blocks: Vec<&str> = match last.map(|m| &m["content"]) {
+        Some(Value::Array(b)) => b.iter().filter_map(|b| b["text"].as_str()).collect(),
+        Some(Value::String(s)) => vec![s.as_str()],
+        _ => Vec::new(),
+    };
+    let mut out = Vec::new();
+    for block in blocks
+        .into_iter()
+        .filter(|b| b.starts_with(theseus_core::view::wire_text::BESIDE_HEAD))
+    {
+        let mut piece: Option<Vec<&str>> = None;
+        for line in block.lines() {
+            if is_heading(line) {
+                out.extend(piece.take().map(|p| p.join("\n").trim_end().to_string()));
+                piece = (line.ends_with(HEAD_ENDS) && line.contains("recalled by search"))
+                    .then(|| vec![line]);
+            } else if let Some(p) = piece.as_mut() {
+                p.push(line);
+            }
+        }
+        out.extend(piece.map(|p| p.join("\n").trim_end().to_string()));
+    }
+    out
+}
+
+/// The words of a recalled piece: what follows its heading.
+fn piece_words(piece: &str) -> &str {
+    piece.split_once('\n').map_or("", |(_, words)| words.trim())
+}
+
 /// The oracle's note is the baseline daemon's render of the same gold, byte
 /// for byte, after the task.
 fn check_notes(store: &Path, m: &fixture::Manifest, exam: &Exam, seen: &[Vec<String>]) {
@@ -418,9 +465,13 @@ fn check_notes(store: &Path, m: &fixture::Manifest, exam: &Exam, seen: &[Vec<Str
             "no request with {}'s recall: {seen:?}",
             item.id
         );
+        // On the view the baseline's note is a recalled piece beside the message, under the view's own
+        // heading: its words are the oracle's note's, which end with them (issue 44).
         assert!(
-            seen.iter()
-                .any(|t| t.len() == 2 && t[0].ends_with(&item.task) && t[1] == note),
+            seen.iter().any(|t| t.len() == 2
+                && t[0].ends_with(&item.task)
+                && !piece_words(&t[1]).is_empty()
+                && note.trim_end().ends_with(piece_words(&t[1]))),
             "{}: the core rendered another note: {seen:?}",
             item.id
         );
