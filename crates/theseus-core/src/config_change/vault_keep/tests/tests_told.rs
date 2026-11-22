@@ -16,6 +16,8 @@ fn given(r: &Rig) -> String {
 
 /// A turn in the owner's direct messages asks to keep a secret; the session and the card's id.
 async fn asked_in_dm(r: &Rig, item: &str) -> (String, String) {
+    // The owner's DM, typed in person: the view lays the exchange that asked on the next turn.
+    r.in_person();
     let sid = r.session_at(&format!("dm:{OWNER}"));
     r.turn_with("vault_keep", &sid, input(item, "credential"))
         .await;

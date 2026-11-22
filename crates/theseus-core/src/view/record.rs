@@ -70,6 +70,10 @@ pub struct ViewRecord {
     /// made none. A record written before it reads as none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub room: Option<Room>,
+    /// What a replay needs beyond the session, by blob digest (`compiler::view::kept`); none for a view
+    /// built before views kept it, and for a view no request was sent from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept: Option<crate::compiler::view::kept::Kept>,
 }
 
 /// What a turn did to make room in its request (`turn::view_step::room`): numbers, and counts of its own
@@ -110,6 +114,7 @@ impl ViewRecord {
             residue: view.residue,
             tokens: view.tokens,
             room: None,
+            kept: None,
         }
     }
 
@@ -146,23 +151,24 @@ pub fn turn_record(turn: &str, compilation: &str, at_ms: u64) -> anyhow::Result<
 /// Keep what a turn was shown: the view record, its turn's entry and its counts, deferred into the turn's
 /// next frame. A turn or compilation id holding the key's separator is refused, and nothing is kept.
 pub fn keep(store: &Store, turn: &str, compilation: &str, view: &View) -> anyhow::Result<()> {
-    keep_made(store, turn, compilation, view, None)
+    keep_made(store, turn, compilation, view, (None, None))
 }
 
-/// [`keep`], with the room the turn made, if any: the compiler calls it once for each view it builds, with
-/// the turn's own store handle.
+/// [`keep`], with the room the turn made and what a replay needs, if any: the compiler calls it once for
+/// each view it builds, with the turn's own store handle.
 pub fn keep_made(
     store: &Store,
     turn: &str,
     compilation: &str,
     view: &View,
-    room: Option<Room>,
+    (room, kept): (Option<Room>, Option<crate::compiler::view::kept::Kept>),
 ) -> anyhow::Result<()> {
     if turn.contains(SEP) || compilation.contains(SEP) {
         anyhow::bail!("a view is not kept under an id holding the key's separator");
     }
     let record = ViewRecord {
         room,
+        kept,
         ..ViewRecord::new(compilation, view.clone())
     };
     let tally = Tally::of(&record);

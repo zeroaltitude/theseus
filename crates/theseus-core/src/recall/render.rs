@@ -36,23 +36,24 @@ pub fn preamble(n: usize) -> String {
 pub fn render(items: &[RecalledRef], sources: &Sources) -> String {
     let mut out = preamble(items.len());
     for (i, r) in items.iter().enumerate() {
-        // An item's header (a session's title, a tool's path) is shown only when its source survived
-        // admission: a source held out since, or unread, leaves no header (issue 44).
-        match sources.get(&r.node_id).and_then(|n| shown(n, r.chunk)) {
-            Some(text) => out.push_str(&format!(
-                "\n({}) {}\n    \"{}\"",
-                i + 1,
-                r.header,
-                text.replace('\n', "\n    ")
-            )),
-            None => out.push_str(&format!(
-                "\n({}) (its source, {}, cannot be read)",
-                i + 1,
-                r.node_id
-            )),
-        }
+        out.push_str(&format!(
+            "\n({}) {}",
+            i + 1,
+            item(r, sources.get(&r.node_id).map(|n| &**n))
+        ));
     }
     out
+}
+
+/// One item as a `Recall` node renders it, after its number: its header and its quoted text, its lines
+/// indented under it. An item's header (a session's title, a tool's path) is shown only when its source
+/// survived admission: a source held out since, or unread, leaves no header (issue 44). The view's slot H
+/// lays each recalled item with this (`view::sources_store`).
+pub fn item(r: &RecalledRef, source: Option<&Node>) -> String {
+    match source.and_then(|n| shown(n, r.chunk)) {
+        Some(text) => format!("{}\n    \"{}\"", r.header, text.replace('\n', "\n    ")),
+        None => format!("(its source, {}, cannot be read)", r.node_id),
+    }
 }
 
 /// `n`'s text over `[start, end)`, with `…` where the range cuts it.

@@ -67,7 +67,9 @@ fn text_of(m: &Value) -> String {
         Value::String(s) => s.clone(),
         Value::Array(b) => b
             .iter()
+            .filter(|b| !crate::task_graph::view::is_view(b))
             .filter_map(|b| b["text"].as_str())
+            .map(crate::surface::strip_tag)
             .collect::<Vec<_>>()
             .join("\n"),
         _ => String::new(),
@@ -82,9 +84,13 @@ pub(crate) fn first_user(req: &ProviderRequest) -> String {
         .find(|m| m["role"] == "user")
         .and_then(|m| match &m["content"] {
             Value::String(s) => Some(s.clone()),
+            // A block the view laid (its front, the block beside a message) is the harness's: the
+            // first words are the first of the conversation's own, without their surface tag.
             Value::Array(b) => b
                 .iter()
-                .find_map(|b| b["text"].as_str().map(str::to_string)),
+                .filter(|b| !crate::task_graph::view::is_view(b))
+                .find_map(|b| b["text"].as_str())
+                .map(|t| crate::surface::strip_tag(t).to_string()),
             _ => None,
         })
         .unwrap_or_default()

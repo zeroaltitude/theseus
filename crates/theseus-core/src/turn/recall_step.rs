@@ -18,17 +18,13 @@
 //!   the turn's next frame.
 //! - **While routing decides** (theseus-n7nc): the row waits for the route
 //!   (`recall_routed`), and is recorded once it is known.
-//! - **Only what the request carried** (theseus-fpm2): the node rides the plan
-//!   frame only when the compile the call used rendered it (`carries`, read by
-//!   `recall_view` and recorded as `Recalled::withheld`). A place set to `view`
-//!   carries none (issue 44): its recall reaches the model as a selector's
-//!   piece beside the message, so no note is written into the session. The
-//!   withholding writes a `recall.withheld` row (`recall_dropped`, scoped with
-//!   the recall's other rows, why `view`) carrying the `recall_id` of the
-//!   `recall.ran` row that admitted the notes and how many it admitted, so a
-//!   reader can tell "withheld" from "nothing matched" (theseus-ectzg). A
-//!   compile that withheld the node reports no budget drops of its pack
-//!   (`recall_compiled`). (Two earlier gates, the small-talk bar and a model
+//! - **Every turn carries its node** (issue 44, issue 46): a view turn's too,
+//!   so its count, citations, reach and retraction see what it recalled; the
+//!   view lays the items beside the message and keeps the node out of the
+//!   window and the turn's tail. `Recalled::withheld`, the `recall.withheld`
+//!   row (`recall_dropped`, theseus-ectzg) and the kept-for-view readmission
+//!   served the view's withholding and its hand-back, which no turn takes now;
+//!   old rows of the kind still read. (Two earlier gates, the small-talk bar and a model
 //!   of restricted origin, are gone; their old rows still read.)
 
 use std::collections::BTreeSet;
@@ -614,13 +610,6 @@ impl TurnRunner {
             .and_then(|m| threads.and_then(|th| th.other_title_of(&m.thread)))
     }
 
-    /// Why this turn's request does not carry its pending `Recall` node, when it does not:
-    /// [`VIEW`] on a view turn, whose recall reaches the model as a selector's piece beside the
-    /// message (issue 44). `None` when it carries it: a turn with the ledger off, the transcript's.
-    pub(super) fn carries(&self, _: &Turn<'_>) -> Option<&'static str> {
-        (!self.on_transcript()).then_some(VIEW)
-    }
-
     /// The compile withheld the pending node, so the turn recalled nothing:
     /// no record rides the plan frame, and the footer, the citations and the
     /// next turn's render have nothing to count (theseus-fpm2). The node was
@@ -673,17 +662,19 @@ impl TurnRunner {
         t: &mut Turn<'_>,
         nodes: Transcript,
     ) -> (Transcript, Sources) {
-        t.recall.withheld = self.carries(t);
+        // Every turn carries its pending node, a view turn's included (issue 44, issue 46): the node,
+        // its edges and its rows ride the plan frame, so the reply's count, its citations, reach and
+        // retraction see what the turn recalled. The view lays the items beside the message and keeps
+        // the node itself out of the window and out of the turn's own tail.
+        t.recall.withheld = None;
         self.recall_view(t, nodes)
     }
 
     /// The transcript a loop compiles, with the turn's pending `Recall` node
-    /// after every node (unless the turn withholds it, [`Self::carries`]), and
-    /// the sources its recalls render.
+    /// after every node, and the sources its recalls render.
     pub(super) fn recall_view(&self, t: &Turn<'_>, nodes: Transcript) -> (Transcript, Sources) {
         let mut nodes = nodes;
-        let carried = self.carries(t).is_none();
-        if let Some(n) = t.recall.pending.as_ref().filter(|_| carried) {
+        if let Some(n) = t.recall.pending.as_ref() {
             // Once the plan frame wrote it, the transcript holds it.
             if !nodes.iter().any(|(_, m)| m.id == n.id) {
                 nodes.push((PENDING, n.clone().into()));

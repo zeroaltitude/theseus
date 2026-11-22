@@ -161,7 +161,9 @@ async fn the_measuring_rows_seen_is_what_the_view_showed() {
 /// is, and no recall. A place left to the transcript still counts the session's own transcript.
 #[tokio::test]
 async fn a_census_of_a_view_place_counts_the_views_request() {
-    for (as_view, r) in [(true, view_rig()), (false, rig_with(|_| {}))] {
+    let transcript =
+        || rig_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::Transcript)));
+    for (as_view, r) in [(true, view_rig()), (false, transcript())] {
         let c = &r.core;
         let other = session_in(c, None, &r.root);
         turn(c, &other, "alpha: the kestrel nests on the quay").await;
@@ -185,32 +187,6 @@ async fn a_census_of_a_view_place_counts_the_views_request() {
             assert!(!noted, "{:?}", out.notes);
         }
     }
-}
-
-/// A turn the view built is refused by own-benchmark in plain words, by its compilation's strategy, before
-/// any byte is rendered again (never as a digest that does not match).
-#[tokio::test]
-async fn a_view_turn_is_refused_for_replay_in_words() {
-    let r = view_rig();
-    let c = &r.core;
-    let sid = session_in(c, None, &r.root);
-    let t = turn(c, &sid, "first: the tide").await.turn_id;
-    let rec: SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
-    let cid = rec.compilation_id.expect("a compilation");
-    let strategy = c.store.get_compilation(&cid).unwrap().unwrap().strategy;
-    assert_eq!(strategy, crate::compiler::view::STRATEGY);
-    let Err(e) = c.rebuild_first(&sid, &t) else {
-        panic!("a view turn was rebuilt");
-    };
-    assert_eq!(
-        (e.part, e.why.as_str()),
-        ("compilation", crate::own_bench::rebuild::VIEW_REFUSED)
-    );
-    assert!(
-        e.to_string()
-            .contains("a turn built from a view cannot be replayed yet"),
-        "{e}"
-    );
 }
 
 /// A fork of `source` at its last node, speaking in no place (as `session.fork` makes one, by reference).

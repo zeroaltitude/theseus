@@ -10,8 +10,10 @@
 use std::collections::{HashMap, HashSet};
 
 mod failed;
+pub(crate) mod kept;
 pub(in crate::turn) mod occasion;
 pub(super) mod preview;
+mod recall;
 mod room;
 pub(super) mod task;
 
@@ -116,12 +118,13 @@ impl TurnRunner {
             f.card.clone_from(&compiled.card);
             if let Some(view) = f.record.take() {
                 let room = f.room.made(compiled.cleared.map_or(0, |p| p.results));
+                let replay = kept::chain_kept(store, &mut t.keeping, f);
                 if let Err(e) = crate::view::record::keep_made(
                     store,
                     turn,
                     &compiled.compilation.id,
                     &view,
-                    room,
+                    (room, replay),
                 ) {
                     tracing::warn!(error = %format!("{e:#}"), "the view's record was not kept");
                 }
@@ -178,18 +181,10 @@ impl TurnRunner {
         let Some(f) = t.view.as_ref().filter(|f| f.turn_id == t.tc.turn_id) else {
             return false;
         };
-        let sid = t.tc.session_id;
-        if (f.sessions.iter()).any(|s| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear)
-        {
-            return true;
-        }
-        // A message it shows moved into a thread, or that thread sealed, since it was assembled.
-        let moved = crate::view_gate::Moved::read(self, Some(sid));
-        (f.exchanges.iter()).any(|id| match crate::exchange::exchange(&self.store, id) {
-            // Only a readable exchange whose nodes are all clear proves admission: a missing one revokes.
-            Ok(Some(e)) => moved.holds(&e),
-            Ok(None) | Err(_) => true,
-        })
+        // A session sealed, or a message it shows moved into a thread or that thread sealed, since it was
+        // assembled; or a recalled item it lays held out now (`recall::view_recall_revoked`).
+        kept::held_now(self, t.tc.session_id, (&f.sessions, &f.exchanges, &[]))
+            || self.view_recall_revoked(t.tc.session_id, &f.recalled)
     }
 
     /// A new chain for the turn: its next call makes a new compilation (the sent tails let go), and the
@@ -417,8 +412,9 @@ pub(super) struct Asked<'a> {
     /// The gate's point of view, never the caller's word: a preview's; none reads the turn's
     /// (`Verified::of_session`) where a turn always read it, after the clock.
     pub verified: Option<Verified>,
-    /// The nodes today's recall found (none for a preview, which runs no recall).
-    pub recalled: Vec<String>,
+    /// The items today's recall found and admitted, read for slot H (none for a preview, which runs no
+    /// recall).
+    pub recalled: Vec<crate::view::sources_recall::Recalled>,
     /// The message given (a preview's); none reads the turn's own, by node and text, at the point a turn
     /// always read it (after the clock and the `/new` mark).
     pub message: Option<String>,
@@ -644,10 +640,11 @@ fn verified_pov(verified: &Verified, person: Option<String>, now_ms: u64) -> Poi
     }
 }
 
-/// The nodes today's recall found for this turn (its pending note, never written in a view place).
-fn recalled(t: &Turn<'_>) -> Vec<String> {
+/// The items today's recall found for this turn (its pending note), before the view admits them
+/// (`recall::view_recall`).
+fn recalled(t: &Turn<'_>) -> Vec<crate::node::RecalledRef> {
     match t.recall.pending.as_ref().map(|n| &n.body) {
-        Some(Body::Recall { items, .. }) => items.iter().map(|i| i.node_id.clone()).collect(),
+        Some(Body::Recall { items, .. }) => items.clone(),
         _ => Vec::new(),
     }
 }

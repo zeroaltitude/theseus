@@ -251,6 +251,9 @@ pub(super) struct Rig {
     /// The driver `Rig::drive` started: it takes a task's turns, as the daemon's does.
     driver: Mutex<Option<tokio::task::JoinHandle<()>>>,
     said: Mutex<Option<String>>,
+    /// The owner's turns carry `turn.submit`'s in-person mark (`Rig::in_person`); off, they carry none,
+    /// as the rig's turns always did.
+    in_person: std::sync::atomic::AtomicBool,
 }
 
 pub(super) fn rig() -> Rig {
@@ -304,6 +307,7 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         _dir: dir,
         driver: Mutex::default(),
         said: Mutex::default(),
+        in_person: Default::default(),
     }
 }
 
@@ -428,6 +432,13 @@ impl Rig {
     /// The tool names each agent request was offered, in the order the requests came.
     pub(super) fn agent_tools(&self) -> Vec<Vec<String>> {
         self.model.agent_tools.lock().unwrap().clone()
+    }
+
+    /// The owner's turns from now carry the mark `turn.submit` gives a message typed in person (issue 44):
+    /// an unmarked message's exchange has no audience, and no later view turn lays it.
+    pub(super) fn in_person(&self) {
+        self.in_person
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// The owner's words the next turns start from (`change a setting` when none are set).
@@ -574,6 +585,8 @@ impl Rig {
             .runner
             .resolve_target(&live, None, None, None)
             .unwrap();
+        let marked = input.is_some() && self.in_person.load(std::sync::atomic::Ordering::SeqCst);
+        let mark = marked.then(|| crate::view_gate::test_mark(&self.core.runner, sid, true));
         self.core
             .runner
             .run(TurnRequest {
@@ -582,7 +595,7 @@ impl Rig {
                 session: rec,
                 input,
                 target,
-                sink: EventSink::new(self.core.bus.clone(), sid, None),
+                sink: EventSink::new(self.core.bus.clone(), sid, None).with_arrival(mark),
                 author: "test".into(),
                 attachments: vec![],
                 arrived: None,
