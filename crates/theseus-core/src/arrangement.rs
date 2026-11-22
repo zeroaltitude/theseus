@@ -43,6 +43,18 @@ use serde_json::{json, Value};
 
 use crate::node::{Body, Node, Origin, ResultStatus};
 
+/// The author an old thread split gave the arrangement it wrote (`thread:<source>`), where a task's is
+/// `session:<parent>`. Threads were retired on 2026-11-22 (issue 44) and nothing writes one now; an
+/// older store still holds them, and the compiler tells them from a task's by it (`is_thread_quote`).
+pub const THREAD_QUOTE_AUTHOR: &str = "thread:";
+
+/// Whether a stored node is the quoted turns an old split thread opened with (`THREAD_QUOTE_AUTHOR`).
+pub fn is_thread_quote(n: &Node) -> bool {
+    n.author
+        .as_deref()
+        .is_some_and(|a| a.starts_with(THREAD_QUOTE_AUTHOR))
+}
+
 /// The refusal without an arrangement (M5 §2.10).
 pub const REFUSAL: &str =
     "Promotion needs an arrangement: quote the messages that define this work. \
@@ -613,6 +625,16 @@ mod tests {
                 && text.contains(crate::content::CONTEXT_NOT_THE_OWNERS),
             "{text}"
         );
+    }
+
+    /// An old split thread's quoted turns are told from a task's arrangement by their author
+    /// alone (issue 44): the compiler reads them as quoted.
+    #[test]
+    fn an_old_split_threads_quote_is_told_from_a_tasks_arrangement() {
+        let old = Node::user("ses_lighthouse", None, "thread:harbour", "the tide tables");
+        let task = Node::user("ses_lighthouse", None, "session:ses_keeper", "the tide tables");
+        assert!(is_thread_quote(&old));
+        assert!(!is_thread_quote(&task));
     }
 
     fn at(mut n: Node, ms: u64) -> (u64, crate::stub::Stub) {
