@@ -45,8 +45,8 @@ async fn a_view_turns_first_request_is_rebuilt_byte_for_byte() {
     assert_eq!((got.ask.as_str(), got.said.text.as_str()), (ASK, ORIGINAL));
 }
 
-/// Turns of one conversation whose front did not change keep it once: each names the same front blob, so
-/// the store holds one file for all of them. The third turn's window is the second's and one more
+/// Turns of one conversation whose front did not change keep it once: each names the same front blobs, so
+/// the store holds one file of each for all of them. The third turn's window is the second's and one more
 /// exchange, and the exchanges both laid keep their blobs (a populated window, so that is a real check).
 /// Each turn is rebuilt.
 #[tokio::test]
@@ -58,14 +58,16 @@ async fn a_front_that_did_not_change_is_kept_once() {
     let second = turn(&rig.core, &sid, "And the heron relay?").await.turn_id;
     let third = turn(&rig.core, &sid, "And the wren relay?").await.turn_id;
     let [a, b, c] = [&first, &second, &third].map(|t| kept_of(&rig.core, t));
-    // This rig's front has no fixed block or ladder: one blob of an empty list, the same for all three.
+    // Kept by block (this rig's front has no fixed block or ladder, so none: `a_heading_that_changed_…`
+    // holds a populated one).
+    assert!(a.front.is_empty(), "kept by block: {a:?}");
     assert_eq!(
-        (&a.front, &b.front),
-        (&c.front, &c.front),
-        "the same front blob"
+        (&a.blocks, &b.blocks),
+        (&c.blocks, &c.blocks),
+        "the same front blobs"
     );
     let blobs = rig.core.store.blobs();
-    assert!(blobs.path(&a.front).exists());
+    assert!(a.blocks.iter().all(|d| blobs.path(d).exists()));
     // The second turn's window is the first turn's exchange; the third's is that one and the second's.
     assert_eq!(b.window.len(), a.window.len() + 1, "{a:?} {b:?}");
     assert_eq!(c.window.len(), b.window.len() + 1, "{b:?} {c:?}");
@@ -79,6 +81,30 @@ async fn a_front_that_did_not_change_is_kept_once() {
     for t in [&first, &second, &third] {
         rig.core.rebuild_first(&sid, t).expect("rebuildable");
     }
+}
+
+/// A record kept before the front was kept by block (one blob, a JSON array of the blocks' texts) is still
+/// rebuilt byte for byte.
+#[tokio::test]
+async fn a_front_kept_as_one_blob_is_still_rebuilt() {
+    let rig = view_rig();
+    script(&rig, &[ORIGINAL]);
+    let sid = session(&rig.core, None, &[]);
+    let t = turn(&rig.core, &sid, ASK).await.turn_id;
+    let store = &rig.core.store;
+    let mut v = crate::view::record::newest(store, &t).unwrap().unwrap();
+    let k = v.kept.as_mut().unwrap();
+    let texts: Vec<String> = (k.blocks.iter())
+        .map(|d| String::from_utf8(store.blobs().read(d).unwrap()).unwrap())
+        .collect();
+    k.front = store
+        .blobs()
+        .put(serde_json::to_string(&texts).unwrap().as_bytes())
+        .unwrap();
+    k.blocks.clear();
+    store.put_meta(&v.key(), &v).unwrap();
+    let got = rig.core.rebuild_first(&sid, &t).expect("rebuildable");
+    assert_eq!(&got.request, &rig.model.requests()[0], "byte for byte");
 }
 
 /// A view turn whose record keeps nothing for a replay (built before views kept it) is refused in words,
@@ -183,6 +209,52 @@ async fn a_view_turn_is_replayed_with_its_own_request() {
     let replayed = rig.core.rows_since(LedgerKind::TurnReplayed, 0).unwrap();
     assert_eq!(replayed.len(), 1);
     assert_eq!(replayed[0].turn_id.as_deref(), Some(t.as_str()));
+}
+
+/// A front whose one small block changed (a person's heading, a minute later) and whose large ladder block
+/// did not: keeping the second adds the changed block's few bytes, not the ladder's, and each front reads
+/// back as it was laid.
+#[test]
+fn a_heading_that_changed_does_not_copy_the_ladder() {
+    use crate::compiler::view::kept::{frozen, kept};
+    use crate::compiler::view::Frozen;
+    let dir = tempfile::tempdir().unwrap();
+    let blobs = crate::blobs::Blobs::new(dir.path());
+    let ladder = "A fold of the harbour's week: the moorings, the relays, the wall. ".repeat(2_000);
+    let front = |at: &str| Frozen {
+        turn_id: "t".into(),
+        front: vec![
+            Frozen::block(
+                "s",
+                "t",
+                "",
+                &format!("Who is speaking (at {at}): the owner."),
+            ),
+            Frozen::block("s", "t", "", &ladder),
+        ],
+        ..Frozen::default()
+    };
+    let (k1, t1) = kept(&front("10:41")).unwrap();
+    for t in &t1 {
+        blobs.put(t.as_bytes()).unwrap();
+    }
+    let (k2, t2) = kept(&front("10:42")).unwrap();
+    let texts: Vec<&str> = t2.iter().map(String::as_str).collect();
+    let new: usize = (crate::compiler::cache::fresh(&blobs, &texts).iter())
+        .map(Vec::len)
+        .sum();
+    assert!(ladder.len() > 100_000, "a large ladder");
+    assert!(new < 100, "the second front stored {new} new bytes");
+    for t in &t2 {
+        blobs.put(t.as_bytes()).unwrap();
+    }
+    for (k, at) in [(k1, "10:41"), (k2, "10:42")] {
+        let back = frozen(&blobs, &k, ("s", "t")).unwrap();
+        let text = |f: &Frozen| -> Vec<String> {
+            f.front.iter().map(|n| format!("{:?}", n.body)).collect()
+        };
+        assert_eq!(text(&back), text(&front(at)), "read back as laid");
+    }
 }
 
 /// A turn's end waits for its blobs' writes a bounded while: with every write held past it, the turn still
