@@ -19,6 +19,7 @@ use crate::session::SessionRecord;
 use crate::stub::Kind;
 use crate::view::record::show::{name, PieceText, Reader};
 use crate::view::record::source::GateSource;
+use crate::view::record::ViewRecord;
 use crate::view_gate::{place_name, seal_of, Verified};
 use theseus_memory::gate::{Present, Seal};
 
@@ -96,7 +97,9 @@ impl TurnRunner {
                 let levels: BTreeMap<&str, u8> = (a.ladder.nodes.iter())
                     .map(|n| (n.handle.0.as_str(), n.level))
                     .collect();
-                let shown = built.frozen.record.as_ref().map(|r| reader.show(r));
+                let record =
+                    (built.frozen.record.clone()).map(|v| ViewRecord::new(PREVIEW_TURN, v));
+                let shown = record.as_ref().map(|r| reader.show(r));
                 let folds = shown.as_ref().map(|v| folds_of(v, &levels));
                 (shown, None, folds.unwrap_or_default())
             }
