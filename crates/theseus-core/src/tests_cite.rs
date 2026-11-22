@@ -257,63 +257,42 @@ async fn a_cited_discord_message_names_its_id() {
     let _: Value = serde_json::to_value(cite).unwrap();
 }
 
-/// A shared place never shows a private or imported source: the same item is
-/// a citation in a private place and none in a shared one, and one from a
-/// shared place of its own shows there.
+/// A citation is shown wherever its item is (anything goes, 2026-11-22): a
+/// private place's source is cited in a shared place's reply and through a
+/// shared session's `memory.cites`, in the same form as anywhere: its handle,
+/// its frozen header, its excerpt.
 #[tokio::test]
-async fn a_shared_place_cites_no_private_source() {
+async fn a_citation_is_shown_wherever_its_item_is() {
     let r = canary();
     let c = &r.core;
     let private = session(c, Some(&format!("channel:{DEN}")), &[HERON]);
     let shared = session(c, Some(&format!("channel:{PIER}")), &[TIDE]);
-    let item = |sid: &str, text: &str| {
-        let n = c.store.session_nodes(sid).unwrap().remove(0).1;
-        let handle = handles_for(&[&n.id]).remove(0);
-        RecalledRef {
-            node_id: n.id,
-            session_id: sid.into(),
-            position: 1,
-            chunk: (0, text.len() as u32),
-            header: theseus_protocol::cite::header_with(&handle, "a message from ada in #x"),
-            tokens: 5,
-        }
+    let n = c.store.session_nodes(&private).unwrap().remove(0).1;
+    let handle = handles_for(&[&n.id]).remove(0);
+    let item = RecalledRef {
+        node_id: n.id,
+        session_id: private.clone(),
+        position: 1,
+        chunk: (0, HERON.len() as u32),
+        header: theseus_protocol::cite::header_with(&handle, "a message from ada in #x"),
+        tokens: 5,
     };
-    let from_private = item(&private, HERON);
-    let from_shared = item(&shared, TIDE);
-    assert!(c.runner.citation(&from_private, false).is_some());
-    assert!(
-        c.runner.citation(&from_private, true).is_none(),
-        "private, in a shared place"
-    );
-    assert!(
-        c.runner.citation(&from_shared, true).is_some(),
-        "a shared place's own"
-    );
-    // Imported history is the owner's: never shown in a shared place.
-    let imported_id = crate::import::session_id_of("ep0123");
-    assert!(crate::import::is_imported(&imported_id));
-    let mut imported = from_private.clone();
-    imported.session_id = imported_id;
-    assert!(c.runner.citation(&imported, true).is_none());
-    // Through `memory.cites`: a shared session whose recall cites the
-    // private source gets nothing, and the private session's own gets it.
-    for (sid, expect) in [(&shared, 0usize), (&private, 1)] {
-        let recall = Node::recall(
-            sid,
-            "turn_x",
-            "rcl_x",
-            "baseline",
-            vec![from_private.clone()],
-        );
+    let cite = c.runner.citation(&item).expect("a citation");
+    assert_eq!(cite.handle, handle);
+    assert_eq!(cite.header, "a message from ada in #x");
+    assert!(cite.excerpt.contains(HERON), "{}", cite.excerpt);
+    // Through `memory.cites`: a shared session's recall and the private
+    // session's own both give it, the same.
+    for sid in [&shared, &private] {
+        let recall = Node::recall(sid, "turn_x", "rcl_x", "baseline", vec![item.clone()]);
         c.store.append(&[recall.record().unwrap()]).unwrap();
-        let handle = split_header(&from_private.header).unwrap().0.to_string();
         let got = c
             .memory_cites(MemoryCitesParams {
                 session_id: sid.clone(),
-                handles: vec![handle],
+                handles: vec![handle.clone()],
             })
             .unwrap();
-        assert_eq!(got.cites.len(), expect, "{sid}");
+        assert_eq!(got.cites, vec![cite.clone()], "{sid}");
     }
     let _ = (SessionKind::Conversation, Arc::new(()));
 }
