@@ -396,13 +396,8 @@ impl TurnRunner {
             // (`view_freeze`), a preview reports it.
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
-        let (window, sessions) = window_of(
-            (store, &read, gated.sessions.take()),
-            &a,
-            &pov,
-            turn,
-            renderer.zone,
-        )?;
+        let kept = gated.sessions.take();
+        let (window, sessions) = window_of((store, &read, kept), &a, &pov, turn, renderer.zone)?;
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
         let frozen = Frozen {
