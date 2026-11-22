@@ -120,7 +120,20 @@ fn task_by_brief(core: &Core, brief: &str) -> Execution {
                 |(_, n)| matches!(&n.body, Body::UserMessage { text, .. } if text.contains(brief)),
             )
         })
-        .expect("the task")
+        .unwrap_or_else(|| panic!("no task holds {brief:?}: {}", calls_said(core)))
+}
+
+/// Every tool result in the store's sessions, for a test that found no task.
+fn calls_said(core: &Core) -> String {
+    let all: Vec<SessionRecord> = core.store.list_sessions().unwrap_or_default();
+    let said: Vec<String> = (all.iter())
+        .flat_map(|r| core.store.session_nodes(&r.session_id).unwrap_or_default())
+        .filter_map(|(_, n)| match n.body {
+            Body::ToolResult { tool, content, .. } => Some(format!("{tool}: {content}")),
+            _ => None,
+        })
+        .collect();
+    format!("{said:?}")
 }
 
 /// The exchanges of a task's turns, oldest first.
