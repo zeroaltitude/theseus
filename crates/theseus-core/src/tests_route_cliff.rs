@@ -159,9 +159,14 @@ async fn an_ordinary_turn_carries_far_less_context_than_the_bound() {
     let rates = crate::catalog::TokenRates::of(&q.model);
     let fixed = (bytes as f64 / rates.json.max(rates.text)) as u64;
     let context = est.saturating_sub(fixed);
+    // The view lays its own front on every turn (the memory page, who and where, the block beside the
+    // message), which the transcript did not: at 291f1ed6 it put `context` 630 tokens over the prefix
+    // (16,162 against 15,532). The guideline is that plus headroom; the doubling detector below is the bound.
+    const VIEW_FRONT: u64 = 2_000;
     assert!(
-        fixed > context,
-        "the universal prefix is most of the request: prefix {fixed}, the session's {context}"
+        fixed + VIEW_FRONT > context,
+        "the universal prefix is most of the request: prefix {fixed} (and the view's own front, \
+         {VIEW_FRONT}), the session's {context}"
     );
 
     // **The doubling detector** (b7-route-cliff-context-weight). Deleting the
