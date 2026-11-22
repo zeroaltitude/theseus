@@ -5,8 +5,9 @@
 
 use super::*;
 
-/// The marker each request's own session holds, in the order the model was
-/// asked: one session's request holds no other's words.
+/// The marker of each request's own session, in the order the model was asked: the marker that comes LAST in the
+/// request. On the view (issue 44) a request also lays the place's earlier exchanges, another session's included,
+/// before the turn's own message and calls, so the first marker in it may be another session's.
 fn asked(r: &Rig, markers: &[&str]) -> Vec<String> {
     r.fake
         .requests
@@ -17,8 +18,9 @@ fn asked(r: &Rig, markers: &[&str]) -> Vec<String> {
             let text = format!("{q:?}");
             markers
                 .iter()
-                .find(|m| text.contains(**m))
-                .map(|m| m.to_string())
+                .filter_map(|m| text.rfind(*m).map(|at| (at, *m)))
+                .max()
+                .map(|(_, m)| m.to_string())
         })
         .collect()
 }
