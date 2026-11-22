@@ -33,26 +33,23 @@ canary's reports on the older models: the message just before a thinking block, 
 or in a conversation that had a turn.
 
 `turn/sent_tail.rs` keeps each request's tail with the message that carried it, by what that message rendered as, and
-puts it back on the requests after it. Within one turn a block the latest tail already holds, unchanged, is not sent
-again, so a turn of many steps grows by what changed; each new turn's request carries its tail whole, as before, and
-the turns before it keep theirs. That is a cost: a conversation's history now holds each turn's tail (the date line,
-the task view when there is one) until a recompile or a ring's cut lets the old turns go. A tail is kept with where it was sent (the place class, the surface, where the session speaks, what the turn
-answers) and put back only on a request for the same, and a request for a model of restricted origin gets none: what
-a place's turn was told is not told to another place, or to a model that carries none of it. A tail is kept once
-routing is done with the request (an effort message, a persona line), and found again by what its message rendered
-as, not by its index. A kept tail whose message no longer renders as it did (a recompile, a ring's cut, a
-compaction) is let go, and all of them are when a recompile strips the thinking. The keep-warm read between turns
-(`keep_warm_compile`) puts the tails back through the same function (`SentTails::warm`, for the key the newest tail
-was sent to, and none for a model of restricted origin), so it reads the prefix the next turn sends; the census's
-token count leaves every tail out, this turn's included. They are kept in memory, 256 sessions
-at most: a daemon restart forgets them, and the first request after it, in a conversation with thinking in it, meets
-the net below once.
+puts it back on the turn's later requests. A block the latest tail already holds, unchanged, is not sent again, so a
+turn of many steps grows by what changed. **Tails are kept within a turn only.** A new turn's request carries its own
+tail whole, and nothing an earlier turn sent is put back: a turn sends no earlier turn's thinking (the view strips it,
+`compiler::view`), so no earlier message needs to stay as it was under a block, and a kept tail was never behind the
+gate. A tail is kept with where it was sent (the place class, the surface, where the session speaks, what the turn
+answers) and put back only on a request for the same, and a request for a model of restricted origin gets none. A tail
+is kept once routing is done with the request (an effort message, a persona line), and found again by what its message
+rendered as, not by its index. A kept tail whose message no longer renders as it did (a new chain) is let go, and all
+of them are when a recompile strips the thinking. The census's token count leaves every tail out, this turn's
+included. They are kept in memory, 256 sessions at most: a daemon restart in the middle of a turn forgets them, and that
+turn's next request meets the net below once.
 
 ## The net
 
 When the provider refuses a request with that 400 and no other, the call is made once more with the remedy
 (`provider::binding::repeat_for`), the turn goes on, and the answer is marked `prefix_repeated`. The next compile
-of the session strips the old thinking (a transcript recompile), so the step after is not made twice. The remedy is
+of the turn starts a new chain without the old thinking, so the step after is not made twice. The remedy is
 never sent on a first call: where a mismatch is allowed the model keeps its thinking and the canary keeps reporting.
 The request the compiler rendered is not changed, so what is recorded and replayed is what it was.
 
@@ -64,9 +61,9 @@ The request the compiler rendered is not changed, so what is recorded and replay
 - `thinking_dropped`: blocks it removed on a repeat (the newest model); present only when above zero;
 - `prefix_repeated`: the call was refused and made again; present only when it was.
 
-**A count above zero is a bug to file.** Nothing Theseus sends after a thinking block may change, so none of the three
-should ever be non-zero on a conversation that was not restarted since its last thinking step. After a restart one
-`prefix_repeated` on a session's first call is expected (above). A count that persists is a new cause: the test over
+**A count above zero is a bug to file.** Nothing Theseus sends after a thinking block within a turn may change, so none
+of the three should ever be non-zero on a turn that was not interrupted by a restart. After a restart one
+`prefix_repeated` on that turn's next call is expected (above). A count that persists is a new cause: the test over
 every kind of turn (`tests_binding.rs`) is where to add its case.
 
 ## The test that holds it
@@ -74,21 +71,16 @@ every kind of turn (`tests_binding.rs`) is where to add its case.
 `provider::binding` gives the stand-in provider the rule: it stamps each thinking block it answers with a hash of
 everything before it, and checks the blocks a request replays against it, reporting, or refusing like the newest model.
 `tests_binding.rs` drives whole turns of two or more steps against it and asserts that each request repeats the one
-before it, block for block: a person's turn in a private place, a second turn that replays the first's thinking, the
-self join's review turn, a task's turn, a recall note that arrives after the first compile, a refusal's fallback, a
-retry, and a keep-warm read between two turns; and the net, once, narrowly, and not at all where a mismatch is
-allowed.
+before it, block for block, within the turn: a person's turn in a private place, the self join's review turn, a
+task's turn, a recall note that arrives after the first compile, a refusal's fallback, and a retry; and the net, once,
+narrowly, and not at all where a mismatch is allowed. `tests_thinking_writer.rs` holds the render's rule that another
+model's thinking is never sent, and that a refusal's fallback model, inside the turn, keeps it.
 
 ## What it does not do
 
 - It does not cover the bench's replay of a recorded request (`own_bench/replay.rs`), which calls the provider
   without the net: a recorded request that drifted will meet the newest model's 400 there. The bench's rebuild of a
   request (`own_bench/rebuild.rs`) is from the nodes alone and never had the tails.
-- A keep-warm read has no net either: a read refused with that 400 (after a change of key, or a restart) stops that
-  session's reads until its next message, as any failed read does.
-- A tail now outlives its turn: a turn's date line, task view or standing record stays in the history, where it was
-  sent, until a recompile or a ring's cut lets that part of the history go.
-
-- It does not keep the tails across a restart. The cost is one repeat; keeping them would mean a record of each
-  request's tail in the store.
+- It does not keep the tails across a restart, or across turns. A restart in the middle of a turn costs one repeat;
+  keeping them would mean a record of each request's tail in the store.
 - It does not change what a tail says, or when: a block that changed is sent where the request ends, as it was.
