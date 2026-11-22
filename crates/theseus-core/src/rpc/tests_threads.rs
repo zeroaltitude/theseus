@@ -11,11 +11,10 @@ use theseus_protocol::method;
 use theseus_protocol::threads::{
     ThreadEditParams, ThreadListParams, ThreadNewParams, ThreadState, WorkingSet,
 };
-use theseus_protocol::TurnSubmitParams;
 
 use super::tests::test_core;
 use super::{Core, Parts};
-use crate::approval::{Answerer, Client, Surface};
+use crate::approval::{Answerer, Surface};
 use crate::places::{BoundPlace, PlaceClass};
 use crate::provider::FakeProvider;
 use crate::session::SessionRecord;
@@ -175,61 +174,6 @@ fn move_thread(c: &Core, name: &str, slug: &str) -> theseus_protocol::threads::T
         _ => c.thread_reopen(slug, cli()),
     }
     .unwrap()
-}
-
-/// One `turn.submit` over a connection from the CLI, as the CLI sends it:
-/// the response, as JSON.
-pub(super) async fn ask(
-    core: Arc<Core>,
-    slug: Option<&str>,
-    session: Option<&str>,
-    input: &str,
-) -> serde_json::Value {
-    use theseus_protocol::{Id, Message, Request};
-    use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
-    let (client, server) = duplex(64 * 1024);
-    let (sr, sw) = tokio::io::split(server);
-    let srv = tokio::spawn(core.serve_connection(sr, sw, Client::new("cli", Surface::Cli)));
-    let (cr, mut cw) = tokio::io::split(client);
-    let req = Request::new(
-        Id::Num(1),
-        method::TURN_SUBMIT,
-        TurnSubmitParams {
-            surface: None,
-            dir: None,
-            carried: false,
-            prompt: None,
-            session_id: session.map(str::to_string),
-            input: input.into(),
-            profile: None,
-            provider: None,
-            model: None,
-            author: None,
-            attachments: vec![],
-            reply_to: None,
-            opened_from: None,
-            thread: slug.map(str::to_string),
-            speaking: None,
-            in_reply_to: None,
-            route_at_ms: None,
-            deadline_secs: None,
-            via: None,
-        },
-    );
-    let mut line = serde_json::to_string(&req).unwrap();
-    line.push('\n');
-    cw.write_all(line.as_bytes()).await.unwrap();
-    let mut lines = BufReader::new(cr).lines();
-    let out = loop {
-        let l = lines.next_line().await.unwrap().unwrap();
-        if let Message::Response(r) = serde_json::from_str::<Message>(&l).unwrap() {
-            break serde_json::to_value(r).unwrap();
-        }
-    };
-    cw.shutdown().await.unwrap();
-    drop(lines);
-    let _ = srv.await;
-    out
 }
 
 fn rec(core: &Core, id: &str) -> SessionRecord {
