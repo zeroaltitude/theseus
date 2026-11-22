@@ -57,6 +57,19 @@ mark is ever made backwards. A reply's counts for the next row carry the exchang
 finishes late never stands for a newer reply's. A touch whose place or person holds the key's separator is refused,
 and a read keeps only keys that are exactly its own root's.
 
+## Adoption
+
+`theseus ledger adopt-history <PLACE> [--dry-run] [--undo <ID>]` (`exchange.adopt`, `exchange/adopt.rs`) is the
+owner's own act, one place at a time: "the conversation held in these sessions was held in this place". It proves
+nothing the rebuild could not; it is recorded as an act. It takes the sessions the store ties to this place and to
+no other (the binding's place records, the succession links of a `/new`, a wake's target, the marks of later
+messages, and for a session tied to no chat place its directory), leaves a thread's session, a sealed one or one
+whose seal cannot be read, and places only their exchanges that say `unknown`. Turns with no exchange stop it: the
+rebuild runs first. It writes `adopted.<turn>` per exchange, the place's touches, and `adoption.<id>` (place, who,
+when, the sessions, the turns, the touches it wrote); `exchange::exchange` reads `adopted.<turn>` for an `unknown`
+exchange, so every reader sees the place through the call it already makes. No mark is made and no person is
+given: the words stay author unknown. An undo ends its own records and writes the adoption again with its time.
+
 ## Settings and bounds
 
 `[context] ledger` (default on) writes none of it when false. The mark rides its own submission (its event sink,

@@ -749,3 +749,6 @@ fn a_late_naming_of_an_older_reply_never_replaces_a_newer_ones_counts() {
         "taken already"
     );
 }
+
+#[path = "tests_adopt.rs"]
+mod adopt;

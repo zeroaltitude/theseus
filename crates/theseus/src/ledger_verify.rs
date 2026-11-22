@@ -44,6 +44,19 @@ pub enum LedgerCmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Adopt a place's older history into it: the turns of the sessions bound to this place and no
+    /// other whose place no record proves. Your own act: it gives them this place, never an author
+    /// (their words stay "author unknown"). `--dry-run` counts; `--undo <ID>` takes one back.
+    AdoptHistory {
+        /// The place, as the exchange ledger names it (`discord:dm:<id>`, `local:<dir>`).
+        place: String,
+        /// Count what would be adopted and what is left, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Take back the adoption with this id (the place is then only a label).
+        #[arg(long, value_name = "ID")]
+        undo: Option<String>,
+    },
     /// Build a place's ladder from its history since its latest /new: a one-line summary of each
     /// exchange without one, then the fold nodes. `--dry-run` counts and prices it.
     Ladder {
@@ -76,6 +89,11 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
         LedgerCmd::RebuildExchanges { dry_run } => {
             return crate::exchanges_cmd::rebuild(conn, json, dry_run).await
         }
+        LedgerCmd::AdoptHistory {
+            place,
+            dry_run,
+            undo,
+        } => return crate::exchanges_cmd::adopt(conn, json, place, dry_run, undo).await,
         LedgerCmd::Ladder {
             place,
             dry_run,

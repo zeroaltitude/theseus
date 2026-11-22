@@ -36,6 +36,7 @@ use crate::approval::Surface;
 use crate::peer_proc::{self, Behind};
 use crate::store::Store;
 
+pub mod adopt;
 pub mod ledger;
 pub mod rebuild;
 
@@ -328,9 +329,19 @@ pub fn exchange_record(e: &Exchange) -> anyhow::Result<NewRecord> {
     )
 }
 
-/// The exchange of turn `turn`, as last written.
+/// The exchange of turn `turn`, as last written; an `unknown` place that the
+/// owner adopted into a place ([`adopt`]) reads as that place, and its
+/// person stays as written. Every reader of a place's exchanges comes here.
 pub fn exchange(store: &Store, turn: &str) -> anyhow::Result<Option<Exchange>> {
-    store.get_meta(&format!("{EXCHANGE_PREFIX}{turn}"))
+    let Some(mut ex) = store.get_meta::<Exchange>(&format!("{EXCHANGE_PREFIX}{turn}"))? else {
+        return Ok(None);
+    };
+    if ex.place == rebuild::UNKNOWN {
+        if let Some(p) = adopt::placed(store, turn)? {
+            (ex.place, ex.private) = (p.place, p.private);
+        }
+    }
+    Ok(Some(ex))
 }
 
 /// A node's mark, if it was marked.
