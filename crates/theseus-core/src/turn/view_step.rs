@@ -318,7 +318,7 @@ impl TurnRunner {
         let (asked, message) =
             given.map_or_else(|| message_of(store, sid, turn), |text| Ok((None, text)))?;
         let verified_pov = verified.pov().clone();
-        let permit = Permit::of(verified);
+        let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified);
         let read = Sessions::default();
         let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
         let moved_read = crate::view_gate::Moved::read(self, Some(sid));
@@ -332,7 +332,7 @@ impl TurnRunner {
             sessions: &read,
         };
         // One read of the ladder for the whole assembly: every selector, the text and the window see it.
-        let store_ladder = crate::fork::window::ForkLadder::of(store, sid);
+        let store_ladder = fork.ladder(store);
         let gated = GatedLadder::new(&store_ladder, store, &held, &moved);
         let ladder = OnceLadder::new(&gated);
         let moving = self.moving(store, (&permit, &pov, &moved_read), &items, &read)?;
@@ -380,7 +380,7 @@ impl TurnRunner {
             sessions: sorted(sessions),
             exchanges,
             verified: Some(verified_pov),
-            beside: a.parts.beside.as_ref().map(block),
+            beside: fork.note(a.parts.beside.as_ref().map(block)),
             memory_page,
             record: Some(a.view.clone()),
             ..Frozen::default()
