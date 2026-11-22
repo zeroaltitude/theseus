@@ -517,20 +517,33 @@ class FakeDaemon(unittest.TestCase):
         f["daemon"] = "spawn_and_exit"
         f["health"] = "never"
         self.fx(f)
-        with self.assertRaises(scratch.Failed) as e:
-            with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env):
+        real = os.killpg
+        signalled = []
+
+        def spy(pgid, sig):
+            signalled.append((pgid, sig))
+            return real(pgid, sig)
+
+        with unittest.mock.patch.object(scratch.os, "killpg", spy), self.assertRaises(scratch.Failed) as e:
+            with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
                 pass
         self.assertTrue(str(e.exception).startswith("E_DAEMON_EXIT"))
         sleeper = int((self.tmp / "o" / "daemon" / "sleeper.pid").read_text())
-        for _ in range(100):  # killed by the group signal; its new parent reaps it
+        # What the kit guarantees: its own group was signalled, so the sleeper is dead (a zombie until its new
+        # parent reaps it, which the kit does not control) or gone.
+        self.assertEqual(len(signalled), 1)
+        self.assertEqual(signalled[0][1], signal.SIGKILL)
+        for _ in range(100):
             try:
-                os.kill(sleeper, 0)
-            except ProcessLookupError:
+                state = Path(f"/proc/{sleeper}/stat").read_text().rsplit(")", 1)[1].split()[0]
+            except OSError:
+                break  # gone
+            if state == "Z":
                 break
             time.sleep(0.05)
         else:
             os.kill(sleeper, signal.SIGKILL)
-            self.fail("the daemon's child outlived the teardown")
+            self.fail("the daemon's child was still alive after the teardown")
         self.assertFalse((self.tmp / "o" / "daemon" / "state").exists())
 
     def test_a_reap_that_fails_after_the_kill_is_a_cleanup_failure_once_the_rest_is_done(self):
@@ -563,6 +576,50 @@ class FakeDaemon(unittest.TestCase):
         self.assertEqual(str(e.exception), f"E_CLEANUP {(self.tmp / 'o2' / 'daemon').resolve()} pid {pid}")
         self.assertFalse(state.exists())
         self.assertEqual(signal.getsignal(signal.SIGTERM), before)
+
+
+    # ---- round 5
+
+    def test_a_raw_waitpid_reap_loses_custody_and_nothing_is_signalled(self):
+        before = signal.getsignal(signal.SIGTERM)
+        with unittest.mock.patch.object(scratch.os, "killpg") as killpg, self.assertRaises(scratch.Failed) as e:
+            with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+                pid, state = d.proc.pid, d.state
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)  # a reaper outside the kit: Popen.returncode stays None
+                self.assertIsNone(d.proc.returncode)
+        killpg.assert_not_called()
+        self.assertEqual(str(e.exception), f"E_CLEANUP {(self.tmp / 'o' / 'daemon').resolve()} pid {pid}")
+        self.assertFalse(state.exists())
+        self.assertEqual(signal.getsignal(signal.SIGTERM), before)
+
+    def test_an_inherited_sigchld_ignore_does_not_cost_the_kit_its_child(self):
+        old = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+        self.addCleanup(signal.signal, signal.SIGCHLD, old)
+        with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+            self.assertEqual(signal.getsignal(signal.SIGCHLD), signal.SIG_DFL)  # for the kit's lifetime
+            pid, state = d.proc.pid, d.state
+        self.assertEqual(signal.getsignal(signal.SIGCHLD), signal.SIG_IGN)  # restored
+        self.assertFalse(state.exists())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+
+    def test_sigchld_ignored_during_a_run_loses_custody_and_nothing_is_signalled(self):
+        old = signal.getsignal(signal.SIGCHLD)
+        self.addCleanup(signal.signal, signal.SIGCHLD, old)
+        with unittest.mock.patch.object(scratch.os, "killpg") as killpg, self.assertRaises(scratch.Failed) as e:
+            with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+                pid = d.proc.pid
+                signal.signal(signal.SIGCHLD, signal.SIG_IGN)  # someone else's code, mid-run
+                os.kill(pid, signal.SIGKILL)  # the kernel reaps it at once
+                for _ in range(100):
+                    try:
+                        os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                    except ChildProcessError:
+                        break
+                    time.sleep(0.02)
+        killpg.assert_not_called()
+        self.assertEqual(str(e.exception), f"E_CLEANUP {(self.tmp / 'o' / 'daemon').resolve()} pid {pid}")
 
 
 class SSE(BaseHTTPRequestHandler):
