@@ -108,6 +108,7 @@ fn scratch(dir: &std::path::Path, turns: usize) -> Result<Arc<Core>> {
         config_gate: crate::config_gate::ConfigGate::file("bench"),
         toollets: vec![],
         cpu_cores: None,
+        ladder_writer: false,
     };
     Core::build(parts)
 }

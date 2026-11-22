@@ -43,6 +43,9 @@ struct Seen {
     /// provider that has taken the call and not answered: a call in flight, for a test to kill the
     /// daemon under.
     stall_phrase: Mutex<Option<String>>,
+    /// The ladder writer's calls (a daemon's background job after each exchange), kept apart from the
+    /// turns' so a test counts and reads only what its turns sent, and never answered from its queues.
+    writers: Mutex<Vec<Value>>,
 }
 
 pub struct FakeModel {
@@ -180,6 +183,12 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<
     let mut body = vec![0; len];
     r.read_exact(&mut body)?;
     let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    if is_writers(&req) {
+        let model = req["model"].as_str().unwrap_or(MODEL).to_string();
+        seen.writers.lock().unwrap().push(req);
+        stream.write_all(sse(text_turn(&model, "Read the gauge.")).as_bytes())?;
+        return stream.flush();
+    }
     let port = stream.peer_addr().map_or(0, |a| a.port());
     {
         let mut kept = seen.requests.lock().unwrap();
@@ -232,6 +241,12 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<
             c => tool_turn(model, &c),
         }
     };
+    stream.write_all(sse(events).as_bytes())?;
+    stream.flush()
+}
+
+/// A 200 answer streaming `events`.
+fn sse(events: Vec<Value>) -> String {
     let mut out = String::from(
         "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\nconnection: close\r\n\r\n",
     );
@@ -241,8 +256,26 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<
             e["type"].as_str().unwrap_or("")
         ));
     }
-    stream.write_all(out.as_bytes())?;
-    stream.flush()
+    out
+}
+
+/// Whether `req` is the ladder writer's: its system text (a block, a string, or a first `system` message
+/// on a provider that sends it so) is one of the writer's own.
+fn is_writers(req: &Value) -> bool {
+    let first = &req["messages"][0];
+    let system = [
+        &req["system"][0]["text"],
+        &req["system"],
+        match first["role"] == "system" {
+            true => &first["content"],
+            false => &Value::Null,
+        },
+    ];
+    system.iter().filter_map(|v| v.as_str()).any(|text| {
+        theseus_core::ladder::writer::INSTRUCTIONS
+            .iter()
+            .any(|i| text.starts_with(i))
+    })
 }
 
 /// Whether the request's last message answers a tool call.

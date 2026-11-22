@@ -69,6 +69,10 @@ Then, after a blank line, an account of at most 2,400 characters of what Theseus
 decided in it, in order, with the names, numbers and choices that matter and what was left \
 open. Never restate the person's words: they are kept beside the account.";
 
+/// The system texts the writer's calls begin with (a call over outside text adds a note after them): a
+/// test's stand-in for the provider tells the writer's calls from a turn's by them.
+pub const INSTRUCTIONS: [&str; 2] = [DID_INSTRUCTIONS, FOLD_INSTRUCTIONS];
+
 /// One call's input.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Ask {
