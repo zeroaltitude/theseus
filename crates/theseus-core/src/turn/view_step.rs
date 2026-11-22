@@ -297,7 +297,7 @@ impl TurnRunner {
             person: t.exchange.person().0,
             verified: Verified::of_session(self, sid),
             recalled: recalled(t),
-            message: message_of(store, sid, turn)?,
+            message: None,
             items: t.exchange.items().to_vec(),
         };
         let built = self.view_built(asked, spec)?;
@@ -321,7 +321,7 @@ impl TurnRunner {
             person,
             verified,
             recalled,
-            message: (asked, message),
+            message: given,
             items,
         } = asked;
         let snap = StoreSnapshot {
@@ -334,6 +334,11 @@ impl TurnRunner {
             anyhow::bail!("a view turn is anchored to a place");
         };
         let since = crate::ladder::new_mark(store, &place)?;
+        // Read where a turn has always read it: after the clock and the `/new` mark.
+        let (asked, message) = match given {
+            Some(text) => (None, text),
+            None => message_of(store, sid, turn)?,
+        };
         let verified_pov = verified.pov().clone();
         let permit = Permit::of(verified);
         let read = Sessions::default();
@@ -514,8 +519,9 @@ pub(super) struct Asked<'a> {
     pub verified: Verified,
     /// The nodes today's recall found (none for a preview, which runs no recall).
     pub recalled: Vec<String>,
-    /// The person's message, by node and text.
-    pub message: (Option<String>, String),
+    /// The message given (a preview's); none reads the turn's own, by node and text, at the point a turn
+    /// always read it (after the clock and the `/new` mark).
+    pub message: Option<String>,
     /// The message's numbered items, as the exchange's naming told them (none for a preview).
     pub items: Vec<String>,
 }

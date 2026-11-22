@@ -1,49 +1,67 @@
-//! `theseus view preview PLACE` (issue 44, `view.preview`): the view a place's next turn would get, built
-//! by the turn's own assembler (`TurnRunner::view_built`: the same selectors, budget and gate) from the
-//! place as it stands now, and shown as `view show` shows a kept one. No model is called and nothing is sent
-//! or written: no view record, no ledger row (a turn's fallback row is not written either).
+//! `theseus view preview PLACE` (issue 44, `view.preview`): the view a HYPOTHETICAL next turn of the place
+//! would get, opened by a message of the owner in person there, built by the turn's own assembler
+//! (`TurnRunner::view_built`: the same selectors, budget and gate) from the place as it stands now, and shown
+//! as `view show` shows a kept one. No model is called, nothing is sent, and nothing is written: no view
+//! record, no ledger row, and no cache a turn reads (the spec is `TurnRunner::preview_spec`, which resolves
+//! no thread card and compiles nothing).
 //!
-//! The point of view is the gate's (`view_gate::Verified::of_preview`), never the caller's word: the owner
-//! in person at that place, or an agent's turn there. Every count is of what this reader is listed, after
-//! the gate: a piece the listing leaves out is in no count, and a sealed session's earlier turns are not
-//! counted at all.
+//! The owner's alone (`rpc::views`): the daemon cannot tell which session an agent's process runs, so it
+//! previews for no agent. The point of view is the gate's (`view_gate::Verified::of_preview`), never the
+//! caller's word. Every listed piece passes the shared readers (`view::record::source::GateSource`, the
+//! gated ladder), and every count is of what the reader's gate admits, node by node (`node_seal`: its
+//! session's seal and a move's; its session's place today; the exchange's place): a sealed, seal-pending or
+//! unreadable source, an inherited fork prefix of one, and another place's exchange are in no count.
 
 use std::collections::{BTreeMap, HashSet};
 
+use theseus_memory::gate::{PointOfView, Seal, Veil};
 use theseus_protocol::view::{
-    ViewBudget, ViewCount, ViewEarlier, ViewPreviewResult, ViewShown, ViewTally,
+    ViewBudget, ViewCount, ViewEarlier, ViewPiece, ViewPreviewResult, ViewShown, ViewSlot,
+    ViewTally,
 };
 
 use super::{unledgered, Asked, Built, Fallback, RequestSpec, TurnRunner};
 use crate::ladder::view::StoreLadder;
 use crate::session::SessionRecord;
+use crate::store::Transcript;
 use crate::stub::Kind;
-use crate::view::record::show::{name, PieceText, Reader};
+use crate::view::budget::{Overflow, Shown};
+use crate::view::record::show::{name, PieceText, Reader, Source};
 use crate::view::record::source::GateSource;
 use crate::view::record::ViewRecord;
-use crate::view_gate::{place_name, seal_of, Verified};
-use theseus_memory::gate::{Present, Seal};
+use crate::view::{Label, Pos, Slot, SourceRange, Space};
+use crate::view_gate::{node_seal, place_name, seal_of, session_marks, Gate, Verified};
 
 /// The turn id a preview's pieces are made under: no turn has it.
 const PREVIEW_TURN: &str = "preview";
 
-/// What a preview is asked for.
+/// What a preview is asked for (by the owner in person).
 pub struct Preview<'a> {
     pub place: &'a str,
     /// The session whose next turn it is.
     pub session: &'a str,
-    /// The owner in person (else an agent's process).
-    pub owner: bool,
     pub message: Option<&'a str>,
-    /// Each piece's text: given only for the owner at his own terminal.
+    /// Each piece's text: given only at the owner's own terminal.
     pub text: Option<&'a dyn PieceText>,
 }
 
+/// What a preview cannot say of a real turn, said with every preview.
+const LIMITS: [&str; 4] = [
+    "a hypothetical turn opened by your message in person: no model was called and no recall was run, so \
+     recall's pieces are not in it",
+    "the system part is sized from an approximation of the next request's spec (no thread card, no \
+     deferred tools)",
+    "not predicted: route and continuation (decided by the turn that arrives) and over_budget on the \
+     rendered request (decided when a turn compiles it)",
+    "nothing was written: no view record, no ledger row, no cache a turn reads",
+];
+
 impl TurnRunner {
-    /// The sessions of `place`, newest first: a turn's own (no task, not imported) that ran an exchange
-    /// the place's window reads (its newest `WINDOW_N`, as a turn's; so history adopted into the ledger
-    /// counts with no change here), or whose place the gate reads as `place` today; and none the gate
-    /// holds for the owner's look (sealed, seal pending, unreadable), which lifts no seal.
+    /// The sessions of `place` the owner's look admits, newest first: a turn's own (no task, not imported)
+    /// that ran an exchange the place's window reads (its newest `WINDOW_N`, as a turn's; so history
+    /// adopted into the ledger counts with no change here) or whose place the gate reads as `place` today,
+    /// and whose own records the gate admits for the owner in person there today (its seal, which the look
+    /// does not lift; its place's class).
     pub fn place_sessions(&self, place: &str) -> anyhow::Result<Vec<SessionRecord>> {
         use crate::view::fold::Ladder;
         let ran: HashSet<String> =
@@ -59,10 +77,38 @@ impl TurnRunner {
                 ran.contains(&r.session_id)
                     || place_name(self, &r.session_id).as_deref() == Some(place)
             })
-            .filter(|r| seal_of(self, None, &r.session_id) == Seal::Clear)
+            .filter(|r| {
+                let pov = Verified::of_preview(self, &r.session_id, place);
+                self.session_admitted(pov.pov(), &r.session_id)
+            })
             .collect();
         all.sort_by_key(|r| std::cmp::Reverse(r.last_active_ms));
         Ok(all)
+    }
+
+    /// Whether the gate admits `session`'s records to the owner's look from `pov` today: no seal (the
+    /// look lifts none; unreadable is held), and its place's marks pass the gate's check.
+    fn session_admitted(&self, pov: &PointOfView, session: &str) -> bool {
+        seal_of(self, None, session) == Seal::Clear
+            && Gate::check(pov, &session_marks(self, None, session, Veil::Clear)).is_ok()
+    }
+
+    /// The nodes of `session`'s transcript the gate admits from `pov`: each node's own session admitted
+    /// (an inherited fork prefix is its origin's), and its seal clear (a move into a thread is that
+    /// thread's); none when the threads cannot be read.
+    fn admitted_nodes(&self, pov: &PointOfView, session: &str) -> anyhow::Result<Transcript> {
+        let Ok(board) = self.threads.all(&self.store) else {
+            return Ok(Vec::new());
+        };
+        let mut ok: BTreeMap<String, bool> = BTreeMap::new();
+        Ok((self.store.transcript(session)?.iter())
+            .filter(|(_, n)| {
+                *(ok.entry(n.session_id.clone()))
+                    .or_insert_with(|| self.session_admitted(pov, &n.session_id))
+                    && node_seal(&self.store, &board, None, &n.session_id, &n.id) == Seal::Clear
+            })
+            .cloned()
+            .collect())
     }
 
     /// The view `p.session`'s next turn at `p.place` would get under `spec`, and its tally.
@@ -72,26 +118,24 @@ impl TurnRunner {
         spec: &RequestSpec,
     ) -> anyhow::Result<ViewPreviewResult> {
         let store: &crate::store::Store = &self.store;
-        let verified = Verified::of_preview(self, p.session, p.place, p.owner);
+        let verified = Verified::of_preview(self, p.session, p.place);
         let gate_pov = verified.pov().clone();
-        let mut notes = vec![
-            "no model was called and no recall was run: recall's pieces are not in it".to_string(),
-            "nothing was written: no view record, no ledger row".to_string(),
-        ];
+        let mut notes: Vec<String> = LIMITS.iter().map(|s| (*s).to_string()).collect();
         if p.message.is_none() {
             notes.push("assembled for an empty message (`--message` gives one)".into());
         }
-        let transcript = store.transcript(p.session)?;
-        let fallback = unledgered(store, &transcript, PREVIEW_TURN).then_some(Fallback::Unledgered);
+        let admitted = self.admitted_nodes(&gate_pov, p.session)?;
+        let unledgered = unledgered(store, &admitted, PREVIEW_TURN);
         let built: Built = self.view_built(
             Asked {
                 store,
                 sid: p.session,
                 turn: PREVIEW_TURN,
-                person: None,
+                // The owner in person, as a turn of his message names him.
+                person: Some(crate::exchange::OWNER.into()),
                 verified,
                 recalled: Vec::new(),
-                message: (None, p.message.unwrap_or_default().to_string()),
+                message: Some(p.message.unwrap_or_default().to_string()),
                 items: Vec::new(),
             },
             spec,
@@ -99,35 +143,46 @@ impl TurnRunner {
         let source = GateSource {
             runner: self,
             pov: gate_pov.clone(),
-            // The owner's look lifts no seal (as `view show`); an agent's turn reads its own thread.
-            asker: (!p.owner).then_some(p.session),
+            // The owner's look lifts no seal (as `view show`).
+            asker: None,
         };
         let reader = Reader {
             source: &source,
-            text: p.text.filter(|_| p.owner),
-            restricted: !p.owner || gate_pov.present != Present::OwnerAlone,
+            text: p.text,
+            restricted: gate_pov.present != theseus_memory::gate::Present::OwnerAlone,
         };
-        let (view, overflow, levels) = match &built.assembled {
+        let (view, overflow, folds) = match &built.assembled {
             Ok(a) => {
                 let levels: BTreeMap<&str, u8> = (a.ladder.nodes.iter())
                     .map(|n| (n.handle.0.as_str(), n.level))
                     .collect();
-                let record =
-                    (built.frozen.record.clone()).map(|v| ViewRecord::new(PREVIEW_TURN, v));
-                let shown = record.as_ref().map(|r| reader.show(r));
-                let folds = shown.as_ref().map(|v| folds_of(v, &levels));
-                (shown, None, folds.unwrap_or_default())
+                let record = built.frozen.record.clone();
+                let record = record.map(|v| ViewRecord::new(PREVIEW_TURN, v));
+                let shown = record.as_ref().map(|r| {
+                    let mut v = reader.show(r);
+                    let folds = self.with_folds(&mut v, r, &gate_pov, &levels);
+                    (v, folds)
+                });
+                let (v, f) = shown.map_or((None, BTreeMap::new()), |(v, f)| (Some(v), f));
+                (v, None, f)
             }
-            Err(o) => (None, Some(overflow_said(o)), BTreeMap::new()),
+            Err(o) => (
+                None,
+                Some(overflow_said(&source, p.place, o)),
+                BTreeMap::new(),
+            ),
+        };
+        let fallback = match (unledgered, overflow.is_some()) {
+            (true, _) => Some(Fallback::Unledgered),
+            (false, true) => Some(Fallback::OverBudget),
+            _ => None,
         };
         let budget = self.view_budget(spec);
         Ok(ViewPreviewResult {
             place: p.place.into(),
             session: p.session.into(),
-            reader: match p.owner {
-                true => "owner".into(),
-                false => "agent".into(),
-            },
+            reader: "owner".into(),
+            assembly: name(&self.cfg.context.assembly_for(p.place)),
             tally: view.as_ref().map(tally_of).unwrap_or_default(),
             window: view.as_ref().map_or(0, window_of),
             view,
@@ -139,43 +194,88 @@ impl TurnRunner {
                 ceiling: budget.ceiling,
                 here_allowance: budget.here_allowance,
             },
-            folds: levels,
-            earlier: self.earlier(p.place, p.session, p.owner)?,
-            notes: {
-                notes.push(
-                    "the rendered request's own check (over_budget) is made when a turn compiles it"
-                        .into(),
-                );
-                notes
-            },
+            folds,
+            earlier: self.earlier(&gate_pov, p.place)?,
+            notes,
         })
     }
 
-    /// The earlier turns of `place`'s sessions this reader may count: a session the gate holds (sealed,
-    /// seal pending, or unreadable) adds nothing, not even to the count of sessions. The owner's look
-    /// lifts no seal; an agent's reads its own session.
-    fn earlier(&self, place: &str, session: &str, owner: bool) -> anyhow::Result<ViewEarlier> {
-        let asker = (!owner).then_some(session);
-        let mut e = ViewEarlier::default();
-        for r in self.place_sessions(place)? {
-            let sid = r.session_id.as_str();
-            if seal_of(self, asker, sid) != Seal::Clear {
+    /// The fold nodes the assembly laid, listed with their level and tokens when the gate admits every
+    /// exchange each stands for (the gated ladder's rule, read again for this reader); the listing's own
+    /// reader proves no fold. Returns the count by level.
+    fn with_folds(
+        &self,
+        v: &mut ViewShown,
+        rec: &ViewRecord,
+        pov: &PointOfView,
+        levels: &BTreeMap<&str, u8>,
+    ) -> BTreeMap<String, u64> {
+        let mut by_level = BTreeMap::new();
+        let mut slots: BTreeMap<Slot, ViewSlot> = std::mem::take(&mut v.slots)
+            .into_iter()
+            .filter_map(|s| Some((serde_json::from_value(s.slot.clone().into()).ok()?, s)))
+            .collect();
+        for s in rec
+            .shown
+            .iter()
+            .filter(|s| matches!(s.piece.range.space, Space::Folds { .. }))
+        {
+            let Some(level) = levels.get(s.piece.handle.0.as_str()) else {
+                continue;
+            };
+            if !self.fold_admitted(pov, &s.piece.handle.0) {
                 continue;
             }
+            *by_level.entry(level.to_string()).or_default() += 1;
+            let slot = slots.entry(s.piece.slot).or_insert_with(|| ViewSlot {
+                slot: name(&s.piece.slot),
+                ..ViewSlot::default()
+            });
+            slot.tokens += s.tokens;
+            v.totals.shown += 1;
+            v.totals.tokens += s.tokens;
+            slot.pieces.push(fold_piece(s, &rec.pov));
+        }
+        v.slots = slots.into_values().collect();
+        by_level
+    }
+
+    /// Whether every exchange fold node `id` stands for resolves, and the gate admits its session.
+    fn fold_admitted(&self, pov: &PointOfView, id: &str) -> bool {
+        let Ok(Some(node)) = crate::ladder::fold::node(&self.store, id) else {
+            return false;
+        };
+        let Ok(read) = crate::ladder::fold::open(&self.store, &node) else {
+            return false;
+        };
+        !node.exchanges.is_empty()
+            && read.len() == node.exchanges.len()
+            && read
+                .iter()
+                .all(|e| self.session_admitted(pov, &e.session_id))
+    }
+
+    /// The earlier turns of `place`'s sessions the owner's look admits, counted from the nodes the gate
+    /// admits alone: a turn whose exchange is another place's is not counted.
+    fn earlier(&self, pov: &PointOfView, place: &str) -> anyhow::Result<ViewEarlier> {
+        let mut e = ViewEarlier::default();
+        for r in self.place_sessions(place)? {
             e.sessions += 1;
             let mut seen = HashSet::new();
-            for (_, n) in self.store.transcript(sid)?.iter() {
+            for (_, n) in &self.admitted_nodes(pov, &r.session_id)? {
                 let Some(turn) = n.turn_id.as_deref() else {
                     continue;
                 };
                 if n.kind != Kind::UserMessage || !seen.insert(turn.to_string()) {
                     continue;
                 }
-                e.turns += 1;
                 match crate::exchange::exchange(&self.store, turn) {
-                    Ok(Some(x)) if x.place == place => {}
-                    Ok(Some(_)) => e.other_place += 1,
-                    _ => e.no_exchange += 1,
+                    Ok(Some(x)) if x.place != place => {}
+                    Ok(Some(_)) => e.turns += 1,
+                    _ => {
+                        e.turns += 1;
+                        e.no_exchange += 1;
+                    }
                 }
             }
         }
@@ -183,18 +283,49 @@ impl TurnRunner {
     }
 }
 
-/// Fold nodes listed, by level.
-fn folds_of(v: &ViewShown, levels: &BTreeMap<&str, u8>) -> BTreeMap<String, u64> {
-    let mut out = BTreeMap::new();
-    for x in v.slots.iter().flat_map(|s| &s.pieces) {
-        if x.kind != "folds" {
-            continue;
-        }
-        if let Some(l) = levels.get(x.handle.as_str()) {
-            *out.entry(l.to_string()).or_default() += 1;
-        }
+/// A fold node laid, by reference.
+fn fold_piece(s: &Shown, pov: &crate::view::PointOfView) -> ViewPiece {
+    let p = &s.piece;
+    ViewPiece {
+        handle: p.handle.0.clone(),
+        kind: "folds".into(),
+        first: p.range.first.id.clone(),
+        last: p.range.last.id.clone(),
+        band: name(&p.band),
+        form: name(&s.form),
+        tokens: s.tokens,
+        reasons: p.reasons.iter().map(name).collect(),
+        label: name(&Label::of(p, pov)),
+        text: None,
     }
-    out
+}
+
+/// The floor's overflow, by its numbers, with its exchange named only when this reader's source admits
+/// it; else the floor's fit alone.
+fn overflow_said(source: &GateSource<'_>, place: &str, o: &Overflow) -> String {
+    let Overflow::Floor {
+        handle,
+        tokens,
+        room,
+    } = o;
+    let at = Pos {
+        at_ms: 0,
+        id: handle.0.clone(),
+    };
+    let range = SourceRange {
+        space: Space::Exchanges {
+            place: place.into(),
+        },
+        first: at.clone(),
+        last: at,
+    };
+    match source.may_show(&range, None) {
+        true => format!(
+            "the newest exchange ({}) alone is about {tokens} tokens; the window has room for {room}",
+            handle.0
+        ),
+        false => "the newest exchange alone does not fit the model's window".into(),
+    }
 }
 
 /// Exchanges the window lays: the listed exchange pieces of slot `here`.
@@ -236,19 +367,6 @@ fn tally_of(v: &ViewShown) -> ViewTally {
         }
     }
     t
-}
-
-/// The floor's overflow, by its numbers (no text).
-fn overflow_said(o: &crate::view::budget::Overflow) -> String {
-    let crate::view::budget::Overflow::Floor {
-        handle,
-        tokens,
-        room,
-    } = o;
-    format!(
-        "the newest exchange ({}) alone is about {tokens} tokens; the window has room for {room}",
-        handle.0
-    )
 }
 
 #[cfg(test)]

@@ -825,18 +825,17 @@ impl Verified {
     }
 
     /// The point of view a next turn in `session` at `place` would get, for a preview of its view (no turn
-    /// runs): today's class of `session`'s place, and a message typed there by the owner in person
-    /// (`in_person`) or by an agent's process, read by the rule a turn's mark is read by
-    /// ([`present_of_mark`]). A channel is never the owner alone; an agent's process is never the owner.
-    pub fn of_preview(runner: &TurnRunner, session: &str, place: &str, in_person: bool) -> Self {
-        struct One(bool);
-        impl OwnerMarks for One {
+    /// runs): today's class of `session`'s place, and a message typed there by the owner in person, read by
+    /// the rule a turn's mark is read by ([`present_of_mark`]). A channel is never the owner alone.
+    pub fn of_preview(runner: &TurnRunner, session: &str, place: &str) -> Self {
+        struct InPerson;
+        impl OwnerMarks for InPerson {
             fn in_person(&self, _: &str) -> Result<Option<bool>> {
-                Ok(Some(self.0))
+                Ok(Some(true))
             }
         }
         let today = runner.place_of(session);
-        let present = present(&today, Some(place), Input::Message(""), &One(in_person));
+        let present = present(&today, Some(place), Input::Message(""), &InPerson);
         Verified(PointOfView {
             anchor: place.into(),
             place: today,

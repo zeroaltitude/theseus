@@ -140,6 +140,19 @@ impl TurnRunner {
         self.census_request_with(rec, place_kind, live, None)
     }
 
+    /// The spec `rec`'s next request is built from, for a view's preview (issue 44): its target, files and
+    /// session block, read and nothing more. No thread card is resolved (a legacy compilation's card would
+    /// be installed in the shared cache, which pins what a later turn sends), no request is compiled (no
+    /// stubs are cached), so nothing a turn observes changes. The view reads the spec's system parts and
+    /// its model alone.
+    pub(crate) fn preview_spec(&self, rec: &SessionRecord, live: &str) -> Result<RequestSpec> {
+        let (kind, view, _, _) = self.census_place(Some(rec), "cli");
+        let target = self.census_target(Some(rec), "cli", live)?;
+        let mut spec = self.spec_of(&target, kind, view, self.peek_files(&target));
+        spec.session_text = self.session_block(rec.dir.as_deref(), view, rec.flagged());
+        Ok(spec)
+    }
+
     /// `census_request` over the session's transcript with one more node written at its end, that
     /// nothing wrote: a split's dry run reads the next request as a `Moved` node would leave it
     /// (theseus-q9b85).
