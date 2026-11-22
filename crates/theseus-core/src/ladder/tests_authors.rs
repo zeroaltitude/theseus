@@ -268,7 +268,7 @@ fn an_older_did_line_is_shown_only_over_the_owners_proven_words() {
     );
     let his = seeded(None);
     assert_eq!(super::did::shown_line(&s, &his), his.line);
-    let mut current = other.clone();
+    let mut current = other;
     current.writer = super::writer::WRITER_VERSION;
     assert_eq!(super::did::shown_line(&s, &current), current.line);
 }
