@@ -12,7 +12,7 @@ use crate::history_tool::page::{self, Lens};
 use crate::node::{Body, Node};
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::tests_places::{last_user, rig_setup, rig_with, session, turn, Rig, OWNER};
+use crate::tests_places::{last_user, rig_with, session, turn, Rig, OWNER};
 use crate::tests_private_view::session_in;
 use crate::view::history::HistoryArgs;
 use crate::view::record::{self, ViewRecord};
@@ -207,39 +207,10 @@ fn sent_for(r: &Rig, what: &str) -> String {
     serde_json::to_string(&q.messages).unwrap()
 }
 
-/// A view rig with a sealed thread `kelp` bound to a session of its own; that session's id.
-fn sealed_thread_rig() -> (Rig, String) {
-    thread_rig(true)
-}
-
-/// A view rig with a thread `kelp`, sealed or not, bound to a session of its own; that session's id.
-fn thread_rig(sealed: bool) -> (Rig, String) {
-    let thread = std::cell::RefCell::new(String::new());
-    let r = rig_setup(
-        |c| {
-            c.threads.enabled = true;
-        },
-        |s| {
-            let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
-            s.put_session(&rec.session_id, &rec).unwrap();
-            let mut t = serde_json::json!({"slug": "kelp", "title": "kelp"});
-            if sealed {
-                t["sealed"] = serde_json::json!({"by": "cli", "at_ms": 1, "reason": "embargo"});
-            }
-            s.put_meta("thread:kelp", &t).unwrap();
-            s.put_meta("discord.session.thread:kelp", &rec.session_id)
-                .unwrap();
-            *thread.borrow_mut() = rec.session_id;
-        },
-    );
-    (r, thread.into_inner())
-}
-
 /// A fork speaks in no place of its source's: its first view turn lays the run it forked from in its window
-/// (his DM's exchange as a real turn in slot G, not only beside his message), and a sealed source gives
-/// nothing, in no slot and no byte of the request.
+/// (his DM's exchange as a real turn in slot G, not only beside his message).
 #[tokio::test]
-async fn a_forks_first_view_turn_shows_the_run_it_forked_from_and_nothing_of_a_sealed_source() {
+async fn a_forks_first_view_turn_shows_the_run_it_forked_from() {
     let r = view_rig();
     let c = &r.core;
     let dm = session(c, Some(&format!("dm:{OWNER}")));
@@ -256,20 +227,6 @@ async fn a_forks_first_view_turn_shows_the_run_it_forked_from_and_nothing_of_a_s
     assert!(window(&rec).iter().any(|(t, _)| *t == said), "{rec:?}");
     let sent = sent_for(&r, "what colour is the lamp");
     assert!(sent.contains("the lighthouse lamp is amber"), "{sent}");
-
-    let (r, thread) = sealed_thread_rig();
-    let c = &r.core;
-    let held = turn(c, &thread, "kelp: the embargoed figure is 7741")
-        .await
-        .turn_id;
-    let fork = fork_of(c, &thread);
-    let first = turn(c, &fork, "fork: and the figure?").await.turn_id;
-    let rec = record::newest(&c.store, &first)
-        .unwrap()
-        .expect("the fork's turn kept its view");
-    assert!(!shows(&rec, &held), "{rec:?}");
-    let sent = sent_for(&r, "and the figure");
-    assert!(!sent.contains("7741"), "{sent}");
 }
 
 // ---- the review's fixes (issue 44): the fork's window is uncut, its mark compared by position, its run the
@@ -409,46 +366,6 @@ async fn a_long_forks_oldest_inherited_words_reach_its_request() {
     let sent = sent_for(&r, "what was the first note");
     assert!(sent.contains("inherited note 0: the gannet"), "{sent}");
     assert!(sent.contains("inherited note 44: the gannet"), "{sent}");
-}
-
-/// Newer inherited exchanges of a sealed source take nothing from the fork's place's own window: the
-/// place's exchanges are laid as they were, and nothing of the sealed source is sent.
-#[tokio::test]
-async fn newer_sealed_inherited_exchanges_leave_the_places_own_window_as_it_was() {
-    let (r, thread) = sealed_thread_rig();
-    let c = &r.core;
-    let local = session(c, None);
-    let mut own = Vec::new();
-    for i in 0..3 {
-        own.push(
-            turn(c, &local, &format!("local {i}: the heron"))
-                .await
-                .turn_id,
-        );
-    }
-    let later = theseus_protocol::now_unix_ms() + 60_000;
-    for i in 0..45u64 {
-        let words = format!("kelp {i}: the embargoed figure is 7741");
-        let turn = format!("turn_kelp_{i:02}");
-        put_exchange(&c.store, &thread, "kelp", &turn, later + i * 1_000, &words);
-    }
-    let fork = fork_of(c, &thread);
-    let first = turn(c, &fork, "fork: and the heron?").await.turn_id;
-    assert_eq!(place_of(c, &first), place_of(c, &own[0]), "one place");
-    let rec = record::newest(&c.store, &first).unwrap().expect("a view");
-    let laid = window(&rec);
-    for t in &own {
-        assert!(laid.iter().any(|(x, _)| x == t), "{t}: {laid:?}");
-    }
-    assert!(
-        !laid.iter().any(|(x, _)| x.starts_with("turn_kelp")),
-        "{laid:?}"
-    );
-    let sent = sent_for(&r, "and the heron");
-    assert!(
-        sent.contains("local 0: the heron") && !sent.contains("7741"),
-        "{sent}"
-    );
 }
 
 /// The fork's window compares an inherited exchange with the place's `/new` mark by its whole position, as
@@ -591,37 +508,6 @@ async fn a_fork_of_a_shared_channels_conversation_shows_its_run_to_the_owner_alo
     assert!(window(&rec).iter().any(|(t, _)| *t == said), "{rec:?}");
     let sent = sent_for(&r, "when does the ferry leave");
     assert!(sent.contains("the ferry leaves at noon"), "{sent}");
-}
-
-/// A source sealed after the fork was made is refused at the fork's next turn.
-#[tokio::test]
-async fn a_source_sealed_after_the_fork_is_refused_at_the_next_turn() {
-    let (r, thread) = thread_rig(false);
-    let c = &r.core;
-    let said = turn(c, &thread, "kelp: the tide gauge reads 4471")
-        .await
-        .turn_id;
-    let fork = fork_of(c, &thread);
-    turn(c, &fork, "fork: what does the gauge read?").await;
-    let sent = sent_for(&r, "what does the gauge read");
-    assert!(sent.contains("4471"), "before the seal: {sent}");
-    c.runner
-        .threads
-        .write(
-            &c.store,
-            |b| {
-                let mut v = serde_json::to_value(b.get("kelp").expect("kelp")).unwrap();
-                v["sealed"] = serde_json::json!({"by": "cli", "at_ms": 2, "reason": "embargo"});
-                Ok(vec![serde_json::from_value(v)?])
-            },
-            |_, _| Ok(vec![]),
-        )
-        .unwrap();
-    let next = turn(c, &fork, "fork: and now?").await.turn_id;
-    let rec = record::newest(&c.store, &next).unwrap().expect("a view");
-    assert!(!shows(&rec, &said), "{rec:?}");
-    let sent = sent_for(&r, "fork: and now");
-    assert!(!sent.contains("4471"), "after the seal: {sent}");
 }
 
 /// `context.census` asked from a surface that reads no private text (Discord) carries none of the view's

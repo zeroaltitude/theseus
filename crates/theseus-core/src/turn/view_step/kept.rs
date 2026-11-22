@@ -1,5 +1,6 @@
 //! What a replay needs of a view turn's chain, kept as it begins (`compiler::view::kept`), and whether what
-//! a view laid is gone now, asked before a replay of it sends anything (`own_bench::rebuild`).
+//! a view laid is gone now, asked before a call of the turn (`view_gone`) and before a replay of it sends
+//! anything (`own_bench::rebuild`).
 
 use super::super::compile_step::Keeping;
 use super::{Compiled, Turn};

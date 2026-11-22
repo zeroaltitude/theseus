@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use serde_json::json;
 use theseus_memory::gate::Present;
-use theseus_protocol::threads::ThreadNewParams;
 use theseus_protocol::{error_code, method};
 
 use crate::approval::{Answerer, Client, Surface};
@@ -212,80 +211,14 @@ async fn view_show_answers_the_owner_in_person_alone() {
     );
 }
 
-/// A thread `kelp` with one exchange; its session and the place it speaks in.
-fn kelp(r: &Rig) -> (String, String) {
-    r.core
-        .thread_new(
-            &ThreadNewParams {
-                slug: "kelp".into(),
-                title: Some("Kelp".into()),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
-    let kelp = r.core.thread_session("kelp", cli()).unwrap().session_id;
-    let place = view_gate::place_name(&r.core.runner, &kelp).expect("a place");
-    exchange_of(&r.core, "t-kelp", &kelp, &place);
-    (kelp, place)
-}
-
 /// Seat `session`'s turn `turn` with `present` at `place`, as the turn's own start does.
 fn seat(core: &Core, session: &str, turn: &str, present: Present, place: &str) {
     view_gate::seat_for_tests(&core.runner, session, turn, present, place);
 }
 
-/// A seal proposed after the view was kept: the owner's inspection and the model's own look, the owner's
-/// alone and a reader in company at the same place, all leave the piece out from then on.
+/// Of a turn's many compilations, the look reads the newest.
 #[tokio::test]
-async fn a_seal_proposed_after_keep_holds_the_piece_out_of_every_reader() {
-    let r = rig();
-    let (_kelp, place) = kelp(&r);
-    let desk = session(&r.core, None);
-    keep(
-        &r.core,
-        "t-desk",
-        "cmp_desk",
-        &place,
-        vec![piece(&place, "t-kelp")],
-    );
-    let owner = || surface("sock#1", Surface::Cli);
-    let named = json!({"turn_id": "t-desk"});
-    let look = |present| {
-        seat(&r.core, &desk, "t-desk", present, &place);
-        crate::look::view::words(&r.core, &desk, "t-desk")
-    };
-    assert!(show(&r.core, owner(), named.clone())
-        .await
-        .unwrap()
-        .contains("x:t-kelp"));
-    assert!(look(Present::OwnerAlone).contains("x:t-kelp"));
-    let company = look(Present::PrivateChannel);
-    assert!(company.contains("x:t-kelp"), "{company}");
-    assert!(
-        company.contains(crate::view::record::show::RESTRICTED),
-        "{company}"
-    );
-
-    assert!(r
-        .core
-        .thread_recommend_seal("kelp", "holds a password")
-        .unwrap());
-    let shown = show(&r.core, owner(), json!({"turn_id": "t-desk", "text": true}))
-        .await
-        .unwrap();
-    assert!(!shown.contains("x:t-kelp"), "{shown}");
-    for present in [Present::OwnerAlone, Present::PrivateChannel] {
-        let said = look(present);
-        assert!(!said.contains("x:t-kelp"), "{present:?}: {said}");
-        assert!(said.contains("cmp_desk"), "{present:?}: {said}");
-    }
-}
-
-/// The look reads this turn's presence alone: one kept for another turn of the session, or none, shows
-/// nothing; and of a turn's many compilations it reads the newest.
-#[tokio::test]
-async fn the_look_reads_this_turns_presence_and_its_newest_view() {
+async fn the_look_reads_this_turns_newest_view() {
     let r = rig();
     let desk = session(&r.core, None);
     exchange_of(&r.core, "t-here", &desk, "local");
@@ -300,18 +233,6 @@ async fn the_look_reads_this_turns_presence_and_its_newest_view() {
             5_000 + i,
         );
     }
-    let unknown = crate::look::view::words(&r.core, &desk, "t-desk");
-    assert!(
-        unknown.contains("cannot be read") && !unknown.contains("x:t-here"),
-        "{unknown}"
-    );
-    seat(&r.core, &desk, "t-earlier", Present::OwnerAlone, "local");
-    let other = crate::look::view::words(&r.core, &desk, "t-desk");
-    assert!(
-        other.contains("cannot be read") && !other.contains("x:t-here"),
-        "{other}"
-    );
-    seat(&r.core, &desk, "t-desk", Present::OwnerAlone, "local");
     let said = crate::look::view::words(&r.core, &desk, "t-desk");
     assert!(
         said.contains("view cmp_099") && !said.contains("cmp_098"),

@@ -184,12 +184,20 @@ impl RecallPlaces {
 pub struct Verified(PointOfView);
 
 impl Verified {
-    /// The turn of `session`'s: the widest ([`widest`]), at its arrival place;
-    /// a task's at its own place.
+    /// The turn of `session`'s, read outside the turn: [`Self::of_turn`] at the session's own place.
     pub fn of_session(runner: &TurnRunner, session: &str) -> Self {
+        Self::of_turn(runner, session, None)
+    }
+
+    /// The turn of `session`'s: the widest ([`widest`]), at `place`, the place the turn arrived in (its
+    /// exchange's, `turn::exchange_step::turn_place`); none given, the session's own place. A task's is at its
+    /// own place.
+    pub fn of_turn(runner: &TurnRunner, session: &str, place: Option<&str>) -> Self {
         let anchor = match crate::task_graph::place::of_task_session(&runner.store, session) {
             Some(own) => own,
-            None => place_name(runner, session).unwrap_or_else(|| "unknown".into()),
+            None => (place.map(str::to_string))
+                .or_else(|| place_name(runner, session))
+                .unwrap_or_else(|| "unknown".into()),
         };
         Verified(widest(anchor))
     }
