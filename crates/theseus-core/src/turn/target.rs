@@ -113,13 +113,8 @@ impl TurnRunner {
         target: &Target,
         kind: SessionKind,
         place: crate::ceiling::PlaceView,
-        mut files: Vec<ContextFile>,
+        files: Vec<ContextFile>,
     ) -> RequestSpec {
-        // A shared place carries only the files marked public (the place
-        // rule): the rest are their headers and why.
-        if place.class == crate::places::PlaceClass::Shared {
-            crate::context_files::withhold_shared(&mut files);
-        }
         let (system_text, persona_text, context_text) = self.system_blocks(target, &files, place);
         RequestSpec {
             profile: target.profile.clone(),

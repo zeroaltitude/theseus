@@ -62,7 +62,7 @@ fn run(blocks: Vec<Value>, tools: Vec<Value>) -> Compiled {
     ];
     let mut sp = spec();
     sp.tools = tools.into();
-    compile(CompileInput {
+    super::tests_parts::on_view(CompileInput {
         session_id: "s",
         current: None,
         nodes: &nodes,

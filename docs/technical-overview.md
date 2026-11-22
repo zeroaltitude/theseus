@@ -34,8 +34,7 @@ Two static binaries and one protocol:
     Decline** for anything that needs you, and the live turn as it streams;
   - an inspector for each tool call and each model call;
   - the actions, the ledger (its rows in words, by family or by kind, and the graph's nodes), the
-    economics, and the systems: context compilations and every loop's append-or-recompile
-    decision, the tools with their postures, kernel state and the timed startup steps, every
+    economics, and the systems: context compilations and what each turn's view laid, the tools with their postures, kernel state and the timed startup steps, every
     execution with its budget, and the model catalog.
 
   It follows the push, so what you see is what a restarted daemon would also see. An old
@@ -189,11 +188,12 @@ invariants after every step and is reproducible from its seed.
 
 A session is a graph of **nodes** in the store (your messages, the model's messages with their
 thinking blocks byte for byte, tool calls with the gate's decision, tool results). The model's
-context is a **compilation** of those nodes plus the tail written since: appended to every loop,
-recompiled only on a new session, a model/system/tool change, overflow of the context window, or
-your request (`theseus sessions recompile <id> --strategy fresh|transcript`, or the cockpit's
-session deck).
-Every loop records its decision (`context.compiled`).
+context is built afresh each turn by the **view** (`docs/design/view-compile.md`): what the
+conversation's place may see, read from the store, frozen for the turn so each loop's request
+begins with the bytes of the one before. Each turn's first call is a **compilation** of strategy
+`view`, and every loop records it (`context.compiled`). The old way, a transcript kept across
+turns and recompiled on triggers or on request, was removed on 2026-11-22 (its compilations
+still read).
 
 Native **toollets**, no shell unless asked for: `fs.read`, `fs.write`, `fs.edit`,
 `fs.patch`, `fs.glob`, `fs.grep`, `fs.list`, `text.diff`, `git.diff`, `git.log` (native, through

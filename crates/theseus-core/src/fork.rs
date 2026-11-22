@@ -9,9 +9,9 @@
 //!   copied and the source is never written to.
 //! - **The transcript.** `Store::transcript` of a fork is the source's
 //!   nodes through the fork point (`prefix_records`: itself a fork's, when
-//!   the source is one) and then the fork's own, so the compiler reads one
-//!   list, and its `selected` takes the run from `Inherits`
-//!   (`inherited`). A turn in the fork writes the fork's records alone.
+//!   the source is one) and then the fork's own; a fork's view lays the
+//!   inherited run as its window, under the gate (`fork/window.rs`). A turn
+//!   in the fork writes the fork's records alone.
 //! - **Reach.** The frame also writes the source's reverse entry: an
 //!   `includes` edge from the fork's compilation into the source session
 //!   (`EdgeKind::Includes`), one for the run, which `node.reach` reads

@@ -18,7 +18,6 @@ use super::{episode, session_id_of, write};
 use crate::approval::{Client, Surface};
 use crate::config::MemoryMode;
 use crate::ontology::Walk;
-use crate::places::PlaceClass;
 use crate::tests_recall::{rig_with, Rig};
 use crate::Core;
 
@@ -194,8 +193,7 @@ async fn a_tags_people_are_found_once_each_with_their_handles_and_sessions() {
         (0, 3, 0, 0)
     );
 
-    // A shared place's walk reads none of them; a private one reads them,
-    // and composes a person's guidance line.
+    // A walk reads them, and composes a person's guidance line.
     let marlo = o
         .categories()
         .find(|c| c.name == "Marlo Quill")
@@ -217,19 +215,15 @@ async fn a_tags_people_are_found_once_each_with_their_handles_and_sessions() {
         )
         .unwrap();
     let o = snapshot(c);
-    let shared = Walk::of(o.clone(), &sid(2), None, PlaceClass::Shared, 1).unwrap();
-    assert!(shared.current.is_empty());
-    let private = Walk::of(o, &sid(2), None, PlaceClass::Private, 1).unwrap();
-    assert_eq!(private.current.len(), 3);
-    let c2 = private.compose(&private.current);
-    let shared_c = shared.compose(&private.current);
+    let walk = Walk::of(o, &sid(2), None, 1).unwrap();
+    assert_eq!(walk.current.len(), 3);
+    let c2 = walk.compose(&walk.current);
     assert!(c2.skipped.is_empty(), "{:?}", c2.skipped);
     assert!(
         c2.render().contains("Marlo Quill: Runs the gull survey"),
         "{}",
         c2.render()
     );
-    assert!(shared_c.render().is_empty(), "the place rule comes first");
 }
 
 #[tokio::test]

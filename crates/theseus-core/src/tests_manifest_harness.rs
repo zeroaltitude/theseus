@@ -87,7 +87,6 @@ async fn the_manifest_records_the_sessions_thread_and_project() {
         walk.snapshot.clone(),
         &sid,
         core.runner.target_of(&sid).as_deref(),
-        PlaceClass::Private,
         theseus_protocol::now_unix_ms(),
     )
     .unwrap();
