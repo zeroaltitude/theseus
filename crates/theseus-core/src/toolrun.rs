@@ -2023,7 +2023,6 @@ pub fn build_runtime(
         // Asking a profile and holding a conversation to one, with no shell (issue 28).
         crate::profile_tool::register(cfg, &mut r);
         r.register(Arc::new(crate::glide::ChannelPost));
-        r.register(Arc::new(crate::glide::ChannelRead));
         // The files people gave the session (theseus-c9l6).
         r.register(Arc::new(crate::file_read::FileRead));
         // A read of memory the model calls (theseus-w9qv).

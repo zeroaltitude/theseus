@@ -42,6 +42,7 @@ const EVERY: &str = "[model]\n\
                      seal_recommend = false\n\
                      [policy.tools]\n\
                      \"thread.read\" = \"open\"\n\
+                     \"channel.read\" = \"notify\"\n\
                      [profiles.quick]\n\
                      provider = \"anthropic\"\n\
                      model = \"claude-haiku-5-5\"\n\

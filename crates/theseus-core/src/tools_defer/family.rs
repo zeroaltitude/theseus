@@ -83,7 +83,7 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "code",
         "language servers: definitions, references, diagnostics, renames",
     ),
-    ("channels", "post to and read other places and channels"),
+    ("channels", "post to other places and channels"),
     // The AWS tools are five families, by use (theseus-3msy0): the whole set is 6,869
     // tokens, more than any place can add, and a message that names one tool needs only
     // that tool's family (each is at most 1,300 tokens; `aws::tests` holds the cap).

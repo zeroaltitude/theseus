@@ -115,7 +115,8 @@ pub const VIA_ARRANGEMENT: &str = "arrangement";
 pub const VIA_CLAIM: &str = "claim";
 /// The memory pass's gate (M6 31a): `same_entity` and `supersedes`.
 pub const VIA_MEMORY: &str = "memory";
-/// A glide's read (38b): the borrowed node, from each message it took.
+/// A glide's read (38b): the borrowed node, from each message it took. Nothing writes it since
+/// `channel.read` went (issue 46); an old store's edges still carry it.
 pub const VIA_GLIDE: &str = "glide";
 /// A synthesis, to each source it cites (M6 31b, consolidation).
 pub const VIA_SYNTHESIS: &str = "synthesis";

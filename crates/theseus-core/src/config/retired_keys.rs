@@ -80,6 +80,7 @@ pub const RETIRED: &[Retired] = &[
     r("threads", "seal_recommend", THREADS),
     // A posture set for a tool that is gone (issue 46).
     r("policy.tools", "thread.read", LOOK_BACK),
+    r("policy.tools", "channel.read", LOOK_BACK),
 ];
 
 const fn r(section: &'static str, key: &'static str, why: &'static str) -> Retired {

@@ -31,11 +31,11 @@
 //!   place, by the owner (`owner_in_private`). A shared place's cards go to
 //!   the owner's DM.
 //! - **Gliding follows it** (38b, the owner 2026-10-04): words that move between
-//!   places, a `channel.post` or a `channel.read`, take `glide_rule`. Into a
-//!   private place they always may, and what comes from a shared place is
-//!   outside text there; out of a private place, or between two shared
-//!   places, they ask the owner first, as `/publish` does. Every place is
-//!   offered the two tools, since the rule asks wherever it must.
+//!   places, a `channel.post`, take `glide_rule`. Into a private place they
+//!   always may; out of a private place, or between two shared places, they
+//!   ask the owner first, as `/publish` does. Every place is offered the
+//!   tool, since the rule asks wherever it must. (`channel.read` went with
+//!   issue 46.)
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -577,9 +577,9 @@ pub fn files_tool(name: &str) -> bool {
     ["fs.", "git.", "text."].iter().any(|p| name.starts_with(p))
 }
 
-/// The gliding tools (38b), `channel.post` and `channel.read`: offered in a
-/// shared place too, since every way out of a private place, and every way
-/// between two shared ones, asks the owner first (`glide_rule`).
+/// The gliding tool (38b), `channel.post`: offered in a shared place too,
+/// since every way out of a private place, and every way between two shared
+/// ones, asks the owner first (`glide_rule`).
 pub fn glide_tool(name: &str) -> bool {
     name.starts_with("channel.")
 }
@@ -616,11 +616,9 @@ pub enum Glide {
 /// The place rule for words that move between places (38b, approved by
 /// the owner on 2026-10-04), the one rule every glide takes: `from` is where
 /// the words were said, `to` where they go. A post goes from its session's
-/// place to the place it names; a read goes from the place it names into
-/// its session's.
+/// place to the place it names.
 /// - **The same place**: allowed, since its audience is the same.
-/// - **Into a private place**: allowed. What a read brings there from a
-///   shared place is outside text (`glide::outside`).
+/// - **Into a private place**: allowed.
 /// - **Out of a private place into a shared one**: asks first, as
 ///   `/publish` does. Only the owner puts the owner's material where others
 ///   read it, and the answer counts only from a private place.

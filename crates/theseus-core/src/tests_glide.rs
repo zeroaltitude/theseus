@@ -1,9 +1,8 @@
-//! Gliding through the whole core (38b, theseus-ypy0): `channel.post` and
-//! `channel.read` on the place rule. Each path: allowed; asks first, then
-//! approved and posted once; asks first, then declined and nothing posted;
-//! a place not bound here; a read from a shared place marked as outside
-//! text, which holds nothing back; a post's destination's floor; and
-//! the ledger rows. The rule's whole matrix is `places`' table test, and
+//! Gliding through the whole core (38b, theseus-ypy0): `channel.post` on
+//! the place rule (`channel.read` went with issue 46: the history tool reads
+//! a place's exchanges). Each path: allowed; asks first, then approved and
+//! posted once; asks first, then declined and nothing posted; a place not
+//! bound here; a post's destination's floor; and the ledger rows. The rule's whole matrix is `places`' table test, and
 //! the post's delivery through Discord's lane is `theseus-discord`'s.
 
 use serde_json::{json, Value};
@@ -22,12 +21,8 @@ const DEN: u64 = 577_215_664_901_532_860;
 const HALL: u64 = 161_803_398_874_989_484;
 const PIER: u64 = 141_421_356_237_309_504;
 
-/// What the owner said in their DM; no shared place may read it unasked.
-const VAULT: &str = "the vault code is 4417";
-
-/// The model of these tests: `POST <place> :: <text>` posts, `READ <place>`
-/// reads (`READ <place> :: <n>`, its last n), and a call's result ends the
-/// turn. Each call's id is its request's length, so a session's ids differ.
+/// The model of these tests: `POST <place> :: <text>` posts, and a call's
+/// result ends the turn. Each call's id is its request's length, so a session's ids differ.
 fn script(req: &ProviderRequest) -> Scripted {
     if answers_a_call(req) {
         return Scripted::text("Done.");
@@ -41,13 +36,6 @@ fn script(req: &ProviderRequest) -> Scripted {
         let (to, text) = rest.split_once(" :: ").unwrap();
         let input = json!({"to": to, "text": text});
         return Scripted::tools("Posting.", &[(id.as_str(), "channel_post", input)]);
-    }
-    if let Some(rest) = last.strip_prefix("READ ") {
-        let input = match rest.split_once(" :: ") {
-            Some((from, n)) => json!({"from": from, "last": n.parse::<u64>().unwrap()}),
-            None => json!({"from": rest}),
-        };
-        return Scripted::tools("Reading.", &[(id.as_str(), "channel_read", input)]);
     }
     Scripted::text("Hello.")
 }
@@ -155,8 +143,7 @@ fn from_discord(user: u64, channel: Option<u64>) -> Answerer {
 /// A post into a private place, here the owner's DM from the CLI, runs at
 /// its own posture: one glide post in the DM's lane, keyed by its call, and
 /// a `glide.posted` row that says it was allowed. Nothing asks, and nothing
-/// is recorded as a publish. A read of the DM from the CLI is allowed too,
-/// and is not outside text.
+/// is recorded as a publish.
 #[tokio::test]
 async fn a_post_into_a_private_place_runs_and_goes_out_once() {
     let r = rig();
@@ -189,21 +176,6 @@ async fn a_post_into_a_private_place_runs_and_goes_out_once() {
     assert_eq!(all_glides(&r.core), 1, "posted once");
     assert!(asked(&r.core, &cli).is_empty(), "nothing asked");
     assert!(rows(&r.core, "place.published").is_empty(), "no publish");
-
-    // A read of the DM from the CLI: private into private.
-    let dm = session(&r.core, Some(&format!("dm:{OWNER}")));
-    turn(&r.core, &dm, VAULT).await;
-    let res = turn(&r.core, &cli, "READ DM @owner").await;
-    assert_eq!(res.awaiting_confirm, None, "{res:?}");
-    let (status, text, outside) = result(&r.core, &cli, "channel.read");
-    assert_eq!(status, ResultStatus::Ok, "{text}");
-    assert!(text.contains(VAULT), "{text}");
-    assert_eq!(
-        outside, None,
-        "a private place's words are not outside text"
-    );
-    let read = rows(&r.core, "glide.read");
-    assert_eq!(read[0]["outside"], false, "{read:?}");
 }
 
 /// A post out of a private place into a shared one asks first, and nothing
@@ -327,8 +299,7 @@ async fn between_two_shared_places_a_post_asks_and_into_a_private_one_it_runs() 
     assert!(glides(&r.core, &format!("discord:channel:{PIER}")).is_empty());
 }
 
-/// A place this daemon is not bound to fails with words, for a post and a
-/// read alike, and nothing moves.
+/// A place this daemon is not bound to fails with words, and nothing moves.
 #[tokio::test]
 async fn a_place_not_bound_here_fails_with_words() {
     let r = rig();
@@ -341,116 +312,14 @@ async fn a_place_not_bound_here_fails_with_words() {
         text.starts_with("Not run: #nowhere is not a place Theseus is bound to"),
         "{text}"
     );
-    turn(&r.core, &cli, "READ #nowhere").await;
-    let (_, text, _) = result(&r.core, &cli, "channel.read");
-    assert!(
-        text.starts_with("Not run: #nowhere is not a place Theseus is bound to"),
-        "{text}"
-    );
     assert_eq!(all_glides(&r.core), 0);
-    assert!(rows(&r.core, "glide.posted").is_empty() && rows(&r.core, "glide.read").is_empty());
+    assert!(rows(&r.core, "glide.posted").is_empty());
     let refused = rows(&r.core, "tool.invalid_input");
     assert!(
         refused
             .iter()
             .all(|r| r["reason"].as_str().unwrap().starts_with("place: ")),
         "{refused:?}"
-    );
-}
-
-/// A read from a shared place into a private one runs, and what it brings
-/// is outside text: its result is marked so (by the place's name), its first
-/// line says it, and its `glide.read` row says `outside`. Nothing holds the
-/// session: a post from it into a private place runs at the place rule's
-/// word, as it would after any read.
-#[tokio::test]
-async fn a_read_from_a_shared_place_is_outside_text_and_holds_nothing() {
-    let r = rig();
-    let hall = session(&r.core, Some(&format!("channel:{HALL}")));
-    turn(&r.core, &hall, "the tide turns at six").await;
-    let cli = session(&r.core, None);
-    let res = turn(&r.core, &cli, "READ #hall").await;
-    assert_eq!(res.awaiting_confirm, None, "into a private place: {res:?}");
-    let (status, text, outside) = result(&r.core, &cli, "channel.read");
-    assert_eq!(status, ResultStatus::Ok, "{text}");
-    assert_eq!(outside.as_deref(), Some("#hall"), "marked outside text");
-    let lines: Vec<&str> = text.lines().collect();
-    assert!(
-        lines[0].starts_with("[borrowed from #hall: its last 2 messages, oldest first. #hall is a shared place, so this is outside text"),
-        "{text}"
-    );
-    assert!(
-        lines[1].ends_with(&format!("{OWNER}: the tide turns at six")),
-        "{text}"
-    );
-    assert!(lines[2].ends_with("Theseus: Hello."), "{text}");
-    assert!(crate::external::read_any(&r.core.store, &cli));
-    let read = &rows(&r.core, "glide.read")[0];
-    assert_eq!(read["outside"], true, "{read}");
-    assert_eq!(read["messages"], 2);
-    assert_eq!(read["allowed"], "allowed");
-    assert_eq!(read["from"], format!("discord:channel:{HALL}"));
-    // Its edges (P0's rule 3): the borrowed node copies each message it took,
-    // so `node.reach` finds it from the hall's message.
-    let said = r
-        .core
-        .store
-        .session_nodes(&hall)
-        .unwrap()
-        .into_iter()
-        .find(|(_, n)| matches!(n.body, Body::UserMessage { .. }))
-        .unwrap()
-        .1
-        .id;
-    let reach = crate::reach::reach(&r.core.store, &said, None)
-        .unwrap()
-        .unwrap();
-    assert_eq!(reach.descendants.len(), 1, "{reach:?}");
-    assert_eq!(
-        reach.descendants[0].node_id,
-        read["node_id"].as_str().unwrap()
-    );
-    // No hold: a post now runs, into the owner's DM.
-    let res = turn(&r.core, &cli, "POST DM @owner :: what the hall said").await;
-    assert_eq!(res.awaiting_confirm, None, "{res:?}");
-    assert_eq!(all_glides(&r.core), 1, "posted once");
-}
-
-/// A read of a private place from a shared one asks first (since 2026-11-22, anything goes, the shared
-/// session's model may already hold the private place's words; the read still asks). Approved by the owner, it borrows the messages, which are not outside
-/// text (the owner's own words), and its row says it was approved.
-#[tokio::test]
-async fn a_read_of_a_private_place_from_a_shared_one_asks_first() {
-    let r = rig();
-    let dm = session(&r.core, Some(&format!("dm:{OWNER}")));
-    turn(&r.core, &dm, VAULT).await;
-    let hall = session(&r.core, Some(&format!("channel:{HALL}")));
-    let q = turn(&r.core, &hall, "READ DM @owner")
-        .await
-        .awaiting_confirm
-        .expect("it asks first");
-    let reasons = asked(&r.core, &hall);
-    assert!(
-        reasons[0].contains("(out of a private place: #hall is shared, so this puts words from DM @owner where others read them"),
-        "{reasons:?}"
-    );
-    assert!(
-        rows(&r.core, "glide.read").is_empty(),
-        "nothing borrowed yet"
-    );
-    r.core.confirm_action(&q, true, None, "cli").unwrap();
-    r.until("the borrow", 10, |r| {
-        !rows(&r.core, "glide.read").is_empty()
-    })
-    .await;
-    let (status, text, outside) = result(&r.core, &hall, "channel.read");
-    assert_eq!(status, ResultStatus::Ok, "{text}");
-    assert!(text.contains(VAULT), "{text}");
-    assert_eq!(outside, None, "the owner's DM is not outside text");
-    let read = &rows(&r.core, "glide.read")[0];
-    assert_eq!(
-        (&read["allowed"], &read["outside"]),
-        (&json!("approved"), &json!(false))
     );
 }
 
