@@ -201,6 +201,11 @@ fn line(nodes: &[Node], did: Option<String>, handle: &Handle) -> Vec<Said> {
     out
 }
 
+/// The heading of the block beside the message: the harness's, never the person's words
+/// (`task_graph::view::is_head` lists it for the stand-in models that read those).
+pub const BESIDE_HEAD: &str =
+    "beside your message: what is waiting, in play, said elsewhere lately, and called";
+
 /// The marked blocks beside the message as one: each keeps its own heading.
 fn beside(blocks: Vec<MarkedBlock>) -> Option<MarkedBlock> {
     let label = blocks.first()?.label;
@@ -217,8 +222,7 @@ fn beside(blocks: Vec<MarkedBlock>) -> Option<MarkedBlock> {
             true => label,
             false => Label::Testimony,
         },
-        heading: "beside your message: what is waiting, in play, said elsewhere lately, and called"
-            .into(),
+        heading: BESIDE_HEAD.into(),
         text,
         sources: blocks.iter().flat_map(|b| b.sources.clone()).collect(),
         handle: None,
