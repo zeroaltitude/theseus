@@ -1,10 +1,7 @@
-// The model menu's floor (theseus-jid7t.6): which profile a session's data mark refuses. The daemon's
-// `data_mark::refusal_of` decides; this is its table in TypeScript, and `test/ops-floor.test.ts` holds both to the one
-// file, `test/fixtures/profile_floor.json`, that theseus-core's `tests_profile_floor.rs` reads too. A profile the daemon
-// clears (`ProfileInfo.cleared`: US origin and a catalog row of `us`) runs anywhere; a provider's vouch alone clears
-// nothing, and a daemon that did not say clears nothing. Any other profile is refused a private or sensitive session;
-// one that is not configured is refused always. The page greys what the floor refuses, in the floor's words: a profile of `us` origin the daemon
-// does not clear is told the catalog does not list its model as `us`; any other is told it is not a model of US origin.
+// The model menu's floor (theseus-jid7t.6): which profile the menu greys for a session. The restricted-origin rule is
+// gone (2026-11-21): the daemon sends `ProfileInfo.cleared: true` for every profile, so in practice only a profile that is
+// not configured is grey. The origin branch below reads a `cleared` the daemon no longer withholds; `test/ops-floor.test.ts`
+// still holds it to the old table, `test/fixtures/profile_floor.json`.
 import type { DataMark } from '@protocol'
 
 /** What the menu knows of a profile: its name, and its origin and the daemon's own floor answer (`ProfileInfo.origin`, `.cleared`). */
