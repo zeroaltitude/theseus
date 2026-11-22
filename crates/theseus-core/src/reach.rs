@@ -480,7 +480,7 @@ impl ViewLaid {
         };
         self.exchanges.iter().any(|(p, first, last, form)| {
             p == place
-                && (first.id == at.id || last.id == at.id || (first <= at && at <= last))
+                && (first.id == at.id || last.id == at.id || (first..=last).contains(&at))
                 && carried(*form)
         })
     }
