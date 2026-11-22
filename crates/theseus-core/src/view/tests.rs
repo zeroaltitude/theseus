@@ -241,8 +241,6 @@ fn the_admission_table_has_each_band_once_and_its_floors_are_the_floor_and_now()
 
 #[test]
 fn a_stored_piece_needs_the_gate_and_folds_are_by_count() {
-    let snap = FakeSnapshot(FakeTimeline);
-    let pov = pov(Present::Private, &snap);
     let stored = piece(
         "local",
         &ExchangeRef {

@@ -1,7 +1,7 @@
 // The context explorer's pure parts (theseus-7n3e): its state in the address, the imported episodes' filters as
 // `import.sessions` takes them, the topic tree folded from the facets, a turn's anatomy
 // by block, and the as-of months. Pure: it imports the protocol's types alone, so node's runner tests it.
-import type { ContextPart, ImportFacet, ImportSessionsParams, ImportedEpisode, OntologyCategory } from '@protocol'
+import type { ContextPart, ImportFacet, ImportSessionsParams, OntologyCategory } from '@protocol'
 
 /** The explorer's tabs, in the rail's order. */
 export const TABS = ['episodes', 'turn', 'search', 'books', 'standing', 'card'] as const
