@@ -41,9 +41,12 @@ place checks that it can be assembled, and if not it is the transcript's turn fr
 carried as on any transcript turn. The reason is written on the ledger (`context.view_fallback`) and is one of a
 closed list: `continuation` (no person's message, wake or report of its own opened the turn), `route` (the gate's
 anchor is not the place the exchange opened in), `unledgered_history` (the session's recent turns include some the
-ledger holds no exchange for), `over_budget` (the request is over the budget, the floor alone is too large for the
-view's budget, or the provider said a request of the turn passed its window), `assembly_error`, and `moved` (the
-gate's reading changed under the view a third time in one call). A turn's recall is kept across a view call that was
+ledger holds no exchange for), `assembly_error`, and `moved` (the gate's reading changed under the view a third time
+in one call). A request over the budget is never handed back: the view makes its own room
+(`turn/view_step/room.rs`): it clears the turn's old tool results to their stand-ins, then lowers slot G's allowance
+to none, each a new chain, under the provider's stated window once it refused a request for its size; only when
+the floor and the turn's own nodes still do not fit does the turn fail, before anything is sent, on the core
+overage (`context_overage`). A turn's recall is kept across a view call that was
 sent, and if the turn then declines it is admitted again item by item under the presence and seals of that moment;
 an item held out since leaves nothing behind.
 
@@ -75,7 +78,7 @@ an item held out since leaves nothing behind.
   route pack `route.v10` is retired, and `profile.list` still sends `cleared: true` for each profile, for a cockpit
   page left open since before the upgrade.
 - **The view's hardening**: recall kept across a sent view call is admitted again item by item if the turn declines;
-  a floor too large for the view's budget declines to the transcript (`over_budget`); and after all of a call's
+  a floor too large for the view's budget fails the turn on the core overage; and after all of a call's
   preparation, before every send, the view is checked against the gate again (§5.1, §4).
 - **The preview**: `theseus view preview PLACE` shows what the place's next turn would be given, by the turn's own
   assembler, without calling a model or writing anything (§5.1).
@@ -380,7 +383,7 @@ by a message of the owner in person there, built by the turn's own assembler (th
 from the place as it stands now. It is the owner's alone (the CLI or the web page with no agent's process behind
 it); a piece's text is shown only at his own terminal. It calls no model, sends nothing and writes nothing that
 persists: no view record, no ledger row, no cache a turn reads. It does not predict `route` or `continuation`
-(decided by the turn that arrives) or `over_budget` on the rendered request, runs no recall (so recall's pieces are
+(decided by the turn that arrives) or the room a long turn makes in its own request, runs no recall (so recall's pieces are
 not in it), and sizes the system part from an approximation of the next request. It lists and counts only what the
 reader's gate admits, node by node: exchanges, the fixed code pieces and fold nodes; a piece of another kind (a
 joined task's card, say) is neither listed nor counted.
@@ -435,8 +438,8 @@ and admitted again item by item under the presence and seals of that moment befo
    and the turn says exactly that instead of answering from a silently incomplete view: it names what did not
    fit, gives its handle, and asks for a narrower question or a deep look. Every such case is recorded.
 
-**As built**, rule 9 is not this: a floor too large for the view's budget declines the turn to the transcript
-(`over_budget`, recorded on the ledger), and no note is laid in the view.
+**As built**, rule 9 is not this: a floor too large for the view's budget fails the turn before any call, on the
+core overage (`context_overage`, recorded on the ledger), and no note is laid in the view.
 
 **Forms.** A piece is shown *whole* (as it was said, with its tool traffic), *spoken* (his words and the reply's
 text; tool traffic as one-line stubs), or as a *line* (`he asked → Theseus did`, his ask verbatim). Every piece,

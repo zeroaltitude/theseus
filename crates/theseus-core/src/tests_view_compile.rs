@@ -774,22 +774,26 @@ async fn an_established_session_without_its_exchanges_is_the_transcripts_turn() 
     );
 }
 
-/// Fallback (b): a view whose rendered request is over the budget is the transcript's turn, whose ring and
-/// compaction make room; the ledger says why.
+/// A view that cannot fit even its floor in its window (a 12,000-token working window under the reply's
+/// room) is never handed back: the turn fails before any call on the core overage, once, with no fallback.
 #[tokio::test]
-async fn a_view_over_its_budget_is_the_transcripts_turn() {
+async fn a_view_over_its_budget_fails_on_its_overage_and_is_never_handed_back() {
     let r = rig_with(|c| {
         c.context.assembly = Some(AssemblySetting::All(Assembly::View));
         c.context.working_window_tokens = Some(12_000);
     });
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
-    // The transcript's turn may itself be over so small a window: its own overage says so.
-    let _ = submit(c, &sid, "small window: hello").await;
+    let err = submit(c, &sid, "small window: hello")
+        .await
+        .expect_err("past the window");
+    let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
+    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
+    assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
+    assert_eq!(crate::test_support::rows(c, "context.overage").len(), 1);
     assert!(
-        fallbacks(c).contains(&"over_budget".to_string()),
-        "{:?}",
-        fallbacks(c)
+        r.requests().iter().all(|q| q.tools.is_empty()),
+        "no call of the turn was sent"
     );
 }
 
@@ -925,16 +929,12 @@ async fn a_declined_view_turn_carries_its_recall() {
     );
 }
 
-/// Item 1 of round 2: the view's first call is refused by the provider for its size; the turn declines to
-/// the transcript (`over_budget`, held), whose retry carries the turn's recall, kept since the view's
-/// dispatch: the recalled episode rides the retry and the call after it exactly once each, and its Recall
-/// record is written once. One fallback row, three calls in all.
+/// The view's first call is refused by the provider for its size, with nothing of the turn's own to clear:
+/// it is never handed back. The retry is compiled under the provider's stated window, its floor cannot fit
+/// that, and the turn fails before a second call on the core overage, once, with no fallback
+/// (`room::tests` has a refusal the view makes room for).
 #[tokio::test]
-async fn a_view_call_refused_for_size_declines_and_keeps_its_recall() {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Arc;
-    let calls = Arc::new(AtomicU32::new(0));
-    let seen = calls.clone();
+async fn a_view_call_refused_for_size_with_nothing_to_clear_fails_plainly() {
     let r = crate::tests_places::rig_setup_scripted(
         |c| {
             c.memory.mode = crate::config::MemoryMode::Live;
@@ -945,18 +945,12 @@ async fn a_view_call_refused_for_size_declines_and_keeps_its_recall() {
             if q.tools.is_empty() {
                 return crate::provider::Scripted::text("aside");
             }
-            match seen.fetch_add(1, Ordering::SeqCst) {
-                0 => crate::provider::Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
-                    status: 400,
-                    message: "invalid_request_error: prompt is too long: 250000 tokens > 200000 maximum"
+            crate::provider::Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
+                status: 400,
+                message:
+                    "invalid_request_error: prompt is too long: 250000 tokens > 200000 maximum"
                         .into(),
-                }),
-                1 => crate::provider::Scripted::tools(
-                    "Looking.",
-                    &[("r1", "fs_list", serde_json::json!({"path": "."}))],
-                ),
-                _ => crate::provider::Scripted::text("Done."),
-            }
+            })
         },
     );
     let c = &r.core;
@@ -967,58 +961,43 @@ async fn a_view_call_refused_for_size_declines_and_keeps_its_recall() {
     c.store.append(&[n.record().unwrap()]).unwrap();
     (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![earlier]));
     let sid = session_in(c, None, &r.root);
-    turn(c, &sid, ASKED).await;
+    let err = submit(c, &sid, ASKED).await.expect_err("past the window");
+    let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
+    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
     let asked: Vec<ProviderRequest> = (r.requests().into_iter())
         .filter(|q| !q.tools.is_empty() && texts(q).contains(ASKED))
         .collect();
-    assert_eq!(
-        asked.len(),
-        3,
-        "the refused view call, the retry, the call after the result"
-    );
-    for q in &asked[1..] {
-        assert_eq!(
-            texts(q).matches(episode).count(),
-            1,
-            "the recall once: {}",
-            texts(q)
-        );
-    }
-    let notes = (c.store.session_nodes(&sid).unwrap().into_iter())
-        .filter(|(_, n)| matches!(n.body, crate::node::Body::Recall { .. }))
-        .count();
-    assert_eq!(notes, 1, "its Recall record is written once");
-    assert_eq!(fallbacks(c), vec!["over_budget".to_string()]);
+    assert_eq!(asked.len(), 1, "the refused call, and no retry loop");
+    assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
+    assert_eq!(crate::test_support::rows(c, "context.overage").len(), 1);
 }
 
-/// Item 4 of round 2: a floor too large for the view's budget (one enormous message) declines to the
-/// transcript (`over_budget`) instead of laying a "nothing could be laid out" note in a small view.
+/// Item 4 of round 2, under the cut: a floor too large for the view's budget (one enormous message) is never
+/// a small view, and never handed back: the turn fails before any call on the core overage, once, saying the
+/// window and the estimate.
 #[tokio::test]
-async fn a_floor_too_large_for_the_view_declines() {
+async fn a_floor_too_large_for_the_view_fails_on_its_overage() {
     let r = view_rig();
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
     let huge = "enormous ".repeat(150_000);
-    let _ = submit(c, &sid, &huge).await;
+    let err = submit(c, &sid, &huge).await.expect_err("past the window");
+    let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
+    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
+    let said = format!("{err:#}");
     assert!(
-        fallbacks(c).contains(&"over_budget".to_string()),
-        "{:?}",
-        fallbacks(c)
+        said.contains("does not fit") && said.contains("Nothing was sent"),
+        "{said}"
+    );
+    assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
+    assert_eq!(crate::test_support::rows(c, "context.overage").len(), 1);
+    assert!(
+        r.requests().iter().all(|q| q.tools.is_empty()),
+        "no call of the turn was sent"
     );
     for q in r.requests() {
-        assert!(
-            !texts(&q).contains("could be laid out"),
-            "no small view was sent"
-        );
+        assert!(!texts(&q).contains("could be laid out"), "no small view");
     }
-    // The transcript's turn then either carries the input or ends on its own overage before any call.
-    let main: Vec<ProviderRequest> = (r.requests().into_iter())
-        .filter(|q| !q.tools.is_empty())
-        .collect();
-    assert!(
-        main.iter().all(|q| texts(q).contains("enormous enormous")),
-        "a request the transcript sent carries the current input"
-    );
 }
 
 /// Round 2 fix, item 2: a source sealed after the view's assembly and before the call is sent (a barrier in
@@ -1084,6 +1063,19 @@ async fn a_seal_after_assembly_and_before_the_send_is_honoured() {
     }
 }
 
+/// How many turns the late-seal tests run before theirs: one more than the window's floor of three exchanges
+/// (`view::select::here::FLOOR_EXCHANGES`), so the view has an exchange to cut when it makes room after a
+/// refusal.
+const EARLIER: u32 = 4;
+
+/// [`EARLIER`] turns of `sid`, each a long message answered "Hello.".
+async fn said_before(c: &std::sync::Arc<crate::Core>, sid: &str) {
+    for k in 0..EARLIER {
+        let long = "the keeper's long account of the tide at the north light. ".repeat(20);
+        turn(c, sid, &format!("the tide table, earlier ({k}): {long}")).await;
+    }
+}
+
 /// Round 2 fix, item 1: the kept recall of a view call is admitted again ITEM BY ITEM at a late decline: a
 /// source sealed since leaves nothing, neither its text nor its header (its thread's title).
 #[tokio::test]
@@ -1107,15 +1099,19 @@ async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
                 return crate::provider::Scripted::text("aside");
             }
             match seen.fetch_add(1, Ordering::SeqCst) {
-                0 => {
+                // The earlier turns, whose oldest exchange is the window the view cuts to make room.
+                n if n < EARLIER => crate::provider::Scripted::text("Hello."),
+                EARLIER => {
                     // After the view's first call: the recalled source's thread is sealed, and the call
-                    // is refused for its size, so the turn declines.
+                    // is refused for its size. Since the cut the view makes room and calls again, smaller
+                    // (`view_step::room`), reassembled under the gate of now.
                     seal_kelp(held.get().unwrap());
-                    crate::provider::Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
-                        status: 400,
-                        message: "invalid_request_error: prompt is too long: 250000 tokens > 200000 maximum"
-                            .into(),
-                    })
+                    crate::provider::Scripted::Fail(
+                        crate::provider::ProviderError::InvalidRequest {
+                            status: 400,
+                            message: "invalid_request_error: prompt is too long".into(),
+                        },
+                    )
                 }
                 _ => crate::provider::Scripted::text("Done."),
             }
@@ -1128,6 +1124,7 @@ async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
     c.store.append(&[n.record().unwrap()]).unwrap();
     (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![thread.clone()]));
     let sid = session_in(c, None, &r.root);
+    said_before(c, &sid).await;
     turn(c, &sid, "what is the vault code?").await;
     let asked: Vec<ProviderRequest> = (r.requests().into_iter())
         .filter(|q| !q.tools.is_empty() && texts(q).contains("what is the vault code?"))
@@ -1179,17 +1176,22 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
                     return crate::provider::Scripted::text("aside");
                 }
                 match seen.fetch_add(1, Ordering::SeqCst) {
-                    0 => {
+                    // The earlier turns, whose oldest exchange is the window the view cuts to make room.
+                    n if n < EARLIER => crate::provider::Scripted::text("Hello."),
+                    EARLIER => {
                         let c = held.get().unwrap();
                         match steer {
                             true => crate::view_gate::steered(&c.runner, at.get().unwrap(), None),
                             false => seal_kelp(c),
                         }
-                        crate::provider::Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
-                            status: 400,
-                            message: "invalid_request_error: prompt is too long: 250000 tokens > 200000 maximum"
-                                .into(),
-                        })
+                        // Refused for its size: the view makes room and calls again, smaller,
+                        // reassembled under the gate of now (`view_step::room`).
+                        crate::provider::Scripted::Fail(
+                            crate::provider::ProviderError::InvalidRequest {
+                                status: 400,
+                                message: "invalid_request_error: prompt is too long".into(),
+                            },
+                        )
                     }
                     _ => crate::provider::Scripted::text("Done."),
                 }
@@ -1216,6 +1218,7 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
         c.runner.memory.set_ask(index);
         let sid = crate::tests_places::session(c, None);
         let _ = desk.set(sid.clone());
+        said_before(c, &sid).await;
         turn(c, &sid, "what do you remember of the tide and the vault?").await;
         let asked: Vec<ProviderRequest> = (r.requests().into_iter())
             .filter(|q| !q.tools.is_empty() && texts(q).contains("the tide and the vault?"))
