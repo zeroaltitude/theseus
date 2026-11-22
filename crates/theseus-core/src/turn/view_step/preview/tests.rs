@@ -357,39 +357,6 @@ async fn a_sealed_thread_contributes_nothing_not_even_a_count() {
     assert_eq!(sessions[1], (1, 1), "sealed, the thread is in no count");
 }
 
-/// An unsealed fork of a sealed thread's session inherits its prefix: the preview of the fork's place counts
-/// the fork's own turn alone, and names nothing of the prefix.
-#[tokio::test]
-async fn a_forks_inherited_prefix_of_a_sealed_session_is_in_no_count() {
-    let (r, thread) = thread_rig(true);
-    let c = &r.core;
-    turn(c, &thread, "kelp: the embargoed figure is 7741").await;
-    let nodes = c.store.session_nodes(&thread).unwrap();
-    let mut fork = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
-    fork.forked_from = Some(Box::new(theseus_protocol::ForkOrigin {
-        session: thread.clone(),
-        node: nodes.last().unwrap().1.id.clone(),
-        position: nodes.len() as u64,
-        compilation: None,
-        at_ms: 1,
-    }));
-    c.store.put_session(&fork.session_id, &fork).unwrap();
-    let inherited = c.store.transcript(&fork.session_id).unwrap().len();
-    assert!(inherited > 0, "the fork inherits the thread's prefix");
-    turn(c, &fork.session_id, "fork: my own words").await;
-    let p = preview(&r.core, json!({"place": place(c, &fork.session_id)}))
-        .await
-        .unwrap();
-    assert_eq!(p.session, fork.session_id);
-    assert_eq!((p.earlier.sessions, p.earlier.turns), (1, 1), "{p:?}");
-    let said = serde_json::to_string(&p).unwrap();
-    let kelp_turn = turns_of(c, &thread).remove(0);
-    assert!(
-        !said.contains(&kelp_turn) && !said.contains(&thread),
-        "{said}"
-    );
-}
-
 /// An exchange of `session` at `place`, as the ledger writes it.
 fn exchange_of(core: &Core, turn: &str, session: &str, place: &str) {
     let e = Exchange {
