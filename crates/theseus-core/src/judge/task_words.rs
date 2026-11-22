@@ -22,28 +22,32 @@ pub const CHANGE: &str = "change";
 const DEADLINE_MS: u64 = 4_000;
 
 impl JudgeService {
-    /// The one call. `None` when none was asked (the pack off, the client not
-    /// built, the day's budget spent, the call shed), and **every `None` is
-    /// the card**: nothing applies without an answer.
+    /// The one call, and whether the judge was shown less than the whole
+    /// message or task (a field clipped or left out). `None` when none was
+    /// asked (the pack off, the client not built, the day's budget spent, the
+    /// call shed), and **every `None` is the card**: nothing applies without
+    /// an answer.
     pub(crate) async fn judge_task_words(
         &self,
         session: &str,
         node: &str,
         task: (&str, u64),
         input: TaskWordsInput,
-    ) -> Option<Judgment> {
+    ) -> Option<(Judgment, bool)> {
         if self.mode_for(PACK, session).mode == PackMode::Off {
             return None;
         }
         let pack = theseus_judge::pack::by_name(PACK)?;
         let today = spend::local_day(theseus_protocol::now_unix_ms());
         let built = self.built().ok()?;
+        let short = input.clipped();
         let state = theseus_judge::prepare(
             &pack,
             &Input::TaskWords(input),
             &ScrubWith(self.scrubber.clone()),
         )
         .ok()?;
+        let clipped = short || !state.state.truncated.is_empty() || !state.state.dropped.is_empty();
         let blob = theseus_store::blocking(|| self.store.blobs().put(state.state.json.as_bytes()))
             .map_err(
                 |e| tracing::warn!(error = %e, "judge: the task words state blob was not written"),
@@ -80,7 +84,7 @@ impl JudgeService {
         };
         let spent = j.cost_micros.unwrap_or(if unknown { need } else { 0 });
         self.budget.settle(&today, need, spent, called, failed);
-        Some(j)
+        Some((j, clipped))
     }
 
     /// `classify.v4`'s `addressed_task` answer for the message `node`: from

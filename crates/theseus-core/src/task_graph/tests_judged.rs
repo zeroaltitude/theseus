@@ -231,6 +231,7 @@ fn shadow_keeps_the_card_acting_applies_and_a_spent_receipt_never_does() {
             },
             Why::Spent,
         ),
+        (Clean::new(Operation::Clipped), Why::Clipped),
         (Clean::new(Operation::Unsure), Why::Misjudged),
         (Clean::new(Operation::Pauses), Why::Misjudged),
         (Clean::new(Operation::Resumes), Why::Misjudged),
@@ -246,6 +247,7 @@ fn shadow_keeps_the_card_acting_applies_and_a_spent_receipt_never_does() {
         assert_eq!(applies(&ev, &rec, &ask), Err(why), "{why:?}");
     }
     assert_eq!(Why::Spent.as_str(), "spent");
+    assert_eq!(Why::Clipped.as_str(), "clipped");
     assert_eq!(Why::Shadow.as_str(), "shadow");
 }
 
@@ -546,6 +548,7 @@ async fn acting_his_clean_narrowing_applies_once_and_a_second_keeps_its_card() {
     let said = "make it the north side only";
     let new = format!("{}; {said}", before.objective);
     let again = json!({"id": TASK, "version": 2, "patch": {"objective": format!("{new}; {said}")}, "kind": "narrows"});
+    ladder_row(&core.store, "live");
     model.next(
         &first.session_id,
         vec![narrow(&new), again],
@@ -658,4 +661,166 @@ async fn the_admitted_inputs_of_real_turns() {
         &his.turn_id,
         ex.as_ref()
     ));
+}
+
+/// A row of the ladder for `task_words.v1`, as `pack.promote` and
+/// `pack.rollback` write one: `live`, `rolled_back`, `off`.
+fn ladder_row(store: &crate::store::Store, mode: &str) {
+    let row = theseus_protocol::packs::PackModeRow {
+        pack: crate::judge::task_words::PACK.into(),
+        mode: mode.into(),
+        from: "shadow".into(),
+        who: "owner".into(),
+        why: "test".into(),
+        ..Default::default()
+    };
+    let mut r = crate::ledger::LedgerRow::new(
+        theseus_protocol::LedgerKind::PackMode,
+        None,
+        None,
+        crate::fact::ladder::data(&row),
+    );
+    r.at_unix_ms = theseus_protocol::now_unix_ms();
+    let rec = NewRecord::json(kinds::LEDGER, None, &r)
+        .unwrap()
+        .scoped(&crate::judge::ladder::scope(crate::judge::task_words::PACK));
+    store.append(&[rec]).unwrap();
+}
+
+/// Review P1.4: a judgment asked while the pack was live, then a rollback
+/// (and, apart, `off`) before the update: the card, nothing changed, nothing
+/// spent. With no row at all the pack stands in shadow and does not act.
+#[tokio::test]
+async fn a_rollback_or_off_after_a_live_judgment_keeps_the_card() {
+    for after in [None, Some("rolled_back"), Some("off")] {
+        let (_dir, core, model) = judging_core();
+        let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+        let first = submit(&core, owner(), "hello", None).await;
+        assert!(!acts_now(&core.store, &first.session_id), "no row: shadow");
+        ladder_row(&core.store, "live");
+        assert!(acts_now(&core.store, &first.session_id));
+        if let Some(mode) = after {
+            ladder_row(&core.store, mode);
+            assert!(!acts_now(&core.store, &first.session_id), "{mode}");
+        }
+        let said = "make it the north side only";
+        let new = format!("{}; {said}", before.objective);
+        model.next(
+            &first.session_id,
+            vec![narrow(&new)],
+            Some((Operation::Restricts, true)),
+        );
+        submit(&core, owner(), said, Some(&first.session_id)).await;
+        let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+        match after {
+            None => assert_eq!(now.version, 2, "live: it applies"),
+            Some(mode) => {
+                assert_eq!(now.version, 1, "{mode}: nothing changed");
+                let rows = proposed(&core);
+                assert_eq!(rows.len(), 1, "{rows:?}");
+                assert_eq!(
+                    (rows[0]["would"].as_str(), rows[0]["card"].as_str()),
+                    (Some("apply"), Some("shadow")),
+                    "{mode}"
+                );
+            }
+        }
+    }
+}
+
+/// One JSON-RPC call on a connection that `client` names.
+async fn rpc(core: &Arc<crate::rpc::Core>, client: Client, method: &str, params: Value) -> Value {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let (a, b) = tokio::io::duplex(1 << 20);
+    let (sr, sw) = tokio::io::split(b);
+    let srv = tokio::spawn(core.clone().serve_connection(sr, sw, client));
+    let (cr, mut cw) = tokio::io::split(a);
+    let req = theseus_protocol::Request::new(theseus_protocol::Id::Num(1), method, params);
+    let mut line = serde_json::to_string(&req).unwrap();
+    line.push('\n');
+    cw.write_all(line.as_bytes()).await.unwrap();
+    let mut lines = tokio::io::BufReader::new(cr).lines();
+    let r = loop {
+        let l = lines.next_line().await.unwrap().unwrap();
+        if let theseus_protocol::Message::Response(r) = serde_json::from_str(&l).unwrap() {
+            break r;
+        }
+    };
+    cw.shutdown().await.unwrap();
+    drop(lines);
+    let _ = srv.await;
+    r.result
+        .unwrap_or_else(|| panic!("{method}: {:?}", r.error))
+}
+
+/// Review P1.3: a fork inherits its source's nodes through the fork point,
+/// and the model's transcript shows them. A page the source read before the
+/// fork is admitted to the fork's turn: his clean message there is outside.
+/// A fork of a clean source is not.
+#[tokio::test]
+async fn a_fork_inheriting_a_page_admits_it() {
+    for page in [true, false] {
+        let (_dir, core, _model) = judging_core();
+        let src = submit(&core, owner(), "hello", None).await;
+        if page {
+            read_a_page(&core.store, &src.session_id);
+        }
+        let at = core
+            .store
+            .session_nodes(&src.session_id)
+            .unwrap()
+            .last()
+            .unwrap()
+            .1
+            .id
+            .clone();
+        let fork = rpc(
+            &core,
+            owner(),
+            "session.fork",
+            json!({"session": src.session_id, "at": at}),
+        )
+        .await;
+        let fork = fork["session_id"].as_str().unwrap().to_string();
+        let res = submit(&core, owner(), "make it the north side only", Some(&fork)).await;
+        let ex = crate::exchange::exchange(&core.store, &res.turn_id).unwrap();
+        assert_eq!(
+            outside_admitted(&core.store, &res.session_id, &res.turn_id, ex.as_ref()),
+            page,
+            "page inherited: {page}"
+        );
+    }
+}
+
+/// Review P1.2: a view the turn's index names that is missing, or one that
+/// does not decode, counts as outside: the security read is complete, not
+/// the display reader that leaves an unreadable view out.
+#[tokio::test]
+async fn a_missing_or_corrupt_view_of_the_turn_counts_as_outside() {
+    let (_dir, core, _model) = judging_core();
+    let his = submit(&core, owner(), "hello", None).await;
+    let ex = crate::exchange::exchange(&core.store, &his.turn_id).unwrap();
+    assert!(!outside_admitted(
+        &core.store,
+        &his.session_id,
+        &his.turn_id,
+        ex.as_ref()
+    ));
+    let entry = crate::view::record::turn_record(&his.turn_id, "cmp_gone", 1).unwrap();
+    core.store.append(&[entry]).unwrap();
+    assert!(
+        outside_admitted(&core.store, &his.session_id, &his.turn_id, ex.as_ref()),
+        "missing"
+    );
+    let (_dir, core, _model) = judging_core();
+    let his = submit(&core, owner(), "hello", None).await;
+    let ex = crate::exchange::exchange(&core.store, &his.turn_id).unwrap();
+    let entry = crate::view::record::turn_record(&his.turn_id, "cmp_bad", 1).unwrap();
+    let bad =
+        NewRecord::json(kinds::META, Some("view.cmp_bad"), &json!({"not": "a view"})).unwrap();
+    core.store.append(&[entry, bad]).unwrap();
+    assert!(
+        outside_admitted(&core.store, &his.session_id, &his.turn_id, ex.as_ref()),
+        "corrupt"
+    );
 }

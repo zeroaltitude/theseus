@@ -33,6 +33,22 @@ pub struct TaskWordsInput {
     pub state: String,
 }
 
+impl TaskWordsInput {
+    /// Whether the state would hold less than this input: the message, the
+    /// title, the objective or an acceptance line past its length, or more
+    /// acceptance lines than it names. A judgment of a clipped input cannot
+    /// authorise the whole message (issue 44).
+    pub fn clipped(&self) -> bool {
+        let over = |s: &str, n: usize| s.trim().chars().count() > n;
+        over(&self.message, MESSAGE_CHARS)
+            || over(&self.title, LINE_CHARS)
+            || over(&self.objective, OBJECTIVE_CHARS)
+            || over(&self.state, 32)
+            || self.acceptance.len() > LINES
+            || self.acceptance.iter().any(|l| over(l, LINE_CHARS))
+    }
+}
+
 pub fn task_words(i: &TaskWordsInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     let c = Clipper::new(scrub);
     let mut b = StateBuilder::new("task_words", TASK_WORDS_VERSION, cap, scrub);
@@ -99,6 +115,32 @@ mod tests {
         };
         let ids: Vec<&str> = options.iter().map(|o| o.id.as_str()).collect();
         assert_eq!(ids, ["restricts", "pauses", "resumes", "other"]);
+    }
+
+    /// A long message that narrows at its start and adds work past the cut,
+    /// and a task whose acceptance the state cannot name whole, are clipped;
+    /// the plain input is not.
+    #[test]
+    fn a_long_message_or_an_omitted_acceptance_is_clipped() {
+        assert!(!input().clipped());
+        let mut long = input();
+        long.message = format!(
+            "make it staging only. {} Also deploy the new billing service to production.",
+            "Context. ".repeat(300)
+        );
+        assert!(long.clipped());
+        let p = by_name("task_words.v1").unwrap();
+        let prepared = prepare(&p, &Input::TaskWords(long), &NoScrub).unwrap();
+        assert!(
+            !prepared.state.value()["message"]
+                .to_string()
+                .contains("billing"),
+            "the widening is past what the judge reads"
+        );
+        let mut many = input();
+        many.acceptance = (0..LINES + 1).map(|n| format!("check {n}")).collect();
+        many.acceptance.push("Production is never touched.".into());
+        assert!(many.clipped());
     }
 
     /// The input has no room for a proposal (a declared kind or a new

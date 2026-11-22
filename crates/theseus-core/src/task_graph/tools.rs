@@ -1235,9 +1235,21 @@ pub fn create_item<'a>(
 
 /// The lock a layer-1 call's proposal is written under, as its question is
 /// asked: the task's, before the execution's.
-pub fn lock_for_call<'a>(tc: &TurnCtx<'a>, name: &str, input: &Value) -> Option<SessionLock<'a>> {
-    let id = owners_target(tc.store, name, input)?.id;
-    Some(tc.store.lock_task(&id))
+pub fn lock_for_call<'a>(tc: &TurnCtx<'a>, name: &str, input: &Value) -> Vec<SessionLock<'a>> {
+    let Some(rec) = owners_target(tc.store, name, input) else {
+        return Vec::new();
+    };
+    let mut locks = vec![tc.store.lock_task(&rec.id)];
+    // The message a change names is held too, through the proposal's frame:
+    // its shadow receipt is measured once (issue 44).
+    if let Some(said) = input
+        .get("said")
+        .and_then(Value::as_str)
+        .filter(|_| name == UPDATE)
+    {
+        locks.push(super::judged::lock_said(tc, said));
+    }
+    locks
 }
 
 /// A layer-1 call's proposal, written on its task in the frame that asks
@@ -1294,8 +1306,9 @@ pub fn proposed(
     // receipt here, so a replay is counted as one.
     let mut spent = None;
     if name == UPDATE && input.get("said").is_some() {
+        // Its message's lock is the caller's (`lock_for_call`), held until
+        // this frame commits.
         let said = input["said"].as_str().unwrap_or_default();
-        let _lock = super::judged::lock_said(tc, said);
         let (would, card) = match would(tc, input) {
             // It would apply and its judge acts, yet the card asks: another
             // rule of the gate held it, and his yes decides.

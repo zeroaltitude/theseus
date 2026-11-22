@@ -129,6 +129,9 @@ pub enum Operation {
     Resumes,
     Widens,
     Replaces,
+    /// The judge was shown less than the whole message or task: its answer
+    /// cannot authorise the whole of either.
+    Clipped,
     /// The judge could not tell, said anything else (widen, redirect, add
     /// work, a question), or answered under its act band.
     Unsure,
@@ -162,6 +165,8 @@ pub enum Why {
     NoWords,
     /// No independent judgment is recorded for his message.
     NoJudgment,
+    /// The judge read a clipped message or task.
+    Clipped,
     /// The judgment names another task, another version, or another
     /// operation than restricting this one.
     Misjudged,
@@ -199,6 +204,7 @@ impl Why {
         match self {
             Why::NoWords => "no_words",
             Why::NoJudgment => "no_judgment",
+            Why::Clipped => "clipped",
             Why::Misjudged => "misjudged",
             Why::Kind(Kind::Widens) => "widens",
             Why::Kind(Kind::Replaces) => "replaces",
@@ -254,7 +260,8 @@ pub trait Evidence {
     /// cannot be read.
     fn spent(&self, node: &str) -> bool;
     /// The judgment of `node` was asked while its pack acted (live, or in the
-    /// canary's arm); false in shadow.
+    /// canary's arm), and the ladder lets the pack act now; false in shadow,
+    /// and false once it is rolled back or off.
     fn acting(&self, node: &str) -> bool;
 }
 
@@ -307,6 +314,9 @@ pub fn decide(ev: &dyn Evidence, rec: &TaskRecord, ask: &Ask<'_>) -> Result<Kind
     let Some(judged) = ev.judged(said) else {
         return Err(Why::NoJudgment);
     };
+    if judged.operation == Operation::Clipped {
+        return Err(Why::Clipped);
+    }
     if kind != Kind::Narrows {
         return Err(Why::Kind(kind));
     }
@@ -477,8 +487,10 @@ impl Evidence for Records<'_> {
         !matches!(super::judged::receipt(self.store, node), Ok(None))
     }
 
+    /// Asked while the pack acted, AND the ladder lets it act now.
     fn acting(&self, node: &str) -> bool {
         matches!(super::judged::judged(self.store, node), Ok(Some(j)) if j.acting)
+            && super::judged::acts_now(self.store, self.session)
     }
 }
 
