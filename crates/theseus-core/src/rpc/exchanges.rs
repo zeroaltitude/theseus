@@ -160,25 +160,7 @@ impl Core {
             method::EXCHANGE_OFFER
             | method::EXCHANGE_RELEASE
             | method::EXCHANGE_RELEASES
-            | method::EXCHANGE_WITHDRAW => {
-                let who = conn.answerer(None, None);
-                if let Err(why) = crate::places::owner_in_person_of(
-                    &who,
-                    &self.runner.place_rule,
-                    &self.cfg,
-                    "a piece of a private conversation is released by the owner alone",
-                    "",
-                ) {
-                    return Err(RpcFailure::new(
-                        error_code::REFUSED,
-                        format!("refused: {why}"),
-                    ));
-                }
-                return self
-                    .rpc_release(name, params, conn.surface.as_str())
-                    .await
-                    .map_err(|e| RpcFailure::new(error_code::REFUSED, format!("{e:#}")));
-            }
+            | method::EXCHANGE_WITHDRAW => return self.rpc_release(name, params, conn).await,
             other => {
                 return Err(RpcFailure::new(
                     error_code::METHOD_NOT_FOUND,
@@ -213,8 +195,33 @@ struct WithdrawParams {
 }
 
 impl Core {
-    /// The release methods, the owner in person proven by the caller (`crate::release`).
+    /// The release methods (`crate::release`): the owner in person, by the proof his other acts ask, before
+    /// anything is read; an agent's process, the MCP server and an unnamed connection are refused.
     async fn rpc_release(
+        self: Arc<Self>,
+        name: &str,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        let who = conn.answerer(None, None);
+        if let Err(why) = crate::places::owner_in_person_of(
+            &who,
+            &self.runner.place_rule,
+            &self.cfg,
+            "a piece of a private conversation is released by the owner alone",
+            "",
+        ) {
+            return Err(RpcFailure::new(
+                error_code::REFUSED,
+                format!("refused: {why}"),
+            ));
+        }
+        self.release_act(name, params, conn.surface.as_str())
+            .await
+            .map_err(|e| RpcFailure::new(error_code::REFUSED, format!("{e:#}")))
+    }
+
+    async fn release_act(
         self: Arc<Self>,
         name: &str,
         params: Value,

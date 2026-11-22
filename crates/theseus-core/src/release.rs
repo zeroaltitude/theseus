@@ -131,7 +131,7 @@ pub fn all(store: &Store) -> Result<Vec<(Release, Option<Ended>)>> {
         let end = store.get_meta::<Ended>(&format!("{END_PREFIX}{}", r.id))?;
         out.push((r, end));
     }
-    out.sort_by(|a, b| b.0.at_ms.cmp(&a.0.at_ms));
+    out.sort_by_key(|(r, _)| std::cmp::Reverse(r.at_ms));
     Ok(out)
 }
 
@@ -154,7 +154,7 @@ pub fn grant(
     let r = Release {
         id: format!("rel_{}", uuid::Uuid::now_v7().simple()),
         exchange: turn.into(),
-        from: ex.place.clone(),
+        from: ex.place,
         to: to.into(),
         surface: surface.into(),
         at_ms: theseus_protocol::now_unix_ms(),
