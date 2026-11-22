@@ -1,5 +1,5 @@
 // The data-parity inventory (theseus-jid7t.3; the owner's rule: no data lost). Every datum and act of the Agenda,
-// Tasks, Threads and Actions pages and of the TUI's board, and its home now. `test/ops-parity.test.ts` holds it true:
+// Tasks and Actions pages and of the TUI's board, and its home now. `test/ops-parity.test.ts` holds it true:
 // every id below is present once; every row of 1a-1d is `here` (on Operations) or `stays` (the old place keeps it);
 // a row of 1e and herdr may wait on a later row, named; each home's source says it renders the thing (`at`); and each
 // card's fact function makes every field the old component showed (`facts`). A change that drops a field fails it.
@@ -9,7 +9,7 @@
 
 export type Home = 'here' | 'stays' | 'pending: ops-act' | 'pending: ops-graph' | 'pending: ops-timeline'
 
-export type FactFn = 'cardFacts' | 'threadFacts' | 'threadPanelFacts' | 'itemFacts'
+export type FactFn = 'cardFacts' | 'itemFacts'
 
 export interface ParityRow {
   id: string
@@ -27,8 +27,6 @@ const OPS = 'src/views/Ops.tsx'
 const LENS = 'src/ops/TimelineLens.tsx'
 const STRIP = 'src/ops/WeekStripV2.tsx'
 const BOARD = 'src/ops/BoardLens.tsx'
-const THREADS = 'src/ops/ThreadsLens.tsx'
-const PANEL = 'src/ops/ThreadPanel.tsx'
 const QUEUE = 'src/ops/Queue.tsx'
 const KEYS = 'src/ops/keys.ts'
 const ACTIONS = 'src/views/Actions.tsx'
@@ -58,15 +56,6 @@ export const PARITY: readonly ParityRow[] = [
     facts: { fn: 'cardFacts', drawn: BOARD, fields: ['pill', 'paused', 'title', 'href', 'place', 'placeTip', 'short', 'progress', 'doing', 'outcome', 'report', 'cost', 'activity', 'waitsOn', 'open', 'pause', 'stop', 'approvals', 'question', 'model'] } },
   { id: 'T5', group: '1b', datum: 'Done 50 at a time, "more (N older)", report lines read lazily', home: 'here', at: [['src/ops/board.ts', 'DONE_PAGE = 50'], [BOARD, 'older)</button>'], [OPS, 'reportLineOf(']] },
   { id: 'T6', group: '1b', datum: '?sel= scroll-to and glow', home: 'here', at: [[BOARD, 'scrollIntoView'], [BOARD, "focused && 'ring-gold"]] },
-  // 1c. Threads: the Threads lens, its panel in the inspector, and the queue for seals.
-  { id: 'H1', group: '1c', datum: 'per thread: lock, title link, state, warm/cold and tooltip, ● N need you and the paused tooltip, details, seal box, open items', home: 'here', at: [[THREADS, 'threadFacts(t, now)'], [THREADS, 'f.items.map((it, i) => <Item key={it.id} v={t.items[i]} />)']],
-    facts: { fn: 'threadFacts', drawn: THREADS, fields: ['sealed', 'title', 'href', 'state', 'warmth', 'warmthTip', 'needs', 'needsCounted', 'pausedTip', 'details', 'seal', 'items'] } },
-  { id: 'H2', group: '1c', datum: '"N live · N need you on the board"', home: 'here', at: [[THREADS, 'need you on the board']] },
-  { id: 'H3', group: '1c', datum: 'loose conversations and the Fleet link', home: 'here', at: [[THREADS, 'conversations are in no thread'], [THREADS, 'to="/fleet"']] },
-  { id: 'H4', group: '1c', datum: 'the time machine’s "Threads then" fold and its caveat', home: 'here', at: [[THREADS, 'title="Threads then"'], [THREADS, 'is the present’s and is not folded']] },
-  { id: 'H5', group: '1c', datum: 'the empty state’s words', home: 'here', at: [[THREADS, 'No thread is live.'], [THREADS, "'thread.new'"]] },
-  { id: 'H6', group: '1c', datum: 'the thread page /threads/:slug', home: 'stays', at: [['src/main.tsx', "path: 'threads/:slug'"], ['src/views/Threads.tsx', '<ThreadBody'], ['src/ops/Inspector.tsx', '<ThreadBody']],
-    facts: { fn: 'threadPanelFacts', drawn: PANEL, fields: ['title', 'state', 'goal', 'details', 'context', 'today', 'sealPending', 'sealedBy', 'topics', 'links', 'card', 'workingSet', 'turnsOf', 'openWork'] } },
   // 1d. Actions: the queue takes what waits; the rest stays.
   { id: 'X1', group: '1d', datum: 'approvals waiting (ConfirmCard, every field, read-only under the time machine)', home: 'here', at: [[QUEUE, '<ConfirmCard c={i.confirm} past='], [ACTIONS, '<ConfirmCard']],
     facts: { fn: 'itemFacts', drawn: QUEUE, fields: ['glyph', 'kind', 'title', 'owner', 'age', 'left'] } },
@@ -92,7 +81,6 @@ export const PARITY: readonly ParityRow[] = [
   { id: 'B8', group: '1e', datum: 'P pause or resume', home: 'here', at: [[KEYS, "verb: 'pause'"]] },
   { id: 'B9', group: '1e', datum: 'l follow the job (its output streams in the inspector: work.peek, then action.output)', home: 'here', at: [[KEYS, "verb: 'follow'"], ['src/ops/jobout.ts', "'action.output'"], ['src/ops/jobout.ts', "'action.unfollow'"]] },
   { id: 'B10', group: '1e', datum: 'PgUp / PgDn / End in the transcript', home: 'here', at: [[KEYS, "verb: 'scroll_up'"], [KEYS, "verb: 'scroll_end'"], [OPS, 'scrollTranscript(']] },
-  { id: 'B11', group: '1e', datum: 'ctrl-t thread picker, /t, T (here: T and /t in the box; ctrl-t is the browser’s new tab)', home: 'here', at: [[KEYS, "verb: 'thread_picker'"], ['src/ops/ThreadPicker.tsx', 'Join a thread'], ['src/ops/JoinPane.tsx', 'onPicker']] },
   { id: 'B12', group: '1e', datum: 'r d o on a failure', home: 'here', at: [[KEYS, "verb: 'retry'"], [KEYS, "verb: 'dismiss'"], [KEYS, "verb: 'open'"]] },
   { id: 'B13', group: '1e', datum: 'L self changes', home: 'here', at: [[KEYS, "verb: 'self_changes'"], [OPS, '<SelfChangesCard'], ['src/ops/PaletteGroups.tsx', 'Self changes']] },
   { id: 'B14', group: '1e', datum: 'p standing records / parent', home: 'here', at: [[KEYS, "verb: 'parent'"], ['src/ops/InspectorSections.tsx', "'standing.list'"], ['src/ops/Inspector.tsx', '<StandingBlock']] },
@@ -115,8 +103,7 @@ export const PARITY: readonly ParityRow[] = [
 export const INVENTORY: readonly string[] = [
   ...Array.from({ length: 12 }, (_, i) => `A${i + 1}`),
   ...Array.from({ length: 6 }, (_, i) => `T${i + 1}`),
-  ...Array.from({ length: 6 }, (_, i) => `H${i + 1}`),
   ...Array.from({ length: 10 }, (_, i) => `X${i + 1}`).filter((id) => id !== 'X3'), // X3 (the external-text hold) retired with the hold
-  ...Array.from({ length: 18 }, (_, i) => `B${i + 1}`),
+  ...Array.from({ length: 18 }, (_, i) => `B${i + 1}`).filter((id) => id !== 'B11'), // B11 (the thread picker) retired with threads
   ...Array.from({ length: 8 }, (_, i) => `R${i + 1}`),
 ]

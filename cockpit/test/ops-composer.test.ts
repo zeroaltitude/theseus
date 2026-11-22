@@ -47,7 +47,6 @@ test('a steer sends no profile and keeps the choice; a send clears it only when 
   assert.deepEqual(send.params, { session_id: 'ses_a', input: 'go', profile: 'deep' })
   assert.equal(send.clearOnOk, true)
   assert.equal(submitOf({ sid: 'ses_a', input: 'go', turnProfile: null, steer: false }).clearOnOk, false, 'nothing chosen, nothing to clear')
-  assert.deepEqual(submitOf({ thread: 'quay', input: 'hi', turnProfile: 'deep', steer: false }).params, { thread: 'quay', input: 'hi', profile: 'deep' })
 })
 
 test('the pane clears the choice in the answer’s then, never before the call', () => {
@@ -94,7 +93,6 @@ test('a chosen file rides turn.submit as an attachment, and none leaves the para
   const a = attachmentOf({ name: 'shot.png', size: 8 }, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
   const sent = submitOf({ sid: 'ses_a', input: 'look at this', turnProfile: null, steer: false, attachments: [a] })
   assert.deepEqual(sent.params, { session_id: 'ses_a', input: 'look at this', attachments: [a] })
-  assert.deepEqual(submitOf({ thread: 'quay', input: 'hi', steer: false, attachments: [a] }).params, { thread: 'quay', input: 'hi', attachments: [a] })
   assert.deepEqual(submitOf({ sid: 'ses_a', input: 'go', turnProfile: 'deep', steer: false, attachments: [] }).params,
     { session_id: 'ses_a', input: 'go', profile: 'deep' }, 'no file chosen: the params of before, with no attachments key')
   assert.deepEqual(submitOf({ sid: 'ses_a', input: 'go', turnProfile: 'deep', steer: false }).params,

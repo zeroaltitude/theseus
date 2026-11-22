@@ -1,5 +1,5 @@
-// The Operations page's nouns in the "?" words (theseus-0zraw): the explainers say conversation, thread, plan, step,
-// task and job as the owner settled them, and carry none of the internal words a person has never met.
+// The Operations page's nouns in the "?" words (theseus-0zraw): the explainers say conversation, plan, step, task and
+// job as the owner settled them, and carry none of the internal words a person has never met.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -31,13 +31,13 @@ test('the state words are the seven buckets, and nothing says “still today”'
 
 test('ops.graph and ops.words say the glossary’s nouns', () => {
   const g = Object.values(EXPLAINERS['ops.graph']).join(' ')
-  for (const w of ['thread', 'swimlane', 'plan', 'step', 'task', 'job', 'n of m']) assert.match(g, whole(w.replace(' ', '\\s+')), `ops.graph says ${w}`)
+  for (const w of ['swimlane', 'plan', 'step', 'task', 'job', 'n of m']) assert.match(g, whole(w.replace(' ', '\\s+')), `ops.graph says ${w}`)
   const w = Object.values(EXPLAINERS['ops.words']).join(' ')
-  for (const n of ['conversation', 'thread', 'plan', 'step', 'task', 'job']) assert.match(w, whole(n), `ops.words says ${n}`)
+  for (const n of ['conversation', 'plan', 'step', 'task', 'job']) assert.match(w, whole(n), `ops.words says ${n}`)
 })
 
 test('the Operations page’s entries use the new nouns for stored work', () => {
-  for (const id of ['ops.board', 'ops.queue', 'ops.inspector', 'tasks.new', 'actions.tasks', 'actions.taskgraph', 'threads.list', 'threads.work', 'fleet.graph']) {
+  for (const id of ['ops.board', 'ops.queue', 'ops.inspector', 'tasks.new', 'actions.tasks', 'actions.taskgraph', 'fleet.graph']) {
     const t = Object.values(EXPLAINERS[id]).join(' ')
     assert.ok(!/task record|task graph|plan item/i.test(t), id)
   }

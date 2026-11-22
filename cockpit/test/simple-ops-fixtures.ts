@@ -11,8 +11,8 @@ export function store(): WorkSetInput {
   const b = board()
   const views: WorkView[] = [
     ...b.views,
-    view('exe_pl', 'conversation', 'running', { session_id: 'ses_pl', thread: 'harbour-survey' }),
-    view('act_j2', 'job', 'running', { session_id: 'ses_pl', parent: 'exe_pl', thread: 'harbour-survey', title: 'cargo build' }),
+    view('exe_pl', 'conversation', 'running', { session_id: 'ses_pl' }),
+    view('act_j2', 'job', 'running', { session_id: 'ses_pl', parent: 'exe_pl', title: 'cargo build' }),
   ]
   const records = [
     record('tsk_plan', { title: 'Survey the quays', state: 'in_progress', origin: { session: 'ses_pl' } as never }),
@@ -31,6 +31,6 @@ export function store(): WorkSetInput {
     { kind: 'provider.call', at_unix_ms: NOW - 30 * HOUR, session_id: 'ses_home', data: { cost_usd: 9 } },
     { kind: 'provider.call', at_unix_ms: NOW - 2 * HOUR, session_id: 'ses_home', data: { cost_usd: 0.4 } },
   ]
-  return { views, tasks: b.tasks, sessions, records, confirms, groups: b.groups, history, now: NOW }
+  return { views, tasks: b.tasks, sessions, records, confirms, history, now: NOW }
 }
 

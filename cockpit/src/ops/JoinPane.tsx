@@ -1,8 +1,7 @@
-// The Join pane (theseus-jid7t.6): join any session, task or thread and talk to it from the Operations page. It reuses
+// The Join pane (theseus-jid7t.6): join any session or task and talk to it from the Operations page. It reuses
 // the deck's transcript and the deck's drafts, and the composer is a state (`composer.ts`): ⏎ while a turn runs steers
 // it (`turn.submit` reaches the running turn at its next step: `turn.steered`, marked in the transcript), ⌘⏎ holds the
-// message until `turn.ended`, esc drops it, ⇧⇥ cycles the mode. A thread with no session opens one with its first
-// message (`turn.submit { thread }`). With `compact` it is the inspector's composer: the last turns and the box.
+// message until `turn.ended`, esc drops it, ⇧⇥ cycles the mode. With `compact` it is the inspector's composer: the last turns and the box.
 // A file goes with a message (theseus-qgsv): the paperclip, a drop on the box or a paste chooses it, the browser
 // reads its bytes and `ops/attach.ts` builds the `Attachment` `theseus ask --attach` builds; a file over the cap
 // is refused here, in the chat's own words, and no call is made.
@@ -10,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Paperclip, SendHorizontal, X } from 'lucide-react'
-import type { Attachment, SessionHistoryResult, SessionInfo, SessionMode, SessionModeResult, ThreadRow } from '@protocol'
+import type { Attachment, SessionHistoryResult, SessionInfo, SessionMode, SessionModeResult } from '@protocol'
 import { useRpc, usePush } from '@/lib/rpc'
 import { turnRows } from '@/lib/derive'
 import { useHistoryRows } from '@/lib/history'
@@ -29,11 +28,10 @@ import { useOpsUi } from './ui'
 import { StickyChip } from './ModelMenu'
 import { useWatchedSession } from './watch'
 
-export function JoinPane({ sessionId, thread, compact = false, session, focus = false, onPicker, onMenu }: { sessionId?: string; thread?: string; compact?: boolean; session?: SessionInfo; focus?: boolean; onPicker?: () => void; onMenu?: (m: 'model' | 'mode', sid: string) => void }) {
+export function JoinPane({ sessionId, compact = false, session, focus = false, onMenu }: { sessionId?: string; compact?: boolean; session?: SessionInfo; focus?: boolean; onMenu?: (m: 'model' | 'mode', sid: string) => void }) {
   const qc = useQueryClient()
   const { act, post, on } = useOpsAct()
-  const { data: trow } = useRpc<ThreadRow>('thread.show', { slug: thread }, 0, { enabled: !!thread && !sessionId })
-  const sid = sessionId ?? trow?.thread.session_id ?? undefined
+  const sid = sessionId
   useWatchedSession(sid)
   const { data: hist } = useRpc<SessionHistoryResult>('session.history', { session_id: sid, n: compact ? 12 : 60 }, 0, { enabled: !!sid })
   const { data: mode } = useRpc<SessionModeResult>('session.mode', { session_id: sid }, 0, { enabled: !!sid })
@@ -72,9 +70,9 @@ export function JoinPane({ sessionId, thread, compact = false, session, focus = 
     if (refused) { setError(refused); return }
     const draft = sid ? addDraft(sid, input) : null
     const sent = files
-    const { params, clearOnOk } = submitOf({ sid, thread, input, turnProfile, steer, attachments: sent })
+    const { params, clearOnOk } = submitOf({ sid, input, turnProfile, steer, attachments: sent })
     post('join', 'turn.submit', params)
-      .then(() => { setFiles((was) => withoutSent(was, sent)); if (draft != null) dropDraft(draft); if (clearOnOk && sid) setTurnProfile(sid, null); void qc.invalidateQueries({ queryKey: ['thread.show'] }) })
+      .then(() => { setFiles((was) => withoutSent(was, sent)); if (draft != null) dropDraft(draft); if (clearOnOk && sid) setTurnProfile(sid, null) })
       .catch((e: any) => { if (draft != null) failDraft(draft, e?.message ?? String(e)); else setError(e?.message ?? String(e)) })
   }
   const step = (e: Parameters<typeof composerStep>[1]) => {
@@ -111,7 +109,7 @@ export function JoinPane({ sessionId, thread, compact = false, session, focus = 
       {!compact && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-3 py-1.5 text-[12px]">
           <span className="panel-title">join</span>
-          <span className="truncate text-ink">{session?.title || trow?.thread.title || thread || sid}</span>
+          <span className="truncate text-ink">{session?.title || sid}</span>
           {sid && <StickyChip sessionId={sid} />}
           {mode && <span className="num rounded bg-white/5 px-1.5 text-[11px] text-ink-dim" title="⇧⇥ in the box cycles it">{mode.mode}</span>}
           {sid && onMenu && <button onClick={() => onMenu('model', sid)} disabled={!on('model_menu')} title="m: the model menu (outside the box)" className="rounded px-1.5 text-[11px] text-model ring-1 ring-line hover:text-ink">◇ model</button>}
@@ -125,7 +123,7 @@ export function JoinPane({ sessionId, thread, compact = false, session, focus = 
         {compact
           ? (tail.length === 0 ? <div className="text-[12px] text-ink-faint">No messages yet.</div>
             : <ol className="space-y-1.5 text-[12px]">{tail.map((m) => <li key={m.id}><span className="text-ink-faint">{m.who === 'you' ? 'You' : 'Theseus'} · {ago(m.at)}</span><div className="line-clamp-3 whitespace-pre-wrap text-ink">{m.text}</div></li>)}</ol>)
-          : !sid ? <Empty>The first message opens this thread’s session.</Empty>
+          : !sid ? <Empty>Select a session or a task.</Empty>
             : <Transcript nodes={nodes} turns={turns} live={live} drafts={drafts} deck={sid} />}
         {compact && live?.text && <div className="mt-1 whitespace-pre-wrap text-[12px] text-live">{live.text.slice(-300)}</div>}
       </div>
@@ -146,11 +144,11 @@ export function JoinPane({ sessionId, thread, compact = false, session, focus = 
           <input ref={pick} type="file" multiple className="hidden" aria-label="Attach files" onChange={(e) => { void take(e.target.files); e.target.value = '' }} />
           <button onClick={() => pick.current?.click()} disabled={!on('join')} aria-label="Attach a file" title="attach a file: the model sees it with this message"
             className="grid h-9 w-9 place-items-center rounded-lg text-ink-faint ring-1 ring-line hover:text-ink"><Paperclip size={16} /></button>
-          <textarea autoFocus={focus} value={text} onChange={(e) => { if (onPicker && /^\/t\s$/.test(e.target.value)) { setText(''); onPicker(); return } setText(e.target.value) }} onKeyDown={onKey} rows={Math.min(5, Math.max(1, text.split('\n').length))} aria-label="Message"
+          <textarea autoFocus={focus} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} rows={Math.min(5, Math.max(1, text.split('\n').length))} aria-label="Message"
             onDragOver={(e) => { if (on('join') && e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' } }}
             onDrop={(e) => { if (!on('join') || !e.dataTransfer.types.includes('Files')) return; e.preventDefault(); e.stopPropagation(); void take(e.dataTransfer.files) }}
             onPaste={(e) => { const f = Array.from(e.clipboardData.files); if (on('join') && f.length > 0) { e.preventDefault(); void take(f) } }}
-            disabled={!on('join')} placeholder={sid || thread ? 'Say something to it…' : 'Select a session or a thread'}
+            disabled={!on('join')} placeholder={sid ? 'Say something to it…' : 'Select a session or a task'}
             className="min-h-9 flex-1 resize-none rounded-lg bg-white/[0.04] px-3 py-2 text-[13px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40" />
           <button onClick={() => step({ kind: 'enter', text })} disabled={!text.trim() || !on('join')} aria-label="Send"
             className={cn('grid h-9 w-9 place-items-center rounded-lg ring-1', text.trim() ? 'bg-live/15 text-live ring-live/40' : 'text-ink-faint ring-line')}><SendHorizontal size={16} /></button>

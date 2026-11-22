@@ -2,8 +2,8 @@
 // it (test/ops-selection.test.ts).
 //
 // | drag                 | onto                                 | does                               | call                          | posture |
-// | a task               | another conversation, a thread's lane | its report goes there from now on  | `task.rehome { task, home }`  | ask     |
-// | a task, a conversation | a project                          | attaches it                        | `project.attach`              | do      |
+// | a task                 | another conversation | its report goes there from now on | `task.rehome { task, home }` | ask     |
+// | a task, a conversation | a project            | attaches it                       | `project.attach`             | do      |
 //
 // Refused, with the reason on the cursor: ended work, jobs, questions, the system row, routine runs, a conversation
 // onto a home (it has no parent), a home the page can already tell is weaker in data mark than the task, and anything
@@ -30,7 +30,6 @@ export interface DragItem {
 
 export type DropTarget =
   | { kind: 'conversation'; sessionId: string; title: string; data?: DataMark }
-  | { kind: 'lane'; slug: string; title: string; data?: DataMark }
   | { kind: 'project'; id: string; title: string }
 
 export type Drop =
@@ -60,19 +59,17 @@ export function dropOf(source: DragItem, target: DropTarget, past: boolean): Dro
     return { method: 'project.attach', params: { session: source.sessionId, project: target.id }, posture: 'do', words: `Attach “${source.title}” to the project “${target.title}”.` }
   }
   if (source.kind === 'conversation') return { refused: 'a conversation has no parent: only a task’s report moves' }
-  const home = target.kind === 'conversation' ? target.sessionId : `thread:${target.slug}`
-  if (target.kind === 'conversation' && target.sessionId === source.sessionId) return { refused: 'a task cannot report to itself' }
+  const home = target.sessionId
+  if (target.sessionId === source.sessionId) return { refused: 'a task cannot report to itself' }
   if (home === source.home) return { refused: 'it already reports there' }
   if (target.data && source.data && RANK[target.data] < RANK[source.data]) {
-    return { refused: `a ${source.data} task cannot report into ${target.data === 'open' ? 'an open' : `a ${target.data}`} ${target.kind === 'lane' ? 'thread' : 'conversation'}` }
+    return { refused: `a ${source.data} task cannot report into ${target.data === 'open' ? 'an open' : `a ${target.data}`} conversation` }
   }
-  const where = target.kind === 'conversation' ? `the conversation “${target.title}”` : `the thread “${target.title}”`
-  return { method: 'task.rehome', params: { task: source.sessionId, home }, posture: 'ask', words: `Its report goes to ${where} from now on. ${budgetWords(source.homeTitle)}` }
+  return { method: 'task.rehome', params: { task: source.sessionId, home }, posture: 'ask', words: `Its report goes to the conversation “${target.title}” from now on. ${budgetWords(source.homeTitle)}` }
 }
 
-/** A drop target as the page marks it on an element (`data-drop`): `conversation:<ses_…>`, `lane:<slug>`,
- *  `project:<tsk_…>`. */
-export const dropKey = (t: DropTarget): string => (t.kind === 'conversation' ? `conversation:${t.sessionId}` : t.kind === 'lane' ? `lane:${t.slug}` : `project:${t.id}`)
+/** A drop target as the page marks it on an element (`data-drop`): `conversation:<ses_…>`, `project:<tsk_…>`. */
+export const dropKey = (t: DropTarget): string => (t.kind === 'conversation' ? `conversation:${t.sessionId}` : `project:${t.id}`)
 
 /** A board row as a drag: a task's report home is its parent conversation, whose title the budget sentence names. */
 export function dragOf(r: OpsRow, titleOf: (sessionId: string) => string): DragItem {

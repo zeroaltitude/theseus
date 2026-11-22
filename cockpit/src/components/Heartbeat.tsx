@@ -28,7 +28,7 @@ import { diskSummary } from '@/lib/disk'
 import { useTick } from '@/lib/hooks'
 import { useFlow } from '@/lib/flow'
 import { useWorld } from '@/lib/world'
-import { useThreadBoard } from '@/lib/threadwatch'
+import { useWorkBoard } from '@/lib/workwatch'
 import { workingCount } from '@/lib/taskboard'
 import { useAsOf, type World } from '@/lib/timemachine'
 import {
@@ -125,7 +125,7 @@ function Heartbeat({ world }: { world: World | null }) {
 /** The tasks working now, from the work board: a task that waits on its own long command is not an execution running,
  *  and is still working. Hidden at none; a press opens the Operations page's Board. */
 function TasksWorking() {
-  const n = workingCount(Object.values(useThreadBoard().board.views))
+  const n = workingCount(Object.values(useWorkBoard().board.views))
   if (n === 0) return null
   return (
     <Link to="/ops?lens=board" data-testid="tasks-working" title="tasks running, waiting on their own commands, or paused; this opens the Board" className="flex shrink-0 flex-col justify-center leading-none hover:brightness-125">

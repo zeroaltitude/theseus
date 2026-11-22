@@ -52,7 +52,7 @@ type Asking =
 export interface BulkInput {
   rows: readonly OpsRow[]
   queue: readonly QueueItem[]
-  /** Where a re-home may send a report: the conversations and the threads' lanes. */
+  /** Where a re-home may send a report: the conversations. */
   homes: readonly DropTarget[]
   projects: readonly DropTarget[]
   titleOf: (sessionId: string) => string
@@ -151,12 +151,12 @@ export function useBulk({ rows, queue, homes, projects, titleOf, now, onResults 
         onGo={() => { close(); void run(a.verb, ok, a.keep, refused) }}>
         <div className="mb-3 flex flex-wrap gap-1.5">
           {(rehome ? homes : projects).map((t) => (
-            <button key={t.kind === 'project' ? t.id : t.kind === 'lane' ? t.slug : t.sessionId} type="button" onClick={() => setAsking({ ...a, to: t })}
+            <button key={t.kind === 'project' ? t.id : t.sessionId} type="button" onClick={() => setAsking({ ...a, to: t })}
               className={cn('rounded-full px-2.5 py-0.5 text-[11.5px] ring-1', a.to === t ? 'bg-gold/15 text-gold ring-gold/60' : 'text-ink-dim ring-line hover:text-ink')}>
-              {t.kind === 'lane' ? `thread · ${t.title}` : t.title}
+              {t.title}
             </button>
           ))}
-          {!(rehome ? homes : projects).length && <span className="text-[12px] text-ink-faint">{rehome ? 'no conversation or thread to send a report to' : 'no project yet: make one on the Timeline'}</span>}
+          {!(rehome ? homes : projects).length && <span className="text-[12px] text-ink-faint">{rehome ? 'no conversation to send a report to' : 'no project yet: make one on the Timeline'}</span>}
         </div>
         <ul className="space-y-1">
           {(plan.length ? plan : a.items.map((i) => ({ i, d: null }))).map(({ i, d }) => (

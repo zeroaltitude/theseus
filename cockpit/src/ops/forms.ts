@@ -2,7 +2,6 @@
 // work set (`boardRows`) alone. Pure: `npm test` runs it (test/ops-forms.test.ts). The rows are never re-derived here:
 // a row's bucket, its plan flag and its parent are `board.ts`'s; this module only reads them.
 //
-//   thread        the lane; its conversation is the lane's head card (`graph.ts` names it, a conversation in its lane)
 //   conversation  the navy anchor
 //   plan          a folder-tab card with an n/m bar; a step with a child listed under it is one, in place
 //   step          the work card with a checkbox glyph in its state colour

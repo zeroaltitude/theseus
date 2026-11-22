@@ -16,10 +16,10 @@ import { confirm, info, MIN, NOW, record, view } from './ops-fixtures.ts'
 const read = (p: string) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8')
 
 test('choosing a tile replaces the one chosen, and choosing the chosen one clears it', () => {
-  const two = toggleBucket({ bucket: 'needs', thread: 'harbour-survey' }, 'working')
-  assert.deepEqual(two, { bucket: 'working', thread: 'harbour-survey' }, 'WORKING replaces NEEDS YOU; the other chips stay')
+  const two = toggleBucket({ bucket: 'needs', model: 'sonnet' }, 'working')
+  assert.deepEqual(two, { bucket: 'working', model: 'sonnet' }, 'WORKING replaces NEEDS YOU; the other chips stay')
   const cleared = toggleBucket(two, 'working')
-  assert.deepEqual(cleared, { thread: 'harbour-survey' })
+  assert.deepEqual(cleared, { model: 'sonnet' })
   assert.ok(!('bucket' in cleared), 'the key is gone, not set to nothing')
   assert.deepEqual(toggleBucket({}, 'needs'), { bucket: 'needs' })
   assert.deepEqual(toggleBucket(toggleBucket({}, 'needs'), 'needs'), {}, 'NEEDS YOU clears like the others')
