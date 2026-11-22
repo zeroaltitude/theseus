@@ -217,7 +217,7 @@ impl TurnRunner {
 /// floor's numbers when the floor did not fit. Its estimate before finishing is kept (`Fit::base`), and what
 /// the request carries beyond the view (`Fit::own`).
 fn rendered(t: &mut Turn<'_>, input: CompileInput<'_>) -> anyhow::Result<Compiled> {
-    let mut compiled = rendered_now(t, input)?;
+    let compiled = rendered_now(t, input)?;
     if let Some(f) = t.view.as_mut() {
         let tokens = compiled.estimate.tokens;
         f.fit.base = (compiled.estimate.upper, tokens);
