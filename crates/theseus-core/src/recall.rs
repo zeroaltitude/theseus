@@ -1141,9 +1141,7 @@ pub fn query_of(nodes: &Transcript, turn_id: &str) -> Option<(RecallQuery, u64)>
 }
 
 /// What the turn's message says: its text and its attachments' names, with
-/// none of the previous reply that `query_of`'s words carry. A thread is
-/// named by these words alone (theseus-n6mkd): the assistant saying another
-/// thread's title is no reason to pay that thread no distance.
+/// none of the previous reply that `query_of`'s words carry.
 pub fn said_of(nodes: &Transcript, turn_id: &str) -> String {
     let mut said = Vec::new();
     for (_, n) in nodes {
@@ -1218,9 +1216,7 @@ pub fn text_of(n: &Node) -> String {
 impl TurnRunner {
     /// Where `session_id` speaks, by name, for a recalled item's header (35a):
     /// its bound place's name (`#harbor`, `DM @zeroaltitude`), its target when no
-    /// binding names it, or the session itself on the CLI or the web UI. A
-    /// shared place recalls only its own sessions (the place rule), so its
-    /// headers name no other place.
+    /// binding names it, or the session itself on the CLI or the web UI.
     pub fn place_name(&self, session_id: &str) -> String {
         if crate::import::is_imported(session_id) {
             return crate::import::place_name(&self.store, session_id);
