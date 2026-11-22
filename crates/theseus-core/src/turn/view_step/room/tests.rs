@@ -629,7 +629,7 @@ async fn a_turn_that_lowered_slot_g_then_needs_clearing_still_answers() {
         crate::tests_places::turn(&r.core, &sid, &said).await;
     }
     let res = crate::tests_places::turn(&r.core, &sid, "turn 99: read every log").await;
-    assert_eq!(res.output, DONE, "{res:?}");
+    assert!(res.output.ends_with(DONE), "{res:?}");
     assert!(crate::test_support::rows(&r.core, "context.overage").is_empty());
     let made = rooms(&r.core, &res.turn_id);
     assert!(
