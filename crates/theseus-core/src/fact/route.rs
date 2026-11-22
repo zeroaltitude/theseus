@@ -297,6 +297,7 @@ mod tests {
             checkpoint: Some(Checkpointed {
                 trigger: "failing",
                 loop_index: 3,
+                cold: None,
                 cost_usd: 0.0,
             }),
             injection: None,

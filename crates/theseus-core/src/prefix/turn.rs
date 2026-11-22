@@ -84,20 +84,6 @@ impl TurnRunner {
         (Some(with_plan(spec, picked.plan.clone())), Some(picked))
     }
 
-    /// `spec` with the plan `current` used, from memory: what an append
-    /// renders (the keep-warm read's compile). None: no plan to replay.
-    pub(crate) fn prefix_replayed(
-        &self,
-        spec: &RequestSpec,
-        current: Option<&Compilation>,
-    ) -> Option<RequestSpec> {
-        if !self.cfg.prefix.enabled {
-            return None;
-        }
-        let used = current?.manifest.prefix.as_ref()?;
-        self.prefix.replay(used).map(|p| with_plan(spec, p))
-    }
-
     fn pick_for(
         &self,
         library: &Library,
