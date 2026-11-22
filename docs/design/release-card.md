@@ -70,29 +70,51 @@ from the trigger's own task (never the turn's).
   one row is written for every trigger judgment, so even the number of rows does not depend on what was found.
 - The look reads the owner's private conversation only in the trigger's spawned task, and hands nothing back.
 
-## 4. State, and what turning it on takes
+## 4. The release, by the owner's own hand
+
+`theseus-core`'s `release.rs`; the gate's reading in `history_tool::page::Lens`.
+
+- **The record** (`release.id.<id>`, and its index `release.to.<place>\u{1f}<exchange>`): one exchange of a
+  private place of his, the place it is from, the ONE place it is released to, the surface, the time. Written only
+  through `exchange.release`, behind `places::owner_in_person_of` (his terminal or the web UI, in person; an
+  agent's process, the MCP server and an unnamed connection are refused before anything is read).
+- **What may be released**: his own words by his mark, of a private place, to another place, with no seal on its
+  session and no message of it moved into a thread not proven clear. One record per exchange and place, ever.
+- **Withdrawal** (`exchange.withdraw`) writes `release.end.<id>`; nothing is rewritten. It says that what was
+  already shown or sent cannot be unsent. An unknown or already withdrawn id writes nothing.
+- **The gate's reading**: the history tool's lens admits, AFTER the seal and the moved messages, the one exchange a
+  live record releases to the lens's own place, and the release's rules are asked again at that read, failing
+  closed. Its line is labelled "released here by the owner from another conversation", and a bare first page in
+  that place lists it, so the next turn there sees it when it looks back. Every other reader passes
+  `none_released` and admits nothing new; the view's slots and the transcript do not carry a released piece.
+- **His terminal**: `theseus ledger release-offer <message>` (what the look would offer for a message of his in a
+  channel, the piece's words shown to him alone), `ledger release <exchange> --to <place>`, `ledger releases`,
+  `ledger withdraw <id>`.
+
+## 5. State, and what turning it on takes
 
 | Piece | State | To change it |
 |---|---|---|
 | `leans_on.v1`, the trigger | **shadow**: asked and recorded, acted on by nothing | the owner's promotion (`theseus packs promote leans_on.v1 --live`, his forced promotion with the numbers), or a holdout of 200 labelled judgments; switched off by `[judge.packs."leans_on.v1"] rung = "off"` |
 | the look | **shadow**: runs after a `not_said_here`, records ids and counts only, shows and sends nothing | nothing to turn on until the card exists |
+| the release and the gate's reading | **live for the owner's own act**: nothing is released until he releases it from his terminal | nothing to switch; it is his act |
 | the card | **not built** | below |
-| the release | **not built** | below |
 
-## 5. Not built: the card and the release
+## 6. Not built: the card
 
 - **The card**, by the existing path the card questions use (`card/dm.rs`): one outbox post of a new kind through
   `Outbox::stage_to_operator`, to his direct conversation, drawn with two buttons by the Discord binding
   (`theseus-discord`'s `runtime/card_question.rs` is the model), saying where he was asked (the place by the name he
   knows it by), the piece's words in full, and that what is released cannot be unsent. Only for `one`, and only
   after the support check above.
-- **The release**: an answer method beside `card.answer`, judged by `Core::judge_act` (the presser is the owner, in
-  a private place; an agent's process or a forged answer is refused), writing a record of the piece released to that
-  place by him, which the gate reads (`view_gate`: that piece, and nothing else, admissible at that place,
-  marked as released by the owner), and an end of that record for a withdrawal. A sealed thread's piece is never
-  offered (the look's lens already holds sealed sessions out) and never released (the release checks the seal
-  again).
+- **Its press**: a press handler in the Discord binding beside the card question's, calling a method the binding
+  may reach (the exchange methods are the terminal's and the web UI's), judged as the card question's answer is (the
+  presser is an owner, in his direct conversation; anyone else, an agent, or a forged offer id is refused), which
+  writes the same release record. The card is posted only when `leans_on.v1` ACTS (its ladder line live) and the
+  look found exactly one candidate.
 - **Red-team tests the step closes on**: the company model's request never holds the piece or any sign of the look;
   another person in the place cannot trigger or press anything; a forged answer from an agent is refused; a sealed
   piece is never offered; a released piece is admitted in that place alone, and a withdrawal ends it. The first,
-  second and fourth are held for the trigger and the look by the tests named in the code; the others need the card.
+  second and fourth are held for the trigger and the look, and the release's (admitted in that place alone, withdrawn,
+  sealed or moved before or after, an agent refused) by `release::tests`; a press by another person or a forged card
+  answer need the card.
