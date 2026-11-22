@@ -333,6 +333,7 @@ impl TurnRunner {
             sealed: &held,
             moved: &moved,
             sessions: &read,
+            own: Some(turn),
         };
         // One read of the ladder for the whole assembly: every selector, the text and the window see it.
         let store_ladder = fork.ladder(store);

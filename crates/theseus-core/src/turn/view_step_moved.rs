@@ -100,6 +100,7 @@ fn the_window_marks_an_exchange_with_a_moved_message_sealed() {
         sealed: &clear,
         moved: &held,
         sessions: &sessions,
+        own: None,
     };
     let sealed = |t: &str| src.facts(t).unwrap().unwrap().marks.sealed;
     assert!(sealed(&turns[0]), "held whole by the gate");

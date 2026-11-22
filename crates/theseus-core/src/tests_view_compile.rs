@@ -961,7 +961,8 @@ async fn a_floor_too_large_for_the_view_fails_on_its_overage() {
     let r = view_rig();
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
-    let huge = "enormous ".repeat(150_000);
+    // Larger than the model's whole window: the floor alone cannot be sent.
+    let huge = "enormous ".repeat(1_500_000);
     let err = submit(c, &sid, &huge).await.expect_err("past the window");
     let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
     assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
