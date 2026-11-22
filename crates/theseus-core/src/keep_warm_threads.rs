@@ -284,18 +284,16 @@ impl crate::rpc::Core {
             .collect()
     }
 
-    /// Health's `threads` section: the window, the day's numbers from the
-    /// minute's copy, and how many threads' bindings cannot be read. A
-    /// thread-less daemon reads nothing and says nothing.
+    /// Health's `threads` section: the window, and the day's numbers from
+    /// the minute's copy. A thread-less daemon reads nothing and says nothing.
     pub fn threads_health(&self) -> Option<ThreadsHealth> {
         let board = self.runner.threads.held()?;
-        if board.is_empty() && !board.unread_binding() {
+        if board.is_empty() {
             return None;
         }
         Some(ThreadsHealth {
             keep_warm_hours: self.cfg.cache.threads_keep_warm_hours,
             cache: Some(self.threads_cache()),
-            unread_bindings: board.unread_bindings() as u64,
         })
     }
 
