@@ -267,10 +267,20 @@ pub fn read_sources<'a>(
 }
 
 /// A recalled item's source, read by its position: from `cache` when it
-/// holds it (sources never change), else from the store, which the cache
-/// then keeps. A source whose position holds another record is read by its
-/// id; one that reads neither way is `None`, and its item says so.
+/// holds it (a source's words never change), else from the store, which the
+/// cache then keeps. A source whose position holds another record is read by
+/// its id; one that reads neither way is `None`, and its item says so.
+///
+/// **Erase stays:** the node as it is NOW decides first, before the cache or
+/// the position is read. A source whose newest record is a tombstone (an
+/// erased import: erasure leaves the earlier payload in the store) is no
+/// source, and nor is one whose current state cannot be read. Recall's
+/// rendering, slot H and a reply's citations all read through here.
 pub fn source(store: &Store, r: &RecalledRef, cache: &Mutex<Sources>) -> Option<Arc<Node>> {
+    match store.get_node(&r.node_id) {
+        Ok(Some((_, now))) if !matches!(now.body, Body::Erased { .. }) => {}
+        _ => return None,
+    }
     let lock = || cache.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(n) = lock().get(&r.node_id) {
         return Some(n.clone());

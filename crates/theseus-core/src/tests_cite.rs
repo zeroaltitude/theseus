@@ -257,6 +257,71 @@ async fn a_cited_discord_message_names_its_id() {
     let _: Value = serde_json::to_value(cite).unwrap();
 }
 
+/// A recalled item of `sid`'s first node, with its handle in its header.
+fn first_item(c: &Core, sid: &str) -> (RecalledRef, String) {
+    let (position, n) = c.store.session_nodes(sid).unwrap().remove(0);
+    let text = crate::recall::text_of(&n);
+    let handle = handles_for(&[&n.id]).remove(0);
+    let item = RecalledRef {
+        node_id: n.id,
+        session_id: sid.into(),
+        position,
+        chunk: (0, text.len() as u32),
+        header: theseus_protocol::cite::header_with(&handle, "a recalled note"),
+        tokens: 5,
+    };
+    (item, handle)
+}
+
+/// A shared place's own source is cited there, and an imported one is cited
+/// too (its excerpt its words); once its import is erased it is no citation,
+/// whether its source was read before the erase (a warm reader) or never (a
+/// cold one), directly and through a shared session's `memory.cites`.
+/// Recall's own rendering reads the same source and gets none either.
+#[tokio::test]
+async fn a_shared_and_an_imported_source_are_cited_and_an_erased_one_never() {
+    use crate::tests_memory_lookup::{episode, import};
+    let r = canary();
+    let c = &r.core;
+    let shared = session(c, Some(&format!("channel:{PIER}")), &[TIDE]);
+    let (own, _) = first_item(c, &shared);
+    let cite = c
+        .runner
+        .citation(&own)
+        .expect("a shared place's own source");
+    assert!(cite.excerpt.contains(TIDE), "{}", cite.excerpt);
+    let ids = import(
+        c,
+        &[
+            episode(0, "personal", "2026-03-03T18:00:00Z", "the warm lamp"),
+            episode(1, "personal", "2026-03-04T18:00:00Z", "the cold lamp"),
+        ],
+    );
+    let (warm, warm_handle) = first_item(c, &ids[0]);
+    let (cold, _) = first_item(c, &ids[1]);
+    let before = c.runner.citation(&warm).expect("an imported source");
+    assert!(
+        before.excerpt.contains("the warm lamp"),
+        "{}",
+        before.excerpt
+    );
+    crate::import::write::erase(&c.store, "kelp-2026", Some("a test"), "cli").unwrap();
+    assert!(c.runner.citation(&warm).is_none(), "a warm reader");
+    assert!(c.runner.citation(&cold).is_none(), "a cold reader");
+    for item in [&warm, &cold] {
+        assert!(c.runner.memory.read_source(&c.store, item).is_none());
+    }
+    let recall = Node::recall(&shared, "turn_x", "rcl_x", "baseline", vec![warm.clone()]);
+    c.store.append(&[recall.record().unwrap()]).unwrap();
+    let got = c
+        .memory_cites(MemoryCitesParams {
+            session_id: shared.clone(),
+            handles: vec![warm_handle],
+        })
+        .unwrap();
+    assert!(got.cites.is_empty(), "{:?}", got.cites);
+}
+
 /// A citation is shown wherever its item is (anything goes, 2026-11-22): a
 /// private place's source is cited in a shared place's reply and through a
 /// shared session's `memory.cites`, in the same form as anywhere: its handle,
