@@ -327,10 +327,7 @@ impl TurnRunner {
             anyhow::bail!("a view turn is anchored to a place");
         };
         let since = crate::ladder::new_mark(store, &place)?;
-        let (asked, message) = match given {
-            Some(text) => (None, text),
-            None => message_of(store, sid, turn)?,
-        };
+        let (asked, message) = said(store, sid, turn, given)?;
         let verified_pov = verified.pov().clone();
         let permit = Permit::of(verified);
         let read = Sessions::default();
@@ -690,6 +687,20 @@ fn recalled(t: &Turn<'_>) -> Vec<String> {
     match t.recall.pending.as_ref().map(|n| &n.body) {
         Some(Body::Recall { items, .. }) => items.iter().map(|i| i.node_id.clone()).collect(),
         _ => Vec::new(),
+    }
+}
+
+/// The message a view is assembled for: the one given (a preview's), else the turn's own (`message_of`),
+/// read where a turn always read it, after the clock and the `/new` mark.
+fn said(
+    store: &Store,
+    sid: &str,
+    turn: &str,
+    given: Option<String>,
+) -> anyhow::Result<(Option<String>, String)> {
+    match given {
+        Some(text) => Ok((None, text)),
+        None => message_of(store, sid, turn),
     }
 }
 
