@@ -1,6 +1,7 @@
 //! The history tool's interface (design §6, rung 3; trim item 5: ONE look-back tool, with a place and a thing
-//! argument). Offered in every place, a shared one too (`places::public_tool`); where its family is not loaded
-//! by default it is deferred, one `tools_find` away. Bare, it returns the [`PAGE_EXCHANGES`] exchanges before
+//! argument). A public tool (`places::public_tool`), so a shared place's class admits it too; a tool ceiling can
+//! still leave it out (a role without the `context` family), and where its family is not loaded by default it is
+//! deferred, found by the turn's tool search. Bare, it returns the [`PAGE_EXCHANGES`] exchanges before
 //! the oldest one in full view, one line each; called again with the page's cursor, the ones before those,
 //! with no horizon. Every page passes the gate, which reads only whether an exchange's place is known: any
 //! place, for every reader (anything goes, 2026-11-22). Implemented by the history work (`history_tool`).
