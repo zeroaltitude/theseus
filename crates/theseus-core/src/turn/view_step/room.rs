@@ -227,11 +227,11 @@ fn rendered(t: &mut Turn<'_>, input: CompileInput<'_>) -> anyhow::Result<Compile
     Ok(compiled)
 }
 
-/// What finishing adds to `c`: its chain's last measure. A new chain is charged none before it is finished:
-/// no earlier request's tail is its own, and `view_size` measures it as sent.
+/// What finishing adds to `c`: its chain's last measure. A new chain is charged no earlier request's tail:
+/// only what this same call's finish measured when the size check sent it back (`Fit::finish`).
 fn tail_of(c: &Compiled, fit: &Fit) -> (u64, u64) {
     match c.new_compilation {
-        true => (0, 0),
+        true => fit.finish,
         false => fit.tail_on,
     }
 }
@@ -299,16 +299,20 @@ pub(super) fn view_size(t: &mut Turn<'_>, compiled: &mut Compiled, last: bool) -
     let finished = Fit {
         base: (compiled.estimate.upper, compiled.estimate.tokens),
         tail_on: (0, 0),
+        finish: (0, 0),
         ..f.fit
     };
     compiled.budget.used_tokens = compiled.estimate.tokens;
     if shortfall(compiled, &finished) == 0 {
+        f.fit.finish = (0, 0);
         return Size::Fits;
     }
     if last || f.floor.is_some() {
+        f.fit.finish = (0, 0);
         over_by(compiled, finished);
         return Size::Over;
     }
+    f.fit.finish = tail;
     Size::Again
 }
 

@@ -110,6 +110,10 @@ pub struct Fit {
     pub base: (u64, u64),
     /// What finishing (its tails) added to the last request of the current chain, upper bound and tokens.
     pub tail_on: (u64, u64),
+    /// What finishing added to this call's own request that the size check sent back (`Size::Again`): the
+    /// repair of that same call is charged it, and it is cleared once the call fits or fails. Never a
+    /// tail of an earlier request.
+    pub finish: (u64, u64),
     /// What the view's assembly charged, last assembled.
     pub charged: u64,
     /// The request's tokens beyond what the view charged (the turn's own nodes, the tools, the tails).

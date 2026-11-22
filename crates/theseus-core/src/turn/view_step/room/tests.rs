@@ -695,9 +695,7 @@ async fn after_a_head_cut_the_next_short_message_answers_with_the_old_result_as_
     assert_eq!(second.output, "Noted.", "{second:?}");
     assert!(crate::test_support::rows(&r.core, "context.overage").is_empty());
     let last = (r.requests().into_iter())
-        .filter(|q| !q.tools.is_empty())
-        .filter(|q| texts(q).contains("turn 2: thank you"))
-        .last()
+        .rfind(|q| !q.tools.is_empty() && texts(q).contains("turn 2: thank you"))
         .expect("the follow-up was sent");
     let sent = texts(&last);
     assert!(
