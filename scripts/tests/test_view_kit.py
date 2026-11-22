@@ -15,7 +15,6 @@ import io
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -288,10 +287,6 @@ def built_bins() -> Path | None:
     return d if all((d / b).is_file() for b in ("theseus", "theseusd")) else None
 
 
-def has_preview(d: Path) -> bool:
-    return subprocess.run([str(d / "theseus"), "view", "preview", "--help"], capture_output=True).returncode == 0
-
-
 @unittest.skipUnless(NEW_ENOUGH, "the view kit reads TOML with tomllib: Python 3.11 or newer")
 class RealDaemon(unittest.TestCase):
     """The kit on the real binaries, when they are built: a store built by script on the stand-in model, with
@@ -310,7 +305,10 @@ class RealDaemon(unittest.TestCase):
                 "message": {"place": "here", "say": "What was the code word?"},
                 "evidence": ["h1"], "referent": "h1"}
         built = vc.build_case(case, bins, tmp / "build")
-        self.assertIn("view" if has_preview(bins) else "view_not_built", built, built)
+        # Whether the build has `view preview` is the daemon's answer, as the builder met it (a `--help` probe
+        # is not: clap may print a parent's help and exit 0).
+        preview = "view" in built
+        self.assertTrue(preview or built.get("view_not_built") == "no_preview", built)
         self.assertEqual(built["transcript"], ["h1", "h2"])
         copy = tmp / "copy"
         shutil.copytree(tmp / "build" / "daemon" / "state", copy)
@@ -326,7 +324,7 @@ class RealDaemon(unittest.TestCase):
         two = dict(case, id="m2", history=[*case["history"], {"id": "h3", "place": "there", "say": "x"}])
         self.assertNotIn("not_built", vc.build_case(two, bins, tmp / "build2"), "two places came out as one")
         self.assertGreater(s["tokens"]["transcript"]["sum"]["total"], 0)
-        if not has_preview(bins):
+        if not preview:
             self.assertEqual(s["notes"], [replay.NO_PREVIEW])
         for m in MARKERS:
             self.assertNotIn(m, everything_written(out, buf.getvalue()))
