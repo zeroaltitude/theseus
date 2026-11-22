@@ -311,6 +311,12 @@ pub fn latch(store: &crate::store::Store, turn: &str) -> bool {
     written.is_ok()
 }
 
+/// [`latch`], once for the turn: true when it is latched already (or the
+/// latch cannot be read, which the checks read as carried too).
+pub fn latch_once(store: &crate::store::Store, turn: &str) -> bool {
+    carried_in(store, turn) || latch(store, turn)
+}
+
 /// Whether `turn` carried such a block, read from its latch: what the turn
 /// actually attached, not the thread board as it stands now (a thread retired
 /// and opened again mid-turn leaves the board, and the block was attached
