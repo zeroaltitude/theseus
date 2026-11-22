@@ -619,12 +619,28 @@ async fn a_forks_title_profile_and_budget_are_its_own() {
     assert!(bad.message.contains("budget_usd"), "{}", bad.message);
 }
 
-/// Authority: an MCP client forks only its own; an imported session is not
-/// forked. (Any other surface may fork any session since 2026-11-22.)
+/// Authority: a surface that reads no private text may not fork a private
+/// place's session; an MCP client forks only its own; an imported session
+/// is not forked.
 #[tokio::test]
 async fn a_fork_of_a_session_the_caller_cannot_read_is_refused() {
     let r = rig();
     let (s, nodes) = three_turns(&r).await;
+    for surface in [Surface::Discord, Surface::Unnamed] {
+        let e = r
+            .core
+            .session_fork(
+                SessionForkParams {
+                    session: s.clone(),
+                    at: nodes[1].0.clone(),
+                    ..Default::default()
+                },
+                surface,
+            )
+            .unwrap_err();
+        assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{surface:?}");
+        assert!(e.message.contains("private place"), "{}", e.message);
+    }
     // An MCP client may fork only a conversation it opened.
     let e = r
         .core
