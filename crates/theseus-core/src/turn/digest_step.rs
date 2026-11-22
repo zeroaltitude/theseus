@@ -90,9 +90,15 @@ impl TurnRunner {
             &here,
             board.live(PlaceClass::Private),
         );
-        let digest = answer.as_ref().filter(|a| a.place).and_then(|_| {
-            crate::compiler::place_digest::render(&live, &here, cfg.place_digest_line_chars)
-        });
+        // Latched for the turn before any request carries it (issue 44), and
+        // the trace says what was actually carried.
+        let digest = answer
+            .as_ref()
+            .filter(|a| a.place)
+            .and_then(|_| {
+                crate::compiler::place_digest::render(&live, &here, cfg.place_digest_line_chars)
+            })
+            .filter(|_| crate::task_graph::judged::latch(t.tc.store, t.tc.turn_id));
         t.trace.mark(
             "threads",
             "place_digest",
@@ -106,10 +112,7 @@ impl TurnRunner {
                 "embargoed": digest.as_ref().map_or(0, |d| d.embargoed),
             }),
         );
-        // Latched for the turn before any request carries it (issue 44).
-        t.digest.text = digest
-            .map(|d| d.text)
-            .filter(|_| crate::task_graph::judged::latch(t.tc.store, t.tc.turn_id));
+        t.digest.text = digest.map(|d| d.text);
     }
 
     /// The digest and the place's last words after the request's last cache
