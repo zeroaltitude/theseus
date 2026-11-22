@@ -574,6 +574,10 @@ impl Rig {
             .runner
             .resolve_target(&live, None, None, None)
             .unwrap();
+        // The owner's words, typed in person, as `turn.submit` marks them (issue 44): an unmarked
+        // message's exchange has no audience, and no later view lays it.
+        let mark =
+            (input.is_some()).then(|| crate::view_gate::test_mark(&self.core.runner, sid, true));
         self.core
             .runner
             .run(TurnRequest {
@@ -582,7 +586,7 @@ impl Rig {
                 session: rec,
                 input,
                 target,
-                sink: EventSink::new(self.core.bus.clone(), sid, None),
+                sink: EventSink::new(self.core.bus.clone(), sid, None).with_arrival(mark),
                 author: "test".into(),
                 recompile: None,
                 attachments: vec![],
