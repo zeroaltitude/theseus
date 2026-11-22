@@ -68,8 +68,12 @@ impl Core {
             other => {
                 return Err(RpcFailure::new(
                     error_code::INVALID_PARAMS,
-                    format!("memory.lookup's op is search or get, not {other:?}"),
-                ))
+                    // It echoes what was asked: the vault's values substituted, as every reply's words.
+                    crate::memory_lookup::mcp::said(
+                        self,
+                        &format!("memory.lookup's op is search or get, not {other:?}"),
+                    ),
+                ));
             }
         };
         let read = match tool {
