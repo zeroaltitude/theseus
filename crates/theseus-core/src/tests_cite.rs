@@ -311,11 +311,11 @@ async fn a_shared_and_an_imported_source_are_cited_and_an_erased_one_never() {
     for item in [&warm, &cold] {
         assert!(c.runner.memory.read_source(&c.store, item).is_none());
     }
-    let recall = Node::recall(&shared, "turn_x", "rcl_x", "baseline", vec![warm.clone()]);
+    let recall = Node::recall(&shared, "turn_x", "rcl_x", "baseline", vec![warm]);
     c.store.append(&[recall.record().unwrap()]).unwrap();
     let got = c
         .memory_cites(MemoryCitesParams {
-            session_id: shared.clone(),
+            session_id: shared,
             handles: vec![warm_handle],
         })
         .unwrap();
