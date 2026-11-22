@@ -265,7 +265,6 @@ ledger_kinds! {
     ProviderRoutedBack = "provider.routed_back",
     RecallRan = "recall.ran",
     RecallShadow = "recall.shadow",
-    RecallWithheld = "recall.withheld",
     Reconcile = "reconcile",
     RequestRedacted = "request.redacted",
     ResidentPeak = "resident.peak",
@@ -560,7 +559,11 @@ mod tests {
     /// still read: a row's kind is a string, and the registry no longer names them.
     #[test]
     fn rows_of_retired_kinds_still_read() {
-        for kind in ["context.recompile_requested", "context.view_fallback"] {
+        for kind in [
+            "context.recompile_requested",
+            "context.view_fallback",
+            "recall.withheld",
+        ] {
             let old = format!(
                 r#"{{"position":41,"at_unix_ms":1790000000041,"kind":"{kind}","session_id":"ses_00000000000000000000000000000041","turn_id":null,"data":{{"strategy":"transcript","by":"the CLI"}}}}"#
             );

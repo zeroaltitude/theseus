@@ -312,7 +312,6 @@ facts![
     context::Cleared<'static>,
     recall::RecallShadow<'static>,
     recall::RecallRan<'static>,
-    recall::RecallWithheld<'static>,
     resident::PeakNamed<'static>,
     recall::ArmAssigned<'static>,
     recall::Labeled<'static>,

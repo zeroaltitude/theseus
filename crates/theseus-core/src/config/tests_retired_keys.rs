@@ -61,7 +61,6 @@ fn a_settings_file_naming_every_retired_key_loads_and_names_each() {
     assert_eq!(ignored.len(), RETIRED.len());
     // Nothing of what the file said reached a reader: the ledger is on.
     assert_eq!(cfg.context.ledger, None);
-    assert_eq!(cfg.context.kept_mb, None);
 }
 
 /// `[context] ledger = true` is ignored with the same warning as `false`: the

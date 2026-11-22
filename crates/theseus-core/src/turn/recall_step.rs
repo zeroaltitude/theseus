@@ -35,7 +35,7 @@ use theseus_store::NewRecord;
 use super::{Turn, TurnRunner};
 use crate::compiler::Compiled;
 use crate::config::memory::{Assigned, MemoryArm};
-use crate::fact::recall::{scope, ArmAssigned, RecallRan, RecallShadow, RecallWithheld};
+use crate::fact::recall::{scope, ArmAssigned, RecallRan, RecallShadow};
 use crate::graph::{Edge, EdgeKind, VIA_RECALL};
 use crate::node::{Body, Node, RecalledRef};
 use crate::recall::render::{self, Sources};
@@ -69,10 +69,6 @@ pub(crate) struct Recalled {
     /// route to decide, with their times: recorded once it is known
     /// (`recall_routed`, theseus-n7nc).
     pub held: Vec<(RecallManifest, u64, u64)>,
-    /// Why the last compile withheld the pending node from its request
-    /// ([`VIEW`]): nothing of it rides the plan frame. `None` until a compile
-    /// says otherwise, so a path that compiles nothing behaves as it did.
-    pub withheld: Option<&'static str>,
 }
 
 impl Recalled {
@@ -88,10 +84,6 @@ impl Recalled {
 /// The position a pending `Recall` node renders at: after every node, as
 /// the plan frame will write it.
 const PENDING: u64 = u64::MAX;
-
-/// A `recall.withheld` row's `why`: the turn's place is set to `view` (issue 44), where recall is a
-/// selector's result in the block beside the message and no note is written into the session.
-pub(super) const VIEW: &str = "view";
 
 impl TurnRunner {
     /// The first loop's recall. In front of the model, it is read now and
@@ -569,48 +561,6 @@ impl TurnRunner {
             .and_then(|m| threads.and_then(|th| th.other_title_of(&m.thread)))
     }
 
-    /// The compile withheld the pending node, so the turn recalled nothing:
-    /// no record rides the plan frame, and the footer, the citations and the
-    /// next turn's render have nothing to count (theseus-fpm2). The node was
-    /// never written.
-    pub(super) fn recall_dropped(t: &mut Turn<'_>, why: &str) -> Vec<NewRecord> {
-        // A turn with no pending recall withheld nothing: no node was built.
-        let record = match t.recall.recall_id.is_empty() {
-            true => Vec::new(),
-            false => Self::withheld_row(t, why),
-        };
-        t.recall.rides.clear();
-        t.recall.items.clear();
-        t.recall.recall_id.clear();
-        t.recall.count = 0;
-        record
-    }
-
-    /// The `recall.withheld` row for the recall the compile did not carry,
-    /// scoped with the turn's other recall rows.
-    fn withheld_row(t: &Turn<'_>, why: &str) -> Vec<NewRecord> {
-        // The join key is the manifest's `recall_id`, which the node's body
-        // holds; the node's own id (never written) rides beside it.
-        let recall_id = match t.recall.pending.as_ref().map(|n| &n.body) {
-            Some(Body::Recall { recall_id, .. }) => recall_id.as_str(),
-            _ => "",
-        };
-        let row = RecallWithheld {
-            recall_id,
-            node_id: &t.recall.recall_id,
-            admitted: t.recall.count,
-            profile: &t.target.profile,
-            why,
-        };
-        match t.tc.rec().row(&row) {
-            Ok(r) => vec![r.scoped(&scope(t.tc.session_id))],
-            Err(e) => {
-                tracing::warn!(error = %e, "recall: its withholding row cannot be encoded");
-                Vec::new()
-            }
-        }
-    }
-
     /// [`Self::recall_view`] for the turn's own compile, which also records
     /// whether this request carries the pending node (theseus-fpm2). A later
     /// compile of the same loop, which a route's switch makes, overwrites it,
@@ -624,7 +574,6 @@ impl TurnRunner {
         // its edges and its rows ride the plan frame, so the reply's count, its citations, reach and
         // retraction see what the turn recalled. The view lays the items beside the message and keeps
         // the node itself out of the window and out of the turn's own tail.
-        t.recall.withheld = None;
         self.recall_view(t, nodes)
     }
 
@@ -662,12 +611,6 @@ impl TurnRunner {
             return;
         };
         compiled.compilation.includes.retain(|id| *id != n.id);
-        // A request that withheld the node carried nothing of the pack's, so
-        // it dropped nothing for budget. The drops stay held: a later compile
-        // of the loop (a route's switch) may carry the node (theseus-ectzg).
-        if t.recall.withheld.is_some() {
-            return;
-        }
         // While routing decides, this compile may be discarded for a switch's:
         // the drops stay for the compile the call uses (theseus-3urn), and
         // `keep_first` lets them go once it is this one.

@@ -9,7 +9,6 @@ use theseus_protocol::LedgerKind;
 use super::rebuild::{VIEW_HELD, VIEW_REFUSED};
 use super::tests::{board, script};
 use crate::compiler::view::kept::Kept;
-use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::config::MemoryMode;
 use crate::tests_recall::{session, turn, Rig};
 
@@ -17,9 +16,7 @@ const ASK: &str = "Which port does the kestrel relay listen on?";
 const ORIGINAL: &str = "The kestrel relay listens on port 7714.";
 
 fn view_rig() -> Rig {
-    crate::tests_recall::rig_with_secrets(MemoryMode::Off, board(), |c| {
-        c.context.assembly = Some(AssemblySetting::All(Assembly::View));
-    })
+    crate::tests_recall::rig_with_secrets(MemoryMode::Off, board(), |_| {})
 }
 
 /// What a view turn's record keeps for a replay.
@@ -100,7 +97,6 @@ async fn a_view_turn_is_not_replayed_once_a_source_it_laid_is_sealed() {
     let thread = std::cell::RefCell::new(String::new());
     let r = crate::tests_places::rig_setup(
         |c| {
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
         |s| *thread.borrow_mut() = kelp(s, false),
