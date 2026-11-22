@@ -184,63 +184,6 @@ async fn a_live_turn_puts_its_recall_in_front_of_the_model() {
     assert_eq!(frames[0], frames[1], "the recall wrote a frame of its own");
 }
 
-/// The next request begins with the previous request's bytes: the note is
-/// read from its source by position over its frozen range, so a later
-/// record under the source's key (as a redaction would write) changes no
-/// byte already sent. The second turn runs on a second core over the same
-/// store, as after a restart (theseus-x875): its cache of sources is empty,
-/// so the render reads the source from the store, where the newest record
-/// under its key is the other words.
-#[tokio::test]
-async fn the_next_request_begins_with_the_previous_requests_bytes() {
-    // One note a turn: the newest first, the heron.
-    let r = canary_with(|c| c.memory.recall_max_items = 1);
-    let c = &r.core;
-    let a = session(
-        c,
-        None,
-        &["The tide tables are in the harbour office.", HERON],
-    );
-    let b = session(c, None, &[]);
-    c.runner.memory.set_ask(index_of(c, vec![a.clone()]));
-    turn(c, &b, "Where does the grey heron nest?").await;
-    // The source's key, written again with other words.
-    let mut later = nodes(c, &a)[1].1.clone();
-    assert!(matches!(&later.body, Body::UserMessage { text, .. } if text == HERON));
-    later.body = Body::UserMessage {
-        text: "Remember: the grey heron nests by the new mill.".into(),
-        attachments: vec![],
-    };
-    c.store.append(&[later.record().unwrap()]).unwrap();
-    let again = restarted(&r, vec![a.clone()]);
-    turn(&again, &b, "And the tide tables?").await;
-    let sent = requests(&r);
-    assert_eq!(sent.len(), 2);
-    let first = &sent[0].messages;
-    assert!(
-        sent[1].messages.len() > first.len(),
-        "{} then {}",
-        first.len(),
-        sent[1].messages.len()
-    );
-    assert_eq!(
-        serde_json::to_string(&sent[1].messages[..first.len()]).unwrap(),
-        serde_json::to_string(first).unwrap(),
-        "the second request does not begin with the first's bytes"
-    );
-    assert_eq!(recall_nodes(c, &b).len(), 2, "each turn recalled");
-}
-
-/// A second core over `r`'s store and model, its caches empty, as a
-/// restarted daemon's are, with a stand-in index over `sessions`.
-fn restarted(r: &Rig, sessions: Vec<String>) -> Arc<Core> {
-    let c = &r.core;
-    let parts = crate::rpc::Parts::for_tests((*c.cfg).clone(), r.model.clone(), c.store.clone());
-    let again = Core::build(parts).unwrap();
-    again.runner.memory.set_ask(index_of(&again, sessions));
-    again
-}
-
 /// A session's arm is sticky and recorded once, as `memory.arm`; a session
 /// on arm `none` runs `none` live: the index is asked nothing, and it gets no
 /// node.

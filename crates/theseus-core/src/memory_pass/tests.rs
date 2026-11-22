@@ -913,10 +913,11 @@ async fn a_correction_supersedes_the_fact_and_recall_prefers_it() {
     r.model.script.lock().unwrap().push_back(Scripted::text(
         "As you said: Correction: Larkspur's staging port is 8082, not 8081.",
     ));
-    let res = turn(c, &q, "What is Larkspur's staging port?").await;
-    // The correction, and B's reply ("Noted: 8082."): never the fact.
-    assert_eq!(res.recalled, 2);
+    turn(c, &q, "What is Larkspur's staging port?").await;
+    // The correction, and B's reply ("Noted: 8082."): never the fact. (A view turn lays recall beside the
+    // message, so the turn's `recalled`, a count of notes carried as messages, is 0: the row says it.)
     let m = recalls(c, &q).pop().unwrap();
+    assert_eq!(m.admitted.len(), 2, "{:?}", m.admitted);
     assert!(m.science.starts_with("baseline@"), "{}", m.science);
     let admitted: Vec<&str> = m.admitted.iter().map(|i| i.node_id.as_str()).collect();
     assert!(admitted.contains(&fix.id.as_str()), "{admitted:?}");
