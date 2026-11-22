@@ -618,6 +618,9 @@ async fn a_view_call_refused_for_size_with_nothing_to_clear_fails_plainly() {
         2,
         "the refused call and one smaller retry, and no retry loop"
     );
+    // The smaller retry is smaller by what could go: the recalled episode the first request laid.
+    assert!(texts(&asked[0]).contains(episode), "{}", texts(&asked[0]));
+    assert!(!texts(&asked[1]).contains(episode), "{}", texts(&asked[1]));
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
     assert_eq!(crate::test_support::rows(c, "context.overflow").len(), 2);
 }
