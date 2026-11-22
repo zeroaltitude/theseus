@@ -20,7 +20,7 @@ use theseus_protocol::view::{
     ViewTally,
 };
 
-use super::{fold_constituents, unledgered, Asked, Built, Fallback, RequestSpec, TurnRunner};
+use super::{fold_constituents, Asked, Built, RequestSpec, TurnRunner};
 use crate::ladder::view::StoreLadder;
 use crate::session::SessionRecord;
 use crate::store::Transcript;
@@ -164,8 +164,6 @@ impl TurnRunner {
         if p.message.is_none() {
             notes.push("assembled for an empty message (`--message` gives one)".into());
         }
-        let admitted = self.admitted_nodes(&gate_pov, p.session)?;
-        let unledgered = unledgered(store, &admitted, PREVIEW_TURN);
         let built: Built = self.view_built(
             Asked {
                 store,
@@ -213,8 +211,6 @@ impl TurnRunner {
                 BTreeMap::new(),
             ),
         };
-        // A floor that cannot fit is said by `overflow`: the turn fails on it, never handed back.
-        let fallback = unledgered.then_some(Fallback::Unledgered);
         let budget = self.view_budget(spec);
         Ok(ViewPreviewResult {
             place: p.place.into(),
@@ -224,7 +220,9 @@ impl TurnRunner {
             tally: view.as_ref().map(tally_of).unwrap_or_default(),
             window: view.as_ref().map_or(0, window_of),
             view,
-            fallback: fallback.map(|f| f.as_str().to_string()),
+            // Nothing hands a turn back: a floor that cannot fit is said by `overflow` (the turn fails on
+            // it), and earlier turns with no exchange are out of the view's reach (issue 44).
+            fallback: None,
             overflow,
             budget: ViewBudget {
                 provider_window: budget.provider_window,
