@@ -65,9 +65,10 @@ impl ContextConfig {
             && self.assembly.is_none()
     }
 
-    /// The one reader of `[context] assembly`: how `place`'s requests are assembled. With no setting, the
-    /// view, unless the ledger is off: the view is read from the ledger, so a place with it off stays on the
-    /// transcript rather than see no conversation at all (a set `view` with the ledger off is refused at load).
+    /// The one reader of `[context] assembly`: how `place`'s requests are assembled. With no setting,
+    /// the view, unless the ledger is off: the view is read from the ledger, so a place with it off
+    /// stays on the transcript rather than see no conversation at all (a set `view` with the ledger
+    /// off is refused at load).
     pub fn assembly_for(&self, place: &str) -> super::assembly::Assembly {
         match &self.assembly {
             Some(a) => a.for_place(place),
