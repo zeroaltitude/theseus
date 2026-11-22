@@ -3,15 +3,13 @@
 //! and the exchanges of older history written from the conversations' nodes
 //! (`--dry-run` counts and writes nothing). Ids, kinds and counts only. And
 //! `theseus ledger ladder` (step 4): a place's `did` lines and fold nodes built
-//! from its history, with a dry run that counts and prices, and a cap. And
-//! `theseus ledger adopt-history`: a place's unplaced older history adopted
-//! into it by the owner, counted first, and taken back by its id.
+//! from its history, with a dry run that counts and prices, and a cap.
 
 use anyhow::Result;
 use theseus_client::Conn;
 use theseus_protocol::exchange::{
-    ExchangeAdoptParams, ExchangeAdoptResult, ExchangeLadderParams, ExchangeLadderResult,
-    ExchangeRebuildParams, ExchangeRebuildResult, ExchangeReportParams, ExchangeReportResult,
+    ExchangeLadderParams, ExchangeLadderResult, ExchangeRebuildParams, ExchangeRebuildResult,
+    ExchangeReportParams, ExchangeReportResult,
 };
 use theseus_protocol::method;
 
@@ -56,83 +54,6 @@ pub async fn rebuild(conn: &mut Conn, json: bool, dry_run: bool) -> Result<()> {
         false => println!("{}", rebuild_lines(&serde_json::from_value(v)?)),
     }
     Ok(())
-}
-
-/// `theseus ledger adopt-history`.
-pub async fn adopt(
-    conn: &mut Conn,
-    json: bool,
-    place: String,
-    dry_run: bool,
-    undo: Option<String>,
-) -> Result<()> {
-    let p = serde_json::to_value(ExchangeAdoptParams {
-        place,
-        dry_run,
-        undo,
-    })?;
-    let v = conn.request(method::EXCHANGE_ADOPT, p).await?;
-    match json {
-        true => println!("{}", serde_json::to_string(&v)?),
-        false => println!("{}", adopt_lines(&serde_json::from_value(v)?)),
-    }
-    Ok(())
-}
-
-/// What a reason left, in words.
-fn reason(key: &str) -> &str {
-    match key {
-        "sessions_of_a_thread" => "sessions serving a thread, which spans places",
-        "sessions_tied_to_another_place_too" => "sessions tied to another place as well",
-        "sessions_sealed_or_unproven" => "sessions sealed, or whose seal cannot be read",
-        "sessions_tied_to_no_place" => "sessions (anywhere) no record ties to a place",
-        "exchanges_with_a_sealed_message" => "exchanges with a message moved into a sealed thread",
-        "exchanges_adopted_already" => "exchanges adopted here already",
-        "exchanges_placed_already" => "exchanges whose place was proven here",
-        "exchanges_of_another_place" => "exchanges whose place was proven elsewhere",
-        other => other,
-    }
-}
-
-/// An adoption, or its undo, in a few lines: counts only.
-pub fn adopt_lines(r: &ExchangeAdoptResult) -> String {
-    let mut out = Vec::new();
-    match (r.undone || (r.dry_run && r.id.is_some()), r.dry_run) {
-        (true, dry) => out.push(format!(
-            "{}: adoption {} {} {} exchanges of {} sessions and {} touches",
-            r.place,
-            r.id.as_deref().unwrap_or("-"),
-            if dry { "would take back" } else { "took back" },
-            r.exchanges,
-            r.sessions,
-            r.touches
-        )),
-        (false, dry) => out.push(format!(
-            "{}: {} {} exchanges of {} sessions, with {} touches; their author stays unknown",
-            r.place,
-            if dry { "would adopt" } else { "adopted" },
-            r.exchanges,
-            r.sessions,
-            r.touches
-        )),
-    }
-    if r.unledgered > 0 {
-        out.push(format!(
-            "  {} turns of these sessions have no exchange yet: run `theseus ledger \
-             rebuild-exchanges` first",
-            r.unledgered
-        ));
-    }
-    for (why, n) in &r.left {
-        out.push(format!("  left: {n} {}", reason(why)));
-    }
-    if let (Some(id), false, false) = (&r.id, r.undone, r.dry_run) {
-        out.push(format!(
-            "  to take it back: theseus ledger adopt-history {} --undo {id}",
-            r.place
-        ));
-    }
-    out.join("\n")
 }
 
 fn share(n: u64, of: u64) -> String {

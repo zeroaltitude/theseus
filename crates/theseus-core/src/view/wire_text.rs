@@ -165,9 +165,10 @@ impl TextRenderer<'_> {
         for n in nodes {
             let mut words = Vec::new();
             for id in &n.his_words {
-                words.push(self.store.get_node(id)?.and_then(|(_, n)| did::words(&n)));
+                let text = self.store.get_node(id)?.and_then(|(_, n)| did::words(&n));
+                words.push((author_of(self.store, id), text));
             }
-            out.push(blocks::fold_block(n, &words, pov, self.zone));
+            out.push(blocks::fold_block_by(n, &words, pov, self.zone));
         }
         Ok(out)
     }

@@ -252,7 +252,10 @@ pub async fn first(store: &Store, exchanges: &[Exchange], step: &Step<'_>) -> an
         let said = blocking(|| did::said(store, &e.turn_id))?;
         reads.push((r, said));
     }
-    let hidden = reads.iter().any(|(r, _)| (step.hidden)(&r.ex.session_id));
+    // A session not proven clear, or a message moved into a thread (`view_gate::moved_at_all`): by code.
+    let hidden = reads.iter().any(|(r, _)| {
+        (step.hidden)(&r.ex.session_id) || crate::view_gate::moved_at_all(store, &r.ex)
+    });
     let (node, w) = match hidden {
         true => (Ok(fold::hidden(&reads, step.flags)), Default::default()),
         false => fold::first_level(&reads, step.writer, step.flags, step.purse).await,

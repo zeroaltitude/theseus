@@ -78,7 +78,12 @@ the rule under any name a file gives it. Both are heuristics over the sources, n
 
 ## Left for the steps that follow
 
-- The byte test (the bytes sent are identical with the forbidden records deleted) lands with the assembler (step 6).
+- The byte test (the bytes sent are identical with the forbidden records deleted) has not landed. Two properties
+  stand in its place, and neither is about bytes: over generated stores, for a point of view that is not the owner
+  alone, what the gate admits is the same with every other place's sessions left out of the store
+  (`other_places_change_nothing_the_gate_admits_over_generated_stores`); and the view the selectors and the
+  budgeter make is the same with exchanges the gate denies added (`view/select/tests.rs`). What the renderer and the
+  compiler send is not tested this way.
 
 ## After the second review
 
@@ -103,23 +108,3 @@ the rule under any name a file gives it. Both are heuristics over the sources, n
   (`standing_held`).
 - **`view::gate::Admitted::new` is private to its module**; `admit_checked` beside it is the gate's construction
   (the contract's authorized amendment), with a `cfg(test)` constructor for the view's own tests.
-
-## The last readers on the old path
-
-- **Earlier tails** (`turn::sent_tail`): who is present, and where the turn arrived (`presence_key`), is part of
-  the key a kept tail is put back under, so a tail made where the owner was alone is not sent to a narrower
-  audience. Each tail keeps the threads held from its reader when it was made (`held_threads`); a tail is let go
-  when a thread is held now that was not then, or when the threads cannot be read. The keep-warm read applies the
-  same seals. A tail does not record which thread's words it holds, so a new seal lets every older tail go, not
-  only those that held that thread's words: it may cost a cache read, never a leak.
-- **The place digest** is given no thread held from a reader that is not the owner alone (`digest_threads`,
-  whatever the ledger says), so it neither names nor counts one: a count says a thread exists. The owner alone is
-  still told how many, as the digest's own rule (`a_place_digest_never_shows_a_sealed_thread`) has it.
-- **The session listing** shows no title for a session with a message moved into a thread held from the reader
-  (`title_shown`): a title is made from a session's first inputs. The session is still listed.
-- **Health** counts the thread bindings that do not read (`threads.unread_bindings`, never which), the condition
-  under which recall holds out every session whose thread it cannot prove. Binding the thread again clears it.
-- **Not done: a turn whose presence is `Unknown`** (a wake set by a wake) still draws on its own place through
-  recall's places. Reading nothing for every `Unknown` turn also blanks every turn whose input carries no mark (a
-  surface or a path that does not write one), so it needs `Proof::SetUp` to tell "set up by a turn with no message"
-  from "no mark written" before recall narrows to nothing on the first alone.

@@ -25,6 +25,20 @@ over (`Handoff`), so `classify`'s request is the one it was, its `thread` questi
 answer to place a message, and a later pack version drops the question. `thread.move` (`/move`) stays as the owner's
 own act: "that was for X" moves the message and runs it again there.
 
+**An address that cannot be honoured is refused, and runs nowhere.** `/t <word>` naming no thread; a `#slug`,
+`/t slug` or "in the <title> thread:" naming a thread that is paused or done; an addressed thread whose session does
+not open: each ends the submission refused, with one line that says why and how to send it again (Discord posts it
+as a warning). No turn starts and nothing is written in the place's session. A thread's state is told only where the
+gate proves its seal clear for the place (`view_gate::may_name_thread`); a sealed or seal-pending thread, or one
+whose records cannot be read, is refused with exactly the line for a thread that does not exist. In a shared place
+only `/t word` is refused, always as "no thread". A `#word` or "in the … thread:" that names no thread at all is no
+address and runs at home.
+
+**A reply finds its thread after a restart.** The router's memory of which turn ran in which thread is a cache
+(`thread_flow.rs`). The record is the `thread.routed` row each placed turn writes in its first frame: a reply to a
+turn the memory does not hold reads that row (`routed_thread_of`), and Discord finds the turn a reply points at from
+its own `discord.message.out` rows when its in-memory map has lost it.
+
 The entity readers (`entity_hits`, `new_entities`) are not routing: they name what a message says of a working set,
 for Jev's line about a thread, a working set's growth and the generic-folder check.
 
