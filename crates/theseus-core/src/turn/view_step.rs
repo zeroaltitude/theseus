@@ -291,7 +291,7 @@ impl TurnRunner {
             person: t.exchange.person().0,
             verified: Verified::of_session(self, sid),
             recalled: recalled(t),
-            message: message_of(store, sid, turn)?,
+            message: None,
         };
         let built = self.view_built(asked, spec)?;
         // Rule 9: a floor too large for the view's budget is the transcript's to handle (its ring and
@@ -314,7 +314,7 @@ impl TurnRunner {
             person,
             verified,
             recalled,
-            message: (asked, message),
+            message: given,
         } = asked;
         let snap = StoreSnapshot {
             now_ms: self.kernel.now_ms(),
@@ -326,6 +326,11 @@ impl TurnRunner {
             anyhow::bail!("a view turn is anchored to a place");
         };
         let since = crate::ladder::new_mark(store, &place)?;
+        // Read where a turn has always read it: after the clock and the `/new` mark.
+        let (asked, message) = match given {
+            Some(text) => (None, text),
+            None => message_of(store, sid, turn)?,
+        };
         let verified_pov = verified.pov().clone();
         let permit = Permit::of(verified);
         let read = Sessions::default();
@@ -464,8 +469,9 @@ pub(super) struct Asked<'a> {
     pub verified: Verified,
     /// The nodes today's recall found (none for a preview, which runs no recall).
     pub recalled: Vec<String>,
-    /// The person's message, by node and text.
-    pub message: (Option<String>, String),
+    /// The message given (a preview's); none reads the turn's own, by node and text, at the point a turn
+    /// always read it (after the clock and the `/new` mark).
+    pub message: Option<String>,
 }
 
 /// A view as assembled: what a turn freezes, and the assembly (or the floor's overflow).

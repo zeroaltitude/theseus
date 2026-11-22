@@ -3,10 +3,10 @@
 //! what was dropped and why, the totals. `--text` adds each piece's text, `--tally` each view's counts. The
 //! owner's own inspection: the daemon answers him in person alone.
 //!
-//! `theseus view preview PLACE [--message TEXT] [--text]`: the view that place's next turn would get,
-//! assembled now by the turn's own assembler, sent nowhere and kept nowhere, with its counts, whether the
-//! turn would fall back to the transcript and why, and the window and folds it lays. From a Theseus job's
-//! shell, an agent's turn of its own place alone, and no text.
+//! `theseus view preview PLACE [--message TEXT] [--text]`: the view a hypothetical next turn of that place
+//! would get, opened by the owner's message, assembled now by the turn's own assembler, sent nowhere and
+//! kept nowhere, with its counts, whether the turn would fall back to the transcript and why, and the
+//! window and folds it lays. The owner's in person alone, as `view show` is.
 
 use anyhow::Result;
 use clap::Subcommand;

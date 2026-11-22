@@ -129,71 +129,47 @@ impl Core {
         serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()))
     }
 
-    /// `view.preview`: the owner in person previews any place; a Theseus job's shell previews what an
-    /// agent's turn of its own place would get, with no text; anyone else is refused in words.
+    /// `view.preview`: the owner in person previews any place; anyone else is refused in words. An agent's
+    /// process, a Theseus job included, is refused: the daemon knows a job's peer only as a job's, never
+    /// which session it runs, and a session the caller names is its claim, not a scope.
     async fn rpc_preview(
         self: Arc<Self>,
         params: Value,
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
         let p: ViewPreviewParams = parse(params)?;
-        let refuse = |why: String| {
+        let refuse = |why: &str| {
             Err(RpcFailure::new(
                 error_code::REFUSED,
                 format!("not shown: {why}"),
             ))
         };
-        if !conn.surface.reads_private() {
-            return refuse(format!("it came through {}", conn.surface.name()));
+        if let Some(why) = refused(&self, &conn, p.from_job.as_deref()) {
+            return refuse(&why);
         }
-        // An agent's process: its own place alone, never the owner's look.
-        let owner = match p.from_job.as_deref() {
-            Some(job) => {
-                let own = (self.runner.place_sessions(&p.place))
-                    .is_ok_and(|all| all.iter().any(|r| r.session_id == job));
-                if !own {
-                    return refuse("an agent's preview is of its own place alone".into());
-                }
-                false
-            }
-            None => match refused(&self, &conn, None) {
-                Some(why) => return refuse(why),
-                None => true,
-            },
-        };
-        if p.text && (!owner || conn.surface != Surface::Cli) {
-            return refuse("a piece's text is shown at the owner's own terminal alone".into());
+        if p.text && conn.surface != Surface::Cli {
+            return refuse("a piece's text is shown at the owner's own terminal alone");
         }
         let core = self.clone();
-        let r = super::import::blocking(move || core.view_preview(&p, owner)).await?;
+        let r = super::import::blocking(move || core.view_preview(&p)).await?;
         serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()))
     }
 
-    /// The preview of `p.place`'s next turn: its newest session's (an agent's, its job's own).
-    fn view_preview(
-        &self,
-        p: &ViewPreviewParams,
-        owner: bool,
-    ) -> anyhow::Result<ViewPreviewResult> {
-        let rec = match p.from_job.as_deref() {
-            Some(job) => self
-                .store
-                .get_session::<crate::session::SessionRecord>(job)?,
-            None => self.runner.place_sessions(&p.place)?.into_iter().next(),
-        };
-        let Some(rec) = rec else {
+    /// The preview of `p.place`'s next turn, for the owner in person (checked by the caller): its newest
+    /// session the gate admits there.
+    fn view_preview(&self, p: &ViewPreviewParams) -> anyhow::Result<ViewPreviewResult> {
+        let Some(rec) = self.runner.place_sessions(&p.place)?.into_iter().next() else {
             anyhow::bail!(
                 "no session's turns are at {}: there is nothing to preview",
                 p.place
             );
         };
         let (live, _) = self.live_profile();
-        let spec = self.runner.census_request(Some(&rec), "cli", &live)?.spec;
+        let spec = self.runner.preview_spec(&rec, &live)?;
         let text = StoreText(&self.store);
         let preview = crate::turn::Preview {
             place: &p.place,
             session: &rec.session_id,
-            owner,
             message: p.message.as_deref(),
             text: p.text.then_some(&text as &dyn PieceText),
         };

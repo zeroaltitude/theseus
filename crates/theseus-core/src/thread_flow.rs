@@ -117,6 +117,14 @@ impl State {
         }
     }
 
+    /// A turn read back from its record ran in thread `slug`: remembered,
+    /// once.
+    pub fn thread_turn_known(&self, turn: &str, slug: &str) {
+        if self.thread_of_turn(turn).is_none() {
+            self.turn_ran(turn, slug);
+        }
+    }
+
     /// A turn ran at home.
     pub fn home_ran(&self, turn: &str) {
         let mut r = lock(&self.recent);
