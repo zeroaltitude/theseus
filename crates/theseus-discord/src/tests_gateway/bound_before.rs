@@ -10,7 +10,7 @@ use theseus_core::provider::{FakeProvider, Provider, Scripted};
 use theseus_protocol::threads::ThreadInfo;
 use theseus_sim::fake_discord::FakeDiscord;
 
-use super::{bindings, guild, Rig, ANA, BEN, CY};
+use super::{bindings, guild, offered, Rig, ANA, BEN, CY, LAB};
 
 /// A Discord thread the binding made for the thread `tides`, in no bindings
 /// file.
@@ -40,17 +40,22 @@ fn old_store(core: &Arc<theseus_core::Core>) {
 
 /// After the restart: the pending post goes out in `#reel`; the owner's
 /// message there is a turn in the channel's own session, answered there;
-/// the place is private as it was, with no ceiling; a person who is no owner
+/// the place is private as it was, with no ceiling, and its turn is offered
+/// exactly the tools `#lab` (a private channel the file names, no ceiling) is
+/// offered: nothing narrowed and nothing widened; a person who is no owner
 /// starts nothing.
 #[tokio::test]
 async fn an_unlisted_channel_a_thread_was_bound_to_runs_as_itself_after_a_restart() {
     let fake = FakeDiscord::start_with_gateway();
     fake.set_guild(guild(false).private_channel(REEL, "reel", &[ANA, BEN, CY]));
+    let provider = Arc::new(FakeProvider::scripted(vec![
+        Scripted::text("lab ready"),
+        Scripted::text("ready"),
+    ]));
+    let model = provider.clone();
     let r = Rig::start_seeded(
         fake,
-        |_, _| -> Arc<dyn Provider> {
-            Arc::new(FakeProvider::scripted(vec![Scripted::text("ready")]))
-        },
+        move |_, _| -> Arc<dyn Provider> { model },
         &bindings(true),
         &[],
         |_| {},
@@ -69,6 +74,23 @@ async fn an_unlisted_channel_a_thread_was_bound_to_runs_as_itself_after_a_restar
         PlaceClass::Private,
         "the place is private, as it was"
     );
+    let place = (r.core.health().places.unwrap().places.into_iter())
+        .find(|p| p.place == target)
+        .expect("#reel is a bound place");
+    assert_eq!(place.ceiling, None, "no ceiling, as it had none");
+    // `#lab` first, for the tools a private channel with no ceiling is offered.
+    r.say(
+        (ANA, "ana"),
+        Some(LAB),
+        "Reply with exactly two words: lab ready",
+    );
+    r.until("the reply in #lab", || {
+        r.posted(LAB)
+            .iter()
+            .any(|m| m.content.contains("lab ready"))
+    })
+    .await;
+    let lab_asked = provider.requests().len();
     r.say(
         (ANA, "ana"),
         Some(REEL),
@@ -91,6 +113,14 @@ async fn an_unlisted_channel_a_thread_was_bound_to_runs_as_itself_after_a_restar
         theseus_protocol::SessionKind::Conversation,
         "an ordinary conversation"
     );
+    let asked = provider.requests();
+    let lab = offered(&asked[lab_asked - 1]);
+    let reel = offered(&asked[lab_asked]);
+    assert!(
+        reel.iter().any(|t| t == "fs_write"),
+        "a private place's tools: {reel:?}"
+    );
+    assert_eq!(reel, lab, "the tools of a private place with no ceiling");
     // The place's label is the one the binding gave it then.
     let row = r
         .ledger("discord.message.in")
