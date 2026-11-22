@@ -556,6 +556,8 @@ mod tests_push_once;
 #[cfg(test)]
 mod tests_reach;
 #[cfg(test)]
+mod tests_rebase_view;
+#[cfg(test)]
 mod tests_recall;
 #[cfg(test)]
 mod tests_recall_current;

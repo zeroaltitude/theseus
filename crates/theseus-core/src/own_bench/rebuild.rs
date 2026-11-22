@@ -21,6 +21,9 @@ use crate::rpc::Core;
 use crate::session::SessionRecord;
 use crate::store::Transcript;
 
+/// Why a turn whose request the view built is refused, by its compilation's strategy.
+pub const VIEW_REFUSED: &str = "a turn built from a view cannot be replayed yet";
+
 /// A reply: what a turn's answer said and asked for (the wire's own type).
 pub use theseus_protocol::own_bench::ReplayReply as Said;
 
@@ -162,6 +165,11 @@ impl Core {
                     format!("{cid} was never stored (a detour's compile is not)"),
                 )
             })?;
+        // A view's front, beside block and memory page are not in the session: its bytes cannot be laid
+        // again from the conversation (rebuilding from the view record is later work).
+        if compilation.strategy == crate::compiler::view::STRATEGY {
+            return Err(no("compilation", VIEW_REFUSED));
+        }
         let nodes: Transcript = transcript[..at].to_vec();
         let mut spec = self.kept_spec(&session, &compilation)?;
         let recalls = nodes
