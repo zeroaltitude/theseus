@@ -298,7 +298,7 @@ pub fn job_session() -> Option<String> {
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
 /// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
-pub const OPERATORS: [(&str, &str); 123] = [
+pub const OPERATORS: [(&str, &str); 105] = [
     (method::CONFIG_HISTORY, "theseus config history"),
     (method::CONFIG_WHOLE, "theseus config show"),
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
@@ -318,7 +318,6 @@ pub const OPERATORS: [(&str, &str); 123] = [
     (method::FILES_RESTORE, "theseus rewind"),
     (method::ACTION_CONFIRM, "theseus answer"),
     (method::WORK_ANSWER, "theseus answer"),
-    (method::THREAD_MOVE, "theseus thread move"),
     (method::PROJECT_CREATE, "theseus project new"),
     (method::PROJECT_ATTACH, "theseus project attach"),
     (method::PROJECT_ITEM_ADD, "theseus project item add"),
@@ -396,12 +395,6 @@ pub const OPERATORS: [(&str, &str); 123] = [
     (method::SELF_PATTERNS, "theseus self patterns"),
     (method::WATCH_CREATE, "theseus watch-for add"),
     (method::SELF_NARROW, "theseus self narrow"),
-    (method::THREAD_NEW, "theseus thread new"),
-    (method::THREAD_EDIT, "theseus thread edit"),
-    (method::THREAD_PAUSE, "theseus thread pause"),
-    (method::THREAD_RESUME, "theseus thread resume"),
-    (method::THREAD_DONE, "theseus thread done"),
-    (method::THREAD_REOPEN, "theseus thread reopen"),
     (method::ROUTINE_CREATE, "theseus routine add"),
     (method::ROUTINE_PAUSE, "theseus routine pause"),
     (method::ROUTINE_RESUME, "theseus routine resume"),
@@ -410,20 +403,6 @@ pub const OPERATORS: [(&str, &str); 123] = [
     (method::ROUTINE_TRY, "theseus routine try"),
     (method::ROUTINE_UPDATE, "theseus routine update"),
     (method::ROUTINE_DELETE, "theseus routine rm"),
-    (method::THREAD_SEAL, "theseus thread seal"),
-    (method::THREAD_UNSEAL, "theseus thread unseal"),
-    (
-        method::THREAD_SEAL_DISMISS,
-        "theseus thread seal --not-needed",
-    ),
-    (method::THREAD_MERGE, "theseus thread merge"),
-    (method::THREAD_UNMERGE, "theseus thread unmerge"),
-    (method::THREAD_SPLIT, "theseus thread split"),
-    (method::THREAD_SPLIT_PLAN, "theseus thread split --dry-run"),
-    (method::THREAD_UNSPLIT, "theseus thread unsplit"),
-    (method::THREAD_LINK, "theseus thread link"),
-    (method::THREAD_UNLINK, "theseus thread unlink"),
-    (method::THREAD_UNCLAIM, "theseus thread unclaim"),
     (method::TASK_START, "theseus task start"),
     (method::OWNER_PROOF_ENROLL, "theseus owner proof enroll"),
     (method::OWNER_PROOF_CONFIRM, "theseus owner proof enroll"),
@@ -641,32 +620,10 @@ mod tests {
         }
     }
 
-    /// A job's process cannot make or change a thread (theseus-nhew): the
-    /// threads are the owner's. The reads go.
+    /// A thread's records are read in a job as anywhere: `thread list` and `thread show` are
+    /// not refused. (Threads were retired on 2026-11-22; no `theseus thread` verb writes.)
     #[test]
-    fn a_jobs_process_cannot_write_threads() {
-        for m in [
-            method::THREAD_NEW,
-            method::THREAD_EDIT,
-            method::THREAD_PAUSE,
-            method::THREAD_RESUME,
-            method::THREAD_DONE,
-            method::THREAD_REOPEN,
-            method::THREAD_SEAL,
-            method::THREAD_UNSEAL,
-            method::THREAD_SEAL_DISMISS,
-            method::THREAD_MERGE,
-            method::THREAD_UNMERGE,
-            method::THREAD_SPLIT,
-            method::THREAD_SPLIT_PLAN,
-            method::THREAD_UNSPLIT,
-            method::THREAD_LINK,
-            method::THREAD_UNLINK,
-            method::THREAD_UNCLAIM,
-        ] {
-            let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
-            assert!(e.to_string().contains("theseus thread"), "{e}");
-        }
+    fn a_jobs_process_reads_threads() {
         assert!(refuse_in_a_job(method::THREAD_LIST, Some("ses_0000aa1b2c3")).is_ok());
         assert!(refuse_in_a_job(method::THREAD_SHOW, Some("ses_0000aa1b2c3")).is_ok());
     }

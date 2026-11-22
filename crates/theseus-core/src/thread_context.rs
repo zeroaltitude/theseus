@@ -8,27 +8,21 @@
 //!   compilation's own frame (`card_record`; a new META key, no store format
 //!   change), so every append renders the same bytes, and a recompile takes
 //!   the card as the thread stands (`TurnRunner::thread_spec`).
-//! - **`thread.note {line}`**, the model's own line on the card, for a
-//!   threaded session only. It rides the call's completion frame with the
-//!   thread's record, one version further; the prefix a request replays is
-//!   the snapshot's, so the line shows in the next recompile's card (and, in
-//!   the meantime, in the call itself).
+//! - **`thread.note`**, the model's own line on the card, went with threads
+//!   on 2026-11-22 (issue 44); its name stays below only so a session that is
+//!   no thread's is offered no such tool.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use serde::Deserialize;
-use serde_json::{json, Value};
-use theseus_protocol::threads::{ThreadInfo, MAX_CARD, MAX_LINE_CHARS};
+use serde_json::Value;
 use theseus_store::{kinds, NewRecord};
-use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
 use crate::compiler::card::{self, Card};
 use crate::compiler::{Compiled, RequestSpec};
-use crate::fact::thread::{Change, ThreadEdited};
-use crate::toolrun::TurnCtx;
 use crate::turn::TurnRunner;
 
+/// The name the card tool had.
 pub const NOTE: &str = "thread.note";
 
 /// The META key of the card a compilation took.
@@ -112,121 +106,4 @@ impl TurnRunner {
         });
         spec.card = Some(Card::new(now, recorded.flatten()));
     }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct NoteInput {
-    line: String,
-}
-
-/// `thread.note`: one line on the thread's card.
-pub struct ThreadNote;
-
-impl Tool for ThreadNote {
-    fn name(&self) -> &'static str {
-        NOTE
-    }
-
-    fn description(&self) -> &'static str {
-        "Add one line to this thread's card, where it stands (a decision, a finding, what is \
-         next); the card keeps the newest 12 and shows at the head of the thread after its \
-         next rewrite. Only in a thread."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {"line": {"type": "string", "description": "One sentence."}},
-            "required": ["line"],
-            "additionalProperties": false
-        })
-    }
-
-    fn class(&self) -> ToolClass {
-        ToolClass::Write
-    }
-
-    fn backend(&self) -> Backend {
-        Backend::Harness
-    }
-
-    fn retry(&self) -> Retry {
-        // Run again after a crash, the line would be there twice.
-        Retry::NonRepeatable
-    }
-
-    fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
-        let i: NoteInput = parse(input)?;
-        Ok(Plan {
-            summary: format!("note on the thread's card: {}", i.line.trim()),
-            ..Default::default()
-        })
-    }
-}
-
-/// The card with `line` added: the newest `MAX_CARD` lines; a line the card
-/// already ends with is not added again.
-fn with_line(card: &[String], line: &str) -> Vec<String> {
-    let mut next = card.to_vec();
-    if next.last().is_none_or(|l| l != line) {
-        next.push(line.to_string());
-    }
-    let over = next.len().saturating_sub(MAX_CARD);
-    next.drain(..over);
-    next
-}
-
-/// Run `thread.note` for the turn `tc`. The thread's new record and its row
-/// are returned for the frame that settles the call, and the board holds the
-/// new card at once.
-pub fn note(tc: &TurnCtx<'_>, input: &Value) -> Result<((String, Value), Vec<NewRecord>), String> {
-    let i: NoteInput = parse(input)?;
-    let line = i.line.split_whitespace().collect::<Vec<_>>().join(" ");
-    if line.is_empty() {
-        return Err("Not noted: give one sentence.".into());
-    }
-    if line.chars().count() > MAX_LINE_CHARS {
-        return Err(format!(
-            "Not noted: a card line is at most {MAX_LINE_CHARS} characters."
-        ));
-    }
-    let threads = tc.threads;
-    let (next, records) = threads
-        .noted(tc.store, tc.session_id, |t| {
-            let next = ThreadInfo {
-                card: with_line(&t.card, &line),
-                ..t.clone()
-            };
-            let row = crate::fact::row(
-                &ThreadEdited(Change {
-                    thread: &next,
-                    who: "model",
-                    via: NOTE,
-                    changed: &["card"],
-                }),
-                Some(tc.session_id),
-                Some(tc.turn_id),
-            )?;
-            let stored = ThreadInfo {
-                session_id: None,
-                ..next.clone()
-            };
-            let rec =
-                NewRecord::json(kinds::META, Some(&crate::threads::key(&next.slug)), &stored)?;
-            Ok((next, vec![rec, row]))
-        })
-        .map_err(|e| format!("Not noted: {e:#}"))?;
-    Ok((
-        (
-            format!(
-                "Noted on the card of {} ({} of {MAX_CARD} lines). It shows at the head of this \
-                 thread after its next rewrite.",
-                next.slug,
-                next.card.len()
-            ),
-            json!({"thread": next.slug, "lines": next.card.len()}),
-        ),
-        records,
-    ))
 }

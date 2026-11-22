@@ -24,7 +24,6 @@ mod confirms;
 pub(crate) use confirms::Rides;
 mod context;
 mod google;
-mod home_claim;
 mod inspect;
 mod mcp_card;
 mod views;
@@ -120,8 +119,17 @@ mod task_pause;
 mod task_rehome;
 mod task_reschedule;
 pub(crate) mod task_start;
+// Threads were retired on 2026-11-22: kept only as a fixture writer for
+// other units' tests, until the sweep.
+#[cfg(test)]
 mod thread_home;
+// Threads were retired on 2026-11-22: kept only as a fixture writer for
+// other units' tests, until the sweep.
+#[cfg(test)]
 mod thread_join;
+// Threads were retired on 2026-11-22: kept only as a fixture writer for
+// other units' tests, until the sweep.
+#[cfg(test)]
 mod thread_link;
 pub(crate) mod thread_seal;
 mod thread_surface;
@@ -146,8 +154,6 @@ mod tests_health_counts;
 mod tests_health_imported;
 #[cfg(test)]
 mod tests_history;
-#[cfg(test)]
-mod tests_home_claim;
 #[cfg(test)]
 mod tests_import_sync_deadline;
 #[cfg(test)]
@@ -177,8 +183,6 @@ mod tests_ordered;
 mod tests_peek;
 #[cfg(test)]
 mod tests_persona_import;
-#[cfg(test)]
-mod tests_persona_threads;
 #[cfg(test)]
 mod tests_pin_footer;
 #[cfg(test)]
@@ -223,19 +227,11 @@ mod tests_submit_deadline;
 #[cfg(test)]
 mod tests_surface;
 #[cfg(test)]
-mod tests_thread_context;
-#[cfg(test)]
-mod tests_thread_home;
-#[cfg(test)]
-mod tests_thread_join;
-#[cfg(test)]
-mod tests_thread_link;
+mod tests_thread_list;
 #[cfg(test)]
 mod tests_thread_recall;
 #[cfg(test)]
 mod tests_thread_surface;
-#[cfg(test)]
-mod tests_threads;
 #[cfg(test)]
 mod tests_typing;
 #[cfg(test)]

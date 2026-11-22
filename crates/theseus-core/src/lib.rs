@@ -390,8 +390,6 @@ mod tests_harness;
 #[cfg(test)]
 mod tests_hold_compile;
 #[cfg(test)]
-mod tests_home_size;
-#[cfg(test)]
 mod tests_horizon;
 #[cfg(test)]
 mod tests_inbound;

@@ -63,18 +63,10 @@ fn rehome_sends_the_task_and_the_home_and_prints_from_to_and_the_note() {
     let (dir, sock, daemon) = one_request(json!({
         "task": "ses_0000ab1c2d3e4f", "from": "discord:dm:42", "to": null,
         "note": "its budget stays carved from its original parent (exe_1)"}));
-    let out = theseus(
-        &sock,
-        dir.path(),
-        None,
-        &["task", "rehome", "e4f9a1", "thread:harbor"],
-    );
+    let out = theseus(&sock, dir.path(), None, &["task", "rehome", "e4f9a1", SES]);
     let req = daemon.join().unwrap();
     assert_eq!(req["method"], "task.rehome");
-    assert_eq!(
-        req["params"],
-        json!({"task": "e4f9a1", "home": "thread:harbor"})
-    );
+    assert_eq!(req["params"], json!({"task": "e4f9a1", "home": SES}));
     let said = String::from_utf8_lossy(&out.stdout);
     assert_eq!(
         out.status.code(),
