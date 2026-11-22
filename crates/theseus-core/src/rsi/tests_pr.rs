@@ -51,11 +51,7 @@ impl Provider for Model {
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
         self.requests.lock().unwrap().push(req.clone());
-        let answers_a_call = req
-            .messages
-            .last()
-            .and_then(|m| m["content"].as_array())
-            .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"));
+        let answers_a_call = crate::tests_places::answers_a_call(req);
         let answer = match self.calls.lock().unwrap().pop() {
             Some((tool, input)) if !answers_a_call => {
                 Scripted::tools("", &[("c1", tool.as_str(), input)])
