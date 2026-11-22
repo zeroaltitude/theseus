@@ -59,29 +59,6 @@ pub fn kept(f: &Frozen) -> Option<(Kept, Vec<String>)> {
     Some((k, texts))
 }
 
-/// The tools whose result can bring another session's or place's conversation words into an exchange: the
-/// history tool (its pages and opens, a released piece included), another thread's read, another place's
-/// read, and memory's lookup (its hits and its reads by session, which the recall check does not see).
-pub const CARRIERS: [&str; 4] = [
-    crate::view::history::HISTORY_TOOL,
-    crate::thread_read::READ,
-    crate::glide::READ,
-    crate::memory_lookup::LOOKUP,
-];
-
-/// The first tool of [`CARRIERS`] whose result `f` laid in its window, or that is among `own` (the turn's
-/// own nodes before its answer: a turn a late result woke): a replay cannot check that result's sources as
-/// they stand now, so it is refused. A view lays a tool's result only in its window: the front and the
-/// beside block are the harness's own text.
-pub fn carried<'a>(f: &'a Frozen, own: impl IntoIterator<Item = &'a Node>) -> Option<&'a str> {
-    let laid = (f.window.iter()).map(|(_, n)| &**n).chain(own);
-    laid.filter_map(|n| match &n.body {
-        Body::ToolResult { tool, .. } => Some(tool.as_str()),
-        _ => None,
-    })
-    .find(|tool| CARRIERS.contains(tool))
-}
-
 /// The window's nodes in runs of one exchange (one turn id), oldest first.
 fn exchanges(window: &[(u64, crate::stub::Stub)]) -> Vec<Vec<&Node>> {
     let mut out: Vec<Vec<&Node>> = Vec::new();
