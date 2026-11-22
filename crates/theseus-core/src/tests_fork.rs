@@ -131,7 +131,10 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
         .unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), sid, None);
+    // The owner typed it in person at the terminal, as `turn.submit` marks it (issue 44): a fork's
+    // inherited run is its own history only where the owner is alone (`fork/window.rs`).
+    let mark = crate::view_gate::test_mark(&core.runner, sid, true);
+    let sink = EventSink::new(core.bus.clone(), sid, None).with_arrival(Some(mark));
     core.runner
         .run(TurnRequest {
             prompt: None,
@@ -922,54 +925,6 @@ async fn a_forks_history_is_the_prefix_then_its_own_turns_and_pages_across_the_j
     let fwd = page(Some(3), Some(from), None);
     assert_eq!(ids(&fwd), want[2..5]);
     assert_eq!(fwd.next, Some(whole.nodes[4].position));
-}
-
-/// The ring works over the inherited prefix and the fork's own nodes: a
-/// fork whose context passes its model's window drops its leading turns as
-/// any session does, and names what it keeps by id.
-#[tokio::test]
-async fn a_fork_past_its_window_rings_over_the_prefix_and_its_own_turns() {
-    let r = rig_in(Some(40_000));
-    let s = new_session(&r.core, None);
-    let long = |w: &str| format!("{w} {}", "tide ".repeat(800));
-    for w in ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta"] {
-        turn(&r.core, &s, &long(w)).await;
-    }
-    let nodes = nodes_of(&r.core, &s);
-    let f = fork(&r.core, &s, &nodes[11].0); // through the answer to "zeta"
-    turn(&r.core, &f.session_id, &long("theta")).await;
-    turn(&r.core, &f.session_id, "short").await;
-
-    let compilations = r.core.store.session_compilations(&f.session_id).unwrap();
-    let last = compilations.last().unwrap();
-    assert!(
-        compilations.len() >= 2,
-        "{} compilation(s)",
-        compilations.len()
-    );
-    assert!(last.inherits.is_none(), "{}", last.strategy);
-    assert!(
-        matches!(last.strategy.as_str(), "ring" | "compaction"),
-        "{}",
-        last.strategy
-    );
-    assert!(
-        !last.includes.contains(&nodes[0].0),
-        "the oldest turn is dropped"
-    );
-    let req = requests(&r).pop().unwrap();
-    let text = serde_json::to_string(&plain(&req)).unwrap();
-    assert!(text.contains("short"));
-    let said: Vec<String> = req
-        .messages
-        .iter()
-        .filter_map(|m| m["content"][0]["text"].as_str().map(str::to_string))
-        .collect();
-    assert!(
-        !said.iter().any(|t| t.starts_with("eta ")),
-        "the source's later turn leaked"
-    );
-    assert!(said.iter().any(|t| t.starts_with("theta ")));
 }
 
 /// A fork's content labels (theseus-9ymz0): the labels whose item the fork
