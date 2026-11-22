@@ -624,10 +624,10 @@ async fn a_turn_that_lowered_slot_g_then_needs_clearing_still_answers() {
         std::fs::write(r.root.join(format!("logs/keeper-{k:03}.txt")), log(k)).unwrap();
     }
     let sid = crate::tests_private_view::session_in(&r.core, None, &r.root);
-    // Eight earlier exchanges of about 9,000 tokens each: more than the view's whole, so the window itself
-    // makes the first call over, and slot G is what gives.
+    // Eight earlier exchanges of about 5,500 tokens each: more than the view's whole, so the window itself
+    // makes the first call over, and slot G is what gives; the floor (the newest three) still fits.
     for k in 0..8 {
-        let said = format!("turn {k}: earlier, {}", LINE.repeat(500));
+        let said = format!("turn {k}: earlier, {}", LINE.repeat(300));
         crate::tests_places::turn(&r.core, &sid, &said).await;
     }
     let res = crate::tests_places::turn(&r.core, &sid, "turn 99: read every log").await;
