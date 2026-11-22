@@ -385,7 +385,8 @@ async fn a_bare_refusal_after_four_exchanges_shrinks_and_answers_on_one_retry() 
     );
     let sid = crate::tests_places::session(&r.core, None);
     for k in 0..4 {
-        let said = format!("earlier ({k}): {}", LINE.repeat(40));
+        // About 7,000 tokens each: the oldest, past the window's floor of three, is what the retry cuts.
+        let said = format!("earlier ({k}): {}", LINE.repeat(400));
         turn_in(&r.core, &sid, &said)
             .await
             .expect("an earlier turn");
