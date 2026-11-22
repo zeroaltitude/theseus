@@ -1009,11 +1009,12 @@ async fn a_self_loop_session_lays_its_own_place_only_and_an_ordinary_one_the_wid
     assert!(sent.contains("the heron is grey"), "the widest: {sent}");
 }
 
-/// Round 3, the self loop's scope against an ordinary task (the brief's second test): with the owner's DM
-/// recallable, an ordinary task's turn is laid it (the widest point of view), and a fixer's and an approver's
-/// turn asking the same are laid nothing of it, nor of another session at their place.
+/// Round 3, the self loop's scope against an ordinary session (the brief's second test): with the owner's DM
+/// recallable, an ordinary conversation's turn is laid it (the widest point of view), and a fixer's and an
+/// approver's turn asking the same are laid nothing of it. The ordinary one is a conversation, not a task: a
+/// task's first compile admits no recall note (`compiler::situation::admits`).
 #[tokio::test]
-async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_task_does() {
+async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_session_does() {
     use crate::tests_view_hand_backs::unmarked;
     const SECRET: &str = "the kelp vault code is 5519";
     let r = rig_with(|c| {
@@ -1029,12 +1030,11 @@ async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_t
     let dm = crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
     turn_as(c, &dm, SECRET, true).await;
     (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![dm.clone()]));
-    let parent = crate::tests_places::session(c, None);
-    let (task, _) = crate::tests_self_budget::principal_session(c, &parent, "operator", None);
+    let ordinary = crate::tests_places::session(c, None);
     let fixer = self_session(c, "self fix: kelp");
     let approver = self_session(c, "self approve: kelp");
     for (sid, asks) in [
-        (&task, "task: what is the kelp vault code?"),
+        (&ordinary, "ordinary: what is the kelp vault code?"),
         (&fixer, "fixer: what is the kelp vault code?"),
         (&approver, "approver: what is the kelp vault code?"),
     ] {
@@ -1042,9 +1042,9 @@ async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_t
     }
     let sent = |asks: &str| texts(&asked(&r, asks).pop().expect("its request"));
     assert!(
-        sent("task: what is").contains("5519"),
-        "the ordinary task: {}",
-        sent("task: what is")
+        sent("ordinary: what is").contains("5519"),
+        "the ordinary session: {}",
+        sent("ordinary: what is")
     );
     for asks in ["fixer: what is", "approver: what is"] {
         let got = sent(asks);
