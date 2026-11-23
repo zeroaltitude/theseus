@@ -72,6 +72,9 @@ impl Core {
         if let Some(c) = &w.capped {
             return none(&format!("the replay ended at its {c} cap"));
         }
+        if w.calls.iter().any(|c| c.how == "stub") {
+            return none("stubbed evidence cannot teach routing");
+        }
         if w.same.tests == Some(false) {
             return none("the last test run differs from the original's");
         }

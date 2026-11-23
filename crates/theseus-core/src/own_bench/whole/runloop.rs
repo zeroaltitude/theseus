@@ -197,6 +197,8 @@ impl Core {
                         out.recorded.push(Recorded {
                             tool: tool.clone(),
                             content,
+                            input: input.clone(),
+                            ok,
                         });
                         if tool == "proc.run" {
                             out.facts.runs.push(TestRun {

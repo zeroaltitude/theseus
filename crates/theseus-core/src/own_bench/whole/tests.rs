@@ -394,17 +394,23 @@ async fn a_stub_is_the_recorded_result_or_a_sentence() {
         vec![Recorded {
             tool: "wake.at".into(),
             content: "wake set for 09:00".into(),
+            input: json!({"at": "9:00"}),
+            ok: false,
         }],
         Arc::new(Sh::default()),
     );
+    let wrong = hands.call("wake_at", &json!({"at": "10:00"})).await;
+    assert!(wrong.is_error);
     let a = hands.call("wake_at", &json!({"at": "9:00"})).await;
+    assert!(a.is_error, "recorded failure remains a failure");
     assert_eq!(a.text, "wake set for 09:00");
     let b = hands.call("wake_at", &json!({"at": "9:00"})).await;
+    assert!(b.is_error);
     assert!(b.text.starts_with("Not run: wake.at"), "{}", b.text);
     let c = hands.call("no_such_tool", &json!({})).await;
     assert!(c.is_error && c.text.contains("no tool named"));
     let how: Vec<&str> = hands.calls.iter().map(|c| c.how.as_str()).collect();
-    assert_eq!(how, ["stub", "stub", "refused"]);
+    assert_eq!(how, ["stub", "stub", "stub", "refused"]);
     assert!(hands.changed.is_empty());
 }
 
@@ -628,6 +634,12 @@ async fn a_judged_match_becomes_a_machine_label_once() {
     assert_eq!(l[0].data["label"], "haiku");
     assert_eq!(l[0].data["weight"], crate::learning::REPLAY_WEIGHT);
     assert_eq!(l[0].data["pack"], "route.v11");
+    let mut stubbed = r.clone();
+    stubbed.whole.as_mut().unwrap().calls.push(theseus_protocol::own_bench::WholeCall {
+        tool: "wake.at".into(), how: "stub".into(), exit: None, why: None,
+    });
+    w.rig.core.label_whole(&p, &p.profile, &mut stubbed);
+    assert!(stubbed.whole.unwrap().label.unwrap().contains("stubbed evidence"));
     // The same turn again writes no second label.
     same(&w);
     let again = w.rig.core.turn_replay(p, "cli").await.unwrap();
