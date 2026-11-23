@@ -1014,7 +1014,9 @@ pub fn human_secs(s: u64) -> String {
 /// `secrets: resolving | ready | failed <names>`, with the names ready, how
 /// the vault was read and how long it took, and each failure's reason
 /// (theseus-qa0), then the secrets from outside the vault with their sources
-/// (theseus-n88g.1). A daemon older than that reports only the ready names.
+/// (theseus-n88g.1), then the daemon's own vault reads today and, when the
+/// retries stopped at the day's ceiling, why (issue 44). A daemon older than
+/// that reports only the ready names.
 pub fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> String {
     if s.state.is_empty() {
         return format!("secrets [{}]", ready.join(", "));
@@ -1042,9 +1044,16 @@ pub fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> St
         line.push_str(&format!("\n  {} did not resolve: {}", f.name, f.error));
     }
     if let Some(ms) = s.retry_in_ms.filter(|_| !s.failed.is_empty()) {
-        line.push_str(&format!("\n  fetched again in {:.0} s", ms as f64 / 1000.0));
+        let again = match ms {
+            0..=119_999 => format!("{:.0} s", ms as f64 / 1000.0),
+            _ => human_secs(ms / 1000),
+        };
+        line.push_str(&format!("\n  fetched again in {again}"));
     }
     if let Some(words) = s.outside_vault_words() {
+        line.push_str(&format!("\n  {words}"));
+    }
+    if let Some(words) = s.vault_today_words() {
         line.push_str(&format!("\n  {words}"));
     }
     line

@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
@@ -35,7 +35,10 @@ use tokio::sync::watch;
 use zeroize::Zeroizing;
 
 pub mod look;
+pub mod pace;
 pub mod write;
+
+use pace::VaultReads;
 
 pub const TOKEN_ENV: &str = "OP_SERVICE_ACCOUNT_TOKEN";
 
@@ -44,7 +47,6 @@ pub const OP_TIMEOUT: Duration = Duration::from_secs(10);
 /// The first retry of a failed secret; each later one waits twice as long.
 const RETRY_FIRST: Duration = Duration::from_secs(5);
 const RETRY_MAX: Duration = Duration::from_secs(60);
-
 /// A secret value. Debug and Display never print it.
 #[derive(Clone)]
 pub struct Secret(Zeroizing<String>);
@@ -174,6 +176,9 @@ pub struct OpReader {
     /// Every `op://` reference fails with it; `env:` and `file:` entries
     /// never reach the reader.
     absent: Option<String>,
+    /// The count each `op` it starts is added to (issue 44): the process's,
+    /// or a test's.
+    reads: Arc<VaultReads>,
 }
 
 /// Where a `[secrets]` entry's value comes from (theseus-n88g.1): the vault,
@@ -312,6 +317,7 @@ impl OpReader {
             op_bin,
             token_file,
             absent: None,
+            reads: VaultReads::process(),
         })
     }
 
@@ -324,7 +330,21 @@ impl OpReader {
             op_bin: PathBuf::from("op"),
             token_file: None,
             absent: Some(why),
+            reads: VaultReads::process(),
         }
+    }
+
+    /// The count every `op` this reader starts is added to: health's
+    /// `vault_today` when `SecretBoard::count_from` is given it.
+    pub fn reads(&self) -> Arc<VaultReads> {
+        self.reads.clone()
+    }
+
+    /// This reader, counting into `reads` (a test's own count).
+    #[cfg(test)]
+    pub(crate) fn counting_into(mut self, reads: Arc<VaultReads>) -> Self {
+        self.reads = reads;
+        self
     }
 
     /// The token file this reader was pointed at (`--op-token-file` or
@@ -334,12 +354,20 @@ impl OpReader {
         self.token_file.as_deref()
     }
 
-    /// Start `op`, registered as a child that tokio waits for, so the
-    /// daemon's reaper leaves it to tokio (theseus-z4b). This is the only place
-    /// the daemon starts a child that it waits for itself.
-    fn start(cmd: &mut tokio::process::Command) -> std::io::Result<tokio::process::Child> {
+    /// Start `op`, asking for `references` entries, registered as a child
+    /// that tokio waits for, so the daemon's reaper leaves it to tokio
+    /// (theseus-z4b). This is the only place the daemon starts a child that it
+    /// waits for itself, and so the one place a vault read is counted (issue
+    /// 44): once the process started.
+    fn start(
+        &self,
+        cmd: &mut tokio::process::Command,
+        references: usize,
+    ) -> std::io::Result<tokio::process::Child> {
         use theseus_kernel::children::{self, Kind};
-        children::spawn(Kind::Owned, || cmd.spawn(), tokio::process::Child::id)
+        let child = children::spawn(Kind::Owned, || cmd.spawn(), tokio::process::Child::id)?;
+        self.reads.note(references);
+        Ok(child)
     }
 
     /// `op`, under the token and nothing else from our environment.
@@ -402,7 +430,9 @@ impl OpReader {
         }
         let mut cmd = self.op();
         cmd.arg("read").arg("--no-newline").arg(op_ref);
-        let child = Self::start(&mut cmd).map_err(|e| format!("spawning op: {e}"))?;
+        let child = self
+            .start(&mut cmd, 1)
+            .map_err(|e| format!("spawning op: {e}"))?;
         let out = match tokio::time::timeout(OP_TIMEOUT, child.wait_with_output()).await {
             Err(_) => {
                 return Err(format!(
@@ -442,8 +472,9 @@ impl OpReader {
         template.push_str(&format!("{boundary}end\n"));
         let mut cmd = self.op();
         cmd.arg("inject").stdin(Stdio::piped());
-        let mut child =
-            Self::start(&mut cmd).map_err(|e| InjectFailed::Error(format!("spawning op: {e}")))?;
+        let mut child = self
+            .start(&mut cmd, refs.len())
+            .map_err(|e| InjectFailed::Error(format!("spawning op: {e}")))?;
         let run = async {
             if let Some(mut stdin) = child.stdin.take() {
                 // An `op` that exits before it reads the template (one that
@@ -579,6 +610,9 @@ pub struct SecretBoard {
     /// The entries whose values come from outside the vault, by name, with
     /// their source (theseus-n88g.1). Empty for `new`'s board.
     outside: Vec<(String, Source)>,
+    /// The daemon's vault reads, once `count_from` is given them: health's
+    /// `vault_today`, and the day's ceiling the retries keep (issue 44).
+    reads: OnceLock<Arc<VaultReads>>,
 }
 
 impl SecretBoard {
@@ -612,6 +646,7 @@ impl SecretBoard {
             origin,
             progress: Mutex::default(),
             outside,
+            reads: OnceLock::new(),
         })
     }
 
@@ -764,6 +799,16 @@ impl SecretBoard {
         self.progress.lock().unwrap().retry_at = Some(at);
     }
 
+    /// Count the vault's reads from `reads` (the daemon's reader's): health
+    /// says them, and the retries keep the day's ceiling over them.
+    pub fn count_from(&self, reads: Arc<VaultReads>) {
+        let _ = self.reads.set(reads);
+    }
+
+    fn reads(&self) -> Option<Arc<VaultReads>> {
+        self.reads.get().cloned()
+    }
+
     /// For health: `resolving` until every secret has settled, then `ready`,
     /// or `failed` naming each one that did not resolve and why.
     pub fn status(&self) -> SecretsStatus {
@@ -799,6 +844,15 @@ impl SecretBoard {
             retry_in_ms: p
                 .retry_at
                 .map(|t| t.saturating_duration_since(Instant::now()).as_millis() as u64),
+            vault_today: self.reads().and_then(|r| {
+                let (processes, references) = r.today();
+                (processes > 0).then(|| theseus_protocol::VaultToday {
+                    processes,
+                    references,
+                    ceiling: pace::default_vault_reads_per_day(),
+                    stopped: None,
+                })
+            }),
             outside_vault: self
                 .outside
                 .iter()
@@ -1000,6 +1054,9 @@ pub mod fake {
 }
 
 #[cfg(test)]
+mod tests_pace;
+
+#[cfg(test)]
 mod tests {
     use super::fake::FakeVault;
     use super::*;
@@ -1199,6 +1256,7 @@ esac
             op_bin,
             token_file: None,
             absent: None,
+            reads: VaultReads::new(Arc::new(pace::SystemClock)),
         }
     }
 
@@ -1407,6 +1465,7 @@ esac
             op_bin,
             token_file: None,
             absent: None,
+            reads: VaultReads::new(Arc::new(pace::SystemClock)),
         };
         let refs: Vec<String> = (0..2000)
             .map(|i| format!("op://Harbor/item-{i:04}/notesPlain"))

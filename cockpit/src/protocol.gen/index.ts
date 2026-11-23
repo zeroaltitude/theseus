@@ -844,6 +844,7 @@ export type * from './VaultKeepParams';
 export type * from './VaultKeepWaiting';
 export type * from './VaultKeepWaitingParams';
 export type * from './VaultKept';
+export type * from './VaultToday';
 export type * from './ViewBudget';
 export type * from './ViewCount';
 export type * from './ViewDrop';

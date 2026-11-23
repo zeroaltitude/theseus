@@ -127,6 +127,11 @@ pub struct SecretsStatus {
     /// source. Empty when every secret is the vault's.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub outside_vault: Vec<SecretSource>,
+    /// The daemon's own vault reads today (issue 44): absent before the
+    /// daemon has read the vault, and from a daemon older than the count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub vault_today: Option<VaultToday>,
 }
 
 impl SecretsStatus {
@@ -159,6 +164,43 @@ impl SecretsStatus {
             format!("outside the vault: {}", each.join(", "))
         })
     }
+
+    /// `vault today: 3 runs of op, 14 entries read (at most 2000 a day)`, and
+    /// on a second line why the retries stopped, when they have: what health
+    /// says of the daemon's own vault reads. None before the first read.
+    pub fn vault_today_words(&self) -> Option<String> {
+        let v = self.vault_today.as_ref()?;
+        let runs = if v.processes == 1 { "run" } else { "runs" };
+        let entries = if v.references == 1 { "entry" } else { "entries" };
+        let mut s = format!(
+            "vault today: {} {runs} of op, {} {entries} read (at most {} a day)",
+            v.processes, v.references, v.ceiling
+        );
+        if let Some(why) = &v.stopped {
+            s.push_str(&format!("\n  {why}"));
+        }
+        Some(s)
+    }
+}
+
+/// The daemon's own vault reads in the local day (issue 44): each `op` it
+/// started, and the entries those asked for. Counts only, never a name or a
+/// value.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct VaultToday {
+    /// `op` processes started today.
+    pub processes: u32,
+    /// The entries they asked for: one per `op read`, each reference of an
+    /// `op inject`.
+    pub references: u32,
+    /// The entries a day past which a failing entry is no longer fetched
+    /// again until the next local day or the owner's refresh.
+    pub ceiling: u32,
+    /// Why the retries stopped, in words, while they are stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub stopped: Option<String>,
 }
 
 /// A secret that did not resolve, and why (never a value).
