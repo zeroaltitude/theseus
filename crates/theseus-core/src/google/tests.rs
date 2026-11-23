@@ -106,6 +106,7 @@ pub(crate) async fn rig_with(
         .google
         .clone()
         .expect("[google] binds an account");
+    g.sends.attach(core.store.clone());
     Rig { core, fake, dir, g }
 }
 
