@@ -555,7 +555,12 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
             (None, false) => format!("{who} · route {}{effort}", ro.reason),
         }
     });
-    let who = format!("{}/{}", r.provider, r.model);
+    // Old held records carry a model name even though no model ran.
+    let who = if r.stop_reason == "held" {
+        "held, no model ran".to_string()
+    } else {
+        format!("{}/{}", r.provider, r.model)
+    };
     format!(
         "[{} → {}{} · {} loop(s){}{} · {} · tokens in {} out {}{}{} · {} ms{} · session {}{}{}]",
         r.profile,
