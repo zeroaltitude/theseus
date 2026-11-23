@@ -178,6 +178,29 @@ fn the_spoken_form_stubs_each_call_from_the_call_and_never_shows_a_result() {
     assert!(parts.iter().all(|p| p.voice != Voice::Result));
 }
 
+/// A late result answers no call in the spoken form (issue 44): the call it came back for reads "no result"
+/// there, and the late result is its stub alone, never shown as the call's answer.
+#[test]
+fn a_late_result_is_paired_with_no_call_in_the_spoken_form() {
+    let mut late = result("c1", "came back later", None);
+    if let Body::ToolResult { late: l, .. } = &mut late.body {
+        *l = true;
+    }
+    let nodes = vec![
+        Node::user("s", Some("t"), "web", ASK),
+        call("c1", "fs_read", json!({"path": "src/lib.rs"})),
+        late,
+    ];
+    let parts = forms::spoken(&nodes);
+    let text = forms::text(&parts);
+    assert!(
+        text.contains("call: [fs_read \"src/lib.rs\": no result]"),
+        "the call is not answered by a late result: {text}"
+    );
+    let calls = parts.iter().filter(|p| p.voice == Voice::Call).count();
+    assert_eq!(calls, 2, "the late result stands alone: {text}");
+}
+
 #[test]
 fn a_stub_reads_a_programs_steps_an_error_and_a_missing_result() {
     let steps = json!({"steps": [{"argv": ["cargo", "test"]}, {"argv": ["git", "status"]}]});

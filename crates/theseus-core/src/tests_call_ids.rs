@@ -329,3 +329,56 @@ async fn a_resumed_result_answers_its_own_sessions_call_and_never_another_sessio
         "B's question still waits"
     );
 }
+
+/// **Two outstanding old turns of ONE session, one id, one resumed.** A session posts and waits (turn 1), then
+/// posts again with the SAME id and waits (turn 2); the FIRST is approved and runs in a later turn. A request
+/// that lays all of it shows the first call with its result and the second still with the stub: only its own
+/// call is answered.
+#[tokio::test]
+async fn of_two_waiting_calls_of_one_session_with_one_id_only_the_resumed_ones_call_is_answered() {
+    let r = rig_scripted(|_| {}, post_script);
+    bind(&r.core);
+    let hall = format!("channel:{HALL}");
+    let s = session(&r.core, Some(&hall));
+    let asks = turn(&r.core, &s, "POST #pier :: the first").await;
+    assert!(asks.awaiting_confirm.is_some(), "it asks: {asks:?}");
+    let asks = turn(&r.core, &s, "POST #pier :: the second").await;
+    assert!(asks.awaiting_confirm.is_some(), "it asks again: {asks:?}");
+
+    let first = (r.core.confirm_list().unwrap().into_iter())
+        .filter(|q| q.session_id == s)
+        .min_by_key(|q| q.requested_at_ms)
+        .expect("the first question");
+    assert_eq!(first.input["text"], "the first", "{first:?}");
+    r.core
+        .confirm_action(&first.correlation_id, true, None, "cli")
+        .unwrap();
+    r.until("the resumed turn", 15, |r| {
+        let nodes = r.core.store.session_nodes(&s).unwrap();
+        let ran = (nodes.iter()).position(
+            |(_, n)| matches!(&n.body, Body::ToolResult { tool_use_id, late: false, .. } if tool_use_id == SAME),
+        );
+        ran.is_some_and(|i| {
+            (nodes[i + 1..].iter()).any(|(_, n)| matches!(n.body, Body::AssistantMessage { .. }))
+        })
+    })
+    .await;
+
+    let now = session(&r.core, Some(&hall));
+    turn(&r.core, &now, "and now?").await;
+    let req = r
+        .requests()
+        .into_iter()
+        .find(|q| last_user(q).contains("and now?"))
+        .expect("the new turn's request");
+    let ran = first_result(after_call(&req, "text", "the first"));
+    assert!(
+        !ran.starts_with(STUB),
+        "the resumed call carries its result: {ran}"
+    );
+    let waits = first_result(after_call(&req, "text", "the second"));
+    assert!(
+        waits.starts_with(STUB),
+        "the other waiting call is closed with the stub: {waits}"
+    );
+}

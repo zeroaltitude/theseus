@@ -861,6 +861,62 @@ mod tests {
         );
     }
 
+    /// A long call and a short call with ONE id (a provider that numbers its calls per response) in a `Spoken`
+    /// exchange (issue 44): the long one's fold describes its OWN result, and the short one keeps its own.
+    #[test]
+    fn a_long_and_a_short_call_with_one_id_each_keep_their_own_result() {
+        let done = |content: &str| {
+            let mut n = Node::user("s", Some("t1"), "cli", "x");
+            n.body = Body::ToolResult {
+                tool_use_id: "call_0".into(),
+                tool: "fs.write".into(),
+                status: crate::node::ResultStatus::Ok,
+                is_error: false,
+                content: content.into(),
+                correlation_id: None,
+                bytes_total: 0,
+                truncated: false,
+                full_ref: None,
+                duration_ms: None,
+                late: false,
+                meta: json!({}),
+                image: None,
+                external: None,
+                payload: None,
+            };
+            n
+        };
+        let input = json!({"path": "big.rs", "content": "x".repeat(50_000)});
+        let long = json!({"type": "tool_use", "id": "call_0", "name": "fs_write", "input": input});
+        let short = json!({"type": "tool_use", "id": "call_0", "name": "fs_read", "input": {"path": "a.rs"}});
+        let spoken = bounded(
+            laid(vec![
+                answer("t1", vec![long]),
+                done("wrote 50,000 bytes"),
+                answer("t1", vec![short]),
+                done("fn small() {}"),
+            ]),
+            &Handle("t1".into()),
+        );
+        let texts: Vec<String> = (spoken.iter())
+            .map(|(_, n)| serde_json::to_string(&n.body).unwrap())
+            .collect();
+        assert_eq!(
+            spoken.len(),
+            3,
+            "only the long call's result is folded: {texts:?}"
+        );
+        assert!(
+            texts[0].contains("[earlier call: fs_write") && texts[0].contains("18 characters"),
+            "the fold describes its own result: {}",
+            texts[0]
+        );
+        assert!(
+            texts[2].contains("fn small() {}"),
+            "the short call keeps its own result: {texts:?}"
+        );
+    }
+
     /// Each session an assembly reads is read from the store once, however many exchanges of it are asked.
     #[test]
     fn an_assembly_reads_each_session_once() {
