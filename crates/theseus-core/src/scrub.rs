@@ -340,15 +340,24 @@ fn percent_spans(t: &[u8], v: &[u8]) -> Vec<(usize, usize)> {
     if v.is_empty() {
         return spans;
     }
+    // Reuse the two frontiers; most candidate starts fail on their first byte.
+    let mut states = Vec::new();
+    let mut next = Vec::new();
     while i < t.len() {
-        if t[i] != v[0] && t[i] != b'%' {
+        if t[i] != v[0]
+            && !(t[i] == b'%'
+                && hex(t.get(i + 1))
+                    .zip(hex(t.get(i + 2)))
+                    .is_some_and(|(h, l)| h * 16 + l == u32::from(v[0])))
+        {
             i += 1;
             continue;
         }
-        let mut states = vec![(i, false)];
+        states.clear();
+        states.push((i, false));
         for &want in v {
-            let mut next = Vec::new();
-            for (j, encoded) in states {
+            next.clear();
+            for (j, encoded) in states.drain(..) {
                 if t.get(j) == Some(&want) {
                     next.push((j + 1, encoded));
                 }
@@ -362,15 +371,15 @@ fn percent_spans(t: &[u8], v: &[u8]) -> Vec<(usize, usize)> {
             }
             next.sort_unstable();
             next.dedup();
-            states = next;
+            std::mem::swap(&mut states, &mut next);
             if states.is_empty() {
                 break;
             }
         }
         if let Some(end) = states
-            .into_iter()
+            .iter()
             .filter(|(_, encoded)| *encoded)
-            .map(|(j, _)| j)
+            .map(|(j, _)| *j)
             .max()
         {
             spans.push((i, end));
@@ -595,4 +604,22 @@ mod tests {
             assert_eq!(counts.get("demo"), Some(&1));
         }
     }
+}
+
+#[test]
+fn percent_dense_text_with_forty_values_is_measured() {
+    let line = "%61%62%63%2F%25%20%3D%26%3F%41%42%43%2f%25%20%3d\n";
+    let text = line.repeat((4 * 1024 * 1024) / line.len());
+    let values: Vec<_> = (0..40)
+        .map(|n| format!("abc/fixture-{n:02}-encoded-value-0123456789"))
+        .collect();
+    let start = std::time::Instant::now();
+    for value in &values {
+        assert!(percent_spans(text.as_bytes(), value.as_bytes()).is_empty());
+    }
+    println!(
+        "PERCENT_MEASUREMENT {} ms for {} bytes with 40 values",
+        start.elapsed().as_millis(),
+        text.len()
+    );
 }
