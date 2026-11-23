@@ -964,19 +964,9 @@ async fn trust_removes_the_injection_label_and_nothing_else() {
     assert!(flags_now().has(Flag::Secret));
 }
 
-/// **`/trust` clears the session that RAN, not only the place's** (F2b of
-/// the live freeze of 2026-11-13). A message a place routes into a thread
-/// runs in the thread's session, and the `injection` label the gate reads is
-/// that session's. `trust()` read `self.session_id` alone, so the owner was
-/// answered "this conversation carries no `injection` label" while the
-/// session that was actually frozen stayed frozen -- the one chat route he
-/// had for it addressed the wrong session, silently. The Remove button was
-/// never blind to this, because its custom id carries the session id.
-///
-/// The arrangement is the incident's: the place's own session carries no
-/// label, a thread's session that answers at this place carries it, and
-/// `outbox::show_at` is the index that ties the two -- the same one the task
-/// watch reads to adopt a routed thread's tasks (theseus-h68q6).
+/// A historical thread binding stays readable, but cannot redirect `/trust` away from
+/// the current conversation or grant authority to clear another session's injection label.
+/// Explicit remove buttons retain their own session targeting and act checks.
 #[tokio::test]
 async fn trust_does_not_clear_a_retired_thread_binding() {
     use theseus_core::content::{ContentFlags, Flag, ItemKind, Label};
@@ -1046,7 +1036,7 @@ async fn trust_does_not_clear_a_retired_thread_binding() {
         .collect();
     assert!(removed.is_empty());
 
-    // A thread that answers at ANOTHER place is not this place's to clear.
+    // A retired binding to ANOTHER place grants no authority here either.
     let elsewhere = session(Some({
         let mut f = ContentFlags::default();
         assert!(f.raise(Label {
