@@ -36,6 +36,7 @@ impl ToolRuntime {
         };
         // The calls as the model meant them (theseus-9dt2), as a turn ran them.
         let pending = self.fit_uses(&pending, &Default::default()).0;
+        let pending = self.refuse_repeated_pending(tc, &nodes, assistant, pending, &mut out)?;
         let calls = calls_of(&nodes, &assistant.id);
         // Calls no turn has gated run as a response's calls do (theseus-a60),
         // but once one of the batch is declined, none of them asks
@@ -102,6 +103,118 @@ impl ToolRuntime {
         self.run_fresh(tc, &assistant.id, &mut fresh, declined, &mut out)
             .await?;
         Ok(out)
+    }
+
+    /// `pending`, less each use of an id its response (`assistant`) gives to more than one call: a stored
+    /// response from before such a response was refused at once (issue 44). No such use goes back through
+    /// dispatch. Its own actions (its records', [`Self::actions_of`]) that were never dispatched are declined
+    /// and their cards closed; then a use any of whose actions was ever dispatched (`dispatched_at_ms`, kept
+    /// whatever became of it after: a cancel that settled it after its dispatch included) reads that the
+    /// restart left its outcome unknown ([`INTERRUPTED`]), never "Not run"; any other reads the refusal
+    /// ([`Self::repeated_id`]).
+    fn refuse_repeated_pending(
+        &self,
+        tc: &TurnCtx<'_>,
+        nodes: &[(u64, crate::stub::Stub)],
+        assistant: &Node,
+        pending: Vec<ToolUse>,
+        out: &mut ResumeOutcome,
+    ) -> Result<Vec<ToolUse>> {
+        let Body::AssistantMessage { blocks, .. } = &assistant.body else {
+            return Ok(pending);
+        };
+        let uses = crate::provider::tool_uses_in(blocks);
+        let repeated = super::calls::repeated_ids(uses.iter().map(|u| u.id.as_str()));
+        let mut rest = Vec::with_capacity(pending.len());
+        for u in pending {
+            if !repeated.contains(u.id.as_str()) {
+                rest.push(u);
+                continue;
+            }
+            let started = Instant::now();
+            let actions = Self::actions_of(tc, nodes, &assistant.id, &u)?;
+            for a in actions.iter().filter(|a| !dispatched(a)) {
+                Self::decline_repeated(tc, a)?;
+            }
+            let outcome = if actions.iter().any(dispatched) {
+                self.interrupted(tc, &u)?
+            } else {
+                self.repeated_id(tc, &assistant.id, &u)?
+            };
+            out.answered(&u, outcome, started);
+            out.wrote += 1;
+        }
+        Ok(rest)
+    }
+
+    /// A use of a repeated id one of whose actions was dispatched: settled without dispatching anything, in
+    /// the words the resume has for a call a restart interrupted. No correlation: which of the id's uses ran
+    /// cannot be told from the records.
+    fn interrupted(&self, tc: &TurnCtx<'_>, u: &ToolUse) -> Result<CallOutcome> {
+        let (_, name) = self.tool_of(u);
+        let r = ResultNode::new(&u.id, &name, ResultStatus::Unknown, INTERRUPTED);
+        Ok(done(self.answer(tc, r)?))
+    }
+
+    /// The actions of `u`'s gate records in `assistant`'s response: the records of its id whose input is its
+    /// input; when none is (or its uses share their input), every record of its id, so that no action that
+    /// could be its own is missed.
+    fn actions_of(
+        tc: &TurnCtx<'_>,
+        nodes: &[(u64, crate::stub::Stub)],
+        assistant: &str,
+        u: &ToolUse,
+    ) -> Result<Vec<Action>> {
+        let records: Vec<(&Value, &str)> = (nodes.iter())
+            .filter(|(_, n)| n.kind == crate::stub::Kind::ToolCall)
+            .filter_map(|(_, n)| match &n.body {
+                Body::ToolCall {
+                    tool_use_id,
+                    assistant_node,
+                    input,
+                    correlation_id: Some(corr),
+                    ..
+                } if assistant_node == assistant && *tool_use_id == u.id => {
+                    Some((input, corr.as_str()))
+                }
+                _ => None,
+            })
+            .collect();
+        let own: Vec<&str> = (records.iter())
+            .filter(|(input, _)| **input == u.input)
+            .map(|(_, corr)| *corr)
+            .collect();
+        let corrs = if own.is_empty() {
+            records.iter().map(|(_, corr)| *corr).collect()
+        } else {
+            own
+        };
+        let mut out = Vec::new();
+        for corr in corrs {
+            out.extend(tc.kernel.action(corr)?);
+        }
+        Ok(out)
+    }
+
+    /// A repeated id's action that has not run (planned, asked, or authorized): declined by the harness, and its
+    /// card, if one was posted, closed.
+    fn decline_repeated(tc: &TurnCtx<'_>, a: &Action) -> Result<()> {
+        if !matches!(a.state, ActionState::Planned | ActionState::Authorized) {
+            return Ok(());
+        }
+        let corr = &a.correlation_id;
+        tc.kernel.decline_action(
+            corr,
+            "harness",
+            "the response gave one call id to more than one call",
+        )?;
+        if let Err(e) = tc
+            .outbox
+            .closed(corr, crate::outbox::Closed::new("declined", None))
+        {
+            tracing::warn!(error = %format!("{e:#}"), "the card's settle was not written");
+        }
+        Ok(())
     }
 
     /// Calls no turn has gated, through `run_calls`: after a `declined` one,
@@ -392,7 +505,13 @@ impl ToolRuntime {
             });
         }
         let _ = tc.kernel.mark_unknown(corr, "interrupted_by_restart");
-        let status = self.answer(tc, ResultNode { correlation_id: Some(corr), ..ResultNode::new(&u.id, &name, ResultStatus::Unknown, "The harness restarted while this call was running, and whether it completed cannot be established. Check the current state before retrying.") })?;
+        let status = self.answer(
+            tc,
+            ResultNode {
+                correlation_id: Some(corr),
+                ..ResultNode::new(&u.id, &name, ResultStatus::Unknown, INTERRUPTED)
+            },
+        )?;
         Ok(done(status))
     }
 
@@ -476,6 +595,25 @@ pub(super) fn calls_of<'a>(
         })
         .collect()
 }
+
+/// Whether an action was ever dispatched: the kernel keeps the time of its dispatch whatever became of it after
+/// (a cancel can settle a dispatched action as `Cancelled`), and an action settled by running was dispatched.
+fn dispatched(a: &Action) -> bool {
+    a.dispatched_at_ms.is_some()
+        || matches!(
+            a.state,
+            ActionState::Dispatched
+                | ActionState::Succeeded
+                | ActionState::Failed
+                | ActionState::OutcomeUnknown
+        )
+}
+
+/// What a call reads when a restart interrupted it while it ran (`check_dispatched`), and a use of a repeated
+/// id one of whose actions was dispatched.
+const INTERRUPTED: &str =
+    "The harness restarted while this call was running, and whether it completed \
+                           cannot be established. Check the current state before retrying.";
 
 /// A call answered with a result node of `status`.
 fn done(status: ResultStatus) -> CallOutcome {

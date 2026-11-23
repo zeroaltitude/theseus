@@ -196,8 +196,11 @@ impl TurnRunner {
             }
             return Ok(0);
         }
+        // One id on more than one call of the response: none of them runs, judged on the WHOLE response before
+        // anything is deferred, fitted or gated (issue 44).
+        let (uses, refused) = self.tools.refuse_repeated(&tc, &node.id, uses)?;
         // A call to a tool the request did not load is answered, not run.
-        let (uses, unloaded) = self.defer_unloaded(t, &tc, uses)?;
+        let (uses, unloaded) = self.defer_unloaded(t, &tc, &uses)?;
         // The calls as the model meant them (theseus-9dt2).
         let (uses, recovered) = self.tools.fit_uses(&uses, &resp.invalid_tool_inputs);
         let uses = uses.as_slice();
@@ -233,7 +236,7 @@ impl TurnRunner {
         }
         t.awaiting = batch.awaiting;
         t.repeats.note_idle(uses, &outcomes, t.awaiting.is_some());
-        Ok(answered + unloaded)
+        Ok(answered + unloaded + refused)
     }
 
     /// End a turn that failed after it began, the one exit of every turn

@@ -724,9 +724,11 @@ fn bounded(nodes: Vec<(u64, Stub)>, handle: &Handle) -> Vec<(u64, Stub)> {
     for (p, n) in nodes {
         match &n.body {
             Body::AssistantMessage { blocks, .. } if blocks.iter().any(long) => {
+                let fold = to_fold(blocks, &long);
                 let mut node = (*n).clone();
                 if let Body::AssistantMessage { blocks, .. } = &mut node.body {
-                    for b in blocks.iter_mut().filter(|b| long(b)) {
+                    let uses = blocks.iter_mut().enumerate();
+                    for (_, b) in uses.filter(|(i, _)| fold.contains(i)) {
                         let id = b["id"].as_str().unwrap_or_default().to_string();
                         let name = b["name"].as_str().unwrap_or_default().to_string();
                         let input = b["input"].to_string();
@@ -763,7 +765,8 @@ fn folds(nodes: &[(u64, Stub)], long: impl Fn(&serde_json::Value) -> bool) -> Fo
         let Body::AssistantMessage { blocks, .. } = &n.body else {
             continue;
         };
-        for b in blocks.iter().filter(|b| long(b)) {
+        let fold = to_fold(blocks, &long);
+        for (_, b) in blocks.iter().enumerate().filter(|(i, _)| fold.contains(i)) {
             let id = b["id"].as_str().unwrap_or_default();
             let r = p.result((n.id.as_str(), id));
             let name = b["name"].as_str().unwrap_or_default();
@@ -776,6 +779,32 @@ fn folds(nodes: &[(u64, Stub)], long: impl Fn(&serde_json::Value) -> bool) -> Fo
         }
     }
     (folds, folded)
+}
+
+/// The uses of a response a `Spoken` exchange folds ([`bounded`]), by their place in its blocks: each long one,
+/// and every use of an id the response gives to more than one use one of which is long (issue 44). Folding
+/// only the long one would leave the other the id's only use, and a later pairing (the receipts, the render)
+/// would give it the long one's result; folded, all of them read "no result" (`compiler::pairing`, rule 0).
+fn to_fold(
+    blocks: &[serde_json::Value],
+    long: &impl Fn(&serde_json::Value) -> bool,
+) -> HashSet<usize> {
+    let id = |b: &serde_json::Value| b["id"].as_str().unwrap_or_default().to_string();
+    let uses: Vec<(usize, &serde_json::Value)> = (blocks.iter().enumerate())
+        .filter(|(_, b)| b["type"] == "tool_use")
+        .collect();
+    let mut count: HashMap<String, usize> = HashMap::new();
+    for (_, b) in &uses {
+        *count.entry(id(b)).or_default() += 1;
+    }
+    let tied: HashSet<String> = (uses.iter())
+        .filter(|(_, b)| long(b) && count[&id(b)] > 1)
+        .map(|(_, b)| id(b))
+        .collect();
+    (uses.iter())
+        .filter(|(_, b)| long(b) || tied.contains(&id(b)))
+        .map(|(i, _)| *i)
+        .collect()
 }
 
 /// A `Line` exchange as the budgeter paid for it: the person's words (as labelled), then the `did` line
@@ -1033,6 +1062,54 @@ mod tests {
         assert!(
             texts[2].contains("fn small() {}"),
             "the short call keeps its own result: {texts:?}"
+        );
+    }
+
+    /// **The bounded window keeps a repeated id repeated** (issue 44). A stored response gives one id to a long
+    /// use that ran (its record and correlated result stored) and a short one that did not. Folding only the
+    /// long use would leave the short one the id's sole use, and the compile would then lay the long use's
+    /// result under it. Through the bounded window, the receipts and a compile, no use reads that result.
+    #[test]
+    fn a_fold_never_makes_a_repeated_id_unique() {
+        use crate::compiler::tests_view::{frozen, result, run, said};
+        let input = json!({"path": "big.rs", "content": "x".repeat(50_000)});
+        let long = json!({"type": "tool_use", "id": "call_0", "name": "fs_write", "input": input});
+        let short = json!({"type": "tool_use", "id": "call_0", "name": "fs_read", "input": {"path": "a.rs"}});
+        let both = said("t0", vec![long, short]);
+        let record = Node::tool_call(
+            "s",
+            Some("t0"),
+            None,
+            Body::ToolCall {
+                tool_use_id: "call_0".into(),
+                tool: "fs.write".into(),
+                wire_name: "fs_write".into(),
+                input: json!({"path": "big.rs"}),
+                assistant_node: both.id.clone(),
+                correlation_id: Some("act_long".into()),
+                gate: None,
+            },
+        );
+        let mut wrote = result("t0", "call_0", "wrote the long file");
+        if let Body::ToolResult { correlation_id, .. } = &mut wrote.body {
+            *correlation_id = Some("act_long".into());
+        }
+        let exchange = vec![
+            Node::user("s", Some("t0"), "cli", "ask t0"),
+            both,
+            record,
+            wrote,
+            said("t0", vec![json!({"type": "text", "text": "answer t0"})]),
+        ];
+        let spoken = bounded(laid(exchange), &Handle("t0".into()));
+        let window: Vec<Node> = spoken.into_iter().map(|(_, n)| (*n).clone()).collect();
+        let mut f = frozen("t1", &window);
+        f.window = crate::compiler::view::receipted(f.window, &HashSet::new());
+        let first = run(&f, &[Node::user("s", Some("t1"), "cli", "now")], None);
+        let all = serde_json::to_string(&first.request.messages).unwrap();
+        assert!(
+            !all.contains("wrote the long file"),
+            "no use reads the long use's result: {all}"
         );
     }
 

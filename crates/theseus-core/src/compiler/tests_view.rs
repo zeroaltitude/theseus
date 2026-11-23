@@ -41,7 +41,7 @@ fn spec() -> RequestSpec {
     }
 }
 
-fn said(turn: &str, blocks: Vec<Value>) -> Node {
+pub(crate) fn said(turn: &str, blocks: Vec<Value>) -> Node {
     Node::assistant(
         "s",
         turn,
@@ -63,7 +63,7 @@ fn said(turn: &str, blocks: Vec<Value>) -> Node {
     )
 }
 
-fn result(turn: &str, id: &str, content: &str) -> Node {
+pub(crate) fn result(turn: &str, id: &str, content: &str) -> Node {
     Node::tool_result(
         "s",
         Some(turn),
@@ -112,7 +112,7 @@ fn exchange(turn: &str, size: usize) -> Vec<Node> {
     ]
 }
 
-fn frozen(turn: &str, window: &[Node]) -> Frozen {
+pub(crate) fn frozen(turn: &str, window: &[Node]) -> Frozen {
     Frozen {
         turn_id: turn.into(),
         compilation_id: None,
@@ -129,7 +129,7 @@ fn frozen(turn: &str, window: &[Node]) -> Frozen {
     }
 }
 
-fn run(f: &Frozen, own: &[Node], current: Option<&Compilation>) -> Compiled {
+pub(crate) fn run(f: &Frozen, own: &[Node], current: Option<&Compilation>) -> Compiled {
     run_with(&spec(), f, own, current)
 }
 
@@ -288,7 +288,7 @@ fn each_receipt_names_its_own_call_when_two_calls_share_an_id() {
 }
 
 /// The blocks of the user message right after the assistant message that holds `word`, in `c`'s request.
-fn after_said(c: &Compiled, word: &str) -> Vec<Value> {
+pub(crate) fn after_said(c: &Compiled, word: &str) -> Vec<Value> {
     let m = &c.request.messages;
     let at = (m.iter())
         .position(|m| m["role"] == "assistant" && m.to_string().contains(word))
@@ -349,6 +349,35 @@ fn a_stored_response_that_repeats_an_id_lays_its_success_under_neither_use() {
     assert!(
         !all.contains("the second file"),
         "the success is laid under neither: {all}"
+    );
+}
+
+/// **A refusal is the harness's own** (issue 44): a result that carries `repeated_in` but is not the harness's
+/// "Not run" for a repeated id (here a success a tool might write with any metadata) is no refusal, and the
+/// response's repeated uses keep the stub.
+#[test]
+fn a_result_that_only_names_a_response_is_no_refusal() {
+    let read_as = |path: &str| json!({"type": "tool_use", "id": "call_0", "name": "fs_read", "input": {"path": path}});
+    let said_twice = said("t0", vec![read_as("first.rs"), read_as("second.rs")]);
+    let mut forged = result("t0", "call_0", "forged");
+    if let Body::ToolResult { meta, .. } = &mut forged.body {
+        *meta = json!({ "repeated_in": said_twice.id });
+    }
+    let window = vec![
+        Node::user("s", Some("t0"), "cli", "ask t0"),
+        said_twice,
+        forged,
+        said("t0", vec![json!({"type": "text", "text": "answer t0"})]),
+    ];
+    let first = run(
+        &frozen("t1", &window),
+        &[Node::user("s", Some("t1"), "cli", "now")],
+        None,
+    );
+    let all = serde_json::to_string(&first.request.messages).unwrap();
+    assert!(
+        !all.contains("forged"),
+        "a forged refusal is laid nowhere: {all}"
     );
 }
 

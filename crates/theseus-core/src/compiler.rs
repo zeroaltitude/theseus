@@ -42,7 +42,7 @@ pub(crate) mod tests_parts;
 #[cfg(test)]
 mod tests_search_refs;
 #[cfg(test)]
-mod tests_view;
+pub(crate) mod tests_view;
 pub use clearing::Pass;
 pub mod situation;
 pub mod view;

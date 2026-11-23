@@ -71,7 +71,7 @@ impl ToolRuntime {
         let mut ask = None;
         // One id on two calls of one response: neither runs (issue 44). A result and a record name their call
         // by its response and that id, so which use a result answered could not be told.
-        let repeated = repeated_ids(calls);
+        let repeated = repeated_ids(calls.iter().map(|c| c.call.id.as_str()));
         for (i, c) in calls.iter().enumerate() {
             let started = Instant::now();
             let answered = match self.admitted(tc, assistant_node, c, &repeated).await? {
@@ -210,6 +210,29 @@ impl ToolRuntime {
         failed.map_or(Ok(()), Err)
     }
 
+    /// A response's calls as the model sent them (ALL of its `tool_use`s), less each use of an id the response
+    /// gives to more than one call: those are answered not run here ([`Self::repeated_id`]), before any of them
+    /// is deferred, fitted, gated or run, so no subset of the response can make such an id look like its own
+    /// (issue 44). Returns the rest, and how many it answered.
+    pub(crate) fn refuse_repeated(
+        &self,
+        tc: &TurnCtx<'_>,
+        assistant_node: &str,
+        uses: &[ToolUse],
+    ) -> Result<(Vec<ToolUse>, u32)> {
+        let repeated = repeated_ids(uses.iter().map(|u| u.id.as_str()));
+        let (mut rest, mut refused) = (Vec::with_capacity(uses.len()), 0);
+        for u in uses {
+            if repeated.contains(u.id.as_str()) {
+                self.repeated_id(tc, assistant_node, u)?;
+                refused += 1;
+            } else {
+                rest.push(u.clone());
+            }
+        }
+        Ok((rest, refused))
+    }
+
     /// `admit`, but a call whose id another of its response carries is answered not run ([`Self::repeated_id`]).
     async fn admitted(
         &self,
@@ -231,7 +254,7 @@ impl ToolRuntime {
     /// A call whose id another call of its response also carries (issue 44): not run, and said so in plain
     /// words. It reaches no gate and no action, so its result has no correlation and no record; it names the
     /// response it refused (`compiler::pairing::REPEATED_IN`), which is how a request shows it.
-    fn repeated_id(
+    pub(super) fn repeated_id(
         &self,
         tc: &TurnCtx<'_>,
         assistant_node: &str,
@@ -239,8 +262,8 @@ impl ToolRuntime {
     ) -> Result<CallOutcome> {
         let (_, tool) = self.tool_of(call);
         let text = format!(
-            "Not run: this response used the tool-call id {} for more than one call; give each call its own \
-             id.",
+            "{}{} for more than one call; give each call its own id.",
+            crate::compiler::pairing::REFUSAL,
             call.id
         );
         let mut meta = json!({});
@@ -290,11 +313,10 @@ impl ToolRuntime {
     }
 }
 
-/// The ids more than one of `calls` carries.
-fn repeated_ids<'a>(calls: &'a [Call<'_>]) -> std::collections::BTreeSet<&'a str> {
+/// The ids that occur more than once among `ids`.
+pub(super) fn repeated_ids<'a>(
+    ids: impl Iterator<Item = &'a str>,
+) -> std::collections::BTreeSet<&'a str> {
     let mut seen = std::collections::BTreeSet::new();
-    (calls.iter())
-        .map(|c| c.call.id.as_str())
-        .filter(|id| !seen.insert(*id))
-        .collect()
+    ids.filter(|id| !seen.insert(*id)).collect()
 }
