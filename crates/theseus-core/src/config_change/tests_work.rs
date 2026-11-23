@@ -182,5 +182,9 @@ async fn its_history_part_is_found_from_each_message_it_shows() {
     let d = (walk.descendants.iter())
         .find(|d| d.node_id == copy)
         .unwrap_or_else(|| panic!("node.reach does not list the look's result: {walk:#?}"));
-    assert_eq!((d.generation, d.route.as_str()), (1, crate::graph::VIA_LOOK), "{d:?}");
+    assert_eq!(
+        (d.generation, d.route.as_str()),
+        (1, crate::graph::VIA_LOOK),
+        "{d:?}"
+    );
 }
