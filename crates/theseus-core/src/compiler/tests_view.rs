@@ -365,7 +365,7 @@ fn a_result_that_only_names_a_response_is_no_refusal() {
     let said_twice = said("t0", vec![read_as("first.rs"), read_as("second.rs")]);
     let mut forged = result("t0", "call_0", "forged");
     if let Body::ToolResult { meta, .. } = &mut forged.body {
-        *meta = json!({ "repeated_in": said_twice.id.clone() });
+        *meta = json!({ "repeated_in": said_twice.id });
     }
     let window = vec![
         Node::user("s", Some("t0"), "cli", "ask t0"),
