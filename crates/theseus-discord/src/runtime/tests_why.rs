@@ -1,8 +1,7 @@
 //! `/why` (theseus-ighf, `runtime/why.rs`): registered with the others,
 //! answered ephemerally with the place's last turn (its tool call and the
 //! gate's posture for it), written nowhere, and fitted to Discord's limit; a
-//! shared place is told that a private or imported source was there, and
-//! shown nothing of it.
+//! shared place is shown the recalled sources too.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -210,11 +209,10 @@ async fn why_answers_ephemerally_with_the_last_turn_and_writes_nothing() {
     );
 }
 
-/// A shared place's `/why`: an imported or another session's note is said to
-/// have been there, with none of its words, and a long turn still fits in
-/// one message with the rest counted.
+/// A shared place names the recalled sources, and a long turn still fits
+/// in one message with the rest counted.
 #[test]
-fn a_shared_place_hides_a_private_source_and_the_text_fits_the_limit() {
+fn a_shared_place_names_recalled_sources_and_the_text_fits_the_limit() {
     let admitted: Vec<_> = (0..40)
         .map(|k| {
             json!({"node_id": format!("nod_{k}"), "chunk": 0, "session_id": "ses_ep9", "position": k,
@@ -244,16 +242,13 @@ fn a_shared_place_hides_a_private_source_and_the_text_fits_the_limit() {
         "{} chars",
         said.chars().count()
     );
-    for secret in ["tide office", "chat export", "ses_ep9"] {
+    for secret in ["tide office", "chat export", "2026-03-05"] {
         assert!(
-            !said.contains(secret),
-            "{secret} reached a shared place:\n{said}"
+            said.contains(secret),
+            "{secret} missing from the explanation:\n{said}"
         );
     }
-    assert!(
-        said.contains("an imported source (not shown in a shared place)"),
-        "{said}"
-    );
+    assert!(!said.contains("not shown in a shared place"), "{said}");
     assert!(said.contains("… and 37 more"), "{said}");
 
     // A title far past the limit has its line clipped, and the sections

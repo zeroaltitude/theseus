@@ -12,8 +12,7 @@
 //!   here. A burst is one read (`DEBOUNCE`), reads are at least `MIN_GAP`
 //!   apart, and a read that changed nothing redraws nothing. The commands'
 //!   autocomplete reads this snapshot and no daemon: it answers from memory.
-//! - **The board** gets the snapshot in private places only (the place rule:
-//!   a shared place sees no routine, no reminder, no watch). `PlaceMsg::Tasks`
+//! - **The board** gets the snapshot for its conversations. `PlaceMsg::Tasks`
 //!   redraws it, so the lane's own pace (`BOARD_EVERY`) bounds the edits.
 //! - **A post's buttons** (`hz:<answer>:<wake id>`): a failed or blocked
 //!   routine's Run now / Pause / Details, a met watch's Done. A press is
@@ -561,7 +560,7 @@ impl Shared {
     }
 }
 
-/// What a place's board shows of the future (issue 30; `docs/design/board-place.md`). Private places only.
+/// What a place's board shows of the future (issue 30; `docs/design/board-place.md`).
 /// While the task channel stands, or is being looked for, and there is an
 /// owner's DM place to draw it from, the whole future is on the board that
 /// place draws into the task channel, and on no other place's. Otherwise (no
@@ -569,9 +568,6 @@ impl Shared {
 /// drawn by) a place shows the reminders and check-ins of its own
 /// conversations, and the routines and projects as before.
 pub(super) fn parts_for(shared: &Shared, target: &str, session: &str) -> Option<FutureParts> {
-    if !shared.is_private(target) {
-        return None;
-    }
     let names = shared.conversation_names();
     if shared.task_posts.home.expected() && shared.owner_dm_place().is_some() {
         let mut parts = (shared.owner_dm_place().as_deref() == Some(target))
@@ -598,6 +594,31 @@ pub(super) fn parts_for(shared: &Shared, target: &str, session: &str) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_shared_board_shows_its_own_upcoming_reminder() {
+        let d = tempfile::tempdir().unwrap();
+        let core = crate::runtime::tests::core_scripted(d.path(), vec![]);
+        let shared = crate::runtime::shared_for_tests(&core);
+        let target = "discord:channel:123";
+        assert!(!shared.is_private(target));
+        shared.tasks.future.set(Snapshot {
+            lines: vec![AgendaLine {
+                at_ms: 1000,
+                id: "wak_remind".into(),
+                kind: WorkKind::Wake,
+                what: AgendaWhat::Due,
+                title: "stretch".into(),
+                session_id: Some("ses_example".into()),
+                purpose: Some("remind".into()),
+                occurrence: None,
+            }],
+            ..Default::default()
+        });
+        let parts =
+            parts_for(&shared, target, "ses_example").expect("shared is not a withholding rule");
+        assert_eq!(parts.coming[0].title, "stretch");
+    }
 
     #[test]
     fn reminders_come_first_in_the_pending_wakes_a_command_offers() {

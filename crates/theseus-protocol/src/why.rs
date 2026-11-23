@@ -229,7 +229,7 @@ fn fit(lines: Vec<String>, max_chars: usize) -> String {
 /// are the ones that cost the most.
 fn build(i: &WhyInput, largest_first: bool) -> Why {
     let x = i.explain;
-    let hide = i.hide_sources || x.class != "private";
+    let hide = i.hide_sources;
     let mut w = Why::default();
     let turn = x.turn_id.as_deref().unwrap_or("(no turn yet)");
     w.head.push(format!(
@@ -463,7 +463,7 @@ fn blocks(i: &WhyInput, largest_first: bool) -> Vec<String> {
             p.project, p.lines, p.tokens
         ));
     }
-    let hide = i.hide_sources || x.class != "private";
+    let hide = i.hide_sources;
     let mut parts: Vec<&ContextPart> = x.parts.iter().collect();
     if largest_first {
         parts.sort_by_key(|p| std::cmp::Reverse(p.tokens));

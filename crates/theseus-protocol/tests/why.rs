@@ -238,17 +238,17 @@ fn a_turn_that_handed_work_to_a_profile_names_it_and_the_model_that_ran() {
 }
 
 #[test]
-fn a_shared_place_shows_that_a_source_was_there_and_nothing_of_it() {
+fn a_shared_place_names_its_recalled_sources() {
     let (x, p, r) = (explain("shared"), policy(), route());
     let tools = tools_called(&calls(), "trn_k3m9x2");
     let got = why_lines(&input(&x, &p, &r, &tools)).join("\n") + "\n";
     for secret in ["tide office", "chat export", "ses_ep9", "2026-03-04"] {
         assert!(
-            !got.contains(secret),
-            "{secret} reached a shared place:\n{got}"
+            got.contains(secret),
+            "{secret} missing from the explanation:\n{got}"
         );
     }
-    assert!(got.contains("an imported source (not shown in a shared place)"));
+    assert!(!got.contains("not shown in a shared place"));
     golden("shared", &got);
 }
 
