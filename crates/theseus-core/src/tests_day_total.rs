@@ -863,3 +863,48 @@ fn day_read_failure_warns_on_change_or_minute_and_clears_on_success() {
         .health(now)
         .is_none());
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_failed_seed_retry_thread_releases_the_core_and_store_on_drop() {
+    fn retry_threads() -> Vec<std::path::PathBuf> {
+        std::fs::read_dir("/proc/self/task")
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                std::fs::read_to_string(p.join("comm")).is_ok_and(|n| n.trim() == "day-ceiling")
+            })
+            .collect()
+    }
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        store
+            .put_meta(crate::judge::spend::META_KEY, &json!({"day": null}))
+            .unwrap();
+    }
+    let (core, _) = crate::tests_day_ceiling::build(dir.path(), vec![], |_| {});
+    assert!(core.runner.seed_day_ceiling().later);
+    let weak_core = std::sync::Arc::downgrade(&core);
+    let weak_store = std::sync::Arc::downgrade(core.store.inner());
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while retry_threads().is_empty() {
+        assert!(
+            std::time::Instant::now() < until,
+            "retry thread never started"
+        );
+        std::thread::yield_now();
+    }
+    drop(core);
+    while !retry_threads().is_empty() || weak_store.upgrade().is_some() {
+        assert!(
+            std::time::Instant::now() < until,
+            "retry thread kept the store open"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(weak_core.upgrade().is_none());
+    assert!(weak_store.upgrade().is_none());
+    Store::open(&dir.path().join("store")).unwrap();
+}

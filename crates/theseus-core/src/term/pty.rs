@@ -978,3 +978,100 @@ mod backpressure_tests {
         assert!(pty.exited().is_some());
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod real_shell_tests {
+    use super::*;
+
+    fn reader_task(pid: u32) -> std::path::PathBuf {
+        std::fs::read_dir("/proc/self/task")
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| {
+                std::fs::read_to_string(p.join("comm"))
+                    .is_ok_and(|n| n.trim() == format!("term-{pid}"))
+            })
+            .expect("the terminal reader thread")
+    }
+
+    fn cpu_ticks(task: &Path) -> u64 {
+        let stat = std::fs::read_to_string(task.join("stat")).unwrap();
+        let fields: Vec<_> = stat
+            .rsplit_once(')')
+            .unwrap()
+            .1
+            .split_whitespace()
+            .collect();
+        fields[11].parse::<u64>().unwrap() + fields[12].parse::<u64>().unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_real_shell_reader_sleeps_and_hangs_up_while_a_send_is_pending() {
+        let argv = vec![
+            "sh".into(),
+            "-c".into(),
+            "stty raw -echo; printf ready; exec sleep 60".into(),
+        ];
+        let pty = Arc::new(
+            Pty::spawn(&Spawn {
+                argv: &argv,
+                cwd: Path::new("/"),
+                env: &[],
+                rows: 24,
+                cols: 80,
+                umask: None,
+            })
+            .unwrap(),
+        );
+        let mut changed = pty.shared.version.subscribe();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while pty.shared.bytes_out.load(Ordering::Relaxed) < 5 {
+                changed.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        let task = reader_task(pty.pid);
+        let before = cpu_ticks(&task);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let used = cpu_ticks(&task) - before;
+        // SAFETY: sysconf reads the system's clock-tick rate.
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as u64;
+        assert!(
+            used <= hz / 10,
+            "quiet reader used {used} CPU ticks in one second"
+        );
+        let bytes = vec![b'x'; 2 * 1024 * 1024];
+        let send = pty.send_wait(&bytes);
+        tokio::pin!(send);
+        assert!(futures_util::poll!(&mut send).is_pending());
+        assert!(
+            pty.send_lock.try_lock().is_err(),
+            "send really holds the lock"
+        );
+        assert!(pty.shared.bytes_in.load(Ordering::Relaxed) < bytes.len() as u64);
+        let close = pty.clone();
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            tokio::task::spawn_blocking(move || close.close(Duration::ZERO, false)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        // Send remains alive and holds send_lock throughout close.
+        assert!(pty.send_lock.try_lock().is_err());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !pty.shared.hung_up.load(Ordering::Relaxed) {
+                changed.changed().await.unwrap();
+            }
+            while task.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(pty.exited().is_some());
+        eprintln!("reader: {used}/{hz} CPU seconds during a quiet second; hang-up ended thread; close passed with send lock held");
+    }
+}
