@@ -398,6 +398,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn resume_identity_changes_with_build_config_profile_and_fixture() {
+        let d = tempfile::tempdir().unwrap();
+        let binary = d.path().join("daemon");
+        std::fs::write(&binary, b"build one").unwrap();
+        let exam = Exam::parse(crate::item::EXAM_V2).unwrap();
+        let mut m = Manifest { exam: exam.file.version.clone(), digest: exam.digest.clone(),
+            utc_offset_min: 0, sessions: vec![], nodes: BTreeMap::new(), last_position: 0 };
+        let mut p = ArmsPlan { theseusd: binary.clone(), base_config: toml::Table::new(),
+            store: d.path().join("store"), work: d.path().join("work"), arms: vec![Arm::None],
+            runs: 1, items: vec![], limit_usd: 1.0, workers: 1, profile: "test".into(), seed: 0,
+            timeout: Duration::from_secs(1), out: d.path().join("results"), settle: Duration::from_secs(1), env: vec![] };
+        let first = identity(&p, &exam, &m).unwrap();
+        assert_eq!(first, identity(&p, &exam, &m).unwrap());
+        std::fs::write(&binary, b"build two").unwrap();
+        assert_ne!(first, identity(&p, &exam, &m).unwrap());
+        std::fs::write(&binary, b"build one").unwrap();
+        p.profile = "other".into();
+        assert_ne!(first, identity(&p, &exam, &m).unwrap());
+        p.profile = "test".into();
+        p.base_config.insert("setting".into(), toml::Value::Boolean(true));
+        assert_ne!(first, identity(&p, &exam, &m).unwrap());
+        p.base_config.clear();
+        m.last_position = 1;
+        assert_ne!(first, identity(&p, &exam, &m).unwrap());
+    }
+
+    #[test]
     fn oracle_shares_nones_daemon_and_each_other_arm_has_its_own() {
         assert_eq!(daemons_for(&Arm::ALL), ["none", "bm25", "baseline"]);
         assert_eq!(daemons_for(&[Arm::Oracle]), ["none"]);

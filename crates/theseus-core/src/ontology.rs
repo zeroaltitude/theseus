@@ -472,8 +472,8 @@ impl crate::turn::TurnRunner {
         .map(Arc::new)
     }
 
-    /// The thread a session serves (the board, read once) and the project it
-    /// is attached to: what the compile reads, and the manifest records.
+    /// The session project for the compile and manifest. The retired thread
+    /// slot stays empty; historical thread records remain readable separately.
     pub(crate) fn thread_and_project(
         &self,
         session: &str,
