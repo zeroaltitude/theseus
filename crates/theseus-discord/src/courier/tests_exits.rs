@@ -414,3 +414,92 @@ async fn thinking_never_publishes_a_partial_known_value() {
         .iter()
         .any(|m| m.content.contains("vault")));
 }
+
+#[tokio::test]
+async fn approval_words_mask_before_the_command_line_cut() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    let core = lane.shared.core.clone();
+    let session = theseus_core::session::SessionRecord::new(
+        theseus_protocol::SessionKind::Conversation,
+        None,
+    );
+    core.store
+        .put_session(&session.session_id, &session)
+        .unwrap();
+    let mut action = core
+        .outbox
+        .to_operator(
+            Some(&session.session_id),
+            json!({"kind":"notice","text":"test"}),
+        )
+        .unwrap();
+    action.tool = "proc.run".into();
+    let input = json!({"argv": [format!("{}{}", "x".repeat(100), VALUE)]});
+    let node = theseus_core::node::Node::tool_call(
+        &session.session_id,
+        Some("turn_approval"),
+        Some(0),
+        theseus_core::node::Body::ToolCall {
+            tool_use_id: "u1".into(),
+            tool: "proc.run".into(),
+            wire_name: "proc_run".into(),
+            input: input.clone(),
+            assistant_node: "msg_1".into(),
+            correlation_id: Some(action.correlation_id.clone()),
+            gate: None,
+        },
+    );
+    core.store.append(&[node.record().unwrap()]).unwrap();
+    let req = core
+        .question_request(&action, Some(&node.id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        req.input, input,
+        "the record and executable request remain raw"
+    );
+    let route = Route::Elsewhere {
+        why: "answer in the terminal".into(),
+    };
+    let card = render::card(&req, &route, "");
+    let texts = [
+        card.content.clone(),
+        render::card_note(&route, &card.line, "").unwrap(),
+        render::settled(&Closed::default(), &card.line, false),
+    ];
+    for (n, text) in texts.iter().enumerate() {
+        lane.write(&post(&format!("approval:{n}"), text))
+            .await
+            .unwrap();
+        assert!(!last(&fake).contains("7a92b3"), "{}", last(&fake));
+    }
+    assert!(req.plain.as_ref().unwrap().what.contains("[redacted:"));
+}
+
+#[tokio::test]
+async fn approval_details_and_classic_mask_before_each_cut() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    let mut req = theseus_protocol::ConfirmRequest {
+        tool: "proc.run".into(),
+        input: json!({"argv": [format!("{}{}", "x".repeat(80), VALUE)]}),
+        reason: format!("{}{}", "x".repeat(290), VALUE),
+        resource: Some(format!("{}{}", "x".repeat(190), VALUE)),
+        ..Default::default()
+    };
+    render::leaving::request(&lane.shared.core.exits, &mut req);
+    let card = render::card(&req, &Route::Here, "");
+    for (n, text) in [card.content, render::question_details(&req)]
+        .iter()
+        .enumerate()
+    {
+        lane.write(&post(&format!("details:{n}"), text))
+            .await
+            .unwrap();
+        assert!(!last(&fake).contains("vault"), "{}", last(&fake));
+        assert!(last(&fake).contains("[redacted:"), "{}", last(&fake));
+    }
+}

@@ -138,7 +138,9 @@ impl Core {
             grant_offer: self.grant_offer_of(session, tool, input, gate.as_deref()),
             plain: None,
         });
-        req.plain = self.plain_of(&req, nodes);
+        let mut display = req.clone();
+        mask_input(&self.exits, &mut display.input);
+        req.plain = self.plain_of(&display, nodes);
         Some(req)
     }
 
@@ -1345,4 +1347,14 @@ pub(super) fn call_of(
 pub(crate) fn budget_turn(q: &Action) -> Option<String> {
     let turn = q.proposal.as_ref()?.args["call"]["turn_id"].as_str();
     turn.map(String::from)
+}
+
+// Only the copy used for plain words is masked; the call remains executable.
+fn mask_input(exits: &crate::exits::Exits, input: &mut serde_json::Value) {
+    match input {
+        serde_json::Value::String(s) => *s = exits.text(s).0.into_owned(),
+        serde_json::Value::Array(a) => a.iter_mut().for_each(|v| mask_input(exits, v)),
+        serde_json::Value::Object(o) => o.values_mut().for_each(|v| mask_input(exits, v)),
+        _ => {}
+    }
 }

@@ -155,7 +155,11 @@ impl Shared {
                 .find(|c| c.correlation_id == question)
                 .map_or_else(
                     || "That question is not open any more.".to_string(),
-                    crate::render::question_details,
+                    |req| {
+                        let mut req = req.clone();
+                        crate::render::leaving::request(&self.core.exits, &mut req);
+                        crate::render::question_details(&req)
+                    },
                 ),
             Err(e) => format!("Could not read it: {}", e.message),
         };

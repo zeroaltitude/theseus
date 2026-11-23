@@ -1210,6 +1210,7 @@ impl Lane {
             Ok(None) => return Ok(Plan::nothing("its question could not be read")),
             Err(e) => return Err(SendErr::refused(format!("{e:#}"))),
         };
+        render::leaving::request(&core.exits, &mut req);
         let channel = self.place_channel().await?;
         let route = self.route().await?;
         self.prepare(&mut req, &route);
