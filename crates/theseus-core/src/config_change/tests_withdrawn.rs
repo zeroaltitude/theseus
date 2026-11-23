@@ -284,3 +284,22 @@ async fn a_record_the_owner_chose_is_left_standing() {
     );
     assert!(r.rows("standing.revoked").is_empty());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn settings_between_capture_check_and_lock_suppresses_the_record() {
+    let r = rig();
+    let sid = r.session();
+    let core = r.core.clone();
+    let id = sid.clone();
+    crate::capture::act::before_lock(
+        &sid,
+        Box::new(move || {
+            core.settled_by_act(&id, "msg_x");
+        }),
+    );
+    assert_eq!(
+        hear(&r.core, &sid, "msg_x", PERSONA, Heard::Preference),
+        Done::Nothing
+    );
+    assert_eq!(held(&r), (vec![], vec![]));
+}
