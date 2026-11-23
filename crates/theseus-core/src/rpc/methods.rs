@@ -926,6 +926,8 @@ impl Core {
         p: TurnSubmitParams,
         conn: Conn<'_>,
     ) -> Result<theseus_protocol::TurnSubmitResult, RpcFailure> {
+        crate::turn::clock_step::validate_deadline(conn.arrived, p.deadline_secs)
+            .map_err(RpcFailure::invalid)?;
         if p.prompt.is_some() && !(p.input.trim().is_empty() && p.attachments.is_empty()) {
             return Err(RpcFailure::new(
                 error_code::INVALID_PARAMS,
@@ -974,16 +976,9 @@ impl Core {
         // write keeps it (theseus-aab7). Outside the roots, the CLI says so.
         let outside = crate::rpc::session_dir::moved(&self.tools, &mut session, dir);
         // The turn's time, when the client gave one (theseus-yct32).
-        crate::turn::clock_step::set_deadline(&session.session_id, conn.arrived, p.deadline_secs);
+        crate::turn::clock_step::set_deadline(&session.session_id, conn.arrived, p.deadline_secs)
+            .map_err(RpcFailure::invalid)?;
         self.expect_capture(&p, conn, &session.session_id);
-        // What this message is, for the chat acts (chat-acts-are-tools, S43-1).
-        // **Nothing is read out of its WORDS here.** What is staged is who
-        // spoke, what they said and whether it is the owner's own typed input;
-        // the turn's offer step binds it to the turn it started, and the three
-        // tools act on it only when the model chooses to call one. This is what
-        // replaced `answer_in_words` and `allow_in_words`, which matched
-        // phrases in this exact spot and acted before the turn ran.
-        self.hear_for_chat_acts(&p, conn, &session.session_id);
         let arrival = self.arrival_of(&p, conn, (&place_home, arrived), &session.session_id);
         // A one-run daemon's client follows the session's later turns, so
         // its connection hears them from the start (theseus-mqxk).
@@ -1054,6 +1049,19 @@ impl Core {
         .with_arrival(arrival);
         self.note_agent_input(&session.session_id, sink.agent.as_deref());
         let voice = p.surface.as_deref() == Some("voice");
+        // What this message is, for the chat acts (chat-acts-are-tools, S43-1).
+        // **Nothing is read out of its WORDS here.** What is staged is who
+        // spoke, what they said and whether it is the owner's own typed input;
+        // the turn's offer step binds it to the turn it started, and the three
+        // tools act on it only when the model chooses to call one. This is what
+        // replaced `answer_in_words` and `allow_in_words`, which matched
+        // phrases in this exact spot and acted before the turn ran.
+        self.hear_for_chat_acts(&p, conn, &session.session_id);
+        let _heard = crate::chat_acts::HeardRequest {
+            heard: &self.runner.tools.chat_acts.heard,
+            session: session.session_id.clone(),
+            arrived: conn.arrived,
+        };
         let result = self
             .runner
             .run(TurnRequest {

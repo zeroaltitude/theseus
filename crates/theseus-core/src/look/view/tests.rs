@@ -50,3 +50,10 @@ fn the_look_lists_at_most_its_bound_and_says_how_many_more_it_may_read() {
     };
     assert!(!bounded(small).contains("more pieces"));
 }
+
+#[test]
+fn a_missing_view_does_not_suggest_a_retired_setting() {
+    assert!(NONE.contains("no view record"));
+    assert!(!NONE.contains("assembly"));
+    assert!(!NONE.contains("transcript"));
+}

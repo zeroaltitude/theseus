@@ -83,8 +83,10 @@ impl ToolRuntime {
                     out.awaiting = Some(corr);
                     return Ok(out);
                 }
-                Pending::Confirmed(a) => self.run_confirmed(tc, &u, &a, node).await?,
-                Pending::Authorized(a) => self.run_authorized(tc, &u, &a).await?,
+                Pending::Confirmed(a) => {
+                    self.run_confirmed(tc, &u, &a, node, &assistant.id).await?
+                }
+                Pending::Authorized(a) => self.run_authorized(tc, &u, &a, &assistant.id).await?,
                 Pending::Dispatched(a) => self.check_dispatched(tc, &u, &a)?,
                 Pending::Settled(a) => self.answer_settled(tc, &u, &a)?,
                 Pending::Cancelled(a) => done(self.answer_cancelled(tc, &u, &a)?),
@@ -369,6 +371,7 @@ impl ToolRuntime {
         u: &ToolUse,
         a: &Action,
         node: Option<&Node>,
+        assistant: &str,
     ) -> Result<CallOutcome> {
         let (tool, name) = self.tool_of(u);
         let Some(tool) = tool else {
@@ -394,7 +397,7 @@ impl ToolRuntime {
             Ok(_) => {
                 // `action.confirm` announced the answer; this only acts on it.
                 tc.record(&fact::tool::ApprovedRunning { tool: &name });
-                let ran = self.execute(tc, corr, tool, u, Posture::Approve, class);
+                let ran = self.execute(tc, (corr, assistant), tool, u, Posture::Approve, class);
                 match ran.await? {
                     CallOutcome::AwaitingConfirm { .. } => {
                         unreachable!("an authorized action does not ask again")
@@ -433,6 +436,7 @@ impl ToolRuntime {
         tc: &TurnCtx<'_>,
         u: &ToolUse,
         a: &Action,
+        assistant: &str,
     ) -> Result<CallOutcome> {
         let (tool, name) = self.tool_of(u);
         let Some(tool) = tool else {
@@ -444,8 +448,15 @@ impl ToolRuntime {
         let class = confirm_proposal(tc.store, a, None)
             .map_or_else(|_| Default::default(), |p| sandbox::Bound::of(&p));
         tc.kernel.dispatch(&a.correlation_id, None)?;
-        self.execute(tc, &a.correlation_id, tool, u, Posture::Approve, class)
-            .await
+        self.execute(
+            tc,
+            (&a.correlation_id, assistant),
+            tool,
+            u,
+            Posture::Approve,
+            class,
+        )
+        .await
     }
 
     /// Dispatched before a restart: the job's settled result, a placeholder if

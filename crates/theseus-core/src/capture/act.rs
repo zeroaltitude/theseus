@@ -17,6 +17,31 @@ use crate::fact;
 use crate::rpc::Core;
 use crate::standing::{self, Scope};
 
+// A deterministic seam between the early suppression check and the capture lock.
+#[cfg(test)]
+type BeforeLock = Box<dyn FnOnce() + Send>;
+#[cfg(test)]
+static BEFORE_LOCK: std::sync::Mutex<Vec<(String, BeforeLock)>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+pub(crate) fn before_lock(session: &str, f: BeforeLock) {
+    BEFORE_LOCK.lock().unwrap().push((session.to_owned(), f));
+}
+
+#[cfg(test)]
+fn at_lock(session: &str) {
+    let hook = {
+        let mut hooks = BEFORE_LOCK.lock().unwrap();
+        hooks
+            .iter()
+            .position(|(s, _)| s == session)
+            .map(|i| hooks.remove(i).1)
+    };
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
 /// The message a verdict is about.
 #[derive(Debug, Clone)]
 pub struct Message {
@@ -103,7 +128,13 @@ impl Core {
             persona: None,
         };
         let live = standing::live(&all, Some(scope), now);
+        #[cfg(test)]
+        at_lock(&m.session);
         let mut held = self.runner.standing.capture.lock(&self.store)?;
+        // Settings marks the message before taking this lock to withdraw it.
+        if self.runner.standing.expected.acted_on(&m.session, &m.node) {
+            return Ok(Done::Nothing);
+        }
         let mut next = (*held).clone();
         next.trim(now);
         let plan = decide(v, &line, &m.node, &live, &next, now);

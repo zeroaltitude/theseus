@@ -149,41 +149,29 @@ impl State<'_> {
     }
 }
 
-/// The text and meta of the result a call wrote, newest first among the
-/// store's latest nodes.
-fn result_of(tc: &TurnCtx<'_>, id: &str) -> Option<(ResultStatus, String, Value)> {
-    let nodes = tc.store.recent_nodes(256).ok()?;
-    nodes.into_iter().rev().find_map(|(_, n)| match n.body {
+/// Read the exact node the step's completion supplied, never a bounded global tail.
+fn stored_result(
+    store: &crate::store::Store,
+    session: &str,
+    id: &str,
+) -> anyhow::Result<(ResultStatus, String, Value)> {
+    let (_, n) = store
+        .get_node(id)?
+        .ok_or_else(|| anyhow::anyhow!("settled flow result is missing: {id}"))?;
+    anyhow::ensure!(
+        n.session_id == session,
+        "flow result belongs to another session"
+    );
+    match n.body {
         Body::ToolResult {
-            tool_use_id,
             status,
             content,
             meta,
             late: false,
             ..
-        } if tool_use_id == id && n.session_id == tc.session_id => Some((status, content, meta)),
-        _ => None,
-    })
-}
-
-/// The `assistant_node` of the response that holds call `id`: where its steps' own
-/// calls hang in the inspector.
-pub fn assistant_of(tc: &TurnCtx<'_>, id: &str) -> String {
-    let Ok(nodes) = tc.store.recent_nodes(256) else {
-        return String::new();
-    };
-    nodes
-        .into_iter()
-        .rev()
-        .find_map(|(_, n)| match n.body {
-            Body::ToolCall {
-                tool_use_id,
-                assistant_node,
-                ..
-            } if tool_use_id == id && n.session_id == tc.session_id => Some(assistant_node),
-            _ => None,
-        })
-        .unwrap_or_default()
+        } => Ok((status, content, meta)),
+        _ => anyhow::bail!("settled flow result is not a foreground tool result"),
+    }
 }
 
 fn argv_of(args: &Value) -> Vec<String> {
@@ -269,10 +257,10 @@ impl State<'_> {
                 format!("flow stopped at step {}: {e:#}", step.id),
             )
         })?;
-        let status = match ran {
+        let result = match ran {
             Stepped::Asks { why } => return Err(self.asks(&step.id, &tu, &why)),
-            Stepped::Ran(CallOutcome::Done { status }) => status,
-            Stepped::Ran(CallOutcome::Background { correlation_id }) => {
+            Stepped::Ran(CallOutcome::Done { .. }, result) => result,
+            Stepped::Ran(CallOutcome::Background { correlation_id }, _) => {
                 self.rows
                     .push(json!({"step": step.id, "tool": step.tool, "status": "background"}));
                 let why = format!(
@@ -281,13 +269,24 @@ impl State<'_> {
                 );
                 return Err(self.engine("step-running", &step.id, why, ""));
             }
-            Stepped::Ran(CallOutcome::AwaitingConfirm { .. }) => {
+            Stepped::Ran(CallOutcome::AwaitingConfirm { .. }, _) => {
                 let why = "the step is waiting for approval".to_string();
                 return Err(self.engine("needs-approval", &step.id, why, ""));
             }
         };
+        let result = result.ok_or_else(|| {
+            self.failed(
+                "internal",
+                "flow step returned no settled result identity".into(),
+            )
+        })?;
         let (status, text, meta) =
-            result_of(tc, &tu.id).unwrap_or((status, String::new(), Value::Null));
+            stored_result(tc.store, tc.session_id, &result).map_err(|e| {
+                self.failed(
+                    "internal",
+                    format!("cannot read settled flow result: {e:#}"),
+                )
+            })?;
         // Refused, declined or cancelled: the flow stops and says why.
         if matches!(status, ResultStatus::Declined | ResultStatus::Cancelled)
             || (status == ResultStatus::Error && text.starts_with("Not run:"))
@@ -429,5 +428,36 @@ pub async fn drive(
             Go::To(next) => at = next,
             Go::End(run) => return run,
         }
+    }
+}
+
+#[cfg(test)]
+mod result_tests {
+    use super::*;
+    #[test]
+    fn a_settled_step_survives_unrelated_archive_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+        let body: Body = serde_json::from_value(json!({
+            "kind": "tool_result", "tool_use_id": "call_one", "tool": "fs.read",
+            "status": "ok", "is_error": false, "content": "the actual output"
+        }))
+        .unwrap();
+        let node = crate::node::Node::tool_result("ses_flow", Some("turn_flow"), None, body);
+        store.append(&[node.record().unwrap()]).unwrap();
+        let records: Vec<_> = (0..300)
+            .map(|_| {
+                crate::node::Node::user("ses_import", None, "owner", "unrelated")
+                    .record()
+                    .unwrap()
+            })
+            .collect();
+        store.append(&records).unwrap();
+        let result = stored_result(&store, "ses_flow", &node.id)
+            .expect("settled result must remain addressable");
+        assert_eq!(result.0, ResultStatus::Ok);
+        assert_eq!(result.1, "the actual output");
+        assert!(stored_result(&store, "ses_flow", "missing").is_err());
+        assert!(stored_result(&store, "other_session", &node.id).is_err());
     }
 }

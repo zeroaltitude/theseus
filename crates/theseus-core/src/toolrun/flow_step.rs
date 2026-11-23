@@ -17,7 +17,7 @@ pub enum Stepped {
     /// The gate would wait for approval: nothing was planned or asked.
     Asks { why: String },
     /// The call was answered at the gate (unknown, invalid, refused) or ran.
-    Ran(CallOutcome),
+    Ran(CallOutcome, Option<String>),
 }
 
 impl ToolRuntime {
@@ -30,25 +30,34 @@ impl ToolRuntime {
         assistant_node: &str,
         call: &ToolUse,
     ) -> Result<Stepped> {
-        match self
-            .admit(
-                tc,
-                assistant_node,
-                &Call {
-                    call,
-                    invalid: None,
-                },
-            )
-            .await?
-        {
-            Admitted::Answered(o) => Ok(Stepped::Ran(o)),
-            Admitted::Asks(_, g) => Ok(Stepped::Asks {
-                why: reason(&g.decision),
-            }),
-            Admitted::Runs(tool, g) => {
-                let (outcome, _judged) = self.start(tc, assistant_node, call, tool, g).await?;
-                Ok(Stepped::Ran(outcome))
-            }
+        let (ran, result): (Result<Stepped>, Option<String>) =
+            super::flow_result::capture(tc.session_id, &call.id, async {
+                match self
+                    .admit(
+                        tc,
+                        assistant_node,
+                        &Call {
+                            call,
+                            invalid: None,
+                        },
+                    )
+                    .await?
+                {
+                    Admitted::Answered(o) => Ok(Stepped::Ran(o, None)),
+                    Admitted::Asks(_, g) => Ok(Stepped::Asks {
+                        why: reason(&g.decision),
+                    }),
+                    Admitted::Runs(tool, g) => {
+                        let (outcome, _judged) =
+                            self.start(tc, assistant_node, call, tool, g).await?;
+                        Ok(Stepped::Ran(outcome, None))
+                    }
+                }
+            })
+            .await;
+        match ran? {
+            Stepped::Ran(outcome, _) => Ok(Stepped::Ran(outcome, result)),
+            asks => Ok(asks),
         }
     }
 
@@ -58,6 +67,7 @@ impl ToolRuntime {
         &self,
         tc: &TurnCtx<'_>,
         correlation_id: &str,
+        assistant: &str,
         tool: &dyn Tool,
         call: &ToolUse,
     ) -> Result<CallOutcome> {
@@ -71,8 +81,7 @@ impl ToolRuntime {
         let done = match self.flows.get(name) {
             None => Err(format!("no flow named {name} is loaded")),
             Some(entry) => {
-                let assistant = crate::flow::run::assistant_of(tc, &call.id);
-                let run = crate::flow::run::drive(self, tc, &entry, call, &assistant).await;
+                let run = crate::flow::run::drive(self, tc, &entry, call, assistant).await;
                 tc.record(&FlowRan {
                     name,
                     digest: &entry.digest,

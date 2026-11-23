@@ -594,7 +594,7 @@ impl Rig {
                 sink: EventSink::new(self.core.bus.clone(), sid, None).with_arrival(mark),
                 author: "test".into(),
                 attachments: vec![],
-                arrived: None,
+                arrived: self.core.runner.tools.chat_acts.heard.test_arrival(sid),
                 reply_to: None,
                 answer_at,
             })

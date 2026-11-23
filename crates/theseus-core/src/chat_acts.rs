@@ -174,28 +174,27 @@ struct Pending {
     turn: Option<String>,
 }
 
-/// The messages staged at `turn.submit`, one per session, waiting for the turn
+/// The messages staged at `turn.submit`, keyed by session and arrival, waiting for the turn
 /// they started. In memory only: the fact is true of exactly one turn, and a
 /// restart has no turn to tell. The shape is `yes_fact::Staged`'s, for the
 /// same reason — a turn claims it once and every loop of that turn reads the
 /// same thing.
 #[derive(Default)]
 pub struct Heard {
-    by_session: Mutex<HashMap<String, Pending>>,
+    by_session: Mutex<HashMap<(String, std::time::Instant), Pending>>,
 }
 
 impl Heard {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Pending>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<(String, std::time::Instant), Pending>> {
         self.by_session
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Stage `said` for the next turn in `session`. An unclaimed message is
-    /// replaced: the newer one is what the turn runs on.
-    pub(crate) fn stage(&self, session: &str, said: Said) {
+    /// Stage `said` for exactly this request, never another arrival.
+    pub(crate) fn stage(&self, session: &str, arrived: std::time::Instant, said: Said) {
         self.lock()
-            .insert(session.to_string(), Pending { said, turn: None });
+            .insert((session.to_string(), arrived), Pending { said, turn: None });
     }
 
     /// Bind the staged message to `turn`, and return it. The first turn to ask
@@ -204,9 +203,10 @@ impl Heard {
     ///
     /// Called by the offer step alone, and only for a turn a message started
     /// (never a continuation): see [`Board::offers`].
-    fn claim(&self, session: &str, turn: &str) -> Option<Said> {
+    fn claim(&self, session: &str, arrived: std::time::Instant, turn: &str) -> Option<Said> {
         let mut held = self.lock();
-        let p = held.get_mut(session)?;
+        let key = (session.to_string(), arrived);
+        let p = held.get_mut(&key)?;
         match p.turn.as_deref() {
             None => {
                 p.turn = Some(turn.to_string());
@@ -214,13 +214,23 @@ impl Heard {
             }
             Some(t) if t == turn => Some(p.said.clone()),
             Some(_) => {
-                held.remove(session);
+                held.remove(&key);
                 None
             }
         }
     }
 
-    /// How many sessions hold a staged message (the tests').
+    /// The direct-run test rigs pass the staged request's arrival to their runner.
+    #[cfg(test)]
+    pub(crate) fn test_arrival(&self, session: &str) -> Option<std::time::Instant> {
+        self.lock()
+            .iter()
+            .filter(|((s, _), p)| s == session && p.turn.is_none())
+            .map(|((_, arrived), _)| *arrived)
+            .max()
+    }
+
+    /// How many requests hold a staged message (the tests').
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.lock().len()
@@ -310,6 +320,7 @@ impl Board {
         &self,
         session: &str,
         turn: &str,
+        arrived: std::time::Instant,
         class: crate::places::PlaceClass,
         continuation: bool,
     ) -> Vec<Value> {
@@ -319,7 +330,7 @@ impl Board {
         let Some(core) = self.core() else {
             return vec![];
         };
-        let Some(said) = self.heard.claim(session, turn) else {
+        let Some(said) = self.heard.claim(session, arrived, turn) else {
             return vec![];
         };
         let waiting = run::waiting_here(&core, session).unwrap_or_else(|e| {
@@ -410,4 +421,19 @@ pub(crate) fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
     r.register(Arc::new(items::ItemAdd));
     r.register(Arc::new(items::ItemClose));
     r.register(Arc::new(items::ItemList));
+}
+
+/// Keeps a request's provenance until it completes, including cancellation or steering.
+pub(crate) struct HeardRequest<'a> {
+    pub heard: &'a Heard,
+    pub session: String,
+    pub arrived: std::time::Instant,
+}
+
+impl Drop for HeardRequest<'_> {
+    fn drop(&mut self) {
+        self.heard
+            .lock()
+            .remove(&(self.session.clone(), self.arrived));
+    }
 }

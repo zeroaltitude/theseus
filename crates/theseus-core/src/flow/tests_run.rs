@@ -365,3 +365,62 @@ async fn a_step_that_would_wait_is_handed_back_as_the_exact_call() {
         "the flow asked nothing"
     );
 }
+
+/// The allow-list currently reaches only the in-process and foreground job
+/// writers. A new backend needs its own flow completion regression.
+#[tokio::test]
+async fn every_allowed_flow_tool_has_a_covered_backend() {
+    let (r, _) = rig(calls(json!({"branch": "topic"})));
+    for name in super::spec::ALLOWED_TOOLS {
+        let tool = r.core.runner.tools.tool(name).unwrap();
+        let expected = if *name == "proc.run" {
+            theseus_tools::Backend::Job
+        } else {
+            theseus_tools::Backend::Inproc
+        };
+        assert_eq!(tool.backend(), expected, "{name}");
+    }
+}
+
+async fn captured_backend(tool: &str, args: Value) {
+    let (r, _) = rig(calls(json!({"branch": "topic"})));
+    std::fs::write(r.root.join("capture.txt"), "step-owned-output\n").unwrap();
+    let mut spec = spec_for(&r);
+    spec["steps"] = json!([{
+        "id": "capture", "tool": tool, "args": args,
+        "on": {"ok": "handback:captured", "err": "exit:tests-red"}
+    }]);
+    spec["exits"]["handback:captured"] = json!({"state": ["output_tail"]});
+    load(&r, &spec);
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, "read the step output").await;
+    let (status, text, meta) = result(&r, &sid, "L1");
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    assert_eq!(meta["exit"], "handback:captured", "{text}");
+    assert_eq!(meta["steps"].as_array().unwrap().len(), 1);
+    assert_eq!(meta["steps"][0]["tool"], tool);
+    assert_eq!(meta["steps"][0]["status"], "ok");
+    let returned = handback(&text)["state"]["output_tail"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (step_status, step_text, _) = result(&r, &sid, "L1.1");
+    assert_eq!(step_status, ResultStatus::Ok);
+    let expected = if tool == "proc.run" {
+        super::class::program_output(&step_text)
+    } else {
+        &step_text
+    };
+    assert_eq!(returned, expected);
+    assert!(returned.contains("step-owned-output"), "{returned}");
+}
+
+#[tokio::test]
+async fn a_flow_inproc_result_is_announced_in_the_steps_task() {
+    captured_backend("fs.read", json!({"path": "capture.txt"})).await;
+}
+
+#[tokio::test]
+async fn a_flow_job_result_is_announced_in_the_steps_task() {
+    captured_backend("proc.run", json!({"argv": ["cat", "capture.txt"]})).await;
+}

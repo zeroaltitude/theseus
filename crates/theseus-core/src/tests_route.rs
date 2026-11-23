@@ -226,6 +226,12 @@ async fn try_turn_by(
         .unwrap();
     target.chosen = chosen.map(|p| format!("profile {p}"));
     let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
+    let arrived = core
+        .runner
+        .tools
+        .chat_acts
+        .heard
+        .test_arrival(&rec.session_id);
     core.runner
         .run(TurnRequest {
             prompt: None,
@@ -236,7 +242,7 @@ async fn try_turn_by(
             sink,
             author: author.into(),
             attachments,
-            arrived: None,
+            arrived,
             reply_to: None,
             answer_at: None,
         })

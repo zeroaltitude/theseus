@@ -27,24 +27,31 @@ fn the_three_are_conditional_and_no_other_tool_is() {
 #[test]
 fn a_message_is_bound_to_the_turn_it_started_and_to_no_other() {
     let heard = Heard::default();
+    let arrived = std::time::Instant::now();
     let said = Said {
         text: "run the original".into(),
         who: Answerer::from("owner"),
         owner_input: true,
     };
-    heard.stage("ses_1", said);
+    heard.stage("ses_1", arrived, said);
     assert_eq!(
-        heard.claim("ses_1", "turn_1").map(|s| s.text).as_deref(),
+        heard
+            .claim("ses_1", arrived, "turn_1")
+            .map(|s| s.text)
+            .as_deref(),
         Some("run the original"),
         "the turn it started claims it"
     );
     assert_eq!(
-        heard.claim("ses_1", "turn_1").map(|s| s.text).as_deref(),
+        heard
+            .claim("ses_1", arrived, "turn_1")
+            .map(|s| s.text)
+            .as_deref(),
         Some("run the original"),
         "and every loop of that turn reads the same thing"
     );
     assert!(
-        heard.claim("ses_1", "turn_2").is_none(),
+        heard.claim("ses_1", arrived, "turn_2").is_none(),
         "a later turn claims nothing"
     );
     assert_eq!(
@@ -52,7 +59,7 @@ fn a_message_is_bound_to_the_turn_it_started_and_to_no_other() {
         0,
         "and the staged message is gone, not left for a third turn"
     );
-    assert!(heard.claim("ses_1", "turn_3").is_none());
+    assert!(heard.claim("ses_1", arrived, "turn_3").is_none());
 }
 
 /// The answer tool's description names each waiting question and its answers;
@@ -109,4 +116,64 @@ fn the_allow_description_states_the_held_call_and_whose_decision_it_is() {
     let two = tools::allow_description(&[h("hld_1a2b3c4d"), h("hld_9z8y7x6w")]);
     assert!(two.contains("2 calls are held"), "{two}");
     assert!(two.contains("ask them which instead of choosing"), "{two}");
+}
+
+#[test]
+fn another_request_cannot_replace_a_turns_words_or_authority() {
+    let heard = Heard::default();
+    let arrived = std::time::Instant::now();
+    let said = |text: &str, owner_input| Said {
+        text: text.into(),
+        who: Answerer::from("owner"),
+        owner_input,
+    };
+    heard.stage("ses_race", arrived, said("first", false));
+    assert!(
+        !heard
+            .claim("ses_race", arrived, "turn_first")
+            .unwrap()
+            .owner_input
+    );
+    heard.stage(
+        "ses_race",
+        arrived + std::time::Duration::from_nanos(1),
+        said("second", true),
+    );
+    let first = heard.claim("ses_race", arrived, "turn_first").unwrap();
+    assert_eq!(first.text, "first");
+    assert!(!first.owner_input);
+}
+
+#[test]
+fn each_request_claims_only_its_own_staged_input_and_releases_it() {
+    let heard = Heard::default();
+    let first = std::time::Instant::now();
+    let second = first + std::time::Duration::from_nanos(1);
+    for (arrived, text, owner_input) in [(first, "first", false), (second, "second", true)] {
+        heard.stage(
+            "ses_pair",
+            arrived,
+            Said {
+                text: text.into(),
+                who: Answerer::from("owner"),
+                owner_input,
+            },
+        );
+    }
+    let a = heard.claim("ses_pair", first, "turn_a").unwrap();
+    let b = heard.claim("ses_pair", second, "turn_b").unwrap();
+    assert_eq!(a.text, "first");
+    assert!(!a.owner_input);
+    assert_eq!(b.text, "second");
+    assert!(b.owner_input);
+    drop(HeardRequest {
+        heard: &heard,
+        session: "ses_pair".into(),
+        arrived: second,
+    });
+    assert!(heard.claim("ses_pair", second, "turn_b").is_none());
+    assert_eq!(
+        heard.claim("ses_pair", first, "turn_a").unwrap().text,
+        "first"
+    );
 }

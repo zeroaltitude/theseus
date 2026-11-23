@@ -177,7 +177,7 @@ fn a_message_that_says_a_live_record_again_is_counted_not_kept() {
     ];
     let v = verdict(Heard::Preference, Band::Act, 0.9);
     assert_eq!(
-        plan(&v, "I said no tables with me", &live, &st),
+        plan(&v, "no tables with me", &live, &st),
         Plan::Repeat("std_a".into())
     );
     // The same words as a record of another kind are not a repeat of it.
@@ -190,7 +190,7 @@ fn a_message_that_says_a_live_record_again_is_counted_not_kept() {
     let order = [record("std_c", StandingKind::Order, "never push to main")];
     let o = verdict(Heard::Order, Band::Confirm, 0.7);
     assert_eq!(
-        plan(&o, "never push to main, I told you", &order, &st),
+        plan(&o, "never push to main", &order, &st),
         Plan::Repeat("std_c".into())
     );
 }
@@ -299,4 +299,38 @@ fn only_a_place_the_owner_alone_writes_in_is_theirs() {
     assert!(!owner_alone(Private, Some("discord:channel:7")));
     assert!(!owner_alone(Shared, None));
     assert!(!owner_alone(Shared, Some("discord:dm:42")));
+}
+
+#[test]
+fn opposite_directives_are_not_suppressed_as_repeats() {
+    let v = verdict(Heard::Preference, Band::Act, 0.9);
+    for (old, new) in [
+        ("use tables in answers", "no tables in answers"),
+        ("never push to main", "always push to main"),
+        ("alice helps bob", "bob helps alice"),
+    ] {
+        let live = [record("std_a", StandingKind::Preference, old)];
+        assert_eq!(
+            plan(&v, new, &live, &State::default()),
+            Plan::Keep(StandingKind::Preference)
+        );
+        let mut state = State::default();
+        state.asks.push(Open {
+            ask: theseus_protocol::StandingAsk {
+                id: "ask_1".into(),
+                kind: StandingKind::Preference,
+                text: old.into(),
+                scope: StandingScope::Everywhere,
+                why: "unsure".into(),
+                node: "nod_1".into(),
+                at_ms: 10 * WEEK_MS,
+            },
+            judgment: "jdg_0".into(),
+            session: "ses_1".into(),
+        });
+        assert_eq!(
+            plan(&v, new, &[], &state),
+            Plan::Keep(StandingKind::Preference)
+        );
+    }
 }

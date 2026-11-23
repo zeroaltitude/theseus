@@ -334,6 +334,22 @@ pub fn newest_after_touch(
     own(store, root, Some(&from), limit)
 }
 
+/// Page strictly after one touch in index order: descending time, ascending id.
+/// An empty id denotes the exclusive time boundary used by age bands.
+pub fn newest_before_exchange(
+    store: &Store,
+    root: Root<'_>,
+    before_ms: u64,
+    turn: &str,
+    limit: usize,
+) -> anyhow::Result<Vec<Touch>> {
+    if turn.is_empty() {
+        return newest_before(store, root, before_ms, limit);
+    }
+    let from = format!("{}\u{0}", touch_key(&root.key(), before_ms, turn));
+    own(store, root, Some(&from), limit)
+}
+
 /// An exchange's record.
 pub fn exchange_record(e: &Exchange) -> anyhow::Result<NewRecord> {
     NewRecord::json(

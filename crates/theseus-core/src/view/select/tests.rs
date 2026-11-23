@@ -77,7 +77,15 @@ impl Timeline for Store {
                 session_id: "s".into(),
                 at_ms: e.at,
             })
-            .filter(|e| before.is_none_or(|c| e.cursor() < *c))
+            .filter(|e| {
+                before.is_none_or(|c| {
+                    if c.turn_id.is_empty() {
+                        e.at_ms < c.at_ms
+                    } else {
+                        e.cursor() < *c
+                    }
+                })
+            })
             .collect();
         out.sort_by_key(|e| std::cmp::Reverse(e.cursor()));
         out.truncate(n);
@@ -403,11 +411,21 @@ fn elsewhere_is_his_last_two_days_and_his_newest_in_five_places() {
     for (i, p) in ["p1", "p2", "p3", "p4", "p5", "p6"].iter().enumerate() {
         s.ex.push(ex(&format!("{p}x"), p, 200 + i as u64));
     }
-    let words = select(&s, Band::ElsewhereWords, Present::OwnerAlone);
-    assert_eq!(ids(&words), ["a1", "a2", "p1x", "p2x", "p3x", "p4x"]);
+    let pov = pov(Present::OwnerAlone);
+    let gate = permit::Permit::of(crate::view_gate::Verified::of_fresh(
+        theseus_memory::recall::Place::Private,
+        "local",
+    ));
+    let select = |band| {
+        elsewhere::Elsewhere::new(band, sources_with(&s, "", &gate))
+            .select(&pov, &s)
+            .unwrap()
+    };
+    let words = select(Band::ElsewhereWords);
+    assert_eq!(ids(&words), ["a1", "sh", "a2", "p1x", "p2x", "p3x"]);
     assert!(words.iter().all(|p| p.form == Form::Line));
-    let replies = select(&s, Band::ElsewhereReplies, Present::OwnerAlone);
-    assert_eq!(ids(&replies), ["a1", "p1x", "p2x", "p3x", "p4x"]);
+    let replies = select(Band::ElsewhereReplies);
+    assert_eq!(ids(&replies), ["a1", "sh", "p1x", "p2x", "p3x"]);
     assert_eq!(
         replies[0].sizes.spoken,
         10 + 1_500,
@@ -806,4 +824,48 @@ proptest! {
             }
         }
     }
+}
+
+#[test]
+fn a_source_without_old_candidates_does_not_walk_the_archive() {
+    struct NoArchive;
+    impl Timeline for NoArchive {
+        fn newest(
+            &self,
+            _: &TimelineRoot,
+            _: Option<&Cursor>,
+            _: usize,
+        ) -> anyhow::Result<Vec<ExchangeRef>> {
+            anyhow::bail!("old archive must not be scanned when the source has no eligible facts")
+        }
+    }
+    impl Snapshot for NoArchive {
+        fn now_ms(&self) -> u64 {
+            NOW
+        }
+        fn timeline(&self) -> &dyn Timeline {
+            self
+        }
+        fn at_hand(&self, _: &Anchor) -> Option<AtHand> {
+            None
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let real = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    let sessions = super::super::sources_store::Sessions::default();
+    let real_sources = super::super::sources_store::StoreSources {
+        store: &real,
+        mark: None,
+        recalled: vec![],
+        sessions: &sessions,
+        own: None,
+    };
+    let fake = Store::default();
+    let mut src = sources(&fake, "");
+    src.exchanges = &real_sources;
+    let selected = past::Past::new(Band::PastOlder, src)
+        .select(&pov(Present::OwnerAlone), &NoArchive)
+        .unwrap();
+    assert!(selected.is_empty());
+    assert_eq!(sessions.reads.get(), 0);
 }

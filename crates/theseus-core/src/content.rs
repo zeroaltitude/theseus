@@ -477,7 +477,7 @@ impl ContentFlags {
     /// A write back merged into the stored labels, never over them: a stored
     /// label always wins (a turn's copy cannot clear one, only the operator
     /// can) and a stored removal is kept. A label the turn's copy raised that
-    /// the stored record does not hold is added.
+    /// the stored record does not hold is added only if no later removal covers it.
     pub fn merge(
         stored: Option<Box<ContentFlags>>,
         turn: Option<&ContentFlags>,
@@ -487,7 +487,7 @@ impl ContentFlags {
         };
         let mut s = stored.map(|b| *b).unwrap_or_default();
         for l in &turn.labels {
-            s.raise(l.clone());
+            s.raise_after(l.clone(), l.at_ms);
         }
         (s != ContentFlags::default()).then(|| Box::new(s))
     }
@@ -998,6 +998,27 @@ mod tests {
         let merged = ContentFlags::merge(Some(stored), Some(&turn)).unwrap();
         assert!(merged.has(Flag::Secret) && merged.has(Flag::Personal));
         assert_eq!(ContentFlags::merge(None, None), None);
+    }
+
+    #[test]
+    fn a_write_back_preserves_a_removal_after_the_turns_label() {
+        let mut turn = ContentFlags::default();
+        turn.raise(label(Flag::Injection));
+        let mut stored = turn.clone();
+        stored.remove(Flag::Injection, "the owner", "cli", 9);
+        let merged = ContentFlags::merge(Some(Box::new(stored)), Some(&turn)).unwrap();
+        assert!(!merged.frozen());
+        assert_eq!(merged.removed.len(), 1);
+        let mut later = ContentFlags::default();
+        later.raise(Label {
+            at_ms: 10,
+            ..label(Flag::Injection)
+        });
+        let merged = ContentFlags::merge(Some(merged), Some(&later)).unwrap();
+        assert!(
+            merged.frozen(),
+            "new evidence after a removal still raises its label"
+        );
     }
 
     /// A record written before this held the open view's `DataState` here. It

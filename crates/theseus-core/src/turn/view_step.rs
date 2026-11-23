@@ -2,11 +2,10 @@
 //! turn's first call and frozen for the rest of the turn. A task's turns are at the task's own place,
 //! `task:<task id>` (`view_step::task`).
 //!
-//! Who is present is never the view's to say: the point of view's presence and anchor are the turn's
-//! verified ones (`crate::view_gate::Verified`, computed by `turn::gate_step` from the input's mark and the
-//! place read on its own), and the gate is the turn's permit (`view::permit::Permit::scoped`, made by
-//! `fork::window::Fork::permit`). A channel bound private, or an agent's process at the terminal, is never the
-//! owner alone (decision 5).
+//! Every place uses the same view: presence, seals and moves withhold nothing. The verified anchor
+//! (`crate::view_gate::Verified`) and the scoped permit (`view::permit::Permit::scoped`, made by
+//! `fork::window::Fork::permit`) retain the self-loop's own-place scope. Removed sources
+//! are checked again before later calls; authority remains attached to each input's provenance.
 
 use std::collections::{HashMap, HashSet};
 
@@ -399,7 +398,7 @@ pub(super) fn at_assembled(session: &str) {
 /// What one view is assembled for: a turn's (`view_freeze`), or a preview's of a place's next turn.
 pub(super) struct Asked<'a> {
     pub store: &'a Store,
-    /// The session whose turn it is: the reader a seal of its own thread does not hold out.
+    /// The session whose turn is being assembled.
     pub sid: &'a str,
     pub turn: &'a str,
     pub person: Option<String>,
@@ -664,8 +663,7 @@ fn message_of(store: &Store, sid: &str, turn: &str) -> anyhow::Result<(Option<St
 /// from every session that ran them (this turn's own is its tail; a recall note is the transcript's), each
 /// part labelled by its own provenance (`labelled`), the results of those kept spoken as their receipts,
 /// made now from the window alone (`compiler::view::receipted`); and every session the view lays, those a
-/// card, a waiting line or a fact was read from (`Sessions::depends`) among them, so a seal of any before a
-/// later call revokes the view.
+/// card, a waiting line or a fact was read from (`Sessions::depends`) among them, for source tracking.
 fn window_of(
     (store, read, sid): (&Store, &Sessions, &str),
     a: &Assembled,
@@ -717,7 +715,7 @@ fn window_of(
         .map(|e| e.session_id)
         .chain(laid)
         .collect();
-    // A joined task card's home session is a dependency too: its seal before a later call revokes the card.
+    // A joined task card's home session is a source dependency too.
     let cards: Vec<&str> = (a.view.shown.iter())
         .filter_map(|s| match &s.piece.range.space {
             Space::Task { task } => Some(task.as_str()),

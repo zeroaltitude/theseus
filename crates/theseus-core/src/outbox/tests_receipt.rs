@@ -197,3 +197,24 @@ fn a_fresh_index_reads_the_recorded_receipts_and_invents_none() {
     assert_eq!(c.settled(), 3);
     assert_eq!(c.sent + c.failed, 3, "both axes count every settled post");
 }
+
+#[test]
+fn retired_shown_records_are_readable_but_never_route() {
+    let dir = tempfile::tempdir().unwrap();
+    let o = outbox(&dir);
+    o.show_at("ses_retired", Some("discord:dm:4210")).unwrap();
+    assert_eq!(
+        o.shown().unwrap(),
+        vec![("ses_retired".into(), "discord:dm:4210".into())]
+    );
+    assert_eq!(o.try_target("ses_retired").unwrap(), None);
+    assert_eq!(o.speaks_at("ses_retired").unwrap(), None);
+    drop(o);
+    let reopened = outbox(&dir);
+    assert_eq!(
+        reopened.shown().unwrap().len(),
+        1,
+        "legacy records still decode after reopen"
+    );
+    assert_eq!(reopened.try_target("ses_retired").unwrap(), None);
+}

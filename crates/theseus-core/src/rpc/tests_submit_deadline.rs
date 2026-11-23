@@ -60,3 +60,43 @@ async fn a_submit_with_deadline_secs_tells_the_model_its_time() {
     let without = first_request(None).await;
     assert!(!without.contains("left of this turn"), "{without}");
 }
+
+#[tokio::test]
+async fn an_overflowing_submit_is_invalid_before_any_model_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = Config::example();
+    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    cfg.judge.enabled = false;
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text("Done.")]));
+    let core = Core::build(Parts::for_tests(cfg, fake.clone(), store)).unwrap();
+    let (client, server) = duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(server);
+    let srv = tokio::spawn(core.clone().serve_connection(
+        sr,
+        sw,
+        Client::new("conn", Surface::Cli),
+    ));
+    let (cr, mut cw) = tokio::io::split(client);
+    let mut lines = BufReader::new(cr).lines();
+    let mut request = serde_json::to_value(submit(1, "Write the tide tables.")).unwrap();
+    request["params"]["deadline_secs"] = serde_json::json!(u64::MAX);
+    let mut line = serde_json::to_string(&request).unwrap();
+    line.push('\n');
+    cw.write_all(line.as_bytes()).await.unwrap();
+    loop {
+        let l = lines.next_line().await.unwrap().unwrap();
+        if let Message::Response(r) = serde_json::from_str::<Message>(&l).unwrap() {
+            let err = r
+                .error
+                .expect("overflow must be refused at the request boundary");
+            assert_eq!(err.code, theseus_protocol::error_code::INVALID_PARAMS);
+            assert!(err.message.contains("deadline_secs"));
+            break;
+        }
+    }
+    cw.shutdown().await.unwrap();
+    drop(lines);
+    let _ = srv.await;
+    assert!(fake.requests().is_empty());
+}

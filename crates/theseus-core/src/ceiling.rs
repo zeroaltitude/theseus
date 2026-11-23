@@ -223,13 +223,20 @@ impl crate::turn::TurnRunner {
     /// place's ceiling: the session's place (a task's is its parent's,
     /// `outbox.target`), or, for a session no place runs on any more
     /// (`/new`), the place its wakes and reports answer in (theseus-4lx).
-    /// With neither, the CLI's or the web UI's: private, with no ceiling.
-    /// Shared when where it goes cannot be read.
+    /// With neither, a retired binding still supplies the class and ceiling,
+    /// never a destination. With no binding, the CLI's or web UI's: private.
+    /// Shared when the place cannot be read or classified.
     ///
     /// A session the self loop opened for one job (a fixer, an approver, a reviewer:
     /// `rsi::roles`) has that job's ceiling, whatever its place's.
     pub fn view_of(&self, session_id: &str) -> PlaceView {
-        let place = self.outbox.speaks_at(session_id);
+        let place = self
+            .outbox
+            .speaks_at(session_id)
+            .and_then(|current| match current {
+                Some(_) => Ok(current),
+                None => self.outbox.retired_place(session_id),
+            });
         let view = match place {
             Ok(p) => self.place_rule.place(&self.cfg, p.as_deref()),
             Err(e) => {

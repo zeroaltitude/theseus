@@ -2,12 +2,12 @@
 //!
 //! `directive.v2` answers choices and probabilities, not text, so the words
 //! kept are the owner's own, normalised to one line and cut at a size no
-//! standing line should pass. Two lines are the same directive when their
+//! standing line should pass. Two lines are similar when their
 //! content words overlap (words of three letters or more, less a few
 //! connectives: most of the shorter line's words are in the other, and a
 //! third of all the words are shared): a size for a similarity, not a
-//! reading of what a sentence means. The pack decides *that* a message is a directive and of
-//! what kind; this decides only whether it repeats one already held.
+//! reading of what a sentence means. Similarity suggests a candidate or a card; automatic
+//! repeat suppression in capture requires the same words in the same order.
 
 use std::collections::BTreeSet;
 
