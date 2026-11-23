@@ -50,6 +50,12 @@ fn tokens(s: &str) -> u64 {
 /// [`MAX_TOKENS`]. `None` when none was noted today, so a day with nothing
 /// heard adds nothing at all.
 pub fn render(all: &[CardObservation], now_ms: u64) -> Option<String> {
+    rendered(all, now_ms).map(|(text, _)| text)
+}
+
+/// [`render`], with the ids of the observations it shows: what the turn's block is rendered from, so a
+/// removal before a later call of the turn is seen (`turn::now_step`).
+pub fn rendered(all: &[CardObservation], now_ms: u64) -> Option<(String, Vec<String>)> {
     let today = spend::local_day(now_ms);
     let mine: Vec<&CardObservation> = all
         .iter()
@@ -66,18 +72,18 @@ pub fn render(all: &[CardObservation], now_ms: u64) -> Option<String> {
     );
     let mut text = head;
     let mut used = tokens(&text);
-    let mut shown = 0;
+    let mut ids = Vec::new();
     for o in &mine {
         let line = format!("- {}", one_line(&o.text));
-        if shown >= MAX_LINES || used + tokens(&line) + 1 > MAX_TOKENS {
+        if ids.len() >= MAX_LINES || used + tokens(&line) + 1 > MAX_TOKENS {
             break;
         }
         used += tokens(&line) + 1;
-        shown += 1;
+        ids.push(o.id.clone());
         text.push('\n');
         text.push_str(&line);
     }
-    (shown > 0).then_some(text)
+    (!ids.is_empty()).then_some((text, ids))
 }
 
 /// A text on one line: an observation is a line of the block, so a newline in
@@ -86,24 +92,18 @@ fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The day's observations as the turn shows them; `None` where the owner is
-/// not alone, or when nothing was noted today.
+/// The day's observations as the turn shows them, with their ids; `None` where
+/// the owner is not alone, or when nothing was noted today. The read's error is
+/// the caller's to decide on.
 pub fn shown(
     store: &crate::store::Store,
     class: theseus_protocol::PlaceClass,
     place: Option<&str>,
     now_ms: u64,
-) -> Option<String> {
+) -> anyhow::Result<Option<(String, Vec<String>)>> {
     if !crate::capture::owner_alone(class, place) {
-        return None;
+        return Ok(None);
     }
-    let all = match crate::card::state::observations(store, Some(ObservationState::Open)) {
-        Ok(a) => a,
-        Err(e) => {
-            tracing::warn!(error = %format!("{e:#}"),
-                "the day's observations were not read: this turn goes without them");
-            return None;
-        }
-    };
-    render(&all, now_ms)
+    let all = crate::card::state::observations(store, Some(ObservationState::Open))?;
+    Ok(rendered(&all, now_ms))
 }

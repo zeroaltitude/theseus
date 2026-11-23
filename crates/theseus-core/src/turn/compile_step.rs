@@ -135,9 +135,20 @@ impl TurnRunner {
         // was: a test's seam for what is removed in between.
         #[cfg(test)]
         super::view_step::at_assembled(sid);
-        // What the task graph and the project showed, as the harness's block carries them (`now_step`).
+        // What the task graph and the project showed, as the frozen view lays them (`now_step`): a part the
+        // block left out for room is not reported as shown, nor given to admission as a task view.
         let (tasks, project) = (t.now.as_ref())
-            .map(|r| (r.tasks.clone(), r.project.clone()))
+            .map(|r| {
+                let laid = |n| r.laid(n);
+                (
+                    r.tasks
+                        .clone()
+                        .filter(|_| laid(super::now_step::Name::Tasks)),
+                    r.project
+                        .clone()
+                        .filter(|_| laid(super::now_step::Name::Project)),
+                )
+            })
             .unwrap_or_default();
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));

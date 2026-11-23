@@ -13,7 +13,11 @@
 //!   stands here are never dropped: the standing check fails a request without its records
 //!   (`standing::missing_here`).
 //! - **Within a turn** the block says what was true at the turn's first call. A tool that changes a task,
-//!   a wake or the branch says so in its own result; the next turn composes afresh.
+//!   a wake or the branch says so in its own result; the next turn composes afresh. The parts rendered
+//!   from records the owner can take back keep those records' ids (the surface's standing records, the
+//!   day's observations): before every call they are read again (`now_stale`, from `view_gone`), and a
+//!   part one of whose records is gone is rendered again from its producer and the view re-frozen on a
+//!   new chain (`now_refreshed`), never sent stale. A record added during the turn applies from the next.
 
 use theseus_protocol::projects::ProjectSliceSummary;
 use theseus_protocol::tasks::TaskViewSummary;
@@ -127,9 +131,36 @@ pub(crate) struct Rendered {
     pub parts: Vec<(Name, String)>,
     pub tasks: Option<TaskViewSummary>,
     pub project: Option<ProjectSliceSummary>,
+    /// The ids of the records a part was rendered from, where the owner can take one back mid-turn.
+    pub sources: Vec<(Name, Vec<String>)>,
+    /// The parts the frozen view lays: what the last composition kept (the compile's account reads it).
+    pub laid: Vec<Name>,
 }
 
 impl Rendered {
+    /// [`Rendered::set`], with the ids of the records the text was rendered from.
+    pub(crate) fn sourced(&mut self, name: Name, part: Option<(String, Vec<String>)>) -> bool {
+        let (text, ids) = part.map_or((None, Vec::new()), |(t, i)| (Some(t), i));
+        let changed = self.set(name, text);
+        self.sources.retain(|(n, _)| *n != name);
+        if !ids.is_empty() {
+            self.sources.push((name, ids));
+        }
+        changed
+    }
+
+    /// The ids `name` was rendered from.
+    pub(crate) fn ids(&self, name: Name) -> &[String] {
+        (self.sources.iter())
+            .find(|(n, _)| *n == name)
+            .map_or(&[][..], |(_, ids)| ids.as_slice())
+    }
+
+    /// Whether the frozen view lays `name`.
+    pub(crate) fn laid(&self, name: Name) -> bool {
+        self.laid.contains(&name)
+    }
+
     /// `name`'s text, replacing what it had; none removes it. Whether anything changed.
     pub(crate) fn set(&mut self, name: Name, text: Option<String>) -> bool {
         let at = self.parts.iter().position(|(n, _)| *n == name);
@@ -236,6 +267,12 @@ pub(super) fn traced(t: &mut Turn<'_>, c: &Composed) {
     );
 }
 
+/// The surface's records as a part, with the ids of those whose text it shows.
+fn here_part(b: &crate::standing::Block) -> Option<(String, Vec<String>)> {
+    let ids = (b.used.iter()).filter(|u| u.shown).map(|u| u.id.clone());
+    b.here_text().map(|text| (text.to_string(), ids.collect()))
+}
+
 /// What the route's lines may add after the view was frozen at the turn's first compile, reserved in the
 /// view's budget then: the coding hint, the fan-out cue and a persona's line.
 pub(crate) fn routed_reserve() -> u64 {
@@ -253,12 +290,7 @@ impl TurnRunner {
         let mut r = Rendered::default();
         r.set(Name::Env, self.env_text(t).await);
         Self::now_routed(t, &mut r);
-        r.set(
-            Name::Standing,
-            (t.standing.here.as_ref())
-                .and_then(|b| b.here_text())
-                .map(str::to_string),
-        );
+        r.sourced(Name::Standing, t.standing.here.as_ref().and_then(here_part));
         let target = self.target_of(&session.session_id);
         if self.cfg.standing.yes_fact && session.task.is_none() {
             let yes = crate::yes_fact::shown(
@@ -297,19 +329,92 @@ impl TurnRunner {
         // What the observer noted of the owner's own words today (theseus-6f8t0): only where the owner is
         // alone, and never for a task's session.
         if session.task.is_none() {
-            let noted = crate::card::noted::shown(
-                &self.store,
-                t.tc.place().class,
-                target.as_deref(),
-                self.kernel.now_ms(),
-            );
-            r.set(Name::Noted, noted);
+            let noted = self.noted_now(t).unwrap_or_else(|e| {
+                tracing::warn!(error = %format!("{e:#}"),
+                    "the day's observations were not read: this turn goes without them");
+                None
+            });
+            r.sourced(Name::Noted, noted);
         }
         if let Some(s) = crate::project::slice::shown(&self.store, &self.kernel, session) {
             r.set(Name::Project, Some(s.text));
             r.project = Some(s.summary);
         }
         r
+    }
+
+    /// The day's observations as the turn's block shows them, with their ids, read now.
+    fn noted_now(&self, t: &Turn<'_>) -> anyhow::Result<Option<(String, Vec<String>)>> {
+        crate::card::noted::shown(
+            &self.store,
+            t.tc.place().class,
+            self.target_of(t.tc.session_id).as_deref(),
+            self.kernel.now_ms(),
+        )
+    }
+
+    /// The surface's standing records as the turn's own read gives them now (`standing_step`); an
+    /// unreadable set is an error here, never a block without them.
+    fn standing_here_now(&self, t: &Turn<'_>) -> anyhow::Result<Option<crate::standing::Block>> {
+        self.standing.all(&self.store)?;
+        let (_, here) = self.standing_blocks(
+            t.tc.session_id,
+            t.tc.place().class,
+            t.standing.surface,
+            t.target.persona.as_deref(),
+        );
+        Ok(here)
+    }
+
+    /// The parts whose records are gone since the turn rendered them: a standing record of the surface no
+    /// longer live (revoked, lapsed, erased, its source gone), or an observation no longer one of today's
+    /// open ones. A read that fails counts as gone, so the part is rendered again (or the turn fails).
+    pub(super) fn now_stale(&self, t: &Turn<'_>) -> Vec<Name> {
+        let Some(r) = t.now.as_ref() else {
+            return Vec::new();
+        };
+        let gone = |had: &[String], now: &[String]| had.iter().any(|id| !now.contains(id));
+        let mut out = Vec::new();
+        let had = r.ids(Name::Standing);
+        if !had.is_empty() {
+            let now = match self.standing_here_now(t) {
+                Ok(here) => here.as_ref().and_then(here_part).map(|(_, ids)| ids),
+                Err(_) => None,
+            };
+            if gone(had, &now.unwrap_or_default()) {
+                out.push(Name::Standing);
+            }
+        }
+        let had = r.ids(Name::Noted);
+        if !had.is_empty() {
+            let now = self.noted_now(t).ok().flatten().map(|(_, ids)| ids);
+            if gone(had, &now.unwrap_or_default()) {
+                out.push(Name::Noted);
+            }
+        }
+        out
+    }
+
+    /// The stale parts rendered again from their producers, the turn's surface block with them (its check
+    /// holds the block to the records live now), so the next freeze composes only what is live. A producer
+    /// that cannot be read fails the turn plainly: a stale part is never sent.
+    pub(super) fn now_refreshed(&self, t: &mut Turn<'_>) -> anyhow::Result<()> {
+        let stale = self.now_stale(t);
+        if stale.contains(&Name::Standing) {
+            let here = self.standing_here_now(t)?;
+            let part = here.as_ref().and_then(here_part);
+            t.standing.here = here;
+            if let Some(r) = t.now.as_mut() {
+                r.sourced(Name::Standing, part);
+            }
+        }
+        if stale.contains(&Name::Noted) {
+            let part = self.noted_now(t)?;
+            if let Some(r) = t.now.as_mut() {
+                r.sourced(Name::Noted, part);
+            }
+        }
+        Ok(())
     }
 
     /// The parts the turn's route decides: who answers, the coding hint, the fan-out cue. Whether any

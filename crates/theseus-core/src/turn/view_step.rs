@@ -81,7 +81,9 @@ impl TurnRunner {
             }
         } else if self.view_gone(t) {
             // Something it laid was removed or erased since (absence is not proof): reassembled, on a new
-            // chain, with the room the turn made.
+            // chain, with the room the turn made; a part of the harness's block whose records went is
+            // rendered again first (`now_step::now_refreshed`).
+            self.now_refreshed(t)?;
             self.view_refrozen(t, input.spec, None)?;
             Self::view_reset(t, input.nodes);
         }
@@ -167,13 +169,14 @@ impl TurnRunner {
     }
 
     /// Whether an exchange the frozen view lays is gone now, or a node its recall laid is gone or erased
-    /// (`kept::held_now`).
+    /// (`kept::held_now`), or a record a part of the harness's block was rendered from (`now_step::now_stale`).
     pub(super) fn view_gone(&self, t: &Turn<'_>) -> bool {
         let Some(f) = t.view.as_ref().filter(|f| f.turn_id == t.tc.turn_id) else {
             return false;
         };
         let recalled: Vec<String> = (f.recalled.iter()).map(|r| r.node_id.clone()).collect();
         kept::held_now(self, t.tc.session_id, (&[], &f.exchanges, &recalled))
+            || !self.now_stale(t).is_empty()
     }
 
     /// A new chain for the turn: its next call makes a new compilation, and the

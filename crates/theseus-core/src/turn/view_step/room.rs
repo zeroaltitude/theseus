@@ -188,6 +188,12 @@ impl TurnRunner {
         if let Some(c) = &composed {
             crate::turn::now_step::traced(t, c);
         }
+        // What this freeze lays of the parts: the compile's account and admission read it.
+        if let Some(r) = t.now.as_mut() {
+            r.laid = (composed.iter())
+                .flat_map(|c| c.shown.iter().map(|(n, _)| *n))
+                .collect();
+        }
         let asked = Asked {
             store,
             sid,

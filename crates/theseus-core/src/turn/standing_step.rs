@@ -60,7 +60,7 @@ impl TurnRunner {
 
     /// The system's block and the tail's (the records of `surface`) of
     /// `session_id`'s scope in a place of `class`, from memory.
-    fn standing_blocks(
+    pub(super) fn standing_blocks(
         &self,
         session_id: &str,
         class: crate::places::PlaceClass,
