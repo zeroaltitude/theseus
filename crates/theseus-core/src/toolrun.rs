@@ -41,6 +41,7 @@ use guarded::{guarded_paths, state_dir_in_use};
 pub(crate) mod batch;
 mod calls;
 mod chat_act;
+mod flow_result;
 mod flow_step;
 pub(crate) use flow_step::Stepped;
 pub mod catalogs;
@@ -1032,7 +1033,14 @@ impl ToolRuntime {
         // `execute` sweeps for the writer key itself, on every one of its
         // call sites rather than on this one.
         let outcome = self
-            .execute(tc, &a.correlation_id, tool, call, posture, class)
+            .execute(
+                tc,
+                (&a.correlation_id, assistant_node),
+                tool,
+                call,
+                posture,
+                class,
+            )
             .await?;
         Ok((outcome, judged))
     }
@@ -1620,7 +1628,7 @@ impl ToolRuntime {
     async fn execute(
         &self,
         tc: &TurnCtx<'_>,
-        correlation_id: &str,
+        (correlation_id, assistant_node): (&str, &str),
         tool: Arc<dyn Tool>,
         call: &ToolUse,
         ran_at: Posture,
@@ -1630,7 +1638,14 @@ impl ToolRuntime {
         // writer key asks what the call WAS, and the call is over by then.
         let acted = (tool.name().to_string(), tool.class());
         let outcome = self
-            .dispatch_to_backend(tc, correlation_id, tool, call, ran_at, class)
+            .dispatch_to_backend(
+                tc,
+                (correlation_id, assistant_node),
+                tool,
+                call,
+                ran_at,
+                class,
+            )
             .await;
         // After the call whatever became of it: one that failed may still
         // have moved the file before it failed.
@@ -1642,7 +1657,7 @@ impl ToolRuntime {
     async fn dispatch_to_backend(
         &self,
         tc: &TurnCtx<'_>,
-        correlation_id: &str,
+        (correlation_id, assistant_node): (&str, &str),
         tool: Arc<dyn Tool>,
         call: &ToolUse,
         ran_at: Posture,
@@ -1670,7 +1685,8 @@ impl ToolRuntime {
             Backend::Harness if crate::flow::is_flow(tool.name()) => {
                 // A step is a call too, so the future is boxed; the allow-list
                 // keeps a flow from naming another.
-                Box::pin(self.run_flow(tc, correlation_id, tool.as_ref(), call)).await
+                Box::pin(self.run_flow(tc, correlation_id, assistant_node, tool.as_ref(), call))
+                    .await
             }
             Backend::Harness
                 if tool.name() == crate::extend::PROPOSE
