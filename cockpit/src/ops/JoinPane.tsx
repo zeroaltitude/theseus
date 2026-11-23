@@ -19,7 +19,7 @@ import { bytes } from '@/lib/figures'
 import { Transcript } from '@/components/Transcript'
 import { Empty } from '@/components/ui'
 import { composerHint, composerStep, submitOf, type ComposerState } from './composer'
-import { attachRefusal, attachmentOf, withoutSent } from './attach'
+import { attachRefusal, readAttachment, withoutSent } from './attach'
 import { liveOf } from './live'
 import { transcriptTail } from './sections'
 import { MODES, modeAsk } from './menus'
@@ -59,7 +59,8 @@ export function JoinPane({ sessionId, compact = false, session, focus = false, o
   const take = async (chosen: FileList | File[] | null | undefined) => {
     const list = Array.from(chosen ?? [])
     if (list.length === 0) return
-    const read = await Promise.all(list.map(async (f) => attachmentOf(f, new Uint8Array(await f.arrayBuffer()))))
+    const read: Attachment[] = []
+    for (const file of list) read.push(await readAttachment(file))
     setError(attachRefusal(read))
     setFiles((was) => [...was, ...read])
   }
