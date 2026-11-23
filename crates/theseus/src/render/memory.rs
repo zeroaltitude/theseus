@@ -364,13 +364,13 @@ fn retention_words(r: &RecallRetention) -> String {
 /// The drops by reason, each with the first of its nodes.
 fn drop_lines(o: &mut Vec<Line>, m: &RecallManifest) {
     for (reason, n) in &m.drops {
-        // A sealed thread's hits are counted and never listed.
+        // Historical manifests can record sealed-thread drops.
         if reason == "sealed" {
             let hits = if *n == 1 { "hit" } else { "hits" };
             push(o, Tag::Dim, &format!("  🔒 {n} sealed {hits} withheld"));
             continue;
         }
-        // The tally counts a thread distance's rules as `thread`; each drop
+        // Historical thread-distance tallies use `thread`; each drop
         // names its rule (theseus-98bz.2).
         let of = |d: &&RecallDrop| family(&d.reason) == reason;
         let nodes: Vec<String> = m
@@ -434,7 +434,7 @@ pub fn recalls_lines(r: &MemoryRecallsResult) -> Vec<Line> {
         push(
             &mut out,
             Tag::Dim,
-            "none yet: recall runs on a turn's first loop with `[memory] mode = \"shadow\"`",
+            "none yet: recall runs on a turn's first loop with `[memory] mode = \"live\"`",
         );
     }
     // theseus-ectzg, B4 L79: SEPARATE — the total is of turns whose OWN
@@ -892,5 +892,17 @@ mod tests {
             "recall: the last 50: 41 ok, 9 words only, 0 deadline, 0 error · held 3 with \
              vectors, 41 words alone, 6 empty · every source last answered 3 min ago"
         );
+    }
+}
+
+#[cfg(test)]
+mod current_recall_words {
+    use super::*;
+
+    #[test]
+    fn empty_recall_describes_live_mode() {
+        let lines = recalls_lines(&MemoryRecallsResult::default());
+        assert!(lines.iter().any(|l| l.text.contains("live")));
+        assert!(lines.iter().all(|l| !l.text.contains("shadow")));
     }
 }
