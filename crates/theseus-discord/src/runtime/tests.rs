@@ -1283,3 +1283,10 @@ fn a_message_or_an_interaction_resolves_to_its_place() {
     // A guild channel never reaches a DM binding (theseus-e89).
     assert!(r.resolve(Some(7), true, Some(7)).is_none());
 }
+
+#[test]
+fn addressing_preserves_code_and_reference_reply_whitespace() {
+    let text = "```rust\nfn main() {\n    let x = 1;\n}\n```";
+    assert_eq!(strip_mentions(&format!("<@42> {text}"), 42, &[]), text);
+    assert_eq!(strip_mentions(text, 42, &[]), text);
+}
