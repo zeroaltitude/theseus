@@ -191,10 +191,7 @@ struct Stored {
     partial: bool,
     #[serde(default)]
     card: bool,
-    // Decode old audits without letting their retired place class shape the answer.
-    #[allow(dead_code)]
-    #[serde(default)]
-    private: bool,
+    // Serde ignores the retired `private` field in old audits. It has no reader.
 }
 
 /// The first words of a node, on one line.
@@ -330,7 +327,6 @@ impl Core {
                 exposures: found,
                 partial: walk.partial,
                 card,
-                private: private_origin,
             },
             false,
         ))
@@ -764,4 +760,20 @@ pub fn note_node(session: &str, turn: &str, note: &Note) -> Node {
     debug_assert!(matches!(n.body, Body::UserMessage { .. }));
     n.author = Some(NOTE_AUTHOR.into());
     n
+}
+
+#[cfg(test)]
+mod retired_audit_tests {
+    use super::*;
+    #[test]
+    fn old_private_audit_metadata_still_decodes_without_shaping_the_answer() {
+        for private in [false, true] {
+            let old = serde_json::json!({
+                "node_id": "node_old", "session_id": "session_old", "gist": "old words",
+                "why": "correction", "by": "owner", "at_ms": 1, "exposures": [], "private": private
+            });
+            let stored: Stored = serde_json::from_value(old).unwrap();
+            assert_eq!(shown(stored, true).gist.as_deref(), Some("old words"));
+        }
+    }
 }
