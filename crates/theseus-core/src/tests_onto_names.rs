@@ -236,18 +236,15 @@ async fn the_sweeps_new_asks_stop_at_the_days_money() {
 
     let tomorrow = fresh() + 36 * 3_600_000;
     let next = r.core.onto_sweep_night(tomorrow).await.unwrap();
-    // The pair, the kind's name, the rename, and the new kind's entries' pair.
-    assert_eq!(r.jev.seen().len(), 4, "{next:?}");
+    // The pair, the rename, and the new kind's entries' pair.
+    assert_eq!(r.jev.seen().len(), 3, "{next:?}");
     assert_eq!((next.kinds, next.renamed), (1, 1));
 }
 
-/// A name Jev picked for a cluster is kept under its key, as long as the ask
-/// is not asked again, and a later night's cluster with a kept pick asks no
-/// kind name (only its pair; theseus-e3pxa). Since issue 9 the class names
-/// the kind (`2026-…` is no kind's name, but the class is), so the kept pick
-/// names none.
+/// A class names the kind without buying a discarded name. Historical picks
+/// remain loadable and do not cause another naming request.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_kind_name_answer_waits_for_its_mint() {
+async fn a_kind_class_never_buys_an_unused_name() {
     let _clock = crate::test_support::pin_mid_period();
     let jev = kind_jev(0.9);
     pick(&jev, "n2", 0.9);
@@ -259,8 +256,11 @@ async fn a_kind_name_answer_waits_for_its_mint() {
     // A name that starts with a digit is no kind's name, but the class is.
     assert_eq!((swept.kinds, swept.refused), (1, 0), "{swept:?}");
     let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
-    assert!(mark.asked.contains_key("kind-name 2026plan"), "{mark:?}");
-    assert_eq!(mark.named["2026plan"], "2026 Roadmap");
+    assert!(
+        !mark.asked.keys().any(|k| k.starts_with("kind-name ")),
+        "no unused naming ask: {mark:?}"
+    );
+    assert!(mark.named.is_empty());
 
     // The cluster mints later, under a name the kind can take.
     let r = rig(FakeJev::start().unwrap(), |_| {});
@@ -323,8 +323,8 @@ async fn a_chain_asked_over_two_nights_clusters() {
     assert!(o.kinds().iter().all(|k| !k.name.ends_with("-ledger")));
     assert_eq!(
         r.jev.seen().len(),
-        25,
-        "the pair, the kind's name, and the new kind's entries' pairs"
+        24,
+        "the pair and the new kind's entries' pairs, with no unused name ask"
     );
 }
 
@@ -367,8 +367,8 @@ async fn a_kept_yes_is_pruned_with_its_ask() {
     assert_eq!(mark.same, [pair("ccc", "ddd")].into(), "{mark:?}");
 }
 
-/// A pick kept under `lanternledger` goes with the cluster when a name that
-/// sorts first joins it: the key changes, the kind-name ask is not paid again.
+/// A historical pick remains harmless when its cluster gets a new key:
+/// only the useful pair and class work is done.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_kept_pick_follows_its_cluster_to_a_new_key() {
     let _clock = crate::test_support::pin_mid_period();
@@ -395,10 +395,9 @@ async fn a_kept_pick_follows_its_cluster_to_a_new_key() {
 /// A pick kept under `lanternledger` was made among `Lantern Ledger` and
 /// `Ledger App`. The owner then lists `Ledger App` and a kept yes joins
 /// `Lantern Maps` to the key: the cluster no longer holds the pick, so the
-/// pick and its ask are dropped and the new cluster is asked its name
-/// (theseus-7e7hc).
+/// old pick remains readable but neither names the class nor buys another ask.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_stale_kept_pick_is_dropped_and_its_cluster_asked_again() {
+async fn a_stale_kept_pick_is_readable_but_never_asked_again() {
     let _clock = crate::test_support::pin_mid_period();
     use theseus_protocol::OntologyKindAddParams;
     let jev = kind_jev(0.1);
@@ -442,11 +441,11 @@ async fn a_stale_kept_pick_is_dropped_and_its_cluster_asked_again() {
     assert!(o.kind("ledger-app").is_none(), "the stale pick does not");
     assert_eq!(
         r.jev.seen().len(),
-        2,
-        "the kind's name, and whether the new kind's entries are one thing"
+        1,
+        "only whether the new kind's entries are one thing"
     );
     let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
-    assert_ne!(
+    assert_eq!(
         mark.named.get("lanternledger").map(String::as_str),
         Some("Ledger App"),
         "{mark:?}"
@@ -502,10 +501,9 @@ fn list_ledger_app(r: &Rig) {
 
 /// A kept ask that got no pick offered `Lantern Ledger` and `Ledger App`. The
 /// owner then lists `Ledger App` and a kept yes joins `Lantern Maps`: the
-/// cluster's names are not those the ask offered, so the question changed and
-/// the cluster is asked its name again (theseus-3ys6k).
+/// cluster's names change, but a retired name question is never bought again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_kept_none_ask_on_a_changed_cluster_is_asked_again() {
+async fn a_kept_none_ask_on_a_changed_cluster_is_not_asked_again() {
     let jev = kind_jev(0.1);
     pick(&jev, "n2", 0.9);
     let r = rig(jev, |_| {});
@@ -518,12 +516,12 @@ async fn a_kept_none_ask_on_a_changed_cluster_is_asked_again() {
     assert!(snapshot(&r.core).kind(CLASS).is_some());
     assert_eq!(
         r.jev.seen().len(),
-        2,
-        "the kind's name, and whether the new kind's two entries are one thing"
+        1,
+        "only whether the new kind's two entries are one thing"
     );
     let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
     let now: std::collections::BTreeSet<String> =
-        ["lanternledger", "lanternmaps"].map(String::from).into();
+        ["lanternledger", "ledgerapp"].map(String::from).into();
     assert_eq!(mark.offered["lanternledger"], now, "{mark:?}");
 }
 
@@ -575,10 +573,10 @@ async fn an_old_mark_with_no_offered_keeps_its_none_ask() {
     );
 }
 
-/// A paid kind-name ask records the names it offered, and the record goes with
-/// its ask at 30 days.
+/// New clusters record no unused name offer. Historical offers keep their
+/// existing thirty-day retention rule.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_kind_name_ask_records_its_offer_and_loses_it_with_the_ask() {
+async fn new_clusters_record_no_offer_but_old_offers_still_age_out() {
     let _clock = crate::test_support::pin_mid_period();
     let jev = kind_jev(0.9);
     pick(&jev, "n2", 0.9);
@@ -590,7 +588,7 @@ async fn a_kind_name_ask_records_its_offer_and_loses_it_with_the_ask() {
     let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
     let offer: std::collections::BTreeSet<String> =
         ["2026plan", "2026roadmap"].map(String::from).into();
-    assert_eq!(mark.offered["2026plan"], offer, "{mark:?}");
+    assert!(mark.offered.is_empty(), "no unused naming offer: {mark:?}");
 
     let old = fresh() - 31 * 24 * 3_600_000;
     let kept = Mark {
