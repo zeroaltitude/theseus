@@ -397,3 +397,20 @@ fn guidance_spend_survives_restart_once() {
         0
     );
 }
+
+#[test]
+fn unreadable_guidance_spend_restores_no_headroom() {
+    for mark in [
+        json!({"day": "2026-11-23"}),
+        json!({"day": "2026-11-23", "spent_usd": -1.0}),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store");
+        let store = Store::open(&path).unwrap();
+        store.put_meta(crate::consolidate::guidance::MARK, &mark).unwrap();
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        let total = read_today_total(&store, 0, "2026-11-23", LIMIT).unwrap().unwrap();
+        assert_eq!(total.seed.spent, u64::MAX);
+    }
+}
