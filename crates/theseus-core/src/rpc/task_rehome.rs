@@ -12,8 +12,7 @@
 //!   reservation settles there, and its next turn still reads the report
 //!   (`Execution.parent` never changes), as the answer says.
 //! - **Refused**: an ended task; a home that does not exist, is retired, is
-//!   itself a task, or is in a shared place; a home whose data mark is weaker
-//!   than the task's (a private task never reports into an open conversation).
+//!   or itself a task. Labels describe content, never restrict its destination.
 //! - **Authority** is `task.start`'s (`Act::Task`): the owner, from a private
 //!   place. No Discord code runs: the card follows the same records as any
 //!   change from another surface.
@@ -23,7 +22,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use theseus_kernel::SessionKind;
 use theseus_protocol::method;
-use theseus_protocol::ops::{DataMark, TaskRehomeParams, TaskRehomeResult};
+use theseus_protocol::ops::{TaskRehomeParams, TaskRehomeResult};
 use theseus_store::{kinds, NewRecord};
 
 use super::confirms::Act;
@@ -51,9 +50,8 @@ pub(super) fn task_failure(
     }
 }
 
-/// A home, resolved: its mark and the place its reports are posted at.
+/// A home, resolved: the place its reports are posted at.
 struct Home {
-    mark: DataMark,
     target: Option<String>,
 }
 
@@ -86,26 +84,11 @@ impl Core {
             "{home} is itself a task, not a conversation"
         );
         anyhow::ensure!(rec.retired.is_none(), "{home} is retired");
-        anyhow::ensure!(
-            self.runner.class_of(home) != crate::places::PlaceClass::Shared,
-            "{home} is in a shared place, and a task's report never goes to one from here"
-        );
         let session = Some(home.to_string());
-        // A failed read of the home's mark is a refusal, not the top mark: the top
-        // would let any task's report in.
-        let mark = match session.as_deref() {
-            None => DataMark::Open,
-            Some(s) => crate::content_wait::try_mark_of(&self.store, s).map_err(|e| {
-                anyhow::anyhow!(
-                    "the data mark of {home} cannot be read ({e}): a report never goes to a \
-                         home whose mark is unknown"
-                )
-            })?,
-        };
         let target = session
             .as_deref()
             .and_then(|s| self.outbox.report_target(self.outbox.target(s)).0);
-        Ok(Home { mark, target })
+        Ok(Home { target })
     }
 
     /// Give the task `p.task` the home `p.home`, for `who`.
@@ -124,14 +107,6 @@ impl Core {
             anyhow::bail!("Task {} has ended ({}).", e.session_id, e.state.as_str());
         }
         let home = self.home_for(&p.home)?;
-        let mark = crate::content_wait::mark_of(&self.store, &e.session_id);
-        anyhow::ensure!(
-            home.mark >= mark,
-            "task {} is {mark:?} and {} is {:?}: a report never goes to a weaker home",
-            crate::task::short(&e.session_id),
-            p.home,
-            home.mark,
-        );
         let sid = e.session_id.as_str();
         let by = who.label.as_str();
         let from = self

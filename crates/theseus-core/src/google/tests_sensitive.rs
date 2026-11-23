@@ -1,6 +1,6 @@
 //! What a sensitive calendar leaves beside its label (theseus-jid7t.1,
 //! theseus-gyjyo.5): the long tail fails closed to `personal`, a node of a
-//! session that carries it never goes to a shared place, and the calendar
+//! session that carries it may still be published by the owner, and the calendar
 //! tools are not offered in a shared place at all.
 
 use serde_json::json;
@@ -46,11 +46,9 @@ async fn a_calendar_read_through_google_call_is_sensitive() {
     assert_eq!(f.labels[0].source, "google.call");
 }
 
-/// Content of a session that carries `personal` never goes to a shared place,
-/// whoever asks; a session that carries only `confidential` publishes as
-/// before, and so does a personal one into a private place.
+/// Content labels do not restrict an owner-authorized publication.
 #[tokio::test]
-async fn a_sensitive_node_is_not_published_to_a_shared_place() {
+async fn a_sensitive_node_can_be_published_by_the_owner_to_a_shared_place() {
     use crate::places::BoundPlace;
     use crate::tests_places::{rig_with, session as place_session, LAB};
     let r = rig_with(google_on);
@@ -95,13 +93,11 @@ async fn a_sensitive_node_is_not_published_to_a_shared_place() {
         )
     };
     let id = node_in(&sens, "the Board prep meeting is moved");
-    let e = publish(&id, "#lab").unwrap_err().to_string();
-    assert!(
-        e.contains("personal content never goes to a shared place"),
-        "{e}"
+    assert!(publish(&id, "#lab").is_ok());
+    assert_eq!(
+        crate::test_support::rows(&r.core, "place.published").len(),
+        1
     );
-    assert!(!e.contains("Board prep"), "{e}");
-    assert!(crate::test_support::rows(&r.core, "place.published").is_empty());
     let den = publish(&id, "#den");
     assert!(den.is_ok(), "a private place may have it: {den:?}");
     assert!(publish(&node_in(&privy, "private only"), "#lab").is_ok());

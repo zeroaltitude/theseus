@@ -250,7 +250,7 @@ async fn a_conversation_with_no_place_leaves_the_board_alone_and_a_thread_is_ref
 }
 
 #[tokio::test]
-async fn an_ended_task_a_missing_home_and_a_shared_place_are_refused() {
+async fn invalid_homes_are_refused_but_shared_homes_are_allowed() {
     let mut r = rig_with_a_task();
     let parent = parent_session(&r.core);
     turn(&r.core, &parent, ASK).await;
@@ -267,18 +267,16 @@ async fn an_ended_task_a_missing_home_and_a_shared_place_are_refused() {
         .task_rehome(&params(&task.id, "thread:nowhere"), &cli())
         .unwrap_err();
     assert!(said(e).contains("threads are gone"));
-    let shared = channel_home(&r, "discord:channel:9001", false);
-    let e = r
-        .core
-        .task_rehome(&params(&task.id, &shared), &cli())
-        .unwrap_err();
-    assert!(said(e).contains("shared place"));
     let e = r
         .core
         .task_rehome(&params(&task.id, &task.session_id), &cli())
         .unwrap_err();
     assert!(said(e).contains("itself a task"));
     unchanged(&r, &task);
+    let shared = channel_home(&r, "discord:channel:9001", false);
+    r.core
+        .task_rehome(&params(&task.id, &shared), &cli())
+        .unwrap();
     r.model.gate.add_permits(1);
     until("the task completes", || {
         exec(&r.core, &task.id).state == ExecState::Complete
@@ -293,7 +291,7 @@ async fn an_ended_task_a_missing_home_and_a_shared_place_are_refused() {
 }
 
 #[tokio::test]
-async fn a_private_task_never_reports_into_an_open_home() {
+async fn a_private_task_can_report_into_an_open_home() {
     let mut r = rig_with_a_task();
     let parent = parent_session(&r.core);
     turn(&r.core, &parent, ASK).await;
@@ -306,16 +304,9 @@ async fn a_private_task_never_reports_into_an_open_home() {
     for (home, mark) in [(&open, DataMark::Open), (&private, DataMark::Private)] {
         assert_eq!(crate::content_wait::mark_of(&r.core.store, home), mark);
     }
-    let e = r
-        .core
+    r.core
         .task_rehome(&params(&task.id, &open), &cli())
-        .unwrap_err();
-    let said = format!("{e:#}");
-    assert!(
-        said.contains("a report never goes to a weaker home"),
-        "{said}"
-    );
-    unchanged(&r, &task);
+        .unwrap();
     // An equally private home takes it.
     r.core
         .task_rehome(&params(&task.id, &private), &cli())

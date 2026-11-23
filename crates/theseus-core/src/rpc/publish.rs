@@ -15,7 +15,6 @@ use super::Core;
 use crate::approval::{Answerer, Refusal};
 use crate::fact;
 use crate::node::{Body, Node};
-use crate::places::PlaceClass;
 use crate::session::SessionRecord;
 
 /// The most of a published item the place's notice shows; the conversation
@@ -64,7 +63,6 @@ impl Core {
             },
         )?;
         let class = self.runner.place_rule.class(&self.cfg, Some(&place.target));
-        self.sensitive_stays_private(p, class)?;
         // Read only once who asks may publish: a refusal says nothing of
         // what it named, not even whether a file exists, or its size.
         let item = self.item(p)?;
@@ -113,28 +111,6 @@ impl Core {
             bytes: item.text.len() as u64,
             digest,
         })
-    }
-
-    /// A node of a session that carries a `personal` label (a sensitive
-    /// calendar raises one, theseus-gyjyo.5) never goes to a shared place,
-    /// whoever asks (theseus-jid7t.1). The refusal names no calendar and no
-    /// event.
-    fn sensitive_stays_private(&self, p: &PlacePublishParams, class: PlaceClass) -> Result<()> {
-        let Some(id) = p.node_id.as_deref().filter(|_| class == PlaceClass::Shared) else {
-            return Ok(());
-        };
-        let Some((_, n)) = self.store.get_node(id)? else {
-            return Ok(());
-        };
-        if crate::content_wait::mark_of(&self.store, &n.session_id)
-            == theseus_protocol::ops::DataMark::Sensitive
-        {
-            bail!(
-                "{id} is from a session that carries a `personal` label, and personal content \
-                 never goes to a shared place"
-            );
-        }
-        Ok(())
     }
 
     /// The item `p` names: exactly one of a node, a file, or a message.
