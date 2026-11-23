@@ -271,11 +271,13 @@ async fn a_message_its_cut_leaves_out_has_no_edge_and_one_it_keeps_part_of_has_o
     }
 }
 
-/// **The runtime's own cap decides too** (D6 round 6). With `[tools] result_max_chars` under the look's own
-/// size, the result is cut again, head and tail, after the tool gave its sources: a message that cut leaves out
-/// is no copy; one in the head or the tail is.
+/// **A runtime cut never loses a link; it can keep one to words it cut** (D6 round 7, the named limit). With
+/// `[tools] result_max_chars` under the look's own size, the result is cut again, head and tail, after the tool
+/// gave its sources. Every message the look's own answer showed stays linked: those whose words survive in the
+/// head and in the tail (a lost one would be a copy a retraction misses), and those the runtime cut left out
+/// (the limit: the list can include a message whose words were cut out; it never misses one).
 #[tokio::test]
-async fn a_message_the_runtime_cap_leaves_out_has_no_edge() {
+async fn a_runtime_cut_keeps_every_link_the_look_gave_even_to_words_it_cut() {
     let r = super::tests::rig_with(|cfg, _| cfg.tools.result_max_chars = 2_000);
     let sid = r.session();
     let texts: Vec<String> = (0..6)
@@ -289,20 +291,26 @@ async fn a_message_the_runtime_cap_leaves_out_has_no_edge() {
     )
     .await;
     let (copy, shown) = look_result(&r, &sid);
-    assert!(shown.contains("not shown"), "the cap cut it: {shown}");
-    let (whole, part, none) = sorted(&shown, &texts);
+    let cut = shown.find("not shown").expect("the runtime cap cut it");
+    let at = |i: usize| shown.find(&texts[i][..4]);
+    let head: Vec<usize> = (0..6).filter(|i| at(*i).is_some_and(|p| p < cut)).collect();
+    let tail: Vec<usize> = (0..6).filter(|i| at(*i).is_some_and(|p| p > cut)).collect();
+    let gone: Vec<usize> = (0..6).filter(|i| at(*i).is_none()).collect();
     assert!(
-        !none.is_empty() && whole.len() + part.len() >= 2,
-        "whole {whole:?}, part {part:?}, none {none:?}"
+        !head.is_empty() && !tail.is_empty() && !gone.is_empty(),
+        "head {head:?}, tail {tail:?}, cut out {gone:?}"
     );
-    for i in none {
+    for i in head.iter().chain(&tail) {
         assert!(
-            !reaches(&r, &ids[i], &copy),
-            "m{i:02} is not in the result, yet node.reach lists it"
+            reaches(&r, &ids[*i], &copy),
+            "m{i:02}'s words survive: its link is never lost"
         );
     }
-    for i in whole.iter().chain(&part) {
-        assert!(reaches(&r, &ids[*i], &copy), "m{i:02} is in the result");
+    for i in gone {
+        assert!(
+            reaches(&r, &ids[i], &copy),
+            "m{i:02}: the named limit, the link stays"
+        );
     }
 }
 
