@@ -201,8 +201,16 @@ def block_text(content):
     return "\n".join(parts), other
 
 
+GENERATED_HEADER = re.compile(
+    r"^\s*\[(?:[A-Za-z]{3} \d{4}-\d{2}-\d{2} \d{2}:\d{2}[^\]]*|"
+    r"(?:WebChat|Slack|Discord|Telegram|Signal|WhatsApp|iMessage|IRC|Matrix|Teams)\b[^\]]*|"
+    r"[^\]\n]*\d{4}-\d{2}-\d{2}[^\]\n]*)\][ \t]*"
+)
+
+
 def sender_of(text):
     """Read only the leading envelope; a body block cannot replace its sender."""
+    text = GENERATED_HEADER.sub("", text, count=1)
     sender, end, seen_sender = {}, 0, False
     while True:
         start = end + len(text[end:]) - len(text[end:].lstrip())
@@ -266,6 +274,7 @@ def message_of(event, ctx, counts):
             counts["empty"] = counts.get("empty", 0) + 1
             return None
         return {"author": "agent:" + ctx["agent"], "integrity": "agent", "text": text}
+    raw = text
     sender, text = sender_of(text)
     if not text:
         counts["empty"] = counts.get("empty", 0) + 1
@@ -279,7 +288,7 @@ def message_of(event, ctx, counts):
         return {"author": "schedule", "integrity": "operator", "text": text}
     if owner:
         return {"author": "operator", "integrity": "operator", "text": text}
-    if not sender and ctx["kind"] in ("cli", "dm") and ctx["direct_is_owner"]:
+    if not sender and "(untrusted metadata):" not in raw and ctx["kind"] in ("cli", "dm") and ctx["direct_is_owner"]:
         # The CLI and the main session carry no envelope: the owner at their keyboard.
         return {"author": "operator", "integrity": "operator", "text": text}
     if name:
