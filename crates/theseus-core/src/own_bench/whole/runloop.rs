@@ -292,7 +292,7 @@ impl Core {
             };
             hands.seconds_left = remaining.as_secs().max(1);
             let room = usd_cap.saturating_sub(total);
-            let allowed = left.map_or(room, |l| l.min(room));
+            let allowed = left.map_or(room, |l| l.saturating_sub(total).min(room));
             let mut one = 0u64;
             let called = tokio::time::timeout(
                 remaining,
