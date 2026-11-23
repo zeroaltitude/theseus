@@ -96,7 +96,9 @@ impl SecretBearing {
         match self {
             SecretBearing::No => false,
             SecretBearing::Always | SecretBearing::WhenPresent => true,
-            SecretBearing::WhenInputTrue(m) => input.get(m).and_then(|v| v.as_bool()) == Some(true),
+            SecretBearing::WhenInputTrue(m) => input
+                .get(m)
+                .is_some_and(|v| v.as_bool() == Some(true) || v.as_str() == Some("true")),
         }
     }
 
