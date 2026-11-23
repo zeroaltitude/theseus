@@ -1588,11 +1588,16 @@ fn the_sync_timer_installs_no_on_demand_pair_and_removes_an_old_one() {
     assert_eq!(code, 2, "--on-demand-mins is gone: {out}");
 }
 
-
 #[test]
 fn sync_timers_preserve_every_foreign_unit_file() {
-    for name in ["theseusd-sync.service", "theseusd-sync.timer", "theseusd-sync-hourly.service",
-        "theseusd-sync-hourly.timer", "theseusd-sync-ondemand.service", "theseusd-sync-ondemand.timer"] {
+    for name in [
+        "theseusd-sync.service",
+        "theseusd-sync.timer",
+        "theseusd-sync-hourly.service",
+        "theseusd-sync-hourly.timer",
+        "theseusd-sync-ondemand.service",
+        "theseusd-sync-ondemand.timer",
+    ] {
         let r = rig!();
         let dir = r.home().join(".config/systemd/user");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1601,11 +1606,13 @@ fn sync_timers_preserve_every_foreign_unit_file() {
         let (code, out) = r.run(&["sync-timer", "install"]);
         assert_ne!(code, 0, "{out}");
         r.run(&["sync-timer", "uninstall"]);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "# hand-written unit\n");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "# hand-written unit\n"
+        );
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
     }
 }
-
 
 #[test]
 fn sync_timer_follows_the_installed_socket_without_an_environment_override() {
@@ -1618,6 +1625,12 @@ fn sync_timer_follows_the_installed_socket_without_an_environment_override() {
     assert_eq!(code, 0, "{out}");
     for name in ["theseusd-sync.service", "theseusd-sync-hourly.service"] {
         let service = std::fs::read_to_string(r.home().join(".config/systemd/user").join(name)).unwrap();
-        assert!(service.contains(&format!("Environment=THESEUS_SOCKET={}", r.socket().display())), "{service}");
+        assert!(
+            service.contains(&format!(
+                "Environment=THESEUS_SOCKET={}",
+                r.socket().display()
+            )),
+            "{service}"
+        );
     }
 }
