@@ -453,6 +453,54 @@ fn policy_list_and_its_lines_say_what_set_each_posture() {
     assert!(tightened_line(&r, true).starts_with("proc.run now asks first: tightened by sock#3"));
 }
 
+/// `theseus health` says the daemon's own vault reads today, the wait before
+/// a failing entry's next round in minutes or hours once it is long, and, when
+/// the retries stopped at the day's ceiling, why in plain words (issue 44).
+#[test]
+fn health_says_the_vault_reads_today_and_why_the_retries_stopped() {
+    use theseus_protocol::{SecretFailed, SecretsStatus, VaultToday};
+    let failing = SecretsStatus {
+        state: "failed".into(),
+        failed: vec![SecretFailed {
+            name: "b".into(),
+            error: "could not find item".into(),
+        }],
+        method: Some("read".into()),
+        settled_ms: Some(900),
+        retry_in_ms: Some(3_240_000),
+        vault_today: Some(VaultToday {
+            processes: 9,
+            references: 14,
+            ceiling: 2000,
+            stopped: None,
+        }),
+        ..Default::default()
+    };
+    assert_eq!(
+        secrets_line(&failing, &[]),
+        "secrets: failed b · 0 ready 900 ms after start (read)\n  b did not resolve: could not \
+         find item\n  fetched again in 54 min\n  vault today: 9 runs of op, 14 entries read \
+         (automatic reads stay within 2000 a day)"
+    );
+    let stopped = SecretsStatus {
+        vault_today: Some(VaultToday {
+            processes: 1,
+            references: 1,
+            ceiling: 2000,
+            stopped: Some("retries stopped: the daemon read 2000 vault entries today".into()),
+        }),
+        ..failing
+    };
+    assert!(
+        secrets_line(&stopped, &[]).ends_with(
+            "vault today: 1 run of op, 1 entry read (automatic reads stay within 2000 a day)\n  \
+             retries stopped: the daemon read 2000 vault entries today"
+        ),
+        "{}",
+        secrets_line(&stopped, &[])
+    );
+}
+
 /// `theseus health` says where the secrets stand and names a failure
 /// with its reason; the startup line splits the start path from what
 /// follows it (theseus-qa0).

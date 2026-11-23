@@ -549,6 +549,9 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
     // Serve first (FAST, §2): the secrets resolve in the background while
     // the store opens and the socket binds.
     let secrets = SecretBoard::for_config(&cfg.secrets, origin);
+    // Health counts the daemon's own vault reads, and the retries keep the
+    // day's ceiling over them (issue 44).
+    secrets.count_from(op.reads());
     tokio::spawn(theseus_core::secrets::resolve_into(
         secrets.clone(),
         cfg.secrets.clone(),

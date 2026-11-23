@@ -65,7 +65,9 @@ impl OpReader {
         if stdin.is_some() {
             cmd.stdin(std::process::Stdio::piped());
         }
-        let mut child = Self::start(&mut cmd).map_err(|e| format!("spawning op: {e}"))?;
+        let mut child = self
+            .start(&mut cmd, 1)
+            .map_err(|e| format!("spawning op: {e}"))?;
         let run = async {
             if let (Some(text), Some(mut pipe)) = (stdin, child.stdin.take()) {
                 match pipe.write_all(text.as_bytes()).await {
@@ -323,6 +325,7 @@ impl OpReader {
             op_bin,
             token_file: None,
             absent: None,
+            reads: super::VaultReads::new(std::sync::Arc::new(super::pace::SystemClock)),
         }
     }
 }

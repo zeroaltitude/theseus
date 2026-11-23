@@ -404,7 +404,12 @@ impl OpReader {
         }
         let mut cmd = self.op();
         cmd.args(verb.argv()).stdin(Stdio::null());
-        let child = Self::start(&mut cmd).map_err(|_| Failed::NotStarted)?;
+        // A list asks for names; an item's get reads the item (its values
+        // are dropped here, but the vault counts the read).
+        let entries = usize::from(matches!(verb, Verb::Item(..)));
+        let child = self
+            .start(&mut cmd, entries)
+            .map_err(|_| Failed::NotStarted)?;
         let out = match tokio::time::timeout(OP_TIMEOUT, child.wait_with_output()).await {
             Err(_) => return Err(Failed::TimedOut),
             Ok(Err(_)) => return Err(Failed::Failed),
