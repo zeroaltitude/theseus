@@ -21,6 +21,8 @@ enum Stream {
     Forever,
     /// Headers, then nothing.
     Silent,
+    /// A body shorter than its promised length, after usage has arrived.
+    Broken,
 }
 
 const START: &str = concat!(
@@ -59,6 +61,21 @@ async fn server(stream: Stream) -> String {
                         Ok(n) => head.extend_from_slice(&buf[..n]),
                     }
                 }
+                if matches!(stream, Stream::Broken) {
+                    let end = head.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+                    let length: usize = String::from_utf8_lossy(&head[..end]).lines()
+                        .find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:")
+                            .and_then(|n| n.trim().parse().ok())).unwrap_or(0);
+                    while head.len() < end + length {
+                        let n = conn.read(&mut buf).await.unwrap();
+                        assert_ne!(n, 0);
+                        head.extend_from_slice(&buf[..n]);
+                    }
+                    let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: 100000\r\nconnection: close\r\n\r\n";
+                    conn.write_all(format!("{head}{START}").as_bytes()).await.unwrap();
+                    conn.shutdown().await.unwrap();
+                    return;
+                }
                 let ok = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n";
                 if conn
                     .write_all(format!("{ok}{START}").as_bytes())
@@ -69,6 +86,7 @@ async fn server(stream: Stream) -> String {
                 }
                 let began = Instant::now();
                 match stream {
+                    Stream::Broken => unreachable!(),
                     Stream::Silent => tokio::time::sleep(Duration::from_secs(30)).await,
                     Stream::Pings(len) => {
                         while began.elapsed() < len {
@@ -158,4 +176,20 @@ async fn a_silent_stream_is_cut_as_idle() {
     let e = got.unwrap_err();
     assert_eq!(phase(&e), Some(TimeoutPhase::StreamIdle), "{e:#}");
     assert!(took < Duration::from_secs(3), "{took:?}");
+}
+
+#[tokio::test]
+async fn a_broken_response_body_keeps_usage_unknown() {
+    for openai in [false, true] {
+        let base = server(Stream::Broken).await;
+        let anthropic = client(&base);
+        let responses = super::openai::OpenAi::new(
+            &base, anthropic.secrets.clone(), "k", anthropic.timeouts.clone(),
+        ).unwrap();
+        let provider: &dyn Provider = if openai { &responses } else { &anthropic };
+        let req = ProviderRequest::simple("test-model", 64, "hello");
+        let error = provider.stream_message(&req, &mut |_| {}).await.unwrap_err();
+        let classified = error.downcast_ref::<ProviderError>().unwrap();
+        assert!(classified.usage_unknown(), "{classified:?}; openai={openai}");
+    }
 }

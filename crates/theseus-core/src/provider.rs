@@ -1118,7 +1118,8 @@ impl Anthropic {
             let chunk = match tokio::time::timeout(budget, stream.next()).await {
                 Ok(Some(Ok(c))) => c,
                 Ok(Some(Err(e))) => {
-                    return Err(ProviderError::Network {
+                    return Err(ProviderError::Stream {
+                        kind: "transport".into(),
                         message: format!("reading stream: {e}"),
                     }
                     .into())
