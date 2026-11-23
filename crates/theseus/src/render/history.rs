@@ -37,18 +37,18 @@ pub fn node_lines(n: &NodeInfo, full: bool) -> Vec<Line> {
     let mut out = super::node_lines(n, full);
     if let Some(first) = out.first_mut() {
         first.text = with_id(&first.text, &short(&n.node_id));
-        // A node a split moved (theseus-q9b85): still here, and not in this session's compile.
+        // Historical split metadata; it does not change the current compile.
         if let Some(t) = n.detail.get("moved_to").and_then(|t| t.as_str()) {
-            first.text = format!("{} [moved to thread «{t}»]", first.text);
+            first.text = format!("{} [historical: moved to thread «{t}»]", first.text);
         }
-        // A home turn's node claimed by the thread it served (theseus-98bz.6): still in this compile.
+        // Historical claim metadata, not a current ownership boundary.
         if let Some(t) = n.detail.get("claimed_by").and_then(|t| t.as_str()) {
             let id = n
                 .detail
                 .get("claim")
                 .and_then(|c| c.as_str())
                 .unwrap_or_default();
-            first.text = format!("{} [claimed by «{t}», {id}]", first.text);
+            first.text = format!("{} [historical: claimed by «{t}», {id}]", first.text);
         }
     }
     out
@@ -130,7 +130,7 @@ mod tests {
         .unwrap();
         let first = &node_lines(&n, false)[0].text;
         assert!(
-            first.ends_with("[claimed by «pr-round», claim_0198ab]"),
+            first.ends_with("[historical: claimed by «pr-round», claim_0198ab]"),
             "{first}"
         );
         assert!(!first.contains("moved"), "{first}");

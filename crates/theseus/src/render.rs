@@ -555,12 +555,7 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
             (None, false) => format!("{who} · route {}{effort}", ro.reason),
         }
     });
-    // A held turn made no model call (theseus-2rvwv).
-    let who = if r.stop_reason == "held" {
-        "held, no model ran".to_string()
-    } else {
-        format!("{}/{}", r.provider, r.model)
-    };
+    let who = format!("{}/{}", r.provider, r.model);
     format!(
         "[{} → {}{} · {} loop(s){}{} · {} · tokens in {} out {}{}{} · {} ms{} · session {}{}{}]",
         r.profile,
