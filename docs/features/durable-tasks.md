@@ -1,6 +1,6 @@
 # Durable tasks you can watch, answer and steer from anywhere
 
-*One page on the task system. Numbers come from the data files beside each report they cite. Updated 2026-10-28.*
+*One page on the task system. Numbers come from the data files beside each report they cite. Updated 2026-11-23.*
 
 ## What it is
 
@@ -59,7 +59,9 @@ thousands at once.
 
 ## The limits today
 
-- A task cannot start tasks of its own (depth one in the kernel); fan-out runs through the parent.
+- Tasks can start children down to `[kernel] task_depth`, default ten levels below a conversation. Each child
+  carves its budget from its parent; the kernel checks depth again at that carve. A brief that repeats an
+  ancestor's brief after trimming is refused, rather than starting the same work again.
 - The kill benchmark is twelve trials; its intervals are wide.
 
 ## What is coming
