@@ -802,6 +802,9 @@ async fn a_span_holds_exactly_its_exchanges_and_an_empty_one_says_so() {
         assert!(range.contains(want), "{want}: {range}");
     }
     assert!(!range.contains("message 1"), "{range}");
+    // The span's start is not the end of history: older exchanges are on record outside it.
+    assert!(!day.contains("History is exhausted"), "{day}");
+    assert!(day.contains("That is all of "), "{day}");
     let empty = call(json!({"when": "2026-11-20"})).await.unwrap().text;
     assert!(empty.contains("no exchange of"), "{empty}");
     assert!(!empty.contains("message"), "{empty}");

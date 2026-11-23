@@ -541,6 +541,12 @@ pub fn render(
              is not shown, and those matches may have crowded out earlier ones, so this list may be incomplete. \
              Try other words, or page without words."
         ),
+        // A span's walk ends at the span's start, not at the end of history.
+        (PageEnd::HistoryExhausted, _) if span.is_some() => format!(
+            "That is all of {}{oldest}: nothing earlier in that span is on record here. Older history lies \
+             outside it: call again with a wider span, or without one.",
+            cut(span.map_or("", |s| s.said.as_str()), 80)
+        ),
         _ => format!(
             "History is exhausted{oldest}: nothing older is on record here. If the reference is still not \
              placed, you may ask the person."
