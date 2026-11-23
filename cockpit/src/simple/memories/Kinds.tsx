@@ -47,7 +47,7 @@ function Kinds({ kind }: { kind: 'person' | 'topic' }) {
         className="lg:max-h-[calc(100vh-190px)]" bodyClassName="flex flex-col">
         <label className="flex items-center gap-2 border-b border-line px-3 py-2 text-ink-faint">
           <SearchIcon size={13} aria-hidden />
-          <input defaultValue={f} key={f} onChange={(e) => filter(e.target.value)} placeholder={w.filter} aria-label={w.filter}
+          <input value={f} onChange={(e) => filter(e.target.value)} placeholder={w.filter} aria-label={w.filter}
             className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint" />
         </label>
         <div className="min-h-0 flex-1 overflow-auto p-2" role="list" aria-label={w.many.toLowerCase()}>
