@@ -49,11 +49,21 @@ fn opened() -> MutexGuard<'static, BTreeSet<PathBuf>> {
     OPENED_HERE.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Held by the sweep from its first look to its last close, and by a claim while it decides: so a claim and the
+/// sweep never cross. The record itself ([`OPENED_HERE`]) is taken only for a moment at a time, so a close inside the
+/// sweep can end its own claim.
+static SWEEP: Mutex<()> = Mutex::new(());
+
+fn sweeping() -> MutexGuard<'static, ()> {
+    SWEEP.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// Claim `dir` for an open by this process, before anything is done at the path: refused when this process has it
 /// open already (its lifetime not ended). Ended by [`closed_here`] when the tree is closed or its open fails: a
 /// record is an open this process has under way, not a count of live passes. Taken under the lock the sweep holds,
 /// so the two never cross.
 pub fn claim(dir: &Path) -> Result<(), String> {
+    let _sweep = sweeping();
     let mut here = opened();
     if here.contains(dir) {
         return Err(format!(
@@ -335,8 +345,8 @@ pub fn close_dead(p: &Place) -> Result<Vec<Dead>, NoSweep> {
     }
     // With no trees directory there is nothing to close, and every mark is stale: its path cannot exist.
     let trees = std::fs::canonicalize(p.trees()).unwrap_or_else(|_| p.trees());
-    // Held across the check and the close: a pass that opens a tree now waits for the close.
-    let here = opened();
+    // Held across the check and the close: a pass that claims a tree now waits for the close.
+    let _sweep = sweeping();
     let mut out = Vec::new();
     let mut names: Vec<String> = std::fs::read_dir(p.opened())
         .map(|d| {
@@ -350,7 +360,7 @@ pub fn close_dead(p: &Place) -> Result<Vec<Dead>, NoSweep> {
     names.sort();
     for name in &names {
         let dir = trees.join(name);
-        if here.contains(&dir) {
+        if is_opened_here(&dir) {
             continue;
         }
         let Some(m) = mark_of(p, name) else { continue };

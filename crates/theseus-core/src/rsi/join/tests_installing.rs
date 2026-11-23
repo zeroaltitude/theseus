@@ -231,7 +231,7 @@ async fn a_recovered_unit_that_ends_on_its_own_build_is_a_success() {
     r.core
         .set_units(said("active", std::slice::from_ref(&unit)));
     assert!(r.core.discover_installing());
-    *r.core.rsi.pipeline.running.lock().unwrap() = Some(merge.clone());
+    *r.core.rsi.pipeline.running.lock().unwrap() = Some(merge);
     r.core.set_units(said("deactivating", &[]));
     *r.core.rsi.pipeline.unit_seen.lock().unwrap() = None;
     let v = r

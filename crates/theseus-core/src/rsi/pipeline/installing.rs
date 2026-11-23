@@ -204,11 +204,9 @@ impl Core {
     }
 
     /// The commit this daemon runs (a test's stand-in, else the build's stamp).
-    fn running_commit(&self) -> Option<String> {
+    fn running_commit(pipeline: &super::Shared) -> Option<String> {
         #[cfg(test)]
-        if let Some(c) = self
-            .rsi
-            .pipeline
+        if let Some(c) = pipeline
             .running
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -216,6 +214,8 @@ impl Core {
         {
             return Some(c);
         }
+        #[cfg(not(test))]
+        let _ = pipeline;
         crate::build().commit
     }
 
@@ -289,8 +289,7 @@ impl Core {
             }
             *held = None;
         }
-        let worked = self
-            .running_commit()
+        let worked = Self::running_commit(&self.rsi.pipeline)
             .is_some_and(|c| !c.is_empty() && (c.starts_with(&i.merge) || i.merge.starts_with(&c)));
         if worked {
             tracing::info!(%unit, merge = %i.merge, "self: the install's unit ended, and this daemon runs its build");
