@@ -137,7 +137,7 @@ async fn admitted_at(pick: &str, label: &str) -> Value {
 /// a judged family the ordinary 2x refuses; ordinary's is 2x.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn admission_follows_the_tier() {
-    let budget = crate::first_request::CLI_TASK_TOKENS;
+    let budget = crate::first_request::TOOLS_CLI_TASK_TOKENS;
     let ordinary = admitted_at("opus", "conversation").await;
     let deep = admitted_at("opus", "coding").await;
     eprintln!(
@@ -163,7 +163,7 @@ async fn admission_follows_the_tier() {
 /// did not.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_deep_turn_that_stays_on_its_own_model_admits_at_the_deep_ceiling() {
-    let budget = crate::first_request::CLI_TASK_TOKENS;
+    let budget = crate::first_request::TOOLS_CLI_TASK_TOKENS;
     let ordinary = admitted_at("sonnet", "conversation").await;
     let deep = admitted_at("sonnet", "coding").await;
     eprintln!(
@@ -275,7 +275,7 @@ async fn admitted_late(label: &str) -> (Value, Value) {
 /// two numbers asserted here are exactly that pair: before the fix they disagreed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_late_verdict_that_folds_deep_settles_the_tools_again() {
-    let budget = crate::first_request::CLI_TASK_TOKENS;
+    let budget = crate::first_request::TOOLS_CLI_TASK_TOKENS;
     let (ordinary, o_row) = admitted_late("conversation").await;
     let (deep, d_row) = admitted_late("coding").await;
     eprintln!(

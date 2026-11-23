@@ -316,15 +316,18 @@ impl PlaceKind {
 
     /// The most tokens of tool definitions a request in this kind of place
     /// may carry when a message's words load more families for a model
-    /// without tool search (theseus-jpjcd): the owner's first-request budget
-    /// of the kind (`first_request`), never a second set of numbers.
+    /// without tool search (theseus-jpjcd). It was the owner's first-request
+    /// budget of the kind, one set of numbers; since issue 44 restated that
+    /// budget for the view's larger request, this reads the tool-loading
+    /// budgets held at their earlier values (`first_request::TOOLS_*`), until
+    /// the owner makes them one number again.
     pub fn tools_budget_tokens(self) -> u64 {
         use crate::first_request as fr;
         match self {
-            PlaceKind::Cli | PlaceKind::Task => fr::CLI_TASK_TOKENS,
-            PlaceKind::Dm => fr::DM_TOKENS,
-            PlaceKind::Channel => fr::CHANNEL_TOKENS,
-            PlaceKind::Headless => fr::HEADLESS_TOKENS,
+            PlaceKind::Cli | PlaceKind::Task => fr::TOOLS_CLI_TASK_TOKENS,
+            PlaceKind::Dm => fr::TOOLS_DM_TOKENS,
+            PlaceKind::Channel => fr::TOOLS_CHANNEL_TOKENS,
+            PlaceKind::Headless => fr::TOOLS_HEADLESS_TOKENS,
         }
     }
 

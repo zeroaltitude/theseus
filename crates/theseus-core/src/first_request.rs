@@ -45,6 +45,20 @@ pub const CHANNEL_TOKENS: u64 = 9_700;
 /// nearest hundred, makes it 10_100.
 pub const HEADLESS_TOKENS: u64 = 10_100;
 
+/// The tool-loading budgets: what `tools_defer::PlaceKind::tools_budget_tokens` reads, the line learned families are
+/// demoted under and word-cued or judged admission starts from (`tools_defer::fit`, `want`). Each is the tool-loading
+/// budget, held at the value before issue 44 while the first request's own budget was restated; to be made one number
+/// again by the owner's decision (open list).
+///
+/// A cli or task place's.
+pub const TOOLS_CLI_TASK_TOKENS: u64 = 8_000;
+/// The owner's DM place's.
+pub const TOOLS_DM_TOKENS: u64 = 15_000;
+/// A shared channel's.
+pub const TOOLS_CHANNEL_TOKENS: u64 = 8_900;
+/// A headless run's.
+pub const TOOLS_HEADLESS_TOKENS: u64 = 8_600;
+
 /// The budget of a kind of place: its census name (`cli`, `dm`, `channel`,
 /// `task`, `headless`). `harness` has none: it is the benchmark's profile.
 pub fn budget(place: &str) -> Option<u64> {

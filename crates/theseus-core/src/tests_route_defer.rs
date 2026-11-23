@@ -116,7 +116,7 @@ async fn a_pick_without_tool_search_reaches_an_aws_tool_within_the_budget() {
     // tasks (theseus-6su0y), each by exactly its own size. `raised` below is what names the
     // admissions, and `Fit` is what holds the whole request to the ceiling.
     let tokens = crate::tools_defer::tools_bytes(&first.tools) * 10 / 24;
-    let ceiling = crate::first_request::CLI_TASK_TOKENS * 2;
+    let ceiling = crate::first_request::TOOLS_CLI_TASK_TOKENS * 2;
     assert!(
         tokens <= ceiling,
         "the request's tools are {tokens} tokens, over the ceiling {ceiling}"
