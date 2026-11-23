@@ -1715,6 +1715,9 @@ impl Lane {
         if let Some(c) = self.shared.notify_said() {
             return (c, format!("discord:channel:{c}"));
         }
+        if self.shared.notify_dm() {
+            return dm;
+        }
         self.shared.place_bits.notify_place().unwrap_or(dm)
     }
 
