@@ -187,8 +187,8 @@ mod tests {
         assert!(said.iter().any(|w| w.contains("remove it")), "{said:?}");
         let (plain, quiet) =
             crate::Config::parse(&format!("{secrets}\n[threads]\nenabled = true\n")).unwrap();
-        assert!(plain.threads.retired().is_empty());
-        assert!(quiet.iter().all(|w| !w.contains("threads.")), "{quiet:?}");
+        assert!(plain.threads.retired().is_empty(), "the loader removes table-retired keys before this section is read");
+        assert!(quiet.iter().any(|w| w.contains("threads.enabled")), "{quiet:?}");
     }
 
     /// The three inert keys retired by XD3 (`discord_channel`, `sticky_half_life_secs`,
