@@ -1833,6 +1833,51 @@ pub(crate) mod tests {
         assert_eq!(kept, [(p0, first.id), (pa[0], a.id), (pb[0], b.id)]);
     }
 
+    /// A turn's handle keeps only its own session: another session
+    /// is read from the store at each call, so a node its own turn writes after
+    /// this turn's first read is in this turn's next read of it.
+    #[test]
+    fn another_sessions_transcript_is_read_fresh_on_a_turns_handle() {
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        let (x, y) = (store.for_turn(), store.for_turn());
+        let node = |text: &str| Node::user("ses_y", None, "op", text);
+        let one = node("one");
+        let p1 = y.append(&[one.record().unwrap()]).unwrap()[0];
+        assert_eq!(x.transcript("ses_y").unwrap().len(), 1);
+        let two = node("two");
+        let p2 = y.append(&[two.record().unwrap()]).unwrap()[0];
+        let seen: Vec<(u64, String)> = (x.transcript("ses_y").unwrap().iter())
+            .map(|(p, n)| (*p, n.id.clone()))
+            .collect();
+        assert_eq!(seen, [(p1, one.id), (p2, two.id)], "Y's own turn wrote it");
+    }
+
+    /// Reading another session never evicts the turn's own: its own is read
+    /// once, before and after, and its frames' nodes join it meanwhile.
+    #[test]
+    fn reading_another_session_keeps_the_turns_own() {
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        let mine = |text: &str| Node::user("ses_x", None, "op", text);
+        let n1 = mine("one");
+        store.append(&[n1.record().unwrap()]).unwrap();
+        store
+            .append(&[Node::user("ses_y", None, "op", "y").record().unwrap()])
+            .unwrap();
+        let x = store.for_turn();
+        let r0 = store.transcript_reads();
+        assert_eq!(x.transcript("ses_x").unwrap().len(), 1);
+        assert_eq!(store.transcript_reads() - r0, 1);
+        assert_eq!(x.transcript("ses_y").unwrap().len(), 1);
+        assert_eq!(store.transcript_reads() - r0, 2, "another session is read");
+        let n2 = mine("two");
+        let p2 = x.append(&[n2.record().unwrap()]).unwrap()[0];
+        let own = x.transcript("ses_x").unwrap();
+        assert_eq!(store.transcript_reads() - r0, 2, "its own is not read again");
+        assert_eq!(own.last().map(|(p, n)| (*p, n.id.clone())), Some((p2, n2.id)));
+    }
+
     /// `flush` writes what still waits in one frame, and nothing when
     /// nothing waits; a frame that fails leaves its rows waiting.
     #[test]
