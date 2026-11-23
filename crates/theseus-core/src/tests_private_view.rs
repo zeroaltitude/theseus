@@ -196,7 +196,7 @@ pub(crate) fn session_in(c: &Core, place: Option<&str>, dir: &Path) -> String {
 
 /// The request's body, as the golden holds it: its directories `<dir>`, the
 /// ids it names aliased (whole, then the six characters a handle keeps), the
-/// time zone a stamp names `<zone>`, every run of digits `#`, the machine's
+/// time zone a stamp names `<zone>`, its weekday before a date `<day>`, every run of digits `#`, the machine's
 /// CPU count `<cpus>`, the OS and architecture `<os>`;
 /// the tools by name and the digest of their definitions, so a request's
 /// every byte is held without 100 KB of schemas in the file.
@@ -227,6 +227,11 @@ pub(crate) fn body(req: &ProviderRequest, dir: &Path, ids: &[String]) -> String 
                 (out, d)
             })
             .0;
+        // `Sun #-#-#`: the weekday a stamp names is the clock's, so a golden written on one day would fail on the
+        // next.
+        let s = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            .iter()
+            .fold(s, |s, d| s.replace(&format!("{d} #-#-#"), "<day> #-#-#"));
         // `said Wed #:# MST`: the zone is the machine's.
         let mut parts = s.split("#:# ");
         let mut out = parts.next().unwrap_or_default().to_string();
