@@ -170,6 +170,9 @@ async fn a_compile_failure_in_a_shared_place_records_its_route() {
     assert_eq!(routed[0]["mode"], "sonnet");
     assert!(said(&r.core, &sid).is_empty(), "no fixed line was said");
     assert!(rows(&r.core, "privacy.warned").is_empty());
+    // Not the hold's: a failed compilation sends no request, and its overage row is kept.
+    assert!(r.claude.requests().is_empty() && r.zai.requests().is_empty());
+    assert_eq!(rows(&r.core, "context.overage").len(), 1);
 }
 
 /// Where nothing is held, a compile failure fails the turn as before, and
