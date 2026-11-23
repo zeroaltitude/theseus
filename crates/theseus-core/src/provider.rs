@@ -1493,12 +1493,11 @@ pub(crate) fn scripted_from_sse(lines: &[&str]) -> Scripted {
             break;
         }
     }
+    let (content, invalid) = acc.finish();
     let unread = |b: &Value| b["input"] == serde_json::json!({});
-    let blocks = (out.content.iter().cloned())
+    let blocks = (content.into_iter())
         .map(|mut b| {
-            let raw = b["id"]
-                .as_str()
-                .and_then(|id| out.invalid_tool_inputs.get(id));
+            let raw = b["id"].as_str().and_then(|id| invalid.get(id));
             if let Some(raw) = raw.filter(|_| unread(&b)) {
                 b["input"] = Value::String(raw.clone());
             }
