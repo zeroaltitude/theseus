@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use serde_json::json;
 use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
 
 use super::Core;

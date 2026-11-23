@@ -479,12 +479,12 @@ impl TurnRunner {
             // The compilation alone: its `context.recompiled` row is no longer written (issue 46), since
             // the turn's `context.compiled` row names the same compilation. Old rows still read
             // (`fact::turn::ContextRecompiled`, `LedgerKind::ContextRecompiled`).
-            let mut records =
-                vec![
-                    NewRecord::json(theseus_store::kinds::COMPILATION, Some(&c.id), c)?
-                        .scoped(&c.session_id),
-                ];
-            Ok(records)
+            Ok(vec![NewRecord::json(
+                theseus_store::kinds::COMPILATION,
+                Some(&c.id),
+                c,
+            )?
+            .scoped(&c.session_id)])
         };
         // A view turn builds a compilation every turn (issue 44, issue 46): its records ride the
         // turn's next frame, and the pointer rides the turn's own session write at its end
