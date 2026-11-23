@@ -162,7 +162,9 @@ pub fn places_lines(h: &PlacesHealth) -> Vec<String> {
     lines.push(String::new());
     lines.push("private: everything, as the CLI has it.".into());
     lines.push(format!(
-        "shared: {}, no proc.run and no AWS; all context files. Publish something there yourself: `theseus publish NODE|FILE \
+        "shared: {}; no proc.run and no AWS. No memory is withheld by place: a shared place's turns \
+         draw on the same memory, context files and standing records as a private one's, so bind \
+         only places you trust. Publish something there yourself: `theseus publish NODE|FILE \
          --to PLACE`.",
         shared_gets(h)
     ));
@@ -176,7 +178,10 @@ mod tests {
     #[test]
     fn shared_places_do_not_promise_context_privacy() {
         let lines = places_lines(&PlacesHealth::default()).join("\n");
-        assert!(lines.contains("all context files"), "{lines}");
+        assert!(
+            lines.contains("memory, context files and standing records"),
+            "{lines}"
+        );
         assert!(lines.contains("no proc.run and no AWS"), "{lines}");
         assert!(!lines.contains("its own conversation"), "{lines}");
     }
@@ -276,5 +281,26 @@ mod tests {
         assert!(places_lines(&h)
             .iter()
             .any(|l| l == "⚠ #lab is not bound: its ceiling names profile \"nosuch\""));
+    }
+    /// Since 2026-11-22 no memory is withheld by place: `theseus places`
+    /// says so, and promises a shared place no privacy it does not have.
+    #[test]
+    fn the_places_lines_promise_no_privacy_by_place() {
+        let h = PlacesHealth {
+            places: vec![place("#hall", PlaceClass::Shared)],
+            public_paths: vec![],
+            warnings: vec![],
+        };
+        let lines = places_lines(&h);
+        let shared = lines.iter().find(|l| l.starts_with("shared:")).unwrap();
+        assert!(
+            shared.contains("No memory is withheld by place"),
+            "{shared}"
+        );
+        assert!(shared.contains("no proc.run and no AWS"), "{shared}");
+        for l in &lines {
+            assert!(!l.contains("its own conversation"), "{l}");
+            assert!(!l.contains("readers = \"public\""), "{l}");
+        }
     }
 }
