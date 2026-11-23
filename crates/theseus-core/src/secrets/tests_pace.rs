@@ -474,3 +474,35 @@ async fn a_batch_that_can_never_fit_fails_plainly_and_settles() {
     assert_eq!(st.failed.len(), 2);
 }
 
+/// Round 3: work that asks the vault for nothing is not held by the vault's
+/// room. With the day's count already past the ceiling (the owner's own looks
+/// count and are not stopped), an empty pending set ends at once, and a round
+/// of `env:` entries alone runs and resolves.
+#[tokio::test]
+async fn work_with_no_vault_reference_is_not_held_by_the_vaults_room() {
+    std::env::set_var("THESEUS_VAULT_BACKOFF_ZERO", "made-up-local-value");
+    let clock = Virtual::span(3600);
+    let reads = VaultReads::new(clock.clone());
+    reads.note(10);
+    let dir = tempfile::tempdir().unwrap();
+    let op = fake_op(dir.path(), "ok", reads.clone());
+    let empty = SecretBoard::new(Vec::<String>::new(), Instant::now());
+    empty.count_from(reads.clone());
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        resolve_with(empty, BTreeMap::new(), op.clone(), pace(clock.clone(), 5)),
+    )
+    .await
+    .expect("nothing pending ends at once");
+    let refs = refs(&[("local", "env:THESEUS_VAULT_BACKOFF_ZERO")]);
+    let b = board(&refs, reads);
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        resolve_with(b.clone(), refs, op, pace(clock.clone(), 5)),
+    )
+    .await
+    .expect("a round with no vault reference runs");
+    assert_eq!(b.status().ready, ["local"]);
+    assert!(runs(dir.path()).is_empty(), "no op ran");
+}
+
