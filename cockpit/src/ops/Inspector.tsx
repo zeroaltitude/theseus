@@ -136,7 +136,7 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
       <div className="flex items-center gap-1.5">
         {f.paused ? <Pill tone="wait">{f.pill}</Pill> : <StatePill state={f.pill} />}
         <span className="num text-[10.5px] text-ink-faint">{r.kind} · {f.short}</span>
-        {r.data && r.data !== 'open' && <Pill tone="wait" title="the floor keeps this to models of US origin"><Lock size={10} /> {r.data}</Pill>}
+        {r.data && r.data !== 'open' && <Pill tone="wait" title="a label: it keeps no model away"><Lock size={10} /> {r.data}</Pill>}
         {f.links.map((l, i) => {
           const cls = cn('flex items-center gap-1 text-[11.5px] text-live hover:underline', i === 0 && 'ml-auto')
           const title = i === 0 ? `o: ${l.title}` : l.title
