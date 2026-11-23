@@ -171,6 +171,38 @@ impl Tool for HistoryTool {
     }
 }
 
+/// One open, whatever its handle names: a session's page by its `ses_…` id (`session::open`, `before` paging
+/// back), or one exchange (`open::open_marked`). Behind the lens's seams (the fork's cut, the self loop's
+/// scope); every reader of history opens through here (the model's tool, and any other face of it).
+pub(crate) fn open_any(
+    lens: &page::Lens<'_>,
+    h: &crate::view::Handle,
+    before: Option<&Cursor>,
+) -> Result<OpenedAny, String> {
+    if session::names_a_session(&h.0) {
+        let s = session::open(lens, &h.0, before)?;
+        return Ok(OpenedAny {
+            text: s.text,
+            outside: s.outside,
+            session: true,
+        });
+    }
+    let o = open::open_marked(lens, h)?;
+    Ok(OpenedAny {
+        text: o.text,
+        outside: o.outside,
+        session: false,
+    })
+}
+
+/// What [`open_any`] gives: the text, whether it shows outside words (its result is marked External,
+/// [`marker`]), and whether it was a session's page.
+pub(crate) struct OpenedAny {
+    pub text: String,
+    pub outside: bool,
+    pub session: bool,
+}
+
 /// The External marker of a call's result (`external`): set when what it shows holds another person's
 /// words (a page's line, an opened exchange or session marked outside text), so every reader of the marker
 /// (`external::read_any`, `external::first`, the settings acts' "outside text since the owner's message")
@@ -430,22 +462,12 @@ pub(crate) async fn answer(
         }
         // A `ses_…` id opens that session, a page of it, `before` paging back (`session`); any other handle
         // one exchange.
-        if session::names_a_session(&h.0) {
-            let s = session::open(&lens, &h.0, a.before.as_ref())?;
-            return Ok(ToolOutput {
-                text: s.text,
-                meta: json!({
-                    "open": page::flat(&h.0), "session": true,
-                    "opens": used.opens + 1, "of": OPENS_PER_TURN,
-                    "outside": outside_of(s.outside, h.0.trim()),
-                }),
-            });
-        }
-        let o = open::open_marked(&lens, h)?;
+        let o = open_any(&lens, h, a.before.as_ref())?;
         return Ok(ToolOutput {
             text: o.text,
             meta: json!({
-                "open": page::flat(&h.0), "opens": used.opens + 1, "of": OPENS_PER_TURN,
+                "open": page::flat(&h.0), "session": o.session,
+                "opens": used.opens + 1, "of": OPENS_PER_TURN,
                 "outside": outside_of(o.outside, h.0.trim()),
             }),
         });

@@ -60,6 +60,10 @@ pub struct HistoryLine {
     /// With no `did` line: the final reply's first characters, shown as its beginning.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_begins: Option<String>,
+    /// Whether what the line shows of the reply derives from outside text: its exchange read an External
+    /// result (its `did` line's mark, or its turn's own nodes), so the reply or its summary may quote it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub outside: bool,
 }
 
 /// How a page ends: told apart, so the model knows whether it may ask or should offer to go on.

@@ -1329,3 +1329,198 @@ fn an_empty_span_page_keeps_a_scan_limit_and_an_allowance_ending() {
         "{gone}"
     );
 }
+
+/// An owner-opened exchange that read an outside page (an External result) and replied quoting it.
+fn put_read_outside(store: &Store, e: &Ex<'_>) {
+    let ask = Node::user(e.session, Some(&e.turn), "owner", &e.words);
+    let mut fetched = tool_result_in(e.session, &e.turn);
+    if let Body::ToolResult { external, .. } = &mut fetched.body {
+        *external = Some(theseus_tools::External {
+            url: "https://example.invalid/tides".into(),
+        });
+    }
+    let said = reply(e.session, &e.turn, "the page says the tide turns at four");
+    let x = Exchange {
+        turn_id: e.turn.clone(),
+        session_id: e.session.into(),
+        place: e.place.into(),
+        private: e.private,
+        opened_by: Opener::Message,
+        person: e.person.map(str::to_string),
+        start_ms: e.at,
+        end_ms: Some(e.at + 500),
+        ask: Some(ask.id.clone()),
+        reply: Some(said.id.clone()),
+        messages: vec![ask.id.clone()],
+        stop: Some("end_turn".into()),
+        rebuilt: false,
+    };
+    let mut recs = vec![
+        ask.record().unwrap(),
+        fetched.record().unwrap(),
+        said.record().unwrap(),
+    ];
+    recs.extend(mark_of(&ask, e.person, e.place).and_then(|m| mark_record(&m).ok()));
+    recs.push(exchange_record(&x).unwrap());
+    recs.extend(touch(Root::Place(e.place), &e.turn, e.session, e.at));
+    store.append(&recs).unwrap();
+}
+
+/// The External mark follows DERIVED outside words (D6a round 2, section 1): an exchange the owner opened, which
+/// read an outside page and replied quoting it, is outside text when read back into a clean session, by a
+/// page line (its reply's beginning, or its stored `did` line marked outside), by its open and by its
+/// session's page. The receiving session's stored result is External: `external::read_any` and the settings
+/// act's check (`config_change::outside_since_owner`) see the read. Owner-only history stays unmarked.
+#[tokio::test]
+async fn derived_outside_words_mark_the_receiving_result_external() {
+    use crate::provider::Scripted;
+    use crate::tests_places::{answers_a_call, last_user, rig_scripted, session, turn};
+    let r = rig_scripted(
+        |_| {},
+        |req| {
+            if answers_a_call(req) {
+                return Scripted::text("Read.");
+            }
+            match last_user(req).split_once("CALL ") {
+                Some((_, a)) => Scripted::tools(
+                    "Reading.",
+                    &[(
+                        "h1",
+                        "context_history",
+                        serde_json::from_str(a.trim()).unwrap(),
+                    )],
+                ),
+                None => Scripted::text("Hello."),
+            }
+        },
+    );
+    let (read, owner_only) = (session(&r.core, None), session(&r.core, None));
+    const SUMMED: &str = "discord:dm:77";
+    put_read_outside(&r.core.store, &ex(1, HERE, &read));
+    put_read_outside(&r.core.store, &ex(2, SUMMED, &read));
+    let d = crate::ladder::did::DidLine {
+        turn_id: "turn_0002".into(),
+        session_id: read.clone(),
+        line: "You told the owner the tide turns at four.".into(),
+        model: "m".into(),
+        writer: 1,
+        marks: crate::view::Marks {
+            place: Some(SUMMED.into()),
+            audience: crate::view::Audience::Private,
+            author: crate::view::Author::Theseus,
+            outside: true,
+            sealed: false,
+            veiled: false,
+        },
+        cost_usd: 0.0,
+        at_ms: 0,
+    };
+    r.core
+        .store
+        .append(&[crate::ladder::did::did_record(&d).unwrap()])
+        .unwrap();
+    put(&r.core.store, &ex(3, DM, &owner_only));
+    let reads = |args: Value| {
+        let core = r.core.clone();
+        async move {
+            let clean = session(&core, None);
+            turn(&core, &clean, &format!("CALL {args}")).await;
+            let said = crate::tests_places::result_of(&core, &clean, "h1");
+            let nodes = core.store.session_nodes(&clean).unwrap();
+            (
+                said,
+                crate::external::read_any(&core.store, &clean),
+                crate::config_change::outside_since_owner(&nodes),
+            )
+        }
+    };
+    for (what, args) in [
+        ("a page line's reply", json!({ "place": HERE })),
+        ("a page line's did", json!({ "place": SUMMED })),
+        ("an exchange's open", json!({ "open": "turn_0001" })),
+        ("a session's page", json!({ "open": read.clone() })),
+    ] {
+        let (said, any, since) = reads(args).await;
+        assert!(said.contains("tide"), "{what} ran: {said}");
+        assert!(any, "{what}: read_any sees it: {said}");
+        assert!(since, "{what}: the settings act sees it");
+    }
+    for (what, args) in [
+        ("an owner-only page", json!({ "place": DM })),
+        ("an owner-only open", json!({ "open": "turn_0003" })),
+        (
+            "an owner-only session",
+            json!({ "open": owner_only.clone() }),
+        ),
+    ] {
+        let (said, any, since) = reads(args).await;
+        assert!(said.contains("message 3"), "{what} ran: {said}");
+        assert!(
+            !any && !since,
+            "{what}: the owner's own words are not outside text: {said}"
+        );
+    }
+}
+
+/// The session open is bounded (D6a round 2, section 3): it never reads the whole session (no transcript read),
+/// and a single message larger than the open's allowance is cut in words within it, its framing charged, with
+/// an honest continuation to what came before it.
+#[test]
+fn a_session_open_is_bounded_and_cuts_an_oversized_message_in_words() {
+    use super::session;
+    let (_d, s) = store();
+    let sid = "ses_big";
+    put(&s, &ex(1, HERE, sid));
+    put(
+        &s,
+        &Ex {
+            words: format!("BIG {}", "x".repeat(200_000)),
+            ..ex(2, HERE, sid)
+        },
+    );
+    let l = lens(&s, HERE);
+    let reads = s.transcript_reads();
+    // The newest page: the big message's reply, and the big message cut.
+    let first = session::open(&l, sid, None).unwrap().text;
+    assert_eq!(s.transcript_reads(), reads, "no whole-session read");
+    assert!(
+        crate::view::text::tokens(&first) <= super::open::OPEN_TOKENS + 200,
+        "within the allowance: {} tokens",
+        crate::view::text::tokens(&first)
+    );
+    if first.contains("BIG") {
+        assert!(
+            first.contains("[cut here: this message is about"),
+            "{first}"
+        );
+    }
+    // Paging back reaches the big message (cut in words, alone if it must be), then the first exchange.
+    let mut text = first.clone();
+    let mut pages = 0;
+    let token_of = |t: &str| -> Option<String> {
+        t.contains("before=")
+            .then(|| t.rsplit("before=").next())
+            .flatten()
+            .and_then(|t| t.strip_suffix('.'))
+            .map(str::to_string)
+    };
+    while let Some(token) = token_of(&text) {
+        let before: Cursor = serde_json::from_str(&token).unwrap();
+        text = session::open(&l, sid, Some(&before)).unwrap().text;
+        assert!(
+            crate::view::text::tokens(&text) <= super::open::OPEN_TOKENS + 200,
+            "{} tokens",
+            crate::view::text::tokens(&text)
+        );
+        if text.contains("BIG") {
+            assert!(text.contains("[cut here: this message is about"), "{text}");
+        }
+        pages += 1;
+        assert!(pages < 10, "the paging ends");
+    }
+    assert!(
+        text.contains("message 1"),
+        "the first exchange is reached: {text}"
+    );
+    assert!(text.contains("That is its beginning."), "{text}");
+}

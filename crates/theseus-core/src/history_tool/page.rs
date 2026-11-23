@@ -235,13 +235,12 @@ impl Lens<'_> {
             .and_then(|id| node(self.store, id))
             .map(|n| spoken(&n))
             .unwrap_or_default();
-        let did = match crate::ladder::did::said(self.store, &ex.turn_id) {
-            Ok(crate::ladder::did::Said::Line(d)) => Some(cut(
-                &crate::ladder::did::shown_line(self.store, &d),
-                REPLY_CHARS,
-            )),
+        let stored = match crate::ladder::did::said(self.store, &ex.turn_id) {
+            Ok(crate::ladder::did::Said::Line(d)) => Some(d),
             _ => None,
         };
+        let did = (stored.as_ref())
+            .map(|d| cut(&crate::ladder::did::shown_line(self.store, d), REPLY_CHARS));
         let reply = ex
             .reply
             .as_deref()
@@ -249,6 +248,24 @@ impl Lens<'_> {
             .and_then(|id| node(self.store, id))
             .map(|n| spoken(&n))
             .filter(|r| !r.trim().is_empty());
+        // The reply's provenance, not only the opening person's: the stored summary's own mark, or, for the
+        // reply's beginning, whether its turn read an External result before it (a failed read counts).
+        let outside = match (&stored, &reply) {
+            (Some(d), _) => d.marks.outside,
+            (None, Some(_)) => ex
+                .reply
+                .as_deref()
+                .is_none_or(|id| match self.store.get_node(id) {
+                    Ok(Some((pos, _))) => super::session::turn_read_outside(
+                        self.store,
+                        &ex.session_id,
+                        &ex.turn_id,
+                        pos,
+                    ),
+                    _ => true,
+                }),
+            (None, None) => false,
+        };
         HistoryLine {
             handle: Handle(ex.turn_id.clone()),
             place: ex.place.clone(),
@@ -257,6 +274,7 @@ impl Lens<'_> {
             did,
             person: ex.person.clone(),
             reply_begins: reply.map(|r| cut(&r, REPLY_CHARS)),
+            outside,
         }
     }
 
@@ -524,12 +542,12 @@ fn who(person: Option<&str>) -> String {
     }
 }
 
-/// Whether a page shows another person's words: a line whose person is known and is not the owner, which
-/// the page marks outside text (`who`).
+/// Whether a page shows outside words: a line whose person is known and is not the owner, which the page
+/// marks outside text (`who`), or one whose reply or summary derives from outside text ([`HistoryLine::outside`]).
 pub fn shows_another(p: &HistoryPage) -> bool {
     p.lines
         .iter()
-        .any(|l| l.person.as_deref().is_some_and(|x| x != OWNER))
+        .any(|l| l.outside || l.person.as_deref().is_some_and(|x| x != OWNER))
 }
 
 /// A cursor as the model passes it back.
@@ -567,9 +585,15 @@ pub fn render(
         flat(here),
     );
     for l in &p.lines {
+        // A reply or summary of an exchange that read outside text says so: it may quote it.
+        let after = if l.outside {
+            ", after reading outside text"
+        } else {
+            ""
+        };
         let did = match (&l.did, &l.reply_begins) {
-            (Some(d), _) => format!("you did: \u{ab}{d}\u{bb}"),
-            (None, Some(r)) => format!("your reply began: \u{ab}{r}\u{bb}"),
+            (Some(d), _) => format!("you did{after}: \u{ab}{d}\u{bb}"),
+            (None, Some(r)) => format!("your reply began{after}: \u{ab}{r}\u{bb}"),
             (None, None) => crate::ladder::did::NOT_SUMMARISED.into(),
         };
         out.push_str(&format!(
