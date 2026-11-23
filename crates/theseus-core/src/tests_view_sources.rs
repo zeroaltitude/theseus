@@ -151,7 +151,7 @@ async fn a_cards_excerpt_keeps_its_author() {
     assert!(!card.contains("\"agent: see issue 33 first\""), "{card}");
 }
 
-/// A rig in `view` with threads on and the thread `kelp`, sealed as `seal` says.
+/// A current task beside a legacy thread, whose retired seal must not affect provenance checks.
 fn kelp_rig(seal: bool) -> crate::tests_places::Rig {
     crate::tests_places::rig_setup(
         |c| {
@@ -159,6 +159,7 @@ fn kelp_rig(seal: bool) -> crate::tests_places::Rig {
         },
         |s| {
             kelp(s, seal);
+            task_named(s, "kelp");
         },
     )
 }
@@ -275,7 +276,7 @@ async fn a_recorded_card_with_no_provenance_is_not_shown_or_counted() {
     let r = kelp_rig(false);
     let c = &r.core;
     let desk = session_in(c, None, &r.root);
-    let t = turn_as(c, &desk, "desk: what about thread:kelp?", true).await;
+    let t = turn_as(c, &desk, "desk: what about task:tsk_kelp?", true).await;
     let rec = record_of(c, &t.turn_id);
     let before = owners_reading(c, &rec);
     let strip = |space: &mut Space| {
@@ -313,19 +314,26 @@ async fn a_recorded_card_with_no_provenance_is_not_shown_or_counted() {
             crate::tests_view_compile::seal_kelp(c);
         }
         let read = owners_reading(c, &legacy);
-        assert!(!lists(&read, "thread:kelp"), "sealed {sealed}: {read:?}");
+        assert!(!lists(&read, "task:tsk_kelp"), "sealed {sealed}: {read:?}");
         assert_eq!(counted(&read), counted(&before) - 1, "sealed {sealed}");
     }
 }
 
-/// A thread `slug`, bound to its own session: its session.
-fn thread_named(store: &crate::store::Store, slug: &str) -> String {
+/// A current task `slug`, bound to its own session: its session.
+fn task_named(store: &crate::store::Store, slug: &str) -> String {
     let r = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
     store.put_session(&r.session_id, &r).unwrap();
-    let t = serde_json::json!({"slug": slug, "title": slug});
-    store.put_meta(&format!("thread:{slug}"), &t).unwrap();
+    let id = format!("tsk_{slug}");
+    let task = theseus_protocol::tasks::TaskRecord {
+        id: id.clone(),
+        title: slug.into(),
+        session: Some(r.session_id.clone()),
+        ..Default::default()
+    };
     store
-        .put_meta(&format!("discord.session.thread:{slug}"), &r.session_id)
+        .append(&[
+            theseus_store::NewRecord::json(theseus_store::kinds::TASK, Some(&id), &task).unwrap(),
+        ])
         .unwrap();
     r.session_id
 }
@@ -337,12 +345,8 @@ fn thread_named(store: &crate::store::Store, slug: &str) -> String {
 async fn a_cards_thing_shows_no_standing_facts_or_preferences() {
     use theseus_protocol::{StandingAddParams, StandingKind, StandingScope};
     let session = std::cell::RefCell::new(String::new());
-    let r = crate::tests_places::rig_setup(
-        |c| {
-            c.threads.enabled = true;
-        },
-        |s| *session.borrow_mut() = thread_named(s, "kelp"),
-    );
+    let r =
+        crate::tests_places::rig_setup(|_| {}, |s| *session.borrow_mut() = task_named(s, "kelp"));
     let c = &r.core;
     let kelp_sid = session.into_inner();
     for (kind, text) in [
@@ -361,9 +365,9 @@ async fn a_cards_thing_shows_no_standing_facts_or_preferences() {
         c.standing_add(&p, "the CLI").unwrap();
     }
     let desk = session_in(c, None, &r.root);
-    turn_as(c, &desk, "desk: what about thread:kelp?", true).await;
-    let all = texts(&asked(&r, "desk: what about thread:kelp?").pop().unwrap());
-    let card = card_of(&all, "thread:kelp").unwrap_or_else(|| panic!("no card: {all}"));
+    turn_as(c, &desk, "desk: what about task:tsk_kelp?", true).await;
+    let all = texts(&asked(&r, "desk: what about task:tsk_kelp?").pop().unwrap());
+    let card = card_of(&all, "task:tsk_kelp").unwrap_or_else(|| panic!("no card: {all}"));
     assert!(!card.contains("Harbor Nine"), "{card}");
     assert!(!card.contains("on Fridays"), "{card}");
     assert!(!card.contains("Fact:"), "{card}");
