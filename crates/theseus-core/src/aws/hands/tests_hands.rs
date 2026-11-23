@@ -239,6 +239,17 @@ pub(super) fn answer(state: &State, s: &Seen, n: usize) -> Reply {
         "RunTask" => {
             let k = {
                 let mut r = state.ran.lock().unwrap();
+                if let Some(i) = r
+                    .iter()
+                    .position(|old| old["clientToken"] == body["clientToken"])
+                {
+                    if r[i] != body {
+                        return (400, vec![], json!({"__type": "ConflictException", "message": "token reused with different parameters"}).to_string());
+                    }
+                    return json(
+                        json!({"tasks": [{"taskArn": format!("arn:aws:ecs:us-west-2:{ACCOUNT}:task/theseus-hands/t{}", i + 1)}], "failures": []}),
+                    );
+                }
                 r.push(body);
                 r.len()
             };
@@ -1057,6 +1068,10 @@ async fn fargate_waits_for_the_nat_and_runs_tagged_in_private_subnets() {
     );
     let ran = r.state.ran.lock().unwrap().clone();
     assert_eq!(ran.len(), 2);
+    assert_ne!(
+        ran[0]["clientToken"], ran[1]["clientToken"],
+        "each hand needs its own idempotency token"
+    );
     let rec = record(&core, &g);
     for (i, t) in ran.iter().enumerate() {
         assert_eq!(t["launchType"], "FARGATE");

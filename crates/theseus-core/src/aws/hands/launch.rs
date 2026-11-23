@@ -654,6 +654,7 @@ pub async fn launch(
                 "taskDefinition": task_definition.unwrap_or_default(),
                 "launchType": "FARGATE",
                 "count": 1,
+                "clientToken": spec.correlation_id,
                 "startedBy": ids.group,
                 "networkConfiguration": {"awsvpcConfiguration": {
                     "subnets": env.subnets,
