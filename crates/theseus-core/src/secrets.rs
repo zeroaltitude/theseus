@@ -17,8 +17,10 @@
 //! background, and each consumer waits for its own secret there. Fail closed
 //! still holds, one consumer at a time: a consumer never runs without its
 //! secret, and a failure names the secret and why. A secret that failed is
-//! fetched again after 5 s, then at doubling intervals up to a minute, since
-//! the process no longer exits and waits to be restarted.
+//! fetched again after 5 s, then at the pace of `pace::LADDER` (to a minute,
+//! then ten minutes, then every hour), since the process no longer exits and
+//! waits to be restarted; past the day's ceiling of vault reads it waits for
+//! the next day (issue 44, `pace`).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -38,15 +40,12 @@ pub mod look;
 pub mod pace;
 pub mod write;
 
-use pace::VaultReads;
+use pace::{Pace, Refused, VaultReads};
 
 pub const TOKEN_ENV: &str = "OP_SERVICE_ACCOUNT_TOKEN";
 
 /// The longest one `op` process may take before its references count as failed.
 pub const OP_TIMEOUT: Duration = Duration::from_secs(10);
-/// The first retry of a failed secret; each later one waits twice as long.
-const RETRY_FIRST: Duration = Duration::from_secs(5);
-const RETRY_MAX: Duration = Duration::from_secs(60);
 /// A secret value. Debug and Display never print it.
 #[derive(Clone)]
 pub struct Secret(Zeroizing<String>);
@@ -161,6 +160,9 @@ pub struct Fetched {
     /// How: `inject`, `read` for one reference, or `inject, then read` after
     /// a failed injection.
     pub method: String,
+    /// The vault's own refusal (a rate limit, the token), when it refused:
+    /// the next round waits for it (issue 44).
+    pub refused: Option<Refused>,
 }
 
 /// Reads secrets by shelling out to the `op` CLI under the service-account
@@ -512,19 +514,25 @@ impl Fetch for OpReader {
     /// for every reference. If it fails, one `op read` per reference,
     /// concurrently, so each bad one is named with its own error and the good
     /// ones still resolve; this costs about a second more, and only when
-    /// something is already wrong.
+    /// something is already wrong. Not when the vault itself refused (a rate
+    /// limit, the token): no entry is bad, and reading each would only ask it
+    /// again.
     fn fetch<'a>(&'a self, refs: &'a [String]) -> BoxFuture<'a, Fetched> {
         Box::pin(async move {
             if let [one] = refs {
+                let value = self.read_raw(one).await;
+                let refused = value.as_ref().err().and_then(|e| Refused::of(e));
                 return Fetched {
-                    values: vec![self.read_raw(one).await],
+                    values: vec![value],
                     method: "read".into(),
+                    refused,
                 };
             }
             match self.inject(refs).await {
                 Ok(values) => Fetched {
                     values: values.into_iter().map(Ok).collect(),
                     method: "inject".into(),
+                    refused: None,
                 },
                 Err(InjectFailed::TimedOut) => Fetched {
                     values: refs
@@ -537,15 +545,31 @@ impl Fetch for OpReader {
                         })
                         .collect(),
                     method: "inject".into(),
+                    refused: None,
                 },
-                Err(InjectFailed::Error(why)) => {
-                    tracing::info!(error = %why, "op inject failed; reading each reference to name what failed");
-                    let reads = refs.iter().map(|r| self.read_raw(r));
-                    Fetched {
-                        values: futures_util::future::join_all(reads).await,
-                        method: "inject, then read".into(),
+                Err(InjectFailed::Error(why)) => match Refused::of(&why) {
+                    Some(r) => {
+                        tracing::warn!(error = %why, "op inject was refused by the vault; no entry is read one by one");
+                        Fetched {
+                            values: refs.iter().map(|_| Err(why.clone())).collect(),
+                            method: "inject".into(),
+                            refused: Some(r),
+                        }
                     }
-                }
+                    None => {
+                        tracing::info!(error = %why, "op inject failed; reading each reference to name what failed");
+                        let reads = refs.iter().map(|r| self.read_raw(r));
+                        let values = futures_util::future::join_all(reads).await;
+                        let refused = values
+                            .iter()
+                            .find_map(|v| v.as_ref().err().and_then(|e| Refused::of(e)));
+                        Fetched {
+                            values,
+                            method: "inject, then read".into(),
+                            refused,
+                        }
+                    }
+                },
             }
         })
     }
@@ -607,6 +631,10 @@ struct Progress {
     method: Option<String>,
     rounds: u32,
     retry_at: Option<Instant>,
+    /// The day's ceiling the retries keep (`pace`), once they run.
+    ceiling: Option<u32>,
+    /// Why the retries stopped, while they are stopped.
+    stopped: Option<String>,
 }
 
 /// Each secret's state, published as it changes, so a consumer waits for
@@ -818,6 +846,23 @@ impl SecretBoard {
         self.reads.get().cloned()
     }
 
+    /// The clock the rounds read: the count's, else the
+    /// system's.
+    pub fn clock(&self) -> Arc<dyn pace::Clock> {
+        match self.reads.get() {
+            Some(r) => r.clock(),
+            None => Arc::new(pace::SystemClock),
+        }
+    }
+
+    fn stop(&self, why: String) {
+        self.progress.lock().unwrap().stopped = Some(why);
+    }
+
+    fn go_on(&self) {
+        self.progress.lock().unwrap().stopped = None;
+    }
+
     /// For health: `resolving` until every secret has settled, then `ready`,
     /// or `failed` naming each one that did not resolve and why.
     pub fn status(&self) -> SecretsStatus {
@@ -855,11 +900,11 @@ impl SecretBoard {
                 .map(|t| t.saturating_duration_since(Instant::now()).as_millis() as u64),
             vault_today: self.reads().and_then(|r| {
                 let (processes, references) = r.today();
-                (processes > 0).then(|| theseus_protocol::VaultToday {
+                (processes > 0 || p.stopped.is_some()).then(|| theseus_protocol::VaultToday {
                     processes,
                     references,
-                    ceiling: pace::default_vault_reads_per_day(),
-                    stopped: None,
+                    ceiling: p.ceiling.unwrap_or_else(pace::default_vault_reads_per_day),
+                    stopped: p.stopped.clone(),
                 })
             }),
             outside_vault: self
@@ -886,12 +931,17 @@ impl fmt::Debug for SecretBoard {
 /// reference is fetched once, and each name takes its `#label` line. An
 /// `env:` or `file:` entry is read here first, with no `op` call. The method
 /// is the vault's (`inject`, …), `local` when every entry was read here, or
-/// the vault's with ` + local` when some were.
-async fn round(
+/// the vault's with ` + local` when some were. The vault's refusal, when it
+/// refused.
+async fn round_of(
     refs: &BTreeMap<String, String>,
     names: &[String],
     fetch: &dyn Fetch,
-) -> (BTreeMap<String, Result<Secret, String>>, String) {
+) -> (
+    BTreeMap<String, Result<Secret, String>>,
+    String,
+    Option<Refused>,
+) {
     let mut out = BTreeMap::new();
     let mut parsed = Vec::new();
     let mut distinct: Vec<String> = Vec::new();
@@ -922,7 +972,7 @@ async fn round(
         }
     }
     if distinct.is_empty() {
-        return (out, if local { "local" } else { "" }.to_string());
+        return (out, if local { "local" } else { "" }.to_string(), None);
     }
     let mut fetched = fetch.fetch(&distinct).await;
     if local {
@@ -939,62 +989,112 @@ async fn round(
         };
         out.insert(name, v);
     }
-    (out, fetched.method)
+    (out, fetched.method, fetched.refused)
+}
+
+/// [`round_of`] without the refusal, for the tests that read a round's values.
+#[cfg(test)]
+async fn round(
+    refs: &BTreeMap<String, String>,
+    names: &[String],
+    fetch: &dyn Fetch,
+) -> (BTreeMap<String, Result<Secret, String>>, String) {
+    let (out, method, _) = round_of(refs, names, fetch).await;
+    (out, method)
 }
 
 /// Resolve every entry of `refs` (config name → reference) into `board`:
-/// one round for all of them, then, for any that failed, another after 5 s,
-/// 10 s, 20 s, … at most a minute apart, until each resolves. Runs in the
-/// background; nothing on the path to serving waits for it.
+/// one round for all of them, then, for any that failed, another at the
+/// pace of [`pace::LADDER`] until each resolves. Runs in the background;
+/// nothing on the path to serving waits for it.
 pub async fn resolve_into(
     board: Arc<SecretBoard>,
     refs: BTreeMap<String, String>,
     fetch: Arc<dyn Fetch>,
 ) {
-    resolve_with_retry(board, refs, fetch, RETRY_FIRST).await;
+    let pace = Pace::daemon(board.clock());
+    resolve_with(board, refs, fetch, pace).await;
 }
 
-#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
-async fn resolve_with_retry(
+/// [`resolve_into`] at `pace`: the daemon's, or a test's.
+pub(crate) async fn resolve_with(
     board: Arc<SecretBoard>,
     refs: BTreeMap<String, String>,
     fetch: Arc<dyn Fetch>,
-    first_retry: Duration,
+    pace: Pace,
 ) {
+    board.progress.lock().unwrap().ceiling = Some(pace.ceiling);
     let mut pending: Vec<String> = refs.keys().cloned().collect();
-    let mut delay = first_retry;
-    while !pending.is_empty() {
-        board.begin_round();
-        let t0 = Instant::now();
-        let (results, method) = round(&refs, &pending, fetch.as_ref()).await;
-        let failed: Vec<String> = results
-            .iter()
-            .filter(|(_, r)| r.is_err())
-            .map(|(n, _)| n.clone())
-            .collect();
-        for (name, r) in &results {
-            match r {
-                Ok(v) => tracing::info!(secret = %name, bytes = v.len(), "resolved"),
-                Err(e) => tracing::warn!(secret = %name, error = %e, "did not resolve"),
-            }
-        }
-        tracing::info!(
-            ms = t0.elapsed().as_millis() as u64,
-            method = %method,
-            fetched = results.len(),
-            failed = failed.len(),
-            "secrets round"
-        );
-        board.publish(results, &method);
-        pending = failed;
+    let mut step = 0;
+    loop {
+        let refused = one_round(&board, &refs, &mut pending, fetch.as_ref()).await;
         if pending.is_empty() {
-            break;
+            return;
         }
-        board.retry_at(Instant::now() + delay);
-        tracing::warn!(secrets = ?pending, retry_in_s = delay.as_secs(), "secrets failed; their consumers wait, and they are fetched again");
-        tokio::time::sleep(delay).await;
-        delay = (delay * 2).min(RETRY_MAX);
+        let wait = next_wait(&board, &pace, refused, step);
+        step += 1;
+        tracing::warn!(secrets = ?pending, retry_in_s = wait.as_secs(), "secrets failed; their consumers wait, and they are fetched again");
+        pace.clock.sleep(wait).await;
     }
+}
+
+/// One round over `pending`, published; `pending` becomes what failed. The
+/// vault's refusal, when it refused.
+async fn one_round(
+    board: &SecretBoard,
+    refs: &BTreeMap<String, String>,
+    pending: &mut Vec<String>,
+    fetch: &dyn Fetch,
+) -> Option<Refused> {
+    board.go_on();
+    board.begin_round();
+    let t0 = Instant::now();
+    let (results, method, refused) = round_of(refs, pending, fetch).await;
+    let failed: Vec<String> = results
+        .iter()
+        .filter(|(_, r)| r.is_err())
+        .map(|(n, _)| n.clone())
+        .collect();
+    for (name, r) in &results {
+        match r {
+            Ok(v) => tracing::info!(secret = %name, bytes = v.len(), "resolved"),
+            Err(e) => tracing::warn!(secret = %name, error = %e, "did not resolve"),
+        }
+    }
+    tracing::info!(
+        ms = t0.elapsed().as_millis() as u64,
+        method = %method,
+        fetched = results.len(),
+        failed = failed.len(),
+        "secrets round"
+    );
+    board.publish(results, &method);
+    *pending = failed;
+    refused
+}
+
+/// The wait before the next round: the vault's own when it refused, else
+/// the ladder's `step`; until the next local midnight once today's vault
+/// reads reach the ceiling, which health says in words.
+fn next_wait(board: &SecretBoard, pace: &Pace, refused: Option<Refused>, step: usize) -> Duration {
+    let mut wait = refused.map_or_else(|| pace.wait(step), Refused::wait);
+    if let Some(r) = refused {
+        tracing::warn!(why = r.word(), wait_s = wait.as_secs(), "the vault refused; it is asked again after the wait");
+    }
+    let entries = board.reads().map_or(0, |r| r.today().1);
+    if entries >= pace.ceiling {
+        let now = pace.clock.now_ms();
+        let today = crate::learning::local_midnight(now);
+        let midnight = crate::learning::local_midnight(today + 36 * 3_600_000);
+        wait = Duration::from_millis(midnight.saturating_sub(now).max(1000));
+        board.stop(format!(
+            "retries stopped: the daemon read {entries} vault entries today, the most it reads in a day ({}); \
+             what failed is fetched again after midnight",
+            pace.ceiling
+        ));
+    }
+    board.retry_at(Instant::now() + wait);
+    wait
 }
 
 fn which(bin: &str) -> Option<PathBuf> {
@@ -1056,6 +1156,7 @@ pub mod fake {
                         })
                         .collect(),
                     method: "fake".into(),
+                    refused: None,
                 }
             })
         }
@@ -1567,17 +1668,23 @@ esac
                             })
                             .collect(),
                         method: "fake".into(),
+                        refused: None,
                     }
                 })
             }
         }
         let board = SecretBoard::new(["k".to_string()], Instant::now());
         let flaky = Arc::new(Flaky(Default::default()));
-        tokio::spawn(resolve_with_retry(
+        tokio::spawn(resolve_with(
             board.clone(),
             refs(&[("k", "op://V/k/f")]),
             flaky.clone(),
-            Duration::from_millis(20),
+            Pace {
+                ladder: vec![Duration::from_millis(20)],
+                jitter: false,
+                ceiling: u32::MAX,
+                clock: Arc::new(pace::SystemClock),
+            },
         ));
         assert!(matches!(
             board.wait("k", Duration::from_secs(1)).await,
