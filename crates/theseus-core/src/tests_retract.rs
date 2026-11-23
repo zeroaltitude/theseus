@@ -621,8 +621,8 @@ async fn the_walk_goes_past_the_first_generation() {
         .contains(&copy.id));
 }
 
-/// A retraction run from a shared place's session never shows a private
-/// exposure's words; the same run from a private place does.
+/// An authorised retraction naming a shared session returns the same complete
+/// audit, including private exposures, as one naming a private session.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_shared_places_run_keeps_the_complete_retraction_audit() {
     let r = rig();

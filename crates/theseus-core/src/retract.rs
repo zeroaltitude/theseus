@@ -21,9 +21,8 @@
 //!   - **seen, not used** is listed.
 //! - **Idempotent**: a node retracted before answers from the stored table
 //!   and writes nothing.
-//! - **The place rule**: the answer is shaped for the place the request is
-//!   run for. A shared place's never shows a private exposure's text (its
-//!   title, or the node's own words when the node's session is private).
+//! - **The audit**: every authorised caller receives the complete audit,
+//!   regardless of the place the request names.
 //! - **FAST**: an operator's act, off every turn. The walk is reach's: a scan
 //!   per session reached. A turn costs nothing unless a note is pending
 //!   (`Notes::waiting` is two atomic loads).
@@ -168,7 +167,7 @@ impl Notes {
 }
 
 /// An exposure as the row keeps it: the wire's, and whether its place is
-/// private (a shared place's answer leaves such a one's words out).
+/// private. The flag stays in the row but no longer shapes the answer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Found {
     #[serde(flatten)]
