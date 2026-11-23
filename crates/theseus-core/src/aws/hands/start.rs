@@ -215,6 +215,7 @@ pub async fn launch_first(ctx: &group::Ctx<'_>, p: Planned) {
     if let Err(e) = group::step(ctx, &group).await {
         tracing::warn!(group, error = %format!("{e:#}"), "hands: a step");
     }
+    ctx.aws.hands.launched();
 }
 
 /// `theseus:ttl`'s form, from milliseconds since the epoch: a UTC time to

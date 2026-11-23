@@ -1442,3 +1442,84 @@ async fn an_accepted_launch_with_a_dropped_connection_keeps_its_reservation() {
         0
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancellation_wakes_an_unknown_only_poller() {
+    let r = rig(calls(json!({"argv": ["true"]})));
+    turn(&r.core, "run one").await;
+    let rec = record(&r.core, &group_of(&r.core));
+    let aws = r.core.tools.aws.clone().unwrap();
+    let ctx = super::group::Ctx {
+        kernel: &r.core.kernel,
+        store: &r.core.store,
+        aws: &aws,
+    };
+    super::overdue::pass(&ctx, &rec, u64::MAX).await.unwrap();
+    // Consume the launch permit before waiting for the actual backoff arm.
+    aws.hands.wake.notified().await;
+    let poller = tokio::spawn(super::poller::run(
+        std::sync::Arc::downgrade(&r.core),
+        aws.clone(),
+    ));
+    tokio::time::timeout(Duration::from_secs(10), aws.hands.poll_paused.notified())
+        .await
+        .unwrap();
+    let before = r.state.receives.load(Ordering::SeqCst);
+    super::cancel::stop_group(&ctx, &rec.group).await.unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
+        while r.state.receives.load(Ordering::SeqCst) == before {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    poller.abort();
+    let _ = poller.await;
+    assert!(
+        result.is_ok(),
+        "cancel left the poller in its sixty-second pause"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn late_envelope_batches_reset_the_unknown_backoff() {
+    let r = rig(calls(
+        json!({"argv": ["true"], "count": 31, "concurrency": 31}),
+    ));
+    turn(&r.core, "run a wave").await;
+    let rec = record(&r.core, &group_of(&r.core));
+    let aws = r.core.tools.aws.clone().unwrap();
+    let ctx = super::group::Ctx {
+        kernel: &r.core.kernel,
+        store: &r.core.store,
+        aws: &aws,
+    };
+    super::overdue::pass(&ctx, &rec, u64::MAX).await.unwrap();
+    let specs = r.state.invoked();
+    assert_eq!(specs.len(), 31);
+    for spec in &specs {
+        r.state.push(signed(spec, "succeeded", 0));
+    }
+    aws.hands.wake.notified().await;
+    let poller = tokio::spawn(super::poller::run(
+        std::sync::Arc::downgrade(&r.core),
+        aws.clone(),
+    ));
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if specs
+                .iter()
+                .all(|s| state_of(&r.core, &s.correlation_id) == ActionState::Succeeded)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    poller.abort();
+    let _ = poller.await;
+    assert!(
+        result.is_ok(),
+        "progress must drain late envelopes without a growing pause"
+    );
+}

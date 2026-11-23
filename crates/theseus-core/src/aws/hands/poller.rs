@@ -161,6 +161,7 @@ fn unknown_pause(unknown_only: bool, round: &mut u32) -> Duration {
 pub async fn run(core: Weak<Core>, aws: Arc<Aws>) {
     let mut first = true;
     let mut unknown_round = 0;
+    let mut previous = Vec::new();
     loop {
         let Some(c) = core.upgrade() else { return };
         let open = open_groups(&c).unwrap_or_else(|e| {
@@ -186,6 +187,19 @@ pub async fn run(core: Weak<Core>, aws: Arc<Aws>) {
                         })
                 })
             });
+        let states: Vec<_> = open
+            .iter()
+            .flat_map(|g| {
+                group::hands(&c.kernel, g)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|a| (a.correlation_id, a.state, a.cancel, a.completions_seen))
+            })
+            .collect();
+        if states != previous {
+            unknown_round = 0;
+            previous = states;
+        }
         let pause = unknown_pause(unknown_only, &mut unknown_round);
         // Health's hands block and the hour's meter, at every pass (part 2).
         if let Err(e) = super::watch::refresh(&c, &aws.hands.reaper) {
@@ -200,6 +214,8 @@ pub async fn run(core: Weak<Core>, aws: Arc<Aws>) {
             continue;
         }
         if !pause.is_zero() {
+            #[cfg(test)]
+            aws.hands.poll_paused.notify_one();
             tokio::select! {
                 () = tokio::time::sleep(pause) => {},
                 () = aws.hands.wake.notified() => { unknown_round = 0; continue; }
@@ -215,8 +231,10 @@ pub async fn run(core: Weak<Core>, aws: Arc<Aws>) {
             .map(|g| (g.account.clone(), g.region.clone(), g.env.queue_url.clone()))
             .collect();
         for (account, region, url) in queues {
-            if !poll_once(&core, &aws, &account, &region, &url).await {
-                return;
+            match poll_once(&core, &aws, &account, &region, &url).await {
+                None => return,
+                Some(0) => {}
+                Some(_) => unknown_round = 0,
             }
         }
     }
@@ -254,33 +272,34 @@ async fn recover(core: &Core, aws: &Arc<Aws>, open: &[GroupRecord]) {
     }
 }
 
-/// One receive from one queue, and each message taken. False once the core
-/// is gone.
+/// One receive from one queue, and each message taken. The count received, or None once the
+/// core is gone.
 async fn poll_once(
     core: &Weak<Core>,
     aws: &Arc<Aws>,
     account: &str,
     region: &str,
     url: &str,
-) -> bool {
+) -> Option<usize> {
     let Ok(acct) = aws.account(Some(account)).cloned() else {
-        return true;
+        return Some(0);
     };
     let msgs = match receive(&acct, region, url).await {
         Ok(m) => m,
         Err(e) => {
             tracing::warn!(account, error = %e, "hands: the completion queue");
             tokio::time::sleep(BACKOFF).await;
-            return true;
+            return Some(0);
         }
     };
     let Some(c) = core.upgrade() else {
-        return false;
+        return None;
     };
+    let received = msgs.len();
     for (receipt, body) in sorted(msgs) {
         take(&c, aws, &acct, (region, url), &receipt, &body).await;
     }
-    true
+    Some(received)
 }
 
 /// Take one message, and delete it once what it brought is in the store.

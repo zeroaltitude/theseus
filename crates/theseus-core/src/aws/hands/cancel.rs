@@ -175,6 +175,7 @@ fn verified(
     };
     ctx.kernel
         .cancel_verified_costing(&a.correlation_id, &v, cost_micros(rec, a, st.ran_secs))
+        .inspect(|_| ctx.aws.hands.launched())
 }
 
 /// A stop the poller verified, after its cancel's caller had gone: its
@@ -227,7 +228,10 @@ pub async fn stop_hands(
                 .kernel
                 .cancel_unsupported(&a.correlation_id, LAMBDA_UNSUPPORTED)
             {
-                Ok(a) => out.push((a, "lambda")),
+                Ok(a) => {
+                    ctx.aws.hands.launched();
+                    out.push((a, "lambda"));
+                }
                 Err(e) => {
                     tracing::warn!(hand = %a.correlation_id, error = %format!("{e:#}"), "hands: a cancel");
                 }
@@ -249,6 +253,7 @@ pub async fn stop_hands(
                 "the launch may have run; its task id is not known yet",
             );
             if let Ok(a) = ctx.kernel.cancel_uncertain(&a.correlation_id, &verdict) {
+                ctx.aws.hands.launched();
                 out.push((a, "fargate"));
             }
             continue;
@@ -257,6 +262,7 @@ pub async fn stop_hands(
         match ecs(&account, &binding, &rec.region, "StopTask", &input).await {
             Ok(_) => {
                 let _ = ctx.kernel.cancel_acknowledged(&a.correlation_id);
+                ctx.aws.hands.launched();
                 asked.push(a.clone());
             }
             Err(e) => {
@@ -265,6 +271,7 @@ pub async fn stop_hands(
                     ..Verdict::uncertain(VerifiedBy::Ecs, format!("StopTask failed: {e}"))
                 };
                 if let Ok(a) = ctx.kernel.cancel_uncertain(&a.correlation_id, &v) {
+                    ctx.aws.hands.launched();
                     out.push((a, "fargate"));
                 }
             }
@@ -287,6 +294,7 @@ pub async fn stop_hands(
                     return true;
                 }
                 if let Ok(a) = verified(ctx, rec, a, st, t0.elapsed().as_millis() as u64) {
+                    ctx.aws.hands.launched();
                     out.push((a, "fargate"));
                 }
                 false
@@ -392,6 +400,7 @@ pub async fn stop_group(ctx: &Ctx<'_>, group: &str) -> Result<Vec<(Action, &'sta
     for a in &actions {
         if matches!(a.state, ActionState::Planned | ActionState::Authorized) {
             ctx.kernel.cancel_verified(&a.correlation_id, None)?;
+            ctx.aws.hands.launched();
         }
     }
     let running: Vec<String> = actions
@@ -454,6 +463,7 @@ pub async fn stop_group(ctx: &Ctx<'_>, group: &str) -> Result<Vec<(Action, &'sta
             }),
         )?
     };
+    ctx.aws.hands.launched();
     finish_group_stop(ctx, &mut rec, &actions, &call)?;
     out.push((call, rec.backend.as_str()));
     Ok(out)
