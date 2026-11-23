@@ -1395,8 +1395,10 @@ async fn derived_outside_words_mark_the_receiving_result_external() {
         },
     );
     let (read, owner_only) = (session(&r.core, None), session(&r.core, None));
+    // Places of their own: a page of the reader's own place starts below what its view already lays.
+    const REPLIED: &str = "discord:dm:55";
     const SUMMED: &str = "discord:dm:77";
-    put_read_outside(&r.core.store, &ex(1, HERE, &read));
+    put_read_outside(&r.core.store, &ex(1, REPLIED, &read));
     put_read_outside(&r.core.store, &ex(2, SUMMED, &read));
     let d = crate::ladder::did::DidLine {
         turn_id: "turn_0002".into(),
@@ -1435,7 +1437,7 @@ async fn derived_outside_words_mark_the_receiving_result_external() {
         }
     };
     for (what, args) in [
-        ("a page line's reply", json!({ "place": HERE })),
+        ("a page line's reply", json!({ "place": REPLIED })),
         ("a page line's did", json!({ "place": SUMMED })),
         ("an exchange's open", json!({ "open": "turn_0001" })),
         ("a session's page", json!({ "open": read.clone() })),
@@ -1495,7 +1497,7 @@ fn a_session_open_is_bounded_and_cuts_an_oversized_message_in_words() {
         );
     }
     // Paging back reaches the big message (cut in words, alone if it must be), then the first exchange.
-    let mut text = first.clone();
+    let mut text = first;
     let mut pages = 0;
     let token_of = |t: &str| -> Option<String> {
         t.contains("before=")
