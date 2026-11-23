@@ -421,3 +421,31 @@ async fn sampled_failed_comparison_is_charged_in_the_replay_day() {
     let report = r.core.route_report_now(true, now()).unwrap();
     assert!((report.replay_today_usd - sampled.spent_usd).abs() < 0.000_002);
 }
+
+#[tokio::test]
+async fn replay_that_spends_its_allowance_does_not_dispatch_comparison() {
+    let jev = jev_same();
+    let r = rig_compare_only(&jev);
+    script(&r, &["original"]);
+    let (session, turn) = asked(&r).await;
+    let p = TurnReplayParams { session: session.clone(), turn: turn.clone(), profile: "haiku".into(),
+        effort: None, scope: None, compare: Some(true) };
+    let original = r.core.rebuild_first(&session, &turn).unwrap();
+    let (live, _) = r.core.live_profile();
+    let target = r.core.runner.resolve_target(&live, Some("haiku"), None, None).unwrap();
+    let request = r.core.replay_request(&p, &original, &target, target.effort);
+    let price = r.core.runner.catalog.get(&request.model).unwrap();
+    let estimate = crate::compiler::estimate(&request, price.bytes_per_token, None);
+    let need = r.core.audit_reserve(&request).unwrap();
+    r.model.script.lock().unwrap().push_back(crate::provider::Scripted::Billed {
+        usage: theseus_protocol::Usage { input_tokens: estimate.tokens,
+            output_tokens: request.max_tokens as u64, ..Default::default() },
+        then: Box::new(crate::provider::Scripted::text("replayed")),
+    });
+    let mut spent = 0;
+    let done = r.core.replay_turn(&p, super::BY_SAMPLER, Some(need), &mut spent).await.unwrap();
+    assert_eq!(spent, need);
+    assert!(done.result.unjudged.unwrap().contains("replay allowance"));
+    assert!(jev.seen().is_empty(), "no comparison may dispatch after exhausting the allowance");
+    assert_eq!(theseus_kernel::usd_to_micros(done.result.cost_usd), need);
+}
