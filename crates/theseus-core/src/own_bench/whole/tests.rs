@@ -775,13 +775,21 @@ fn assert_label_veto(capped: Option<&str>, tests: bool, why: &str) {
 
 #[tokio::test]
 async fn differing_tests_veto_a_whole_replay_label() {
-    assert_label_veto(None, false, "none: the last test run differs from the original's");
+    assert_label_veto(
+        None,
+        false,
+        "none: the last test run differs from the original's",
+    );
 }
 
 #[tokio::test]
 async fn a_cap_vetoes_a_whole_replay_label() {
     for cap in ["loops", "seconds", "usd"] {
-        assert_label_veto(Some(cap), true, &format!("none: the replay ended at its {cap} cap"));
+        assert_label_veto(
+            Some(cap),
+            true,
+            &format!("none: the replay ended at its {cap} cap"),
+        );
     }
 }
 
