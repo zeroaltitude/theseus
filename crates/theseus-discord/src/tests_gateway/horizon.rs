@@ -258,12 +258,17 @@ async fn a_shared_board_shows_routines_without_changing_command_permissions() {
     // The read-only board names the routine; the DM's own reminder stays
     // with that conversation. Command permissions above are unchanged.
     r.until("the shared board names the routine", || {
-        r.fake.messages(LAB).iter().any(|m| {
-            m.content.contains("Morning digest") && m.content.contains("Routines")
-        })
+        r.fake
+            .messages(LAB)
+            .iter()
+            .any(|m| m.content.contains("Morning digest") && m.content.contains("Routines"))
     })
     .await;
-    assert!(r.fake.messages(LAB).iter().all(|m| !m.content.contains("stretch")));
+    assert!(r
+        .fake
+        .messages(LAB)
+        .iter()
+        .all(|m| !m.content.contains("stretch")));
 }
 
 #[tokio::test]

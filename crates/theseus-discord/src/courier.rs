@@ -1043,18 +1043,22 @@ impl Lane {
         })
     }
 
-    /// A turn's reply: its loops' final text under the stream's keys, which
-    /// edits what the stream posted and creates what it did not.
-    fn reply(&mut self, body: &Value, channel: u64) -> Plan {
-        let turn_id = body["turn_id"].as_str().unwrap_or("").to_string();
-        let texts: Vec<_> = self
-            .shared
+    /// Complete loop text is masked before any message boundary is chosen.
+    fn masked_reply_texts(&self, body: &Value) -> Vec<(u32, String)> {
+        self.shared
             .core
             .outbox
             .reply_texts(body)
             .into_iter()
             .map(|(i, text)| (i, self.shared.core.exits.text(&text).0.into_owned()))
-            .collect();
+            .collect()
+    }
+
+    /// A turn's reply: its loops' final text under the stream's keys, which
+    /// edits what the stream posted and creates what it did not.
+    fn reply(&mut self, body: &Value, channel: u64) -> Plan {
+        let turn_id = body["turn_id"].as_str().unwrap_or("").to_string();
+        let texts = self.masked_reply_texts(body);
         let result: Option<TurnSubmitResult> = serde_json::from_value(body["result"].clone()).ok();
         // A task is a subagent (issue 28): its own channel's reply footer says so.
         let task = self.is_task(result.as_ref());
