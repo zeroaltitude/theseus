@@ -398,7 +398,11 @@ async fn a_tasks_spend_counts_against_its_parent_and_it_asks_at_its_carve() {
             }
             start("CHILD: diff two lines", Some(1.40))
         },
-        |c| c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask,
+        |c| {
+            c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
+            // Keep the first call inside the same carve under cold-cache pricing.
+            c.profiles.get_mut("sonnet").unwrap().max_output_tokens = Some(96_000);
+        },
     );
     *r.model.hold.lock().unwrap() = Some("CHILD".into());
     let parent = parent_session(&r.core);
@@ -790,6 +794,7 @@ async fn a_report_that_starts_a_turn_at_the_parents_limit_asks() {
             // thread.read (their joins' review): the report's turn then asked
             // at its start; 2.80 holds, 2.90 does not.
             c.kernel.spend_limit_usd = 2.80;
+            c.profiles.get_mut("sonnet").unwrap().max_output_tokens = Some(96_000);
             c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
         },
     );

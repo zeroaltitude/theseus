@@ -640,6 +640,7 @@ async fn a_helper_is_told_once_at_three_quarters_and_ends_at_its_carve() {
     let parent = parent_session(&r.core);
     turn(&r.core, &parent, ASK).await;
     let tasks = tasks_of(&r.core, &parent);
+    assert_eq!(tasks.len(), 2, "both helpers were admitted");
     until("both helpers end", || {
         tasks
             .iter()
