@@ -65,6 +65,46 @@ pub(crate) struct Systemd {
     pub(crate) notify: std::sync::Arc<Notify>,
 }
 
+/// Kept privately while serving, with its listener still close-on-exec for jobs.
+pub(crate) struct Restart {
+    listener: Option<std::os::unix::net::UnixListener>,
+    address: Option<String>,
+    watchdog_usec: Option<u64>,
+}
+
+impl Restart {
+    pub(crate) fn prepare(&self, cmd: &mut std::process::Command) {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::process::CommandExt;
+        for name in VARS {
+            cmd.env_remove(name);
+        }
+        if let Some(addr) = &self.address {
+            cmd.env("NOTIFY_SOCKET", addr);
+        }
+        if let Some(usec) = self.watchdog_usec {
+            cmd.env("WATCHDOG_USEC", usec.to_string());
+        }
+        if let Some(listener) = &self.listener {
+            cmd.env("LISTEN_PID", std::process::id().to_string())
+                .env("LISTEN_FDS", "1");
+            let fd = listener.as_raw_fd();
+            // SAFETY: only async-signal-safe descriptor calls in pre_exec; self owns fd
+            // through Command::exec. No other child is launched by this command.
+            unsafe {
+                cmd.pre_exec(move || {
+                    if libc::dup2(fd, SD_LISTEN_FDS_START) < 0
+                        || libc::fcntl(SD_LISTEN_FDS_START, libc::F_SETFD, 0) < 0
+                    {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+        }
+    }
+}
+
 /// Whether this process was started with `LISTEN_FDS` meant for it, and how
 /// many descriptors it was given. Pure, so the whole table is a unit test:
 /// `LISTEN_PID` must name this process (systemd sets it so that a child which
@@ -80,6 +120,18 @@ fn listen_fds_of(listen_pid: Option<&str>, listen_fds: Option<&str>, me: u32) ->
 }
 
 impl Systemd {
+    pub(crate) fn for_restart(&self) -> Result<Restart> {
+        Ok(Restart {
+            listener: self
+                .listener
+                .as_ref()
+                .map(std::os::unix::net::UnixListener::try_clone)
+                .transpose()?,
+            address: self.notify.address.clone(),
+            watchdog_usec: self.notify.watchdog_usec,
+        })
+    }
+
     /// Read the environment once and clear it. Call this from the start path,
     /// before the runtime's workers and before any child exists: that is what
     /// makes the removal safe and what keeps the variables out of every job.
@@ -149,6 +201,7 @@ fn adopt() -> Result<std::os::unix::net::UnixListener> {
 /// what keeps this module out of the way of a daemon started from a shell.
 pub(crate) struct Notify {
     socket: Option<std::os::unix::net::UnixDatagram>,
+    address: Option<String>,
     /// `WATCHDOG_USEC`, systemd's own configured interval.
     watchdog_usec: Option<u64>,
 }
@@ -164,6 +217,7 @@ impl Notify {
             }
         });
         Notify {
+            address: addr.map(str::to_string),
             socket,
             watchdog_usec: watchdog_usec.and_then(|u| u.trim().parse().ok()),
         }
@@ -262,6 +316,90 @@ fn nonblocking(fd: RawFd) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn activation_and_watchdog_survive_an_exec() {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::process::CommandExt;
+        const STAGE: &str = "THESEUS_SYSTEMD_RESTART_FIXTURE";
+        match var(STAGE).as_deref() {
+            Some("first") => {
+                let sd = Systemd::from_env().unwrap();
+                assert!(sd.listener.is_some());
+                assert!(VARS.iter().all(|v| std::env::var_os(v).is_none()));
+                let restart = sd.for_restart().unwrap();
+                use std::os::fd::AsRawFd;
+                // SAFETY: this fixture owns the descriptor; ordinary children must not inherit it.
+                assert_ne!(
+                    unsafe {
+                        libc::fcntl(
+                            restart.listener.as_ref().unwrap().as_raw_fd(),
+                            libc::F_GETFD,
+                        )
+                    } & libc::FD_CLOEXEC,
+                    0
+                );
+                drop(sd);
+                crate::exec_self(STAGE, "second", &restart).unwrap();
+            }
+            Some("second") => {
+                let sd = Systemd::from_env().unwrap();
+                assert!(
+                    sd.listener.is_some(),
+                    "the activated listener must survive exec"
+                );
+                assert_eq!(sd.notify.watchdog_every(), Some(Duration::from_secs(1)));
+                assert!(VARS.iter().all(|v| std::env::var_os(v).is_none()));
+                sd.notify.ready("restart fixture");
+                sd.notify.watchdog();
+            }
+            _ => {
+                let dir = tempfile::tempdir().unwrap();
+                let listener =
+                    std::os::unix::net::UnixListener::bind(dir.path().join("s")).unwrap();
+                let notify = std::os::unix::net::UnixDatagram::bind(dir.path().join("n")).unwrap();
+                notify
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut cmd = std::process::Command::new("sh");
+                cmd.args(["-c", "LISTEN_PID=$$ exec \"$@\"", "fixture"])
+                    .arg(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "systemd::tests::activation_and_watchdog_survive_an_exec",
+                        "--nocapture",
+                    ])
+                    .env(STAGE, "first")
+                    .env("LISTEN_FDS", "1")
+                    .env("NOTIFY_SOCKET", dir.path().join("n"))
+                    .env("WATCHDOG_USEC", "2000000");
+                let fd = listener.as_raw_fd();
+                // SAFETY: dup2 and fcntl are async-signal-safe; the parent owns fd until the child starts.
+                unsafe {
+                    cmd.pre_exec(move || {
+                        if libc::dup2(fd, 3) < 0 || libc::fcntl(3, libc::F_SETFD, 0) < 0 {
+                            return Err(std::io::Error::last_os_error());
+                        }
+                        Ok(())
+                    });
+                }
+                let out = cmd.output().unwrap();
+                assert!(
+                    out.status.success(),
+                    "{}\n{}",
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                let mut buf = [0; 256];
+                let n = notify.recv(&mut buf).unwrap();
+                assert!(std::str::from_utf8(&buf[..n])
+                    .unwrap()
+                    .starts_with("READY=1"));
+                let n = notify.recv(&mut buf).unwrap();
+                assert_eq!(&buf[..n], b"WATCHDOG=1\n");
+            }
+        }
+    }
 
     /// `LISTEN_FDS` is this process's only when `LISTEN_PID` names it: the
     /// whole point of that variable is that a child which inherited the pair
