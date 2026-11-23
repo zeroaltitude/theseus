@@ -1815,14 +1815,17 @@ impl Lane {
         // The vault's own values never leave in a message (`[privacy]
         // redact_outbound`, theseus-gyjyo R7b): a post, an edit and a live
         // stream's text all come through here. A shape is not a value.
-        let masked = match self.shared.core.exits.text(&w.content).0 {
-            std::borrow::Cow::Owned(content) => Some(Write {
-                content,
-                ..w.clone()
-            }),
-            std::borrow::Cow::Borrowed(_) => None,
-        };
-        let w = masked.as_ref().unwrap_or(w);
+        let mut masked = w.clone();
+        masked.content = self.shared.core.exits.text(&w.content).0.into_owned();
+        match &mut masked.buttons {
+            Buttons::Ask(_, choices) | Buttons::Card(_, choices) => {
+                for label in choices {
+                    *label = self.shared.core.exits.text(label).0.into_owned();
+                }
+            }
+            _ => {}
+        }
+        let w = &masked;
         let mut known = w
             .message
             .map(|m| (w.channel, m))

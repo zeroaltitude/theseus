@@ -164,3 +164,29 @@ async fn a_notice_card_leaves_with_the_value_replaced() {
     };
     assert_eq!(mask_card(&lane.shared.core.exits, &plain), plain);
 }
+
+#[tokio::test]
+async fn question_choices_are_masked_before_button_clipping_on_create_and_edit() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    for (i, buttons) in [
+        Buttons::Ask("q".into(), vec![format!("{}{}", "x".repeat(45), VALUE)]),
+        Buttons::Card("q".into(), vec![VALUE.into()]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut w = post("k:choice", &format!("Choose {i}"));
+        w.buttons = buttons;
+        lane.write(&w).await.unwrap();
+        let components = fake
+            .messages(CHANNEL)
+            .pop()
+            .unwrap()
+            .components_json
+            .to_string();
+        assert!(!components.contains("vault-token"), "{components}");
+        assert!(components.contains("[redacted:"), "{components}");
+    }
+}
