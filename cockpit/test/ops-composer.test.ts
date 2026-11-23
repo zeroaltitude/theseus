@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { composerHint, composerStep, submitOf, type ComposerState } from '../src/ops/composer.ts'
-import { attachRefusal, attachmentOf, base64, MAX_ATTACH_BYTES, overCap, withoutSent } from '../src/ops/attach.ts'
+import { attachRefusal, attachmentOf, base64, MAX_ATTACH_BYTES, overCap, readAttachment, withoutSent } from '../src/ops/attach.ts'
 
 const idle: ComposerState = { kind: 'idle' }
 const running: ComposerState = { kind: 'running' }
@@ -77,9 +77,9 @@ test('a text file travels as text and anything else as its bytes, in the shape t
   assert.equal(base64(new TextEncoder().encode('any')), 'YW55')
 })
 
-test('a file over the cap is listed, not read, and the composer refuses it in the chat’s words', () => {
+test('a file over the cap is listed, not read, and the composer refuses it in the chat’s words', async () => {
   const big = { name: 'swell.mov', size: MAX_ATTACH_BYTES + 1 }
-  const a = attachmentOf(big, new Uint8Array([1, 2, 3]))
+  const a = await readAttachment({ ...big, arrayBuffer: async () => { throw new Error('an oversized file must not be read') } })
   assert.deepEqual(a, { name: 'swell.mov', media_type: '', size: MAX_ATTACH_BYTES + 1, not_read: overCap('the composer') })
   assert.equal(a.data, undefined, 'its bytes are never sent')
   assert.equal(overCap('the composer'), 'over the 32 MiB limit for the composer')
@@ -101,8 +101,9 @@ test('a chosen file rides turn.submit as an attachment, and none leaves the para
 
 test('the pane reads the file off the page and refuses before it sends', () => {
   const pane = readFileSync(new URL('../src/ops/JoinPane.tsx', import.meta.url), 'utf8')
-  assert.match(pane, /attachmentOf\(/, 'the pane builds its attachment with the one builder')
-  assert.match(pane, /arrayBuffer\(\)/, 'the bytes come from the browser’s own file read')
+  assert.match(pane, /readAttachment\(/, 'the pane reads through the capped reader')
+  const reader = readFileSync(new URL('../src/ops/attach.ts', import.meta.url), 'utf8')
+  assert.match(reader, /attachmentOf\(file, new Uint8Array\(await file.arrayBuffer\(\)\)\)/, 'the browser’s bytes still go through the one builder')
   const send = pane.slice(pane.indexOf('const send ='), pane.indexOf('const step ='))
   assert.ok(send.indexOf('attachRefusal(') < send.indexOf("post('join'"), 'a file that was not read is refused before any call')
 })

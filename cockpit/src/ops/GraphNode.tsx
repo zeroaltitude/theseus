@@ -140,7 +140,7 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
         <Pick on={d.picked} />
         {step ? <span aria-hidden className="text-[12px] leading-none" title={STEP_WORDS[step.word]}>{step.glyph}</span> : <span aria-hidden>{bucketGlyph(bucket, n.state) ?? GLYPH[n.state] ?? '·'}</span>}
         <span className="font-semibold uppercase tracking-wider">{step ? STEP_WORDS[step.word] : n.state.replace('_', ' ')}</span>
-        {locked(n.data) && <span title={`${n.data} data: US-origin models only${n.data === 'sensitive' ? ', never a shared place' : ''}`} className="flex items-center gap-0.5 text-ink-dim"><Lock size={10} aria-label={n.data} />{n.data}</span>}
+        {locked(n.data) && <span title={`${n.data} data: content label, not a model-origin restriction`} className="flex items-center gap-0.5 text-ink-dim"><Lock size={10} aria-label={n.data} />{n.data}</span>}
         {n.asks > 0 && <span className="rounded-full bg-wait/15 px-1.5 text-wait" title="questions it asks: answer them in the queue">? {n.asks}</span>}
         <span className="num ml-auto text-ink-faint" title={n.id}>{conv ? 'conversation' : step ? `step · ${shortId}` : shortId}</span>
         {d.onFoldBack && <button type="button" onClick={(e) => { e.stopPropagation(); d.onFoldBack?.() }} className="nodrag rounded px-1 text-[10px] text-ink-dim ring-1 ring-line hover:text-ink" title="fold its subtree again">fold</button>}

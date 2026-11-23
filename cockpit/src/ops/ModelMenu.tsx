@@ -113,7 +113,7 @@ export function ModelMenu({ session, onClose }: { session: SessionInfo; onClose:
     <Pop title={`Model · ${session.title || session.label || sid.slice(-6)}`} onClose={onClose}>
       <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[11.5px] text-ink-dim">
         <span>now on <span className="num text-model">◇ {current ?? 'the default'}</span>{sticky && ' (held from now on)'}</span>
-        {session.data && session.data !== 'open' && <Pill tone="wait" title="the floor keeps this conversation to models of US origin"><Lock size={10} /> {session.data} data</Pill>}
+        {session.data && session.data !== 'open' && <Pill tone="wait" title="content label; it does not restrict model origin"><Lock size={10} /> {session.data} data</Pill>}
         {sticky && <button onClick={() => void set(null)} disabled={busy || !on('model_sticky')} className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-live ring-1 ring-live/40 hover:bg-live/10"><Undo2 size={11} /> Revert to the default</button>}
       </div>
       <ul className="flex flex-col gap-1" data-testid="model-menu">

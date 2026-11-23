@@ -1,9 +1,9 @@
 // A selected calendar event, in the inspector (theseus-jid7t.5): its facts (title, time, calendar, attendee count, the
-// owner's response, whether the owner organizes it, the call link, the place), the privacy rule of a sensitive
-// calendar, and its verbs. Every string drawn here is `eventFacts`' (so redact mode masks it), and every verb's payload
-// is `eventVerbPayload`'s (so a sensitive event's content never leaves the page through a verb):
+// owner's response, whether the owner organizes it, the call link, the place), the sensitive label's explanation
+// and its verbs. Every fact drawn here is `eventFacts`' (so redact mode masks it), and every verb's payload
+// is `eventVerbPayload`'s (titles are included regardless of the label):
 //   Join the call, Open in Google   a link opened in a new tab; nothing is sent to the daemon
-//   Remind me                       one `wake.create`, its note naming only the calendar and the time when sensitive
+//   Remind me                       one `wake.create`, its note naming the event and its time
 //   Start a prep task               the New task sheet, filled in
 //   Ask Theseus                     a private chat (`session.open`, then its first message), on the session's own model
 // Each goes through `useOpsAct`, so the time machine turns it off.
@@ -28,10 +28,10 @@ export function EventDetail({ ev, cal, redact }: { ev: CalendarEvent; cal: Calen
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null)
   const [prep, setPrep] = useState(false)
   const f = eventFacts(ev, cal, redact)
-  // The links come from the event as the page shows it: under redact a sensitive event has no call
-  // link and no Google link to open.
+  // Every verb uses the event as the page shows it: under redact a sensitive event has no title
+  // to put in a sheet or chat, and no call or Google link to open.
   const shown = redactEvent(ev, cal, redact)
-  const pay = (v: EventVerb) => eventVerbPayload(v === 'join' || v === 'google' ? shown : ev, cal, v)
+  const pay = (v: EventVerb) => eventVerbPayload(shown, cal, v)
   const join = pay('join')
   const google = pay('google')
   const prepSheet = pay('prep')

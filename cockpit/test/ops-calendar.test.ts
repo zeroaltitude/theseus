@@ -1,8 +1,8 @@
 // The calendar layer's data rules (theseus-jid7t.5; the owner's rule 3): redact mode masks a sensitive calendar on
 // every surface the lens draws (the "DOM scan": there is no DOM in `npm test`, so every string the lens's fact
-// functions make for an event is scanned for the invented content); a sensitive event's verbs carry only the time and
-// the calendar's label; the states each say their words and fix; the New task sheet offers US models only for a
-// sensitive event; nothing is stored or logged.
+// functions make for an event is scanned for the invented content); verbs keep the event's title regardless of its
+// label; the states each say their words and fix; the New task sheet offers configured profiles; nothing here is
+// stored or logged.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -63,7 +63,7 @@ test('redact mode reaches Coming up and the search: a sensitive title neither sh
   assert.equal(eventMatches(secret, work, true, 'xylophone'), false, 'nor its place')
 })
 
-test('a sensitive event’s verbs carry only its time and calendar; an open one’s may quote its title', () => {
+test('event verbs quote the title regardless of the calendar label', () => {
   const { work, personal, secret, open } = twoCalendars()
   const now = local(2026, 10, 23, 9)
   for (const v of EVENT_VERBS) {
@@ -74,14 +74,14 @@ test('a sensitive event’s verbs carry only its time and calendar; an open one�
       assert.ok(v === 'join' || v === 'google', v)
       continue
     }
-    assert.deepEqual(hits(strings, [...contentOf(SECRET), SECRET.html_link]), [], `${v} carries nothing of the event`)
-    assert.ok(strings.some((s) => s.includes('Work')), `${v} names the calendar`)
+    assert.deepEqual(hits(strings, [SECRET.location, SECRET.call, `${SECRET.attendees} attendees`, SECRET.html_link]), [], `${v} sends no place, attendees or link`)
+    assert.ok(strings.some((s) => s.includes(SECRET.title)), `${v} quotes the title`)
   }
   const remind = eventVerbPayload(secret, work, 'remind', now)
   assert.equal(remind.kind, 'call')
   if (remind.kind === 'call') {
     assert.equal(remind.method, 'wake.create')
-    assert.equal(remind.params.note, 'Coming up: the Work event at 14:00 on Fri 10/23.')
+    assert.equal(remind.params.note, `Coming up: “${SECRET.title}” at 14:00 on Fri 10/23.`)
     assert.equal(new Date(remind.params.when).getTime(), local(2026, 10, 23, 13, 50), 'ten minutes before, as an instant')
   }
   const prep = eventVerbPayload(secret, work, 'prep', now)
@@ -100,7 +100,7 @@ test('a sensitive event’s verbs carry only its time and calendar; an open one�
   assert.equal(eventVerbPayload(redactEvent(secret, work, true), work, 'join', now).kind, 'none')
   // Nor Google's own link: its eid carries the sensitive calendar's id.
   assert.equal(eventVerbPayload(redactEvent(secret, work, true), work, 'google', now).kind, 'none')
-  assert.match(read('src/ops/EventDetail.tsx'), /v === 'join' \|\| v === 'google' \? shown : ev/)
+  assert.match(read('src/ops/EventDetail.tsx'), /eventVerbPayload\(shown, cal, v\)/)
   assert.equal(eventVerbPayload(secret, work, 'remind', local(2026, 10, 23, 15)).kind, 'none', 'a reminder for a meeting begun is refused')
 })
 
@@ -161,7 +161,7 @@ test('the New task sheet: a sensitive event offers every profile the daemon list
   assert.deepEqual(s.choices.map((c) => c.name), ['harbour', 'quay', 'dock'])
   // The panel and the verbs promise no origin: no "US" words anywhere the sheet or the event shows.
   assert.doesNotMatch(PRIVACY_NOTE, /US origin|US model/)
-  assert.match(PRIVACY_NOTE, /never reach a shared place/)
+  assert.match(PRIVACY_NOTE, /Reminders, prep tasks and chats name its events by title; while redact mode masks it, they name only the calendar and the time/)
   for (const f of ['src/ops/NewTask.tsx', 'src/ops/EventDetail.tsx', 'src/ops/calendar.ts', 'src/ops/newtask.ts']) {
     assert.doesNotMatch(read(f), /usOnly|US_ONLY|US-only|US models only/, f)
   }

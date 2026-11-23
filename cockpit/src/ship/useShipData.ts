@@ -191,6 +191,8 @@ export function useShipLive(selected: string | undefined, world: World | null, f
   const plan = useMemo(() => (planned ? readPlan(planned, filter, all) : null), [planned, filter, all])
   const planKey = plan ? plan.ids.join(',') : null
   const reader = useRef<Reader | null>(null)
+  const freshReader = useRef(false)
+  const [epoch, setEpoch] = useState(0)
   useEffect(() => {
     if (!open) return
     store.setState({ progress: 0.08 })
@@ -201,14 +203,17 @@ export function useShipLive(selected: string | undefined, world: World | null, f
       idle: () => store.setState((s) => ({ progress: 1, batch: undefined, ...(s.known ? {} : { known: new Set(s.nodes.keys()) }) })),
     })
     reader.current = r
+    freshReader.current = true
     return () => { r.stop(); reader.current = null }
-  }, [open, store])
+  }, [open, store, epoch])
   // After the reader's own effect, so a reconnect's new reader is asked again for what the plan names.
   useEffect(() => {
     if (!open || planKey === null) return
     const have = store.getState().read
-    reader.current?.enqueue(planKey ? planKey.split(',').filter((id) => !have.has(id)) : [])
-  }, [open, planKey, store])
+    const ids = planKey ? planKey.split(',') : []
+    reader.current?.enqueue(freshReader.current ? ids : ids.filter((id) => !have.has(id)))
+    freshReader.current = false
+  }, [open, planKey, store, epoch])
   const loadAll = useMemo(() => () => setLoadedAll((a) => (a.has(filter) ? a : new Set(a).add(filter))), [filter])
 
   // What the pushes say.
@@ -283,6 +288,7 @@ export function useShipLive(selected: string | undefined, world: World | null, f
           break
         }
         case 'events.lost':
+          setEpoch((n) => n + 1)
           void queries.invalidateQueries()
           break
       }

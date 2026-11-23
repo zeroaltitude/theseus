@@ -63,6 +63,13 @@ test('the words are for a person: no internal name, and each setting says Theseu
   }
 })
 
+test('the memory row does not teach threads as a setting: they are retired, and only the persona key of their section is used', () => {
+  const memory = FIXED.find((s) => s.id === 'memory')!
+  assert.doesNotMatch(memory.words, /sessions and threads/, 'threads offered as a current setting')
+  assert.match(memory.words, /which persona answers a message \(the threads section’s one setting still used: threads are retired/)
+  assert.ok(memory.tables.includes('threads'), 'the section is still in the example file, so it stays on the page')
+})
+
 test('what Theseus is running with now is read from health, and a missing report says nothing', () => {
   const h = { model: 'm', provider: 'p', profile: 'live', kernel: { admission_ceiling: 8, spend_limit_usd: 100, spend_limit_mode: 'notify' } } as unknown as Health
   assert.equal(FIXED.find((s) => s.id === 'limits')!.now!(h), '8 turns at once · $100 a conversation, then notify')
