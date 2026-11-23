@@ -778,6 +778,82 @@ fn spans<'a>(s: &'a Value, kind: &str) -> Vec<&'a Value> {
     out
 }
 
+/// An exchange of `place` in session `sid`, its ask by `person` (marked) and its reply, its touch written: for
+/// [`a_history_read_of_another_persons_words_is_outside_text_and_holds_nothing`].
+fn history_exchange(
+    core: &Core,
+    sid: &str,
+    turn: &str,
+    (place, person): (&str, &str),
+    words: &str,
+) {
+    use crate::exchange::{
+        exchange_record, mark_record, touch, Exchange, Opener, OwnerMark, Peer, Root, OWNER,
+    };
+    use crate::node::Node;
+    let at = 1_000_000;
+    let ask = Node::user(sid, Some(turn), person, words);
+    let said = Node::assistant(
+        sid,
+        turn,
+        0,
+        Body::AssistantMessage {
+            blocks: vec![json!({"type": "text", "text": format!("noted: {words}")})],
+            model: "m".into(),
+            provider: "p".into(),
+            stop_reason: None,
+            usage: Default::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+            effort: None,
+        },
+    );
+    let mark = OwnerMark {
+        node: ask.id.clone(),
+        in_person: person == OWNER,
+        owner_handle: None,
+        peer: if person == OWNER {
+            Peer::Person
+        } else {
+            Peer::Transport
+        },
+        agent: None,
+        surface: "cli".into(),
+        place: place.into(),
+        arrived_session: sid.into(),
+        ran_session: sid.into(),
+        author: (person != OWNER).then(|| person.to_string()),
+        at_ms: at,
+    };
+    let x = Exchange {
+        turn_id: turn.into(),
+        session_id: sid.into(),
+        place: place.into(),
+        private: false,
+        opened_by: Opener::Message,
+        person: Some(person.into()),
+        start_ms: at,
+        end_ms: Some(at + 500),
+        ask: Some(ask.id.clone()),
+        reply: Some(said.id.clone()),
+        messages: vec![ask.id.clone()],
+        stop: Some("end_turn".into()),
+        rebuilt: false,
+    };
+    let mut recs = vec![
+        ask.record().unwrap(),
+        said.record().unwrap(),
+        mark_record(&mark).unwrap(),
+        exchange_record(&x).unwrap(),
+    ];
+    recs.extend(touch(Root::Place(place), turn, sid, at));
+    core.store.append(&recs).unwrap();
+}
+
 /// D5 round 2, part B: the security half of `tests_glide::a_read_from_a_shared_place_is_outside_text_and_holds_nothing`
 /// (deleted with `channel.read`), retargeted onto the history tool's real path: `context_history` → `Board::run` →
 /// its marker → the RECEIVING session's stored result. An open of an exchange holding another person's words is
@@ -787,74 +863,6 @@ fn spans<'a>(s: &'a Value, kind: &str) -> Vec<&'a Value> {
 /// clean, and its fetch is not judged. (The retired read-approval half is not restored.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_history_read_of_another_persons_words_is_outside_text_and_holds_nothing() {
-    /// An exchange of `place` in session `sid`, its ask by `person` (marked) and its reply, its touch written.
-    fn exchange(core: &Core, sid: &str, turn: &str, (place, person): (&str, &str), words: &str) {
-        use crate::exchange::{
-            exchange_record, mark_record, touch, Exchange, Opener, OwnerMark, Peer, Root, OWNER,
-        };
-        use crate::node::Node;
-        let at = 1_000_000;
-        let ask = Node::user(sid, Some(turn), person, words);
-        let said = Node::assistant(
-            sid,
-            turn,
-            0,
-            Body::AssistantMessage {
-                blocks: vec![json!({"type": "text", "text": format!("noted: {words}")})],
-                model: "m".into(),
-                provider: "p".into(),
-                stop_reason: None,
-                usage: Default::default(),
-                cost_usd: None,
-                catalog_version: None,
-                request_id: None,
-                correlation_id: None,
-                compilation_id: None,
-                request_digest: None,
-                effort: None,
-            },
-        );
-        let mark = OwnerMark {
-            node: ask.id.clone(),
-            in_person: person == OWNER,
-            owner_handle: None,
-            peer: if person == OWNER {
-                Peer::Person
-            } else {
-                Peer::Transport
-            },
-            agent: None,
-            surface: "cli".into(),
-            place: place.into(),
-            arrived_session: sid.into(),
-            ran_session: sid.into(),
-            author: (person != OWNER).then(|| person.to_string()),
-            at_ms: at,
-        };
-        let x = Exchange {
-            turn_id: turn.into(),
-            session_id: sid.into(),
-            place: place.into(),
-            private: false,
-            opened_by: Opener::Message,
-            person: Some(person.into()),
-            start_ms: at,
-            end_ms: Some(at + 500),
-            ask: Some(ask.id.clone()),
-            reply: Some(said.id.clone()),
-            messages: vec![ask.id.clone()],
-            stop: Some("end_turn".into()),
-            rebuilt: false,
-        };
-        let mut recs = vec![
-            ask.record().unwrap(),
-            said.record().unwrap(),
-            mark_record(&mark).unwrap(),
-            exchange_record(&x).unwrap(),
-        ];
-        recs.extend(touch(Root::Place(place), turn, sid, at));
-        core.store.append(&recs).unwrap();
-    }
     let jev = FakeJev::start().unwrap();
     let read = |id: &str, turn: &str| {
         Scripted::tools("", &[(id, "context_history", json!({ "open": turn }))])
@@ -883,14 +891,14 @@ async fn a_history_read_of_another_persons_words_is_outside_text_and_holds_nothi
         Scripted::text("Done."),
     ];
     let r = rig(script, Some(&jev), |_| {}).await;
-    exchange(
+    history_exchange(
         &r.core,
         "ses_owner_words",
         "turn_owner_words",
         ("discord:dm:42", crate::exchange::OWNER),
         "the owner's ferry question",
     );
-    exchange(
+    history_exchange(
         &r.core,
         "ses_guest_words",
         "turn_guest_words",
