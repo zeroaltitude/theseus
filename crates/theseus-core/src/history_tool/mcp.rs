@@ -1,16 +1,23 @@
 //! `history.read` (issue 46): the history tool, `context.history`, read by an MCP client with no model call.
 //! It runs the tool's one read (`super::read`) with no turn (`Allowance::NoTurn`): each call is one page or one
-//! open, and nothing is counted across calls.
+//! open, and nothing is counted across calls. Every read of the tool is the model's own: a span, an exchange or
+//! a session opened by id (an imported one included, each node by its newest record), a words search, a thing.
 //!
 //! - **Its anchor**: `place` (a place's key, as a line names it), else where `session_id`, the client's own
-//!   conversation, speaks (`super::anchor`). An `open` of a handle and a `thing`'s timeline need none; a page
-//!   or a words search with neither is refused in words ([`NO_ANCHOR`]). Nothing is in view with no turn, so a
-//!   bare page starts at the newest exchange.
+//!   conversation, speaks (`super::anchor`). An `open` and a `thing`'s timeline need none; a page or a words
+//!   search with neither is refused in words ([`NO_ANCHOR`]). Nothing is in view with no turn, so a bare page
+//!   starts at the newest exchange.
+//! - **A fork's cut**: a `session_id` that is a fork (an MCP client may fork its own conversation) carries
+//!   that fork's cut, as the model's own call in it does: its pages, its search and its opens hold nothing an
+//!   ancestor said at or after the fork's point (`super::lens_for`). With no session the cut is empty.
 //! - **Typed lines**, not the model's page: the page's text speaks to a model in a turn (its looks, the person
 //!   it talks to), which an outside agent is not. A line holds what `HistoryLine` holds, cut by the same
 //!   margins, and `who` by the page's own rule; an open is the tool's spoken form, one string.
-//! - **The vault's values are substituted** in every string of a reply and of an error (`Exits::text`), as the
-//!   MCP memory tools' are: no provider call is on this path to do it.
+//! - **The vault's values are substituted in every string** of a reply (handles, times, the page's end and
+//!   cursor too) and of an error (`Exits::text`), as the MCP memory tools' are: no provider call is on this
+//!   path to do it. A handle or cursor the substitution changes no longer navigates: that is the right failure.
+//! - **Retraction corrects; it does not hide**: a retracted statement still appears in history as said, and
+//!   its correction is the note the retraction gave the sessions that used it. An erased import is gone.
 
 use std::sync::Arc;
 
@@ -18,8 +25,7 @@ use theseus_protocol::memory::{
     HistoryCursor, HistoryOpened, HistoryReadLine, HistoryReadParams, HistoryReadResult,
 };
 
-use super::page::{self, Lens};
-use super::{read, Allowance, Read};
+use super::{count, lens_for, page, read, Allowance, Read};
 use crate::session::SessionRecord;
 use crate::view::history::{HistoryArgs, HistoryLine, PageEnd};
 use crate::view::timeline::Cursor;
@@ -35,14 +41,9 @@ fn some(s: &Option<String>) -> Option<&str> {
     s.as_deref().map(str::trim).filter(|s| !s.is_empty())
 }
 
-/// Where the call is anchored: `place`, else where `session_id` speaks; none when neither is given.
-fn anchor(core: &Core, p: &HistoryReadParams) -> Result<Option<String>, String> {
-    if let Some(place) = some(&p.place) {
-        return Ok(Some(place.to_string()));
-    }
-    let Some(sid) = some(&p.session_id) else {
-        return Ok(None);
-    };
+/// The anchoring session's place, when `session_id` names one: where it speaks, or none when that cannot be
+/// read. A `session_id` that names no session is refused.
+fn place_of_session(core: &Core, sid: &str) -> Result<Option<String>, String> {
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)
@@ -85,8 +86,8 @@ fn cursor(c: Cursor) -> HistoryCursor {
     }
 }
 
-/// `history.read`: a page of `p`'s timeline, or one opened exchange, with the vault's values substituted in
-/// every string of the reply and of an error.
+/// `history.read`: a page of `p`'s timeline, or one opened exchange or session, with the vault's values
+/// substituted in every string of the reply and of an error.
 pub(crate) async fn history(
     core: &Arc<Core>,
     p: &HistoryReadParams,
@@ -97,16 +98,24 @@ pub(crate) async fn history(
         .map_err(|e| said(core, &e))
 }
 
-/// An error's words with the vault's values substituted: an error may echo what was asked.
+/// Words with the vault's values substituted: an error's, which may echo what was asked, and the endpoint's
+/// every error (`rpc/memory_read.rs`).
 pub(crate) fn said(core: &Core, e: &str) -> String {
     core.exits.text(e).0.into_owned()
 }
 
-/// The reply with the vault's values substituted in every string a client reads. Every field is named (no
-/// `..`), so a field added later does not compile until it is classified here: substituted (what was said,
-/// a place, a person), or left as it is (a handle, a time, a cursor, a generated word).
-fn substituted(core: &Core, r: HistoryReadResult) -> HistoryReadResult {
-    let sub = |s: String| core.exits.text(&s).0.into_owned();
+/// The reply with the vault's values substituted in EVERY string a client reads: handles, places, times, the
+/// page's end and its cursor as well as what was said. Every field is named (no `..`), so a field added later
+/// does not compile until it is placed here; only numbers pass as they are.
+pub(crate) fn substituted(core: &Core, r: HistoryReadResult) -> HistoryReadResult {
+    let sub = |s: String| said(core, &s);
+    let cur = |c: HistoryCursor| {
+        let HistoryCursor { at_ms, turn_id } = c;
+        HistoryCursor {
+            at_ms,
+            turn_id: sub(turn_id),
+        }
+    };
     let HistoryReadResult {
         place,
         lines,
@@ -128,10 +137,10 @@ fn substituted(core: &Core, r: HistoryReadResult) -> HistoryReadResult {
                 reply_begins,
             } = l;
             HistoryReadLine {
-                handle,
+                handle: sub(handle),
                 place: sub(place),
                 at_ms,
-                when,
+                when: sub(when),
                 who: sub(who),
                 words: sub(words),
                 did: did.map(sub),
@@ -140,17 +149,18 @@ fn substituted(core: &Core, r: HistoryReadResult) -> HistoryReadResult {
         })
         .collect();
     let open = open.map(|o| {
-        let HistoryOpened { handle, text } = o;
+        let HistoryOpened { handle, text, next } = o;
         HistoryOpened {
-            handle,
+            handle: sub(handle),
             text: sub(text),
+            next: next.map(cur),
         }
     });
     HistoryReadResult {
         place: sub(place),
         lines,
-        end,
-        next,
+        end: sub(end),
+        next: next.map(cur),
         open,
     }
 }
@@ -168,39 +178,66 @@ async fn read_history(
             turn_id: c.turn_id.clone(),
         }),
         open: p.open.clone().map(Handle),
+        when: p.when.clone(),
+        from: p.from.clone(),
+        to: p.to.clone(),
+    };
+    // The session that anchors the read (its place, and its fork's cut), when one is named.
+    let session = some(&p.session_id);
+    let session_place = match session {
+        Some(sid) => place_of_session(core, sid)?,
+        None => None,
     };
     let needs_none = some(&p.open).is_some() || some(&p.thing).is_some();
-    let here = match anchor(core, p)? {
-        Some(h) => h,
-        None if needs_none => String::new(),
-        None => return Err(NO_ANCHOR.into()),
+    let here = match (some(&p.place), session_place) {
+        (Some(place), _) => place.to_string(),
+        (None, Some(place)) => place,
+        (None, None) if needs_none => String::new(),
+        (None, None) => return Err(NO_ANCHOR.into()),
     };
     let place = match (some(&p.thing), some(&p.open)) {
         (None, None) => here.clone(),
         _ => String::new(),
     };
-    let lens = Lens::bare(&core.store, here);
-    Ok(match read(core, lens, Allowance::NoTurn, &a).await? {
-        Read::Opened { handle, text, .. } => HistoryReadResult {
-            open: Some(HistoryOpened { handle, text }),
-            ..HistoryReadResult::default()
-        },
-        // A call with no turn counts no opens.
-        Read::OpensUsed { .. } => return Err("no exchange can be opened now".into()),
-        Read::Page { walked, resume, .. } => {
-            let pg = walked.page;
-            let (end, next) = match pg.end {
-                PageEnd::More | PageEnd::AllowanceUsed => ("more", pg.next),
-                PageEnd::ScanLimit => ("scan_limit", resume),
-                PageEnd::HistoryExhausted => ("history_exhausted", None),
-            };
-            HistoryReadResult {
-                place,
-                lines: pg.lines.into_iter().map(line).collect(),
-                end: end.into(),
-                next: next.map(cursor),
-                open: None,
+    let lens = lens_for(
+        core,
+        &here,
+        None,
+        session,
+        &a,
+        theseus_protocol::now_unix_ms(),
+    )?;
+    let in_span = lens.span.is_some();
+    let used = count(core, &Allowance::NoTurn, &a);
+    Ok(
+        match read(core, lens, &Allowance::NoTurn, used, &a).await? {
+            Read::Opened { handle, opened, .. } => HistoryReadResult {
+                open: Some(HistoryOpened {
+                    handle,
+                    text: opened.text,
+                    next: opened.next.map(cursor),
+                }),
+                ..HistoryReadResult::default()
+            },
+            // A call with no turn counts no opens.
+            Read::OpensUsed { .. } => return Err("no exchange can be opened now".into()),
+            Read::Page { walked, resume, .. } => {
+                let pg = walked.page;
+                let (end, next) = match pg.end {
+                    PageEnd::More | PageEnd::AllowanceUsed => ("more", pg.next),
+                    PageEnd::ScanLimit => ("scan_limit", resume),
+                    PageEnd::HistoryExhausted if in_span => ("span_start", None),
+                    PageEnd::HistoryExhausted => ("history_exhausted", None),
+                    PageEnd::SearchCut => ("search_cut", None),
+                };
+                HistoryReadResult {
+                    place,
+                    lines: pg.lines.into_iter().map(line).collect(),
+                    end: end.into(),
+                    next: next.map(cursor),
+                    open: None,
+                }
             }
-        }
-    })
+        },
+    )
 }

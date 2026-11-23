@@ -54,11 +54,18 @@ impl Core {
                 reply(self.rpc_memory_lookup(p, conn.surface).await?)
             }
             method::HISTORY_READ => {
-                let p = super::server::parse(params).map_err(|mut e| {
+                // Every error of the endpoint, the fixed refusals and a decode or serialization error included,
+                // carries the vault's values substituted, whatever it says (review of D6b, §2).
+                let scrub = |mut e: RpcFailure| {
                     e.message = crate::history_tool::mcp::said(self, &e.message);
                     e
-                })?;
-                reply(self.rpc_history_read(p, conn.surface).await?)
+                };
+                let p = super::server::parse(params).map_err(scrub)?;
+                let r = self
+                    .rpc_history_read(p, conn.surface)
+                    .await
+                    .map_err(scrub)?;
+                reply(r).map_err(scrub)
             }
             _ => reply(self.memory_search(super::server::parse(params)?).await?),
         }
@@ -103,7 +110,8 @@ impl Core {
 
     /// `history.read` from a connection of `surface`: the history tool's read for an MCP client. Its row's
     /// digest is of the arguments asked (the client's name aside), as one JSON line; its count, the lines
-    /// answered (an open is one).
+    /// answered (an open is one). A call refused before it reads (a non-MCP surface, memory off, or, in `mem`,
+    /// params that do not decode) writes no row, as `memory.lookup`'s do not.
     pub(super) async fn rpc_history_read(
         self: &Arc<Self>,
         p: HistoryReadParams,

@@ -2288,10 +2288,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `memory.read` row (`fact::memory::MemoryRead`: principal, tool, client, a digest of the words, hits). Tests:
     `tests_mcp_memory.rs`; the tools' golden is theseus-mcp's `tests/golden/memory_tools.json`.
     **`context_history` for an MCP client** (issue 46; `history_tool/mcp.rs`, `rpc/memory_read.rs`): the MCP tool
-    `context_history` is the method `history.read`, the history tool's own read (`history_tool::read`) with no turn
-    (`Allowance::NoTurn`: one page or one open a call, nothing counted across calls, nothing in view). Its anchor is
-    `place`, else where `session_id` speaks; a page with neither is refused (`NO_ANCHOR`). Typed lines
-    (`memory::HistoryReadLine`), the vault's values substituted in every string and error. The same two checks as
+    `context_history` is the method `history.read`, the history tool's own read (`history_tool::read`: a span, an
+    exchange or a session opened by id, words, a thing) with no turn (`Allowance::NoTurn`: one page or one open a
+    call, nothing counted across calls, nothing in view). Its anchor is `place`, else where `session_id` speaks; a
+    `session_id` that is a fork carries its cut (`history_tool::lens_for`, the one lens both callers build); a page
+    with neither is refused (`NO_ANCHOR`). Typed lines (`memory::HistoryReadLine`); the vault's values substituted
+    in every string of a reply (handles, times, the end and the cursor too) and of every error (the endpoint's
+    outer scrub). A retracted statement still appears in history as said; its correction is the note. The same two checks as
     `memory.lookup` (`Core::mcp_memory_only`) and the same `memory.read` row (tool `context_history`, a digest of the
     arguments). Tests: `tests_mcp_history.rs`, each mirroring one of `tests_mcp_memory.rs`'s.
   - **In front of the model** (step 30b, theseus-6fn.2): `[memory] mode = "live"` (`canary`, retired, reads as `live`).

@@ -763,8 +763,10 @@ pub struct MemoryLookupResult {
 
 /// `history.read` (issue 46): the history tool, `context.history`, read by an MCP client, with no model call.
 /// Its anchor is `place` (a place's key, as a line names it), else where `session_id` (the client's own
-/// conversation) speaks; `open` and `thing` need none. `words`, `thing` and `before` narrow and page as the
-/// model's own calls do. Only the MCP server's connection calls it, and only while `[mcp_server] memory` is on.
+/// conversation) speaks, with that session's fork cut when it is a fork; `open` (an exchange's handle or a
+/// `ses_…` id) and `thing` need none. `words`, `thing`, a span (`when`, or `from` / `to`) and `before` narrow and
+/// page as the model's own calls do. Only the MCP server's connection calls it, and only while
+/// `[mcp_server] memory` is on.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct HistoryReadParams {
@@ -785,10 +787,20 @@ pub struct HistoryReadParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub before: Option<HistoryCursor>,
-    /// A line's handle: that exchange, whole.
+    /// A line's handle: that exchange, whole; or a `ses_…` id: that session, a page of it (`before` pages back).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub open: Option<String>,
+    /// A time span (`yesterday`, `2026-11-20`, `last week`), read by the explicit reader; or `from` and `to`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub when: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub to: Option<String>,
     /// The MCP client's name, for the `memory.read` row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -826,12 +838,16 @@ pub struct HistoryReadLine {
     pub reply_begins: Option<String>,
 }
 
-/// An opened exchange: the history tool's spoken form of it, one string.
+/// An opened exchange or session: the history tool's spoken form of it, one string. A session's page gives
+/// `next` while earlier messages remain: pass it back as `before` with the same `open`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct HistoryOpened {
     pub handle: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub next: Option<HistoryCursor>,
 }
 
 /// `history.read`'s answer: a page (the timeline read, its lines newest first, how it ends and where the next
@@ -842,8 +858,10 @@ pub struct HistoryReadResult {
     /// The place read: the anchor, or the `place` asked; empty for a thing or an open.
     pub place: String,
     pub lines: Vec<HistoryReadLine>,
-    /// `more`, `history_exhausted` or `scan_limit` (a limit of the tool, not the end of history); empty for an
-    /// open.
+    /// How the page ends: `more` (pass `next` as `before`), `history_exhausted` (nothing older is on record),
+    /// `span_start` (the span's start is reached: nothing older is in it), `scan_limit` (a limit of the tool, not
+    /// the end of history: pass `next` as `before`) or `search_cut` (a fork's words search the fork's cut
+    /// crowded: the list may be incomplete, never the end of history); empty for an open.
     pub end: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

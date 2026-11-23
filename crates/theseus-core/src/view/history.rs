@@ -36,6 +36,15 @@ pub struct HistoryArgs {
     /// Open one line to its full text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open: Option<Handle>,
+    /// A time span (`"last week"`, `"2026-11-20"`, `"from 3 to 5 November"`): only its exchanges, newest first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
+    /// A span's start, read as `when` is (its start); with `to` or alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// A span's end, read as `when` is (its end, not included); with `from` or alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
 }
 
 /// One line of a page: his words exactly, and a line of what Theseus did.
@@ -65,6 +74,10 @@ pub enum PageEnd {
     /// The walk read its bound of records before its page was full: a limit of the tool, not the end of
     /// history; it resumes from a token the tool keeps for the turn.
     ScanLimit,
+    /// A words search in a fork reached the end of its walk with hits the fork's cut held (the source's words
+    /// after the point): those may have filled the search's bounded top hits and crowded out earlier ones, so
+    /// the list may be incomplete. Never told as the end of history.
+    SearchCut,
 }
 
 /// One page, newest first, with a stable cursor.

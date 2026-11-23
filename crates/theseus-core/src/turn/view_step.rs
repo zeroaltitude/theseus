@@ -226,7 +226,7 @@ impl TurnRunner {
         let (asked, message) =
             given.map_or_else(|| message_of(store, sid, turn), |text| Ok((None, text)))?;
         let verified_pov = verified.pov().clone();
-        let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified);
+        let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified)?;
         let read = fork.sessions();
         let sources = StoreSources {
             store,
@@ -668,7 +668,7 @@ fn window_of(
         window.extend(match form {
             Form::Whole => nodes,
             Form::Spoken => bounded(nodes, &handle),
-            Form::Line => as_line(store, nodes, &handle)?,
+            Form::Line => as_line((store, read), nodes, &handle)?,
         });
     }
     let mut sessions: Vec<String> = (a.view.shown.iter())
@@ -758,15 +758,19 @@ fn bounded(nodes: Vec<(u64, Stub)>, handle: &Handle) -> Vec<(u64, Stub)> {
 /// A `Line` exchange as the budgeter paid for it: the person's words (as labelled), then the `did` line
 /// (or "reply not summarised") and the handle, as one message of the person's turn.
 fn as_line(
-    store: &Store,
+    (store, read): (&Store, &Sessions),
     nodes: Vec<(u64, Stub)>,
     handle: &Handle,
 ) -> anyhow::Result<Vec<(u64, Stub)>> {
     let Some((p, ask)) = nodes.into_iter().find(|(_, n)| n.kind == Kind::UserMessage) else {
         return Ok(Vec::new());
     };
-    let did = crate::ladder::did::did(store, &handle.0)?
-        .map(|d| crate::ladder::did::shown_line(store, &d));
+    // A fork's point in or before the exchange: its summary would tell the fork what came after (`fork::cut`).
+    let did = match read.summarised(store, &handle.0)? {
+        true => crate::ladder::did::did(store, &handle.0)?
+            .map(|d| crate::ladder::did::shown_line(store, &d)),
+        false => None,
+    };
     let mut node = (*ask).clone();
     if let Body::UserMessage { text, .. } = &mut node.body {
         *text = forms::line(text, did.as_deref(), handle);
@@ -893,8 +897,9 @@ mod tests {
     fn a_kept_form_is_sent_as_that_form() {
         let (_d, s) = store();
         let long = "a long reply ".repeat(2_000);
+        let read = Sessions::default();
         let line = as_line(
-            &s,
+            (&s, &read),
             laid(vec![
                 Node::user("s", Some("t0"), "cli", "what did the audit say?"),
                 answer("t0", vec![json!({"type": "text", "text": long})]),
