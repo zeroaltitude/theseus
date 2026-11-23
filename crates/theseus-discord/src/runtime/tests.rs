@@ -978,7 +978,7 @@ async fn trust_removes_the_injection_label_and_nothing_else() {
 /// `outbox::show_at` is the index that ties the two -- the same one the task
 /// watch reads to adopt a routed thread's tasks (theseus-h68q6).
 #[tokio::test]
-async fn trust_clears_the_thread_session_a_turn_was_routed_into() {
+async fn trust_does_not_clear_a_retired_thread_binding() {
     use theseus_core::content::{ContentFlags, Flag, ItemKind, Label};
     let d = tempfile::tempdir().unwrap();
     let core = core_with(d.path(), theseus_core::secrets::SecretBoard::empty(), |c| {
@@ -1006,8 +1006,8 @@ async fn trust_clears_the_thread_session_a_turn_was_routed_into() {
         at_ms: 11,
         judgment: String::new(),
     }));
-    // The place's own session is clean; the thread's session is the frozen
-    // one, and it answers at this place.
+    // The current conversation is clean; a retired binding says the frozen
+    // legacy session once answered here. It must not redirect /trust.
     let home = session(None);
     let thread = session(Some(frozen));
     core.outbox.show_at(&thread, Some("discord:dm:42")).unwrap();
@@ -1024,9 +1024,8 @@ async fn trust_clears_the_thread_session_a_turn_was_routed_into() {
         )
         .await;
     assert_eq!(
-        answer,
-        "Removed the `injection` label (by discord:zeroaltitude): calls that act run again.",
-        "the routed thread's label is the one /trust can reach"
+        answer, "This conversation carries no `injection` label, so there is nothing to remove.",
+        "retired thread bindings grant no authority to clear another session"
     );
     let flags_of = |sid: &str| -> ContentFlags {
         let rec: theseus_core::session::SessionRecord =
@@ -1034,8 +1033,8 @@ async fn trust_clears_the_thread_session_a_turn_was_routed_into() {
         rec.data.map(|b| *b).unwrap_or_default()
     };
     assert!(
-        !flags_of(&thread).has(Flag::Injection),
-        "the frozen session is the one cleared"
+        flags_of(&thread).has(Flag::Injection),
+        "the retired thread stays frozen"
     );
     let removed: Vec<Value> = core
         .store
@@ -1045,8 +1044,7 @@ async fn trust_clears_the_thread_session_a_turn_was_routed_into() {
         .filter(|(_, r)| r.kind == "content.removed")
         .map(|(_, r)| r.data)
         .collect();
-    assert_eq!(removed.len(), 1);
-    assert_eq!(removed[0]["flag"], "injection");
+    assert!(removed.is_empty());
 
     // A thread that answers at ANOTHER place is not this place's to clear.
     let elsewhere = session(Some({

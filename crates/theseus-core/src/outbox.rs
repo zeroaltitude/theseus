@@ -739,7 +739,6 @@ impl Outbox {
             ix.targets
                 .get(session_id)
                 .or_else(|| ix.tasks.get(session_id))
-                .or_else(|| ix.shown.get(session_id))
                 .cloned()
         })
     }
@@ -773,8 +772,8 @@ impl Outbox {
         }
     }
 
-    /// Every thread session with the place it answers at (`show_at`): a
-    /// binding watches their tasks for that place (theseus-h68q6).
+    /// Retired thread bindings, retained for reading old records only.
+    /// Neither routing, task association nor trust targeting consults them.
     pub fn shown(&self) -> Result<Vec<(String, String)>> {
         self.with(|ix| {
             ix.shown
