@@ -1047,7 +1047,14 @@ impl Lane {
     /// edits what the stream posted and creates what it did not.
     fn reply(&mut self, body: &Value, channel: u64) -> Plan {
         let turn_id = body["turn_id"].as_str().unwrap_or("").to_string();
-        let texts = self.shared.core.outbox.reply_texts(body);
+        let texts: Vec<_> = self
+            .shared
+            .core
+            .outbox
+            .reply_texts(body)
+            .into_iter()
+            .map(|(i, text)| (i, self.shared.core.exits.text(&text).0.into_owned()))
+            .collect();
         let result: Option<TurnSubmitResult> = serde_json::from_value(body["result"].clone()).ok();
         // A task is a subagent (issue 28): its own channel's reply footer says so.
         let task = self.is_task(result.as_ref());
@@ -1057,7 +1064,11 @@ impl Lane {
         let wakes: Vec<String> = ["wakes", "reports"]
             .iter()
             .flat_map(|k| body[*k].as_array().into_iter().flatten())
-            .filter_map(|w| w["text"].as_str().map(str::to_string))
+            .filter_map(|w| {
+                w["text"]
+                    .as_str()
+                    .map(|text| self.shared.core.exits.text(text).0.into_owned())
+            })
             .collect();
         render::wake_header(&mut parts, &wakes);
         // Replying to the turn's message once: only when the stream posted

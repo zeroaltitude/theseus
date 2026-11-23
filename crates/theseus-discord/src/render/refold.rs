@@ -142,7 +142,9 @@ fn fold(turn_id: &str, nodes: &[(u64, Node)]) -> TurnView {
                     .collect::<Vec<_>>()
                     .join("");
                 if !text.trim().is_empty() {
-                    loops.entry(li).or_default().text = text;
+                    let lv = loops.entry(li).or_default();
+                    lv.text = text;
+                    lv.complete = true;
                 }
             }
             Body::ToolCall {

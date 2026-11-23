@@ -190,3 +190,138 @@ async fn question_choices_are_masked_before_button_clipping_on_create_and_edit()
         assert!(components.contains("[redacted:"), "{components}");
     }
 }
+
+#[tokio::test]
+async fn a_reply_masks_a_vault_value_before_message_splitting() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    let text = format!("{}{}{}", "x".repeat(1890), VALUE, "x".repeat(500));
+    let node = theseus_core::node::Node::assistant(
+        "s",
+        "turn_split",
+        0,
+        theseus_core::node::Body::AssistantMessage {
+            blocks: vec![json!({"type": "text", "text": text})],
+            model: "fake".into(),
+            provider: "fake".into(),
+            stop_reason: None,
+            usage: Default::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+            effort: None,
+        },
+    );
+    lane.shared
+        .core
+        .store
+        .append(&[node.record().unwrap()])
+        .unwrap();
+    let plan = lane.reply(
+        &json!({"turn_id": "turn_split", "loops": [[0, node.id]]}),
+        CHANNEL,
+    );
+    assert!(plan.writes.len() > 1);
+    for w in &plan.writes {
+        lane.write(w).await.unwrap();
+    }
+    let sent: String = fake
+        .messages(CHANNEL)
+        .iter()
+        .map(|m| m.content.as_str())
+        .collect();
+    assert!(sent.contains("[redacted:courier_token]"), "{sent}");
+    assert!(
+        !sent.contains(VALUE),
+        "a split value must not be reconstructed"
+    );
+}
+
+#[tokio::test]
+async fn live_text_and_notice_summaries_mask_before_split_or_clip() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    let mut renderer = lane.shared.renderer();
+    renderer.on_notification(
+        "turn.started",
+        &json!({"session_id": "s", "turn_id": "turn_live"}),
+    );
+    let text = format!("{}{}{}", "x".repeat(1890), VALUE, "x".repeat(500));
+    let ops = renderer.on_notification(
+        "model.answered",
+        &json!({"turn_id": "turn_live", "loop_index": 0, "text": text}),
+    );
+    for op in ops {
+        lane.take(LaneMsg::Live(op));
+    }
+    lane.apply_live().await;
+    let sent: String = fake
+        .messages(CHANNEL)
+        .iter()
+        .map(|m| m.content.as_str())
+        .collect();
+    assert!(sent.contains("[redacted:courier_token]"), "{sent}");
+    assert!(!sent.contains(VALUE));
+    let summary = format!("{}{}", "x".repeat(990), VALUE);
+    let mut renderer =
+        crate::render::Renderer::new(true).with_exits(lane.shared.core.exits.clone());
+    let ops = renderer.on_notification(
+        "policy.notified",
+        &json!({"session_id": "s", "turn_id": "turn_live",
+        "tool_use_id": "u1", "tool": "proc.run", "input": {"argv": ["true"]}, "summary": summary,
+        "kind": "notify", "setting": "enforcement = notify", "rule": "notify"}),
+    );
+    let card = ops
+        .into_iter()
+        .find_map(|op| match op {
+            Op::Notice { card, .. } => Some(card),
+            _ => None,
+        })
+        .unwrap();
+    let masked = mask_card(&lane.shared.core.exits, &card);
+    assert!(!masked.fields[0].1.contains("vault"), "{:?}", masked.fields);
+    assert!(masked.fields[0].1.contains("[redacted"));
+}
+
+#[tokio::test]
+async fn the_live_preview_never_publishes_a_known_values_prefix() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    let mut renderer = lane.shared.renderer();
+    renderer.on_notification(
+        "turn.started",
+        &json!({"session_id": "s", "turn_id": "turn_prefix"}),
+    );
+    let prefix = &VALUE[..VALUE.len() - 1];
+    let ops = renderer.on_notification(
+        "model.delta",
+        &json!({"turn_id": "turn_prefix", "loop_index": 0, "text": prefix}),
+    );
+    for op in ops.into_iter().chain(renderer.tick()) {
+        lane.take(LaneMsg::Live(op));
+    }
+    lane.apply_live().await;
+    let leaked = fake
+        .messages(CHANNEL)
+        .iter()
+        .any(|m| m.content.contains(prefix));
+    let ops = renderer.on_notification(
+        "model.answered",
+        &json!({"turn_id": "turn_prefix", "loop_index": 0, "text": VALUE}),
+    );
+    for op in ops {
+        lane.take(LaneMsg::Live(op));
+    }
+    lane.apply_live().await;
+    assert!(
+        !leaked,
+        "a later edit cannot recall the prefix already sent"
+    );
+    assert_eq!(last(&fake), "[redacted:courier_token]");
+}

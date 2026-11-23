@@ -271,7 +271,9 @@ impl Shared {
                     said = Some(added(r));
                 }
                 let mut data = match self.orders_list(who, discord).await {
-                    Ok(list) => list_data(&list),
+                    Ok(list) => crate::render::leaving::copy(&self.core.exits, &list)
+                        .map(|list| list_data(&list))
+                        .unwrap_or_default(),
                     Err(e) => InteractionResponseData {
                         content: Some(format!("⚠️ {e}")),
                         flags: Some(MessageFlags::EPHEMERAL),
@@ -294,7 +296,9 @@ impl Shared {
                     Self::ask_place(tx, Control::Unorder(id.to_string(), discord.clone()), who)
                         .await;
                 let mut data = match self.orders_list(who, discord).await {
-                    Ok(list) => list_data(&list),
+                    Ok(list) => crate::render::leaving::copy(&self.core.exits, &list)
+                        .map(|list| list_data(&list))
+                        .unwrap_or_default(),
                     Err(_) => InteractionResponseData::default(),
                 };
                 data.content = Some(format!("{said}\n\n{}", data.content.unwrap_or_default()));
@@ -312,6 +316,9 @@ impl Shared {
         kind: InteractionResponseType,
         data: InteractionResponseData,
     ) {
+        let Some(data) = crate::render::leaving::copy(&self.core.exits, &data) else {
+            return;
+        };
         let resp = InteractionResponse {
             kind,
             data: Some(data),
@@ -557,5 +564,50 @@ mod tests {
         );
         assert!(add_of(&[opt("surface", "voice")], "u", None).is_none());
         assert!(add_of(&[], "u", None).is_none());
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn orders_responses_mask_known_values() {
+        let d = tempfile::tempdir().unwrap();
+        let fake = theseus_sim::fake_discord::FakeDiscord::start();
+        let core = crate::runtime::tests::core_with(
+            d.path(),
+            theseus_core::secrets::SecretBoard::empty(),
+            |c| c.discord.rest_proxy = Some(fake.addr.clone()),
+        );
+        let value = "vault-order-4c8e1f7a92b3";
+        core.secrets.hold(
+            "order_token",
+            theseus_core::secrets::Secret::new(value.into()),
+        );
+        let shared = crate::runtime::shared_for_tests(&core);
+        let i = crate::runtime::tests::slash(None, 42, 42, "orders");
+        for kind in [
+            InteractionResponseType::ChannelMessageWithSource,
+            InteractionResponseType::UpdateMessage,
+        ] {
+            shared
+                .orders_answer(
+                    &i,
+                    kind,
+                    InteractionResponseData {
+                        content: Some(format!("Standing: {value}")),
+                        ..Default::default()
+                    },
+                )
+                .await;
+        }
+        assert_eq!(fake.replies().len(), 2);
+        for reply in fake.replies() {
+            assert_eq!(
+                reply.content.as_deref(),
+                Some("Standing: [redacted:order_token]")
+            );
+        }
     }
 }

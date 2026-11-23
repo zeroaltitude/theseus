@@ -441,7 +441,11 @@ impl Place {
         };
         match what {
             What::Tasks(show) => {
-                let p = s.tasks.project(&self.session_id);
+                let mut p = s.tasks.project(&self.session_id);
+                let exits = &self.shared.core.exits;
+                p.needs = crate::render::leaving::copy(exits, &p.needs).unwrap_or_default();
+                p.working = crate::render::leaving::copy(exits, &p.working).unwrap_or_default();
+                p.done = crate::render::leaving::copy(exits, &p.done).unwrap_or_default();
                 let history = self.history(show).await;
                 let parts = Parts {
                     needs: &p.needs,
@@ -472,10 +476,21 @@ impl Place {
     /// The finished tasks the store has for this place, for the shows that
     /// read them (`done`, `all`).
     async fn history(&self, show: Show) -> Vec<crate::render::history::Row> {
-        match show {
+        let mut rows = match show {
             Show::Done | Show::All => super::tasks::finished(&self.shared, &self.target).await,
             _ => Vec::new(),
+        };
+        let exits = &self.shared.core.exits;
+        for row in &mut rows {
+            row.title = exits.text(&row.title).0.into_owned();
+            row.said = row.said.as_ref().map(|s| exits.text(s).0.into_owned());
+            if let crate::render::history::Ended::Failed(why)
+            | crate::render::history::Ended::Stopped(why) = &mut row.ended
+            {
+                *why = why.as_ref().map(|s| exits.text(s).0.into_owned());
+            }
         }
+        rows
     }
 
     /// `/task name:`: Details, or the new-task modal.
@@ -580,7 +595,11 @@ impl Place {
             return true;
         }
         if let Some(show) = id.strip_prefix(snapshot::REFRESH) {
-            let pr = s.tasks.project(&self.session_id);
+            let mut pr = s.tasks.project(&self.session_id);
+            let exits = &self.shared.core.exits;
+            pr.needs = crate::render::leaving::copy(exits, &pr.needs).unwrap_or_default();
+            pr.working = crate::render::leaving::copy(exits, &pr.working).unwrap_or_default();
+            pr.done = crate::render::leaving::copy(exits, &pr.done).unwrap_or_default();
             let show = Show::parse(show).unwrap_or_default();
             let history = self.history(show).await;
             let parts = Parts {
@@ -602,7 +621,7 @@ impl Place {
                         Ok(()) => format!(
                             "👁 Following **{}**: one silent message here mirrors it and ends \
                              with its report.",
-                            crate::render::clip(v.title.trim(), 80)
+                            crate::render::clip(&s.core.exits.text(v.title.trim()).0, 80)
                         ),
                         Err(why) => why,
                     }

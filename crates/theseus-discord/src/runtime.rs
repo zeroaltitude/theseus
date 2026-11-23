@@ -1517,8 +1517,8 @@ impl Shared {
     }
 
     /// A place's renderer: the `[discord]` notice setting.
-    fn renderer(&self) -> Renderer {
-        Renderer::new(self.notice_embeds)
+    pub(crate) fn renderer(&self) -> Renderer {
+        Renderer::new(self.notice_embeds).with_exits(self.core.exits.clone())
     }
 
     /// Who may drive the bound channel `channel` (its `[[channel]] users`):

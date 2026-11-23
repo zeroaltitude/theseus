@@ -250,7 +250,11 @@ impl Shared {
             None => None,
         };
         match (pick, open.len()) {
-            (Some(r), _) => self.respond_v2(i, 4, &view_of(r), true).await,
+            (Some(r), _) => {
+                if let Some(r) = crate::render::leaving::copy(&self.core.exits, r) {
+                    self.respond_v2(i, 4, &view_of(&r), true).await;
+                }
+            }
             (None, 0) => {
                 self.tell(
                     i,

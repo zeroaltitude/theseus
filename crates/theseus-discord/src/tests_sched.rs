@@ -1720,3 +1720,36 @@ async fn a_card_made_before_a_stop_of_days_is_found_after_it_not_made_again() {
     );
     assert_eq!(card(&r, home, "tide check").unwrap().id, first.id);
 }
+
+#[tokio::test]
+async fn reminder_cards_mask_known_values_before_title_clipping() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let value = "vault-reminder-4c8e1f7a92b3";
+    r.core.secrets.hold(
+        "reminder_token",
+        theseus_core::secrets::Secret::new(value.into()),
+    );
+    let note = format!("{}{}", "x".repeat(110), value);
+    let wake = remind(&r, &note, "in 90m").await;
+    r.until("the masked reminder", || !cards(&r, home).is_empty())
+        .await;
+    let sent = cards(&r, home)
+        .into_iter()
+        .map(|m| m.content)
+        .collect::<String>();
+    assert!(!sent.contains("vault-rem"), "{sent}");
+    assert!(sent.contains("[redacted"), "{sent}");
+    let original = cards(&r, home).remove(0);
+    press(&r, &original, &format!("hq:cancel:{wake}"), ANA, "ana");
+    r.until("the masked card edited", || {
+        cards(&r, home)
+            .iter()
+            .any(|m| m.edits > original.edits && m.content.contains("Cancelled"))
+    })
+    .await;
+    let edited = cards(&r, home).remove(0);
+    assert!(!edited.content.contains("vault-rem"), "{}", edited.content);
+    assert!(edited.content.contains("[redacted"), "{}", edited.content);
+    r.stop();
+}

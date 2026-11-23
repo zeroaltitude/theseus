@@ -850,7 +850,7 @@ impl Worker {
         if let Some(t) = self.failed.get(key).map(|f| f.until).filter(|t| *t > now) {
             return Some(t - now);
         }
-        let name = post_name(&view.id, &view.title);
+        let name = post_name(&view.id, &self.shared.core.exits.text(&view.title).0);
         if let Err(e) = self.create(key, f, view, link, name).await {
             self.shared.board.error(
                 "task forum",
@@ -973,7 +973,10 @@ impl Worker {
             .filter(|v| is_scheduled(v))
             .and_then(|v| self.shared.task_posts.sched.face(&v.id))
         {
-            return crate::render::sched::forum_card(&face, link);
+            return crate::render::sched::forum_card(
+                &crate::render::leaving::face(&self.shared.core.exits, &face),
+                link,
+            );
         }
         let calls: Vec<String> = self
             .shared
@@ -982,7 +985,12 @@ impl Worker {
             .into_iter()
             .map(|j| j.title)
             .collect();
-        task_view::post_card(view, &calls, link, self.shared.core.kernel.now_ms())
+        let exits = &self.shared.core.exits;
+        let Some(view) = crate::render::leaving::copy(exits, view) else {
+            return vec![];
+        };
+        let calls: Vec<_> = calls.iter().map(|s| exits.text(s).0.into_owned()).collect();
+        task_view::post_card(&view, &calls, link, self.shared.core.kernel.now_ms())
     }
 
     /// The post that is a task's place, in the default forum: the one the list
@@ -999,7 +1007,11 @@ impl Worker {
             self.settle_intent(&key, &f.guild).await?;
         }
         if !self.slots.contains_key(&key) && self.adopt(&key).is_none() {
-            let name = task_name(Mark::of(view.state), &view.id, &view.title);
+            let name = task_name(
+                Mark::of(view.state),
+                &view.id,
+                &self.shared.core.exits.text(&view.title).0,
+            );
             self.create(&key, &f, view, None, name).await?;
         }
         let posts = self.shared.task_posts.posts.lock().unwrap();
@@ -1158,7 +1170,13 @@ impl Worker {
         {
             return None;
         }
-        if !self.set_name(key, &post_name(&view.id, &view.title)).await {
+        if !self
+            .set_name(
+                key,
+                &post_name(&view.id, &self.shared.core.exits.text(&view.title).0),
+            )
+            .await
+        {
             return Some(self.backed_off(key));
         }
         if let Some(s) = self.slots.get_mut(key) {
@@ -1184,7 +1202,7 @@ impl Worker {
             return Ok(());
         };
         let req = Request::builder(&HttpRoute::UpdateChannel { channel_id: post })
-            .json(&json!({"name": post_name(&view.id, &view.title), "archived": false, "locked": false}))
+            .json(&json!({"name": post_name(&view.id, &self.shared.core.exits.text(&view.title).0), "archived": false, "locked": false}))
             .build()?;
         self.shared.http.request::<Value>(req).await?;
         let s = &self.shared;
@@ -1381,7 +1399,10 @@ impl Worker {
         let req = Request::builder(&HttpRoute::CreateForumThread {
             channel_id: f.channel,
         })
-        .json(&body)
+        .json(&{
+            crate::render::leaving::json(&self.shared.core.exits, &mut body);
+            body
+        })
         .build()?;
         // The intent is on the list before the create goes out (`intent.rs`).
         let store = &self.shared.core.store;
@@ -1451,13 +1472,16 @@ impl Worker {
         let Some(slot) = self.slots.get(key) else {
             return false;
         };
-        let body = json!({"flags": v2::IS_COMPONENTS_V2, "components": card,
+        let mut body = json!({"flags": v2::IS_COMPONENTS_V2, "components": card,
                           "allowed_mentions": {"parse": []}});
         let req = Request::builder(&HttpRoute::UpdateMessage {
             channel_id: slot.post.post,
             message_id: slot.post.post,
         })
-        .json(&body)
+        .json(&{
+            crate::render::leaving::json(&self.shared.core.exits, &mut body);
+            body
+        })
         .build();
         let sent = match req {
             Ok(r) => self.shared.http.request::<Value>(r).await.map(|_| ()),
@@ -1489,7 +1513,11 @@ impl Worker {
         if !view.state.ended() || homed || self.slots.get(key)?.named {
             return None;
         }
-        let name = task_name(Mark::of(view.state), &view.id, &view.title);
+        let name = task_name(
+            Mark::of(view.state),
+            &view.id,
+            &self.shared.core.exits.text(&view.title).0,
+        );
         if !self.set_name(key, &name).await {
             return Some(self.backed_off(key));
         }
@@ -1563,6 +1591,60 @@ impl Worker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn forum_names_and_cards_mask_known_values() {
+        let (r, mut w) = worker_over_the_fake().await;
+        let value = "vault-forum-4c8e1f7a92b3";
+        r.core.secrets.hold(
+            "forum_token",
+            theseus_core::secrets::Secret::new(value.into()),
+        );
+        let mut view = crate::render::task_view::tests::task();
+        view.title = format!("{}{}", "x".repeat(69), value);
+        w.see(Seen {
+            views: vec![view.clone()],
+            private: true,
+            guild: None,
+            links: HashMap::new(),
+            home: None,
+            homed: HashSet::new(),
+            parent: None,
+        });
+        w.drive().await;
+        let post = r
+            .fake
+            .threads()
+            .into_iter()
+            .find(|t| t.parent == FORUM)
+            .unwrap();
+        assert!(!post.name.contains(value), "{}", post.name);
+        assert!(
+            post.name.contains("[redacted:forum_token]"),
+            "{}",
+            post.name
+        );
+        let first = r.fake.messages(post.id).remove(0);
+        assert!(!first.content.contains(value), "{}", first.content);
+        assert!(
+            first.content.contains("[redacted:forum_token]"),
+            "{}",
+            first.content
+        );
+        view.title = format!("Updated {value}");
+        assert!(
+            w.edit_card(&(view.id.clone(), FORUM), &w.card_of(&view, None))
+                .await
+        );
+        let edited = r.fake.messages(post.id).remove(0);
+        assert!(
+            edited.content.contains("Updated [redacted:forum_token]"),
+            "{}",
+            edited.content
+        );
+        assert!(!edited.content.contains(value));
+        r.stop();
+    }
 
     /// The tag of a task set to start later: `scheduled` until it starts,
     /// `running` once it has, `needs you` over it, `paused` and the ends as
