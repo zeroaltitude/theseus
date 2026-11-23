@@ -182,7 +182,7 @@ fn spoken(lens: &Lens<'_>, nodes: &[(u64, Node)]) -> (Vec<Line>, Option<String>)
                 let person = crate::exchange::mark(lens.store, &n.id)
                     .ok()
                     .flatten()
-                    .and_then(|m| m.person().map(|p| p.to_string()))
+                    .and_then(|m| m.person())
                     .or_else(|| n.author.clone())
                     .unwrap_or_else(|| "another person".into());
                 (

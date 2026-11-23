@@ -1114,7 +1114,7 @@ async fn a_result_holding_another_persons_words_is_marked_external() {
         "{}",
         whole.text
     );
-    let mine = call(json!({"open": me.clone()})).await.unwrap();
+    let mine = call(json!({"open": me})).await.unwrap();
     assert_eq!(url(&mine), None, "the owner's own session");
 }
 
