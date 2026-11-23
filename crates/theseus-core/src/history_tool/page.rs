@@ -543,8 +543,8 @@ pub fn cursor_text(c: &Cursor) -> String {
     serde_json::json!({"at_ms": c.at_ms, "turn_id": c.turn_id}).to_string()
 }
 
-/// A page, as the model reads it, of `here` and the span the call named. `resume` is the opaque token of a
-/// walk stopped by its bound.
+/// [`render_lines`]' text alone, as the tests read a page.
+#[cfg(test)]
 pub fn render(
     p: &HistoryPage,
     at: (&str, Option<&crate::recall::when::When>),
@@ -558,8 +558,9 @@ pub fn render(
 /// did (a stored account, or how the reply began).
 pub type LineSpans = ((usize, usize), (usize, usize));
 
-/// [`render`], and where each of the page's lines has its words ([`LineSpans`]), so a cut of the text can tell
-/// which words it left (D6 round 6).
+/// A page, as the model reads it, of `here` and the span the call named (`resume` is the opaque token of a walk
+/// stopped by its bound); and where each of its lines has its words ([`LineSpans`]), so a cut of the text can
+/// tell which words it left (D6 round 6).
 pub fn render_lines(
     p: &HistoryPage,
     (here, span): (&str, Option<&crate::recall::when::When>),
