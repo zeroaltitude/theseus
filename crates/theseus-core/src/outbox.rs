@@ -1718,7 +1718,6 @@ mod tests {
         "thread_link_seen.rs",
         "turn/admission.rs",
         "turn/ceiling_step.rs",
-        "turn/personal_step.rs",
     ];
 
     /// Staged is listed, statically (theseus-gm7bd): every operator call in

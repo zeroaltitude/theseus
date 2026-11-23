@@ -717,21 +717,16 @@ pub const NOT_FOR_THE_PERSON: &str = not_for_the_person!();
 
 /// The sentence every block the harness writes into a request as **context**
 /// ends with, where [`NOT_FOR_THE_PERSON`] is for a note the model acts on:
-/// the place digest, the thread card, the task arrangement and the fan-out
-/// cue. The harness supplies it, the owner did not write it, and the model
-/// does not answer it as a message just received (theseus-ectzg, the owner
-/// 2026-11-07: "it's talking to itself").
+/// the thread card, the task arrangement and the fan-out cue. The harness
+/// supplies it, the owner did not write it, and the model does not answer it
+/// as a message just received (theseus-ectzg, the owner 2026-11-07: "it's
+/// talking to itself").
 ///
-/// One sentence for four blocks because it is true of each: the digest's
-/// lines are what a cross-thread answer draws on, and "do not restate it"
-/// there means do not read it back to the owner, not do not use it. The fan-out
-/// cue is a suggestion the model weighs, so it cannot take "Act on this note"
-/// (it would read as "fan out"); this sentence tells it whose the note is and
+/// One sentence for three blocks because it is true of each. The fan-out cue
+/// is a suggestion the model weighs, so it cannot take "Act on this note" (it
+/// would read as "fan out"); this sentence tells it whose the note is and
 /// leaves the weighing to the cue's own "Do it only when the areas are
-/// independent". 91 bytes, which is what the digest's head already spent
-/// (`five_threads_fit_in_400_tokens` has 11 bytes of room). To drop "or
-/// restate" for the digest alone (S3), replace this const in
-/// `place_digest::render` with the literal minus those words.
+/// independent".
 /// [`standing::FRAMING`](crate::standing::FRAMING) is the standing block's own
 /// words and stays as it is.
 pub const CONTEXT_NOT_THE_OWNERS: &str = context_not_the_owners!();
@@ -1505,7 +1500,6 @@ mod tests {
                 NOTE,
                 "the steer, the stop, the doubt",
             ),
-            ("compiler/place_digest.rs", CONTEXT, "the place digest"),
             ("compiler/card.rs", CONTEXT, "the thread card"),
             ("arrangement.rs", CONTEXT, "the task arrangement"),
             ("turn/route_step/fan_out_cue.rs", CONTEXT, "the fan-out cue"),
@@ -1556,11 +1550,6 @@ mod tests {
                 "task_graph/view.rs",
                 "neither",
                 "bracketed state with token bounds (11-08 audit); defines attach_text",
-            ),
-            (
-                "turn/digest_step.rs",
-                "neither",
-                "attaches the place digest, whose text carries CONTEXT",
             ),
             (
                 "card/noted.rs",
@@ -1632,7 +1621,7 @@ mod tests {
             );
             carrying += 1;
         }
-        assert!(carrying >= 9, "only {carrying} carrying files");
+        assert!(carrying >= 8, "only {carrying} carrying files");
         // And what each block renders carries the words.
         let card = crate::compiler::card::text(
             &serde_json::from_value(serde_json::json!({"slug": "s", "title": "T"})).unwrap(),
@@ -1644,14 +1633,6 @@ mod tests {
             "{arrangement}"
         );
         // The fan-out cue's module is private to `turn`: its own test holds `LINE`.
-        let other: theseus_protocol::threads::ThreadInfo =
-            serde_json::from_value(serde_json::json!({"slug": "o", "title": "Other"})).unwrap();
-        let digest = crate::compiler::place_digest::render(&[&other], "home", 280).unwrap();
-        assert!(
-            digest.text.contains(CONTEXT_NOT_THE_OWNERS),
-            "{}",
-            digest.text
-        );
     }
 
     /// A long item splits at line boundaries, each piece knows its place, the
