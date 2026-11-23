@@ -166,8 +166,6 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",
             "families.v1: live",
-            "memory.v1: shadow",
-            "attribution.v1: shadow",
             "compare.v1: shadow",
             "heard.v1: live",
             "people.v1: live",
