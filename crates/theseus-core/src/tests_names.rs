@@ -319,7 +319,7 @@ fn fact(id: &str, text: &str, ends: Option<&str>) -> theseus_protocol::StandingR
         id: id.into(),
         kind: theseus_protocol::StandingKind::Fact,
         text: text.into(),
-        scope: theseus_protocol::StandingScope::Place("thread:kiln-fire".into()),
+        scope: theseus_protocol::StandingScope::Session("ses_kiln".into()),
         since_ms: 1_000,
         until_ms: None,
         source: "cli".into(),
@@ -327,13 +327,13 @@ fn fact(id: &str, text: &str, ends: Option<&str>) -> theseus_protocol::StandingR
     }
 }
 
-/// A line of work is found by its title, and its card's facts are its
-/// place's standing records as they stand now: a replaced one is dropped,
+/// A task is found by its title, and its card's facts are its
+/// session's standing records as they stand now: a replaced one is dropped,
 /// and one the caller's gate refuses is never read.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_line_of_works_card_holds_its_current_facts_as_its_gate_admits_them() {
+async fn a_tasks_card_holds_its_current_facts_as_its_gate_admits_them() {
     let r = rig(FakeJev::start().unwrap());
-    kiln(&r);
+    put_task(&r, "tsk_kiln", "Kiln Fire", "ses_kiln");
     let facts = vec![
         fact("std_a", "The kiln runs at night.", None),
         fact("std_b", "The kiln runs at dawn.", Some("std_a")),
@@ -347,11 +347,11 @@ async fn a_line_of_works_card_holds_its_current_facts_as_its_gate_admits_them() 
     let table = crate::names::table::build(&r.core).unwrap();
     let found = table.find("back to the kiln fire");
     assert_eq!(found.len(), 1, "{found:?}");
-    assert_eq!(found[0].things, ["thread:kiln-fire"]);
-    let card = crate::names::card::card(&r.core, &table, "thread:kiln-fire", &Hides("std_hidden"))
+    assert_eq!(found[0].things, ["task:tsk_kiln"]);
+    let card = crate::names::card::card(&r.core, &table, "task:tsk_kiln", &Hides("std_hidden"))
         .unwrap()
         .expect("a card");
-    assert_eq!(card.title, "Line of work: Kiln Fire (thread:kiln-fire)");
+    assert_eq!(card.title, "Task: Kiln Fire (task:tsk_kiln)");
     assert_eq!(card.facts, ["std_b"]);
     assert!(
         card.lines
@@ -570,7 +570,7 @@ async fn a_refused_correction_ends_no_fact_the_card_shows() {
     let mut cards = Vec::new();
     for with_correction in [true, false] {
         let r = rig(FakeJev::start().unwrap());
-        kiln(&r);
+        put_task(&r, "tsk_kiln", "Kiln Fire", "ses_kiln");
         let mut facts = vec![fact("std_a", "The kiln runs at night.", None)];
         if with_correction {
             facts.push(fact("std_hidden", "The kiln runs at dawn.", Some("std_a")));
@@ -581,7 +581,7 @@ async fn a_refused_correction_ends_no_fact_the_card_shows() {
             .write(&r.core.store, |_| Ok(facts), |_, _| Ok(vec![]))
             .unwrap();
         let table = crate::names::table::build(&r.core).unwrap();
-        let c = crate::names::card::card(&r.core, &table, "thread:kiln-fire", &Hides("std_hidden"))
+        let c = crate::names::card::card(&r.core, &table, "task:tsk_kiln", &Hides("std_hidden"))
             .unwrap()
             .unwrap();
         cards.push((c.lines, c.facts));
@@ -713,5 +713,36 @@ async fn a_core_dropped_while_a_naming_call_is_outstanding_releases_its_store_at
         at.elapsed() < std::time::Duration::from_millis(1500),
         "the store was held for {:?}",
         at.elapsed()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn old_threads_neither_make_cards_nor_compete_with_current_names() {
+    let r = rig(FakeJev::start().unwrap());
+    kiln(&r);
+    put_task(&r, "tsk_kiln", "Kiln Fire", "ses_kiln");
+    let table = crate::names::table::build(&r.core).unwrap();
+    let found = table.find("the kiln fire");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].how, crate::names::table::How::Unique);
+    assert_eq!(found[0].things, ["task:tsk_kiln"]);
+    assert!(table.get("thread:kiln-fire").is_none());
+    assert!(crate::names::card::card(
+        &r.core,
+        &table,
+        "thread:kiln-fire",
+        &crate::names::table::Whole
+    )
+    .unwrap()
+    .is_none());
+    assert!(
+        r.core
+            .runner
+            .threads
+            .all(&r.core.store)
+            .unwrap()
+            .get("kiln-fire")
+            .is_some(),
+        "the old record still reads"
     );
 }

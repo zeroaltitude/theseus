@@ -378,12 +378,16 @@ pub fn pack_report_of(
         ),
         latency,
         questions,
-        holdout: super::items::with_items(
-            holdout(pack_id, &qs, &answered, labels, window),
-            pack,
-            &answered,
-            labels,
-        ),
+        holdout: {
+            let owned =
+                super::without_machine(labels, answered.iter().map(|s| s.judgment.id.as_str()));
+            super::items::with_items(
+                holdout(pack_id, &qs, &answered, &owned, window),
+                pack,
+                &answered,
+                &owned,
+            )
+        },
         // The ontology pack's undo line is the run's to fill: it reads the store.
         undo: Vec::new(),
         undo_days: 0,

@@ -99,7 +99,6 @@ pub mod outbound;
 pub mod outbox;
 pub mod outputs;
 pub mod own_bench;
-pub mod owner_ask;
 pub mod owner_note;
 pub mod owner_proof;
 mod pace;

@@ -132,6 +132,11 @@ impl Ontology {
         self.members.newest()
     }
 
+    /// Preserve old membership sources before appending this snapshot's staged lists.
+    pub fn before_write(&self) -> Result<(), String> {
+        self.members.before_write()
+    }
+
     /// The store has every list put so far: the snapshot reads them from it
     /// again, and holds none of its own. A snapshot that holds its lists
     /// ([`Ontology::load`]) has nothing to do.

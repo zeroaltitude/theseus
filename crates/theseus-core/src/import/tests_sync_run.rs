@@ -250,7 +250,7 @@ fn the_thread_is_told_it_started_and_then_what_it_imported() {
     };
     assert_eq!(
         finished_line(&ok, &before, &after),
-        "The OpenClaw sync finished: 2 new sessions, 1 session that grew, 44 messages. \
+        "The OpenClaw sync finished: 9 new sessions, 3 sessions that grew, 134 messages. \
          The people step waits for tonight's full run."
     );
 
@@ -258,7 +258,7 @@ fn the_thread_is_told_it_started_and_then_what_it_imported() {
     // run DID happen -- `at_ms` moved -- it just found nothing.
     let empty = SyncState {
         at_ms: 3_000,
-        ..after.clone()
+        ..SyncState::default()
     };
     assert_eq!(
         finished_line(&ok, &after, &empty),
@@ -271,7 +271,7 @@ fn the_thread_is_told_it_started_and_then_what_it_imported() {
         "The OpenClaw sync finished and recorded no run: nothing was imported."
     );
 
-    // A failure is said as a failure, and says nothing was imported.
+    // A failure does not claim to have rolled back earlier batches.
     let dead = Ran {
         error: Some("the sync did not start: No such file or directory".into()),
         ..Ran::default()
@@ -279,7 +279,7 @@ fn the_thread_is_told_it_started_and_then_what_it_imported() {
     assert_eq!(
         finished_line(&dead, &before, &before.clone()),
         "The OpenClaw sync failed: the sync did not start: No such file or directory. \
-         Nothing was imported."
+         Any history already imported is kept."
     );
     let late = Ran {
         pid: 11,
@@ -288,7 +288,7 @@ fn the_thread_is_told_it_started_and_then_what_it_imported() {
     };
     assert_eq!(
         finished_line(&late, &before, &before.clone()),
-        "The OpenClaw sync failed: it ran past 45 minutes and was stopped. Nothing was imported."
+        "The OpenClaw sync failed: it ran past 45 minutes and was stopped. Any history already imported is kept."
     );
     // A run the child recorded as failed is a failure too, even if the child
     // itself exited 0: the record is what says whether anything was imported.
@@ -298,7 +298,7 @@ fn the_thread_is_told_it_started_and_then_what_it_imported() {
     };
     assert_eq!(
         finished_line(&ok, &before, &recorded),
-        "The OpenClaw sync failed: python3 did not start. Nothing was imported."
+        "The OpenClaw sync failed: python3 did not start. Any history already imported is kept."
     );
 }
 
@@ -377,4 +377,26 @@ fn no_on_demand_timer_remains_to_be_installed() {
              wrote, not to install one: {line}"
         );
     }
+}
+
+#[test]
+fn failed_sync_does_not_promise_a_rollback() {
+    let before = SyncState::default();
+    let after = SyncState {
+        at_ms: 2_000,
+        messages: 20,
+        sessions_new: 2,
+        error: Some("exporter stopped".into()),
+        ..SyncState::default()
+    };
+    let ran = Ran {
+        code: Some(1),
+        ..Ran::default()
+    };
+    let line = finished_line(&ran, &before, &after);
+    assert!(
+        line.contains("Any history already imported is kept."),
+        "{line}"
+    );
+    assert!(!line.contains("Nothing was imported"));
 }

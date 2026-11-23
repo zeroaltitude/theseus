@@ -1,12 +1,12 @@
 //! A joined task's card (issue 44, the design's §7): read from records, the
 //! task untouched; called in only for the one task a message addresses, and
-//! only where the owner is alone.
+//! regardless of who is present.
 
 use serde_json::json;
 
 use super::*;
 use crate::tests_task_graph::{rig, rows, session, turn};
-use crate::view::{Anchor, PointOfView};
+use crate::view::{Anchor, PointOfView, Present};
 
 /// The last message is cut at 300 tokens (est.) on a character's boundary.
 #[test]
@@ -77,9 +77,9 @@ fn pov(present: Present) -> PointOfView {
 }
 
 /// The card says the objective, the state and the plan's step, each as of its
-/// time; it is called in only where he is alone, and reading it writes nothing.
+/// time; it is read in every presence state, and reading it writes nothing.
 #[tokio::test]
-async fn a_joined_tasks_card_is_read_from_records_where_he_is_alone() {
+async fn a_joined_tasks_card_is_read_from_records_regardless_of_presence() {
     let r = rig();
     let c = &r.core;
     let s = session(c);
@@ -137,17 +137,20 @@ async fn a_joined_tasks_card_is_read_from_records_where_he_is_alone() {
     assert_eq!(r.task(&t.id), t);
     assert_eq!(rows(c, "task.updated").len(), updated);
 
-    // Not alone: nothing is called in, whoever is named.
+    // Presence does not withhold a named task card.
     for p in [
         Present::Private,
         Present::Shared,
         Present::Open,
         Present::Unknown,
     ] {
-        assert!(cards
-            .joined(&pov(p), "how is the chart going")
-            .unwrap()
-            .is_empty());
+        assert_eq!(
+            cards
+                .joined(&pov(p), "how is the chart going")
+                .unwrap()
+                .len(),
+            1
+        );
     }
     // Two tasks named: no address.
     let two = Named(vec![thing_of(&t.id), thing_of(&north.id)]);

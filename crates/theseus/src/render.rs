@@ -1055,6 +1055,12 @@ pub fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> St
     if let Some(words) = s.vault_today_words() {
         line.push_str(&format!("\n  {words}"));
     }
+    if !s.unprotected.is_empty() {
+        line.push_str(&format!(
+            "\n  warning: not redacted at exits (shorter than eight bytes): {}",
+            s.unprotected.join(", ")
+        ));
+    }
     line
 }
 

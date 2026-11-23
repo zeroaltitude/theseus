@@ -31,8 +31,8 @@ pub fn brief(project: &str, project_title: &str) -> String {
          record supports; do not start tasks.\n\
          5. Where a decision is the owner's (a date to move, a milestone to drop, a trade-off), \
          do not decide it: put it under a `Decisions for you` heading in your report with the \
-         options and your recommendation. (This build has no owner_ask tool yet; the report is \
-         where the question goes.)\n\
+         options and your recommendation. If work cannot proceed without the decision, \
+         ask with `owner_ask`.\n\
          Keep the report short: progress as `done/total`, what slipped, next week's steps, then \
          decisions. If nothing changed since the last run, say so in one line."
     )
@@ -71,4 +71,11 @@ pub fn make(
 ) -> Result<RoutineSpec, String> {
     let prepared = routine::prepare(kernel, &book.cfg, new, by, created_in)?;
     routine::create(kernel, store, book, prepared, by).map_err(|e| format!("{e:#}"))
+}
+
+#[test]
+fn weekly_reviews_use_the_available_owner_question_tool() {
+    let text = brief("project:demo", "Demo");
+    assert!(text.contains("ask with `owner_ask`"));
+    assert!(!text.contains("has no owner_ask"));
 }

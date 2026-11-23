@@ -260,7 +260,7 @@ impl Ontology {
                 next.handles.push(h);
             }
         }
-        next.handles.truncate(HANDLES_MAX);
+        check_handles(&next)?;
         // Its own handles leave it before the survivor takes them, so the
         // two never hold one at once.
         let mut taken = gone.clone();
@@ -306,6 +306,55 @@ impl Ontology {
             return Err(Refusal::Duplicate {
                 why: format!("`{}` is held already: nothing to undo", absorbed.id),
             });
+        }
+        let mut expected = kept.clone();
+        expected.handles = handles_before.to_vec();
+        for h in handles_of(absorbed) {
+            if !handles_of(&expected).contains(&h) {
+                expected.handles.push(h);
+            }
+        }
+        if !expected
+            .handles
+            .contains(&format!("name:{}", absorbed.name))
+            && absorbed.name != kept.name
+        {
+            if let Ok(h) = handle(&format!("name:{}", absorbed.name)) {
+                expected.handles.push(h);
+            }
+        }
+        if kept.handles != expected.handles {
+            return Err(Refusal::Invalid {
+                what: "person merge undo".into(),
+                why: "the survivor no longer matches the merged identity; nothing was undone"
+                    .into(),
+            });
+        }
+        for before in lists_before.iter().filter(|l| l.kind == KIND) {
+            let mut expected = before.clone();
+            expected.members.clear();
+            for member in &before.members {
+                let mut member = member.clone();
+                if member.category == absorbed.id {
+                    member.category = survivor.clone();
+                }
+                if !expected
+                    .members
+                    .iter()
+                    .any(|m| m.category == member.category)
+                {
+                    expected.members.push(member);
+                }
+            }
+            if self.member_list(&before.session, KIND).as_deref() != Some(&expected) {
+                return Err(Refusal::Invalid {
+                    what: "person merge undo".into(),
+                    why: format!(
+                        "the people filed under {} changed after the merge; nothing was undone",
+                        before.session
+                    ),
+                });
+            }
         }
         let mut back = kept.clone();
         back.handles = handles_before.to_vec();

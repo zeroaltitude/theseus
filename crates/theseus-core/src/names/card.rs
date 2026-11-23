@@ -4,13 +4,11 @@
 //! `view` lays it beside the message (`crate::view::sources_names`).
 //!
 //! - **Facts** are the owner's standing records whose scope is the thing's
-//!   own place or session: a line of work's thread place and session, a
-//!   task's session. A record that ended (revoked, replaced, lapsed) is
+//!   own session: a task's session. A record that ended (revoked, replaced, lapsed) is
 //!   dropped, as `standing::live` drops it, and none is read that the
 //!   caller's [`Admits`] refuses. A category has no facts of its own yet: no
 //!   stored record names a fact's subject.
-//! - **Open tasks**: a line of work's (tasks of its session), a task's
-//!   children, and a topic's (tasks whose session is filed under it).
+//! - **Open tasks**: a task's children, and a topic's (tasks whose session is filed under it).
 //! - **Guidance**: a category's, as the ontology holds it.
 //! - **Exchanges**: the newest [`EXCHANGES`] the caller admits, from the
 //!   touch index, each with the words that opened it, cut by code.
@@ -24,7 +22,6 @@
 
 use theseus_ontology::{Category, CategoryId, Guidance, Ontology};
 use theseus_protocol::tasks::TaskRecord;
-use theseus_protocol::threads::ThreadInfo;
 use theseus_protocol::{StandingRecord, StandingScope};
 
 use super::table::{Entry, Kind, Table};
@@ -71,23 +68,14 @@ pub trait Admits {
 /// The record a thing of the table is held by.
 #[derive(Debug, Clone, Copy)]
 pub enum Source<'a> {
-    Line(&'a ThreadInfo),
     Task(&'a TaskRecord),
     Topic(&'a Category),
 }
 
 /// The record that holds `entry` now, if any.
-fn source_of<'a>(
-    entry: &Entry,
-    tasks: &'a [TaskRecord],
-    o: &'a Ontology,
-    threads: &'a crate::threads::Board,
-) -> Option<Source<'a>> {
+fn source_of<'a>(entry: &Entry, tasks: &'a [TaskRecord], o: &'a Ontology) -> Option<Source<'a>> {
     let thing = entry.thing.as_str();
     match entry.kind {
-        Kind::Line => threads
-            .get(thing.strip_prefix("thread:")?)
-            .map(Source::Line),
         Kind::Task => {
             let id = thing.strip_prefix("task:")?;
             tasks.iter().find(|t| t.id == id).map(Source::Task)
@@ -159,7 +147,6 @@ fn some<T>(items: &[T], most: usize, line: impl Fn(&T) -> String, what: &str) ->
 pub fn compose(src: Sources<'_>) -> Card {
     let e = src.entry;
     let kind = match e.kind {
-        Kind::Line => "Line of work",
         Kind::Task => "Task",
         Kind::Topic => "Topic",
         Kind::Item => "Item",
@@ -292,13 +279,12 @@ pub fn card(
     };
     let tasks = crate::task_graph::all_shown(&core.store, &core.kernel)?;
     let o = core.runner.ontology.snapshot(&core.store)?;
-    let threads = core.runner.threads.all(&core.store)?;
     // The thing itself first: refused, there is no card, not even a title.
-    match source_of(entry, &tasks, &o, &threads) {
+    match source_of(entry, &tasks, &o) {
         Some(src) if gate.thing(src) => {}
         _ => return Ok(None),
     }
-    let (about, scope, mut mine) = what(entry, &tasks, &o, &threads);
+    let (about, scope, mut mine) = what(entry, &tasks, &o);
     mine.retain(|t| gate.task(t));
     let guidance = CategoryId::parse(thing)
         .ok()
@@ -365,22 +351,10 @@ fn what<'a>(
     entry: &Entry,
     tasks: &'a [TaskRecord],
     o: &Ontology,
-    threads: &crate::threads::Board,
 ) -> (String, Vec<StandingScope>, Vec<&'a TaskRecord>) {
     let thing = entry.thing.as_str();
     let open = tasks.iter().filter(|t| !t.state.is_closed());
     match entry.kind {
-        Kind::Line => {
-            let slug = thing.strip_prefix("thread:").unwrap_or(thing);
-            let th = threads.get(slug);
-            let session = th.and_then(|t| t.session_id.clone());
-            let mut scope = vec![StandingScope::Place(format!("thread:{slug}"))];
-            scope.extend(session.clone().map(StandingScope::Session));
-            let mine = open
-                .filter(|t| session.is_some() && t.session == session)
-                .collect();
-            (th.map(|t| t.goal.clone()).unwrap_or_default(), scope, mine)
-        }
         Kind::Task => {
             let id = thing.strip_prefix("task:").unwrap_or(thing);
             let task = tasks.iter().find(|t| t.id == id);

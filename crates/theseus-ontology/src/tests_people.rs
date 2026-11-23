@@ -344,3 +344,59 @@ fn a_merge_refuses_what_it_cannot_do() {
         Refusal::InUse { .. }
     ));
 }
+
+#[test]
+fn a_merge_refuses_to_discard_handles() {
+    let mut o = harbour();
+    let survivor = id("person:pell");
+    let mut full = o.category(&survivor).unwrap().clone();
+    full.handles = (0..64).map(|n| format!("name:alias {n}")).collect();
+    o.put(Record::Category(full.clone()), OP).unwrap();
+    assert!(o.merge(&id("person:marlo-quill"), &survivor).is_err());
+    assert_eq!(o.category(&survivor).unwrap().handles, full.handles);
+    assert!(o.category(&id("person:marlo-quill")).is_some());
+}
+
+#[test]
+fn a_person_unmerge_refuses_to_discard_later_handles_or_memberships() {
+    for changed_handle in [true, false] {
+        let mut o = harbour();
+        o.put(
+            Record::Members(people("ses_later", &["person:marlo-quill"], IMPORT)),
+            IMPORT,
+        )
+        .unwrap();
+        let survivor = id("person:400000000000000001");
+        let merged = o.merge(&id("person:marlo-quill"), &survivor).unwrap();
+        for record in merged.records.clone() {
+            o.put(record, OP).unwrap();
+        }
+        if changed_handle {
+            let mut person = o.category(&survivor).unwrap().clone();
+            person.handles.push("email:new@harbour.example".into());
+            o.put(Record::Category(person), OP).unwrap();
+        } else {
+            o.put(
+                Record::Members(people(
+                    "ses_later",
+                    &[survivor.as_str(), "person:pell"],
+                    IMPORT,
+                )),
+                IMPORT,
+            )
+            .unwrap();
+        }
+        let before = o.records();
+        let answer = o.unmerge(
+            &merged.absorbed,
+            &survivor,
+            &merged.survivor_handles_before,
+            &merged.lists_before,
+        );
+        assert!(
+            answer.is_err(),
+            "must refuse a changed post-merge state: {answer:?}"
+        );
+        assert_eq!(o.records(), before);
+    }
+}

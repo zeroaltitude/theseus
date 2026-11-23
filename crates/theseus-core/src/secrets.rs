@@ -820,9 +820,12 @@ impl SecretBoard {
         self.tx.send_modify(|m| {
             for (name, r) in results {
                 m.insert(
-                    name,
+                    name.clone(),
                     match r {
-                        Ok(s) => SecretState::Ready(s),
+                        Ok(s) => {
+                            warn_if_short(&name, &s);
+                            SecretState::Ready(s)
+                        }
                         Err(e) => SecretState::Failed(e),
                     },
                 );
@@ -844,6 +847,7 @@ impl SecretBoard {
     /// on. It is not a round of the vault's: health's method and timings
     /// stay the vault's.
     pub fn hold(&self, name: &str, value: Secret) {
+        warn_if_short(name, &value);
         self.tx.send_modify(|m| {
             m.insert(name.to_string(), SecretState::Ready(value));
         });
@@ -892,9 +896,15 @@ impl SecretBoard {
     /// or `failed` naming each one that did not resolve and why.
     pub fn status(&self) -> SecretsStatus {
         let (mut ready, mut resolving, mut failed) = (vec![], vec![], vec![]);
+        let mut unprotected = Vec::new();
         for (name, s) in self.tx.borrow().iter() {
             match s {
-                SecretState::Ready(_) => ready.push(name.clone()),
+                SecretState::Ready(value) => {
+                    ready.push(name.clone());
+                    if value.expose().trim().len() < crate::scrub::MIN_VALUE {
+                        unprotected.push(name.clone());
+                    }
+                }
                 SecretState::Resolving => resolving.push(name.clone()),
                 SecretState::Failed(e) => failed.push(SecretFailed {
                     name: name.clone(),
@@ -914,6 +924,7 @@ impl SecretBoard {
         SecretsStatus {
             state: state.into(),
             ready,
+            unprotected,
             resolving,
             failed,
             method: p.method.clone(),
@@ -1268,6 +1279,12 @@ pub mod fake {
                 }
             })
         }
+    }
+}
+
+fn warn_if_short(name: &str, value: &Secret) {
+    if value.expose().trim().len() < crate::scrub::MIN_VALUE {
+        tracing::warn!(secret = %name, "resolved secret is shorter than eight bytes and is not redacted at exits");
     }
 }
 
@@ -1867,5 +1884,20 @@ esac
         assert_eq!(st.method.as_deref(), Some("inject"), "{st:?}");
         assert_eq!(st.rounds, 1, "{st:?}");
         assert!(st.settled_ms.is_some(), "{st:?}");
+    }
+
+    #[test]
+    fn short_resolved_values_are_named_in_health_without_their_values() {
+        let board = SecretBoard::empty();
+        board.publish(
+            BTreeMap::from([("pin".into(), Ok(Secret::new("123456".into())))]),
+            "test",
+        );
+        let status = board.status();
+        assert_eq!(status.unprotected, ["pin"]);
+        assert!(!serde_json::to_string(&status).unwrap().contains("123456"));
+        assert!(board.get("pin").is_some());
+        board.hold("pin", Secret::new("long-enough-value".into()));
+        assert!(board.status().unprotected.is_empty());
     }
 }

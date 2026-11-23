@@ -133,13 +133,12 @@ fn replace(path: &Path, text: &str) -> Result<Option<String>> {
         let bak = format!("{}.{}.bak", path.display(), theseus_protocol::now_unix_ms());
         std::fs::copy(path, bak)?;
     }
-    let tmp = path.with_extension("md.new");
+    let tmp = path.with_extension(format!("md.{}.new", uuid::Uuid::new_v4()));
     {
         use std::io::Write;
         let mut f = std::fs::OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
             .mode(0o600)
             .open(&tmp)?;
         f.write_all(text.as_bytes())?;

@@ -1447,3 +1447,46 @@ fn a_backfill_failure_made_today_is_failing_now() {
     let r = pack_report("people.v1", &seen, &none, window);
     assert_eq!((r.failed, r.failed_recent), (2, Some(1)));
 }
+
+#[test]
+fn replay_item_labels_never_grade_the_holdout() {
+    use crate::learning::{report::pack_report, LabelRow, Seen, REPLAY_SOURCE};
+    use theseus_judge::learn::Window;
+    let end = 40 * DAY_MS;
+    let mut answer = noul("helps.1", 0.95);
+    answer.def = "helps".into();
+    answer.about = Some("node:one".into());
+    let seen = Seen {
+        position: 1,
+        at_ms: end - DAY_MS,
+        row_ms: end - DAY_MS,
+        judgment: judgment("jdg_item", "rerank.v1", vec![answer], json!({}), 10),
+    };
+    let labels = std::collections::HashMap::from([(
+        "jdg_item".into(),
+        vec![LabelRow {
+            position: 1,
+            at_ms: 1,
+            id: "lbl_machine".into(),
+            judgment: "jdg_item".into(),
+            pack: "rerank.v1".into(),
+            question: Some("helps.1".into()),
+            about: Some("node:one".into()),
+            label: json!(true),
+            source: REPLAY_SOURCE.into(),
+            weight: 0.4,
+        }],
+    )]);
+    let report = pack_report("rerank.v1", &[seen], &labels, Window::latest(end, 14));
+    assert!(report
+        .questions
+        .iter()
+        .any(|q| q.question == "helps" && q.labeled == 1));
+    assert!(report.holdout.labels.is_empty());
+    assert!(report.holdout.labeled_per_question.is_empty());
+    assert!(report
+        .holdout
+        .questions
+        .iter()
+        .all(|q| q.labeled == 0 && q.calibration.is_none()));
+}

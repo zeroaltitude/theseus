@@ -222,11 +222,6 @@ impl Admits for ViewAdmits<'_> {
     fn thing(&self, s: Source<'_>) -> bool {
         let key = key_of(s);
         let (session, marks) = match s {
-            // A line of work with no session of its own has no place to be read from: no name.
-            Source::Line(th) => match &th.session_id {
-                Some(sid) => (Some(sid.clone()), self.homes.marks(sid)),
-                None => return false,
-            },
             Source::Task(t) => {
                 let home = self.home(t);
                 let marks = self.homes.marks(&home);
@@ -258,7 +253,6 @@ impl Admits for ViewAdmits<'_> {
 /// A thing's key, as the names table holds it.
 fn key_of(s: Source<'_>) -> String {
     match s {
-        Source::Line(th) => format!("thread:{}", th.slug),
         Source::Task(t) => format!("task:{}", t.id),
         Source::Topic(c) => c.id.to_string(),
     }

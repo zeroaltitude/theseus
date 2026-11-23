@@ -139,7 +139,7 @@ impl Core {
             self_improve: Some(self.self_state()),
             warm: Some(self.warmth.health()),
             cache: Some(self.cache_health()),
-            threads: self.threads_health(),
+            threads: None,
         }
     }
 
@@ -2025,4 +2025,11 @@ pub(crate) fn ledger_tags(kind: Option<&str>, session: Option<&str>) -> Vec<Stri
             None => ledger_kind(k),
         })
         .collect()
+}
+
+#[tokio::test]
+async fn health_does_not_report_retired_thread_cache() {
+    let r = crate::tests_recall::rig_with(crate::config::MemoryMode::Off, |_| {});
+    crate::tests_old_threads::thread(&r.core, "legacy", "Legacy", json!({}));
+    assert!(r.core.health().threads.is_none());
 }

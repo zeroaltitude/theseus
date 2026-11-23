@@ -225,6 +225,9 @@ impl Outbound {
             lost.1.insert(stream.to_string());
         }
         s.total.fetch_add(1, Ordering::Relaxed);
+        if s.queued.load(Ordering::Acquire) == 0 && matches!(self.tx, Tx::Wire(_)) {
+            return self.queue(Item::Line(Arc::from("")));
+        }
         true
     }
 
@@ -254,6 +257,9 @@ impl Outbound {
             lost.1.insert(stream.to_string());
         }
         s.total.fetch_add(1, Ordering::Relaxed);
+        if s.queued.load(Ordering::Acquire) == 0 && matches!(self.tx, Tx::Wire(_)) {
+            return self.queue(Item::Line(Arc::from("")));
+        }
         true
     }
 
@@ -280,11 +286,11 @@ impl Drain {
     /// was lost, for the writer to send now, before anything queued later.
     pub fn written(&mut self) -> Option<EventsLost> {
         let s = &self.shared;
+        let mut lost = s.lost.lock().unwrap();
         let left = s.queued.fetch_sub(1, Ordering::AcqRel).saturating_sub(1);
         if left > 0 || !s.dropping.load(Ordering::Acquire) {
             return None;
         }
-        let mut lost = s.lost.lock().unwrap();
         if s.queued.load(Ordering::Acquire) > 0 {
             return None;
         }
@@ -403,5 +409,18 @@ mod tests {
         assert!(!notify(&tx, note(0), "executions"));
         assert!(!tx.respond(note(0)));
         assert!(tx.is_closed());
+    }
+
+    #[test]
+    fn losing_after_the_last_drain_wakes_the_writer() {
+        let (tx, mut rx) = channel(Arc::new(AtomicU64::new(0)));
+        assert!(tx.lose("executions"));
+        assert!(rx.try_recv().is_some());
+        let lost = rx
+            .written()
+            .expect("the writer learns of the loss without another request");
+        assert_eq!(lost.dropped, 1);
+        assert_eq!(lost.streams, ["executions"]);
+        assert!(!tx.shared.dropping.load(Ordering::Acquire));
     }
 }

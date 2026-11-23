@@ -102,6 +102,9 @@ pub struct SecretsStatus {
     pub state: String,
     #[serde(default)]
     pub ready: Vec<String>,
+    /// Ready values too short for exit substitution; names only, never values.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unprotected: Vec<String>,
     #[serde(default)]
     pub resolving: Vec<String>,
     #[serde(default)]
@@ -138,7 +141,7 @@ pub struct SecretsStatus {
 impl SecretsStatus {
     /// `resolving`, `ready`, or `failed a, b`: what health says in a word.
     pub fn summary(&self) -> String {
-        match self.state.as_str() {
+        let state = match self.state.as_str() {
             "failed" => format!(
                 "failed {}",
                 self.failed
@@ -149,7 +152,8 @@ impl SecretsStatus {
             ),
             "" => "unknown".into(),
             s => s.into(),
-        }
+        };
+        state
     }
 
     /// `outside the vault: a (env), b (file)`, naming each secret whose value

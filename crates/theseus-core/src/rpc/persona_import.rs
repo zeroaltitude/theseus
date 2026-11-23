@@ -69,6 +69,7 @@ impl Core {
         &self,
         p: &PersonaImportParams,
     ) -> anyhow::Result<PersonaImportResult> {
+        let transaction = theseus_store::blocking(|| self.persona_writes.lock().unwrap());
         let now = theseus_protocol::now_unix_ms();
         let (mut result, found) = run::import(
             &self.runner.state_root(),
@@ -108,7 +109,7 @@ impl Core {
         frame.push(crate::fact::row(&fact, None, None)?);
         theseus_store::blocking(|| self.store.append(&frame))?;
         self.rec(None).announce(&fact);
-        self.persona_from_import(&p.name, &result)?;
+        self.persona_from_import(&p.name, &result, &transaction)?;
         Ok(result)
     }
 
@@ -117,6 +118,7 @@ impl Core {
         &self,
         p: &PersonaCardConfirmParams,
     ) -> anyhow::Result<PersonaCardConfirmResult> {
+        let _write = theseus_store::blocking(|| self.persona_writes.lock().unwrap());
         let book = self.personas();
         let Some(cfg) = book.get(&p.name) else {
             anyhow::bail!("{:?} is not a persona: {}", p.name, book.names());
