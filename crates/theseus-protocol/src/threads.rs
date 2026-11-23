@@ -1,11 +1,6 @@
-//! Threads (theseus-nhew; the owner, 2026-10-09: separate concerns, each
-//! addressable, none burdening another's context). A thread is a durable
-//! record bound to a **virtual place** `thread:<slug>`, so it reuses what a
-//! place has: a chain of sessions, supersession on `/new`, the states, the
-//! outbox, and the place rule. A thread is private always.
-//!
-//! This file is the seam the rows built on the record read (`thread-context`,
-//! `thread-recall`, `thread-route`): extend it only by adding.
+//! Historical thread records and their read-only archive views.
+//! Threads no longer route messages, isolate context, or withhold by seals.
+//! These shapes remain readable so existing stored records still decode.
 
 use serde::{Deserialize, Serialize};
 
@@ -48,12 +43,12 @@ pub fn slug_of_place(place: &str) -> Option<&str> {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum ThreadState {
-    /// Takes messages and is offered to the router.
+    /// Historically active; no message admission or routing follows this state.
     #[default]
     Active,
-    /// Takes no message and is offered to no one until resumed.
+    /// Historically paused; retained for archive readers.
     Paused,
-    /// Finished: its session retired, its card kept in memory.
+    /// Historically finished; retained for archive readers.
     Done,
 }
 
@@ -67,7 +62,7 @@ impl ThreadState {
     }
 }
 
-/// What a thread touches: the router and the context read it. Every list is
+/// What a historical thread recorded as its working set. Every list is
 /// a set of plain strings, in the order given, none repeated.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -98,7 +93,7 @@ impl WorkingSet {
     }
 }
 
-/// A seal on a thread's boundary: who set it, when, and why.
+/// A historical seal annotation: who set it, when, and why; never a context filter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Seal {
@@ -149,8 +144,7 @@ pub struct ThreadInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub split_from: Option<String>,
-    /// Threads the owner linked to this one: their notes reach this thread's recall with no
-    /// distance; a seal still holds them out.
+    /// Historical links; neither these links nor old seals affect current context.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<String>,
     /// The place's current session; none until the thread's first message.

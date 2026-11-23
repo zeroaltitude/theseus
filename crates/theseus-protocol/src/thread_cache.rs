@@ -1,11 +1,10 @@
-//! What threads cost the prompt cache and what keeping them warm saves
-//! (theseus-ytt8, T9): per thread and in total, from the ledger's
-//! `provider.call` and `keep_warm` rows of the local day. Health's `threads`
-//! section, `thread show`, and `thread list` carry it.
+//! Historical thread-cache accounting, retained for archive readers.
+//! Old provider and keep-warm rows may describe earlier spending; no thread
+//! session is kept warm now. Compatibility fields report zero or false.
 
 use serde::{Deserialize, Serialize};
 
-/// One thread's cache numbers for the day, or the sum of all the threads'.
+/// Historical cache numbers for one thread, or their sum.
 ///
 /// A **cold resume** is a turn's first model call that found the session's
 /// last call (a turn's, or a keep-warm read) older than the cache's life, so
@@ -83,7 +82,7 @@ impl ThreadCacheStats {
 pub struct ThreadCacheEntry {
     pub slug: String,
     pub stats: ThreadCacheStats,
-    /// Whether the keep-warm holds its session now.
+    /// Historical hold flag; current readers return false.
     pub kept: bool,
 }
 
@@ -97,10 +96,9 @@ pub struct ThreadsCache {
     pub total: ThreadCacheStats,
     /// Threads with a number or a held session, newest activity first.
     pub threads: Vec<ThreadCacheEntry>,
-    /// Thread sessions the keep-warm holds now.
+    /// Historical held-session count; current readers return zero.
     pub kept: u64,
-    /// Reads the day's spend line kept the keep-warm from making today
-    /// (it warms the most recently active first and skips the rest).
+    /// Historical skipped-read count; current readers return zero.
     pub skipped_today: u64,
 }
 
@@ -109,8 +107,7 @@ pub struct ThreadsCache {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ThreadsHealth {
-    /// `[cache] threads_keep_warm_hours`: how long after its last owner message an
-    /// active thread's session is kept warm (0: none).
+    /// Historical keep-warm setting; retired, and always zero in current health.
     pub keep_warm_hours: f64,
     /// The day's numbers; absent until the first read of the ledger ends.
     #[serde(skip_serializing_if = "Option::is_none")]
