@@ -383,7 +383,15 @@ mod tests {
                         Ok(())
                     });
                 }
-                let out = cmd.output().unwrap();
+                cmd.stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped());
+                let child = theseus_kernel::children::spawn(
+                    theseus_kernel::children::Kind::Owned,
+                    || cmd.spawn(),
+                    |child| Some(child.id()),
+                )
+                .unwrap();
+                let out = child.wait_with_output().unwrap();
                 assert!(
                     out.status.success(),
                     "{}\n{}",
