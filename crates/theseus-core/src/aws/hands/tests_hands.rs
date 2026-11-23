@@ -1073,7 +1073,21 @@ async fn fargate_waits_for_the_nat_and_runs_tagged_in_private_subnets() {
         "each hand needs its own idempotency token"
     );
     let rec = record(&core, &g);
+    for request in r.fake.seen().iter().filter(|s| {
+        s.header("x-amz-target")
+            .is_some_and(|t| t.ends_with(".RunTask"))
+    }) {
+        let first = answer(&r.state, request, 0);
+        let again = answer(&r.state, request, 1);
+        assert_eq!(
+            (first.0, first.2),
+            (again.0, again.2),
+            "same token and body must return the same task (request IDs may differ)"
+        );
+    }
+    assert_eq!(r.state.ran.lock().unwrap().len(), 2);
     for (i, t) in ran.iter().enumerate() {
+        assert_eq!(t["clientToken"], rec.hands[i].correlation_id);
         assert_eq!(t["launchType"], "FARGATE");
         assert_eq!(t["startedBy"], g);
         let net = &t["networkConfiguration"]["awsvpcConfiguration"];
