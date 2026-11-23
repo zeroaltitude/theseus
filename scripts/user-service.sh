@@ -726,6 +726,16 @@ cmd_sync_timer() {
   local svc=$dir/$base.service tim=$dir/$base.timer
   local hsvc=$dir/$hbase.service htim=$dir/$hbase.timer
   local osvc=$dir/$obase.service otim=$dir/$obase.timer
+  if [ "$sub" = install ] || [ "$sub" = uninstall ]; then
+    local file
+    for file in "$svc" "$tim" "$hsvc" "$htim" "$osvc" "$otim"; do
+      if [ -L "$file" ] || { [ -e "$file" ] && ! grep -qxF "$SYNC_MARK" "$file"; }; then
+        say "Nothing changed: $file was not written by this script."
+        [ "$sub" = uninstall ] && return 0
+        return 1
+      fi
+    done
+  fi
   case $sub in
   install)
     bin=$(command -v theseus || true)

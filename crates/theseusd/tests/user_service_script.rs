@@ -1587,3 +1587,21 @@ fn the_sync_timer_installs_no_on_demand_pair_and_removes_an_old_one() {
     let (code, out) = r.run(&["--on-demand-mins", "5", "sync-timer", "install"]);
     assert_eq!(code, 2, "--on-demand-mins is gone: {out}");
 }
+
+
+#[test]
+fn sync_timers_preserve_every_foreign_unit_file() {
+    for name in ["theseusd-sync.service", "theseusd-sync.timer", "theseusd-sync-hourly.service",
+        "theseusd-sync-hourly.timer", "theseusd-sync-ondemand.service", "theseusd-sync-ondemand.timer"] {
+        let r = rig!();
+        let dir = r.home().join(".config/systemd/user");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(name);
+        std::fs::write(&file, "# hand-written unit\n").unwrap();
+        let (code, out) = r.run(&["sync-timer", "install"]);
+        assert_ne!(code, 0, "{out}");
+        r.run(&["sync-timer", "uninstall"]);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "# hand-written unit\n");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    }
+}
