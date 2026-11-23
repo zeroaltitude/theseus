@@ -939,7 +939,7 @@ impl ToolRuntime {
     /// (theseus-8c8s; issue 46).
     fn native_hint(&self, input: Option<&Value>) -> Option<String> {
         self.registry.get(crate::view::history::HISTORY_TOOL)?;
-        crate::native::hint(input?)
+        crate::native::hint(input?, theseus_protocol::now_unix_ms())
     }
 
     /// `job_result` from how the job `ended`: its completion and the status
