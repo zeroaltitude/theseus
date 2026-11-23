@@ -57,7 +57,8 @@ lines and the folds, prices them at their worst case, and writes nothing.
 
 ## Where it is read
 
-- In a place set to the view (`[context] assembly`, `view-compile.md`), the window and the ladder are read from
+- Every turn uses the view (`view-compile.md`); the old `[context] assembly` and `ledger` keys are ignored
+  with a startup warning. The window and the ladder are read from
   these records: the fold nodes stand for the exchanges older than the window, and an exchange with no `did` line
   reads "reply not summarised". A fold's source exchanges must resolve to readable sessions. Old seals, veils
   and moved-message records do not withhold it or force a code-only summary.
