@@ -88,13 +88,13 @@ pub struct Lens<'a> {
     pub store: &'a Store,
     /// The place the turn is in (`exchange::place_of`).
     pub here: String,
-    /// Whether an exchange is held out whole, before any page, count or cursor is made: for a fork, one an
-    /// ancestor said at or after the fork's point (`fork::cut`); for any other session, none.
-    pub held: &'a (dyn Fn(&Exchange) -> bool + Sync),
     /// Where a bare call begins ([`in_view`]).
     pub in_view: Option<Cursor>,
     /// The turns the words index found, when words were given.
     pub words: Option<HashSet<String>>,
+    /// The asking session's cut, when it is a fork (`fork::cut`): an exchange the fork point falls in, or one
+    /// an ancestor began after it, is not in the fork's history, by position. Empty for any other session.
+    pub cut: crate::fork::cut::Cut,
 }
 
 /// A walk's page, and where a walk stopped by its bound would resume (kept by the tool, never shown).
@@ -123,14 +123,22 @@ impl Lens<'_> {
         }
     }
 
-    /// Whether `ex` may be shown: every exchange the lens does not hold out (`held`).
-    pub fn admits(&self, ex: &Exchange) -> bool {
-        !(self.held)(ex)
+    /// The exchange `r` names, unless a fork's cut holds it ([`Lens::forked`]). Every page, every count and
+    /// every words search's scope reads exchanges through here.
+    fn admitted(&self, r: &ExchangeRef) -> Result<Option<Exchange>> {
+        let Some(ex) = exchange::exchange(self.store, &r.turn_id)? else {
+            return Ok(None);
+        };
+        Ok((!self.forked(&ex)?).then_some(ex))
     }
 
-    /// The exchange `r` names, when it may be shown.
-    fn admitted(&self, r: &ExchangeRef) -> Result<Option<Exchange>> {
-        Ok(exchange::exchange(self.store, &r.turn_id)?.filter(|ex| self.admits(ex)))
+    /// Whether a fork's cut holds `ex` out of its history: any ancestor's exchange not PROVEN wholly before the
+    /// point (`fork::cut::Cut::proven_inside`: every node it names read, each at or before the cut). So the
+    /// exchange its point falls in, one an ancestor began after it, and one whose referenced node is missing
+    /// (whose stored `did` line may summarise a later reply) are all held, page and open alike; an exchange of a
+    /// session the cut does not name is left alone. A read that fails is an error, never a default cut.
+    pub fn forked(&self, ex: &Exchange) -> Result<bool> {
+        Ok(!self.cut.is_empty() && !self.cut.proven_inside(self.store, ex)?)
     }
 
     /// The sessions of the exchanges of `root`, from its newest on, within [`READ_MOST`] touches: what a words
@@ -205,6 +213,8 @@ impl Lens<'_> {
         let tl = Ledger(self.store);
         let (mut lines, mut read) = (Vec::<HistoryLine>::new(), 0);
         let (mut more, mut exhausted) = (false, false);
+        // A words hit the fork's cut held: the bounded search may have been crowded by them.
+        let mut held = false;
         'walk: while read < READ_MOST {
             let refs = tl.newest(&root, at.as_ref(), STEP)?;
             read += refs.len();
@@ -220,6 +230,8 @@ impl Lens<'_> {
                         break 'walk;
                     }
                     lines.push(self.line(&ex));
+                } else if self.words.is_some() && !self.cut.is_empty() {
+                    held = true;
                 }
                 at = Some(r.cursor());
             }
@@ -236,6 +248,7 @@ impl Lens<'_> {
         let (end, next, resume) = match (more, exhausted) {
             (true, _) if last_look => (PageEnd::AllowanceUsed, shown, None),
             (true, _) => (PageEnd::More, shown, None),
+            (false, true) if held => (PageEnd::SearchCut, None, None),
             (false, true) => (PageEnd::HistoryExhausted, None, None),
             (false, false) if last_look => (PageEnd::AllowanceUsed, shown, None),
             (false, false) => (PageEnd::ScanLimit, None, at),
@@ -477,6 +490,11 @@ pub fn render(p: &HistoryPage, here: &str, looks: u32, resume: Option<&Cursor>) 
              {LOOKS_PER_TURN} this turn).",
             resume.map_or_else(|| "{}".into(), cursor_text),
             looks + 1
+        ),
+        (PageEnd::SearchCut, _) => format!(
+            "This words search was cut at this conversation's fork point{oldest}: what was said after the point \
+             is not shown, and those matches may have crowded out earlier ones, so this list may be incomplete. \
+             Try other words, or page without words."
         ),
         _ => format!(
             "History is exhausted{oldest}: nothing older is on record here. If the reference is still not \

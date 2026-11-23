@@ -9,7 +9,7 @@
 //! as any piece, and every piece keeps its source's place and ids. A fork of a session the self loop opened
 //! lays its own place only, as that session does (`view_gate::Verified::own_place_only`), and its inherited
 //! run besides: the run is handed material, as a brief is, so the scoped permit admits exactly the exchanges
-//! [`inherited`] yields, each laid through the fork's cut and no further, and nothing else of another session
+//! [`inherited`] yields, each laid through the fork's cut, and nothing else of another session
 //! (`view::permit::Permit::scoped`).
 //!
 //! **A fork never holds what an ancestor said after the point it was forked from it** (the conductor's rule,
@@ -24,7 +24,6 @@
 use std::collections::HashSet;
 
 use crate::fork::cut::{Cut, Reach};
-
 use crate::ladder::view::{listed, StoreLadder};
 use crate::store::Store;
 use crate::stub::Kind;
@@ -34,7 +33,7 @@ use crate::view::timeline::ExchangeRef;
 use crate::view::Pos;
 use crate::view_gate::Verified;
 
-/// A turn's view of its session as a fork: the run it inherits, and the cut at its point.
+/// A turn's view of its session as a fork: the run it inherits.
 pub struct Fork {
     inherited: Vec<ExchangeRef>,
     cut: Cut,
@@ -52,6 +51,8 @@ impl Fork {
     ) -> anyhow::Result<(Self, Permit)> {
         let inherited = inherited(store, session)?;
         let cut = Cut::of(store, session)?;
+        // A fork of a self-loop session keeps the run it was handed: the scoped permit admits exactly these
+        // exchanges besides its own place's, each laid through the cut (`Sessions::with_cut`) and no further.
         let handed: Vec<&str> = inherited.iter().map(|e| e.turn_id.as_str()).collect();
         let permit = Permit::scoped(store, (session, turn), &verified, &handed);
         Ok((Self { inherited, cut }, permit))

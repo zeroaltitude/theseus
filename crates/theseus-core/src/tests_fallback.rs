@@ -275,12 +275,13 @@ async fn the_fallbacks_call_is_spent_and_reserved_as_its_own_and_the_session_kee
     );
     let reqs = r.fake.requests();
     // The view builds the next turn's request afresh (issue 44): the earlier exchange is laid in its window,
-    // its question once, rather than the earlier request extended.
+    // its question once, rather than the earlier request extended; and this turn asks it again (every turn of
+    // this rig sends the same words), so the words are there twice: the window's, then the new message.
     let sent = serde_json::to_string(&reqs[2].messages).unwrap();
     assert_eq!(
         sent.matches("open the archive and read what the tide table says")
             .count(),
-        1,
+        2,
         "{sent}"
     );
     assert!(

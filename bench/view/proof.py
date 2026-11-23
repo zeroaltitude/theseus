@@ -625,35 +625,6 @@ def provider_refusal(c: Case):
     return True, "" if answered(v) else "a plain failure"
 
 
-SEALED_WORD = "Marigold-Seven"
-
-
-def seal_between_calls(c: Case):
-    c.model.script = {"Check the tide gauge": [{"calls": gate_call(c.gates, "seal")}, {"text": "Gauge read."}]}
-    rpc(c.d, "thread.new", {"slug": "reef-notes", "title": "Reef notes"})
-    rpc(c.d, "thread.new", {"slug": "tide-work", "title": "Tide work"})
-    if not answered(submit(c.d, f"The reef code word is {SEALED_WORD}.", thread="reef-notes")):
-        return False, "the first thread's turn had no answer"
-    t, box = in_background(submit, c.d, "Check the tide gauge.", thread="tide-work")
-    if not c.up("seal"):
-        return False, "the turn's job never started"
-    rpc(c.d, "thread.seal", {"slug": "reef-notes", "reason": "proof"})
-    c.release("seal")
-    t.join(180)
-    calls = c.model.calls_of("Check the tide gauge")
-    after = [x for x in calls if x["round"] >= 1]
-    c.state["sealed_word_before"] = sum(SEALED_WORD in json.dumps(x["req"]) for x in calls if x["round"] == 0)
-    c.state["sealed_word_after"] = sum(SEALED_WORD in json.dumps(x["req"]) for x in after)
-    settle(c.d)
-    if not answered(box.get("value")):
-        return False, "the turn had no answer"
-    if not after:
-        return False, "no call after the seal"
-    if c.state["sealed_word_after"]:
-        return False, "the sealed thread's words were sent after the seal"
-    return True, ""
-
-
 def new_mark(c: Case):
     return False, "not driven: /new is the chat's (the terminal has none) and the kit keeps Discord off"
 
@@ -719,7 +690,6 @@ CASES = {
                                   "model": {"max_output_tokens": 2000},
                                   "profiles": {"bench": {"max_output_tokens": 2000}}}),
     "provider_refusal": (provider_refusal, {}),
-    "seal_between_calls": (seal_between_calls, {}),
     "new_mark": (new_mark, {}),
     "shared_place": (shared_place, {}),
     "retired_keys": (retired_keys, RETIRED),

@@ -1,0 +1,241 @@
+//! A call's result answers ITS call (issue 44): the request a turn sends pairs each result with a call of its
+//! own exchange, the earliest unanswered one with that id standing before it, and never places a result
+//! twice. A provider may number its calls per response (`call_0`, `call_1`, …), so two exchanges laid in one
+//! request, or two responses of one turn, can carry the same id. A call with no result of its own is closed
+//! with the harness's stub, never with another call's output: a call parked on an approval must not read as
+//! having run.
+
+use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+use std::sync::Arc;
+
+use serde_json::{json, Value};
+
+use crate::node::Body;
+use crate::places::BoundPlace;
+use crate::provider::{ProviderRequest, Scripted};
+use crate::tests_places::{answers_a_call, last_user, rig_scripted, session, turn, OWNER};
+use crate::Core;
+
+/// Two channels bound shared: a post from one into the other asks first (`glide`), a post into its own
+/// place runs.
+const HALL: u64 = 161_803_398_874_989_484;
+const PIER: u64 = 141_421_356_237_309_504;
+
+/// The id every call of these scripts carries, as a provider that numbers its calls per response would.
+const SAME: &str = "call_0";
+
+/// The harness's stub for a call with no result (`compiler::render::repaired`).
+const STUB: &str = "No result was recorded for this call";
+
+fn bind(core: &Core) {
+    let channel = |id: u64, name: &str| BoundPlace {
+        target: format!("discord:channel:{id}"),
+        name: name.into(),
+        private: false,
+        ..Default::default()
+    };
+    core.bind_places(vec![
+        channel(HALL, "#hall"),
+        channel(PIER, "#pier"),
+        BoundPlace {
+            target: format!("discord:dm:{OWNER}"),
+            name: "DM @owner".into(),
+            ..Default::default()
+        },
+    ]);
+}
+
+/// `POST <place> :: <text>` posts with the one id; a call's result ends the turn.
+fn post_script(req: &ProviderRequest) -> Scripted {
+    if answers_a_call(req) {
+        return Scripted::text("Done.");
+    }
+    match last_user(req).strip_prefix("POST ") {
+        Some(rest) => {
+            let (to, text) = rest.split_once(" :: ").unwrap();
+            Scripted::tools(
+                "Posting.",
+                &[(SAME, "channel_post", json!({"to": to, "text": text}))],
+            )
+        }
+        None => Scripted::text("Hello."),
+    }
+}
+
+/// The blocks of the message right after the assistant message that calls `SAME` with an input whose `key`
+/// is `value`, in `req`.
+fn after_call<'a>(req: &'a ProviderRequest, key: &str, value: &str) -> &'a [Value] {
+    let at = req
+        .messages
+        .iter()
+        .position(|m| {
+            m["role"] == "assistant"
+                && m["content"].as_array().is_some_and(|c| {
+                    c.iter().any(|b| {
+                        b["type"] == "tool_use" && b["id"] == SAME && b["input"][key] == value
+                    })
+                })
+        })
+        .unwrap_or_else(|| panic!("no call with {key} = {value}: {:?}", req.messages));
+    req.messages[at + 1]["content"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
+
+/// The text of the first `tool_result` block among `blocks`.
+fn first_result(blocks: &[Value]) -> String {
+    let b = blocks
+        .iter()
+        .find(|b| b["type"] == "tool_result")
+        .unwrap_or_else(|| panic!("no result: {blocks:?}"));
+    match &b["content"] {
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// The content of the newest result `sid` recorded.
+fn recorded(core: &Core, sid: &str) -> String {
+    core.store
+        .session_nodes(sid)
+        .unwrap()
+        .into_iter()
+        .rev()
+        .find_map(|(_, n)| match &n.body {
+            Body::ToolResult { content, .. } => Some(content.clone()),
+            _ => None,
+        })
+        .expect("a result")
+}
+
+/// **Two exchanges at one place, one id.** A post into its own place runs and is answered; in another session
+/// at the place a post with the SAME call id waits on its approval; then a new message. In the new turn's
+/// request the parked call carries the harness's stub and not the other call's output, the answered call
+/// carries its own result exactly once, and the question still waits.
+#[tokio::test]
+async fn a_call_parked_on_an_approval_is_never_answered_by_another_exchanges_result_with_its_id() {
+    let r = rig_scripted(|_| {}, post_script);
+    bind(&r.core);
+    let hall = format!("channel:{HALL}");
+    let answered = session(&r.core, Some(&hall));
+    let ran = turn(&r.core, &answered, "POST #hall :: to ourselves").await;
+    assert_eq!(
+        ran.awaiting_confirm, None,
+        "into its own place it runs: {ran:?}"
+    );
+    let its_result = recorded(&r.core, &answered);
+    assert!(!its_result.starts_with(STUB), "{its_result}");
+
+    let parked = session(&r.core, Some(&hall));
+    let asks = turn(&r.core, &parked, "POST #pier :: hello pier").await;
+    assert!(
+        asks.awaiting_confirm.is_some(),
+        "between two shared places it asks: {asks:?}"
+    );
+
+    let now = session(&r.core, Some(&hall));
+    turn(&r.core, &now, "and now?").await;
+    let req = r
+        .requests()
+        .into_iter()
+        .find(|q| last_user(q).contains("and now?"))
+        .expect("the new turn's request");
+
+    let held = first_result(after_call(&req, "to", "#pier"));
+    assert!(
+        held.starts_with(STUB),
+        "the parked call is closed with the stub, never another call's output: {held}"
+    );
+    // The answered call's result as this request renders it (the renderer may head a result).
+    let shown = first_result(after_call(&req, "to", "#hall"));
+    assert!(
+        !shown.starts_with(STUB),
+        "the answered call carries its result: {shown}"
+    );
+    let placed = req
+        .messages
+        .iter()
+        .filter_map(|m| m["content"].as_array())
+        .flatten()
+        .filter(|b| b["type"] == "tool_result" && b["content"] == shown.as_str())
+        .count();
+    assert_eq!(placed, 1, "a result is placed once: {:?}", req.messages);
+    assert!(
+        r.core
+            .confirm_list()
+            .unwrap()
+            .iter()
+            .any(|q| q.session_id == parked),
+        "the parked call's question still waits"
+    );
+}
+
+/// **One turn, two responses, one id.** The first response calls with an id; after its result the second
+/// response calls with the SAME id (a provider numbering per response). In the turn's last request each
+/// result stands under its own call, in order.
+#[tokio::test]
+async fn two_responses_of_one_turn_that_repeat_a_call_id_each_get_their_own_result_in_order() {
+    let stage = Arc::new(AtomicUsize::new(0));
+    let seen = stage.clone();
+    let r = rig_scripted(
+        |_| {},
+        move |req: &ProviderRequest| {
+            if !answers_a_call(req) {
+                if last_user(req).starts_with("TWICE") {
+                    seen.store(1, SeqCst);
+                    return Scripted::tools(
+                        "First.",
+                        &[(SAME, "proc_run", json!({"argv": ["echo", "alpha-7"]}))],
+                    );
+                }
+                return Scripted::text("Hello.");
+            }
+            match seen.swap(0, SeqCst) {
+                1 => Scripted::tools(
+                    "Second.",
+                    &[(SAME, "proc_run", json!({"argv": ["echo", "beta-9"]}))],
+                ),
+                _ => Scripted::text("Done."),
+            }
+        },
+    );
+    let cli = session(&r.core, None);
+    turn(&r.core, &cli, "TWICE").await;
+    assert_eq!(stage.load(SeqCst), 0, "both calls were made");
+    // The turn's last request: the one that carries the second call (a writer's request may follow it).
+    let last = r
+        .requests()
+        .into_iter()
+        .rev()
+        .find(|q| q.messages.iter().any(|m| m.to_string().contains("beta-9")))
+        .expect("the turn's last request");
+    let argv = |word: &str| json!(["echo", word]);
+    let call = |word: &str| {
+        let at = last
+            .messages
+            .iter()
+            .position(|m| {
+                m["content"].as_array().is_some_and(|c| {
+                    c.iter()
+                        .any(|b| b["type"] == "tool_use" && b["input"]["argv"] == argv(word))
+                })
+            })
+            .unwrap_or_else(|| panic!("no call of {word}: {:?}", last.messages));
+        first_result(
+            last.messages[at + 1]["content"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or_default(),
+        )
+    };
+    let (first, second) = (call("alpha-7"), call("beta-9"));
+    assert!(
+        first.contains("alpha-7") && !first.contains("beta-9"),
+        "{first}"
+    );
+    assert!(
+        second.contains("beta-9") && !second.contains("alpha-7"),
+        "{second}"
+    );
+}

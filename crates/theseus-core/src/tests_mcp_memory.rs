@@ -229,6 +229,24 @@ async fn an_mcp_error_and_the_status_reply_carry_the_vault_value_substituted() {
         "{}",
         e.message
     );
+    // A decode error, which echoes the value it could not read (a number given as the vault's value).
+    let e = ask(
+        &r.core,
+        json!({"op": "search", "words": "ferry", "limit": secret, "client": "c"}),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        e.code,
+        theseus_protocol::error_code::INVALID_PARAMS,
+        "{}",
+        e.message
+    );
+    assert!(
+        !e.message.contains(secret) && e.message.contains("[redacted:marsh_vault]"),
+        "{}",
+        e.message
+    );
     // The newest reply a session holds, read as conversation_status reads it.
     let sid = session(&r.core, None);
     let reply = crate::node::Node::assistant(

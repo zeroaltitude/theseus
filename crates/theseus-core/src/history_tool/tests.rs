@@ -132,9 +132,9 @@ fn lens<'a>(store: &'a Store, here: &str) -> Lens<'a> {
     Lens {
         store,
         here: here.into(),
-        held: &|_| false,
         in_view: None,
         words: None,
+        cut: Default::default(),
     }
 }
 

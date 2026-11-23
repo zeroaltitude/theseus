@@ -1043,13 +1043,15 @@ async fn a_fork_of_a_session_with_no_labels_inside_the_point_carries_no_data() {
     assert!(rec.data.is_none(), "the label's item is after the point");
 }
 
-/// Each text block of each message of a request, in order (a message may hold more than one: two user
-/// messages in a row are sent as one message of two blocks).
+/// Every text of each message of a request, joined, in order (a message's blocks beside it included).
 fn said_in(req: &ProviderRequest) -> Vec<String> {
     (req.messages.iter())
-        .filter_map(|m| m["content"].as_array())
-        .flatten()
-        .filter_map(|b| b["text"].as_str().map(str::to_string))
+        .map(|m| {
+            (m["content"].as_array().into_iter().flatten())
+                .filter_map(|b| b["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
         .collect()
 }
 
@@ -1084,11 +1086,10 @@ async fn a_fork_at_the_persons_message_elsewhere_holds_that_message_and_not_its_
         .unwrap();
     turn(&r.core, &f.session_id, "instead").await;
     let said = said_in(requests(&r).last().unwrap());
-    assert!(
-        said.iter().any(|t| t.ends_with("two")),
-        "the message at the point: {said:?}"
-    );
-    assert!(said.iter().any(|t| t.ends_with("instead")), "{said:?}");
+    // The message at the point and the fork's own may be one user message (two person's lines in a row).
+    let line = |words: &str| said.iter().any(|t| t.lines().any(|l| l.ends_with(words)));
+    assert!(line("two"), "the message at the point: {said:?}");
+    assert!(line("instead"), "{said:?}");
     let text = said.join("\n");
     assert!(!text.contains("answer to two"), "its answer: {said:?}");
     assert!(!text.contains("three"), "a later turn: {said:?}");
@@ -1346,4 +1347,229 @@ async fn a_summary_needs_every_node_of_its_exchange_proven_before_the_point() {
         );
         assert!(!read.summarised(store, t).unwrap(), "{t}: its did line");
     }
+}
+
+/// A fork's history tool holds nothing its source said at or after the fork point, by position (issue 44): a
+/// page of the fork's place lists the inherited exchange before the point and not the source's later one, and
+/// an open of the later one reads as no exchange here. The same lens with no cut lists and opens it.
+#[tokio::test]
+async fn a_forks_history_tool_holds_nothing_past_its_point() {
+    use crate::history_tool::page::Lens;
+    let r = rig();
+    let (s, nodes) = three_turns(&r).await;
+    let f = fork(&r.core, &s, &nodes[3].0); // through the answer to "two"
+    turn(&r.core, &f.session_id, "other road").await;
+    let (one, three) = (turn_of(&r.core, &nodes[0].0), turn_of(&r.core, &nodes[4].0));
+    let lens = |cut| Lens {
+        store: &r.core.store,
+        here: "local".into(),
+        in_view: None,
+        words: None,
+        cut,
+    };
+    let args = crate::view::history::HistoryArgs::default();
+    let page = |l: &Lens<'_>| -> Vec<String> {
+        let walked = l.walk(&args, None, 0).unwrap();
+        walked
+            .page
+            .lines
+            .iter()
+            .map(|x| x.handle.0.clone())
+            .collect()
+    };
+    let plain = lens(Default::default());
+    let cut = crate::fork::cut::Cut::of(&r.core.store, &f.session_id).unwrap();
+    let forked = lens(cut);
+    let all = page(&plain);
+    assert!(
+        all.contains(&one) && all.contains(&three),
+        "the control: {all:?}"
+    );
+    let got = page(&forked);
+    assert!(
+        got.contains(&one),
+        "the inherited exchange before the point: {got:?}"
+    );
+    assert!(
+        !got.contains(&three),
+        "the source's later exchange: {got:?}"
+    );
+    let later = crate::view::Handle(three);
+    assert!(crate::history_tool::open::open(&plain, &later).is_ok());
+    assert!(
+        crate::history_tool::open::open(&forked, &later).is_err(),
+        "a fork opens nothing past its point"
+    );
+}
+
+/// A fork's history tool admits an ancestor's exchange only on complete proof of position (XF7, issue 44),
+/// through its entry point (`history_tool::answer`, as `Board::run` dispatches it): an exchange whose ask is
+/// before the point but whose referenced reply is missing is not proven inside, so neither its line nor its
+/// stored `did` line (which may summarise that later reply) is paged to the fork, and its handle opens as no
+/// exchange here. The plain controls stay: the source sees it and opens it.
+#[tokio::test]
+async fn a_forks_history_tool_needs_proof_and_a_missing_reply_admits_no_summary() {
+    let r = rig();
+    let (s, nodes) = three_turns(&r).await;
+    let f = fork(&r.core, &s, &nodes[3].0); // through the answer to "two"
+    let one = turn_of(&r.core, &nodes[0].0);
+    let whole = crate::exchange::exchange(&r.core.store, &one)
+        .unwrap()
+        .unwrap();
+    let mut no_reply = whole.clone();
+    no_reply.turn_id = "turn_no_reply".into();
+    no_reply.reply = Some("nod_gone".into());
+    no_reply.start_ms = whole.start_ms + 1;
+    let summary = crate::ladder::did::DidLine {
+        turn_id: no_reply.turn_id.clone(),
+        session_id: s.clone(),
+        line: "THE LATER REPLY'S SUMMARY".into(),
+        model: "m".into(),
+        writer: 1,
+        marks: crate::view::Marks {
+            place: Some(whole.place.clone()),
+            audience: crate::view::Audience::Private,
+            author: crate::view::Author::Theseus,
+            outside: false,
+            sealed: false,
+            veiled: false,
+        },
+        cost_usd: 0.0,
+        at_ms: 0,
+    };
+    let mut recs = vec![
+        crate::exchange::exchange_record(&no_reply).unwrap(),
+        crate::ladder::did::did_record(&summary).unwrap(),
+    ];
+    recs.extend(crate::exchange::touch(
+        crate::exchange::Root::Place(&whole.place),
+        &no_reply.turn_id,
+        &s,
+        no_reply.start_ms,
+    ));
+    r.core.store.append(&recs).unwrap();
+    // Asked from another place, naming the exchange's: a page with nothing in view to start before.
+    let pov = crate::view::PointOfView {
+        anchor: crate::view::Anchor::Place("elsewhere".into()),
+        person: None,
+        present: crate::view::Present::Open,
+        at_hand: None,
+        now_ms: theseus_protocol::now_unix_ms(),
+    };
+    let b = crate::history_tool::Board::default();
+    let call = |session: String, v: Value| {
+        let a: crate::view::history::HistoryArgs = serde_json::from_value(v).unwrap();
+        let (core, b, pov) = (r.core.clone(), &b, &pov);
+        async move { crate::history_tool::answer(&core, b, (&session, "t"), pov, &a).await }
+    };
+    let page = json!({ "place": whole.place });
+    let open = json!({ "open": "turn_no_reply" });
+    let plain = call(s.clone(), page.clone()).await.unwrap().text;
+    assert!(
+        plain.contains("turn_no_reply") && plain.contains("THE LATER REPLY'S SUMMARY"),
+        "the control, from the source: {plain}"
+    );
+    assert!(
+        call(s.clone(), open.clone()).await.is_ok(),
+        "the source opens it"
+    );
+    let forked = call(f.session_id.clone(), page).await.unwrap().text;
+    assert!(
+        forked.contains(&one),
+        "the proven exchange before the point: {forked}"
+    );
+    assert!(!forked.contains("turn_no_reply"), "{forked}");
+    assert!(!forked.contains("THE LATER REPLY'S SUMMARY"), "{forked}");
+    let shut = call(f.session_id.clone(), open).await.unwrap_err();
+    assert!(shut.contains("no exchange"), "{shut}");
+}
+
+/// A words search in a fork whose bounded hits were filled by the source's words after the point never says
+/// "history is exhausted" (XF7, issue 44): the search's top hits (here 120, past its bound of 100) are all
+/// past the point, crowding out an earlier match, so the walk shows nothing and says the search was cut at the
+/// fork point and may be incomplete. The same hits in the source are shown; the earlier match alone, found, is
+/// shown to the fork and ends as exhausted, as nothing was held.
+#[tokio::test]
+async fn a_forks_words_search_crowded_past_its_point_says_it_may_be_incomplete() {
+    use crate::history_tool::page::{render, Lens};
+    use crate::view::history::PageEnd;
+    let r = rig();
+    let (s, nodes) = three_turns(&r).await;
+    let f = fork(&r.core, &s, &nodes[3].0); // through the answer to "two"
+    let one = turn_of(&r.core, &nodes[0].0);
+    let place = crate::exchange::exchange(&r.core.store, &one)
+        .unwrap()
+        .unwrap()
+        .place;
+    // The source's later words, written after the fork: every node past the point.
+    let mut later = std::collections::HashSet::new();
+    for i in 0..120u64 {
+        let turn = format!("turn_later_{i:03}");
+        let ask = crate::node::Node::user(&s, Some(&turn), "owner", &format!("tide {i}"));
+        let at = theseus_protocol::now_unix_ms() + i;
+        let x = crate::exchange::Exchange {
+            turn_id: turn.clone(),
+            session_id: s.clone(),
+            place: place.clone(),
+            private: true,
+            opened_by: crate::exchange::Opener::Message,
+            person: Some(crate::exchange::OWNER.into()),
+            start_ms: at,
+            end_ms: Some(at),
+            ask: Some(ask.id.clone()),
+            reply: None,
+            messages: vec![ask.id.clone()],
+            stop: Some("end_turn".into()),
+            rebuilt: false,
+        };
+        let mut recs = vec![
+            ask.record().unwrap(),
+            crate::exchange::exchange_record(&x).unwrap(),
+        ];
+        recs.extend(crate::exchange::touch(
+            crate::exchange::Root::Place(&place),
+            &turn,
+            &s,
+            at,
+        ));
+        r.core.store.append(&recs).unwrap();
+        later.insert(turn);
+    }
+    let lens = |cut, words| Lens {
+        store: &r.core.store,
+        here: place.clone(),
+        in_view: None,
+        words: Some(words),
+        cut,
+    };
+    let args = crate::view::history::HistoryArgs::default();
+    let cut = crate::fork::cut::Cut::of(&r.core.store, &f.session_id).unwrap();
+    let crowded = lens(cut.clone(), later.clone())
+        .walk(&args, None, 0)
+        .unwrap()
+        .page;
+    assert!(
+        crowded.lines.is_empty(),
+        "nothing past the point: {crowded:?}"
+    );
+    assert_eq!(crowded.end, PageEnd::SearchCut);
+    let said = render(&crowded, &place, 0, None);
+    assert!(said.contains("may be incomplete"), "{said}");
+    assert!(!said.contains("exhausted"), "{said}");
+    let source = lens(Default::default(), later)
+        .walk(&args, None, 0)
+        .unwrap()
+        .page;
+    assert_eq!(
+        source.lines.len(),
+        100,
+        "the control: the source sees them, a page at a time"
+    );
+    let earlier = lens(cut, [one.clone()].into())
+        .walk(&args, None, 0)
+        .unwrap()
+        .page;
+    let handles: Vec<_> = earlier.lines.iter().map(|l| l.handle.0.clone()).collect();
+    assert_eq!(handles, vec![one]);
+    assert_eq!(earlier.end, PageEnd::HistoryExhausted, "nothing held");
 }

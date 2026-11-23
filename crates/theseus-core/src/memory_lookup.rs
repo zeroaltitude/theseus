@@ -372,8 +372,9 @@ async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, St
         false => String::new(),
     };
     text.push_str(&match (shown, more) {
+        // No promise of progress from a cursor that cannot advance past what was read.
         (0, _) if incomplete.is_some() => format!(
-            "\nNothing on this page. The search was incomplete ({}): more may exist: call again with cursor {next}.",
+            "\nNothing on this page. The search could not be completed ({}): narrow it (words, when, book or topic) to read further.",
             incomplete.as_deref().unwrap_or_default()
         ),
         (0, _) => "\nNothing on this page.".to_string(),
@@ -383,7 +384,7 @@ async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, St
         ),
         // The live hits ran out inside what was fetched, or a hit could not be read: never "that is all".
         (_, false) if incomplete.is_some() => format!(
-            "\nShown {}–{next}{of}. The search was incomplete ({}): more may exist: call again with cursor {next}.",
+            "\nShown {}–{next}{of}. The search could not be completed ({}): more may exist; narrow it (words, when, book or topic) to read further.",
             offset + 1,
             incomplete.as_deref().unwrap_or_default()
         ),

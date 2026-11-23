@@ -99,10 +99,12 @@ pub fn is_judges(f: &Frame) -> bool {
     !f.records.is_empty() && (f.records.iter().all(|r| judges(r)) || is_content_landing(f))
 }
 
-/// The content pack's landing: at least one `content.*` row, and nothing but
-/// those, the judge's own records and the session record they update.
+/// The content pack's landing: at least one `content.*` row or item record
+/// (META `labels.<node>`, issue 44), and nothing but those, the judge's own
+/// records and the session record they update. A reply's landing holds its
+/// item record and the session record alone: it writes no row.
 fn is_content_landing(f: &Frame) -> bool {
-    let content = |r: &String| r.starts_with("ledger:content.");
+    let content = |r: &String| r.starts_with("ledger:content.") || r.starts_with("meta:labels.");
     f.records.iter().any(content)
         && f.records
             .iter()
@@ -780,6 +782,24 @@ mod tests {
         assert!(is_memory_pass(&window[1]) && !is_memory_pass(&window[3]));
         assert!(!is_memory_pass(&frame(&[])), "an empty frame is no pass");
         assert!(tagged(&window[1]).starts_with("memory pass "));
+    }
+
+    /// The content landing is the judge's with its items' records (issue 44),
+    /// and so is a reply's, which holds its item's record and the session's
+    /// alone; a turn's frame is not, whatever it holds beside.
+    #[test]
+    fn a_content_landing_with_its_items_records_is_the_judges() {
+        assert!(is_judges(&frame(&[
+            "ledger:content.judged",
+            "meta:labels.msg_1",
+            "session"
+        ])));
+        assert!(is_judges(&frame(&["meta:labels.msg_2", "session"])));
+        assert!(!is_judges(&frame(&[
+            "meta:labels.msg_2",
+            "node",
+            "session"
+        ])));
     }
 
     /// The sink's frame, a budget block, and the ladder's rows are the

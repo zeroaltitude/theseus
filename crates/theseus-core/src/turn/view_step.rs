@@ -4,8 +4,9 @@
 //!
 //! Who is present is never the view's to say: the point of view's presence and anchor are the turn's
 //! verified ones (`crate::view_gate::Verified`, computed by `turn::gate_step` from the input's mark and the
-//! place read on its own), and the gate is the turn's permit (`view::permit::Permit::scoped`, made by `fork::window::Fork::permit`). A channel
-//! bound private, or an agent's process at the terminal, is never the owner alone (decision 5).
+//! place read on its own), and the gate is the turn's permit (`view::permit::Permit::scoped`, made by
+//! `fork::window::Fork::permit`). A channel bound private, or an agent's process at the terminal, is never the
+//! owner alone (decision 5).
 
 use std::collections::{HashMap, HashSet};
 
@@ -597,6 +598,15 @@ fn verified_pov(verified: &Verified, person: Option<String>, now_ms: u64) -> Poi
 
 /// The items today's recall found for this turn (its pending note), before the view admits them
 /// (`recall::view_recall`).
+///
+/// Read once, at the turn's first freeze, and that is enough: recall is settled before a turn's first
+/// call, so nothing lands after the freeze. The pending note is written only by the first loop's recall
+/// (`recall_first`), which the turn loop awaits before that loop's compile, where the view is frozen. It
+/// answers within its deadline or not at all (a late pack is dropped), the rerank's wait and refill run
+/// inside it, a later loop asks nothing, and a late verdict only marks the pack already held. Held by
+/// `tests_route::a_quick_picks_later_loop_keeps_its_recall` and
+/// `tests_route::a_routed_turn_still_writes_and_sends_its_recall`: every call of the turn, the switched
+/// model's included, carries the note once.
 fn recalled(t: &Turn<'_>) -> Vec<crate::node::RecalledRef> {
     match t.recall.pending.as_ref().map(|n| &n.body) {
         Some(Body::Recall { items, .. }) => items.clone(),
