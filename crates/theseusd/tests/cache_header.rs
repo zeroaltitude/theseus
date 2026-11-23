@@ -416,25 +416,16 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
         .filter(|(_, b)| b.get("cache_control").is_some())
         .map(|(i, _)| i)
         .collect();
-    let tail_at = said
-        .iter()
-        .position(|b| theseus_core::task_graph::view::is_head(text(b)))
-        .unwrap_or(said.len());
     assert!(
-        tail_at < said.len() && tail_at > 0,
-        "{profile}: no tail block after the conversation's: {}",
+        marked.is_empty(),
+        "{profile}: no breakpoint in the turn's own message, the request's own is top-level: {}",
         bytes(&json!(said))
     );
-    assert_eq!(
-        marked,
-        vec![tail_at - 1],
-        "{profile}: one breakpoint, on the block before the harness's tail: {}",
+    assert!(
+        said.first()
+            .is_some_and(|b| theseus_core::task_graph::view::is_head(text(b))),
+        "{profile}: the harness's block opens the turn's message: {}",
         bytes(&json!(said))
-    );
-    assert_eq!(
-        said[tail_at - 1]["cache_control"],
-        five,
-        "{profile}: the conversation's breakpoint"
     );
     // The header block alone, byte for byte, in the second session and the task.
     for (what, other) in [("the second session", &b), ("the task", &t)] {
