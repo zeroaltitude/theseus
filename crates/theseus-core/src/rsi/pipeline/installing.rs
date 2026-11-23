@@ -72,9 +72,27 @@ pub trait Units: Send + Sync {
 /// it runs, bounded by [`ASK`].
 pub struct Systemd;
 
+/// A test's stand-in for the `systemctl` program (a script): the adapter itself runs, on what it prints.
+#[cfg(test)]
+pub(crate) static SYSTEMCTL: std::sync::Mutex<Option<std::path::PathBuf>> =
+    std::sync::Mutex::new(None);
+
+/// The program asked: `systemctl`, or a test's stand-in.
+fn program() -> std::ffi::OsString {
+    #[cfg(test)]
+    if let Some(p) = SYSTEMCTL
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+    {
+        return p.into();
+    }
+    "systemctl".into()
+}
+
 /// `systemctl --user <args>`'s output, or why there is none (it could not start, failed, or took longer than [`ASK`]).
 fn systemctl(args: &[&str]) -> Result<String, String> {
-    let mut c = Command::new("systemctl");
+    let mut c = Command::new(program());
     c.arg("--user")
         .args(args)
         .stdin(Stdio::null())

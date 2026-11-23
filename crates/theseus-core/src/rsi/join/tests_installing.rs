@@ -272,3 +272,93 @@ async fn a_unit_no_join_names_is_not_adopted() {
         .unwrap();
     assert_eq!(v.installing, Vec::<SelfPipelineItem>::new());
 }
+
+/// A stand-in `systemctl` that answers `list-units` with `list` (a shell snippet) and every `show` with this state
+/// directory's exact script for the unit asked about: the real adapter (`installing::Systemd`) runs on it.
+fn fake_systemctl(r: &Rig, list: &str) -> tempfile::TempDir {
+    use std::os::unix::fs::PermissionsExt;
+    let d = tempfile::tempdir().unwrap();
+    let root = r.core.cfg.state_dir().join("self");
+    let script = format!(
+        "#!/bin/sh\ncase \"$2\" in\n  list-units) {list} ;;\n  show) u=\"$6\"; s=${{u#theseus-self-install-}}; \
+         echo \"{{ path=/bin/bash ; argv[]=/bin/bash {root}/install-$s.sh ; ignore_errors=no }}\" ;;\n  \
+         is-active) echo active ;;\nesac\n",
+        root = root.display()
+    );
+    let path = d.path().join("systemctl");
+    std::fs::write(&path, script).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    *crate::rsi::pipeline::installing::SYSTEMCTL.lock().unwrap() = Some(path);
+    r.core
+        .set_units(Arc::new(crate::rsi::pipeline::installing::Systemd));
+    d
+}
+
+/// Not known, and the loop starts no install: what every false-success path below must come to.
+fn not_known(r: &Rig) {
+    let v = r
+        .core
+        .self_pipeline(&SelfPipelineParams::default())
+        .unwrap();
+    assert_eq!(v.installing.len(), 1, "{v:?}");
+    assert_eq!(v.installing[0].title, "not known yet", "{v:?}");
+    assert!(
+        r.core.install_blocked().is_some(),
+        "no install starts while it is not known"
+    );
+}
+
+/// A `systemctl` that fails (no bus: nothing on stdout, the error on stderr, exit 1) is no answer, not an empty
+/// list: discovery does not succeed, and the loop is not known.
+#[tokio::test]
+async fn a_failed_systemctl_is_no_answer_not_an_empty_list() {
+    let (r, _, _) = joined_with(false).await;
+    *r.core.rsi.pipeline.discovered.0.lock().unwrap() = None;
+    let _fake = fake_systemctl(&r, "echo 'Failed to connect to bus' >&2; exit 1");
+    assert!(
+        !r.core.discover_installing(),
+        "a failed list-units is no answer"
+    );
+    not_known(&r);
+}
+
+/// While the ledger's index is still being built (a real start's condition) the joins cannot be read: a running
+/// install unit cannot be told from a stranger's, so discovery does not succeed, and the loop is not known.
+#[tokio::test]
+async fn an_unread_ledger_leaves_discovery_not_known() {
+    let (r, _, merge) = joined_with(false).await;
+    *r.core.rsi.pipeline.discovered.0.lock().unwrap() = None;
+    let unit = format!("theseus-self-install-{}", &merge[..12]);
+    r.core
+        .set_units(said("active", std::slice::from_ref(&unit)));
+    r.core.store.shape_window(true);
+    assert!(!r.core.discover_installing(), "the joins could not be read");
+    not_known(&r);
+    r.core.store.shape_window(false);
+    assert!(r.core.discover_installing());
+    let v = r
+        .core
+        .self_pipeline(&SelfPipelineParams::default())
+        .unwrap();
+    assert!(
+        v.installing[0].why.as_deref().unwrap().contains(&unit),
+        "{v:?}"
+    );
+}
+
+/// More install units than discovery looks at: the one it did not look at could be this loop's, so discovery is
+/// incomplete, and the loop is not known.
+#[tokio::test]
+async fn an_overflowing_unit_list_leaves_discovery_not_known() {
+    let (r, _, _) = joined_with(false).await;
+    *r.core.rsi.pipeline.discovered.0.lock().unwrap() = None;
+    let _fake = fake_systemctl(
+        &r,
+        "for i in $(seq 10 26); do echo \"theseus-self-install-0000000000$i.service loaded active running x\"; done",
+    );
+    assert!(
+        !r.core.discover_installing(),
+        "17 units, 16 looked at: incomplete"
+    );
+    not_known(&r);
+}

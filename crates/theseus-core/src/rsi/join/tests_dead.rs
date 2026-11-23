@@ -293,3 +293,28 @@ fn an_items_opener_clears_a_reservation_and_refuses_a_made_tree() {
         crate::rsi::tree::open(&f.place, &made.slug, theseus_protocol::now_unix_ms()).unwrap_err();
     assert!(format!("{e:#}").contains("is marked at"), "{e:#}");
 }
+
+/// A SUCCESSFUL replacement keeps its claim: a tree a previous start left is closed and a new one made at its path;
+/// while the returned tree is live, a sweep leaves it and a second open is refused.
+#[test]
+fn a_successful_replacement_keeps_its_claim() {
+    let f = crate::rsi::tests_tree::fixture();
+    let head = run_git(&f.place.repo, &["rev-parse", "origin/main"]);
+    git::detached(&f.place, "install", "0123456789ab", &head).unwrap();
+    // A restart: the previous start's tree is there, marked and made, and no claim of this process holds it.
+    forget_opened_here();
+    let live = git::detached(&f.place, "install", "0123456789ab", &head).unwrap();
+    std::fs::write(live.dir.join("work.txt"), "in use").unwrap();
+    assert_eq!(
+        close_dead(&f.place),
+        Ok(vec![]),
+        "the live replacement is this daemon's"
+    );
+    assert!(live.dir.join("work.txt").exists());
+    let e = git::detached(&f.place, "install", "0123456789ab", &head).unwrap_err();
+    assert!(
+        format!("{e:#}").contains("open in this daemon already"),
+        "{e:#}"
+    );
+    assert!(live.dir.join("work.txt").exists());
+}
