@@ -1159,3 +1159,22 @@ fn index_commits_coalesce_within_the_window() {
     shared.request_stop();
     h.join().unwrap().unwrap();
 }
+
+#[test]
+fn an_interrupted_clear_rebuilds_before_following_again() {
+    for restart in [false, true] {
+        let rig = Rig::new();
+        many(&rig, 0, 7);
+        let mut t = rig.open();
+        settle(&mut t);
+        t.crash_after_clear = true;
+        assert!(t.rebuild("test rebuild").is_err());
+        assert!(!rig.index.join("cursor.json").exists());
+        if restart {
+            drop(t);
+            t = rig.open();
+        }
+        settle(&mut t);
+        assert_eq!(dump(&t).iter().filter(|c| c.chunk == 0).count(), 7);
+    }
+}

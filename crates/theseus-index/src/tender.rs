@@ -347,6 +347,9 @@ pub struct Tender {
     places_dirty: bool,
     /// The cursor as last written.
     saved: Cursor,
+    pending_rebuild: Option<String>,
+    #[cfg(test)]
+    pub(crate) crash_after_clear: bool,
     saved_at: Instant,
     /// Where the current backfill began, and the bytes it had to read.
     backfill: Option<(Cursor, u64)>,
@@ -415,6 +418,17 @@ pub(crate) fn rebuild_reason(
     }
 }
 
+/// No destructive index change may leave a durable old resume point.
+fn invalidate_cursor(paths: &Paths) -> anyhow::Result<()> {
+    match fs::remove_file(paths.cursor()) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e).context("removing an old cursor"),
+    }
+    fs::File::open(&paths.dir)?.sync_all()?;
+    Ok(())
+}
+
 impl Tender {
     /// Take the index directory's lock, open (or rebuild) the index, and
     /// open the follower at its cursor. Nothing is read from the WAL yet.
@@ -433,6 +447,7 @@ impl Tender {
         let mut why_rebuild = rebuild_reason(found.as_ref(), had_index, paths.cursor().exists());
         let saved = found.filter(|_| why_rebuild.is_none());
         if saved.is_none() {
+            invalidate_cursor(&paths)?;
             let _ = fs::remove_dir_all(paths.bm25());
             let _ = fs::remove_file(paths.places());
         }
@@ -440,6 +455,7 @@ impl Tender {
             Ok(x) => x,
             Err(e) => {
                 tracing::warn!(error = %e, "index: unreadable, so rebuilt");
+                invalidate_cursor(&paths)?;
                 fs::remove_dir_all(paths.bm25()).ok();
                 why_rebuild = Some(format!("its index did not open: {e}"));
                 engine::open_or_create(&paths.bm25()).context("creating the index")?
@@ -461,6 +477,7 @@ impl Tender {
             Ok(f) => f.skipping_wrong(),
             Err(FollowError::Rewound(why)) => {
                 tracing::warn!(%why, "index: the WAL is not the one the cursor was taken on; rebuilding");
+                invalidate_cursor(&paths)?;
                 writer.clear().context("clearing the index")?;
                 engine.reload().ok();
                 places.clear();
@@ -537,6 +554,9 @@ impl Tender {
             backfill: Some((cursor.clone(), total)),
             rebuild_why: why_rebuild,
             saved: cursor,
+            pending_rebuild: None,
+            #[cfg(test)]
+            crash_after_clear: false,
             saved_at: Instant::now(),
             cfg,
             paths,
@@ -571,6 +591,9 @@ impl Tender {
 
     /// Read one batch, index its nodes, commit, and write the cursor.
     pub fn step(&mut self) -> anyhow::Result<Step> {
+        if let Some(why) = self.pending_rebuild.clone() {
+            self.rebuild(&why)?;
+        }
         let batch = match self.follower.read(self.cfg.batch_bytes) {
             Ok(b) => b,
             Err(FollowError::Rewound(why)) => {
@@ -900,9 +923,17 @@ impl Tender {
     }
 
     /// Drop the index, and follow the WAL from its start.
-    fn rebuild(&mut self, why: &str) -> anyhow::Result<()> {
+    pub(crate) fn rebuild(&mut self, why: &str) -> anyhow::Result<()> {
         tracing::info!(%why, "index: rebuilding from the WAL's start");
+        self.pending_rebuild = Some(why.to_string());
+        invalidate_cursor(&self.paths)?;
+        self.follower = WalFollower::open(&self.cfg.wal_dir(), Cursor::start())?.skipping_wrong();
+        self.saved = Cursor::start();
         self.writer.clear().context("clearing the index")?;
+        #[cfg(test)]
+        if std::mem::take(&mut self.crash_after_clear) {
+            anyhow::bail!("killed after clearing the index (test)");
+        }
         self.shared.engine.reload().context("reloading the index")?;
         self.shared.vectors.on_clear();
         self.places.clear();
@@ -912,6 +943,7 @@ impl Tender {
         let total = wal_bytes_after(&self.cfg.wal_dir(), 0, 0);
         self.backfill = Some((Cursor::start(), total));
         self.rebuild_why = Some(why.to_string());
+        self.pending_rebuild = None;
         self.shared.set(|s| {
             s.rebuilds += 1;
             s.state = "backfilling".into();
