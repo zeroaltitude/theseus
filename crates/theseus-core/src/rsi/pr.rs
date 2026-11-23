@@ -885,7 +885,7 @@ fn told(core: &Core, tc: &TurnCtx<'_>, a: &Attempt<'_>, run: &GateRun) {
         .as_ref()
         .is_some_and(crate::rsi::backlog::attempts::red_tonight);
     let fixed = a.fix.as_ref().map(|f| f.words.as_str());
-    let capped = told_on_task(core, task, &e, run, fixed);
+    let capped = told_on_task(core, task, &e, run, fixed, tc.session_id);
     told_where_it_reports(core, tc, &e, run, quiet);
     if let Some(text) = capped {
         core.stage_self_digest(&text);
@@ -967,12 +967,26 @@ fn told_where_it_reports(
 /// forum shows and takes nothing away.
 fn told_on_task(
     core: &Core,
-    task: Option<theseus_protocol::tasks::TaskRecord>,
+    _task: Option<theseus_protocol::tasks::TaskRecord>,
     e: &crate::rsi::backlog::Ended,
     run: &GateRun,
     fixed: Option<&str>,
+    session: &str,
 ) -> Option<String> {
-    let mut t = task?;
+    // Never publish the snapshot taken before the owner could drop or retry it.
+    let _one = core.rsi.backlog.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut t = match crate::task_graph::get(&core.store, &e.item) {
+        Ok(task) => task?,
+        Err(err) => {
+            tracing::warn!(error = %format!("{err:#}"), "self-pr: the item's task was not reread");
+            return None;
+        }
+    };
+    if t.state != theseus_protocol::tasks::TaskState::InProgress
+        || t.evidence.iter().rev().find_map(|e| e.identity.strip_prefix("session:"))
+            .is_some_and(|started| started != session) {
+        return None;
+    }
     let now = theseus_protocol::now_unix_ms();
     let unjudged = super::infra::of_attempt(&e.verdict, Some(run))
         == Some(super::infra::Outcome::Infrastructure);
@@ -1288,5 +1302,41 @@ impl Core {
             });
         }
         Ok(out)
+    }
+}
+
+
+#[cfg(test)]
+mod task_write_tests {
+    use super::*;
+    #[test]
+    fn gate_evidence_keeps_a_newer_owner_state_and_evidence() {
+        use theseus_protocol::tasks::{TaskRecord, TaskState};
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let mut cfg = crate::Config::example();
+        cfg.server.state_dir = dir.path().display().to_string();
+        let core = Core::build(crate::rpc::Parts::for_tests(
+            cfg, std::sync::Arc::new(crate::provider::FakeProvider::default()), store
+        )).unwrap();
+        let old = TaskRecord { id: "self-test".into(), state: TaskState::InProgress,
+            version: 1, ..Default::default() };
+        let mut dropped = old.clone();
+        dropped.version += 1;
+        dropped.state = TaskState::Abandoned;
+        dropped.evidence.push(theseus_protocol::tasks::TaskEvidence {
+            identity: "owner:drop".into(), ..Default::default()
+        });
+        core.store.append(&[crate::task_graph::record(&dropped).unwrap()]).unwrap();
+        let ended = crate::rsi::backlog::Ended {
+            item: old.id.clone(), title: "test".into(), verdict: "red".into(),
+            phase: None, report: None,
+        };
+        let run = GateRun { verdict: Verdict::Red, exit: Some(1), blob: String::new(),
+            log: PathBuf::new(), secs: 1, tail: String::new(), unrunnable: false };
+        told_on_task(&core, Some(old), &ended, &run, None, "old-build");
+        let now = crate::task_graph::get(&core.store, &ended.item).unwrap().unwrap();
+        assert_eq!(now.state, TaskState::Abandoned);
+        assert!(now.evidence.iter().any(|e| e.identity == "owner:drop"));
     }
 }

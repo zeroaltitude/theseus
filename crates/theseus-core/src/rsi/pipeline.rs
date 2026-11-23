@@ -341,6 +341,8 @@ impl Mark {
 struct Write {
     mark: Mark,
     frame: Vec<NewRecord>,
+    /// Task snapshots read before any awaits; rechecked under the owner's mutation lock.
+    expected: Vec<theseus_protocol::tasks::TaskRecord>,
     said: Vec<Transition>,
     dirty: bool,
     /// Notes to the owner, staged once the tick's frame is written.
@@ -356,7 +358,12 @@ impl Write {
         Ok(())
     }
 
-    fn task(&mut self, t: &theseus_protocol::tasks::TaskRecord) -> Result<()> {
+    fn task(&mut self, q: &Queues, t: &theseus_protocol::tasks::TaskRecord) -> Result<()> {
+        let old = q.tasks.iter().find(|old| old.id == t.id)
+            .ok_or_else(|| anyhow::anyhow!("the queued task {} was not read", t.id))?;
+        if !self.expected.iter().any(|e| e.id == old.id) {
+            self.expected.push(old.clone());
+        }
         self.frame.push(crate::task_graph::record(t)?);
         self.dirty = true;
         Ok(())
@@ -401,9 +408,21 @@ impl Core {
         if !w.dirty {
             return Ok(vec![]);
         }
+        // The frame is all-or-nothing: a new owner word or a new build invalidates its old
+        // transitions and notices. The next tick reads the new queues; no stale state is merged.
+        let _one = self.rsi.backlog.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for old in &w.expected {
+            if !crate::task_graph::get(&self.store, &old.id)?.is_some_and(|now|
+                now.version == old.version && now.state == old.state && now.session == old.session
+                    && now.evidence == old.evidence) {
+                anyhow::bail!("the task {} changed during this tick; it will be read again", old.id);
+            }
+        }
         w.frame.push(w.mark.record()?);
         self.store.append(&std::mem::take(&mut w.frame))?;
         w.dirty = false;
+        w.expected.clear();
+        drop(_one);
         let rec = self.rec(None);
         let mut kinds = Vec::new();
         for t in w.said.drain(..) {
@@ -443,6 +462,7 @@ impl Core {
         let mut w = Write {
             mark: Mark::read(&self.store)?,
             frame: vec![],
+            expected: vec![],
             said: vec![],
             dirty: false,
             told: vec![],
@@ -550,7 +570,7 @@ impl Core {
                 ),
                 now,
             ));
-            w.task(&t)?;
+            w.task(q, &t)?;
             let m = Moved::new(
                 &e.item,
                 format!("{} was dropped after two rejections", e.item),
@@ -618,7 +638,7 @@ impl Core {
             };
             t.state = TaskState::Failed;
             t.session = None;
-            w.task(&t)?;
+            w.task(q, &t)?;
             let m = Moved::new(
                 &e.item,
                 format!("{} used up its tries and is failed", e.item),
@@ -651,7 +671,7 @@ impl Core {
                 if let Some(text) = self.cap_check(&mut t, now) {
                     w.told.push(text);
                 }
-                w.task(&t)?;
+                w.task(q, &t)?;
             }
             let session = e.session.clone().unwrap_or_default();
             let m = Moved::new(&e.item, format!("the build of {} ended", e.item))
@@ -833,6 +853,7 @@ impl Core {
         let mut w = Write {
             mark: Mark::read(&self.store)?,
             frame: vec![],
+            expected: vec![],
             said: vec![],
             dirty: false,
             told: vec![],
@@ -852,7 +873,7 @@ impl Core {
                     "the kill switch stopped its build; it is ready again".into(),
                     now,
                 ));
-                w.task(&t)?;
+                w.task(&q, &t)?;
             }
             let session = e.session.clone().unwrap_or_default();
             let m = Moved::new(&e.item, format!("the build of {} stopped", e.item))

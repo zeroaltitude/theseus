@@ -642,3 +642,25 @@ async fn a_failed_halt_sweep_is_not_marked_complete() {
         .halt_swept
         .load(std::sync::atomic::Ordering::SeqCst));
 }
+
+
+#[tokio::test]
+async fn a_staged_ended_build_cannot_overwrite_the_owners_drop() {
+    let r = rig_with(1, 100.0);
+    let first = r.tick().await;
+    let item = &first.started[0];
+    let mut q = super::queues::Queues::default();
+    let old = crate::task_graph::get(&r.core.store, item).unwrap().unwrap();
+    q.tasks.push(old.clone());
+    q.ended.push(super::queues::Entry { item: item.clone(), ..Default::default() });
+    let mut w = super::Write {
+        mark: super::Mark::read(&r.core.store).unwrap(), frame: vec![], expected: vec![], said: vec![],
+        dirty: false, told: vec![],
+    };
+    r.core.pipeline_ended(&r.f.place, &q, &mut w).await.unwrap();
+    r.core.self_drop(&SelfDropParams { item: item.clone(), ..Default::default() },
+        &Answerer::from("the CLI")).unwrap();
+    let dropped = crate::task_graph::get(&r.core.store, item).unwrap().unwrap();
+    let _ = r.core.pipeline_write(&mut w);
+    assert_eq!(crate::task_graph::get(&r.core.store, item).unwrap().unwrap(), dropped);
+}
