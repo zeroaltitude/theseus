@@ -25,10 +25,12 @@ use crate::session::SessionRecord;
 use crate::task_graph::view::BYTES_PER_TOKEN;
 
 /// How the harness's part begins: a reader of a request tells it from the person's words
-/// (`task_graph::view::is_head`).
+/// (`task_graph::view::is_head`). Each part under it says whose it is by its own head (the standing
+/// records' `standing::FRAMING`, the fan-out cue's `CONTEXT_NOT_THE_OWNERS`, the yes-fact's own), so the
+/// heading lays no one sentence over all of them.
 pub const HEAD: &str =
-    "[The harness, for this turn: what is true where you work, and what stands, \
-waits and is planned here. Not the person's words.]";
+    "[The harness: this turn's block beside the message, of what is true where you \
+work and what stands, waits and is planned here; each part says whose it is.]";
 
 /// The harness's part's one budget, in tokens (estimated at `BYTES_PER_TOKEN`).
 pub const BUDGET_TOKENS: u64 = 1_200;
@@ -304,6 +306,61 @@ impl TurnRunner {
         let c = r.set(Name::FanOut, fan_out);
         a || b || c
     }
+}
+
+/// The harness's part as a request carries it: the text block that opens with [`HEAD`], up to the view's
+/// own heading (tests read a part of it by the part's own head).
+#[cfg(test)]
+pub(crate) fn carried(req: &crate::provider::ProviderRequest) -> Option<String> {
+    let texts = req.messages.iter().flat_map(|m| match &m["content"] {
+        serde_json::Value::String(s) => vec![s.clone()],
+        c => (c.as_array().into_iter().flatten())
+            .filter_map(|b| b["text"].as_str().map(str::to_string))
+            .collect(),
+    });
+    let block = texts.into_iter().find(|t| t.starts_with(HEAD))?;
+    let view = format!("\n\n{}", crate::view::wire_text::BESIDE_HEAD);
+    Some(
+        block
+            .split(view.as_str())
+            .next()
+            .unwrap_or_default()
+            .to_string(),
+    )
+}
+
+/// The part of the harness's block that opens with `head`, up to the next part's own head; none when the
+/// request carries no such part.
+#[cfg(test)]
+pub(crate) fn part(req: &crate::provider::ProviderRequest, head: &str) -> Option<String> {
+    let text = carried(req)?;
+    let at = text.find(&format!("\n\n{head}"))? + 2;
+    let heads = [
+        super::env_tail::HEAD,
+        crate::standing::HERE,
+        crate::yes_fact::HEAD,
+        crate::commitments::HEAD,
+        crate::task_graph::view::HEAD,
+        crate::card::noted::HEAD,
+        super::tier::CODING_HINT,
+        super::route_step::FAN_OUT_LINE,
+        crate::project::slice::HEAD,
+        "Left out of this block for room:",
+    ];
+    let rest = &text[at..];
+    let end = (heads.iter())
+        .filter(|h| **h != head)
+        .filter_map(|h| rest.find(&format!("\n\n{h}")))
+        .min()
+        .unwrap_or(rest.len());
+    Some(rest[..end].to_string())
+}
+
+/// Who the harness's block says answers this turn: the name in its persona's line.
+#[cfg(test)]
+pub(crate) fn answering(req: &crate::provider::ProviderRequest) -> Option<String> {
+    (carried(req)?.split("\n\n"))
+        .find_map(|p| p.strip_suffix(" answers this turn").map(str::to_string))
 }
 
 #[cfg(test)]

@@ -32,14 +32,14 @@ fn work(jev: &FakeJev, option: &str, confidence: f64) {
     );
 }
 
-/// Whether the request's own tail, the last message, holds the hint: an earlier turn's tail stays
-/// where it was sent (`turn::sent_tail`), so the history may still show a hint that this turn's
-/// request does not carry.
+/// Whether the request's own block beside the message holds the hint: an earlier turn's block lives in
+/// its turn alone, so no history shows a hint that this turn's request does not carry.
 fn carries(req: &ProviderRequest) -> bool {
     req.messages.last().is_some_and(|m| {
-        m["content"]
-            .as_array()
-            .is_some_and(|b| b.iter().any(|b| b["text"] == CODING_HINT))
+        m["content"].as_array().is_some_and(|b| {
+            b.iter()
+                .any(|b| b["text"].as_str().is_some_and(|t| t.contains(CODING_HINT)))
+        })
     })
 }
 

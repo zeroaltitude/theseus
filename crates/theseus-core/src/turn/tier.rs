@@ -418,34 +418,6 @@ impl TurnRunner {
         read_window::set(t.tc.session_id, lines);
     }
 
-    /// A `deep_coding` turn's hint, one tail block after the cached prefix,
-    /// counted in the estimate; once per request.
-    pub(super) fn coding_hint(t: &Turn<'_>, compiled: &mut crate::compiler::Compiled) {
-        if t.route.injection.as_ref().is_some_and(|b| b.coding) {
-            Self::attach_hint(compiled, CODING_HINT);
-        }
-    }
-
-    /// `hint` as one tail block after the cached prefix, counted in the
-    /// estimate; once per request.
-    pub(super) fn attach_hint(compiled: &mut crate::compiler::Compiled, hint: &str) {
-        let has = compiled
-            .request
-            .messages
-            .last()
-            .and_then(|m| m["content"].as_array())
-            .is_some_and(|b| b.iter().any(|b| b["text"] == hint));
-        if has {
-            return;
-        }
-        crate::task_graph::view::attach_text(&mut compiled.request, hint);
-        let n = (hint.len() as u64).div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
-        compiled.est_tokens += n;
-        compiled.estimate.tokens += n;
-        compiled.estimate.estimated += n;
-        compiled.estimate.upper += n + n * crate::compiler::MARGIN_PERCENT / 100;
-    }
-
     /// The budget `record_route` fixes when nothing fixed one before (no pack
     /// ran): from the verdict the turn read, or why it read none.
     pub(super) fn injection_read(

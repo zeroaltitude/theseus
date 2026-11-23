@@ -882,7 +882,7 @@ async fn a_third_removal_in_one_call_fails_it_plainly_and_sends_nothing() {
     }
     for i in 0..3 {
         let held = core.clone();
-        crate::turn::view_step::env_tail_hook(
+        crate::turn::view_step::assembled_hook(
             &desk,
             Box::new(move || {
                 remove_exchange_saying(held.get().unwrap(), &format!("the buoy {i} is red"))
@@ -918,10 +918,10 @@ async fn a_source_removed_during_a_size_repair_is_not_sent() {
     let desk = crate::tests_places::session(c, None);
     turn_as(c, &desk, "desk: the buoy code is 6620", true).await;
     let (held, again) = (core.clone(), desk.clone());
-    crate::turn::view_step::env_tail_hook(
+    crate::turn::view_step::assembled_hook(
         &desk,
         Box::new(move || {
-            crate::turn::view_step::env_tail_hook(
+            crate::turn::view_step::assembled_hook(
                 &again,
                 Box::new(move || {
                     remove_exchange_saying(held.get().unwrap(), "the buoy code is 6620")

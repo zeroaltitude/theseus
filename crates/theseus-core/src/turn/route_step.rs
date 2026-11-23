@@ -465,7 +465,6 @@ impl TurnRunner {
             .await;
         if let Ok(Ok(c)) = &mut compiled {
             self.apply_effort(t, spec, c);
-            Self::persona_line(t, c);
         }
         Self::recall_routed(t);
         compiled
@@ -618,7 +617,6 @@ impl TurnRunner {
         self.note_routed(t, verdict.as_ref(), decision.as_ref());
         let class = verdict.as_ref().filter(|_| reason.is_none());
         self.fan_out_cue(t, spec, class);
-        Self::fan_out_line(t, &mut compiled);
         // Who answers, the coding hint and the fan-out cue, now decided, in the harness's block beside the
         // message: a block that changed is laid again, and the first compile is not the call's.
         let relaid = self.now_relaid(t, spec)?;

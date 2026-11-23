@@ -193,19 +193,6 @@ pub(super) fn deliverable_here(kind: PlaceKind, coding: bool) -> bool {
 }
 
 impl TurnRunner {
-    /// The tail hint of a turn that has written a file, in coding or bench
-    /// work (theseus-eb4o4, theseus-uy5ts), once per request.
-    pub(super) fn deliverable_hint(&self, t: &Turn<'_>, compiled: &mut crate::compiler::Compiled) {
-        if !progress::edited(t) {
-            return;
-        }
-        let coding = t.route.injection.as_ref().is_some_and(|b| b.coding);
-        let kind = self.place_kind(t.tc.session_id, t.tc.task.is_some());
-        if deliverable_here(kind, coding) {
-            Self::attach_hint(compiled, DELIVERABLE_HINT);
-        }
-    }
-
     /// After the stop nudge and the end note declined this loop: true when
     /// the turn goes on once more, told its closing message named a doubt.
     /// `i` is the loop's index.

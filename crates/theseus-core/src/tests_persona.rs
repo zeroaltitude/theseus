@@ -172,13 +172,7 @@ fn system(req: &ProviderRequest) -> String {
 /// persona's files are in the prefix, and the one in play is this line,
 /// theseus-c1uz).
 fn answering(req: &ProviderRequest) -> Option<String> {
-    let last = req.messages.last()?;
-    last["content"].as_array()?.iter().rev().find_map(|b| {
-        b["text"]
-            .as_str()?
-            .strip_suffix(" answers this turn")
-            .map(str::to_string)
-    })
+    crate::turn::now_step::answering(req)
 }
 
 impl Rig {

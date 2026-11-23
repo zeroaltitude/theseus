@@ -412,7 +412,7 @@ async fn the_grant_is_reachable_through_the_dispatch_and_judged_as_standing_is()
     assert_eq!(list["trusted"].as_array().map(Vec::len), Some(0), "{list}");
 }
 
-// ---- §4: the date and the git state ride the messages' tail ----
+// ---- §4: the date and the git state ride the harness's block beside the message (issue 46) ----
 
 /// Noon UTC on a pinned day, so the owner's local day is that day in every
 /// zone within eleven hours of UTC. The clock is the seam
@@ -428,19 +428,9 @@ fn pin_day(days: i64) -> Pinned {
     Pinned
 }
 
-/// The text blocks of the request's last message, in order, and the index of
-/// the one carrying the cache marker.
-fn tail_of(req: &ProviderRequest) -> (Vec<String>, Option<usize>) {
-    let blocks = req.messages.last().unwrap()["content"]
-        .as_array()
-        .expect("the last message is blocks")
-        .clone();
-    let marked = blocks.iter().position(|b| b.get("cache_control").is_some());
-    let texts = blocks
-        .iter()
-        .map(|b| b["text"].as_str().unwrap_or_default().to_string())
-        .collect();
-    (texts, marked)
+/// The date and the place's facts, as the harness's block beside the message carries them.
+fn facts_of(req: &ProviderRequest) -> Option<String> {
+    crate::turn::now_step::part(req, crate::turn::env_tail::HEAD)
 }
 
 fn real_repo(dir: &Path) -> bool {
@@ -465,7 +455,7 @@ fn real_repo(dir: &Path) -> bool {
 }
 
 #[tokio::test]
-async fn the_date_and_the_git_state_are_in_the_tail_and_the_prefix_does_not_move() {
+async fn the_date_and_the_git_state_are_beside_the_message_and_the_prefix_does_not_move() {
     // 2026-11-10 is day 20,767 since the epoch; the second pin is a month on.
     let day_a = 20_767i64;
     let r = rig_with(|c| c.project.tail_facts = Some(true));
@@ -484,24 +474,14 @@ async fn the_date_and_the_git_state_are_in_the_tail_and_the_prefix_does_not_move
     let reqs = r.fake.requests();
     assert_eq!(reqs.len(), 2, "one request a submit");
 
-    let (tail, marked) = tail_of(&reqs[0]);
-    let date = tail
-        .iter()
-        .position(|t| t.starts_with("Date: ") && t.contains("2026-11-10"))
-        .unwrap_or_else(|| panic!("no date in the tail: {tail:?}"));
+    let facts = facts_of(&reqs[0]).expect("the facts beside the message");
+    assert!(facts.contains("2026-11-10"), "{facts}");
     assert!(
-        tail[date].contains("Git: branch harbour, tracked files clean"),
-        "{tail:?}"
+        facts.contains("Git: branch harbour, tracked files clean"),
+        "{facts}"
     );
-    assert!(
-        marked.is_some_and(|m| m < date),
-        "the breakpoint sits ahead of the facts: marked {marked:?}, facts at {date}"
-    );
-    let (tail_b, _) = tail_of(&reqs[1]);
-    assert!(
-        tail_b.iter().any(|t| t.contains("2026-12-10")),
-        "{tail_b:?}"
-    );
+    let facts_b = facts_of(&reqs[1]).expect("the facts beside the message");
+    assert!(facts_b.contains("2026-12-10"), "{facts_b}");
 
     // Nothing of either fact is in the system, and the system is byte for
     // byte the same across the two days.
@@ -521,12 +501,8 @@ async fn a_directory_that_is_no_repository_says_unknown_and_the_turn_goes_on() {
     // Walls discovery in, so a repository above the temp dir cannot answer.
     std::env::set_var("GIT_CEILING_DIRECTORIES", r.root.parent().unwrap());
     submit(&r.core, &dir).await;
-    let (tail, _) = tail_of(&r.fake.requests().pop().unwrap());
-    assert!(
-        tail.iter()
-            .any(|t| t.starts_with("Date: ") && t.ends_with("\nGit: unknown")),
-        "{tail:?}"
-    );
+    let facts = facts_of(&r.fake.requests().pop().unwrap()).expect("the facts");
+    assert!(facts.ends_with("\nGit: unknown"), "{facts}");
 }
 
 /// **One file, two channels, one classification** (theseus-3i6d1, the

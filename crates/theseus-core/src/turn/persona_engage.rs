@@ -15,7 +15,6 @@
 //!   changes no persona; the prior stands.
 
 use super::{Turn, TurnRunner};
-use crate::compiler::Compiled;
 use crate::engage::{self, Choice, How};
 use crate::fact::persona::PersonaEngaged;
 use crate::judge::inbound::{PersonaCtx, ThreadHead};
@@ -204,38 +203,5 @@ impl TurnRunner {
         };
         t.route.result.get_or_insert_with(Default::default).persona = Some(shown);
         t.route.persona = Some(engaged);
-    }
-
-    /// The engaged persona's line, in the request's tail after the cached
-    /// prefix, counted in the estimate. Once per request: a request that
-    /// carries it already is left alone. Like the tail's other blocks it is
-    /// outside the request digest the compile took.
-    ///
-    /// **Audited for the standing-record failure mode** (theseus-ectzg's
-    /// "persona line and place digest unaudited" ask; the ask named
-    /// `persona_engage.rs` without its `turn/`): the line is `engage::Engaged::line`,
-    /// "<name> answers this turn", a fact about who speaks, with no content a
-    /// model could restate or thank the owner for, and it changes only when the
-    /// engaged persona does. Judged not to need `FRAMING`; `content.rs` classes
-    /// this file "neither" with that reason. The place digest, audited with it,
-    /// already composes `CONTEXT_NOT_THE_OWNERS`.
-    pub(super) fn persona_line(t: &Turn<'_>, compiled: &mut Compiled) {
-        let Some(p) = &t.route.persona else { return };
-        let line = p.line();
-        let has = compiled
-            .request
-            .messages
-            .last()
-            .and_then(|m| m["content"].as_array())
-            .is_some_and(|b| b.iter().any(|b| b["text"] == line.as_str()));
-        if has {
-            return;
-        }
-        crate::task_graph::view::attach_text(&mut compiled.request, &line);
-        let n = (line.len() as u64).div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
-        compiled.est_tokens += n;
-        compiled.estimate.tokens += n;
-        compiled.estimate.estimated += n;
-        compiled.estimate.upper += n + n * crate::compiler::MARGIN_PERCENT / 100;
     }
 }

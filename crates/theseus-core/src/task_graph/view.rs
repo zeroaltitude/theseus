@@ -73,12 +73,6 @@ fn tokens(s: &str) -> u64 {
     (s.len() as u64).div_ceil(BYTES_PER_TOKEN)
 }
 
-/// The view of `tasks` (each as it reads now) for `session_id`'s turns;
-/// None when its scope holds no task.
-pub fn render(tasks: &[TaskRecord], session_id: &str) -> Option<View> {
-    render_for(tasks, session_id, None)
-}
-
 /// The tasks the check `session_id` sees by id, title, and state alone: the
 /// checked task and every task under it, and each record whose session its
 /// basis excludes; never the check's own task or a task under it.
@@ -219,16 +213,11 @@ pub fn render_for(
     Some(View { text, summary })
 }
 
-/// Add `view` to the request: the last block of its last message, with the
-/// conversation's breakpoint moved to the block before it: moved, not
-/// copied, since the top-level one takes a slot of the provider's four too,
-/// and the session's block took the last free one (theseus-aab7).
-pub fn attach_to(request: &mut crate::provider::ProviderRequest, view: &View) {
-    attach_text(request, &view.text);
-}
-
-/// `attach_to`, for any tail block's text: the commitments' (theseus-lherl)
-/// goes after the view's, with no breakpoint moved a second time.
+/// A tail block's text, the last block of the request's last message, with the
+/// conversation's breakpoint moved to the block before it: moved, not copied,
+/// since the top-level one takes a slot of the provider's four too
+/// (theseus-aab7). The place digest's, until it goes (XD2); every other block
+/// the harness says is in the block beside the message (`turn::now_step`).
 pub fn attach_text(request: &mut crate::provider::ProviderRequest, text: &str) {
     let Some(last) = request.messages.last_mut() else {
         return;
@@ -266,23 +255,4 @@ pub fn shown(
         }
     };
     render_for(&tasks, session_id, check)
-}
-
-/// The turn's side (`compile_step`): [`shown`], attached to the compiled
-/// request, its tokens counted in the estimate. Returns what it showed; None,
-/// and the request untouched, when the scope holds no task.
-pub fn attach(
-    store: &crate::store::Store,
-    kernel: &theseus_kernel::Kernel,
-    session: &crate::session::SessionRecord,
-    compiled: &mut crate::compiler::Compiled,
-) -> Option<TaskViewSummary> {
-    let view = shown(store, kernel, session)?;
-    attach_to(&mut compiled.request, &view);
-    let t = view.summary.tokens;
-    compiled.est_tokens += t;
-    compiled.estimate.tokens += t;
-    compiled.estimate.estimated += t;
-    compiled.estimate.upper += t + t * crate::compiler::MARGIN_PERCENT / 100;
-    Some(view.summary)
 }

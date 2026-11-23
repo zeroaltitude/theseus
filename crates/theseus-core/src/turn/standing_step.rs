@@ -4,7 +4,7 @@
 //! refuses a compile that dropped one (`standing::missing`).
 //!
 //! The records scoped to the turn's surface (theseus-slvl.4) are a second
-//! block, "Standing here:", in the request's tail (`standing::Block::here`),
+//! block, "Standing here:", in the request's tail (`standing::Block::here_held`),
 //! so the system is byte-identical across surfaces; the check holds it too
 //! (`standing::missing_here`).
 
@@ -104,14 +104,6 @@ impl TurnRunner {
             if let Some(b) = &t.standing.block {
                 compiled.compilation.manifest.standing = b.used.clone();
             }
-        }
-    }
-
-    /// The surface's records go in the request's tail, after the cached
-    /// prefix: a plain turn on a surface with none adds nothing.
-    pub(super) fn standing_here(t: &Turn<'_>, compiled: &mut Compiled) {
-        if let Some(b) = &t.standing.here {
-            b.attach_here(compiled);
         }
     }
 

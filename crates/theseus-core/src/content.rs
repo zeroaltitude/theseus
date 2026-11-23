@@ -1530,51 +1530,17 @@ mod tests {
                 "owner question: harness:end_note is outside HARNESS_AUTHORS on purpose",
             ),
             (
-                "turn/persona_engage.rs",
+                "turn/now_step.rs",
                 "neither",
-                "states a fact: `engage::Engaged::line`, \"<name> answers this turn\", in the \
-                 third person, with no instruction and nothing to acknowledge \
-                 (`engage::tests::the_engaged_personas_line_states_a_fact_and_asks_nothing`; \
-                 AGENTS.md's Standing paragraph records the judgement)",
-            ),
-            (
-                "turn/env_tail.rs",
-                "neither",
-                "states two facts, the date and the git state, as the persona line states its own",
-            ),
-            (
-                "project/slice.rs",
-                "neither",
-                "bracketed state with token bounds (11-08 audit)",
-            ),
-            (
-                "commitments.rs",
-                "neither",
-                "bracketed state with token bounds (11-08 audit)",
-            ),
-            (
-                "task_graph/view.rs",
-                "neither",
-                "bracketed state with token bounds (11-08 audit); defines attach_text",
+                "the harness's block beside the message (issue 46): one heading over the parts that \
+                 were each a tail block of their own, each still saying whose it is by its own head \
+                 (the standing records' FRAMING, the fan-out cue's CONTEXT, the yes-fact's and the \
+                 observations' own words), so no one sentence is laid over all of them",
             ),
             (
                 "turn/digest_step.rs",
                 "neither",
                 "attaches the place digest, whose text carries CONTEXT",
-            ),
-            (
-                "card/noted.rs",
-                "neither",
-                "its own head says whose it is: notes, not records, \"say nothing of them\", never thank the owner (11-10 audit)",
-            ),
-            (
-                "yes_fact.rs",
-                "neither",
-                "states two facts about the owner's own yes, what it approved and what it \
-                 did not, under a head that says the harness wrote it; neither sentence \
-                 fits, because the model must be free to say what it reads here (asking \
-                 which question the owner meant is the point of it) and the owner did \
-                 write the yes it is about (theseus-2yowd)",
             ),
         ]
     }

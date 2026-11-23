@@ -104,11 +104,13 @@ async fn a_routed_turn_in_a_project_conversation_carries_the_slice() {
         (res.profile.as_str(), route.reason.as_str()),
         ("haiku", "verdict")
     );
-    let blocks = tail_blocks(&haiku.requests()[0]);
-    let slice = blocks
-        .last()
-        .filter(|b| b.starts_with(crate::project::slice::HEAD))
-        .unwrap_or_else(|| panic!("no slice at the tail: {blocks:?}"));
+    let slice = crate::turn::now_step::part(&haiku.requests()[0], crate::project::slice::HEAD)
+        .unwrap_or_else(|| {
+            panic!(
+                "no slice beside the message: {:?}",
+                tail_blocks(&haiku.requests()[0])
+            )
+        });
     assert!(slice.contains(GOAL), "{slice}");
     assert!(slice.contains("Survey the moorings"), "{slice}");
     // A plain conversation's request carries none.
@@ -118,7 +120,7 @@ async fn a_routed_turn_in_a_project_conversation_carries_the_slice() {
     assert!(
         !blocks
             .iter()
-            .any(|b| b.starts_with(crate::project::slice::HEAD) || b.contains(GOAL)),
+            .any(|b| b.contains(crate::project::slice::HEAD) || b.contains(GOAL)),
         "{blocks:?}"
     );
 }

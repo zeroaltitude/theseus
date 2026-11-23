@@ -54,86 +54,6 @@ impl TurnRunner {
         self.prefix_spec(spec, at)
     }
 
-    /// The request's last block, in its order: the task view, the wakes and
-    /// routines, the surface's standing records, the persona line, then the
-    /// project's slice.
-    fn tail_blocks(
-        &self,
-        t: &mut Turn<'_>,
-        session: &SessionRecord,
-        compiled: &mut Compiled,
-    ) -> (
-        Option<theseus_protocol::tasks::TaskViewSummary>,
-        Option<theseus_protocol::projects::ProjectSliceSummary>,
-    ) {
-        // A check sees the task it checks by title and state (theseus-w8ys).
-        let tasks = crate::task_graph::view::attach(&self.store, &self.kernel, session, compiled);
-        // The wakes this conversation has pending, in the same last block
-        // (theseus-lherl): from the turn's list, never a read of its own.
-        // And the routines it made, from memory (theseus-pvm5c).
-        let routines = crate::routine::lines(
-            &self.kernel,
-            &self.tools.routines.made_in(&session.session_id),
-        );
-        crate::commitments::attach(
-            t.tc.commitments,
-            &routines,
-            self.kernel.now_ms(),
-            compiled,
-            &|w| {
-                // A watch's observed value is outside text the transcript does not
-                // show: latched for the turn before it is attached, or left out
-                // (issue 44).
-                let seen = self.kernel.watch_state(&w.id).ok().flatten();
-                if seen.is_some_and(|s| s.last.is_some())
-                    && !crate::task_graph::judged::latch_once(t.tc.store, t.tc.turn_id)
-                {
-                    return None;
-                }
-                crate::watch::run::shown_value(&self.kernel, w)
-            },
-        );
-        // The records of this turn's surface (theseus-slvl.4), in the tail too.
-        Self::standing_here(t, compiled);
-        // What the observer noted of the owner's own words today, so a turn
-        // asked what it has learned can name it (theseus-6f8t0, stop 5). Only
-        // where the owner is alone, and never for a task's session.
-        if session.task.is_none() {
-            crate::card::noted::attach(
-                &self.store,
-                t.tc.place().class,
-                self.target_of(&session.session_id).as_deref(),
-                self.kernel.now_ms(),
-                compiled,
-            );
-        }
-        // What the harness made of the owner's yes, for the turn that yes
-        // started and for no later one (theseus-2yowd). Off by default.
-        if self.cfg.standing.yes_fact && session.task.is_none() {
-            crate::yes_fact::attach(
-                &self.yes_facts,
-                t.tc.session_id,
-                t.tc.turn_id,
-                t.tc.place().class,
-                self.target_of(&session.session_id).as_deref(),
-                compiled,
-            );
-        }
-        // Who answers this turn, one tail line (theseus-c1uz).
-        Self::persona_line(t, compiled);
-        // A deep_coding turn's reading hint (theseus-tdkcn).
-        Self::coding_hint(t, compiled);
-        // The static fan-out cue's line, when it fired (theseus-z9mze.4).
-        Self::fan_out_line(t, compiled);
-        // A working turn's deliverable, called as the task spells it (theseus-eb4o4).
-        self.deliverable_hint(t, compiled);
-        // The place's other threads, for a turn that asks across them (theseus-98bz.9).
-        Self::digest_line(t, compiled);
-        // The project this conversation serves, last of all (theseus-n5ui2).
-        let project = crate::project::slice::attach(&self.store, &self.kernel, session, compiled);
-        (tasks, project)
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn compile_step(
         &self,
@@ -223,8 +143,16 @@ impl TurnRunner {
         Self::cleared_recorded(t, &compiled, i);
         Self::standing_listed(t, &mut compiled);
         self.defer_noted(t, spec, &compiled);
-        self.env_tail(t, &mut compiled).await;
-        let (tasks, project) = self.tail_blocks(t, session, &mut compiled);
+        // An await after the view's assembly and before the call is sent, as the old tail's git read
+        // was: a test's seam for what is removed in between.
+        #[cfg(test)]
+        super::view_step::at_assembled(sid);
+        // The place's other threads, for a turn that asks across them (theseus-98bz.9; XD2's).
+        Self::digest_line(t, &mut compiled);
+        // What the task graph and the project showed, as the harness's block carries them (`now_step`).
+        let (tasks, project) = (t.now.as_ref())
+            .map(|r| (r.tasks.clone(), r.project.clone()))
+            .unwrap_or_default();
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }

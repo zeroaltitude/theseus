@@ -380,24 +380,25 @@ const CALL_HEADROOM: u64 = 4_096;
 /// How many times one call is compiled again when something its view laid was removed under it.
 const VIEW_REASSEMBLIES: u32 = 2;
 
-/// A test's seam: what runs at the start of the next `env_tail` of a session (after the view's assembly,
-/// before the call is sent), once.
+/// A test's seam: what runs after the next compile of a session has assembled its view, before the call
+/// is sent, once (where the request's tail once read git).
 #[cfg(test)]
-type EnvHook = Box<dyn FnOnce() + Send>;
+type AssembledHook = Box<dyn FnOnce() + Send>;
 
 #[cfg(test)]
-static AT_ENV_TAIL: std::sync::Mutex<Vec<(String, EnvHook)>> = std::sync::Mutex::new(Vec::new());
+static AT_ASSEMBLED: std::sync::Mutex<Vec<(String, AssembledHook)>> =
+    std::sync::Mutex::new(Vec::new());
 
-/// Run `f` at the next `env_tail` of `session`.
+/// Run `f` after the next compile of `session` has assembled its view.
 #[cfg(test)]
-pub(crate) fn env_tail_hook(session: &str, f: EnvHook) {
-    AT_ENV_TAIL.lock().unwrap().push((session.to_string(), f));
+pub(crate) fn assembled_hook(session: &str, f: AssembledHook) {
+    AT_ASSEMBLED.lock().unwrap().push((session.to_string(), f));
 }
 
 #[cfg(test)]
-pub(super) fn at_env_tail(session: &str) {
+pub(super) fn at_assembled(session: &str) {
     let hook = {
-        let mut hooks = AT_ENV_TAIL.lock().unwrap();
+        let mut hooks = AT_ASSEMBLED.lock().unwrap();
         (hooks.iter().position(|(s, _)| s == session)).map(|i| hooks.remove(i).1)
     };
     if let Some(f) = hook {

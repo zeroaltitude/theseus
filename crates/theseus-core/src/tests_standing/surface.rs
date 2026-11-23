@@ -37,7 +37,8 @@ async fn turn_on(
         .map(|_| ())
 }
 
-/// Every text in the request's last message: where the tail's blocks are.
+/// Every text in the request's last message: on a turn's first call, the harness's block beside the
+/// message (`turn::now_step`) and the person's words.
 fn tail_text(req: &ProviderRequest) -> String {
     let last = req.messages.last().unwrap();
     match &last["content"] {
@@ -116,8 +117,8 @@ fn a_surface_scope_is_added_for_a_known_surface_and_listed_by_it() {
     );
 }
 
-/// The record is in the tail of a terminal turn, after the person's words,
-/// and in no system block; a discord turn of the same session carries none
+/// The record is in the harness's block beside the message of a terminal turn,
+/// before the person's words, and in no system block; a discord turn of the same session carries none
 /// of it, and the system and the tools are byte-identical across the two,
 /// with no recompile between them.
 #[tokio::test]
@@ -139,10 +140,18 @@ async fn a_surface_record_rides_the_tail_of_its_surface_and_the_prefix_stays_ide
         )),
         "{tail}"
     );
-    assert!(
-        tail.find("one").unwrap() < tail.find("Standing here:").unwrap(),
-        "{tail}"
-    );
+    let blocks: Vec<&str> = (on_terminal.messages.last().unwrap()["content"].as_array())
+        .unwrap()
+        .iter()
+        .filter_map(|b| b["text"].as_str())
+        .collect();
+    let harness = (blocks.iter())
+        .position(|b| b.starts_with(crate::turn::now_step::HEAD) && b.contains("Standing here:"))
+        .expect("the harness's block carries the surface's records");
+    let words = (blocks.iter())
+        .position(|b| !crate::task_graph::view::is_head(b) && b.trim_end().ends_with("one"))
+        .expect("the person's words");
+    assert!(harness < words, "{blocks:?}");
     let system = system_text(&on_terminal);
     assert!(
         !system.contains(&id) && !system.contains(CODE_FIRST),
@@ -152,12 +161,6 @@ async fn a_surface_record_rides_the_tail_of_its_surface_and_the_prefix_stays_ide
         system.contains(&format!("- {order}: {NO_PUSH}")),
         "{system}"
     );
-    // The tail's block is the last block, past the breakpoint.
-    let last = on_terminal.messages.last().unwrap()["content"]
-        .as_array()
-        .unwrap()
-        .clone();
-    assert!(last.last().unwrap()["cache_control"].is_null(), "{last:?}");
 
     turn_on(&r.core, &sid, "two", Some("discord"))
         .await

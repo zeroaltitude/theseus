@@ -18,7 +18,7 @@
 //! - **A surface's records** (theseus-slvl.4) are not in the system at all:
 //!   the system would differ by surface, and every surface would pay a cache
 //!   write. They ride the user turn's tail instead, one block, "Standing
-//!   here:", after the cached prefix (`Block::here`), on turns whose input
+//!   here:", after the cached prefix (`Block::here_held`), on turns whose input
 //!   came through that surface (`TurnRequest.surface`). The same privacy
 //!   rule and the same refusal hold there (`missing_here`).
 //! - **Every place gets every record** (anything goes, 2026-11-22): a shared place's preferences and facts
@@ -172,7 +172,7 @@ pub const WITHHELD: &str =
 impl Block {
     /// The block for `scope` in a place of `class`; none while no record is
     /// live there. A shared place's lists the orders alone, with their text.
-    /// The records scoped to a surface are not in it (`Block::here`).
+    /// The records scoped to a surface are not in it (`Block::here_held`).
     /// The records for everywhere are the header layer's (`text`); a
     /// session's and a place's are the session's own (`local`, theseus-rr15):
     /// in the header they would make two sessions' first layers differ.
@@ -197,19 +197,10 @@ impl Block {
         Self::render(all, scope, class, now_ms, false, held)
     }
 
-    /// The tail block of the records scoped to the turn's surface: "Standing
-    /// here:", then the same lists, with the same privacy; none while no
-    /// record of that surface is live.
-    pub fn here(
-        all: &[StandingRecord],
-        scope: Scope<'_>,
-        class: PlaceClass,
-        now_ms: u64,
-    ) -> Option<Block> {
-        Self::here_held(all, scope, class, now_ms, &HashSet::new())
-    }
-
-    /// [`Block::here`], with the records `held` listed unshown.
+    /// The block of the records scoped to the turn's surface: "Standing
+    /// here:", then the same lists, with the same privacy, the records `held`
+    /// listed unshown; none while no record of that surface is live. It is a
+    /// part of the harness's block beside the message (`turn::now_step`).
     pub fn here_held(
         all: &[StandingRecord],
         scope: Scope<'_>,
@@ -274,21 +265,6 @@ impl Block {
             return None;
         }
         (!self.text.is_empty()).then_some(self.text.as_str())
-    }
-
-    /// Put the block in the request's tail, after the cached prefix, in the
-    /// last message's last block, and count its tokens in the estimate. The
-    /// next loop's request carries it again, so it is never a cache write.
-    pub fn attach_here(&self, compiled: &mut Compiled) {
-        let Some(text) = self.here_text() else {
-            return;
-        };
-        crate::task_graph::view::attach_text(&mut compiled.request, text);
-        let t = (self.text.len() as u64).div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
-        compiled.est_tokens += t;
-        compiled.estimate.tokens += t;
-        compiled.estimate.estimated += t;
-        compiled.estimate.upper += t + t * crate::compiler::MARGIN_PERCENT / 100;
     }
 
     /// Put the block in the spec: the records for everywhere in its header
@@ -426,7 +402,7 @@ fn harness_block(compiled: &Compiled) -> String {
         .to_string()
 }
 
-/// The check for the surface's records (`Block::here`): the harness's part of
+/// The check for the surface's records (`Block::here_held`): the harness's part of
 /// the block beside the message (`turn::now_step`) carries every record of the
 /// turn's surface it should show, and the withheld line when it withholds any.
 /// A compile that dropped one is not sent.

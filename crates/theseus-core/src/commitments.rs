@@ -158,13 +158,7 @@ fn line(
 }
 
 /// The block's text for `wakes` (soonest first) at `now_ms`, in the zone
-/// `at` reads; none when there are none. Pure: the clock and the zone are
-/// passed in.
-pub fn render(wakes: &[PendingWake], now_ms: u64, at: &dyn Fn(u64) -> Local) -> Option<Shown> {
-    render_with(wakes, &[], now_ms, at, &|_| None)
-}
-
-/// `render`, with the routines this conversation made after the wakes
+/// `at` reads, with the routines this conversation made after the wakes
 /// (theseus-pvm5c; `routine::lines`: `🔁 a41d04 weekdays 08:00 Morning digest
 /// (next Fri)`), and what a watch's line says of its value (`shown`,
 /// theseus-f2r2b), under the same bounds.
@@ -228,25 +222,4 @@ pub fn shown(
     watch_value: &dyn Fn(&PendingWake) -> Option<String>,
 ) -> Option<Shown> {
     render_with(&pending.get(), routines, now_ms, &local, watch_value)
-}
-
-/// The turn's side (`compile_step`): the pending wakes' block, attached to
-/// the compiled request after the task view, its tokens counted in the
-/// estimate. Returns what it showed; None, and the request untouched, when
-/// none is pending.
-pub fn attach(
-    pending: &Pending,
-    routines: &[String],
-    now_ms: u64,
-    compiled: &mut crate::compiler::Compiled,
-    watch_value: &dyn Fn(&PendingWake) -> Option<String>,
-) -> Option<Shown> {
-    let shown = shown(pending, routines, now_ms, watch_value)?;
-    crate::task_graph::view::attach_text(&mut compiled.request, &shown.text);
-    let t = shown.tokens;
-    compiled.est_tokens += t;
-    compiled.estimate.tokens += t;
-    compiled.estimate.estimated += t;
-    compiled.estimate.upper += t + t * crate::compiler::MARGIN_PERCENT / 100;
-    Some(shown)
 }

@@ -158,7 +158,7 @@ fn the_view_shows_open_tasks_and_folds_closed_subtrees() {
         ),
     ];
     all[0].deps = vec!["tsk_bbbb01".into()];
-    let v = view::render(&all, "ses_lighthouse").unwrap();
+    let v = view::render_for(&all, "ses_lighthouse", None).unwrap();
     let lines: Vec<&str> = v.text.lines().collect();
     assert!(lines[0].starts_with("[The task graph in this conversation's scope: 1 open, 3 closed."));
     assert_eq!(
@@ -180,7 +180,7 @@ fn the_view_shows_open_tasks_and_folds_closed_subtrees() {
         ),
         (1, 3, 2, 0)
     );
-    assert!(view::render(&all, "ses_quay").is_none());
+    assert!(view::render_for(&all, "ses_quay", None).is_none());
 }
 
 /// Past about 1,500 tokens the view shows open tasks only, then as many as
@@ -196,7 +196,7 @@ fn the_view_is_bounded_and_counts_what_it_left_out() {
         };
         all.push(task(&format!("tsk_{i:06}"), "ses_lighthouse", None, state));
     }
-    let v = view::render(&all, "ses_lighthouse").unwrap();
+    let v = view::render_for(&all, "ses_lighthouse", None).unwrap();
     assert!(v.summary.tokens <= view::MAX_TOKENS + 40, "{:?}", v.summary);
     assert_eq!(v.summary.open, 100);
     assert_eq!(v.summary.closed, 100);
@@ -233,8 +233,8 @@ fn the_view_is_the_last_block_and_the_breakpoint_sits_before_it() {
         None,
         TaskState::Accepted,
     )];
-    let v = view::render(&all, "ses_lighthouse").unwrap();
-    view::attach_to(&mut req, &v);
+    let v = view::render_for(&all, "ses_lighthouse", None).unwrap();
+    view::attach_text(&mut req, &v.text);
     let blocks = req.messages[0]["content"].as_array().unwrap();
     assert_eq!(blocks.len(), 2);
     assert_eq!(blocks[0]["text"], "chart the harbour");
@@ -334,7 +334,7 @@ fn a_check_sees_the_checked_task_by_title_and_state() {
 
     // The conversation's view is unchanged: whole lines, nothing restricted.
     let v = view::render_for(&all, "ses_lighthouse", None).unwrap();
-    assert_eq!(v, view::render(&all, "ses_lighthouse").unwrap());
+    assert_eq!(v, view::render_for(&all, "ses_lighthouse", None).unwrap());
     assert!(v.text.contains(&line(&sub)), "{}", v.text);
     assert_eq!(v.summary.restricted, 0);
 }
@@ -385,7 +385,7 @@ fn the_models_words_on_abandoning_name_the_notify_posture() {
         None,
         TaskState::Accepted,
     )];
-    let head = view::render(&all, "ses_lighthouse").unwrap().text;
+    let head = view::render_for(&all, "ses_lighthouse", None).unwrap().text;
     let head = head.lines().next().unwrap().to_string();
     let desc = tools::TaskClose.description();
     for (what, text) in [("head", head.as_str()), ("description", desc)] {

@@ -32,11 +32,9 @@ fn said(req: &ProviderRequest) -> String {
         .join("\n")
 }
 
-/// The commitments block, when the request's last block is one.
+/// The commitments block: its part of the harness's block beside the message.
 fn block_of(req: &ProviderRequest) -> Option<String> {
-    blocks_of(req)
-        .pop()
-        .filter(|t| t.starts_with(crate::commitments::HEAD))
+    crate::turn::now_step::part(req, crate::commitments::HEAD)
 }
 
 /// The short ids the block names, in its order: what the model reads.
@@ -428,10 +426,13 @@ fn series(days: Vec<theseus_kernel::Day>, until_ms: Option<u64>) -> theseus_kern
 fn the_blocks_golden_none_one_a_series_and_a_long_list() {
     use theseus_kernel::Day;
     let at = fixed(-7 * 3600);
-    assert_eq!(crate::commitments::render(&[], NOW, &at), None);
+    assert_eq!(
+        crate::commitments::render_with(&[], &[], NOW, &at, &|_| None),
+        None
+    );
 
     let one = [wake("a8cebb", FRI, "check PR 123", None)];
-    let shown = crate::commitments::render(&one, NOW, &at).unwrap();
+    let shown = crate::commitments::render_with(&one, &[], NOW, &at, &|_| None).unwrap();
     assert_eq!(
         shown.text,
         format!("{HEAD_ONE}1{HEAD_REST}\n⏰ a8cebb Fri 09:00 check PR 123")
@@ -457,7 +458,9 @@ fn the_blocks_golden_none_one_a_series_and_a_long_list() {
         ),
     ];
     assert_eq!(
-        crate::commitments::render(&many, NOW, &at).unwrap().text,
+        crate::commitments::render_with(&many, &[], NOW, &at, &|_| None)
+            .unwrap()
+            .text,
         format!(
             "{HEAD_ONE}4{HEAD_REST}\n\
              ⏰ a8cebb Fri 09:00 check PR 123\n\
@@ -478,7 +481,7 @@ fn the_blocks_golden_none_one_a_series_and_a_long_list() {
             )
         })
         .collect();
-    let shown = crate::commitments::render(&long, NOW, &at).unwrap();
+    let shown = crate::commitments::render_with(&long, &[], NOW, &at, &|_| None).unwrap();
     let want: Vec<String> = std::iter::once(format!("{HEAD_ONE}13{HEAD_REST}"))
         .chain((0..10).map(|i| format!("⏰ {i:06} Fri 09:{i:02} note {i}")))
         .chain(std::iter::once(
@@ -515,7 +518,9 @@ fn a_reminder_says_remind_and_a_paused_one_says_paused() {
             Some(series(vec![], None)),
         )
     };
-    let shown = crate::commitments::render(&[remind, held_series, held], NOW, &at).unwrap();
+    let shown =
+        crate::commitments::render_with(&[remind, held_series, held], &[], NOW, &at, &|_| None)
+            .unwrap();
     assert_eq!(
         shown.text,
         format!(
@@ -536,7 +541,7 @@ fn the_block_stays_inside_its_token_bound() {
     let long: Vec<_> = (0..12)
         .map(|i| wake(&format!("{i:06}"), FRI + i * 60_000, &note, None))
         .collect();
-    let shown = crate::commitments::render(&long, NOW, &at).unwrap();
+    let shown = crate::commitments::render_with(&long, &[], NOW, &at, &|_| None).unwrap();
     assert!(
         shown.tokens <= crate::commitments::MAX_TOKENS,
         "{}",
@@ -698,10 +703,12 @@ fn the_block_builds_in_under_fifty_microseconds() {
     let best = (0..300)
         .map(|_| {
             let t0 = std::time::Instant::now();
-            std::hint::black_box(crate::commitments::render(
+            std::hint::black_box(crate::commitments::render_with(
                 std::hint::black_box(&long),
+                &[],
                 NOW,
                 &crate::wake::local,
+                &|_| None,
             ));
             t0.elapsed()
         })

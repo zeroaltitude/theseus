@@ -13,10 +13,9 @@ use crate::tests_check::{
     CHECK_BRIEF,
 };
 
-/// The view block of a request: the last block of its last message.
+/// The view block of a request: its part of the harness's block beside the message.
 fn view_of(req: &crate::provider::ProviderRequest) -> Option<String> {
-    let last = req.messages.last()?["content"].as_array()?.last()?.clone();
-    view::is_view(&last).then(|| last["text"].as_str().unwrap_or_default().to_string())
+    crate::turn::now_step::part(req, view::HEAD)
 }
 
 #[tokio::test]
