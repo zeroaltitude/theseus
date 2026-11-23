@@ -1,6 +1,6 @@
-//! `docs/glossary.md` holds the plans-and-steps words (theseus-3lik6): the six nouns the owner named, each with
-//! its one line as the design sets it down, plus the three the UI needs (*turn*, *ask*, and the *step* the old
-//! *plan item* became). The old record words are gone from it. Command and wire names stay in the entries.
+//! `docs/glossary.md` holds the working nouns and the historical and Discord meanings of *thread*,
+//! plus *turn* and *ask*. Each opens with its current definition. The old record words are gone from it;
+//! command and wire names stay in the entries.
 
 const GLOSSARY: &str = include_str!("../../../docs/glossary.md");
 
@@ -9,7 +9,7 @@ fn flat() -> String {
     GLOSSARY.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Each noun's entry opens with its one line, word for word.
+/// The five working nouns and the thread entry open with their current lines, word for word.
 #[test]
 fn the_six_nouns_open_with_their_one_line() {
     let g = flat();
@@ -20,7 +20,7 @@ fn the_six_nouns_open_with_their_one_line() {
         ),
         (
             "thread",
-            "A named line of work with its own conversation. On the Graph it is a swimlane, and everything it started hangs in it.",
+            "two meanings.",
         ),
         (
             "plan",
