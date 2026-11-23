@@ -84,6 +84,13 @@ class ModuleDir(unittest.TestCase):
 
 
 class Walk(unittest.TestCase):
+    def test_explicit_integration_targets_walk_their_helpers(self):
+        with tempfile.TemporaryDirectory() as root:
+            crate(root, "k", 'autotests = false\n[[test]]\nname = "live"\npath = "tests/live.rs"')
+            write(root, "crates/k/tests/live.rs", 'mod support;\n')
+            write(root, "crates/k/tests/support.rs", '#[test]\nfn reached() {}\n')
+            self.assertIn("crates/k/tests/support.rs", self.regions(root))
+
     def test_integration_targets_walk_only_declared_helpers(self):
         with tempfile.TemporaryDirectory() as root:
             crate(root, "k")

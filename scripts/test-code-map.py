@@ -265,7 +265,7 @@ class Walk:
             for found in re.finditer(r'path\s*=\s*"([^"]+\.rs)"', manifest):
                 path = os.path.join(cdir, found.group(1))
                 if os.path.isfile(path):
-                    self.file(path, True if "/tests/" in found.group(1) else False)
+                    self.file(path, found.group(1).startswith("tests/") or "/tests/" in found.group(1), root=True)
             if re.search(r'autotests\s*=\s*false', manifest):
                 continue
             tdir = os.path.join(cdir, "tests")
