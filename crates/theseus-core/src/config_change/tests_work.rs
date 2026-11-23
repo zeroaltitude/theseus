@@ -188,3 +188,162 @@ async fn its_history_part_is_found_from_each_message_it_shows() {
         "{d:?}"
     );
 }
+
+/// `texts` as the owner's messages in `sid`'s transcript, in order: their node ids.
+fn seed(r: &super::tests::Rig, sid: &str, texts: &[String]) -> Vec<String> {
+    let nodes: Vec<crate::node::Node> = (texts.iter())
+        .map(|t| crate::node::Node::user(sid, Some("t_seed"), "cli", t))
+        .collect();
+    let records: Vec<_> = nodes.iter().map(|n| n.record().unwrap()).collect();
+    r.core.store.append(&records).unwrap();
+    nodes.into_iter().map(|n| n.id).collect()
+}
+
+/// The look's result in `sid`: its node id and the words it shows.
+fn look_result(r: &super::tests::Rig, sid: &str) -> (String, String) {
+    (r.core.store.session_nodes(sid).unwrap().into_iter())
+        .find_map(|(_, n)| match &n.body {
+            crate::node::Body::ToolResult { content, tool, .. } if tool == crate::look::WORK => {
+                Some((n.id.clone(), content.clone()))
+            }
+            _ => None,
+        })
+        .expect("the look's result")
+}
+
+/// Whether `node.reach` of `from` lists `copy` as its copy.
+fn reaches(r: &super::tests::Rig, from: &str, copy: &str) -> bool {
+    let walk = crate::reach::reach(&r.core.store, from, None)
+        .unwrap()
+        .unwrap();
+    walk.descendants.iter().any(|d| d.node_id == copy)
+}
+
+/// The messages whose tag (`m07:`) the look's words hold: wholly (its whole text), in part, or not at all.
+fn sorted(shown: &str, texts: &[String]) -> (Vec<usize>, Vec<usize>, Vec<usize>) {
+    let tag = |t: &str| t.split(':').next().unwrap().to_string() + ":";
+    let (mut whole, mut part, mut none) = (Vec::new(), Vec::new(), Vec::new());
+    for (i, t) in texts.iter().enumerate() {
+        match (shown.contains(t.as_str()), shown.contains(&tag(t))) {
+            (true, _) => whole.push(i),
+            (false, true) => part.push(i),
+            (false, false) => none.push(i),
+        }
+    }
+    (whole, part, none)
+}
+
+/// **Its cuts decide its copies** (D6 round 6). Twenty messages of 600 characters pass the history part's
+/// 8,000: the part is cut, so the newest of them are not in the result at all. A message cut wholly out is
+/// no copy (`node.reach` does not list the result); one cut in its words, and each kept whole, is.
+#[tokio::test]
+async fn a_message_its_cut_leaves_out_has_no_edge_and_one_it_keeps_part_of_has_one() {
+    let r = rig();
+    let sid = r.session();
+    let texts: Vec<String> = (0..25)
+        .map(|i| format!("m{i:02}:{}", "w".repeat(596)))
+        .collect();
+    let ids = seed(&r, &sid, &texts);
+    r.turn_with(
+        "look_work",
+        &sid,
+        json!({"what": ["history"], "messages": 20}),
+    )
+    .await;
+    let (copy, shown) = look_result(&r, &sid);
+    assert!(shown.contains("[cut at 8000 characters"), "{shown}");
+    let (whole, part, none) = sorted(&shown, &texts);
+    assert!(
+        !whole.is_empty() && part.len() == 1 && none.len() > 5,
+        "whole {whole:?}, part {part:?}, none {none:?}"
+    );
+    for i in none {
+        assert!(
+            !reaches(&r, &ids[i], &copy),
+            "m{i:02} is not in the result, yet node.reach lists it"
+        );
+    }
+    for i in whole.iter().chain(&part) {
+        assert!(
+            reaches(&r, &ids[*i], &copy),
+            "m{i:02}'s words are in the result, yet node.reach does not list it"
+        );
+    }
+}
+
+/// **The runtime's own cap decides too** (D6 round 6). With `[tools] result_max_chars` under the look's own
+/// size, the result is cut again, head and tail, after the tool gave its sources: a message that cut leaves out
+/// is no copy; one in the head or the tail is.
+#[tokio::test]
+async fn a_message_the_runtime_cap_leaves_out_has_no_edge() {
+    let r = super::tests::rig_with(|cfg, _| cfg.tools.result_max_chars = 2_000);
+    let sid = r.session();
+    let texts: Vec<String> = (0..6)
+        .map(|i| format!("m{i:02}:{}", "w".repeat(596)))
+        .collect();
+    let ids = seed(&r, &sid, &texts);
+    r.turn_with(
+        "look_work",
+        &sid,
+        json!({"what": ["history"], "messages": 7}),
+    )
+    .await;
+    let (copy, shown) = look_result(&r, &sid);
+    assert!(shown.contains("not shown"), "the cap cut it: {shown}");
+    let (whole, part, none) = sorted(&shown, &texts);
+    assert!(
+        !none.is_empty() && whole.len() + part.len() >= 2,
+        "whole {whole:?}, part {part:?}, none {none:?}"
+    );
+    for i in none {
+        assert!(
+            !reaches(&r, &ids[i], &copy),
+            "m{i:02} is not in the result, yet node.reach lists it"
+        );
+    }
+    for i in whole.iter().chain(&part) {
+        assert!(reaches(&r, &ids[*i], &copy), "m{i:02} is in the result");
+    }
+}
+
+/// **A message whose words clip to nothing is no copy** (D6 round 6): control characters alone pass the
+/// history part's test for a message, and its line shows no word of it.
+#[tokio::test]
+async fn a_message_of_control_characters_alone_has_no_edge() {
+    let r = rig();
+    let sid = r.session();
+    let ids = seed(&r, &sid, &["\u{1}\u{7}".to_string()]);
+    r.turn_with("look_work", &sid, json!({"what": ["history"]}))
+        .await;
+    let (copy, _) = look_result(&r, &sid);
+    assert!(
+        !reaches(&r, &ids[0], &copy),
+        "a message with no word on the result is no copy"
+    );
+}
+
+/// **A harness line the look shows links its node** (review section 5): the history part shows the harness's
+/// own words, as the person's and Theseus's.
+#[tokio::test]
+async fn a_harness_line_it_shows_links_its_node() {
+    let r = rig();
+    let sid = r.session();
+    let note = crate::node::Node::harness_body(
+        "hrn",
+        &sid,
+        crate::turn::clock_step::CLOCK_AUTHOR,
+        crate::node::Body::UserMessage {
+            text: "[The harness: 9 minutes left in this turn]".into(),
+            attachments: vec![],
+        },
+    );
+    r.core.store.append(&[note.record().unwrap()]).unwrap();
+    r.turn_with("look_work", &sid, json!({"what": ["history"]}))
+        .await;
+    let (copy, shown) = look_result(&r, &sid);
+    assert!(
+        shown.contains("the harness: [The harness: 9 minutes"),
+        "{shown}"
+    );
+    assert!(reaches(&r, &note.id, &copy), "the harness line is a copy");
+}
