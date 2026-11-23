@@ -341,7 +341,9 @@ const DM_PERSON: [&str; 5] = ["commands", "files", "history", "reminders", "web"
 // terminal defers. Measured on a box before and after that merge (11,169 and 11,225).
 // And 11225 until `memory.lookup` went (D6 step 6): its definition, its family, its open posture's name and
 // the self card's words naming it, 756 fewer. Measured on a box.
-const DM_PERSON_TOKENS: u64 = 10469;
+// And 10469 until the history tool's description named its search of imported conversations (D6 step 6,
+// round 2): 37 more tokens in the history family, which a DM loads and the terminal defers. Measured on a box.
+const DM_PERSON_TOKENS: u64 = 10506;
 const CLI_PERSON: [&str; 2] = ["commands", "files"];
 // And 7800 until the self card's look-before-asking sentence named `context_history` (issue 44): one
 // token more at the terminal, where the tool itself is deferred.
