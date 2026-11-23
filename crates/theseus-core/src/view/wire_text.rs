@@ -221,9 +221,13 @@ fn line(nodes: &[Node], did: Option<String>, handle: &Handle) -> Vec<Said> {
 }
 
 /// The heading of the block beside the message: the harness's, never the person's words
-/// (`task_graph::view::is_head` lists it for the stand-in models that read those).
-pub const BESIDE_HEAD: &str =
-    "beside your message: what is waiting, in play, said elsewhere lately, and called";
+/// (`task_graph::view::is_head` lists it for the stand-in models that read those). It says what the block is
+/// and is not, and names no topic: on build 190 its earlier words, "what is waiting, in play, said elsewhere
+/// lately, and called", read to a small model as an agenda, and a one-line message was answered with a status
+/// report and a digest of what was said elsewhere (X190). What follows the block (the person's message, or a
+/// turn's occasion and its result) is what is answered.
+pub const BESIDE_HEAD: &str = "[Context from the harness: not the person's words and not a request. Use it \
+                               only where it helps you answer what follows; do not report it unless asked.]";
 
 /// The marked blocks beside the message as one: each keeps its own heading.
 fn beside(blocks: Vec<MarkedBlock>) -> Option<MarkedBlock> {
