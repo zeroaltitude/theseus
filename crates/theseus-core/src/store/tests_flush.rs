@@ -141,3 +141,57 @@ fn retained_unindexed_rows_are_not_deferred_again() {
         }
     }
 }
+
+#[test]
+fn a_turns_commit_callers_do_not_retry_their_own_retained_records() {
+    for path in ["append", "meta", "session", "ledger", "kernel"] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let turn = store.for_turn("session");
+        store.inner.fail_next_index_writes(3);
+        let row = NewRecord::json(
+            kinds::LEDGER,
+            None,
+            &serde_json::json!({"kind": "test.owned", "data": {"caller": path}}),
+        )
+        .unwrap();
+        let result = match path {
+            "append" => turn.append(&[row]).map(|_| ()),
+            "meta" => turn.put_meta("own", &7),
+            "session" => turn.put_session("own", &7),
+            "ledger" => turn
+                .append_ledger(&serde_json::json!({"kind": "test.owned"}))
+                .map(|_| ()),
+            "kernel" => turn.shared().append(&[row]).map(|_| ()),
+            _ => unreachable!(),
+        };
+        assert!(result
+            .unwrap_err()
+            .is::<theseus_store::store::RetainedFrame>());
+        turn.flush().unwrap();
+        drop(turn);
+        drop(store);
+        let reopened = Store::open(dir.path()).unwrap();
+        assert_eq!(
+            reopened
+                .inner
+                .scan(0, None, 100)
+                .unwrap()
+                .iter()
+                .filter(|r| {
+                    r.kind != kinds::LEDGER
+                        || r.decode::<serde_json::Value>().unwrap()["kind"]
+                            != "ledger.chain_started"
+                })
+                .count(),
+            1,
+            "{path} retried its own row"
+        );
+        assert!(
+            theseus_store::chain_walk::verify(reopened.inner.as_ref(), None, None)
+                .unwrap()
+                .broken
+                .is_none()
+        );
+    }
+}
