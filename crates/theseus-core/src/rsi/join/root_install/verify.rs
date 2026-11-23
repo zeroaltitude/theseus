@@ -99,7 +99,8 @@ impl Core {
         match watch_health(probe, within, LOOK_EVERY).await {
             Ok(took) => {
                 let board = &self.tools.root_install;
-                let signalled = crate::config_change::write::atomic(&board.signal(), &p.merge, None);
+                let signalled =
+                    crate::config_change::write::atomic(&board.signal(), &p.merge, None);
                 if let Err(e) = signalled {
                     tracing::warn!(error = %e, "self-install: the confirmation could not be written");
                     return;

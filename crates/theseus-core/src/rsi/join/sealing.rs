@@ -116,7 +116,12 @@ impl Run<'_> {
             &self.b.head[..self.b.head.len().min(12)]
         );
         let note = format!("held by the sealed sets: {} ({})", v.line(), v.why());
-        let _one = self.core.rsi.backlog.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = self
+            .core
+            .rsi
+            .backlog
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(task) = self.reopened(identity, note)? {
             self.core.store.append(&[task])?;
         }

@@ -1624,7 +1624,8 @@ fn sync_timer_follows_the_installed_socket_without_an_environment_override() {
     let (code, out) = Rig::said(&command.output().unwrap());
     assert_eq!(code, 0, "{out}");
     for name in ["theseusd-sync.service", "theseusd-sync-hourly.service"] {
-        let service = std::fs::read_to_string(r.home().join(".config/systemd/user").join(name)).unwrap();
+        let service =
+            std::fs::read_to_string(r.home().join(".config/systemd/user").join(name)).unwrap();
         assert!(
             service.contains(&format!(
                 "Environment=THESEUS_SOCKET={}",
