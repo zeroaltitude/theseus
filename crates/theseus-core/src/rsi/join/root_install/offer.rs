@@ -126,10 +126,14 @@ impl Core {
             self.root_no_proof(merge, what);
             return true;
         }
+        // The loop is installing from here (issue 41): its build, then the helper's run, until a terminal answer or the
+        // record's own stages.
+        self.root_install_busy(merge, branch, what);
         let (p, m, build) = (place.clone(), merge.to_string(), board.build());
         let target = match blocking(move || install::built_tree(&p, &m, &*build)).await {
             Ok(t) => t,
             Err(e) => {
+                self.root_install_idle();
                 let why = format!("{e:#}");
                 self.root_row(
                     "refused",
@@ -164,7 +168,11 @@ impl Core {
                 Value::Null,
             );
             tokio::spawn(self.clone().run_root_install(go));
-        } else if let Err(e) = self.ask_root_install(&go) {
+            return true;
+        }
+        // The card waits on the owner: nothing is under way until the answer.
+        self.root_install_idle();
+        if let Err(e) = self.ask_root_install(&go) {
             self.root_row(
                 "refused",
                 merge,

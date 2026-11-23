@@ -457,6 +457,7 @@ fn a_jails_job_gets_its_view_and_its_variables() {
         jail: None,
         notify: None,
         stop: None,
+        owner: None,
     };
     let tree = Tree {
         slug: "t".into(),
@@ -513,6 +514,7 @@ fn the_packages_fetched_for_a_gate_are_an_overlay_and_the_gate_keeps_no_network(
         jail: None,
         notify: None,
         stop: None,
+        owner: None,
     };
     let tree = Tree {
         slug: "t".into(),

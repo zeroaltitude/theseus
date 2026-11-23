@@ -1,6 +1,11 @@
 //! Whether the build that runs contains a joined commit (issue 20): after a hand install of a later build of main, the
 //! join runs inside it, and the words must say so. The daemon tells from its own clone: the running build's commit
 //! (its stamp) has the join as an ancestor (`git merge-base --is-ancestor`). When the clone cannot say, it says why.
+//!
+//! **The clone looks before it answers** (issue 41): after an install from outside the loop the clone lacks the
+//! running build's commit until it fetches, so the start fetches `[self] remote` once on the blocking pool when the
+//! commit is missing ([`Core::fetch_running_at_start`]). Until that fetch has finished the answer says plainly that
+//! the daemon has not looked yet; after it, what the fetch found.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -14,6 +19,33 @@ use crate::rsi::tree::Place;
 /// running commit); `CannotTell` is not, since a fetch may answer it.
 type Known = HashMap<(PathBuf, String, String), Contained>;
 static KNOWN: Mutex<Option<Known>> = Mutex::new(None);
+
+/// The start's fetch for a running commit the clone lacked, by clone and commit: done, or why it failed.
+type Looked = HashMap<(PathBuf, String), Result<(), String>>;
+static LOOKED: Mutex<Option<Looked>> = Mutex::new(None);
+
+fn looked(p: &Place, running: &str) -> Option<Result<(), String>> {
+    LOOKED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+        .and_then(|m| m.get(&(p.repo.clone(), running.to_string())).cloned())
+}
+
+/// Fetch `remote` into the clone once when it lacks the running build's commit `running`, and keep what came of it:
+/// the start's look ([`Core::fetch_running_at_start`]). Whether a fetch was made.
+pub(super) fn look_for(p: &Place, remote: &str, running: &str) -> bool {
+    if !is_hex(running) || present(p, running) {
+        return false;
+    }
+    let got = super::git::fetch(p, remote).map_err(|e| format!("{e:#}"));
+    LOOKED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get_or_insert_with(HashMap::new)
+        .insert((p.repo.clone(), running.to_string()), got);
+    true
+}
 
 fn is_hex(c: &str) -> bool {
     (7..=40).contains(&c.len()) && c.bytes().all(|b| b.is_ascii_hexdigit())
@@ -52,10 +84,23 @@ pub(super) fn contained_in(p: &Place, merge: &str, running: Option<&str>) -> Con
         ));
     }
     if !present(p, running) {
-        return Contained::CannotTell(format!(
-            "this daemon's copy of main does not have the running build's commit, {}: it has not fetched since that build was made",
-            short(running)
-        ));
+        return Contained::CannotTell(match looked(p, running) {
+            None => format!(
+                "this daemon has not looked yet: its copy of main does not have the running build's commit, {}, \
+                 and it has not fetched since it started (it fetches once at start)",
+                short(running)
+            ),
+            Some(Ok(())) => format!(
+                "this daemon fetched main since it started, and its copy still does not have the running build's \
+                 commit, {}: that build was made from a commit the remote does not have",
+                short(running)
+            ),
+            Some(Err(e)) => format!(
+                "this daemon's copy of main does not have the running build's commit, {}, and its fetch since it \
+                 started failed: {e}",
+                short(running)
+            ),
+        });
     }
     classify(
         p.git(
@@ -88,6 +133,21 @@ pub(super) fn classify(result: anyhow::Result<std::process::Output>, running: &s
 }
 
 impl Core {
+    /// The start's look: when the clone lacks this build's commit, one fetch of `[self] remote`, so the question
+    /// "does the running build contain the join" is answered from the clone. Whether a fetch was made.
+    pub fn fetch_running_at_start(&self) -> bool {
+        self.fetch_running_as(crate::build().commit.as_deref())
+    }
+
+    /// The same, for a build whose commit is `running`.
+    pub(crate) fn fetch_running_as(&self, running: Option<&str>) -> bool {
+        let (Some(repo), Some(running)) = (self.cfg.self_improve.repo.clone(), running) else {
+            return false;
+        };
+        let place = self.tools.self_pr.place(&repo);
+        look_for(&place, &super::remote_of(&self.cfg), running)
+    }
+
     /// Whether the build `running` contains `merge`, by this daemon's own clone (`[self] repo`); kept once known.
     pub(crate) fn running_contains(&self, merge: &str, running: Option<&str>) -> Contained {
         let Some(repo) = self.cfg.self_improve.repo.clone() else {

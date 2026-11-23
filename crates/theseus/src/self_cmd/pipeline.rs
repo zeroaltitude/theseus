@@ -1,5 +1,5 @@
 //! `theseus self pipeline [--week]` (theseus-pw1q.16): the self pipeline's
-//! queues (ready, building, reviewing, joining, and the owner's), what holds
+//! queues (ready, building, reviewing, joining, an install under way, and the owner's), what holds
 //! its next start and why, today's spend and rows, and with `--week` the
 //! week's measures. The owner's words on it are `theseus self drop`, `self
 //! move` and `self halt`, which act at once.
@@ -59,6 +59,36 @@ fn usd(v: f64) -> String {
     format!("${v:.2}")
 }
 
+/// Each queue's lines, in order. An install is said while one is under way (issue 41), and is no
+/// line otherwise.
+fn queue_lines(r: &SelfPipelineResult, out: &mut Vec<String>) {
+    for (name, q) in [
+        ("Ready", &r.ready),
+        ("Building", &r.building),
+        ("Reviewing", &r.reviewing),
+        ("Joining (one at a time, under the join lock)", &r.joining),
+        (
+            "Installing (the loop's own, until its unit restarts the daemon)",
+            &r.installing,
+        ),
+        ("Held for the owner", &r.held),
+    ] {
+        if q.is_empty() {
+            if !std::ptr::eq(q, &r.installing) {
+                out.push(format!("{name}: none."));
+            }
+            continue;
+        }
+        out.push(format!("{name}:"));
+        for i in q {
+            out.push(item_line(i));
+            if let Some(w) = &i.why {
+                out.push(format!("     {}", w.chars().take(200).collect::<String>()));
+            }
+        }
+    }
+}
+
 /// Its lines: the state, the room, each queue, today, and the week.
 pub fn lines(r: &SelfPipelineResult) -> Vec<String> {
     let mut out = vec![format!(
@@ -97,25 +127,7 @@ pub fn lines(r: &SelfPipelineResult) -> Vec<String> {
         (None, Some(w)) => out.push(format!("{w}.")),
         _ => out.push("Next start: free to go.".into()),
     }
-    for (name, q) in [
-        ("Ready", &r.ready),
-        ("Building", &r.building),
-        ("Reviewing", &r.reviewing),
-        ("Joining (one at a time, under the join lock)", &r.joining),
-        ("Held for the owner", &r.held),
-    ] {
-        if q.is_empty() {
-            out.push(format!("{name}: none."));
-            continue;
-        }
-        out.push(format!("{name}:"));
-        for i in q {
-            out.push(item_line(i));
-            if let Some(w) = &i.why {
-                out.push(format!("     {}", w.chars().take(200).collect::<String>()));
-            }
-        }
-    }
+    queue_lines(r, &mut out);
     let spend = r.budget.as_ref().map_or_else(
         || "no self budget (mode off)".to_string(),
         |b| {

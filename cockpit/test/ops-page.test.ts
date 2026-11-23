@@ -5,6 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
 import { KEYS } from '../src/ops/keys.ts'
+import { selfHeldLine } from '../src/ops/selfheld.ts'
 
 const src = (f: string) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8')
 const page = src('views/Ops.tsx')
@@ -219,4 +220,17 @@ test('the Graph and the Timeline fill the window through the one helper, and Esc
   // A lens without a full-window view leaves it; `g f` stays the shell's.
   assert.match(p, /FULLABLE\.includes\(patch\.lens\)/)
   assert.match(p, /name === 'f'\) \{ g = 0; return \}/)
+})
+
+test('the self loop held on its slots is a line on the page for a self_held value, and none without one (issue 41)', () => {
+  const held = 'the self loop has started nothing for 4 h: every slot is taken by an open tree. To clear it, install-72af5c3fd1ff: restart the daemon'
+  assert.equal(selfHeldLine({ self_held: held }, false), 'T' + held.slice(1))
+  assert.equal(selfHeldLine({}, false), null)
+  assert.equal(selfHeldLine({ self_held: '  ' }, false), null)
+  assert.equal(selfHeldLine(undefined, false), null)
+  assert.equal(selfHeldLine({ self_held: held }, true), null, 'not while the page shows the past')
+  // The page draws the line from that function alone, and reads health with no timer of its own.
+  assert.match(page, /const selfHeld = selfHeldLine\(hl, !!world\)/)
+  assert.match(page, /\{selfHeld && \(\n\s+<div role="status" data-testid="self-held"[^>]*>\n\s+\{selfHeld\}/)
+  assert.match(page, /useRpc<HealthResult>\('health', undefined, 0\)/)
 })

@@ -73,6 +73,7 @@ fn a_stopped_jailed_job_names_its_phase() -> Result<(), String> {
         jail: None,
         notify: None,
         stop: None,
+        owner: None,
     };
     let jail = Jail::new(Arc::new(sandbox));
     for (i, (body, want)) in [

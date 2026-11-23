@@ -56,7 +56,12 @@ build: Build,
  * install was not possible (the service runs a build the loop cannot replace) or did not
  * take. Absent when there is none.
  */
-joined_not_running?: string, uptime_secs: number, 
+joined_not_running?: string, 
+/**
+ * The self loop has started nothing for longer than it should, held on its slots (issue 41):
+ * how long, the trees that hold them, and the one act that clears each. Absent otherwise.
+ */
+self_held?: string, uptime_secs: number, 
 /**
  * The owner's own sessions: the imported and erased ones are `imported`'s (theseus-revl).
  */

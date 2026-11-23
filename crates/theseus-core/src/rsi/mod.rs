@@ -108,6 +108,7 @@ pub mod tree_fmt;
 pub(crate) mod tree_git;
 pub mod tree_lease;
 pub mod tree_main;
+pub mod trees_lock;
 
 use std::sync::{Mutex, PoisonError, RwLock};
 

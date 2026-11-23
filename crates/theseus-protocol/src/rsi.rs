@@ -1098,7 +1098,7 @@ pub struct SelfPipelineParams {
 pub struct SelfPipelineItem {
     pub item: String,
     pub title: String,
-    /// `ready`, `building`, `reviewing`, `joining` or `held`.
+    /// `ready`, `building`, `reviewing`, `joining`, `installing` or `held`.
     pub queue: String,
     /// Its place in its queue, from 1.
     pub place: u32,
@@ -1219,6 +1219,11 @@ pub struct SelfPipelineResult {
     pub building: Vec<SelfPipelineItem>,
     pub reviewing: Vec<SelfPipelineItem>,
     pub joining: Vec<SelfPipelineItem>,
+    /// The loop's own install under way (issue 41): its build in L1, then its
+    /// unit, which restarts the daemon. A state of its own, so anything that
+    /// waits for a quiet loop sees it.
+    #[serde(default)]
+    pub installing: Vec<SelfPipelineItem>,
     /// Out of the pipeline, waiting on the owner: rejected twice, at the
     /// keel, or stopped at a join.
     pub held: Vec<SelfPipelineItem>,

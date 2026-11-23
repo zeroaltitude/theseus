@@ -2,6 +2,8 @@
 //! check, the lock, then each try's dry run and merge, main's gate on it,
 //! the signature and the push; the install after.
 
+use std::sync::PoisonError;
+
 use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_protocol::tasks::{TaskEvidence, TaskState};
@@ -68,7 +70,16 @@ impl Run<'_> {
         // A root-owned layout is the helper's (issue 22): a card for `"ask"`, none for `"auto"`. Any other layout
         // installs only on the owner's standing word, as before.
         let standing = self.core.cfg.self_improve.install.standing_ok();
-        if self.core.root_install_applies().await && self.phase("install") {
+        let root = self.core.root_install_applies().await;
+        if !((root || standing) && self.phase("install")) {
+            return Ok(true);
+        }
+        // Another install under way, or not known yet whether one is (issue 41): this one does not start.
+        if let Some(why) = self.core.install_blocked() {
+            self.stop("install", &why, Value::Null);
+            return Ok(true);
+        }
+        if root {
             let (core, place) = (self.core.clone(), self.place.clone());
             let (branch, item) = (self.b.branch.clone(), self.b.item.clone());
             if !core
@@ -79,7 +90,7 @@ impl Run<'_> {
                 // No helper: the loop's own install, which says the one step (issue 20).
                 self.install(merge).await;
             }
-        } else if standing && self.phase("install") {
+        } else {
             self.install(merge).await;
         }
         Ok(true)
@@ -157,8 +168,10 @@ impl Run<'_> {
             self.seams.installer.clone(),
             merge.clone(),
         );
-        match blocking(move || i.start(&p, &m)).await {
+        let started = self.start_install(&merge, move || i.start(&p, &m)).await;
+        match started {
             Ok(Started::Unit(unit)) => {
+                // Its unit copies the build in and restarts the daemon: still under way until then.
                 tracing::info!(%unit, "self-join: the install is handed to its unit");
             }
             Ok(Started::NotInstalled(n)) => {
@@ -178,6 +191,34 @@ impl Run<'_> {
                 self.stop("install", &why, Value::Null);
             }
         }
+    }
+
+    /// The install's start, under way in the pipeline's view from here (issue 41: a quiet loop is not
+    /// this) until it ends with no restart to come; once its unit is accepted, the state names it and
+    /// follows it (`pipeline::installing`).
+    async fn start_install(
+        &self,
+        merge: &str,
+        start: impl FnOnce() -> anyhow::Result<Started> + Send + 'static,
+    ) -> anyhow::Result<Started> {
+        let under_way = crate::rsi::pipeline::Installing {
+            item: self.b.item.clone(),
+            title: self.b.why.lines().next().unwrap_or("").trim().to_string(),
+            branch: self.b.branch.clone(),
+            merge: merge.to_string(),
+            since_ms: theseus_protocol::now_unix_ms(),
+            unit: None,
+            root_helper: false,
+        };
+        let installing = &self.core.rsi.pipeline.installing;
+        *installing.lock().unwrap_or_else(PoisonError::into_inner) = Some(under_way);
+        let started = blocking(start).await;
+        match &started {
+            // From here systemd says whether it still runs (`pipeline::installing`).
+            Ok(Started::Unit(unit)) => self.core.install_handed_to(unit),
+            _ => *installing.lock().unwrap_or_else(PoisonError::into_inner) = None,
+        }
+        started
     }
 
     /// Under the lock: the tries. The merge when it reached main.

@@ -63,6 +63,7 @@ impl Core {
             budget: self.runner.self_budget.view(),
             state,
             last_join: self.self_last_join().map(|j| j.line),
+            installing: self.pipeline_installing(),
             ..SelfPipelineResult::default()
         };
         let cfg = &self.cfg.self_improve;
@@ -119,6 +120,33 @@ impl Core {
             out.week = self.pipeline_week(now)?;
         }
         Ok(out)
+    }
+
+    /// The loop's install under way, as a queue of its own (issue 41; `installing`'s one predicate). Not known yet
+    /// is said there too, never as an empty queue.
+    pub(crate) fn pipeline_installing(&self) -> Vec<SelfPipelineItem> {
+        use super::installing::InstallState;
+        match self.self_install_state() {
+            InstallState::Quiet => Vec::new(),
+            InstallState::NotKnown(why) => vec![SelfPipelineItem {
+                item: String::new(),
+                title: "not known yet".into(),
+                queue: "installing".into(),
+                place: 1,
+                why: Some(why),
+                ..SelfPipelineItem::default()
+            }],
+            InstallState::Busy(i) => vec![SelfPipelineItem {
+                why: Some(super::installing::said(&i)),
+                item: i.item,
+                title: i.title,
+                queue: "installing".into(),
+                place: 1,
+                branch: Some(i.branch).filter(|b| !b.is_empty()),
+                since_ms: Some(i.since_ms).filter(|t| *t > 0),
+                ..SelfPipelineItem::default()
+            }],
+        }
     }
 
     /// The week's measures, oldest day first; none while the index is built.

@@ -73,6 +73,8 @@
 //! written once: the META record `self.pipeline` keeps the keys of what was
 //! said, with the tick's task records and rows in one frame.
 
+pub(crate) mod held_long;
+pub(crate) mod installing;
 pub mod main_red;
 pub(crate) mod parked;
 pub(crate) mod queues;
@@ -89,6 +91,8 @@ mod tests_cap;
 #[cfg(test)]
 mod tests_fetch;
 #[cfg(test)]
+mod tests_held_long;
+#[cfg(test)]
 mod tests_lease;
 #[cfg(test)]
 mod tests_main_red;
@@ -102,6 +106,8 @@ mod tests_notify;
 mod tests_parked;
 #[cfg(test)]
 mod tests_pause;
+#[cfg(test)]
+mod tests_restart;
 #[cfg(test)]
 mod tests_stale;
 #[cfg(test)]
@@ -151,6 +157,33 @@ pub struct Shared {
     /// New self builds are paused (`super::pause`): memory of this process only, so a restart of
     /// the daemon clears it.
     pub(crate) paused: std::sync::Mutex<Option<super::pause::Pause>>,
+    /// The loop's own install under way (issue 41): set as the install phase starts, cleared when
+    /// it ends without a restart; its unit restarts the daemon, which ends it with the process.
+    pub(crate) installing: std::sync::Mutex<Option<Installing>>,
+    /// A test's stand-in for systemd (`installing::Units`); none in a daemon, which asks systemd.
+    pub(crate) units: std::sync::Mutex<Option<Arc<dyn installing::Units>>>,
+    /// systemd's last answer about the install's unit: which unit, when, and what it said.
+    pub(crate) unit_seen: std::sync::Mutex<Option<(String, std::time::Instant, Option<String>)>>,
+    /// The start's discovery of an install still running (`installing`): until it has once succeeded, the loop is
+    /// "not known", never quiet.
+    pub(crate) discovered: installing::Discovery,
+    /// A test's stand-in for the commit this daemon runs.
+    #[cfg(test)]
+    pub(crate) running: std::sync::Mutex<Option<String>>,
+}
+
+/// An install the loop has under way, as the pipeline's view names it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Installing {
+    pub item: String,
+    pub title: String,
+    pub branch: String,
+    pub merge: String,
+    pub since_ms: u64,
+    /// The unit the install handed itself to, once it has (`installing`).
+    pub unit: Option<String>,
+    /// The root helper's install (`join::root_install`), read from its record.
+    pub root_helper: bool,
 }
 
 impl std::fmt::Debug for Shared {

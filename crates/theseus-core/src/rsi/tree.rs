@@ -68,6 +68,9 @@ pub struct Place {
     /// every caller that has no stop to read: the wait is then as it always
     /// was, for as long as the rule says no.
     pub stop: Option<Stop>,
+    /// The lock on the trees, when this daemon holds it (`trees_lock`): only then does it open a phase tree or
+    /// sweep (issue 41).
+    pub owner: Option<super::trees_lock::TreesOwner>,
 }
 
 /// A stop check: why the build must stop now (the kill switch's halt, the
@@ -281,6 +284,22 @@ impl Place {
     }
     pub fn trees(&self) -> PathBuf {
         self.root().join("trees")
+    }
+    /// The loop's marks of the trees it opened through `join::git::detached`, one file a tree, by its name: beside
+    /// the trees, never under them, since a directory there is a slot in use (issue 41).
+    pub fn opened(&self) -> PathBuf {
+        self.root().join("trees.opened")
+    }
+    /// Whether the trees directory, as it resolves, is inside the state directory: a root that leads out of it
+    /// (a link) is not swept and opens no phase tree.
+    pub fn trees_inside(&self) -> bool {
+        let (Ok(trees), Ok(state)) = (
+            std::fs::canonicalize(self.trees()),
+            std::fs::canonicalize(&self.state),
+        ) else {
+            return false;
+        };
+        trees.starts_with(&state)
     }
     pub fn targets(&self) -> PathBuf {
         self.root().join("target")
@@ -584,6 +603,8 @@ pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
     if dir.exists() {
         bail!("a tree for {item} is open already at {}", dir.display());
     }
+    // A mark of the loop's own trees at this name (issue 41): a stale reservation is cleared, a made tree refuses.
+    super::join::guard::item_meets(p, &slug)?;
     p.git_ok(&repo, &["rev-parse", "--verify", "origin/main^{commit}"])
         .context("[self] repo has no origin/main to branch from")?;
     std::fs::create_dir_all(p.trees())?;
@@ -652,6 +673,7 @@ pub fn reopen(p: &Place, item: &str, branch: &str, head: &str) -> Result<Tree> {
     if p.trees().join(&slug).exists() {
         bail!("a tree for {item} is open already");
     }
+    super::join::guard::item_meets(p, &slug)?;
     let tip = p.git_ok(
         &repo,
         &[
@@ -1477,17 +1499,25 @@ pub(crate) fn open_dir_nofollow(
 
 /// Remove the tree and its build tree; the branch stays in the repo.
 pub fn close(p: &Place, tree: &Tree) -> Result<()> {
-    close_with(p, tree, true)
+    close_with(p, tree, true, true)
+}
+
+/// Close a tree at a path an open has claimed and is still under way at (`join::git::detached`): the tree a previous
+/// start left that the open is replacing, or the tree the open just made whose mark could not be rewritten. As
+/// [`close`] does, except that the claim on the path stays: it is the open's, and the open alone ends it (issue 41,
+/// rounds 4 and 5).
+pub(crate) fn close_holding_claim(p: &Place, tree: &Tree) -> Result<()> {
+    close_with(p, tree, true, false)
 }
 
 /// Remove the tree alone, leaving its build tree where it is: what an
 /// install's tree needs (`join::install`), whose L0 half still reads
 /// `release/` out of the build tree after the tree itself is gone.
 pub fn close_keeping_target(p: &Place, tree: &Tree) -> Result<()> {
-    close_with(p, tree, false)
+    close_with(p, tree, false, true)
 }
 
-fn close_with(p: &Place, tree: &Tree, target_too: bool) -> Result<()> {
+fn close_with(p: &Place, tree: &Tree, target_too: bool, end_claim: bool) -> Result<()> {
     if let Some(busy) = super::tree_lease::held(&[&tree.dir, &tree.target]) {
         bail!(
             "a gate is still running in {}, so its tree stays until the gate ends",
@@ -1504,6 +1534,12 @@ fn close_with(p: &Place, tree: &Tree, target_too: bool) -> Result<()> {
     }
     p.git_ok(&p.repo, &["worktree", "remove", "--force", &d])?;
     let _ = p.git(&p.repo, &["worktree", "prune"]);
+    // The loop's mark of a tree it opened (`join::guard`), gone with the tree, and this daemon no longer has it
+    // open; an item's tree has neither.
+    let _ = std::fs::remove_file(p.opened().join(&tree.slug));
+    if end_claim {
+        super::join::guard::closed_here(&tree.dir);
+    }
     if target_too && tree.target.starts_with(p.targets()) && tree.target.exists() {
         remove_all(&tree.target)?;
     }
