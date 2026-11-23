@@ -512,7 +512,10 @@ async fn a_size_repair_after_a_refusal_still_answers_on_the_bare_request() {
         retry.contains("1 more of the newest exchanges here"),
         "and says what it left out: {retry}"
     );
-    assert!(last_user_text(&reqs[2]).ends_with("and the tide?"));
+    assert!(
+        last_user_text(&reqs[2]).contains("and the tide?"),
+        "the message is in the retry's last message, the note's tail after it"
+    );
     assert!(rows(&r.core, "turn.failed").is_empty());
 }
 
