@@ -191,6 +191,8 @@ struct Stored {
     partial: bool,
     #[serde(default)]
     card: bool,
+    // Decode old audits without letting their retired place class shape the answer.
+    #[allow(dead_code)]
     #[serde(default)]
     private: bool,
 }
@@ -241,20 +243,16 @@ impl Core {
         if why.is_empty() {
             bail!("a retraction says why: give the reason in a sentence");
         }
-        let may_read = match p.session_id.as_deref() {
-            Some(sid) => {
-                if self.store.get_session::<SessionRecord>(sid)?.is_none() {
-                    bail!("no session {sid}");
-                }
-                matches!(self.runner.place_of(sid), Place::Private)
+        if let Some(sid) = p.session_id.as_deref() {
+            if self.store.get_session::<SessionRecord>(sid)?.is_none() {
+                bail!("no session {sid}");
             }
-            None => true,
-        };
+        }
         let node_id = self.retract_target(&p.node)?;
         let what = format!("the retraction of {node_id}");
         self.judge_act(&who, Act::Retract { what: &what })?;
         if let Some(done) = self.retraction_of(&node_id)? {
-            return Ok(shown(done, true, may_read));
+            return Ok(shown(done, true));
         }
         let (_, node) = self
             .store
@@ -335,7 +333,6 @@ impl Core {
                 private: private_origin,
             },
             false,
-            may_read,
         ))
     }
 
@@ -738,24 +735,13 @@ pub(crate) fn card_text(gist: &str, why: &str, tasks: &[&Found]) -> String {
     t
 }
 
-/// A stored table as the place the request is run for may read it.
-fn shown(s: Stored, already: bool, may_read: bool) -> FactRetractResult {
-    let exposures = s
-        .exposures
-        .into_iter()
-        .map(|f| {
-            let mut e = f.e;
-            if f.private && !may_read {
-                e.place = "a private place".into();
-                e.hidden = true;
-            }
-            e
-        })
-        .collect();
+/// The complete stored audit for an authorised retraction request, wherever it was made.
+fn shown(s: Stored, already: bool) -> FactRetractResult {
+    let exposures = s.exposures.into_iter().map(|f| f.e).collect();
     FactRetractResult {
         node_id: s.node_id,
         session_id: s.session_id,
-        gist: (!s.gist.is_empty() && (may_read || !s.private)).then_some(s.gist),
+        gist: (!s.gist.is_empty()).then_some(s.gist),
         why: s.why,
         by: s.by,
         at_ms: s.at_ms,
