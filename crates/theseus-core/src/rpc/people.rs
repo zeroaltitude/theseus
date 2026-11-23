@@ -163,14 +163,7 @@ impl Core {
                 "{id} has no merge to undo: its newest `ontology.merged` row is an undo, or none"
             );
         };
-        let o = self.runner.ontology.snapshot(&self.store)?;
         let survivor = CategoryId::parse(&m.survivor)?;
-        let records = o.unmerge(
-            &m.absorbed_record,
-            &survivor,
-            &m.handles_before,
-            &m.lists_before,
-        )?;
         let row = fact::ontology::PersonMerged {
             absorbed: &m.absorbed_record,
             survivor: &m.survivor,
@@ -184,12 +177,25 @@ impl Core {
             via,
         };
         let scope = scope(&id);
-        let o = self
-            .runner
-            .ontology
-            .write(&self.store, records, Origin::Operator, |_| {
-                Ok(vec![fact::row(&row, None, None)?.scoped(&scope)])
-            })?;
+        theseus_store::blocking(|| -> Result<()> {
+            let staged = self
+                .runner
+                .ontology
+                .stage(&self.store, Origin::Operator, |now| {
+                    let records = now.unmerge(
+                        &m.absorbed_record,
+                        &survivor,
+                        &m.handles_before,
+                        &m.lists_before,
+                    )?;
+                    Ok((records, vec![fact::row(&row, None, None)?.scoped(&scope)]))
+                })?
+                .expect("an unmerge restores its people");
+            self.store.append(staged.frame())?;
+            staged.commit();
+            Ok(())
+        })?;
+        let o = self.runner.ontology.snapshot(&self.store)?;
         self.rec(None).announce(&row);
         Ok(OntologyPersonMerged {
             survivor: category_info_of(&o, &survivor)?,
