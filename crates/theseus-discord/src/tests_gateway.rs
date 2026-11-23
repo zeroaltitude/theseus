@@ -135,9 +135,23 @@ impl Rig {
         more: &[String],
         tweak: impl FnOnce(&mut Config),
     ) -> Self {
+        Self::start_seeded(fake, model, bindings, more, tweak, |_| {}).await
+    }
+
+    /// The same, with `seed` given the core before the binding starts: what
+    /// an older run left in the store.
+    pub(crate) async fn start_seeded(
+        fake: Arc<FakeDiscord>,
+        model: impl FnOnce(&Path, Arc<FakeDiscord>) -> Arc<dyn Provider>,
+        bindings: &str,
+        more: &[String],
+        tweak: impl FnOnce(&mut Config),
+        seed: impl FnOnce(&Arc<Core>),
+    ) -> Self {
         let began = Instant::now();
         let dir = tempfile::tempdir().unwrap();
         let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()), tweak);
+        seed(&core);
         if OPEN_AT_BIND.with(std::cell::Cell::get) {
             crate::runtime::open_at_bind(&core);
         }
@@ -523,16 +537,20 @@ async fn a_pdf_attached_to_a_typed_message_reaches_the_model_as_a_document() {
         .find(|m| m["role"] == "user")
         .unwrap();
     let blocks = user["content"].as_array().unwrap();
-    assert!(
-        blocks[0]["text"]
-            .as_str()
-            .unwrap()
-            .starts_with("[PDF orders.pdf from discord:ana, "),
-        "{blocks:?}"
-    );
-    assert_eq!(blocks[1]["type"], "document");
+    // On the view, what is laid beside the message (who is speaking) may come before the person's own
+    // blocks (issue 44): the PDF's line is found by its words, then the document and the typed words
+    // follow it, in that order.
+    let at = blocks
+        .iter()
+        .position(|b| {
+            b["text"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("[PDF orders.pdf from discord:ana, "))
+        })
+        .unwrap_or_else(|| panic!("no PDF line: {blocks:?}"));
+    assert_eq!(blocks[at + 1]["type"], "document", "{blocks:?}");
     assert_eq!(
-        theseus_core::blobs::decode(blocks[1]["source"]["data"].as_str().unwrap()).unwrap(),
+        theseus_core::blobs::decode(blocks[at + 1]["source"]["data"].as_str().unwrap()).unwrap(),
         pdf
     );
     // The tag ends with when the message was written (theseus-sro04).
@@ -553,7 +571,7 @@ async fn a_pdf_attached_to_a_typed_message_reaches_the_model_as_a_document() {
         .expect("the message's node")
         .created_at_ms;
     assert_eq!(
-        blocks[2]["text"],
+        blocks[at + 2]["text"],
         format!(
             "[Discord #lab · private · {}] Who is the harbour master?",
             theseus_core::surface::when(written)
@@ -1081,6 +1099,7 @@ pub(crate) fn injection_jev() -> theseus_judge::fake::FakeJev {
 
 mod ask;
 mod asked;
+mod bound_before;
 mod calendar;
 mod card_question;
 mod cards;

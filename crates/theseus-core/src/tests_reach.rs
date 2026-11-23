@@ -109,6 +109,11 @@ fn conversation(core: &Core) -> String {
 }
 
 async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
+    try_turn(core, sid, input).await.unwrap()
+}
+
+/// A turn, as it ends: a failed one too.
+async fn try_turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSubmitResult> {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
@@ -128,7 +133,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
             answer_at: None,
         })
         .await
-        .unwrap()
 }
 
 /// The model of the scenarios: a parent that starts a task on `START`, and
@@ -195,13 +199,47 @@ fn ids(e: &ReachExposure) -> Vec<String> {
         .collect()
 }
 
+/// The times of `session`'s model calls dispatched after `after` (`action.dispatched`, `provider.messages`).
+fn dispatched(store: &Store, session: &str, after: u64) -> Vec<u64> {
+    (store.scope_after(session, after).unwrap().into_iter())
+        .filter(|r| r.kind == kinds::LEDGER)
+        .filter_map(|r| r.decode::<crate::ledger::LedgerRow>().ok())
+        .filter(|row| row.kind == "action.dispatched" && row.data["tool"] == "provider.messages")
+        .map(|row| row.at_unix_ms)
+        .collect()
+}
+
+/// The compilations of `session` whose kept view laid `copy`, read from the records (issue 44): a view of
+/// the copy's own turn (it is in that turn's tail), or one whose shown exchanges hold the copy's turn.
+fn held_by_views(store: &Store, session: &str, copy: &Node) -> Vec<String> {
+    let turn = copy.turn_id.clone().expect("the relay's turn");
+    let own: Vec<String> = (crate::view::record::of_turn(store, &turn)
+        .unwrap()
+        .into_iter())
+    .map(|v| v.compilation)
+    .collect();
+    let shows = |c: &str| {
+        crate::view::record::read(store, c)
+            .unwrap()
+            .is_some_and(|v| {
+                v.shown.iter().any(|s| {
+                    matches!(s.piece.range.space, crate::view::Space::Exchanges { .. })
+                        && s.piece.range.first.id == turn
+                })
+            })
+    };
+    (store.session_compilations(session).unwrap().into_iter())
+        .filter(|c| own.contains(&c.id) || shows(&c.id))
+        .map(|c| c.id)
+        .collect()
+}
+
 /// The prove (§3.2, row 12a). A task's last node is relayed to its parent,
 /// and the parent's next turn compiles it. `node.reach` on the task's node
 /// names both sessions (generations 0 and 1), the exact compilations, and
 /// the loops. The edge is keyed and scoped as §6.1 and §2.11 say, and its
 /// write moves no manifest: a store this build made is at its format.
 #[tokio::test]
-#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
     let r = rig(colours);
     let manifest = std::fs::read(r.dir.path().join("store/MANIFEST.json")).unwrap();
@@ -274,28 +312,13 @@ async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
             last.as_str()
         )
     );
-    // The exact compilations: the recompile's, which is the parent's current
-    // one, and no other of the parent's holds it.
-    let current = r
-        .core
-        .store
-        .get_session::<SessionRecord>(&parent)
-        .unwrap()
-        .unwrap()
-        .compilation_id
-        .unwrap();
-    let holding: Vec<String> = r
-        .core
-        .store
-        .session_compilations(&parent)
-        .unwrap()
-        .into_iter()
-        .filter(|c| c.includes.contains(&copy.id))
-        .map(|c| c.id)
-        .collect();
-    assert_eq!(holding, vec![current]);
+    // The exact compilations, read from the kept view records (issue 44): a
+    // view of the copy's own turn (it is in that turn's tail), or one whose
+    // shown exchanges hold the copy's turn (a later turn's window).
+    let holding = held_by_views(&r.core.store, &parent, &copy);
+    assert_eq!(holding.len(), 2, "{holding:?}");
     assert_eq!(ids(&d.exposure), holding);
-    assert_eq!(d.exposure.compilations[0].strategy, "transcript");
+    assert!(d.exposure.compilations.iter().all(|c| c.strategy == "view"));
     // Two loops held it: the recompiled turn's, and the next turn's.
     assert_eq!(d.exposure.loops, 2);
     let replies: Vec<u64> = nodes(&r.core, &parent)
@@ -304,12 +327,16 @@ async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
         .map(|(_, n)| n.created_at_ms)
         .collect();
     assert_eq!(replies.len(), 2);
-    assert_eq!(d.exposure.last_ms, replies.last().copied());
+    // A call's exposure is when its request was dispatched (issue 44).
+    assert_eq!(
+        d.exposure.last_ms,
+        dispatched(&r.core.store, &parent, at).last().copied()
+    );
     assert!(d.exposure.first_ms <= Some(replies[0]));
     assert_eq!(
         got.totals,
         ReachTotals {
-            contexts: 3,
+            contexts: 4,
             sessions: 2
         }
     );
@@ -383,13 +410,16 @@ async fn reach_follows_a_brief_into_its_task() {
     assert_eq!(tcomps.len(), 1);
     assert_eq!(ids(&d.exposure), vec![tcomps[0].id.clone()]);
     assert_eq!(d.exposure.loops, 1);
-    // In the parent, the reply was read by the loop that answered the call.
+    // In the parent, the reply was read by the call that answered the call: on the view (issue 44) that
+    // call is its turn's compilation's, which is named.
+    let pcomps = r.core.store.session_compilations(&parent).unwrap();
+    assert_eq!(pcomps.len(), 1);
+    assert_eq!(ids(&got.direct), vec![pcomps[0].id.clone()]);
     assert_eq!(got.direct.loops, 1);
-    assert!(got.direct.compilations.is_empty());
     assert_eq!(
         got.totals,
         ReachTotals {
-            contexts: 3,
+            contexts: 4,
             sessions: 2
         }
     );
@@ -412,15 +442,18 @@ async fn a_session_with_no_edges_answers_its_own_exposure_only() {
     let all = nodes(&r.core, &sid);
     let first = &all[0].1;
     let got = reach(&r.core.store, &first.id, None).unwrap().unwrap();
+    // A view turn is a new compilation every turn (issue 44): the first
+    // turn's requests laid the message as its own, the second's in its window.
     let comps = r.core.store.session_compilations(&sid).unwrap();
-    assert_eq!(comps.len(), 1);
-    assert_eq!(ids(&got.direct), vec![comps[0].id.clone()]);
+    assert_eq!(comps.len(), 2);
+    let comps: Vec<String> = comps.into_iter().map(|c| c.id).collect();
+    assert_eq!(ids(&got.direct), comps);
     assert_eq!(got.direct.loops, 2, "each turn's loop held it");
     assert!(got.descendants.is_empty() && !got.partial);
     assert_eq!(
         got.totals,
         ReachTotals {
-            contexts: 3,
+            contexts: 4,
             sessions: 1
         }
     );
@@ -430,6 +463,116 @@ async fn a_session_with_no_edges_answers_its_own_exposure_only() {
     assert_eq!(got.direct, ReachExposure::default());
     assert_eq!(got.totals.contexts, 0);
     assert!(reach(&r.core.store, "msg_nowhere", None).unwrap().is_none());
+}
+
+/// An erased node still says where it went (issue 44): its tombstone is a later record of its id, but
+/// reach accounts from its first position and its kind, so the two turns that laid it are named, and the
+/// answer holds no erased word.
+#[tokio::test]
+async fn an_erased_node_still_says_where_it_went() {
+    let r = rig(|_| Scripted::text("Noted."));
+    let sid = conversation(&r.core);
+    turn(&r.core, &sid, "the first message").await;
+    turn(&r.core, &sid, "the second message").await;
+    let (_, first) = nodes(&r.core, &sid)[0].clone();
+    let before = reach(&r.core.store, &first.id, None).unwrap().unwrap();
+    assert_eq!(before.direct.compilations.len(), 2, "{before:?}");
+    let gone = first.erased(theseus_protocol::now_unix_ms(), "a test's erasure");
+    r.core.store.append(&[gone.record().unwrap()]).unwrap();
+    let after = reach(&r.core.store, &first.id, None).unwrap().unwrap();
+    assert_eq!(after.position, before.position, "its first position");
+    assert_eq!(after.direct, before.direct);
+    assert!(!after.partial);
+    let said = serde_json::to_string(&after).unwrap();
+    assert!(!said.contains("the first message"), "{said}");
+}
+
+/// A call that was sent and got no answer is still where the message went (issue 44): reach counts the
+/// call by its dispatch, not by a stored reply.
+#[tokio::test]
+async fn a_message_sent_in_a_call_that_failed_is_still_exposed() {
+    let r = rig(|_| {
+        Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
+            status: 400,
+            message: "refused for the test".into(),
+        })
+    });
+    let sid = conversation(&r.core);
+    let _ = try_turn(&r.core, &sid, "a message the model was sent").await;
+    let all = nodes(&r.core, &sid);
+    assert!(
+        !all.iter()
+            .any(|(_, n)| matches!(n.body, Body::AssistantMessage { .. })),
+        "no answer was stored: {all:?}"
+    );
+    let ask = (all.iter())
+        .find(|(_, n)| matches!(n.body, Body::UserMessage { .. }))
+        .expect("the message")
+        .1
+        .id
+        .clone();
+    let got = reach(&r.core.store, &ask, None).unwrap().unwrap();
+    assert!(got.direct.loops >= 1, "{got:?}");
+    assert_eq!(got.direct.compilations.len(), 1, "{got:?}");
+    assert_eq!(got.direct.compilations[0].session_id, sid);
+}
+
+/// A view record that cannot be read leaves the answer partial (rule A, issue 44): what that view laid
+/// is unknown, though what was read is still said.
+#[tokio::test]
+async fn an_unreadable_view_record_makes_the_answer_partial() {
+    let r = rig(|_| Scripted::text("Noted."));
+    let sid = conversation(&r.core);
+    turn(&r.core, &sid, "a message").await;
+    let first = nodes(&r.core, &sid)[0].1.id.clone();
+    assert!(!reach(&r.core.store, &first, None).unwrap().unwrap().partial);
+    let bad = theseus_store::NewRecord::json(
+        kinds::META,
+        Some("view.cmp_unreadable"),
+        &json!({"not": "a view"}),
+    )
+    .unwrap();
+    r.core.store.append(&[bad]).unwrap();
+    let got = reach(&r.core.store, &first, None).unwrap().unwrap();
+    assert!(got.partial, "{got:?}");
+    assert_eq!(got.totals.contexts, 2, "what was read is still said");
+}
+
+/// A reply that is only calls, laid in a later turn's window, is counted there (rule B, issue 44): the
+/// window's own renderer carries its calls, which the text renderer's parts do not model.
+#[tokio::test]
+async fn a_reply_that_is_only_calls_is_counted_where_a_window_lays_it() {
+    let r = rig(
+        |req| match last_user(req).starts_with("START") && !answers_a_call(req) {
+            true => Scripted::tools(
+                "",
+                &[(
+                    "t_task",
+                    "task_create",
+                    json!({"brief": "CHILD: name a colour", "budget_usd": 1.5, "arrangement":
+                       {"pieces": [{"quote": last_user(req), "role": "objective"}]}}),
+                )],
+            ),
+            false => colours(req),
+        },
+    );
+    let parent = conversation(&r.core);
+    turn(&r.core, &parent, "START the colour task").await;
+    finished_task(&r.core, &parent).await;
+    turn(&r.core, &parent, "And then?").await;
+    let holder = (nodes(&r.core, &parent).into_iter())
+        .find_map(|(_, n)| match &n.body {
+            Body::ToolCall { assistant_node, .. } => Some(assistant_node.clone()),
+            _ => None,
+        })
+        .expect("the reply that made the call");
+    let got = reach(&r.core.store, &holder, None).unwrap().unwrap();
+    let pcomps = r.core.store.session_compilations(&parent).unwrap();
+    assert!(pcomps.len() >= 2, "{pcomps:?}");
+    // Its own turn's call that answered it, and the later turn whose window laid it.
+    let named = ids(&got.direct);
+    assert!(named.contains(&pcomps[0].id), "{got:?}");
+    assert!(named.contains(&pcomps.last().unwrap().id), "{got:?}");
 }
 
 /// A turn that reads a report writes no extra frame: the edge rides in the

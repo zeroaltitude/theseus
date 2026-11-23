@@ -183,11 +183,12 @@ async fn a_prompt_the_provider_refuses_as_too_long_rings_and_the_retry_answers()
             &json!("ring")
         )
     );
+    // The retry is the view's own, assembled again on the smaller request (the transcript's ring is gone).
     let compiled = rows(&r.core, "context.compiled");
     let last = compiled.last().unwrap();
     assert_eq!(
         (&last["trigger"], &last["strategy"]),
-        (&json!("overflow"), &json!("ring")),
+        (&json!("view_turn"), &json!("view")),
         "{last}"
     );
     assert!(rows(&r.core, "turn.failed").is_empty());
@@ -275,10 +276,11 @@ async fn an_answer_cut_at_the_window_is_made_again_on_a_ring_without_it() {
     assert_eq!(third.output, "You're welcome.");
     let reqs = r.fake.requests();
     let next = &reqs[3];
-    assert_eq!(
-        &next.messages[..retry.messages.len()],
-        &retry.messages[..],
-        "the next request begins with the retry's"
+    // The view assembles each turn again: the next request carries the retry's exchange (not the retry's
+    // bytes as its prefix, which only the transcript's ring kept).
+    assert!(
+        text_of(next).contains("and the tide table?"),
+        "the next request carries the retry's exchange"
     );
     assert!(!text_of(next).contains("Half of the tide tab"));
     assert!(text_of(next).contains("The whole tide table."));
@@ -461,4 +463,51 @@ async fn an_answer_cut_twice_fails_the_turn() {
         "no call ran: {results:?}"
     );
     assert_eq!(thens(&r.core), ["park"]);
+}
+
+/// When the bare floor answers, the request says what it left out (the newest exchanges here, their count, an
+/// estimate and the handle that opens them), and the next turn's request is back on the normal floor: the
+/// earlier exchange is there again, in its words. The earlier answer is long enough that the line costs less
+/// than what it stands for.
+#[tokio::test]
+async fn a_bare_retry_says_what_it_left_out_and_the_next_turn_is_back_on_the_floor() {
+    let answer = format!(
+        "The harbor opens at dawn.{}",
+        " The pilots board at the outer buoy and bring each ship through the narrows on the flood."
+            .repeat(12)
+    );
+    let r = rig(vec![
+        Scripted::text(&answer),
+        too_long(250_000, 200_000),
+        Scripted::text("The tide turns at four."),
+        Scripted::text("You're welcome."),
+    ]);
+    let sid = session(&r.core);
+    turn(&r.core, &sid, "when does the harbor open?")
+        .await
+        .unwrap();
+    let second = turn(&r.core, &sid, "and the tide?").await.unwrap();
+    assert_eq!(second.output, "The tide turns at four.");
+    let reqs = r.fake.requests();
+    let retry = text_of(&reqs[2]);
+    assert!(
+        !retry.contains("when does the harbor open?"),
+        "the retry left the earlier exchange out: {retry}"
+    );
+    assert!(
+        retry.contains("1 more of the newest exchanges here") && retry.contains("left out; open"),
+        "and says so, with the handle that opens it: {retry}"
+    );
+
+    let third = turn(&r.core, &sid, "thanks").await.unwrap();
+    assert_eq!(third.output, "You're welcome.");
+    let next = text_of(&r.fake.requests()[3]);
+    assert!(
+        next.contains("when does the harbor open?") && next.contains("The harbor opens at dawn."),
+        "the next turn is back on the normal floor: {next}"
+    );
+    assert!(
+        !next.contains("more of the newest exchanges here"),
+        "and has nothing of the bare floor's line: {next}"
+    );
 }

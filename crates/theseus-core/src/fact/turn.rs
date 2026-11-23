@@ -2152,8 +2152,6 @@ impl Fact for RetryDecided<'_> {
                     f.class,
                     if f.class == WINDOW_CLASS {
                         "the same request would pass the window again"
-                    } else if f.class == crate::turn::overage::OVERAGE_CLASS {
-                        "the same exchange would not fit the window again"
                     } else if self.settled {
                         "the same request would fail the same way"
                     } else {

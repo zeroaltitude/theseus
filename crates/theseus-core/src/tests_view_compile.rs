@@ -567,7 +567,7 @@ async fn a_view_over_its_budget_fails_on_its_overage_and_is_never_handed_back() 
         .await
         .expect_err("past the window");
     let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
-    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
+    assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
     assert_eq!(crate::test_support::rows(c, "context.overage").len(), 1);
     assert!(
@@ -577,9 +577,9 @@ async fn a_view_over_its_budget_fails_on_its_overage_and_is_never_handed_back() 
 }
 
 /// The view's first call is refused by the provider for its size, with nothing of the turn's own to clear:
-/// it is never handed back. The retry is compiled under the provider's stated window, its floor cannot fit
-/// that, and the turn fails before a second call on the core overage, once, with no fallback
-/// (`room::tests` has a refusal the view makes room for).
+/// it is never handed back. A smaller request exists (its recall can go), so it is sent once; refused again,
+/// the turn fails plainly on the window, with no third call and no fallback (`room::tests` has a refusal
+/// the view makes room for).
 #[tokio::test]
 async fn a_view_call_refused_for_size_with_nothing_to_clear_fails_plainly() {
     let r = crate::tests_places::rig_setup_scripted(
@@ -609,13 +609,20 @@ async fn a_view_call_refused_for_size_with_nothing_to_clear_fails_plainly() {
     let sid = session_in(c, None, &r.root);
     let err = submit(c, &sid, ASKED).await.expect_err("past the window");
     let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
-    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
+    assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     let asked: Vec<ProviderRequest> = (r.requests().into_iter())
         .filter(|q| !q.tools.is_empty() && texts(q).contains(ASKED))
         .collect();
-    assert_eq!(asked.len(), 1, "the refused call, and no retry loop");
+    assert_eq!(
+        asked.len(),
+        2,
+        "the refused call and one smaller retry, and no retry loop"
+    );
+    // The smaller retry is smaller by what could go: the recalled episode the first request laid.
+    assert!(texts(&asked[0]).contains(episode), "{}", texts(&asked[0]));
+    assert!(!texts(&asked[1]).contains(episode), "{}", texts(&asked[1]));
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
-    assert_eq!(crate::test_support::rows(c, "context.overage").len(), 1);
+    assert_eq!(crate::test_support::rows(c, "context.overflow").len(), 2);
 }
 
 /// Item 4 of round 2, under the cut: a floor too large for the view's budget (one enormous message) is never
@@ -630,7 +637,7 @@ async fn a_floor_too_large_for_the_view_fails_on_its_overage() {
     let huge = "enormous ".repeat(1_500_000);
     let err = submit(c, &sid, &huge).await.expect_err("past the window");
     let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
-    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
+    assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     let said = format!("{err:#}");
     assert!(
         said.contains("does not fit") && said.contains("Nothing was sent"),
@@ -733,4 +740,314 @@ async fn a_size_repair_comes_back_to_the_size_check() {
     assert_eq!(sent.len(), 1, "one call");
     let text = texts(&sent[0]);
     assert!(text.contains("5519"), "the repair lays the source: {text}");
+}
+
+/// A fold over `turn_id`'s exchange at its place, with an account the requests can be searched for.
+fn fold_over_exchange(c: &crate::Core, turn_id: &str, account: &str) {
+    let ex = crate::exchange::exchange(&c.store, turn_id)
+        .unwrap()
+        .unwrap();
+    let node = crate::ladder::fold::FoldNode {
+        id: format!("fold-{turn_id}"),
+        place: ex.place.clone(),
+        level: 1,
+        exchanges: vec![turn_id.to_string()],
+        first_ms: ex.start_ms,
+        last_ms: ex.start_ms,
+        his: vec![],
+        counted: 0,
+        children: vec![],
+        title: "the figure".into(),
+        account: account.into(),
+        marks: crate::view::Marks {
+            place: Some(ex.place.clone()),
+            audience: crate::view::Audience::Private,
+            author: crate::view::Author::Theseus,
+            outside: false,
+            sealed: false,
+            veiled: false,
+        },
+        model: None,
+        writer: 1,
+        at_ms: ex.start_ms,
+    };
+    c.store
+        .append(&crate::ladder::fold::records(&node).unwrap())
+        .unwrap();
+}
+
+/// The exchange record of the turn that said `what`, in any session, removed.
+fn remove_exchange_saying(c: &crate::Core, what: &str) {
+    for s in (c.store.list_sessions::<crate::session::SessionRecord>()).unwrap() {
+        for (_, n) in c.store.session_nodes(&s.session_id).unwrap() {
+            let said = matches!(&n.body, crate::node::Body::UserMessage { text, .. }
+                if text.contains(what));
+            if let (true, Some(t)) = (said, n.turn_id.as_deref()) {
+                let key = format!("{}{t}", crate::exchange::EXCHANGE_PREFIX);
+                c.store
+                    .append(&[theseus_store::NewRecord::delete_meta(&key)])
+                    .unwrap();
+            }
+        }
+    }
+}
+
+/// The turn id of the first message saying `what` in `sid`.
+fn turn_saying(c: &crate::Core, sid: &str, what: &str) -> String {
+    (c.store.session_nodes(sid).unwrap().into_iter())
+        .find_map(|(_, n)| match &n.body {
+            crate::node::Body::UserMessage { text, .. } if text.contains(what) => n.turn_id,
+            _ => None,
+        })
+        .unwrap()
+}
+
+/// A removed thing is not sent again (round 2, item 1): a fold whose constituent exchange was removed before
+/// the assembly is not laid; with it present, the same fold is.
+#[tokio::test]
+async fn a_fold_whose_constituent_was_removed_before_the_assembly_is_not_laid() {
+    const ACCOUNT: &str = "ACCOUNT: the figure 7741 was discussed";
+    let r = view_rig();
+    let c = &r.core;
+    let other = crate::tests_places::session(c, None);
+    turn_as(c, &other, "other: the figure is 7741", true).await;
+    fold_over_exchange(c, &turn_saying(c, &other, "the figure is 7741"), ACCOUNT);
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: before the removal", true).await;
+    let before = asked(&r, "desk: before the removal").pop().unwrap();
+    assert!(texts(&before).contains(ACCOUNT), "{}", texts(&before));
+    remove_exchange_saying(c, "the figure is 7741");
+    turn_as(c, &desk, "desk: after the removal", true).await;
+    let after = asked(&r, "desk: after the removal").pop().unwrap();
+    assert!(!texts(&after).contains(ACCOUNT), "{}", texts(&after));
+}
+
+/// Round 2, item 1: a fold the frozen view laid whose constituent exchange is removed between two calls of
+/// one turn is not in the second call's request (its constituents are the view's dependencies).
+#[tokio::test]
+async fn a_fold_whose_constituent_is_removed_between_two_calls_is_not_sent_again() {
+    use std::sync::{Arc, OnceLock};
+    const ACCOUNT: &str = "ACCOUNT: the figure 7741 was discussed";
+    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
+    let held = core.clone();
+    let r = crate::tests_places::rig_setup_scripted(
+        |_| {},
+        |_| {},
+        move |q| {
+            if last_user(q).contains("drop it now") && !crate::tests_places::answers_a_call(q) {
+                remove_exchange_saying(held.get().expect("the core"), "the figure is 7741");
+                return crate::provider::Scripted::tools(
+                    "Looking.",
+                    &[("s1", "fs_list", serde_json::json!({"path": "."}))],
+                );
+            }
+            crate::provider::Scripted::text("Done.")
+        },
+    );
+    let _ = core.set(r.core.clone());
+    let c = &r.core;
+    let other = crate::tests_places::session(c, None);
+    turn_as(c, &other, "other: the figure is 7741", true).await;
+    fold_over_exchange(c, &turn_saying(c, &other, "the figure is 7741"), ACCOUNT);
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: drop it now", true).await;
+    let calls: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| texts(q).contains("desk: drop it now"))
+        .collect();
+    assert_eq!(calls.len(), 2, "the turn made two calls");
+    assert!(
+        texts(&calls[0]).contains(ACCOUNT),
+        "before: {}",
+        texts(&calls[0])
+    );
+    assert!(
+        !texts(&calls[1]).contains(ACCOUNT),
+        "after: {}",
+        texts(&calls[1])
+    );
+}
+
+/// Round 2, item 4: the removal bound. Something the view laid is removed under it after each of three
+/// assemblies of one call: the call fails plainly (`ViewFailed::Gone`), and nothing is sent.
+#[tokio::test]
+async fn a_third_removal_in_one_call_fails_it_plainly_and_sends_nothing() {
+    use std::sync::{Arc, OnceLock};
+    let r = view_rig();
+    let c = &r.core;
+    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::new(OnceLock::new());
+    let _ = core.set(c.clone());
+    let desk = crate::tests_places::session(c, None);
+    for i in 0..3 {
+        turn_as(c, &desk, &format!("desk {i}: the buoy {i} is red"), true).await;
+    }
+    for i in 0..3 {
+        let held = core.clone();
+        crate::turn::view_step::env_tail_hook(
+            &desk,
+            Box::new(move || {
+                remove_exchange_saying(held.get().unwrap(), &format!("the buoy {i} is red"))
+            }),
+        );
+    }
+    let e = submit(c, &desk, "tidy the harbour notes")
+        .await
+        .unwrap_err();
+    let te = e.downcast_ref::<crate::turn::TurnError>().unwrap();
+    assert_eq!(te.class, "context_unreadable");
+    assert!(
+        format!("{:#}", te.source).contains("was removed while it was being prepared"),
+        "{:#}",
+        te.source
+    );
+    let sent: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| texts(q).contains("tidy the harbour notes"))
+        .collect();
+    assert!(sent.is_empty(), "nothing is sent: {}", sent.len());
+}
+
+/// Round 2, item 4: a source removed during a size repair's await (after the repair compile's assembly)
+/// is not in the request that goes out.
+#[tokio::test]
+async fn a_source_removed_during_a_size_repair_is_not_sent() {
+    use std::sync::{Arc, OnceLock};
+    const ASKS: &str = "what is the buoy now?";
+    let r = view_rig();
+    let c = &r.core;
+    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::new(OnceLock::new());
+    let _ = core.set(c.clone());
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: the buoy code is 6620", true).await;
+    let (held, again) = (core.clone(), desk.clone());
+    crate::turn::view_step::env_tail_hook(
+        &desk,
+        Box::new(move || {
+            crate::turn::view_step::env_tail_hook(
+                &again,
+                Box::new(move || {
+                    remove_exchange_saying(held.get().unwrap(), "the buoy code is 6620")
+                }),
+            )
+        }),
+    );
+    crate::turn::view_step::force_resize(&desk);
+    turn_as(c, &desk, ASKS, true).await;
+    let sent: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| texts(q).contains(ASKS))
+        .collect();
+    assert!(!sent.is_empty(), "a call went out");
+    for q in &sent {
+        assert!(!texts(q).contains("6620"), "{}", texts(q));
+    }
+}
+
+/// A session the self loop opens, as its fixer, reviewer or approver turns do (`rsi::join::fix::turns`):
+/// its execution's principal is `self`.
+fn self_session(c: &crate::Core, label: &str) -> String {
+    let rec = c
+        .open_session_as(
+            theseus_protocol::SessionOpenParams {
+                label: Some(label.into()),
+                ..Default::default()
+            },
+            theseus_kernel::Authority {
+                principal: crate::rsi::SELF_PRINCIPAL.into(),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+    rec.session_id
+}
+
+/// Round 3, the self loop's scope (the conductor's rule of 12:33): a fixer's and an approver's request hold
+/// nothing of another session or another place, and none of slots C, E or F; an ordinary session at the same
+/// place, with no mark either, is laid the other session's words (the widest point of view).
+#[tokio::test]
+async fn a_self_loop_session_lays_its_own_place_only_and_an_ordinary_one_the_widest() {
+    use crate::tests_view_hand_backs::unmarked;
+    // The self loop acting, its budget resumed, so its sessions' turns run (as `rpc::tests_self_view`).
+    let r = rig_with(|c| c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act);
+    let c = &r.core;
+    c.self_resume(
+        &theseus_protocol::rsi::SelfResumeParams::default(),
+        &crate::approval::Answerer::from("the CLI"),
+    )
+    .unwrap();
+    let dm = crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
+    turn_as(c, &dm, "dm: the lighthouse lamp is amber", true).await;
+    let fixer = self_session(c, "self fix: kelp");
+    let approver = self_session(c, "self approve: kelp");
+    let ordinary = crate::tests_places::session(c, None);
+    // Every one of them works at the same place as the desk's session.
+    let place = |s: &str| crate::view_gate::place_name(&c.runner, s);
+    let desk = crate::tests_places::session(c, None);
+    assert_eq!(place(&fixer), place(&desk), "one place");
+    turn_as(c, &desk, "desk: the heron is grey", true).await;
+    for (sid, asks) in [
+        (&fixer, "fixer: what is in front of you?"),
+        (&approver, "approver: what is in front of you?"),
+        (&ordinary, "ordinary: what is in front of you?"),
+    ] {
+        unmarked(c, sid, asks).await.unwrap();
+    }
+    for asks in ["fixer: what is in front", "approver: what is in front"] {
+        let sent = texts(&asked(&r, asks).pop().expect("its request"));
+        assert!(
+            !sent.contains("the heron is grey"),
+            "{asks}: another session's: {sent}"
+        );
+        assert!(
+            !sent.contains("lighthouse lamp"),
+            "{asks}: another place's: {sent}"
+        );
+    }
+    let sent = texts(
+        &asked(&r, "ordinary: what is in front")
+            .pop()
+            .expect("its request"),
+    );
+    assert!(sent.contains("the heron is grey"), "the widest: {sent}");
+}
+
+/// Round 3, the self loop's scope against an ordinary session (the brief's second test): with the owner's DM
+/// recallable, an ordinary conversation's turn is laid it (the widest point of view), and a fixer's and an
+/// approver's turn asking the same are laid nothing of it. The ordinary one is a conversation, not a task: a
+/// task's first compile admits no recall note (`compiler::situation::admits`).
+#[tokio::test]
+async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_session_does() {
+    use crate::tests_view_hand_backs::unmarked;
+    const SECRET: &str = "the kelp vault code is 5519";
+    let r = rig_with(|c| {
+        c.memory.mode = crate::config::MemoryMode::Live;
+        c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act;
+    });
+    let c = &r.core;
+    c.self_resume(
+        &theseus_protocol::rsi::SelfResumeParams::default(),
+        &crate::approval::Answerer::from("the CLI"),
+    )
+    .unwrap();
+    let dm = crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
+    turn_as(c, &dm, SECRET, true).await;
+    (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![dm.clone()]));
+    let ordinary = crate::tests_places::session(c, None);
+    let fixer = self_session(c, "self fix: kelp");
+    let approver = self_session(c, "self approve: kelp");
+    for (sid, asks) in [
+        (&ordinary, "ordinary: what is the kelp vault code?"),
+        (&fixer, "fixer: what is the kelp vault code?"),
+        (&approver, "approver: what is the kelp vault code?"),
+    ] {
+        unmarked(c, sid, asks).await.unwrap();
+    }
+    let sent = |asks: &str| texts(&asked(&r, asks).pop().expect("its request"));
+    assert!(
+        sent("ordinary: what is").contains("5519"),
+        "the ordinary session: {}",
+        sent("ordinary: what is")
+    );
+    for asks in ["fixer: what is", "approver: what is"] {
+        let got = sent(asks);
+        assert!(!got.contains("5519"), "{asks}: another place's: {got}");
+    }
 }

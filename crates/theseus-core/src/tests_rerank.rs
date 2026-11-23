@@ -10,7 +10,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use proptest::prelude::*;
 use serde_json::Value;
 use theseus_judge::fake::{FakeJev, FakeMode, Scripted as Jev};
 use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
@@ -33,10 +32,7 @@ use crate::{Config, Core};
 /// The owner on Discord, someone else, and three guild channels: one bound
 /// private, two shared.
 const OWNER: u64 = 161_803_398_874_989_484;
-const ALICE: u64 = 333_333_333_333_333_333;
 const DEN: u64 = 271_000_000_000_000_001;
-const PIER: u64 = 271_000_000_000_000_002;
-const QUAY: u64 = 271_000_000_000_000_003;
 
 pub(crate) struct Rig {
     pub core: Arc<Core>,
@@ -574,7 +570,9 @@ async fn a_reranked_turn_keeps_its_frame_budget() {
         let notes = session(c, None, &["the grey heron nests by the old weir"]);
         let here = session(c, None, &[]);
         c.runner.memory.set_ask(index_of(c, vec![notes]));
-        turn(c, &here, "warm up").await;
+        // A warm-up with substance: the measured turn re-titles nothing, so it is a plain turn (a re-titling
+        // turn writes one frame more, once per conversation: `tests_m3::the_turn_that_re_titles…`).
+        turn(c, &here, "warm up the heron notes").await;
         if judged {
             // The first rerank reserved the day's first block, and is written.
             until_reranked(&c.store, 1).await;
@@ -605,142 +603,4 @@ async fn a_reranked_turn_keeps_its_frame_budget() {
         counts.push(frames);
     }
     assert_eq!(counts[0], counts[1], "the rerank changed the turn's frames");
-}
-
-/// Where a generated session speaks.
-#[derive(Clone, Copy, Debug)]
-enum Spot {
-    Cli,
-    OwnerDm,
-    AliceDm,
-    Den,
-    Pier,
-    Quay,
-    /// A task of the pier's.
-    PierTask,
-}
-
-impl Spot {
-    fn place(self) -> Option<String> {
-        match self {
-            Spot::Cli | Spot::PierTask => None,
-            Spot::OwnerDm => Some(format!("dm:{OWNER}")),
-            Spot::AliceDm => Some(format!("dm:{ALICE}")),
-            Spot::Den => Some(format!("channel:{DEN}")),
-            Spot::Pier => Some(format!("channel:{PIER}")),
-            Spot::Quay => Some(format!("channel:{QUAY}")),
-        }
-    }
-
-    /// Private, or the shared place it speaks in, written out by hand.
-    fn class(self) -> Result<(), String> {
-        match self {
-            Spot::Cli | Spot::OwnerDm | Spot::Den => Ok(()),
-            Spot::AliceDm => Err(format!("dm:{ALICE}")),
-            Spot::Pier | Spot::PierTask => Err(format!("channel:{PIER}")),
-            Spot::Quay => Err(format!("channel:{QUAY}")),
-        }
-    }
-
-    /// Whether a turn here draws on a session at `from`: a private place on
-    /// any, a shared one on its own; a channel bound private on its own
-    /// alone (issue 44, the owner's decision 5).
-    fn draws_on(self, from: Spot) -> bool {
-        match (self, self.class(), from.class()) {
-            (Spot::Den, _, _) => matches!(from, Spot::Den),
-            (_, Ok(()), _) => true,
-            (_, Err(a), Err(b)) => a == b,
-            _ => false,
-        }
-    }
-}
-
-fn spot() -> impl Strategy<Value = Spot> {
-    prop_oneof![
-        Just(Spot::Cli),
-        Just(Spot::OwnerDm),
-        Just(Spot::AliceDm),
-        Just(Spot::Den),
-        Just(Spot::Pier),
-        Just(Spot::Quay),
-        Just(Spot::PierTask),
-    ]
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig { cases: 16, ..ProptestConfig::default() })]
-
-    /// The place property test through the rerank, over generated stores and
-    /// places: the state Jev is sent holds no note of a session the place
-    /// filter dropped, and holds every note the filters passed.
-    #[test]
-    fn a_reranks_state_holds_nothing_the_place_filter_dropped(
-        asker in spot(),
-        spots in proptest::collection::vec(spot(), 1..12),
-    ) {
-        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
-        rt.block_on(async {
-            let jev = FakeJev::start().unwrap();
-            let r = rig(Some(&jev), |c| c.memory.recall_max_items = 40);
-            let c = &r.core;
-            let mut made = Vec::new();
-            for (i, s) in spots.iter().enumerate() {
-                let sid = session(c, None, &[&format!("note number {i}")]);
-                if let Some(p) = s.place() {
-                    c.outbox.bind_place(&p, &sid).unwrap();
-                }
-                if matches!(s, Spot::PierTask) {
-                    c.outbox.task_bound(&sid, &format!("discord:channel:{PIER}"));
-                }
-                made.push((sid, *s));
-            }
-            let me = session(c, None, &[]);
-            if let Some(p) = asker.place() {
-                c.outbox.bind_place(&p, &me).unwrap();
-            }
-            if matches!(asker, Spot::PierTask) {
-                c.outbox.task_bound(&me, &format!("discord:channel:{PIER}"));
-            }
-            // A session a later one replaced in its place speaks nowhere now.
-            let spoken: Vec<(usize, Spot)> = made
-                .iter()
-                .enumerate()
-                .map(|(i, (sid, s))| {
-                    let current = s.place().is_none_or(|p| {
-                        c.outbox.place_session(&p).unwrap().as_deref() == Some(sid.as_str())
-                    });
-                    (i, if current { *s } else { Spot::Cli })
-                })
-                .collect();
-            c.runner.memory.set_ask(index_of(c, made.iter().map(|(s, _)| s.clone()).collect()));
-            turn(c, &me, "the notes?").await;
-            let may: Vec<usize> = spoken
-                .iter()
-                .filter(|(_, s)| asker.draws_on(*s))
-                .map(|(i, _)| *i)
-                .collect();
-            let notes: Vec<String> = if may.is_empty() {
-                // Nothing passed the filters: nothing is sent.
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                prop_assert!(jev.seen().is_empty(), "a rerank with nothing eligible");
-                Vec::new()
-            } else {
-                until_reranked(&c.store, 1).await;
-                let seen = jev.seen();
-                prop_assert_eq!(seen.len(), 1);
-                seen[0].body["state"]["notes"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|n| n["text"].as_str().unwrap().to_string())
-                    .collect()
-            };
-            let mut want: Vec<String> = may.iter().map(|i| format!("note number {i}")).collect();
-            let mut got = notes;
-            want.sort();
-            got.sort();
-            prop_assert_eq!(got, want, "{:?} asked of {:?}", asker, spoken);
-            Ok(())
-        })?;
-    }
 }

@@ -83,10 +83,18 @@ impl TurnRunner {
             persona,
         };
         let now = theseus_protocol::now_unix_ms();
-        // Every live record is shown, whatever conversation it was kept from (anything goes, 2026-11-22).
+        // A record kept from a message that is gone or cannot be read is not
+        // shown (`view_gate::standing_held`); no place or seal holds one.
+        let held = crate::view_gate::standing_held(
+            self,
+            session_id,
+            crate::standing::live(&all, Some(scope), now)
+                .iter()
+                .map(|r| (r.id.as_str(), r.source.as_str())),
+        );
         (
-            Block::of(&all, scope, class, now),
-            Block::here(&all, scope, class, now),
+            Block::of_held(&all, scope, class, now, &held),
+            Block::here_held(&all, scope, class, now, &held),
         )
     }
 

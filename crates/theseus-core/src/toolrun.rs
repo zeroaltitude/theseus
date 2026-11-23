@@ -753,7 +753,7 @@ impl ToolRuntime {
             };
             return format!(
                 "Tools. You act through tools; every call is recorded, checked against policy, and may wait for the operator's confirmation.\n\
-                 - This place is shared: people besides the operator read it. So you are offered only the public tools here, and {files}: nothing of the operator's own (their other files, programs, AWS) reaches this place.\n\
+                 - This place is shared: people besides the operator read it. So you are offered only the public tools here, and {files}: no tool here reaches the operator's other files, programs or AWS.\n\
                  - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.\n\
                  - A declined call is final for that request: tell the operator and do not route around it.{}",
                 postures,

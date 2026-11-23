@@ -28,7 +28,6 @@ const HARBOUR: u64 = 900_000_000_000_000_020;
 const KEY_VAR: &str = "THESEUS_VIEW_PROOF_TEST_KEY";
 
 const BEFORE: &str = "BUOYCODE-BEFORE-NEW-4471";
-const PRIVATE: &str = "OSPREY-PRIVATE-HARBOUR-9902";
 
 struct Rig {
     s: Served,
@@ -387,51 +386,4 @@ fn after_new_nothing_before_is_the_conversation_his_words_are_his_past_and_memor
         );
     }
     eprintln!("view proof /new: {}", r.strategies());
-}
-
-/// In a shared channel with a second person in it, a turn's request holds nothing the owner said in his
-/// own DM.
-#[test]
-fn a_shared_place_with_a_second_person_holds_nothing_of_the_owners_dm() {
-    let r = Rig::new(|_| vec![]);
-    let ana = (ANA, "ana");
-    r.turn(ana, None, &format!("Keep this between us: {PRIVATE}."));
-    let dm = r.turn(ana, None, "What did I just tell you?");
-    assert!(
-        dm.iter().any(|q| holds(q, PRIVATE)),
-        "in the DM, the next turn holds the owner's earlier message ({})",
-        r.strategies()
-    );
-    // Ben speaks first, so he is present; whether his message gets a turn is the binding's, not this test's.
-    let started = r.rows("turn.started").len();
-    r.say(
-        (BEN, "ben"),
-        Some(HARBOUR),
-        "Morning all, the tide is turning.",
-    );
-    let t0 = Instant::now();
-    while r.rows("turn.started").len() == started && t0.elapsed() < Duration::from_secs(10) {
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    wait("every turn ended", 60, || {
-        (r.rows("turn.started").len() <= r.rows("turn.ended").len() + r.rows("turn.failed").len())
-            .then_some(())
-    });
-    let shared = r.turn(
-        ana,
-        Some(HARBOUR),
-        "What is the plan for the harbour today?",
-    );
-    assert!(
-        !shared.is_empty(),
-        "the shared channel's turn reached the model"
-    );
-    for q in &shared {
-        assert!(
-            !holds(q, PRIVATE),
-            "a request in the shared channel holds the owner's DM ({})",
-            r.strategies()
-        );
-    }
-    eprintln!("view proof shared place: {}", r.strategies());
 }

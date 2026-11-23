@@ -78,10 +78,20 @@ impl Provider for Switch {
         req: &'a ProviderRequest,
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
+        // Only the first message's own blocks: the harness's blocks beside it (what was said
+        // elsewhere lately) can quote another place's task, and a task found there took that
+        // place's turn (issue 44).
         let first = req
             .messages
             .first()
-            .map(Value::to_string)
+            .map(|m| match m["content"].as_array() {
+                Some(blocks) => blocks
+                    .iter()
+                    .filter(|b| !theseus_core::task_graph::view::is_view(b))
+                    .map(Value::to_string)
+                    .collect::<String>(),
+                None => m.to_string(),
+            })
             .unwrap_or_default();
         let kid = self.kids.iter().position(|(m, _)| first.contains(m));
         let p = kid.map_or(&self.parent, |k| &self.kids[k].1);

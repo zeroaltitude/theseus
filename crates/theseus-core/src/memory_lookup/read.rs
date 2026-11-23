@@ -40,16 +40,23 @@ pub(super) async fn session(
     let id = some(&a.session).unwrap_or_default().to_string();
     let c = core.clone();
     let sid = id.clone();
-    let nodes = tokio::task::spawn_blocking(move || c.store.session_nodes(&sid))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("session {id} could not be read: {e:#}"))?;
+    // Each imported node by its newest record (`import::shown`): an erased one is its tombstone, never the
+    // payload its earlier record still holds in the store (review G-R1).
+    let nodes = tokio::task::spawn_blocking(move || {
+        let nodes = c.store.session_nodes(&sid)?;
+        crate::import::shown(&c.store, nodes)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("session {id} could not be read: {e:#}"))?;
     if nodes.is_empty() {
         return Err(format!(
             "no session is named {id}: give a session id an earlier answer named (ses_…)"
         ));
     }
     let (source, sensitivity, span, summary) = labels_of(core, &id, &nodes).await?;
+    // An erased episode's summary is erased with it.
+    let summary = summary.filter(|_| !super::erased(core, &id));
     let (messages, left) = readable(&nodes, when);
     let total = messages.len() as u64;
     let mut text =

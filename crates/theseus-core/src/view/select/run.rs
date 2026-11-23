@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use super::super::budget::{fit, unit_of, Budget, Overflow, View};
 use super::super::gate::{Admitted, Gate};
 use super::super::{
-    Audience, Author, Form, Handle, Marks, Piece, PointOfView, Pos, Reason, Sizes, SourceRange,
-    Space,
+    Audience, Author, Form, Handle, Marks, Piece, PointOfView, Pos, Reason, Sizes, Slot,
+    SourceRange, Space,
 };
 use super::beside::Beside;
 use super::elsewhere::Elsewhere;
@@ -158,6 +158,15 @@ pub fn assemble_counted(
     let mut denied_units = BTreeSet::new();
     let mut faults = 0u32;
     for s in selectors {
+        // A self-loop session's turn lays its own place only (a scope of the self loop, `Gate::own_place_only`):
+        // nothing waiting (C), no past (E), nothing elsewhere (F).
+        let scoped_out = matches!(
+            s.band().row().slot,
+            Slot::Waiting | Slot::Past | Slot::Elsewhere
+        );
+        if gate.own_place_only() && scoped_out {
+            continue;
+        }
         let laid_by_code = matches!(s.band(), Band::Frame | Band::Now);
         for piece in s.select(pov, snap)? {
             if let Space::Code { part } = &piece.range.space {

@@ -47,7 +47,8 @@ same cut, each by its own lane. What a person does differently: nothing to set, 
 room for (`turn/view_step/room.rs`): it clears the turn's old tool results to their stand-ins, then lowers slot G's
 allowance to none, each a new chain, under the provider's stated window once it refused a request for its size;
 only when the floor and the turn's own nodes still do not fit does the turn fail, before anything is sent, on the
-core overage (`context_overage`). A turn no person's message, wake or report opened (a background job ended, a call
+core overage (class `context_window`, the window's; a provider that refused a request for its size gets the
+smallest smaller request first: the floor, then the bare floor of the turn's message and the fixed blocks). A turn no person's message, wake or report opened (a background job ended, a call
 it waited on was answered, it resumes after a restart or a failed attempt) is assembled with an empty message and
 one line beside it saying what woke it; its presence is that of the turn it continues, read as a set-up's. A
 turn's place is read once, where its message arrived or else where its reply is delivered (a wake's or a report's
@@ -264,6 +265,8 @@ Properties that hold for all of it.
 
 ## 4. The point of view, and the gate
 
+*Superseded on 2026-11-22: anything goes. Every turn's point of view is the widest (the owner alone, in a private place, at its own anchor), whoever is present; nothing is held by presence, a seal, a veil or a move. The place's class still decides tools and publishing. What follows is the design as it was.*
+
 A point of view is computed once at the start of a turn, from one snapshot of the store, and recorded on the view:
 
 `{anchor: a place or a task · person · present · at hand · now}`
@@ -455,7 +458,7 @@ is kept out of the window and out of the turn's own nodes. No turn is handed to 
    fit, gives its handle, and asks for a narrower question or a deep look. Every such case is recorded.
 
 **As built**, rule 9 is not this: a floor too large for the view's budget fails the turn before any call, on the
-core overage (`context_overage`, recorded on the ledger), and no note is laid in the view.
+core overage (class `context_window`; `context.overage` on the ledger), and no note is laid in the view.
 
 **Forms.** A piece is shown *whole* (as it was said, with its tool traffic), *spoken* (his words and the reply's
 text; tool traffic as one-line stubs), or as a *line* (`he asked → Theseus did`, his ask verbatim). Every piece,
@@ -860,6 +863,8 @@ slot F is built, the search is not, and the sizes are unmeasured. In (c), the ca
 
 ## 9. What becomes of threads, sessions and places; what stays a wall
 
+*Superseded on 2026-11-22: threads are not containers. No message is sent to a thread's own session; `theseus thread list` and `thread show` read the stored records, and every other thread command is gone. What follows is the design as it was.*
+
 - **A place** is an address, an audience and a timeline. It holds no conversation of its own.
 - **A session** is one run: the execution and the provider's chain of one point of view. Two places run at
   once without conflict; a task has its own.
@@ -888,25 +893,16 @@ kept in the transcript for ever and the 64,000-token cap that pauses recall; con
 memory mechanism (it stays for tasks and as the window's guard); the judge fields nobody reads, once something
 reads them or replaces them.
 
-**As built**, part of this went early, everywhere and not only in a place set to the view, by the trims of
-2026-11-21. **Nothing is routed by a guess**: a message goes to a thread only by its address (a `#slug`, `/t slug`,
-"in the <title> thread:", a place one thread alone lists, or a reply to a thread's reply), and everything else runs
-at home at once. The router's scoring went with it (so it is no input to "at hand", which is not computed), and so
-did the fusion with the judge's `thread` pick (the question is still asked on the same request, and nothing reads
-it), the router's questions to him, the learned thread corrections, the misroute guard, and the home claim's
-writer (`thread.unclaim` stays for claims already stored). The thread importer is deleted; the session import is
-not. Kept as built: thread records and their commands, sealed threads and their wall, an addressed thread's own
-session, the place tail, and `thread.move`, the owner's own act, which now teaches nothing. In a place set to the
-view, an exchange of a sealed thread is not in the window.
-
-Since then (`docs/design/threads.md`): **a failed explicit address is refused first**, and runs nowhere: a `/t`
-naming no thread, or an address to a paused or done thread the reader may be told of, ends the submission with one
-line saying why; nothing starts and nothing is written. Then the place and the words; only then the replied-to turn.
-**A thread the reader may not be told of is no thread in every form**: `/t` gets the "no thread" line, and a
-hashtag, prose or a reply runs at home. An **active** thread, sealed or not, stays addressable by name and by reply.
-**A reply finds its thread after a restart** from the turn's stored `thread.routed` row, within stated bounds (the
-newest 4,096 such rows; Discord's own newest 5,000 sent-message rows), and goes to the thread the turn ran in, not
-to one a split moved it to since. The retired importer's spend still counts toward the day's ceiling.
+**As built, since 2026-11-22** (the owner's decision: anything goes; the view is the only way a request is
+built). Threads are not containers: there is no thread-based routing (no message is sent to a thread's session by its
+address; an old session can still be opened by its ordinary session id), and `thread.move` is refused ("thread.move is gone"). A seal is no wall: nothing is withheld from a request because of
+who is present, where it is, a seal, a move or a veil (the gate reads only whether a piece's place is known), and
+the seal methods are refused; old seal and move records still decode. Thread records stay as things
+(`thread list`, `thread show`). What went on 2026-11-21 stays gone: the router's scoring and its questions, the
+fusion with the judge's `thread` pick, the learned corrections, the misroute guard, the home claim
+(`thread.unclaim` is refused; old claim records and their types stay readable) and the thread importer (the session import stays; its spend
+still counts toward the day's ceiling). The paragraphs that described thread addressing, sealed threads' own
+sessions and replies finding their thread after a restart (`docs/design/threads.md`) record what was.
 
 ## 10. How it is measured before it is trusted
 

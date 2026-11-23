@@ -23,8 +23,8 @@ use crate::turn::{Target, TurnRunner, ASSEMBLY, PERSONA};
 pub struct Built {
     /// The header's parts, named: what `system_blocks` joins.
     pub header: Vec<(&'static str, String)>,
-    /// The context files, each its section (a shared place's withheld ones
-    /// their header and why).
+    /// The context files, each its section (whole in every place since
+    /// 2026-11-22).
     pub files: Vec<ContextFile>,
     /// The guidance's sections, in order: the preamble (no guidance of its
     /// own), then each category's, with what the manifest records of it.

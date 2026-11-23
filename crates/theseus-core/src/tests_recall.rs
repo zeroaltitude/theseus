@@ -308,7 +308,9 @@ async fn shadow_writes_no_frame_and_changes_no_request_byte() {
         let notes = session(c, None, &["the heron nests by the weir"]);
         let here = session(c, None, &[]);
         c.runner.memory.set_ask(index_of(c, vec![notes]));
-        turn(c, &here, "warm up").await;
+        // A warm-up with substance: the measured turn re-titles nothing, so it is a plain turn (a re-titling
+        // turn writes one frame more, once per conversation: `tests_m3::the_turn_that_re_titles…`).
+        turn(c, &here, "warm up the heron notes").await;
         let before = c.store.stats().unwrap().frames_appended;
         let res = turn(c, &here, "where does the heron nest?").await;
         let frames = c.store.stats().unwrap().frames_appended - before;

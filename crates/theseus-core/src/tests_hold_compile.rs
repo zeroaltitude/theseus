@@ -202,7 +202,7 @@ async fn a_compile_failure_in_a_private_place_still_fails() {
         .await
         .expect_err("past the window alone");
     let te = err.downcast_ref::<TurnError>().unwrap();
-    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
+    assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     assert!(r.claude.requests().is_empty());
     assert!(said(&r.core, &sid).is_empty());
     // The verdict warns, so the owner is told, but nothing is held.
@@ -310,7 +310,7 @@ async fn a_steered_turn_in_a_private_place_waits_for_no_verdict() {
         .await
         .expect_err("past the window alone");
     let te = err.downcast_ref::<TurnError>().unwrap();
-    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
+    assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     // The route row is the positive count beside the empty one below: the
     // turn did route, on the steer, and read no verdict. An empty
     // `privacy.warned` on its own would be met by a turn that never ran.

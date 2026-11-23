@@ -53,4 +53,11 @@ impl Admitted<Piece> {
 pub trait Gate {
     /// `None` denies.
     fn admit(&self, pov: &PointOfView, piece: Piece) -> Option<Admitted<Piece>>;
+
+    /// Whether the turn lays its own place only: a turn of a session the self loop opened
+    /// (`view_gate::Verified::own_place_only`). A SCOPE of the self loop, not a withholding rule: its
+    /// selectors lay no slot C, E or F, and its gate admits only its own session's exchanges at its anchor.
+    fn own_place_only(&self) -> bool {
+        false
+    }
 }

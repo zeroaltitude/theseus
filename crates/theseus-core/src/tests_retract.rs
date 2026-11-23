@@ -306,6 +306,124 @@ async fn a_retraction_finds_every_exposure_and_sorts_each_right() {
     );
 }
 
+/// A fact said in a view turn is in the retraction's spread (issue 44): the turn's own calls laid it, so
+/// `node.reach` names its compilation and session, never "nowhere", and the retraction finds the session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fact_a_view_turn_was_sent_is_in_the_spread() {
+    let r = rig();
+    let c = &r.core;
+    let src = session(c, None, &[]);
+    turn(c, &src, FACT).await;
+    assert!(
+        in_last_request(&r, "port 7714") >= 1,
+        "the turn sent the fact"
+    );
+    let x = (c.store.session_nodes(&src).unwrap().into_iter())
+        .find(|(_, n)| matches!(&n.body, Body::UserMessage { text, .. } if text == FACT))
+        .expect("the turn's message")
+        .1
+        .id;
+    let reach = crate::reach::reach(&c.store, &x, None).unwrap().unwrap();
+    assert!(reach.direct.loops >= 1, "{reach:?}");
+    assert!(
+        (reach.direct.compilations.iter()).any(|k| k.session_id == src),
+        "{reach:?}"
+    );
+    let out = retract(c, &x).unwrap();
+    assert!(
+        out.exposures.iter().any(|e| e.session_id == src),
+        "{out:#?}"
+    );
+}
+
+/// A recalled fact is where the asking turn sent it (issue 44): the request held it, and reach and the
+/// retraction name the asking session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recalled_fact_is_where_the_asking_turn_sent_it() {
+    let r = rig();
+    let c = &r.core;
+    let (_, x) = plant(c);
+    let a = asker(c, "What port does the Kestrel relay use?").await;
+    assert!(
+        in_last_request(&r, "port 7714") >= 1,
+        "the recalled fact was sent"
+    );
+    let reach = crate::reach::reach(&c.store, &x, None).unwrap().unwrap();
+    let laid = (reach.direct.compilations.iter()).any(|k| k.session_id == a)
+        || (reach.descendants.iter()).any(|d| d.session_id == a && d.exposure.loops >= 1);
+    assert!(laid, "{reach:?}");
+    let out = retract(c, &x).unwrap();
+    assert!(out.exposures.iter().any(|e| e.session_id == a), "{out:#?}");
+}
+
+/// A fact one session said is laid by another session's turn at the same place with no copy to follow
+/// (the place's window, issue 44): reach names that session's compilation, and the retraction finds it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fact_laid_by_another_sessions_window_is_in_the_spread() {
+    let r = rig();
+    let c = &r.core;
+    bind(c);
+    let one = session(c, Some(DM), &[]);
+    turn(c, &one, FACT).await;
+    let x = (c.store.session_nodes(&one).unwrap().into_iter())
+        .find(|(_, n)| matches!(&n.body, Body::UserMessage { text, .. } if text == FACT))
+        .expect("the turn's message")
+        .1
+        .id;
+    let two = session(c, Some(DM), &[]);
+    turn(c, &two, "And what else?").await;
+    assert!(
+        in_last_request(&r, "port 7714") >= 1,
+        "the other session's request held the fact"
+    );
+    let reach = crate::reach::reach(&c.store, &x, None).unwrap().unwrap();
+    assert!(reach.descendants.is_empty(), "no copy: {reach:?}");
+    assert!(
+        (reach.direct.compilations.iter()).any(|k| k.session_id == two),
+        "{reach:?}"
+    );
+    assert_eq!(reach.totals.sessions, 2, "{reach:?}");
+    let out = retract(c, &x).unwrap();
+    assert!(
+        out.exposures.iter().any(|e| e.session_id == two),
+        "{out:#?}"
+    );
+}
+
+/// A copy's consumer with no further edge is in the spread (issue 44): a fact's copy said in one session
+/// is laid by another session's window at the same place, and the retraction finds that session too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_copys_consumer_with_no_further_edge_is_in_the_spread() {
+    let r = rig();
+    let c = &r.core;
+    bind(c);
+    let (_, x) = plant(c);
+    let two = session(c, Some(DM), &[]);
+    turn(c, &two, "The relay listens on port 7714, the note says.").await;
+    let y = (c.store.session_nodes(&two).unwrap().into_iter())
+        .find(|(_, n)| matches!(n.body, Body::UserMessage { .. }))
+        .expect("the copy")
+        .1
+        .id;
+    let e = Edge::new(EdgeKind::DerivedFrom, &y, &x, crate::graph::VIA_REPORT);
+    c.store.append(&[e.record().unwrap()]).unwrap();
+    let three = session(c, Some(DM), &[]);
+    turn(c, &three, "And what else?").await;
+    let reach = crate::reach::reach(&c.store, &x, None).unwrap().unwrap();
+    let d = (reach.descendants.iter())
+        .find(|d| d.node_id == y)
+        .expect("the copy is a descendant");
+    assert!(
+        (d.exposure.compilations.iter()).any(|k| k.session_id == three),
+        "{reach:?}"
+    );
+    let out = retract(c, &x).unwrap();
+    assert!(
+        out.exposures.iter().any(|e| e.session_id == three),
+        "{out:#?}"
+    );
+}
+
 /// The live session's next turn carries the correction once; a session that
 /// only saw the fact, and a task, get none.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -337,7 +455,17 @@ async fn the_live_sessions_next_turn_carries_the_note_once() {
     assert_eq!(noted[0].data["node_id"], x);
 
     turn(c, &s, "And its log path?").await;
-    assert_eq!(in_last_request(&r, "Correction:"), 0);
+    // Anything goes (2026-11-22): nothing is withheld by place, so s's request lays a's exchange, the
+    // correction note in it, once. The note is still a's alone: none is written for s.
+    assert_eq!(in_last_request(&r, "Correction:"), 1);
+    let s_noted = rows(c, LedgerKind::FactCorrected)
+        .into_iter()
+        .filter(|r| r.session_id.as_deref() == Some(s.as_str()))
+        .count();
+    assert_eq!(
+        s_noted, 0,
+        "a session that only saw the fact gets no correction note"
+    );
 }
 
 /// A second retraction writes nothing and answers the first one's table.

@@ -15,6 +15,7 @@ import type { OpsRow } from './board'
 import { bucketGlyph, bucketOfNode, bucketTone, FADED, FILTERED_OUT, isEndedState, look } from './state'
 import { masked, NODE_W, shownTitle, type GLane, type GNode } from './graph'
 import { STEP_WORDS, toneVar, type Badge, type Progress } from './forms'
+import { PlanLine } from './planLine'
 import { PlanBar } from './BoardLens'
 
 export interface NodeData extends Record<string, unknown> {
@@ -145,6 +146,7 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
         {d.onFoldBack && <button type="button" onClick={(e) => { e.stopPropagation(); d.onFoldBack?.() }} className="nodrag rounded px-1 text-[10px] text-ink-dim ring-1 ring-line hover:text-ink" title="fold its subtree again">fold</button>}
       </div>
       <div className={cn('mt-1 line-clamp-2 leading-snug text-ink', conv ? 'font-display text-[13px] font-bold tracking-[0.02em]' : 'text-[12px] font-medium')} title={title}>{title}</div>
+      <PlanLine kind={n.kind} progress={f?.progress} />
       {line && !f?.badge && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={line}>{line}</div>}
       {f?.badge ? <BadgeStrip b={f.badge} hide={!!d.redact && locked(n.data)} redact={d.redact} /> : <Spend d={d} />}
       {n.needs && <div className="num mt-1.5 rounded bg-wait/10 px-1.5 py-0.5 text-[10px] text-wait ring-1 ring-wait/30">needs you · {keysOf(d)}</div>}

@@ -11,6 +11,8 @@
 //! - **Labels, not veils**: a hit carries its sensitivity (`personal`,
 //!   `partner-confidential`, or labels unread) beside its text; `veiled` is
 //!   always false.
+//! - **The vault's values are substituted** in every reply's strings (`Exits::text`), as a provider
+//!   request's are: no provider call is on this path to do it.
 //! - **Citations**: the node's id, its WAL position, its session and its
 //!   as-of minute in the daemon's zone. A client quotes them back.
 
@@ -73,6 +75,78 @@ pub(crate) async fn search(
     core: &Arc<Core>,
     p: &MemoryLookupParams,
 ) -> Result<MemoryLookupResult, String> {
+    searched(core, p)
+        .await
+        .map(|r| substituted(core, r))
+        .map_err(|e| said(core, &e))
+}
+
+/// An error's words with the vault's values substituted (review G-R2 r2): an error may echo what was asked
+/// or what the index said.
+pub(crate) fn said(core: &Core, e: &str) -> String {
+    core.exits.text(e).0.into_owned()
+}
+
+/// The reply with the vault's values substituted in every string a client reads (review G-R2): no provider
+/// call is on this path, so the exits' own substitution (`Exits::text`, under the owner's `redact_outbound`)
+/// runs here. Citations, paging and the stored text are as they were.
+///
+/// Every field is named (no `..`), so a field added to the reply does not compile until it is classified
+/// here: substituted (prose), or left as it is (an id, a position, a count, a cursor, a generated word).
+fn substituted(core: &Core, r: MemoryLookupResult) -> MemoryLookupResult {
+    let sub = |s: String| core.exits.text(&s).0.into_owned();
+    let MemoryLookupResult {
+        hits,
+        total,
+        next,
+        left_out,
+    } = r;
+    let hits = hits
+        .into_iter()
+        .map(|h| {
+            let MemoryHit {
+                citation,
+                origin,
+                harness,
+                sensitivity,
+                veiled,
+                book,
+                text,
+                target,
+            } = h;
+            // The citation is ids, a position and a generated time; `origin` a generated word.
+            let MemoryCitation {
+                node_id,
+                position,
+                session_id,
+                as_of,
+            } = citation;
+            MemoryHit {
+                citation: MemoryCitation {
+                    node_id,
+                    position,
+                    session_id,
+                    as_of,
+                },
+                origin,
+                harness: sub(harness),
+                sensitivity: sensitivity.map(sub),
+                veiled,
+                book: book.map(sub),
+                text: sub(text),
+                target,
+            }
+        })
+        .collect();
+    MemoryLookupResult {
+        hits,
+        total,
+        next,
+        left_out: left_out.map(sub),
+    }
+}
+
+async fn searched(core: &Arc<Core>, p: &MemoryLookupParams) -> Result<MemoryLookupResult, String> {
     let Some(words) = some(&p.words) else {
         return Err("memory_search needs words: what to find, as you would say it".into());
     };
@@ -90,7 +164,8 @@ pub(crate) async fn search(
     // The most the index is asked, whatever the page: a total that moved
     // with the page's size would break a cursor.
     let k = 100;
-    let (_, items, total) = by_words(core, None, words.to_string(), &a, when.as_ref(), k).await?;
+    let (_, items, total, incomplete) =
+        by_words(core, None, words.to_string(), &a, when.as_ref(), k).await?;
     let cut = MESSAGE_MAX as usize * 4;
     let mut hits = Vec::new();
     let mut used = 0u64;
@@ -108,7 +183,8 @@ pub(crate) async fn search(
         next: (next < total).then_some(next),
         total,
         hits,
-        left_out: None,
+        // Stale hits filled what was read, or a hit could not be read: the search is not called whole.
+        left_out: incomplete.map(|why| format!("the search was incomplete: {why}")),
     })
 }
 
@@ -179,11 +255,13 @@ pub(crate) async fn get(
     core: &Arc<Core>,
     p: &MemoryLookupParams,
 ) -> Result<MemoryLookupResult, String> {
-    match (some(&p.id), some(&p.session)) {
+    let read = match (some(&p.id), some(&p.session)) {
         (Some(id), None) => by_id(core, id, p).await,
         (None, Some(session)) => by_session(core, session, p).await,
         _ => Err("memory_get takes an id (a citation's node_id) or a session, not both".into()),
-    }
+    };
+    read.map(|r| substituted(core, r))
+        .map_err(|e| said(core, &e))
 }
 
 async fn by_id(

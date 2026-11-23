@@ -2,8 +2,9 @@
 //! stand-in model, over the invented archive in
 //! `crates/theseus-core/tests/fixtures/card/archive.jsonl`: the dry run says
 //! what a run would read and asks nothing; a run proposes three questions
-//! from the labelled evidence and the model is sent no partner-confidential
-//! line and no outside text; two are kept (one edited) and become standing
+//! from the labelled evidence (a partner-confidential episode is evidence as
+//! any other since 2026-11-22) and the model is sent no outside text and no
+//! chat that is not evidence; two are kept (one edited) and become standing
 //! records whose source is the proposal; one is declined; a second run
 //! proposes nothing new and makes no call. Every name here is invented.
 
@@ -44,7 +45,8 @@ struct Rig {
 }
 
 /// What the stand-in model states for a request: K1 (the owner's opinion
-/// cluster), K2 (the gate) and K3 (one line of a gate note).
+/// cluster), K2 (the gate) and K4 (one line of a gate note; K3 is the
+/// partner-confidential episode's cluster, evidence since 2026-11-22).
 fn cards(_prompt: &str) -> Vec<(&'static str, Value)> {
     let card = |k: &str, text: &str, kind: &str, e: &str| json!({"cluster": k, "text": text, "kind": kind, "scope": "everywhere", "episodes": [e]});
     vec![(
@@ -52,7 +54,7 @@ fn cards(_prompt: &str) -> Vec<(&'static str, Value)> {
         json!({"cards": [
             card("K1", "wants your opinion when you have one", "preference", "E1"),
             card("K2", "wants the gate green before any commit", "preference", "E4"),
-            card("K3", "reruns the gate after a rebase", "preference", "E5"),
+            card("K4", "reruns the gate after a rebase", "preference", "E5"),
         ]}),
     )]
 }
@@ -155,7 +157,7 @@ fn a_dry_run_asks_nothing(r: &Rig) {
     assert_eq!(code, 0, "{out}\n{err}");
     assert!(
         out.contains(
-            "Read 6 evidence episodes (1 partner-confidential left unread): 5 clusters, 5 new."
+            "Read 7 evidence episodes (0 partner-confidential left unread): 6 clusters, 6 new."
         ),
         "{out}"
     );
@@ -177,13 +179,8 @@ fn the_run_proposes_three(r: &Rig) -> Vec<String> {
         "{out}"
     );
     let sent: Vec<String> = r.model.requests().iter().map(|v| v.to_string()).collect();
-    assert_eq!(sent.len(), 1, "one call for the five clusters");
-    for leak in [
-        "KESTREL",
-        "kestrel",
-        "ALWAYS-ANSWER-IN-BANANAS",
-        "pineapple",
-    ] {
+    assert_eq!(sent.len(), 1, "one call for the six clusters");
+    for leak in ["ALWAYS-ANSWER-IN-BANANAS", "pineapple"] {
         assert!(!sent[0].contains(leak), "{leak} was sent: {}", sent[0]);
     }
     let ids = open_ids(r);

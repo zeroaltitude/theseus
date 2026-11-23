@@ -139,13 +139,11 @@ MARGIN = 0.15  # how far the turns' estimate may be off and a mark still compact
 # the system prompt and tools, at the estimate's upper bound: the ring's
 # last candidate, which past the budget fails the turn as an overage.
 ALONE_MARGIN = 0.10
-# What recall notes may add to a session's request: each turn's note is
-# written into the session and stays in its tail until the next recompile,
-# and `[memory] session_recall_cap_tokens` is the most the tail holds: the
-# driver sets it to this (the daemon's default, 64,000 since theseus-d9je7,
-# would leave no window for the plan). Which turn the index tender comes up at (about twenty turns
-# into a smoke on one machine, fifteen on another) is timing, so the plan
-# reserves the cap. A session's first has nothing to recall until it
+# What recall notes may add to a session's request: the plan's own reserve. The session recall cap the
+# driver once set to it is deleted (2026-11-22): the view lays recall within its shared ceiling for what
+# is not the window, and a note it cannot lay is said by its left-out line. Which turn the index tender
+# comes up at (about twenty turns into a smoke on one machine, fifteen on another) is timing, so the plan
+# reserves this much. A session's first has nothing to recall until it
 # compacts (all it said is in its context), so its turns before the mark
 # reserve none (`recall_for`).
 RECALL_TOKENS = 12000

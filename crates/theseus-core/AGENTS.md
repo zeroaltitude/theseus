@@ -702,45 +702,24 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   section the fresh layer lacks, so no reuse can hold another stream's guidance (`prefix/tests.rs`,
   `a_prefix_carries_only_the_asking_streams_own_sections`); the A1 vs A1n gap was a router decision (a new
   stream's first message held in the sticky thread), so `[prefix] enabled` stays true. Tests:
-  `theseus-memory/src/tests_threads.rs`, `rpc/tests_thread_mix.rs`. **The cross judge** (theseus-98bz.10;
-  `judge/cross.rs`, `turn/cross_step.rs`, `[threads] cross_recall_judge`, on): the `thread_*` drops whose share of the
-  query's best is above `cross_recall_bar` (not sealed, not held), at most `cross_recall_judge_k` (3) best first, go to
-  `recall_cross.v1` in one request the turn waits for at most `route_wait_ms`; a Noul yes at the confirm bar in a
-  judgment that acts admits the note with the penalty, anything else leaves the drop. Its failures move only its own
-  breaker (`cross::BREAKER`, `recall_cross`, theseus-pt7lt; the `judge.circuit` row names it), and while it is open
-  `cross_live` sends nothing and waits for nothing. **The place digest** (theseus-98bz.9; `[threads] place_digest`, on):
-  `classify.v4`'s `scope` question (asked when the place has live threads, or in a thread's own session with
-  `Inbound.in_thread`, which asks it without the list) answered `place` at its act bar gives that turn's request a
-  digest of the place's other live threads (`place_digest_line_chars` a line), and a turn with the digest asks the cross
-  judge nothing (`tests_cross_judge::no_call_when_the_digest_fired`, which also asserts a drop above the bar, so it
-  cannot pass with nothing to guard). Tests: `rpc/tests_cross_judge.rs`. A sealed thread's notes, or one with a seal
-  proposed (`seal_pending`), are dropped as `sealed` for every session but its own, whatever the message names, the
-  rerank and `thread.read`-less lookups included (`memory.lookup`'s words ask with the seal and no distance). The
-  `Recall` item of another thread's note begins its frozen header `[from thread «title», day, @pos]`
-  (`render::thread_mark`). `rpc/thread_seal.rs`: `thread.seal` (+`redirect`: a harness note in each session the
-  notes had crossed into, found from the `derived_from` edges, via `recall`, of `Recall` nodes), `thread.unseal`,
-  `thread.seal_dismiss` ("Not needed": a `thread.seal_dismissed` row, a label for the judge's report, and META
-  `thread.seal_dismissed.<slug>` holding the content digest, so one proposal per thread until its card, goal, title or
-  working set changes), `Core::thread_recommend_seal` (the entry point a later Jev pack calls, row theseus-c1uz: sets
-  `seal_pending`, writes `thread.seal_proposed` and posts a `seal_card` to the owner's DM, Discord's Seal this thread /
-  Not needed), and the owner's own seal, `chat.seal_thread` (a tool) or `/thread seal`.
-  `thread.new { sealed, split_from }`: a split from a sealed thread starts sealed; a task's session is its parent's
-  thread; `threads::merged_seal` is the rule for a merge. `thread_read.rs`: the model tool `thread.read {thread,
-  query?}` (private places; the card and the top hits, cited by thread and position; `gate` raises it to `approve`
-  when the thread is sealed or proposed). Tests: `rpc/tests_thread_recall.rs`, theseus-memory's `tests_threads.rs`.
+  `theseus-memory/src/tests_threads.rs`, `rpc/tests_thread_mix.rs`. **The cross judge and seals: removed 2026-11-22** (anything goes; issue 44). No turn asks
+  `recall_cross.v1` (`turn/cross_step.rs` is gone; `judge/cross.rs` and its pack stay registered until the sweep), and
+  `[threads] cross_recall_bar`, `cross_recall_judge` and `cross_recall_judge_k` are retired keys. A seal keeps nothing out
+  of a request: the gate reads only whether a piece's place is known (`theseus-memory/src/gate.rs`, `check`).
+  `thread.seal`, `.unseal` and `.seal_dismiss` are refused (`rpc/threads.rs`); `rpc/thread_seal.rs` keeps its writers as test fixtures
+  until the sweep, and old `thread.sealed` rows still decode. **The place digest** (theseus-98bz.9; `[threads]
+  place_digest`, `compiler::place_digest`, `turn/digest_step.rs`) is still wired: `classify.v4`'s `scope` answered
+  `place` gives that turn's request a digest of the place's other live threads. Tests: `rpc/tests_place_digest.rs`.
+  `thread_read.rs`: the model tool `thread.read {thread, query?}` is still registered (private places; the card and the
+  top hits, cited by thread and position; `gate` raises it to `approve` when the thread is sealed or proposed). Tests:
+  `rpc/tests_thread_recall.rs`.
 
-- **The thread router** (theseus-rha2; the owner, 2026-11-21: by address only): a message in a place with live threads
-  runs in a thread only by its address (`thread_route::address`, certain, no judge): the place a thread alone lists, an
-  explicit word (`#slug`, `/t slug`, "in the … thread:"), or a reply to a routed turn. Anything else runs at home, at
-  once: no pre-router, no fusion, no wait, no ask, no learned correction, no misroute guard (never a session `theseus ask
-  -s` named: `may_route`, theseus-0rfjx). `rpc/thread_flow.rs` (`route_to_thread`) keeps `thread_flow::State` (the place's
-  last exchange, routed turns, handoffs) for the place tail (`compiler::place_tail`) and `thread.move`. With two or more
-  live threads a home message's inbound point still begins early (`begin_inbound`), so `classify`'s request is
-  unchanged and its `thread` question still asked; nothing reads the answer. `rpc/thread_move.rs`: `/move`, `theseus
-  thread move` or `chat.move_to_thread` writes a redirect note, re-submits once, and learns nothing. Tests:
-  `rpc/tests_thread_route.rs` (and `tail.rs`), `thread_route::tests`.
-  **A thread's working set grows from its turns** (theseus-98bz.5; `thread_grow.rs`, `rpc/thread_grow.rs`, `[threads] working_set_grows`): after a turn in a thread (`routing.slug`, else `Board::of_session`), one page of the session's nodes after the turn's start gives its calls' paths (relative to the session's directory: the file and its first component as a root) and the message's entities (`thread_grow::extract::working_set`) join the set, but for what another live thread holds; one frame with a `thread.edited` row by the harness, only when the set changed. A list takes nothing past `thread_join::MAX_SET` (64), and nothing is evicted yet. A message's bare file name (`slow.sh`) grows nothing, only a path does (`thread_grow::paths_only`); a message the owner moves takes back what its words grew into the thread it ran in (`thread_ungrow`, from `State::take_grew`), and the thread it moves to grows from the message's resubmitted turn (theseus-iw50k). **A generic folder names no thread** (theseus-2uhsy, the owner's option (b), 2026-11-07): a root that is `notes`, `misc`, `stuff` or any name `generic_folder::is_generic_folder` reads as generic (its `PLACEHOLDERS`, the judge's layout directories `mine::is_layout_dir`, and the router's `GENERIC` words) is not grown into a set (`touched_in`), and one a stored set already holds is read as no name by the router's entity hits and the recall waiver (`thread_recall::named`), so no stored thread needs mending. A new placeholder goes in `generic_folder.rs`; its `every_generic_name_is_refused_by_every_reader` walks every entry through the three readers and names the file to correct. Tests: `rpc/tests_thread_grow.rs`, `thread_grow::tests`, `generic_folder::tests`.
-  **The bench's clock** (theseus-98bz.3; `[threads] bench_clock`, false, a test hook): a `turn.submit` carrying `route_at_ms` (`TurnSubmitParams.route_at_ms`) is placed at that clock, `ask -s` included, and refused when the key is off; the threadbench sends each message's plan time. Tests: `rpc/tests_thread_bench.rs`.
+- **The thread router, moves, working-set growth and the bench's clock: removed 2026-11-22** (threads are not
+  containers). There is no thread-based routing: no message is sent to a thread's session by its address (an old
+  session can still be opened by its ordinary session id); `thread_route.rs`, `rpc/thread_flow.rs`,
+  `rpc/thread_move.rs` and `thread_grow.rs` are gone with their tests, and `[threads] working_set_grows` and
+  `bench_clock` are retired keys. `/move` and `chat.move_to_thread` move nothing (`chat_move_to_thread` survives only as
+  a name the deferral step knows, `turn/defer_step.rs`).
 - **Threads kept warm** (theseus-ytt8, T9; `keep_warm_threads.rs`): removed 2026-11-22. No thread is kept warm
   between turns: the view builds each turn's request afresh, and the only keep-warm read left runs during a job wait
   (`keep_warm_wait`). `[threads] keep_warm_hours` and `[cache] threads_keep_warm_hours` are retired keys (a file naming
@@ -2426,9 +2405,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   turn's next frame, and a `Citation` in the result's `cites` (the reply's post carries it in its footer's `result`).
   `TurnRunner::citation` builds one: the frozen header, the source's excerpt over the range recall showed (600
   characters), and, for a person's Discord message, where it was said: the turn's `reply_to` rides in the input's
-  own frame as the META record `msg.origin.<node id>` (no store format change; no row of its own). **A shared place
-  never cites a private or imported source**: `citation(item, shared)` returns none for one, and a shared session's
-  `memory.cites` and `session.history` leave it out; the handle stays text. `memory.cites` (`rpc/cites.rs`) resolves
+  own frame as the META record `msg.origin.<node id>` (no store format change; no row of its own). **A citation is
+  shown wherever its item is** (anything goes, 2026-11-22): `citation(item)` keeps no place's source out. `memory.cites` (`rpc/cites.rs`) resolves
   handles in a session's own `Recall` nodes, newest first; `session.history`'s `cites` does the same for the
   replies on its page. Citations only show: no Jev call, no frame, no ping. Tests: `tests_cite.rs`.
 - **The import** (theseus-0lrr.6, the soul migration): `import/`. An outside pipeline's episode files (JSON Lines,

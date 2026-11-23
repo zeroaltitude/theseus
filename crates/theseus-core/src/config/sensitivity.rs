@@ -108,7 +108,7 @@ pub const ORDINARY_KEYS: &[&str] = &[
     // Counts and sizes.
     "discord.task_channel_cap",
     "memory.recall_floor",
-    "memory.session_recall_cap_tokens",
+    "threads.base_distance",
     // The memory feature's switch between its modes: no folder, secret or spend.
     "memory.mode",
 ];

@@ -4,7 +4,7 @@
 //! pressure (the machine quiet before each replay), and under
 //! `[route_bench] replay_day_usd`: the day's spend is read back from the rows, and
 //! a replay whose reservation would pass what is left is not made (the check
-//! is before the call, never after). Never a shared place's turn.
+//! is before the call, never after). A shared place's turn is sampled too.
 
 use crate::sweep_notice::SweepId;
 use std::collections::{BTreeMap, HashSet};
@@ -177,10 +177,6 @@ impl Core {
                 continue;
             };
             for c in turns {
-                if self.runner.class_of(&c.session) == crate::places::PlaceClass::Shared {
-                    skip(&mut out, "shared_place");
-                    continue;
-                }
                 // A replay costs something: at the cap, the next one is the stop.
                 self.runner
                     .sweep_heads_up(SweepId::RouteBench, cap, spent, 1);

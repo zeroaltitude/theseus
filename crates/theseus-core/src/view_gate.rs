@@ -1,8 +1,8 @@
 //! The gate (issue 44; the design note is `docs/design/view-gate.md`). Anything goes (2026-11-22): nothing
 //! is withheld from a model request because of who is present, where it is, a seal, a move or a veil. What
 //! is left here is the rule's one caller ([`Gate::check`]), the seal and move readers' pass-throughs until
-//! their callers go, recall's places (every turn reads every place, [`RecallPlaces`]), and each turn's point
-//! of view ([`Verified`]): the widest, at its own anchor.
+//! their callers go, and each turn's point of view ([`Verified`]): the widest, at its own anchor. Recall reads
+//! every place for every turn; nothing here narrows it.
 //!
 //! The one reading of who is present that stays is authority, not privacy: whether the owner typed a
 //! message in person at a surface he can be alone at, which a task's objective change requires. It lives
@@ -14,7 +14,6 @@ use theseus_memory::recall::Place;
 
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::threads::Board;
 use crate::turn::TurnRunner;
 
 /// What the gate names an imported session's place: the owner's own history,
@@ -95,16 +94,6 @@ pub fn place_name(runner: &TurnRunner, session: &str) -> Option<String> {
     Some(crate::exchange::place_of(None, dir.as_deref()))
 }
 
-/// Whether a reader in `asker` may be told of thread `slug` (its name, its
-/// state, that it exists), decided on `board`, the one snapshot the caller
-/// then words its answer from: only when its seal is proven clear for that
-/// reader. A sealed or seal-pending thread, or one that cannot be read, is
-/// to this reader as if there were no such thread (issue 44).
-pub fn may_name_on(_store: &Store, _board: &Board, _asker: &str, _slug: &str) -> bool {
-    // Anything goes (2026-11-22): no seal holds a thread's name.
-    true
-}
-
 /// A whole session's marks: its place, today's reading of it, no seal (anything goes, 2026-11-22), and
 /// `veil` as its caller read it.
 pub fn session_marks(
@@ -122,66 +111,40 @@ pub fn session_marks(
     }
 }
 
-/// How recall reads places for one asker. Narrowed to one place, the asker
-/// reads as that place and its own sessions as it, and every other session
-/// as it always has, which the place rule then drops for `place`. A channel
-/// bound private is always narrowed to itself (decision 5); so is a turn that
-/// is not the owner alone, to its exact arrival place.
-/// Otherwise places read as before.
-#[derive(Clone, Debug, Default)]
-pub struct RecallPlaces {
-    own: Option<String>,
-    channel: bool,
+/// The standing records, of `(id, source)`, a turn may not be shown: each kept from a message
+/// (`capture:<node>`) whose message is gone or cannot be read (a removed thing is not sent again). A record
+/// from no conversation (the owner's own surfaces) is source-free. Anything goes (2026-11-22): no place,
+/// presence or seal holds one.
+pub fn standing_held<'r>(
+    runner: &TurnRunner,
+    _asker: &str,
+    records: impl Iterator<Item = (&'r str, &'r str)>,
+) -> std::collections::HashSet<String> {
+    records
+        .filter(|(_, source)| {
+            source
+                .strip_prefix("capture:")
+                .is_some_and(|node| !matches!(runner.store.get_node(node), Ok(Some(_))))
+        })
+        .map(|(id, _)| id.to_string())
+        .collect()
 }
 
-impl RecallPlaces {
-    /// The places recall reads for a turn of `asker`: every place (anything goes, 2026-11-22).
-    pub fn of(_runner: &TurnRunner, _asker: Option<&str>) -> Self {
-        Self::default()
-    }
-
-    /// The channel bound private the asker speaks in, when it does.
-    pub fn channel(&self) -> Option<&str> {
-        self.own.as_deref().filter(|_| self.channel)
-    }
-
-    /// The one place the asker draws on, when it is narrowed.
-    pub fn narrowed(&self) -> Option<&str> {
-        self.own.as_deref()
-    }
-
-    /// The asker's own place, read as recall reads it: the widest, so that it draws on every place
-    /// (anything goes, 2026-11-22).
-    pub fn asker(&self, _today: Place) -> Place {
-        Place::Private
-    }
-
-    /// `session`'s place, read as recall reads it for this asker.
-    pub fn of_session(&self, runner: &TurnRunner, session: &str) -> Place {
-        let today = runner.place_of(session);
-        match &self.own {
-            Some(own)
-                if today == Place::Private
-                    && place_name(runner, session).as_deref() == Some(own) =>
-            {
-                Place::Shared(own.clone())
-            }
-            _ => today,
-        }
-    }
-
-    /// Whether a reader in this asker may read `session` whole: any session
-    /// unless the asker is narrowed, when only its own place's.
-    pub fn may_read(&self, _runner: &TurnRunner, _session: &str) -> bool {
-        true
-    }
-}
-
-/// The verified point of view of one turn, for the view's gate: made here
-/// alone, from the turn's presence and today's reading of its place, never
-/// from what a caller says of itself.
+/// The point of view of one turn, for the view's gate: made here alone, the widest at the turn's own
+/// place ([`widest`]), never from what a caller says of itself; and whether the turn is a session the self
+/// loop opened, which lays its own place only ([`Verified::own_place_only`]).
 #[derive(Clone, Debug)]
-pub struct Verified(PointOfView);
+pub struct Verified(PointOfView, Scope);
+
+/// What a turn's view may lay: the widest, or (a session the self loop opened) its own place only; or the
+/// session's execution could not be read, so that cannot be decided, and the view is not assembled
+/// ([`Verified::scope_unread`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    Wide,
+    OwnPlace,
+    Unread,
+}
 
 impl Verified {
     /// The turn of `session`'s, read outside the turn: [`Self::of_turn`] at the session's own place.
@@ -199,19 +162,19 @@ impl Verified {
                 .or_else(|| place_name(runner, session))
                 .unwrap_or_else(|| "unknown".into()),
         };
-        Verified(widest(anchor))
+        Verified(widest(anchor), scope_of(runner, session))
     }
 
     /// The point of view a next turn in `session` at `place` would get, for a preview of its view (no turn
     /// runs): the widest, at `place`.
-    pub fn of_preview(_runner: &TurnRunner, _session: &str, place: &str) -> Self {
-        Verified(widest(place.into()))
+    pub fn of_preview(runner: &TurnRunner, session: &str, place: &str) -> Self {
+        Verified(widest(place.into()), scope_of(runner, session))
     }
 
     /// [`Self::of_preview`] for a session that does not exist yet, at `place` (a census of a fresh session's
     /// first request): the widest, at `place` (anything goes, 2026-11-22).
     pub fn of_fresh(_today: Place, place: &str) -> Self {
-        Verified(widest(place.into()))
+        Verified(widest(place.into()), Scope::Wide)
     }
 
     /// The point of view a next turn of the task whose session is `session` would get, for a census of it (no
@@ -220,20 +183,83 @@ impl Verified {
         // Anything goes (2026-11-22): the widest, at the task's own place.
         let rec: SessionRecord = runner.store.get_session(session).ok()??;
         rec.task?;
-        Some(Verified(widest(crate::task_graph::place::of_session(
-            session,
-        ))))
+        Some(Verified(
+            widest(crate::task_graph::place::of_session(session)),
+            scope_of(runner, session),
+        ))
     }
 
     /// `pov` as given, for the gate's own tests.
     #[cfg(test)]
     pub fn for_tests(pov: PointOfView) -> Self {
-        Verified(pov)
+        Verified(pov, Scope::Wide)
     }
 
     pub fn pov(&self) -> &PointOfView {
         &self.0
     }
+
+    /// Whether the turn is of a session the self loop opened (its execution's principal is `self`: the fixer,
+    /// the reviewer, the approver, the self builder). Such a turn lays ITS OWN PLACE ONLY, as at the base: its
+    /// own session's exchanges there, its opening and what it is handed; no other session's exchange, no card,
+    /// nothing waiting, elsewhere, past or recalled (`view::permit::Permit::scoped`). This is a SCOPE rule of
+    /// the self loop (the reviewer's and the approver's independence from the fixer's words and everyone
+    /// else's, and the cost of a worker's request), not a withholding rule: it reads no presence, mark, seal
+    /// or move. An ordinary task, one a person's turn started, is read at the widest point of view.
+    pub fn own_place_only(&self) -> bool {
+        self.1 == Scope::OwnPlace
+    }
+
+    /// Whether the session's execution could not be read, so whether it is the self loop's cannot be
+    /// decided: its view is not assembled (a plain failure), never laid at the widest by default.
+    pub fn scope_unread(&self) -> bool {
+        self.1 == Scope::Unread
+    }
+}
+
+/// The scope of `session`'s turns: its own place only when its execution's principal is `self` (the self
+/// loop opened it); the widest for any other principal, and for a session with no execution yet (a fresh or
+/// legacy one, which a turn gives an operator execution before it runs, `turn.rs`). A session record or an
+/// execution that cannot be read is `Unread`: never the widest by default. Read straight from the kernel,
+/// not through `task_graph::principal_of`, whose `operator` default is for act gates.
+fn scope_of(runner: &TurnRunner, session: &str) -> Scope {
+    let Ok(Some(rec)) = runner.store.get_session::<SessionRecord>(session) else {
+        return Scope::Unread;
+    };
+    let Some(exe) = rec.execution_id.as_deref() else {
+        return Scope::Wide;
+    };
+    match runner.kernel.execution(exe) {
+        Ok(Some(e)) if e.authority.principal == crate::rsi::SELF_PRINCIPAL => Scope::OwnPlace,
+        Ok(Some(_)) => Scope::Wide,
+        Ok(None) | Err(_) => Scope::Unread,
+    }
+}
+
+/// How many of a session's newest earlier turns [`own_turns`] looks at: four times a window's
+/// `view::fold::WINDOW_N` (twice the 40 a task's window reads when it has no folds).
+const OWN_TURNS: usize = 4 * crate::ladder::N;
+
+/// The exchanges `session` itself ran at `place` before `turn`, among its newest [`OWN_TURNS`] turns: what a
+/// self-loop turn of it is shown at that place ([`Verified::own_place_only`]). An exchange whose record cannot
+/// be read is not among them.
+pub fn own_turns(store: &Store, session: &str, turn: &str, place: &str) -> Vec<String> {
+    let Ok(nodes) = store.transcript(session) else {
+        return Vec::new();
+    };
+    let mut seen = std::collections::HashSet::new();
+    let turns = (nodes.iter().rev())
+        .filter_map(|(_, n)| n.turn_id.as_deref())
+        .filter(|t| *t != turn && seen.insert(*t))
+        .take(OWN_TURNS)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    (turns.into_iter())
+        .filter(|t| match crate::exchange::exchange(store, t) {
+            Ok(Some(e)) => e.session_id == session && e.place == place,
+            _ => false,
+        })
+        .collect()
 }
 
 /// Whether `session` is a worker's: a task's session, or one the self loop opened (its execution's principal

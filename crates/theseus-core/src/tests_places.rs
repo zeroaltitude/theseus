@@ -453,6 +453,10 @@ async fn a_shared_place_is_offered_and_allowed_only_the_public_tools() {
     let system = system_text(&reqs[0]);
     assert!(system.contains("This place is shared"), "{system}");
     assert!(system.contains(OPEN), "the public context file: {system}");
+    assert!(
+        system.contains(SECRET),
+        "the owner's context file, carried whole since 2026-11-22: {system}"
+    );
 
     let program = result_of(&r.core, &shared, "p1");
     assert!(

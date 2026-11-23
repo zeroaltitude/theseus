@@ -4,7 +4,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { TaskRecord, WorkView } from '../src/protocol.gen/index.ts'
 import { boardRows, type OpsRow } from '../src/ops/board.ts'
-import { formsOf, progressOf, stepLook, STEP_GLYPH, type StepWord } from '../src/ops/forms.ts'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { formsOf, progressOf, stepLook, STEP_GLYPH, type Progress, type StepWord } from '../src/ops/forms.ts'
+import { PlanLine } from '../src/ops/planLine.ts'
 import { HOME, layoutRows, NODE_CAP, type Graph } from '../src/ops/graph.ts'
 import { queueOf } from '../src/ops/queue.ts'
 import { confirm, NOW, record, view } from './ops-fixtures.ts'
@@ -195,6 +198,21 @@ test('the counter filter through the forms: a collapsed plan holding a kept card
   // the counter's own set (`filter`) does that, so a drawn set with no filter leaves a folded plan folded.
   const retired = layoutRows(rows, null, { now: NOW, folds: new Map([['tsk_sub', false]]), keep: new Set(rows.map((r) => r.id)) })
   assert.equal(node(retired, 'tsk_sub')!.open, false, 'retiring something does not unfold the owner\u2019s plan')
+})
+
+test('a conversation anchor draws its plan line on its card; a task, or a plan with no work, draws none', () => {
+  const g = lay(rowsOfFixture())
+  const home = node(g, 'ses_home')!
+  const p = home.form!.progress!
+  assert.ok(p.m > 0, 'the fixture\u2019s anchor has a plan')
+  // The card's line as React renders it (issue 44: any conversation, not only a thread's own one).
+  const html = (kind: string, progress?: Progress) => renderToStaticMarkup(createElement(PlanLine, { kind, progress }))
+  const drawn = html('conversation', p)
+  assert.equal(drawn.replace(/<[^>]+>/g, ''), `plan ${p.n}/${p.m} · ${p.summary}`, drawn)
+  assert.ok(drawn.includes(`<span class="text-ok">${p.n}/${p.m}</span>`), drawn)
+  assert.equal(html('task', p), '', 'a task card has no plan line')
+  assert.equal(html('conversation', { ...p, n: 0, m: 0 }), '', 'an empty plan draws nothing')
+  assert.equal(html('conversation'), '', 'no plan, no line')
 })
 
 test('a conversation is an anchor; a loose ask and a task with no record keep their forms', () => {

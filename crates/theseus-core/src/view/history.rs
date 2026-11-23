@@ -1,7 +1,10 @@
 //! The history tool's interface (design §6, rung 3; trim item 5: ONE look-back tool, with a place and a thing
-//! argument). Always offered. Bare, it returns the [`PAGE_EXCHANGES`] exchanges before the oldest one in full
-//! view, one line each; called again with the page's cursor, the ones before those, with no horizon. Every
-//! page passes the gate; in company it reads that place alone. Implemented by the history work.
+//! argument). A public tool (`places::public_tool`), so a shared place's class admits it too; a tool ceiling can
+//! still leave it out (a role without the `context` family), and where its family is not loaded by default it is
+//! deferred, found by the turn's tool search. Bare, it returns the [`PAGE_EXCHANGES`] exchanges before
+//! the oldest one in full view, one line each; called again with the page's cursor, the ones before those,
+//! with no horizon. Every page passes the gate, which reads only whether an exchange's place is known: any
+//! place, for every reader (anything goes, 2026-11-22). Implemented by the history work (`history_tool`).
 
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +22,7 @@ pub const LOOKS_PER_TURN: u32 = 5;
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HistoryArgs {
-    /// Another private place (where he is alone); absent: here.
+    /// Another place, any of the owner's; absent: here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<String>,
     /// A thing's timeline, `type:value`.

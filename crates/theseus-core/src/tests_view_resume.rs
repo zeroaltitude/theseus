@@ -240,3 +240,33 @@ async fn a_conversation_answers_its_next_message_after_each_plain_failure() {
     assert!(after.is_ok(), "{after:?}");
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
 }
+
+/// Round 2, item 3: a resume whose session's route cannot be read is not given an earlier exchange's place
+/// in its stead: it stays an unread place, and the turn fails plainly before any call.
+#[tokio::test]
+async fn a_resume_whose_route_cannot_be_read_fails_plainly_before_any_call() {
+    let fake = Arc::new(crate::provider::FakeProvider::scripted(vec![
+        cut(),
+        Scripted::text("Should not be sent."),
+    ]));
+    let (c, sid, turn) = restart_rig(fake.clone(), None, "which berth is free?").await;
+    let mut ex = crate::exchange::exchange(&c.store, &turn).unwrap().unwrap();
+    (ex.end_ms, ex.stop) = (None, None);
+    c.store
+        .append(&[crate::exchange::exchange_record(&ex).unwrap()])
+        .unwrap();
+    crate::turn::view_step::route_unreadable(&sid);
+    let e = resume(&c, &sid).await.unwrap_err();
+    crate::turn::view_step::route_readable(&sid);
+    let te = e.downcast_ref::<crate::turn::TurnError>().unwrap();
+    assert_eq!(te.class, "context_unreadable");
+    assert!(
+        format!("{:#}", te.source).contains("place could not be read"),
+        "{:#}",
+        te.source
+    );
+    assert!(
+        (fake.requests().iter()).all(|q| !texts(q).contains(RESUMES)),
+        "nothing is sent"
+    );
+}
