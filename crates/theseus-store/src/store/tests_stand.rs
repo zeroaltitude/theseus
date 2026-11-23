@@ -286,3 +286,113 @@ fn append_errors_distinguish_retained_frames_from_cut_frames() {
     assert!(s.latest_by_key(kinds::META, "retained").unwrap().is_some());
     assert!(s.latest_by_key(kinds::META, "cut").unwrap().is_none());
 }
+
+/// The first roll saves job zero; only the second segment is cut.
+#[test]
+fn a_later_failed_roll_keeps_the_first_job_and_its_chain() {
+    partial_batch(false);
+}
+
+/// Exercise the actual commit path, including its refusal latch.
+#[test]
+fn commit_latches_a_partly_retained_unindexed_batch() {
+    partial_batch(true);
+}
+
+fn partial_batch(index_fails: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let s = small_segments(dir.path());
+    let held = s.inner.appending.write().unwrap();
+    let count = if index_fails { 2 } else { 3 };
+    let mut answers = Vec::new();
+    let jobs = (0..count)
+        .map(|i| {
+            let (answer, answered) = mpsc::sync_channel(1);
+            answers.push(answered);
+            Job {
+                records: vec![NewRecord::json(
+                    kinds::LEDGER,
+                    Some(&format!("partial_{i}")),
+                    &serde_json::json!({"kind": "test.row", "data": i}),
+                )
+                .unwrap()],
+                projected: vec![(None, None)],
+                tags: vec![vec![]],
+                hidden: None,
+                answer,
+            }
+        })
+        .collect();
+    s.inner.queued.fetch_add(count, Ordering::SeqCst);
+    s.inner.wal.fail_sync_after(1);
+    if index_fails {
+        s.inner.index_fail.store(3, Ordering::SeqCst);
+    }
+    s.inner.commit(jobs);
+    drop(held);
+    for (i, answer) in answers.into_iter().enumerate() {
+        let result = answer.recv().unwrap();
+        if i == 0 && !index_fails {
+            assert!(result.is_ok(), "the first roll saved job zero");
+        } else {
+            let error = result.unwrap_err();
+            assert_eq!(error.is::<RetainedFrame>(), i == 0 && index_fails);
+        }
+    }
+    assert_eq!(
+        s.last_position(),
+        2,
+        "only job zero and its chain-start row survived"
+    );
+    let later = NewRecord::json(
+        kinds::LEDGER,
+        Some("later"),
+        &serde_json::json!({"kind": "test.after"}),
+    )
+    .unwrap();
+    if index_fails {
+        assert_eq!(s.inner.index_fail.load(Ordering::SeqCst), 0);
+        assert!(
+            s.append(std::slice::from_ref(&later)).is_err(),
+            "latched store accepted a frame"
+        );
+        assert!(
+            s.checkpoint().is_err(),
+            "latched store accepted a checkpoint"
+        );
+        assert_eq!(s.last_position(), 2);
+    } else {
+        s.append(std::slice::from_ref(&later)).unwrap();
+        assert!(crate::chain_walk::verify(&s, None, None)
+            .unwrap()
+            .broken
+            .is_none());
+    }
+    drop(s);
+    let s = small_segments(dir.path());
+    let rows = s.scan(0, None, 100).unwrap();
+    assert_eq!(
+        rows.iter()
+            .filter(|r| r.key.as_deref() == Some("partial_0"))
+            .count(),
+        1
+    );
+    for i in 1..count {
+        assert!(s
+            .latest_by_key(kinds::LEDGER, &format!("partial_{i}"))
+            .unwrap()
+            .is_none());
+    }
+    assert!(crate::chain_walk::verify(&s, None, None)
+        .unwrap()
+        .broken
+        .is_none());
+    if index_fails {
+        s.append(&[later]).unwrap();
+        s.checkpoint().unwrap();
+    }
+    assert!(crate::chain_walk::verify(&s, None, None)
+        .unwrap()
+        .broken
+        .is_none());
+}
