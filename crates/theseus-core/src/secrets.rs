@@ -161,8 +161,11 @@ pub struct Fetched {
     /// a failed injection.
     pub method: String,
     /// The vault's own refusal (a rate limit, the token), when it refused:
-    /// the next round waits for it (issue 44).
+    /// the longest of the round's, which the next round waits for (issue 44).
     pub refused: Option<Refused>,
+    /// Each entry's own refusal, by position (round 3): a refused entry's
+    /// failure is its fixed sentence alone. Empty when none was refused.
+    pub refused_each: Vec<Option<Refused>>,
 }
 
 /// Reads secrets by shelling out to the `op` CLI under the service-account
@@ -525,6 +528,7 @@ impl Fetch for OpReader {
                     values: vec![value],
                     method: "read".into(),
                     refused,
+                    refused_each: vec![refused],
                 };
             }
             match self.inject(refs).await {
@@ -532,6 +536,7 @@ impl Fetch for OpReader {
                     values: values.into_iter().map(Ok).collect(),
                     method: "inject".into(),
                     refused: None,
+                    refused_each: Vec::new(),
                 },
                 Err(InjectFailed::TimedOut) => Fetched {
                     values: refs
@@ -545,6 +550,7 @@ impl Fetch for OpReader {
                         .collect(),
                     method: "inject".into(),
                     refused: None,
+                    refused_each: Vec::new(),
                 },
                 Err(InjectFailed::Error(why)) => match Refused::of(&why) {
                     Some(r) => {
@@ -556,25 +562,25 @@ impl Fetch for OpReader {
                             values: refs.iter().map(|_| Err(r.said())).collect(),
                             method: "inject".into(),
                             refused: Some(r),
+                            refused_each: vec![Some(r); refs.len()],
                         }
                     }
                     None => {
                         tracing::info!(error = %why, "op inject failed; reading each reference to name what failed");
                         let reads = refs.iter().map(|r| self.read_raw(r));
-                        let mut refused = None;
-                        let values = futures_util::future::join_all(reads)
-                            .await
-                            .into_iter()
-                            .map(|v| {
-                                let (v, r) = said_if_refused(v);
-                                refused = refused.or(r);
-                                v
-                            })
-                            .collect();
+                        let (values, refused_each): (Vec<_>, Vec<_>) =
+                            futures_util::future::join_all(reads)
+                                .await
+                                .into_iter()
+                                .map(said_if_refused)
+                                .unzip();
+                        // The longest of the refusals is the round's (round 3).
+                        let refused = refused_each.iter().copied().fold(None, Refused::longer);
                         Fetched {
                             values,
                             method: "inject, then read".into(),
                             refused,
+                            refused_each,
                         }
                     }
                 },
@@ -1005,7 +1011,9 @@ async fn round_of(
                 .map_err(|e| format!("{e:#}")),
             // A refusal's fixed words stand alone (round 2): no `op` word and
             // nothing else rides with them.
-            Some(Err(e)) if fetched.refused.is_some_and(|f| *e == f.said()) => Err(e.clone()),
+            Some(Err(e)) if fetched.refused_each.get(i).copied().flatten().is_some() => {
+                Err(e.clone())
+            }
             Some(Err(e)) => Err(format!("{}: {e}", r.as_str())),
             None => Err(format!("{}: no value returned", r.as_str())),
         };
@@ -1049,7 +1057,20 @@ pub(crate) async fn resolve_with(
     let mut pending: Vec<String> = refs.keys().cloned().collect();
     let mut step = 0;
     loop {
-        wait_for_room(&board, &refs, &pending, &pace).await;
+        // Nothing pending ends at once, as on the base (round 3).
+        if pending.is_empty() {
+            return;
+        }
+        let n = vault_refs(&refs, &pending);
+        let worst = pace::worst_case(n);
+        if board.reads().is_some() && worst > pace.ceiling {
+            fail_too_many(&board, &refs, &mut pending, n, pace.ceiling);
+            continue;
+        }
+        // A round that asks the vault for nothing needs no room in it.
+        if worst > 0 {
+            wait_for_room(&board, worst, &pace).await;
+        }
         let refused = one_round(&board, &refs, &mut pending, fetch.as_ref()).await;
         if pending.is_empty() {
             return;
@@ -1110,16 +1131,10 @@ async fn one_round(
 /// civil midnight, and look again on every wake, at least
 /// `pace::DAY_WAKE_FLOOR` apart. The refusal's or the ladder's wait has
 /// already been slept when this runs, so of the two deadlines the later wins.
-async fn wait_for_room(
-    board: &SecretBoard,
-    refs: &BTreeMap<String, String>,
-    pending: &[String],
-    pace: &Pace,
-) {
+async fn wait_for_room(board: &SecretBoard, worst: u32, pace: &Pace) {
     let Some(reads) = board.reads() else {
         return;
     };
-    let worst = pace::worst_case(vault_refs(refs, pending));
     loop {
         let entries = reads.today().1;
         if entries.saturating_add(worst) <= pace.ceiling {
@@ -1138,6 +1153,37 @@ async fn wait_for_room(
         board.retry_at(Instant::now() + wait);
         pace.clock.sleep(wait).await;
     }
+}
+
+/// A round that can never fit the day's ceiling, its worst case past the
+/// whole of it (round 3: 1,001 distinct references would be 2,002 entries):
+/// its vault entries fail at once in fixed words and are not fetched again in
+/// this process, so health and `theseusd check` settle instead of waiting for
+/// a midnight that never makes room. The batch is not split and the ceiling
+/// is not relaxed; the entries from outside the vault stay pending and resolve.
+fn fail_too_many(
+    board: &SecretBoard,
+    refs: &BTreeMap<String, String>,
+    pending: &mut Vec<String>,
+    n: usize,
+    ceiling: u32,
+) {
+    let why = format!(
+        "more vault entries than the daemon reads in a day: {n} distinct references, the day's \
+         ceiling is {ceiling}"
+    );
+    let (vault, local): (Vec<String>, Vec<String>) = pending
+        .drain(..)
+        .partition(|name| refs.get(name).is_some_and(|r| !is_local(r)));
+    tracing::warn!(
+        entries = vault.len(),
+        references = n,
+        ceiling,
+        "more vault entries than the daemon reads in a day; they are not fetched"
+    );
+    let failed = vault.into_iter().map(|name| (name, Err(why.clone())));
+    board.publish(failed.collect(), "none: too many vault entries");
+    *pending = local;
 }
 
 /// The distinct vault references among `pending`: what one round asks `op`
@@ -1218,6 +1264,7 @@ pub mod fake {
                         .collect(),
                     method: "fake".into(),
                     refused: None,
+                    refused_each: Vec::new(),
                 }
             })
         }
@@ -1730,6 +1777,7 @@ esac
                             .collect(),
                         method: "fake".into(),
                         refused: None,
+                        refused_each: Vec::new(),
                     }
                 })
             }

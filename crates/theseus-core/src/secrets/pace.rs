@@ -251,6 +251,16 @@ impl Refused {
         }
     }
 
+    /// Of two refusals, the one with the longer wait (round 3: a round's next
+    /// wait is its longest refusal's).
+    pub fn longer(a: Option<Self>, b: Option<Self>) -> Option<Self> {
+        match (a, b) {
+            (Some(x), Some(y)) if y.wait() > x.wait() => Some(y),
+            (Some(x), _) => Some(x),
+            (None, y) => y,
+        }
+    }
+
     /// In a word, for the log.
     pub fn word(self) -> &'static str {
         match self {
