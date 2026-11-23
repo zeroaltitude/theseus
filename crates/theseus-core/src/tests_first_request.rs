@@ -100,7 +100,7 @@ fn each_kind_of_place_is_counted_with_its_own_families() {
     assert!(loaded("dm").contains(&"wake_at".to_string()));
     assert!(loaded("dm").contains(&"http_fetch".to_string()));
     assert!(!loaded("cli").contains(&"task_create".to_string()));
-    assert!(!loaded("task").contains(&"memory_lookup".to_string()));
+    assert!(!loaded("task").contains(&"context_history".to_string()));
     assert!(loaded("headless").contains(&"term_open".to_string()));
     assert!(
         !loaded("channel").contains(&"fs_read".to_string()),

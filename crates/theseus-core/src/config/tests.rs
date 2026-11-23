@@ -198,8 +198,8 @@ fn example_template_uncommented_still_parses() {
     // batvg.2), drive.* (four, batvg.3), sheets.* and slides.* (three, batvg.4) and calendar.*
     // (two, batvg.5), task.wait (theseus-z9mze.2) and task.fan_out (theseus-z9mze.3), and the
     // tag tool-let family: aws.tag.list, .set and .clear (three, theseus-mgw.15); channel.read
-    // went (issue 46).
-    assert_eq!(cfg.policy.tools.len(), 78);
+    // went (issue 46), and memory.lookup (D6 step 6).
+    assert_eq!(cfg.policy.tools.len(), 77);
     assert_eq!(cfg.policy.tools["aws.tag.list"], Posture::Approve);
     assert_eq!(cfg.policy.tools["aws.tag.set"], Posture::Approve);
     assert_eq!(cfg.policy.tools["aws.tag.clear"], Posture::Approve);
@@ -346,7 +346,6 @@ fn example_template_lists_every_tool_under_policy_tools() {
         .chain(crate::google::NAMES.map(String::from))
         .chain(crate::term::NAMES.map(String::from))
         .chain(crate::lsp::NAMES.map(String::from))
-        .chain(crate::memory_lookup::NAMES.map(String::from))
         .chain(crate::rsi::pr::NAMES.map(String::from))
         .collect();
     for t in &tools {
@@ -375,7 +374,6 @@ fn example_template_lists_every_tool_under_policy_tools() {
         "term.close",
         "job.read",
         "job.wait",
-        "memory.lookup",
     ];
     for r in reads {
         assert_eq!(set.get(r), Some(&Posture::Open), "{r}");

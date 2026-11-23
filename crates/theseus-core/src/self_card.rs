@@ -30,26 +30,12 @@ pub fn card(cfg: &crate::Config, tools: &ToolRuntime, place: PlaceView) -> Strin
     }
     // Issue 43: a reference the turn cannot place is looked for first; issue 44: by the history tool,
     // the owner's design, before anything else.
-    let history = offers(crate::view::history::HISTORY_TOOL);
-    match (offers(crate::memory_lookup::LOOKUP), history) {
-        (true, true) => lines.push(
-            "You can look up past conversations: before asking the person what they meant by \
-             something you cannot place, read back through this place's history, or another \
-             place's, with context_history, or look it up by its name with memory_lookup."
-                .into(),
-        ),
-        (true, false) => lines.push(
-            "You can look up past conversations: before asking the person what they meant by \
-             something you cannot place, look it up by its name, or with none read back through \
-             this place's conversation, further each time."
-                .into(),
-        ),
-        (false, true) => lines.push(
+    if offers(crate::view::history::HISTORY_TOOL) {
+        lines.push(
             "Before asking the person what they meant by something you cannot place, read back \
              through this place's history, or another place's, with context_history."
                 .into(),
-        ),
-        (false, false) => {}
+        );
     }
     if place.class == crate::places::PlaceClass::Private && cfg.web.enabled {
         let host = match cfg.web.bind.contains(':') {

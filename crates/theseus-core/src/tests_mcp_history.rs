@@ -10,8 +10,8 @@ use serde_json::{json, Value};
 use theseus_protocol::method;
 
 use crate::approval::Surface;
+use crate::tests_imports::{index_over, script};
 use crate::tests_mcp_memory::rpc;
-use crate::tests_memory_lookup::{index_over, script};
 use crate::tests_places::{rig_scripted, session, turn, Rig};
 use crate::Core;
 
@@ -169,7 +169,7 @@ async fn memory_off_answers_the_refusal_and_other_surfaces_are_refused() {
 /// page reaches it before or after.
 #[tokio::test]
 async fn an_erased_import_is_read_as_nothing() {
-    use crate::tests_memory_lookup::{episode, import};
+    use crate::tests_imports::{episode, import};
     const GONE: &str = "the lighthouse keeper's ledger";
     let r = rig(true);
     let imported = import(
@@ -734,4 +734,450 @@ async fn stale_hits_that_fill_the_bound_end_the_search_incomplete() {
         .set_ask(stale_then_live(&r.core, sid.clone(), 120));
     let v = history(&r.core, json!({"place": place, "words": "ferry note"})).await;
     assert_eq!(v["end"], "search_cut", "{v}");
+}
+
+/// A words search whose vector search fails (or is late) answers from the word sources alone, `words_only`
+/// (recall-fallback): the history read takes their hits as an answer, not as an index that did not answer
+/// (retargeted from `memory.lookup`'s `words_only_hits_are_an_answer` when that tool went, D6 step 6).
+#[tokio::test]
+async fn words_only_hits_are_an_answer() {
+    let r = rig(true);
+    let native = session(&r.core, None);
+    turn(&r.core, &native, "the ferry note about the ledger").await;
+    // A distractor outside the span asked for: an exchange of the same place in March 2026.
+    let place = place_of(&r.core, &native);
+    let march = crate::wake::parse_at("2026-03-03T18:00:00Z").unwrap();
+    exchange_said(
+        &r.core,
+        &native,
+        ("turn_old_ledger", march),
+        (&place, crate::exchange::OWNER),
+        ("the old ledger of March", "Noted."),
+    );
+    let words = index_over(&r.core, vec![native.clone()]);
+    r.core.runner.memory.set_ask(Arc::new(
+        move |p: theseus_protocol::index::IndexQueryParams| -> crate::recall::AskFuture {
+            if p.sources.iter().any(|s| s == "vector") {
+                return Box::pin(async { Err("the query would not embed".to_string()) });
+            }
+            words(p)
+        },
+    ));
+    let yesterday = crate::judge::spend::local_day(theseus_protocol::now_unix_ms() - 86_400_000);
+    let found = history(
+        &r.core,
+        json!({"session_id": native, "words": "ledger", "from": yesterday}),
+    )
+    .await;
+    assert!(
+        lines(&found)
+            .iter()
+            .any(|l| l["words"].as_str().unwrap().contains("ferry note")),
+        "{found}"
+    );
+    assert!(
+        !found.to_string().contains("old ledger"),
+        "the distractor outside the span is absent: {found}"
+    );
+}
+
+/// An imported episode whose words are `says`, in `tag`, numbered `n`.
+fn tagged(n: usize, tag: &str, at: &str, says: &str) -> Value {
+    let mut v = crate::tests_imports::episode(n, "public", at, says);
+    v["import_tag"] = json!(tag);
+    v["hash"] = json!(crate::import::episode::hash_of(&v));
+    v
+}
+
+/// The handles of a page's lines.
+fn handles(v: &Value) -> Vec<String> {
+    lines(v)
+        .iter()
+        .map(|l| l["handle"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Imported conversations are found by words through the history read (D6 step 6, round 2: the plan's
+/// parity step 4, `place: "import"`): a hit names the session to open, its message's own date and its book;
+/// the same search after the import is erased finds nothing (`memory.lookup`'s erased-import test by words,
+/// with its positive control).
+#[tokio::test]
+async fn imported_words_are_found_and_once_erased_are_nothing() {
+    use crate::tests_imports::{episodes, import, SHOWN};
+    let r = rig(true);
+    let ids = import(&r.core, &episodes());
+    r.core
+        .runner
+        .memory
+        .set_ask(index_over(&r.core, ids.clone()));
+    let found = history(&r.core, json!({"place": "import", "words": "parser"})).await;
+    let hit = lines(&found)
+        .iter()
+        .find(|l| l["handle"] == json!(ids[1]) && l["words"].as_str().unwrap().contains(SHOWN))
+        .unwrap_or_else(|| panic!("the imported message is found: {found}"));
+    assert_eq!(
+        hit["at_ms"],
+        json!(crate::wake::parse_at("2026-03-10T18:00:00Z").unwrap()),
+        "its message's own date: {hit}"
+    );
+    assert_eq!(hit["place"], json!("import:casebook"), "its book: {hit}");
+    // The session it names opens.
+    let opened = history(&r.core, json!({"open": ids[1]})).await;
+    assert!(
+        opened["open"]["text"].as_str().unwrap().contains(SHOWN),
+        "{opened}"
+    );
+    crate::import::write::erase(&r.core.store, "kelp-2026", Some("a test"), "cli").unwrap();
+    let after = history(&r.core, json!({"place": "import", "words": "parser"})).await;
+    assert!(
+        lines(&after).is_empty(),
+        "an erased import is nothing: {after}"
+    );
+    assert!(!after.to_string().contains("tide-table"), "{after}");
+}
+
+/// Stale hits ranked first, below the bound, cost no live one: an erased import's hits come first, and the
+/// pages that follow give every live item exactly once (`memory.lookup`'s stale-first paging test).
+#[tokio::test]
+async fn stale_imported_hits_ranked_first_cost_no_live_one_across_pages() {
+    use crate::tests_imports::import;
+    let r = rig(true);
+    let at = "2026-03-10T18:00:00Z";
+    let old: Vec<Value> = (0..3)
+        .map(|n| tagged(n, "old-2025", at, "the kelp gauge"))
+        .collect();
+    let live: Vec<Value> = (10..22)
+        .map(|n| tagged(n, "kelp-2026", at, "the kelp gauge"))
+        .collect();
+    let gone = import(&r.core, &old);
+    let kept = import(&r.core, &live);
+    crate::import::write::erase(&r.core.store, "old-2025", Some("a test"), "cli").unwrap();
+    let mut all = gone.clone();
+    all.extend(kept.clone());
+    r.core.runner.memory.set_ask(index_over(&r.core, all));
+    let (mut seen, mut before, mut pages) = (Vec::<String>::new(), None::<Value>, 0);
+    let mut items: Vec<(String, String)> = Vec::new();
+    loop {
+        let mut args = json!({"place": "import", "words": "gauge"});
+        if let Some(b) = &before {
+            args["before"] = b.clone();
+        }
+        let page = history(&r.core, args).await;
+        pages += 1;
+        for l in lines(&page) {
+            let item = (l["handle"].to_string(), l["words"].to_string());
+            assert!(!items.contains(&item), "an item twice: {item:?}");
+            items.push(item);
+        }
+        seen.extend(handles(&page));
+        match page["end"].as_str() {
+            Some("more") => before = Some(page["next"].clone()),
+            end => {
+                assert_eq!(
+                    end,
+                    Some("history_exhausted"),
+                    "the last page says that is all: {page}"
+                );
+                break;
+            }
+        }
+        assert!(pages < 20, "the pages end: {page}");
+    }
+    assert!(pages > 1, "more than one page");
+    let mut sessions = seen.clone();
+    sessions.sort();
+    sessions.dedup();
+    let mut want = kept.clone();
+    want.sort();
+    assert_eq!(
+        sessions, want,
+        "every live import, and no erased one: {seen:?}"
+    );
+    assert!(gone.iter().all(|g| !seen.contains(g)), "{seen:?}");
+}
+
+/// Words kept to a span: the September episode, outside March, is absent (`memory.lookup`'s month test).
+#[tokio::test]
+async fn imported_words_keep_to_their_span() {
+    use crate::tests_imports::{episodes, import};
+    let r = rig(true);
+    let ids = import(&r.core, &episodes());
+    r.core
+        .runner
+        .memory
+        .set_ask(index_over(&r.core, ids.clone()));
+    let march = history(
+        &r.core,
+        json!({"place": "import", "words": "Message", "when": "March 2026"}),
+    )
+    .await;
+    let got = handles(&march);
+    assert!(got.contains(&ids[1]) && got.contains(&ids[3]), "{march}");
+    assert!(
+        !got.contains(&ids[4]),
+        "the September episode is outside March: {march}"
+    );
+}
+
+/// A volatile value read back through the history tool is never a bare fact (M6 §2.11): an imported session
+/// opened by its id, and the same message found by words, carry `recall::render::volatile_at`'s mark, dated by
+/// the message's own day; the stable message is unmarked (`memory.lookup`'s volatile test).
+#[tokio::test]
+async fn a_volatile_value_comes_back_as_of_the_day_it_was_true() {
+    use crate::tests_imports::import;
+    const MOVES: &str = "the gauge pipeline currently fails 3 tests";
+    const STANDS: &str = "the gauge pipeline reads a fixed-width column";
+    let at = |d: u32| format!("2026-03-{d:02}T18:00:00Z");
+    let msg = |idx: u32, text: &str| {
+        json!({"idx": idx, "time": at(10 + idx), "author": "wren", "integrity": "operator",
+               "text": text, "unit": format!("u-v-{idx}"), "sha256": "ab".repeat(32)})
+    };
+    let mut ep = crate::tests_imports::episode(40, "public", &at(10), "the gauge pipeline");
+    ep["as_of"] = json!({"start": at(10), "end": at(11)});
+    ep["messages"] = json!([msg(0, MOVES), msg(1, STANDS)]);
+    ep["hash"] = json!(crate::import::episode::hash_of(&ep));
+    let r = rig(true);
+    let ids = import(&r.core, &[ep]);
+    let day = crate::judge::spend::local_day(crate::wake::parse_at(&at(10)).unwrap());
+    let mark = format!("volatile: as of {day}, unverified");
+    let opened = history(&r.core, json!({"open": ids[0]})).await;
+    let text = opened["open"]["text"].as_str().unwrap();
+    assert!(text.contains(MOVES) && text.contains(STANDS), "{text}");
+    assert_eq!(text.matches("volatile: as of").count(), 1, "{text}");
+    assert!(text.contains(&mark), "{text}");
+    r.core
+        .runner
+        .memory
+        .set_ask(index_over(&r.core, ids.clone()));
+    let found = history(&r.core, json!({"place": "import", "words": "gauge"})).await;
+    let moves = lines(&found)
+        .iter()
+        .find(|l| l["words"].as_str().unwrap().contains(MOVES))
+        .unwrap_or_else(|| panic!("{found}"));
+    assert!(moves["words"].as_str().unwrap().contains(&mark), "{moves}");
+    let stands = lines(&found)
+        .iter()
+        .find(|l| l["words"].as_str().unwrap().contains(STANDS))
+        .unwrap_or_else(|| panic!("{found}"));
+    assert!(
+        !stands["words"].as_str().unwrap().contains("volatile"),
+        "{stands}"
+    );
+}
+
+/// `index_over`, honouring the session filter a search narrowed to, as the real index does.
+fn index_filtered(core: &Arc<Core>, sessions: Vec<String>) -> crate::recall::Ask {
+    let all = index_over(core, sessions);
+    Arc::new(
+        move |p: theseus_protocol::index::IndexQueryParams| -> crate::recall::AskFuture {
+            let only = p.filters.sessions.clone();
+            let asked = all(p);
+            Box::pin(async move {
+                let mut r = asked.await?;
+                if !only.is_empty() {
+                    r.hits.retain(|h| only.contains(&h.session_id));
+                }
+                Ok(r)
+            })
+        },
+    )
+}
+
+/// An imported episode of `messages` (each `(integrity, author, text)`), in March 2026.
+fn spoken_by(n: usize, messages: &[(&str, &str, &str)]) -> Value {
+    let at = "2026-03-03T18:00:00Z";
+    let mut v = crate::tests_imports::episode(n, "personal", at, "the kelp survey");
+    v["messages"] = json!(messages
+        .iter()
+        .enumerate()
+        .map(|(i, (integrity, author, text))| json!({"idx": i, "time": at, "author": author,
+            "integrity": integrity, "text": text, "unit": format!("u-{n}-{i}"), "sha256": "ab".repeat(32)}))
+        .collect::<Vec<_>>());
+    v["hash"] = json!(crate::import::episode::hash_of(&v));
+    v
+}
+
+/// The search's outside mark is the session reader's rule (D6 step 6, round 3, B2): an imported message of
+/// outside text is outside; an agent's message in an episode that holds outside text is outside too (it may
+/// derive from it); the operator's own and an agent's beside the operator alone are not.
+#[tokio::test]
+async fn an_import_hit_is_outside_by_the_session_readers_rule() {
+    use crate::tests_imports::import;
+    let r = rig(true);
+    let ids = import(
+        &r.core,
+        &[
+            spoken_by(
+                51,
+                &[
+                    (
+                        "outside",
+                        "a stranger",
+                        "a stranger's note on the kelp beds",
+                    ),
+                    (
+                        "agent",
+                        "main",
+                        "Noted: the kelp beds are thinning, the note says.",
+                    ),
+                ],
+            ),
+            spoken_by(
+                52,
+                &[
+                    ("operator", "wren", "count the kelp beds"),
+                    ("agent", "main", "Counted: eleven kelp beds."),
+                ],
+            ),
+        ],
+    );
+    r.core
+        .runner
+        .memory
+        .set_ask(index_over(&r.core, ids.clone()));
+    let found = history(&r.core, json!({"place": "import", "words": "kelp"})).await;
+    let mark = |says: &str| {
+        lines(&found)
+            .iter()
+            .find(|l| l["words"].as_str().unwrap().contains(says))
+            .unwrap_or_else(|| panic!("{says}: {found}"))["outside"]
+            .as_bool()
+            .unwrap()
+    };
+    assert!(mark("a stranger's note"), "outside text: {found}");
+    assert!(
+        mark("are thinning"),
+        "an agent beside outside text: {found}"
+    );
+    assert!(!mark("count the kelp beds"), "the operator's own: {found}");
+    assert!(
+        !mark("eleven kelp beds"),
+        "an agent beside the operator alone: {found}"
+    );
+}
+
+/// An unqualified import search ranks over every import (D6 step 6, round 3, B3): an episode older than the
+/// newest 500 is found. A book whose catalog is larger than the page the search narrows to says the search is
+/// incomplete, never that it is all.
+#[tokio::test]
+async fn an_import_older_than_the_newest_500_is_found_and_a_cut_book_says_so() {
+    use crate::tests_imports::import;
+    let r = rig(true);
+    let mut eps = vec![tagged(
+        0,
+        "kelp-2026",
+        "2020-01-01T00:00:00Z",
+        "the oldest OWL-LEDGER",
+    )];
+    eps.extend(
+        (1..=500).map(|n| tagged(n, "kelp-2026", "2026-03-10T18:00:00Z", "a newer kelp note")),
+    );
+    let ids = import(&r.core, &eps);
+    r.core
+        .runner
+        .memory
+        .set_ask(index_filtered(&r.core, ids.clone()));
+    let found = history(&r.core, json!({"place": "import", "words": "OWL-LEDGER"})).await;
+    assert!(
+        handles(&found).contains(&ids[0]),
+        "the oldest episode is found: {}",
+        found["end"]
+    );
+    // The book's search is narrowed to the catalog's newest 500: its last page says the search is incomplete.
+    let mut before: Option<Value> = None;
+    for _ in 0..20 {
+        let mut args = json!({"place": "import:casebook", "words": "OWL-LEDGER"});
+        if let Some(b) = &before {
+            args["before"] = b.clone();
+        }
+        let page = history(&r.core, args).await;
+        match page["end"].as_str() {
+            Some("more") => before = Some(page["next"].clone()),
+            end => {
+                assert_eq!(
+                    end,
+                    Some("search_cut"),
+                    "the book's cut is said, never that it is all"
+                );
+                return;
+            }
+        }
+    }
+    panic!("the book's pages end");
+}
+
+/// A native page marks every message-derived field it shows (D6 step 6, round 3, B4): a stable ask and a
+/// volatile reply mark the reply, by the reply's own day; an ask's mark is dated by its own message, not by its
+/// exchange's start.
+#[tokio::test]
+async fn a_native_page_marks_a_volatile_reply_and_dates_each_mark_by_its_source() {
+    const MOVES: &str = "the gauge pipeline currently fails 3 tests";
+    const PLACE: &str = "channel:gauges";
+    let r = rig(true);
+    let sid = session(&r.core, None);
+    let now = theseus_protocol::now_unix_ms();
+    let today = crate::judge::spend::local_day(now);
+    exchange_said(
+        &r.core,
+        &sid,
+        ("turn_gauge_1", now),
+        (PLACE, crate::exchange::OWNER),
+        ("what is the gauge status?", MOVES),
+    );
+    let page = history(&r.core, json!({ "place": PLACE })).await;
+    let line = &lines(&page)[0];
+    let reply = line["reply_begins"].as_str().unwrap();
+    assert!(reply.contains(MOVES), "{line}");
+    assert!(
+        reply.contains(&format!("volatile: as of {today}, unverified")),
+        "the reply's mark: {line}"
+    );
+    assert!(
+        !line["words"].as_str().unwrap().contains("volatile"),
+        "the stable ask: {line}"
+    );
+    // An exchange that started in March, its message written today: the mark is the message's own day.
+    let march = crate::wake::parse_at("2026-03-03T18:00:00Z").unwrap();
+    let other = "channel:gauges-two";
+    exchange_said(
+        &r.core,
+        &sid,
+        ("turn_gauge_2", march),
+        (other, crate::exchange::OWNER),
+        (MOVES, "Noted."),
+    );
+    let page = history(&r.core, json!({ "place": other })).await;
+    let words = lines(&page)[0]["words"].as_str().unwrap().to_string();
+    assert!(
+        words.contains(&format!("volatile: as of {today}, unverified")),
+        "dated by the message, not by the exchange's start: {words}"
+    );
+}
+
+/// The import place takes no `thing`, as the native page refuses a bad pair (D6 step 6, round 3).
+#[tokio::test]
+async fn an_import_place_takes_no_thing() {
+    let r = rig(true);
+    let got = ask(
+        &r.core,
+        json!({"place": "import", "words": "kelp", "thing": "topic:kelp"}),
+    )
+    .await;
+    assert!(got.is_err(), "{got:?}");
+}
+
+/// A forged import cursor far past any page is answered, not a panic or a wrapped offset (D6 step 6, round 3).
+#[tokio::test]
+async fn a_forged_import_cursor_is_answered() {
+    use crate::tests_imports::{episodes, import};
+    let r = rig(true);
+    let ids = import(&r.core, &episodes());
+    r.core.runner.memory.set_ask(index_over(&r.core, ids));
+    let got = history(
+        &r.core,
+        json!({"place": "import", "words": "parser",
+               "before": {"at_ms": u64::MAX, "turn_id": "import"}}),
+    )
+    .await;
+    assert!(lines(&got).is_empty(), "{got}");
 }

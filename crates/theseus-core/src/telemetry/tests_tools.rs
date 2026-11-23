@@ -109,8 +109,8 @@ async fn a_miss_and_the_loaded_families_nothing_used_are_counted_by_place_and_fa
     };
     assert!(has("missed", "terminals"), "{got:?}");
     assert!(
-        has("unused", "memory"),
-        "memory was loaded and nothing used it: {got:?}"
+        has("unused", "files"),
+        "files were loaded and nothing used them: {got:?}"
     );
     assert!(
         !got.iter()

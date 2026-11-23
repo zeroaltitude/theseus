@@ -635,7 +635,7 @@ pub struct Begun {
     /// the time of the events (theseus-q1tbn).
     pub temporal: Option<temporal::Kind>,
     /// The most items the pack admits, when not `[memory] recall_max_items`:
-    /// a `memory.lookup` page's (theseus-w9qv).
+    /// a words search's page (the history tool's, the MCP server's; theseus-w9qv).
     pub max_items: Option<usize>,
     /// Once answered: the hits are the word sources' alone, and why (the
     /// vector search was late or failed; theseus-w9qv).

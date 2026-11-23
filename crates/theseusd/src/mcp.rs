@@ -256,7 +256,7 @@ impl McpCore {
             .await?;
         let nodes = h["nodes"].as_array().cloned().unwrap_or_default();
         // The vault's values substituted, as the memory tools' replies are (review G-R2 r2).
-        let reply = theseus_core::memory_lookup::mcp_last_reply(&self.core, &nodes);
+        let reply = theseus_core::mcp_server::mcp_last_reply(&self.core, &nodes);
         let turn = nodes
             .iter()
             .rev()

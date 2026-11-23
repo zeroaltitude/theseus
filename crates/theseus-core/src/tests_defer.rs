@@ -143,8 +143,8 @@ async fn a_hidden_familys_tools_carry_defer_loading_and_the_search_tool_is_there
     assert_eq!(names[0], SEARCH_TOOL, "{names:?}");
     assert_eq!(req.tools[0]["type"], SEARCH_TYPE);
     assert!(req.tools[0].get("defer_loading").is_none());
-    // A CLI session loads files, commands, code and memory.
-    for loaded in ["fs_read", "proc_run", "memory_lookup"] {
+    // A CLI session loads files and commands (its memory family went with `memory.lookup`, D6 step 6).
+    for loaded in ["fs_read", "proc_run"] {
         assert!(
             tool(req, loaded).is_some() && !deferred(req, loaded),
             "{loaded}"
@@ -298,13 +298,11 @@ async fn a_family_unused_for_the_hide_days_hides() {
     let sid = session(&r.core, None);
     say(&r.core, &sid, "hello").await;
     let req = &r.requests()[0];
-    for hidden in ["memory_lookup", "project_attach"] {
-        assert!(
-            deferred(req, hidden),
-            "{hidden} is unused for 30 days: {:?}",
-            offered(req)
-        );
-    }
+    assert!(
+        deferred(req, "project_attach"),
+        "project_attach is unused for 30 days: {:?}",
+        offered(req)
+    );
     assert!(
         !deferred(req, "fs_read"),
         "the always-loaded families never hide"
@@ -326,20 +324,20 @@ async fn a_headless_daemon_uses_its_place_kinds_defaults() {
     let req = &r.requests()[0];
     assert!(!deferred(req, "term_open"), "headless loads terminals");
     assert!(
-        deferred(req, "memory_lookup"),
-        "and leaves memory to the model's search"
+        deferred(req, "context_history"),
+        "and leaves the history to the model's search"
     );
     let used = rows(&r.core, "tools.used");
     assert_eq!(used[0]["place"], "headless");
 }
 
 #[tokio::test]
-async fn a_direct_message_loads_memory_and_the_web_and_defers_the_terminals() {
+async fn a_direct_message_loads_the_history_and_the_web_and_defers_the_terminals() {
     let r = rig();
     let sid = session(&r.core, Some("dm:271828182845904523"));
     say(&r.core, &sid, "hello").await;
     let req = &r.requests()[0];
-    assert!(!deferred(req, "memory_lookup") && !deferred(req, "http_fetch"));
+    assert!(!deferred(req, "context_history") && !deferred(req, "http_fetch"));
     assert!(deferred(req, "term_open"));
     assert_eq!(rows(&r.core, "tools.used")[0]["place"], "dm");
 }

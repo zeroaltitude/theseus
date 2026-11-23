@@ -178,7 +178,11 @@ fn render(lens: &Lens<'_>, ex: &Exchange, nodes: &[Node]) -> (String, Vec<String
     let mut parts = forms::spoken(&nodes);
     for p in &mut parts {
         if matches!(p.voice, Voice::Person | Voice::Harness | Voice::Theseus) {
-            p.text = margined(&p.text);
+            // A volatile value is read with the time it was true at, never as a bare fact (M6 §2.11).
+            let mark = (by_id.get(p.node.as_str()))
+                .and_then(|n| crate::recall::render::volatile(n, &p.text))
+                .map_or_else(String::new, |m| format!("\n({m})"));
+            p.text = format!("{}{mark}", margined(&p.text));
         }
     }
     let parts = forms::fit(parts, OPEN_TOKENS, &handle);

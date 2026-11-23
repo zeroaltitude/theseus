@@ -919,8 +919,26 @@ fn a_harness_session_opens_by_its_id_spoken_with_tool_traffic_counted() {
             ..ex(2, LOBBY, sid)
         },
     );
-    s.append(&[tool_result_in(sid, "turn_0002").record().unwrap()])
-        .unwrap();
+    // A call and its result: both left out, and counted two (`memory.lookup`'s own-session test).
+    let call = Node::tool_call(
+        sid,
+        Some("turn_0002"),
+        Some(0),
+        Body::ToolCall {
+            tool_use_id: "tu_9".into(),
+            tool: "http.fetch".into(),
+            wire_name: "http_fetch".into(),
+            input: json!({"url": "THE CALL'S OWN INPUT"}),
+            assistant_node: String::new(),
+            correlation_id: None,
+            gate: None,
+        },
+    );
+    s.append(&[
+        call.record().unwrap(),
+        tool_result_in(sid, "turn_0002").record().unwrap(),
+    ])
+    .unwrap();
     let brief = Node::relayed(sid, None, Origin::Agent, "parent", "A PARENT'S BRIEF");
     s.append(&[brief.record().unwrap()]).unwrap();
     let l = lens(&s, HERE);
@@ -939,10 +957,11 @@ fn a_harness_session_opens_by_its_id_spoken_with_tool_traffic_counted() {
         "oldest first: {t}"
     );
     assert!(!t.contains("THE TOOL'S OWN TEXT"), "{t}");
+    assert!(!t.contains("THE CALL'S OWN INPUT"), "{t}");
     assert!(!t.contains("A PARENT'S BRIEF"), "{t}");
     assert!(
         t.contains(
-            "Left out: 1 tool call or result and 1 message the harness or an agent relayed."
+            "Left out: 2 tool calls and results and 1 message the harness or an agent relayed."
         ),
         "{t}"
     );
@@ -1842,7 +1861,7 @@ async fn a_reply_only_session_page_keeps_its_guests_input_provenance() {
 /// messages only stays clean.
 #[tokio::test]
 async fn an_imported_agent_message_beside_omitted_outside_text_is_outside() {
-    use crate::tests_memory_lookup::{episode, import};
+    use crate::tests_imports::{episode, import};
     let r = reading_rig();
     let with = |n: usize, msgs: Value| {
         let mut v = episode(n, "personal", "2026-03-03T18:00:00Z", "the kelp survey");
@@ -1899,4 +1918,78 @@ async fn an_imported_agent_message_beside_omitted_outside_text_is_outside() {
         !any && !since,
         "operator and agent only stays clean: {said}"
     );
+}
+
+/// D6 step 6, round 3, B1: the self loop's scope holds for imported conversations too. Its builder may not
+/// search them (refused, as an open of another session is), while an ordinary reader's same call finds the
+/// imported words.
+#[tokio::test]
+async fn a_self_loop_builder_may_not_search_imports_and_an_ordinary_reader_may() {
+    use crate::tests_imports::{episode, import, index_over};
+    let x = xs2().await;
+    let c = &x.r.core;
+    let ids = import(
+        c,
+        &[episode(
+            61,
+            "personal",
+            "2026-03-03T18:00:00Z",
+            "the FOREIGN-OWL import",
+        )],
+    );
+    c.runner.memory.set_ask(index_over(c, ids.clone()));
+    let asked = json!({"place": "import", "words": "FOREIGN-OWL"});
+    let refused = xs2_ask(c, &x.builder, asked.clone()).await;
+    let said = refused.clone().unwrap_or_else(|e| e);
+    assert!(refused.is_err(), "the builder's search is refused: {said}");
+    assert!(!said.contains("FOREIGN-OWL"), "{said}");
+    let reader = crate::tests_places::session(c, None);
+    let found = xs2_ask(c, &reader, asked).await.unwrap();
+    assert!(
+        found.contains("FOREIGN-OWL") && found.contains(&ids[0]),
+        "{found}"
+    );
+}
+
+/// D6 step 6, round 3, B2: a hit is shown only from a node read now. A hit whose node cannot be read, or has
+/// become a tombstone since the search, shows none of the words the search collected, and is counted.
+#[tokio::test]
+async fn an_import_hit_whose_node_is_gone_or_erased_shows_no_words() {
+    use crate::memory_lookup::ImportHit;
+    use crate::tests_imports::{episode, import, script};
+    let r = crate::tests_places::rig_scripted(|_| {}, script);
+    let ids = import(
+        &r.core,
+        &[episode(
+            62,
+            "public",
+            "2026-03-03T18:00:00Z",
+            "the tide gauge",
+        )],
+    );
+    let node = (r.core.store.session_nodes(&ids[0]).unwrap().into_iter())
+        .map(|(_, n)| n)
+        .find(|n| matches!(n.body, Body::Imported { .. }))
+        .expect("an imported message");
+    r.core
+        .store
+        .append(&[node.erased(1, "a test").record().unwrap()])
+        .unwrap();
+    let hit = |id: &str, text: &str| ImportHit {
+        node_id: id.into(),
+        session_id: ids[0].clone(),
+        at_ms: 1,
+        book: Some("casebook".into()),
+        text: text.into(),
+    };
+    let (lines, sources, dropped) = super::imports::project(
+        &r.core.store,
+        vec![
+            hit("imp_none_such", "WORDS OF NO NODE"),
+            hit(&node.id, "WORDS NOW ERASED"),
+        ],
+    );
+    assert!(lines.is_empty(), "{lines:?}");
+    assert!(sources.is_empty(), "{sources:?}");
+    assert_eq!(dropped, 2);
 }

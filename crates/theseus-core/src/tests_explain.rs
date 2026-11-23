@@ -130,8 +130,6 @@ fn input_for(tool: &dyn Tool, open: &Path) -> Value {
         }
         // `argv` or `steps`, so neither is required by the schema.
         "proc.run" => return json!({"argv": ["wc", "-l"]}),
-        // Words, a time, a book or a topic: none is required alone.
-        "memory.lookup" => return json!({"words": "the tide table"}),
         // A plan has steps (theseus-lyxy).
         "plan.present" => return json!({"steps": ["read the tide table", "add the mean"]}),
         _ => {}
