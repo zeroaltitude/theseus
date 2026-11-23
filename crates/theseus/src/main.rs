@@ -356,7 +356,7 @@ enum Cmd {
     },
     /// Each place Theseus speaks in, and its class (the place rule): private (the CLI, the web
     /// UI, a DM with you, a guild channel bound `private = true`) gets everything; shared (any
-    /// other guild channel) gets its own conversation and the public tools alone.
+    /// other guild channel) gets the same context, with public tools alone.
     #[command(display_order = 17)]
     Places,
     /// Publish into a place (the place rule): one item into a place's conversation, as your

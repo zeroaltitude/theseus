@@ -162,8 +162,7 @@ pub fn places_lines(h: &PlacesHealth) -> Vec<String> {
     lines.push(String::new());
     lines.push("private: everything, as the CLI has it.".into());
     lines.push(format!(
-        "shared: its own conversation, {}; no proc.run and no AWS; only the context files marked \
-         readers = \"public\". Publish something there yourself: `theseus publish NODE|FILE \
+        "shared: {}, no proc.run and no AWS; all context files. Publish something there yourself: `theseus publish NODE|FILE \
          --to PLACE`.",
         shared_gets(h)
     ));
@@ -173,6 +172,14 @@ pub fn places_lines(h: &PlacesHealth) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_places_do_not_promise_context_privacy() {
+        let lines = places_lines(&PlacesHealth::default()).join("\n");
+        assert!(lines.contains("all context files"), "{lines}");
+        assert!(lines.contains("no proc.run and no AWS"), "{lines}");
+        assert!(!lines.contains("its own conversation"), "{lines}");
+    }
 
     fn place(name: &str, class: PlaceClass) -> PlaceInfo {
         PlaceInfo {

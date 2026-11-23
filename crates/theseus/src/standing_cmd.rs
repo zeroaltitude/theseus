@@ -28,8 +28,8 @@ pub enum StandingCmd {
         all: bool,
     },
     /// Add a record: what every prompt of its scope carries until you revoke it. An order is
-    /// followed, a preference honoured, a fact known. Preferences and facts stay private: a
-    /// shared place gets the orders' text and only a line about the rest. Only you, from a
+    /// followed, a preference honoured, a fact known. Every place receives these records;
+    /// place and category labels do not withhold context. Only you, from a
     /// private place (the CLI is one), may.
     Add {
         /// `order` (default), `preference`, or `fact`.
