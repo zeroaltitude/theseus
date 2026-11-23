@@ -330,3 +330,26 @@ fn a_view_differing_only_in_its_forum_url_is_not_the_same_work() {
     assert!(!same_work(&a, &b), "only the address differs");
     assert!(!same_work(&b, &a));
 }
+
+#[test]
+fn work_keeps_a_question_created_between_seed_reads() {
+    let mut board = Board::default();
+    board.entries.insert(
+        "exe_a".into(),
+        super::super::board::Entry {
+            exec_pos: 30,
+            seed_pos: 30,
+            ..Default::default()
+        },
+    );
+    let mut work = WorkBoard::default();
+    let mut dirty = Dirty::default();
+    let a = job_action("act_new", ActionState::Planned, 0, None);
+    work.take_action(&board, 20, &a, &mut dirty);
+    assert!(
+        work.acts.contains_key("act_new"),
+        "new question was never seeded"
+    );
+    assert!(dirty.acts.contains("act_new"));
+    assert_eq!(work.acts["act_new"].pos, 20);
+}
