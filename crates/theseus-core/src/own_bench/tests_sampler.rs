@@ -478,7 +478,9 @@ async fn replay_that_spends_its_allowance_does_not_dispatch_comparison() {
         .unwrap()
         .push_back(crate::provider::Scripted::Billed {
             usage: theseus_protocol::Usage {
-                input_tokens: estimate.tokens,
+                // The reservation prices input at Haiku's highest rate: a one-hour cache write.
+                cache_creation_input_tokens: estimate.tokens,
+                cache_creation_1h_input_tokens: estimate.tokens,
                 output_tokens: request.max_tokens as u64,
                 ..Default::default()
             },
