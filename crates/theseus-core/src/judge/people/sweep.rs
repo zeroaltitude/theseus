@@ -4,10 +4,10 @@
 //! missed day once, as soon as it may, never within 10 minutes of a start:
 //! the learning tender's `due` and `tend`), one pass (`run.rs`: the
 //! `[people] extract_profile` extraction, then `people.v1` on each kept
-//! candidate) for each private session, never a task's, that got human text
+//! candidate) for each conversation, never a task's, that got human text
 //! since the last sweep (the last day, the first time) that no extraction
 //! read: the gate shut there, or no due point came. Proposals only, never
-//! memberships; the place rule's private places only; the extraction's
+//! memberships, in every place; the extraction's
 //! `people.extracted` row has the purpose `sweep`.
 //!
 //! - **What it reads.** The session's human-facing lines (`lines`) written
@@ -48,7 +48,6 @@ use crate::learning::tender::{due, tend};
 use crate::ledger::LedgerRow;
 use crate::node::Node;
 use crate::pace::pace;
-use crate::places::PlaceClass;
 use crate::rpc::Core;
 use crate::session::SessionRecord;
 
@@ -308,7 +307,7 @@ impl Core {
         Ok(())
     }
 
-    /// The private sessions with human text since `from_ms` that no
+    /// The conversations in every place with human text since `from_ms` that no
     /// extraction read, the newest first, each with its lines, its moved
     /// mark and the names it was asked about: one scan of `judge:people`.
     fn sweep_plan(&self, from_ms: u64, now: u64) -> anyhow::Result<Vec<Due>> {
@@ -335,11 +334,7 @@ impl Core {
             }
         }
         let mut sessions: Vec<SessionRecord> = self.store.live_sessions()?;
-        sessions.retain(|s| {
-            s.task.is_none()
-                && s.last_active_ms >= from_ms
-                && self.runner.class_of(&s.session_id) == PlaceClass::Private
-        });
+        sessions.retain(|s| s.task.is_none() && s.last_active_ms >= from_ms);
         sessions.sort_by_key(|s| std::cmp::Reverse(s.last_active_ms));
         let mut plan = Vec::new();
         for s in sessions {

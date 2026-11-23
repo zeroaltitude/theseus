@@ -1,8 +1,8 @@
 //! `categorize.v1` in shadow and the parked-task invariant (M5 step 28b;
 //! design §3, "28b"), against the fake Jev: the `exchange_end` trigger;
 //! candidates from the kinds table; accept and reject write labels and an
-//! operator membership; a refused accept writes neither; a shared place's
-//! session and a task are never judged; a slow or failing Jev changes no
+//! operator membership; a refused accept writes neither; shared sessions
+//! are judged but task briefs are not; a slow or failing Jev changes no
 //! turn; and parked detection on scripted states.
 
 use std::collections::BTreeMap;
@@ -948,23 +948,22 @@ async fn a_refused_accept_writes_nothing() {
     );
 }
 
-/// A shared place's session is never judged (its compile walk reads no
-/// interpreted membership), however many messages arrive; nor is a task
-/// (its one human message is its brief), at the very exchange end that
-/// judges the same conversation.
+/// Shared conversations are labeled; task briefs still are not conversations.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_shared_place_and_a_task_are_never_judged() {
+async fn a_shared_place_is_judged_but_a_task_is_not() {
     let jev = FakeJev::start().unwrap();
     harbor_at(&jev, "harbor", 0.93);
     let r = rig(Some(&jev), 12, |_| {});
     let shared = session(&r.core, Some(&format!("channel:{LAB}")));
     moorings(&r.core, &shared, EVERY + 2).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(rows(&r.core.store, "judge.call").is_empty());
-    assert_eq!(jev.connections(), 0);
+    until_judged(&r.core.store, 1).await;
+    assert!(!rows(&r.core.store, "judge.call").is_empty());
+    assert!(jev.connections() > 0);
 
     // The same exchange end, due, handed over as a task's and as a
     // conversation's: only the conversation's is judged.
+    let jev = FakeJev::start().unwrap();
+    harbor_at(&jev, "harbor", 0.93);
     let off = rig(Some(&jev), 10, |c| {
         c.judge.packs.insert(
             "categorize.v1".into(),

@@ -1,7 +1,7 @@
 //! The nightly sweep (theseus-j8qb), with a fake model and a fake Jev: a
 //! private session whose gate shut is swept once (an extraction with the
 //! purpose `sweep`, Jev's judgment, a proposal), its live mark moved; a
-//! shared place's text and a session an extraction read are not; a second
+//! shared place is swept too, but already extracted text is not; a second
 //! run the same day finds nothing due and carries the day's spend, and so
 //! does a run whose window is put back over the text it read; a cap
 //! that cannot hold one session's worst case passes none and says so; and
@@ -38,7 +38,7 @@ async fn until_marked(r: &Rig, sid: &str) -> Mark {
 
 /// A rig whose gate shuts (Jev: no person not held is involved), with a
 /// private session and a shared one that each had a due exchange, the
-/// gate asked and the private mark moved with no extraction; the sweep's
+/// gate asked and the marks moved with no extraction; the sweep's
 /// cap `cap`.
 pub(super) async fn shut_gate(cap: f64) -> (FakeJev, Rig, String, String) {
     let jev = FakeJev::start().unwrap();
@@ -73,23 +73,28 @@ fn swept_rows(r: &Rig) -> Vec<crate::ledger::LedgerRow> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_sweep_extracts_what_the_gate_let_pass_once_in_private_places() {
+async fn the_sweep_extracts_what_the_gate_let_pass_once_in_every_place() {
     let (_jev, r, private, shared) = shut_gate(2.0).await;
     let before = until_marked(&r, &private).await;
     r.fake.when_tool(super::extract::TOOL, answer(json!([
         {"name": "Wren Halloway", "handles": [], "role_line": "Keeps the tide tables.", "evidence": ["L1"]}
     ])));
+    r.fake.when_tool(super::extract::TOOL, answer(json!([
+        {"name": "Wren Halloway", "handles": [], "role_line": "Keeps the tide tables.", "evidence": ["L1"]}
+    ])));
     let s = r.core.people_sweep("nightly").await.unwrap();
-    assert_eq!((s.due, s.swept, s.judged), (1, 1, 1), "{s:?}");
+    assert_eq!((s.due, s.swept, s.judged), (2, 2, 2), "{s:?}");
     assert!(s.stopped.is_none(), "{s:?}");
     let x = rows(&r.core.store, "people.extracted");
-    assert_eq!(x.len(), 1);
-    assert_eq!(x[0].session_id.as_deref(), Some(private.as_str()));
+    assert_eq!(x.len(), 2);
+    assert!(x
+        .iter()
+        .any(|e| e.session_id.as_deref() == Some(private.as_str())));
     assert_eq!(x[0].data["purpose"], "sweep");
     assert!(
         x.iter()
-            .all(|e| e.session_id.as_deref() != Some(shared.as_str())),
-        "a shared place is never swept"
+            .any(|e| e.session_id.as_deref() == Some(shared.as_str())),
+        "a shared place is swept too"
     );
     // The judgment is the sink's row, written as it lands.
     until_rows(&r.core.store, "judge.call", 1).await;
@@ -99,7 +104,9 @@ async fn the_sweep_extracts_what_the_gate_let_pass_once_in_private_places() {
         .ontology_proposals(&OntologyProposalsParams::default())
         .unwrap()
         .proposals;
-    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed.len(), 2, "one proposal in each conversation: {listed:?}");
+    assert!(listed.iter().any(|p| p.session_id == private));
+    assert!(listed.iter().any(|p| p.session_id == shared));
     assert_eq!(listed[0].person.as_ref().unwrap().name, "Wren Halloway");
     let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
     assert!(o
@@ -114,7 +121,7 @@ async fn the_sweep_extracts_what_the_gate_let_pass_once_in_private_places() {
     assert_eq!(row.len(), 1);
     assert_eq!(
         (row[0].data["trigger"].as_str(), row[0].data["due"].as_u64()),
-        (Some("nightly"), Some(1))
+        (Some("nightly"), Some(2))
     );
     let m: SweepMark = r.core.store.get_meta(LAST_RUN).unwrap().unwrap();
     assert!(m.spent_usd > 0.0, "{m:?}");
@@ -126,7 +133,7 @@ async fn the_sweep_extracts_what_the_gate_let_pass_once_in_private_places() {
     let row = swept_rows(&r);
     assert_eq!(row.len(), 2);
     assert_eq!(row[1].data["spent_before_usd"].as_f64(), Some(m.spent_usd));
-    assert_eq!(rows(&r.core.store, "people.extracted").len(), 1);
+    assert_eq!(rows(&r.core.store, "people.extracted").len(), 2);
 
     // The window back over the same text: still nothing due, because an
     // extraction read it (the newest extraction's point, not the window,
@@ -135,14 +142,14 @@ async fn the_sweep_extracts_what_the_gate_let_pass_once_in_private_places() {
     r.core.store.put_meta(LAST_RUN, &back).unwrap();
     let wide = r.core.people_sweep("nightly").await.unwrap();
     assert_eq!((wide.due, wide.swept), (0, 0), "{wide:?}");
-    assert_eq!(rows(&r.core.store, "people.extracted").len(), 1);
+    assert_eq!(rows(&r.core.store, "people.extracted").len(), 2);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_cap_that_cannot_hold_a_session_passes_none() {
     let (_jev, r, _private, _shared) = shut_gate(0.000_1).await;
     let s = r.core.people_sweep("missed").await.unwrap();
-    assert_eq!((s.due, s.swept), (1, 0), "{s:?}");
+    assert_eq!((s.due, s.swept), (2, 0), "{s:?}");
     assert!(
         s.stopped
             .as_deref()

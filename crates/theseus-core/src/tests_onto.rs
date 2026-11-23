@@ -933,13 +933,11 @@ async fn a_gps_tagged_picture_reaches_jev_without_its_gps_and_with_the_header() 
     assert!(!state.contains("skipped_images\":["), "{state}");
 }
 
-/// KEY: a picture in a shared place is asked about for its own sake:
-/// the request carries it, but no title, membership, candidate or name of the
-/// owner's goes with it, and nothing is filed from the answer.
+/// Shared pictures and text receive the same category questions and filing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_shared_places_picture_is_asked_without_candidates_and_files_nothing() {
+async fn a_shared_places_picture_is_asked_with_categories() {
     let jev = FakeJev::start().unwrap();
-    jev.script_onto("topic", "new", 0.95);
+    jev.script_onto("topic", "c1", 0.95);
     let r = rig(jev);
     operator_writes(
         &r.core,
@@ -961,31 +959,35 @@ async fn a_shared_places_picture_is_asked_without_candidates_and_files_nothing()
     .await;
     let seen = with_assets(&r.jev);
     assert_eq!(seen.len(), 1, "the shared place's picture is asked about");
-    let state = seen[0].body["state"].to_string();
+    let state = seen[0].body.to_string();
     assert!(
-        !state.contains("Ledger"),
-        "no category of the owner's: {state}"
+        state.contains("Ledger"),
+        "category evidence is present: {state}"
     );
     let asked = onto_questions(&seen[0]);
     assert!(asked.contains(&"image_subject".to_string()), "{asked:?}");
     assert!(
-        !asked.contains(&"topic".to_string()),
-        "no filing question: {asked:?}"
+        asked.contains(&"topic".to_string()),
+        "filing question: {asked:?}"
     );
+    r.core.runner.judge.flush_sink();
     let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
-    assert!(o.member_list(&sid, "topic").is_none(), "nothing filed");
+    assert!(
+        o.member_list(&sid, "topic").is_some(),
+        "shared pictures file categories"
+    );
     assert!(cards(&r.core).is_empty(), "no card");
 }
 
-/// A shared place's text-only message asks `onto.v1` nothing, as before.
+/// Shared text is labeled too.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_shared_places_text_message_still_asks_onto_nothing() {
+async fn a_shared_places_text_message_asks_onto() {
     let jev = FakeJev::start().unwrap();
     let r = rig(jev);
     let sid = bound_to(&r.core, "dm:77");
     crate::tests_route::turn(&r.core, Some(&sid), SAID, None).await;
     let asked_onto = r.jev.seen().iter().any(|s| !onto_questions(s).is_empty());
-    assert!(!asked_onto, "no onto question left for a shared place");
+    assert!(asked_onto, "shared text receives ontology labels");
 }
 
 /// The naming call asks its own target model's forcing: on a Sonnet profile

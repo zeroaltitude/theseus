@@ -6,9 +6,7 @@
 //! judgment's label.
 //!
 //! - **Where.** A turn of a conversation the baseline ended with no tool
-//!   calls, in a private place: a shared place's compile walk reads no
-//!   interpreted membership (the place rule), and a task's one human
-//!   message is its brief. Nothing is decided on the turn's path: the
+//!   calls, in any place. A task's one human message is its brief. Nothing is decided on the turn's path: the
 //!   turn's end spawns the decision, as `loop.v1`'s.
 //! - **When** ([`due`]): 10 human messages have arrived since the
 //!   session's last `categorize.v1` judgment, or this exchange began after
@@ -52,7 +50,6 @@ use theseus_store::kinds;
 
 use super::{spend, JudgeService, Prepared, ScrubWith};
 use crate::node::{Body, Node, Origin};
-use crate::places::PlaceClass;
 use crate::rpc::Core;
 
 /// The pack (design §2.4's `categorize.v1`).
@@ -315,15 +312,12 @@ impl JudgeService {
         rt.spawn(judge_categorize(self.me.clone(), pack, end));
     }
 
-    /// The blocking half: the place's class, the mark, the records after
+    /// The blocking half: the mark, the records after
     /// it, the trigger; then the state and its blob, and the mark to move
     /// once the reservation is made. `None`: nothing to send.
     fn prepare_categorize(&self, pack: Arc<Pack>, end: &ExchangeEnd) -> Option<(Prepared, Mark)> {
         let core = self.categorize.core.get()?.upgrade()?;
         let sid = end.session_id.as_str();
-        if core.runner.class_of(sid) != PlaceClass::Private {
-            return None;
-        }
         let mark = self.mark(sid);
         let (after, read) = nodes_after(&self.store, sid, mark.as_ref().map_or(0, |m| m.through))?;
         self.categorize.read.fetch_add(read, Ordering::Relaxed);

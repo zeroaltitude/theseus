@@ -426,53 +426,20 @@ fn a_text_attachment_keeps_its_first_2000_characters() {
     assert_eq!(state["attachments"][0]["name"], "notes.md");
 }
 
-/// A picture from a shared place gets only `image_subject` and the privacy
-/// questions, and no candidate, membership, title or name of any session.
+/// Place does not change descriptive labels or their evidence.
 #[test]
-fn a_shared_places_picture_gets_no_candidates() {
-    let (state, prepared) = onto_state(with_pictures(true, vec![picture("shot.png", 640, 480)]));
-    for f in ["thread", "project", "memberships", "mined_names"] {
-        assert!(state.get(f).is_none(), "{f} was sent from a shared place");
-    }
-    assert!(state.get("images").is_some());
+fn shared_and_private_places_get_identical_ontology_questions() {
+    let (shared_state, shared) =
+        onto_state(with_pictures(true, vec![picture("shot.png", 640, 480)]));
+    let (private_state, private) =
+        onto_state(with_pictures(false, vec![picture("shot.png", 640, 480)]));
+    assert_eq!(shared_state, private_state);
     let p = by_name("onto.v1").unwrap();
-    let asked = p.ask(&prepared.dynamic);
-    let ids: Vec<&str> = asked.iter().map(|a| a.id.as_str()).collect();
-    for q in [
-        "image_subject",
-        "shows_people",
-        "shows_screen_or_document",
-        "shows_identifiers",
-        "personal_applies",
-        "elicits",
-    ] {
-        assert!(ids.contains(&q), "{q}");
-    }
-    for q in [
-        "topic",
-        "project",
-        "event",
-        "resource",
-        "capability",
-        "expertise",
-        "kind_of_thing",
-    ] {
-        assert!(!ids.contains(&q), "{q} was asked in a shared place");
-    }
-    assert!(
-        !ids.iter()
-            .any(|q| q.ends_with("_name") || q.starts_with("still_")),
-        "{ids:?}"
+    assert_eq!(
+        asked_ids(&p, &shared.dynamic),
+        asked_ids(&p, &private.dynamic)
     );
-    // No candidate text reaches any option.
-    let wire = serde_json::to_string(&asked.iter().map(|a| a.question.clone()).collect::<Vec<_>>())
-        .unwrap();
-    assert!(!wire.contains("Alpha"));
-    assert!(!prepared.state.json.contains("Alpha"));
-    assert!(!prepared.state.json.contains("Lantern"));
-    // And the same input from a private place is asked as before.
-    let (_, private) = onto_state(with_pictures(false, vec![picture("shot.png", 640, 480)]));
-    assert!(asked_ids(&p, &private.dynamic).contains(&"topic".to_string()));
+    assert!(asked_ids(&p, &shared.dynamic).contains(&"topic".to_string()));
 }
 
 fn request_for(prepared: &crate::builders::Prepared) -> crate::client::Request {

@@ -28,11 +28,7 @@
 //! - `attachments`: a text-like attachment's first [`EXCERPT_CHARS`]
 //!   characters, `{name, excerpt}`.
 //!
-//! A message in a **shared place** is reduced ([`OntoInput::shared`]): the
-//! session's interpreted memberships, the thread and project titles, the
-//! candidates and the mined names are all left out, and no kind is asked, so
-//! what Jev sees of the pictures is only `image_subject` and the privacy
-//! questions, with no candidate from any private session (the place rule).
+//! The same evidence and category questions are offered in every place.
 
 use std::collections::BTreeSet;
 
@@ -151,8 +147,7 @@ pub struct OntoInput {
     /// Never serialized: a fact of this process, not of the state.
     #[serde(skip)]
     pub private_dirs: Vec<String>,
-    /// The message came from a shared place: only the pictures' own
-    /// questions are asked, with nothing of any session's.
+    /// Historical place metadata; it does not restrict descriptive labels.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub shared: bool,
 }
@@ -237,9 +232,6 @@ impl OntoInput {
     /// The kinds asked about that the pack has questions for, in the pack's
     /// order.
     fn asked(&self) -> Vec<&OntoKind> {
-        if self.shared {
-            return Vec::new();
-        }
         KINDS
             .iter()
             .filter_map(|k| self.kinds.iter().find(|o| o.kind == *k))
@@ -254,9 +246,6 @@ impl OntoInput {
     /// The names mined from the message and its session, at most ten, from
     /// the sources the asked kinds name.
     pub fn names(&self, message: &str, previous: Option<&str>) -> Vec<String> {
-        if self.shared {
-            return Vec::new();
-        }
         let mut sources: Vec<Mined> = Vec::new();
         for k in self.asked() {
             for s in k.mined() {
@@ -302,9 +291,6 @@ fn sources(kind: &str) -> Option<(Source, Source)> {
 pub(super) fn state(b: &mut StateBuilder, c: &Clipper, cap: u64, i: &super::InboundInput) {
     let Some(o) = &i.onto else { return };
     media(b, c, o);
-    if o.shared {
-        return;
-    }
     if let Some(t) = o.thread_title.as_deref().filter(|t| !t.trim().is_empty()) {
         b.scalar("thread", c.clip(t, 80)).cut_if("thread", c.cut());
     }
@@ -396,9 +382,6 @@ pub(super) fn dynamic(
     }
     if !shown.is_empty() {
         dynamic.sources.insert(Source::Images, shown);
-    }
-    if o.shared {
-        return;
     }
     for (k, picked) in o.asked().into_iter().zip(o.pick(&i.message)) {
         let Some((candidates, members)) = sources(&k.kind) else {

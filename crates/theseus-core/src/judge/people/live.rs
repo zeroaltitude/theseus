@@ -1,6 +1,6 @@
-//! `people.v1` live (theseus-wy7y): at a private conversation's exchange
+//! `people.v1` live (theseus-wy7y): at a conversation's exchange
 //! end, beside `categorize.v1` and on the same discipline: never a task's,
-//! never a shared place's (the place rule), off the turn's path (the turn's
+//! in every place, off the turn's path (the turn's
 //! end spawns it), one decision a session at a time. Its own due rule and
 //! mark: `categorize::due` over the records after the session's mark (META
 //! `judge.people.<session>`: 10 human messages since, or an exchange after
@@ -24,7 +24,6 @@ use super::{lines, seen, Line, PACK};
 use crate::judge::categorize::{due, is_human, ExchangeEnd, Mark};
 use crate::judge::JudgeService;
 use crate::node::Node;
-use crate::places::PlaceClass;
 use crate::rpc::Core;
 
 /// A session's mark: its last extraction, at META `judge.people.<session>`.
@@ -76,9 +75,6 @@ impl JudgeService {
 impl Core {
     /// The decision and, when due, the pass.
     async fn people_live(&self, sid: &str) {
-        if self.runner.class_of(sid) != PlaceClass::Private {
-            return;
-        }
         let key = format!("{MARK_PREFIX}{sid}");
         let read = theseus_store::blocking(|| -> anyhow::Result<_> {
             let mark: Option<Mark> = self.store.get_meta(&key)?;
