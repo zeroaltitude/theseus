@@ -31,6 +31,6 @@ the reader type still supports a restricted form, but the live view readers use 
 
 - `view.show {turn_id, text, tally}` and `theseus view show TURN [--text] [--tally]`: read the turn's newest
   32 views, optionally with text. The current `rpc/views.rs` read path does not require an owner-in-person
-  check. Do not treat this read as the separate owner-only `turn.inspect` act gate.
+  check. This describes a read, not authority to approve, publish or change policy.
 - `look.theseus` with `what: ["view"]`: Theseus reads this turn's newest view from its widest point of view,
   rechecking the sources. At most 60 pieces, then how many more readable pieces remain. Never text.
