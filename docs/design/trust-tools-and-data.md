@@ -2,24 +2,18 @@
 
 Notes for the core crate that the core's own guide has no room for.
 
-## Chat acts: seal, move, and a project's items
+## Chat acts: a project's items
 
 No act on what a person says is reached by matching the words of a message. `seal_by_word` and `moved_by_words`
-(and `is_seal_word`, `moved_words`, `words_may_move`) are gone; each act is a tool the model calls, offered only where
-the act is possible, and each has a command.
+were removed in 1.0.7; their replacement tools, `chat.seal_thread` and `chat.move_to_thread`, went away with
+activity threads on 2026-11-22. There is no thread router, seal command or move command now. Messages run in
+their place's conversation, and old thread records remain readable through list/show.
 
-- `chat.seal_thread` (`chat_acts/threads.rs`): offered in the session of an unsealed thread, takes that thread's slug
-  and nothing else, seals through `thread.seal` as the owner who spoke. Commands: `/thread seal`, `theseus thread seal`.
-- `chat.move_to_thread` (`chat_acts/threads.rs`): offered where the router placed a message before this one and another
-  live thread, or home, exists. It stages the move; `Core::carry_out_move` runs it when the turn ends, because a move
-  stops a turn running in the wrong thread, which can be the turn making the call. Commands: `/move` and
-  `theseus thread move`, which act at once. (The owner's answer 7: A.)
 - `project.item_add|close|list` (`chat_acts/items.rs`): offered in a conversation attached to a project. An item is a
   task record of kind `item` under the project (what a plan step already was), so there is no new record kind and no
   store format change. Wire: `project.item.add|close|list` (`rpc/project_items.rs`). Commands: `theseus project item`,
   `/project item`.
-- Thread routing still reads words (`thread_route::address`, `pre_route`) and chooses a thread for a message; it moves
-  nothing already written. Two judges read words for hints. None of it acts on a match.
+- Correction and capture readers can give Jev hints from words. That is not authority to carry out a chat act.
 
 ## A refusal is a call that never ran
 

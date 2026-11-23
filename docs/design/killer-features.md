@@ -20,7 +20,7 @@ be far ahead on memory, personality, speed, scale and tasks at every horizon.
 | | Feature | The sentence a developer would repeat | Where it stands |
 |---|---|---|---|
 | 1 | **Tasks at every horizon** | "I started it on Monday, answered its one question from my phone, and it finished on Wednesday, through two upgrades." | Built, in daily use |
-| 2 | **A thread for each line of work** | "Each thing I'm working on has its own thread and its own context, and my message lands in the right one." | Built, in daily use |
+| 2 | **A thread for each line of work** | "Each thing I'm working on has its own thread and its own context, and my message lands in the right one." | Retired 2026-11-22; historical pitch below |
 | 3 | **One memory** | "It remembered what I decided last week in another channel, and linked the message." | Built; dates are its weak spot |
 | 4 | **A self-guided, expanding ontology** | "It worked out for itself who I work with and what I work on, and it files everything under them." | Built, in daily use |
 | 5 | **Jev picks the model** | "A thank-you costs a fraction of a cent, a hard refactor gets the big model, and it tells me why." | Built, in daily use |
@@ -53,12 +53,15 @@ never grows. A task with nothing to do is a record on disk, so thousands can wai
 
 **More:** [durable tasks](../features/durable-tasks.md).
 
-## 2. A thread for each line of work
+## 2. A thread for each line of work (historical)
+
+Retired on 2026-11-22: messages now run in their place's conversation. Only read-only thread list/show remain;
+the pitch and status below record the 2026-11-14 design, not current controls.
 
 **The pitch.** The owner called this the feature that moved him over: separate lines of work that do not bleed into
 each other, each with the context it needs and nothing else.
 
-**Today.** A thread holds the repositories, branches and paths of one piece of work. A router places each incoming
+**On 2026-11-14.** A thread held the repositories, branches and paths of one piece of work. A router places each incoming
 message by them and asks in one line when it cannot tell; a thread you name always wins. Two threads' turns can
 overlap in time. Recall reaches across threads when it should.
 
@@ -74,7 +77,7 @@ first day.
 
 **Today.** Recall runs in front of the model on every turn, with a judged order. `theseus import` brings in history
 from Claude Code, Codex and OpenClaw. OpenClaw's is kept current by a nightly sync that can also be run on demand;
-the other two are imported again by hand. Every persona, thread and task draws on the same memory.
+the other two are imported again by hand. Every persona, conversation and task draws on the same memory.
 
 **Rough edges.** Dates are the weak kind of fact. The vector half of recall has a 250 ms deadline that it does not
 always meet on a large store.
