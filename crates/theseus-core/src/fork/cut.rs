@@ -8,10 +8,13 @@
 //!   selector (its facts are none). It is [`Reach::Through`] when it began before the cut and did not end
 //!   inside it (a fork at the person's message): its nodes are laid through the cut, and its `did` line, which
 //!   summarises the whole exchange, is never laid. Otherwise it is [`Reach::Inside`].
-//! - **A fold** is laid only when every exchange it stands for (the stored node's own list) is inside the cut,
-//!   by position: never by its exchanges' start times, which are the wall clock and may step back. A fold
-//!   that cannot be read, or one of whose exchanges cannot, is not laid; no summary is regenerated. A fold of
-//!   other sessions alone is laid as for any session.
+//! - **A fold** is laid only when every exchange it stands for (the stored node's own list) is PROVEN inside
+//!   the cut, by position: never by its exchanges' start times, which are the wall clock and may step back.
+//!   An ancestor's exchange is proven inside only when every node it names (its messages, its ask, its reply)
+//!   is found and all of them are at or before the cut ([`Cut::proven_inside`]): a missing node, or none read,
+//!   proves nothing, and the fold is not laid. A fold that cannot be read, or one of whose exchanges cannot, is
+//!   not laid; no summary is regenerated. A fold of other sessions alone is laid as for any session.
+//! - **A `did` line**, which summarises a whole exchange as a fold does, is laid on the same proof.
 //!
 //! What it reads, and what bounds it: [`Cut::of`] reads the chain of fork origins (one session record per
 //! ancestor, at most [`DEPTH`]) and each fork point's node (one keyed read per ancestor); no transcript.
@@ -80,13 +83,7 @@ impl Cut {
         let Some(cut) = self.at.get(&ex.session_id) else {
             return Ok(Reach::Inside);
         };
-        let ids = (ex.messages.iter().chain(&ex.ask).chain(&ex.reply)).map(String::as_str);
-        let mut positions = Vec::new();
-        for id in ids {
-            if let Some((p, _)) = store.get_node(id)? {
-                positions.push(p);
-            }
-        }
+        let (positions, _) = positions(store, ex)?;
         let (Some(first), Some(last)) = (positions.iter().min(), positions.iter().max()) else {
             return Ok(Reach::Inside);
         };
@@ -97,8 +94,19 @@ impl Cut {
         })
     }
 
-    /// Whether the stored fold `handle` may be laid: every exchange it stands for is inside the cut, by its
-    /// nodes' positions. A fold that cannot be found, or one of whose exchanges cannot, is not laid.
+    /// Whether a summary of `ex` (its fold, its `did` line) may be laid: an exchange of a session the cut does
+    /// not name, always; an ancestor's only when every node it names is found and the exchange is
+    /// [`Reach::Inside`]. A missing node, or none at all, proves nothing; a read that fails is an error.
+    pub fn proven_inside(&self, store: &Store, ex: &Exchange) -> anyhow::Result<bool> {
+        if !self.at.contains_key(&ex.session_id) {
+            return Ok(true);
+        }
+        let (positions, missing) = positions(store, ex)?;
+        Ok(!missing && !positions.is_empty() && self.reach(store, ex)? == Reach::Inside)
+    }
+
+    /// Whether the stored fold `handle` may be laid: every exchange it stands for is proven inside the cut
+    /// ([`Cut::proven_inside`]). A fold that cannot be found, or one of whose exchanges cannot, is not laid.
     pub fn fold_inside(&self, store: &Store, handle: &str) -> anyhow::Result<bool> {
         if self.is_empty() {
             return Ok(true);
@@ -110,12 +118,26 @@ impl Cut {
             let Some(ex) = crate::exchange::exchange(store, turn)? else {
                 return Ok(false);
             };
-            if self.reach(store, &ex)? != Reach::Inside {
+            if !self.proven_inside(store, &ex)? {
                 return Ok(false);
             }
         }
         Ok(true)
     }
+}
+
+/// The positions of the nodes `ex` names (its messages, its ask, its reply), and whether any of them is not in
+/// the store. A read that fails is an error.
+fn positions(store: &Store, ex: &Exchange) -> anyhow::Result<(Vec<u64>, bool)> {
+    let ids = (ex.messages.iter().chain(&ex.ask).chain(&ex.reply)).map(String::as_str);
+    let (mut out, mut missing) = (Vec::new(), false);
+    for id in ids {
+        match store.get_node(id)? {
+            Some((p, _)) => out.push(p),
+            None => missing = true,
+        }
+    }
+    Ok((out, missing))
 }
 
 #[cfg(test)]

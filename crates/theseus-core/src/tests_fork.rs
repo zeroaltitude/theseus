@@ -1239,34 +1239,7 @@ async fn a_fold_is_cut_by_its_exchanges_positions_not_by_their_clock() {
     let (s, nodes) = three_turns(&r).await;
     let f = fork(&r.core, &s, &nodes[3].0); // through the answer to "two"
     let (one, three) = (turn_of(&r.core, &nodes[0].0), turn_of(&r.core, &nodes[4].0));
-    let stored = |id: &str, exchanges: Vec<String>, ms: u64| {
-        let n = crate::ladder::fold::FoldNode {
-            id: id.into(),
-            place: "local".into(),
-            level: 1,
-            exchanges,
-            first_ms: ms,
-            last_ms: ms,
-            his: vec![],
-            counted: 0,
-            children: vec![],
-            title: String::new(),
-            account: "what was said there".into(),
-            marks: crate::view::Marks {
-                place: Some("local".into()),
-                audience: crate::view::Audience::Private,
-                author: crate::view::Author::Theseus,
-                outside: false,
-                sealed: false,
-                veiled: false,
-            },
-            model: None,
-            writer: 1,
-            at_ms: ms,
-        };
-        let records = crate::ladder::fold::records(&n).unwrap();
-        r.core.store.append(&records).unwrap();
-    };
+    let stored = |id: &str, exchanges: Vec<String>, ms: u64| store_fold(&r.core, id, exchanges, ms);
     stored("fold.later", vec![three], 1);
     stored("fold.before", vec![one], u64::MAX / 2);
     stored("fold.unread", vec!["turn_gone".into()], 1);
@@ -1286,4 +1259,91 @@ async fn a_fold_is_cut_by_its_exchanges_positions_not_by_their_clock() {
         none.fold_inside(&r.core.store, "fold.later").unwrap(),
         "no fork: every fold"
     );
+}
+
+/// A first-level fold of `exchanges` at the place `local`, stored as the ladder stores one, its times `ms`.
+fn store_fold(core: &Core, id: &str, exchanges: Vec<String>, ms: u64) {
+    let n = crate::ladder::fold::FoldNode {
+        id: id.into(),
+        place: "local".into(),
+        level: 1,
+        exchanges,
+        first_ms: ms,
+        last_ms: ms,
+        his: vec![],
+        counted: 0,
+        children: vec![],
+        title: String::new(),
+        account: "what was said there".into(),
+        marks: crate::view::Marks {
+            place: Some("local".into()),
+            audience: crate::view::Audience::Private,
+            author: crate::view::Author::Theseus,
+            outside: false,
+            sealed: false,
+            veiled: false,
+        },
+        model: None,
+        writer: 1,
+        at_ms: ms,
+    };
+    let records = crate::ladder::fold::records(&n).unwrap();
+    core.store.append(&records).unwrap();
+}
+
+/// A summary is laid for a fork only on complete proof of position (issue 44, round 2c). An ancestor's
+/// exchange whose referenced reply node is missing, one none of whose nodes can be read, and one that names
+/// none are not proven before the point, so neither a fold over them nor their `did` line is laid. The same
+/// exchange with every node read is.
+#[tokio::test]
+async fn a_summary_needs_every_node_of_its_exchange_proven_before_the_point() {
+    let r = rig();
+    let (s, nodes) = three_turns(&r).await;
+    let f = fork(&r.core, &s, &nodes[3].0); // through the answer to "two"
+    let one = turn_of(&r.core, &nodes[0].0);
+    let whole = crate::exchange::exchange(&r.core.store, &one)
+        .unwrap()
+        .unwrap();
+    let mut no_reply = whole.clone();
+    no_reply.turn_id = "turn_no_reply".into();
+    no_reply.reply = Some("nod_gone".into());
+    let mut unread = whole.clone();
+    unread.turn_id = "turn_unread".into();
+    unread.messages = vec!["nod_gone_too".into()];
+    unread.ask = Some("nod_gone_too".into());
+    unread.reply = Some("nod_gone_three".into());
+    let mut empty = whole.clone();
+    empty.turn_id = "turn_empty".into();
+    empty.messages = vec![];
+    empty.ask = None;
+    empty.reply = None;
+    for ex in [&no_reply, &unread, &empty] {
+        let record = crate::exchange::exchange_record(ex).unwrap();
+        r.core.store.append(&[record]).unwrap();
+        store_fold(
+            &r.core,
+            &format!("fold.{}", ex.turn_id),
+            vec![ex.turn_id.clone()],
+            1,
+        );
+    }
+    store_fold(&r.core, "fold.whole", vec![one.clone()], 1);
+    let cut = crate::fork::cut::Cut::of(&r.core.store, &f.session_id).unwrap();
+    let store = &r.core.store;
+    assert!(
+        cut.proven_inside(store, &whole).unwrap(),
+        "every node read, before the point"
+    );
+    assert!(cut.fold_inside(store, "fold.whole").unwrap());
+    let read = crate::view::sources_store::Sessions::with_cut(cut.clone());
+    assert!(read.summarised(store, &one).unwrap());
+    for ex in [&no_reply, &unread, &empty] {
+        let t = &ex.turn_id;
+        assert!(!cut.proven_inside(store, ex).unwrap(), "{t}: not proven");
+        assert!(
+            !cut.fold_inside(store, &format!("fold.{t}")).unwrap(),
+            "{t}: its fold"
+        );
+        assert!(!read.summarised(store, t).unwrap(), "{t}: its did line");
+    }
 }

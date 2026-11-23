@@ -104,7 +104,7 @@ impl Sessions {
             return Ok(true);
         }
         Ok(match exchange::exchange(store, turn)? {
-            Some(ex) => self.reach(store, &ex)? == crate::fork::cut::Reach::Inside,
+            Some(ex) => self.cut.proven_inside(store, &ex)?,
             None => true,
         })
     }
@@ -204,6 +204,10 @@ impl StoreSources<'_> {
             (Opener::Message | Opener::Prompt | Opener::Unknown, None) => Author::Unknown,
             _ => Author::Theseus,
         };
+        // Its `did` line summarises the whole exchange: laid only on proof that all of it is before a fork's
+        // point (`fork::cut::Cut::proven_inside`).
+        let summarised = reach == crate::fork::cut::Reach::Inside
+            && self.sessions.cut.proven_inside(self.store, &ex)?;
         Ok(Some(ExchangeFacts {
             marks: Marks {
                 place: Some(ex.place.clone()),
@@ -226,11 +230,9 @@ impl StoreSources<'_> {
             reply,
             tools,
             stubs,
-            did: match reach {
-                crate::fork::cut::Reach::Inside => {
-                    did::did(self.store, turn_id)?.map(|d| tokens(&d.line))
-                }
-                _ => None,
+            did: match summarised {
+                true => did::did(self.store, turn_id)?.map(|d| tokens(&d.line)),
+                false => None,
             },
             handle: Handle(turn_id.to_string()),
         }))
