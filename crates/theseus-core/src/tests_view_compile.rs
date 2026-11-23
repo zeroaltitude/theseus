@@ -1235,8 +1235,9 @@ async fn a_finished_exchanges_clock_line_is_headed_as_the_harnesss_and_no_person
 /// recent exchanges are a run of that same line (three here, five at another terminal place), with recall live.
 /// The request the view compiles is printed whole (each message's role, each block's size, head and end, and
 /// the block beside the message line by line). It must end with the person's line; and the harness's block
-/// beside it must say it is context, not the person's words and not a request, and must not head itself with
-/// an agenda of topics (what is waiting, in play, said elsewhere, called), which a model read on build 190 as
+/// beside it must say it is the harness's context and not a new request, must not disown its items (some are
+/// the person's own words, said elsewhere, each under its own framing), and must not head itself with an
+/// agenda of topics (what is waiting, in play, said elsewhere, called), which a model read on build 190 as
 /// the thing to report instead of answering the line.
 #[tokio::test]
 async fn x190_a_fresh_terminal_line_after_a_run_of_it_elsewhere_is_what_the_request_ends_with() {
@@ -1328,8 +1329,12 @@ async fn x190_a_fresh_terminal_line_after_a_run_of_it_elsewhere_is_what_the_requ
         .expect("the block beside the message (recall laid it)");
     let head = beside.lines().next().unwrap_or_default();
     assert!(
-        head.contains("not the person's words") && head.contains("not a request"),
-        "the block says what it is not: {head}"
+        head.contains("Harness-supplied context") && head.contains("not a new request"),
+        "the block says whose it is and that it asks for nothing: {head}"
+    );
+    assert!(
+        !head.contains("not the person's words"),
+        "it disowns no item: some are the person's words, each under its own framing: {head}"
     );
     for agenda in ["what is waiting", "in play", "said elsewhere", "called"] {
         assert!(
