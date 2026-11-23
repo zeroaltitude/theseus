@@ -863,6 +863,10 @@ pub async fn gate_with_benches(p: &Place, tree: &Tree) -> Result<Gated> {
 /// kept beside the gate's. The tree stays for as long as it runs (`tree_lease`).
 pub async fn rerun_tests(p: &Place, tree: &Tree, expr: &str) -> Result<(Option<i32>, PathBuf)> {
     let _lease = super::tree_lease::Lease::take(&[&tree.dir, &tree.target]);
+    let packages = super::deps::provide(p, tree).await;
+    if let super::deps::Provided::Refused { why, .. } = &packages {
+        bail!("{why}");
+    }
     std::fs::create_dir_all(p.gates())?;
     let log = p
         .gates()
@@ -940,7 +944,8 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<Gated> {
     // A branch whose lock files differ from main's has its packages fetched first, by
     // this code and from the registries (`deps`); one that may not be fetched is red
     // with the reason, and the gate never starts.
-    if let super::deps::Provided::Refused { why, infra } = super::deps::provide(p, tree).await {
+    let packages = super::deps::provide(p, tree).await;
+    if let super::deps::Provided::Refused { why, infra } = &packages {
         std::fs::write(&log, format!("gate: {why}\n"))?;
         return Ok(Gated::Ran(GateRun {
             verdict: Verdict::Red,
@@ -949,7 +954,7 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<Gated> {
             log,
             secs: t0.elapsed().as_secs(),
             tail: format!("gate: {why}"),
-            unrunnable: infra,
+            unrunnable: *infra,
         }));
     }
     let status = match p.jail()? {

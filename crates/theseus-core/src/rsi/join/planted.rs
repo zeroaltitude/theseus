@@ -372,7 +372,7 @@ impl Tests for Cargo {
 pub(super) fn in_l1(jail: &Jail, p: &Place, t: &Tree, expr: &str) -> Result<(Ran, String)> {
     // A branch that changed its lock files has its packages in the cache the gate made for the
     // same lock files, and made again here when that one is gone (`deps`).
-    crate::rsi::deps::provide_blocking(p, t)?;
+    let _packages = crate::rsi::deps::provide_blocking(p, t)?;
     std::fs::create_dir_all(p.gates())?;
     let log = p.gates().join(format!("planted-{}.log", t.slug));
     let argv = [
