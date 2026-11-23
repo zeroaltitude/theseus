@@ -1352,3 +1352,93 @@ async fn a_later_wave_gets_a_full_hand_lifetime_at_dispatch() {
         "the reaper must follow the hand's own clock"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_accepted_launch_with_a_dropped_connection_keeps_its_reservation() {
+    use super::tests_hands::{answer, core_at, State};
+    use crate::aws::tests::Fake;
+    use std::sync::Arc;
+    let state = Arc::new(State::default());
+    state.nat.store(true, Ordering::SeqCst);
+    let s = state.clone();
+    let fake = Fake::start(move |seen, n| {
+        let reply = answer(&s, seen, n);
+        if seen
+            .header("x-amz-target")
+            .is_some_and(|h| h.ends_with(".RunTask"))
+        {
+            (0, vec![], String::new())
+        } else {
+            reply
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let core = core_at(
+        dir.path(),
+        &fake.url,
+        calls(json!({"argv": ["true"], "backend": "fargate"})),
+    );
+    turn(&core, "run a hand").await;
+    let rec = record(&core, &group_of(&core));
+    let hand = core
+        .kernel
+        .action(&rec.hands[0].correlation_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.ran.lock().unwrap().len(), 1, "AWS accepted it");
+    assert_eq!(
+        hand.state,
+        ActionState::OutcomeUnknown,
+        "not proof that nothing ran"
+    );
+    let exec = core.kernel.execution(&rec.execution_id).unwrap().unwrap();
+    assert!(exec.budget.held_unknown_micros >= hand.reserved_micros);
+    assert!(hand.reserved_micros > 0);
+    let aws = core.tools.aws.as_ref().unwrap();
+    let ctx = super::group::Ctx {
+        kernel: &core.kernel,
+        store: &core.store,
+        aws,
+    };
+    let before = fake.seen().len();
+    for _ in 0..3 {
+        assert_eq!(super::cancel::verify(&ctx, &rec).await.unwrap(), 0);
+        assert!(!super::overdue::pass(&ctx, &rec, u64::MAX).await.unwrap());
+    }
+    assert_eq!(
+        fake.seen().len(),
+        before,
+        "unknown without an ARN has no per-group cloud probe"
+    );
+    assert_eq!(
+        core.kernel
+            .execution(&rec.execution_id)
+            .unwrap()
+            .unwrap()
+            .budget
+            .held_unknown_micros,
+        exec.budget.held_unknown_micros
+    );
+    let spec: HandSpec = serde_json::from_str(
+        state.ran.lock().unwrap()[0]["overrides"]["containerOverrides"][0]["environment"][0]
+            ["value"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    state.push(signed(&spec, "succeeded", 0));
+    core.poll_hands_after_serving();
+    until("the unknown launch resolved", || {
+        state_of(&core, &hand.correlation_id) == ActionState::Succeeded
+    })
+    .await;
+    assert_eq!(
+        core.kernel
+            .execution(&rec.execution_id)
+            .unwrap()
+            .unwrap()
+            .budget
+            .held_unknown_micros,
+        0
+    );
+}

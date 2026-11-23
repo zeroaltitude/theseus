@@ -142,16 +142,51 @@ pub fn open_groups(core: &Core) -> Result<Vec<GroupRecord>> {
 /// envelope.
 const LATE_GRACE_MS: u64 = 5 * 60 * 1000;
 
+fn unknown_pause(unknown_only: bool, round: &mut u32) -> Duration {
+    if !unknown_only {
+        *round = 0;
+        return Duration::ZERO;
+    }
+    let seconds = if *round == 0 {
+        0
+    } else {
+        (60_u64 << (*round - 1).min(6)).min(3600)
+    };
+    *round = round.saturating_add(1);
+    Duration::from_secs(seconds)
+}
+
 /// The poller's loop. It holds the core while it reads or writes the store
 /// and takes a batch, never across a poll's wait.
 pub async fn run(core: Weak<Core>, aws: Arc<Aws>) {
     let mut first = true;
+    let mut unknown_round = 0;
     loop {
         let Some(c) = core.upgrade() else { return };
         let open = open_groups(&c).unwrap_or_else(|e| {
             tracing::warn!(error = %format!("{e:#}"), "hands: reading the open groups failed");
             Vec::new()
         });
+        // With only unknown hands left, the shared queue must not be polled
+        // every twenty seconds forever. This changes no reservation or state.
+        let unknown_only = !open.is_empty()
+            && open.iter().all(|g| {
+                group::hands(&c.kernel, g).is_ok_and(|hands| {
+                    hands.iter().any(|a| a.state == ActionState::OutcomeUnknown)
+                        && hands.iter().all(|a| {
+                            a.state != ActionState::Dispatched
+                                && !matches!(
+                                    a.cancel,
+                                    Some(
+                                        CancelState::Acknowledged
+                                            | CancelState::OutcomeUncertain
+                                            | CancelState::Unsupported
+                                    )
+                                )
+                        })
+                })
+            });
+        let pause = unknown_pause(unknown_only, &mut unknown_round);
         // Health's hands block and the hour's meter, at every pass (part 2).
         if let Err(e) = super::watch::refresh(&c, &aws.hands.reaper) {
             tracing::warn!(error = %format!("{e:#}"), "hands: reading the hands for health failed");
@@ -163,6 +198,12 @@ pub async fn run(core: Weak<Core>, aws: Arc<Aws>) {
         if open.is_empty() {
             aws.hands.wake.notified().await;
             continue;
+        }
+        if !pause.is_zero() {
+            tokio::select! {
+                () = tokio::time::sleep(pause) => {},
+                () = aws.hands.wake.notified() => { unknown_round = 0; continue; }
+            }
         }
         // Each hand whose stop was asked and not yet seen: read by
         // `DescribeTasks` (part 2).
@@ -629,5 +670,20 @@ async fn step(core: &Core, aws: &Arc<Aws>, group: &str) {
     };
     if let Err(e) = group::step(&ctx, group).await {
         tracing::warn!(group, error = %format!("{e:#}"), "hands: a step");
+    }
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+    #[test]
+    fn unknown_only_polling_backs_off_without_settling_money() {
+        let mut round = 0;
+        let got: Vec<_> = (0..10)
+            .map(|_| unknown_pause(true, &mut round).as_secs())
+            .collect();
+        assert_eq!(got, [0, 60, 120, 240, 480, 960, 1920, 3600, 3600, 3600]);
+        assert_eq!(unknown_pause(false, &mut round), Duration::ZERO);
+        assert_eq!(unknown_pause(true, &mut round), Duration::ZERO);
     }
 }
