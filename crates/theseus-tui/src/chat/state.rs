@@ -3,7 +3,7 @@
 //! [`Effect`]s, with the finished lines in [`Chat::out`] for the scrollback
 //! (the runner writes them once and never again).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crossterm::event::KeyEvent;
@@ -77,8 +77,9 @@ pub enum Purpose {
     /// The turns above the replay, for `/history`.
     Earlier(String),
     History(String),
+    Recover(String, u64),
     Watch,
-    Submit,
+    Submit(String),
     Answer,
     Typing,
     /// `execution.stop`: Esc.
@@ -145,6 +146,8 @@ pub struct Call {
 
 #[derive(Debug)]
 pub enum Effect {
+    /// Retry a failed history reconciliation with the connection backoff.
+    RecoverLater(String),
     Call(Call),
     /// Write this directory's history file.
     SaveHistory(Vec<String>),
@@ -213,6 +216,12 @@ pub struct Chat {
     /// A queued message was sent and its turn has not begun.
     pub(super) released: bool,
     pub offline: bool,
+    pub(super) recovery_epoch: u64,
+    pub(super) recovering: HashSet<String>,
+    /// Highest transcript node shown in each visited session.
+    pub(super) shown_nodes: HashMap<String, u64>,
+    /// Last turn actually rendered here, not merely observed while away.
+    pub(super) shown_turns: HashMap<String, String>,
     /// Tasks this session started that are open, from the task changes seen
     /// since the chat began (cli-tasks brings the board's own count).
     pub tasks: u32,
@@ -306,6 +315,10 @@ impl Chat {
             queued: Vec::new(),
             released: false,
             offline: false,
+            recovery_epoch: 0,
+            recovering: HashSet::new(),
+            shown_nodes: HashMap::new(),
+            shown_turns: HashMap::new(),
             tasks: 0,
             task_open: Default::default(),
             board: Default::default(),
@@ -401,6 +414,10 @@ impl Chat {
             if main != sid {
                 out.push(Self::watch_session(&main));
             }
+            out.extend(self.recover_session(&sid));
+            if main != sid {
+                out.extend(self.recover_session(&main));
+            }
             out.extend(self.reconnect_call(away));
             return out;
         }
@@ -439,7 +456,14 @@ impl Chat {
     }
 
     pub fn disconnected(&mut self) {
+        self.recovery_epoch = self.recovery_epoch.wrapping_add(1);
         self.at_lost();
+        if let Some(sid) = self.session.clone() {
+            self.recovering.insert(sid);
+        }
+        if let Some(sid) = self.main_session() {
+            self.recovering.insert(sid);
+        }
         // The four /why answers die with the connection's pending calls.
         self.why = None;
         if !self.offline {
@@ -773,13 +797,17 @@ impl Chat {
 
     /// Enter: a command runs, a message goes as one `turn.submit`.
     pub fn submit(&mut self) -> Vec<Effect> {
+        self.submit_with_policy(false)
+    }
+
+    pub(super) fn submit_with_policy(&mut self, now: bool) -> Vec<Effect> {
         if self.ask.note {
             return self.send_note();
         }
         // A message that names @files must name listed ones, or it is not sent;
         // a command line skips the `@` rule, its re-read too -- `!` is a command
         // line too (its whole rest is a shell command, never an @ file name).
-        let resolved = if matches!(
+        let mut resolved = if matches!(
             self.editor.text().trim_start().chars().next(),
             Some('/') | Some('!')
         ) {
@@ -796,6 +824,7 @@ impl Chat {
                 }
             }
         };
+        resolved.send_now = now;
         if !resolved.images.is_empty() {
             if self.view.is_some() {
                 self.flash("an image is not carried to a task · /back to the conversation");
@@ -851,6 +880,10 @@ impl Chat {
         }
         self.last_said = Some(text.clone());
         let mut effects = vec![Effect::SaveHistory(self.editor.history().to_vec())];
+        if resolved.send_now {
+            effects.extend(self.dispatch_now(taken));
+            return effects;
+        }
         if self.must_queue() {
             self.enqueue(taken);
             return effects;
@@ -912,7 +945,7 @@ impl Chat {
             params["profile"] = json!(p);
             params["carried"] = json!(true);
         }
-        call(method::TURN_SUBMIT, params, Purpose::Submit)
+        call(method::TURN_SUBMIT, params, Purpose::Submit(sid.into()))
     }
 
     /// Shift+Tab: the next mode, asked of the daemon, which says whether it

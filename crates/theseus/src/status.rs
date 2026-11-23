@@ -186,19 +186,25 @@ pub async fn run(socket: &str, spawn: Option<&str>, json: bool, a: &StatusArgs) 
     // after its output, as `history` does. `--short` and `--json` are a status
     // bar's and a script's polls, and show no one anything.
     if !a.short && !json {
-        mark_shown(&mut conn, &board).await;
+        mark_shown(&board);
     }
     conn.close().await
 }
 
-/// The sessions the board showed, recorded as seen.
-async fn mark_shown(conn: &mut Conn, board: &Board) {
-    let shown: Vec<String> = board
+fn displayed_views(board: &Board) -> Vec<ExecutionView> {
+    board
         .ordered()
-        .iter()
-        .map(|v| v.session_id.clone())
-        .collect();
-    theseus_client::shown::shown(conn, &shown).await;
+        .into_iter()
+        .take(MAX_ROWS)
+        .cloned()
+        .collect()
+}
+
+/// The sessions the board showed, recorded as seen.
+fn mark_shown(board: &Board) {
+    if theseus_client::client::job_session().is_none() {
+        theseus_client::shown::record(&displayed_views(board));
+    }
 }
 
 /// The daemon's own jobs running (`⚙ importing 41/120`), from the work board,

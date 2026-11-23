@@ -1204,6 +1204,7 @@ async fn pump(
                     detail,
                 );
             }
+            Event::Probed { speaker, usage } => book_probe(&shared, &place, speaker, usage),
             Event::Synthesized {
                 what,
                 usage,
@@ -1268,6 +1269,23 @@ async fn pump(
         let why = call.dropped.clone().unwrap_or_else(|| "ended".into());
         ended(&shared, &call, &why, "the connection");
     }
+}
+
+/// A successful floor probe was paid for even when no utterance followed it.
+fn book_probe(
+    shared: &Arc<Shared>,
+    place: &VoicePlace,
+    speaker: Speaker,
+    usage: theseus_voice::Usage,
+) {
+    book(
+        shared,
+        place,
+        SpeechKind::Transcribed,
+        usage,
+        Duration::ZERO,
+        json!({"speaker": speaker.0.to_string(), "probe": true}),
+    );
 }
 
 /// A cut or a resumed stop (theseus-qb8o): a cut's note for the next voice

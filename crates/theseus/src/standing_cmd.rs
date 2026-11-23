@@ -28,9 +28,9 @@ pub enum StandingCmd {
         all: bool,
     },
     /// Add a record: what every prompt of its scope carries until you revoke it. An order is
-    /// followed, a preference honoured, a fact known. Preferences and facts stay private: a
-    /// shared place gets the orders' text and only a line about the rest. Only you, from a
-    /// private place (the CLI is one), may.
+    /// followed, a preference honoured, a fact known. Every place gets every record, shared
+    /// places too: none is withheld by place. Only you, from a private place (the CLI is one),
+    /// may.
     Add {
         /// `order` (default), `preference`, or `fact`.
         #[arg(long, default_value = "order")]
@@ -525,5 +525,22 @@ mod tests {
             record: None
         })
         .starts_with("Dismissed stp_0123456789ab"));
+    }
+    /// Since 2026-11-22 every place gets every record: `standing add --help`
+    /// no longer says preferences and facts stay private.
+    #[test]
+    fn standing_add_promises_no_privacy_by_place() {
+        use clap::{CommandFactory, Parser};
+        #[derive(Parser)]
+        struct Standing {
+            #[command(subcommand)]
+            cmd: StandingCmd,
+        }
+        let mut c = Standing::command();
+        let add = c.find_subcommand_mut("add").unwrap();
+        let help = add.render_long_help().to_string();
+        let help = help.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(!help.contains("stay private"), "{help}");
+        assert!(help.contains("none is withheld by place"), "{help}");
     }
 }

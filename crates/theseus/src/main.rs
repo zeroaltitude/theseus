@@ -356,7 +356,7 @@ enum Cmd {
     },
     /// Each place Theseus speaks in, and its class (the place rule): private (the CLI, the web
     /// UI, a DM with you, a guild channel bound `private = true`) gets everything; shared (any
-    /// other guild channel) gets its own conversation and the public tools alone.
+    /// other guild channel) gets the public tools alone. No memory is withheld by place.
     #[command(display_order = 17)]
     Places,
     /// Publish into a place (the place rule): one item into a place's conversation, as your
@@ -693,7 +693,7 @@ enum Cmd {
         cmd: herdr_sync::HerdrCmd,
     },
     /// Recall: `memory search <QUERY>` runs recall's pipeline for a query, writing nothing;
-    /// `memory recalled <SESSION>` shows what each of its turns would have recalled, in shadow.
+    /// `memory recalled <SESSION>` shows what each of its turns recalled for the view.
     #[command(hide = true)]
     Memory {
         #[command(subcommand)]
@@ -1160,7 +1160,7 @@ enum MemoryCmd {
         cmd: IndexCmd,
     },
     /// Recall's pipeline for QUERY, writing nothing: what the index offers, what the pack would
-    /// admit with each source's rank, and why each other hit is dropped (its place first).
+    /// admit with each source's rank, and why each other hit is dropped.
     Search {
         #[arg(required = true, value_name = "QUERY")]
         query: Vec<String>,
@@ -1180,7 +1180,7 @@ enum MemoryCmd {
         #[arg(long, value_name = "POSITION")]
         as_of: Option<u64>,
     },
-    /// What each of SESSION's turns recalled (live) or would have (shadow), newest last.
+    /// What each of SESSION's turns recalled for the view, newest last.
     Recalled {
         session: String,
         /// The newest this many (at most 200).

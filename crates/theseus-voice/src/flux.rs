@@ -486,8 +486,11 @@ impl Listen for FluxListen {
                         "voice: Flux's outbound audio dropped over the call"
                     );
                 }
-                if let Some(task) = lane.task.take() {
-                    let _ = timeout(CLOSE_WAIT * 2, task).await;
+                if let Some(mut task) = lane.task.take() {
+                    if timeout(CLOSE_WAIT * 2, &mut task).await.is_err() {
+                        task.abort();
+                        let _ = task.await;
+                    }
                 }
             }
         })
@@ -731,6 +734,29 @@ mod tests {
 
     fn listen() -> FluxListen {
         FluxListen::new("dg-test-key-0123456789", FluxSettings::default(), None).unwrap()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn closing_aborts_a_worker_that_cannot_finish() {
+        let mut listener = FluxListen::new("fixture", FluxSettings::default(), None).unwrap();
+        let (gone, mut dropped) = tokio::sync::oneshot::channel::<()>();
+        let task = tokio::spawn(async move {
+            let _gone = gone;
+            std::future::pending::<()>().await;
+        });
+        listener.lanes.insert(
+            Speaker(1),
+            Lane {
+                queue: Arc::new(AudioQueue::new(Duration::from_secs(1))),
+                streamed: Streamed::default(),
+                task: Some(task),
+            },
+        );
+        listener.close().await;
+        assert_eq!(
+            dropped.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        );
     }
 
     #[test]

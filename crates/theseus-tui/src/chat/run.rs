@@ -44,6 +44,13 @@ enum Woke {
     Signal,
     Files(Option<Listing>),
     Images(Option<ImagesRead>),
+    History(Option<Result<(), String>>),
+}
+
+fn retry_ms(attempt: u32) -> u64 {
+    RETRY_FIRST_MS
+        .saturating_mul(1u64 << attempt.saturating_sub(1).min(16))
+        .min(RETRY_MAX_MS)
 }
 
 pub struct Runner {
@@ -54,6 +61,7 @@ pub struct Runner {
     pending: HashMap<Id, Purpose>,
     attempt: u32,
     retry_at: Option<Instant>,
+    recovery_retries: HashMap<String, (Option<Instant>, u32)>,
     screen: Screen,
     /// Where the terminal's bytes go: stdout in the binary, a buffer in tests.
     pub out: Box<dyn Write + Send>,
@@ -73,6 +81,8 @@ pub struct Runner {
     images_rx: UnboundedReceiver<ImagesRead>,
     /// Frames drawn, for a test that holds the redraw count.
     pub frames: u64,
+    history_tx: UnboundedSender<Result<(), String>>,
+    history_rx: UnboundedReceiver<Result<(), String>>,
 }
 
 impl Runner {
@@ -85,6 +95,7 @@ impl Runner {
     ) -> Self {
         let (files_tx, files_rx) = tokio::sync::mpsc::unbounded_channel();
         let (images_tx, images_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (history_tx, history_rx) = tokio::sync::mpsc::unbounded_channel();
         Self {
             chat,
             conn,
@@ -93,6 +104,7 @@ impl Runner {
             pending: HashMap::new(),
             attempt: 0,
             retry_at: None,
+            recovery_retries: HashMap::new(),
             screen: Screen::default(),
             out: Box::new(std::io::sink()),
             frame: FRAME,
@@ -107,6 +119,8 @@ impl Runner {
             images_tx,
             images_rx,
             frames: 0,
+            history_tx,
+            history_rx,
         }
     }
 
@@ -148,6 +162,7 @@ impl Runner {
             let signals = &mut self.signals;
             let files = &mut self.files_rx;
             let images = &mut self.images_rx;
+            let history = &mut self.history_rx;
             tokio::select! {
                 m = async {
                     match conn {
@@ -158,6 +173,7 @@ impl Runner {
                 e = events.recv() => Woke::Terminal(e),
                 f = files.recv() => Woke::Files(f),
                 i = images.recv() => Woke::Images(i),
+                h = history.recv() => Woke::History(h),
                 _ = async {
                     match deadline {
                         Some(at) => tokio::time::sleep_until(at).await,
@@ -190,7 +206,15 @@ impl Runner {
                 self.chat.at_walked(w);
                 self.dirty = true;
             }
-            Woke::Files(None) | Woke::Images(None) => {}
+            Woke::Files(None)
+            | Woke::Images(None)
+            | Woke::History(None)
+            | Woke::History(Some(Ok(()))) => {}
+            Woke::History(Some(Err(error))) => {
+                self.chat
+                    .flash(format!("could not save input history: {error}"));
+                self.dirty = true;
+            }
             Woke::Images(Some(read)) => {
                 let effects = self.chat.images_read(read);
                 self.dirty = true;
@@ -212,6 +236,7 @@ impl Runner {
         [self.retry_at, self.draw_at, chat]
             .into_iter()
             .flatten()
+            .chain(self.recovery_retries.values().filter_map(|(at, _)| *at))
             .min()
     }
 
@@ -220,6 +245,24 @@ impl Runner {
         if self.retry_at.is_some_and(|at| at <= now) {
             self.retry_at = None;
             self.reconnect().await;
+        }
+        self.recovery_retries
+            .retain(|sid, _| self.chat.recovering.contains(sid));
+        let due: Vec<_> = self
+            .recovery_retries
+            .iter_mut()
+            .filter_map(|(sid, (at, _))| {
+                if at.is_some_and(|at| at <= now) {
+                    *at = None;
+                    Some(sid.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for sid in due {
+            let effects = self.chat.recover_session(&sid);
+            self.apply(effects).await;
         }
         if self.draw_at.is_some_and(|at| at <= now) {
             self.draw_at = None;
@@ -251,15 +294,14 @@ impl Runner {
     fn lost_connection(&mut self) {
         self.conn = None;
         self.pending.clear();
+        self.recovery_retries.clear();
         self.schedule_retry();
         self.dirty = true;
     }
 
     fn schedule_retry(&mut self) {
         self.attempt += 1;
-        let wait = RETRY_FIRST_MS
-            .saturating_mul(1u64 << (self.attempt - 1).min(16))
-            .min(RETRY_MAX_MS);
+        let wait = retry_ms(self.attempt);
         self.retry_at = Some(Instant::now() + Duration::from_millis(wait));
         self.chat.disconnected();
     }
@@ -280,6 +322,8 @@ impl Runner {
             Message::Request(_) => Vec::new(),
         };
         self.apply(effects).await;
+        self.recovery_retries
+            .retain(|sid, _| self.chat.recovering.contains(sid));
         self.dirty = true;
     }
 
@@ -301,6 +345,11 @@ impl Runner {
     async fn apply(&mut self, effects: Vec<Effect>) {
         for e in effects {
             match e {
+                Effect::RecoverLater(sid) => {
+                    let (at, attempt) = self.recovery_retries.entry(sid).or_insert((None, 0));
+                    *attempt = attempt.saturating_add(1);
+                    *at = Some(Instant::now() + Duration::from_millis(retry_ms(*attempt)));
+                }
                 Effect::Quit => self.quit = true,
                 Effect::Bell => self.write(b"\x07"),
                 Effect::Look(path, position, at_ms) => {
@@ -325,7 +374,7 @@ impl Runner {
                     let Some(conn) = self.conn.as_mut() else {
                         // Not connected: the answer to a send is lost, and the
                         // person is told.
-                        if call.purpose == Purpose::Submit {
+                        if matches!(call.purpose, Purpose::Submit(_)) {
                             self.chat.flash("not connected · the message was not sent");
                         }
                         continue;
@@ -343,14 +392,21 @@ impl Runner {
 
     /// The directory's history, written off the loop's thread.
     fn save_history(&self, messages: Vec<String>) {
+        // Each SaveHistory follows one editor.take(). Only that new entry
+        // belongs to this write; other windows may have newer history already.
+        let Some(message) = messages.last().cloned() else {
+            return;
+        };
         let (Some(path), dir) = (
             self.chat.cfg.history_path.clone(),
             self.chat.cfg.dir.clone(),
         ) else {
             return;
         };
+        let errors = self.history_tx.clone();
         drop(tokio::task::spawn_blocking(move || {
-            env::save_history(&path, &dir, &messages)
+            let _ =
+                errors.send(env::save_history(&path, &dir, &[message]).map_err(|e| e.to_string()));
         }));
     }
 
@@ -405,5 +461,31 @@ impl Runner {
         }
         let _ = width;
         self.write(text.as_bytes());
+    }
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn an_old_window_saves_only_its_new_line() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut cfg = super::super::tests::cfg(folder.path().to_path_buf());
+        cfg.dir = "/project".into();
+        let recent: Vec<String> = (0..200).map(|i| format!("recent {i}")).collect();
+        env::save_history(folder.path(), &cfg.dir, &recent).unwrap();
+        let chat = Chat::new(cfg, super::super::tests::T0);
+        let (_, events) = tokio::sync::mpsc::unbounded_channel();
+        let connect: Connector = Box::new(|| Box::pin(std::future::pending()));
+        let mut runner = Runner::new(chat, None, connect, events, || super::super::tests::T0);
+        let mut old: Vec<String> = (0..199).map(|i| format!("old {i}")).collect();
+        old.push("new line".into());
+        runner.save_history(old);
+        runner.history_rx.recv().await.unwrap().unwrap();
+        let saved = env::load_history(folder.path(), "/project");
+        assert_eq!(saved.len(), 200);
+        assert_eq!(saved.first().map(String::as_str), Some("recent 1"));
+        assert_eq!(saved.last().map(String::as_str), Some("new line"));
     }
 }

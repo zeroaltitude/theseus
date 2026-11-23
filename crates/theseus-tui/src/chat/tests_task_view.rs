@@ -674,3 +674,412 @@ async fn an_image_in_a_joined_tasks_line_is_refused_and_nothing_is_read_or_sent(
         r.text()
     );
 }
+
+#[test]
+fn returning_from_task_keeps_mains_lifecycle_current() {
+    use super::state::Chat;
+    use super::task_view::TaskRef;
+    use theseus_protocol::{ConfirmRequest, Event, TurnStarted, TurnSubmitResult};
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    let started = Event::TurnStarted(TurnStarted {
+        session_id: SID.into(),
+        turn_id: "trn_main".into(),
+        ..Default::default()
+    });
+    let n = started.notification();
+    chat.notified(&n.method, &n.params);
+    chat.question = Some(ConfirmRequest {
+        session_id: SID.into(),
+        correlation_id: "act_main".into(),
+        ..Default::default()
+    });
+    chat.open_task(
+        TaskRef {
+            id: "exe_task".into(),
+            session: TASK.into(),
+            title: TITLE.into(),
+        },
+        false,
+    );
+    chat.notified("confirm.resolved", &json!({"session_id": SID, "approved": true, "correlation_id": "act_main", "option": "approve", "expired": false}));
+    let ended = Event::TurnEnded(TurnSubmitResult {
+        session_id: SID.into(),
+        turn_id: "trn_main".into(),
+        output: "main finished".into(),
+        ..Default::default()
+    });
+    let n = ended.notification();
+    chat.notified(&n.method, &n.params);
+    chat.return_main();
+    assert!(
+        chat.live.turn.is_none(),
+        "main's ended turn was restored as running"
+    );
+    assert!(
+        chat.question.is_none(),
+        "main's resolved question was restored"
+    );
+    assert!(!chat.must_queue());
+}
+
+#[test]
+fn a_submit_answer_while_away_updates_main_not_the_task() {
+    use super::state::{Chat, Effect};
+    use super::task_view::TaskRef;
+    use theseus_protocol::TurnSubmitResult;
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    let Effect::Call(call) = chat.submit_call(SID, "hello".into(), &[]) else {
+        panic!()
+    };
+    chat.released = true;
+    chat.open_task(
+        TaskRef {
+            id: "exe_task".into(),
+            session: TASK.into(),
+            title: TITLE.into(),
+        },
+        false,
+    );
+    chat.out.clear();
+    chat.answered(
+        call.purpose,
+        Ok(serde_json::to_value(TurnSubmitResult {
+            session_id: SID.into(),
+            turn_id: "trn_main".into(),
+            output: "main finished".into(),
+            session_cost_usd: Some(1.0),
+            ..Default::default()
+        })
+        .unwrap()),
+    );
+    assert!(chat.out.is_empty(), "main's reply printed into the task");
+    assert_eq!(chat.cost, 0.0);
+    chat.return_main();
+    assert_eq!(chat.cost, 1.0);
+    assert!(!chat.must_queue());
+}
+
+#[test]
+fn reconnect_reconciles_missed_turn_end_before_releasing_the_queue() {
+    use super::state::{Chat, Effect};
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    chat.released = true;
+    chat.editor.insert_str("next line");
+    chat.submit();
+    chat.disconnected();
+    let effects = chat.connected(T0 + 1000);
+    let purpose = effects
+        .into_iter()
+        .find_map(|e| match e {
+            Effect::Call(c) if c.method == "session.history" => Some(c.purpose),
+            _ => None,
+        })
+        .expect("reconnect must read authoritative turn state and missed history");
+    let sent = chat.answered(purpose, Ok(json!({
+        "session": {"session_id": SID, "kind": "conversation", "label": null, "created_at_unix_ms": T0, "turns": 1},
+        "nodes": [node(SID, 10, "assistant_message", "the answer while offline", "trn_old")],
+        "pending_confirms": [], "turn_running": false
+    })));
+    assert!(sent.iter().any(|e| matches!(e, Effect::Call(c) if c.method == "turn.submit" && c.params["input"] == "next line")), "queued line was not released");
+    assert!(chat.live.turn.is_none());
+}
+
+#[test]
+fn recovery_cannot_overwrite_a_newer_live_event_or_resend_uncertain_input() {
+    use super::state::{Chat, Effect};
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    chat.released = true; // the old submit may already have reached the daemon
+    chat.disconnected();
+    let purpose = chat
+        .connected(T0 + 1000)
+        .into_iter()
+        .find_map(|e| match e {
+            Effect::Call(c) if c.method == "session.history" => Some(c.purpose),
+            _ => None,
+        })
+        .unwrap();
+    chat.notified(
+        "turn.started",
+        &json!({"session_id": SID, "turn_id": "trn_new", "profile": "", "input": ""}),
+    );
+    let stale = json!({"session": {"session_id": SID, "kind": "conversation", "label": null, "created_at_unix_ms": T0, "turns": 1}, "nodes": [], "pending_confirms": [], "turn_running": false});
+    let again = chat.answered(purpose, Ok(stale));
+    assert!(
+        chat.live.turn.is_some(),
+        "the stale idle snapshot cleared a newer turn"
+    );
+    assert!(again
+        .iter()
+        .any(|e| matches!(e, Effect::Call(c) if c.method == "session.history")));
+    assert!(
+        !again
+            .iter()
+            .any(|e| matches!(e, Effect::Call(c) if c.method == "turn.submit")),
+        "uncertain input was resent"
+    );
+    let lost = chat.notified(
+        "events.lost",
+        &json!({"dropped": 1, "streams": [format!("session:{SID}")]}),
+    );
+    assert!(lost
+        .iter()
+        .any(|e| matches!(e, Effect::Call(c) if c.method == "session.history")));
+}
+
+#[test]
+fn send_now_respects_read_only_task_views_and_commands() {
+    use super::state::{Chat, Effect};
+    use super::task_view::TaskRef;
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    chat.open_task(
+        TaskRef {
+            id: "exe_task".into(),
+            session: TASK.into(),
+            title: TITLE.into(),
+        },
+        false,
+    );
+    chat.editor.insert_str("do this");
+    let effects = chat.send_now();
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Call(c) if c.method == "turn.submit")),
+        "read-only view sent a turn"
+    );
+    assert_eq!(chat.editor.text(), "do this");
+    chat.editor.clear();
+    chat.return_main();
+    chat.editor.insert_str("/help");
+    let effects = chat.send_now();
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Call(c) if c.method == "turn.submit")),
+        "command was sent as chat text"
+    );
+}
+
+#[test]
+fn reconnect_prints_only_unseen_nodes_without_a_resume_header() {
+    use super::state::{Chat, Effect};
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    let old = node(SID, 10, "assistant_message", "already shown", "trn_old");
+    chat.node_line(&serde_json::from_value(old.clone()).unwrap());
+    chat.turn_ended(&theseus_protocol::TurnSubmitResult {
+        session_id: SID.into(),
+        turn_id: "trn_live".into(),
+        output: "live reply".into(),
+        ..Default::default()
+    });
+    chat.out.clear();
+    let Effect::Call(c) = chat.recover_session(SID).remove(0) else {
+        panic!()
+    };
+    chat.answered(c.purpose, Ok(json!({
+        "session": {"session_id": SID, "kind": "conversation", "label": null, "created_at_unix_ms": T0, "turns": 3},
+        "nodes": [old, node(SID, 11, "assistant_message", "live reply", "trn_live"), node(SID, 12, "assistant_message", "missed reply", "trn_new")],
+        "pending_confirms": [], "turn_running": false
+    })));
+    let text = chat.out.join("\n");
+    assert!(
+        !text.contains("already shown"),
+        "reprinted an old node: {text}"
+    );
+    assert!(
+        !text.contains("live reply"),
+        "reprinted a finished turn: {text}"
+    );
+    assert!(
+        !text.contains("resumed"),
+        "reprinted a resume header: {text}"
+    );
+    assert!(text.contains("missed reply"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn reconnect_retries_a_failed_reconcile_then_releases_the_queue() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let base = script();
+    let reads = Arc::new(AtomicUsize::new(0));
+    let count = reads.clone();
+    let mut r = Rig::with(100, 40, Arc::new(move |m, p| {
+        if m == "session.history" {
+            if count.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Err((-32603, "temporarily unavailable".into()));
+            }
+            return Ok(json!({
+                "session": {"session_id": SID, "kind": "conversation", "label": null, "created_at_unix_ms": T0, "turns": 1},
+                "nodes": [], "pending_confirms": [], "turn_running": false
+            }));
+        }
+        base(m, p)
+    })).await;
+    r.ready().await;
+    r.starts_turn("trn_old");
+    r.settle().await;
+    r.type_text("queued after recovery").await;
+    r.press(KeyCode::Enter).await;
+    r.daemon.close();
+    r.shows("connection to theseusd lost").await;
+    r.advance(2000).await;
+    assert!(
+        reads.load(Ordering::SeqCst) >= 2,
+        "failed reconcile was never retried"
+    );
+    let later = r.later.lock().unwrap();
+    let submits = later[0].asked("turn.submit");
+    assert_eq!(submits.len(), 1, "queue was not released exactly once");
+    assert_eq!(submits[0]["input"], "queued after recovery");
+}
+
+#[tokio::test(start_paused = true)]
+async fn reconnect_while_parked_on_confirmation_keeps_input_queued() {
+    let base = script();
+    let mut r = Rig::with(100, 40, Arc::new(move |m, p| {
+        if m == "session.history" {
+            return Ok(json!({
+                "session": {"session_id": SID, "kind": "conversation", "label": null, "created_at_unix_ms": T0, "turns": 1},
+                "nodes": [], "pending_confirms": [theseus_protocol::ConfirmRequest { session_id: SID.into(), correlation_id: "act_parked".into(), tool: "fs.write".into(), reason: "write the chart".into(), ..Default::default() }], "turn_running": false
+            }));
+        }
+        base(m, p)
+    })).await;
+    r.ready().await;
+    r.starts_turn("trn_parked");
+    r.settle().await;
+    r.type_text("after the question").await;
+    r.press(KeyCode::Enter).await;
+    r.daemon.close();
+    r.shows("connection to theseusd lost").await;
+    r.advance(1000).await;
+    assert!(
+        r.runner.chat.question.is_some(),
+        "pending confirmation was lost"
+    );
+    assert_eq!(
+        r.runner.chat.queued.len(),
+        1,
+        "parked question released input"
+    );
+    assert!(r.later.lock().unwrap()[0].asked("turn.submit").is_empty());
+    r.later.lock().unwrap()[0].notify(
+        "confirm.resolved",
+        json!({
+            "session_id": SID, "correlation_id": "act_parked", "approved": false,
+            "option": "decline", "expired": false
+        }),
+    );
+    r.settle().await;
+    assert_eq!(r.later.lock().unwrap()[0].asked("turn.submit").len(), 1);
+}
+
+#[test]
+fn reconnect_does_not_reprint_live_turns_after_the_dedup_window() {
+    use super::state::{Chat, Effect};
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    let mut nodes = Vec::new();
+    for i in 1..=70 {
+        let id = format!("trn_{i}");
+        chat.turn_ended(&theseus_protocol::TurnSubmitResult {
+            session_id: SID.into(),
+            turn_id: id.clone(),
+            output: "seen live".into(),
+            ..Default::default()
+        });
+        nodes.push(node(SID, i, "assistant_message", "seen live", &id));
+    }
+    chat.out.clear();
+    let Effect::Call(c) = chat.recover_session(SID).remove(0) else {
+        panic!()
+    };
+    chat.answered(c.purpose, Ok(json!({
+        "session": {"session_id": SID, "kind": "conversation", "label": null, "created_at_unix_ms": T0, "turns": 70},
+        "nodes": nodes, "pending_confirms": [], "turn_running": false
+    })));
+    assert!(
+        chat.out.is_empty(),
+        "finished turns were reprinted after dedup eviction"
+    );
+}
+
+#[test]
+fn reconnect_does_not_skip_a_reply_received_while_away() {
+    use super::state::{Chat, Effect};
+    use super::task_view::TaskRef;
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    chat.open_task(
+        TaskRef {
+            id: "exe_task".into(),
+            session: TASK.into(),
+            title: TITLE.into(),
+        },
+        false,
+    );
+    let event = theseus_protocol::Event::TurnEnded(theseus_protocol::TurnSubmitResult {
+        session_id: SID.into(),
+        turn_id: "trn_away".into(),
+        output: "unseen main reply".into(),
+        ..Default::default()
+    })
+    .notification();
+    chat.notified(&event.method, &event.params);
+    chat.return_main(); // its history response is lost at disconnect
+    chat.out.clear();
+    let Effect::Call(c) = chat.recover_session(SID).remove(0) else {
+        panic!()
+    };
+    chat.answered(c.purpose, Ok(json!({
+        "session": {"session_id": SID, "kind": "conversation", "label": null, "created_at_unix_ms": T0, "turns": 1},
+        "nodes": [node(SID, 11, "assistant_message", "unseen main reply", "trn_away")],
+        "pending_confirms": [], "turn_running": false
+    })));
+    assert!(
+        chat.out.join("\n").contains("unseen main reply"),
+        "recovery skipped an unshown background reply"
+    );
+}
+
+#[test]
+fn reconnect_keeps_the_task_inspector_on_the_recovered_turn() {
+    use super::state::{Chat, Effect};
+    use super::task_view::TaskRef;
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    chat.open_task(
+        TaskRef {
+            id: "exe_task".into(),
+            session: TASK.into(),
+            title: TITLE.into(),
+        },
+        false,
+    );
+    chat.note_last_turn(TASK, Some("trn_old".into()));
+    let Effect::Call(c) = chat.recover_session(TASK).remove(0) else {
+        panic!()
+    };
+    chat.answered(c.purpose, Ok(json!({
+        "session": {"session_id": TASK, "kind": "conversation", "label": null, "created_at_unix_ms": T0, "turns": 2},
+        "nodes": [node(TASK, 20, "assistant_message", "new task reply", "trn_new")],
+        "pending_confirms": [], "turn_running": false
+    })));
+    let calls = chat.inspect_cmd("");
+    assert!(calls.iter().any(|e| matches!(e, Effect::Call(c) if c.method == "turn.inspect" && c.params["turn_id"] == "trn_new")), "recovery left the inspector on the old turn");
+}

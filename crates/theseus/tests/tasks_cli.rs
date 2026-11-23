@@ -500,3 +500,46 @@ fn forecast_is_still_a_subcommand() {
     let methods: Vec<&str> = asked.iter().map(|(m, _)| m.as_str()).collect();
     assert_eq!(methods, ["forecast.calibration"], "{asked:?}");
 }
+
+#[test]
+fn json_watch_reports_loss_and_the_replacement_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let sock = dir.path().join("sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    let daemon = std::thread::spawn(move || {
+        let (s, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(&s);
+        for position in [10, 20] {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let req: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(req["method"], "work.watch");
+            if position == 20 {
+                let note = changed(vec![view(json!({"position": 21, "id": "exe_late"}))], 21);
+                (&s).write_all(format!("{note}\n").as_bytes()).unwrap();
+            }
+            let reply = json!({"jsonrpc": "2.0", "id": req["id"], "result": {
+                "position": position, "views": [], "total": 0
+            }});
+            (&s).write_all(format!("{reply}\n").as_bytes()).unwrap();
+            if position == 10 {
+                let lost = json!({"jsonrpc": "2.0", "method": "events.lost", "params": {"stream": "work"}});
+                (&s).write_all(format!("{lost}\n").as_bytes()).unwrap();
+            }
+        }
+    });
+    let out = theseus(&sock, &["--json", "tasks", "--watch"])
+        .output()
+        .unwrap();
+    daemon.join().unwrap();
+    assert!(out.status.success(), "{:?}", out);
+    let rows: Vec<Value> = String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 4, "{rows:?}");
+    assert_eq!(rows[1]["method"], "events.lost");
+    assert_eq!(rows[2]["result"]["position"], 20);
+    assert_eq!(rows[3]["method"], "work.changed");
+}

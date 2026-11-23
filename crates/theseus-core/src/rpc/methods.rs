@@ -1313,6 +1313,11 @@ impl Core {
         let cites = self.page_cites(&p.session_id, &page.nodes)?;
         let info = self.session_info(&rec, &asks);
         Ok(theseus_protocol::SessionHistoryResult {
+            turn_running: Some(
+                rec.execution_id
+                    .as_deref()
+                    .is_some_and(|id| self.kernel.is_held(id)),
+            ),
             session: info,
             pending_confirms: self.confirms_of(&pending, &rec, known),
             nodes: page

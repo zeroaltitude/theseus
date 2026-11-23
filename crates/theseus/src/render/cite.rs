@@ -2,8 +2,7 @@
 //! (theseus-ejdk): each handle the reply cites (`[m:a1b2c3]`) becomes a
 //! numbered mark (`[1]`), and a footnote block under the reply says whose
 //! message it was, where, and when, and the command that opens it. A handle
-//! with no source (the turn was not given it, or a shared place may not show
-//! it) stays as the model wrote it. The builders are plain functions of text
+//! with no source (the turn was not given it) stays as the model wrote it. The builders are plain functions of text
 //! and citations, so another renderer can call them.
 
 pub use theseus_protocol::cite::mark_handles as mark;

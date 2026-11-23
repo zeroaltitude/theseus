@@ -115,23 +115,49 @@ fn strings(a: &[Value]) -> Vec<String> {
         .collect()
 }
 
-/// Write this directory's messages to its own file: a temporary file beside
-/// it, then a rename. The file is the owner's alone (0600): a message or a
-/// paste can hold what no one else on the machine should read.
+/// Append newly typed messages under this directory's lock, then atomically
+/// replace its bounded history. Callers must pass new entries, not a stale
+/// window's whole snapshot. Both the lock and temporary file are private (0600).
 pub fn save_history(folder: &Path, dir: &str, messages: &[String]) -> std::io::Result<()> {
     let path = file_for(folder, dir);
-    let from = messages.len().saturating_sub(HISTORY_KEPT);
     std::fs::create_dir_all(folder)?;
-    let tmp = path.with_extension("json.tmp");
-    let _ = std::fs::remove_file(&tmp);
-    let mut f = std::fs::OpenOptions::new()
+    let lock = std::fs::OpenOptions::new()
         .write(true)
-        .create_new(true)
+        .create(true)
+        .truncate(false)
         .mode(0o600)
-        .open(&tmp)?;
-    f.write_all(&serde_json::to_vec(&json!(&messages[from..]))?)?;
-    drop(f);
-    std::fs::rename(&tmp, path)
+        .open(path.with_extension("json.lock"))?;
+    lock.lock()?;
+    let mut merged = load_history(folder, dir);
+    for message in messages {
+        if merged.last() != Some(message) {
+            merged.push(message.clone());
+        }
+    }
+    let from = merged.len().saturating_sub(HISTORY_KEPT);
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let (tmp, mut f) = loop {
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = path.with_extension(format!("json.{}.{n}.tmp", std::process::id()));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)
+        {
+            Ok(f) => break (tmp, f),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    };
+    let result = (|| {
+        f.write_all(&serde_json::to_vec(&json!(&merged[from..]))?)?;
+        std::fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(tmp);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -170,6 +196,48 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_history_saves_keep_both_writers() {
+        let t = tempfile::tempdir().unwrap();
+        save_history(t.path(), "/project", &["base".into()]).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+        let workers: Vec<_> = ["first", "second"]
+            .into_iter()
+            .map(|line| {
+                let folder = t.path().to_path_buf();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    save_history(&folder, "/project", &[line.into()]).unwrap();
+                })
+            })
+            .collect();
+        barrier.wait();
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        let lines = load_history(t.path(), "/project");
+        assert_eq!(lines.len(), 3);
+        assert!(lines.contains(&"first".into()) && lines.contains(&"second".into()));
+    }
+
+    #[test]
+    fn independent_history_snapshots_merge_without_losing_lines() {
+        let t = tempfile::tempdir().unwrap();
+        save_history(
+            t.path(),
+            "/project",
+            &["base".into(), "first window".into()],
+        )
+        .unwrap();
+        // The second window contributes only its new entry, never its stale base.
+        save_history(t.path(), "/project", &["second window".into()]).unwrap();
+        assert_eq!(
+            load_history(t.path(), "/project"),
+            ["base", "first window", "second window"]
+        );
+    }
+
+    #[test]
     fn history_is_kept_per_directory_and_survives_a_foreign_file() {
         let t = tempfile::tempdir().unwrap();
         let p = t.path().join("state/history");
@@ -181,7 +249,15 @@ mod tests {
         // Each directory has a file of its own, and two of one name differ.
         assert_ne!(file_for(&p, "/a"), file_for(&p, "/b"));
         assert_ne!(file_for(&p, "/x/work"), file_for(&p, "/y/work"));
-        assert_eq!(std::fs::read_dir(&p).unwrap().count(), 2);
+        assert_eq!(
+            std::fs::read_dir(&p)
+                .unwrap()
+                .filter(|e| e
+                    .as_ref()
+                    .is_ok_and(|e| e.path().extension().is_some_and(|x| x == "json")))
+                .count(),
+            2
+        );
         std::fs::write(file_for(&p, "/a"), "not json").unwrap();
         assert!(load_history(&p, "/a").is_empty());
         save_history(&p, "/a", &["three".into()]).unwrap();
@@ -201,7 +277,11 @@ mod tests {
         .unwrap();
         assert_eq!(load_history(&p, "/a"), ["old one", "old two"]);
         save_history(&p, "/a", &["new".into()]).unwrap();
-        assert_eq!(load_history(&p, "/a"), ["new"], "its own file wins");
+        assert_eq!(
+            load_history(&p, "/a"),
+            ["old one", "old two", "new"],
+            "the first append carries the legacy lines into the directory file"
+        );
         assert_eq!(load_history(&p, "/b"), ["elsewhere"]);
         assert!(t.path().join("state/chat-history.json").exists());
     }

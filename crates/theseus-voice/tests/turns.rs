@@ -1517,6 +1517,20 @@ async fn a_reply_waits_8_s_for_a_floor_held_by_a_steady_sound_then_plays_whole()
     assert_eq!(turns(&seen).len(), 1, "the fan is no turn");
     // One probe, and the fan's two utterances.
     assert_eq!(speech.transcriptions(), 4);
+    let booked = seen
+        .iter()
+        .filter(|(_, e)| {
+            matches!(
+                e,
+                Event::Utterance(_) | Event::Probed { .. } | Event::Streamed { .. }
+            )
+        })
+        .count();
+    assert_eq!(
+        booked,
+        speech.transcriptions(),
+        "every paid transcript has one accounting event"
+    );
     let fan: Vec<_> = utterances(&seen)
         .into_iter()
         .filter(|(_, u)| u.speaker == ROBIN)

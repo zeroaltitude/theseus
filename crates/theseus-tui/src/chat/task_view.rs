@@ -5,7 +5,7 @@
 //! While a task is shown, `Chat::session` is the task's, so its history, its
 //! turns and its tool calls come through the code the conversation uses; the
 //! conversation's own state waits in the view's [`Stash`], and its events,
-//! which the chat still hears, are only counted (`Away`). *Inspect* is
+//! which the chat still hears, keep the stash current (`Away`). *Inspect* is
 //! read-only (the keys `j`, `i`, `f` act on an empty line, since nothing can
 //! be typed). *Join* sends the line to the task's session (`turn.submit`, at
 //! once, never queued: the daemon steers it into the turn that runs). A line
@@ -68,6 +68,7 @@ pub(super) struct Stash {
     mode: SessionMode,
     plan: Vec<PlanItem>,
     live: Live,
+    released: bool,
     question: Option<ConfirmRequest>,
     queued: Vec<Taken>,
     mine: HashSet<String>,
@@ -140,6 +141,7 @@ impl Chat {
             mode: std::mem::take(&mut self.mode),
             plan: std::mem::take(&mut self.plan),
             live: std::mem::take(&mut self.live),
+            released: std::mem::take(&mut self.released),
             question: self.question.take(),
             queued: std::mem::take(&mut self.queued),
             mine: std::mem::take(&mut self.mine),
@@ -159,6 +161,7 @@ impl Chat {
         self.mode = s.mode;
         self.plan = s.plan;
         self.live = s.live;
+        self.released = s.released;
         self.question = s.question;
         self.queued = s.queued;
         self.mine = s.mine;
@@ -354,7 +357,6 @@ impl Chat {
         let line = self.back_line(&task, &away);
         self.restore(main);
         self.ask = Default::default();
-        self.released = false;
         self.ask_sync();
         self.back = Some(Back {
             line,
@@ -655,21 +657,106 @@ impl Chat {
 
     // ------------------------------------------------------ the conversation's events
 
-    /// The conversation's own events while a task is shown are counted, for
-    /// the line on return.
+    /// Keep main's lifecycle current without printing its output in the task.
     pub(super) fn note_away(&mut self, e: &Event) {
         let Some(v) = self.view.as_mut() else { return };
         let main = v.main.session.as_deref();
         match e {
-            Event::TurnEnded(r)
-                if Some(r.session_id.as_str()) == main && !r.output.trim().is_empty() =>
-            {
-                v.away.replies += 1;
+            Event::TurnStarted(t) if Some(t.session_id.as_str()) == main => {
+                v.main.released = false;
+                v.main.mine.insert(t.turn_id.clone());
+                v.main.live.turn = Some(super::live::TurnLive {
+                    id: t.turn_id.clone(),
+                    since_ms: self.now_ms,
+                    phase: super::live::Phase::Thinking,
+                });
+            }
+            Event::TurnEnded(r) if Some(r.session_id.as_str()) == main => {
+                if !self.ended.insert(r.turn_id.clone()) {
+                    return;
+                }
+                if self.ended.len() > 64 {
+                    self.ended.clear();
+                    self.ended.insert(r.turn_id.clone());
+                }
+                if v.main
+                    .live
+                    .turn
+                    .as_ref()
+                    .is_some_and(|t| t.id == r.turn_id || t.id.is_empty())
+                {
+                    v.main.live.turn = None;
+                }
+                v.main.released = false;
+                if !r.output.trim().is_empty() {
+                    v.away.replies += 1;
+                }
+                if let Some(cost) = r.session_cost_usd {
+                    v.main.cost = cost;
+                }
+            }
+            Event::TurnFailed(f) if Some(f.session_id.as_str()) == main => {
+                v.main.live.turn = None;
+                v.main.released = false;
             }
             Event::ConfirmRequested(c) if Some(c.session_id.as_str()) == main => {
+                v.main.question = Some(c.clone());
                 v.away.asked += 1;
             }
+            Event::ConfirmResolved(r)
+                if v.main
+                    .question
+                    .as_ref()
+                    .is_some_and(|q| q.correlation_id == r.correlation_id) =>
+            {
+                v.main.question = None;
+                v.away.asked = v.away.asked.saturating_sub(1);
+            }
             _ => {}
+        }
+    }
+
+    pub(super) fn recovered_away(
+        &mut self,
+        sid: &str,
+        h: &theseus_protocol::SessionHistoryResult,
+        running: bool,
+    ) {
+        let Some(v) = self
+            .view
+            .as_mut()
+            .filter(|v| v.main.session.as_deref() == Some(sid))
+        else {
+            return;
+        };
+        v.main.live = super::reconcile::live(running, self.now_ms);
+        v.main.released = false;
+        v.main.question = h.pending_confirms.first().cloned();
+        v.main.cost = h.session.cost_usd;
+    }
+
+    pub(super) fn submitted_away(&mut self, sid: &str, result: Result<Value, RpcError>) {
+        if self.main_session().as_deref() != Some(sid) {
+            return;
+        }
+        match result {
+            Ok(value) => {
+                if let Ok(r) = serde_json::from_value::<theseus_protocol::TurnSubmitResult>(value) {
+                    if r.session_id == sid {
+                        self.note_away(&Event::TurnEnded(r));
+                    }
+                }
+            }
+            Err(e) => {
+                if let Some(v) = self.view.as_mut() {
+                    v.main.live.turn = None;
+                    v.main.released = false;
+                }
+                self.say_words(
+                    Sty::Red,
+                    &format!("main's message was not sent: {}", e.message),
+                );
+            }
         }
     }
 
