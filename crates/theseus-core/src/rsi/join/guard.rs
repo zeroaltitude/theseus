@@ -77,8 +77,37 @@ pub fn claim(dir: &Path) -> Result<(), String> {
 
 /// The tree at `dir` is closed, or its open failed: this process no longer has it open.
 pub fn closed_here(dir: &Path) {
-    opened().remove(dir);
+    let mut here = opened();
+    here.remove(dir);
+    #[cfg(test)]
+    if let Some(w) = WATCH
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_mut()
+        .filter(|w| w.dir == dir)
+    {
+        w.released += 1;
+        if w.released == 1 {
+            // Another opener claims the path the moment it is free.
+            here.insert(dir.to_path_buf());
+        }
+    }
 }
+
+/// A test's watch on one path's claim: how many times it was released, and another opener that claims the path the
+/// moment it is first released.
+#[cfg(test)]
+pub(crate) struct Watch {
+    pub dir: PathBuf,
+    pub released: usize,
+}
+
+#[cfg(test)]
+pub(crate) static WATCH: Mutex<Option<Watch>> = Mutex::new(None);
+
+/// A test's failure of [`mark_created`] for the tree at this path.
+#[cfg(test)]
+pub(crate) static FAIL_MARK_CREATED: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// Whether this process has the tree at `dir` open (`join::git::detached`).
 pub fn is_opened_here(dir: &Path) -> bool {
@@ -162,6 +191,15 @@ pub fn mark(p: &Place, name: &str, kind: &str) -> Result<()> {
 
 /// The worktree at `dir` exists now: write the nonce into its git directory and the `created` mark that names it.
 pub fn mark_created(p: &Place, name: &str, dir: &Path, at: &str) -> Result<()> {
+    #[cfg(test)]
+    if FAIL_MARK_CREATED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_deref()
+        == Some(dir)
+    {
+        anyhow::bail!("the mark could not be rewritten (a test's failure)");
+    }
     let git_dir = p.git_ok(dir, &["rev-parse", "--absolute-git-dir"])?;
     let nonce = crate::new_id("mark");
     std::fs::write(Path::new(&git_dir).join(NONCE_FILE), &nonce)?;

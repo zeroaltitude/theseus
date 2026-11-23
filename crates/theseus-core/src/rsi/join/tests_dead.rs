@@ -318,3 +318,38 @@ fn a_successful_replacement_keeps_its_claim() {
     );
     assert!(live.dir.join("work.txt").exists());
 }
+
+/// A FAILED mark: the tree just made is closed again with the open's claim still held, and the open's own failure
+/// ends the claim, once. Another opener that claims the path the moment it is free keeps its claim.
+#[test]
+fn a_failed_mark_releases_its_claim_once() {
+    use super::guard::{is_opened_here, Watch, FAIL_MARK_CREATED, WATCH};
+    let f = crate::rsi::tests_tree::fixture();
+    let head = run_git(&f.place.repo, &["rev-parse", "origin/main"]);
+    std::fs::create_dir_all(f.place.trees()).unwrap();
+    let dir = std::fs::canonicalize(f.place.trees())
+        .unwrap()
+        .join("install-0123456789ab");
+    *FAIL_MARK_CREATED.lock().unwrap() = Some(dir.clone());
+    *WATCH.lock().unwrap() = Some(Watch {
+        dir: dir.clone(),
+        released: 0,
+    });
+    let e = git::detached(&f.place, "install", "0123456789ab", &head).unwrap_err();
+    *FAIL_MARK_CREATED.lock().unwrap() = None;
+    let released = WATCH.lock().unwrap().take().map(|w| w.released);
+    assert!(
+        format!("{e:#}").contains("the mark could not be rewritten"),
+        "{e:#}"
+    );
+    assert!(!dir.exists(), "the tree just made is closed again");
+    assert!(
+        !marked(&f.place, "install-0123456789ab"),
+        "and its mark goes"
+    );
+    assert_eq!(released, Some(1), "the claim is released once");
+    assert!(
+        is_opened_here(&dir),
+        "the opener that claimed the path once it was free still holds it"
+    );
+}
