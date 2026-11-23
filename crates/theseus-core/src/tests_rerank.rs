@@ -64,8 +64,7 @@ pub(crate) fn pack_mode(cfg: &mut Config, pack: &str, mode: PackMode) {
 }
 
 /// Memory live, admitting one item; the judge on against `jev` when
-/// given, the rerank pack in shadow (memory's own shadow mode, which made
-/// every rerank a shadow one, went with D8a), with every other wired pack off (`loop.v1`, and the gate's,
+/// given, with every other wired pack off (`loop.v1`, and the gate's,
 /// inbound's, compile's and categorize's points), so every judgment is the
 /// rerank's.
 pub(crate) fn rig(jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig {
@@ -86,11 +85,6 @@ pub(crate) fn rig(jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig
                 pack_mode(&mut cfg, pack, PackMode::Off);
             }
         }
-        pack_mode(
-            &mut cfg,
-            crate::judge::rerank::RERANK_PACK,
-            PackMode::Shadow,
-        );
     }
     tweak(&mut cfg);
     cfg.validate().unwrap();
@@ -294,7 +288,11 @@ async fn a_fake_jev_reorders_what_would_be_admitted() {
     jev.script("helps.1", Jev::Noul(0.10));
     jev.script("helps.2", Jev::Noul(0.30));
     jev.script("helps.3", Jev::Noul(0.97));
-    let (r, here, order) = heron_rig(&jev, |_| {});
+    // The rerank in shadow: it orders what would be admitted and applies none of it. (Memory's own
+    // shadow mode, which made every rerank a shadow one, went with D8a.)
+    let (r, here, order) = heron_rig(&jev, |c| {
+        pack_mode(c, crate::judge::rerank::RERANK_PACK, PackMode::Shadow)
+    });
     let c = &r.core;
     let res = turn(c, &here, "Where does the grey heron nest?").await;
     let rows = until_reranked(&c.store, 1).await;
