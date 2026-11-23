@@ -76,10 +76,27 @@ pub(super) async fn read(
     };
     let (hits, more, incomplete) =
         crate::memory_lookup::imported(core, words, span, book.as_deref(), (offset, PAGE)).await?;
+    let (lines, sources, _dropped) = project(&core.store, hits);
+    let shown = offset + lines.len() as u64;
+    let last_look = looks + 1 >= LOOKS_PER_TURN;
+    let (end, next) = match (more, incomplete.is_some()) {
+        (true, _) if last_look => (PageEnd::AllowanceUsed, None),
+        (true, _) => (PageEnd::More, Some(cursor(book.as_deref(), shown))),
+        (false, true) => (PageEnd::SearchStale, None),
+        (false, false) => (PageEnd::HistoryExhausted, None),
+    };
+    Ok((HistoryPage { lines, next, end }, sources))
+}
+
+/// The hits as page lines, and the imported nodes whose words they show; and how many hits were not shown.
+pub(super) fn project(
+    store: &crate::store::Store,
+    hits: Vec<crate::memory_lookup::ImportHit>,
+) -> (Vec<HistoryLine>, Vec<String>, usize) {
     let (mut lines, mut sources) = (Vec::new(), Vec::new());
     for h in hits {
         let outside = matches!(
-            core.store
+            store
                 .get_node(&h.node_id)
                 .ok()
                 .flatten()
@@ -103,15 +120,7 @@ pub(super) async fn read(
         });
         sources.push(h.node_id);
     }
-    let shown = offset + lines.len() as u64;
-    let last_look = looks + 1 >= LOOKS_PER_TURN;
-    let (end, next) = match (more, incomplete.is_some()) {
-        (true, _) if last_look => (PageEnd::AllowanceUsed, None),
-        (true, _) => (PageEnd::More, Some(cursor(book.as_deref(), shown))),
-        (false, true) => (PageEnd::SearchStale, None),
-        (false, false) => (PageEnd::HistoryExhausted, None),
-    };
-    Ok((HistoryPage { lines, next, end }, sources))
+    (lines, sources, 0)
 }
 
 /// The page as the model reads it.
