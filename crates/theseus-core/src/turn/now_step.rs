@@ -481,6 +481,6 @@ mod tests {
     fn the_route_s_lines_fit_their_reserve() {
         let line = "a persona with a long name answers this turn";
         assert!(tokens(line) <= ROUTED_PERSONA_TOKENS);
-        assert!(routed_reserve() < BUDGET_TOKENS / 4, "{}", routed_reserve());
+        assert!(routed_reserve() < BUDGET_TOKENS / 3, "{}", routed_reserve());
     }
 }

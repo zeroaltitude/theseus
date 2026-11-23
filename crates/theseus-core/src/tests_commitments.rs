@@ -143,10 +143,12 @@ fn model() -> crate::tests_places::Rig {
     rig_scripted(|_| {}, script)
 }
 
-/// The block is the last block of the request's last message, the loop after
-/// a wake is set already shows it, and none is there while none is pending.
+/// The block is a part of the harness's block beside the message, before the
+/// person's words, from the turn after a wake is set (the turn that set it is
+/// told so by the tool's own result: what the block shows stays as it was at
+/// the turn's first call, issue 46), and none is there while none is pending.
 #[tokio::test]
-async fn the_block_is_the_requests_last_block_while_a_wake_is_pending() {
+async fn the_block_is_beside_the_message_from_the_turn_after_a_wake_is_set() {
     let r = model();
     let sid = session(&r.core, Some(&private_dm()));
     turn(&r.core, &sid, "hello").await;
@@ -155,24 +157,33 @@ async fn the_block_is_the_requests_last_block_while_a_wake_is_pending() {
         "no wake, no block"
     );
     turn(&r.core, &sid, "SET 1h: check PR 123").await;
-    // The loop that answers the call is the first to show it.
+    // The loop that answers the call is told by the call's result; the block is as at the turn's first call.
     let reqs = r.requests();
     let after_set = reqs.iter().rev().find(|q| answers_a_call(q)).unwrap();
-    let block = block_of(after_set).expect("the block after the call");
+    assert!(
+        block_of(after_set).is_none(),
+        "frozen at the turn's first call"
+    );
+    turn(&r.core, &sid, "and the next turn?").await;
+    let block = block_of(r.requests().last().unwrap()).expect("the next turn's block");
     assert!(block.contains("check PR 123"), "{block}");
     assert!(block.lines().nth(1).unwrap().starts_with("⏰ "), "{block}");
-    // The next turn's request carries it too, after the message's words.
+    // A later turn's request carries it too, beside the message, before its words.
     turn(&r.core, &sid, "SERIES 1d mon,fri: evening haiku").await;
     turn(&r.core, &sid, "what do I have?").await;
     let q = r.requests().pop().unwrap();
     let blocks = blocks_of(&q);
-    assert_eq!(blocks.first().unwrap(), "what do I have?");
+    let words = (blocks.iter()).position(|b| b == "what do I have?");
+    let beside = (blocks.iter()).position(|b| b.starts_with(crate::turn::now_step::HEAD));
+    assert!(
+        beside.is_some() && words.is_some() && beside < words,
+        "{blocks:?}"
+    );
     let block = block_of(&q).unwrap();
     assert_eq!(ids_in(&q).len(), 2, "{block}");
     assert!(block.contains("🔁 "), "{block}");
     assert!(block.contains("every 1d on mon,fri"), "{block}");
-    // No breakpoint of its own: at most the one the view's move leaves on
-    // the block before it, never on the block itself.
+    // No breakpoint on the turn's own blocks.
     let last = q.messages.last().unwrap()["content"]
         .as_array()
         .unwrap()

@@ -565,7 +565,7 @@ impl TurnRunner {
         let timed = Timed::of(&w, late, t.started);
         let got = w.got;
         t.route.defer_persist = false;
-        let mut compiled = match compiled? {
+        let compiled = match compiled? {
             Ok(c) => c,
             Err(f) => {
                 let seen = (got, live, unreachable);

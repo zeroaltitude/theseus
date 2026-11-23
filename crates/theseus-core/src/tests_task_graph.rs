@@ -363,15 +363,12 @@ async fn a_plan_splits_closes_with_evidence_and_refuses_a_stale_edit() {
         assert_eq!(w[1].version, w[0].version + 1);
     }
 
-    // The next turn sees the graph in its request's tail, with versions, and
+    // The next turn sees the graph in the harness's block beside its message, with versions, and
     // `context.compiled` says what it showed.
     turn(c, &s, "where are we").await;
     let req = r.model.requests.lock().unwrap().last().unwrap().clone();
-    let last = req.messages.last().unwrap()["content"]
-        .as_array()
-        .unwrap()
-        .clone();
-    let view = last.last().unwrap()["text"].as_str().unwrap().to_string();
+    let view = crate::turn::now_step::part(&req, crate::task_graph::view::HEAD)
+        .expect("the graph beside the message");
     assert!(
         view.starts_with("[The task graph in this conversation's scope: 4 open, 1 closed."),
         "{view}"
