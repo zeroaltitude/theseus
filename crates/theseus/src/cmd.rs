@@ -779,6 +779,9 @@ async fn confirm_alerts(
             theseus_protocol::AwsConfirmAlertsParams { account, token },
         )
         .await?;
+    let authenticated =
+        serde_json::from_value::<theseus_protocol::AwsConfirmAlertsResult>(v.clone())?
+            .authenticated;
     output(json, v, |r: theseus_protocol::AwsConfirmAlertsResult| {
         println!(
             "Confirmed {}'s subscription to {} ({}).",
@@ -791,15 +794,18 @@ async fn confirm_alerts(
                 "SNS says ConfirmationWasAuthenticated = true: only the account can unsubscribe \
                  it, so an alert's unsubscribe link, or a scanner that follows it, cannot."
             );
-            Ok(())
-        } else {
-            Err(anyhow!(
-                "SNS says ConfirmationWasAuthenticated = false: the subscription was confirmed \
+        }
+        Ok(())
+    })?;
+    if authenticated {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "SNS says ConfirmationWasAuthenticated = false: the subscription was confirmed \
                  before without authentication (its link was opened), so an alert's unsubscribe \
                  link still works. Subscribe the address again and confirm the new token here."
-            ))
-        }
-    })
+        ))
+    }
 }
 
 /// `theseus policy`: the postures, and a tightening and its undo.

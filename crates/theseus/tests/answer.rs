@@ -211,3 +211,20 @@ fn plain_continue_looks_up_a_conversation_instead_of_opening_one() {
     assert_eq!(req["method"], "session.list");
     assert!(req["params"]["dir"].is_string());
 }
+
+#[test]
+fn json_alert_confirmation_refuses_unauthenticated_subscriptions() {
+    let (dir, sock, daemon) = one_request(json!({
+        "account": "fixture", "pending": false,
+        "topic": "topic", "subscription": "subscription", "authenticated": false
+    }));
+    let out = theseus(
+        &sock,
+        dir.path(),
+        &["--json", "aws", "confirm-alerts", "token"],
+    );
+    daemon.join().unwrap();
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["authenticated"], false);
+    assert!(!out.status.success(), "unauthenticated is not success");
+}
