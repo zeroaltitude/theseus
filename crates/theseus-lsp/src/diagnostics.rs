@@ -168,6 +168,11 @@ impl Shared {
         let count = p.diagnostics.len();
         {
             let mut st = self.lock();
+            if st.closed_versions.get(&key).is_some_and(|closed| {
+                !st.docs.contains_key(&key) || p.version.is_some_and(|v| v <= *closed)
+            }) {
+                return;
+            }
             let arrived_at = st.sent;
             st.pushed.insert(
                 key.clone(),
