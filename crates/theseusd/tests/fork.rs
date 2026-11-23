@@ -63,10 +63,22 @@ fn rig(model: &FakeModel) -> tempfile::TempDir {
     dir
 }
 
-/// `theseus --spawn <theseusd> ARGS…` in `dir`, run to its end.
+/// `theseus --spawn <theseusd> ARGS…` in `dir`, run to its end, from a process with no controlling terminal:
+/// a new session (`setsid`), as `agent_answers.rs`'s `no_terminal` makes one. The daemon reads such a peer as
+/// no person (`peer_proc`: "no terminal"), wherever the test is run from, so the headings this test expects
+/// do not depend on whether it was started from a person's terminal.
 fn cli(dir: &Path, args: &[&str]) -> (i32, String, String) {
+    use std::os::unix::process::CommandExt;
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let out = Command::new(common::cli_bin())
+    let mut c = Command::new(common::cli_bin());
+    // SAFETY: `setsid` takes nothing and is async-signal-safe.
+    unsafe {
+        c.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let out = c
         .current_dir(dir.join("projects"))
         .arg("--spawn")
         .arg(&theseusd)
@@ -163,8 +175,9 @@ fn inherited_reads_as_in_its_source(
         said[2], in_source[2],
         "turn two, in the fork and in its source"
     );
-    // This rig's `theseus ask` has no controlling terminal, so its mark proves no person (`peer_proc`: "no
-    // terminal"), and the view heads its earlier messages as author unknown, in the source as in the fork.
+    // This rig's `theseus ask` has no controlling terminal (`cli`: a new session), so its mark proves no person
+    // (`peer_proc`: "no terminal"), and the view heads its earlier messages as author unknown, in the source as
+    // in the fork.
     // The owner's own message at a terminal would read with no heading, as the conversation here.
     for (i, words) in [(0, "turn one"), (2, "turn two")] {
         let tag = format!("{ask} {}] [said on the terminal, ", written[words]);

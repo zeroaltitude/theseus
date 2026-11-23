@@ -92,6 +92,9 @@ pub struct Lens<'a> {
     pub in_view: Option<Cursor>,
     /// The turns the words index found, when words were given.
     pub words: Option<HashSet<String>>,
+    /// The asking session's cut, when it is a fork (`fork::cut`): an exchange the fork point falls in, or one
+    /// an ancestor began after it, is not in the fork's history, by position. Empty for any other session.
+    pub cut: crate::fork::cut::Cut,
 }
 
 /// A walk's page, and where a walk stopped by its bound would resume (kept by the tool, never shown).
@@ -120,9 +123,20 @@ impl Lens<'_> {
         }
     }
 
-    /// The exchange `r` names.
+    /// The exchange `r` names, unless a fork's cut holds it ([`Lens::forked`]). Every page, every count and
+    /// every words search's scope reads exchanges through here.
     fn admitted(&self, r: &ExchangeRef) -> Result<Option<Exchange>> {
-        exchange::exchange(self.store, &r.turn_id)
+        let Some(ex) = exchange::exchange(self.store, &r.turn_id)? else {
+            return Ok(None);
+        };
+        Ok((!self.forked(&ex)?).then_some(ex))
+    }
+
+    /// Whether a fork's cut holds `ex` out of its history: the exchange its point falls in, or one an
+    /// ancestor began after it, by position (`fork::cut::Cut::reach`). A read that fails is an error.
+    pub fn forked(&self, ex: &Exchange) -> Result<bool> {
+        Ok(!self.cut.is_empty()
+            && self.cut.reach(self.store, ex)? != crate::fork::cut::Reach::Inside)
     }
 
     /// The sessions of the exchanges of `root`, from its newest on, within [`READ_MOST`] touches: what a words

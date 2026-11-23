@@ -900,6 +900,9 @@ fn the_memory_page_names_what_it_must() {
         "you see this place alone",
         "always there",
         "Where the owner is alone",
+        // Round 2: a tool ceiling can leave the history tool out, and the owner-session wall is live.
+        "is in every place",
+        "In a private place, your settings",
     ] {
         assert!(
             !MEMORY_PAGE.contains(never),

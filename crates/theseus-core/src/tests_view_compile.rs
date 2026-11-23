@@ -1008,3 +1008,46 @@ async fn a_self_loop_session_lays_its_own_place_only_and_an_ordinary_one_the_wid
     );
     assert!(sent.contains("the heron is grey"), "the widest: {sent}");
 }
+
+/// Round 3, the self loop's scope against an ordinary session (the brief's second test): with the owner's DM
+/// recallable, an ordinary conversation's turn is laid it (the widest point of view), and a fixer's and an
+/// approver's turn asking the same are laid nothing of it. The ordinary one is a conversation, not a task: a
+/// task's first compile admits no recall note (`compiler::situation::admits`).
+#[tokio::test]
+async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_session_does() {
+    use crate::tests_view_hand_backs::unmarked;
+    const SECRET: &str = "the kelp vault code is 5519";
+    let r = rig_with(|c| {
+        c.memory.mode = crate::config::MemoryMode::Live;
+        c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act;
+    });
+    let c = &r.core;
+    c.self_resume(
+        &theseus_protocol::rsi::SelfResumeParams::default(),
+        &crate::approval::Answerer::from("the CLI"),
+    )
+    .unwrap();
+    let dm = crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
+    turn_as(c, &dm, SECRET, true).await;
+    (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![dm.clone()]));
+    let ordinary = crate::tests_places::session(c, None);
+    let fixer = self_session(c, "self fix: kelp");
+    let approver = self_session(c, "self approve: kelp");
+    for (sid, asks) in [
+        (&ordinary, "ordinary: what is the kelp vault code?"),
+        (&fixer, "fixer: what is the kelp vault code?"),
+        (&approver, "approver: what is the kelp vault code?"),
+    ] {
+        unmarked(c, sid, asks).await.unwrap();
+    }
+    let sent = |asks: &str| texts(&asked(&r, asks).pop().expect("its request"));
+    assert!(
+        sent("ordinary: what is").contains("5519"),
+        "the ordinary session: {}",
+        sent("ordinary: what is")
+    );
+    for asks in ["fixer: what is", "approver: what is"] {
+        let got = sent(asks);
+        assert!(!got.contains("5519"), "{asks}: another place's: {got}");
+    }
+}

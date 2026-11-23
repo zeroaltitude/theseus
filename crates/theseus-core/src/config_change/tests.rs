@@ -210,11 +210,7 @@ impl Provider for Model {
                 });
             }
         }
-        let answers_a_call = req
-            .messages
-            .last()
-            .and_then(|m| m["content"].as_array())
-            .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"));
+        let answers_a_call = crate::tests_places::answers_a_call(req);
         if let Some((tool, input)) = self.steps.lock().unwrap().pop_front() {
             let id = format!("p{}", {
                 let mut n = self.made.lock().unwrap();

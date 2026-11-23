@@ -24,7 +24,7 @@ use serde_json::Value;
 use super::*;
 use crate::stub::Stub;
 
-mod between;
+pub(crate) mod between;
 pub mod kept;
 
 /// What a render reads besides the nodes: the blobs, what the session does not show, the cut answer a call

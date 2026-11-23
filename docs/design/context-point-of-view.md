@@ -894,13 +894,13 @@ memory mechanism (it stays for tasks and as the window's guard); the judge field
 reads them or replaces them.
 
 **As built, since 2026-11-22** (the owner's decision: anything goes; the view is the only way a request is
-built). Threads are not containers: no message runs in a thread's own session, whatever its address, and
-`thread.move` is refused ("thread.move is gone"). A seal is no wall: nothing is withheld from a request because of
+built). Threads are not containers: there is no thread-based routing (no message is sent to a thread's session by its
+address; an old session can still be opened by its ordinary session id), and `thread.move` is refused ("thread.move is gone"). A seal is no wall: nothing is withheld from a request because of
 who is present, where it is, a seal, a move or a veil (the gate reads only whether a piece's place is known), and
-the seal methods answer nothing; old seal and move records still decode. Thread records stay as things
+the seal methods are refused; old seal and move records still decode. Thread records stay as things
 (`thread list`, `thread show`). What went on 2026-11-21 stays gone: the router's scoring and its questions, the
-fusion with the judge's `thread` pick, the learned corrections, the misroute guard, the home claim's writer
-(`thread.unclaim` stays for claims already stored) and the thread importer (the session import stays; its spend
+fusion with the judge's `thread` pick, the learned corrections, the misroute guard, the home claim
+(`thread.unclaim` is refused; old claim records and their types stay readable) and the thread importer (the session import stays; its spend
 still counts toward the day's ceiling). The paragraphs that described thread addressing, sealed threads' own
 sessions and replies finding their thread after a restart (`docs/design/threads.md`) record what was.
 
