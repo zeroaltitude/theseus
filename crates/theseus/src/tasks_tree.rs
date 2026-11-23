@@ -183,9 +183,20 @@ pub async fn run(conn: &mut Conn, json: bool, a: TasksArgs) -> Result<()> {
         if n.method == notify::EVENTS_LOST {
             // Fell behind: the snapshot again, then on.
             let p = params(conn, &a, true).await?;
-            let v = conn.call(method::WORK_WATCH, p, |_, _| {}).await?;
-            let snap: WorkWatchResult = serde_json::from_value(v)?;
-            if !json {
+            let mut early = Vec::new();
+            let v = conn
+                .call(method::WORK_WATCH, p, |m, p| {
+                    early.push((m.to_string(), p.clone()));
+                })
+                .await?;
+            let snap: WorkWatchResult = serde_json::from_value(v.clone())?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({"method": n.method, "params": n.params})
+                );
+                println!("{}", serde_json::json!({"result": v}));
+            } else {
                 println!(
                     "-- events were lost; the board again at position {} --",
                     snap.position
@@ -193,6 +204,9 @@ pub async fn run(conn: &mut Conn, json: bool, a: TasksArgs) -> Result<()> {
                 print_board(conn, &snap).await;
             }
             follow.reset(&snap);
+            for (m, p) in early {
+                follow.show(&m, &p, json)?;
+            }
             continue;
         }
         follow.show(&n.method, &n.params, json)?;
