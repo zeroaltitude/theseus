@@ -162,6 +162,21 @@ pub(super) fn name_when_due(core: &Arc<Core>, session: &str, kind: &str, said: &
     });
 }
 
+/// Dropping an interrupted request releases its in-memory claim, never a durable daily marker.
+struct Naming<'a> {
+    point: &'a super::Point,
+    key: (String, String),
+}
+impl Drop for Naming<'_> {
+    fn drop(&mut self) {
+        self.point
+            .naming
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.key);
+    }
+}
+
 impl Core {
     /// The naming call's model and provider: `[ontology] name_profile` when it
     /// is set (a pin), else Jev's choice for a job over what the session said
@@ -195,6 +210,23 @@ impl Core {
     /// call is made, its row written.
     pub async fn onto_name(&self, session: &str, kind: &str, said: &str) -> Result<(), String> {
         let today = spend::local_day(theseus_protocol::now_unix_ms());
+        // The marker belongs to this pair, even when a slow call crosses midnight.
+        let claim_key = (session.to_string(), kind.to_string());
+        let point = &self.runner.judge.onto;
+        if !point
+            .naming
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(claim_key.clone())
+        {
+            return Err(format!(
+                "{kind} is already being named for this session today"
+            ));
+        }
+        let _claim = Naming {
+            point,
+            key: claim_key,
+        };
         let marker = key(session, kind);
         let held = self
             .store

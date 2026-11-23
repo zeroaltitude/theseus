@@ -65,6 +65,7 @@ pub struct Point {
     /// The `filed:` line of each turn, until its reply takes it; and the
     /// replies written before their judgment landed.
     filed: Mutex<Book>,
+    naming: Mutex<std::collections::HashSet<(String, String)>>,
 }
 
 impl JudgeService {
