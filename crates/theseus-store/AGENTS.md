@@ -45,8 +45,9 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   `LEDGER` record that is a JSON object gets `,"chain":"<seq>.<hex>"` spliced onto its end, SHA-256 over the previous
   digest, the seq (8 bytes, little endian) and the payload as the caller gave it (never re-serialized, so no serde
   version changes what was hashed); a reader takes the suffix back off by bytes (`chain::open`). The head is a clone
-  the batch works on and that moves for good only once the batch is durable and indexed: a frame the log refuses, or a
-  sync that fails, gives its links back (a frame's links are then chained again on the old head). It is loaded lazily,
+  the batch works on. Successful indexed placements advance it before the batch sync; a later failed sync stops
+  the store. A refused frame gives its links back; a failed roll also invalidates earlier placements it cut.
+  An index failure advances the chain only after a successful sync, preserving the durable log's links. It is loaded lazily,
   at the first ledger write, from the newest chained ledger row (an index read, never a walk). A store with no chain
   gets a `ledger.chain_started` row in the same frame, ahead of the caller's first row (`Job::hidden`: its position is no
   one's answer), counting the unchained rows by the index alone. A ledger payload that is not an object is stored as
@@ -79,9 +80,9 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   its cursor after each read). An index write that fails after a good sync is tried again, up to three times
   (`index_batch`, theseus-lu5n): its frames are durable, and `apply` over what a failed one left equals one whole
   `apply` (`tests/index_reapply.rs` holds that for every cut of a tombstone batch `apply` can express; `index::tests` holds the state a failing `remove_meta_keys` leaves), so a retry is safe. The batch is
-  answered Ok once indexed. After the third failure it still fails, its frames, durable, coming back at the next
-  open. The ledger chain head follows the log, not the index: it moves once a batch's frames are synced, whatever the
-  index did (a failed sync cut its frames and leaves it), so the next row chains on the failed one and the open, which
+  answered Ok once indexed. After the third failure the append fails; frames whose sync succeeded come back at the next
+  open. On this index-failure path the ledger chain head moves only after a successful sync, so the next row
+  chains on the durable failed batch and the open, which
   replays the frames, finds one chain. Past the bound the store also refuses every checkpoint until it is reopened
   (`index_gap`, `checkpoint_as`): a claim past the failed frames would hide them from the open's replay for good. The
   gap is said once, when it opens (`index_gap()` holds the log position then; `ledger.verify` names it when a

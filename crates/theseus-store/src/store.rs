@@ -97,11 +97,15 @@ pub struct StoreStats {
 /// How many refused positions `StoreStats` names; the count goes on past it.
 pub const REFUSED_SHOWN: usize = 16;
 
-/// What the kernel writes through. Every method is durable when it returns.
+/// What the kernel writes through. Append acknowledgements establish indexed
+/// visibility, not durability: the writer syncs after answering its batch.
+/// A successful `checkpoint` is a durability barrier for preceding frames
+/// when WAL fsync is enabled; an index gap or sync failure refuses that barrier.
 pub trait Store: Send + Sync {
     /// Append records as one atomic frame; returns their positions in order.
     fn append(&self, batch: &[NewRecord]) -> Result<Vec<u64>>;
-    /// Settle a completion and the continuation state it implies, atomically (§3.16).
+    /// Settle a completion and its continuation atomically (§3.16), with the
+    /// same indexed-before-sync acknowledgement as `append`.
     fn settle(&self, completion: NewRecord, continuation: NewRecord) -> Result<(u64, u64)> {
         let v = self.append(&[completion, continuation])?;
         Ok((v[0], v[1]))
@@ -1721,7 +1725,7 @@ impl Inner {
     }
 
     /// The batch's index write, tried up to `INDEX_TRIES` times: its frames are
-    /// durable already, and `apply` over what a failed one left equals one
+    /// written but not necessarily synced, and `apply` over what a failed one left equals one
     /// whole `apply` (`tests/index_reapply.rs`), so a retry is safe. The tries
     /// follow each other at once: a full disk is met three times, and what
     /// they buy is transient contention on redb's write lock. A failure past
@@ -2194,8 +2198,9 @@ fn checked(position: u64, r: Record) -> Result<Record> {
 }
 
 impl Store for WalStore {
-    /// Hand the frame to the writer and wait for its answer: durable and
-    /// indexed when it returns. The wait holds no runtime worker
+    /// Hand the frame to the writer and wait for indexed visibility. The
+    /// batch's sync follows its answer; a checkpoint is the durability barrier.
+    /// The wait holds no runtime worker
     /// (`blocking`), and the caller's thread keeps what it holds by thread.
     fn append(&self, batch: &[NewRecord]) -> Result<Vec<u64>> {
         if batch.is_empty() {

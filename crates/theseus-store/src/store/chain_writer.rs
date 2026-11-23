@@ -1,6 +1,6 @@
 //! The writer's half of the ledger's hash chain (theseus-bmkxk): in `commit`,
 //! before a frame is written, each ledger record gets its link, in WAL order,
-//! and the head moves only once the batch is durable and indexed. `chain.rs`
+//! and the head follows accepted placements before their batch sync. `chain.rs`
 //! says what a link is; `chain_walk.rs` is its one reader.
 
 use super::*;
