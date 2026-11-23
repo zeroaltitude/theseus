@@ -1841,6 +1841,11 @@ impl Lane {
                     *label = self.shared.core.exits.text(label).0.into_owned();
                 }
             }
+            Buttons::SelfNote(items) => {
+                for (_, title) in items {
+                    *title = self.shared.core.exits.text(title).0.into_owned();
+                }
+            }
             _ => {}
         }
         let w = &masked;

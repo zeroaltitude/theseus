@@ -355,6 +355,28 @@ async fn refolded_tool_inputs_are_masked_before_summary_clipping() {
     assert!(sent.contains("[redacted"), "{sent}");
 }
 
+#[tokio::test]
+async fn self_note_titles_are_masked_before_label_clipping() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    for i in 0..2 {
+        let mut w = post("k:self", &format!("Choose {i}"));
+        w.buttons = Buttons::SelfNote(vec![(
+            "note1".into(),
+            format!("{}{}", "x".repeat(60), VALUE),
+        )]);
+        lane.write(&w).await.unwrap();
+        let components = fake
+            .messages(CHANNEL)
+            .pop()
+            .unwrap()
+            .components_json
+            .to_string();
+        assert!(!components.contains("vault"), "{components}");
+        assert!(components.contains("[redacted"), "{components}");
+    }
+}
 
 #[tokio::test]
 async fn thinking_never_publishes_a_partial_known_value() {
