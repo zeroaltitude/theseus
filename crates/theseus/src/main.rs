@@ -1465,6 +1465,15 @@ async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     }
 }
 
+/// `theseus google` and `theseus secrets`: Google's grant, and the vault's entries fetched again.
+async fn accounts_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
+    match cmd {
+        Cmd::Google { cmd } => google_cmd::run(c, json, cmd).await,
+        Cmd::Secrets { cmd } => secrets_cmd::run(c, json, cmd).await,
+        _ => unreachable!("only google and secrets come here"),
+    }
+}
+
 /// `theseus routine` and `theseus project`: recurring work and long-term work.
 async fn plans_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     match cmd {
@@ -1572,8 +1581,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Tools { verbose } => cmd::tools(c, json, verbose).await,
         Cmd::Policy { cmd } => cmd::policy(c, json, cmd.unwrap_or(PolicyCmd::List)).await,
         Cmd::Aws { cmd } => cmd::aws(c, json, cmd).await,
-        Cmd::Google { cmd } => google_cmd::run(c, json, cmd).await,
-        Cmd::Secrets { cmd } => secrets_cmd::run(c, json, cmd).await,
+        cmd @ (Cmd::Google { .. } | Cmd::Secrets { .. }) => accounts_cmd(c, json, cmd).await,
         Cmd::Ontology { cmd } => ontology::ontology(c, json, cmd.unwrap_or_default()).await,
         Cmd::Health => cmd::health(c, json).await,
         Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,

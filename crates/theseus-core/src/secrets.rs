@@ -1177,7 +1177,11 @@ async fn one_round(
 fn next_wait(board: &SecretBoard, pace: &Pace, refused: Option<Refused>, step: usize) -> Duration {
     let mut wait = refused.map_or_else(|| pace.wait(step), Refused::wait);
     if let Some(r) = refused {
-        tracing::warn!(why = r.word(), wait_s = wait.as_secs(), "the vault refused; it is asked again after the wait");
+        tracing::warn!(
+            why = r.word(),
+            wait_s = wait.as_secs(),
+            "the vault refused; it is asked again after the wait"
+        );
     }
     let entries = board.reads().map_or(0, |r| r.today().1);
     if entries >= pace.ceiling {
@@ -1367,8 +1371,10 @@ mod tests {
             ]
         );
         let vault = fake::FakeVault::new(&[("op://Test/zai/credential", "tv-zai-7f3a9c")]);
-        // Every entry resolves, so this is one round.
-        resolve_into(board.clone(), refs, Arc::new(vault)).await;
+        // Every entry resolves, so this is one round; the rounds then wait for
+        // a refresh (issue 44), so they are not awaited.
+        tokio::spawn(resolve_into(board.clone(), refs, Arc::new(vault)));
+        board.wait_settled(Duration::from_secs(10)).await.unwrap();
         let st = board.status();
         assert_eq!((st.state.as_str(), st.ready.len()), ("ready", 3), "{st:?}");
         assert_eq!(st.method.as_deref(), Some("fake + local"));

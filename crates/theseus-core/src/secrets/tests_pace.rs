@@ -121,7 +121,12 @@ async fn run_until_the_end(
     clock: &Arc<Virtual>,
     ceiling: u32,
 ) {
-    tokio::spawn(resolve_with(b.clone(), refs, op, pace(clock.clone(), ceiling)));
+    tokio::spawn(resolve_with(
+        b.clone(),
+        refs,
+        op,
+        pace(clock.clone(), ceiling),
+    ));
     tokio::time::timeout(Duration::from_secs(60), clock.past_end.notified())
         .await
         .expect("the rounds reached the clock's end");
@@ -148,7 +153,9 @@ async fn every_op_the_daemon_starts_is_counted_and_health_says_the_days_reads() 
     assert_eq!((today.processes, today.references), (1, 3));
     assert_eq!(today.ceiling, pace::default_vault_reads_per_day());
     assert_eq!(today.stopped, None);
-    op.read(&SecretRef::parse("op://V/d/f").unwrap()).await.unwrap();
+    op.read(&SecretRef::parse("op://V/d/f").unwrap())
+        .await
+        .unwrap();
     assert_eq!(runs(dir.path()), ["inject", "read"]);
     assert_eq!(reads.today(), (2, 4));
     let uncounted = SecretBoard::for_config(&refs, Instant::now());
@@ -251,12 +258,22 @@ async fn past_the_days_ceiling_the_retries_stop_until_a_refresh() {
     let refs = refs(&[("gone", "op://V/gone/f")]);
     let b = board(&refs, reads.clone());
     run_until_the_end(&b, refs, op, &clock, 5).await;
-    assert_eq!(runs(dir.path()).len(), 5, "rounds at 0, 5, 15, 35 and 75 s, then none");
+    assert_eq!(
+        runs(dir.path()).len(),
+        5,
+        "rounds at 0, 5, 15, 35 and 75 s, then none"
+    );
     let today = b.status().vault_today.unwrap();
     assert_eq!((today.references, today.ceiling), (5, 5));
     let why = today.stopped.expect("health says why");
-    assert!(why.starts_with("retries stopped: the daemon read 5 vault entries today"), "{why}");
-    assert!(why.contains("after midnight, or now with `theseus secrets refresh`"), "{why}");
+    assert!(
+        why.starts_with("retries stopped: the daemon read 5 vault entries today"),
+        "{why}"
+    );
+    assert!(
+        why.contains("after midnight, or now with `theseus secrets refresh`"),
+        "{why}"
+    );
 
     assert_eq!(b.refresh(Some("gone")), Ok(vec!["gone".to_string()]));
     tokio::time::timeout(Duration::from_secs(30), clock.past_end.notified())

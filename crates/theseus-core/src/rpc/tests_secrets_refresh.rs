@@ -1,6 +1,7 @@
 //! `secrets.refresh` over the wire (issue 44): the owner's from the CLI, once
-//! a minute, and nobody's from the MCP server's surface; a name `[secrets]`
-//! lacks is told in words. What a refresh then reads, counted run by run, is
+//! a minute; refused on the MCP server's surface (its own list) and on a
+//! connection no listener named (the owner's check); a name `[secrets]` lacks
+//! is told in words. What a refresh then reads, counted run by run, is
 //! `secrets::tests_pace`.
 
 use serde_json::json;
@@ -40,13 +41,30 @@ async fn a_refresh_is_the_owners_from_a_private_place_once_a_minute() {
     .await
     .unwrap_err();
     assert_eq!(mcp.code, error_code::REFUSED, "{mcp:?}");
+    assert!(mcp.message.contains("may not call secrets.refresh"), "{mcp:?}");
+    let unnamed = rpc_as(
+        &fresh,
+        Client::new("test#1", Surface::Unnamed),
+        method::SECRETS_REFRESH,
+        json!({}),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(unnamed.code, error_code::REFUSED, "{unnamed:?}");
     assert!(
-        mcp.message.starts_with("secrets.refresh is the owner's, in a private place"),
-        "{mcp:?}"
+        unnamed
+            .message
+            .starts_with("secrets.refresh is the owner's, in a private place"),
+        "{unnamed:?}"
     );
-    let none = rpc_as(&fresh, cli(), method::SECRETS_REFRESH, json!({"name": "nope"}))
-        .await
-        .unwrap_err();
+    let none = rpc_as(
+        &fresh,
+        cli(),
+        method::SECRETS_REFRESH,
+        json!({"name": "nope"}),
+    )
+    .await
+    .unwrap_err();
     assert!(none.message.contains("no [secrets] entry"), "{none:?}");
     let first = rpc_as(&fresh, cli(), method::SECRETS_REFRESH, json!({}))
         .await

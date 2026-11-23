@@ -150,8 +150,6 @@ mod tests_exec_list;
 #[cfg(test)]
 mod tests_health_counts;
 #[cfg(test)]
-mod tests_secrets_refresh;
-#[cfg(test)]
 mod tests_health_imported;
 #[cfg(test)]
 mod tests_history;
@@ -194,6 +192,8 @@ mod tests_prefix;
 mod tests_rewind;
 #[cfg(test)]
 mod tests_scratch;
+#[cfg(test)]
+mod tests_secrets_refresh;
 #[cfg(test)]
 #[cfg(test)]
 mod tests_self;

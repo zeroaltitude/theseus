@@ -175,7 +175,9 @@ impl Refused {
     /// and at most a day, else an hour.
     pub fn wait(self) -> Duration {
         match self {
-            Self::RateLimited(Some(d)) => d.clamp(Duration::from_secs(60), Duration::from_secs(86_400)),
+            Self::RateLimited(Some(d)) => {
+                d.clamp(Duration::from_secs(60), Duration::from_secs(86_400))
+            }
             _ => REFUSED_WAIT,
         }
     }
@@ -200,7 +202,7 @@ fn reset_in(w: &str) -> Option<Duration> {
     let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
     let n: u64 = digits.parse().ok()?;
     let unit = rest[digits.len()..].trim_start();
-    let secs = if unit.starts_with("h") {
+    let secs = if unit.starts_with('h') {
         n * 3600
     } else if unit.starts_with("min") || unit.starts_with("m ") || unit == "m" {
         n * 60
@@ -270,7 +272,10 @@ mod tests {
             Some(Refused::Token)
         );
         assert_eq!(Refused::of("\"x\" isn't an item in the \"v\" vault"), None);
-        assert_eq!(Refused::of("could not read item-0429 (no such field)"), None);
+        assert_eq!(
+            Refused::of("could not read item-0429 (no such field)"),
+            None
+        );
         assert_eq!(Refused::of("could not find item x"), None);
         assert_eq!(Refused::RateLimited(None).wait(), REFUSED_WAIT);
         assert_eq!(

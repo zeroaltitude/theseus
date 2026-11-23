@@ -172,10 +172,16 @@ impl SecretsStatus {
     pub fn vault_today_words(&self) -> Option<String> {
         let v = self.vault_today.as_ref()?;
         let runs = if v.processes == 1 { "run" } else { "runs" };
-        let entries = if v.references == 1 { "entry" } else { "entries" };
+        let entries = if v.references == 1 {
+            "entry"
+        } else {
+            "entries"
+        };
         let mut s = format!(
             "vault today: {} {runs} of op, {} {entries} read (at most {} a day)",
-            v.processes, v.references, v.ceiling
+            v.processes,
+            v.references,
+            v.ceiling
         );
         if let Some(why) = &v.stopped {
             s.push_str(&format!("\n  {why}"));
