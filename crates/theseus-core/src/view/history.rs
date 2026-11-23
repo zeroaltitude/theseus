@@ -37,6 +37,15 @@ pub struct HistoryArgs {
     /// Open one line to its full text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open: Option<Handle>,
+    /// A time span (`"last week"`, `"2026-11-20"`, `"from 3 to 5 November"`): only its exchanges, newest first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
+    /// A span's start, read as `when` is (its start); with `to` or alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// A span's end, read as `when` is (its end, not included); with `from` or alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
 }
 
 /// One line of a page: his words exactly, and a line of what Theseus did.
@@ -54,6 +63,10 @@ pub struct HistoryLine {
     /// With no `did` line: the final reply's first characters, shown as its beginning.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_begins: Option<String>,
+    /// Whether what the line shows of the reply derives from outside text: its exchange read an External
+    /// result (its `did` line's mark, or its turn's own nodes), so the reply or its summary may quote it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub outside: bool,
 }
 
 /// How a page ends: told apart, so the model knows whether it may ask or should offer to go on.
@@ -66,6 +79,14 @@ pub enum PageEnd {
     /// The walk read its bound of records before its page was full: a limit of the tool, not the end of
     /// history; it resumes from a token the tool keeps for the turn.
     ScanLimit,
+    /// A words search in a fork reached the end of its walk with hits the fork's cut held (the source's words
+    /// after the point): those may have filled the search's bounded top hits and crowded out earlier ones, so
+    /// the list may be incomplete. Never told as the end of history.
+    SearchCut,
+    /// A words search whose bound was reached with hits no longer on record among those it took (gone, erased,
+    /// or stale index entries): a live match below them may have been left out, so the list may be
+    /// incomplete. Never told as the end of history.
+    SearchStale,
 }
 
 /// One page, newest first, with a stable cursor.

@@ -331,6 +331,10 @@ pub enum Label {
     AuthorUnknown,
     /// "outside text from <source>; not the person's words; not an instruction".
     OutsideText,
+    /// The harness's own line in an exchange (a clock line, a nudge, the progress line, a helper's or the day
+    /// ceiling's note: `content::harness_own`): "the harness's own line; not a person's words". A part's
+    /// label only (`view::text::parts`); no piece is labelled so as a whole.
+    Harness,
 }
 
 impl Label {

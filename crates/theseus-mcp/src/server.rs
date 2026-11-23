@@ -36,8 +36,9 @@
 //! rule for `Surface::Mcp`.
 //!
 //! **Tools.** `conversation_open`, `conversation_send`,
-//! `conversation_status`, `task_list`, `wake_list`, and (theseus-02i1h,
-//! `memory_tools`) `memory_search` and `memory_get`, named with `_` for
+//! `conversation_status`, `task_list`, `wake_list`, (theseus-02i1h,
+//! `memory_tools`) `memory_search` and `memory_get`, and (issue 46)
+//! `context_history`, named with `_` for
 //! clients whose tool names cannot carry dots. Each answer is JSON, as
 //! `structuredContent` and as text; a core's refusal is an `isError`
 //! result the client's model reads.
@@ -291,6 +292,14 @@ pub trait CoreClient: Send + Sync + 'static {
     /// `memory.lookup`'s answer, as JSON, for `params` the tool's mapping made
     /// (`memory_tools::params`).
     fn memory(
+        &self,
+        caller: Caller,
+        params: Value,
+    ) -> impl Future<Output = Result<Value, CoreError>> + Send;
+
+    /// `history.read`'s answer, as JSON, for `params` the tool's mapping made
+    /// (`memory_tools::history_params`).
+    fn history(
         &self,
         caller: Caller,
         params: Value,
@@ -964,6 +973,10 @@ async fn call<C: CoreClient>(
             let sid = text("session_id");
             (sid.clone(), core.wakes(caller, sid).await)
         }
+        crate::memory_tools::HISTORY => {
+            let p = crate::memory_tools::history_params(&args, &client_name);
+            (text("session_id"), core.history(caller, p).await)
+        }
         _ => match crate::memory_tools::params(name, &args, &client_name) {
             Some(p) => (None, core.memory(caller, p).await),
             None => {
@@ -1191,6 +1204,19 @@ impl CoreClient for FakeCore {
             return Err(CoreError("memory_search needs words".into()));
         }
         Ok(json!({ "hits": [], "total": 0, "params": params }))
+    }
+
+    async fn history(&self, caller: Caller, params: Value) -> Result<Value, CoreError> {
+        self.seen(caller);
+        if ["place", "session_id", "open", "thing"]
+            .iter()
+            .all(|k| params[*k].as_str().is_none_or(str::is_empty))
+        {
+            return Err(CoreError(
+                "context_history reads a place's history: pass place or session_id".into(),
+            ));
+        }
+        Ok(json!({ "place": "", "lines": [], "end": "history_exhausted", "params": params }))
     }
 
     fn called(&self, record: &CallRecord) {

@@ -134,7 +134,9 @@ fn lens<'a>(store: &'a Store, here: &str) -> Lens<'a> {
         here: here.into(),
         in_view: None,
         words: None,
+        span: None,
         cut: Default::default(),
+        scope: None,
     }
 }
 
@@ -194,7 +196,7 @@ fn a_bare_page_is_the_hundred_before_what_is_in_view_and_pages_on_with_no_horizo
         (second.end, second.next.as_ref()),
         (PageEnd::HistoryExhausted, None)
     );
-    let said = render(&second, HERE, 1, None);
+    let said = render(&second, (HERE, None), 1, None);
     assert!(
         said.contains("History is exhausted") && said.contains("you may ask the person"),
         "{said}"
@@ -236,7 +238,7 @@ fn five_looks_a_turn_then_the_allowance_is_told_apart_from_the_end_of_history() 
         (fifth.lines.len(), fifth.end),
         (100, PageEnd::AllowanceUsed)
     );
-    let said = render(&fifth, HERE, LOOKS_PER_TURN - 1, None);
+    let said = render(&fifth, (HERE, None), LOOKS_PER_TURN - 1, None);
     assert!(
         said.contains("allowance is used") && said.contains("offer to look further"),
         "{said}"
@@ -269,7 +271,7 @@ fn a_walk_stopped_by_its_bound_shows_no_hidden_position() {
         at_ms: 0,
         turn_id: "resume:0".into(),
     };
-    let said = render(&w.page, HERE, 0, Some(&token));
+    let said = render(&w.page, (HERE, None), 0, Some(&token));
     assert!(
         said.contains("limit of the tool, not the end of history"),
         "{said}"
@@ -352,7 +354,7 @@ fn a_line_cuts_his_words_at_300_and_the_replys_beginning_at_200_by_code() {
         "200 and the ellipsis"
     );
     assert_eq!(line.did, None);
-    let said = render(&p, HERE, 0, None);
+    let said = render(&p, (HERE, None), 0, None);
     assert_eq!(
         said.lines().filter(|l| l.starts_with("- ")).count(),
         2,
@@ -756,4 +758,1145 @@ fn a_tasks_window_holds_its_newest_two_n_and_history_reaches_the_rest() {
         }
     }
     assert!(seen.iter().any(|t| t == "turn_0001"), "{seen:?}");
+}
+
+/// Noon (UTC) of a day of November 2026: inside that local day for any offset under twelve hours.
+fn noon_nov(day: u64) -> u64 {
+    1_794_312_000_000 + (day - 10) * 86_400_000
+}
+
+/// A time span (D6a step 1, issue 46): its page holds exactly its exchanges, newest first, read by the explicit
+/// argument's reader; `from` / `to` give its start and its end; an empty span says so in words; a span that does
+/// not read as a time is refused in words, never guessed.
+#[tokio::test]
+async fn a_span_holds_exactly_its_exchanges_and_an_empty_one_says_so() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let me = session(&r.core, None);
+    for (i, day) in [(1, 10), (2, 11), (3, 11), (4, 12)] {
+        let e = Ex {
+            at: noon_nov(day) + i * 1_000,
+            ..ex(i, HERE, &me)
+        };
+        put(&r.core.store, &e);
+    }
+    // Read as of 22 November 2026: a date in the future is no span (`recall::when::read`).
+    let at = PointOfView {
+        now_ms: noon_nov(22),
+        ..pov(HERE, Present::OwnerAlone)
+    };
+    let (b, pov) = (Board::default(), at);
+    let (core, b, me, pov) = (&r.core, &b, me.as_str(), &pov);
+    let call = move |v: Value| {
+        let a = args(v);
+        async move { answer(core, b, (me, "t"), pov, &a).await }
+    };
+    let day = call(json!({"when": "2026-11-11"})).await.unwrap().text;
+    assert!(
+        day.contains("message 2") && day.contains("message 3"),
+        "{day}"
+    );
+    assert!(
+        !day.contains("message 1") && !day.contains("message 4"),
+        "{day}"
+    );
+    assert!(
+        day.find("message 3") < day.find("message 2"),
+        "newest first: {day}"
+    );
+    let range = call(json!({"from": "2026-11-11", "to": "2026-11-12"}))
+        .await
+        .unwrap()
+        .text;
+    for want in ["message 2", "message 3", "message 4"] {
+        assert!(range.contains(want), "{want}: {range}");
+    }
+    assert!(!range.contains("message 1"), "{range}");
+    // The span's start is not the end of history: older exchanges are on record outside it.
+    assert!(!day.contains("History is exhausted"), "{day}");
+    assert!(day.contains("That is all of "), "{day}");
+    let empty = call(json!({"when": "2026-11-20"})).await.unwrap().text;
+    assert!(empty.contains("no exchange of"), "{empty}");
+    assert!(!empty.contains("message"), "{empty}");
+    let bad = call(json!({"when": "the blue moon"})).await.unwrap_err();
+    assert!(bad.contains("does not read as a time"), "{bad}");
+    let both = call(json!({"when": "2026-11-11", "from": "2026-11-10"}))
+        .await
+        .unwrap_err();
+    assert!(both.contains("not both"), "{both}");
+}
+
+/// A span beside a place narrows it: only the span's exchanges of that place.
+#[tokio::test]
+async fn a_span_beside_a_place_narrows_it() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let me = session(&r.core, None);
+    let other = session(&r.core, None);
+    put(
+        &r.core.store,
+        &Ex {
+            at: noon_nov(11),
+            ..ex(1, HERE, &me)
+        },
+    );
+    put(
+        &r.core.store,
+        &Ex {
+            at: noon_nov(11) + 1_000,
+            ..ex(2, DM, &other)
+        },
+    );
+    put(
+        &r.core.store,
+        &Ex {
+            at: noon_nov(12),
+            ..ex(3, DM, &other)
+        },
+    );
+    let at = PointOfView {
+        now_ms: noon_nov(22),
+        ..pov(HERE, Present::OwnerAlone)
+    };
+    let (b, pov) = (Board::default(), at);
+    let got = answer(
+        &r.core,
+        &b,
+        (&me, "t"),
+        &pov,
+        &args(json!({"place": DM, "when": "2026-11-11"})),
+    )
+    .await
+    .unwrap()
+    .text;
+    assert!(got.contains("message 2"), "{got}");
+    assert!(
+        !got.contains("message 1") && !got.contains("message 3"),
+        "{got}"
+    );
+}
+
+/// A tool result node in `session`, for a session's open to leave out.
+fn tool_result_in(session: &str, turn: &str) -> Node {
+    Node::tool_result(
+        session,
+        Some(turn),
+        Some(0),
+        Body::ToolResult {
+            tool_use_id: "tu_9".into(),
+            tool: "http.fetch".into(),
+            status: ResultStatus::Ok,
+            is_error: false,
+            content: "THE TOOL'S OWN TEXT".into(),
+            correlation_id: None,
+            bytes_total: 0,
+            truncated: false,
+            full_ref: None,
+            duration_ms: None,
+            late: false,
+            meta: Value::Null,
+            image: None,
+            external: None,
+            payload: None,
+        },
+    )
+}
+
+/// Opening a harness session by its id (D6a step 2): its people's and the model's messages in spoken form,
+/// oldest first, behind the margin; another person's words wrapped as outside text; tool traffic left out and
+/// counted; an id that names nothing is no session here.
+#[test]
+fn a_harness_session_opens_by_its_id_spoken_with_tool_traffic_counted() {
+    use super::session;
+    let (_d, s) = store();
+    let sid = "ses_harness";
+    put(&s, &ex(1, HERE, sid));
+    put(
+        &s,
+        &Ex {
+            person: Some("discord:7"),
+            words: "a guest's words".into(),
+            ..ex(2, LOBBY, sid)
+        },
+    );
+    s.append(&[tool_result_in(sid, "turn_0002").record().unwrap()])
+        .unwrap();
+    let brief = Node::relayed(sid, None, Origin::Agent, "parent", "A PARENT'S BRIEF");
+    s.append(&[brief.record().unwrap()]).unwrap();
+    let l = lens(&s, HERE);
+    let got = session::open(&l, sid, None).unwrap();
+    let t = &got.text;
+    assert!(
+        t.starts_with("[Session \"ses_harness\", this harness's"),
+        "{t}"
+    );
+    assert!(t.contains("the owner\n\u{2502} message 1"), "{t}");
+    assert!(t.contains("Theseus\n\u{2502} reply to message 1"), "{t}");
+    assert!(t.contains("outside text, discord:7"), "{t}");
+    assert!(t.contains("\u{2502} a guest's words"), "{t}");
+    assert!(
+        t.find("message 1") < t.find("a guest's words"),
+        "oldest first: {t}"
+    );
+    assert!(!t.contains("THE TOOL'S OWN TEXT"), "{t}");
+    assert!(!t.contains("A PARENT'S BRIEF"), "{t}");
+    assert!(
+        t.contains(
+            "Left out: 1 tool call or result and 1 message the harness or an agent relayed."
+        ),
+        "{t}"
+    );
+    assert!(t.contains("That is its beginning."), "{t}");
+    assert!(got.outside, "another person's words are shown");
+    let none = session::open(&l, "ses_nothing", None).unwrap_err();
+    assert!(none.contains("no session"), "{none}");
+}
+
+/// An imported session (no exchange records) opens by its id from its nodes, each by its newest record: an
+/// erased message reads as nothing and is counted, an imported message of outside text is left out and
+/// counted, and the operator's and an agent's words are spoken.
+#[test]
+fn an_imported_session_opens_from_its_nodes_its_erased_and_outside_messages_counted() {
+    use super::session;
+    use crate::import::Integrity;
+    let (_d, s) = store();
+    let sid = format!("{}{}", crate::import::SESSION_PREFIX, "a".repeat(64));
+    let msg = |i: u32, integrity: Integrity, text: &str| {
+        Node::imported(
+            format!("imp_{i}"),
+            &sid,
+            "openclaw",
+            1_000_000 + u64::from(i) * 1_000,
+            Body::Imported {
+                text: text.into(),
+                integrity,
+                source: "openclaw-store".into(),
+                unit: format!("u{i}"),
+                sha256: "0".repeat(64),
+                idx: i,
+            },
+        )
+    };
+    let gone = msg(2, Integrity::Operator, "THE ERASED WORDS");
+    s.append(&[
+        msg(0, Integrity::Operator, "the owner's imported words")
+            .record()
+            .unwrap(),
+        msg(1, Integrity::Agent, "the agent's imported reply")
+            .record()
+            .unwrap(),
+        gone.record().unwrap(),
+        msg(3, Integrity::Outside, "A PASTED PAGE")
+            .record()
+            .unwrap(),
+    ])
+    .unwrap();
+    s.append(&[gone
+        .erased(2_000_000, "import.erase of a test")
+        .record()
+        .unwrap()])
+        .unwrap();
+    let got = session::open(&lens(&s, HERE), &sid, None).unwrap();
+    let t = &got.text;
+    assert!(t.contains(", imported,"), "{t}");
+    assert!(
+        t.contains("the owner\n\u{2502} the owner's imported words"),
+        "{t}"
+    );
+    assert!(
+        t.contains("an agent\n\u{2502} the agent's imported reply"),
+        "{t}"
+    );
+    assert!(!t.contains("THE ERASED WORDS"), "{t}");
+    assert!(!t.contains("A PASTED PAGE"), "{t}");
+    assert!(
+        t.contains("Left out: 1 imported message of outside text and 1 erased message."),
+        "{t}"
+    );
+    // The agent's message sits beside an imported outside message the page omits: its derivation cannot be
+    // established, so the page is not asserted clean (D6 round 3, A).
+    assert!(
+        got.outside,
+        "an agent's message beside omitted outside text is outside"
+    );
+}
+
+/// A long session pages back by `before`, the position its page named: each page the newest that fit, the
+/// next page holding only what came before it, the first page's lines never repeated.
+#[test]
+fn a_long_session_pages_back_by_before() {
+    use super::session;
+    let (_d, s) = store();
+    let sid = "ses_long";
+    for i in 1..=40 {
+        put(
+            &s,
+            &Ex {
+                words: format!("message {i:02} {}", "x".repeat(600)),
+                ..ex(i, HERE, sid)
+            },
+        );
+    }
+    let l = lens(&s, HERE);
+    let first = session::open(&l, sid, None).unwrap().text;
+    assert!(first.contains("message 40"), "the newest: {first}");
+    assert!(!first.contains("message 01"), "{first}");
+    let token = first
+        .rsplit("before=")
+        .next()
+        .and_then(|t| t.strip_suffix('.'))
+        .unwrap();
+    let before: Cursor = serde_json::from_str(token).unwrap();
+    assert_eq!(before.turn_id, sid);
+    let second = session::open(&l, sid, Some(&before)).unwrap().text;
+    assert!(!second.contains("message 40"), "{second}");
+    let oldest_shown = (1..=40)
+        .find(|i| first.contains(&format!("message {i:02}")))
+        .unwrap();
+    assert!(
+        second.contains(&format!("message {:02}", oldest_shown - 1)),
+        "the page before the first: {second}"
+    );
+    let wrong = Cursor {
+        at_ms: before.at_ms,
+        turn_id: "ses_other".into(),
+    };
+    assert!(session::open(&l, sid, Some(&wrong)).is_err());
+}
+
+/// Through the tool: `open` of a session's id counts as an open and says it opened a session.
+#[tokio::test]
+async fn a_session_open_through_the_tool_counts_as_an_open() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let me = session(&r.core, None);
+    put(&r.core.store, &ex(1, HERE, &me));
+    let (b, pov) = (Board::default(), pov(HERE, Present::OwnerAlone));
+    let got = answer(&r.core, &b, (&me, "t"), &pov, &args(json!({"open": me})))
+        .await
+        .unwrap();
+    assert!(got.text.contains("message 1"), "{}", got.text);
+    assert_eq!(got.meta["session"], json!(true));
+    assert_eq!(got.meta["opens"], json!(1));
+}
+
+/// The External mark (D6a step 3): a page holding another person's line, an opened exchange holding another
+/// person's message, and an opened session holding one each give their result the marker, naming what was
+/// read; the owner's own history gives none.
+#[tokio::test]
+async fn a_result_holding_another_persons_words_is_marked_external() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let me = session(&r.core, None);
+    let guest = session(&r.core, None);
+    put(&r.core.store, &ex(1, HERE, &me));
+    put(
+        &r.core.store,
+        &Ex {
+            person: Some("discord:7"),
+            ..ex(2, LOBBY, &guest)
+        },
+    );
+    let (b, pov) = (Board::default(), pov(HERE, Present::OwnerAlone));
+    let (core, b, me, pov) = (&r.core, &b, me.as_str(), &pov);
+    let call = move |v: Value| {
+        let a = args(v);
+        async move { answer(core, b, (me, "t"), pov, &a).await }
+    };
+    let url = |o: &theseus_tools::ToolOutput| super::marker(o).map(|e| e.url);
+    let own = call(json!({})).await.unwrap();
+    assert_eq!(url(&own), None, "the owner's own page: {}", own.text);
+    let opened = call(json!({"open": "turn_0001"})).await.unwrap();
+    assert_eq!(url(&opened), None, "the owner's own exchange");
+    let lobby = call(json!({"place": LOBBY})).await.unwrap();
+    assert_eq!(
+        url(&lobby).as_deref(),
+        Some("history:discord:channel:7"),
+        "{}",
+        lobby.text
+    );
+    let theirs = call(json!({"open": "turn_0002"})).await.unwrap();
+    assert_eq!(
+        url(&theirs).as_deref(),
+        Some("history:turn_0002"),
+        "{}",
+        theirs.text
+    );
+    let whole = call(json!({"open": guest.clone()})).await.unwrap();
+    assert_eq!(
+        url(&whole),
+        Some(format!("history:{guest}")),
+        "{}",
+        whole.text
+    );
+    let mine = call(json!({"open": me})).await.unwrap();
+    assert_eq!(url(&mine), None, "the owner's own session");
+}
+
+/// On the real tool path: a turn whose history call opens another person's exchange stores its result marked
+/// external, so `external::read_any` sees the session as having read outside text; a session that opened only
+/// the owner's own exchange has not.
+#[tokio::test]
+async fn read_any_sees_a_history_result_of_another_persons_words() {
+    use crate::provider::Scripted;
+    use crate::tests_places::{answers_a_call, last_user, rig_scripted, session, turn};
+    let r = rig_scripted(
+        |_| {},
+        |req| {
+            if answers_a_call(req) {
+                return Scripted::text("Read.");
+            }
+            match last_user(req).split_once("OPEN ") {
+                Some((_, h)) => Scripted::tools(
+                    "Opening.",
+                    &[("h1", "context_history", json!({"open": h.trim()}))],
+                ),
+                None => Scripted::text("Hello."),
+            }
+        },
+    );
+    let (reader, control, other) = (
+        session(&r.core, None),
+        session(&r.core, None),
+        session(&r.core, None),
+    );
+    put(&r.core.store, &ex(1, HERE, &other));
+    put(
+        &r.core.store,
+        &Ex {
+            person: Some("discord:7"),
+            ..ex(2, LOBBY, &other)
+        },
+    );
+    assert!(!crate::external::read_any(&r.core.store, &reader));
+    turn(&r.core, &control, "OPEN turn_0001").await;
+    let said = crate::tests_places::result_of(&r.core, &control, "h1");
+    assert!(said.contains("message 1"), "the call ran: {said}");
+    assert!(
+        !crate::external::read_any(&r.core.store, &control),
+        "the owner's own words are not outside text"
+    );
+    turn(&r.core, &reader, "OPEN turn_0002").await;
+    let said = crate::tests_places::result_of(&r.core, &reader, "h1");
+    assert!(said.contains("outside text"), "the call ran: {said}");
+    assert!(crate::external::read_any(&r.core.store, &reader));
+    let first = crate::external::first(
+        &r.core
+            .store
+            .session_nodes(&reader)
+            .unwrap()
+            .into_iter()
+            .map(|(_, n)| n)
+            .collect::<Vec<_>>(),
+    )
+    .expect("the first outside text");
+    assert_eq!(first.tool, crate::view::history::HISTORY_TOOL);
+    assert_eq!(first.url, "history:turn_0002");
+}
+
+/// A session the self loop opened (its execution's principal is `self`), as a self builder's.
+fn self_session(c: &crate::Core) -> String {
+    c.open_session_as(
+        theseus_protocol::SessionOpenParams {
+            label: Some("self build: kelp".into()),
+            ..Default::default()
+        },
+        theseus_kernel::Authority {
+            principal: crate::rsi::SELF_PRINCIPAL.into(),
+            ..Default::default()
+        },
+        None,
+    )
+    .unwrap()
+    .session_id
+}
+
+/// The self loop's scope stays in the history reader (D6a round 2, section 2): a session the self loop opened
+/// reads its own place only, as its view does (`view_gate::Verified::own_place_only`). Another place's exchange
+/// is neither paged (by `place` or by span) nor opened, another session's id does not open, and its own run is
+/// paged and opened. An ordinary session at the same call reads everything (anything goes, 2026-11-22).
+#[tokio::test]
+async fn a_self_loop_session_reads_its_own_place_only_in_history() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let me = self_session(&r.core);
+    let mine =
+        crate::view_gate::place_name(&r.core.runner, &me).unwrap_or_else(|| "unknown".into());
+    let other = session(&r.core, None);
+    put(
+        &r.core.store,
+        &Ex {
+            at: noon_nov(11),
+            ..ex(1, &mine, &me)
+        },
+    );
+    put(
+        &r.core.store,
+        &Ex {
+            at: noon_nov(11) + 1_000,
+            ..ex(2, DM, &other)
+        },
+    );
+    let at = PointOfView {
+        now_ms: noon_nov(22),
+        ..pov(&mine, Present::Open)
+    };
+    let b = Board::default();
+    let call = |s: &str, v: Value| {
+        let (s, a) = (s.to_string(), args(v));
+        let (core, b, at) = (&r.core, &b, &at);
+        async move { answer(core, b, (&s, "t"), at, &a).await }
+    };
+    let own = call(&me, json!({})).await.unwrap().text;
+    assert!(own.contains("turn_0001"), "its own run: {own}");
+    assert!(call(&me, json!({"open": "turn_0001"})).await.is_ok());
+    assert!(call(&me, json!({"open": me.clone()})).await.is_ok());
+    let there = call(&me, json!({"place": DM})).await.unwrap().text;
+    assert!(
+        !there.contains("turn_0002"),
+        "another place by place: {there}"
+    );
+    let span = call(&me, json!({"place": DM, "when": "2026-11-11"}))
+        .await
+        .unwrap()
+        .text;
+    assert!(!span.contains("turn_0002"), "another place by span: {span}");
+    let shut = call(&me, json!({"open": "turn_0002"})).await.unwrap_err();
+    assert!(shut.contains("no exchange"), "{shut}");
+    let shut = call(&me, json!({"open": other.clone()})).await.unwrap_err();
+    assert!(shut.contains("no session"), "{shut}");
+    // The control: an ordinary session reads both.
+    let wide = call(&other, json!({"place": DM})).await.unwrap().text;
+    assert!(wide.contains("turn_0002"), "{wide}");
+    assert!(call(&other, json!({"open": me.clone()})).await.is_ok());
+}
+
+/// An empty span page keeps its true ending (D6a round 2, section 4): "nothing was said there" only when the
+/// walk reached the span's start (`HistoryExhausted`); a walk stopped by its reading limit keeps its resume
+/// instruction, and a used allowance says so, never absence.
+#[test]
+fn an_empty_span_page_keeps_a_scan_limit_and_an_allowance_ending() {
+    let span = crate::recall::when::When {
+        said: "last week".into(),
+        from_ms: Some(1),
+        to_ms: Some(2),
+    };
+    let empty = |end| HistoryPage {
+        lines: Vec::new(),
+        next: None,
+        end,
+    };
+    let token = Cursor {
+        at_ms: 7,
+        turn_id: "t".into(),
+    };
+    let scan = render(
+        &empty(PageEnd::ScanLimit),
+        (HERE, Some(&span)),
+        0,
+        Some(&token),
+    );
+    assert!(
+        scan.contains("reading limit") && scan.contains("\"at_ms\":7"),
+        "{scan}"
+    );
+    assert!(!scan.contains("nothing was said"), "{scan}");
+    let used = render(&empty(PageEnd::AllowanceUsed), (HERE, Some(&span)), 4, None);
+    assert!(used.contains("allowance is used"), "{used}");
+    assert!(!used.contains("nothing was said"), "{used}");
+    let gone = render(
+        &empty(PageEnd::HistoryExhausted),
+        (HERE, Some(&span)),
+        0,
+        None,
+    );
+    assert!(
+        gone.contains("nothing was said there in that span"),
+        "{gone}"
+    );
+}
+
+/// An owner-opened exchange that read an outside page (an External result) and replied quoting it.
+fn put_read_outside(store: &Store, e: &Ex<'_>) {
+    let ask = Node::user(e.session, Some(&e.turn), "owner", &e.words);
+    let mut fetched = tool_result_in(e.session, &e.turn);
+    if let Body::ToolResult { external, .. } = &mut fetched.body {
+        *external = Some(theseus_tools::External {
+            url: "https://example.invalid/tides".into(),
+        });
+    }
+    let said = reply(e.session, &e.turn, "the page says the tide turns at four");
+    let x = Exchange {
+        turn_id: e.turn.clone(),
+        session_id: e.session.into(),
+        place: e.place.into(),
+        private: e.private,
+        opened_by: Opener::Message,
+        person: e.person.map(str::to_string),
+        start_ms: e.at,
+        end_ms: Some(e.at + 500),
+        ask: Some(ask.id.clone()),
+        reply: Some(said.id.clone()),
+        messages: vec![ask.id.clone()],
+        stop: Some("end_turn".into()),
+        rebuilt: false,
+    };
+    let mut recs = vec![
+        ask.record().unwrap(),
+        fetched.record().unwrap(),
+        said.record().unwrap(),
+    ];
+    recs.extend(mark_of(&ask, e.person, e.place).and_then(|m| mark_record(&m).ok()));
+    recs.push(exchange_record(&x).unwrap());
+    recs.extend(touch(Root::Place(e.place), &e.turn, e.session, e.at));
+    store.append(&recs).unwrap();
+}
+
+/// The External mark follows DERIVED outside words (D6a round 2, section 1): an exchange the owner opened, which
+/// read an outside page and replied quoting it, is outside text when read back into a clean session, by a
+/// page line (its reply's beginning, or its stored `did` line marked outside), by its open and by its
+/// session's page. The receiving session's stored result is External: `external::read_any` and the settings
+/// act's check (`config_change::outside_since_owner`) see the read. Owner-only history stays unmarked.
+#[tokio::test]
+async fn derived_outside_words_mark_the_receiving_result_external() {
+    use crate::provider::Scripted;
+    use crate::tests_places::{answers_a_call, last_user, rig_scripted, session, turn};
+    let r = rig_scripted(
+        |_| {},
+        |req| {
+            if answers_a_call(req) {
+                return Scripted::text("Read.");
+            }
+            match last_user(req).split_once("CALL ") {
+                Some((_, a)) => Scripted::tools(
+                    "Reading.",
+                    &[(
+                        "h1",
+                        "context_history",
+                        serde_json::from_str(a.trim()).unwrap(),
+                    )],
+                ),
+                None => Scripted::text("Hello."),
+            }
+        },
+    );
+    let (read, owner_only) = (session(&r.core, None), session(&r.core, None));
+    // Places of their own: a page of the reader's own place starts below what its view already lays.
+    const REPLIED: &str = "discord:dm:55";
+    const SUMMED: &str = "discord:dm:77";
+    put_read_outside(&r.core.store, &ex(1, REPLIED, &read));
+    put_read_outside(&r.core.store, &ex(2, SUMMED, &read));
+    let d = crate::ladder::did::DidLine {
+        turn_id: "turn_0002".into(),
+        session_id: read.clone(),
+        line: "You told the owner the tide turns at four.".into(),
+        model: "m".into(),
+        writer: 1,
+        marks: crate::view::Marks {
+            place: Some(SUMMED.into()),
+            audience: crate::view::Audience::Private,
+            author: crate::view::Author::Theseus,
+            outside: true,
+            sealed: false,
+            veiled: false,
+        },
+        cost_usd: 0.0,
+        at_ms: 0,
+    };
+    r.core
+        .store
+        .append(&[crate::ladder::did::did_record(&d).unwrap()])
+        .unwrap();
+    put(&r.core.store, &ex(3, DM, &owner_only));
+    let reads = |args: Value| {
+        let core = r.core.clone();
+        async move {
+            let clean = session(&core, None);
+            turn(&core, &clean, &format!("CALL {args}")).await;
+            let said = crate::tests_places::result_of(&core, &clean, "h1");
+            let nodes = core.store.session_nodes(&clean).unwrap();
+            (
+                said,
+                crate::external::read_any(&core.store, &clean),
+                crate::config_change::outside_since_owner(&nodes),
+            )
+        }
+    };
+    for (what, args) in [
+        ("a page line's reply", json!({ "place": REPLIED })),
+        ("a page line's did", json!({ "place": SUMMED })),
+        ("an exchange's open", json!({ "open": "turn_0001" })),
+        ("a session's page", json!({ "open": read.clone() })),
+    ] {
+        let (said, any, since) = reads(args).await;
+        assert!(said.contains("tide"), "{what} ran: {said}");
+        assert!(any, "{what}: read_any sees it: {said}");
+        assert!(since, "{what}: the settings act sees it");
+    }
+    for (what, args) in [
+        ("an owner-only page", json!({ "place": DM })),
+        ("an owner-only open", json!({ "open": "turn_0003" })),
+        (
+            "an owner-only session",
+            json!({ "open": owner_only.clone() }),
+        ),
+    ] {
+        let (said, any, since) = reads(args).await;
+        assert!(said.contains("message 3"), "{what} ran: {said}");
+        assert!(
+            !any && !since,
+            "{what}: the owner's own words are not outside text: {said}"
+        );
+    }
+}
+
+/// The session open is bounded (D6a round 2, section 3): it never reads the whole session (no transcript read),
+/// and a single message larger than the open's allowance is cut in words within it, its framing charged, with
+/// an honest continuation to what came before it.
+#[test]
+fn a_session_open_is_bounded_and_cuts_an_oversized_message_in_words() {
+    use super::session;
+    let (_d, s) = store();
+    let sid = "ses_big";
+    put(&s, &ex(1, HERE, sid));
+    put(
+        &s,
+        &Ex {
+            words: format!("BIG {}", "x".repeat(200_000)),
+            ..ex(2, HERE, sid)
+        },
+    );
+    let l = lens(&s, HERE);
+    let reads = s.transcript_reads();
+    // The newest page: the big message's reply, and the big message cut.
+    let first = session::open(&l, sid, None).unwrap().text;
+    assert_eq!(s.transcript_reads(), reads, "no whole-session read");
+    assert!(
+        crate::view::text::tokens(&first) <= super::open::OPEN_TOKENS + 200,
+        "within the allowance: {} tokens",
+        crate::view::text::tokens(&first)
+    );
+    if first.contains("BIG") {
+        assert!(
+            first.contains("[cut here: this message is about"),
+            "{first}"
+        );
+    }
+    // Paging back reaches the big message (cut in words, alone if it must be), then the first exchange.
+    let mut text = first;
+    let mut pages = 0;
+    let token_of = |t: &str| -> Option<String> {
+        t.contains("before=")
+            .then(|| t.rsplit("before=").next())
+            .flatten()
+            .and_then(|t| t.strip_suffix('.'))
+            .map(str::to_string)
+    };
+    while let Some(token) = token_of(&text) {
+        let before: Cursor = serde_json::from_str(&token).unwrap();
+        text = session::open(&l, sid, Some(&before)).unwrap().text;
+        assert!(
+            crate::view::text::tokens(&text) <= super::open::OPEN_TOKENS + 200,
+            "{} tokens",
+            crate::view::text::tokens(&text)
+        );
+        if text.contains("BIG") {
+            assert!(text.contains("[cut here: this message is about"), "{text}");
+        }
+        pages += 1;
+        assert!(pages < 10, "the paging ends");
+    }
+    assert!(
+        text.contains("message 1"),
+        "the first exchange is reached: {text}"
+    );
+    assert!(text.contains("That is its beginning."), "{text}");
+}
+
+/// XS2's fixture: a builder the self loop opened (principal `self`; offered the history tool, so no role
+/// ceiling hides it), which ran two real turns at its verified anchor ("OWN-HERON", then "LATER-OWN-TERN");
+/// another session's exchange at that same place (`turn_0002`, "SAMEPLACE-KELP"); another place's
+/// (`turn_0003`, "FOREIGN-LAMP"); all of them in the words index.
+struct Xs2 {
+    r: crate::tests_places::Rig,
+    builder: String,
+    at: String,
+    first: String,
+    later: String,
+}
+
+async fn xs2() -> Xs2 {
+    use crate::tests_places::{rig_with, session};
+    use crate::tests_view_hand_backs::unmarked;
+    let r = rig_with(|c| {
+        c.memory.mode = crate::config::MemoryMode::Live;
+        c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act;
+    });
+    let c = r.core.clone();
+    c.self_resume(
+        &theseus_protocol::rsi::SelfResumeParams::default(),
+        &crate::approval::Answerer::from("the CLI"),
+    )
+    .unwrap();
+    let builder = c
+        .open_session_as(
+            theseus_protocol::SessionOpenParams {
+                label: Some("self build: kelp".into()),
+                ..Default::default()
+            },
+            theseus_kernel::Authority {
+                principal: crate::rsi::SELF_PRINCIPAL.into(),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap()
+        .session_id;
+    let verified = crate::view_gate::Verified::of_session(&c.runner, &builder);
+    assert!(verified.own_place_only(), "the builder is the self loop's");
+    let at = verified.pov().anchor.clone();
+    let offered = c.runner.view_of(&builder);
+    assert!(
+        offered.offered(crate::view::history::HISTORY_TOOL, &[]),
+        "the builder is offered the history tool"
+    );
+    unmarked(&c, &builder, "OWN-HERON").await.unwrap();
+    unmarked(&c, &builder, "LATER-OWN-TERN").await.unwrap();
+    let turn_of = |w: &str| {
+        (c.store.session_nodes(&builder).unwrap().into_iter())
+            .find(|(_, n)| matches!(&n.body, Body::UserMessage { text, .. } if text.contains(w)))
+            .and_then(|(_, n)| n.turn_id)
+            .expect("the builder's turn")
+    };
+    let (first, later) = (turn_of("OWN-HERON"), turn_of("LATER-OWN-TERN"));
+    let (other, foreign) = (session(&c, None), session(&c, None));
+    let words = |i: u64, w: &str| Ex {
+        words: w.into(),
+        ..ex(i, "", "")
+    };
+    put(
+        &c.store,
+        &Ex {
+            place: &at,
+            session: &other,
+            ..words(2, "SAMEPLACE-KELP")
+        },
+    );
+    put(
+        &c.store,
+        &Ex {
+            place: DM,
+            session: &foreign,
+            ..words(3, "FOREIGN-LAMP")
+        },
+    );
+    (c.runner.memory).set_ask(crate::tests_private_view::index_of(
+        &c,
+        vec![builder.clone(), other, foreign],
+    ));
+    Xs2 {
+        r,
+        builder,
+        at,
+        first,
+        later,
+    }
+}
+
+/// `session`'s answer to a history call, through `pov_of` and `answer` as the tool runs them.
+async fn xs2_ask(c: &Arc<crate::Core>, session: &str, a: Value) -> Result<String, String> {
+    let pov = pov_of(c, session, "t_now", None, PlaceClass::Private);
+    answer(c, &Board::default(), (session, "t_now"), &pov, &args(a))
+        .await
+        .map(|o| o.text)
+}
+
+/// XS2: the self loop's scope holds in the history tool as in the view (`view_gate::Verified::own_place_only`).
+/// The builder reads its own older exchanges, by page and by handle, and nothing of another place or of another
+/// session at its own place, by page, by words or by handle.
+#[tokio::test]
+async fn a_self_loop_builders_history_holds_its_own_place_only() {
+    let x = xs2().await;
+    let c = &x.r.core;
+    let ask = |a: Value| xs2_ask(c, &x.builder, a);
+    let text = |r: Result<String, String>| r.unwrap_or_else(|e| e);
+    let page = text(ask(json!({})).await);
+    assert!(page.contains("OWN-HERON"), "its own older history: {page}");
+    assert!(
+        !page.contains("SAMEPLACE-KELP"),
+        "another session at its place: {page}"
+    );
+    let there = text(ask(json!({"place": DM})).await);
+    assert!(
+        !there.contains("FOREIGN-LAMP"),
+        "another place's page: {there}"
+    );
+    let sought = text(ask(json!({"place": DM, "words": "FOREIGN-LAMP"})).await);
+    assert!(
+        !sought.contains("FOREIGN-LAMP"),
+        "another place's words: {sought}"
+    );
+    let near = text(ask(json!({"words": "SAMEPLACE-KELP"})).await);
+    assert!(
+        !near.contains("SAMEPLACE-KELP"),
+        "another session's words: {near}"
+    );
+    for turn in ["turn_0002", "turn_0003"] {
+        let opened = text(ask(json!({ "open": turn })).await);
+        assert!(
+            !opened.contains("KELP") && !opened.contains("LAMP"),
+            "{turn} opened: {opened}"
+        );
+    }
+    let mine = text(ask(json!({ "open": x.first })).await);
+    assert!(mine.contains("OWN-HERON"), "its own exchange opens: {mine}");
+}
+
+/// XS2: a fork of the builder, made at its first exchange's reply, reads the run it was handed, by page and by
+/// handle, through the fork's cut and no further, and nothing of another session.
+#[tokio::test]
+async fn a_fork_of_a_self_loop_builder_reads_its_handed_run_through_the_cut_only() {
+    let x = xs2().await;
+    let c = &x.r.core;
+    let reply = (c.store.session_nodes(&x.builder).unwrap().into_iter())
+        .find(|(_, n)| {
+            n.turn_id.as_deref() == Some(x.first.as_str())
+                && matches!(n.body, Body::AssistantMessage { .. })
+        })
+        .map(|(_, n)| n.id)
+        .expect("the first exchange's reply");
+    let fork = c
+        .session_fork(
+            theseus_protocol::SessionForkParams {
+                session: x.builder.clone(),
+                at: reply,
+                ..Default::default()
+            },
+            crate::approval::Surface::Cli,
+        )
+        .unwrap()
+        .session_id;
+    assert!(
+        crate::view_gate::Verified::of_session(&c.runner, &fork).own_place_only(),
+        "the fork keeps the builder's scope"
+    );
+    let ask = |a: Value| xs2_ask(c, &fork, a);
+    let text = |r: Result<String, String>| r.unwrap_or_else(|e| e);
+    let handed = text(ask(json!({ "open": x.first })).await);
+    assert!(
+        handed.contains("OWN-HERON"),
+        "the handed run opens: {handed}"
+    );
+    let page = text(ask(json!({ "place": x.at })).await);
+    assert!(page.contains("OWN-HERON"), "the handed run pages: {page}");
+    assert!(
+        !page.contains("LATER-OWN-TERN"),
+        "nothing past the cut: {page}"
+    );
+    assert!(!page.contains("SAMEPLACE-KELP"), "another session: {page}");
+    let later = text(ask(json!({ "open": x.later })).await);
+    assert!(
+        !later.contains("LATER-OWN-TERN"),
+        "past the cut, by handle: {later}"
+    );
+}
+
+/// XS2's controls: an ordinary session still reads the other place, by page, by words and by handle; a session
+/// whose scope cannot be read is answered with an error, and reads nothing.
+#[tokio::test]
+async fn an_ordinary_sessions_history_stays_wide_and_an_unread_scope_fails() {
+    use crate::tests_places::session;
+    let x = xs2().await;
+    let c = &x.r.core;
+    let plain = session(c, None);
+    let text = |r: Result<String, String>| r.unwrap_or_else(|e| e);
+    let wide = text(xs2_ask(c, &plain, json!({"place": DM})).await);
+    assert!(
+        wide.contains("FOREIGN-LAMP"),
+        "an ordinary session's page: {wide}"
+    );
+    let sought = text(xs2_ask(c, &plain, json!({"place": DM, "words": "FOREIGN-LAMP"})).await);
+    assert!(
+        sought.contains("FOREIGN-LAMP"),
+        "an ordinary session's words: {sought}"
+    );
+    let opened = text(xs2_ask(c, &plain, json!({"open": "turn_0003"})).await);
+    assert!(
+        opened.contains("FOREIGN-LAMP"),
+        "an ordinary session's open: {opened}"
+    );
+    let unread = session(c, None);
+    let mut rec: crate::session::SessionRecord = c.store.get_session(&unread).unwrap().unwrap();
+    rec.execution_id = Some("exe_gone".into());
+    c.store.put_session(&unread, &rec).unwrap();
+    let failed = xs2_ask(c, &unread, json!({"place": DM})).await;
+    assert!(failed.is_err(), "an unread scope: {failed:?}");
+}
+
+/// One exchange of `place` in `session`, its ask by `person` and its reply `said`, written as `put` writes one.
+fn put_said(store: &Store, e: &Ex<'_>, said: &str) {
+    let ask = Node::user(e.session, Some(&e.turn), "owner", &e.words);
+    let answer = reply(e.session, &e.turn, said);
+    let x = Exchange {
+        turn_id: e.turn.clone(),
+        session_id: e.session.into(),
+        place: e.place.into(),
+        private: e.private,
+        opened_by: Opener::Message,
+        person: e.person.map(str::to_string),
+        start_ms: e.at,
+        end_ms: Some(e.at + 500),
+        ask: Some(ask.id.clone()),
+        reply: Some(answer.id.clone()),
+        messages: vec![ask.id.clone()],
+        stop: Some("end_turn".into()),
+        rebuilt: false,
+    };
+    let mut recs = vec![ask.record().unwrap(), answer.record().unwrap()];
+    recs.extend(mark_of(&ask, e.person, e.place).and_then(|m| mark_record(&m).ok()));
+    recs.push(exchange_record(&x).unwrap());
+    recs.extend(touch(Root::Place(e.place), &e.turn, e.session, e.at));
+    store.append(&recs).unwrap();
+}
+
+/// A model whose message `CALL {…}` calls `context_history` with those arguments, and the receiving session's
+/// stored result as the two gate readers see it.
+fn reading_rig() -> crate::tests_places::Rig {
+    use crate::provider::Scripted;
+    use crate::tests_places::{answers_a_call, last_user, rig_scripted};
+    rig_scripted(
+        |_| {},
+        |req| {
+            if answers_a_call(req) {
+                return Scripted::text("Read.");
+            }
+            match last_user(req).split_once("CALL ") {
+                Some((_, a)) => Scripted::tools(
+                    "Reading.",
+                    &[(
+                        "h1",
+                        "context_history",
+                        serde_json::from_str(a.trim()).unwrap(),
+                    )],
+                ),
+                None => Scripted::text("Hello."),
+            }
+        },
+    )
+}
+
+async fn gate_reads(core: &Arc<crate::Core>, args: Value) -> (String, bool, bool) {
+    use crate::tests_places::{session, turn};
+    let clean = session(core, None);
+    turn(core, &clean, &format!("CALL {args}")).await;
+    let said = crate::tests_places::result_of(core, &clean, "h1");
+    let nodes = core.store.session_nodes(&clean).unwrap();
+    (
+        said,
+        crate::external::read_any(&core.store, &clean),
+        crate::config_change::outside_since_owner(&nodes),
+    )
+}
+
+/// A reply-only session page keeps its input's provenance (D6 round 3, A): a guest's exchange whose reply
+/// quotes the guest, with no External result in it, opened as its session where the page holds the long reply
+/// alone (the guest's message falls on the page before): the receiving result is External, and both gate
+/// readers see it. The same shape with the owner's own message stays clean.
+#[tokio::test]
+async fn a_reply_only_session_page_keeps_its_guests_input_provenance() {
+    use crate::tests_places::session;
+    let r = reading_rig();
+    let (guest, owner) = (session(&r.core, None), session(&r.core, None));
+    let long = "the guest asked whether the ferry runs at dawn, and I said it does. ".repeat(600);
+    put_said(
+        &r.core.store,
+        &Ex {
+            person: Some("discord:7"),
+            words: "does the ferry run at dawn?".into(),
+            ..ex(1, LOBBY, &guest)
+        },
+        &long,
+    );
+    put_said(&r.core.store, &ex(2, DM, &owner), &long);
+    let (said, any, since) = gate_reads(&r.core, json!({ "open": guest.clone() })).await;
+    assert!(
+        said.contains("ferry runs at dawn"),
+        "the reply is on the page: {said}"
+    );
+    assert!(
+        !said.contains("does the ferry run at dawn?"),
+        "the guest's message is on the page before: {said}"
+    );
+    assert!(any, "read_any sees the guest's reply: {said}");
+    assert!(since, "the settings act sees it");
+    let (said, any, since) = gate_reads(&r.core, json!({ "open": owner.clone() })).await;
+    assert!(said.contains("ferry runs at dawn"), "{said}");
+    assert!(
+        !any && !since,
+        "the owner's own exchange stays clean: {said}"
+    );
+}
+
+/// An imported agent message is not asserted clean where its session holds outside messages, which the page
+/// omits (D6 round 3, A): that session's page is outside text. An import of the operator's and the agent's
+/// messages only stays clean.
+#[tokio::test]
+async fn an_imported_agent_message_beside_omitted_outside_text_is_outside() {
+    use crate::tests_memory_lookup::{episode, import};
+    let r = reading_rig();
+    let with = |n: usize, msgs: Value| {
+        let mut v = episode(n, "personal", "2026-03-03T18:00:00Z", "the kelp survey");
+        v["messages"] = msgs;
+        v["hash"] = json!(crate::import::episode::hash_of(&v));
+        v
+    };
+    let msg = |idx: u64, integrity: &str, author: &str, text: &str| {
+        json!({"idx": idx, "time": "2026-03-03T18:00:00Z", "author": author, "integrity": integrity,
+               "text": text, "unit": format!("u-{idx}"), "sha256": "ab".repeat(32)})
+    };
+    let ids = import(
+        &r.core,
+        &[
+            with(
+                41,
+                json!([
+                    msg(
+                        0,
+                        "outside",
+                        "a stranger",
+                        "a stranger's note on the kelp beds"
+                    ),
+                    msg(
+                        1,
+                        "agent",
+                        "main",
+                        "Noted: the kelp beds are thinning, the note says."
+                    ),
+                ]),
+            ),
+            with(
+                42,
+                json!([
+                    msg(0, "operator", "wren", "count the kelp beds"),
+                    msg(1, "agent", "main", "Counted: eleven kelp beds."),
+                ]),
+            ),
+        ],
+    );
+    let (said, any, since) = gate_reads(&r.core, json!({ "open": ids[0].clone() })).await;
+    assert!(said.contains("kelp beds are thinning"), "{said}");
+    assert!(
+        !said.contains("stranger's note"),
+        "the outside message itself is omitted: {said}"
+    );
+    assert!(
+        any && since,
+        "the agent's message beside it is not asserted clean: {said}"
+    );
+    let (said, any, since) = gate_reads(&r.core, json!({ "open": ids[1].clone() })).await;
+    assert!(said.contains("eleven kelp beds"), "{said}");
+    assert!(
+        !any && !since,
+        "operator and agent only stays clean: {said}"
+    );
 }

@@ -201,7 +201,8 @@ impl Verified {
 
     /// Whether the turn is of a session the self loop opened (its execution's principal is `self`: the fixer,
     /// the reviewer, the approver, the self builder). Such a turn lays ITS OWN PLACE ONLY, as at the base: its
-    /// own session's exchanges there, its opening and what it is handed; no other session's exchange, no card,
+    /// own session's exchanges there, its opening and what it is handed (for a fork, the run it inherits,
+    /// through the fork's cut); no other session's exchange, no card,
     /// nothing waiting, elsewhere, past or recalled (`view::permit::Permit::scoped`). This is a SCOPE rule of
     /// the self loop (the reviewer's and the approver's independence from the fixer's words and everyone
     /// else's, and the cost of a worker's request), not a withholding rule: it reads no presence, mark, seal
@@ -256,10 +257,17 @@ pub fn own_turns(store: &Store, session: &str, turn: &str, place: &str) -> Vec<S
         .collect::<Vec<_>>();
     (turns.into_iter())
         .filter(|t| match crate::exchange::exchange(store, t) {
-            Ok(Some(e)) => e.session_id == session && e.place == place,
+            Ok(Some(e)) => own_exchange(&e, session, place),
             _ => false,
         })
         .collect()
+}
+
+/// Whether `ex` is one `session` itself ran at `place`: the self loop's own-place rule, read by the view's
+/// permit ([`own_turns`]) and by the history tool's lens (`history_tool::page::Lens::in_scope`). Not a place
+/// alone: another session at the same place is not the asker's.
+pub fn own_exchange(ex: &crate::exchange::Exchange, session: &str, place: &str) -> bool {
+    ex.session_id == session && ex.place == place
 }
 
 /// Whether `session` is a worker's: a task's session, or one the self loop opened (its execution's principal

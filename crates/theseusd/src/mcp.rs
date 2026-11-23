@@ -27,8 +27,9 @@
 //!   operator, up to the call's wait: then it answers `running` with the
 //!   turn's id, and the turn goes on.
 //! - **Memory** (theseus-02i1h): `memory_search` and `memory_get` are
-//!   `memory.lookup` on the connection, which answers only while
-//!   `[mcp_server] memory` is on; each read is also a `memory.read` row.
+//!   `memory.lookup` on the connection, and `context_history` (issue 46) is
+//!   `history.read`; both answer only while `[mcp_server] memory` is on, and
+//!   each read is also a `memory.read` row.
 //! - **Rows**: `mcp_server.call` per call, `mcp_server.refused` at most once a
 //!   minute per kind, both written off the runtime's workers.
 
@@ -53,6 +54,11 @@ use tokio::sync::mpsc;
 
 /// The label of the server's protocol connection, in logs and the ledger.
 const LABEL: &str = "mcp";
+
+/// What `context_history` from this daemon's own outbound attachment is told.
+const SELF_CALL: &str =
+    "context_history is not read by this daemon's own MCP attachment: a session of \
+     Theseus reads its history with its own context_history tool";
 
 /// Start the server once its key resolves, and keep health's block. A
 /// failure is said in health and the log; the socket is unaffected.
@@ -367,6 +373,21 @@ impl server::CoreClient for McpCore {
 
     async fn memory(&self, _caller: Caller, params: Value) -> Result<Value, CoreError> {
         self.call(method::MEMORY_LOOKUP, params).await
+    }
+
+    async fn history(&self, caller: Caller, params: Value) -> Result<Value, CoreError> {
+        // This daemon's own outbound MCP attachment calling its own endpoint: a self-loop session would read
+        // history outside its scope (D6 round 3, B). Refused in fixed words; any other client reads as before.
+        if let Some(server) = caller.ends.server {
+            let client = caller.ends.client;
+            let own = tokio::task::spawn_blocking(move || trace::from_this_daemon(server, client))
+                .await
+                .unwrap_or(true);
+            if own {
+                return Err(CoreError(SELF_CALL.into()));
+            }
+        }
+        self.call(method::HISTORY_READ, params).await
     }
 
     fn called(&self, r: &CallRecord) {

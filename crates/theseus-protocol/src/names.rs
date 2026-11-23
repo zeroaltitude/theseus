@@ -167,6 +167,9 @@ pub mod method {
         MEMORY_LABEL = "memory.label",
         /// What an MCP client asks of private memory (`memory::MemoryLookupParams`; theseus-02i1h). A read.
         MEMORY_LOOKUP = "memory.lookup",
+        /// The history tool for an MCP client (`memory::HistoryReadParams`; issue 46): a place's exchanges, by
+        /// words, a thing or a handle, with no model call. A read.
+        HISTORY_READ = "history.read",
         /// Mark a node wrong and find where it went (`retract::FactRetractParams`; theseus-2ced): the `wrong` label, a correction note for each live session that used it, its syntheses stale, one card for the tasks to re-run. Acting: the owner, from a private place.
         FACT_RETRACT = "fact.retract",
         /// Your own benchmark (theseus-pw1q.12; `own_bench`): a past turn's first request replayed on another profile (the owner's run), and the report of what the owner's turns need (a read).

@@ -17,6 +17,7 @@ use theseus_store::pages::ledger_session;
 use theseus_store::{kinds, Page, Store as _};
 
 use super::page::{flat, when, Lens};
+use super::session::Opened;
 use crate::exchange::{self, Exchange, OWNER};
 use crate::node::{Body, Node, Origin};
 use crate::recall::stamp;
@@ -33,18 +34,40 @@ const MOST: usize = 512;
 /// What sets each line of stored text apart from the tool's own lines.
 const MARGIN: &str = "\u{2502} ";
 
-/// The exchange `h` names, as said, or why it cannot be opened (a denied one is not told apart from none).
+/// The exchange `h` names, as said, or why it cannot be opened (a denied one is not told apart from none): the
+/// text alone, as the tests read it; the tool reads [`open_marked`].
+#[cfg(test)]
 pub fn open(lens: &Lens<'_>, h: &Handle) -> Result<String, String> {
+    open_marked(lens, h).map(|o| o.text)
+}
+
+/// [`open`], and whether the exchange holds another person's words (a message whose own mark is not the
+/// owner's, or a server's prompt): what marks the call's result as outside text (`history_tool::marker`).
+pub fn open_marked(lens: &Lens<'_>, h: &Handle) -> Result<Opened, String> {
     let none = || format!("no exchange {} can be opened here", flat(h.0.trim()));
     let ex = exchange::exchange(lens.store, h.0.trim())
         .map_err(|_| none())?
         .ok_or_else(none)?;
-    // A fork opens nothing its cut holds (`Lens::forked`): it reads as no exchange here.
-    if lens.forked(&ex).map_err(|e| format!("{e:#}"))? {
+    // Nothing the asker's scope does not admit (`Lens::in_scope`), and for a fork nothing its cut holds
+    // (`Lens::forked`): either reads as no exchange here.
+    if !lens.in_scope(&ex) || lens.forked(&ex).map_err(|e| format!("{e:#}"))? {
         return Err(none());
     }
     let nodes = nodes(lens, &ex).map_err(|e| format!("{e:#}"))?;
-    Ok(render(lens, &ex, &nodes))
+    // Another person's message, or (derived) an External result the exchange read: its reply may quote it. And
+    // the exchange's own opening input (D6 round 3, A): whatever of it the read nodes hold.
+    let outside = nodes.iter().any(crate::ladder::did::outside)
+        || speakable(&nodes).iter().any(|n| {
+            matches!(n.body, Body::UserMessage { .. })
+                && matches!(author_of(lens, n), Author::Other)
+        })
+        || ex.person.as_deref().is_some_and(|p| p != OWNER)
+        || ex.opened_by == exchange::Opener::Prompt;
+    Ok(Opened {
+        text: render(lens, &ex, &nodes),
+        outside,
+        next: None,
+    })
 }
 
 /// The nodes of `ex`'s turn, oldest first: its session's, read forward from its opening message (or from its
@@ -92,7 +115,7 @@ fn nodes(lens: &Lens<'_>, ex: &Exchange) -> anyhow::Result<Vec<Node>> {
 }
 
 /// `text` behind the margin, line by line.
-fn margined(text: &str) -> String {
+pub(super) fn margined(text: &str) -> String {
     text.trim()
         .lines()
         .map(|l| {
@@ -108,7 +131,7 @@ fn margined(text: &str) -> String {
 
 /// Who wrote a person's message, by its own mark: the owner (shown as his; may authorise only when he typed
 /// it in person), another known person, or not known. A server's prompt is another's words.
-fn author_of(lens: &Lens<'_>, n: &Node) -> Author {
+pub(super) fn author_of(lens: &Lens<'_>, n: &Node) -> Author {
     if n.origin == Origin::Mcp {
         return Author::Other;
     }
@@ -151,7 +174,7 @@ fn render(lens: &Lens<'_>, ex: &Exchange, nodes: &[Node]) -> String {
     let by_id: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.as_str(), n)).collect();
     let mut parts = forms::spoken(&nodes);
     for p in &mut parts {
-        if matches!(p.voice, Voice::Person | Voice::Theseus) {
+        if matches!(p.voice, Voice::Person | Voice::Harness | Voice::Theseus) {
             p.text = margined(&p.text);
         }
     }

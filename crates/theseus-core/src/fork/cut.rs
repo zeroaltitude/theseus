@@ -72,6 +72,11 @@ impl Cut {
         self.at.is_empty()
     }
 
+    /// Whether the cut names `session`: it is one of the fork's ancestors.
+    pub fn names(&self, session: &str) -> bool {
+        self.at.contains_key(session)
+    }
+
     /// Whether the node `session` wrote at `position` is past its cut.
     pub fn past(&self, session: &str, position: u64) -> bool {
         self.at.get(session).is_some_and(|c| position > *c)
