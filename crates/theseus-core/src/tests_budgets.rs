@@ -353,3 +353,24 @@ async fn budget_list_keeps_grandchildren_and_counts_their_questions() {
     assert_eq!(result.totals.tasks, 2);
     assert_eq!(result.totals.questions, 1);
 }
+
+#[test]
+fn budget_list_keeps_rows_in_a_parent_loop() {
+    use theseus_store::{kinds, NewRecord};
+    let dir = tempfile::tempdir().unwrap();
+    let core = core_at(dir.path(), 10.0);
+    let (_, first) = open(&core, "first");
+    let (_, second) = open(&core, "second");
+    for (id, parent) in [(&first, &second), (&second, &first)] {
+        let mut e = exec(&core, id);
+        e.parent = Some(parent.clone());
+        core.store
+            .append(&[NewRecord::json(kinds::EXECUTION, Some(id), &e).unwrap()])
+            .unwrap();
+    }
+    let result = core.budget_list().unwrap();
+    let rows = every(&result);
+    assert_eq!(rows.len(), 2, "a parent loop must not hide its rows");
+    assert_eq!(rows.iter().filter(|r| r.execution_id == first).count(), 1);
+    assert_eq!(rows.iter().filter(|r| r.execution_id == second).count(), 1);
+}

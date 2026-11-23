@@ -54,10 +54,15 @@ impl Core {
         for (parent, id) in tasks {
             children.entry(parent).or_default().push(id);
         }
-        let executions: Vec<BudgetRow> = top
+        let mut executions: Vec<BudgetRow> = top
             .iter()
             .filter_map(|id| budget_tree(id, &mut rows, &children))
             .collect();
+        // Keep rows unreachable from a root, including parent loops. Removing
+        // each row before descending also terminates a cycle.
+        for (_, id) in &order {
+            executions.extend(budget_tree(id, &mut rows, &children));
+        }
         let totals = totals(&open, &executions);
         let j = self.runner.judge.health();
         Ok(BudgetListResult {
