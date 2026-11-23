@@ -189,7 +189,7 @@ impl Core {
                 _ = connection_closed(&mut reader_closed) => break,
                 line = request_line(&mut reader, line_cap) => line,
             };
-            let line = match next {
+            let mut line = match next {
                 Ok(Some(line)) => line,
                 Ok(None) => break,
                 Err(e) => {
@@ -197,7 +197,9 @@ impl Core {
                     break;
                 }
             };
-            let line = line.trim().to_string();
+            line.truncate(line.trim_end().len());
+            let leading = line.len() - line.trim_start().len();
+            line.drain(..leading);
             if line.is_empty() {
                 continue;
             }
@@ -517,16 +519,23 @@ async fn write_connection<W: AsyncWrite + Unpin>(
 }
 
 // Inline images are base64 encoded, and import batches carry many episodes.
-// Bound the whole frame without rejecting the existing multi-megabyte paths.
-// Space for eight full attachments (including the eight document images),
-// base64 padding, and one MiB of JSON/text envelope. This is a wire budget,
-// not permission to bypass each attachment's configured decoded-byte limit.
-// Keep the existing 16 MiB allowance for images/imports even with a tiny file cap.
+// Nothing bounds how many files one `turn.submit` carries; the largest batch a
+// bound surface sends is a Discord message's: ten attachments, each up to
+// `[tools] max_attachment_bytes` (theseus-discord `files.rs`). Room for ten such
+// files base64 encoded, plus one MiB of JSON envelope; a larger frame is refused
+// with LIMIT. A wire budget, not permission to bypass each attachment's decoded
+// cap (`attach::from_wire`). The 16 MiB floor keeps images/imports with a tiny cap.
+const WIRE_ATTACHMENTS: u64 = 10;
+
 fn request_cap(max_attachment_bytes: u64) -> usize {
     let encoded = max_attachment_bytes.div_ceil(3).saturating_mul(4);
-    usize::try_from(encoded.saturating_mul(8).saturating_add(1024 * 1024))
-        .unwrap_or(usize::MAX - 1)
-        .clamp(16 * 1024 * 1024, usize::MAX - 1)
+    usize::try_from(
+        encoded
+            .saturating_mul(WIRE_ATTACHMENTS)
+            .saturating_add(1024 * 1024),
+    )
+    .unwrap_or(usize::MAX - 1)
+    .clamp(16 * 1024 * 1024, usize::MAX - 1)
 }
 const REQUEST_CAP: usize = 64;
 const CONTROL_CAP: usize = 8;
@@ -810,6 +819,35 @@ mod connection_limits {
 #[cfg(test)]
 mod attachment_frames {
     use super::*;
+
+    #[tokio::test]
+    async fn ten_wire_attachments_fit_one_request() {
+        use base64::Engine as _;
+        let size = 4 * 1024 * 1024;
+        let data = base64::engine::general_purpose::STANDARD.encode(vec![0; size]);
+        let files: Vec<_> = (0..10)
+            .map(|_| {
+                json!({
+                    "name": "report.pdf", "media_type": "application/pdf",
+                    "size": size, "data": data
+                })
+            })
+            .collect();
+        let mut line = serde_json::to_string(&json!({
+            "jsonrpc": "2.0", "id": 1, "method": "turn.submit",
+            "params": {"input": "read these", "attachments": files}
+        }))
+        .unwrap();
+        line.push('\n');
+        let received = request_line(
+            &mut BufReader::new(line.as_bytes()),
+            request_cap(size as u64),
+        )
+        .await
+        .expect("ten wire attachments must fit")
+        .unwrap();
+        assert_eq!(received, line);
+    }
 
     #[tokio::test]
     async fn a_configured_attachment_fits_its_request_line() {
