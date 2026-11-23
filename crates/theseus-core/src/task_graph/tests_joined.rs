@@ -77,9 +77,9 @@ fn pov(present: Present) -> PointOfView {
 }
 
 /// The card says the objective, the state and the plan's step, each as of its
-/// time; it is called in only where he is alone, and reading it writes nothing.
+/// time; it is read in every presence state, and reading it writes nothing.
 #[tokio::test]
-async fn a_joined_tasks_card_is_read_from_records_where_he_is_alone() {
+async fn a_joined_tasks_card_is_read_from_records_regardless_of_presence() {
     let r = rig();
     let c = &r.core;
     let s = session(c);
