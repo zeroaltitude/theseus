@@ -218,17 +218,6 @@ impl Core {
         out: &mut Swept,
     ) -> anyhow::Result<()> {
         out.due = plan.len() as u64;
-        let (target, _) = match self.people_priced_on() {
-            Ok(t) => t,
-            Err(why) => {
-                out.stopped = Some(why);
-                return Ok(());
-            }
-        };
-        let Some(price) = self.runner.catalog.get(&target.model).cloned() else {
-            out.stopped = Some(format!("no price for {}", target.model));
-            return Ok(());
-        };
         for (i, d) in plan.into_iter().enumerate() {
             let left = out.due - i as u64;
             if i > 0 {
@@ -244,6 +233,17 @@ impl Core {
                 ));
                 break;
             }
+            let (target, provider) = match self.people_extractor(d.lines.len() as u32).await {
+                Ok(t) => t,
+                Err(why) => {
+                    out.stopped = Some(why);
+                    break;
+                }
+            };
+            let Some(price) = self.runner.catalog.get(&target.model).cloned() else {
+                out.stopped = Some(format!("no price for {}", target.model));
+                break;
+            };
             let request = self.people_request(&target.model, &d.title, &d.lines);
             let est = crate::compiler::estimate(&request, price.bytes_per_token, None).tokens;
             let worst = price.reserve_micros(super::extract::MAX_TOKENS, est) + jev_projected();
@@ -286,23 +286,31 @@ impl Core {
             }
             let sid = d.sid.clone();
             let pass = self
-                .propose_people(Session {
-                    sid: &d.sid,
-                    title: &d.title,
-                    lines: d.lines,
-                    purpose,
-                    mark: d.mark,
-                    known: d.known,
-                })
+                .propose_people_on(
+                    Session {
+                        sid: &d.sid,
+                        title: &d.title,
+                        lines: d.lines,
+                        purpose,
+                        mark: d.mark,
+                        known: d.known,
+                    },
+                    (target, provider),
+                    Some(cap.saturating_sub(out.spent)),
+                )
                 .await;
             deciding.lock().unwrap().remove(&sid);
             match pass {
                 Ok(p) => {
                     out.swept += 1;
-                    out.done.push(sid);
                     out.spent += p.spent;
                     out.candidates += p.candidates;
                     out.judged += p.judged;
+                    if p.incomplete {
+                        out.stopped = Some(super::run::RUN_CAP.to_string());
+                        break;
+                    }
+                    out.done.push(sid);
                 }
                 Err(why) => {
                     out.stopped = Some(format!("{why}, {left} sessions left"));
@@ -327,7 +335,7 @@ impl Core {
                 continue;
             };
             match row.kind.as_str() {
-                "people.extracted" => {
+                "people.extracted" if row.data["failed"].as_str() != Some(super::run::RUN_CAP) => {
                     let at = extracted.entry(sid).or_default();
                     *at = (*at).max(r.position);
                 }

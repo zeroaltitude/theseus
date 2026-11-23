@@ -197,6 +197,24 @@ impl Core {
         let id = sid.to_string();
         let nodes = theseus_store::blocking(|| self.store.session_nodes(&id))?;
         let found = lines(&nodes);
+        let extractor = if p.dry_run || found.is_empty() {
+            None
+        } else {
+            let chosen = self
+                .people_extractor(found.len() as u32)
+                .await
+                .map_err(anyhow::Error::msg)?;
+            run.model = chosen.0.model.clone();
+            run.price = self
+                .runner
+                .catalog
+                .get(&run.model)
+                .ok_or_else(|| anyhow::anyhow!("no price for {}", run.model))?
+                .clone();
+            run.r.profile = chosen.0.profile.clone();
+            run.r.model = run.model.clone();
+            Some(chosen)
+        };
         let request = self.people_request(&run.model, title, &found);
         let est = crate::compiler::estimate(&request, run.price.bytes_per_token, None).tokens;
         let r = &mut run.r;
@@ -236,11 +254,18 @@ impl Core {
             mark: Some(mark),
             known,
         };
-        match self.propose_people(session).await {
+        let extractor = extractor.expect("a nonempty live pass selected its extractor");
+        match self
+            .propose_people_on(session, extractor, Some(run.cap.saturating_sub(run.spent)))
+            .await
+        {
             Ok(pass) => {
-                run.passed += 1;
                 run.spent += pass.spent;
                 tally(&mut run.r, &pass);
+                if pass.incomplete {
+                    return Ok(Some(super::run::RUN_CAP.to_string()));
+                }
+                run.passed += 1;
                 Ok(None)
             }
             Err(why) => Ok(Some(format!(

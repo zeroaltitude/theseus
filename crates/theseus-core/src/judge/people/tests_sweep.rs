@@ -104,7 +104,11 @@ async fn the_sweep_extracts_what_the_gate_let_pass_once_in_every_place() {
         .ontology_proposals(&OntologyProposalsParams::default())
         .unwrap()
         .proposals;
-    assert_eq!(listed.len(), 2, "one proposal in each conversation: {listed:?}");
+    assert_eq!(
+        listed.len(),
+        2,
+        "one proposal in each conversation: {listed:?}"
+    );
     assert!(listed.iter().any(|p| p.session_id == private));
     assert!(listed.iter().any(|p| p.session_id == shared));
     assert_eq!(listed[0].person.as_ref().unwrap().name, "Wren Halloway");
@@ -223,4 +227,59 @@ async fn a_capped_sweep_keeps_the_unfinished_window() {
         after.at_ms, before.at_ms,
         "unfinished conversations remain in the window"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_selected_extractor_is_checked_against_the_remaining_run_cap() {
+    let r = rig(None, EVERY, people_on);
+    let target = r.core.people_extractor(0).await.unwrap();
+    let result = r
+        .core
+        .propose_people_on(
+            super::run::Session {
+                sid: "fixture",
+                title: "fixture",
+                lines: vec![],
+                purpose: "sweep",
+                mark: None,
+                known: Default::default(),
+            },
+            target,
+            Some(0),
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "a zero remaining cap cannot pay the selected extractor"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unaffordable_candidate_batch_remains_incomplete() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(Some(&jev), EVERY, people_on);
+    let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    let candidate = theseus_judge::builders::PersonCandidate {
+        name: "Wren Halloway".into(),
+        handles: vec![],
+        role_line: String::new(),
+        evidence: vec![],
+    };
+    let (ids, spent, incomplete) = r
+        .core
+        .runner
+        .judge
+        .judge_people(
+            "fixture",
+            "fixture",
+            "sweep",
+            ("extraction", Some(0)),
+            vec![(candidate, vec![])],
+            &o,
+        )
+        .await;
+    assert!(incomplete, "a cap refusal cannot consume the conversation");
+    assert!(ids.is_empty());
+    assert_eq!(spent, 0);
+    assert!(jev.seen().is_empty(), "no unfunded judgment request");
 }

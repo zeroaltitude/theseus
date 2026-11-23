@@ -248,7 +248,7 @@ pub(super) fn billed(then: Scripted) -> Scripted {
     Scripted::Billed {
         usage: Usage {
             input_tokens: 1000,
-            output_tokens: 1_000_000,
+            output_tokens: 39_000,
             ..Usage::default()
         },
         then: Box::new(then),
@@ -361,9 +361,11 @@ async fn a_backfill_proposes_people_under_its_cap_and_they_are_accepted_in_bulk(
     // A cap that holds one session's worst case but not two: the first
     // session is passed and the run stops before the second.
     script_extractions(&r.fake);
-    // The first costs $0.50 (billed so): past the cap's room for a second.
+    // The first costs just under $0.40, leaving room for its judgments
+    // but not a second extraction. The fixture must not overspend the cap.
     let first = propose(&r.core, false, 0.4).await;
     assert_eq!((first.read, first.left), (1, 2), "{first:?}");
+    assert!(first.spent_usd <= first.cap_usd, "{first:?}");
     assert!(
         first
             .stopped
