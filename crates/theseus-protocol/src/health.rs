@@ -179,9 +179,7 @@ impl SecretsStatus {
         };
         let mut s = format!(
             "vault today: {} {runs} of op, {} {entries} read (at most {} a day)",
-            v.processes,
-            v.references,
-            v.ceiling
+            v.processes, v.references, v.ceiling
         );
         if let Some(why) = &v.stopped {
             s.push_str(&format!("\n  {why}"));

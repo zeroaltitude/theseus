@@ -41,7 +41,10 @@ async fn a_refresh_is_the_owners_from_a_private_place_once_a_minute() {
     .await
     .unwrap_err();
     assert_eq!(mcp.code, error_code::REFUSED, "{mcp:?}");
-    assert!(mcp.message.contains("may not call secrets.refresh"), "{mcp:?}");
+    assert!(
+        mcp.message.contains("may not call secrets.refresh"),
+        "{mcp:?}"
+    );
     let unnamed = rpc_as(
         &fresh,
         Client::new("test#1", Surface::Unnamed),
