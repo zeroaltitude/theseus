@@ -302,6 +302,21 @@ pub(super) fn input_outside(store: &crate::store::Store, turn: &str) -> bool {
     }
 }
 
+/// Whether an imported message is outside text, by the rule a session's page reads it with: another person's
+/// words (`Outside`) are; an agent's are when its session holds outside text it may derive from
+/// ([`holds_outside`], conservative); the operator's are not. Any other node is not asserted clean. The import
+/// search's hits are marked by this one rule (`imports::project`).
+pub(super) fn imported_outside(store: &crate::store::Store, n: &Node) -> bool {
+    match &n.body {
+        Body::Imported { integrity, .. } => match integrity {
+            crate::import::Integrity::Outside => true,
+            crate::import::Integrity::Agent => holds_outside(store, &n.session_id),
+            crate::import::Integrity::Operator => false,
+        },
+        _ => true,
+    }
+}
+
 /// Whether session `id` holds an imported outside message (a page omits them), each record read once, a store
 /// page at a time, at most [`MOST`] records: an imported agent's message beside one may derive from it, which
 /// the page cannot tell. A read that fails, or a session longer than [`MOST`] records, counts as holding one.

@@ -1083,17 +1083,27 @@ async fn an_import_older_than_the_newest_500_is_found_and_a_cut_book_says_so() {
         "the oldest episode is found: {}",
         found["end"]
     );
-    let book = history(
-        &r.core,
-        json!({"place": "import:casebook", "words": "OWL-LEDGER"}),
-    )
-    .await;
-    assert_eq!(
-        book["end"],
-        json!("search_cut"),
-        "the book's cut is said: {}",
-        book["end"]
-    );
+    // The book's search is narrowed to the catalog's newest 500: its last page says the search is incomplete.
+    let mut before: Option<Value> = None;
+    for _ in 0..20 {
+        let mut args = json!({"place": "import:casebook", "words": "OWL-LEDGER"});
+        if let Some(b) = &before {
+            args["before"] = b.clone();
+        }
+        let page = history(&r.core, args).await;
+        match page["end"].as_str() {
+            Some("more") => before = Some(page["next"].clone()),
+            end => {
+                assert_eq!(
+                    end,
+                    Some("search_cut"),
+                    "the book's cut is said, never that it is all"
+                );
+                return;
+            }
+        }
+    }
+    panic!("the book's pages end");
 }
 
 /// A native page marks every message-derived field it shows (D6 step 6, round 3, B4): a stable ask and a

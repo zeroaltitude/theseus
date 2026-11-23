@@ -508,14 +508,22 @@ pub(crate) async fn answer(
             imported,
         } => {
             let p = walked.page;
+            // An import search's page holds its own size of hits.
+            let size = match imported {
+                Some(_) => imports::PAGE,
+                None => PAGE_EXCHANGES as u64,
+            };
             let mut meta = json!({
                 "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
-                "look": looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
+                "look": looks + 1, "of": LOOKS_PER_TURN, "page": size,
                 "outside": outside_of(page::shows_another(&p), read_of(a, here)),
             });
             // An import search's page shows imported messages, which no exchange holds: its own sources.
             let (text, sources) = match imported {
-                Some(nodes) => (imports::render(&p, a, span.as_ref()), nodes),
+                Some(f) => (
+                    imports::render(&p, a, span.as_ref(), f.why.as_deref()),
+                    f.nodes,
+                ),
                 None => (
                     page::render(&p, (here, span.as_ref()), looks, resume.as_ref()),
                     page_sources(core, &p)?,
@@ -595,8 +603,9 @@ pub(crate) enum Read {
         walked: page::Walked,
         looks: u32,
         resume: Option<Cursor>,
-        /// An import search's page ([`imports`]): the imported nodes whose words its lines show.
-        imported: Option<Vec<String>>,
+        /// An import search's page ([`imports`]): the imported nodes whose words its lines show, and why the
+        /// search may be incomplete.
+        imported: Option<imports::Found>,
     },
 }
 
@@ -627,19 +636,13 @@ pub(crate) async fn read(
     };
     // The imported conversations, searched by words: not a timeline the walk reads (`imports`).
     if let Some(book) = imports::named(a) {
-        let (page, nodes) = imports::read(
-            core,
-            a,
-            (book, lens.span.as_ref()),
-            before.as_ref(),
-            used.looks,
-        )
-        .await?;
+        let (page, found) =
+            imports::read(core, a, (book, &lens), before.as_ref(), used.looks).await?;
         return Ok(Read::Page {
             walked: page::Walked { page, resume: None },
             looks: used.looks,
             resume: None,
-            imported: Some(nodes),
+            imported: Some(found),
         });
     }
     let mut stale = false;

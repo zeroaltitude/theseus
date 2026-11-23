@@ -250,6 +250,12 @@ async fn by_words(
                 )),
                 (n, _) => Some(format!("{n} hits could not be read")),
             };
+            // An import search that the catalog narrowed (a book's or a span's newest episodes) says so: what
+            // lay past the narrowing was never ranked, so its end is never "that is all".
+            let incomplete = incomplete.or_else(|| {
+                (a.imports && !narrowed.is_empty())
+                    .then(|| format!("the catalog narrowed it{narrowed}"))
+            });
             let total = items.len() as u64;
             let head = format!(
                 "memory.lookup: recall's items for {words:?}{}{narrowed}, best first.",
@@ -276,10 +282,11 @@ pub(crate) struct ImportHit {
     pub text: String,
 }
 
-/// The history tool's search of imported conversations (D6 step 6, round 2): this engine's [`by_words`], kept to
-/// imported sessions (a `book`'s, or every book's in the span) and to `when`; the hits from `offset`, at most
-/// `limit`, whether more lie past them, and why the search may be incomplete (stale hits that filled what was
-/// read, a hit that could not be read, or the bound of [`CANDIDATES_MAX`] reached).
+/// The history tool's search of imported conversations (D6 step 6, round 2): this engine's [`by_words`], over
+/// every session when unqualified (as the unrestricted search ranks), or narrowed to a `book`'s sessions or to
+/// the episodes in `when` (round 3), and kept to imported hits; the hits from `offset` (clamped to the bound), at
+/// most `limit`, whether more lie past them, and why the search may be incomplete (stale hits that filled what
+/// was read, a hit that could not be read, a narrowing, or the bound of [`CANDIDATES_MAX`] filled).
 pub(crate) async fn imported(
     core: &Arc<Core>,
     words: &str,
@@ -292,15 +299,22 @@ pub(crate) async fn imported(
         book: book.map(str::to_string),
         ..Args::default()
     };
-    let k = offset + limit + 1;
-    let (_, items, _, incomplete) = by_words(core, None, words.to_string(), &a, when, k).await?;
+    // The most the index is asked, whatever the page (as the MCP search asks it): a total that moved with the
+    // page would break a cursor. A forged offset past it is the bound, never an overflow.
+    let bound = CANDIDATES_MAX as u64;
+    let offset = offset.min(bound);
+    let (_, items, _, incomplete) =
+        by_words(core, None, words.to_string(), &a, when, bound).await?;
+    let fetched = items.len();
     let items: Vec<Item> = (items.into_iter())
         .filter(|i| crate::import::is_imported(&i.session_id))
         .collect();
-    let capped = k > CANDIDATES_MAX as u64 && items.len() >= CANDIDATES_MAX;
-    let incomplete = incomplete
-        .or_else(|| capped.then(|| format!("a search reads at most {CANDIDATES_MAX} hits")));
-    let more = items.len() as u64 > offset + limit;
+    let more = items.len() as u64 > offset.saturating_add(limit);
+    // The bound filled (other conversations' hits among them): what lay past it was never ranked.
+    let incomplete = incomplete.or_else(|| {
+        (!more && fetched >= CANDIDATES_MAX)
+            .then(|| format!("a search reads at most {CANDIDATES_MAX} hits"))
+    });
     let hits = (items.into_iter().skip(offset as usize).take(limit as usize))
         .map(|i| ImportHit {
             node_id: i.node_id,
@@ -378,11 +392,12 @@ async fn narrowed_to(
     if let Some(s) = some(&a.session) {
         return Ok(Some((vec![s.to_string()], format!(" in session {s}"))));
     }
-    if some(&a.book).is_none() && some(&a.topic).is_none() && !a.imports {
+    // An import search with no book is narrowed only by a span: unqualified, it ranks over every session
+    // (imported ones kept by its caller), as the unrestricted search does.
+    let span = when.filter(|_| a.imports);
+    if some(&a.book).is_none() && some(&a.topic).is_none() && span.is_none() {
         return Ok(Some((Vec::new(), String::new())));
     }
-    // An import search keeps to the episodes that meet the span (the catalog's end is inclusive).
-    let span = when.filter(|_| a.imports);
     let p = ImportSessionsParams {
         book: some(&a.book).map(str::to_string),
         topic: some(&a.topic).map(str::to_string),
