@@ -382,3 +382,66 @@ async fn an_outside_result_keeps_its_mark_and_links_its_source() {
     );
     finds(&reach(&r.core, &ask), &copy, &other);
 }
+
+/// A page line whose opening message is not a person's (a task's first exchange opens with its brief, its
+/// parent's relayed words, `turn/exchange_step.rs`): the page speaks it whatever its origin (`page::spoken`),
+/// so the result links it as it links a person's message (review of D6 round 5).
+#[tokio::test]
+async fn a_page_line_of_a_relayed_message_links_its_node() {
+    use crate::exchange::{exchange_record, touch, Exchange, Opener, Root};
+    use crate::node::{Node, Origin};
+    const PLACE: &str = "channel:brief-room";
+    let r = rig();
+    let task = session(&r.core, None);
+    let mut brief = Node::user(&task, Some("turn_brief_1"), "task:t1", SAID);
+    brief.origin = Origin::Harness;
+    let reply = Node::assistant(
+        &task,
+        "turn_brief_1",
+        0,
+        Body::AssistantMessage {
+            blocks: vec![json!({"type": "text", "text": "Briefed."})],
+            model: "m".into(),
+            provider: "p".into(),
+            stop_reason: None,
+            usage: Default::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+            effort: None,
+        },
+    );
+    let at = theseus_protocol::now_unix_ms();
+    let x = Exchange {
+        turn_id: "turn_brief_1".into(),
+        session_id: task.clone(),
+        place: PLACE.into(),
+        private: false,
+        opened_by: Opener::Message,
+        person: None,
+        start_ms: at,
+        end_ms: Some(at + 500),
+        ask: Some(brief.id.clone()),
+        reply: Some(reply.id.clone()),
+        messages: vec![brief.id.clone()],
+        stop: Some("end_turn".into()),
+        rebuilt: false,
+    };
+    let mut recs = vec![
+        brief.record().unwrap(),
+        reply.record().unwrap(),
+        exchange_record(&x).unwrap(),
+    ];
+    recs.extend(touch(Root::Place(PLACE), "turn_brief_1", &task, at));
+    r.core.store.append(&recs).unwrap();
+    let other = session(&r.core, None);
+    let (copy, text) = read_in(&r.core, &other, json!({ "place": PLACE })).await;
+    assert!(
+        text.contains(WORD),
+        "the relayed message is on the page: {text}"
+    );
+    finds(&reach(&r.core, &brief.id), &copy, &other);
+}
