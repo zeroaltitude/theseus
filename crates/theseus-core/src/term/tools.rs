@@ -626,6 +626,7 @@ async fn send(terms: &Arc<Terms>, session: &str, input: &Value) -> AsyncResult {
     let (bytes, text) = send_bytes(&a).map_err(ToolFailure::new)?;
     let t = terms
         .send(session, &a.terminal, &bytes, &text)
+        .await
         .map_err(ToolFailure::new)?;
     let mut what = Vec::new();
     if !text.is_empty() {

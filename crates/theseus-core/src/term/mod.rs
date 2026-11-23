@@ -377,7 +377,7 @@ impl Terms {
     }
 
     /// Type `bytes` into a session's terminal; `text` is what of them was text, read for `gh`'s name.
-    pub fn send(
+    pub async fn send(
         &self,
         session: &str,
         id: &str,
@@ -401,7 +401,8 @@ impl Terms {
         t.sent_ms
             .store(theseus_protocol::now_unix_ms(), Ordering::Relaxed);
         t.pty
-            .send(bytes)
+            .send_wait(bytes)
+            .await
             .map_err(|e| format!("could not write to terminal {id}: {e}"))?;
         Ok(t)
     }
