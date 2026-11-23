@@ -105,6 +105,7 @@ mod route_correct;
 mod routines;
 pub(crate) mod routines_watch;
 mod rsi;
+mod secrets_refresh;
 mod server;
 mod session_dir;
 mod session_find;
@@ -148,6 +149,8 @@ mod tests;
 mod tests_exec_list;
 #[cfg(test)]
 mod tests_health_counts;
+#[cfg(test)]
+mod tests_secrets_refresh;
 #[cfg(test)]
 mod tests_health_imported;
 #[cfg(test)]

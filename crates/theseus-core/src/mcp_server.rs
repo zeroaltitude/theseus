@@ -217,6 +217,7 @@ mod tests {
         method::VAULT_KEEP_ANSWER,
         method::VAULT_KEEP,
         method::VAULT_KEEP_WAITING,
+        method::SECRETS_REFRESH,
         method::SESSION_LIST,
         method::SESSION_RETIRE,
         method::SESSION_REOPEN,

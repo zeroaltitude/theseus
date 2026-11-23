@@ -631,6 +631,8 @@ export type * from './SealedState';
 export type * from './SecretFailed';
 export type * from './SecretSource';
 export type * from './SecretText';
+export type * from './SecretsRefreshParams';
+export type * from './SecretsRefreshResult';
 export type * from './SecretsStatus';
 export type * from './SelfBacklogItem';
 export type * from './SelfBacklogParams';

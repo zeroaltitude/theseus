@@ -16,8 +16,9 @@
 //!   one, since none is bad, and the next try waits an hour, or until the
 //!   reset `op` names.
 //! - **The ceiling** ([`default_vault_reads_per_day`]): past it, no failing
-//!   entry is fetched again until the next local day, and health says so. It
-//!   is a constant, not a setting.
+//!   entry is fetched again until the next local day or the owner's
+//!   `theseus secrets refresh`, and health says so. It is a constant, not a
+//!   setting.
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;

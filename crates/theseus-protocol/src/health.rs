@@ -204,6 +204,26 @@ pub struct VaultToday {
     pub stopped: Option<String>,
 }
 
+/// `secrets.refresh` (issue 44): fetch one `[secrets]` entry again now, or
+/// every entry the vault holds, for a value that changed in the vault. The
+/// owner's, in a private place, at most once a minute.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SecretsRefreshParams {
+    /// The entry's name in `[secrets]`; every vault entry when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub name: Option<String>,
+}
+
+/// What `secrets.refresh` asked for: the entries to be fetched again. The
+/// round runs behind the answer, and health says how it went.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SecretsRefreshResult {
+    pub asked: Vec<String>,
+}
+
 /// A secret that did not resolve, and why (never a value).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

@@ -20,7 +20,7 @@
 //! fetched again after 5 s, then at the pace of `pace::LADDER` (to a minute,
 //! then ten minutes, then every hour), since the process no longer exits and
 //! waits to be restarted; past the day's ceiling of vault reads it waits for
-//! the next day (issue 44, `pace`).
+//! the next day or the owner's refresh (issue 44, `pace`).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -46,6 +46,9 @@ pub const TOKEN_ENV: &str = "OP_SERVICE_ACCOUNT_TOKEN";
 
 /// The longest one `op` process may take before its references count as failed.
 pub const OP_TIMEOUT: Duration = Duration::from_secs(10);
+/// The least time between two of the owner's refreshes (`secrets.refresh`).
+pub const REFRESH_EVERY: Duration = Duration::from_secs(60);
+
 /// A secret value. Debug and Display never print it.
 #[derive(Clone)]
 pub struct Secret(Zeroizing<String>);
@@ -635,6 +638,8 @@ struct Progress {
     ceiling: Option<u32>,
     /// Why the retries stopped, while they are stopped.
     stopped: Option<String>,
+    /// When the owner last asked for a refresh, by the board's clock.
+    refreshed_ms: Option<u64>,
 }
 
 /// Each secret's state, published as it changes, so a consumer waits for
@@ -650,6 +655,10 @@ pub struct SecretBoard {
     /// The daemon's vault reads, once `count_from` is given them: health's
     /// `vault_today`, and the day's ceiling the retries keep (issue 44).
     reads: OnceLock<Arc<VaultReads>>,
+    /// The entries the owner's refresh asked for, until a round takes them.
+    asked: Mutex<Vec<String>>,
+    /// Wakes the rounds when a refresh is asked.
+    refresh: tokio::sync::Notify,
 }
 
 impl SecretBoard {
@@ -684,6 +693,8 @@ impl SecretBoard {
             progress: Mutex::default(),
             outside,
             reads: OnceLock::new(),
+            asked: Mutex::default(),
+            refresh: tokio::sync::Notify::new(),
         })
     }
 
@@ -846,7 +857,7 @@ impl SecretBoard {
         self.reads.get().cloned()
     }
 
-    /// The clock the rounds read: the count's, else the
+    /// The clock the rounds and the refresh read: the count's, else the
     /// system's.
     pub fn clock(&self) -> Arc<dyn pace::Clock> {
         match self.reads.get() {
@@ -861,6 +872,58 @@ impl SecretBoard {
 
     fn go_on(&self) {
         self.progress.lock().unwrap().stopped = None;
+    }
+
+    /// The owner's refresh (`secrets.refresh`, issue 44): `name` fetched
+    /// again now, or every entry the vault holds, whatever it stands at; past
+    /// the day's ceiling too. At most once in [`REFRESH_EVERY`]. The names
+    /// asked, or why not.
+    pub fn refresh(&self, name: Option<&str>) -> Result<Vec<String>, String> {
+        let vault: Vec<String> = self
+            .tx
+            .borrow()
+            .keys()
+            // A value a call returned is held under a handle (`aws-secret:…`,
+            // `hold`), not a `[secrets]` entry: nothing to fetch.
+            .filter(|n| !n.contains(':') && !self.outside.iter().any(|(o, _)| o == *n))
+            .cloned()
+            .collect();
+        let names = match name {
+            None => vault,
+            Some(n) if vault.iter().any(|v| v == n) => vec![n.to_string()],
+            Some(n) if self.outside.iter().any(|(o, _)| o == n) => {
+                return Err(format!(
+                    "{n} is read from outside the vault, at each start; there is nothing to fetch"
+                ))
+            }
+            Some(n) => return Err(format!("there is no [secrets] entry {n:?}")),
+        };
+        let now = self.clock().now_ms();
+        {
+            let mut p = self.progress.lock().unwrap();
+            let every = REFRESH_EVERY.as_millis() as u64;
+            if let Some(at) = p.refreshed_ms.filter(|at| now.saturating_sub(*at) < every) {
+                let left = (every - now.saturating_sub(at)).div_ceil(1000);
+                return Err(format!(
+                    "a refresh was asked less than a minute ago; ask again in {left} s"
+                ));
+            }
+            p.refreshed_ms = Some(now);
+        }
+        self.asked.lock().unwrap().extend(names.iter().cloned());
+        self.refresh.notify_one();
+        Ok(names)
+    }
+
+    /// What a refresh asked for, once one is asked.
+    async fn asked(&self) -> Vec<String> {
+        loop {
+            let asked = std::mem::take(&mut *self.asked.lock().unwrap());
+            if !asked.is_empty() {
+                return asked;
+            }
+            self.refresh.notified().await;
+        }
     }
 
     /// For health: `resolving` until every secret has settled, then `ready`,
@@ -1005,8 +1068,9 @@ async fn round(
 
 /// Resolve every entry of `refs` (config name → reference) into `board`:
 /// one round for all of them, then, for any that failed, another at the
-/// pace of [`pace::LADDER`] until each resolves. Runs in the background;
-/// nothing on the path to serving waits for it.
+/// pace of [`pace::LADDER`] until each resolves, and after that a round for
+/// whatever the owner's refresh asks. Runs in the background for the
+/// process's life; nothing on the path to serving waits for it.
 pub async fn resolve_into(
     board: Arc<SecretBoard>,
     refs: BTreeMap<String, String>,
@@ -1027,19 +1091,47 @@ pub(crate) async fn resolve_with(
     let mut pending: Vec<String> = refs.keys().cloned().collect();
     let mut step = 0;
     loop {
+        if pending.is_empty() {
+            pending = vault_entries(&refs, board.asked().await);
+            step = 0;
+            continue;
+        }
         let refused = one_round(&board, &refs, &mut pending, fetch.as_ref()).await;
         if pending.is_empty() {
-            return;
+            continue;
         }
         let wait = next_wait(&board, &pace, refused, step);
         step += 1;
         tracing::warn!(secrets = ?pending, retry_in_s = wait.as_secs(), "secrets failed; their consumers wait, and they are fetched again");
-        pace.clock.sleep(wait).await;
+        tokio::select! {
+            () = pace.clock.sleep(wait) => {}
+            asked = board.asked() => {
+                for name in vault_entries(&refs, asked) {
+                    if !pending.contains(&name) {
+                        pending.push(name);
+                    }
+                }
+                step = 0;
+            }
+        }
     }
 }
 
-/// One round over `pending`, published; `pending` becomes what failed. The
-/// vault's refusal, when it refused.
+/// Of `asked`, the entries of `refs` the vault holds: a refresh of anything
+/// else reads nothing.
+fn vault_entries(refs: &BTreeMap<String, String>, asked: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for name in asked {
+        if refs.get(&name).is_some_and(|r| !is_local(r)) && !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// One round over `pending`, published; `pending` becomes what failed. An
+/// entry a refresh asked for that was ready and now fails keeps its value
+/// (fail closed holds: it had one). The vault's refusal, when it refused.
 async fn one_round(
     board: &SecretBoard,
     refs: &BTreeMap<String, String>,
@@ -1048,8 +1140,13 @@ async fn one_round(
 ) -> Option<Refused> {
     board.go_on();
     board.begin_round();
+    let held: Vec<String> = pending
+        .iter()
+        .filter(|n| board.get(n).is_some())
+        .cloned()
+        .collect();
     let t0 = Instant::now();
-    let (results, method, refused) = round_of(refs, pending, fetch).await;
+    let (mut results, method, refused) = round_of(refs, pending, fetch).await;
     let failed: Vec<String> = results
         .iter()
         .filter(|(_, r)| r.is_err())
@@ -1068,8 +1165,9 @@ async fn one_round(
         failed = failed.len(),
         "secrets round"
     );
+    results.retain(|name, r| !(r.is_err() && held.contains(name)));
     board.publish(results, &method);
-    *pending = failed;
+    *pending = failed.into_iter().filter(|n| !held.contains(n)).collect();
     refused
 }
 
@@ -1089,7 +1187,7 @@ fn next_wait(board: &SecretBoard, pace: &Pace, refused: Option<Refused>, step: u
         wait = Duration::from_millis(midnight.saturating_sub(now).max(1000));
         board.stop(format!(
             "retries stopped: the daemon read {entries} vault entries today, the most it reads in a day ({}); \
-             what failed is fetched again after midnight",
+             what failed is fetched again after midnight, or now with `theseus secrets refresh`",
             pace.ceiling
         ));
     }

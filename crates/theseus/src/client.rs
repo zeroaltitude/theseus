@@ -298,7 +298,8 @@ pub fn job_session() -> Option<String> {
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
 /// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
-pub const OPERATORS: [(&str, &str); 105] = [
+pub const OPERATORS: [(&str, &str); 106] = [
+    (method::SECRETS_REFRESH, "theseus secrets refresh"),
     (method::CONFIG_HISTORY, "theseus config history"),
     (method::CONFIG_WHOLE, "theseus config show"),
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
@@ -572,6 +573,8 @@ mod tests {
             (method::SESSION_PROFILE, "theseus sessions model"),
             (method::TASK_REHOME, "theseus task rehome"),
             (method::TASK_RESCHEDULE, "theseus task reschedule"),
+            // The vault's entries fetched again (issue 44): the owner's, not a job's.
+            (method::SECRETS_REFRESH, "theseus secrets refresh"),
         ] {
             let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
             assert!(e.to_string().contains(command), "{e}");

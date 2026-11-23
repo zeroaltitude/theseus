@@ -385,6 +385,8 @@ impl Core {
             m @ (method::TASK_PAUSE | method::TASK_RESUME) => self.rpc_task_pause(m, params, conn),
             method::TASK_REHOME => self.rpc_task_rehome(params, conn),
             method::TASK_RESCHEDULE => self.rpc_task_reschedule(params, conn),
+            // The owner's: fetch a `[secrets]` entry, or every vault entry, again now (issue 44).
+            method::SECRETS_REFRESH => route(or_empty(params), |p| self.secrets_refresh(p, conn)),
             method::SESSION_PROFILE => self.rpc_session_profile(params, conn),
             // Its filters are optional: no params lists every wake.
             method::WAKE_LIST => route(or_empty(params), |p| self.wake_list(p)),

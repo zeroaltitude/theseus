@@ -107,6 +107,8 @@ pub mod method {
         OWNER_PROOF_ENROLL = "owner.proof.enroll", OWNER_PROOF_CONFIRM = "owner.proof.confirm", OWNER_PROOF_STATUS = "owner.proof.status", OWNER_PROOF_RESET = "owner.proof.reset", OWNER_PROOF_LOCK = "owner.proof.lock",
         /// Keeping a new secret in the vault (issue 26, `vault_keep`): the owner gives the value in a surface's own form for a card a turn's `vault.keep` put to them, or from their own terminal with no card. The value is in `vault.keep.answer` and `vault.keep` and nowhere else; `vault.keep.waiting` (which cards wait, and why none) carries none.
         VAULT_KEEP_ANSWER = "vault.keep.answer", VAULT_KEEP = "vault.keep", VAULT_KEEP_WAITING = "vault.keep.waiting",
+        /// The owner fetches a `[secrets]` entry again now, or every vault entry (issue 44, `SecretsRefreshParams`): a value changed in the vault, or the retries stopped at the day's ceiling. The owner's, in a private place, once a minute.
+        SECRETS_REFRESH = "secrets.refresh",
         /// The owner starts a task with no model turn (theseus-7oq0w, `task_start::TaskStartParams`).
         TASK_START = "task.start",
         /// Wakes (DD8): the turns conversations asked for at a time, with `wake.at`, that have not run yet.

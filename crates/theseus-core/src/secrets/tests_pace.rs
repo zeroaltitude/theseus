@@ -238,10 +238,12 @@ async fn the_vaults_rate_limit_reads_no_entry_alone_and_waits_an_hour() {
     }
 }
 
-/// Commit 3, the ceiling: past the day's ceiling a failing entry is not
-/// fetched again, and health says why in words.
+/// Commit 3, the ceiling, and commit 4, the refresh: past the day's ceiling a
+/// failing entry is not fetched again, and health says why in words; the
+/// owner's refresh fetches it once more, at once, past the ceiling; a second
+/// refresh inside the minute is refused and starts no `op`.
 #[tokio::test]
-async fn past_the_days_ceiling_the_retries_stop() {
+async fn past_the_days_ceiling_the_retries_stop_until_a_refresh() {
     let dir = tempfile::tempdir().unwrap();
     let clock = Virtual::span(20 * 3600);
     let reads = VaultReads::new(clock.clone());
@@ -254,5 +256,52 @@ async fn past_the_days_ceiling_the_retries_stop() {
     assert_eq!((today.references, today.ceiling), (5, 5));
     let why = today.stopped.expect("health says why");
     assert!(why.starts_with("retries stopped: the daemon read 5 vault entries today"), "{why}");
-    assert!(why.ends_with("what failed is fetched again after midnight"), "{why}");
+    assert!(why.contains("after midnight, or now with `theseus secrets refresh`"), "{why}");
+
+    assert_eq!(b.refresh(Some("gone")), Ok(vec!["gone".to_string()]));
+    tokio::time::timeout(Duration::from_secs(30), clock.past_end.notified())
+        .await
+        .expect("the refreshed round ran and stopped again");
+    assert_eq!(runs(dir.path()).len(), 6, "the refresh: one run");
+    let again = b.refresh(None).unwrap_err();
+    assert!(again.contains("less than a minute ago"), "{again}");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(runs(dir.path()).len(), 6, "a refused refresh starts no op");
+}
+
+/// Commit 4: a refresh names a vault entry, or takes every one; an entry from
+/// outside the vault and a name `[secrets]` lacks are refused in words. A
+/// ready entry the refresh fetches again and cannot read keeps its value: the
+/// consumer that had it still has it.
+#[tokio::test]
+async fn a_refresh_reads_vault_entries_and_a_ready_value_survives_a_failed_one() {
+    std::env::set_var("THESEUS_VAULT_BACKOFF_LOCAL", "made-up-local-value");
+    let dir = tempfile::tempdir().unwrap();
+    let reads = VaultReads::new(Arc::new(SystemClock));
+    let op = fake_op(dir.path(), "ok", reads.clone());
+    let refs = refs(&[
+        ("k", "op://V/k/f"),
+        ("local", "env:THESEUS_VAULT_BACKOFF_LOCAL"),
+    ]);
+    let b = board(&refs, reads);
+    let e = b.refresh(Some("local")).unwrap_err();
+    assert!(e.contains("from outside the vault"), "{e}");
+    let e = b.refresh(Some("nope")).unwrap_err();
+    assert!(e.contains("no [secrets] entry \"nope\""), "{e}");
+    tokio::spawn(resolve_into(b.clone(), refs, op));
+    b.wait_settled(Duration::from_secs(10)).await.unwrap();
+    assert_eq!(runs(dir.path()), ["read"], "one vault entry: one read");
+    std::fs::write(dir.path().join("mode"), "missing").unwrap();
+    assert_eq!(b.refresh(None), Ok(vec!["k".to_string()]));
+    let mut rx = b.subscribe();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while b.status().rounds < 2 {
+            rx.changed().await.unwrap();
+        }
+    })
+    .await
+    .expect("the refresh's round ran");
+    assert_eq!(runs(dir.path()), ["read", "read"]);
+    assert_eq!(b.get("k").unwrap().expose(), "made-up-read-value");
+    assert_eq!(b.status().state, "ready");
 }
