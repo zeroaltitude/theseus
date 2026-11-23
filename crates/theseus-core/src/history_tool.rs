@@ -46,8 +46,11 @@ use theseus_tools::{
 
 use crate::config::memory::MemoryArm;
 use crate::exchange::{self, Exchange, Opener};
+use crate::graph::{Edge, EdgeKind, VIA_HISTORY};
 use crate::recall::when::When;
-use crate::view::history::{HistoryArgs, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES};
+use crate::view::history::{
+    HistoryArgs, HistoryPage, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES,
+};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, PointOfView, Present};
 use crate::Core;
@@ -190,6 +193,7 @@ pub(crate) fn open_any(
             outside: s.outside,
             session: true,
             next: s.next,
+            sources: s.sources,
         });
     }
     let o = open::open_marked(lens, h)?;
@@ -198,16 +202,61 @@ pub(crate) fn open_any(
         outside: o.outside,
         session: false,
         next: None,
+        sources: o.sources,
     })
 }
 
 /// What [`open_any`] gives: the text, whether it shows outside words (its result is marked External,
-/// [`marker`]), whether it was a session's page, and a session page's continuation, as data.
+/// [`marker`]), whether it was a session's page, a session page's continuation, as data, and the nodes whose
+/// words it shows.
 pub(crate) struct OpenedAny {
     pub text: String,
     pub outside: bool,
     pub session: bool,
     pub next: Option<Cursor>,
+    pub sources: Vec<String>,
+}
+
+/// Where a result's copies ride from [`answer`] to its completion's frame: its meta's key (written as
+/// `"copies"` there), taken out there ([`copied`]) and never stored.
+const COPIES: &str = "copies";
+
+/// The nodes `tool`'s result copies the words of, taken out of its `meta`: only the history tool's, so no other
+/// tool's meta can write an edge.
+pub(crate) fn copied(tool: &str, meta: &mut Value) -> Vec<String> {
+    if tool != HISTORY_TOOL {
+        return Vec::new();
+    }
+    let ids = meta.as_object_mut().and_then(|m| m.remove(COPIES));
+    serde_json::from_value(ids.unwrap_or_default()).unwrap_or_default()
+}
+
+/// The result `node`'s edges (P0's rule 3): it copies each of `sources`, so `node.reach` of any of them
+/// finds it, and a retraction reaches it, as a glide's borrowed node was found from each message it took.
+pub(crate) fn edges(node: &str, sources: &[String]) -> anyhow::Result<Vec<theseus_store::NewRecord>> {
+    let mut seen = HashSet::new();
+    (sources.iter())
+        .filter(|s| seen.insert(s.as_str()))
+        .map(|s| Edge::new(EdgeKind::DerivedFrom, node, s, VIA_HISTORY).record())
+        .collect()
+}
+
+/// The nodes a page's lines show the words of: each line's message when its words are on it, and its reply
+/// when its beginning or its stored account is.
+fn page_sources(core: &Core, p: &HistoryPage) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for l in &p.lines {
+        let ex = exchange::exchange(&core.store, &l.handle.0)
+            .map_err(|e| format!("what the page shows could not be read: {e:#}"))?;
+        let Some(ex) = ex else { continue };
+        if !l.his_words.is_empty() {
+            out.extend(ex.ask);
+        }
+        if l.did.is_some() || l.reply_begins.is_some() {
+            out.extend(ex.reply);
+        }
+    }
+    Ok(out)
 }
 
 /// The External marker of a call's result (`external`): set when what it shows holds another person's
@@ -461,6 +510,7 @@ pub(crate) async fn answer(
                 "open": page::flat(&handle), "session": opened.session,
                 "opens": opens, "of": OPENS_PER_TURN,
                 "outside": outside_of(opened.outside, handle.trim()),
+                "copies": opened.sources,
             }),
             text: opened.text,
         },
@@ -476,6 +526,7 @@ pub(crate) async fn answer(
                     "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
                     "look": looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
                     "outside": outside_of(page::shows_another(&p), read_of(a, here)),
+                    "copies": page_sources(core, &p)?,
                 }),
             }
         }

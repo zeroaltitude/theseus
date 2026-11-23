@@ -63,10 +63,12 @@ pub fn open_marked(lens: &Lens<'_>, h: &Handle) -> Result<Opened, String> {
         })
         || ex.person.as_deref().is_some_and(|p| p != OWNER)
         || ex.opened_by == exchange::Opener::Prompt;
+    let (text, sources) = render(lens, &ex, &nodes);
     Ok(Opened {
-        text: render(lens, &ex, &nodes),
+        text,
         outside,
         next: None,
+        sources,
     })
 }
 
@@ -167,8 +169,9 @@ fn speakable(nodes: &[Node]) -> Vec<Node> {
 }
 
 /// The exchange, headed, each part labelled by its own provenance (`view::text::parts`), cut at about
-/// [`OPEN_TOKENS`] by `view::text::forms::fit`.
-fn render(lens: &Lens<'_>, ex: &Exchange, nodes: &[Node]) -> String {
+/// [`OPEN_TOKENS`] by `view::text::forms::fit`; and the nodes whose words it shows (a call's or a result's
+/// stub shows none).
+fn render(lens: &Lens<'_>, ex: &Exchange, nodes: &[Node]) -> (String, Vec<String>) {
     let handle = Handle(ex.turn_id.clone());
     let nodes = speakable(nodes);
     let by_id: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.as_str(), n)).collect();
@@ -179,6 +182,12 @@ fn render(lens: &Lens<'_>, ex: &Exchange, nodes: &[Node]) -> String {
         }
     }
     let parts = forms::fit(parts, OPEN_TOKENS, &handle);
+    let mut sources: Vec<String> = (parts.iter())
+        .filter(|p| matches!(p.voice, Voice::Person | Voice::Harness | Voice::Theseus))
+        .filter(|p| !p.node.is_empty())
+        .map(|p| p.node.clone())
+        .collect();
+    sources.dedup();
     let at = Pos {
         at_ms: ex.start_ms,
         id: ex.turn_id.clone(),
@@ -222,5 +231,5 @@ fn render(lens: &Lens<'_>, ex: &Exchange, nodes: &[Node]) -> String {
     if marked.is_empty() {
         out.push_str("\nNothing of it was said in words.");
     }
-    out
+    (out, sources)
 }

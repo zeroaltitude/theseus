@@ -93,8 +93,8 @@ pub struct Edge {
     pub from: String,
     pub to: String,
     /// The route that wrote it: `report`, `brief`, `publish`, `recall`,
-    /// `arrangement`, or `glide` (`graduate` in a store from 19c to the place
-    /// rule).
+    /// `arrangement`, `glide` or `history` (`graduate` in a store from 19c to
+    /// the place rule).
     #[serde(default)]
     pub via: String,
     pub at_ms: u64,
@@ -118,6 +118,9 @@ pub const VIA_MEMORY: &str = "memory";
 /// A glide's read (38b): the borrowed node, from each message it took. Nothing writes it since
 /// `channel.read` went (issue 46); an old store's edges still carry it.
 pub const VIA_GLIDE: &str = "glide";
+/// A `context.history` result, from each message whose words it shows (D6 round 4): the copy glide's read
+/// made, by the one way to look back now.
+pub const VIA_HISTORY: &str = "history";
 /// A synthesis, to each source it cites (M6 31b, consolidation).
 pub const VIA_SYNTHESIS: &str = "synthesis";
 /// A fork's first compilation, from the source's compilation that held the

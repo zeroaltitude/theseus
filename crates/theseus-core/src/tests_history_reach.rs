@@ -100,7 +100,7 @@ fn finds(walk: &NodeReachResult, copy: &str, sid: &str) {
         .unwrap_or_else(|| panic!("node.reach does not list the history result {copy}: {walk:#?}"));
     assert_eq!(d.session_id, sid, "{d:?}");
     assert_eq!(d.generation, 1, "{d:?}");
-    assert_eq!(d.route, "history", "{d:?}");
+    assert_eq!(d.route, crate::graph::VIA_HISTORY, "{d:?}");
     assert!(
         !d.exposure.compilations.is_empty() || d.exposure.loops > 0,
         "the reply after it was written with it in the request: {d:?}"
