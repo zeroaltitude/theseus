@@ -1559,7 +1559,9 @@ mod tests {
             drop: "a file stopped writing a block, or stopped carrying its sentence: a \
                    block that lost its sentence is the regression to fix, not a row to \
                    delete",
-            least: 12,
+            // The combined tree's count, recomputed once (landing 2's integration, 2026-11-23): XD2 took the place
+            // digest, D5 the thread card, and D4 laid several writers in the one block beside the message.
+            least: 11,
             stale_fails: true,
         };
         let walked = block_writers();
@@ -1586,7 +1588,8 @@ mod tests {
             );
             carrying += 1;
         }
-        assert!(carrying >= 8, "only {carrying} carrying files");
+        // Seven carry a sentence on the combined tree (the place digest and the card, both CONTEXT, are gone).
+        assert!(carrying >= 7, "only {carrying} carrying files");
         // And what each block renders carries the words.
         let arrangement = crate::arrangement::render(&[]);
         assert!(
