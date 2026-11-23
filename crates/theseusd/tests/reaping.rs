@@ -313,10 +313,12 @@ fn two_hundred_jobs_leave_no_zombie_behind() {
     );
 }
 
-/// A fake `op` whose first injection fails, so that the one reference that
-/// `read` cannot answer (`slow`) is fetched again 5 s later. That second
-/// injection says it has begun (`op.retrying`), waits for the test's word
-/// (`op.go`), takes 1 s, then says it has answered (`op.answered`) and does.
+/// A fake `op` whose first injection fails, and whose first `read` of the one
+/// reference it cannot answer then (`slow`) fails too, so that `slow` alone is
+/// fetched again 5 s later. One failing reference is fetched by one `op read`
+/// (the vault's pacing, issue 44), so that second read is the slow run: it
+/// says it has begun (`op.retrying`), waits for the test's word (`op.go`),
+/// takes 1 s, then says it has answered (`op.answered`) and does.
 fn slow_retry_op(dir: &Path) -> String {
     let out = dir.join(OUT);
     let o = out.display();
@@ -332,7 +334,13 @@ fn slow_retry_op(dir: &Path) -> String {
          \x20   touch \"$O/op.answered\"\n\
          \x20   sed -e 's/{{{{ [^}}]* }}}}/test-secret-value-0000/g' ;;\n\
          \x20 read)\n\
-         \x20   case \"$3\" in *slow*) echo '[ERROR] not yet' >&2; exit 1 ;; esac\n\
+         \x20   case \"$3\" in *slow*)\n\
+         \x20     if [ ! -e \"$O/op.read-failed-once\" ]; then touch \"$O/op.read-failed-once\"; echo '[ERROR] not yet' >&2; exit 1; fi\n\
+         \x20     touch \"$O/op.retrying\"\n\
+         \x20     while [ ! -e \"$O/op.go\" ] && [ -d \"$O\" ]; do sleep 0.01; done\n\
+         \x20     sleep 1\n\
+         \x20     touch \"$O/op.answered\" ;;\n\
+         \x20   esac\n\
          \x20   printf '%s' test-secret-value-0000 ;;\n\
          \x20 *) exit 1 ;;\n\
          esac\n"
@@ -341,7 +349,7 @@ fn slow_retry_op(dir: &Path) -> String {
 
 /// An `op` run that lasts 1 s, through a burst of 50 jobs whose wrappers exit
 /// and are reaped before, while, and after it runs: tokio's wait for it still
-/// gets its status, so the secret resolves by that injection, and no `op`
+/// gets its status, so the secret resolves by that read, and no `op`
 /// call fails. The job in the middle of the burst waits for `op` to have
 /// answered, so the burst goes on after it.
 #[test]
