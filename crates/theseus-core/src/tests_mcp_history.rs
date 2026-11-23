@@ -232,12 +232,14 @@ async fn every_string_of_a_reply_is_substituted_field_by_field() {
                 words: s(),
                 did: Some(s()),
                 reply_begins: Some(s()),
+                outside: true,
             }],
             end: s(),
             next: Some(cur()),
             open: Some(HistoryOpened {
                 handle: s(),
                 text: s(),
+                outside: true,
                 next: Some(cur()),
             }),
         },
@@ -479,4 +481,75 @@ async fn no_turn_means_the_newest_first_and_no_allowance() {
         assert_eq!(v["end"], "history_exhausted", "{v}");
         assert!(v.get("next").is_none(), "{v}");
     }
+}
+
+/// An outside agent is told when what it reads holds another person's words, as the model's result is marked
+/// External (D6a round 2): the guest's line on a page and its open say `outside`; the owner's line does not.
+#[tokio::test]
+async fn a_line_and_an_open_that_hold_another_persons_words_say_outside() {
+    use crate::exchange::{
+        exchange_record, mark_record, touch, Exchange, Opener, OwnerMark, Peer, Root, OWNER,
+    };
+    use crate::node::Node;
+    const PLACE: &str = "discord:channel:77";
+    let r = rig(true);
+    let sid = session(&r.core, None);
+    let mut recs = Vec::new();
+    for (i, person, words) in [
+        (1u64, OWNER, "the owner's ferry question"),
+        (2, "discord:7", "a guest's ferry words"),
+    ] {
+        let turn = format!("turn_mcp_{i}");
+        let at = 1_000_000 + i * 1_000;
+        let ask = Node::user(&sid, Some(&turn), person, words);
+        let mark = OwnerMark {
+            node: ask.id.clone(),
+            in_person: person == OWNER,
+            owner_handle: None,
+            peer: if person == OWNER {
+                Peer::Person
+            } else {
+                Peer::Transport
+            },
+            agent: None,
+            surface: "cli".into(),
+            place: PLACE.into(),
+            arrived_session: sid.clone(),
+            ran_session: sid.clone(),
+            author: (person != OWNER).then(|| person.to_string()),
+            at_ms: at,
+        };
+        let x = Exchange {
+            turn_id: turn.clone(),
+            session_id: sid.clone(),
+            place: PLACE.into(),
+            private: false,
+            opened_by: Opener::Message,
+            person: Some(person.into()),
+            start_ms: at,
+            end_ms: Some(at + 500),
+            ask: Some(ask.id.clone()),
+            reply: None,
+            messages: vec![ask.id.clone()],
+            stop: Some("end_turn".into()),
+            rebuilt: false,
+        };
+        recs.push(ask.record().unwrap());
+        recs.push(mark_record(&mark).unwrap());
+        recs.push(exchange_record(&x).unwrap());
+        recs.extend(touch(Root::Place(PLACE), &turn, &sid, at));
+    }
+    r.core.store.append(&recs).unwrap();
+    let page = history(&r.core, json!({"place": PLACE})).await;
+    let got = lines(&page);
+    let line = |w: &str| {
+        got.iter()
+            .find(|l| l["words"].as_str().unwrap().contains(w))
+            .unwrap_or_else(|| panic!("{w}: {page}"))
+    };
+    assert_eq!(line("guest's")["outside"], true, "{page}");
+    assert_eq!(line("owner's")["outside"], false, "{page}");
+    let handle = line("guest's")["handle"].as_str().unwrap().to_string();
+    let opened = history(&r.core, json!({"open": handle})).await;
+    assert_eq!(opened["open"]["outside"], true, "{opened}");
 }
