@@ -70,7 +70,7 @@ pub mod undo;
 pub mod warm;
 
 use std::collections::{BTreeMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::json;
@@ -791,6 +791,7 @@ impl JudgeService {
         need: theseus_judge::price::Micros,
         class: Class,
     ) -> Option<Beside> {
+        let _blocks = self.blocks.lock().unwrap_or_else(PoisonError::into_inner);
         match self.budget.reserve(&self.store, today, need, class) {
             Reserve::Granted(records, said) => Some(Beside { records, said }),
             Reserve::Paused(records, said) => {
@@ -1041,13 +1042,21 @@ pub(crate) struct Beside {
 impl Beside {
     /// Write it on a blocking thread, beside the call; awaited after the
     /// call, before the reservation is settled.
-    fn spawn(self, me: &Weak<JudgeService>) -> Option<tokio::task::JoinHandle<()>> {
+    fn spawn(mut self, me: &Weak<JudgeService>) -> Option<tokio::task::JoinHandle<()>> {
         if self.records.is_empty() {
             return None;
         }
         let me = me.clone();
         Some(tokio::task::spawn_blocking(move || {
             if let Some(svc) = me.upgrade() {
+                let _blocks = svc.blocks.lock().unwrap_or_else(PoisonError::into_inner);
+                // The deferred frame may follow a newer checkpoint. Keep its facts,
+                // but never put an older budget snapshot back in the store.
+                self.records.retain(|r| {
+                    !(r.kind == theseus_store::kinds::META
+                        && r.key.as_deref() == Some(spend::META_KEY))
+                });
+                self.records.extend(svc.budget.record());
                 svc.write_budget(&self.records, &self.said);
             }
         }))

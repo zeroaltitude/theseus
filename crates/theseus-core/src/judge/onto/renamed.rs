@@ -15,15 +15,9 @@
 //!   `other` answers, pairs of unlisted mined names that no session shares and
 //!   that together would make a cluster are asked, at most [`KIND_PAIRS_MAX`]
 //!   a run, largest union first. A yes joins the two names' sessions.
-//! - **The kind's name** (`name_it.v1`, same method): a cluster that will mint
-//!   and has two names or more is asked which of them names the kind. Since
-//!   issue 9 the class names it (`class.rs`) and this pick names nothing; it is
-//!   still asked and kept. A kept pick belongs to a cluster that still
-//!   holds it: one the cluster no longer holds is dropped with its ask, and the
-//!   cluster is asked again. So is a kept ask with no pick, once the cluster's
-//!   names differ from those it offered.
+//! - **The kind's class** names it. No unused kind-name question is bought.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use serde_json::json;
 use theseus_judge::builders::{KindSide, NameItInput, SameKindInput, SWEEP_TITLES};
@@ -182,7 +176,6 @@ impl Run<'_> {
             same: self.mark.same.iter().cloned().collect(),
             ..Hints::default()
         };
-        self.kind_names(o, &folds, &mut hints).await;
         self.kind_classes(o, &folds, &mut hints).await;
         hints.spent = self.spent;
         hints
@@ -287,100 +280,6 @@ impl Run<'_> {
             }
         }
         same
-    }
-
-    /// The name Jev picked for each cluster that will mint, in `hints.named`.
-    async fn kind_names(&mut self, o: &Ontology, folds: &mint::Folds<'_>, hints: &mut Hints) {
-        let mut asked = 0;
-        for cluster in mint::leads(o, folds, &hints.same) {
-            let names = cluster.spelled(folds);
-            let offer: BTreeSet<String> = cluster.folds.iter().take(NAMES).cloned().collect();
-            let key = format!("kind-name {}", cluster.key);
-            if names.len() < 2 {
-                continue;
-            }
-            if !self.mark.asked.contains_key(&key) {
-                // The cluster grew a name that sorts first since the pick: its
-                // key changed, the pick and its ask carry over.
-                let old = self
-                    .mark
-                    .named
-                    .iter()
-                    .find(|(k, n)| cluster.folds.contains(k) && cluster.holds(n));
-                let old = old.map(|(k, n)| (format!("kind-name {k}"), n.clone()));
-                if let Some((at, name)) =
-                    old.and_then(|(k, n)| Some((*self.mark.asked.get(&k)?, n)))
-                {
-                    self.mark.asked.insert(key.clone(), at);
-                    self.mark.named.insert(cluster.key.clone(), name);
-                }
-            }
-            if self.mark.asked.contains_key(&key) {
-                // Paid for on an earlier night, when the kind did not mint.
-                match self.mark.named.get(&cluster.key) {
-                    Some(name) if cluster.holds(name) => {
-                        hints.named.insert(cluster.key.clone(), name.clone());
-                        continue;
-                    }
-                    // The cluster changed shape under its key and no longer
-                    // holds the pick: a different question, asked again.
-                    Some(_) => {
-                        self.mark.named.remove(&cluster.key);
-                        self.mark.asked.remove(&key);
-                    }
-                    // No pick: the ask stays unless the cluster's names are no
-                    // longer those it offered (a mark from before `offered`
-                    // has none, and ages out).
-                    None if self
-                        .mark
-                        .offered
-                        .get(&cluster.key)
-                        .is_none_or(|was| *was == offer) =>
-                    {
-                        continue
-                    }
-                    None => {
-                        self.mark.offered.remove(&cluster.key);
-                        self.mark.asked.remove(&key);
-                    }
-                }
-            }
-            if !self.going() {
-                continue;
-            }
-            let ids: Vec<&str> = cluster.sessions.keys().copied().collect();
-            let input = NameItInput {
-                kind: "new kind".into(),
-                current: None,
-                description: String::new(),
-                titles: self.titles_of(&ids),
-                names: names.iter().take(NAMES).cloned().collect(),
-            };
-            if asked > 0 {
-                pace().await;
-            }
-            let context = json!({"cluster": cluster.key});
-            match self.ask(NAME_PACK, Input::NameIt(input), context).await {
-                Asked::Answered(j, cost) => {
-                    asked += 1;
-                    if let Some(name) = acts(&j).then(|| named(&j, "name", &names)).flatten() {
-                        self.mark.named.insert(cluster.key.clone(), name.clone());
-                        hints.named.insert(cluster.key.clone(), name);
-                    }
-                    self.mark.offered.insert(cluster.key.clone(), offer);
-                    self.paid(key, cost);
-                }
-                Asked::Over(need) => {
-                    self.stopping(need);
-                    tracing::info!(
-                        need,
-                        "ontology: the sweep's day cap would pass; no more kind names"
-                    );
-                    break;
-                }
-                Asked::Off => break,
-            }
-        }
     }
 }
 

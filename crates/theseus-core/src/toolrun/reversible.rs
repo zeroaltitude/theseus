@@ -354,13 +354,14 @@ impl ToolRuntime {
             shape: v.shape.as_deref(),
             summary: &plan.summary,
         };
-        let written = theseus_store::blocking(|| -> anyhow::Result<bool> {
-            let mut held = holds::Holds::read(store)?;
-            if !held.spend(id, theseus_protocol::now_unix_ms()) {
-                return Ok(false);
-            }
-            store.append(&[rec.row(&fact)?, held.record()?])?;
-            Ok(true)
+        let written = theseus_store::blocking(|| {
+            holds::Holds::update(store, |held| {
+                if !held.spend(id, theseus_protocol::now_unix_ms()) {
+                    return Ok(false);
+                }
+                store.append(&[rec.row(&fact)?, held.record()?])?;
+                Ok(true)
+            })
         });
         // The three outcomes say three different things, and an operator
         // reading a trace must be able to tell which happened: the message

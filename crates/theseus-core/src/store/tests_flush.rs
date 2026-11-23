@@ -29,6 +29,7 @@ fn refusing() -> (Store, tempfile::TempDir) {
         sessions: Arc::default(),
         watcher: Arc::default(),
         tasks: Arc::default(),
+        held_writes: Arc::default(),
         reads: Default::default(),
         faults: Default::default(),
         plain_faults: Default::default(),

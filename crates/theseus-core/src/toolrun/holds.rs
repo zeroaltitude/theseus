@@ -51,6 +51,20 @@ impl Holds {
         Ok(store.get_meta::<Self>(RECORD)?.unwrap_or_default())
     }
 
+    /// Read, change and append one held-call map without losing another writer.
+    /// The callback must finish its append before returning.
+    pub(crate) fn update<T>(
+        store: &crate::store::Store,
+        change: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        let _writer = store
+            .held_writes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut held = Self::read(store)?;
+        change(&mut held)
+    }
+
     pub fn record(&self) -> Result<NewRecord> {
         NewRecord::json(kinds::META, Some(RECORD), self)
     }
@@ -258,5 +272,60 @@ mod tests {
         assert_ne!(a, id_of("ses_1", "turn_2", "c1"));
         assert_ne!(a, id_of("ses_2", "turn_1", "c1"));
         assert!(a.starts_with("hld_") && a.len() == 12, "{a}");
+    }
+    #[test]
+    fn an_interleaved_offer_cannot_restore_a_spent_allowance() {
+        use std::sync::mpsc;
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let mut first = Holds::default();
+        first.keep(held("hld_aaaaaaaa", 1));
+        first.allow("hld_aaaaaaaa", by());
+        store.append(&[first.record().unwrap()]).unwrap();
+        let (read_tx, read_rx) = mpsc::channel();
+        let (write_tx, write_rx) = mpsc::channel();
+        let offer = store.for_turn("ses_offer");
+        let writer = std::thread::spawn(move || {
+            Holds::update(&offer, |held_map| {
+                read_tx.send(()).unwrap();
+                write_rx.recv().unwrap();
+                held_map.keep(held("hld_bbbbbbbb", 2));
+                offer.append(&[held_map.record()?])?;
+                Ok(())
+            })
+            .unwrap();
+        });
+        read_rx.recv().unwrap();
+        // The offering writer has read its snapshot but has not written it.
+        // Force the spend into that gap if the transaction does not exclude it.
+        let serialized = match store.held_writes.try_lock() {
+            Err(std::sync::TryLockError::WouldBlock) => true,
+            Ok(_) => false,
+            Err(e) => panic!("held-call writer lock poisoned: {e}"),
+        };
+        if serialized {
+            write_tx.send(()).unwrap();
+        }
+        let spender = store.for_turn("ses_spend");
+        Holds::update(&spender, |held_map| {
+            assert!(held_map.spend("hld_aaaaaaaa", 9));
+            spender.append(&[held_map.record()?])?;
+            Ok(())
+        })
+        .unwrap();
+        if !serialized {
+            write_tx.send(()).unwrap();
+        }
+        writer.join().unwrap();
+        let after = Holds::read(&store).unwrap();
+        assert_eq!(
+            after.held["hld_aaaaaaaa"].ran_ms,
+            Some(9),
+            "a spent allowance stays spent"
+        );
+        assert!(
+            after.held.contains_key("hld_bbbbbbbb"),
+            "the competing offer survives too"
+        );
     }
 }

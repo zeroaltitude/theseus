@@ -104,6 +104,34 @@ impl Core {
             base.as_ref(),
             (authority, limit),
         )?;
+        // Reconcile after publishing the fork edge: a concurrent landing either
+        // sees this edge or is already present in the item records read here.
+        let current: SessionRecord = self
+            .store
+            .get_session(&source.session_id)?
+            .unwrap_or_else(|| source.clone());
+        let mut inherited = crate::fork::data_through(current.data.as_deref(), at_position, found)
+            .map(|d| *d)
+            .unwrap_or_default();
+        crate::fork::item_data_through(
+            &self.store,
+            &source.session_id,
+            at_position,
+            &mut inherited,
+        )?;
+        if rec.data.as_deref() != Some(&inherited)
+            && inherited != crate::content::ContentFlags::default()
+        {
+            self.store.update_session(&rec.session_id, |fork| {
+                let flags = fork.data.get_or_insert_with(Default::default);
+                for label in &inherited.labels {
+                    if !flags.removed.iter().any(|r| r.flag == label.flag) {
+                        flags.raise(label.clone());
+                    }
+                }
+                Ok(Vec::new())
+            })?;
+        }
         if self.narrator.on() {
             self.narrator.first_sight(&rec.session_id);
             narrate!(

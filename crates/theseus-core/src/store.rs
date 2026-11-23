@@ -159,6 +159,8 @@ pub struct Store {
     /// The task records being written now (39a): the same lock, by `tsk_…`
     /// id, taken after a session's and before an execution's.
     tasks: Arc<SessionLocks>,
+    /// One held-call map transaction across every cloned and turn handle.
+    pub(crate) held_writes: Arc<Mutex<()>>,
     /// Full transcript reads, by this store and its turn handles.
     #[cfg(test)]
     reads: Arc<std::sync::atomic::AtomicU64>,
@@ -691,6 +693,7 @@ impl Store {
             sessions: Arc::default(),
             watcher: Arc::default(),
             tasks: Arc::default(),
+            held_writes: Arc::default(),
             #[cfg(test)]
             reads: Default::default(),
             #[cfg(test)]
@@ -1935,6 +1938,7 @@ pub(crate) mod tests {
             sessions: Arc::default(),
             watcher: Arc::default(),
             tasks: Arc::default(),
+            held_writes: Arc::default(),
             reads: Default::default(),
             faults: Default::default(),
             plain_faults: Default::default(),

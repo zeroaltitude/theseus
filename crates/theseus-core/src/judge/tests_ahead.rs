@@ -70,3 +70,32 @@ async fn the_block_raised_ahead_is_in_its_frames_own_record() {
         stored()
     );
 }
+
+/// Complete deferred checkpoints in reverse order, without racing a clock.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deferred_checkpoints_cannot_move_the_budget_backwards() {
+    let _clock = crate::test_support::pin_mid_period();
+    let r = rig_with(texts(1), None, |_| {});
+    let svc = &r.core.runner.judge;
+    let today = spend::local_day(theseus_protocol::now_unix_ms());
+    let old = svc
+        .reserve_beside(&today, BLOCK_MICROS, Class::Live)
+        .unwrap();
+    let new = svc
+        .reserve_beside(&today, BLOCK_MICROS, Class::Live)
+        .unwrap();
+    new.spawn(&std::sync::Arc::downgrade(svc))
+        .unwrap()
+        .await
+        .unwrap();
+    old.spawn(&std::sync::Arc::downgrade(svc))
+        .unwrap()
+        .await
+        .unwrap();
+    let saved: Stored = r.core.store.get_meta(META_KEY).unwrap().unwrap();
+    let current: Stored = serde_json::from_slice(&svc.budget.record().unwrap().payload).unwrap();
+    assert_eq!(
+        saved, current,
+        "a late checkpoint must save the current budget"
+    );
+}
