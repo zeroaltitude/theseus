@@ -56,6 +56,8 @@ fn text_of(m: &Value) -> String {
         Value::String(s) => s.clone(),
         Value::Array(b) => b
             .iter()
+            // The harness's block beside the message is not the person's words (`now_step`).
+            .filter(|b| !crate::task_graph::view::is_view(b))
             .filter_map(|b| b["text"].as_str().or_else(|| b["content"].as_str()))
             .collect::<Vec<_>>()
             .join("\n"),

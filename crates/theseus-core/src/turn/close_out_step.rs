@@ -53,7 +53,8 @@ use crate::tools_defer::PlaceKind;
 /// back to work: past it the budget is for finishing, not for a new check.
 pub const CLOSE_OUT_SHARE: f64 = 0.4;
 
-/// What the tail of a working turn's request says (theseus-eb4o4).
+/// What the harness says to a working turn that built something, when it says it is done
+/// (theseus-eb4o4; at close-out since issue 46: once a tail block on every request after the edit).
 pub const DELIVERABLE_HINT: &str = concat!("[The harness: before you report this work done, call what you built once, the way the task spells it. Named options in the task are options on the command line; the input the task lists first comes first; a path handed to a program that outlives the call is absolute. Where two readings are both cheap to support, support both. ", crate::content::not_for_the_person!(), "]");
 
 /// What the harness says to a turn whose closing message named a doubt.
@@ -193,17 +194,24 @@ pub(super) fn deliverable_here(kind: PlaceKind, coding: bool) -> bool {
 }
 
 impl TurnRunner {
-    /// The tail hint of a turn that has written a file, in coding or bench
-    /// work (theseus-eb4o4, theseus-uy5ts), once per request.
-    pub(super) fn deliverable_hint(&self, t: &Turn<'_>, compiled: &mut crate::compiler::Compiled) {
-        if !progress::edited(t) {
-            return;
+    /// A stop of a turn that wrote a file, in coding or bench work (`deliverable_here`): it goes on once
+    /// more, told to call what it built once the way the task spells it, under the doubt note's gate
+    /// (`may_continue`); once a turn. `i` is the loop's index.
+    pub(super) fn deliverable_note(&self, t: &mut Turn<'_>, i: u32) -> Result<bool> {
+        if t.stop_reason != "no_tool_calls" || t.deliverable_told || !progress::edited(t) {
+            return Ok(false);
         }
         let coding = t.route.injection.as_ref().is_some_and(|b| b.coding);
         let kind = self.place_kind(t.tc.session_id, t.tc.task.is_some());
-        if deliverable_here(kind, coding) {
-            Self::attach_hint(compiled, DELIVERABLE_HINT);
+        if !deliverable_here(kind, coding) || !self.may_continue(t)? {
+            return Ok(false);
         }
+        t.deliverable_told = true;
+        let guarded = self.cfg.kernel.spend_limit_mode == crate::config::SpendLimitMode::Ask;
+        let (signals, deadline) = progress::now(t, guarded);
+        progress::tell(t, "deliverable", i, (&signals, deadline), DELIVERABLE_HINT)?;
+        t.stop_reason.clear();
+        Ok(true)
     }
 
     /// After the stop nudge and the end note declined this loop: true when

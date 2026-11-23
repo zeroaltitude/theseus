@@ -852,9 +852,10 @@ fn write(root: &Path, id: &str) -> Scripted {
     )
 }
 
-/// The deliverable's hint rides the request's tail from the loop after the
-/// turn's first file edit (theseus-eb4o4), and a turn that wrote none never
-/// carries it.
+/// A turn that wrote a file and says it is done is sent back once, told to
+/// call what it built as the task spells it (theseus-eb4o4; at close-out since
+/// issue 46, where it was a tail block on every request after the edit); a
+/// second "done" ends it, and a turn that wrote none is never told.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_turn_that_wrote_a_file_is_told_to_call_it_as_the_task_spells_it() {
     let r = rig(|root| {
@@ -862,19 +863,24 @@ async fn a_turn_that_wrote_a_file_is_told_to_call_it_as_the_task_spells_it() {
             write(root, "w1"),
             command(root, "c1", 0),
             Scripted::text("Done."),
+            Scripted::text("Called it as the task spells it: done."),
         ]
     });
-    // A headless run is the shape the hint was cut for.
+    // A headless run is the shape the note was cut for.
     r.core.runner.failed_turns.leave_to_the_client();
     let (_, res) = r.turn(None).await;
-    assert_eq!(res.loops, 3);
+    assert_eq!(res.loops, 4, "sent back once at close-out");
     let reqs = r.requests();
-    assert!(!messages(&reqs[0]).contains(HINT), "no work yet");
-    for req in &reqs[1..] {
-        assert_eq!(messages(req).matches(HINT).count(), 1, "once a request");
+    assert_eq!(reqs.len(), 4);
+    for req in &reqs[..3] {
+        assert!(
+            !messages(req).contains(HINT),
+            "not before the turn says it is done"
+        );
     }
-    // A chat turn that only answers carries none, and neither does one that
-    // only ran commands: the tails of such turns are what they were.
+    assert_eq!(messages(&reqs[3]).matches(HINT).count(), 1, "said once");
+    // A chat turn that only answers is never told, and neither is one that
+    // only ran commands.
     let r = rig(|_| vec![Scripted::text("Hello.")]);
     r.turn(None).await;
     assert!(!messages(&r.requests()[0]).contains(HINT));

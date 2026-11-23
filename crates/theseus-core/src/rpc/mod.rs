@@ -955,7 +955,6 @@ impl Core {
             effort_refusals: Default::default(),
             yes_facts: Default::default(),
             exchanges: Default::default(),
-            tails: Default::default(),
             last_request: Default::default(),
             cache_numbers: Default::default(),
             judge,

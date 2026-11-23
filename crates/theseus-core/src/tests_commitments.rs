@@ -32,11 +32,9 @@ fn said(req: &ProviderRequest) -> String {
         .join("\n")
 }
 
-/// The commitments block, when the request's last block is one.
+/// The commitments block: its part of the harness's block beside the message.
 fn block_of(req: &ProviderRequest) -> Option<String> {
-    blocks_of(req)
-        .pop()
-        .filter(|t| t.starts_with(crate::commitments::HEAD))
+    crate::turn::now_step::part(req, crate::commitments::HEAD)
 }
 
 /// The short ids the block names, in its order: what the model reads.
@@ -145,10 +143,12 @@ fn model() -> crate::tests_places::Rig {
     rig_scripted(|_| {}, script)
 }
 
-/// The block is the last block of the request's last message, the loop after
-/// a wake is set already shows it, and none is there while none is pending.
+/// The block is a part of the harness's block beside the message, before the
+/// person's words, from the turn after a wake is set (the turn that set it is
+/// told so by the tool's own result: what the block shows stays as it was at
+/// the turn's first call, issue 46), and none is there while none is pending.
 #[tokio::test]
-async fn the_block_is_the_requests_last_block_while_a_wake_is_pending() {
+async fn the_block_is_beside_the_message_from_the_turn_after_a_wake_is_set() {
     let r = model();
     let sid = session(&r.core, Some(&private_dm()));
     turn(&r.core, &sid, "hello").await;
@@ -157,24 +157,33 @@ async fn the_block_is_the_requests_last_block_while_a_wake_is_pending() {
         "no wake, no block"
     );
     turn(&r.core, &sid, "SET 1h: check PR 123").await;
-    // The loop that answers the call is the first to show it.
+    // The loop that answers the call is told by the call's result; the block is as at the turn's first call.
     let reqs = r.requests();
     let after_set = reqs.iter().rev().find(|q| answers_a_call(q)).unwrap();
-    let block = block_of(after_set).expect("the block after the call");
+    assert!(
+        block_of(after_set).is_none(),
+        "frozen at the turn's first call"
+    );
+    turn(&r.core, &sid, "and the next turn?").await;
+    let block = block_of(r.requests().last().unwrap()).expect("the next turn's block");
     assert!(block.contains("check PR 123"), "{block}");
     assert!(block.lines().nth(1).unwrap().starts_with("⏰ "), "{block}");
-    // The next turn's request carries it too, after the message's words.
+    // A later turn's request carries it too, beside the message, before its words.
     turn(&r.core, &sid, "SERIES 1d mon,fri: evening haiku").await;
     turn(&r.core, &sid, "what do I have?").await;
     let q = r.requests().pop().unwrap();
     let blocks = blocks_of(&q);
-    assert_eq!(blocks.first().unwrap(), "what do I have?");
+    let words = (blocks.iter()).position(|b| b == "what do I have?");
+    let beside = (blocks.iter()).position(|b| b.starts_with(crate::turn::now_step::HEAD));
+    assert!(
+        beside.is_some() && words.is_some() && beside < words,
+        "{blocks:?}"
+    );
     let block = block_of(&q).unwrap();
     assert_eq!(ids_in(&q).len(), 2, "{block}");
     assert!(block.contains("🔁 "), "{block}");
     assert!(block.contains("every 1d on mon,fri"), "{block}");
-    // No breakpoint of its own: at most the one the view's move leaves on
-    // the block before it, never on the block itself.
+    // No breakpoint on the turn's own blocks.
     let last = q.messages.last().unwrap()["content"]
         .as_array()
         .unwrap()
@@ -428,10 +437,13 @@ fn series(days: Vec<theseus_kernel::Day>, until_ms: Option<u64>) -> theseus_kern
 fn the_blocks_golden_none_one_a_series_and_a_long_list() {
     use theseus_kernel::Day;
     let at = fixed(-7 * 3600);
-    assert_eq!(crate::commitments::render(&[], NOW, &at), None);
+    assert_eq!(
+        crate::commitments::render_with(&[], &[], NOW, &at, &|_| None),
+        None
+    );
 
     let one = [wake("a8cebb", FRI, "check PR 123", None)];
-    let shown = crate::commitments::render(&one, NOW, &at).unwrap();
+    let shown = crate::commitments::render_with(&one, &[], NOW, &at, &|_| None).unwrap();
     assert_eq!(
         shown.text,
         format!("{HEAD_ONE}1{HEAD_REST}\n⏰ a8cebb Fri 09:00 check PR 123")
@@ -457,7 +469,9 @@ fn the_blocks_golden_none_one_a_series_and_a_long_list() {
         ),
     ];
     assert_eq!(
-        crate::commitments::render(&many, NOW, &at).unwrap().text,
+        crate::commitments::render_with(&many, &[], NOW, &at, &|_| None)
+            .unwrap()
+            .text,
         format!(
             "{HEAD_ONE}4{HEAD_REST}\n\
              ⏰ a8cebb Fri 09:00 check PR 123\n\
@@ -478,7 +492,7 @@ fn the_blocks_golden_none_one_a_series_and_a_long_list() {
             )
         })
         .collect();
-    let shown = crate::commitments::render(&long, NOW, &at).unwrap();
+    let shown = crate::commitments::render_with(&long, &[], NOW, &at, &|_| None).unwrap();
     let want: Vec<String> = std::iter::once(format!("{HEAD_ONE}13{HEAD_REST}"))
         .chain((0..10).map(|i| format!("⏰ {i:06} Fri 09:{i:02} note {i}")))
         .chain(std::iter::once(
@@ -515,7 +529,9 @@ fn a_reminder_says_remind_and_a_paused_one_says_paused() {
             Some(series(vec![], None)),
         )
     };
-    let shown = crate::commitments::render(&[remind, held_series, held], NOW, &at).unwrap();
+    let shown =
+        crate::commitments::render_with(&[remind, held_series, held], &[], NOW, &at, &|_| None)
+            .unwrap();
     assert_eq!(
         shown.text,
         format!(
@@ -536,7 +552,7 @@ fn the_block_stays_inside_its_token_bound() {
     let long: Vec<_> = (0..12)
         .map(|i| wake(&format!("{i:06}"), FRI + i * 60_000, &note, None))
         .collect();
-    let shown = crate::commitments::render(&long, NOW, &at).unwrap();
+    let shown = crate::commitments::render_with(&long, &[], NOW, &at, &|_| None).unwrap();
     assert!(
         shown.tokens <= crate::commitments::MAX_TOKENS,
         "{}",
@@ -698,10 +714,12 @@ fn the_block_builds_in_under_fifty_microseconds() {
     let best = (0..300)
         .map(|_| {
             let t0 = std::time::Instant::now();
-            std::hint::black_box(crate::commitments::render(
+            std::hint::black_box(crate::commitments::render_with(
                 std::hint::black_box(&long),
+                &[],
                 NOW,
                 &crate::wake::local,
+                &|_| None,
             ));
             t0.elapsed()
         })

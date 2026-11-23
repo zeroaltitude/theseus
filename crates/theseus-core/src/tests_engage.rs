@@ -112,11 +112,14 @@ async fn an_explicit_address_engages_at_one_and_the_tail_says_so() {
     let req = &r.claude.requests()[0];
     let t = tail(req);
     assert_eq!(
-        t.last().map(String::as_str),
-        Some("Birch answers this turn"),
+        crate::turn::now_step::answering(req).as_deref(),
+        Some("Birch"),
         "{t:?}"
     );
-    assert!(t[0].contains("Birch, is this a CVE?"));
+    assert!(
+        t.iter().any(|b| b.contains("Birch, is this a CVE?")),
+        "{t:?}"
+    );
     let p = res.route.unwrap().persona.unwrap();
     assert_eq!((p.name.as_str(), p.how.as_str()), ("Birch", "explicit"));
 }
@@ -138,11 +141,12 @@ async fn jevs_pick_engages_by_its_bands() {
         let res = turn(&r.core, None, "Is this CVE a sandbox escape?", None).await;
         let rows = engaged(&r);
         assert_eq!(rows[0]["how"], want_how, "{p} {act}: {rows:?}");
-        let t = tail(&r.claude.requests()[0]);
+        let first = &r.claude.requests()[0];
         assert_eq!(
-            t.last().unwrap(),
-            &format!("{want_name} answers this turn"),
-            "{p} {act}"
+            crate::turn::now_step::answering(first).as_deref(),
+            Some(want_name),
+            "{p} {act}: {:?}",
+            tail(first)
         );
         let shown_p = res.route.unwrap().persona.unwrap();
         assert_eq!(!shown_p.why.is_empty(), shown, "{p} {act}: {shown_p:?}");
@@ -265,6 +269,7 @@ async fn a_switch_changes_no_prefix_byte() {
                 .iter()
                 .filter_map(|b| b["text"].as_str())
                 .filter(|t| !t.ends_with("answers this turn"))
+                .filter(|t| !crate::task_graph::view::is_head(t))
                 .collect::<Vec<_>>()
                 .join(""),
             _ => String::new(),
@@ -277,8 +282,14 @@ async fn a_switch_changes_no_prefix_byte() {
         !text.contains("answers this turn"),
         "the earlier line is not repeated: {text}"
     );
-    assert_eq!(tail(&reqs[1]).last().unwrap(), "Alder answers this turn");
-    assert_eq!(tail(&reqs[0]).last().unwrap(), "Birch answers this turn");
+    assert_eq!(
+        crate::turn::now_step::answering(&reqs[1]).as_deref(),
+        Some("Alder")
+    );
+    assert_eq!(
+        crate::turn::now_step::answering(&reqs[0]).as_deref(),
+        Some("Birch")
+    );
     // Every persona's files and the built-in default are in the prefix whoever answers.
     let sys = |q: &crate::provider::ProviderRequest| serde_json::to_string(&q.system).unwrap();
     assert!(
@@ -422,8 +433,8 @@ async fn a_late_persona_verdict_leaves_the_prior() {
         "a carried verdict is the last message's"
     );
     assert_eq!(
-        tail(&r.claude.requests()[1]).last().unwrap(),
-        "Alder answers this turn"
+        crate::turn::now_step::answering(&r.claude.requests()[1]).as_deref(),
+        Some("Alder")
     );
 }
 
@@ -469,7 +480,10 @@ async fn a_dm_turn_routed_to_another_profile_still_engages_a_persona() {
     let reqs = r.claude.requests();
     let last = reqs.last().unwrap();
     assert_eq!(last.model, "claude-opus-5-5", "the turn moved");
-    assert_eq!(tail(last).last().unwrap(), "Birch answers this turn");
+    assert_eq!(
+        crate::turn::now_step::answering(last).as_deref(),
+        Some("Birch")
+    );
     // The positive count, so a request that carried nothing cannot pass. The
     // three are gathered before the assert, so one missing never hides another.
     let sys = serde_json::to_string(&last.system).unwrap();

@@ -17,7 +17,7 @@
 //! the cached prefix. Under route.v8 no verdict carries a split answer, so the cue is silent there: the word
 //! list that fired it is gone, and that is a deliberate line, not a gap.
 
-use crate::compiler::{Compiled, RequestSpec};
+use crate::compiler::RequestSpec;
 use crate::fact::fan_out::FanOutCue;
 use crate::routing::Verdict;
 use crate::tools_defer::{family, fit::Fit, want};
@@ -119,13 +119,6 @@ impl TurnRunner {
         });
         if fired {
             self.defer_cued(t, spec);
-        }
-    }
-
-    /// The cue's line, one tail block after the cached prefix, when the cue fired this turn.
-    pub(in crate::turn) fn fan_out_line(t: &Turn<'_>, compiled: &mut Compiled) {
-        if t.route.fan_out {
-            Self::attach_hint(compiled, LINE);
         }
     }
 

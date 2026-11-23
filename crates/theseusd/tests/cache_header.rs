@@ -392,21 +392,15 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
         blocks[3].get("cache_control").is_none(),
         "{profile}: the directory block carries no breakpoint"
     );
-    // The conversation's breakpoint is in the messages, not at the top
-    // level. theseus-wadu attaches a tail block (the date and the git state)
-    // to every request, and `attach_text` moves the top-level breakpoint onto
-    // the block before it — moved, not copied, so the provider's four still
-    // hold (theseus-aab7) and the block that changes every turn stays outside
-    // the cached prefix. A task's request has carried it this way since
-    // theseus-aab7 (`header_fields_of_a_task`); what the row changed is that
-    // a plain turn's does too, because the tail block is unconditional where
-    // the view and the commitments were not. The cached bytes are the same
-    // bytes either way: this moves the breakpoint, it does not shrink what
-    // the breakpoint covers.
+    // The conversation's breakpoint is the request's own, at the top level. A tail block once rode the
+    // last message (the date and the git state, theseus-wadu) and `attach_text` moved this breakpoint onto
+    // the block before it; what the harness says is now one block beside the message, frozen for the turn
+    // (issue 46), so nothing is laid after the messages and the breakpoint stays where the compile put it.
+    // The provider's four still hold (theseus-aab7).
     assert_eq!(
         a["cache_control"],
-        Value::Null,
-        "{profile}: the top-level breakpoint moved into the messages"
+        serde_json::json!({"type": "ephemeral"}),
+        "{profile}: the top-level breakpoint is the request's own"
     );
     let said = a["messages"]
         .as_array()
@@ -422,25 +416,16 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
         .filter(|(_, b)| b.get("cache_control").is_some())
         .map(|(i, _)| i)
         .collect();
-    let tail_at = said
-        .iter()
-        .position(|b| theseus_core::task_graph::view::is_head(text(b)))
-        .unwrap_or(said.len());
     assert!(
-        tail_at < said.len() && tail_at > 0,
-        "{profile}: no tail block after the conversation's: {}",
+        marked.is_empty(),
+        "{profile}: no breakpoint in the turn's own message, the request's own is top-level: {}",
         bytes(&json!(said))
     );
-    assert_eq!(
-        marked,
-        vec![tail_at - 1],
-        "{profile}: one breakpoint, on the block before the harness's tail: {}",
+    assert!(
+        said.first()
+            .is_some_and(|b| theseus_core::task_graph::view::is_head(text(b))),
+        "{profile}: the harness's block opens the turn's message: {}",
         bytes(&json!(said))
-    );
-    assert_eq!(
-        said[tail_at - 1]["cache_control"],
-        five,
-        "{profile}: the conversation's breakpoint"
     );
     // The header block alone, byte for byte, in the second session and the task.
     for (what, other) in [("the second session", &b), ("the task", &t)] {

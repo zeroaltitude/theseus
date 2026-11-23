@@ -13,7 +13,6 @@
 //!    retired on purpose under route.v10: `tests_offer`. A task's brief and checkpoint ask `work.v1`
 //!    too, or reader 1 and 2 would have no answer on a task turn: `tests_task_checkpoint`.
 
-use serde_json::Value;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 
 use crate::provider::ProviderRequest;
@@ -32,14 +31,14 @@ fn work(jev: &FakeJev, option: &str, confidence: f64) {
     );
 }
 
-/// Whether the request's own tail, the last message, holds the hint: an earlier turn's tail stays
-/// where it was sent (`turn::sent_tail`), so the history may still show a hint that this turn's
-/// request does not carry.
+/// Whether the request's own block beside the message holds the hint: an earlier turn's block lives in
+/// its turn alone, so no history shows a hint that this turn's request does not carry.
 fn carries(req: &ProviderRequest) -> bool {
     req.messages.last().is_some_and(|m| {
-        m["content"]
-            .as_array()
-            .is_some_and(|b| b.iter().any(|b| b["text"] == CODING_HINT))
+        m["content"].as_array().is_some_and(|b| {
+            b.iter()
+                .any(|b| b["text"].as_str().is_some_and(|t| t.contains(CODING_HINT)))
+        })
     })
 }
 
@@ -94,15 +93,10 @@ async fn work_coding_is_what_puts_the_coding_hint_in_the_tail() {
     );
     assert_eq!(a.tools, b.tools, "the tools");
     assert_eq!(a.messages[0], b.messages[0], "the first message");
-    let last = b.messages.last().unwrap()["content"]
-        .as_array()
-        .unwrap()
-        .last()
-        .cloned();
     assert_eq!(
-        last.unwrap()["text"],
-        Value::from(CODING_HINT),
-        "in the tail"
+        crate::turn::now_step::part(b, CODING_HINT).as_deref(),
+        Some(CODING_HINT),
+        "beside the message"
     );
 }
 

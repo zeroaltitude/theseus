@@ -21,7 +21,7 @@
 //!
 //! **Where in the request.** The request's tail, beside the task view, the
 //! commitments and the day's observations
-//! (`task_graph::view::attach_text`), never inside the three cached system
+//! (the harness's block beside the message, `turn::now_step`), never inside the three cached system
 //! layers: nothing per request goes in those, so no prefix byte moves and
 //! this is never a cache write. The head says the harness wrote it.
 //!
@@ -160,24 +160,10 @@ impl Staged {
     }
 }
 
-/// The turn's side (`compile_step::tail_blocks`): the fact staged for this
-/// turn, attached to the compiled request after the cached prefix, its tokens
-/// counted in the estimate, wherever the turn is (nothing is withheld by place or presence, 2026-11-22).
-/// Returns the text it attached; `None`, and the request untouched, when no fact was staged for this turn.
-pub(crate) fn attach(
-    staged: &Staged,
-    session: &str,
-    turn: &str,
-    compiled: &mut crate::compiler::Compiled,
-) -> Option<String> {
-    let text = staged.text_for(session, turn)?;
-    crate::task_graph::view::attach_text(&mut compiled.request, &text);
-    let t = tokens(&text);
-    compiled.est_tokens += t;
-    compiled.estimate.tokens += t;
-    compiled.estimate.estimated += t;
-    compiled.estimate.upper += t + t * crate::compiler::MARGIN_PERCENT / 100;
-    Some(text)
+/// The fact staged for this turn as the turn shows it, wherever the turn is (nothing is withheld by place
+/// or presence, 2026-11-22); `None` when no fact was staged for this turn.
+pub(crate) fn shown(staged: &Staged, session: &str, turn: &str) -> Option<String> {
+    staged.text_for(session, turn)
 }
 
 #[cfg(test)]

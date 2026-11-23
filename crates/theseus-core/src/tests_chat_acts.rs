@@ -960,14 +960,7 @@ fn facts(r: &Rig) -> Vec<String> {
         .lock()
         .unwrap()
         .iter()
-        .filter_map(|q| {
-            q.messages.last()?["content"]
-                .as_array()?
-                .iter()
-                .filter_map(|b| b["text"].as_str())
-                .find(|t| t.starts_with(crate::yes_fact::HEAD))
-                .map(str::to_string)
-        })
+        .filter_map(|q| crate::turn::now_step::part(q, crate::yes_fact::HEAD))
         .collect()
 }
 

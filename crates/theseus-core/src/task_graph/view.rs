@@ -20,13 +20,14 @@
 //! objective and claim. Its other lines, and every other session's view,
 //! are as they were.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use theseus_protocol::tasks::TaskViewSummary;
 
 use super::{depth, line, scope, TaskRecord, OWNERS_MARK};
 
-/// The view's bound, in tokens (estimated at `BYTES_PER_TOKEN`).
-pub const MAX_TOKENS: u64 = 1500;
+/// The view's bound, in tokens (estimated at `BYTES_PER_TOKEN`): lowered from 1,500 so it fits the harness's
+/// part of the block beside the message (`turn::now_step::BUDGET_TOKENS`, issue 46).
+pub const MAX_TOKENS: u64 = 800;
 /// The estimate's figure: conservative for English and ids.
 pub const BYTES_PER_TOKEN: u64 = 3;
 
@@ -44,7 +45,8 @@ pub fn is_view(block: &Value) -> bool {
 /// view's, the commitments', the date and the git state a turn attaches
 /// (`turn/env_tail.rs`), the context view's block beside the message
 /// (`view::wire_text::BESIDE_HEAD`, also when a turn no message opened leads it with its occasion's line,
-/// `turn::view_step::occasion::HEAD`), or a block the view laid under one of its
+/// `turn::view_step::occasion::HEAD`), the harness's part of that block (`turn::now_step::HEAD`, issue 46),
+/// or a block the view laid under one of its
 /// labels (`view::text::labels::is_labelled`). A stand-in model that reads the last user
 /// text skips these, so a block attached here and left out of this list is
 /// read as the person's words.
@@ -57,6 +59,7 @@ pub fn is_head(text: &str) -> bool {
         || text.starts_with(crate::project::slice::HEAD)
         || text.starts_with(crate::turn::env_tail::HEAD)
         || text.starts_with(crate::turn::view_step::occasion::HEAD)
+        || text.starts_with(crate::turn::now_step::HEAD)
 }
 
 /// The view's text and what it showed.
@@ -68,12 +71,6 @@ pub struct View {
 
 fn tokens(s: &str) -> u64 {
     (s.len() as u64).div_ceil(BYTES_PER_TOKEN)
-}
-
-/// The view of `tasks` (each as it reads now) for `session_id`'s turns;
-/// None when its scope holds no task.
-pub fn render(tasks: &[TaskRecord], session_id: &str) -> Option<View> {
-    render_for(tasks, session_id, None)
 }
 
 /// The tasks the check `session_id` sees by id, title, and state alone: the
@@ -216,45 +213,13 @@ pub fn render_for(
     Some(View { text, summary })
 }
 
-/// Add `view` to the request: the last block of its last message, with the
-/// conversation's breakpoint moved to the block before it: moved, not
-/// copied, since the top-level one takes a slot of the provider's four too,
-/// and the session's block took the last free one (theseus-aab7).
-pub fn attach_to(request: &mut crate::provider::ProviderRequest, view: &View) {
-    attach_text(request, &view.text);
-}
-
-/// `attach_to`, for any tail block's text: the commitments' (theseus-lherl)
-/// goes after the view's, with no breakpoint moved a second time.
-pub fn attach_text(request: &mut crate::provider::ProviderRequest, text: &str) {
-    let Some(last) = request.messages.last_mut() else {
-        return;
-    };
-    let content = &mut last["content"];
-    if let Value::String(s) = content {
-        *content = json!([{"type": "text", "text": s.clone()}]);
-    }
-    let Some(blocks) = content.as_array_mut() else {
-        return;
-    };
-    if let Some(Value::Object(b)) = blocks.last_mut() {
-        if let Some(m) = request.cache_control.take() {
-            b.entry("cache_control").or_insert(m);
-        }
-    }
-    blocks.push(json!({"type": "text", "text": text}));
-}
-
-/// The turn's side (`compile_step`): the session's view, attached to the
-/// compiled request, its tokens counted in the estimate; a check's is
-/// restricted by its basis (theseus-w8ys). Returns what it
-/// showed; None, and the request untouched, when the scope holds no task.
-pub fn attach(
+/// The session's view as the turn shows it; a check's is restricted by its
+/// basis (theseus-w8ys). None when the scope holds no task.
+pub fn shown(
     store: &crate::store::Store,
     kernel: &theseus_kernel::Kernel,
     session: &crate::session::SessionRecord,
-    compiled: &mut crate::compiler::Compiled,
-) -> Option<TaskViewSummary> {
+) -> Option<View> {
     let session_id = session.session_id.as_str();
     let check = session.task.as_ref().and_then(|t| t.check.as_ref());
     let tasks = match super::all_shown(store, kernel) {
@@ -265,12 +230,5 @@ pub fn attach(
             return None;
         }
     };
-    let view = render_for(&tasks, session_id, check)?;
-    attach_to(&mut compiled.request, &view);
-    let t = view.summary.tokens;
-    compiled.est_tokens += t;
-    compiled.estimate.tokens += t;
-    compiled.estimate.estimated += t;
-    compiled.estimate.upper += t + t * crate::compiler::MARGIN_PERCENT / 100;
-    Some(view.summary)
+    render_for(&tasks, session_id, check)
 }

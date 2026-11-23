@@ -73,6 +73,15 @@ impl Fact for TurnProgress<'_> {
             );
             return;
         }
+        if self.decision == "deliverable" {
+            say.line(
+                Model,
+                "The turn built something and said it was done, so the harness sent the model back \
+                 once to call what it built the way the task spells it."
+                    .to_string(),
+            );
+            return;
+        }
         let what = match self.decision {
             "stop" => "to stop and report",
             _ => "that this is not a stop",

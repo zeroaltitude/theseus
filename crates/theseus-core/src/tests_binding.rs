@@ -5,6 +5,12 @@
 //! a change there with a 400, where an older model reports it and goes on.
 //! The stand-in provider carries that rule (`provider::binding`), so each test
 //! runs a whole turn of two or more steps and reads what the provider would.
+//!
+//! What the harness says beside the person's message (the date and the git
+//! line, the task graph, the wakes, the surface's records: `turn::now_step`)
+//! is one block, composed at the turn's first call, laid before the person's
+//! message and frozen for the turn (issue 46): no request appends anything to
+//! a message an earlier answer followed, so nothing is kept or put back.
 
 use std::sync::Arc;
 
@@ -38,7 +44,7 @@ fn rig_with(mode: Binding, script: Vec<Scripted>, tweak: impl FnOnce(&mut Config
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    // The date and the git line, which ride the last message of every request.
+    // The date and the git line, the first part of the harness's block beside the message.
     cfg.project.tail_facts = Some(true);
     tweak(&mut cfg);
     cfg.validate().unwrap();
@@ -456,12 +462,12 @@ async fn a_fallback_and_the_steps_after_it_send_what_was_sent() {
     assert_stable(&r);
 }
 
-/// The kept tail costs what changed and no more within a turn: the second step's request holds
-/// the date line once, in the place the first step put it, and not again at its own end. A
-/// new turn's request carries its own tail whole, and none of the first turn's: tails are kept
-/// within a turn only (issue 44).
+/// The harness's block is sent once and never twice within a turn: the second step's request holds
+/// the date line once, in the place the first step put it, and not again at its own end. A new
+/// turn's request carries its own block whole, and none of the first turn's: the block lives in its
+/// turn alone (issue 46; once the kept tails of `sent_tail`, issue 44).
 #[tokio::test]
-async fn a_tail_block_the_model_has_is_not_sent_again_within_its_turn() {
+async fn the_harness_block_is_not_sent_again_within_its_turn_nor_into_the_next() {
     let r = rig(
         Binding::Refuse,
         vec![
@@ -488,4 +494,231 @@ async fn a_tail_block_the_model_has_is_not_sent_again_within_its_turn() {
         "{:?}",
         reqs[2].messages
     );
+    let block = |q: &ProviderRequest| crate::turn::now_step::carried(q);
+    assert!(
+        block(&reqs[0]).is_some(),
+        "the first step carries the block"
+    );
+    assert_eq!(
+        block(&reqs[0]),
+        block(&reqs[1]),
+        "the same block at the second step"
+    );
+    assert!(block(&reqs[2]).is_some(), "the next turn carries its own");
+}
+
+/// The text blocks of a request's messages, each with its message's index.
+fn text_blocks(q: &ProviderRequest) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    for (i, m) in q.messages.iter().enumerate() {
+        match &m["content"] {
+            Value::String(s) => out.push((i, s.clone())),
+            c => out.extend(
+                (c.as_array().into_iter().flatten())
+                    .filter_map(|b| b["text"].as_str())
+                    .map(|t| (i, t.to_string())),
+            ),
+        }
+    }
+    out
+}
+
+/// The harness's part of the block beside the message (issue 46): composed once at the turn's first call,
+/// counted in slot I of the view, and carried byte for byte at every call of the turn, in the message the
+/// first call put it in.
+#[tokio::test]
+async fn the_harness_block_is_the_same_at_every_call_of_its_turn() {
+    let r = rig(
+        Binding::Refuse,
+        vec![
+            thinks_then_reads("toolu_a"),
+            thinks_then_reads("toolu_b"),
+            Scripted::text("Four."),
+        ],
+    );
+    let sid = private_session(&r.core);
+    let res = say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .unwrap();
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 3, "three calls");
+    let harness = |q: &ProviderRequest| -> (usize, String) {
+        let found: Vec<(usize, String)> = (text_blocks(q).into_iter())
+            .filter(|(_, t)| t.starts_with(crate::turn::now_step::HEAD))
+            .collect();
+        assert_eq!(found.len(), 1, "one harness block: {found:?}");
+        found.into_iter().next().unwrap()
+    };
+    let first = harness(&reqs[0]);
+    assert!(first.1.contains("Date: "), "{}", first.1);
+    for q in &reqs[1..] {
+        assert_eq!(
+            harness(q),
+            first,
+            "the block moved or changed within its turn"
+        );
+    }
+    let view = crate::view::record::newest(&r.core.store, &res.turn_id)
+        .unwrap()
+        .expect("the turn's view is kept");
+    let counted = (view.shown.iter())
+        .find(|s| {
+            matches!(&s.piece.range.space, crate::view::Space::Code { part } if part == "harness")
+        })
+        .expect("slot I counts the harness's part");
+    assert_eq!(counted.piece.slot, crate::view::Slot::Now);
+    let beside = format!("\n\n{}", crate::view::wire_text::BESIDE_HEAD);
+    let own = first.1.split(beside.as_str()).next().unwrap();
+    let est = (own.len() as u64).div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
+    assert!(
+        counted.piece.sizes.whole >= est,
+        "counted {} for a part of {est}",
+        counted.piece.sizes.whole
+    );
+}
+
+/// A turn in `sid` whose input came through `surface`.
+async fn say_on(
+    core: &Arc<Core>,
+    sid: &str,
+    input: &str,
+    surface: Option<&'static str>,
+) -> anyhow::Result<TurnSubmitResult> {
+    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
+    let (live, _) = core.live_profile();
+    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+    core.runner
+        .run(TurnRequest {
+            prompt: None,
+            surface,
+            session: rec,
+            input: Some(input.into()),
+            target,
+            sink: EventSink::new(core.bus.clone(), sid, None),
+            author: "test".into(),
+            attachments: vec![],
+            arrived: None,
+            reply_to: None,
+            answer_at: None,
+        })
+        .await
+}
+
+/// The compilations a turn's calls were compiled into, in order (its `context.compiled` rows).
+fn chains(r: &Rig, turn: &str) -> Vec<String> {
+    (r.core
+        .store
+        .ledger_tail::<crate::ledger::LedgerRow>(10_000)
+        .unwrap()
+        .into_iter())
+    .map(|(_, row)| row)
+    .filter(|row| row.kind == "context.compiled" && row.turn_id.as_deref() == Some(turn))
+    .map(|row| {
+        row.data["compilation_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    })
+    .collect()
+}
+
+/// Run `f` after the second compile of `sid` has assembled its view: between the turn's first call and
+/// its second.
+fn between_calls(sid: &str, f: impl FnOnce() + Send + 'static) {
+    crate::turn::view_step::assembled_hook(sid, Box::new(|| {}));
+    crate::turn::view_step::assembled_hook(sid, Box::new(f));
+}
+
+/// An observation that stops being today's open one between two calls of one turn is not sent again in
+/// the harness's block: the part is rendered again from its producer and the view re-frozen on a new chain
+/// (issue 46, round 2).
+#[tokio::test]
+async fn an_observation_dropped_between_two_calls_is_not_sent_again() {
+    const SAID: &str = "likes the tide table read aloud";
+    let r = rig(
+        Binding::Refuse,
+        vec![thinks_then_reads("toolu_a"), Scripted::text("Four.")],
+    );
+    let sid = private_session(&r.core);
+    let mut obs = theseus_protocol::CardObservation {
+        id: "cob_tide".into(),
+        session: sid.clone(),
+        nodes: vec!["msg_seed".into()],
+        kind: theseus_protocol::ObservationKind::Preference,
+        text: SAID.into(),
+        at_ms: theseus_protocol::now_unix_ms(),
+        contradicts: None,
+        state: theseus_protocol::ObservationState::Open,
+        proposal: None,
+    };
+    let seed = crate::card::state::obs_record(&obs).unwrap();
+    r.core.store.append(&[seed]).unwrap();
+    obs.state = theseus_protocol::ObservationState::Dropped;
+    let core = r.core.clone();
+    between_calls(&sid, move || {
+        let dropped = crate::card::state::obs_record(&obs).unwrap();
+        core.store.append(&[dropped]).unwrap();
+    });
+    let res = say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .unwrap();
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 2, "two calls");
+    let said = |q: &ProviderRequest| serde_json::to_string(&q.messages).unwrap();
+    assert!(said(&reqs[0]).contains(SAID), "the first call carries it");
+    assert!(!said(&reqs[1]).contains(SAID), "{}", said(&reqs[1]));
+    let chains = chains(&r, &res.turn_id);
+    assert_ne!(chains.first(), chains.last(), "a new chain: {chains:?}");
+}
+
+/// A standing record of the turn's surface revoked between two calls of one turn is not sent again, and
+/// the turn's check holds the block to the records live now (issue 46, round 2).
+#[tokio::test]
+async fn a_standing_record_revoked_between_two_calls_is_not_sent_again() {
+    const ORDER: &str = "read the tide table in metres";
+    let r = rig(
+        Binding::Refuse,
+        vec![thinks_then_reads("toolu_a"), Scripted::text("Four.")],
+    );
+    let sid = private_session(&r.core);
+    let id = r
+        .core
+        .standing_add(
+            &theseus_protocol::StandingAddParams {
+                kind: theseus_protocol::StandingKind::Order,
+                text: ORDER.into(),
+                scope: theseus_protocol::StandingScope::Surface("terminal".into()),
+                ..Default::default()
+            },
+            "the CLI",
+        )
+        .unwrap()
+        .record
+        .id;
+    let core = r.core.clone();
+    between_calls(&sid, move || {
+        core.standing_revoke(
+            &theseus_protocol::StandingRevokeParams {
+                id,
+                ..Default::default()
+            },
+            "the CLI",
+        )
+        .unwrap();
+    });
+    let res = say_on(
+        &r.core,
+        &sid,
+        "what does the tide table say?",
+        Some("terminal"),
+    )
+    .await
+    .unwrap();
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 2, "two calls");
+    let said = |q: &ProviderRequest| serde_json::to_string(&q.messages).unwrap();
+    assert!(said(&reqs[0]).contains(ORDER), "the first call carries it");
+    assert!(!said(&reqs[1]).contains(ORDER), "{}", said(&reqs[1]));
+    let chains = chains(&r, &res.turn_id);
+    assert_ne!(chains.first(), chains.last(), "a new chain: {chains:?}");
 }

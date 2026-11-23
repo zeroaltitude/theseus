@@ -24,71 +24,6 @@ impl Keeping {
 }
 
 impl TurnRunner {
-    /// The request's last block, in its order: the task view, the wakes and
-    /// routines, the surface's standing records, the persona line, then the
-    /// project's slice.
-    fn tail_blocks(
-        &self,
-        t: &mut Turn<'_>,
-        session: &SessionRecord,
-        compiled: &mut Compiled,
-    ) -> (
-        Option<theseus_protocol::tasks::TaskViewSummary>,
-        Option<theseus_protocol::projects::ProjectSliceSummary>,
-    ) {
-        // A check sees the task it checks by title and state (theseus-w8ys).
-        let tasks = crate::task_graph::view::attach(&self.store, &self.kernel, session, compiled);
-        // The wakes this conversation has pending, in the same last block
-        // (theseus-lherl): from the turn's list, never a read of its own.
-        // And the routines it made, from memory (theseus-pvm5c).
-        let routines = crate::routine::lines(
-            &self.kernel,
-            &self.tools.routines.made_in(&session.session_id),
-        );
-        crate::commitments::attach(
-            t.tc.commitments,
-            &routines,
-            self.kernel.now_ms(),
-            compiled,
-            &|w| {
-                // A watch's observed value is outside text the transcript does not
-                // show: latched for the turn before it is attached, or left out
-                // (issue 44).
-                let seen = self.kernel.watch_state(&w.id).ok().flatten();
-                if seen.is_some_and(|s| s.last.is_some())
-                    && !crate::task_graph::judged::latch_once(t.tc.store, t.tc.turn_id)
-                {
-                    return None;
-                }
-                crate::watch::run::shown_value(&self.kernel, w)
-            },
-        );
-        // The records of this turn's surface (theseus-slvl.4), in the tail too.
-        Self::standing_here(t, compiled);
-        // What the observer noted of the owner's own words today, so a turn
-        // asked what it has learned can name it (theseus-6f8t0, stop 5). Wherever the turn is; never for
-        // a task's session (a task's own run).
-        if session.task.is_none() {
-            crate::card::noted::attach(&self.store, self.kernel.now_ms(), compiled);
-        }
-        // What the harness made of the owner's yes, for the turn that yes
-        // started and for no later one (theseus-2yowd). Off by default.
-        if self.cfg.standing.yes_fact && session.task.is_none() {
-            crate::yes_fact::attach(&self.yes_facts, t.tc.session_id, t.tc.turn_id, compiled);
-        }
-        // Who answers this turn, one tail line (theseus-c1uz).
-        Self::persona_line(t, compiled);
-        // A deep_coding turn's reading hint (theseus-tdkcn).
-        Self::coding_hint(t, compiled);
-        // The static fan-out cue's line, when it fired (theseus-z9mze.4).
-        Self::fan_out_line(t, compiled);
-        // A working turn's deliverable, called as the task spells it (theseus-eb4o4).
-        self.deliverable_hint(t, compiled);
-        // The project this conversation serves, last of all (theseus-n5ui2).
-        let project = crate::project::slice::attach(&self.store, &self.kernel, session, compiled);
-        (tasks, project)
-    }
-
     /// Render the session into this loop's request: an append to the current
     /// compilation, or a recompile (persisted with the session's pointer).
     /// The images the provider refused in the session render as their line;
@@ -140,6 +75,12 @@ impl TurnRunner {
             sources: &sources,
             situation: &given,
         };
+        // The harness's part of the block beside the message: each part rendered once a turn, before the
+        // view that lays it is first assembled (`now_step`).
+        if t.now.is_none() {
+            let rendered = self.now_rendered(t, session).await;
+            t.now = Some(rendered);
+        }
         // Past the window with nothing left to drop, the turn fails before any call.
         // A place set to `view` builds it from the turn's view instead (issue 44, `view_step`).
         // A view that cannot be assembled soundly fails the turn plainly, before anything is sent.
@@ -148,25 +89,30 @@ impl TurnRunner {
             Err(e) => return Self::view_failure(t, e).map(Err),
         };
         ph.mark("compile");
-        // The earlier requests' tails go back where they were sent, before
-        // this one's own is attached (`sent_tail`).
-        // What a tail says is said to a place, a surface, and where the session and the turn's
-        // reply speak: it is put back on a request for the same.
-        let key = format!(
-            "{:?}|{:?}|{:?}|{:?}",
-            t.tc.place().class,
-            t.standing.surface,
-            self.outbox.speaks_at(sid).ok().flatten(),
-            t.answer_at
-        );
-        t.tail = self.tails.begin(sid, (t.tc.turn_id, &key), &mut compiled);
         Self::recall_compiled(t, &mut compiled);
         t.fill = super::fill_step::Fill::of(&compiled, self.fill_window(spec));
         Self::cleared_recorded(t, &compiled, i);
         Self::standing_listed(t, &mut compiled);
         self.defer_noted(t, spec, &compiled);
-        self.env_tail(t, &mut compiled).await;
-        let (tasks, project) = self.tail_blocks(t, session, &mut compiled);
+        // An await after the view's assembly and before the call is sent, as the old tail's git read
+        // was: a test's seam for what is removed in between.
+        #[cfg(test)]
+        super::view_step::at_assembled(sid);
+        // What the task graph and the project showed, as the frozen view lays them (`now_step`): a part the
+        // block left out for room is not reported as shown, nor given to admission as a task view.
+        let (tasks, project) = (t.now.as_ref())
+            .map(|r| {
+                let laid = |n| r.laid(n);
+                (
+                    r.tasks
+                        .clone()
+                        .filter(|_| laid(super::now_step::Name::Tasks)),
+                    r.project
+                        .clone()
+                        .filter(|_| laid(super::now_step::Name::Project)),
+                )
+            })
+            .unwrap_or_default();
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }

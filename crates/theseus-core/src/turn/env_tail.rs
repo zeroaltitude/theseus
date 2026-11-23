@@ -2,9 +2,10 @@
 //! the model of the person's own routes (the chat route, the voice channel;
 //! issue 8, `self_card::told`) (theseus-wadu,
 //! `docs/design/project-context.md` §4). Both change within a session, so
-//! neither can sit in block 3 (the cached prefix): they ride the tail as one
-//! block after the conversation's breakpoint, through `attach_hint`, as the
-//! deep-coding hint does. The prefix is byte-identical with or without them.
+//! neither can sit in block 3 (the cached prefix): they are the first part of
+//! the harness's block beside the message (`turn::now_step`, issue 46), read
+//! once at the turn's first compile. The prefix is byte-identical with or
+//! without them.
 //!
 //! The date is the owner's local day from the clock seam
 //! (`theseus_protocol::now_unix_ms`), by the formatter recall headers use.
@@ -22,7 +23,7 @@ use std::time::Duration;
 const GIT_BUDGET: Duration = Duration::from_millis(150);
 const GIT_BACKSTOP: Duration = Duration::from_millis(400);
 
-/// How this block begins, as the view's and the commitments' blocks have
+/// How this part begins, as the view's and the commitments' parts have
 /// openers of their own: a reader of a request can tell the harness's block
 /// from the conversation's, and a stand-in model that reads the last user
 /// text skips it (`task_graph::view::is_head`).
@@ -37,13 +38,12 @@ pub(super) fn date_line(ms: u64) -> String {
 }
 
 impl TurnRunner {
-    /// Attach the date, the git state where the session may have one, and the
-    /// sentences of the place the turn was spoken in.
-    pub(super) async fn env_tail(&self, t: &Turn<'_>, compiled: &mut Compiled) {
-        #[cfg(test)]
-        super::view_step::at_env_tail(t.tc.session_id);
+    /// The date, the git state where the session may have one, and the
+    /// sentences of the place the turn was spoken in; none where
+    /// `[project] tail_facts` is off.
+    pub(super) async fn env_text(&self, t: &Turn<'_>) -> Option<String> {
         if !self.cfg.project.tail_facts() {
-            return;
+            return None;
         }
         let mut text = date_line(theseus_protocol::now_unix_ms());
         if self.tools.enabled() {
@@ -75,7 +75,7 @@ impl TurnRunner {
             text.push('\n');
             text.push_str(&line);
         }
-        Self::attach_hint(compiled, &text);
+        Some(text)
     }
 }
 

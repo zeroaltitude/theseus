@@ -14,9 +14,10 @@ use crate::turn::tier::CODING_HINT;
 /// Whether any message of `req` carries the hint as a block of its own.
 fn carries(req: &ProviderRequest) -> bool {
     req.messages.iter().any(|m| {
-        m["content"]
-            .as_array()
-            .is_some_and(|b| b.iter().any(|b| b["text"] == CODING_HINT))
+        m["content"].as_array().is_some_and(|b| {
+            b.iter()
+                .any(|b| b["text"].as_str().is_some_and(|t| t.contains(CODING_HINT)))
+        })
     })
 }
 

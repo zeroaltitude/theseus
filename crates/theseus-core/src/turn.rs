@@ -94,6 +94,7 @@ mod join_step;
 mod later_step;
 mod model_call;
 mod noop_step;
+pub(crate) mod now_step;
 pub mod nudge_step;
 pub mod overage;
 mod persona_engage;
@@ -113,7 +114,6 @@ mod retry_step;
 mod route_step;
 mod self_budget_step;
 pub use self_budget_step::SELF_BUDGET_CLASS;
-pub(crate) mod sent_tail;
 mod settle;
 pub(crate) mod situation_step;
 mod spec_step;
@@ -230,10 +230,6 @@ pub struct TurnRunner {
     /// What the harness made of the owner's yes, staged at `turn.submit` for
     /// the turn it starts (theseus-2yowd).
     pub yes_facts: crate::yes_fact::Staged,
-    /// What each session's requests sent after the conversation, sent again
-    /// where it was, so a thinking block's prefix stays the one it was
-    /// written in (`sent_tail`).
-    pub tails: sent_tail::SentTails,
     /// The turns' shared part of their exchanges (issue 44).
     pub exchanges: crate::exchange::Board,
 }
@@ -441,9 +437,11 @@ struct Turn<'a> {
     repeats: repeat_step::Repeats,
     /// Routing's verdict and what it moved (M5 25e).
     route: route_step::RouteState,
-    /// The request's last message before its tail, where the loop's tail begins: kept with the
-    /// tail once routing has finished with the request (`sent_tail`).
-    tail: Option<sent_tail::Begun>,
+    /// The harness's part of the block beside the message, each part rendered once at the turn's first
+    /// compile (`now_step`), composed at each freeze of its view.
+    now: Option<now_step::Rendered>,
+    /// The deliverable's note was said at the turn's close-out (`close_out_step::deliverable_note`).
+    deliverable_told: bool,
     /// A running task's checkpoints (theseus-ypnxt.9).
     checkpoint: checkpoint_step::Checkpoints,
     /// A refusal moved the turn to its model's fallback (theseus-7gir.18).
@@ -594,7 +592,8 @@ impl<'a> Turn<'a> {
             recall: recall_step::Recalled::default(),
             repeats: repeat_step::Repeats::default(),
             route: route_step::RouteState::default(),
-            tail: None,
+            now: None,
+            deliverable_told: false,
             checkpoint: checkpoint_step::Checkpoints::default(),
             fallback: None,
             again: Default::default(),
@@ -1914,12 +1913,7 @@ impl TurnRunner {
                 )
                 .await?
             {
-                Ok(mut c) => {
-                    // Routing has had its say with the request: what it sent after the
-                    // conversation is kept for the requests after it.
-                    self.tails.finish(t.tc.session_id, &mut c, t.tail.take());
-                    c
-                }
+                Ok(c) => c,
                 // A request that could not be made smaller than the one the provider refused for its
                 // size: the window's failure, in its words (nothing earlier could be dropped).
                 Err(f) => match (&overflow, f.class == WINDOW_CLASS) {
@@ -2119,6 +2113,9 @@ impl TurnRunner {
             run_model = run_model || (window_failed.is_none() && self.end_note(t, i)?);
             // A stop whose message names a doubt, early in the turn, once (theseus-rqu7j).
             run_model = run_model || (window_failed.is_none() && self.doubt_note(t, i)?);
+            // A stop of a turn that built something in coding or bench work: call it once as the task
+            // spells it, once (theseus-eb4o4; at close-out since issue 46).
+            run_model = run_model || (window_failed.is_none() && self.deliverable_note(t, i)?);
             if let Some(f) = window_failed {
                 return Ok(Next::Fail(f));
             }

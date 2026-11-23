@@ -197,16 +197,13 @@ pub fn render(
     })
 }
 
-/// The turn's side (`compile_step`): the session's project slice, attached
-/// to the compiled request after the commitments' block (the last block),
-/// its tokens counted in the estimate. None, and the request untouched, for
-/// a conversation with no project, or one whose project is gone.
-pub fn attach(
+/// The session's project slice as the turn shows it; None for a conversation
+/// with no project, or one whose project is gone.
+pub fn shown(
     store: &crate::store::Store,
     kernel: &theseus_kernel::Kernel,
     session: &crate::session::SessionRecord,
-    compiled: &mut crate::compiler::Compiled,
-) -> Option<ProjectSliceSummary> {
+) -> Option<Shown> {
     let project = session.project.as_deref()?;
     let tasks = match crate::task_graph::all_shown(store, kernel) {
         Ok(t) => t,
@@ -215,12 +212,5 @@ pub fn attach(
             return None;
         }
     };
-    let shown = render(&tasks, project, kernel.now_ms(), &crate::wake::local)?;
-    crate::task_graph::view::attach_text(&mut compiled.request, &shown.text);
-    let t = shown.summary.tokens;
-    compiled.est_tokens += t;
-    compiled.estimate.tokens += t;
-    compiled.estimate.estimated += t;
-    compiled.estimate.upper += t + t * crate::compiler::MARGIN_PERCENT / 100;
-    Some(shown.summary)
+    render(&tasks, project, kernel.now_ms(), &crate::wake::local)
 }

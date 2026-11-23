@@ -612,7 +612,8 @@ fn is_heading(line: &str) -> bool {
         || line.starts_with("the owner said, in ")
 }
 
-/// The recall laid in the block beside the last user message (`view::wire_text::BESIDE_HEAD`): a line that opens
+/// The recall laid in the block beside the last user message (`view::wire_text::BESIDE_HEAD`, after the harness's
+/// part of that block when it has one, `turn::now_step`): a line that opens
 /// with the recall's own preamble ("[Recalled by the harness: …") and whose next words are the view's heading for the
 /// recalled item, to the end of that item (the next heading after it). A preamble that is an earlier turn's words (the
 /// oracle's message, which carries its note in the text, laid again in a later turn of the same daemon) is followed by
@@ -627,7 +628,7 @@ fn recalled_beside(req: &Value) -> Vec<String> {
     let mut out = Vec::new();
     for block in blocks
         .into_iter()
-        .filter(|b| b.starts_with(theseus_core::view::wire_text::BESIDE_HEAD))
+        .filter(|b| b.contains(theseus_core::view::wire_text::BESIDE_HEAD))
     {
         let lines: Vec<&str> = block.lines().collect();
         for (i, line) in lines.iter().enumerate() {

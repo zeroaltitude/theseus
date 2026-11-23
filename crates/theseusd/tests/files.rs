@@ -485,15 +485,20 @@ fn an_attached_pdf_reaches_each_model_as_it_reads_pdfs() {
         theseus_core::blobs::decode(doc["source"]["data"].as_str().unwrap()).unwrap(),
         file
     );
-    assert!(blocks[0]["text"]
-        .as_str()
-        .unwrap()
-        .starts_with("[PDF orders.pdf from test, "));
+    // The person's first block, after the harness's block beside the message (issue 46).
+    let words = (blocks.iter())
+        .filter_map(|b| b["text"].as_str())
+        .find(|t| !theseus_core::task_graph::view::is_head(t))
+        .unwrap_or_else(|| panic!("no words of the person's: {blocks:?}"));
+    assert!(words.starts_with("[PDF orders.pdf from test, "), "{words}");
     // A model that reads none: the text, page by page.
     r.turn_with("glm", "orders.pdf", &file);
     let blocks = last_user_blocks(&r.model);
     assert!(blocks.iter().all(|b| b["type"] != "document"), "{blocks:?}");
-    let text = blocks[0]["text"].as_str().unwrap();
+    let text = (blocks.iter())
+        .filter_map(|b| b["text"].as_str())
+        .find(|t| !theseus_core::task_graph::view::is_head(t))
+        .unwrap_or_else(|| panic!("no words of the person's: {blocks:?}"));
     assert!(
         text.contains("since this model reads no PDFs")
             && text.contains("--- page 1 ---\nThe harbour master is Odile Varnack.")

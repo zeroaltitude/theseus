@@ -18,7 +18,7 @@
 //! - **A surface's records** (theseus-slvl.4) are not in the system at all:
 //!   the system would differ by surface, and every surface would pay a cache
 //!   write. They ride the user turn's tail instead, one block, "Standing
-//!   here:", after the cached prefix (`Block::here`), on turns whose input
+//!   here:", after the cached prefix (`Block::here_held`), on turns whose input
 //!   came through that surface (`TurnRequest.surface`). The same privacy
 //!   rule and the same refusal hold there (`missing_here`).
 //! - **Every place gets every record** (anything goes, 2026-11-22): a shared place's preferences and facts
@@ -167,7 +167,7 @@ pub const FRAMING: &str = "These are the owner's standing records, carried on ev
 impl Block {
     /// The block for `scope` in a place of `class`; none while no record is
     /// live there. A shared place's lists the orders alone, with their text.
-    /// The records scoped to a surface are not in it (`Block::here`).
+    /// The records scoped to a surface are not in it (`Block::here_held`).
     /// The records for everywhere are the header layer's (`text`); a
     /// session's and a place's are the session's own (`local`, theseus-rr15):
     /// in the header they would make two sessions' first layers differ.
@@ -192,19 +192,10 @@ impl Block {
         Self::render(all, scope, class, now_ms, false, held)
     }
 
-    /// The tail block of the records scoped to the turn's surface: "Standing
-    /// here:", then the same lists, with the same privacy; none while no
-    /// record of that surface is live.
-    pub fn here(
-        all: &[StandingRecord],
-        scope: Scope<'_>,
-        class: PlaceClass,
-        now_ms: u64,
-    ) -> Option<Block> {
-        Self::here_held(all, scope, class, now_ms, &HashSet::new())
-    }
-
-    /// [`Block::here`], with the records `held` listed unshown.
+    /// The block of the records scoped to the turn's surface: "Standing
+    /// here:", then the same lists, with the same privacy, the records `held`
+    /// listed unshown; none while no record of that surface is live. It is a
+    /// part of the harness's block beside the message (`turn::now_step`).
     pub fn here_held(
         all: &[StandingRecord],
         scope: Scope<'_>,
@@ -255,23 +246,15 @@ impl Block {
         Some(Block { text, local, used })
     }
 
-    /// Put the block in the request's tail, after the cached prefix, in the
-    /// last message's last block, and count its tokens in the estimate. The
-    /// next loop's request carries it again, so it is never a cache write.
-    pub fn attach_here(&self, compiled: &mut Compiled) {
+    /// The surface's records as the turn shows them (`turn::now_step`), none
+    /// when it has none. A test's seam drops them, so the check that fails a
+    /// request without them can be seen to fail it.
+    pub fn here_text(&self) -> Option<&str> {
         #[cfg(test)]
         if DROP_THE_TAIL.load(std::sync::atomic::Ordering::SeqCst) {
-            return;
+            return None;
         }
-        if self.text.is_empty() {
-            return;
-        }
-        crate::task_graph::view::attach_text(&mut compiled.request, &self.text);
-        let t = (self.text.len() as u64).div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
-        compiled.est_tokens += t;
-        compiled.estimate.tokens += t;
-        compiled.estimate.estimated += t;
-        compiled.estimate.upper += t + t * crate::compiler::MARGIN_PERCENT / 100;
+        (!self.text.is_empty()).then_some(self.text.as_str())
     }
 
     /// Put the block in the spec: the records for everywhere in its header
@@ -372,25 +355,40 @@ pub fn missing(compiled: &Compiled, block: Option<&Block>) -> Result<(), Unadmit
     Ok(())
 }
 
-/// The check for the tail (`Block::here`): the request's last message carries
-/// every record of the turn's surface it should show. A compile that dropped one is not sent.
-pub fn missing_here(compiled: &Compiled, block: Option<&Block>) -> Result<(), Unadmitted> {
-    let Some(block) = block else { return Ok(()) };
-    let tail = compiled
+/// The harness's part of the block beside the message, as the request carries
+/// it: the text block that opens with its heading, up to the view's own
+/// heading; empty when the request carries none.
+fn harness_block(compiled: &Compiled) -> String {
+    let texts = compiled
         .request
         .messages
-        .last()
-        .map(|m| match &m["content"] {
-            serde_json::Value::String(s) => s.clone(),
-            c => c
-                .as_array()
-                .into_iter()
-                .flatten()
+        .iter()
+        .flat_map(|m| match &m["content"] {
+            serde_json::Value::String(s) => vec![s.as_str()],
+            c => (c.as_array().into_iter().flatten())
                 .filter_map(|b| b["text"].as_str())
-                .collect::<Vec<_>>()
-                .join("\n"),
-        })
-        .unwrap_or_default();
+                .collect(),
+        });
+    let Some(block) = texts
+        .into_iter()
+        .find(|t| t.starts_with(crate::turn::now_step::HEAD))
+    else {
+        return String::new();
+    };
+    let view = format!("\n\n{}", crate::view::wire_text::BESIDE_HEAD);
+    block
+        .split(view.as_str())
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// The check for the surface's records (`Block::here_held`): the harness's part of
+/// the block beside the message (`turn::now_step`) carries every record of the
+/// turn's surface it should show. A compile that dropped one is not sent.
+pub fn missing_here(compiled: &Compiled, block: Option<&Block>) -> Result<(), Unadmitted> {
+    let Some(block) = block else { return Ok(()) };
+    let tail = harness_block(compiled);
     let gone = |piece: String, detail: String| {
         Err(Unadmitted {
             why: "standing_missing",
@@ -403,7 +401,7 @@ pub fn missing_here(compiled: &Compiled, block: Option<&Block>) -> Result<(), Un
             return gone(
                 format!("standing {} missing", u.id),
                 format!(
-                    "the owner's standing record {} is live on this turn's surface and is not in the request's tail",
+                    "the owner's standing record {} is live on this turn's surface and is not in the harness's block beside the message",
                     u.id
                 ),
             );

@@ -16,7 +16,7 @@ const LINE: &str =
     "This request looks parallelizable: consider starting tasks for the independent parts.";
 
 fn is_line(b: &Value) -> bool {
-    b["text"].as_str().is_some_and(|t| t.starts_with(LINE))
+    b["text"].as_str().is_some_and(|t| t.contains(LINE))
 }
 
 fn carries(req: &ProviderRequest) -> bool {
@@ -72,12 +72,8 @@ async fn jevs_label_fires_the_cue_not_the_words_and_moves_no_prefix_byte() {
         serde_json::to_string(&b.system).unwrap()
     );
     assert_eq!(a.tools, b.tools, "the tools of the first request");
-    let last = b.messages.last().unwrap()["content"]
-        .as_array()
-        .unwrap()
-        .last()
-        .cloned();
-    assert!(is_line(&last.unwrap()), "in the tail");
+    let part = crate::turn::now_step::part(b, LINE);
+    assert!(part.is_some_and(|p| p.starts_with(LINE)), "beside the message");
     let got = rows(r);
     assert_eq!(
         got.len(),

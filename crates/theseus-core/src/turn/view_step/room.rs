@@ -176,6 +176,24 @@ impl TurnRunner {
         }
         // Read again now: a source that no longer reads is not laid (issue 44, `view_step::recall`).
         let (laid, found) = self.view_recall(sid, laid)?;
+        // The harness's part of the block beside the message, composed at each freeze from what the turn
+        // rendered once (`now_step`), with room kept for what the route still has to decide.
+        let composed = (t.now.as_ref()).and_then(|r| {
+            crate::turn::now_step::compose(&r.parts, crate::turn::now_step::budget())
+        });
+        let reserve = match t.route.defer_persist {
+            true => crate::turn::now_step::routed_reserve(),
+            false => 0,
+        };
+        if let Some(c) = &composed {
+            crate::turn::now_step::traced(t, c);
+        }
+        // What this freeze lays of the parts: the compile's account and admission read it.
+        if let Some(r) = t.now.as_mut() {
+            r.laid = (composed.iter())
+                .flat_map(|c| c.shown.iter().map(|(n, _)| *n))
+                .collect();
+        }
         let asked = Asked {
             store,
             sid,
@@ -185,6 +203,7 @@ impl TurnRunner {
             recalled: found,
             message: None,
             items: t.exchange.items().to_vec(),
+            harness: composed.as_ref().map_or(0, |c| c.tokens) + reserve,
         };
         #[cfg(test)]
         super::failed::injected(sid)?;
@@ -195,6 +214,10 @@ impl TurnRunner {
         // A turn no message opened: its empty "now", and beside it one line saying what woke it (issue 44).
         if let Some(o) = t.exchange.occasion() {
             f.beside = super::occasion::beside_with(f.beside, o, (sid, turn));
+        }
+        // The harness's part first in the one block beside the message (issue 46).
+        if let Some(c) = &composed {
+            f.beside = crate::turn::now_step::beside_with(f.beside, &c.text, (sid, turn));
         }
         t.view = Some(f);
         Ok(())

@@ -10,7 +10,7 @@
 //!
 //! So the day's open observations ride in the request's tail, beside the
 //! commitments' block and the surface's standing records
-//! (`task_graph::view::attach_text`): after the cached prefix, so they are
+//! (the harness's block beside the message, `turn::now_step`): after the cached prefix, so they are
 //! never a cache write, and built again every turn, so one noted mid-session
 //! shows at the next turn.
 //!
@@ -50,6 +50,12 @@ fn tokens(s: &str) -> u64 {
 /// [`MAX_TOKENS`]. `None` when none was noted today, so a day with nothing
 /// heard adds nothing at all.
 pub fn render(all: &[CardObservation], now_ms: u64) -> Option<String> {
+    rendered(all, now_ms).map(|(text, _)| text)
+}
+
+/// [`render`], with the ids of the observations it shows: what the turn's block is rendered from, so a
+/// removal before a later call of the turn is seen (`turn::now_step`).
+pub fn rendered(all: &[CardObservation], now_ms: u64) -> Option<(String, Vec<String>)> {
     let today = spend::local_day(now_ms);
     let mine: Vec<&CardObservation> = all
         .iter()
@@ -66,18 +72,18 @@ pub fn render(all: &[CardObservation], now_ms: u64) -> Option<String> {
     );
     let mut text = head;
     let mut used = tokens(&text);
-    let mut shown = 0;
+    let mut ids = Vec::new();
     for o in &mine {
         let line = format!("- {}", one_line(&o.text));
-        if shown >= MAX_LINES || used + tokens(&line) + 1 > MAX_TOKENS {
+        if ids.len() >= MAX_LINES || used + tokens(&line) + 1 > MAX_TOKENS {
             break;
         }
         used += tokens(&line) + 1;
-        shown += 1;
+        ids.push(o.id.clone());
         text.push('\n');
         text.push_str(&line);
     }
-    (shown > 0).then_some(text)
+    (!ids.is_empty()).then_some((text, ids))
 }
 
 /// A text on one line: an observation is a line of the block, so a newline in
@@ -86,30 +92,13 @@ fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The turn's side (`compile_step::tail_blocks`): the day's observations,
-/// attached to the compiled request after the surface's standing records,
-/// their tokens counted in the estimate, wherever the turn is (nothing is withheld by place or presence,
-/// 2026-11-22). Returns the text it attached; `None`, and the request untouched, when nothing was noted
-/// today.
-pub fn attach(
+/// The day's observations as the turn shows them, with their ids, wherever the turn is (nothing is
+/// withheld by place or presence, 2026-11-22); `None` when nothing was noted today. The read's error
+/// is the caller's to decide on.
+pub fn shown(
     store: &crate::store::Store,
     now_ms: u64,
-    compiled: &mut crate::compiler::Compiled,
-) -> Option<String> {
-    let all = match crate::card::state::observations(store, Some(ObservationState::Open)) {
-        Ok(a) => a,
-        Err(e) => {
-            tracing::warn!(error = %format!("{e:#}"),
-                "the day's observations were not read: this turn goes without them");
-            return None;
-        }
-    };
-    let text = render(&all, now_ms)?;
-    crate::task_graph::view::attach_text(&mut compiled.request, &text);
-    let t = tokens(&text);
-    compiled.est_tokens += t;
-    compiled.estimate.tokens += t;
-    compiled.estimate.estimated += t;
-    compiled.estimate.upper += t + t * crate::compiler::MARGIN_PERCENT / 100;
-    Some(text)
+) -> anyhow::Result<Option<(String, Vec<String>)>> {
+    let all = crate::card::state::observations(store, Some(ObservationState::Open))?;
+    Ok(rendered(&all, now_ms))
 }

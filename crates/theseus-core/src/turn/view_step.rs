@@ -82,7 +82,9 @@ impl TurnRunner {
             }
         } else if self.view_gone(t) {
             // Something it laid was removed or erased since (absence is not proof): reassembled, on a new
-            // chain, with the room the turn made.
+            // chain, with the room the turn made; a part of the harness's block whose records went is
+            // rendered again first (`now_step::now_refreshed`).
+            self.now_refreshed(t)?;
             self.view_refrozen(t, input.spec, None)?;
             Self::view_reset(t, input.nodes);
         }
@@ -118,8 +120,7 @@ impl TurnRunner {
     /// view laid was removed or erased since ([`Self::view_gone`]: erase stays, absence is not proof), which
     /// compiles the call again at most twice and fails it plainly a third time (`ViewFailed::Gone`); then the
     /// size check (`room::view_size`) on the finished request, a recompile for size coming back to both (at
-    /// most `room::SIZINGS` of them). The request that goes out is the last one compiled, its tail kept as
-    /// the turn loop keeps one. Anything goes (2026-11-22): no presence, seal or move is asked again.
+    /// most `room::SIZINGS` of them). The request that goes out is the last one compiled. Anything goes (2026-11-22): no presence, seal or move is asked again.
     pub(super) async fn view_readmitted(
         &self,
         t: &mut Turn<'_>,
@@ -146,26 +147,39 @@ impl TurnRunner {
             }
             compiled =
                 match Box::pin(self.compile_step(t, session, spec, false, None, None, i)).await? {
-                    Ok(mut c) => {
-                        self.tails.finish(t.tc.session_id, &mut c, t.tail.take());
-                        c
-                    }
+                    Ok(c) => c,
                     Err(f) => return Ok(Err(f)),
                 };
         }
     }
 
+    /// After the turn's route decided who answers and what kind of turn it is (issue 46): the parts the
+    /// route decides are set in the harness's block, and a block that changed is laid again with the view
+    /// re-frozen, on a new chain, before any request of the turn is sent. Whether it was.
+    pub(super) fn now_relaid(&self, t: &mut Turn<'_>, spec: &RequestSpec) -> anyhow::Result<bool> {
+        let mut r = t.now.take().unwrap_or_default();
+        let changed = Self::now_routed(t, &mut r);
+        t.now = Some(r);
+        if !changed || !t.view.as_ref().is_some_and(|f| f.turn_id == t.tc.turn_id) {
+            return Ok(false);
+        }
+        self.view_refrozen(t, spec, None)?;
+        Self::view_reset(t, &[]);
+        Ok(true)
+    }
+
     /// Whether an exchange the frozen view lays is gone now, or a node its recall laid is gone or erased
-    /// (`kept::held_now`).
+    /// (`kept::held_now`), or a record a part of the harness's block was rendered from (`now_step::now_stale`).
     pub(super) fn view_gone(&self, t: &Turn<'_>) -> bool {
         let Some(f) = t.view.as_ref().filter(|f| f.turn_id == t.tc.turn_id) else {
             return false;
         };
         let recalled: Vec<String> = (f.recalled.iter()).map(|r| r.node_id.clone()).collect();
         kept::held_now(self, t.tc.session_id, (&[], &f.exchanges, &recalled))
+            || !self.now_stale(t).is_empty()
     }
 
-    /// A new chain for the turn: its next call makes a new compilation (the sent tails let go), and the
+    /// A new chain for the turn: its next call makes a new compilation, and the
     /// turn's own answers so far are sent without their thinking, which the change invalidated.
     fn view_reset(t: &mut Turn<'_>, nodes: &[(u64, Stub)]) {
         let turn = t.tc.turn_id;
@@ -209,6 +223,7 @@ impl TurnRunner {
             recalled,
             message: given,
             items,
+            harness,
         } = asked;
         let snap = StoreSnapshot {
             now_ms: self.kernel.now_ms(),
@@ -258,7 +273,7 @@ impl TurnRunner {
             sessions: Some(&read),
             zone: &crate::recall::stamp::system,
         };
-        let (frame, now) = frame_and_now(spec, renderer.memory_page().1, &message);
+        let (frame, now) = frame_and_now(spec, renderer.memory_page().1, &message, harness);
         let selectors = table(src, frame, now);
         let parts = Parts {
             selectors: &selectors,
@@ -355,24 +370,25 @@ const CALL_HEADROOM: u64 = 4_096;
 /// How many times one call is compiled again when something its view laid was removed under it.
 const VIEW_REASSEMBLIES: u32 = 2;
 
-/// A test's seam: what runs at the start of the next `env_tail` of a session (after the view's assembly,
-/// before the call is sent), once.
+/// A test's seam: what runs after the next compile of a session has assembled its view, before the call
+/// is sent, once (where the request's tail once read git).
 #[cfg(test)]
-type EnvHook = Box<dyn FnOnce() + Send>;
+type AssembledHook = Box<dyn FnOnce() + Send>;
 
 #[cfg(test)]
-static AT_ENV_TAIL: std::sync::Mutex<Vec<(String, EnvHook)>> = std::sync::Mutex::new(Vec::new());
+static AT_ASSEMBLED: std::sync::Mutex<Vec<(String, AssembledHook)>> =
+    std::sync::Mutex::new(Vec::new());
 
-/// Run `f` at the next `env_tail` of `session`.
+/// Run `f` after the next compile of `session` has assembled its view.
 #[cfg(test)]
-pub(crate) fn env_tail_hook(session: &str, f: EnvHook) {
-    AT_ENV_TAIL.lock().unwrap().push((session.to_string(), f));
+pub(crate) fn assembled_hook(session: &str, f: AssembledHook) {
+    AT_ASSEMBLED.lock().unwrap().push((session.to_string(), f));
 }
 
 #[cfg(test)]
-pub(super) fn at_env_tail(session: &str) {
+pub(super) fn at_assembled(session: &str) {
     let hook = {
-        let mut hooks = AT_ENV_TAIL.lock().unwrap();
+        let mut hooks = AT_ASSEMBLED.lock().unwrap();
         (hooks.iter().position(|(s, _)| s == session)).map(|i| hooks.remove(i).1)
     };
     if let Some(f) = hook {
@@ -398,6 +414,9 @@ pub(super) struct Asked<'a> {
     pub message: Option<String>,
     /// The message's numbered items, as the exchange's naming told them (none for a preview).
     pub items: Vec<String>,
+    /// The tokens of the harness's part of the block beside the message (`now_step`), with what the
+    /// route may add to it, counted in slot I before the other bands (none for a preview).
+    pub harness: u64,
 }
 
 /// A view as assembled: what a turn freezes, and the assembly (or the floor's overflow).
@@ -555,8 +574,14 @@ fn sources_of<'a, 'b>(
     }
 }
 
-/// Slots A and I as code lays them: the system part with the memory page, and the message.
-fn frame_and_now(spec: &RequestSpec, page: &str, message: &str) -> (Vec<Part>, Vec<Part>) {
+/// Slots A and I as code lays them: the system part with the memory page; the harness's part of the block
+/// beside the message (`now_step`), counted here before the other bands are admitted, and the message.
+fn frame_and_now(
+    spec: &RequestSpec,
+    page: &str,
+    message: &str,
+    harness: u64,
+) -> (Vec<Part>, Vec<Part>) {
     let system = [
         &spec.system_text,
         &spec.persona_text,
@@ -567,11 +592,18 @@ fn frame_and_now(spec: &RequestSpec, page: &str, message: &str) -> (Vec<Part>, V
         name: "system".into(),
         tokens: system.iter().map(|s| tokens(s)).sum::<u64>() + tokens(page),
     };
-    let now = Part {
+    let mut now = Vec::new();
+    if harness > 0 {
+        now.push(Part {
+            name: "harness".into(),
+            tokens: harness,
+        });
+    }
+    now.push(Part {
         name: "message".into(),
         tokens: tokens(message),
-    };
-    (vec![frame], vec![now])
+    });
+    (vec![frame], now)
 }
 
 /// The view's point of view from the turn's verified one: its anchor and its presence are the gate's, never

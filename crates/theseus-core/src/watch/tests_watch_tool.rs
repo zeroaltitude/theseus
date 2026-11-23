@@ -38,9 +38,7 @@ fn said(req: &ProviderRequest) -> String {
 }
 
 fn block_of(req: &ProviderRequest) -> Option<String> {
-    blocks_of(req)
-        .pop()
-        .filter(|t| t.starts_with(crate::commitments::HEAD))
+    crate::turn::now_step::part(req, crate::commitments::HEAD)
 }
 
 fn first_id(req: &ProviderRequest) -> String {

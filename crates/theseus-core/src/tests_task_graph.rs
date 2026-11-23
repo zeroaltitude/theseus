@@ -363,15 +363,12 @@ async fn a_plan_splits_closes_with_evidence_and_refuses_a_stale_edit() {
         assert_eq!(w[1].version, w[0].version + 1);
     }
 
-    // The next turn sees the graph in its request's tail, with versions, and
+    // The next turn sees the graph in the harness's block beside its message, with versions, and
     // `context.compiled` says what it showed.
     turn(c, &s, "where are we").await;
     let req = r.model.requests.lock().unwrap().last().unwrap().clone();
-    let last = req.messages.last().unwrap()["content"]
-        .as_array()
-        .unwrap()
-        .clone();
-    let view = last.last().unwrap()["text"].as_str().unwrap().to_string();
+    let view = crate::turn::now_step::part(&req, crate::task_graph::view::HEAD)
+        .expect("the graph beside the message");
     assert!(
         view.starts_with("[The task graph in this conversation's scope: 4 open, 1 closed."),
         "{view}"
@@ -384,12 +381,12 @@ async fn a_plan_splits_closes_with_evidence_and_refuses_a_stale_edit() {
         "{view}"
     );
     assert!(view.contains("  - "), "children are indented: {view}");
-    // The conversation's breakpoint moved before the view, not copied: with
-    // the session's block (theseus-aab7) the request holds the provider's
-    // four at most.
+    // With the session's block (theseus-aab7) the request holds the provider's four marks at most, and
+    // the conversation's mark stays the request's own: nothing is laid after the view's messages to
+    // move it before (issue 46).
     let body = req.body().to_string();
     assert!(body.matches("\"cache_control\"").count() <= 4, "{body}");
-    assert!(req.cache_control.is_none(), "moved into the messages");
+    assert!(req.cache_control.is_some(), "the request's own mark");
     let compiled = rows(c, "context.compiled");
     let shown = &compiled.last().unwrap().data["tasks"];
     assert_eq!(
@@ -918,4 +915,31 @@ async fn records_survive_a_reopen_and_older_task_sessions_still_list() {
     assert!(!serde_json::to_string(&req.messages)
         .unwrap()
         .contains("[The task graph"));
+}
+
+/// A graph the harness's block left out for room is not reported as shown (issue 46, round 2): what the
+/// compile accounts for is what was laid. (Admission reads no task-view flag since the situation table went,
+/// D9.)
+#[tokio::test]
+async fn a_graph_left_out_for_room_is_not_reported_as_shown() {
+    let r = rig();
+    let c = &r.core;
+    let s = session(c);
+    r.calls(&[plan("Fix the tide table parser")]);
+    turn(c, &s, "plan it").await;
+    crate::turn::now_step::shrink_budget_for_tests(1);
+    turn(c, &s, "where are we").await;
+    let req = r.model.requests.lock().unwrap().last().unwrap().clone();
+    assert!(
+        crate::turn::now_step::part(&req, crate::task_graph::view::HEAD).is_none(),
+        "the graph is left out"
+    );
+    let block = crate::turn::now_step::carried(&req).expect("the harness's block");
+    assert!(
+        block.contains("Left out of this block for room: the task graph"),
+        "{block}"
+    );
+    let compiled = rows(c, "context.compiled");
+    let last = compiled.last().unwrap();
+    assert!(last.data.get("tasks").is_none(), "{:?}", last.data);
 }
