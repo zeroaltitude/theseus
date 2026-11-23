@@ -123,6 +123,8 @@ pub struct CellRecall {
 /// One cell's record: a JSON line in the run's output.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Record {
+    #[serde(default)]
+    pub identity: Option<String>,
     pub exam: String,
     pub digest: String,
     pub item: String,
@@ -171,6 +173,7 @@ pub struct Record {
 pub type Notes = BTreeMap<String, Option<String>>;
 
 pub struct Plan {
+    pub identity: Option<String>,
     /// Each daemon's socket, by its `[memory] arm` (`Arm::daemon`).
     pub sockets: BTreeMap<String, PathBuf>,
     pub notes: Notes,
@@ -241,6 +244,15 @@ pub const REPLY_CHARS: usize = 20_000;
 const RPC: Duration = Duration::from_secs(30);
 
 pub use crate::rng::Rng;
+
+/// Historical results remain readable, but cannot prove a new run's identity.
+pub fn validate_resume(records: &[Record], identity: Option<&str>) -> Result<()> {
+    for r in records {
+        anyhow::ensure!(identity.is_some() && r.identity.as_deref() == identity,
+            "resume identity is missing or differs; use a new results file");
+    }
+    Ok(())
+}
 
 /// The cells, in run order: run by run, the items shuffled, each item's arms
 /// next to each other in a shuffled order.
@@ -497,6 +509,7 @@ pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, r
     let started_at_ms = theseus_protocol::now_unix_ms();
     let t0 = Instant::now();
     let mut rec = Record {
+        identity: plan.identity.clone(),
         exam: exam.file.version.clone(),
         digest: exam.digest.clone(),
         item: item.id.clone(),
@@ -754,6 +767,7 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
             .collect::<Result<_>>()?
     };
     let prior = read_records(&plan.out)?;
+    validate_resume(&prior, plan.identity.as_deref())?;
     let spent_before: f64 = prior.iter().map(|r| r.cost_usd).sum();
     let done: BTreeSet<(String, String, u32)> = prior
         .iter()
@@ -871,6 +885,16 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn resume_requires_proven_matching_identity() {
+        let mut r = super::Record::default();
+        assert!(super::validate_resume(&[r.clone()], None).is_err());
+        assert!(super::validate_resume(&[r.clone()], Some("new")).is_err());
+        r.identity = Some("old".into());
+        assert!(super::validate_resume(&[r.clone()], Some("new")).is_err());
+        assert!(super::validate_resume(&[r], Some("old")).is_ok());
+    }
+
     use super::*;
     use crate::item::EXAM_V2;
 

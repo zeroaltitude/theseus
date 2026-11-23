@@ -247,6 +247,24 @@ fn prepare(
     Ok(out)
 }
 
+/// Bind cached snapshots and verdicts to the executable and all run inputs.
+fn identity(plan: &ArmsPlan, exam: &Exam, m: &Manifest) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    for bytes in [
+        std::fs::read(&plan.theseusd)?,
+        std::fs::read(std::env::current_exe()?)?,
+        serde_json::to_vec(&plan.base_config)?,
+        serde_json::to_vec(m)?,
+        serde_json::to_vec(&(exam.digest.as_str(), &plan.profile, &plan.items,
+            plan.seed, plan.timeout, &plan.env))?,
+    ] {
+        hash.update((bytes.len() as u64).to_le_bytes());
+        hash.update(bytes);
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+
 /// The command: prepare, then each run on fresh daemons; see the module's
 /// note.
 pub fn run(
@@ -271,6 +289,15 @@ pub fn run(
             .map(|id| exam.item(id).with_context(|| format!("no item {id}")))
             .collect::<Result<_>>()?
     };
+    let identity = identity(plan, exam, m)?;
+    drive::validate_resume(&drive::read_records(&plan.out)?, Some(&identity))?;
+    let marker = plan.work.join("run-identity");
+    if plan.work.exists() && std::fs::read_dir(&plan.work)?.next().is_some() {
+        ensure!(std::fs::read_to_string(&marker).ok().as_deref() == Some(identity.as_str()),
+            "snapshot identity is missing or differs; use a new work directory");
+    }
+    std::fs::create_dir_all(&plan.work)?;
+    std::fs::write(&marker, &identity)?;
     let notes = drive::oracle_notes(&plan.store, m, &items)?;
     let daemons = daemons_for(&plan.arms);
     std::fs::create_dir_all(&plan.work)?;
@@ -286,6 +313,7 @@ pub fn run(
     };
     for run in 1..=plan.runs {
         let mut dp = Plan {
+            identity: Some(identity.clone()),
             sockets: BTreeMap::new(),
             notes: notes.clone(),
             profile: plan.profile.clone(),
@@ -350,8 +378,9 @@ pub fn run(
 /// The cells of `plan`'s run with no verdict in its output file yet.
 fn left_in_run(plan: &Plan, exam: &Exam) -> Result<usize> {
     let items: Vec<&Item> = plan.items.iter().filter_map(|id| exam.item(id)).collect();
-    let done: BTreeSet<(String, String, u32)> = drive::read_records(&plan.out)?
-        .into_iter()
+    let records = drive::read_records(&plan.out)?;
+    drive::validate_resume(&records, plan.identity.as_deref())?;
+    let done: BTreeSet<(String, String, u32)> = records.into_iter()
         .filter(|r| r.pass.is_some() && r.digest == exam.digest)
         .map(|r| (r.item, r.arm, r.run))
         .collect();
