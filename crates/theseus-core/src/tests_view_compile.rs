@@ -1235,9 +1235,9 @@ async fn a_finished_exchanges_clock_line_is_headed_as_the_harnesss_and_no_person
 /// recent exchanges are a run of that same line (three here, five at another terminal place), with recall live.
 /// The request the view compiles is printed whole (each message's role, each block's size, head and end, and
 /// the block beside the message line by line). It must end with the person's line; and the harness's block
-/// beside it must say it is context, not the person's words and not a request, and must not head itself with
-/// an agenda of topics (what is waiting, in play, said elsewhere, called), which a model read on build 190 as
-/// the thing to report instead of answering the line.
+/// beside it must say it is context and not a new request, not to be summarized merely for being there, and must
+/// not head itself with an agenda of topics (what is waiting, in play, said elsewhere, called), which a model read
+/// on build 190 as the thing to report instead of answering the line.
 #[tokio::test]
 async fn x190_a_fresh_terminal_line_after_a_run_of_it_elsewhere_is_what_the_request_ends_with() {
     const ASK: &str = "Reply with the single word: ok";
@@ -1328,7 +1328,8 @@ async fn x190_a_fresh_terminal_line_after_a_run_of_it_elsewhere_is_what_the_requ
         .expect("the block beside the message (recall laid it)");
     let head = beside.lines().next().unwrap_or_default();
     assert!(
-        head.contains("not the person's words") && head.contains("not a request"),
+        head.contains("not a new request")
+            && head.contains("do not summarize this block merely because it is present"),
         "the block says what it is not: {head}"
     );
     for agenda in ["what is waiting", "in play", "said elsewhere", "called"] {
