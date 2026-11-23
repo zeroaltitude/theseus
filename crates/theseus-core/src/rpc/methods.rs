@@ -910,6 +910,8 @@ impl Core {
         p: TurnSubmitParams,
         conn: Conn<'_>,
     ) -> Result<theseus_protocol::TurnSubmitResult, RpcFailure> {
+        crate::turn::clock_step::validate_deadline(conn.arrived, p.deadline_secs)
+            .map_err(RpcFailure::invalid)?;
         if p.prompt.is_some() && !(p.input.trim().is_empty() && p.attachments.is_empty()) {
             return Err(RpcFailure::new(
                 error_code::INVALID_PARAMS,
@@ -958,7 +960,8 @@ impl Core {
         // write keeps it (theseus-aab7). Outside the roots, the CLI says so.
         let outside = crate::rpc::session_dir::moved(&self.tools, &mut session, dir);
         // The turn's time, when the client gave one (theseus-yct32).
-        crate::turn::clock_step::set_deadline(&session.session_id, conn.arrived, p.deadline_secs);
+        crate::turn::clock_step::set_deadline(&session.session_id, conn.arrived, p.deadline_secs)
+            .map_err(RpcFailure::invalid)?;
         self.expect_capture(&p, conn, &session.session_id);
         let arrival = self.arrival_of(&p, conn, (&place_home, arrived), &session.session_id);
         // A one-run daemon's client follows the session's later turns, so
