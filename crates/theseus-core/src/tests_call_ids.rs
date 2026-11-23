@@ -330,12 +330,14 @@ async fn a_resumed_result_answers_its_own_sessions_call_and_never_another_sessio
     );
 }
 
-/// **Two outstanding old turns of ONE session, one id, one resumed.** A session posts and waits (turn 1), then
-/// posts again with the SAME id and waits (turn 2); the FIRST is approved and runs in a later turn. A request
-/// that lays all of it shows the first call with its result and the second still with the stub: only its own
-/// call is answered.
+/// **Two turns of ONE session, one id, each call its own result.** A session posts and waits (turn 1), then
+/// posts again with the SAME id: the new message supersedes the first question (`toolrun::resume`: a waiting
+/// call is closed when the person writes instead of answering, so two old turns of one session never wait at
+/// once), and the second waits. The second is approved and runs in a later turn. A request that lays all of it
+/// shows the first call with ITS result (superseded) and the second with its own (run): neither borrows the
+/// other's, though both carry one id and both results stand in later turns than their calls.
 #[tokio::test]
-async fn of_two_waiting_calls_of_one_session_with_one_id_only_the_resumed_ones_call_is_answered() {
+async fn of_two_calls_of_one_session_with_one_id_each_reads_its_own_result() {
     let r = rig_scripted(|_| {}, post_script);
     bind(&r.core);
     let hall = format!("channel:{HALL}");
@@ -345,18 +347,18 @@ async fn of_two_waiting_calls_of_one_session_with_one_id_only_the_resumed_ones_c
     let asks = turn(&r.core, &s, "POST #pier :: the second").await;
     assert!(asks.awaiting_confirm.is_some(), "it asks again: {asks:?}");
 
-    let first = (r.core.confirm_list().unwrap().into_iter())
+    let waiting: Vec<_> = (r.core.confirm_list().unwrap().into_iter())
         .filter(|q| q.session_id == s)
-        .min_by_key(|q| q.requested_at_ms)
-        .expect("the first question");
-    assert_eq!(first.input["text"], "the first", "{first:?}");
+        .collect();
+    assert_eq!(waiting.len(), 1, "the first was superseded: {waiting:?}");
+    assert_eq!(waiting[0].input["text"], "the second", "{waiting:?}");
     r.core
-        .confirm_action(&first.correlation_id, true, None, "cli")
+        .confirm_action(&waiting[0].correlation_id, true, None, "cli")
         .unwrap();
     r.until("the resumed turn", 15, |r| {
         let nodes = r.core.store.session_nodes(&s).unwrap();
-        let ran = (nodes.iter()).position(
-            |(_, n)| matches!(&n.body, Body::ToolResult { tool_use_id, late: false, .. } if tool_use_id == SAME),
+        let ran = (nodes.iter()).rposition(
+            |(_, n)| matches!(&n.body, Body::ToolResult { tool_use_id, late: false, content, .. } if tool_use_id == SAME && !content.contains("superseded")),
         );
         ran.is_some_and(|i| {
             (nodes[i + 1..].iter()).any(|(_, n)| matches!(n.body, Body::AssistantMessage { .. }))
@@ -371,14 +373,14 @@ async fn of_two_waiting_calls_of_one_session_with_one_id_only_the_resumed_ones_c
         .into_iter()
         .find(|q| last_user(q).contains("and now?"))
         .expect("the new turn's request");
-    let ran = first_result(after_call(&req, "text", "the first"));
+    let first = first_result(after_call(&req, "text", "the first"));
     assert!(
-        !ran.starts_with(STUB),
-        "the resumed call carries its result: {ran}"
+        first.contains("superseded"),
+        "the first call reads its own result: {first}"
     );
-    let waits = first_result(after_call(&req, "text", "the second"));
+    let second = first_result(after_call(&req, "text", "the second"));
     assert!(
-        waits.starts_with(STUB),
-        "the other waiting call is closed with the stub: {waits}"
+        !second.starts_with(STUB) && !second.contains("superseded"),
+        "the second call reads its own result, not the first's: {second}"
     );
 }
