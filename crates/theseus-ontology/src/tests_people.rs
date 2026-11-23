@@ -344,3 +344,15 @@ fn a_merge_refuses_what_it_cannot_do() {
         Refusal::InUse { .. }
     ));
 }
+
+#[test]
+fn a_merge_refuses_to_discard_handles() {
+    let mut o = harbour();
+    let survivor = id("person:pell");
+    let mut full = o.category(&survivor).unwrap().clone();
+    full.handles = (0..64).map(|n| format!("name:alias {n}")).collect();
+    o.put(Record::Category(full.clone()), OP).unwrap();
+    assert!(o.merge(&id("person:marlo-quill"), &survivor).is_err());
+    assert_eq!(o.category(&survivor).unwrap().handles, full.handles);
+    assert!(o.category(&id("person:marlo-quill")).is_some());
+}

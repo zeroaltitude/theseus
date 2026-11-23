@@ -260,7 +260,7 @@ impl Ontology {
                 next.handles.push(h);
             }
         }
-        next.handles.truncate(HANDLES_MAX);
+        check_handles(&next)?;
         // Its own handles leave it before the survivor takes them, so the
         // two never hold one at once.
         let mut taken = gone.clone();
