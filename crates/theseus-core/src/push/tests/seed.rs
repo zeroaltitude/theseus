@@ -434,3 +434,15 @@ fn an_execution_seed_does_not_swallow_an_actions_cancel() {
         assert!(board.entries[&e.id].pending.is_empty());
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_seed_can_retry_with_the_original_observer() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = core(&dir);
+    core.push
+        .fail_seed
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(core.push.ensure(&core).await.is_err());
+    core.push.ensure(&core).await.unwrap();
+    assert!(core.push.seed.initialized());
+}
