@@ -84,6 +84,18 @@ class ModuleDir(unittest.TestCase):
 
 
 class Walk(unittest.TestCase):
+    def test_integration_targets_walk_only_declared_helpers(self):
+        with tempfile.TemporaryDirectory() as root:
+            crate(root, "k")
+            write(root, "crates/k/src/lib.rs", "")
+            write(root, "crates/k/tests/live.rs", 'mod support;\n')
+            write(root, "crates/k/tests/support/mod.rs", 'mod nested;\n')
+            write(root, "crates/k/tests/support/nested.rs", '#[test]\nfn reached() {}\n')
+            write(root, "crates/k/tests/support/unused.rs", '#[test]\nfn orphan() {}\n')
+            found = self.regions(root)
+            self.assertIn("crates/k/tests/support/nested.rs", found)
+            self.assertNotIn("crates/k/tests/support/unused.rs", found)
+
     def regions(self, root):
         walk = tcm.Walk(root)
         walk.crates(os.path.join(root, "crates"))
