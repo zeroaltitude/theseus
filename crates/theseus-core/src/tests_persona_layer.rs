@@ -40,10 +40,7 @@ fn a_cli_and_a_task_session_carry_only_the_persona_in_play() {
     }
     for place in ["dm", "channel"] {
         let (persona, _) = layers(&core, place);
-        // A shared channel withholds files not marked public: the DM is the one that holds them all.
-        if place == "dm" {
-            assert_eq!(carried(&persona), PERSONAS, "{place}");
-        }
+        assert_eq!(carried(&persona), PERSONAS, "{place}");
     }
     let first = |p: &str| core.first_request(p).unwrap().tokens;
     eprintln!(
