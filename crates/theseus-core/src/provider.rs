@@ -1784,6 +1784,47 @@ impl Provider for FakeProvider {
     }
 }
 
+async fn error_text<S, B, E>(
+    mut stream: S,
+    deadline: tokio::time::Instant,
+    idle: Duration,
+) -> String
+where
+    S: futures_util::Stream<Item = std::result::Result<B, E>> + Unpin,
+    B: AsRef<[u8]>,
+{
+    const LIMIT: usize = 65_536;
+    let mut bytes = Vec::new();
+    let mut idle_until = tokio::time::Instant::now() + idle;
+    let incomplete = loop {
+        let until = deadline.min(idle_until);
+        if tokio::time::Instant::now() >= until {
+            break true;
+        }
+        match tokio::time::timeout_at(until, stream.next()).await {
+            Ok(Some(Ok(chunk))) => {
+                let chunk = chunk.as_ref();
+                let room = LIMIT - bytes.len();
+                bytes.extend_from_slice(&chunk[..chunk.len().min(room)]);
+                if !chunk.is_empty() {
+                    idle_until = tokio::time::Instant::now() + idle;
+                }
+                if bytes.len() == LIMIT {
+                    break true;
+                }
+            }
+            Ok(None) => break false,
+            Ok(Some(Err(_))) | Err(_) => break true,
+        }
+    };
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    if incomplete {
+        text.push_str(" [error body incomplete]");
+    }
+    text
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2305,44 +2346,4 @@ mod tests {
         };
         assert!(t.usage_unknown(), "mid-stream: tokens may have been billed");
     }
-}
-
-async fn error_text<S, B, E>(
-    mut stream: S,
-    deadline: tokio::time::Instant,
-    idle: Duration,
-) -> String
-where
-    S: futures_util::Stream<Item = std::result::Result<B, E>> + Unpin,
-    B: AsRef<[u8]>,
-{
-    const LIMIT: usize = 65_536;
-    let mut bytes = Vec::new();
-    let mut idle_until = tokio::time::Instant::now() + idle;
-    let incomplete = loop {
-        let until = deadline.min(idle_until);
-        if tokio::time::Instant::now() >= until {
-            break true;
-        }
-        match tokio::time::timeout_at(until, stream.next()).await {
-            Ok(Some(Ok(chunk))) => {
-                let chunk = chunk.as_ref();
-                let room = LIMIT - bytes.len();
-                bytes.extend_from_slice(&chunk[..chunk.len().min(room)]);
-                if !chunk.is_empty() {
-                    idle_until = tokio::time::Instant::now() + idle;
-                }
-                if bytes.len() == LIMIT {
-                    break true;
-                }
-            }
-            Ok(None) => break false,
-            Ok(Some(Err(_))) | Err(_) => break true,
-        }
-    };
-    let mut text = String::from_utf8_lossy(&bytes).into_owned();
-    if incomplete {
-        text.push_str(" [error body incomplete]");
-    }
-    text
 }

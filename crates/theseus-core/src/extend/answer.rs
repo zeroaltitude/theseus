@@ -59,6 +59,14 @@ impl Answer<'_> {
     }
 }
 
+fn require_current_proposal(manifest: Option<&Manifest>, correlation_id: &str) -> Result<()> {
+    anyhow::ensure!(
+        manifest.is_some_and(|m| m.question.as_deref() == Some(correlation_id)),
+        "this extension proposal was replaced; answer its current card instead"
+    );
+    Ok(())
+}
+
 impl Core {
     /// The answer to `a`, an `extend.ack` question still waiting, by `by`
     /// through `via`.
@@ -85,11 +93,7 @@ impl Core {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut m: Option<Manifest> = self.store.get_meta(&manifest_key(&name, &digest))?;
-        anyhow::ensure!(
-            m.as_ref()
-                .is_some_and(|m| m.question.as_deref() == Some(a.correlation_id.as_str())),
-            "this extension proposal was replaced; answer its current card instead"
-        );
+        require_current_proposal(m.as_ref(), &a.correlation_id)?;
         let approve = matches!(answer, Answer::Ack);
         let note = answer.note();
         if let Some(m) = &mut m {
