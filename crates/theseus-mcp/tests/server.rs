@@ -360,13 +360,13 @@ async fn the_history_tool_maps_to_the_cores_history_read() {
         &client,
         "context_history",
         json!({"session_id": "ses_1", "words": "ferry", "before": {"at_ms": 5, "turn_id": "t"},
-               "stray": 1, "op": "search"}),
+               "when": "last week", "from": "2026-11-01", "to": "2026-11-20", "stray": 1, "op": "search"}),
     )
     .await;
     assert_eq!(
         got["params"],
         json!({"session_id": "ses_1", "words": "ferry", "before": {"at_ms": 5, "turn_id": "t"},
-               "client": "theseus"})
+               "when": "last week", "from": "2026-11-01", "to": "2026-11-20", "client": "theseus"})
     );
     let got = tool(&client, "context_history", json!({"open": "turn_a"})).await;
     assert_eq!(

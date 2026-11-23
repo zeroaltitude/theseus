@@ -161,8 +161,12 @@ async fn memory_off_answers_the_refusal_and_other_surfaces_are_refused() {
     assert!(crate::mcp_server::allowed(method::HISTORY_READ));
 }
 
-/// An erased import is never read: its words are on no page, a words search finds nothing of it, and its
-/// node opens nothing (mirrors `an_erased_import_is_read_as_nothing_by_session_or_by_words`).
+/// An erased import is read as nothing, with a control: before the erase, the import's session opens by its
+/// id (an MCP caller's direct read of it) and shows its words; after the erase of that same import, the same
+/// open shows none of them. A words search a stale index hit of the erased import comes first in still
+/// answers the live native exchange: the erased hit takes no place in it (mirrors
+/// `an_erased_import_is_read_as_nothing_by_session_or_by_words`). An import is on no exchange timeline, so no
+/// page reaches it before or after.
 #[tokio::test]
 async fn an_erased_import_is_read_as_nothing() {
     use crate::tests_memory_lookup::{episode, import};
@@ -172,30 +176,210 @@ async fn an_erased_import_is_read_as_nothing() {
         &r.core,
         &[episode(9, "public", "2026-03-03T18:00:00Z", GONE)],
     );
+    let opened = history(&r.core, json!({"open": imported[0]})).await;
+    assert!(
+        opened["open"]["text"].as_str().unwrap().contains(GONE),
+        "the control: before the erase it reads: {opened}"
+    );
     crate::import::write::erase(&r.core.store, "kelp-2026", Some("a test"), "cli").unwrap();
+    let after = ask(&r.core, json!({"open": imported[0]})).await;
+    if let Ok(v) = &after {
+        assert!(!v.to_string().contains("lighthouse"), "{v}");
+    }
     let native = session(&r.core, None);
     turn(&r.core, &native, "the ferry note about the ledger").await;
+    // The stale hit first, then the live one.
     let mut all = imported.clone();
     all.push(native.clone());
     r.core.runner.memory.set_ask(index_over(&r.core, all));
-    for p in [
-        json!({"place": place_of(&r.core, &native)}),
-        json!({"session_id": native, "words": "lighthouse keeper ledger"}),
+    let found = history(&r.core, json!({"session_id": native, "words": "ledger"})).await;
+    assert!(!found.to_string().contains("lighthouse"), "{found}");
+    assert!(
+        lines(&found)
+            .iter()
+            .any(|l| l["words"].as_str().unwrap().contains("ferry note")),
+        "the live exchange still answers: {found}"
+    );
+}
+
+/// Every string of a reply passes the vault's substitution, not only what was said (review of D6b, §1): a
+/// line's handle, place, time and words, the opened handle and text, the page's place and end, and each
+/// cursor's turn id. Numbers pass as they are.
+#[tokio::test]
+async fn every_string_of_a_reply_is_substituted_field_by_field() {
+    use theseus_protocol::memory::{
+        HistoryCursor, HistoryOpened, HistoryReadLine, HistoryReadResult,
+    };
+    let r = rig(true);
+    r.core
+        .secrets
+        .hold("marsh_vault", crate::secrets::Secret::new(SECRET.into()));
+    let s = || format!("x {SECRET} y");
+    let cur = || HistoryCursor {
+        at_ms: 7,
+        turn_id: s(),
+    };
+    let got = crate::history_tool::mcp::substituted(
+        &r.core,
+        HistoryReadResult {
+            place: s(),
+            lines: vec![HistoryReadLine {
+                handle: s(),
+                place: s(),
+                at_ms: 5,
+                when: s(),
+                who: s(),
+                words: s(),
+                did: Some(s()),
+                reply_begins: Some(s()),
+            }],
+            end: s(),
+            next: Some(cur()),
+            open: Some(HistoryOpened {
+                handle: s(),
+                text: s(),
+                next: Some(cur()),
+            }),
+        },
+    );
+    let v = serde_json::to_value(&got).unwrap();
+    let l = &v["lines"][0];
+    let o = &v["open"];
+    for (name, field) in [
+        ("place", &v["place"]),
+        ("end", &v["end"]),
+        ("next.turn_id", &v["next"]["turn_id"]),
+        ("line.handle", &l["handle"]),
+        ("line.place", &l["place"]),
+        ("line.when", &l["when"]),
+        ("line.who", &l["who"]),
+        ("line.words", &l["words"]),
+        ("line.did", &l["did"]),
+        ("line.reply_begins", &l["reply_begins"]),
+        ("open.handle", &o["handle"]),
+        ("open.text", &o["text"]),
+        ("open.next.turn_id", &o["next"]["turn_id"]),
     ] {
-        let v = history(&r.core, p).await;
-        assert!(!v.to_string().contains("lighthouse"), "{v}");
+        assert_eq!(field, &json!("x [redacted:marsh_vault] y"), "{name}: {v}");
     }
-    let node = (r
+    assert_eq!(
+        (&l["at_ms"], &v["next"]["at_ms"], &o["next"]["at_ms"]),
+        (&json!(5), &json!(7), &json!(7))
+    );
+}
+
+/// The same on the real path: a vault value that equals a turn's id leaves neither as a line's handle nor as an
+/// open's; one that equals a line's time leaves not as its `when`. A handle the substitution changed no longer
+/// navigates: that is the right failure.
+#[tokio::test]
+async fn a_vault_value_equal_to_a_handle_or_a_time_is_substituted() {
+    let r = rig(true);
+    let native = session(&r.core, None);
+    turn(&r.core, &native, "the ferry note").await;
+    let place = place_of(&r.core, &native);
+    let page = history(&r.core, json!({"place": place})).await;
+    let handle = lines(&page)[0]["handle"].as_str().unwrap().to_string();
+    let when = lines(&page)[0]["when"].as_str().unwrap().to_string();
+    r.core
+        .secrets
+        .hold("turn_vault", crate::secrets::Secret::new(handle.clone()));
+    r.core
+        .secrets
+        .hold("time_vault", crate::secrets::Secret::new(when.clone()));
+    let page = history(&r.core, json!({"place": place})).await;
+    let l = &lines(&page)[0];
+    assert!(!page.to_string().contains(&handle), "{page}");
+    assert!(
+        l["handle"]
+            .as_str()
+            .unwrap()
+            .contains("[redacted:turn_vault]"),
+        "{page}"
+    );
+    assert!(
+        l["when"]
+            .as_str()
+            .unwrap()
+            .contains("[redacted:time_vault]"),
+        "{page}"
+    );
+    let opened = history(&r.core, json!({"open": handle})).await;
+    assert!(!opened.to_string().contains(&handle), "{opened}");
+    assert!(
+        opened["open"]["handle"]
+            .as_str()
+            .unwrap()
+            .contains("[redacted:turn_vault]"),
+        "{opened}"
+    );
+}
+
+/// A fork an MCP client made of its own conversation reads its own history as the model's call in it does
+/// (review of D6b, §4): an ancestor's exchange before the fork's point is on its page, and the ones the point
+/// falls in or that began after it are neither on its page nor opened by their handle; the source itself
+/// still reads them all.
+#[tokio::test]
+async fn an_mcp_fork_reads_its_history_without_what_came_after_its_point() {
+    use theseus_protocol::fork::SessionForkParams;
+    let r = rig(true);
+    let s = r
         .core
-        .store
-        .session_nodes(&imported[0])
+        .mcp_open(theseus_protocol::SessionOpenParams {
+            label: Some("mcp lab".into()),
+            ..Default::default()
+        })
         .unwrap()
-        .into_iter())
-    .map(|(_, n)| n.id)
-    .next()
-    .expect("its tombstone");
-    let e = ask(&r.core, json!({"open": node})).await.unwrap_err();
-    assert!(!e.message.contains("lighthouse"), "{}", e.message);
+        .session_id;
+    turn(&r.core, &s, "the first tide note").await;
+    turn(&r.core, &s, "the second tide note").await;
+    turn(&r.core, &s, "the third tide note").await;
+    let point = (r.core.store.session_nodes(&s).unwrap().into_iter())
+        .find(|(_, n)| {
+            matches!(&n.body, crate::node::Body::UserMessage { text, .. } if text.contains("second"))
+        })
+        .expect("the second message")
+        .1
+        .id;
+    let fork = r
+        .core
+        .session_fork(
+            SessionForkParams {
+                session: s.clone(),
+                at: point,
+                ..Default::default()
+            },
+            Surface::Mcp,
+        )
+        .unwrap()
+        .session_id;
+    let source = history(&r.core, json!({"session_id": s})).await;
+    let third = (lines(&source).iter())
+        .find(|l| l["words"].as_str().unwrap().contains("third"))
+        .unwrap_or_else(|| panic!("the source reads its third: {source}"))["handle"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let forked = history(&r.core, json!({"session_id": fork})).await;
+    let said = forked.to_string();
+    assert!(
+        said.contains("first tide note"),
+        "before the point: {forked}"
+    );
+    assert!(
+        !said.contains("second tide note") && !said.contains("third tide note"),
+        "{forked}"
+    );
+    let e = ask(&r.core, json!({"session_id": fork, "open": third}))
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("can be opened here"), "{}", e.message);
+    // Its words search holds none of them either.
+    r.core
+        .runner
+        .memory
+        .set_ask(index_over(&r.core, vec![s.clone()]));
+    let found = history(&r.core, json!({"session_id": fork, "words": "tide note"})).await;
+    assert!(!found.to_string().contains("third tide note"), "{found}");
 }
 
 fn rows(core: &Core, kind: &str) -> Vec<Value> {
