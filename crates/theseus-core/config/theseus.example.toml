@@ -1210,17 +1210,8 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # retitle_within_turns = 3                # 0: titles stay the first prompt's
 
 # ---------------------------------------------------------------- threads
-# A thread is a durable record of one line of work, bound to a virtual place
-# `thread:<slug>` and so to a chain of sessions of its own (`theseus thread
-# new`, then `theseus ask --thread <slug>`). Two threads are two executions and
-# run at once; a thread is private always, and a shared place never lists or
-# addresses one.
-# A message goes to a thread by its address only (theseus-rha2): the place the
-# thread is bound to, a "#slug" or "/t slug", or a reply to a thread's reply.
-# A message that names none runs in the place's own conversation, always.
+# Threads are retired. This historical section name retains the live persona choice.
 # [threads]
-# enabled = true                          # false: no thread is made or addressed (the records stay)
-# `theseus health` has a threads line, and `theseus thread show` the thread's own numbers.
 # With two or more [personas], each message is answered by the one it calls for: named at its start
 # ("Birch, ..."), `@birch`, or `/as birch` always; else Jev's pick (route.v5's persona question),
 # which `shadow` only records and `act` engages (silently from 0.90, with a visible why from 0.60).

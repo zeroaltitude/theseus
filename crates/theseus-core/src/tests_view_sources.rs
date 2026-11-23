@@ -154,9 +154,7 @@ async fn a_cards_excerpt_keeps_its_author() {
 /// A rig in `view` with threads on and the thread `kelp`, sealed as `seal` says.
 fn kelp_rig(seal: bool) -> crate::tests_places::Rig {
     crate::tests_places::rig_setup(
-        |c| {
-            c.threads.enabled = true;
-        },
+        |_| {},
         |s| {
             kelp(s, seal);
         },
@@ -338,9 +336,7 @@ async fn a_cards_thing_shows_no_standing_facts_or_preferences() {
     use theseus_protocol::{StandingAddParams, StandingKind, StandingScope};
     let session = std::cell::RefCell::new(String::new());
     let r = crate::tests_places::rig_setup(
-        |c| {
-            c.threads.enabled = true;
-        },
+        |_| {},
         |s| *session.borrow_mut() = thread_named(s, "kelp"),
     );
     let c = &r.core;

@@ -85,6 +85,7 @@ pub const RETIRED: &[Retired] = &[
     // Their older names (they were `config/renamed.rs` rows): retired with them, not asked to be renamed.
     r("model", "keep_warm_hours", WARM),
     r("cache", "keep_warm_minutes", WAIT),
+    r("threads", "enabled", THREADS),
     r("threads", "keep_warm_hours", WARM),
     r("threads", "working_tokens", COLD),
     r("threads", "working_percent", COLD),

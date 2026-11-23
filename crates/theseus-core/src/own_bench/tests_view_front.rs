@@ -73,9 +73,7 @@ async fn a_front_kept_per_block_stores_only_what_changed_across_a_minute() {
     theseus_protocol::time::move_clock_to(t0);
     let thread = std::cell::RefCell::new(String::new());
     let r = crate::tests_places::rig_setup(
-        |c| {
-            c.threads.enabled = true;
-        },
+        |_| {},
         |s| *thread.borrow_mut() = kelp(s, false),
     );
     let c = &r.core;

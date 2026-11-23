@@ -27,6 +27,7 @@ const EVERY: &str = "[model]\n\
                      keep_warm_every_minutes = 55\n\
                      keep_warm_minutes = 50\n\
                      [threads]\n\
+                     enabled = true\n\
                      keep_warm_hours = 2\n\
                      working_tokens = 60000\n\
                      working_percent = 40\n\
