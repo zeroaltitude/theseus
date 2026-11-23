@@ -398,26 +398,41 @@ pub fn missing(compiled: &Compiled, block: Option<&Block>) -> Result<(), Unadmit
     Ok(())
 }
 
-/// The check for the tail (`Block::here`): the request's last message carries
-/// every record of the turn's surface it should show, and the withheld line
-/// when it withholds any. A compile that dropped one is not sent.
-pub fn missing_here(compiled: &Compiled, block: Option<&Block>) -> Result<(), Unadmitted> {
-    let Some(block) = block else { return Ok(()) };
-    let tail = compiled
+/// The harness's part of the block beside the message, as the request carries
+/// it: the text block that opens with its heading, up to the view's own
+/// heading; empty when the request carries none.
+fn harness_block(compiled: &Compiled) -> String {
+    let texts = compiled
         .request
         .messages
-        .last()
-        .map(|m| match &m["content"] {
-            serde_json::Value::String(s) => s.clone(),
-            c => c
-                .as_array()
-                .into_iter()
-                .flatten()
+        .iter()
+        .flat_map(|m| match &m["content"] {
+            serde_json::Value::String(s) => vec![s.as_str()],
+            c => (c.as_array().into_iter().flatten())
                 .filter_map(|b| b["text"].as_str())
-                .collect::<Vec<_>>()
-                .join("\n"),
-        })
-        .unwrap_or_default();
+                .collect(),
+        });
+    let Some(block) = texts
+        .into_iter()
+        .find(|t| t.starts_with(crate::turn::now_step::HEAD))
+    else {
+        return String::new();
+    };
+    let view = format!("\n\n{}", crate::view::wire_text::BESIDE_HEAD);
+    block
+        .split(view.as_str())
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// The check for the surface's records (`Block::here`): the harness's part of
+/// the block beside the message (`turn::now_step`) carries every record of the
+/// turn's surface it should show, and the withheld line when it withholds any.
+/// A compile that dropped one is not sent.
+pub fn missing_here(compiled: &Compiled, block: Option<&Block>) -> Result<(), Unadmitted> {
+    let Some(block) = block else { return Ok(()) };
+    let tail = harness_block(compiled);
     let gone = |piece: String, detail: String| {
         Err(Unadmitted {
             why: "standing_missing",
@@ -430,7 +445,7 @@ pub fn missing_here(compiled: &Compiled, block: Option<&Block>) -> Result<(), Un
             return gone(
                 format!("standing {} missing", u.id),
                 format!(
-                    "the owner's standing record {} is live on this turn's surface and is not in the request's tail",
+                    "the owner's standing record {} is live on this turn's surface and is not in the harness's block beside the message",
                     u.id
                 ),
             );
@@ -439,7 +454,7 @@ pub fn missing_here(compiled: &Compiled, block: Option<&Block>) -> Result<(), Un
     if block.withheld && !tail.contains(WITHHELD) {
         return gone(
             "standing withheld line missing".into(),
-            "the request's tail lacks the line that says the owner's private records are withheld here"
+            "the harness's block beside the message lacks the line that says the owner's private records are withheld here"
                 .into(),
         );
     }

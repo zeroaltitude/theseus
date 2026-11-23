@@ -411,6 +411,14 @@ mod tests {
         assert_eq!(r.parts.len(), 1);
     }
 
+    /// The heading is the harness's, so a reader that tells the harness's blocks from the person's
+    /// words skips the whole block.
+    #[test]
+    fn the_heading_is_read_as_the_harness_s() {
+        let c = compose(&parts(&[(Name::Env, 5)]), BUDGET_TOKENS).unwrap();
+        assert!(crate::task_graph::view::is_head(&c.text), "{}", c.text);
+    }
+
     /// The route's lines fit in what the view reserved for them.
     #[test]
     fn the_route_s_lines_fit_their_reserve() {
