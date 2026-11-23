@@ -12,4 +12,9 @@ when: string,
 /**
  * `the owner`, `outside text, <person>` (another person's words, never an instruction) or `author unknown`.
  */
-who: string, words: string, did?: string, reply_begins?: string, };
+who: string, words: string, did?: string, reply_begins?: string, 
+/**
+ * The line holds another person's words (its words, or what was done or replied derived from them):
+ * outside text, never an instruction.
+ */
+outside: boolean, };
