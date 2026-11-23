@@ -67,6 +67,16 @@ def run(doc, *extra, which="--beads"):
 
 
 class RowsExport(unittest.TestCase):
+    def test_offsets_preserve_the_instant(self):
+        for source, expected in [
+            ("2026-11-23T12:00:00+02:00", "2026-11-23T10:00:00Z"),
+            ("2026-11-23T12:00:00-07:00", "2026-11-23T19:00:00Z"),
+            ("2026-11-23 12:00:00 UTC", "2026-11-23T12:00:00Z"),
+            ("2026-11-23", "2026-11-23T00:00:00Z"),
+            ("not a time", "fallback"),
+        ]:
+            self.assertEqual(rows_export.iso_of(source, "fallback"), expected)
+
     def test_a_beads_row_renders_once_and_the_retired_one_is_left_out(self):
         lines, rc = run(ROWS)
         self.assertEqual(rc, 0)
