@@ -239,11 +239,11 @@ mod tests {
         assert_eq!(run(&["no-such"]), 2);
     }
 
-    /// The ledger command `RecallManifest::would_drop`'s doc quotes (`theseus ledger -k recall.ran
+    /// The ledger command the recall rows' docs quote (`theseus ledger -k recall.ran
     /// -n <N> --json`) parses to the read it names: the newest N rows of one kind, no session, and
     /// `--json` (a global flag, so after the subcommand) for the whole row, where the plain form
     /// cuts its data at 160 characters. What the daemon answers to that read is
-    /// `rpc::tests_ledger::the_ledger_tail_by_recall_kind_reads_every_sessions_would_drop`.
+    /// `rpc::tests_ledger::the_ledger_tail_by_recall_kind_reads_every_sessions_rows`.
     #[test]
     fn the_ledger_command_the_recall_doc_quotes_parses_to_a_tail_by_kind() {
         use clap::Parser;

@@ -1901,16 +1901,12 @@ impl TurnRunner {
                 index: i,
                 max_loops: t.target.max_loops,
             });
-            // Recall asks the index on the first loop (M6): in front of the
-            // model (canary, live) it is read before the compile, under its
-            // deadline; in shadow, once the call has answered.
-            let recall = match i {
-                0 => {
-                    self.digest_first(t).await;
-                    self.recall_first(t, session).await
-                }
-                _ => None,
-            };
+            // Recall asks the index on the first loop (M6): it is read before
+            // the compile, under its deadline.
+            if i == 0 {
+                self.digest_first(t).await;
+                self.recall_first(t, session).await;
+            }
             let compiled = match self
                 .compile_routed(
                     t,
@@ -1943,9 +1939,6 @@ impl TurnRunner {
             // reply is held, and the model is never called (theseus-i1z13),
             // even when the compile failed (theseus-cljlz).
             let Some(compiled) = compiled.filter(|_| !t.route.held) else {
-                if let Some(r) = recall {
-                    self.recall_end(t, r).await;
-                }
                 Self::hold_reply(t, i)?;
                 break;
             };
@@ -1970,9 +1963,6 @@ impl TurnRunner {
             let on = routed_to.as_deref().unwrap_or(provider);
             let called = self.call_model(t, on, &compiled, i).await;
             self.self_settled(t, &called);
-            if let Some(r) = recall {
-                self.recall_end(t, r).await;
-            }
             let called = called?;
             // A multiple the call's settle crossed, whatever its outcome (theseus-jse4).
             self.spend_checked(t, session)?;

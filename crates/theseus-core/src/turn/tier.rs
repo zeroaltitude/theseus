@@ -94,90 +94,6 @@ pub struct InjectionBudget {
     /// theseus-a2kh6). The recall is packed by then, so [`Self::tier`] and the
     /// recall sizes stay the pack's and only the ceiling moved.
     pub admit_raised: bool,
-    /// Whether the recall's shadow `would_drop` is recorded for this turn, and
-    /// when it is not, WHY ([`ShadowMark`], card `b4-fpm2-f4-sibling-hole`).
-    /// It is the one place that decision is made, it rides the route row, and
-    /// [`Self::low_effort`] and [`Self::low_effort_carried`] read it: before
-    /// this it was two bools, and the three reasons a turn records nothing
-    /// were one `false` that no reader could tell apart.
-    pub would_drop: ShadowMark,
-}
-
-/// What the route step records about the recall's shadow `would_drop` for this
-/// turn — the small-talk bar's sample (theseus-fpm2).
-///
-/// It exists because the rule used to live in prose. The route step set a bool
-/// and the recall step read it, and a turn that recorded nothing recorded
-/// nothing for one of three different reasons that the code could not tell
-/// apart: no verdict was asked for, a verdict came and did not say `low`, or a
-/// verdict was asked for and **missed the route's own wait**. Only a doc
-/// comment on `RecallManifest::would_drop` and one on
-/// `tests_tier_manifest::a_verdict_that_misses_the_routes_wait_records_no_would_drop`
-/// said which, and a reader had to trust them. Now the route step names the
-/// case, the row carries it ([`InjectionBudget::row`]), and a test asserts each
-/// one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShadowMark {
-    /// The turn's budget read a verdict that said `low` effort
-    /// ([`is_low_effort`]), so the recall records how many admitted notes a
-    /// bar would have left out. `carried` is `true` when that verdict is the
-    /// PREVIOUS message's, carried to this turn by the route
-    /// (`v.turn != t.tc.turn_id`, the same test `route_effort` uses for
-    /// `effort_reason: "carried"`); `false` for this turn's own verdict, in
-    /// time or late (theseus-ectzg, B4 L79). It goes to
-    /// `RecallManifest::would_drop_carried`, which is what lets a series over
-    /// the shadow tell a carried verdict's count from a turn's own.
-    Record { carried: bool },
-    /// Nothing is recorded, and this is why.
-    Refused(NoMark),
-}
-
-/// Why a turn records no shadow `would_drop`. Each is a case the route step
-/// DECIDED, not an absence a reader has to infer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NoMark {
-    /// A verdict landed and did not say `low` effort: the bar would have
-    /// dropped nothing, so there is nothing to shadow. The sample is complete
-    /// over these turns.
-    NotLow,
-    /// **The hole.** A verdict was asked for and none reached the route step:
-    /// the route's own wait (`routing.max_wait_ms`) ended first, which is
-    /// `Got::Late` in `route_step::read_verdict` with nothing stashed for this
-    /// turn and `Reason::Late` in the row. It lands for the session's NEXT
-    /// message instead, where it is recorded as `Record { carried: true }` —
-    /// so the shadow's sample is short by this turn, and a series counted over
-    /// it under-counts low-effort turns by however many of them the wait
-    /// missed. Closing that needs the pack to wait for the verdict, and
-    /// `tier.rs`'s "never a wait" is load-bearing; what this mark does instead
-    /// is make the gap COUNTABLE: the route row says `missed the wait`, so a
-    /// reader can measure the shortfall rather than reading a doc comment that
-    /// says it exists.
-    ///
-    /// It is the PROVISIONAL mark of every budget the pack fixed while the
-    /// verdict had not landed ([`Seen::Late`]), and
-    /// [`InjectionBudget::raise_low_effort`] settles it once the route step
-    /// has read one: a verdict that came inside the wait leaves `Record` or
-    /// `NotLow` here, and only a wait that really ended empty keeps this.
-    MissedTheWait,
-    /// No verdict was asked for, or none can come: routing is off, the turn is
-    /// pinned or in shadow, the owner steered it, or Jev is known unreachable
-    /// ([`Seen::Missing`], [`Seen::Off`]). The bar has nothing to shadow and
-    /// this turn is no part of its sample.
-    NoVerdict,
-}
-
-impl ShadowMark {
-    /// The word the route row carries, so an operator reading `theseus why`
-    /// sees which of the four cases this turn was.
-    pub fn word(self) -> &'static str {
-        match self {
-            Self::Record { carried: false } => "recorded",
-            Self::Record { carried: true } => "recorded carried",
-            Self::Refused(NoMark::NotLow) => "not low effort",
-            Self::Refused(NoMark::MissedTheWait) => "missed the wait",
-            Self::Refused(NoMark::NoVerdict) => "no verdict",
-        }
-    }
 }
 
 /// The fallback of a budget fixed ordinary because no verdict had landed yet.
@@ -222,73 +138,7 @@ pub fn is_coding(v: &Verdict) -> bool {
         .is_some_and(|w| w.sure && w.choice == "coding")
 }
 
-/// The verdict says the reply needs the least effort: `effort.v1`'s `low` at
-/// its confirm bar (a greeting, small talk).
-///
-/// UNPROVEN: no test shows that `effort.v1` calls a real greeting `low`. The
-/// tests that read this (`tests_tier_manifest`) script the verdict with a
-/// `FakeJev`, so a green one proves the plumbing from a `low` verdict to the
-/// shadow `would_drop`, not that it would mark real small talk. (The
-/// small-talk bar that could withhold on the mark was never set and is
-/// retired, issue 44.)
-///
-/// **The bar reads this and deliberately does not read `classify`'s `social`
-/// label.** That is the row's own decision (theseus-ectzg's B4 line: "Design
-/// handed over: read `effort == low` from the already-peeked verdict in
-/// tier.rs, record `would_drop` on RecallManifest in shadow, leave classify's
-/// `social` until it is plumbed"), not an oversight. The effort answer is
-/// peeked here already, for the tier, so the bar costs the turn no model call
-/// and no wait, which is what `tier.rs`'s module doc means by "never a wait";
-/// `social` reaches no turn at all. What would have to exist before the bar
-/// could read it: a `social` question answered in the inbound batch, carried
-/// on [`Verdict`] (which has no field for one) so a pack and a compile can
-/// read it without waiting, and a rule for which answer wins when the two
-/// disagree. Until all three exist, the effort answer is the whole of the bar.
-pub fn is_low_effort(v: &Verdict) -> bool {
-    v.effort
-        .as_ref()
-        .is_some_and(|e| e.sure && e.level == "low")
-}
-
 impl InjectionBudget {
-    /// The small-talk bar's shadow mark for a turn whose verdict landed after
-    /// the pack fixed a `Late` budget (theseus-fpm2): `injection_read` returns
-    /// at once once a budget is fixed, so without this a `low` verdict that
-    /// arrives late never sets `low_effort` and the turn is silently missing
-    /// from the shadow's sample. It sizes nothing: only the mark moves, and
-    /// only for a budget that fell back for want of a verdict.
-    pub(super) fn raise_low_effort(&mut self, verdict: Option<&Verdict>, carried: bool) {
-        if self.fallback != Some(LATE) {
-            return;
-        }
-        // Only a `LATE` budget is settled here, and this is the one place the
-        // provisional `MissedTheWait` of `read` becomes a verdict's answer or
-        // stays. A budget that fell back for any other reason, or that read a
-        // verdict of its own, is the route step's already.
-        self.would_drop = match verdict {
-            Some(v) if is_low_effort(v) => ShadowMark::Record { carried },
-            // The verdict came inside the route's wait and did not say `low`:
-            // the wait was not missed, so the refusal is the ordinary one.
-            Some(_) => ShadowMark::Refused(NoMark::NotLow),
-            // Nothing acting reached the route step: the wait ended empty.
-            None => ShadowMark::Refused(NoMark::MissedTheWait),
-        };
-    }
-
-    /// Whether the shadow `would_drop` is recorded for this turn: the mark
-    /// alone, so the one decision has one reader's answer.
-    pub fn low_effort(&self) -> bool {
-        matches!(self.would_drop, ShadowMark::Record { .. })
-    }
-
-    /// Whether the verdict that said `low` is the previous message's. False
-    /// whenever nothing is recorded, which is what
-    /// `RecallManifest::would_drop_carried`'s "set whenever `would_drop` is"
-    /// means: a refused mark writes neither.
-    pub fn low_effort_carried(&self) -> bool {
-        matches!(self.would_drop, ShadowMark::Record { carried: true })
-    }
-
     pub fn of((tier, fallback): (Tier, Option<&'static str>), cfg: &Config) -> Self {
         let (m, d) = (&cfg.memory, &cfg.tools.defer);
         let (recall_tokens, recall_items, admit_ceiling) = match tier {
@@ -307,32 +157,15 @@ impl InjectionBudget {
             admit_ceiling,
             coding: false,
             admit_raised: false,
-            // `of` knows only the tier: `read` and `raise_low_effort` are what
-            // see a verdict, so a budget built from a tier alone records
-            // nothing and says it asked for nothing.
-            would_drop: ShadowMark::Refused(NoMark::NoVerdict),
         }
     }
 
     /// The budget a verdict (or its absence) gives: `of` its tier, and the
-    /// coding flag when an acting verdict's mode is `deep_coding`. `carried`
-    /// is whether `seen`'s verdict (when it has one) is the PREVIOUS
-    /// message's, carried to this turn by the route — meaningless, and
-    /// ignored, unless the verdict also says `low` effort (theseus-ectzg, B4
-    /// L79).
-    pub fn read(seen: Seen<'_>, carried: bool, cfg: &Config) -> Self {
+    /// coding flag when an acting verdict's mode is `deep_coding`.
+    pub fn read(seen: Seen<'_>, cfg: &Config) -> Self {
         let coding = matches!(seen, Seen::Verdict(v) if is_coding(v));
         let mut b = Self::of(tier_of(seen), cfg);
         b.coding = coding && b.fallback.is_none();
-        b.would_drop = match seen {
-            Seen::Verdict(v) if is_low_effort(v) => ShadowMark::Record { carried },
-            Seen::Verdict(_) => ShadowMark::Refused(NoMark::NotLow),
-            // Provisional: the peek found no verdict, so the pack fixed a
-            // `LATE` budget. `raise_low_effort` settles it once the route
-            // step has read a verdict or read why there is none.
-            Seen::Late => ShadowMark::Refused(NoMark::MissedTheWait),
-            Seen::Missing | Seen::Off => ShadowMark::Refused(NoMark::NoVerdict),
-        };
         b
     }
 
@@ -342,9 +175,6 @@ impl InjectionBudget {
             "tier": self.tier.as_str(), "fallback": self.fallback,
             "recall_tokens": self.recall_tokens, "recall_items": self.recall_items,
             "admit_ceiling": self.admit_ceiling, "admit_raised": self.admit_raised,
-            // The shadow's mark, so the sample's shortfall is countable from
-            // the record (card `b4-fpm2-f4-sibling-hole`).
-            "would_drop": self.would_drop.word(),
         })
     }
 }
@@ -394,10 +224,7 @@ impl TurnRunner {
             Peeked::Landed(None) if deciding => Seen::Missing,
             Peeked::Landed(None) => Seen::Off,
         };
-        // This turn's own wait channel, never the judge's stashed late
-        // verdict of a previous message: never carried.
-        let carried = matches!(seen, Seen::Verdict(v) if v.turn != t.tc.turn_id);
-        let b = InjectionBudget::read(seen, carried, &self.cfg);
+        let b = InjectionBudget::read(seen, &self.cfg);
         if fix || !matches!(peeked, Peeked::Pending) {
             t.route.injection = Some(b.clone());
             Self::narrow_reads(t);
@@ -464,12 +291,7 @@ impl TurnRunner {
             (_, Some(Reason::NoVerdict | Reason::Unreachable)) => Seen::Missing,
             _ => Seen::Off,
         };
-        // `read_verdict`'s `(Some(v), None)` also covers the session's
-        // PREVIOUS message's late verdict, carried to this turn: the same
-        // `v.turn != t.tc.turn_id` test `route_effort` uses for
-        // `effort_reason: "carried"` (theseus-ectzg, B4 L79).
-        let carried = matches!(seen, Seen::Verdict(v) if v.turn != t.tc.turn_id);
-        t.route.injection = Some(InjectionBudget::read(seen, carried, &self.cfg));
+        t.route.injection = Some(InjectionBudget::read(seen, &self.cfg));
         Self::narrow_reads(t);
     }
 
@@ -567,167 +389,6 @@ mod tests {
         x
     }
 
-    /// A verdict with `effort.v1`'s answer at the band given.
-    fn effort(level: &str, sure: bool) -> Verdict {
-        let mut x = open(Some(("conversation", true)));
-        x.effort = Some(crate::routing::effort::EffortAnswer {
-            level: level.into(),
-            confidence: 0.95,
-            sure,
-            no_match: None,
-        });
-        x
-    }
-
-    /// The whole of the shadow `would_drop` decision, in one table: for every
-    /// state the route step can be in, what the budget records and — when it
-    /// records nothing — WHY (card `b4-fpm2-f4-sibling-hole`).
-    ///
-    /// This is the rule that used to live in prose. Before it, three different
-    /// states all set `low_effort = false` and no reader could tell them
-    /// apart: a verdict that said `high`, no verdict at all, and a verdict
-    /// that was asked for and MISSED the route's own wait. Only two doc
-    /// comments said which, and
-    /// `tests_tier_manifest::a_verdict_that_misses_the_routes_wait_records_no_would_drop`
-    /// pinned the last of them by its absence alone — an assertion an empty
-    /// set passes. Here each case is named and asserted positively, so an edit
-    /// that turned one into another would fail rather than quietly shorten the
-    /// sample.
-    #[test]
-    fn the_route_step_names_what_the_shadow_records_and_why_it_refuses() {
-        let cfg = Config::example();
-        let low = effort("low", true);
-        let high = effort("high", true);
-        // Under the bar is no `low`: the answer is kept raw and the mark reads
-        // `is_low_effort`, which wants the band.
-        let unsure = effort("low", false);
-        let read = |seen, carried| InjectionBudget::read(seen, carried, &cfg).would_drop;
-        for (case, got, want) in [
-            (
-                "its own `low` verdict, in time",
-                read(Seen::Verdict(&low), false),
-                ShadowMark::Record { carried: false },
-            ),
-            (
-                "the previous message's `low` verdict, carried",
-                read(Seen::Verdict(&low), true),
-                ShadowMark::Record { carried: true },
-            ),
-            (
-                "a verdict that said `high`",
-                read(Seen::Verdict(&high), false),
-                ShadowMark::Refused(NoMark::NotLow),
-            ),
-            (
-                "`low` under its own confirm bar",
-                read(Seen::Verdict(&unsure), false),
-                ShadowMark::Refused(NoMark::NotLow),
-            ),
-            (
-                "a verdict that missed the route's wait",
-                read(Seen::Late, false),
-                ShadowMark::Refused(NoMark::MissedTheWait),
-            ),
-            (
-                "asked for and none came",
-                read(Seen::Missing, false),
-                ShadowMark::Refused(NoMark::NoVerdict),
-            ),
-            (
-                "routing off, or pinned",
-                read(Seen::Off, false),
-                ShadowMark::Refused(NoMark::NoVerdict),
-            ),
-            (
-                "a budget from a tier alone",
-                InjectionBudget::of((Tier::Ordinary, None), &cfg).would_drop,
-                ShadowMark::Refused(NoMark::NoVerdict),
-            ),
-        ] {
-            assert_eq!(got, want, "{case}");
-            // The two readers answer from the mark and nothing else, so the
-            // recall step and the small-talk bar cannot disagree with the row.
-            let recorded = matches!(want, ShadowMark::Record { .. });
-            let b = InjectionBudget {
-                would_drop: want,
-                ..InjectionBudget::of((Tier::Ordinary, None), &cfg)
-            };
-            assert_eq!(b.low_effort(), recorded, "{case}: low_effort()");
-            assert_eq!(
-                b.low_effort_carried(),
-                want == ShadowMark::Record { carried: true },
-                "{case}: low_effort_carried()"
-            );
-            assert_eq!(b.row()["would_drop"], want.word(), "{case}: the row");
-        }
-        // Each case says a different word in the row, so an operator reading
-        // `theseus why` can tell them apart and a series can count the turns
-        // the wait missed.
-        let words = [
-            ShadowMark::Record { carried: false },
-            ShadowMark::Record { carried: true },
-            ShadowMark::Refused(NoMark::NotLow),
-            ShadowMark::Refused(NoMark::MissedTheWait),
-            ShadowMark::Refused(NoMark::NoVerdict),
-        ]
-        .map(ShadowMark::word);
-        let distinct: std::collections::BTreeSet<_> = words.iter().collect();
-        assert_eq!(distinct.len(), words.len(), "{words:?}");
-    }
-
-    /// The late-but-arrived case is the route step's second write: a budget
-    /// that fell back for want of a verdict (`fallback = LATE`) is re-marked
-    /// when the verdict lands inside the route's wait, and only then. A budget
-    /// that fell back for any other reason, or that read a verdict of its own,
-    /// is never re-marked — which is what keeps `missed the wait` meaning the
-    /// wait and not "any late verdict" (theseus-fpm2, theseus-ectzg B4 L79).
-    #[test]
-    fn a_verdict_inside_the_wait_re_marks_a_late_budget_and_nothing_else() {
-        let cfg = Config::example();
-        let low = effort("low", true);
-        let high = effort("high", true);
-        let mut late = InjectionBudget::read(Seen::Late, false, &cfg);
-        assert_eq!(
-            late.would_drop,
-            ShadowMark::Refused(NoMark::MissedTheWait),
-            "the wait ended first"
-        );
-        late.raise_low_effort(Some(&low), true);
-        assert_eq!(
-            late.would_drop,
-            ShadowMark::Record { carried: true },
-            "the verdict came inside the wait, and it is the previous message's"
-        );
-        // A `high` verdict that came inside the wait records nothing and is
-        // refused as `NotLow`: the wait was not missed, and calling it so
-        // would count this turn in the shortfall it does not belong to.
-        let mut still_late = InjectionBudget::read(Seen::Late, false, &cfg);
-        still_late.raise_low_effort(Some(&high), false);
-        assert_eq!(
-            still_late.would_drop,
-            ShadowMark::Refused(NoMark::NotLow),
-            "a `high` verdict inside the wait records nothing, and did not miss it"
-        );
-        // A wait that really ended empty keeps the provisional mark: this is
-        // the only path that leaves `missed the wait` in the row.
-        let mut empty = InjectionBudget::read(Seen::Late, false, &cfg);
-        empty.raise_low_effort(None, false);
-        assert_eq!(
-            empty.would_drop,
-            ShadowMark::Refused(NoMark::MissedTheWait),
-            "nothing acting reached the route step"
-        );
-        // A budget that read no verdict at all is not a `LATE` fallback, so
-        // the raise does not reach it.
-        let mut off = InjectionBudget::read(Seen::Off, false, &cfg);
-        off.raise_low_effort(Some(&low), false);
-        assert_eq!(
-            off.would_drop,
-            ShadowMark::Refused(NoMark::NoVerdict),
-            "routing off is not a missed wait"
-        );
-    }
-
     /// Dark reader 1-3 (theseus-h66v4.6): under route.v10 the tier reads `work.v1`'s label, and the
     /// class names are never matched against a model pick (`mode` is "opus", "haiku": a retired key).
     #[test]
@@ -745,7 +406,7 @@ mod tests {
         ] {
             let x = open(Some((work, true)));
             assert_eq!(tier_of(Seen::Verdict(&x)), (tier, None), "{work}");
-            let b = InjectionBudget::read(Seen::Verdict(&x), false, &cfg);
+            let b = InjectionBudget::read(Seen::Verdict(&x), &cfg);
             assert_eq!(
                 b.coding,
                 work == "coding",
@@ -759,20 +420,20 @@ mod tests {
             x.mode = pick.into();
             assert_eq!(tier_of(Seen::Verdict(&x)).0, Tier::Ordinary, "{pick}");
             assert!(
-                !InjectionBudget::read(Seen::Verdict(&x), false, &cfg).coding,
+                !InjectionBudget::read(Seen::Verdict(&x), &cfg).coding,
                 "{pick}"
             );
         }
         // Under the bar, or unanswered: ordinary, with the reason said, and no hint.
         let x = open(Some(("coding", false)));
         assert_eq!(tier_of(Seen::Verdict(&x)), (Tier::Ordinary, Some("unsure")));
-        assert!(!InjectionBudget::read(Seen::Verdict(&x), false, &cfg).coding);
+        assert!(!InjectionBudget::read(Seen::Verdict(&x), &cfg).coding);
         let x = open(None);
         assert_eq!(
             tier_of(Seen::Verdict(&x)),
             (Tier::Ordinary, Some("no work answer"))
         );
-        assert!(!InjectionBudget::read(Seen::Verdict(&x), false, &cfg).coding);
+        assert!(!InjectionBudget::read(Seen::Verdict(&x), &cfg).coding);
     }
 
     #[tokio::test]

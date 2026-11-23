@@ -42,6 +42,11 @@ no longer makes `continue.v1`'s call of its own.
   and labelled eval set stay (a stored state still reads; the set's tests read the retired file, as
   `content.v1`'s do), and the ladder's
   `recall_cross` day brake stays in `ladder::adopt`, so an old adoption or mode row is checked as before.
+- **`memory.v1` and `attribution.v1`, retired with the memory pass's shadow judgments** (D8a): the pass
+  asked both, off the turn's path, and recorded answers nothing applied; the deterministic labels and
+  attribution were always what the pass wrote. Their asking (`judge::memory`, the pass's two askers, the
+  default wiring) went; their files are under `packs/retired/`, their builders stay (a stored state still
+  reads), and old `judge.call` rows scoped `judge:memory` and `judge:attribution` still list and decode.
 - **Kept**: `categorize.v1`. It is a shadow too, but its exchange-end point also carries the core handle, the due
   rule and the marks that `people.v1`, `people_seen.v1` and the card's observer read, and
   `ontology.proposals` still lists and answers the proposals it already made.

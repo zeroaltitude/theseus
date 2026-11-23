@@ -81,12 +81,10 @@ impl Memory {
     /// call runs in a task of its own, and a tender that is off, down or slow
     /// costs nothing.
     pub fn warm_on_message(&self) {
-        // Recall asks the vector source in `shadow` whatever the arm, and in
-        // `live` only when the arm has one: an arm of words alone never needs
-        // it.
+        // Recall asks the vector source only when the arm has one: an arm of
+        // words alone never needs it.
         let vectors = match self.cfg.mode {
             MemoryMode::Off => false,
-            MemoryMode::Shadow => true,
             MemoryMode::Live => self.cfg.arm.sources().contains(&"vector"),
         };
         if !vectors {

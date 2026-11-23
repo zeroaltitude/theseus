@@ -20,7 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::floor::Floor;
-use crate::science::{MemoryScience, RankCtx, Scored};
+use crate::science::{MemoryScience, Scored};
 
 /// Where a session speaks, as the core read it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -137,16 +137,6 @@ pub struct Asker<'a> {
     pub labeled: &'a BTreeSet<String>,
     /// The memory pass's edges among the candidates (31a).
     pub links: &'a [Link],
-    pub now_ms: u64,
-}
-
-impl Asker<'_> {
-    /// The rank's context: the turn's time.
-    pub fn rank_ctx(&self) -> RankCtx {
-        RankCtx {
-            now_ms: self.now_ms,
-        }
-    }
 }
 
 /// What a memory pass's edge says of two nodes (31a), as recall reads it.
@@ -448,7 +438,6 @@ pub fn recall(
                         .unwrap_or(1.0),
             })
             .collect(),
-        &asker.rank_ctx(),
     );
     let mut by_key: std::collections::BTreeMap<String, Candidate> =
         kept.into_iter().map(|c| (c.key(), c)).collect();
@@ -540,7 +529,6 @@ mod tests {
             in_context: &in_context,
             labeled: &labeled,
             links,
-            now_ms: 0,
         };
         recall(
             &Baseline {
@@ -838,23 +826,5 @@ mod tests {
         assert_eq!(reason_of(&pack, "old"), Some(Reason::Superseded));
         assert_eq!(reason_of(&pack, "a"), Some(Reason::Duplicate));
         assert_eq!(reason_of(&pack, "b"), Some(Reason::Duplicate));
-        // The first version reads no link: the older node outranks.
-        let v1 = Baseline {
-            version: 1,
-            min_score: 0.01,
-            ..Baseline::default()
-        };
-        let in_context = BTreeSet::new();
-        let labeled = BTreeSet::new();
-        let asker = Asker {
-            session_id: "ses_here",
-            in_context: &in_context,
-            labeled: &labeled,
-            links: &links,
-            now_ms: 0,
-        };
-        let pack = recall(&v1, &asker, cands(), &p);
-        assert_eq!(pack.admitted[0].candidate.node_id, "old");
-        assert_eq!(pack.dropped.len(), 0);
     }
 }

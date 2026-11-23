@@ -109,7 +109,7 @@ async fn one_turn(
 /// and why. The recall waits no longer than its deadline for them.
 #[tokio::test]
 async fn a_slow_vector_search_still_yields_the_word_hits_within_the_deadline() {
-    for mode in [MemoryMode::Shadow, MemoryMode::Live] {
+    for mode in [MemoryMode::Live] {
         let (m, asked, _, c, _r) = one_turn(mode, Vectors::Slow(Duration::from_secs(3))).await;
         assert_eq!(m.outcome, WORDS_ONLY, "{mode:?}");
         assert_eq!(
@@ -149,7 +149,7 @@ async fn a_slow_vector_search_still_yields_the_word_hits_within_the_deadline() {
 /// turn's time is its own virtual time, which a busy machine cannot stretch.
 #[tokio::test(start_paused = true)]
 async fn a_fast_vector_search_yields_the_hybrid_answer() {
-    for mode in [MemoryMode::Shadow, MemoryMode::Live] {
+    for mode in [MemoryMode::Live] {
         let (m, asked, took, c, _r) = one_turn(mode, Vectors::Fast).await;
         assert_eq!(asked.len(), 2);
         assert_eq!(m.outcome, "ran", "{mode:?}");
@@ -190,7 +190,7 @@ async fn a_failed_vector_search_leaves_the_words_and_a_stalled_index_the_deadlin
 /// outcome, and the last whole answer's time.
 #[tokio::test]
 async fn health_counts_the_last_turns_recalls_by_outcome() {
-    let r = rig_with(MemoryMode::Shadow, |_| {});
+    let r = rig_with(MemoryMode::Live, |_| {});
     let c = &r.core;
     assert_eq!(
         c.memory_health().recalls,

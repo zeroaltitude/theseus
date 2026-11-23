@@ -1036,8 +1036,8 @@ fn the_loaders_rules_hold_on_all_the_packs() {
     let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
     assert_eq!(
         six.len(),
-        29,
-        "loop.v1, security.v3, classify.v4, categorize.v1, rerank.v1, memory.v1, attribution.v1, route.v11, \
+        27,
+        "loop.v1, security.v3, classify.v4, categorize.v1, rerank.v1, route.v11, \
          effort.v1, work.v1, citation.v1, people.v1, people_seen.v1, compare.v1, heard.v1, directive.v2, \
          onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, families.v1, \
          content.v4, split.v1, undo.v1, delay.v1, precedence.v1, allow_said.v1 and task_words.v1 (the \

@@ -42,7 +42,6 @@ fn memory_words(cfg: &Config) -> String {
     match m.mode {
         MemoryMode::Off => "memory off".into(),
         MemoryMode::Live => format!("memory live ({})", m.arm.as_str()),
-        MemoryMode::Shadow => format!("memory shadow ({})", m.arm.as_str()),
     }
 }
 

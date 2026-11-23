@@ -33,7 +33,7 @@ use theseus_store::NewRecord;
 use super::{Turn, TurnRunner};
 use crate::compiler::Compiled;
 use crate::config::memory::{Assigned, MemoryArm};
-use crate::fact::recall::{scope, ArmAssigned, RecallRan, RecallShadow};
+use crate::fact::recall::{scope, RecallRan};
 use crate::graph::{Edge, EdgeKind, VIA_RECALL};
 use crate::node::{Body, Node, RecalledRef};
 use crate::recall::render::{self, Sources};
@@ -73,39 +73,29 @@ pub(crate) struct Recalled {
 const PENDING: u64 = u64::MAX;
 
 impl TurnRunner {
-    /// The first loop's recall. In front of the model, it is read now and
-    /// its node held for the compile; in shadow, its query goes out and the
-    /// caller reads it once the call has answered (`recall_end`). Nothing
-    /// here fails the turn.
-    pub(super) async fn recall_first(
-        &self,
-        t: &mut Turn<'_>,
-        session: &SessionRecord,
-    ) -> Option<Begun> {
+    /// The first loop's recall: read now, under its deadline, and its node
+    /// held for the compile. Nothing here fails the turn.
+    pub(super) async fn recall_first(&self, t: &mut Turn<'_>, session: &SessionRecord) {
         if !self.memory.on() {
-            return None;
+            return;
         }
         // A task's first compile is assembled (30c): its recall section
         // goes first in the prefix, at the assembled budget.
         t.recall.assembled = session.task.is_some() && session.compilation_id.is_none();
-        let assigned = self.memory.cfg().assign(t.tc.session_id);
-        if let Some(a) = assigned {
-            self.record_arm(t, a);
+        let Some(a) = self.memory.cfg().assign(t.tc.session_id) else {
+            return;
+        };
+        // `live` with arm `none` (the memory exam's `none` daemon, 34b): the
+        // index is asked nothing.
+        if !a.live {
+            return;
         }
-        match assigned {
-            Some(a) if a.live => {
-                let begun = self.recall_begin(t, a.arm)?;
-                // On the heap: the turn's own future stays the size it was
-                // before the arms' work (32b) joined this one.
-                Box::pin(self.recall_live(t, begun, a)).await;
-                None
-            }
-            // `live` with arm `none` (the exam's `none` daemon, 34b): today's
-            // compiler, and the index is asked nothing.
-            Some(_) => None,
-            // Shadow: `baseline`, recorded and kept from the model.
-            None => self.recall_begin(t, MemoryArm::Baseline),
-        }
+        let Some(begun) = self.recall_begin(t, a.arm) else {
+            return;
+        };
+        // On the heap: the turn's own future stays the size it was before
+        // the arms' work (32b) joined this one.
+        Box::pin(self.recall_live(t, begun, a)).await;
     }
 
     /// Ask the index for `arm`'s sources, when the turn brings something
@@ -143,36 +133,6 @@ impl TurnRunner {
             .find(|(p, _)| *p == as_of)
             .map(|(_, n)| n.id.clone());
         Some(begun)
-    }
-
-    /// The session's `memory.arm` row, once: its first turn under live
-    /// writes it, in the turn's next frame.
-    fn record_arm(&self, t: &mut Turn<'_>, a: Assigned) {
-        let sid = t.tc.session_id;
-        match self.memory.arm_recorded(t.tc.store, sid) {
-            Ok(true) => return,
-            Ok(false) => {}
-            Err(e) => {
-                tracing::warn!(error = %format!("{e:#}"), "recall: the session's arm row cannot be read");
-                return;
-            }
-        }
-        let cfg = self.memory.cfg();
-        let f = ArmAssigned {
-            mode: cfg.mode.as_str(),
-            arm: a.arm.as_str(),
-            live: a.live,
-            experiment: &cfg.experiment,
-            science: &self.memory.science_for(a.arm).id().to_string(),
-        };
-        match t.tc.rec().row(&f) {
-            Ok(r) => match t.tc.store.defer(r.scoped(&scope(sid))) {
-                Ok(()) => self.memory.armed(sid),
-                Err(e) => tracing::warn!(error = %e, "ledger append failed"),
-            },
-            Err(e) => tracing::warn!(error = %e, "recall: the arm's row cannot be encoded"),
-        }
-        t.announce_fact(&f);
     }
 
     /// The scene of the turn's recall under `arm`'s science: its place, the
@@ -219,66 +179,6 @@ impl TurnRunner {
         }
     }
 
-    /// Read the index's answer (never past its deadline), run the pipeline,
-    /// and record the shadow recall: its row, scoped to the session's
-    /// recalls, its span, and its line.
-    pub(super) async fn recall_end(&self, t: &mut Turn<'_>, mut begun: Begun) {
-        let t0 = t.trace.at(begun.started);
-        let answer = begun.answer().await;
-        let scene = self.scene(t, "shadow", MemoryArm::Baseline);
-        let (mut m, candidates, links) = self.memory.manifest_with(
-            &scene,
-            &begun,
-            answer,
-            |s| self.place_of(s),
-            |ids| crate::recall::links(&self.store, ids),
-            false,
-        );
-        self.memory.noted(&m);
-        // What the rerank reads of the scene (32c), taken now: the rest of
-        // the scene borrows the turn, which the row and the mark need.
-        let Scene {
-            in_context,
-            labeled,
-            science,
-            ..
-        } = scene;
-        m.arm = self
-            .memory
-            .cfg()
-            .assign(t.tc.session_id)
-            .map(|a| a.arm.as_str().to_string());
-        let f = RecallShadow {
-            manifest: &m,
-            t0,
-            t1: t.trace.now_us(),
-        };
-        defer_row(t, &f);
-        t.announce_fact(&f);
-        // The `+rerank` arm in shadow (32c): off the turn's path.
-        self.judge.at_recall(
-            &mut t.trace,
-            crate::judge::rerank::Recalled {
-                recall_id: m.recall_id.clone(),
-                session_id: t.tc.session_id.to_string(),
-                turn_id: t.tc.turn_id.to_string(),
-                message: begun.query.clone(),
-                in_context,
-                labeled,
-                candidates,
-                links,
-                params: self.memory.cfg().params(),
-                science,
-                admitted: m
-                    .admitted
-                    .iter()
-                    .map(|a| format!("{}#{}", a.node_id, a.chunk))
-                    .collect(),
-                now_ms: theseus_protocol::now_unix_ms(),
-            },
-        );
-    }
-
     /// Recall in front of the model: the answer now, the pack, and its
     /// `Recall` node with its edges, held for the compile and the plan
     /// frame.
@@ -299,7 +199,6 @@ impl TurnRunner {
             item.text = None;
         }
         let t1 = t.trace.now_us();
-        Self::mark_would_drop(t, &mut m);
         // The row waits for the route (theseus-n7nc).
         if t.route.deciding() {
             t.recall.held.push((m, t0, t1));
@@ -311,37 +210,8 @@ impl TurnRunner {
     /// The route is known (theseus-n7nc): the rows held while routing decided
     /// are recorded.
     pub(super) fn recall_routed(t: &mut Turn<'_>) {
-        for (mut m, t0, t1) in std::mem::take(&mut t.recall.held) {
-            Self::mark_would_drop(t, &mut m);
+        for (m, t0, t1) in std::mem::take(&mut t.recall.held) {
             Self::record_ran(t, &m, t0, t1);
-        }
-    }
-
-    /// Shadow of the small-talk bar (theseus-fpm2): when the turn's verdict
-    /// says `low` effort, the manifest records how many admitted notes a bar
-    /// would have left out. Nothing is dropped; the budget is the one already
-    /// fixed, so this never waits. A `paused` manifest records none: no build
-    /// pauses recall since the session cap was deleted (2026-11-22), so only an
-    /// old row says it, and its notes were never attached.
-    ///
-    /// **The decision is the route step's, not this step's**
-    /// (`tier::ShadowMark`, card `b4-fpm2-f4-sibling-hole`). The two
-    /// predicates it reads, `low_effort` and `low_effort_carried`, are the
-    /// mark's own readers and nothing else: this step does not work out for
-    /// itself whether the turn belongs in the sample. A refused mark names
-    /// the case it refused for — a verdict that said `high`, no verdict at
-    /// all, or a verdict that MISSED the route's own wait — and the route row
-    /// carries that word, so the sample's shortfall is countable instead of
-    /// being a fact a reader has to take from a doc comment.
-    fn mark_would_drop(t: &Turn<'_>, m: &mut RecallManifest) {
-        let Some(b) = t.route.injection.as_ref().filter(|b| b.low_effort()) else {
-            return;
-        };
-        if m.outcome != "paused" && !m.admitted.is_empty() {
-            m.would_drop = Some(m.admitted.len() as u64);
-            // theseus-ectzg, B4 L79: SEPARATE — a carried verdict (the
-            // previous message's) is told apart from this turn's own.
-            m.would_drop_carried = Some(b.low_effort_carried());
         }
     }
 

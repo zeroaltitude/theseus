@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 
 use crate::recall::{self, Asker, Candidate, Pack, Params};
 use crate::science::{
-    Demotion, Fresh, GateDecision, Heat, MemoryScience, Neighbour, RankCtx, ScienceId, Scored,
+    Demotion, Fresh, GateDecision, Heat, MemoryScience, Neighbour, ScienceId, Scored,
 };
 
 /// How many of the fused order Jev re-sorts (§2.7).
@@ -51,7 +51,6 @@ pub fn eligible(
                 score: c.fused,
             })
             .collect(),
-        &asker.rank_ctx(),
     );
     let mut by_key: BTreeMap<String, Candidate> = kept.into_iter().map(|c| (c.key(), c)).collect();
     order.iter().filter_map(|s| by_key.remove(&s.key)).collect()
@@ -113,14 +112,14 @@ impl MemoryScience for Reranked<'_> {
         self.inner.decay_sweep(now_ms, view)
     }
 
-    fn rank(&self, fused: Vec<Scored>, ctx: &RankCtx) -> Vec<Scored> {
+    fn rank(&self, fused: Vec<Scored>) -> Vec<Scored> {
         let at: BTreeMap<&str, usize> = self
             .order
             .iter()
             .enumerate()
             .map(|(i, k)| (k.as_str(), i))
             .collect();
-        let mut ranked = self.inner.rank(fused, ctx);
+        let mut ranked = self.inner.rank(fused);
         // Stable: the keys outside the order keep the inner order, after.
         ranked.sort_by_key(|s| at.get(s.key.as_str()).copied().unwrap_or(usize::MAX));
         ranked
@@ -231,7 +230,6 @@ mod tests {
             in_context: &in_context,
             labeled: &BTreeSet::new(),
             links: &[],
-            now_ms: 0,
         };
         let mut second = cand("n1", Place::Private, 0.85);
         second.chunk = 1;

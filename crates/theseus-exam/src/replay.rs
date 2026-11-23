@@ -486,7 +486,6 @@ pub fn pack(turn: &Turn, rec: &Record, index: &mut dyn Index, sources: &[&str]) 
         labeled: &labeled,
         // The recording keeps no memory-pass edges (31a): no newer-node rule here.
         links: &[],
-        now_ms: theseus_protocol::now_unix_ms(),
     };
     let p = pipeline::recall(
         &Baseline::default(),

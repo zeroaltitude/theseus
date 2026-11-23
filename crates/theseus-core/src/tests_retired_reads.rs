@@ -218,3 +218,32 @@ async fn a_dated_report_reads_a_retired_versions_stored_row() {
         "the file is the whole report"
     );
 }
+
+/// The memory pass's shadow packs, retired by D8a, keep their dated reports: a stored `memory.v1` day is
+/// the day's report on its own, and an `attribution.v1` row is read beside a live pack's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dated_report_reads_the_memory_passs_retired_packs() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = core_at(dir.path());
+    c.store
+        .append(&[report_row("2026-10-05", "memory.v1", 30)])
+        .unwrap();
+    let alone = c
+        .learning_report(json!({"date": "2026-10-05"}))
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(packs_of(&alone), ["memory.v1"]);
+    c.store
+        .append(&[
+            report_row("2026-10-06", "loop.v1", 40),
+            report_row("2026-10-06", "attribution.v1", 41),
+        ])
+        .unwrap();
+    let beside = c
+        .learning_report(json!({"date": "2026-10-06"}))
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let mut got = packs_of(&beside);
+    got.sort_unstable();
+    assert_eq!(got, ["attribution.v1", "loop.v1"]);
+}

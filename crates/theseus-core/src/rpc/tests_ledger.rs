@@ -206,18 +206,12 @@ async fn a_pages_total_is_counted_in_the_same_snapshot_as_its_rows() {
     assert!(reads > 10, "{reads} reads raced the writer");
 }
 
-/// The way `RecallManifest::would_drop`'s doc says to read the shadow bar across sessions,
-/// `theseus ledger -k recall.ran -n <N> --json`, is `ledger.tail { kind: "recall.ran" }` with no
+/// `theseus ledger -k recall.ran -n <N> --json` is `ledger.tail { kind: "recall.ran" }` with no
 /// session. It returns every session's recall row (those rows are scoped `recall:<session>` for
-/// `memory.recalls`, and the tail by kind does not care) with `data.would_drop` whole. Two
-/// sessions, a greeting each that `effort.v1` calls `low`: each row's `would_drop` is the count of
-/// notes its own manifest admitted, and `data.would_drop_carried` is `false` on both (theseus-ectzg,
-/// B4 L79): each greeting is a session's first message, so its `low` is its own, never the
-/// previous message's carried to it. A reader of raw ledger rows, which is what this test
-/// exercises, needs the flag in the row and not only on `RecallManifest` in memory, or it has no
-/// way to tell the two apart across sessions.
+/// `memory.recalls`, and the tail by kind does not care), each whole: two sessions, a greeting
+/// each, and each row's `admitted` is what its own manifest admitted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_ledger_tail_by_recall_kind_reads_every_sessions_would_drop() {
+async fn the_ledger_tail_by_recall_kind_reads_every_sessions_rows() {
     use crate::tests_recall::recalls;
     use crate::tests_route::turn;
     use theseus_judge::fake::{FakeJev, Scripted};
@@ -254,23 +248,17 @@ async fn the_ledger_tail_by_recall_kind_reads_every_sessions_would_drop() {
     let counted: Vec<(String, u64)> = got
         .rows
         .iter()
-        .filter_map(|row| Some((row.session_id.clone()?, row.data["would_drop"].as_u64()?)))
+        .filter_map(|row| {
+            Some((
+                row.session_id.clone()?,
+                row.data["admitted"].as_array()?.len() as u64,
+            ))
+        })
         .collect();
     for w in &want {
         assert!(
             counted.contains(w),
-            "{w:?} is not among the tail's would_drop rows {counted:?}"
+            "{w:?} is not among the tail's rows {counted:?}"
         );
     }
-    let carried: Vec<&serde_json::Value> = got
-        .rows
-        .iter()
-        .filter(|row| row.data["would_drop"].as_u64().is_some())
-        .map(|row| &row.data["would_drop_carried"])
-        .collect();
-    assert_eq!(carried.len(), 2, "both sessions' rows: {carried:?}");
-    assert!(
-        carried.iter().all(|v| **v == serde_json::json!(false)),
-        "each session's own first greeting, never carried: {carried:?}"
-    );
 }

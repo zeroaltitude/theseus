@@ -63,7 +63,7 @@ pub(crate) fn pack_mode(cfg: &mut Config, pack: &str, mode: PackMode) {
     );
 }
 
-/// Memory in shadow, admitting one item; the judge on against `jev` when
+/// Memory live, admitting one item; the judge on against `jev` when
 /// given, with every other wired pack off (`loop.v1`, and the gate's,
 /// inbound's, compile's and categorize's points), so every judgment is the
 /// rerank's.
@@ -73,7 +73,7 @@ pub(crate) fn rig(jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
-    cfg.memory.mode = MemoryMode::Shadow;
+    cfg.memory.mode = MemoryMode::Live;
     cfg.memory.recall_max_items = 1;
     if let Some(j) = jev {
         cfg.judge.enabled = true;
@@ -288,7 +288,11 @@ async fn a_fake_jev_reorders_what_would_be_admitted() {
     jev.script("helps.1", Jev::Noul(0.10));
     jev.script("helps.2", Jev::Noul(0.30));
     jev.script("helps.3", Jev::Noul(0.97));
-    let (r, here, order) = heron_rig(&jev, |_| {});
+    // The rerank in shadow: it orders what would be admitted and applies none of it. (Memory's own
+    // shadow mode, which made every rerank a shadow one, went with D8a.)
+    let (r, here, order) = heron_rig(&jev, |c| {
+        pack_mode(c, crate::judge::rerank::RERANK_PACK, PackMode::Shadow)
+    });
     let c = &r.core;
     let res = turn(c, &here, "Where does the grey heron nest?").await;
     let rows = until_reranked(&c.store, 1).await;
@@ -352,8 +356,7 @@ async fn a_fake_jev_reorders_what_would_be_admitted() {
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
     assert_eq!(h.spend_today_usd, theseus_judge::price::micros_to_usd(cost));
     assert!(
-        h.packs
-            .contains(&"rerank.v1: live (owner: decision of 2026-10-04)".to_string()),
+        h.packs.iter().any(|p| p.starts_with("rerank.v1: shadow")),
         "{:?}",
         h.packs
     );
@@ -460,6 +463,57 @@ async fn mode_off_calls_nothing() {
 }
 
 /// The requests a core's model got, as bytes.
+/// A request (its system, messages and tools, as [`sent`] serializes them) with only the values each
+/// daemon makes its own blanked: a recalled note's handle (`[m:…]`), its store position (`@…`), its
+/// session's short id (`session …`) and the full ids it names (`ses_…`, `msg_…`). Every other byte, the
+/// text included, is kept.
+fn normalized(request: &str) -> String {
+    let b = request.as_bytes();
+    let hex = |c: &u8| c.is_ascii_hexdigit();
+    let mut out = String::with_capacity(request.len());
+    let mut i = 0;
+    while i < b.len() {
+        let rest = &request[i..];
+        if rest.starts_with("[m:") {
+            let n = b[i + 3..].iter().take_while(|c| hex(c)).count();
+            if n > 0 && b.get(i + 3 + n) == Some(&b']') {
+                out.push_str("[m:_]");
+                i += 4 + n;
+                continue;
+            }
+        }
+        if b[i] == b'@' {
+            let n = b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+            if n > 0 {
+                out.push_str("@_");
+                i += 1 + n;
+                continue;
+            }
+        }
+        if let Some(prefix) = ["ses_", "msg_"].into_iter().find(|p| rest.starts_with(p)) {
+            let n = b[i + 4..].iter().take_while(|c| hex(c)).count();
+            if n >= 8 {
+                out.push_str(prefix);
+                out.push('_');
+                i += 4 + n;
+                continue;
+            }
+        }
+        if rest.starts_with("session ") {
+            let n = b[i + 8..].iter().take_while(|c| hex(c)).count();
+            if n >= 6 && !b.get(i + 8 + n).is_some_and(u8::is_ascii_alphanumeric) {
+                out.push_str("session _");
+                i += 8 + n;
+                continue;
+            }
+        }
+        let ch = rest.chars().next().unwrap_or_default();
+        out.push(ch);
+        i += ch.len_utf8().max(1);
+    }
+    out
+}
+
 pub(crate) fn sent(model: &FakeProvider) -> Vec<String> {
     let reqs: Vec<ProviderRequest> = model.requests.lock().unwrap().clone();
     reqs.iter()
@@ -481,6 +535,21 @@ async fn a_slow_or_failing_jev_changes_no_turn() {
         .set_ask(index_of(&off.core, vec![notes]));
     let base = turn(&off.core, &here, "Where does the grey heron nest?").await;
     let base_req = sent(&off.model);
+    // The normalizer blanks only those values: a changed word of the recalled note, or of the system
+    // text, still fails the comparison.
+    let one = &base_req[0];
+    assert!(
+        one.contains("the grey heron nests by the old weir"),
+        "{one}"
+    );
+    assert_ne!(
+        normalized(&one.replace("by the old weir", "by the new weir")),
+        normalized(one)
+    );
+    assert_ne!(
+        normalized(&one.replacen("Theseus", "Thesius", 1)),
+        normalized(one)
+    );
     for mode in [
         FakeMode::Slow(Duration::from_secs(10)),
         FakeMode::Down,
@@ -509,7 +578,21 @@ async fn a_slow_or_failing_jev_changes_no_turn() {
             (&base.output, &base.stop_reason, base.loops, base.cost_usd),
             "{mode:?}: the turn's result"
         );
-        assert_eq!(sent(&r.model), base_req, "{mode:?}: the turn's request");
+        // With recall live, each daemon's recalled headers name its own node handle, session (short and
+        // full id) and store position, so two daemons differ there by construction; with those blanked,
+        // the whole request
+        // (system, messages and tools, text included) is the judge-off daemon's.
+        let norm = |reqs: &[String]| {
+            reqs.iter()
+                .map(String::as_str)
+                .map(normalized)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            norm(&sent(&r.model)),
+            norm(&base_req),
+            "{mode:?}: the turn's request"
+        );
         let rows = until_reranked(&c.store, 1).await;
         let rr = &rows[0].data["context"]["rerank"];
         assert!(rr["fallback"].is_string(), "{mode:?}: {rr}");
