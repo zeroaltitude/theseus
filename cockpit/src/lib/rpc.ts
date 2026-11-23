@@ -52,7 +52,7 @@ export async function call<T = unknown>(method: string, params?: unknown): Promi
 
 /** The reads the push keeps fresh (theseus-in3): each execution's change, and each question's, says when to read
  * them again, so they are never polled. */
-export const PUSHED = new Set(['session.list', 'execution.list', 'confirm.list', 'task.list', 'budget.list', 'policy.explain', 'work.digest'])
+export const PUSHED = new Set(['session.list', 'execution.list', 'confirm.list', 'task.list', 'budget.list', 'policy.explain', 'work.digest', 'session.mode'])
 
 /** Paused (the Observatory's live/paused, theseus-vm3n.6): no read runs on a timer and the ledger's follow waits, so
  * the views hold still to be read. The push still comes, as it did there. The heartbeat bar's refresh reads
@@ -94,6 +94,7 @@ export function bindPush(queries: QueryClient) {
     }, 250)
   }
   client.onOpen(() => {
+    again()
     client.call('executions.watch', { limit: 1 }).then(again).catch(() => {})
   })
   client.onNotify((method) => {
@@ -101,6 +102,7 @@ export function bindPush(queries: QueryClient) {
     if (method === 'execution.changed' || method === 'confirm.requested' || method === 'confirm.resolved' || method === 'task.changed' || method === 'events.lost'
       // A tightening and its undo change what `policy.explain` says (42b).
       // A label raised or removed (theseus-9ymz0) changes what a session may do, and `session.list`'s `labels`.
+      || method === 'session.mode'
       || method === 'policy.tightened' || method === 'policy.untightened'
       || method === 'session.labelled' || method === 'session.unlabelled') again()
   })
