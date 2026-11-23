@@ -184,7 +184,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         Id, Request, Notification, RpcError, Response, Message, HealthResult, LedgerGap, Build, SpoolStatus,
         SpoolSweep, DiskStatus, BinaryStatus, StoreStatus, CrashStatus, WebStatus, SecretsStatus,
         ContextStatus, ConfigStatus, NodeCacheHealth, PromptCacheHealth, ProfileTtl,
-        ConfigRestart, SecretFailed, SecretSource, VaultToday, SecretsRefreshParams, SecretsRefreshResult, StartupPhase, Tightening, PolicyTightenParams,
+        ConfigRestart, SecretFailed, SecretSource, VaultToday, StartupPhase, Tightening, PolicyTightenParams,
         PolicyUntightenParams, TightenResult,
         content::LabelView, content::LabelLink, content::ContentUnlabelParams, content::UnlabelResult, content::LabelRaised, notice::WaitingSplit, DiscordOrigin, BindingStatus, OutboxStatus,
         PlaceStatus, TelemetryStatus, KernelStatus, ChildrenStatus, GrantStatus,

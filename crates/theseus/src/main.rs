@@ -75,7 +75,6 @@ mod retract;
 mod retry;
 mod rewind_cmd;
 mod routine;
-mod secrets_cmd;
 mod self_cmd;
 #[cfg(test)]
 mod spawn_args_tests;
@@ -777,15 +776,6 @@ enum Cmd {
         #[command(subcommand)]
         cmd: vault_keep_cmd::VaultCmd,
     },
-    /// The vault's entries: `secrets refresh [NAME]` has the daemon fetch one `[secrets]` entry
-    /// again now, or every vault entry, for a value that changed in the vault or retries that
-    /// stopped at the day's ceiling of vault reads. Yours alone (refused inside a job, and by the
-    /// daemon from a shared place), once a minute; `theseus health` says how it went.
-    #[command(hide = true)]
-    Secrets {
-        #[command(subcommand)]
-        cmd: secrets_cmd::SecretsCmd,
-    },
     /// The owner's standing orders, preferences and facts: kept in every prompt of
     /// their scope until you revoke them. `standing` lists them; `standing add [--kind order|
     /// preference|fact] [--scope everywhere|place:T|session:ID | --surface NAME] TEXT` and `standing revoke ID` are
@@ -1465,15 +1455,6 @@ async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     }
 }
 
-/// `theseus google` and `theseus secrets`: Google's grant, and the vault's entries fetched again.
-async fn accounts_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
-    match cmd {
-        Cmd::Google { cmd } => google_cmd::run(c, json, cmd).await,
-        Cmd::Secrets { cmd } => secrets_cmd::run(c, json, cmd).await,
-        _ => unreachable!("only google and secrets come here"),
-    }
-}
-
 /// `theseus routine` and `theseus project`: recurring work and long-term work.
 async fn plans_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     match cmd {
@@ -1581,7 +1562,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Tools { verbose } => cmd::tools(c, json, verbose).await,
         Cmd::Policy { cmd } => cmd::policy(c, json, cmd.unwrap_or(PolicyCmd::List)).await,
         Cmd::Aws { cmd } => cmd::aws(c, json, cmd).await,
-        cmd @ (Cmd::Google { .. } | Cmd::Secrets { .. }) => accounts_cmd(c, json, cmd).await,
+        Cmd::Google { cmd } => google_cmd::run(c, json, cmd).await,
         Cmd::Ontology { cmd } => ontology::ontology(c, json, cmd.unwrap_or_default()).await,
         Cmd::Health => cmd::health(c, json).await,
         Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,

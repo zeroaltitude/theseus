@@ -142,7 +142,6 @@ pub const VERBS: &[Entry] = &[
     e("mode", &[], Act),
     e("owner", &[], Act),
     e("vault", &[], Act),
-    e("secrets", &[], Act),
     e("task", &[], Act),
     e("rpc", &[], Act),
     e("shutdown", &[], Act),

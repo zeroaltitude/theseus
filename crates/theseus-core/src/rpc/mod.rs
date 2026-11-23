@@ -105,7 +105,6 @@ mod route_correct;
 mod routines;
 pub(crate) mod routines_watch;
 mod rsi;
-mod secrets_refresh;
 mod server;
 mod session_dir;
 mod session_find;
@@ -192,8 +191,6 @@ mod tests_prefix;
 mod tests_rewind;
 #[cfg(test)]
 mod tests_scratch;
-#[cfg(test)]
-mod tests_secrets_refresh;
 #[cfg(test)]
 #[cfg(test)]
 mod tests_self;

@@ -458,7 +458,7 @@ Opinionated, and simple. **Every secret lives in 1Password**, in the deployment'
     each wait moved up to a fifth either way at random (`secrets::pace`). A retry of one entry is one `op read`. When
     `op` says the vault itself refused (a rate limit, the token), no entry is read one by one, and the next try waits
     an hour, or until the reset `op` names. Past 2,000 entries read in a local day (a constant), what failed is not
-    fetched again until the next day or the owner's `theseus secrets refresh`, and health says so. Health counts the
+    fetched again until the next day or the next start, and health says so. Health counts the
     daemon's `op` runs and the entries they asked for, per day. _(Amended 2026-11-22, issue 44: until then the wait
     doubled to a minute and stayed there, about 1,440 rounds a day for one bad entry, each an `op inject` and then an
     `op read`.)_
