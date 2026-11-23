@@ -14,6 +14,21 @@ use crate::stub::{Kind, Stub};
 /// The failure class of a turn whose request its situation does not admit.
 pub const UNADMITTED_CLASS: &str = "context_unadmitted";
 
+/// What each compile told admission of the task view, by session (a test's reading).
+#[cfg(test)]
+static TASK_VIEW_GIVEN: std::sync::Mutex<Vec<(String, bool)>> = std::sync::Mutex::new(Vec::new());
+
+/// What the last compile of `session` told admission: whether its request lays the task view.
+#[cfg(test)]
+pub(crate) fn task_view_given(session: &str) -> Option<bool> {
+    let given = TASK_VIEW_GIVEN.lock().unwrap();
+    given
+        .iter()
+        .rev()
+        .find(|(s, _)| s == session)
+        .map(|(_, b)| *b)
+}
+
 impl TurnRunner {
     /// The situation the compile step tells from what it holds: no
     /// compilation yet is a first compile; a session's first compile in this
@@ -45,6 +60,11 @@ impl TurnRunner {
         i: u32,
     ) -> Result<Option<Failure>> {
         let sid = t.tc.session_id;
+        #[cfg(test)]
+        TASK_VIEW_GIVEN
+            .lock()
+            .unwrap()
+            .push((sid.to_string(), task_view));
         let last = self.store.last_position();
         if let Some(f) = Self::unadmitted(t, compiled, nodes, last, task_view, i) {
             return Ok(Some(f));

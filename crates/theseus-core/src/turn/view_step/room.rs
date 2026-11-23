@@ -179,7 +179,7 @@ impl TurnRunner {
         // The harness's part of the block beside the message, composed at each freeze from what the turn
         // rendered once (`now_step`), with room kept for what the route still has to decide.
         let composed = (t.now.as_ref()).and_then(|r| {
-            crate::turn::now_step::compose(&r.parts, crate::turn::now_step::BUDGET_TOKENS)
+            crate::turn::now_step::compose(&r.parts, crate::turn::now_step::budget())
         });
         let reserve = match t.route.defer_persist {
             true => crate::turn::now_step::routed_reserve(),

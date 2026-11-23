@@ -35,6 +35,28 @@ work and what stands, waits and is planned here; each part says whose it is.]";
 /// The harness's part's one budget, in tokens (estimated at `BYTES_PER_TOKEN`).
 pub const BUDGET_TOKENS: u64 = 1_200;
 
+/// A test's lower budget, so a real turn can be made to leave parts out (0: none).
+#[cfg(test)]
+static BUDGET_FOR_TESTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Lower the block's budget for this test process.
+#[cfg(test)]
+pub(crate) fn shrink_budget_for_tests(tokens: u64) {
+    BUDGET_FOR_TESTS.store(tokens, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The budget a freeze composes under: [`BUDGET_TOKENS`], or a test's lower one.
+pub(crate) fn budget() -> u64 {
+    #[cfg(test)]
+    {
+        let b = BUDGET_FOR_TESTS.load(std::sync::atomic::Ordering::SeqCst);
+        if b > 0 {
+            return b;
+        }
+    }
+    BUDGET_TOKENS
+}
+
 /// One part of the harness's block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Name {

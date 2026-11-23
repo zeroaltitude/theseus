@@ -916,3 +916,34 @@ async fn records_survive_a_reopen_and_older_task_sessions_still_list() {
         .unwrap()
         .contains("[The task graph"));
 }
+
+/// A graph the harness's block left out for room is not reported as shown, and admission is not told a
+/// task view was laid (issue 46, round 2): what the compile accounts for is what was laid.
+#[tokio::test]
+async fn a_graph_left_out_for_room_is_not_reported_as_shown() {
+    let r = rig();
+    let c = &r.core;
+    let s = session(c);
+    r.calls(&[plan("Fix the tide table parser")]);
+    turn(c, &s, "plan it").await;
+    crate::turn::now_step::shrink_budget_for_tests(1);
+    turn(c, &s, "where are we").await;
+    let req = r.model.requests.lock().unwrap().last().unwrap().clone();
+    assert!(
+        crate::turn::now_step::part(&req, crate::task_graph::view::HEAD).is_none(),
+        "the graph is left out"
+    );
+    let block = crate::turn::now_step::carried(&req).expect("the harness's block");
+    assert!(
+        block.contains("Left out of this block for room: the task graph"),
+        "{block}"
+    );
+    let compiled = rows(c, "context.compiled");
+    let last = compiled.last().unwrap();
+    assert!(last.data.get("tasks").is_none(), "{:?}", last.data);
+    assert_eq!(
+        crate::turn::situation_step::task_view_given(&s),
+        Some(false),
+        "admission is told no task view was laid"
+    );
+}
