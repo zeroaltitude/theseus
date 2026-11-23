@@ -118,8 +118,7 @@ impl TurnRunner {
     /// view laid was removed or erased since ([`Self::view_gone`]: erase stays, absence is not proof), which
     /// compiles the call again at most twice and fails it plainly a third time (`ViewFailed::Gone`); then the
     /// size check (`room::view_size`) on the finished request, a recompile for size coming back to both (at
-    /// most `room::SIZINGS` of them). The request that goes out is the last one compiled, its tail kept as
-    /// the turn loop keeps one. Anything goes (2026-11-22): no presence, seal or move is asked again.
+    /// most `room::SIZINGS` of them). The request that goes out is the last one compiled. Anything goes (2026-11-22): no presence, seal or move is asked again.
     pub(super) async fn view_readmitted(
         &self,
         t: &mut Turn<'_>,
@@ -146,10 +145,7 @@ impl TurnRunner {
             }
             compiled =
                 match Box::pin(self.compile_step(t, session, spec, false, None, None, i)).await? {
-                    Ok(mut c) => {
-                        self.tails.finish(t.tc.session_id, &mut c, t.tail.take());
-                        c
-                    }
+                    Ok(c) => c,
                     Err(f) => return Ok(Err(f)),
                 };
         }
@@ -180,7 +176,7 @@ impl TurnRunner {
         kept::held_now(self, t.tc.session_id, (&[], &f.exchanges, &recalled))
     }
 
-    /// A new chain for the turn: its next call makes a new compilation (the sent tails let go), and the
+    /// A new chain for the turn: its next call makes a new compilation, and the
     /// turn's own answers so far are sent without their thinking, which the change invalidated.
     fn view_reset(t: &mut Turn<'_>, nodes: &[(u64, Stub)]) {
         let turn = t.tc.turn_id;

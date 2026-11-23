@@ -121,18 +121,6 @@ impl TurnRunner {
             Err(e) => return Self::view_failure(t, e).map(Err),
         };
         ph.mark("compile");
-        // The earlier requests' tails go back where they were sent, before
-        // this one's own is attached (`sent_tail`).
-        // What a tail says is said to a place, a surface, and where the session and the turn's
-        // reply speak: it is put back on a request for the same.
-        let key = format!(
-            "{:?}|{:?}|{:?}|{:?}",
-            t.tc.place().class,
-            t.standing.surface,
-            self.outbox.speaks_at(sid).ok().flatten(),
-            t.answer_at
-        );
-        t.tail = self.tails.begin(sid, (t.tc.turn_id, &key), &mut compiled);
         compiled.prefix = picked.filter(|p| {
             compiled.new_compilation
                 && compiled.compilation.manifest.prefix.as_ref() == Some(&p.plan.used)

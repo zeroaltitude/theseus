@@ -5,6 +5,12 @@
 //! a change there with a 400, where an older model reports it and goes on.
 //! The stand-in provider carries that rule (`provider::binding`), so each test
 //! runs a whole turn of two or more steps and reads what the provider would.
+//!
+//! What the harness says beside the person's message (the date and the git
+//! line, the task graph, the wakes, the surface's records: `turn::now_step`)
+//! is one block, composed at the turn's first call, laid before the person's
+//! message and frozen for the turn (issue 46): no request appends anything to
+//! a message an earlier answer followed, so nothing is kept or put back.
 
 use std::sync::Arc;
 
@@ -38,7 +44,7 @@ fn rig_with(mode: Binding, script: Vec<Scripted>, tweak: impl FnOnce(&mut Config
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    // The date and the git line, which ride the last message of every request.
+    // The date and the git line, the first part of the harness's block beside the message.
     cfg.project.tail_facts = Some(true);
     tweak(&mut cfg);
     cfg.validate().unwrap();
@@ -456,12 +462,12 @@ async fn a_fallback_and_the_steps_after_it_send_what_was_sent() {
     assert_stable(&r);
 }
 
-/// The kept tail costs what changed and no more within a turn: the second step's request holds
-/// the date line once, in the place the first step put it, and not again at its own end. A
-/// new turn's request carries its own tail whole, and none of the first turn's: tails are kept
-/// within a turn only (issue 44).
+/// The harness's block is sent once and never twice within a turn: the second step's request holds
+/// the date line once, in the place the first step put it, and not again at its own end. A new
+/// turn's request carries its own block whole, and none of the first turn's: the block lives in its
+/// turn alone (issue 46; once the kept tails of `sent_tail`, issue 44).
 #[tokio::test]
-async fn a_tail_block_the_model_has_is_not_sent_again_within_its_turn() {
+async fn the_harness_block_is_not_sent_again_within_its_turn_nor_into_the_next() {
     let r = rig(
         Binding::Refuse,
         vec![
@@ -488,6 +494,17 @@ async fn a_tail_block_the_model_has_is_not_sent_again_within_its_turn() {
         "{:?}",
         reqs[2].messages
     );
+    let block = |q: &ProviderRequest| crate::turn::now_step::carried(q);
+    assert!(
+        block(&reqs[0]).is_some(),
+        "the first step carries the block"
+    );
+    assert_eq!(
+        block(&reqs[0]),
+        block(&reqs[1]),
+        "the same block at the second step"
+    );
+    assert!(block(&reqs[2]).is_some(), "the next turn carries its own");
 }
 
 /// The text blocks of a request's messages, each with its message's index.

@@ -1,8 +1,9 @@
 //! A routed turn sends its first step again (issue 20, the review's B1): routing changes the
 //! turn's first request after it is compiled (Jev's effort puts a message before the turn's own,
-//! or takes the one the compile placed away, and a persona line is appended), so what the first
-//! step sent after the conversation must be what routing left, and the second step must find the
-//! turn's message where it moved to. The rig is `tests_route`'s.
+//! or takes the one the compile placed away; what the route decides of the harness's block beside
+//! the message is laid before the first call, `turn::now_step`), so what the first step sent must
+//! be what routing left, and the second step must find the turn's message where it moved to. The
+//! rig is `tests_route`'s.
 
 use serde_json::json;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
@@ -62,6 +63,12 @@ async fn routed_turn(first: &str, second: &str) -> Vec<ProviderRequest> {
 async fn a_routed_turn_whose_effort_message_was_taken_away_sends_its_first_step_again() {
     let reqs = routed_turn("low", "low").await;
     assert_same_prefix(&reqs[0], &reqs[1]);
+    let block = crate::turn::now_step::carried(&reqs[0]);
+    assert!(
+        block.is_some(),
+        "the routed turn carries the harness's block"
+    );
+    assert_eq!(block, crate::turn::now_step::carried(&reqs[1]));
 }
 
 /// Jev's level changes: routing replaces the message in place.
