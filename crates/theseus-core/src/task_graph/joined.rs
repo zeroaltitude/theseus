@@ -11,11 +11,9 @@
 //!   names exactly one task (the name matcher, through the view's `Names`),
 //!   or when the judge's existing `addressed_task` answer names one. Two
 //!   tasks named is no address: nothing is called in.
-//! - **Who sees it** ([`StoreCards`]): only a point of view where the owner is
-//!   alone, as the gate computed it; a source never decides what is shown, so
-//!   the card's marks are its home place's, for the gate to check again. A
-//!   task's own turns are shown its own card, at its own place
-//!   (`task_graph::place`), whoever is present, for the gate to check too.
+//! - **Who sees it** ([`StoreCards`]): presence does not withhold task cards.
+//!   The card retains its home place and author marks. A task's own turns
+//!   are shown its own card at its own place (`task_graph::place`).
 
 use anyhow::Result;
 use theseus_kernel::{Execution, Kernel};
@@ -25,7 +23,7 @@ use super::{children, execution_of, get, state_now, TaskState};
 use crate::store::Store;
 use crate::view::select::sources::{Names, Ref, TaskCards};
 use crate::view::{
-    Audience, Author, Form, Handle, Marks, PointOfView, Pos, Present, Sizes, SourceRange, Space,
+    Audience, Author, Form, Handle, Marks, PointOfView, Pos, Sizes, SourceRange, Space,
 };
 
 /// The most of the task's last message a card shows, in tokens (est.).
@@ -310,17 +308,10 @@ impl TaskCards for StoreCards<'_> {
             crate::view::Anchor::Place(p) => super::place::task_of(p),
             crate::view::Anchor::Task(_) => None,
         };
-        let alone = pov.present == Present::OwnerAlone;
-        if own.is_none() && !alone {
-            return Ok(Vec::new());
-        }
         let all = super::all(self.store)?;
         let mut out = Vec::new();
-        if let Some(own) = own.filter(|_| pov.present != Present::Unknown) {
+        if let Some(own) = own {
             out.extend(self.card(pov, &all, own, true)?);
-        }
-        if !alone {
-            return Ok(out);
         }
         let ids: Vec<&str> = all.iter().map(|t| t.id.as_str()).collect();
         let named = self.names.named(message)?;
