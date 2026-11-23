@@ -515,7 +515,9 @@ async fn write_connection<W: AsyncWrite + Unpin>(
     let _ = tokio::time::timeout(ANSWER_FLUSH, writer.shutdown()).await;
 }
 
-const LINE_CAP: usize = 1024 * 1024;
+// Inline images are base64 encoded, and import batches carry many episodes.
+// Bound the whole frame without rejecting the existing multi-megabyte paths.
+const LINE_CAP: usize = 16 * 1024 * 1024;
 const REQUEST_CAP: usize = 64;
 const CONTROL_CAP: usize = 8;
 
