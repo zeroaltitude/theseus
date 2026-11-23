@@ -1087,6 +1087,7 @@ fn keel(
     a: &mut Attempt<'_>,
 ) -> Result<(String, Value), String> {
     a.stopped_at = Some(PUSH);
+    let mut notice = String::new();
     if let Err(e) = std::fs::write(keel_mark(place, &a.tree), &a.tree.branch) {
         core.tools
             .self_pr
@@ -1094,22 +1095,28 @@ fn keel(
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(tree::slug(&a.i.item));
-        return Err(format!("It stopped at the keel but could not persist the keel hold: {e}. This daemon refuses further attempts on the item; repair the hold before restarting."));
+        tracing::warn!(error = %e, "self-pr: could not persist the keel hold");
+        notice = format!(
+            " It could not persist the keel hold ({e}); it holds only until the daemon restarts."
+        );
     }
     if !core.runner.place_rule.owner_dm_bound() {
         // Nothing retries around it either way: the mark above is written
         // first and is what holds the branch.
         return Ok(said(
             a,
-            "It stopped at the keel and waits for the owner's word; no DM is \
-             bound, so no card was posted.",
+            &format!(
+                "It stopped at the keel and waits for the owner's word; no DM is \
+             bound, so no card was posted.{notice}"
+            ),
         ));
     }
-    let text = keel_text(
+    let mut text = keel_text(
         &a.tree.branch,
         &a.i.item,
         a.report.as_deref().unwrap_or("none"),
     );
+    text.push_str(&notice);
     let card = (|| -> anyhow::Result<()> {
         let body = json!({"kind": "self_keel", "text": text});
         let (post, frame) = core.outbox.stage_to_operator(Some(tc.session_id), body)?;
@@ -1122,7 +1129,7 @@ fn keel(
     }
     Ok(said(
         a,
-        "It stopped at the keel: the owner's card asks for an answer.",
+        &format!("It stopped at the keel: the owner's card asks for an answer.{notice}"),
     ))
 }
 
