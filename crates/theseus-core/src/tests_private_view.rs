@@ -223,11 +223,15 @@ pub(crate) fn body(req: &ProviderRequest, dir: &Path, ids: &[String]) -> String 
             let bytes = rest.as_bytes();
             let stamp = bytes.len() >= 17
                 && bytes[..16].iter().enumerate().all(|(i, c)| match i {
-                    4 | 7 => *c == b'-', 10 => *c == b' ', 13 => *c == b':',
+                    4 | 7 => *c == b'-',
+                    10 => *c == b' ',
+                    13 => *c == b':',
                     _ => c.is_ascii_digit(),
-                }) && bytes[16] == b' ';
+                })
+                && bytes[16] == b' ';
             if stamp {
-                let end = rest[17..].find([' ', '(', ')', '"', ';', '\\'])
+                let end = rest[17..]
+                    .find([' ', '(', ')', '"', ';', '\\'])
                     .map_or(rest.len(), |i| i + 17);
                 out.push_str("<stamp>");
                 rest = &rest[end..];
