@@ -520,3 +520,22 @@ fn a_parent_cycle_ends_the_walk_at_the_first_repeat() {
     assert_eq!(c.burn_len(&b.id), 1, "b, once");
     assert_eq!(c.burn_rings(), 2);
 }
+
+#[test]
+fn a_settled_cost_stops_at_the_ancestor_bound() {
+    let (w, parent, _g, _kids) = family(1);
+    let mut chain = Vec::new();
+    let mut above = None;
+    for _ in 0..crate::task_depth::WALK_MAX + 2 {
+        let e = stored_under(&w, &parent, above);
+        above = Some(e.id.clone());
+        chain.push(e);
+    }
+    chain.reverse();
+    settle_for(&w, &chain[0]);
+    let c = w.kernel.day_ceiling();
+    assert_eq!(c.burn_len(&chain[0].id), 1);
+    assert_eq!(c.burn_len(&chain[crate::task_depth::WALK_MAX].id), 1);
+    assert_eq!(c.burn_len(&chain[crate::task_depth::WALK_MAX + 1].id), 0);
+    assert_eq!(c.burn_rings(), crate::task_depth::WALK_MAX + 1);
+}
