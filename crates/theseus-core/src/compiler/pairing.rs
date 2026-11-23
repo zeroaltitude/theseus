@@ -8,9 +8,12 @@
 //! same `correlation_id`.
 //!
 //! 1. A result with a `correlation_id` answers the call whose record has the same one. Nothing else.
-//! 2. A result with none (a call refused before any action, a harness's own call) answers the earliest call
-//!    with its id of its OWN exchange (its session and turn) standing before it, that carries no correlation
-//!    and no result yet.
+//! 2. A result with none (a call refused before any action, a harness's own call) answers the call the
+//!    gate's record beside it names: the earliest record with its id and no correlation of its OWN exchange
+//!    (its session and turn) standing before it, whose call has no result yet (the gate writes the record and
+//!    the result together, and a continuation writes them for a call of the turn it continues). With no such
+//!    record, the earliest call with its id of its own exchange standing before it, that carries no
+//!    correlation and no result yet.
 //! 3. Nothing beyond that: a result whose call is not established answers no call, and that call keeps the
 //!    harness's "no result" stub. Inventing an execution is the fault; a truthful "no result" is not.
 //! 4. A late result (`late: true`) answers no call: it is told as what came back later.
@@ -79,6 +82,8 @@ struct Calls<'n> {
     by_corr: HashMap<&'n str, Call<'n>>,
     /// Each record's call, by the record's node id.
     by_record: HashMap<&'n str, Call<'n>>,
+    /// The records with no correlation: where each stands, its exchange, and its call.
+    plain: Vec<(usize, &'n str, Option<&'n str>, Call<'n>)>,
 }
 
 fn calls<'n>(nodes: &[&'n Node]) -> Calls<'n> {
@@ -104,9 +109,12 @@ fn calls<'n>(nodes: &[&'n Node]) -> Calls<'n> {
                 *k += 1;
                 c.by_record.insert(n.id.as_str(), call);
                 c.at.entry(call).or_insert(exchange);
-                if let Some(corr) = correlation_id.as_deref() {
-                    c.correlated.insert(call, corr);
-                    c.by_corr.insert(corr, call);
+                match correlation_id.as_deref() {
+                    Some(corr) => {
+                        c.correlated.insert(call, corr);
+                        c.by_corr.insert(corr, call);
+                    }
+                    None => c.plain.push((exchange.0, exchange.1, exchange.2, call)),
                 }
             }
             _ => {}
@@ -116,8 +124,10 @@ fn calls<'n>(nodes: &[&'n Node]) -> Calls<'n> {
 }
 
 impl<'n> Calls<'n> {
-    /// Rule 2: for a result with no correlation, standing at `i` in exchange `own`, the earliest call with its
-    /// id of the same exchange standing before it, with no correlation and no result in `answered`.
+    /// Rule 2: for a result with no correlation, standing at `i` in exchange `own`, the call of the earliest
+    /// record with its id and no correlation of the same exchange standing before it; else the earliest call
+    /// with its id of the same exchange standing before it; either with no correlation and no result in
+    /// `answered`.
     fn own(
         &self,
         id: &str,
@@ -125,6 +135,15 @@ impl<'n> Calls<'n> {
         own: (&str, Option<&str>),
         answered: &HashMap<Call<'n>, &'n Node>,
     ) -> Option<Call<'n>> {
+        let recorded = (self.plain.iter())
+            .filter(|(j, session, turn, call)| {
+                call.1 == id && *j < i && (*session, *turn) == own && !answered.contains_key(call)
+            })
+            .map(|(j, _, _, call)| (*j, *call))
+            .min();
+        if let Some((_, call)) = recorded {
+            return Some(call);
+        }
         (self.at.iter())
             .filter(|(call, (j, session, turn))| call.1 == id && *j < i && (*session, *turn) == own)
             .filter(|(call, _)| {

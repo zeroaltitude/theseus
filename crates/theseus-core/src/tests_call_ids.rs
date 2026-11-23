@@ -27,6 +27,9 @@ const SAME: &str = "call_0";
 /// The harness's stub for a call with no result (`compiler::render::repaired`).
 const STUB: &str = "No result was recorded for this call";
 
+/// A waiting call's result when the person writes instead of answering (`toolrun::resume`).
+const SUPERSEDED: &str = "instead of confirming this call";
+
 fn bind(core: &Core) {
     let channel = |id: u64, name: &str| BoundPlace {
         target: format!("discord:channel:{id}"),
@@ -358,7 +361,7 @@ async fn of_two_calls_of_one_session_with_one_id_each_reads_its_own_result() {
     r.until("the resumed turn", 15, |r| {
         let nodes = r.core.store.session_nodes(&s).unwrap();
         let ran = (nodes.iter()).rposition(
-            |(_, n)| matches!(&n.body, Body::ToolResult { tool_use_id, late: false, content, .. } if tool_use_id == SAME && !content.contains("superseded")),
+            |(_, n)| matches!(&n.body, Body::ToolResult { tool_use_id, late: false, content, .. } if tool_use_id == SAME && !content.contains(SUPERSEDED)),
         );
         ran.is_some_and(|i| {
             (nodes[i + 1..].iter()).any(|(_, n)| matches!(n.body, Body::AssistantMessage { .. }))
@@ -375,12 +378,12 @@ async fn of_two_calls_of_one_session_with_one_id_each_reads_its_own_result() {
         .expect("the new turn's request");
     let first = first_result(after_call(&req, "text", "the first"));
     assert!(
-        first.contains("superseded"),
+        first.contains(SUPERSEDED),
         "the first call reads its own result: {first}"
     );
     let second = first_result(after_call(&req, "text", "the second"));
     assert!(
-        !second.starts_with(STUB) && !second.contains("superseded"),
+        !second.starts_with(STUB) && !second.contains(SUPERSEDED),
         "the second call reads its own result, not the first's: {second}"
     );
 }
