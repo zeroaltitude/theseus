@@ -555,7 +555,7 @@ async fn a_line_and_an_open_that_hold_another_persons_words_say_outside() {
 }
 
 /// An exchange of `place` in `sid`: its ask said by `person` (marked), its reply `said`, its touch written.
-fn exchange_said(
+pub(crate) fn exchange_said(
     core: &Core,
     sid: &str,
     (turn, at): (&str, u64),

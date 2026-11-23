@@ -158,3 +158,29 @@ async fn the_ontology_commands_answer_says_to_name_it() {
 fn rig_in_its_dir() -> super::tests::Rig {
     super::tests::rig_with(|cfg, state| cfg.tools.cwd = Some(state.to_string_lossy().into_owned()))
 }
+
+/// Its history part copies this conversation's messages into its result, so `node.reach` of a message it
+/// shows finds the result as its copy, by its own route, as a history read's is found (D6 round 5, 3).
+#[tokio::test]
+async fn its_history_part_is_found_from_each_message_it_shows() {
+    let r = rig();
+    let sid = r.session();
+    r.turn_with("look_work", &sid, json!({"what": ["history"]}))
+        .await;
+    let nodes = r.core.store.session_nodes(&sid).unwrap();
+    let said = (nodes.iter())
+        .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))
+        .map(|(_, n)| n.id.clone())
+        .expect("the owner's message");
+    let copy = (nodes.iter())
+        .find(|(_, n)| matches!(n.body, crate::node::Body::ToolResult { .. }))
+        .map(|(_, n)| n.id.clone())
+        .expect("the look's result");
+    let walk = crate::reach::reach(&r.core.store, &said, None)
+        .unwrap()
+        .unwrap();
+    let d = (walk.descendants.iter())
+        .find(|d| d.node_id == copy)
+        .unwrap_or_else(|| panic!("node.reach does not list the look's result: {walk:#?}"));
+    assert_eq!((d.generation, d.route.as_str()), (1, "look"), "{d:?}");
+}

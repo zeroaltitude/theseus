@@ -20,7 +20,11 @@ use crate::Core;
 const SAID: &str = "the zircon heron nests by the north weir at dawn";
 const WORD: &str = "zircon";
 
-/// A model whose message `CALL {…}` calls `context_history` with those arguments.
+/// A long reply's words: more than an open shows, so its page fits it (cut in words, never past it).
+const LONG: &str = "the long tide table: ";
+
+/// A model whose message `CALL {…}` calls `context_history` with those arguments, and whose message saying
+/// `LONG` is answered at length.
 fn rig() -> Rig {
     rig_scripted(
         |_| {},
@@ -37,16 +41,18 @@ fn rig() -> Rig {
                         serde_json::from_str(a.trim()).unwrap(),
                     )],
                 ),
+                None if last_user(req).contains("LONG") => Scripted::text(&LONG.repeat(1_500)),
                 None => Scripted::text("Noted."),
             }
         },
     )
 }
 
-/// The session the line was said in, its message's node, and its exchange's turn and place.
+/// The session the line was said in, its message's node and its reply's, and its exchange's turn and place.
 struct Said {
     session: String,
     node: String,
+    reply: String,
     turn: String,
     place: String,
 }
@@ -59,23 +65,23 @@ async fn say(core: &Arc<Core>) -> Said {
         .find(|n| matches!(&n.body, Body::UserMessage { text, .. } if text.contains(WORD)))
         .expect("the person's message");
     let turn = n.turn_id.clone().expect("its turn");
-    let place = crate::exchange::exchange(&core.store, &turn)
+    let ex = crate::exchange::exchange(&core.store, &turn)
         .unwrap()
-        .expect("its exchange")
-        .place;
+        .expect("its exchange");
     Said {
         session,
         node: n.id,
+        reply: ex.reply.expect("its reply"),
         turn,
-        place,
+        place: ex.place,
     }
 }
 
-/// `sid`'s turn calls the tool with `args`: its stored result's node and text.
+/// `sid`'s turn calls the tool with `args`: its stored result's node and text (the newest call's).
 async fn read_in(core: &Arc<Core>, sid: &str, args: Value) -> (String, String) {
     turn(core, sid, &format!("CALL {args}")).await;
     (core.store.session_nodes(sid).unwrap().into_iter())
-        .find_map(|(_, n)| match n.body {
+        .filter_map(|(_, n)| match n.body {
             Body::ToolResult {
                 tool_use_id,
                 content,
@@ -83,6 +89,7 @@ async fn read_in(core: &Arc<Core>, sid: &str, args: Value) -> (String, String) {
             } if tool_use_id == "h1" => Some((n.id, content)),
             _ => None,
         })
+        .last()
         .expect("the call's result")
 }
 
@@ -116,6 +123,9 @@ async fn an_exchange_opened_in_another_place_is_found_from_its_message() {
     let (copy, text) = read_in(&r.core, &other, json!({ "open": said.turn })).await;
     assert!(text.contains(WORD), "{text}");
     finds(&reach(&r.core, &said.node), &copy, &other);
+    // The reply's words are on it too: Theseus's part is a source as the person's is.
+    assert!(text.contains("Noted."), "{text}");
+    finds(&reach(&r.core, &said.reply), &copy, &other);
 }
 
 /// A page of another place: its line holds the person's words, and reach finds it.
@@ -231,4 +241,122 @@ async fn a_retraction_of_the_message_lists_the_history_result() {
     let last = r.requests().pop().expect("a request");
     let sent = serde_json::to_string(&last.messages).unwrap();
     assert!(sent.contains(WORD), "{sent}");
+}
+
+/// A page line that shows a stored account (`did`) carries the opening message's words through it, whatever
+/// the page could read of the message itself (D6 round 5, 1): here the message reads as a tombstone, so the
+/// line's own excerpt of it is empty, and the account still names the heron. The result links the message.
+#[tokio::test]
+async fn a_stored_account_links_the_opening_message_whose_words_were_not_read() {
+    let r = rig();
+    let said = say(&r.core).await;
+    let (_, ask) = r.core.store.get_node(&said.node).unwrap().unwrap();
+    let account = "The owner said the zircon heron nests by the north weir; Theseus noted it.";
+    let d = crate::ladder::did::DidLine {
+        turn_id: said.turn.clone(),
+        session_id: said.session.clone(),
+        line: account.into(),
+        model: "m".into(),
+        writer: crate::ladder::writer::WRITER_VERSION,
+        marks: crate::view::Marks {
+            place: Some(said.place.clone()),
+            audience: crate::view::Audience::Private,
+            author: crate::view::Author::Theseus,
+            outside: false,
+            sealed: false,
+            veiled: false,
+        },
+        cost_usd: 0.0,
+        at_ms: 0,
+    };
+    r.core
+        .store
+        .append(&[
+            ask.erased(theseus_protocol::now_unix_ms(), "a test").record().unwrap(),
+            crate::ladder::did::did_record(&d).unwrap(),
+        ])
+        .unwrap();
+    let other = session(&r.core, Some("channel:lab"));
+    let (copy, text) = read_in(&r.core, &other, json!({ "place": said.place })).await;
+    assert!(text.contains(account), "the account is on the page: {text}");
+    assert!(!text.contains(SAID), "the message's own excerpt is not: {text}");
+    finds(&reach(&r.core, &said.node), &copy, &other);
+    finds(&reach(&r.core, &said.reply), &copy, &other);
+}
+
+/// A session page that fits one long reply keeps its source (the cut words are still its words), and the
+/// page `before` it, read by its continuation, links what it shows.
+#[tokio::test]
+async fn a_fitted_line_and_the_page_before_it_link_what_they_show() {
+    let r = rig();
+    let said = say(&r.core).await;
+    turn(&r.core, &said.session, "LONG, please").await;
+    let long = (r.core.store.session_nodes(&said.session).unwrap().into_iter())
+        .map(|(_, n)| n)
+        .filter(|n| matches!(&n.body, Body::AssistantMessage { .. }))
+        .last()
+        .expect("the long reply")
+        .id;
+    let other = session(&r.core, None);
+    let (first, text) = read_in(&r.core, &other, json!({ "open": said.session })).await;
+    assert!(text.contains("[cut here"), "one long reply, fitted: {text}");
+    assert!(!text.contains(WORD), "{text}");
+    finds(&reach(&r.core, &long), &first, &other);
+    let before: Value = text
+        .split_once("before=")
+        .and_then(|(_, c)| serde_json::from_str(c.trim().trim_end_matches('.')).ok())
+        .unwrap_or_else(|| panic!("a continuation: {text}"));
+    let args = json!({ "open": said.session, "before": before });
+    let (second, text) = read_in(&r.core, &other, args).await;
+    assert!(text.contains(WORD), "the page before it: {text}");
+    finds(&reach(&r.core, &said.node), &second, &other);
+}
+
+/// A words search's page and a time span's page link their lines as a bare page does.
+#[tokio::test]
+async fn a_search_page_and_a_span_page_link_their_lines() {
+    let r = rig();
+    let said = say(&r.core).await;
+    r.core
+        .runner
+        .memory
+        .set_ask(crate::tests_memory_lookup::index_over(&r.core, vec![said.session.clone()]));
+    let other = session(&r.core, Some("channel:lab"));
+    let args = json!({ "place": said.place, "words": WORD });
+    let (found, text) = read_in(&r.core, &other, args).await;
+    assert!(text.contains(WORD), "{text}");
+    finds(&reach(&r.core, &said.node), &found, &other);
+    let args = json!({ "place": said.place, "from": "2020-01-01" });
+    let (spanned, text) = read_in(&r.core, &other, args).await;
+    assert!(text.contains(WORD), "{text}");
+    finds(&reach(&r.core, &said.node), &spanned, &other);
+}
+
+/// A result that shows another person's words is still marked outside text, and links them as well.
+#[tokio::test]
+async fn an_outside_result_keeps_its_mark_and_links_its_source() {
+    let r = rig();
+    let guest = session(&r.core, None);
+    let now = theseus_protocol::now_unix_ms();
+    crate::tests_mcp_history::exchange_said(
+        &r.core,
+        &guest,
+        ("turn_guest_1", now),
+        ("discord:channel:9", "discord:7"),
+        ("does the zircon heron nest here?", "It nests by the north weir."),
+    );
+    let ask = (r.core.store.session_nodes(&guest).unwrap().into_iter())
+        .map(|(_, n)| n)
+        .find(|n| matches!(&n.body, Body::UserMessage { .. }))
+        .expect("the guest's message")
+        .id;
+    let other = session(&r.core, None);
+    let (copy, text) = read_in(&r.core, &other, json!({ "open": "turn_guest_1" })).await;
+    assert!(text.contains(WORD), "{text}");
+    let (_, node) = r.core.store.get_node(&copy).unwrap().unwrap();
+    assert!(
+        matches!(&node.body, Body::ToolResult { external: Some(_), .. }),
+        "the result is marked outside text: {node:?}"
+    );
+    finds(&reach(&r.core, &ask), &copy, &other);
 }
