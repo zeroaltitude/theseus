@@ -1634,15 +1634,26 @@ fn addressed(
         || replied_to == Some(bot_id)
 }
 
-/// The message without the tokens that addressed the bot.
+/// The message without the tokens that addressed the bot, each with the
+/// spaces after it; its lines, indentation and code stay as written.
 fn strip_mentions(content: &str, bot_id: u64, bot_roles: &[u64]) -> String {
-    let mut s = content
-        .replace(&format!("<@{bot_id}>"), "")
-        .replace(&format!("<@!{bot_id}>"), "");
-    for r in bot_roles {
-        s = s.replace(&format!("<@&{r}>"), "");
+    let mut tokens = vec![format!("<@{bot_id}>"), format!("<@!{bot_id}>")];
+    tokens.extend(bot_roles.iter().map(|r| format!("<@&{r}>")));
+    let mut s = content.to_string();
+    for t in &tokens {
+        let (mut out, mut rest) = (String::with_capacity(s.len()), s.as_str());
+        while let Some(i) = rest.find(t.as_str()) {
+            out.push_str(&rest[..i]);
+            rest = rest[i + t.len()..].trim_start_matches([' ', '\t']);
+        }
+        out.push_str(rest);
+        s = out;
     }
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+    // Blank lines before the text go; its first line's indentation stays.
+    let s = s.trim_end();
+    let first = s.len() - s.trim_start().len();
+    let start = s[..first].rfind('\n').map_or(first, |i| i + 1);
+    s[start..].to_string()
 }
 
 fn terminal(state: Option<&str>) -> bool {
