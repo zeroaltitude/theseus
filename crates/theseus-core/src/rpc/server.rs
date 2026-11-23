@@ -248,6 +248,7 @@ impl Core {
                 Message::Response(_) => {}
             }
         }
+        tx.stop_watching();
         drop(closed_tx);
         drop(tx);
         drop(resp_tx);

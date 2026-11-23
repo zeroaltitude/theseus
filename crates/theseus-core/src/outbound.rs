@@ -75,6 +75,8 @@ impl<'a> Note<'a> {
 }
 
 struct Shared {
+    /// EOF forbids late subscriptions but lets accepted acts send answers.
+    watches_closed: AtomicBool,
     /// Queued and not yet written.
     queued: AtomicUsize,
     /// From the first dropped notification until the writer has drained the
@@ -120,6 +122,7 @@ pub fn channel(total: Arc<AtomicU64>) -> (Outbound, Drain) {
 pub fn channel_capped(total: Arc<AtomicU64>, cap: usize) -> (Outbound, Drain) {
     let (tx, rx) = unbounded_channel();
     let shared = Arc::new(Shared {
+        watches_closed: AtomicBool::new(false),
         queued: AtomicUsize::new(0),
         dropping: AtomicBool::new(false),
         lost: Mutex::default(),
@@ -143,6 +146,7 @@ impl From<UnboundedSender<Message>> for Outbound {
         Outbound {
             tx: Tx::Raw(tx),
             shared: Arc::new(Shared {
+                watches_closed: AtomicBool::new(false),
                 queued: AtomicUsize::new(0),
                 dropping: AtomicBool::new(false),
                 lost: Mutex::default(),
@@ -255,6 +259,15 @@ impl Outbound {
         }
         s.total.fetch_add(1, Ordering::Relaxed);
         true
+    }
+
+    /// Before registry cleanup, so a late handler cannot recreate a watch.
+    pub fn stop_watching(&self) {
+        self.shared.watches_closed.store(true, Ordering::Release);
+    }
+
+    pub fn watches_closed(&self) -> bool {
+        self.shared.watches_closed.load(Ordering::Acquire) || self.is_closed()
     }
 
     pub fn is_closed(&self) -> bool {

@@ -179,10 +179,14 @@ impl Narrator {
             return None;
         }
         let mut s = self.state.lock().unwrap();
+        let tx = tx.into();
+        if tx.watches_closed() {
+            return None;
+        }
         s.subs.retain(|sub| sub.conn != conn);
         s.subs.push(Sub {
             conn: conn.to_string(),
-            tx: tx.into(),
+            tx,
             sessions: sessions.iter().cloned().collect(),
         });
         if sessions.is_empty() {
@@ -451,6 +455,17 @@ mod tests {
 
     fn say(n: &Narrator, text: &str) {
         narrate!(n, Turn, Some("ses_1"), None, "{text}");
+    }
+
+    #[test]
+    fn closed_connections_cannot_register_narration_after_cleanup() {
+        let n = Narrator::new(true);
+        let (tx, _rx) = crate::outbound::channel(std::sync::Arc::default());
+        n.watch("conn", tx.clone()).unwrap();
+        tx.stop_watching();
+        n.unwatch("conn");
+        assert!(n.watch("conn", tx).is_none());
+        assert!(n.state.lock().unwrap().subs.is_empty());
     }
 
     #[test]
