@@ -8,8 +8,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use theseus_protocol::method::TASK_NOT_THIS;
 use theseus_protocol::{error_code, method, Id, Message, Request, Response};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 
 use super::Core;
 use crate::approval::{Answerer, Client, Surface};
@@ -140,7 +140,7 @@ impl Core {
     pub async fn serve_connection<R, W>(
         self: Arc<Self>,
         reader: R,
-        mut writer: W,
+        writer: W,
         client: Client,
     ) -> Result<()>
     where
@@ -161,52 +161,41 @@ impl Core {
             .load(std::sync::atomic::Ordering::Relaxed);
         #[cfg(not(test))]
         let cap = crate::outbound::BACKLOG_CAP;
-        let (tx, mut rx) = crate::outbound::channel_capped(self.push.lost.clone(), cap);
+        let (tx, rx) = crate::outbound::channel_capped(self.push.lost.clone(), cap);
         let resp_tx = tx.clone();
         // Asks to be told once everything queued before the ask is written
         // (theseus-ur0): a stop's answer, before the serving loops wake.
-        let (flush_tx, mut flush_rx) = mpsc::unbounded_channel::<oneshot::Sender<()>>();
+        let (flush_tx, flush_rx) = mpsc::unbounded_channel::<oneshot::Sender<()>>();
         // Dropped when the reader ends: a parked `session.wait` ends with it.
         let (closed_tx, closed_rx) = watch::channel(());
 
-        let core = self.clone();
-        let writer_task = tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    biased;
-                    m = rx.recv() => match m {
-                        Some(m) => {
-                            if !write_one(&core, &mut writer, &mut rx, &m).await {
-                                break;
-                            }
-                        }
-                        None => break,
-                    },
-                    Some(ack) = flush_rx.recv() => {
-                        // An ask is sent after what it waits for was queued,
-                        // so all of that can be taken now.
-                        let mut open = true;
-                        while let Some(m) = rx.try_recv() {
-                            open = write_one(&core, &mut writer, &mut rx, &m).await;
-                            if !open {
-                                break;
-                            }
-                        }
-                        let _ = ack.send(());
-                        if !open {
-                            break;
-                        }
-                    }
-                }
-            }
-            let _ = writer.shutdown().await;
-        });
+        let writer_task = tokio::spawn(write_connection(
+            self.clone(),
+            writer,
+            rx,
+            flush_rx,
+            tx.closed_signal(),
+        ));
 
         // The ordered lane (theseus-klo2): what changes a session applies in
         // the order it arrived.
         let lane = Arc::new(super::ordered::Lane::default());
-        let mut lines = BufReader::new(reader).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
+        let requests = Admission::new();
+        let mut reader = BufReader::new(reader);
+        let mut reader_closed = tx.closed_signal();
+        loop {
+            let next = tokio::select! {
+                _ = connection_closed(&mut reader_closed) => break,
+                line = request_line(&mut reader) => line,
+            };
+            let line = match next {
+                Ok(Some(line)) => line,
+                Ok(None) => break,
+                Err(_) => {
+                    tx.close();
+                    break;
+                }
+            };
             let line = line.trim().to_string();
             if line.is_empty() {
                 continue;
@@ -224,6 +213,14 @@ impl Core {
             };
             match msg {
                 Message::Request(req) => {
+                    let Some(permit) = requests.take(&req.method) else {
+                        resp_tx.respond(Message::Response(Response::err(
+                            req.id,
+                            error_code::LIMIT,
+                            "too many requests in flight on this connection",
+                        )));
+                        continue;
+                    };
                     let core = self.clone();
                     let tx = tx.clone();
                     let resp_tx = resp_tx.clone();
@@ -234,6 +231,7 @@ impl Core {
                     // Entered here, in its arrival order (theseus-klo2).
                     let ticket = lane.ticket_for(&req.method);
                     tokio::spawn(async move {
+                        let _permit = permit;
                         let resp = core.handle_in_lane(ticket, req, tx, &link, &closed).await;
                         let stopping = shutdown && resp.error.is_none();
                         resp_tx.respond(Message::Response(resp));
@@ -470,6 +468,122 @@ impl Core {
     }
 }
 
+/// One writer owns draining and byte-accounting; forced closure also
+/// interrupts an in-progress socket write to a peer that stopped reading.
+async fn write_connection<W: AsyncWrite + Unpin>(
+    core: Arc<Core>,
+    mut writer: W,
+    mut rx: Drain,
+    mut flush_rx: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
+    mut closed: watch::Receiver<bool>,
+) {
+    let writing = async {
+        loop {
+            tokio::select! {
+                biased;
+                m = rx.recv() => match m {
+                    Some(m) => {
+                        if !write_one(&core, &mut writer, &mut rx, &m).await {
+                            break;
+                        }
+                    }
+                    None => break,
+                },
+                Some(ack) = flush_rx.recv() => {
+                    // An ask is sent after what it waits for was queued,
+                    // so all of that can be taken now.
+                    let mut open = true;
+                    while let Some(m) = rx.try_recv() {
+                        open = write_one(&core, &mut writer, &mut rx, &m).await;
+                        if !open {
+                            break;
+                        }
+                    }
+                    let _ = ack.send(());
+                    if !open {
+                        break;
+                    }
+                }
+            }
+        }
+    };
+    tokio::select! {
+        _ = connection_closed(&mut closed) => {},
+        _ = writing => {},
+    }
+    drop(rx);
+    let _ = tokio::time::timeout(ANSWER_FLUSH, writer.shutdown()).await;
+}
+
+const LINE_CAP: usize = 1024 * 1024;
+const REQUEST_CAP: usize = 64;
+const CONTROL_CAP: usize = 8;
+
+struct Admission {
+    requests: Arc<Semaphore>,
+    controls: Arc<Semaphore>,
+}
+
+impl Admission {
+    fn new() -> Self {
+        Self {
+            requests: Arc::new(Semaphore::new(REQUEST_CAP)),
+            controls: Arc::new(Semaphore::new(CONTROL_CAP)),
+        }
+    }
+
+    fn take(&self, method: &str) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        let control = matches!(
+            method,
+            method::SHUTDOWN
+                | method::EXECUTION_STOP
+                | method::EXECUTION_CANCEL
+                | method::TASK_CANCEL
+                | method::TASK_PAUSE
+                | method::TASK_NOT_THIS
+                | method::JOB_STOP
+                | method::WORK_ANSWER
+                | method::ACTION_CONFIRM
+                | method::CARD_ANSWER
+        );
+        let slots = if control {
+            &self.controls
+        } else {
+            &self.requests
+        };
+        slots.clone().try_acquire_owned().ok()
+    }
+}
+
+/// Take reads at most one bounded line, even if the peer never sends a newline.
+async fn request_line<R: AsyncRead + Unpin>(
+    reader: &mut BufReader<R>,
+) -> std::io::Result<Option<String>> {
+    let mut bytes = Vec::new();
+    let n = reader
+        .take((LINE_CAP + 1) as u64)
+        .read_until(b'\n', &mut bytes)
+        .await?;
+    if n > LINE_CAP {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "request line exceeds the connection limit",
+        ));
+    }
+    if n == 0 {
+        return Ok(None);
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+async fn connection_closed(closed: &mut watch::Receiver<bool>) {
+    if !*closed.borrow() {
+        let _ = closed.changed().await;
+    }
+}
+
 /// The longest a client's `shutdown` waits for its answer to be written
 /// before the serving loops wake (theseus-ur0). A write takes microseconds;
 /// the bound is for a client that stopped reading.
@@ -613,4 +727,46 @@ pub(super) fn route<P: DeserializeOwned, R: Serialize>(
 /// A method's result, serialized.
 pub(super) fn reply<R: Serialize>(r: R) -> Result<Value, RpcFailure> {
     Ok(serde_json::to_value(r).unwrap())
+}
+
+#[cfg(test)]
+mod connection_limits {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_request_without_a_newline_cannot_grow_past_the_cap() {
+        let bytes = vec![b'x'; LINE_CAP + 100];
+        let mut reader = BufReader::new(bytes.as_slice());
+        assert_eq!(
+            request_line(&mut reader).await.unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        let mut reader = BufReader::new(&b"one\ntwo\n"[..]);
+        assert_eq!(
+            request_line(&mut reader).await.unwrap(),
+            Some("one\n".into())
+        );
+        assert_eq!(
+            request_line(&mut reader).await.unwrap(),
+            Some("two\n".into())
+        );
+        assert!(request_line(&mut reader).await.unwrap().is_none());
+    }
+
+    #[test]
+    fn request_admission_is_bounded_and_keeps_control_capacity() {
+        let admission = Admission::new();
+        let holds: Vec<_> = (0..REQUEST_CAP)
+            .map(|_| admission.take(method::SESSION_WAIT).unwrap())
+            .collect();
+        assert!(admission.take(method::SESSION_WAIT).is_none());
+        let controls: Vec<_> = (0..CONTROL_CAP)
+            .map(|_| admission.take(method::WORK_ANSWER).unwrap())
+            .collect();
+        assert!(admission.take(method::SHUTDOWN).is_none());
+        drop(controls);
+        assert!(admission.take(method::SHUTDOWN).is_some());
+        drop(holds);
+        assert!(admission.take(method::SESSION_WAIT).is_some());
+    }
 }
