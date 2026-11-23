@@ -122,7 +122,7 @@ mod tests {
             t.iter().map(|(p, n)| (*p, n.id.clone())).collect()
         };
         let scanned = || store.kept_scanned();
-        let first = store.for_turn().transcript("ses_k").unwrap();
+        let first = store.for_turn("ses_k").transcript("ses_k").unwrap();
         assert_eq!(scanned(), 5);
         assert_eq!(ids(&first), want);
         let _: &Node = &first[0].1;
@@ -136,7 +136,7 @@ mod tests {
             let p = store.append(&[n.record().unwrap()]).unwrap()[0];
             want.push((p, n.id));
         }
-        let second = store.for_turn().transcript("ses_k").unwrap();
+        let second = store.for_turn("ses_k").transcript("ses_k").unwrap();
         assert_eq!(ids(&second), want);
         assert_eq!(
             scanned(),

@@ -1206,7 +1206,7 @@ impl TurnRunner {
             admit_us,
             queued: _slot.queued(),
         };
-        let store = self.store.for_turn();
+        let store = self.store.for_turn(&req.session.session_id);
         store.count_frames(admission_frames + (frames_written_here() - f0));
         let frames = Frames {
             // The results this turn settles for its execution are its own:

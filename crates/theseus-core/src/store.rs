@@ -27,11 +27,13 @@
 //! the call that wrote it returns. A crash can lose rows still waiting, and
 //! the frames whose sync had not landed (theseus-7yhp).
 //!
-//! The handle also keeps the turn's view of its session's transcript
+//! The handle also keeps the turn's view of its own session's transcript
 //! (`transcript`): read once, at the turn's first reader, then extended with
 //! every node the turn's frames write, so a turn decodes it once, not once
 //! per reader and per loop (theseus-qa0). Nodes never change, so the view
-//! stays exact.
+//! stays exact. Only its own: another session's nodes are written by other
+//! turns, whose frames never reach this handle, so another session is read
+//! from the store at each call and never takes the own session's place.
 //!
 //! A session's record has more than one writer: its turns, a
 //! `session.recompile`, and a task's end. Each change is a read, a change,
@@ -449,11 +451,13 @@ impl Pending {
 /// What a turn's handle keeps (theseus-qa0).
 #[derive(Default)]
 struct TurnState {
+    /// The turn's own session: the one session its transcript is kept for.
+    session: String,
     /// Rows that are no state transition, waiting for the turn's next frame,
     /// and the turn's session record at its end (`defer_session`).
     waiting: Mutex<Vec<NewRecord>>,
-    /// The session's transcript as the turn knows it, once a reader asked.
-    transcript: Mutex<Option<(String, Transcript)>>,
+    /// The own session's transcript as the turn knows it, once a reader asked.
+    transcript: Mutex<Option<Transcript>>,
     /// The frames the turn has written (theseus-wz4y): each this handle
     /// committed, and those its admission wrote before the handle existed
     /// (`count_frames`).
@@ -524,9 +528,10 @@ impl TurnState {
     /// the store.
     fn wrote(&self, records: &[NewRecord], positions: &[u64], cache: &NodeCache) {
         let mut t = self.transcript.lock().unwrap();
-        let Some((session, _)) = t.as_ref() else {
+        if t.is_none() {
             return;
-        };
+        }
+        let session = self.session.as_str();
         let new: Result<Transcript> = records
             .iter()
             .zip(positions)
@@ -537,7 +542,7 @@ impl TurnState {
             })
             .collect();
         match (new, t.as_mut()) {
-            (Ok(new), Some((_, nodes))) => {
+            (Ok(new), Some(nodes)) => {
                 for (p, n) in new {
                     // Nearly always at the end: then this is a push.
                     let at = nodes.partition_point(|(q, _)| *q < p);
@@ -701,16 +706,20 @@ impl Store {
         })
     }
 
-    /// A handle for one turn: the same store, with the turn's own waiting
-    /// rows and transcript (theseus-qa0).
-    pub fn for_turn(&self) -> Store {
+    /// A handle for one turn of `session`: the same store, with the turn's own
+    /// waiting rows and its session's transcript (theseus-qa0).
+    pub fn for_turn(&self, session: &str) -> Store {
         #[cfg(test)]
         let state = TurnState {
+            session: session.to_string(),
             faults: self.faults.clone(),
             ..TurnState::default()
         };
         #[cfg(not(test))]
-        let state = TurnState::default();
+        let state = TurnState {
+            session: session.to_string(),
+            ..TurnState::default()
+        };
         Store {
             turn: Some(Arc::new(state)),
             ..self.clone()
@@ -1272,9 +1281,10 @@ impl Store {
         self.commit(records)
     }
 
-    /// A session's transcript. On a turn's handle it is read at the first
-    /// call and kept: every node the turn's frames write joins it, so the
-    /// turn reads it once (theseus-qa0). Elsewhere it is read now.
+    /// A session's transcript. On a turn's handle its own session's is read at
+    /// the first call and kept: every node the turn's frames write joins it, so
+    /// the turn reads it once (theseus-qa0). Another session, and any session
+    /// off a turn's handle, is read now: its nodes are other turns' to write.
     pub fn transcript(&self, session_id: &str) -> Result<Transcript> {
         let read = || -> Result<Transcript> {
             #[cfg(test)]
@@ -1282,19 +1292,15 @@ impl Store {
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.scan_kept(session_id)
         };
-        let Some(turn) = &self.turn else {
+        let Some(turn) = self.turn.as_ref().filter(|t| t.session == session_id) else {
             return read();
         };
         let mut t = turn.transcript.lock().unwrap();
-        let kept = t
-            .as_ref()
-            .filter(|(s, _)| s == session_id)
-            .map(|(_, nodes)| nodes.clone());
-        let nodes = match kept {
-            Some(nodes) => nodes,
+        let nodes = match t.as_ref() {
+            Some(nodes) => nodes.clone(),
             None => {
                 let nodes = read()?;
-                *t = Some((session_id.to_string(), nodes.clone()));
+                *t = Some(nodes.clone());
                 nodes
             }
         };
@@ -1583,7 +1589,7 @@ pub(crate) mod tests {
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(d.path()).unwrap();
         let frames = |s: &Store| s.stats().unwrap().frames_appended;
-        let t = store.for_turn();
+        let t = store.for_turn("ses_t");
         let (f0, p0) = (frames(&store), store.last_position());
         t.defer(row("turn.started")).unwrap();
         t.defer(row("context.compiled")).unwrap();
@@ -1654,7 +1660,7 @@ pub(crate) mod tests {
             "and nothing in the log or the index: a crash here loses them"
         );
         // The turn's next frame carries them, in front of its own rows.
-        let t = store.for_turn();
+        let t = store.for_turn("ses_t");
         t.defer(row("turn.started")).unwrap();
         t.put_session("ses_t", &serde_json::json!({"n": 1}))
             .unwrap();
@@ -1776,7 +1782,7 @@ pub(crate) mod tests {
         };
         let n1 = node("ses_t", "one");
         let p1 = store.append(&[n1.record().unwrap()]).unwrap()[0];
-        let t = store.for_turn();
+        let t = store.for_turn("ses_t");
         let r0 = store.transcript_reads();
         assert_eq!(ids(&t.transcript("ses_t").unwrap()), [(p1, n1.id.clone())]);
         let (n2, n3, other) = (
@@ -1793,14 +1799,14 @@ pub(crate) mod tests {
         assert_eq!(kept[2].1.body, n3.body, "decoded from the bytes written");
         assert_eq!(store.transcript_reads() - r0, 1, "read once");
         // Another turn reads its own.
-        assert_eq!(store.for_turn().transcript("ses_t").unwrap().len(), 3);
+        assert_eq!(store.for_turn("ses_t").transcript("ses_t").unwrap().len(), 3);
         assert_eq!(store.transcript_reads() - r0, 2);
         // A node written through another handle does not join the kept one.
         store
             .append(&[node("ses_t", "four").record().unwrap()])
             .unwrap();
         let held = t.turn.as_ref().unwrap().transcript.lock().unwrap();
-        assert_eq!(held.as_ref().unwrap().1.len(), 3);
+        assert_eq!(held.as_ref().unwrap().len(), 3);
     }
 
     /// Two frames committed at once can return in the other order than their
@@ -1811,7 +1817,7 @@ pub(crate) mod tests {
     fn nodes_join_the_kept_transcript_at_their_positions() {
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(d.path()).unwrap();
-        let t = store.for_turn();
+        let t = store.for_turn("ses_t");
         let node = |text: &str| Node::user("ses_t", None, "op", text);
         let first = node("first");
         let p0 = t.append(&[first.record().unwrap()]).unwrap()[0];
@@ -1840,7 +1846,7 @@ pub(crate) mod tests {
     fn another_sessions_transcript_is_read_fresh_on_a_turns_handle() {
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(d.path()).unwrap();
-        let (x, y) = (store.for_turn(), store.for_turn());
+        let (x, y) = (store.for_turn("ses_x"), store.for_turn("ses_y"));
         let node = |text: &str| Node::user("ses_y", None, "op", text);
         let one = node("one");
         let p1 = y.append(&[one.record().unwrap()]).unwrap()[0];
@@ -1865,7 +1871,7 @@ pub(crate) mod tests {
         store
             .append(&[Node::user("ses_y", None, "op", "y").record().unwrap()])
             .unwrap();
-        let x = store.for_turn();
+        let x = store.for_turn("ses_x");
         let r0 = store.transcript_reads();
         assert_eq!(x.transcript("ses_x").unwrap().len(), 1);
         assert_eq!(store.transcript_reads() - r0, 1);
@@ -1884,7 +1890,7 @@ pub(crate) mod tests {
     fn flush_writes_what_waits_and_a_failed_frame_keeps_its_rows() {
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(d.path()).unwrap();
-        let t = store.for_turn();
+        let t = store.for_turn("ses_t");
         let f0 = store.stats().unwrap().frames_appended;
         t.flush().unwrap();
         assert_eq!(store.stats().unwrap().frames_appended, f0, "nothing waits");
@@ -1926,7 +1932,7 @@ pub(crate) mod tests {
             page_window: Default::default(),
             scope_fault: Default::default(),
         }
-        .for_turn();
+        .for_turn("ses_t");
         small.put_meta("a", &1).unwrap();
         small.defer(row("loop.ended")).unwrap();
         let big = "x".repeat(1000);
