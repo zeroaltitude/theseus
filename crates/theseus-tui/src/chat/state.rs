@@ -77,6 +77,7 @@ pub enum Purpose {
     /// The turns above the replay, for `/history`.
     Earlier(String),
     History(String),
+    Recover(String, u64),
     Watch,
     Submit(String),
     Answer,
@@ -213,6 +214,8 @@ pub struct Chat {
     /// A queued message was sent and its turn has not begun.
     pub(super) released: bool,
     pub offline: bool,
+    pub(super) recovery_epoch: u64,
+    pub(super) recovering: HashSet<String>,
     /// Tasks this session started that are open, from the task changes seen
     /// since the chat began (cli-tasks brings the board's own count).
     pub tasks: u32,
@@ -306,6 +309,8 @@ impl Chat {
             queued: Vec::new(),
             released: false,
             offline: false,
+            recovery_epoch: 0,
+            recovering: HashSet::new(),
             tasks: 0,
             task_open: Default::default(),
             board: Default::default(),
@@ -401,6 +406,10 @@ impl Chat {
             if main != sid {
                 out.push(Self::watch_session(&main));
             }
+            out.extend(self.recover_session(&sid));
+            if main != sid {
+                out.extend(self.recover_session(&main));
+            }
             out.extend(self.reconnect_call(away));
             return out;
         }
@@ -439,7 +448,14 @@ impl Chat {
     }
 
     pub fn disconnected(&mut self) {
+        self.recovery_epoch = self.recovery_epoch.wrapping_add(1);
         self.at_lost();
+        if let Some(sid) = self.session.clone() {
+            self.recovering.insert(sid);
+        }
+        if let Some(sid) = self.main_session() {
+            self.recovering.insert(sid);
+        }
         // The four /why answers die with the connection's pending calls.
         self.why = None;
         if !self.offline {

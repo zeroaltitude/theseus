@@ -31,6 +31,7 @@ mod keys;
 mod live;
 mod picker;
 mod queue;
+mod reconcile;
 mod render_seam;
 mod reopen;
 mod rewind;

@@ -683,7 +683,7 @@ impl Chat {
                     .live
                     .turn
                     .as_ref()
-                    .is_some_and(|t| t.id == r.turn_id)
+                    .is_some_and(|t| t.id == r.turn_id || t.id.is_empty())
                 {
                     v.main.live.turn = None;
                 }
@@ -714,6 +714,25 @@ impl Chat {
             }
             _ => {}
         }
+    }
+
+    pub(super) fn recovered_away(
+        &mut self,
+        sid: &str,
+        h: &theseus_protocol::SessionHistoryResult,
+        running: bool,
+    ) {
+        let Some(v) = self
+            .view
+            .as_mut()
+            .filter(|v| v.main.session.as_deref() == Some(sid))
+        else {
+            return;
+        };
+        v.main.live = super::reconcile::live(running, self.now_ms);
+        v.main.released = false;
+        v.main.question = h.pending_confirms.first().cloned();
+        v.main.cost = h.session.cost_usd;
     }
 
     pub(super) fn submitted_away(&mut self, sid: &str, result: Result<Value, RpcError>) {

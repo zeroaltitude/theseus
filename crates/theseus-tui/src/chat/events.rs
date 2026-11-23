@@ -24,6 +24,11 @@ impl Chat {
 
     /// An answer to one of the chat's requests.
     pub fn answered(&mut self, purpose: Purpose, result: Result<Value, RpcError>) -> Vec<Effect> {
+        if let Purpose::Recover(sid, epoch) = &purpose {
+            let mut effects = self.recovered(sid, *epoch, result);
+            effects.extend(self.release_queue());
+            return effects;
+        }
         if let Purpose::Submit(sid) = &purpose {
             if !self.ours(sid) {
                 self.submitted_away(sid, result);
@@ -129,6 +134,7 @@ impl Chat {
             // (`why_got`): these two arms never run. A re-route of either through
             // here must call its handler, not do nothing.
             Purpose::Watch
+            | Purpose::Recover(..)
             | Purpose::Answer
             | Purpose::Typing
             | Purpose::Why(_)
@@ -153,7 +159,11 @@ impl Chat {
             // An older daemon has no digest, and the chat says nothing of it.
             // `AtRoots` and `Why` never arrive here (`answered` takes them first);
             // if one is re-routed, `why_got`'s Err path must run instead.
-            Purpose::Typing | Purpose::Welcome | Purpose::AtRoots | Purpose::Why(_) => Vec::new(),
+            Purpose::Typing
+            | Purpose::Welcome
+            | Purpose::AtRoots
+            | Purpose::Why(_)
+            | Purpose::Recover(..) => Vec::new(),
             Purpose::Health => {
                 self.banner_ready();
                 Vec::new()
@@ -307,7 +317,7 @@ impl Chat {
     /// A resumed conversation's recent turns, then what waits on you: the
     /// last [`REPLAY_TURNS`] turns through the transcript's own lines, the
     /// older ones one line that says how many (theseus-6yka).
-    fn history(&mut self, sid: &str, h: &SessionHistoryResult) {
+    pub(super) fn history(&mut self, sid: &str, h: &SessionHistoryResult) {
         self.print_banner();
         let (from, folded) = super::reopen::window(h, super::reopen::REPLAY_TURNS);
         self.note_last_turn(sid, h.nodes.iter().rev().find_map(|n| n.turn_id.clone()));
@@ -427,6 +437,7 @@ impl Chat {
             Ok(None) | Err(_) => return Vec::new(),
         };
         let mut effects = Vec::new();
+        self.recovery_changed(&event);
         self.note_away(&event);
         match event {
             Event::TurnStarted(t) if self.ours(&t.session_id) => {
@@ -500,12 +511,10 @@ impl Chat {
                 self.turn_failed(&f);
             }
             Event::TurnEnded(r) if self.ours(&r.session_id) => {
+                self.released = false;
                 self.turn_ended(&r);
             }
-            Event::EventsLost(_) => self.say_plain(
-                Sty::Yellow,
-                "(some updates were missed; the daemon has the whole record)",
-            ),
+            Event::EventsLost(lost) => effects = self.recover_lost(&lost),
             _ => {}
         }
         effects
@@ -673,6 +682,7 @@ impl Chat {
         };
         self.say_answers_ended(f.turn_id.as_deref(), ended);
         self.live.turn = None;
+        self.released = false;
         let class = f
             .class
             .as_deref()
@@ -720,7 +730,12 @@ impl Chat {
             self.ended.clear();
             self.ended.insert(r.turn_id.clone());
         }
-        if self.live.turn.as_ref().is_some_and(|t| t.id == r.turn_id) {
+        if self
+            .live
+            .turn
+            .as_ref()
+            .is_some_and(|t| t.id == r.turn_id || t.id.is_empty())
+        {
             self.live.turn = None;
         }
         // The loops' answers were told as they ended; a turn told nothing

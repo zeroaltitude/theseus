@@ -762,3 +762,74 @@ fn a_submit_answer_while_away_updates_main_not_the_task() {
     assert_eq!(chat.cost, 1.0);
     assert!(!chat.must_queue());
 }
+
+#[test]
+fn reconnect_reconciles_missed_turn_end_before_releasing_the_queue() {
+    use super::state::{Chat, Effect};
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    chat.released = true;
+    chat.editor.insert_str("next line");
+    chat.submit();
+    chat.disconnected();
+    let effects = chat.connected(T0 + 1000);
+    let purpose = effects
+        .into_iter()
+        .find_map(|e| match e {
+            Effect::Call(c) if c.method == "session.history" => Some(c.purpose),
+            _ => None,
+        })
+        .expect("reconnect must read authoritative turn state and missed history");
+    let sent = chat.answered(purpose, Ok(json!({
+        "session": {"session_id": SID, "kind": "conversation", "label": null, "created_at_unix_ms": T0, "turns": 1},
+        "nodes": [node(SID, 10, "assistant_message", "the answer while offline", "trn_old")],
+        "pending_confirms": [], "turn_running": false
+    })));
+    assert!(sent.iter().any(|e| matches!(e, Effect::Call(c) if c.method == "turn.submit" && c.params["input"] == "next line")), "queued line was not released");
+    assert!(chat.live.turn.is_none());
+}
+
+#[test]
+fn recovery_cannot_overwrite_a_newer_live_event_or_resend_uncertain_input() {
+    use super::state::{Chat, Effect};
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    chat.released = true; // the old submit may already have reached the daemon
+    chat.disconnected();
+    let purpose = chat
+        .connected(T0 + 1000)
+        .into_iter()
+        .find_map(|e| match e {
+            Effect::Call(c) if c.method == "session.history" => Some(c.purpose),
+            _ => None,
+        })
+        .unwrap();
+    chat.notified(
+        "turn.started",
+        &json!({"session_id": SID, "turn_id": "trn_new", "profile": "", "input": ""}),
+    );
+    let stale = json!({"session": {"session_id": SID, "kind": "conversation", "label": null, "created_at_unix_ms": T0, "turns": 1}, "nodes": [], "pending_confirms": [], "turn_running": false});
+    let again = chat.answered(purpose, Ok(stale));
+    assert!(
+        chat.live.turn.is_some(),
+        "the stale idle snapshot cleared a newer turn"
+    );
+    assert!(again
+        .iter()
+        .any(|e| matches!(e, Effect::Call(c) if c.method == "session.history")));
+    assert!(
+        !again
+            .iter()
+            .any(|e| matches!(e, Effect::Call(c) if c.method == "turn.submit")),
+        "uncertain input was resent"
+    );
+    let lost = chat.notified(
+        "events.lost",
+        &json!({"dropped": 1, "streams": [format!("session:{SID}")]}),
+    );
+    assert!(lost
+        .iter()
+        .any(|e| matches!(e, Effect::Call(c) if c.method == "session.history")));
+}

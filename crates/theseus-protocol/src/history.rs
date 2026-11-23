@@ -32,6 +32,10 @@ pub struct SessionHistoryParams {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SessionHistoryResult {
     pub session: SessionInfo,
+    /// A turn holds the session's execution now; absent from older daemons.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub turn_running: Option<bool>,
     pub nodes: Vec<NodeInfo>,
     /// Actions waiting for the operator's confirmation in this session.
     #[serde(default)]

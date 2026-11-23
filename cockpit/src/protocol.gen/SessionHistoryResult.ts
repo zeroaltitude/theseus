@@ -4,7 +4,11 @@ import type { ConfirmRequest } from "./ConfirmRequest";
 import type { NodeInfo } from "./NodeInfo";
 import type { SessionInfo } from "./SessionInfo";
 
-export type SessionHistoryResult = { session: SessionInfo, nodes: Array<NodeInfo>, 
+export type SessionHistoryResult = { session: SessionInfo, 
+/**
+ * A turn holds the session's execution now; absent from older daemons.
+ */
+turn_running?: boolean, nodes: Array<NodeInfo>, 
 /**
  * Actions waiting for the operator's confirmation in this session.
  */

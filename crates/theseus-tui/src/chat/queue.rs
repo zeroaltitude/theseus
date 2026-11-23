@@ -18,7 +18,12 @@ impl Chat {
     /// Whether a message typed now waits: a turn runs, or the last queued
     /// message has been sent and its turn has not begun.
     pub(super) fn must_queue(&self) -> bool {
-        self.live.turn.is_some() || self.released
+        self.live.turn.is_some()
+            || self.released
+            || self
+                .session
+                .as_ref()
+                .is_some_and(|s| self.recovering.contains(s))
     }
 
     /// Hold `text` for the turn's end.
@@ -57,7 +62,7 @@ impl Chat {
 
     /// The turn is over: the first queued message goes as a turn of its own.
     pub(super) fn release_queue(&mut self) -> Vec<Effect> {
-        if self.live.turn.is_some() || self.released || self.queued.is_empty() {
+        if self.must_queue() || self.queued.is_empty() {
             return Vec::new();
         }
         let Some(sid) = self.session.clone() else {

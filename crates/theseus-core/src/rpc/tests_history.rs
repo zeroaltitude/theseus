@@ -311,3 +311,36 @@ async fn a_pending_confirms_card_is_on_every_page() {
         "no page read it whole"
     );
 }
+
+#[tokio::test]
+async fn history_reports_a_held_turn_and_its_release() {
+    let core = test_core("ok");
+    let sid = open(&core);
+    assert_eq!(
+        history(&core, &sid, Some(1), None, None).turn_running,
+        Some(false)
+    );
+    let mut rec = core.session(&sid).unwrap();
+    let e = core
+        .kernel
+        .open_execution(
+            &sid,
+            SessionKind::Conversation,
+            theseus_kernel::Authority::default(),
+            None,
+            None,
+        )
+        .unwrap();
+    rec.execution_id = Some(e.id.clone());
+    core.store.put_session(&sid, &rec).unwrap();
+    let held = core.kernel.hold_turn(&e.id).unwrap();
+    assert_eq!(
+        history(&core, &sid, Some(1), None, None).turn_running,
+        Some(true)
+    );
+    drop(held);
+    assert_eq!(
+        history(&core, &sid, Some(1), None, None).turn_running,
+        Some(false)
+    );
+}
