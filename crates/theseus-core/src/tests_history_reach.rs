@@ -81,7 +81,8 @@ async fn say(core: &Arc<Core>) -> Said {
 async fn read_in(core: &Arc<Core>, sid: &str, args: Value) -> (String, String) {
     turn(core, sid, &format!("CALL {args}")).await;
     (core.store.session_nodes(sid).unwrap().into_iter())
-        .filter_map(|(_, n)| match n.body {
+        .rev()
+        .find_map(|(_, n)| match n.body {
             Body::ToolResult {
                 tool_use_id,
                 content,
@@ -89,7 +90,6 @@ async fn read_in(core: &Arc<Core>, sid: &str, args: Value) -> (String, String) {
             } if tool_use_id == "h1" => Some((n.id, content)),
             _ => None,
         })
-        .last()
         .expect("the call's result")
 }
 
@@ -302,9 +302,9 @@ async fn a_fitted_line_and_the_page_before_it_link_what_they_show() {
         .session_nodes(&said.session)
         .unwrap()
         .into_iter())
+    .rev()
     .map(|(_, n)| n)
-    .filter(|n| matches!(&n.body, Body::AssistantMessage { .. }))
-    .last()
+    .find(|n| matches!(&n.body, Body::AssistantMessage { .. }))
     .expect("the long reply")
     .id;
     let other = session(&r.core, None);
