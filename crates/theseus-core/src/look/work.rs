@@ -158,13 +158,13 @@ pub(super) fn schema() -> Value {
 }
 
 /// The words for each part asked for: Theseus's whole work, this conversation's first, and its own
-/// messages (`session`'s); and the messages the history part shows (what the result copies, `copies`), each
-/// with where its words are in the answer ([`assemble`]).
+/// messages (`session`'s); and the messages the history part shows (what the result copies, `copies`): those
+/// some of whose words its own cuts leave in the answer ([`assemble`]).
 pub(super) async fn words(
     core: &std::sync::Arc<Core>,
     who: &Caller<'_>,
     ask: &Ask,
-) -> Result<(String, Vec<Shown>), String> {
+) -> Result<(String, Vec<String>), String> {
     let session = who.session;
     let r = reader::Reader::new(core, session);
     let mut parts = Vec::new();
@@ -220,7 +220,8 @@ pub(super) async fn words(
             );
         }
     }
-    Ok(assemble(parts))
+    let (said, shown) = assemble(parts);
+    Ok((said, shown.into_iter().map(|(id, _, _)| id).collect()))
 }
 
 /// A message a part shows: its node id, and where its words are, in characters, `from` to `to`.

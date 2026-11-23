@@ -383,11 +383,12 @@ async fn an_outside_result_keeps_its_mark_and_links_its_source() {
     finds(&reach(&r.core, &ask), &copy, &other);
 }
 
-/// **The runtime's cap decides a page's copies** (D6 round 6). A page of eight long lines, read with `[tools]
-/// result_max_chars` under its size, is cut again, head and tail, after the tool gave its sources: a line that
-/// cut leaves out is no copy of its message; a line it keeps is.
+/// **A runtime cut never loses a page's link; it can keep one to words it cut** (D6 round 7, the named limit).
+/// A page of eight long lines, read with `[tools] result_max_chars` under its size, is cut again, head and tail,
+/// after the tool gave its sources. Every message the page showed stays linked: those whose words survive in the
+/// head and in the tail, and those the runtime cut left out (the limit).
 #[tokio::test]
-async fn a_page_line_the_runtime_cap_leaves_out_is_no_copy() {
+async fn a_runtime_cut_keeps_every_link_the_page_gave_even_to_words_it_cut() {
     let r = rig_scripted(|c| c.tools.result_max_chars = 2_000, script);
     let said = session(&r.core, None);
     // Each message's words are its own: any of them on the page shows some of it.
@@ -412,27 +413,30 @@ async fn a_page_line_the_runtime_cap_leaves_out_is_no_copy() {
         .place;
     let other = session(&r.core, Some("channel:lab"));
     let (copy, text) = read_in(&r.core, &other, json!({ "place": place })).await;
-    assert!(text.contains("not shown"), "the cap cut it: {text}");
-    let (shown, cut): (Vec<_>, Vec<_>) =
-        (messages.iter()).partition(|(k, _, _)| text.contains(&tag(*k)));
+    let cut = text.find("not shown").expect("the runtime cap cut it");
+    let at = |k: usize| text.find(&tag(k));
+    let head = (messages.iter())
+        .filter(|(k, _, _)| at(*k).is_some_and(|p| p < cut))
+        .count();
+    let tail = (messages.iter())
+        .filter(|(k, _, _)| at(*k).is_some_and(|p| p > cut))
+        .count();
+    let gone = (messages.iter())
+        .filter(|(k, _, _)| at(*k).is_none())
+        .count();
     assert!(
-        !shown.is_empty() && !cut.is_empty(),
-        "shown {shown:?}, cut {cut:?}: {text}"
+        head > 0 && tail > 0 && gone > 0,
+        "head {head}, tail {tail}, cut out {gone}: {text}"
     );
-    let lists = |node: &str| {
-        reach(&r.core, node)
+    for (k, node, _) in &messages {
+        let linked = reach(&r.core, node)
             .descendants
             .iter()
-            .any(|d| d.node_id == copy)
-    };
-    for (k, node, _) in cut {
+            .any(|d| d.node_id == copy);
         assert!(
-            !lists(node),
-            "{} is not on the page, yet node.reach lists it",
+            linked,
+            "{}: never lost, and the named limit where its words were cut",
             tag(*k)
         );
-    }
-    for (k, node, _) in shown {
-        assert!(lists(node), "{} is on the page", tag(*k));
     }
 }
