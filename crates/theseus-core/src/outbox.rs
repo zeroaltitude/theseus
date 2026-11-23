@@ -1717,7 +1717,6 @@ mod tests {
         "sweep_notice.rs",
         "turn/admission.rs",
         "turn/ceiling_step.rs",
-        "turn/personal_step.rs",
     ];
 
     /// Staged is listed, statically (theseus-gm7bd): every operator call in

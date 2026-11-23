@@ -719,13 +719,7 @@ fn bounded(nodes: Vec<(u64, Stub)>, handle: &Handle) -> Vec<(u64, Stub)> {
     let long = |b: &serde_json::Value| {
         b["type"] == "tool_use" && b["input"].to_string().chars().count() > CALL_INPUT_CHARS
     };
-    let results: HashMap<String, Node> = (nodes.iter())
-        .filter_map(|(_, n)| match &n.body {
-            Body::ToolResult { tool_use_id, .. } => Some((tool_use_id.clone(), (**n).clone())),
-            _ => None,
-        })
-        .collect();
-    let mut folded: HashSet<String> = HashSet::new();
+    let (folds, folded) = folds(&nodes, long);
     let mut out = Vec::new();
     for (p, n) in nodes {
         match &n.body {
@@ -737,26 +731,51 @@ fn bounded(nodes: Vec<(u64, Stub)>, handle: &Handle) -> Vec<(u64, Stub)> {
                         let name = b["name"].as_str().unwrap_or_default().to_string();
                         let input = b["input"].to_string();
                         let head: String = input.chars().take(CALL_INPUT_CHARS / 2).collect();
-                        let result = results.get(&id).map_or_else(
-                            || "no result".into(),
-                            |r| forms::stub(&name, &b["input"], Some(r)),
-                        );
+                        let result = folds.get(&(n.id.clone(), id)).cloned().unwrap_or_default();
                         *b = serde_json::json!({"type": "text", "text": format!(
                             "[earlier call: {name} {head}… ({} characters of input); {result}; open {} for \
                              the whole call]",
                             input.chars().count(),
                             handle.0
                         )});
-                        folded.insert(id);
                     }
                 }
                 out.push((p, Stub::from(node)));
             }
-            Body::ToolResult { tool_use_id, .. } if folded.contains(tool_use_id) => {}
+            Body::ToolResult { .. } if folded.contains(&n.id) => {}
             _ => out.push((p, n)),
         }
     }
     out
+}
+
+/// Each long call's fold text, by the call (its assistant node and id), and the results folded.
+type Folds = (HashMap<(String, String), String>, HashSet<String>);
+
+/// For [`bounded`]: each long call's fold text (its stub with its own result), by the call, and the results
+/// those folds hold, by node id. A call's result is its own by proven identity (`compiler::pairing`, issue 44):
+/// a provider may repeat an id between the exchange's responses, so a fold describes its own call and only
+/// its own result is dropped; a response that repeats an id folds its uses with "no result".
+fn folds(nodes: &[(u64, Stub)], long: impl Fn(&serde_json::Value) -> bool) -> Folds {
+    let p = crate::compiler::pairing::pairing(nodes.iter().map(|(_, n)| &**n));
+    let (mut folds, mut folded) = (HashMap::new(), HashSet::new());
+    for (_, n) in nodes {
+        let Body::AssistantMessage { blocks, .. } = &n.body else {
+            continue;
+        };
+        for b in blocks.iter().filter(|b| long(b)) {
+            let id = b["id"].as_str().unwrap_or_default();
+            let r = p.result((n.id.as_str(), id));
+            let name = b["name"].as_str().unwrap_or_default();
+            let text = r.map_or_else(
+                || "no result".into(),
+                |r| forms::stub(name, &b["input"], Some(r)),
+            );
+            folded.extend(r.map(|r| r.id.clone()));
+            folds.insert((n.id.clone(), id.to_string()), text);
+        }
+    }
+    (folds, folded)
 }
 
 /// A `Line` exchange as the budgeter paid for it: the person's words (as labelled), then the `did` line
@@ -958,6 +977,62 @@ mod tests {
         assert!(
             sent.starts_with("[earlier call: fs_write") && sent.len() < 800,
             "{sent}"
+        );
+    }
+
+    /// A long call and a short call with ONE id (a provider that numbers its calls per response) in a `Spoken`
+    /// exchange (issue 44): the long one's fold describes its OWN result, and the short one keeps its own.
+    #[test]
+    fn a_long_and_a_short_call_with_one_id_each_keep_their_own_result() {
+        let done = |content: &str| {
+            let mut n = Node::user("s", Some("t1"), "cli", "x");
+            n.body = Body::ToolResult {
+                tool_use_id: "call_0".into(),
+                tool: "fs.write".into(),
+                status: crate::node::ResultStatus::Ok,
+                is_error: false,
+                content: content.into(),
+                correlation_id: None,
+                bytes_total: 0,
+                truncated: false,
+                full_ref: None,
+                duration_ms: None,
+                late: false,
+                meta: json!({}),
+                image: None,
+                external: None,
+                payload: None,
+            };
+            n
+        };
+        let input = json!({"path": "big.rs", "content": "x".repeat(50_000)});
+        let long = json!({"type": "tool_use", "id": "call_0", "name": "fs_write", "input": input});
+        let short = json!({"type": "tool_use", "id": "call_0", "name": "fs_read", "input": {"path": "a.rs"}});
+        let spoken = bounded(
+            laid(vec![
+                answer("t1", vec![long]),
+                done("wrote 50,000 bytes"),
+                answer("t1", vec![short]),
+                done("fn small() {}"),
+            ]),
+            &Handle("t1".into()),
+        );
+        let texts: Vec<String> = (spoken.iter())
+            .map(|(_, n)| serde_json::to_string(&n.body).unwrap())
+            .collect();
+        assert_eq!(
+            spoken.len(),
+            3,
+            "only the long call's result is folded: {texts:?}"
+        );
+        assert!(
+            texts[0].contains("[earlier call: fs_write") && texts[0].contains("18 characters"),
+            "the fold describes its own result: {}",
+            texts[0]
+        );
+        assert!(
+            texts[2].contains("fn small() {}"),
+            "the short call keeps its own result: {texts:?}"
         );
     }
 

@@ -148,8 +148,11 @@ ALONE_MARGIN = 0.10
 # reserve none (`recall_for`).
 RECALL_TOKENS = 12000
 BULK_MIN_TOKENS = 1000  # a bulk read is at least this long
-# The clearing rule's lines (theseus-core's compiler/clearing.rs, theseus-5lzox),
-# which `test_generate` reads from that file. A pass runs when a compile's
+# The old request builder's clearing lines (theseus-5lzox), which the plan still
+# keeps its marks clear of so that a progression, and its digest, are what they
+# were: that builder, its pass and its compaction are gone (issue 44), and the
+# view compacts nowhere, so these are the plan's own numbers now, read from no
+# Rust source. What they planned for: a pass ran when a compile's
 # estimate passes `CLEAR_AT` % of the request budget or `CLEAR_AT_TOKENS`, and it
 # clears every result of more than 2,000 characters but the newest exchange's:
 # so a crossing spread over two exchanges never comes (the first read is cleared

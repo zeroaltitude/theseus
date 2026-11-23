@@ -79,7 +79,6 @@ mod cut_step;
 pub(crate) mod data_step;
 mod defer_step;
 mod deferred_step;
-mod digest_step;
 pub mod effort_step;
 pub mod end_note_step;
 mod end_step;
@@ -99,7 +98,6 @@ pub mod nudge_step;
 pub mod overage;
 mod persona_engage;
 pub(crate) mod persona_step;
-pub(crate) mod personal_step;
 pub mod progress_step;
 mod project_step;
 mod promise_step;
@@ -439,8 +437,6 @@ struct Turn<'a> {
     /// What recall put in front of the model this turn (M6 30b), until its
     /// node rides the provider call's plan frame.
     recall: recall_step::Recalled,
-    /// The place digest this turn's requests carry (theseus-98bz.9).
-    digest: digest_step::Digest,
     /// The loop signatures this turn has repeated (`p5kln-p0-unbounded-hold`).
     repeats: repeat_step::Repeats,
     /// Routing's verdict and what it moved (M5 25e).
@@ -596,7 +592,6 @@ impl<'a> Turn<'a> {
             deferred: false,
             ended: false,
             recall: recall_step::Recalled::default(),
-            digest: digest_step::Digest::default(),
             repeats: repeat_step::Repeats::default(),
             route: route_step::RouteState::default(),
             tail: None,
@@ -1903,7 +1898,6 @@ impl TurnRunner {
             // Recall asks the index on the first loop (M6): it is read before
             // the compile, under its deadline.
             if i == 0 {
-                self.digest_first(t).await;
                 self.recall_first(t, session).await;
             }
             let compiled = match self
@@ -1924,22 +1918,14 @@ impl TurnRunner {
                     // Routing has had its say with the request: what it sent after the
                     // conversation is kept for the requests after it.
                     self.tails.finish(t.tc.session_id, &mut c, t.tail.take());
-                    Some(c)
+                    c
                 }
                 // A request that could not be made smaller than the one the provider refused for its
                 // size: the window's failure, in its words (nothing earlier could be dropped).
-                Err(f) if !t.route.held => match (&overflow, f.class == WINDOW_CLASS) {
+                Err(f) => match (&overflow, f.class == WINDOW_CLASS) {
                     (Some(o), true) => return Ok(Next::Fail(Self::window_failure(t, o, false))),
                     _ => return Ok(Next::Fail(f)),
                 },
-                Err(_) => None,
-            };
-            // A reach for the owner's personal details in a shared place: the
-            // reply is held, and the model is never called (theseus-i1z13),
-            // even when the compile failed (theseus-cljlz).
-            let Some(compiled) = compiled.filter(|_| !t.route.held) else {
-                Self::hold_reply(t, i)?;
-                break;
             };
             if let Some(o) = overflow.take() {
                 // The ring dropped nothing, so the same request would pass the

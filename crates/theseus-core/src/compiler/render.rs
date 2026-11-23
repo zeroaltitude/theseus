@@ -104,8 +104,8 @@ pub(super) struct State {
 
 /// What every node of a render reads besides itself.
 pub(super) struct Ctx<'a, 'n> {
-    /// Each call's result, by the call: the assistant node that makes it and its id ([`results_of`]).
-    pub results: &'a HashMap<(&'n str, &'n str), &'n Node>,
+    /// Each call's result, by proven identity ([`super::pairing`]).
+    pub results: &'a super::pairing::Pairing<'n>,
     /// The answers a later call replaced.
     pub replaced: &'a HashSet<&'n str>,
     pub strip_prefix_thinking: bool,
@@ -119,63 +119,15 @@ pub(super) struct Ctx<'a, 'n> {
     pub offers: &'a Offers,
 }
 
-/// Each call's result among `nodes`, by the CALL: the assistant node that makes it, and its id (issue 44).
-///
-/// A result answers a call of its own exchange (the same `turn_id`): the earliest call with its id that stands
-/// before it and is not yet answered. Ids a provider repeats (one that numbers its calls per response) then
-/// pair in order, between two responses of one turn and between two exchanges laid in one request, and a
-/// result is never placed twice. When every call with its id in its exchange is already answered, it is the
-/// latest one's answer again (a call answered twice keeps its last result, as before). A result whose own
-/// exchange holds no call with its id was written by a turn that continues another (a call resumed after its
-/// approval: `turn::resume_step`'s "the turn that made each call its own results answer"): it answers the
-/// latest unanswered call with its id standing before it, the call that turn continues. A call no result
-/// answers is closed with the harness's stub ([`repaired`]), never with another call's output: a call parked
-/// on an approval never reads as having run. Late results are not paired here.
-pub(super) fn results_of<'n>(
-    nodes: impl Iterator<Item = &'n Node>,
-) -> HashMap<(&'n str, &'n str), &'n Node> {
-    let mut results = HashMap::new();
-    // The calls seen so far with each id, in order: the assistant node and its exchange.
-    let mut calls: HashMap<&'n str, Vec<(&'n str, Option<&'n str>)>> = HashMap::new();
-    let mut answered: HashSet<(&'n str, &'n str)> = HashSet::new();
-    for n in nodes {
-        match &n.body {
-            Body::AssistantMessage { blocks, .. } => {
-                for id in (blocks.iter())
-                    .filter(|b| b["type"] == "tool_use")
-                    .filter_map(|b| b["id"].as_str())
-                {
-                    (calls.entry(id).or_default()).push((n.id.as_str(), n.turn_id.as_deref()));
-                }
-            }
-            Body::ToolResult {
-                tool_use_id,
-                late: false,
-                ..
-            } => {
-                let id = tool_use_id.as_str();
-                let Some(before) = calls.get(id) else {
-                    continue;
-                };
-                let open = |c: &&(&'n str, Option<&'n str>)| !answered.contains(&(c.0, id));
-                let own: Vec<&(&'n str, Option<&'n str>)> = (before.iter())
-                    .filter(|(_, turn)| *turn == n.turn_id.as_deref())
-                    .collect();
-                let call = match own.iter().copied().find(open) {
-                    Some(c) => Some(*c),
-                    None if !own.is_empty() => own.last().map(|c| **c),
-                    None => before.iter().rev().find(open).copied(),
-                };
-                if let Some((node, _)) = call {
-                    answered.insert((node, id));
-                    results.insert((node, id), n);
-                }
-            }
-            _ => {}
-        }
-    }
-    results
-}
+/// What a render reads beside its nodes: recall's sources, the results cleared, what the request's tools
+/// offer, and the gate's call records (`ToolCall` nodes, which render nothing) that prove which call each
+/// result answers ([`super::pairing`]).
+pub type Around<'a> = (
+    &'a crate::recall::render::Sources,
+    &'a HashSet<&'a str>,
+    &'a Offers,
+    &'a [&'a Node],
+);
 
 /// Nodes → provider messages. Tool results are placed in one user message
 /// right after the assistant message whose `tool_use` blocks they answer,
@@ -193,10 +145,11 @@ pub fn render_messages(
     provider: &str,
     media: &Media,
     retrying: Option<&str>,
-    (sources, cleared, offers): (&crate::recall::render::Sources, &HashSet<&str>, &Offers),
+    (sources, cleared, offers, records): Around<'_>,
 ) -> Messages {
     let all = || prefix.iter().chain(tail.iter()).copied();
-    let results = results_of(all());
+    // The gate's call records render nothing, but they are what proves which call a result answers.
+    let results = super::pairing::pairing(all().chain(records.iter().copied()));
     let replaced = replaced_answers(all(), retrying);
     let notes = clearing::notes(all(), cleared, &replaced);
     let ctx = Ctx {
@@ -270,26 +223,31 @@ impl State {
                 self.efforts.extend(effort.map(|e| (out.len(), e)));
                 push(out, "assistant", bl);
                 if !uses.is_empty() {
-                    let rb: Vec<Value> = uses
-                        .iter()
-                        .map(|u| match ctx.results.get(&(n.id.as_str(), u.id.as_str())) {
-                            // An old result cleared to save context (theseus-3ki0).
-                            // A view's receipt is already that stub, and is laid as it is.
-                            Some(r)
-                                if ctx.cleared.contains(r.id.as_str())
-                                    && !super::view::is_receipt(r) =>
+                    // A response that repeats an id: each of those uses reads the harness's refusal of it, or the
+                    // stub (`pairing`, rule 0).
+                    let rb: Vec<Value> = (uses.iter())
+                        .map(|u| {
+                            match (ctx.results.result((n.id.as_str(), u.id.as_str())))
+                                .or_else(|| ctx.results.refusal((n.id.as_str(), u.id.as_str())))
                             {
-                                clearing::block(
-                                    &u.name,
-                                    &u.input,
-                                    r,
-                                    ctx.notes.get(r.id.as_str()).map(String::as_str),
-                                )
-                            }
-                            Some(r) => tool_result_block(r, media, &mut self.spend),
-                            None => {
-                                self.repairs.push(u.id.clone());
-                                repaired(&u.id)
+                                // An old result cleared to save context (theseus-3ki0).
+                                // A view's receipt is already that stub, and is laid as it is.
+                                Some(r)
+                                    if ctx.cleared.contains(r.id.as_str())
+                                        && !super::view::is_receipt(r) =>
+                                {
+                                    clearing::block(
+                                        &u.name,
+                                        &u.input,
+                                        r,
+                                        ctx.notes.get(r.id.as_str()).map(String::as_str),
+                                    )
+                                }
+                                Some(r) => tool_result_block(r, media, &mut self.spend),
+                                None => {
+                                    self.repairs.push(u.id.clone());
+                                    repaired(&u.id)
+                                }
                             }
                         })
                         .collect();

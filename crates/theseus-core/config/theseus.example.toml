@@ -1221,9 +1221,6 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # A message that names none runs in the place's own conversation, always.
 # [threads]
 # enabled = true                          # false: no thread is made or addressed (the records stay)
-# place_digest = true                     # a message in a thread that Jev reads as asking across everything going on gets, for that turn, one labelled line for each other live thread of the place (a sealed one only counted; false: none, and no turn waits for the answer)
-# place_digest_line_chars = 200           # the longest a digest's line is, in characters
-# route_wait_ms = 400                     # at most this long a thread's turn waits for Jev's reading of its scope (place_digest)
 # `theseus health` has a threads line, and `theseus thread show` the thread's own numbers.
 # With two or more [personas], each message is answered by the one it calls for: named at its start
 # ("Birch, ..."), `@birch`, or `/as birch` always; else Jev's pick (route.v5's persona question),

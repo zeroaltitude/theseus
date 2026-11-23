@@ -11,7 +11,11 @@
 //! `context.explain`, which says whether it is still the bytes the turn saw.
 //!
 //! Every surface reads it whole (2026-11-22): thinking, the prompt, each
-//! tool's input and result, the rows' data and the spans' attributes.
+//! tool's input and result, the rows' data and the spans' attributes. A vault
+//! secret's NAME is the one exception, the vault's rule and not a place's: only
+//! a surface that reads private text (the owner's terminal and web page) is told
+//! which secrets a request carried; every other connection is told how many and
+//! whether they were substituted. Values are redacted for every reader.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -27,7 +31,7 @@ use theseus_protocol::{error_code, ContextCompiled, LedgerKind, Span, Usage};
 use theseus_store::pages::{ledger_kind_session, ledger_session};
 use theseus_store::{kinds, Page, Store as _};
 
-use super::server::{parse, RpcFailure};
+use super::server::{parse, Conn, RpcFailure};
 use super::Core;
 use crate::ledger::LedgerRow;
 use crate::node::{Body, Node};
@@ -52,10 +56,15 @@ const ANSWERS: [LedgerKind; 4] = [
 
 impl Core {
     /// `turn.inspect`, off the serving workers.
-    pub(super) async fn rpc_inspect(self: Arc<Self>, params: Value) -> Result<Value, RpcFailure> {
+    pub(super) async fn rpc_inspect(
+        self: Arc<Self>,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
         let p: TurnInspectParams = parse(params)?;
+        let secret_names = conn.surface.reads_private();
         let core = self.clone();
-        let r = tokio::task::spawn_blocking(move || core.turn_inspect(&p))
+        let r = tokio::task::spawn_blocking(move || core.turn_inspect(&p, secret_names))
             .await
             .map_err(|e| RpcFailure::new(error_code::INTERNAL, e.to_string()))?
             .map_err(RpcFailure::invalid)?;
@@ -95,8 +104,13 @@ impl Core {
         Ok(out)
     }
 
-    /// `p`'s turn, whole.
-    pub(crate) fn turn_inspect(&self, p: &TurnInspectParams) -> Result<TurnInspectResult> {
+    /// `p`'s turn, whole. `secret_names`: the reader is told which vault secrets
+    /// each request carried, not only how many.
+    pub(crate) fn turn_inspect(
+        &self,
+        p: &TurnInspectParams,
+        secret_names: bool,
+    ) -> Result<TurnInspectResult> {
         let t0 = Instant::now();
         let (sid, tid) = (p.session_id.as_str(), p.turn_id.as_str());
         let session: crate::session::SessionRecord = self
@@ -129,7 +143,7 @@ impl Core {
             data: session.data.map(|d| d.line()),
             ..TurnInspectResult::default()
         };
-        assemble(&mut out, rows, nodes);
+        assemble(&mut out, rows, nodes, secret_names);
         out.ms = t0.elapsed().as_secs_f64() * 1e3;
         Ok(out)
     }
@@ -243,8 +257,9 @@ struct Read {
 }
 
 /// The turn's rows into the answer: its times, outcome, trace, route and
-/// compiles, and every row as the surface may see it.
-fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)]) -> Read {
+/// compiles, and every row as the surface may see it: a `request.redacted`
+/// row without its secrets' names unless `secret_names`.
+fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)], secret_names: bool) -> Read {
     let mut r = Read {
         errors: 0,
         compiled: BTreeMap::new(),
@@ -300,7 +315,11 @@ fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)]) -> Read {
                                 .unwrap_or_default()
                                 .to_string(),
                             model: row.data["model"].as_str().unwrap_or_default().to_string(),
-                            names: names.collect(),
+                            names: if secret_names {
+                                names.collect()
+                            } else {
+                                vec![]
+                            },
                             count: row.data["count"].as_u64().unwrap_or(0),
                             substituted: row.data["substituted"].as_bool().unwrap_or(false),
                             correlation_id: row.data["correlation_id"].as_str().map(str::to_string),
@@ -310,11 +329,17 @@ fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)]) -> Read {
             "provider.error" | "provider.refusal" | "tool.invalid_input" => r.errors += 1,
             _ => {}
         }
+        let mut data = row.data.clone();
+        if !secret_names && row.kind == "request.redacted" {
+            if let Some(d) = data.as_object_mut() {
+                d.remove("names");
+            }
+        }
         out.rows.push(InspectRow {
             position: *pos,
             at_ms: row.at_unix_ms,
             kind: row.kind.clone(),
-            data: row.data.clone(),
+            data,
         });
     }
     r
@@ -476,8 +501,9 @@ pub(crate) fn assemble(
     out: &mut TurnInspectResult,
     rows: Vec<(u64, LedgerRow)>,
     nodes: Vec<(u64, Node)>,
+    secret_names: bool,
 ) {
-    let read = read_rows(out, &rows);
+    let read = read_rows(out, &rows, secret_names);
     if out.route.is_null() {
         out.route = read.started_on;
     }

@@ -20,8 +20,11 @@ use serde_json::Value;
 use crate::catalog::TokenRates;
 use crate::tools_defer::{PlaceKind, FIND, SEARCH_TOOL};
 
-/// The most tokens a cli or task place's first request may be, as sent.
-pub const CLI_TASK_TOKENS: u64 = 8_000;
+/// The most tokens a cli or task place's first request may be, as sent: today's figure and a tenth over, to
+/// the nearest hundred, as the channel's and the headless run's are. 8_000 until every request was the view's
+/// (issue 44: its memory page and its own blocks, about 931 tokens in every place), measured then by `bench
+/// turn` at 8_677 in the cli and 7_878 in a task: 9_500.
+pub const CLI_TASK_TOKENS: u64 = 9_500;
 /// The most in the owner's DM place.
 pub const DM_TOKENS: u64 = 15_000;
 /// A shared channel's and a headless run's: today's figure (2026-10-15, the
@@ -30,13 +33,31 @@ pub const DM_TOKENS: u64 = 15_000;
 /// owner's longer Spoken-aloud line fits, and from 8_000 to 8_900 the same day,
 /// the rule applied again to the figure measured with `task.create`'s `because`,
 /// `check_of` and `profile` descriptions restored in full (8_010 in the owner's
-/// shape, 7_563 in the defaults), which the 7_900 squeeze had cut.
-pub const CHANNEL_TOKENS: u64 = 8_900;
+/// shape, 7_563 in the defaults), which the 7_900 squeeze had cut. 8_900 until
+/// every request was the view's (issue 44), measured then by `bench turn` at
+/// 8_848, 52 of room: the rule again, to the nearest hundred, 9_700.
+pub const CHANNEL_TOKENS: u64 = 9_700;
 /// A headless run's. Measured on 2026-11-10 at 12889bcf by the `tests_first_request` rig (the default config,
 /// then the owner's shape): 8_156 and 8_268 tokens, so 444 and 332 of room (5.2% and 3.9%). The review that
 /// opened this row read 8_005; the 151 since are not attributed (the clone's history is shallow). Left at 8_600:
 /// the rule above would make it 9_100, and no tool's reason has lapsed. Raise it only with a new measured figure.
-pub const HEADLESS_TOKENS: u64 = 8_600;
+/// That figure: 9_212 by `bench turn` once every request was the view's (issue 44), over 8_600; the rule, to the
+/// nearest hundred, makes it 10_100.
+pub const HEADLESS_TOKENS: u64 = 10_100;
+
+/// The tool-loading budgets: what `tools_defer::PlaceKind::tools_budget_tokens` reads, the line learned families are
+/// demoted under and word-cued or judged admission starts from (`tools_defer::fit`, `want`). Each is the tool-loading
+/// budget, held at the value before issue 44 while the first request's own budget was restated; to be made one number
+/// again by the owner's decision (open list).
+///
+/// A cli or task place's.
+pub const TOOLS_CLI_TASK_TOKENS: u64 = 8_000;
+/// The owner's DM place's.
+pub const TOOLS_DM_TOKENS: u64 = 15_000;
+/// A shared channel's.
+pub const TOOLS_CHANNEL_TOKENS: u64 = 8_900;
+/// A headless run's.
+pub const TOOLS_HEADLESS_TOKENS: u64 = 8_600;
 
 /// The budget of a kind of place: its census name (`cli`, `dm`, `channel`,
 /// `task`, `headless`). `harness` has none: it is the benchmark's profile.

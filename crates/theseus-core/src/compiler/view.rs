@@ -543,27 +543,33 @@ fn unthought(n: &Stub) -> Stub {
 /// or nothing, and never changes after it was first sent (a result with no answer after it never borrows
 /// this turn's first answer).
 pub fn receipted(window: Vec<(u64, Stub)>, spoken: &HashSet<String>) -> Vec<(u64, Stub)> {
-    // A result's call is one of its own exchange (issue 44): a window lays many exchanges, and a provider that
-    // numbers its calls per response repeats ids between them. Within an exchange the earliest call with the
-    // id names it, as the render pairs it (`render::results_of`); a result whose exchange holds no call with
-    // its id (a turn that continues another) is named by the latest call with its id.
-    let mut calls: std::collections::HashMap<(Option<String>, String), (String, Value)> =
-        std::collections::HashMap::new();
-    let mut latest: std::collections::HashMap<String, (String, Value)> =
+    // A result's call is the one it provably answers (`pairing`, issue 44), as the render lays it: a window lays
+    // many exchanges, and a provider that numbers its calls per response repeats ids between them.
+    let mut by_call: std::collections::HashMap<(String, String), (String, Value)> =
         std::collections::HashMap::new();
     for (_, n) in &window {
         let Body::AssistantMessage { blocks, .. } = &n.body else {
             continue;
         };
         for b in blocks.iter().filter(|b| b["type"] == "tool_use") {
-            let (Some(id), Some(name)) = (b["id"].as_str(), b["name"].as_str()) else {
-                continue;
-            };
-            (calls.entry((n.turn_id.clone(), id.to_string())))
-                .or_insert_with(|| (name.to_string(), b["input"].clone()));
-            latest.insert(id.to_string(), (name.to_string(), b["input"].clone()));
+            let id = b["id"].as_str().unwrap_or_default().to_string();
+            let call = (
+                b["name"].as_str().unwrap_or_default().to_string(),
+                b["input"].clone(),
+            );
+            by_call.insert((n.id.clone(), id), call);
         }
     }
+    let paired: std::collections::HashMap<String, (String, Value)> = {
+        let p = super::pairing::pairing(window.iter().map(|(_, n)| &**n));
+        (window.iter())
+            .filter_map(|(_, n)| {
+                let (node, id) = p.call_of(&n.id)?;
+                let call = by_call.get(&(node.to_string(), id.to_string()))?;
+                Some((n.id.clone(), call.clone()))
+            })
+            .collect()
+    };
     // The note a clearing pass writes (`clearing::notes`): so a receipt is, byte for byte, the stub that
     // clearing makes of the same result, and a cleared result reads the same whether its exchange is laid
     // whole or spoken (the cache's prefix holds when an exchange's form changes).
@@ -582,16 +588,16 @@ pub fn receipted(window: Vec<(u64, Stub)>, spoken: &HashSet<String>) -> Vec<(u64
         .iter()
         .enumerate()
         .map(|(i, (p, n))| {
-            let Body::ToolResult { tool_use_id, .. } = &n.body else {
+            let Body::ToolResult { tool, .. } = &n.body else {
                 return (*p, n.clone());
             };
             if !spoken.contains(&n.id) {
                 return (*p, n.clone());
             }
-            let (name, input) = (calls.get(&(n.turn_id.clone(), tool_use_id.clone())))
-                .or_else(|| latest.get(tool_use_id))
-                .cloned()
-                .unwrap_or_default();
+            // A result that answers no call here (a late one, one whose call is not established) is named by
+            // its own tool, as the spoken form names it.
+            let (name, input) =
+                (paired.get(&n.id).cloned()).unwrap_or_else(|| (tool.clone(), Value::Null));
             let text = super::clearing::stub_noted(&name, &input, n, notes[i].as_deref());
             let mut node = (**n).clone();
             if let Body::ToolResult { content, meta, .. } = &mut node.body {

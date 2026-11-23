@@ -4,14 +4,16 @@
 //! with thinking, parallel tool calls and their results; a floor question
 //! and its answer; a compaction; the end and the trace.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use serde_json::{json, Value};
 use theseus_protocol::inspect::{TurnInspectParams, TurnInspectResult};
-use theseus_protocol::{SessionKind, Usage};
+use theseus_protocol::{method, Id, Message, Request, SessionKind, Usage};
 
 use super::tests::{roundtrip, submit, test_core, test_core_with};
 use super::Core;
+use crate::approval::{Client, Surface};
 use crate::node::{Body, Node, ResultStatus};
 use crate::session::SessionRecord;
 
@@ -230,11 +232,47 @@ fn build(core: &Core, loops: u32, calls: u32) -> (String, String) {
 }
 
 fn inspect(core: &Core, s: &str, t: &str) -> TurnInspectResult {
-    core.turn_inspect(&TurnInspectParams {
-        session_id: s.into(),
-        turn_id: t.into(),
-    })
+    inspect_on(core, s, t, true)
+}
+
+/// The same read for a reader that is (`true`: the owner's terminal or web page) or is not told the vault
+/// secrets' names.
+fn inspect_on(core: &Core, s: &str, t: &str, secret_names: bool) -> TurnInspectResult {
+    core.turn_inspect(
+        &TurnInspectParams {
+            session_id: s.into(),
+            turn_id: t.into(),
+        },
+        secret_names,
+    )
     .unwrap()
+}
+
+/// `turn.inspect` over a real connection on `surface`: the dispatch passes the connection's surface.
+async fn inspect_over(core: &Arc<Core>, surface: Surface, s: &str, t: &str) -> Value {
+    use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (client, server) = duplex(1 << 20);
+    let (sr, sw) = tokio::io::split(server);
+    tokio::spawn(
+        core.clone()
+            .serve_connection(sr, sw, Client::new("test", surface)),
+    );
+    let (cr, mut cw) = tokio::io::split(client);
+    let req = Request::new(
+        Id::Num(1),
+        method::TURN_INSPECT,
+        json!({"session_id": s, "turn_id": t}),
+    );
+    let mut line = serde_json::to_string(&req).unwrap();
+    line.push('\n');
+    cw.write_all(line.as_bytes()).await.unwrap();
+    let mut lines = BufReader::new(cr).lines();
+    loop {
+        let l = lines.next_line().await.unwrap().expect("open");
+        if let Message::Response(r) = serde_json::from_str::<Message>(&l).unwrap() {
+            return r.result.expect("an answer");
+        }
+    }
 }
 
 /// A multi-loop turn with parallel tools, thinking, a compaction and a floor
@@ -332,7 +370,8 @@ fn each_loop_of_a_turn_has_its_compile_its_answer_and_its_calls() {
 }
 
 /// A request that carried a vault secret (theseus-gyjyo R7b): the loop's answer
-/// names which, how many times, and whether it was substituted. A token count is no loop's
+/// names which, how many times, and whether it was substituted; a private
+/// reader gets the names, another the count alone. A token count is no loop's
 /// request, and a loop that sent none has an empty list.
 #[test]
 fn an_answer_names_the_vault_secrets_its_request_carried() {
@@ -417,6 +456,13 @@ fn an_answer_names_the_vault_secrets_its_request_carried() {
     assert!(!serde_json::to_string(&r.loops)
         .unwrap()
         .contains("tokens_only"));
+    // Another surface learns how many and whether, never which.
+    let o = inspect_on(&core, &s, &t, false);
+    let a = o.loops[0].answer.as_ref().unwrap();
+    assert_eq!(a.redacted.len(), 2);
+    assert!(a.redacted.iter().all(|r| r.names.is_empty()));
+    assert_eq!(a.redacted[0].count, 3);
+    assert!(!serde_json::to_string(&o).unwrap().contains("anthropic_key"));
     // A turn with no such row has none.
     let (s2, t2) = build(&core, 1, 1);
     assert!(inspect(&core, &s2, &t2).loops[0]
@@ -432,17 +478,23 @@ fn a_turn_the_session_never_had_is_refused_and_a_session_it_never_had_too() {
     let core = test_core("ok");
     let (s, _) = build(&core, 1, 1);
     let e = core
-        .turn_inspect(&TurnInspectParams {
-            session_id: s,
-            turn_id: "turn_nope".into(),
-        })
+        .turn_inspect(
+            &TurnInspectParams {
+                session_id: s,
+                turn_id: "turn_nope".into(),
+            },
+            true,
+        )
         .unwrap_err();
     assert!(e.to_string().contains("no turn turn_nope"), "{e}");
     assert!(core
-        .turn_inspect(&TurnInspectParams {
-            session_id: "ses_none".into(),
-            turn_id: "x".into()
-        },)
+        .turn_inspect(
+            &TurnInspectParams {
+                session_id: "ses_none".into(),
+                turn_id: "x".into()
+            },
+            true,
+        )
         .is_err());
 }
 
@@ -552,4 +604,43 @@ fn no_web_ui_means_no_link() {
     });
     let (s, t) = build(&core, 2, 1);
     assert_eq!(inspect(&core, &s, &t).url, "");
+}
+
+/// The vault's rule through the dispatch: the owner's terminal and web page are told which secrets a request
+/// carried; the Discord connection and a connection that names no listener are told how many, never which,
+/// in the answer's list and in the raw row alike.
+#[tokio::test]
+async fn a_secrets_name_reaches_only_the_owners_terminal_and_web_page_over_the_wire() {
+    let core = test_core("ok");
+    let (s, t) = build(&core, 2, 1);
+    row(
+        &core,
+        T0 + 900,
+        "request.redacted",
+        &s,
+        &t,
+        json!({"provider": "anthropic", "model": "claude-sonnet-5", "names": ["anthropic_key"], "count": 2,
+               "substituted": true, "op": "stream", "loop": 0, "correlation_id": "act_p0"}),
+    );
+    for surface in [Surface::Cli, Surface::Web] {
+        let got = inspect_over(&core, surface, &s, &t).await;
+        assert_eq!(
+            got["loops"][0]["answer"]["redacted"][0]["names"],
+            json!(["anthropic_key"]),
+            "{surface:?}"
+        );
+    }
+    for surface in [Surface::Discord, Surface::Unnamed] {
+        let got = inspect_over(&core, surface, &s, &t).await;
+        let said = &got["loops"][0]["answer"]["redacted"][0];
+        assert_eq!(said["count"], 2, "{surface:?}: {said}");
+        assert!(
+            said["names"].as_array().is_none_or(|n| n.is_empty()),
+            "{surface:?}: {said}"
+        );
+        assert!(
+            !got.to_string().contains("anthropic_key"),
+            "{surface:?}: {got}"
+        );
+    }
 }

@@ -10,8 +10,10 @@
 //! (`theseus_protocol::now_unix_ms`), by the formatter recall headers use.
 //! The git line is read through gitoxide (`theseus_tools::git_state`), on the
 //! blocking pool, and bounded twice: by its own budget, and by a timeout here
-//! that gives `Git: unknown` and goes on. In a shared place, or without
-//! tools, only the date goes (no path of the owner's is read).
+//! that gives `Git: unknown` and goes on. Without tools only the date goes (no
+//! path is read). A shared place is told the git state as any place is
+//! (2026-11-22: nothing of the context is withheld by a place's class); what it
+//! may act on is its tool ceiling's, which this line does not touch.
 
 use super::*;
 use std::time::Duration;
@@ -44,7 +46,7 @@ impl TurnRunner {
             return;
         }
         let mut text = date_line(theseus_protocol::now_unix_ms());
-        if t.tc.place().class != crate::places::PlaceClass::Shared && self.tools.enabled() {
+        if self.tools.enabled() {
             let cwd = self.tools.cwd_for(t.tc.dir);
             let read = tokio::task::spawn_blocking(move || {
                 theseus_tools::git_state::line(&cwd, GIT_BUDGET)

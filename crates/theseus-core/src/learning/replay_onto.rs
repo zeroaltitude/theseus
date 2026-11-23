@@ -272,7 +272,6 @@ impl Core {
             author: "operator".into(),
             kernel: self.kernel.clone(),
             // An imported session is replayed as no thread's own session.
-            in_thread: false,
             route: PackMode::Shadow,
             chosen: None,
             task: false,

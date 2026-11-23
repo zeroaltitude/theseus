@@ -429,20 +429,6 @@ fn the_turns(all: &[Frame]) -> Vec<&Frame> {
         .collect()
 }
 
-/// Whether a frame is the ladder writer's alone (issue 44): a background job after an exchange, its
-/// `did` line, its folds and its day's purse (META `did.`, `fold.`, `foldh.`, `rung.`, `ladder.`); never
-/// the turn's.
-fn is_ladders(f: &Frame) -> bool {
-    const KEYS: [&str; 5] = [
-        "meta:did.",
-        "meta:fold.",
-        "meta:foldh.",
-        "meta:rung.",
-        "meta:ladder.",
-    ];
-    !f.records.is_empty() && (f.records.iter()).all(|r| KEYS.iter().any(|k| r.starts_with(k)))
-}
-
 /// One judged run (theseus-v2ru): `all` is every frame the WAL held from
 /// its submit to a quiet stretch after it, the judge's among them. The
 /// turn's own are counted, as its trace counts them, `placed` says where

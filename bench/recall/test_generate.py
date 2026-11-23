@@ -317,28 +317,18 @@ class TheRustRule(unittest.TestCase):
         # A tool result's text, a string or text blocks, is json bytes.
         self.assertIn('Value::String(s) => self.json += s.len() as u64', src)
 
-    def test_the_margin_the_budget_and_the_ring_are_the_compilers(self):
-        # The compiler's rule lives in compiler.rs and its modules (the request budget in compiler/budget.rs and the
-        # ring's target in compiler/ring.rs since theseus-3ki0): the test reads them all.
-        src = "\n".join(self.src(f"theseus-core/src/{f}")
-                         for f in ("compiler.rs", "compiler/budget.rs", "compiler/ring.rs"))
+    def test_the_margin_and_the_request_budget_are_the_compilers(self):
+        # What of the compiler's rule the bench still plans by (the request budget in compiler/budget.rs, the
+        # estimate's margin in compiler.rs). The ring and the compaction's summary went with the old request
+        # builder (issue 44): the view assembles every request within the budget and compacts nowhere.
+        src = "\n".join(self.src(f"theseus-core/src/{f}") for f in ("compiler.rs", "compiler/budget.rs"))
         m = re.search(r"pub const MARGIN_PERCENT: u64 = (\d+);", src)
         self.assertEqual(int(m.group(1)), tk.MARGIN_PERCENT)
         m = re.search(r"fn request_budget\(w: u64, spec: &RequestSpec\) -> u64 \{\s*w\.saturating_sub\(spec\.max_tokens as "
                       r"u64\)\s*\.saturating_sub\(([\d_]+)\)", src)
         self.assertEqual(int(m.group(1).replace("_", "")), tk.HEADROOM)
-        m = re.search(r"let target = (?:r\.)?budget \* (\d+) / (\d+);", src)
-        self.assertEqual((int(m.group(1)), int(m.group(2))), tk.RING_TARGET)
         self.assertIn("upper: counted + estimated + (estimated * MARGIN_PERCENT).div_ceil(100),", src)
-        self.assertIn("if est.upper > budget || input.overflowed.is_some() {", src)
         self.assertEqual(tk.upper(1000, 100), 1140)
-
-    def test_a_summarys_room_is_the_compactions(self):
-        src = self.src("theseus-core/src/turn/compaction.rs")
-        m = re.search(r"pub const SUMMARY_MAX_TOKENS: u32 = (\d+);", src)
-        self.assertEqual(int(m.group(1)), tk.SUMMARY_MAX_TOKENS)
-        # It is written only where it fits beside the ring's kept turns.
-        self.assertIn("if limit > 0 && ring.estimate.upper + u64::from(max_tokens) > limit {", src)
 
     def test_a_tool_results_cap_and_fs_reads_lines_are_the_tools(self):
         m = re.search(r"fn default_result_max_chars\(\) -> usize \{\s*([\d_]+)\s*\}",
@@ -403,86 +393,10 @@ class TheRustRule(unittest.TestCase):
 
 
 class Clearing(unittest.TestCase):
-    """theseus-fqy4r: a clearing pass (theseus-5lzox, `compiler/clearing.rs`) stubs every result of more than
-    2,000 characters but the newest exchange's whenever a compile's estimate passes 50 % of the request budget,
-    so a crossing spread over two exchanges never comes (the first read is cleared before the second arrives)
-    and the smoke's mark compacted nowhere. The generator plans the crossing inside ONE exchange: nothing
-    before it may reach the line, and a pass that kept only that exchange must be refused (a refused pass
-    leaves the ring to make room, which is the compaction). Worked here from `p`'s written bytes alone, so the
-    generator's own bounds are not the oracle."""
-
-    SRC = (REPO / "crates/theseus-core/src/compiler/clearing.rs").read_text()
-    # The bench's plan overhead, and a small one (a build with few tools): the refusal check binds only where the
-    # system prompt and tools are small beside the window (the full of seed 7 at 2,100 would take the pass).
-    OVERHEADS = (PLAN, 2100)
-
-    def const(self, name: str, absent: int | None = None) -> int:
-        """A `pub const NAME: u64` of clearing.rs. `CLEAR_AT_TOKENS` is theseus-5lzox's: a tree without it (the
-        20-exchange rule, main before that row) has no token line, and its `absent` stands (the recall bench's tests
-        must hold with and without that row)."""
-        m = re.search(r"pub const " + name + r": u64 = ([\d_]+);", self.SRC)
-        if m is None and absent is not None:
-            return absent
-        self.assertIsNotNone(m, name)
-        return int(m.group(1).replace("_", ""))
-
-    def oracle(self, p: pg.Progression, overhead: int):
-        """Per mark: the largest estimate before the crossing exchange (the turns before at MARGIN over), the line
-        a pass runs at, what a pass keeping only the crossing exchange leaves (MARGIN under) and the line it
-        is refused over."""
-        rates, margin = generate.PLAN_RATES, 0.15
-        budget = pg.request_budget(p.context_window)
-        line = min(budget * self.const("CLEAR_AT") // 100, self.const("CLEAR_AT_TOKENS", 10**12))
-        refuse = budget * (self.const("CLEAR_AT") + self.const("CLEAR_TO")) // 200
-        reply = tk.Census(messages=1, blocks=1, text=generate.REPLY_BYTES).tokens(rates)
-        for i, m in enumerate(p.marks()):
-            s = p.turns[m].session
-            before = sum(t.est_tokens for t in p.turns if t.session == s and t.index < m)
-            reads = [p.turns[m]] + ([p.turns[m + 1]] if p.turns[m + 1].role == "bulk" else [])
-            peak = overhead + (generate.RECALL_TOKENS if s else 0) + int(before * (1 + margin))
-            for k, t in enumerate(reads):
-                paths = [generate.bulk_path(i)] if k == 0 else [generate.bulk_path(i, j) for j in range(1, 10)
-                                                                if generate.bulk_path(i, j) in t.text]
-                words = tk.user_text(t.text).tokens(rates) + sum(tk.call("fs_read", {"path": x}).tokens(rates)
-                                                                 for x in paths)
-                results = sum(tk.result(tk.fs_read_bytes(p.workspace[x]["content"])).tokens(rates) for x in paths)
-                if k < len(reads) - 1:
-                    peak += words + results + reply
-                else:
-                    peak += words
-                    kept = int((overhead + words + results) * (1 - margin))
-            yield m, peak, line, kept, refuse
-
-    def test_the_clearing_lines_are_the_rust_sources(self):
-        self.assertEqual((generate.CLEAR_AT, generate.CLEAR_TO), (self.const("CLEAR_AT"), self.const("CLEAR_TO")))
-        # Where the tree has the token line, the generator's is it; where it has none, the generator's stays
-        # above any window the bench plans (its percent line is the lower), so it never binds.
-        if "CLEAR_AT_TOKENS" in self.SRC:
-            self.assertEqual(generate.CLEAR_AT_TOKENS, self.const("CLEAR_AT_TOKENS"))
-
-    def test_no_compile_before_the_crossing_exchange_reaches_the_clearing_line(self):
-        for size in ("smoke", "full"):
-            for seed in (7, 11, 12):
-                for overhead in self.OVERHEADS:
-                    p = generate.build(seed, size, overhead)
-                    for m, peak, line, _, _ in self.oracle(p, overhead):
-                        self.assertLessEqual(peak, line, (size, seed, overhead, m))
-
-    def test_a_pass_keeping_only_the_crossing_exchange_is_refused(self):
-        for size in ("smoke", "full"):
-            for seed in (7, 11, 12):
-                for overhead in self.OVERHEADS:
-                    p = generate.build(seed, size, overhead)
-                    for m, _, _, kept, refuse in self.oracle(p, overhead):
-                        self.assertGreater(kept, refuse, (size, seed, overhead, m))
-
-
-    def test_the_generators_bounds_are_the_oracles(self):
-        for size in ("smoke", "full"):
-            p = generate.build(7, size, PLAN)
-            for b, (m, peak, line, kept, refuse) in zip(generate.bounds_of(p), self.oracle(p, PLAN)):
-                self.assertEqual((b["mark"], b["peak"], b["clear_line"], b["after"], b["refuse_line"]),
-                                 (m, peak, line, kept, refuse), size)
+    """The generator's own plan checks (`plan_misses`). theseus-fqy4r planned each mark's crossing inside ONE exchange
+    so the old request builder's clearing pass (theseus-5lzox) could neither stub it away nor be taken in place of the
+    compaction. That pass, its lines and the compaction went with the old builder (issue 44); the generator keeps its
+    plan, so a progression and its digest are what they were, and these hold its checks to their own words."""
 
     def test_a_plan_whose_pass_would_come_before_the_crossing_is_a_miss(self):
         """A line a tenth as high puts a compile before the crossing past it."""

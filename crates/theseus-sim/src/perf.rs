@@ -325,17 +325,35 @@ fn after_serving(tail: &mut Tail) -> Result<()> {
     until_quiet(tail).map(drop)
 }
 
-/// The frames a turn's window read, apart from the memory passes in it: a
+/// The frames a turn's window read, apart from the background passes in it: a
 /// frame whose records are all `ledger:memory.*` (`memory.labeled`,
-/// `memory.gated`) is a pass that ran between turns. A turn's frame that also
-/// holds a memory row stays the turn's. Returns (the turn's, the passes).
+/// `memory.gated`) is a pass that ran between turns, and one whose records are
+/// all the ladder writer's (`is_ladders`) is its job after the exchange, as the
+/// judge bench reads them. A turn's frame that also holds such a row stays the
+/// turn's. Returns (the turn's, the passes).
 fn split_memory_passes(frames: Vec<Frame>) -> (Vec<Frame>, Vec<Frame>) {
-    frames.into_iter().partition(|f| !is_memory_pass(f))
+    frames
+        .into_iter()
+        .partition(|f| !is_memory_pass(f) && !is_ladders(f))
 }
 
 /// Whether a frame is a memory pass alone: every record a `ledger:memory.*` row.
 pub(crate) fn is_memory_pass(f: &Frame) -> bool {
     !f.records.is_empty() && f.records.iter().all(|r| r.starts_with("ledger:memory."))
+}
+
+/// Whether a frame is the ladder writer's alone (issue 44): a background job after an exchange, its
+/// `did` line, its folds and its day's purse (META `did.`, `fold.`, `foldh.`, `rung.`, `ladder.`); never
+/// the turn's.
+pub(crate) fn is_ladders(f: &Frame) -> bool {
+    const KEYS: [&str; 5] = [
+        "meta:did.",
+        "meta:fold.",
+        "meta:foldh.",
+        "meta:rung.",
+        "meta:ladder.",
+    ];
+    !f.records.is_empty() && (f.records.iter()).all(|r| KEYS.iter().any(|k| r.starts_with(k)))
 }
 
 fn labels(frames: &[Frame]) -> Vec<String> {
@@ -611,7 +629,7 @@ impl Driver<'_> {
             last = labels(&frames);
             if !passes.is_empty() {
                 last.push(format!(
-                    "+{} memory pass frame{}",
+                    "+{} background pass frame{}",
                     passes.len(),
                     if passes.len() == 1 { "" } else { "s" }
                 ));
@@ -1687,6 +1705,20 @@ mod tests {
         assert_eq!(turn.len(), 2);
         assert_eq!(passes.len(), 2);
         assert!(turn.iter().all(|f| f.first == 1 || f.first == 6));
+    }
+
+    #[test]
+    fn the_ladders_frames_after_a_turn_are_not_the_turns() {
+        let tail = vec![
+            frame(1, &["ledger:turn.started", "node"]),
+            frame(3, &["node", "ledger:turn.ended"]),
+            frame(4, &["meta:ladder.day"]),
+            frame(5, &["meta:did.x", "meta:fold.y"]),
+            frame(6, &["node", "meta:ladder.day"]),
+        ];
+        let (turn, passes) = split_memory_passes(tail);
+        assert_eq!((turn.len(), passes.len()), (3, 2));
+        assert!(turn.iter().all(|f| [1, 3, 6].contains(&f.first)));
     }
 
     #[test]

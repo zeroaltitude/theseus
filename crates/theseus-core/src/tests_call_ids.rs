@@ -27,6 +27,9 @@ const SAME: &str = "call_0";
 /// The harness's stub for a call with no result (`compiler::render::repaired`).
 const STUB: &str = "No result was recorded for this call";
 
+/// A waiting call's result when the person writes instead of answering (`toolrun::resume`).
+const SUPERSEDED: &str = "instead of confirming this call";
+
 fn bind(core: &Core) {
     let channel = |id: u64, name: &str| BoundPlace {
         target: format!("discord:channel:{id}"),
@@ -50,7 +53,14 @@ fn post_script(req: &ProviderRequest) -> Scripted {
     if answers_a_call(req) {
         return Scripted::text("Done.");
     }
-    match last_user(req).strip_prefix("POST ") {
+    // What was asked is the message's last line (a heading may come before the person's words).
+    let said = last_user(req);
+    match said
+        .lines()
+        .last()
+        .unwrap_or_default()
+        .strip_prefix("POST ")
+    {
         Some(rest) => {
             let (to, text) = rest.split_once(" :: ").unwrap();
             Scripted::tools(
@@ -259,4 +269,217 @@ async fn two_responses_of_one_turn_that_repeat_a_call_id_each_get_their_own_resu
         second.contains("beta-9") && !second.contains("alpha-7"),
         "{second}"
     );
+}
+
+/// **A continuation answers the call of the turn it continues, in its own session, never another's.** Session A
+/// posts and waits on its approval (turn 1); session B at the same place posts with the SAME id and waits too;
+/// A's call is approved and runs in a later turn of A, whose result is under that turn. A request that lays all
+/// three, A's call, then B's, then A's result, shows A's call with its result and B's call still with the stub:
+/// B's parked call does not read as having run, with A's result.
+#[tokio::test]
+async fn a_resumed_result_answers_its_own_sessions_call_and_never_another_sessions_parked_one() {
+    let r = rig_scripted(|_| {}, post_script);
+    bind(&r.core);
+    let hall = format!("channel:{HALL}");
+    let a = session(&r.core, Some(&hall));
+    let asks = turn(&r.core, &a, "POST #pier :: from A").await;
+    assert!(asks.awaiting_confirm.is_some(), "A asks: {asks:?}");
+    let b = session(&r.core, Some(&hall));
+    let asks = turn(&r.core, &b, "POST #pier :: from B").await;
+    assert!(asks.awaiting_confirm.is_some(), "B asks: {asks:?}");
+
+    let q = (r.core.confirm_list().unwrap().into_iter())
+        .find(|q| q.session_id == a)
+        .expect("A's question");
+    r.core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap();
+    // A's call ran in a later turn of A, which answered after its result.
+    r.until("A's resumed turn", 15, |r| {
+        let nodes = r.core.store.session_nodes(&a).unwrap();
+        let ran = (nodes.iter()).position(
+            |(_, n)| matches!(&n.body, Body::ToolResult { tool_use_id, late: false, .. } if tool_use_id == SAME),
+        );
+        ran.is_some_and(|i| {
+            (nodes[i + 1..].iter()).any(|(_, n)| matches!(n.body, Body::AssistantMessage { .. }))
+        })
+    })
+    .await;
+
+    let now = session(&r.core, Some(&hall));
+    turn(&r.core, &now, "and now?").await;
+    let req = r
+        .requests()
+        .into_iter()
+        .find(|q| last_user(q).contains("and now?"))
+        .expect("the new turn's request");
+    let theirs = first_result(after_call(&req, "text", "from B"));
+    assert!(
+        theirs.starts_with(STUB),
+        "B's parked call is closed with the stub, never A's result: {theirs}"
+    );
+    let ours = first_result(after_call(&req, "text", "from A"));
+    assert!(
+        !ours.starts_with(STUB),
+        "A's resumed call carries its result: {ours}"
+    );
+    assert!(
+        r.core
+            .confirm_list()
+            .unwrap()
+            .iter()
+            .any(|q| q.session_id == b),
+        "B's question still waits"
+    );
+}
+
+/// **Two turns of ONE session, one id, each call its own result.** A session posts and waits (turn 1), then
+/// posts again with the SAME id: the new message supersedes the first question (`toolrun::resume`: a waiting
+/// call is closed when the person writes instead of answering, so two old turns of one session never wait at
+/// once), and the second waits. The second is approved and runs in a later turn. A request that lays all of it
+/// shows the first call with ITS result (superseded) and the second with its own (run): neither borrows the
+/// other's, though both carry one id and both results stand in later turns than their calls.
+#[tokio::test]
+async fn of_two_calls_of_one_session_with_one_id_each_reads_its_own_result() {
+    let r = rig_scripted(|_| {}, post_script);
+    bind(&r.core);
+    let hall = format!("channel:{HALL}");
+    let s = session(&r.core, Some(&hall));
+    let asks = turn(&r.core, &s, "POST #pier :: the first").await;
+    assert!(asks.awaiting_confirm.is_some(), "it asks: {asks:?}");
+    let asks = turn(&r.core, &s, "POST #pier :: the second").await;
+    assert!(asks.awaiting_confirm.is_some(), "it asks again: {asks:?}");
+
+    let waiting: Vec<_> = (r.core.confirm_list().unwrap().into_iter())
+        .filter(|q| q.session_id == s)
+        .collect();
+    assert_eq!(waiting.len(), 1, "the first was superseded: {waiting:?}");
+    assert_eq!(waiting[0].input["text"], "the second", "{waiting:?}");
+    r.core
+        .confirm_action(&waiting[0].correlation_id, true, None, "cli")
+        .unwrap();
+    r.until("the resumed turn", 15, |r| {
+        let nodes = r.core.store.session_nodes(&s).unwrap();
+        let ran = (nodes.iter()).rposition(
+            |(_, n)| matches!(&n.body, Body::ToolResult { tool_use_id, late: false, content, .. } if tool_use_id == SAME && !content.contains(SUPERSEDED)),
+        );
+        ran.is_some_and(|i| {
+            (nodes[i + 1..].iter()).any(|(_, n)| matches!(n.body, Body::AssistantMessage { .. }))
+        })
+    })
+    .await;
+
+    let now = session(&r.core, Some(&hall));
+    turn(&r.core, &now, "and now?").await;
+    let req = r
+        .requests()
+        .into_iter()
+        .find(|q| last_user(q).contains("and now?"))
+        .expect("the new turn's request");
+    let first = first_result(after_call(&req, "text", "the first"));
+    assert!(
+        first.contains(SUPERSEDED),
+        "the first call reads its own result: {first}"
+    );
+    let second = first_result(after_call(&req, "text", "the second"));
+    assert!(
+        !second.starts_with(STUB) && !second.contains(SUPERSEDED),
+        "the second call reads its own result, not the first's: {second}"
+    );
+}
+
+/// One response's uses, by its first request after the calls: the blocks of the user message right after the
+/// assistant message that holds `word` in a call's input.
+fn answers_of(r: &crate::tests_places::Rig, word: &str) -> Vec<Value> {
+    let req = r
+        .requests()
+        .into_iter()
+        .find(|q| answers_a_call(q) && q.messages.iter().any(|m| m.to_string().contains(word)))
+        .expect("the request after the calls");
+    let at = (req.messages.iter())
+        .position(|m| m["role"] == "assistant" && m.to_string().contains(word))
+        .expect("the response");
+    req.messages[at + 1]["content"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Whether any result `sid` recorded says `word`.
+fn any_result_says(core: &Core, sid: &str, word: &str) -> bool {
+    (core.store.session_nodes(sid).unwrap().iter())
+        .any(|(_, n)| matches!(&n.body, Body::ToolResult { content, .. } if content.contains(word)))
+}
+
+/// A response that gives one id to two calls, and a third its own: the two run neither, each answered "Not
+/// run" for its repeated id, and the third runs.
+async fn a_repeated_id_in_one_response(
+    first: (&'static str, Value),
+    second: (&'static str, Value),
+) {
+    let calls = [
+        ("X", first.0, first.1),
+        ("X", second.0, second.1),
+        ("Y", "proc_run", json!({"argv": ["echo", "gamma-3"]})),
+    ];
+    let r = rig_scripted(
+        |_| {},
+        move |req: &ProviderRequest| {
+            if answers_a_call(req) {
+                return Scripted::text("Done.");
+            }
+            if !last_user(req).starts_with("THREE") {
+                return Scripted::text("Hello.");
+            }
+            let calls: Vec<(&str, &str, Value)> = (calls.iter())
+                .map(|(id, n, i)| (*id, *n, i.clone()))
+                .collect();
+            Scripted::tools("Three calls.", &calls)
+        },
+    );
+    let cli = session(&r.core, None);
+    turn(&r.core, &cli, "THREE").await;
+    let blocks = answers_of(&r, "gamma-3");
+    let results: Vec<&Value> = blocks
+        .iter()
+        .filter(|b| b["type"] == "tool_result")
+        .collect();
+    assert_eq!(results.len(), 3, "one result for each use: {blocks:?}");
+    for b in &results[..2] {
+        assert_eq!(b["tool_use_id"], "X", "{blocks:?}");
+        assert!(
+            b["content"].to_string().contains("more than one call"),
+            "a repeated id runs neither of its calls: {blocks:?}"
+        );
+    }
+    assert!(
+        results[2]["content"].to_string().contains("gamma-3"),
+        "the call with its own id ran and reads its own result: {blocks:?}"
+    );
+    assert!(
+        !any_result_says(&r.core, &cli, "alpha-7"),
+        "the valid call of the repeated id never ran"
+    );
+}
+
+/// **One response, one id twice: an unknown tool, then a valid one** (issue 44). The valid call is not run (a
+/// record names a response and an id, not which of its uses), so neither can read as having run with the
+/// other's result.
+#[tokio::test]
+async fn a_repeated_id_in_one_response_runs_neither_unknown_tool_first() {
+    a_repeated_id_in_one_response(
+        ("no_such_tool", json!({})),
+        ("proc_run", json!({"argv": ["echo", "alpha-7"]})),
+    )
+    .await;
+}
+
+/// **The same, the valid call first and an input that did not parse second.**
+#[tokio::test]
+async fn a_repeated_id_in_one_response_runs_neither_invalid_input_second() {
+    a_repeated_id_in_one_response(
+        ("proc_run", json!({"argv": ["echo", "alpha-7"]})),
+        ("fs_write", json!("{not json")),
+    )
+    .await;
 }

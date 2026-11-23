@@ -31,7 +31,6 @@ pub(crate) mod clearing;
 pub mod effort;
 pub mod layers;
 pub(crate) mod phases;
-pub mod place_digest;
 pub mod session_block;
 pub mod summary;
 #[cfg(test)]
@@ -48,11 +47,12 @@ pub use clearing::Pass;
 pub mod situation;
 pub mod view;
 pub use effort::{output_config, BETA_TURN_EFFORT};
+pub(crate) mod pairing;
 mod render;
 mod server_calls;
 #[cfg(test)]
 use render::is_thinking;
-pub use render::{render_messages, Messages};
+pub use render::{render_messages, Around, Messages};
 
 pub const COMPILER_VERSION: u32 = 1;
 /// 2 since 13c (theseus-ev1): the system goes out as two blocks, and a block
@@ -574,14 +574,19 @@ pub fn render_request(
     let strip = c.manifest.strip_thinking;
     // A replayed tool search stands only on a request that offers what it found (theseus-it6th).
     let offers = server_calls::Offers::of(&spec.tools);
-    let rendered = render_messages(
+    // The gate's call records, which render nothing: they prove which call each result answers.
+    let records: Vec<&Node> = (nodes.iter())
+        .filter(|(_, n)| !renderable(n))
+        .map(|(_, n)| &**n)
+        .collect();
+    let mut rendered = render_messages(
         &prefix,
         &tail,
         strip,
         &spec.provider,
         &media,
         retrying,
-        (sources, &cleared, &offers),
+        (sources, &cleared, &offers, &records),
     );
 
     let mut betas = Vec::new();

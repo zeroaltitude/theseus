@@ -424,6 +424,46 @@ async fn a_copys_consumer_with_no_further_edge_is_in_the_spread() {
     );
 }
 
+/// A copy that was seen and not used does not hide a later, independent exposure of its session (issue
+/// 44): a session holds a recall copy of the fact that it did not use (seen), and a later turn of it lays
+/// the fact's exchange in its window, so the retraction gives it a correction note, once; a second
+/// retraction writes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_seen_copy_does_not_hide_a_later_exposure_of_its_session() {
+    let r = rig();
+    let c = &r.core;
+    bind(c);
+    let src = session(c, Some(DM), &[]);
+    turn(c, &src, FACT).await;
+    let x = (c.store.session_nodes(&src).unwrap().into_iter())
+        .find(|(_, n)| matches!(&n.body, Body::UserMessage { text, .. } if text == FACT))
+        .expect("the fact")
+        .1
+        .id;
+    // The seen copy: a recall's edge into the fact, and its use recorded as not used.
+    let s = session(c, Some(DM), &["an earlier note"]);
+    let y = c.store.session_nodes(&s).unwrap()[0].1.id.clone();
+    let e = Edge::new(EdgeKind::DerivedFrom, &y, &x, crate::graph::VIA_RECALL);
+    c.store.append(&[e.record().unwrap()]).unwrap();
+    used(c, &s, "rcl_seen", &x, false);
+    // A later turn of the same session lays the fact's exchange in its window.
+    turn(c, &s, "And what else?").await;
+    assert!(
+        in_last_request(&r, "port 7714") >= 1,
+        "the later turn sent the fact"
+    );
+    let out = retract(c, &x).unwrap();
+    let mine: Vec<&str> = (out.exposures.iter())
+        .filter(|e| e.session_id == s)
+        .map(|e| e.kind.as_str())
+        .collect();
+    assert_eq!(mine, [kind::SESSION], "{out:#?}");
+    turn(c, &s, "Anything else?").await;
+    assert_eq!(in_last_request(&r, "Correction:"), 1);
+    let again = retract(c, &x).unwrap();
+    assert!(again.already, "{again:#?}");
+}
+
 /// The live session's next turn carries the correction once; a session that
 /// only saw the fact, and a task, get none.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

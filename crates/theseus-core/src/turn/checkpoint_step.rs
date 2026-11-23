@@ -438,7 +438,6 @@ impl TurnRunner {
                 chosen: None,
                 task: a.task,
                 own: false,
-                in_thread: false,
                 persona: self.persona_ctx(sid, class),
                 capture: false,
                 data_names: self.cfg.privacy.data_names(),

@@ -1,8 +1,7 @@
-//! The place digest (theseus-98bz.9), through the core: classify.v4's `scope`
-//! rides the one inbound request of a message in a thread; on `place` that
-//! turn's requests carry one labelled line for each other live thread after
-//! the last cache mark, a sealed or seal-pending one too (anything goes,
-//! 2026-11-22); `thread`, a late answer, and the switch off give none.
+//! The place digest is gone (the owner's decision of 2026-11-22: one memory, assembled the same way for
+//! every turn). A message in an old thread's own session, which once asked classify.v4's `scope` and, on
+//! `place`, carried a digest of the place's other live threads after the request's last cache mark, now
+//! waits on no `scope` answer and its request holds no digest block.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -69,11 +68,10 @@ const THREADS: [(&str, &str, &str, &[&str], &str); 5] = [
     ),
 ];
 
-fn rig(jev: &FakeJev, n: usize, digest: bool) -> Rig {
+fn rig_late(jev: &FakeJev, n: usize, total_secs: u64) -> Rig {
     rig_on(texts(n), Some(jev), |c| {
         inbound_only(c);
-        c.judge.total_secs = 5;
-        c.threads.place_digest = digest;
+        c.judge.total_secs = total_secs;
     })
 }
 
@@ -143,212 +141,42 @@ fn whole(q: &ProviderRequest) -> String {
     serde_json::to_string(&(&q.system, &q.messages, &q.tools)).unwrap()
 }
 
-/// The digest block of a request: the text after its last cache mark.
-fn digest_of(q: &ProviderRequest) -> Option<String> {
-    let blocks = q.messages.last()?["content"].as_array()?;
-    blocks
-        .iter()
-        .filter_map(|b| b["text"].as_str())
-        .find(|t| t.starts_with("[Place digest"))
-        .map(str::to_string)
-}
-
-/// A turn whose scope is `place`, in a place of five threads, one sealed and
-/// one seal-pending: one labelled line for each of the four other threads,
-/// after the last cache mark, the sealed and the seal-pending ones too.
+/// A message in an old thread's own session, Jev answering `scope` with `place` (what once brought the
+/// digest) and late: the turn waits on no `scope` answer, its request holds no digest block anywhere and
+/// none of the other threads' cards, and the turn latches nothing as carried. The late answer's latency
+/// grows with `bound_factor` as the turn's own work does (1 on a quiet machine: 3 s).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_place_digest_shows_a_sealed_thread_like_any_other() {
+async fn a_resumed_old_thread_sessions_request_holds_no_digest_block() {
+    use crate::task_graph::judged::carried_in;
+    let k = theseus_tools::bound_factor();
+    let late = Duration::from_millis(3_000) * k as u32;
     let jev = FakeJev::start().unwrap();
-    let r = rig(&jev, 2, true);
+    let r = rig_late(&jev, 2, 5 * k);
     let c = &r.core;
     threads(c);
     scope(&jev, "place");
-    ask(
+    jev.set_latency(late, late);
+    let t0 = std::time::Instant::now();
+    let res = ask(
         c,
         "pr-round",
         "Add an 'also this week' section covering anything else we are shipping.",
     )
     .await;
-    let q = last_request(&r);
-    let d = digest_of(&q).expect("a digest");
-    let lines: Vec<&str> = d.lines().skip(1).collect();
-    assert_eq!(lines.len(), 4, "{d}");
-    for l in &lines {
-        assert!(l.starts_with("- from thread \u{ab}the"), "{d}");
-    }
-    for open in [
-        "the datatidy cleanup",
-        "the quillhn work",
-        "the ledgerweb zircon fix",
-        "the homesvc opal migration",
-    ] {
-        assert!(d.contains(&format!("\u{ab}{open}\u{bb}")), "{d}");
-    }
-    assert!(
-        d.contains("dated: the cutoff is 0.55 since 2026-10-20"),
-        "{d}"
-    );
-    assert!(d.ends_with(']'), "{d}");
-    assert_eq!(d.matches("embargoed").count(), 0, "no count line: {d}");
-    assert!(
-        !d.contains("tarnlib PR\u{bb}"),
-        "the asking thread has no line: {d}"
-    );
-    let sent = whole(&q);
-    for held in ["ledgerweb", "Patch the zircon", "homesvc opal", "Move opal"] {
-        assert!(sent.contains(held), "{held:?} did not reach the request");
-    }
-    // After the last cache mark: the block before it carries the mark.
-    let blocks = q.messages.last().unwrap()["content"].as_array().unwrap();
-    let at = blocks
-        .iter()
-        .position(|b| b["text"].as_str() == Some(d.as_str()))
-        .unwrap();
-    assert!(blocks[at].get("cache_control").is_none());
-    assert!(at > 0 && blocks[at - 1].get("cache_control").is_some());
-    assert!(q.cache_control.is_none(), "the mark moved onto the block");
-}
-
-/// A turn whose scope is `thread`, and one whose answer is later than
-/// `route_wait_ms`, get no digest; the late one waited no more than the bound.
-/// The bound sits 100 ms under the late answer's own latency, so it tells a
-/// turn that waited for the answer from one that did not; on a machine that
-/// gives each thread a third of a core the turn's own work stretches, so the
-/// latency and the bound grow together, by what `bound_factor` measured (at
-/// most 10; 1 on a quiet machine, where they are 3 s and 2.9 s exactly).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_thread_scope_and_a_late_answer_get_no_digest() {
-    let k = theseus_tools::bound_factor();
-    let late = Duration::from_millis(3_000) * k as u32;
-    let jev = FakeJev::start().unwrap();
-    let r = rig_on(texts(4), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5 * k;
-        c.threads.place_digest = true;
-    });
-    let c = &r.core;
-    threads(c);
-    scope(&jev, "thread");
-    ask(c, "pr-round", "what's left on the tarnlib PR?").await;
-    assert_eq!(digest_of(&last_request(&r)), None);
-    scope(&jev, "place");
-    jev.set_latency(late, late);
-    let t0 = std::time::Instant::now();
-    ask(c, "pipeline", "What else is going on this week?").await;
-    assert_eq!(digest_of(&last_request(&r)), None, "late: no digest");
     assert!(
         t0.elapsed() < late - Duration::from_millis(100),
-        "{:?} against an answer at {late:?}",
+        "the turn waited on the scope answer: {:?} against an answer at {late:?}",
         t0.elapsed()
     );
-}
-
-/// The digest moves no cached byte: the system, the tools and every message
-/// block before it are the same with and without it (the conversation's mark
-/// aside, which the tail moves onto the block it closes).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_cached_prefix_is_the_same_bytes_with_and_without_a_digest() {
-    let (with, without) = (
-        sent_with(true, "place").await,
-        sent_with(true, "thread").await,
-    );
-    let (a, b) = (strip(&with), strip(&without));
-    assert!(digest_of(&with).is_some() && digest_of(&without).is_none());
-    assert_eq!(normal(&a), normal(&b));
-    assert_eq!(normal(&with.system), normal(&without.system));
-}
-
-/// With `place_digest = false` the request is byte for byte the one a turn
-/// without a digest sends, whatever Jev answers.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn with_the_digest_off_the_request_is_the_one_before() {
-    let off = sent_with(false, "place").await;
-    let none = sent_with(true, "thread").await;
-    assert_eq!(digest_of(&off), None);
-    assert_eq!(normal(&whole(&off)), normal(&whole(&none)));
-    assert_eq!(off.cache_control, none.cache_control);
-}
-
-/// The model's request of one turn in `pr-round`, Jev answering `scope`.
-async fn sent_with(digest: bool, answer: &str) -> ProviderRequest {
-    let jev = FakeJev::start().unwrap();
-    let r = rig(&jev, 2, digest);
-    threads(&r.core);
-    scope(&jev, answer);
-    ask(&r.core, "pr-round", "What else is going on this week?").await;
-    last_request(&r)
-}
-
-/// The request's messages without the digest block and without cache marks.
-fn strip(q: &ProviderRequest) -> String {
-    let mut m = q.messages.clone();
-    for msg in &mut m {
-        if let Some(blocks) = msg["content"].as_array_mut() {
-            blocks.retain(|b| {
-                !b["text"]
-                    .as_str()
-                    .is_some_and(|t| t.starts_with("[Place digest"))
-            });
-            for b in blocks {
-                if let Some(o) = b.as_object_mut() {
-                    o.remove("cache_control");
-                }
-            }
-        }
-    }
-    serde_json::to_string(&(&m, &q.tools)).unwrap()
-}
-
-/// Ids and times differ between two cores: each id and digit run is `#`.
-fn normal(v: &impl serde::Serialize) -> String {
-    let s = serde_json::to_string(v).unwrap();
-    let mut out = String::with_capacity(s.len());
-    let mut last_hash = false;
-    for ch in s.chars() {
-        if ch.is_ascii_hexdigit() && !ch.is_ascii_alphabetic() || ch.is_ascii_digit() {
-            if !last_hash {
-                out.push('#');
-            }
-            last_hash = true;
-        } else {
-            out.push(ch);
-            last_hash = false;
-        }
-    }
-    out
-}
-
-/// Issue 44 (a change in the owner's words): a turn that carried the digest
-/// latches it for itself as it takes it, and the latch is what the change's
-/// checks read. The thread's session retired and the thread opened again
-/// (the old session gone from the board, as a rebind mid-turn would leave
-/// it), the turn still reads as having carried it. A turn whose scope is
-/// `thread` carried none.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_carried_digest_is_latched_for_its_turn_and_outlives_a_rebind() {
-    use crate::task_graph::judged::carried_in;
-    let jev = FakeJev::start().unwrap();
-    let r = rig(&jev, 4, true);
-    let c = &r.core;
-    threads(c);
-    scope(&jev, "place");
-    let res = ask(c, "pr-round", "Add an 'also this week' section.").await;
+    let q = last_request(&r);
+    let sent = whole(&q);
+    assert!(!sent.contains("[Place digest"), "a digest block: {sent}");
     assert!(
-        digest_of(&last_request(&r)).is_some(),
-        "the digest was carried"
+        !sent.contains("from thread \u{ab}"),
+        "a digest line: {sent}"
     );
-    assert!(carried_in(&c.store, &res.turn_id), "and latched");
-    c.retire_session(&res.session_id, &cli()).unwrap();
-    let again = crate::tests_old_threads::session(c, "pr-round");
-    assert_ne!(again, res.session_id);
-    let board = c.runner.threads.held().expect("the board");
     assert!(
-        board.of_session(&res.session_id).is_none(),
-        "the old session left the board"
+        !carried_in(&c.store, &res.turn_id),
+        "nothing latched as carried"
     );
-    assert!(carried_in(&c.store, &res.turn_id), "the latch outlives it");
-    scope(&jev, "thread");
-    let plain = ask(c, "quillhn", "One small question about the flag.").await;
-    assert!(digest_of(&last_request(&r)).is_none(), "no digest");
-    assert!(!carried_in(&c.store, &plain.turn_id), "and no latch");
 }

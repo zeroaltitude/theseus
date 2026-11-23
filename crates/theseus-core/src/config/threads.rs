@@ -7,14 +7,9 @@
 //!   and a `turn.submit` that names a thread are refused; the records stay.
 //! - `max_live` is retired (2026-11-22, `config/retired_keys.rs`): nothing
 //!   counts live threads since threads are no longer containers.
-//! - `place_digest` (true; theseus-98bz.9): when Jev's `scope` answer
-//!   (classify.v4) says a message in a thread asks across everything going on,
-//!   that turn's request gains a digest of the place's other live threads, one
-//!   labelled line each, a sealed or seal-pending one only counted. Off, no
-//!   turn waits for the answer and no request carries a digest.
-//! - `place_digest_line_chars` (200): the longest a digest's line is.
-//! - `route_wait_ms`: the most a thread's turn waits for its `scope` answer
-//!   (`place_digest`), 400.
+//! - `place_digest`, `place_digest_line_chars` and `route_wait_ms` are retired
+//!   (2026-11-22): the place digest and the turn's wait for its `scope` answer
+//!   are gone (`config/retired_keys.rs`).
 //! - `persona_engage` (`shadow`): whether Jev's `persona` verdict (route.v5,
 //!   theseus-c1uz) engages a persona. An explicit address (a name at the
 //!   message's start, `@name`, `/as name`) always does; `shadow` records
@@ -57,12 +52,6 @@ pub enum PersonaEngage {
 pub struct ThreadsConfig {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
-    #[serde(default = "default_true")]
-    pub place_digest: bool,
-    #[serde(default = "default_digest_line_chars")]
-    pub place_digest_line_chars: usize,
-    #[serde(default = "default_route_wait")]
-    pub route_wait_ms: u64,
     #[serde(default)]
     pub persona_engage: PersonaEngage,
     /// The retired keys (the module's last paragraph): read, warned of, ignored.
@@ -87,23 +76,11 @@ pub struct ThreadsConfig {
 fn default_enabled() -> bool {
     true
 }
-fn default_true() -> bool {
-    true
-}
-fn default_digest_line_chars() -> usize {
-    200
-}
-fn default_route_wait() -> u64 {
-    400
-}
 
 impl Default for ThreadsConfig {
     fn default() -> Self {
         Self {
             enabled: default_enabled(),
-            place_digest: true,
-            place_digest_line_chars: default_digest_line_chars(),
-            route_wait_ms: default_route_wait(),
             persona_engage: PersonaEngage::default(),
             ask_wait_secs: None,
             sticky_alone_asks: None,
@@ -142,9 +119,6 @@ impl ThreadsConfig {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.place_digest_line_chars < 40 {
-            bail!("threads.place_digest_line_chars is under 40: a line could not name its thread");
-        }
         Ok(())
     }
 }
@@ -159,7 +133,6 @@ mod tests {
         let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
         assert_eq!(cfg.threads, ThreadsConfig::default());
         assert!(cfg.threads.enabled);
-        assert_eq!(cfg.threads.route_wait_ms, 400);
         assert!(crate::Config::EXAMPLE_TOML.contains("# [threads]\n# enabled = true"));
         let off = crate::Config::from_toml("[threads]\nenabled = false\n").unwrap();
         assert!(!off.threads.enabled);
@@ -177,21 +150,27 @@ mod tests {
         assert!(crate::Config::from_toml("[threads]\nbogus = 1\n").is_err());
     }
 
-    /// The place digest (theseus-98bz.9) is on by default, named in the
-    /// template with its line cap, turns off, and refuses a cap too short to
-    /// name a thread.
+    /// The place digest's keys are retired (2026-11-22): a settings file that
+    /// still names one loads, each named among the ignored keys, and the
+    /// template names none of them.
     #[test]
-    fn the_place_digest_is_on_by_default_and_turns_off() {
-        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert!(cfg.threads.place_digest);
-        assert_eq!(cfg.threads.place_digest_line_chars, 200);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# place_digest = true"));
-        assert!(crate::Config::EXAMPLE_TOML.contains("# place_digest_line_chars = 200"));
-        let off = crate::Config::from_toml("[threads]\nplace_digest = false\n").unwrap();
-        assert!(!off.threads.place_digest);
+    fn the_place_digests_keys_are_retired_and_still_load() {
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
-        let bad = format!("{secrets}\n[threads]\nplace_digest_line_chars = 10\n");
-        assert!(crate::Config::parse(&bad).is_err());
+        for retired in [
+            "place_digest = false",
+            "place_digest_line_chars = 10",
+            "route_wait_ms = 400",
+        ] {
+            let (c, _) =
+                crate::Config::parse(&format!("{secrets}\n[threads]\n{retired}\n")).unwrap();
+            assert_eq!(c.ignored_keys.len(), 1, "{retired}");
+        }
+        for key in ["place_digest", "route_wait_ms"] {
+            assert!(
+                !crate::Config::EXAMPLE_TOML.contains(&format!("# {key} =")),
+                "{key}"
+            );
+        }
     }
 
     /// A config that sets the keys retired on 2026-11-21 still loads (the
@@ -236,7 +215,7 @@ mod tests {
         assert_eq!(one.threads.retired(), ["threads.import_day_usd"]);
         assert!(said.iter().any(|w| w.contains("remove it")), "{said:?}");
         let (plain, quiet) =
-            crate::Config::parse(&format!("{secrets}\n[threads]\nroute_wait_ms = 300\n")).unwrap();
+            crate::Config::parse(&format!("{secrets}\n[threads]\nenabled = true\n")).unwrap();
         assert!(plain.threads.retired().is_empty());
         assert!(quiet.iter().all(|w| !w.contains("threads.")), "{quiet:?}");
     }

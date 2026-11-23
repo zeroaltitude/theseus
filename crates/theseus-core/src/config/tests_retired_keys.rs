@@ -47,6 +47,9 @@ const EVERY: &str = "[model]\n\
                      link_proposals = true\n\
                      discord_channel = \"123456789012345678\"\n\
                      sticky_half_life_secs = 600\n\
+                     place_digest = true\n\
+                     place_digest_line_chars = 200\n\
+                     route_wait_ms = 400\n\
                      [prefix]\n\
                      enabled = true\n\
                      max_bytes = 10485760\n\

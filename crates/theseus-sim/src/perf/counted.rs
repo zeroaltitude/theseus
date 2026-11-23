@@ -14,7 +14,7 @@
 //!   default config (beside the bench's), counted as the provider bills it
 //!   (the deferred tools at their constant, the search tool at its size:
 //!   `context.census`'s total, the number `theseus census` prints), at most
-//!   `theseus_core::first_request::budget`: 8,000 in the cli and task
+//!   `theseus_core::first_request::budget`: 9,500 in the cli and task
 //!   places, 15,000 in the DM's, and the channel's and the headless run's own
 //!   (today's and a tenth). Its bytes are recorded beside it, and the bench's
 //!   own config (the template's every section: AWS, GitHub, MCP), not judged.
@@ -591,11 +591,11 @@ mod tests {
             .unwrap_or_else(|| panic!("no verdict for {place}"))
     }
 
-    /// The owner's budgets: 8,000 tokens in the cli and task places, 15,000 in the DM's; the channel's
+    /// The owner's budgets: 9,500 tokens in the cli and task places, 15,000 in the DM's; the channel's
     /// and the headless run's are their own, and none is above the DM's.
     #[test]
     fn a_first_request_over_its_places_budget_fails_and_one_at_it_passes() {
-        for (place, budget) in [("cli", 8_000), ("task", 8_000), ("dm", 15_000)] {
+        for (place, budget) in [("cli", 9_500), ("task", 9_500), ("dm", 15_000)] {
             let at = counted(&[(place, budget)]);
             assert!(verdict(&at, place).ok, "{place} at {budget}");
             assert_eq!(verdict(&at, place).budget, budget as f64);

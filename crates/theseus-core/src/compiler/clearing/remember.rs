@@ -46,7 +46,7 @@ pub fn note_of(blocks: &[Value]) -> Option<String> {
 
 /// For each cleared result among `nodes` (in order), by the result's own node
 /// id (not its call's id, which a provider may repeat between exchanges,
-/// issue 44), the note of the next answer after it, when that answer has text. A cleared
+/// issue 44), the note of the next answer of its own exchange after it, when that answer has text. A cleared
 /// result's next answer exists when it is cleared (the newest exchange's
 /// results stay whole) and never changes, so the note is stable.
 pub(in crate::compiler) fn notes<'n>(
@@ -58,19 +58,26 @@ pub(in crate::compiler) fn notes<'n>(
     if cleared.is_empty() {
         return out;
     }
-    let mut waiting: Vec<&str> = Vec::new();
+    // Each cleared result waits for the next answer of its OWN exchange (its session and turn): a request lays
+    // many exchanges, and another exchange's answer is not what was written after it.
+    let mut waiting: Vec<(&str, (&str, Option<&str>))> = Vec::new();
     for n in nodes {
+        let exchange = (n.session_id.as_str(), n.turn_id.as_deref());
         match &n.body {
             Body::ToolResult { late: false, .. } if cleared.contains(n.id.as_str()) => {
-                waiting.push(n.id.as_str())
+                waiting.push((n.id.as_str(), exchange))
             }
             Body::AssistantMessage { blocks, .. }
                 if !waiting.is_empty() && !replaced.contains(n.id.as_str()) =>
             {
-                if let Some(note) = note_of(blocks) {
-                    out.extend(waiting.iter().map(|id| (id.to_string(), note.clone())));
-                }
-                waiting.clear();
+                let note = note_of(blocks);
+                waiting.retain(|(id, of)| {
+                    if *of != exchange {
+                        return true;
+                    }
+                    out.extend(note.clone().map(|note| (id.to_string(), note)));
+                    false
+                });
             }
             _ => {}
         }

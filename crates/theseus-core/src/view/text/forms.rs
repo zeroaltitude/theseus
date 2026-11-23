@@ -132,47 +132,24 @@ pub fn laid(nodes: &[Node], form: Form) -> Vec<String> {
 }
 
 /// An exchange's spoken form: [`whole`] with each call and its result one stub ([`stub`]), where the call
-/// was. A result whose call is not among `nodes` is its stub alone.
+/// was. A result that answers no call here is its stub alone.
 ///
-/// A result is its call's (issue 44): the earliest call with its id standing before it that no result has
-/// answered yet, so ids a provider repeats between two responses of the turn pair in order and no result is
-/// shown under two calls. When every call with its id is answered, it is the latest one's again (its last
-/// result, as before).
+/// A result is its call's by proven identity (`compiler::pairing`, issue 44): its correlation, else the
+/// earliest call of the exchange with its id and no correlation. A late result answers no call (it came back
+/// later, and is its stub alone), and a call with no result established reads "no result".
 pub fn spoken(nodes: &[Node]) -> Vec<Said> {
-    let mut answer: HashMap<usize, &Node> = HashMap::new();
-    let mut open: HashMap<&str, Vec<usize>> = HashMap::new();
-    let mut alone: Vec<bool> = vec![false; nodes.len()];
-    for (i, n) in nodes.iter().enumerate() {
-        match &n.body {
-            Body::ToolCall { tool_use_id, .. } => {
-                open.entry(tool_use_id.as_str()).or_default().push(i)
-            }
-            Body::ToolResult { tool_use_id, .. } => match open.get(tool_use_id.as_str()) {
-                Some(calls) => {
-                    let at = (calls.iter())
-                        .find(|c| !answer.contains_key(*c))
-                        .or(calls.last())
-                        .copied();
-                    if let Some(c) = at {
-                        answer.insert(c, n);
-                    }
-                }
-                None => alone[i] = true,
-            },
-            _ => {}
-        }
-    }
+    let p = crate::compiler::pairing::pairing(nodes);
+    let answer = |n: &Node| p.record(&n.id).and_then(|c| p.result(c));
     nodes
         .iter()
-        .enumerate()
-        .filter_map(|(i, n)| match &n.body {
+        .filter_map(|n| match &n.body {
             Body::ToolCall {
                 tool_use_id,
                 wire_name,
                 input,
                 ..
             } => {
-                let r = answer.get(&i).copied();
+                let r = answer(n);
                 Some(Said {
                     call: Some(tool_use_id.clone()),
                     ..Said::of(Voice::Call, n, stub(wire_name, input, r))
@@ -180,7 +157,7 @@ pub fn spoken(nodes: &[Node]) -> Vec<Said> {
             }
             Body::ToolResult {
                 tool_use_id, tool, ..
-            } if alone[i] => Some(Said {
+            } if p.call_of(&n.id).is_none() => Some(Said {
                 call: Some(tool_use_id.clone()),
                 ..Said::of(Voice::Call, n, stub(tool, &Value::Null, Some(n)))
             }),

@@ -61,6 +61,9 @@ const INERT: &str = "nothing read it any more: the link offer, the Discord threa
 const LOOK_BACK: &str =
     "the history tool, context.history, is the one way to look back (issue 46): it \
                          reads every place, by words, a thing or a place, so this tool is gone";
+const DIGEST: &str =
+    "the place digest is gone (2026-11-22): no turn waits on Jev's scope answer, and \
+                      no request carries a digest of the other threads";
 
 /// The whole list (the map of the cut, §6 step 8), less the one key something that stays still reads:
 /// `[cache] keep_warm_min_tokens` (the sticky effort rule), a live setting. The thread keys whose readers
@@ -115,6 +118,9 @@ pub const RETIRED: &[Retired] = &[
     // A posture set for a tool that is gone (issue 46).
     r("policy.tools", "thread.read", LOOK_BACK),
     r("policy.tools", "channel.read", LOOK_BACK),
+    r("threads", "place_digest", DIGEST),
+    r("threads", "place_digest_line_chars", DIGEST),
+    r("threads", "route_wait_ms", DIGEST),
 ];
 
 const fn r(section: &'static str, key: &'static str, why: &'static str) -> Retired {
