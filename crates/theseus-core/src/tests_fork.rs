@@ -1687,7 +1687,9 @@ async fn a_forks_words_search_from_a_cursor_crowded_past_its_point_says_it_may_b
         let (core, b, pov) = (r.core.clone(), &b, &pov);
         async move { crate::history_tool::answer(&core, b, (&session, "t"), pov, &a).await }
     };
-    let before = json!({"words": "tide", "before": {"at_ms": first_later, "turn_id": ""}});
+    // A cursor with an empty turn id begins its page WITH its millisecond: one before the first post-point
+    // hit's, so the walk meets none of them.
+    let before = json!({"words": "tide", "before": {"at_ms": first_later - 1, "turn_id": ""}});
     let cut = call(f.session_id.clone(), before).await.unwrap().text;
     assert!(cut.contains("may be incomplete"), "from a cursor: {cut}");
     assert!(!cut.contains("exhausted"), "from a cursor: {cut}");
