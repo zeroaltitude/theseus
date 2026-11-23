@@ -2,6 +2,8 @@
 // the deck's transcript and the deck's drafts, and the composer is a state (`composer.ts`): ⏎ while a turn runs steers
 // it (`turn.submit` reaches the running turn at its next step: `turn.steered`, marked in the transcript), ⌘⏎ holds the
 // message until `turn.ended`, esc drops it, ⇧⇥ cycles the mode. With `compact` it is the inspector's composer: the last turns and the box.
+// Every mount is keyed by its session, so a held message, a draft or a chosen file dies with the pane and never goes
+// to the next conversation selected.
 // A file goes with a message (theseus-qgsv): the paperclip, a drop on the box or a paste chooses it, the browser
 // reads its bytes and `ops/attach.ts` builds the `Attachment` `theseus ask --attach` builds; a file over the cap
 // is refused here, in the chat's own words, and no call is made.

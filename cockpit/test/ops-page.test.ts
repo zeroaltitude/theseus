@@ -168,6 +168,20 @@ test('one ⌘⏎ in the New task sheet starts one task: the form alone handles t
   assert.match(start, /finally \{ out\.current = false; setBusy\(false\) \}/)
 })
 
+test('every Join pane is keyed by its session: a held message, a draft or a file never goes to the next one selected', () => {
+  // The inspector's pane was not: select A while it ran, hold a message (⌘⏎), select B at rest, and A's message and
+  // files went to B as the pane saw "the turn ended".
+  const all = readdirSync(new URL('../src/', import.meta.url), { recursive: true }).map(String).filter((f) => f.endsWith('.tsx'))
+  const mounts = all.flatMap((f) => [...src(f).matchAll(/<JoinPane\b[^>]*/g)].map((m) => [f, m[0]] as const))
+  assert.ok(mounts.length >= 3, `${mounts.length} Join panes found`)
+  for (const [f, m] of mounts) {
+    const sid = m.match(/sessionId=\{([^}]+)\}/)?.[1]
+    assert.ok(sid, `${f}: ${m}`)
+    assert.ok(m.includes(`key={${sid}}`), `${f}: a Join pane not keyed by its session: ${m}`)
+  }
+  assert.match(src('ops/Inspector.tsx'), /<JoinPane key=\{r\.sessionId\} sessionId=\{r\.sessionId\} session=\{r\.session\} compact \/>/)
+})
+
 test('a hold takes the daemon’s clock, never this browser’s', () => {
   assert.doesNotMatch(src('ops/ui.ts').replace(/\/\/.*$/gm, ''), /Date\.now\(\)/)
 })
