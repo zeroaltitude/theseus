@@ -71,7 +71,7 @@ impl Core {
             let Some((gone, keep)) = next else {
                 return Ok(merged);
             };
-            match self.person_merge_in(&o, &gone, &keep, "automatic", "the name key", "people") {
+            match self.person_merge_in(&gone, &keep, "automatic", "the name key", "people") {
                 Ok(_) => merged.push(gone.to_string()),
                 Err(e) => {
                     // A pair the ontology refuses is left, and not tried again.

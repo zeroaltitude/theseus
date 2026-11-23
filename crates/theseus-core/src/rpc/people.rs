@@ -97,41 +97,43 @@ impl Core {
         let o = self.runner.ontology.snapshot(&self.store)?;
         let absorbed = resolve(&o, PERSON, &p.absorbed)?;
         let survivor = resolve(&o, PERSON, &p.survivor)?;
-        self.person_merge_in(&o, &absorbed, &survivor, "operator", &who_s, &via)
+        self.person_merge_in(&absorbed, &survivor, "operator", &who_s, &via)
     }
 
-    /// Merge `absorbed` into `survivor` over `o`, as `how` (`operator`, or
+    /// Merge `absorbed` into `survivor` under the writers' lock, as `how` (`operator`, or
     /// `automatic` for an exact handle): one frame, its records and row.
     pub(crate) fn person_merge_in(
         &self,
-        o: &Ontology,
         absorbed: &CategoryId,
         survivor: &CategoryId,
         how: &str,
         who: &str,
         via: &str,
     ) -> Result<OntologyPersonMerged> {
-        let m = o.merge(absorbed, survivor)?;
         let survivor_s = survivor.to_string();
-        let row = fact::ontology::PersonMerged {
-            absorbed: &m.absorbed,
-            survivor: &survivor_s,
-            handles_before: &m.survivor_handles_before,
-            sessions: &m.sessions,
-            lists_before: &m.lists_before,
-            guidance_moved: m.guidance.is_some(),
-            undone: false,
-            how,
-            who,
-            via,
-        };
         let scope = scope(absorbed);
-        let o =
-            self.runner
+        #[cfg(test)]
+        before_merge_write(self);
+        let m = theseus_store::blocking(|| -> Result<_> {
+            let mut merged = None;
+            let staged = self
+                .runner
                 .ontology
-                .write(&self.store, m.records.clone(), Origin::Operator, |_| {
-                    Ok(vec![fact::row(&row, None, None)?.scoped(&scope)])
-                })?;
+                .stage(&self.store, Origin::Operator, |now| {
+                    let m = now.merge(absorbed, survivor)?;
+                    let row = merge_row(&m, &survivor_s, how, who, via);
+                    let rows = vec![fact::row(&row, None, None)?.scoped(&scope)];
+                    let records = m.records.clone();
+                    merged = Some(m);
+                    Ok((records, rows))
+                })?
+                .expect("a merge writes its people");
+            self.store.append(staged.frame())?;
+            staged.commit();
+            Ok(merged.expect("a merge was computed"))
+        })?;
+        let o = self.runner.ontology.snapshot(&self.store)?;
+        let row = merge_row(&m, &survivor_s, how, who, via);
         self.rec(None).announce(&row);
         Ok(OntologyPersonMerged {
             survivor: category_info_of(&o, survivor)?,
@@ -211,29 +213,6 @@ impl Core {
     /// that takes the handle off the other, makes the DM's person, and
     /// merges the other into it. The automatic merge of an exact handle.
     pub(crate) fn bind_person_merging(&self, c: &Category) -> Result<bool> {
-        let o = self.runner.ontology.snapshot(&self.store)?;
-        if o.category(&c.id).is_some() {
-            return Ok(false);
-        }
-        let Some((h, twin)) = o.handle_twin(c) else {
-            return Ok(false);
-        };
-        let mut work = (*o).clone();
-        let mut stripped = work
-            .category(&twin)
-            .cloned()
-            .ok_or_else(|| anyhow!("the person {twin} is gone"))?;
-        stripped.handles.retain(|x| *x != h);
-        let mut records = vec![Record::Category(stripped), Record::Category(c.clone())];
-        for r in &records {
-            work.put(r.clone(), Origin::Operator)?;
-        }
-        let m = work.merge(&twin, &c.id)?;
-        let mut before = m.survivor_handles_before.clone();
-        before.retain(|x| *x != h);
-        let mut absorbed = m.absorbed.clone();
-        absorbed.handles.push(h.clone());
-        records.extend(m.records.iter().cloned());
         let survivor = c.id.to_string();
         let set = fact::ontology::CategorySet {
             category: c,
@@ -242,27 +221,52 @@ impl Core {
             via: "discord",
             undo: None,
         };
-        let row = fact::ontology::PersonMerged {
-            absorbed: &absorbed,
-            survivor: &survivor,
-            handles_before: &before,
-            sessions: &m.sessions,
-            lists_before: &m.lists_before,
-            guidance_moved: m.guidance.is_some(),
-            undone: false,
-            how: "automatic",
-            who: "the binding",
-            via: "discord",
+        #[cfg(test)]
+        before_merge_write(self);
+        let merged = theseus_store::blocking(|| -> Result<_> {
+            let mut merged = None;
+            let staged = self
+                .runner
+                .ontology
+                .stage(&self.store, Origin::Operator, |now| {
+                    if now.category(&c.id).is_some() {
+                        return Ok((vec![], vec![]));
+                    }
+                    let Some((h, twin)) = now.handle_twin(c) else {
+                        return Ok((vec![], vec![]));
+                    };
+                    let mut work = now.clone();
+                    let mut stripped = work
+                        .category(&twin)
+                        .cloned()
+                        .ok_or_else(|| anyhow!("the person {twin} is gone"))?;
+                    stripped.handles.retain(|x| *x != h);
+                    let mut records = vec![Record::Category(stripped), Record::Category(c.clone())];
+                    for r in &records {
+                        work.put(r.clone(), Origin::Operator)?;
+                    }
+                    let mut m = work.merge(&twin, &c.id)?;
+                    m.survivor_handles_before.retain(|x| *x != h);
+                    m.absorbed.handles.push(h);
+                    records.extend(m.records.iter().cloned());
+                    let row = merge_row(&m, &survivor, "automatic", "the binding", "discord");
+                    let rows = vec![
+                        fact::row(&set, None, None)?,
+                        fact::row(&row, None, None)?.scoped(&scope(&twin)),
+                    ];
+                    merged = Some(m);
+                    Ok((records, rows))
+                })?;
+            if let Some(staged) = staged {
+                self.store.append(staged.frame())?;
+                staged.commit();
+            }
+            Ok(merged)
+        })?;
+        let Some(m) = merged else {
+            return Ok(false);
         };
-        let scope = scope(&twin);
-        self.runner
-            .ontology
-            .write(&self.store, records, Origin::Operator, |_| {
-                Ok(vec![
-                    fact::row(&set, None, None)?,
-                    fact::row(&row, None, None)?.scoped(&scope),
-                ])
-            })?;
+        let row = merge_row(&m, &survivor, "automatic", "the binding", "discord");
         self.rec(None).announce(&set);
         self.rec(None).announce(&row);
         Ok(true)
@@ -430,4 +434,144 @@ pub(super) fn not_listed(j: &str) -> String {
         "{j}: not listed now: answered already, hidden by the exclusions, or no such proposal \
          (`theseus ontology proposals` lists them)"
     )
+}
+
+/// Both merge paths describe exactly the merge computed under the writers' lock.
+fn merge_row<'a>(
+    m: &'a theseus_ontology::person::Merge,
+    survivor: &'a str,
+    how: &'a str,
+    who: &'a str,
+    via: &'a str,
+) -> fact::ontology::PersonMerged<'a> {
+    fact::ontology::PersonMerged {
+        absorbed: &m.absorbed,
+        survivor,
+        handles_before: &m.survivor_handles_before,
+        sessions: &m.sessions,
+        lists_before: &m.lists_before,
+        guidance_moved: m.guidance.is_some(),
+        undone: false,
+        how,
+        who,
+        via,
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static BEFORE_MERGE_WRITE: std::cell::Cell<Option<fn(&Core)>> = const { std::cell::Cell::new(None) };
+}
+#[cfg(test)]
+fn before_merge_write(core: &Core) {
+    BEFORE_MERGE_WRITE.with(|hook| {
+        if let Some(f) = hook.take() {
+            f(core);
+        }
+    });
+}
+
+#[cfg(test)]
+mod merge_race_tests {
+    use super::*;
+    use theseus_ontology::{MemberList, Membership};
+    fn id(s: &str) -> CategoryId {
+        CategoryId::parse(s).unwrap()
+    }
+    fn members(ids: &[&str]) -> Record {
+        Record::Members(MemberList {
+            session: "ses_tide".into(),
+            kind: "person".into(),
+            members: ids
+                .iter()
+                .map(|s| Membership {
+                    category: id(s),
+                    origin: Origin::Operator,
+                    confidence: None,
+                    as_of_ms: 1000,
+                })
+                .collect(),
+        })
+    }
+    fn late_write(core: &Core) {
+        let now = core.runner.ontology.snapshot(&core.store).unwrap();
+        let mut gone = now.category(&id("person:gone")).unwrap().clone();
+        gone.handles.push("email:late@example.invalid".into());
+        core.runner
+            .ontology
+            .write(
+                &core.store,
+                vec![
+                    Record::Category(gone),
+                    members(&["person:gone", "person:other"]),
+                ],
+                Origin::Operator,
+                |_| Ok(vec![]),
+            )
+            .unwrap();
+    }
+    fn preserves_later_data(automatic: bool) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+        let mut cfg = crate::Config::example();
+        cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+        let core = Core::build(crate::rpc::Parts::for_tests(
+            cfg,
+            std::sync::Arc::new(crate::provider::FakeProvider::scripted(vec![])),
+            store,
+        ))
+        .unwrap();
+        let mut gone = Category::new(id("person:gone"), "Quill", "operator");
+        gone.handles.push("discord:400000000000000001".into());
+        let mut keep = Category::new(id("person:keep"), "Quill", "operator");
+        let mut records = vec![
+            Record::Category(gone),
+            Record::Category(Category::new(id("person:other"), "Pell", "operator")),
+            members(&["person:gone"]),
+        ];
+        if !automatic {
+            records.push(Record::Category(keep.clone()));
+        }
+        core.runner
+            .ontology
+            .write(&core.store, records, Origin::Operator, |_| Ok(vec![]))
+            .unwrap();
+        BEFORE_MERGE_WRITE.with(|hook| hook.set(Some(late_write)));
+        if automatic {
+            keep.handles.push("discord:400000000000000001".into());
+            assert!(core.bind_person_merging(&keep).unwrap());
+        } else {
+            core.person_merge_in(
+                &id("person:gone"),
+                &id("person:keep"),
+                "operator",
+                "the CLI",
+                "cli",
+            )
+            .unwrap();
+        }
+        let now = core.runner.ontology.snapshot(&core.store).unwrap();
+        assert!(
+            now.category(&id("person:keep"))
+                .unwrap()
+                .handles
+                .contains(&"email:late@example.invalid".into()),
+            "later handle was lost"
+        );
+        assert!(
+            now.memberships("ses_tide")
+                .iter()
+                .any(|m| m.category == id("person:other")),
+            "later membership was lost"
+        );
+        assert_eq!(*now, crate::ontology::load(&core.store).unwrap());
+    }
+    #[test]
+    fn operator_merge_keeps_intervening_handle_and_membership() {
+        preserves_later_data(false);
+    }
+    #[test]
+    fn binding_merge_keeps_intervening_handle_and_membership() {
+        preserves_later_data(true);
+    }
 }
