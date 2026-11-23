@@ -28,6 +28,7 @@ pub fn names_a_session(handle: &str) -> bool {
 }
 
 /// A session's page, as the model reads it, and whether it shows another person's words.
+#[derive(Debug)]
 pub struct Opened {
     pub text: String,
     pub outside: bool,
@@ -139,7 +140,7 @@ fn spoken(lens: &Lens<'_>, nodes: &[(u64, Node)]) -> (Vec<Line>, Option<String>)
                 match author_of(lens, n) {
                     Author::His { .. } => Who::Owner,
                     Author::Other => Who::Other,
-                    Author::Unknown => Who::Unknown,
+                    Author::Unknown | Author::Theseus => Who::Unknown,
                 }
             }
             // What the harness said, or an agent relayed (a task's brief, its parent's): not spoken, counted.

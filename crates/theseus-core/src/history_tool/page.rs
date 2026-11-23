@@ -212,7 +212,7 @@ impl Lens<'_> {
         }
         let (root, bare) = self.root(a)?;
         // A span's page starts at its end, whatever is in view: it holds exactly the span's exchanges.
-        let span_end = (self.span.as_ref()).and_then(|s| s.to_ms).map(|t| Cursor {
+        let span_end = self.span.as_ref().and_then(|s| s.to_ms).map(|t| Cursor {
             at_ms: t,
             turn_id: String::new(),
         });

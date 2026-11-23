@@ -34,7 +34,9 @@ const MOST: usize = 512;
 /// What sets each line of stored text apart from the tool's own lines.
 const MARGIN: &str = "\u{2502} ";
 
-/// The exchange `h` names, as said, or why it cannot be opened (a denied one is not told apart from none).
+/// The exchange `h` names, as said, or why it cannot be opened (a denied one is not told apart from none): the
+/// text alone, as the tests read it; the tool reads [`open_marked`].
+#[cfg(test)]
 pub fn open(lens: &Lens<'_>, h: &Handle) -> Result<String, String> {
     open_marked(lens, h).map(|o| o.text)
 }

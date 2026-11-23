@@ -195,7 +195,7 @@ fn a_bare_page_is_the_hundred_before_what_is_in_view_and_pages_on_with_no_horizo
         (second.end, second.next.as_ref()),
         (PageEnd::HistoryExhausted, None)
     );
-    let said = render(&second, HERE, 1, None);
+    let said = render(&second, (HERE, None), 1, None);
     assert!(
         said.contains("History is exhausted") && said.contains("you may ask the person"),
         "{said}"
@@ -237,7 +237,7 @@ fn five_looks_a_turn_then_the_allowance_is_told_apart_from_the_end_of_history() 
         (fifth.lines.len(), fifth.end),
         (100, PageEnd::AllowanceUsed)
     );
-    let said = render(&fifth, HERE, LOOKS_PER_TURN - 1, None);
+    let said = render(&fifth, (HERE, None), LOOKS_PER_TURN - 1, None);
     assert!(
         said.contains("allowance is used") && said.contains("offer to look further"),
         "{said}"
@@ -270,7 +270,7 @@ fn a_walk_stopped_by_its_bound_shows_no_hidden_position() {
         at_ms: 0,
         turn_id: "resume:0".into(),
     };
-    let said = render(&w.page, HERE, 0, Some(&token));
+    let said = render(&w.page, (HERE, None), 0, Some(&token));
     assert!(
         said.contains("limit of the tool, not the end of history"),
         "{said}"
@@ -780,7 +780,11 @@ async fn a_span_holds_exactly_its_exchanges_and_an_empty_one_says_so() {
         put(&r.core.store, &e);
     }
     let (b, pov) = (Board::default(), pov(HERE, Present::OwnerAlone));
-    let call = |v: Value| answer(&r.core, &b, (&me, "t"), &pov, &args(v));
+    let (core, b, me, pov) = (&r.core, &b, me.as_str(), &pov);
+    let call = move |v: Value| {
+        let a = args(v);
+        async move { answer(core, b, (me, "t"), pov, &a).await }
+    };
     let day = call(json!({"when": "2026-11-11"})).await.unwrap().text;
     assert!(
         day.contains("message 2") && day.contains("message 3"),
@@ -1079,7 +1083,11 @@ async fn a_result_holding_another_persons_words_is_marked_external() {
         },
     );
     let (b, pov) = (Board::default(), pov(HERE, Present::OwnerAlone));
-    let call = |v: Value| answer(&r.core, &b, (&me, "t"), &pov, &args(v));
+    let (core, b, me, pov) = (&r.core, &b, me.as_str(), &pov);
+    let call = move |v: Value| {
+        let a = args(v);
+        async move { answer(core, b, (me, "t"), pov, &a).await }
+    };
     let url = |o: &theseus_tools::ToolOutput| super::marker(o).map(|e| e.url);
     let own = call(json!({})).await.unwrap();
     assert_eq!(url(&own), None, "the owner's own page: {}", own.text);
