@@ -1,5 +1,5 @@
-//! Situations (M6 step 35a, design §2.11): what a compile is for, and what
-//! its request may admit.
+//! Situations (M6 step 35a, design §2.11): what a compile is for, and
+//! whether its request closes.
 //!
 //! - **The situation** is a compiler input. The compile step tells it from
 //!   what it holds (`given`): no compilation yet is a conversation's or a
@@ -9,30 +9,27 @@
 //!   new compilation is a recompile, with its trigger (every view turn's first
 //!   call makes one, `view_turn`; the transcript's other triggers went with it
 //!   on 2026-11-22).
-//! - **What each admits** is the table `admits`, built from what the code
-//!   admitted before it, so no turn that passed fails: the classes of a
-//!   request's pieces, and whether a recall is this turn's (new) or written
-//!   before. Lessons are reserved for 35b (row 63) and admitted nowhere.
-//! - **The check** (`check`) is a pure pass over the request's pieces after
-//!   the compile: a piece its situation does not admit, or a set that does
-//!   not close (a result whose call is absent, a call with no result), is
-//!   `Unadmitted`, which the turn fails as `context_unadmitted` before
-//!   anything is sent. A call with no recorded result still gets its
-//!   synthetic one (a repair), as before, so the set closes. An assembled
-//!   `recall_id` whose node is not in the session is no piece: nodes are
-//!   never deleted, so that section was never written (its call was never
-//!   dispatched), and the render leaves it out too (theseus-783a).
+//! - **The check** (`closed`) is a pure pass over the request after the
+//!   compile: a set that does not close (a result whose call is absent, a
+//!   call with no result) is `Unadmitted`, which the turn fails as
+//!   `context_unadmitted` before anything is sent. A call with no recorded
+//!   result still gets its synthetic one (a repair), as before, so the set
+//!   closes.
+//! - **What a situation admits** was a table of piece classes (`admits`):
+//!   gone with issue 46. The view decides what a request holds, and the
+//!   table checked a model of the transcript's selection that the view's
+//!   request is not built from. Old `context.unadmitted` rows that name a
+//!   class (`not_admitted`) still read, and say so in words
+//!   (`fact::situation::words`).
 //!
-//! The books (P8) will be classes a situation admits: notes and summaries
-//! feed the diary.
 
 use std::collections::HashSet;
 use std::sync::Mutex;
 
 use serde_json::Value;
 
-use super::{renderable, Compilation, Compiled};
-use crate::node::{Body, Node};
+use super::{renderable, Compilation};
+use crate::node::Node;
 use crate::stub::Stub;
 
 pub use theseus_protocol::Situation;
@@ -43,105 +40,6 @@ pub use theseus_protocol::Situation;
 pub const PRECEDENCE: &str = "When sources disagree, trust them in this order: what this turn's \
 tools just returned; the operator's current request; the recent conversation; older conversation \
 and summaries; recalled notes, which are dated testimony.";
-
-/// The class of one piece of a request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Class {
-    /// A person's message, a wake, a task's report, or its brief.
-    Inbound,
-    /// The model's answer.
-    Reply,
-    /// A call's result, after the answer that made the call.
-    ToolResult,
-    /// A background job's result, delivered as a line after its call was
-    /// answered.
-    LateResult,
-    /// A call's synthetic result: none was recorded.
-    Repair,
-    /// A task's arrangement (M5 27).
-    Arrangement,
-    /// The turns a split thread opens with, quoted from its source's
-    /// (theseus-vt9k): an arrangement the thread's own session holds first.
-    Quoted,
-    /// A compaction's summary, first in its prefix (30c).
-    Summary,
-    /// The one line a moved range leaves in its source's compile
-    /// (theseus-q9b85): admitted where a summary is.
-    Moved,
-    /// An assembled prefix's recall section (30c).
-    RecallSection,
-    /// A recall note in the conversation (30b).
-    RecallNote,
-    /// The task view, the last block of the request's last message (39a).
-    TaskView,
-    /// A lesson: reserved for 35b (row 63), which admits it by scope.
-    Lesson,
-}
-
-impl Class {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Inbound => "inbound",
-            Self::Reply => "reply",
-            Self::ToolResult => "tool_result",
-            Self::LateResult => "late_result",
-            Self::Repair => "repair",
-            Self::Arrangement => "arrangement",
-            Self::Quoted => "quoted",
-            Self::Summary => "summary",
-            Self::Moved => "moved",
-            Self::RecallSection => "recall_section",
-            Self::RecallNote => "recall_note",
-            Self::TaskView => "task_view",
-            Self::Lesson => "lesson",
-        }
-    }
-}
-
-/// Whether `situation` admits a piece of `class`; `new` is a recall this
-/// turn brought, not yet written. The table (§2.11, from the code):
-///
-/// | Situation | Admits |
-/// |---|---|
-/// | conversation start | the transcript (messages, replies, results), a new recall note, earlier notes, a summary, the task view |
-/// | task start | the brief, its arrangement, a new assembled recall section, the task view |
-/// | continuation | the prefix and the tail (its arrangement, summary, and section included), a new recall note |
-/// | recompile | all of it, a new section (a compaction's) and a new note included |
-/// | resume | the manifest's prefix and the tail; no new recall |
-/// | detour | the last exchanges and the message, a task's arrangement among them, and a quick one's own recall note (theseus-pa1xx; `compile_detour` lets no earlier note in): no summary or task view |
-///
-/// A conversation's first compile may carry replies, earlier notes, and
-/// a summary: a session whose turns each took a detour (25e) wrote them
-/// but never a compilation of its own. A detour's window may hold its
-/// task's arrangement, written after the brief, and it always sent it
-/// (theseus-783a).
-pub fn admits(situation: &Situation, class: Class, new: bool) -> bool {
-    use Class::*;
-    let common = matches!(
-        class,
-        Inbound | Reply | ToolResult | LateResult | Repair | Quoted
-    );
-    match situation {
-        Situation::ConversationStart => {
-            common || matches!(class, Summary | Moved | TaskView | RecallNote)
-        }
-        Situation::TaskStart => {
-            common || matches!(class, Arrangement | TaskView) || (class == RecallSection && new)
-        }
-        Situation::Continuation => {
-            common
-                || matches!(class, Arrangement | Summary | Moved | TaskView | RecallNote)
-                || (class == RecallSection && !new)
-        }
-        Situation::Recompile { .. } | Situation::Unknown => class != Lesson,
-        Situation::Resume => {
-            common
-                || matches!(class, Arrangement | Summary | Moved | TaskView)
-                || (matches!(class, RecallNote | RecallSection) && !new)
-        }
-        Situation::Detour => common || matches!(class, Arrangement | RecallNote),
-    }
-}
 
 /// What the compile step tells from what it holds: `first` (no compilation
 /// yet), `task`, `resumed` (the session's first compile in this daemon's
@@ -211,127 +109,18 @@ pub(super) fn selected<'n>(c: &Compilation, nodes: &'n [(u64, Stub)]) -> Selecte
     (crate::moved::in_place(prefix), tail)
 }
 
-/// One piece of a request: its class, the node it renders (none for a
-/// repair's or the task view's), and whether it is a recall this turn
-/// brought.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Piece {
-    pub class: Class,
-    pub node_id: Option<String>,
-    pub new: bool,
-}
-
-impl Piece {
-    fn named(&self) -> String {
-        let new = if self.new { "this turn's " } else { "" };
-        match &self.node_id {
-            Some(id) => format!("{new}{} {id}", self.class.as_str()),
-            None => format!("{new}{}", self.class.as_str()),
-        }
-    }
-}
-
-/// The pieces of `compiled`'s request, from its compilation's selection
-/// over `nodes`: each rendered node's, each repair's, and the task view's
-/// when `task_view`. A recall positioned past `last_position` is new: the
-/// turn holds it until its plan frame writes it.
-pub fn pieces(
-    compiled: &Compiled,
-    nodes: &[(u64, Stub)],
-    last_position: u64,
-    task_view: bool,
-) -> Vec<Piece> {
-    let c = &compiled.compilation;
-    let (prefix, tail) = selected(c, nodes);
-    let mut out = Vec::new();
-    let all = prefix
-        .iter()
-        .map(|e| (e, true))
-        .chain(tail.iter().map(|e| (e, false)));
-    for (&(pos, n), in_prefix) in all {
-        let class = match &n.body {
-            Body::UserMessage { .. } => Class::Inbound,
-            Body::AssistantMessage { .. } => Class::Reply,
-            Body::ToolResult { late: false, .. } => Class::ToolResult,
-            Body::ToolResult { late: true, .. } => Class::LateResult,
-            Body::Arrangement { .. } if crate::arrangement::is_thread_quote(n) => Class::Quoted,
-            Body::Arrangement { .. } => Class::Arrangement,
-            // In a tail a summary renders nothing: its range is still in
-            // the prefix.
-            Body::Summary { .. } if in_prefix => Class::Summary,
-            Body::Moved {
-                undoes: None,
-                quiet: false,
-                ..
-            } => Class::Moved,
-            Body::Recall { .. } if c.recall_id.as_deref() == Some(n.id.as_str()) => {
-                Class::RecallSection
-            }
-            Body::Recall { .. } => Class::RecallNote,
-            _ => continue,
-        };
-        let new = matches!(class, Class::RecallNote | Class::RecallSection) && pos > last_position;
-        out.push(Piece {
-            class,
-            node_id: Some(n.id.clone()),
-            new,
-        });
-    }
-    out.extend(compiled.repairs.iter().map(|id| Piece {
-        class: Class::Repair,
-        node_id: Some(id.clone()),
-        new: false,
-    }));
-    if task_view {
-        out.push(Piece {
-            class: Class::TaskView,
-            node_id: None,
-            new: false,
-        });
-    }
-    out
-}
-
-/// A request that may not be sent: a piece its situation does not admit,
-/// or a set that does not close.
+/// A request that may not be sent: a set that does not close, or (from the
+/// standing check) a dropped record. An old row may also say a piece its
+/// situation did not admit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unadmitted {
-    /// `not_admitted` or `unclosed`.
+    /// `unclosed` or `standing_missing`; an old row may say `not_admitted`.
     pub why: &'static str,
     /// The piece, named: `this turn's recall_note rcn_…`, `the result of
     /// call toolu_…`.
     pub piece: String,
     /// What it means, in a sentence.
     pub detail: String,
-}
-
-/// The check after the compile: every piece admitted by `compiled`'s
-/// situation, and the set closed. Pure: it reads what it is given.
-pub fn check(
-    compiled: &Compiled,
-    nodes: &[(u64, Stub)],
-    last_position: u64,
-    task_view: bool,
-) -> Result<(), Unadmitted> {
-    let situation = &compiled.situation;
-    // An assembled `recall_id` with no node is a section never written: its
-    // call was never dispatched (the budget's refusal, a `/stop`, a kernel
-    // error at the dispatch). The render leaves it out, and so does the
-    // check: it is no piece (theseus-783a).
-    for p in pieces(compiled, nodes, last_position, task_view) {
-        if !admits(situation, p.class, p.new) {
-            return Err(Unadmitted {
-                why: "not_admitted",
-                piece: p.named(),
-                detail: format!(
-                    "a {} compile does not admit {}",
-                    situation.kind(),
-                    p.named()
-                ),
-            });
-        }
-    }
-    closed(&compiled.request.messages)
 }
 
 /// Each `tool_result` answers a `tool_use` of the assistant message just
@@ -408,66 +197,7 @@ impl RunCompiles {
 mod tests {
     use super::*;
     use serde_json::json;
-    use Class::*;
 
-    /// Each situation admits its classes (§2.11's table, from the code):
-    /// one row per class, one column per situation, for a recall written
-    /// before (`old`) and one this turn brought (`new`).
-    #[test]
-    fn each_situation_admits_its_classes() {
-        let situations = [
-            Situation::ConversationStart,
-            Situation::TaskStart,
-            Situation::Continuation,
-            Situation::Recompile {
-                trigger: "system_changed".into(),
-            },
-            Situation::Resume,
-            Situation::Detour,
-        ];
-        // conversation start, task start, continuation, recompile, resume, detour
-        let table: &[(Class, bool, [bool; 6])] = &[
-            (Inbound, false, [true, true, true, true, true, true]),
-            (Reply, false, [true, true, true, true, true, true]),
-            (ToolResult, false, [true, true, true, true, true, true]),
-            (LateResult, false, [true, true, true, true, true, true]),
-            (Repair, false, [true, true, true, true, true, true]),
-            (Arrangement, false, [false, true, true, true, true, true]),
-            (Quoted, false, [true, true, true, true, true, true]),
-            (Summary, false, [true, false, true, true, true, false]),
-            (Moved, false, [true, false, true, true, true, false]),
-            (
-                RecallSection,
-                false,
-                [false, false, true, true, true, false],
-            ),
-            (
-                RecallSection,
-                true,
-                [false, true, false, true, false, false],
-            ),
-            (RecallNote, false, [true, false, true, true, true, true]),
-            (RecallNote, true, [true, false, true, true, false, true]),
-            (TaskView, false, [true, true, true, true, true, false]),
-            (Lesson, false, [false; 6]),
-        ];
-        for (class, new, want) in table {
-            for (s, w) in situations.iter().zip(want) {
-                assert_eq!(
-                    admits(s, *class, *new),
-                    *w,
-                    "{} admits {}{}",
-                    s.kind(),
-                    if *new { "a new " } else { "" },
-                    class.as_str()
-                );
-            }
-        }
-    }
-
-    /// The step's word, then the compile's: a new compilation of a session
-    /// that had one is a recompile with its trigger, and so is a first
-    /// compile the ring cut; a detour stays one.
     #[test]
     fn the_compile_settles_the_situation() {
         assert_eq!(given(true, true, false), Situation::TaskStart);
@@ -545,5 +275,39 @@ mod tests {
         assert_eq!(e.piece, "tool_use toolu_c");
         let first = [results(&["toolu_d"])];
         assert_eq!(closed(&first).unwrap_err().piece, "tool_result toolu_d");
+    }
+
+    /// An old store's situations still read: every value a compilation or a
+    /// failure row was written with, a detour's and a resume's included,
+    /// decodes as it was written (issue 46 removed the table, not the label).
+    #[test]
+    fn an_old_stores_situations_still_decode() {
+        let read = |v: Value| serde_json::from_value::<Situation>(v).unwrap();
+        assert_eq!(read(json!({"kind": "detour"})), Situation::Detour);
+        assert_eq!(read(json!({"kind": "resume"})), Situation::Resume);
+        assert_eq!(read(json!({"kind": "task_start"})), Situation::TaskStart);
+        assert_eq!(
+            read(json!({"kind": "recompile", "trigger": "overflow"})),
+            Situation::Recompile {
+                trigger: "overflow".into()
+            }
+        );
+    }
+
+    /// An old `context.unadmitted` row that names a piece its situation did
+    /// not admit is still said in words, as it was before the table went.
+    #[test]
+    fn an_old_not_admitted_row_is_still_said() {
+        let old = Unadmitted {
+            why: "not_admitted",
+            piece: "this turn's recall_note rcn_1".into(),
+            detail: "a task_start compile does not admit this turn's recall_note rcn_1".into(),
+        };
+        let said = crate::fact::situation::words(&old);
+        assert!(said.contains("admits a piece it may not"), "{said}");
+        assert!(
+            said.contains("rcn_1") && said.ends_with("Nothing was sent."),
+            "{said}"
+        );
     }
 }

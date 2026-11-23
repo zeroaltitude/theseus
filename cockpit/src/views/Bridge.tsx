@@ -16,7 +16,7 @@ import { STARTUP_LEGEND, TOKEN_LEGEND, TURNS_LEGEND, contextTable, startupTable,
 import { NowStrip } from '@/components/NowStrip'
 import type { ConfirmRequest, ExecutionInfo, Health, LedgerEntry, SessionInfo } from '@protocol'
 import { useRpc } from '@/lib/rpc'
-import { providerCalls, spendCurve, totalIn, turnRows, useLedger, type ProviderCall, type RateLimit } from '@/lib/derive'
+import { isContextCompile, providerCalls, spendCurve, totalIn, turnRows, useLedger, type ProviderCall, type RateLimit } from '@/lib/derive'
 import { useHistoryRows } from '@/lib/history'
 import { ago, clock, monthDay, ms, pct, short, stamp, tokens, usd } from '@/lib/format'
 import { ledgerKind, stateTone, type Tone } from '@/lib/taxonomy'
@@ -172,7 +172,7 @@ export function Bridge() {
           <ToolBoard rows={inRange} />
         </Panel>
         <ChartPanel id="context" help="bridge.context" title="Context · prompt size, largest first" icon={<Brain size={13} />} height={260}
-          empty={inRange.some((r) => r.kind === 'context.compiled' || r.kind === 'context.recompiled') ? undefined : 'no context compiles in this range'}
+          empty={inRange.some((r) => isContextCompile(r.kind)) ? undefined : 'no context compiles in this range'}
           table={contextTable(inRange, title)}>
           <ContextRanks rows={inRange} sessions={sessions} onPick={(sid) => nav(`/session/${sid}?tab=context`)} />
         </ChartPanel>

@@ -263,7 +263,6 @@ impl TurnRunner {
             strip: None,
             overflowed: None,
             sources: &sources,
-            assembled: None,
             situation: &situation,
         };
         self.census_view_compile((sid, rec), kind, input)

@@ -250,9 +250,6 @@ pub struct CompileInput<'a> {
     pub overflowed: Option<&'a Overflowed>,
     /// The sources the session's `Recall` nodes render (M6 30b).
     pub sources: &'a crate::recall::render::Sources,
-    /// The assembled strategy's recall section (M6 30c): a new compilation
-    /// renders this `Recall` node first in its prefix (`recall_id`).
-    pub assembled: Option<&'a str>,
     /// What the compile is for, as the compile step tells it (M6 35a).
     pub situation: &'a situation::Situation,
 }

@@ -44,7 +44,6 @@ fn compiled(spec: &RequestSpec) -> Compiled {
         strip: None,
         overflowed: None,
         sources: &Default::default(),
-        assembled: None,
         situation: &situation::Situation::ConversationStart,
     })
 }

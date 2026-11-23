@@ -137,7 +137,6 @@ impl TurnRunner {
         let cold = (i == 0).then(|| theseus_protocol::now_unix_ms() > session.last_active_ms + ttl);
         let read_before = crate::stub::read(&nodes);
         ph.mark("views");
-        let assembled = t.recall.assembled_id().map(str::to_string);
         let given = self.situation_of(t, &nodes, current.is_none(), session);
         let input = CompileInput {
             session_id: sid,
@@ -154,7 +153,6 @@ impl TurnRunner {
             strip,
             overflowed,
             sources: &sources,
-            assembled: assembled.as_deref(),
             situation: &given,
         };
         // Past the window with nothing left to drop, the turn fails before any call.
@@ -187,7 +185,7 @@ impl TurnRunner {
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }
-        if let Some(f) = self.admitted(t, &compiled, &nodes, tasks.is_some(), i)? {
+        if let Some(f) = self.admitted(t, &compiled, i)? {
             return Ok(Err(f));
         }
         ph.mark("admitted");

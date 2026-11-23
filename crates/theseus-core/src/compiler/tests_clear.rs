@@ -50,7 +50,6 @@ fn compile_nodes(nodes: &[(u64, Stub)], current: Option<&Compilation>, window: u
         strip: None,
         overflowed: None,
         sources: &Default::default(),
-        assembled: None,
         situation: &situation::Situation::Continuation,
     })
 }

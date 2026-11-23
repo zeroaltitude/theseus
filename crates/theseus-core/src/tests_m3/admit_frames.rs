@@ -75,7 +75,9 @@ async fn an_inputs_admission_rides_its_inputs_frame() {
         "{frames:?}"
     );
     assert!(
-        frames[1].iter().any(|k| k == "context.recompiled"),
+        frames[1]
+            .iter()
+            .any(|k| *k == format!("kind {}", theseus_store::kinds::COMPILATION)),
         "its first compilation: {frames:?}"
     );
     let seen = spy(&r.core);
