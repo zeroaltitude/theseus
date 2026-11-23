@@ -300,6 +300,11 @@ pub enum Event {
         speaker: Speaker,
         usage: Usage,
     },
+    /// An accounting-only floor probe, even if its opening is no longer current.
+    Probed {
+        speaker: Speaker,
+        usage: Usage,
+    },
     /// A turn for the session, answered with [`Command::Reply`]: its
     /// utterances in the order they closed.
     Turn {
@@ -1278,6 +1283,12 @@ impl Engine {
     /// A probe's transcript: no words, and the open utterance it heard no
     /// longer holds the floor. A failed one holds it, as words do.
     fn probed(&mut self, speaker: Speaker, id: u64, result: Result<Transcript, SpeechError>) {
+        if let Ok(t) = &result {
+            self.emit(Event::Probed {
+                speaker,
+                usage: t.usage.clone(),
+            });
+        }
         let Some(opening) = self.opening.get_mut(&speaker).filter(|o| o.id == id) else {
             return;
         };
@@ -2087,6 +2098,42 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stale_probe_still_emits_its_paid_usage() {
+        let (mut engine, mut handle) = Engine::new(
+            Config::new([Speaker(1)]),
+            Box::new(crate::WavIo::new(Duration::from_secs(1))),
+            Arc::new(crate::StandInSpeech::new()),
+        );
+        let usage = Usage {
+            provider: "test".into(),
+            model: "test".into(),
+            audio: Duration::from_secs(8),
+            chars: 0,
+        };
+        engine.probed(
+            Speaker(1),
+            999,
+            Ok(Transcript {
+                text: String::new(),
+                usage: usage.clone(),
+                confidence: None,
+            }),
+        );
+        assert_eq!(
+            handle.events.try_recv().unwrap(),
+            Event::Probed {
+                speaker: Speaker(1),
+                usage
+            },
+            "paid stale probe emitted no accounting event"
+        );
+        assert!(
+            handle.events.try_recv().is_err(),
+            "one probe is booked once"
+        );
+    }
 
     fn said(started: u64, text: &str, over: Option<Over>) -> Utterance {
         Utterance {
