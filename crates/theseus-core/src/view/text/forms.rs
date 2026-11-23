@@ -22,6 +22,10 @@ use super::{labels, literal};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Voice {
     Person,
+    /// The harness's own line stored in a turn (its clock line, a nudge, the progress line, a helper's or
+    /// the day ceiling's note: `content::harness_own`). It stands where a person's message does, and is never
+    /// headed or prefixed as a person's words.
+    Harness,
     Theseus,
     Call,
     Result,
@@ -33,7 +37,7 @@ impl Voice {
     /// The window's role of a part; `None` for a mark, which is never a turn of its own.
     pub fn role(self) -> Option<Role> {
         match self {
-            Self::Person => Some(Role::Person),
+            Self::Person | Self::Harness => Some(Role::Person),
             Self::Theseus => Some(Role::Theseus),
             Self::Call => Some(Role::ToolCall),
             Self::Result => Some(Role::ToolResult),
@@ -73,7 +77,13 @@ pub fn whole(nodes: &[Node]) -> Vec<Said> {
     nodes
         .iter()
         .filter_map(|n| match &n.body {
-            Body::UserMessage { .. } => Some(Said::of(Voice::Person, n, crate::recall::text_of(n))),
+            Body::UserMessage { .. } => {
+                let voice = match crate::content::harness_own(n.origin, n.author.as_deref()) {
+                    true => Voice::Harness,
+                    false => Voice::Person,
+                };
+                Some(Said::of(voice, n, crate::recall::text_of(n)))
+            }
             Body::AssistantMessage { blocks, .. } => {
                 let text = crate::provider::text_of(blocks);
                 (!text.is_empty()).then(|| Said::of(Voice::Theseus, n, text))
@@ -104,31 +114,46 @@ pub fn whole(nodes: &[Node]) -> Vec<Said> {
 
 /// An exchange's spoken form: [`whole`] with each call and its result one stub ([`stub`]), where the call
 /// was. A result whose call is not among `nodes` is its stub alone.
+///
+/// A result is its call's (issue 44): the earliest call with its id standing before it that no result has
+/// answered yet, so ids a provider repeats between two responses of the turn pair in order and no result is
+/// shown under two calls. When every call with its id is answered, it is the latest one's again (its last
+/// result, as before).
 pub fn spoken(nodes: &[Node]) -> Vec<Said> {
-    let results: HashMap<&str, &Node> = nodes
-        .iter()
-        .filter_map(|n| match &n.body {
-            Body::ToolResult { tool_use_id, .. } => Some((tool_use_id.as_str(), n)),
-            _ => None,
-        })
-        .collect();
-    let called: Vec<&str> = nodes
-        .iter()
-        .filter_map(|n| match &n.body {
-            Body::ToolCall { tool_use_id, .. } => Some(tool_use_id.as_str()),
-            _ => None,
-        })
-        .collect();
+    let mut answer: HashMap<usize, &Node> = HashMap::new();
+    let mut open: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut alone: Vec<bool> = vec![false; nodes.len()];
+    for (i, n) in nodes.iter().enumerate() {
+        match &n.body {
+            Body::ToolCall { tool_use_id, .. } => {
+                open.entry(tool_use_id.as_str()).or_default().push(i)
+            }
+            Body::ToolResult { tool_use_id, .. } => match open.get(tool_use_id.as_str()) {
+                Some(calls) => {
+                    let at = (calls.iter())
+                        .find(|c| !answer.contains_key(*c))
+                        .or(calls.last())
+                        .copied();
+                    if let Some(c) = at {
+                        answer.insert(c, n);
+                    }
+                }
+                None => alone[i] = true,
+            },
+            _ => {}
+        }
+    }
     nodes
         .iter()
-        .filter_map(|n| match &n.body {
+        .enumerate()
+        .filter_map(|(i, n)| match &n.body {
             Body::ToolCall {
                 tool_use_id,
                 wire_name,
                 input,
                 ..
             } => {
-                let r = results.get(tool_use_id.as_str()).copied();
+                let r = answer.get(&i).copied();
                 Some(Said {
                     call: Some(tool_use_id.clone()),
                     ..Said::of(Voice::Call, n, stub(wire_name, input, r))
@@ -136,7 +161,7 @@ pub fn spoken(nodes: &[Node]) -> Vec<Said> {
             }
             Body::ToolResult {
                 tool_use_id, tool, ..
-            } if !called.contains(&tool_use_id.as_str()) => Some(Said {
+            } if alone[i] => Some(Said {
                 call: Some(tool_use_id.clone()),
                 ..Said::of(Voice::Call, n, stub(tool, &Value::Null, Some(n)))
             }),
@@ -273,6 +298,7 @@ pub fn text(parts: &[Said]) -> String {
 pub fn said_text(p: &Said) -> String {
     match p.voice {
         Voice::Person => format!("person: {}", p.text),
+        Voice::Harness => format!("harness: {}", p.text),
         Voice::Theseus => format!("Theseus: {}", p.text),
         Voice::Call => format!("call: {}", p.text),
         Voice::Result => match &p.outside {
@@ -337,7 +363,9 @@ pub fn try_fit(parts: Vec<Said>, max: u64, handle: &Handle) -> Result<Vec<Said>,
     let mut keep: Vec<bool> = units
         .iter()
         .enumerate()
-        .map(|(k, u)| parts[u[0]].voice == Voice::Person || Some(k) == last_reply)
+        .map(|(k, u)| {
+            matches!(parts[u[0]].voice, Voice::Person | Voice::Harness) || Some(k) == last_reply
+        })
         .collect();
     let size = |keep: &[bool]| tokens_of(runs(&units, keep, &bytes, handle).1);
     let needed = size(&keep);
@@ -444,7 +472,7 @@ pub fn ends(part: &Said, head: u64, tail: u64, handle: &Handle) -> Said {
     let per = crate::catalog::TokenRates::CLAUDE.text;
     let (h, t) = ((head as f64 * per) as usize, (tail as f64 * per) as usize);
     let s = &part.text;
-    if part.voice == Voice::Person || s.len() <= h.saturating_add(t) {
+    if matches!(part.voice, Voice::Person | Voice::Harness) || s.len() <= h.saturating_add(t) {
         return part.clone();
     }
     let a = floor_char(s, h);

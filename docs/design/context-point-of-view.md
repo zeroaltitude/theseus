@@ -893,25 +893,16 @@ kept in the transcript for ever and the 64,000-token cap that pauses recall; con
 memory mechanism (it stays for tasks and as the window's guard); the judge fields nobody reads, once something
 reads them or replaces them.
 
-**As built**, part of this went early, everywhere and not only in a place set to the view, by the trims of
-2026-11-21. **Nothing is routed by a guess**: a message goes to a thread only by its address (a `#slug`, `/t slug`,
-"in the <title> thread:", a place one thread alone lists, or a reply to a thread's reply), and everything else runs
-at home at once. The router's scoring went with it (so it is no input to "at hand", which is not computed), and so
-did the fusion with the judge's `thread` pick (the question is still asked on the same request, and nothing reads
-it), the router's questions to him, the learned thread corrections, the misroute guard, and the home claim's
-writer (`thread.unclaim` stays for claims already stored). The thread importer is deleted; the session import is
-not. Kept as built: thread records and their commands, sealed threads and their wall, an addressed thread's own
-session, the place tail, and `thread.move`, the owner's own act, which now teaches nothing. In a place set to the
-view, an exchange of a sealed thread is not in the window.
-
-Since then (`docs/design/threads.md`): **a failed explicit address is refused first**, and runs nowhere: a `/t`
-naming no thread, or an address to a paused or done thread the reader may be told of, ends the submission with one
-line saying why; nothing starts and nothing is written. Then the place and the words; only then the replied-to turn.
-**A thread the reader may not be told of is no thread in every form**: `/t` gets the "no thread" line, and a
-hashtag, prose or a reply runs at home. An **active** thread, sealed or not, stays addressable by name and by reply.
-**A reply finds its thread after a restart** from the turn's stored `thread.routed` row, within stated bounds (the
-newest 4,096 such rows; Discord's own newest 5,000 sent-message rows), and goes to the thread the turn ran in, not
-to one a split moved it to since. The retired importer's spend still counts toward the day's ceiling.
+**As built, since 2026-11-22** (the owner's decision: anything goes; the view is the only way a request is
+built). Threads are not containers: no message runs in a thread's own session, whatever its address, and
+`thread.move` is refused ("thread.move is gone"). A seal is no wall: nothing is withheld from a request because of
+who is present, where it is, a seal, a move or a veil (the gate reads only whether a piece's place is known), and
+the seal methods answer nothing; old seal and move records still decode. Thread records stay as things
+(`thread list`, `thread show`). What went on 2026-11-21 stays gone: the router's scoring and its questions, the
+fusion with the judge's `thread` pick, the learned corrections, the misroute guard, the home claim's writer
+(`thread.unclaim` stays for claims already stored) and the thread importer (the session import stays; its spend
+still counts toward the day's ceiling). The paragraphs that described thread addressing, sealed threads' own
+sessions and replies finding their thread after a restart (`docs/design/threads.md`) record what was.
 
 ## 10. How it is measured before it is trusted
 

@@ -4,8 +4,9 @@
 //!
 //! Who is present is never the view's to say: the point of view's presence and anchor are the turn's
 //! verified ones (`crate::view_gate::Verified`, computed by `turn::gate_step` from the input's mark and the
-//! place read on its own), and the gate is the turn's permit (`view::permit::Permit::for_turn`). A channel
-//! bound private, or an agent's process at the terminal, is never the owner alone (decision 5).
+//! place read on its own), and the gate is the turn's permit (`view::permit::Permit::scoped`, made by
+//! `fork::window::Fork::permit`). A channel bound private, or an agent's process at the terminal, is never the
+//! owner alone (decision 5).
 
 use std::collections::{HashMap, HashSet};
 
@@ -224,7 +225,12 @@ impl TurnRunner {
         let (asked, message) =
             given.map_or_else(|| message_of(store, sid, turn), |text| Ok((None, text)))?;
         let verified_pov = verified.pov().clone();
-        let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified);
+        if verified.scope_unread() {
+            anyhow::bail!(
+                "this session's execution cannot be read, so whether the self loop opened it cannot be decided"
+            );
+        }
+        let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified)?;
         let read = fork.sessions();
         let sources = StoreSources {
             store,
@@ -666,7 +672,7 @@ fn window_of(
         window.extend(match form {
             Form::Whole => nodes,
             Form::Spoken => bounded(nodes, &handle),
-            Form::Line => as_line(store, nodes, &handle)?,
+            Form::Line => as_line((store, read), nodes, &handle)?,
         });
     }
     let mut sessions: Vec<String> = (a.view.shown.iter())
@@ -756,15 +762,19 @@ fn bounded(nodes: Vec<(u64, Stub)>, handle: &Handle) -> Vec<(u64, Stub)> {
 /// A `Line` exchange as the budgeter paid for it: the person's words (as labelled), then the `did` line
 /// (or "reply not summarised") and the handle, as one message of the person's turn.
 fn as_line(
-    store: &Store,
+    (store, read): (&Store, &Sessions),
     nodes: Vec<(u64, Stub)>,
     handle: &Handle,
 ) -> anyhow::Result<Vec<(u64, Stub)>> {
     let Some((p, ask)) = nodes.into_iter().find(|(_, n)| n.kind == Kind::UserMessage) else {
         return Ok(Vec::new());
     };
-    let did = crate::ladder::did::did(store, &handle.0)?
-        .map(|d| crate::ladder::did::shown_line(store, &d));
+    // A fork's point in or before the exchange: its summary would tell the fork what came after (`fork::cut`).
+    let did = match read.summarised(store, &handle.0)? {
+        true => crate::ladder::did::did(store, &handle.0)?
+            .map(|d| crate::ladder::did::shown_line(store, &d)),
+        false => None,
+    };
     let mut node = (*ask).clone();
     if let Body::UserMessage { text, .. } = &mut node.body {
         *text = forms::line(text, did.as_deref(), handle);
@@ -809,7 +819,10 @@ fn labelled(
     let author = |s: &forms::Said| author_of(store, &s.node);
     let marked = parts::mark_parts(&forms::whole(&whole), &author, &seen, zone);
     let relabel: HashMap<&str, &parts::MarkedPart> = (marked.iter())
-        .filter(|m| m.label != Label::Here && matches!(m.voice, Voice::Person | Voice::Result))
+        .filter(|m| {
+            m.label != Label::Here
+                && matches!(m.voice, Voice::Person | Voice::Harness | Voice::Result)
+        })
         .map(|m| (m.node.as_str(), m))
         .collect();
     if relabel.is_empty() {
@@ -891,8 +904,9 @@ mod tests {
     fn a_kept_form_is_sent_as_that_form() {
         let (_d, s) = store();
         let long = "a long reply ".repeat(2_000);
+        let read = Sessions::default();
         let line = as_line(
-            &s,
+            (&s, &read),
             laid(vec![
                 Node::user("s", Some("t0"), "cli", "what did the audit say?"),
                 answer("t0", vec![json!({"type": "text", "text": long})]),

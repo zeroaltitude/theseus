@@ -85,14 +85,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   each a `judge.label` with the presser's `DiscordOrigin`, which the core judges (the owner, from a private place).
   A refused press tells the presser alone; a counted one comes back as the core's `jev_labeled` post, which edits
   the notice and clears its buttons. `judge.noticed` draws nothing in a place.
-- **A proposed seal's card** (theseus-f2g0, `runtime/seal.rs`): the core's `seal_card` post ("🔒 This looks embargoed: <reason>")
-  goes to the owner's DM alone (`jev_post`) with **Seal this thread** and **Not needed** (`seal:<yes|no>:<slug>`,
-  `Buttons::Seal`); a press is `thread.seal` or `thread.seal_dismiss` as the presser, with the place it came from, so the
-  core judges it (the owner, from a private place); a seal's reply to the presser says what had already crossed into other
-  threads. `/thread list` marks a sealed thread 🔒 (🔒? while a seal is proposed).
-- **`/move`** (theseus-rha2, `runtime/thread_move.rs`): `/move thread:` is `thread.move` for the last message the core
-  placed in this place. The router asks nothing since 2026-11-21 (a message goes to a thread by its address only), so
-  there is no question card.
+- **Seal cards and `/move`: removed 2026-11-22** (threads are not containers; anything goes). `runtime/seal.rs` and
+  `runtime/thread_move.rs` are gone: there is no Seal this thread / Not needed card and no `/move`. An old `seal_card`
+  or `link_card` a store still holds is posted as a plain note to the owner's DM (`courier.rs`).
 - **A question with options** (theseus-j7cje; `render/ask.rs`, `runtime/ask.rs`, `courier/ask.rs`): the card of an `owner_ask` question
   draws its options numbered with one button each (`Buttons::Ask`, `ask:<n>:<question id>`, five to a row), and a press is
   `work.answer` as the presser, which the core judges; "something else" takes words, so it is answered from the CLI.

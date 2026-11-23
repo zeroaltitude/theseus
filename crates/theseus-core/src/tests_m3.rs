@@ -2478,6 +2478,45 @@ fn ledger_after(core: &Core, after: u64) -> Vec<String> {
 /// each was its own frame. The template turns the narrative on, and a
 /// subscriber is watching: the narrative is never stored, so it adds no
 /// frame (theseus-5fy).
+/// The one turn that re-titles a conversation (its first message with substance, after a first that had none:
+/// `turn::title_step`) writes ONE frame more than a plain turn: its new compilation and the session record go
+/// at once, in a frame of their own, so a card asked in that very turn names the conversation by its new title
+/// (`turn::settle::persist_compilation`; the owner's decision of 2026-11-22: the cost is stated, not hidden).
+/// The next turn is back at the plain turn's budget, so a second early write cannot creep in unnoticed.
+#[tokio::test]
+async fn the_turn_that_re_titles_a_conversation_writes_one_frame_more_and_the_next_is_back_at_four()
+{
+    let r = rig(vec![
+        Scripted::text("first"),
+        Scripted::text("the heron nests by the weir"),
+        Scripted::text("hello"),
+    ]);
+    let first = turn(&r.core, None, "warm up").await;
+    let sid = first.session_id.clone();
+    let frames = |before: u64| r.core.store.stats().unwrap().frames_appended - before;
+    let before = r.core.store.stats().unwrap().frames_appended;
+    let res = turn(&r.core, Some(&sid), "Where does the grey heron nest?").await;
+    assert_eq!(res.loops, 1);
+    assert_eq!(
+        frames(before),
+        5,
+        "the re-titling turn: the plain turn's four and its early write"
+    );
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    assert_eq!(
+        rec.title_was,
+        vec!["warm up".to_string()],
+        "it re-titled the conversation"
+    );
+    let before = r.core.store.stats().unwrap().frames_appended;
+    turn(&r.core, Some(&sid), "and the herons by the old mill?").await;
+    assert!(
+        frames(before) <= 4,
+        "the next turn is a plain turn again: {}",
+        frames(before)
+    );
+}
+
 #[tokio::test]
 async fn a_plain_turn_stays_within_its_frame_budget() {
     let r = rig(vec![Scripted::text("first"), Scripted::text("hello")]);

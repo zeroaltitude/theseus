@@ -570,7 +570,9 @@ async fn a_reranked_turn_keeps_its_frame_budget() {
         let notes = session(c, None, &["the grey heron nests by the old weir"]);
         let here = session(c, None, &[]);
         c.runner.memory.set_ask(index_of(c, vec![notes]));
-        turn(c, &here, "warm up").await;
+        // A warm-up with substance: the measured turn re-titles nothing, so it is a plain turn (a re-titling
+        // turn writes one frame more, once per conversation: `tests_m3::the_turn_that_re_titles…`).
+        turn(c, &here, "warm up the heron notes").await;
         if judged {
             // The first rerank reserved the day's first block, and is written.
             until_reranked(&c.store, 1).await;

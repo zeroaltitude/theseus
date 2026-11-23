@@ -5,8 +5,9 @@
 //! [`super::gate::Admitted::code`] lays code's own text).
 //!
 //! One scope rule, not a withholding rule: a turn of a session the self loop opened lays its own place only
-//! (`view_gate::Verified::own_place_only`): its own session's exchanges at its anchor, and nothing else a
-//! selector reads ([`Permit::scoped`]).
+//! (`view_gate::Verified::own_place_only`): its own session's exchanges at its anchor, and, for a fork of
+//! such a session, the run the fork was handed (`fork::window::inherited`, laid through the fork's cut);
+//! nothing else a selector reads ([`Permit::scoped`]).
 
 use std::collections::HashSet;
 
@@ -19,35 +20,38 @@ use crate::view_gate::Verified;
 pub struct Permit(Option<HashSet<String>>);
 
 impl Permit {
-    /// The permit of the turn of `session`.
-    pub fn for_turn(runner: &crate::turn::TurnRunner, session: &str) -> Self {
-        Self::of(Verified::of_session(runner, session))
-    }
-
-    /// A permit for a point of view already verified, with no scope.
+    /// A permit with no scope (tests and readers that are no turn's view; a turn's is [`Self::scoped`]).
     pub fn of(_verified: Verified) -> Self {
         Permit(None)
     }
 
     /// The permit of `session`'s turn `turn` for `verified`: for a self-loop session's turn, its own place
-    /// only (`view_gate::own_turns` at the anchor); for every other turn, as [`Self::of`].
+    /// (`view_gate::own_turns` at the anchor) and the turns of the run it was `handed` as a fork (none for
+    /// a session that is no fork); an unread scope, nothing; every other turn, as [`Self::of`].
     pub fn scoped(
         store: &crate::store::Store,
-        session: &str,
-        turn: &str,
+        (session, turn): (&str, &str),
         verified: &Verified,
+        handed: &[&str],
     ) -> Self {
+        if verified.scope_unread() {
+            // Whether the self loop opened the session cannot be read: nothing is admitted (a turn's view
+            // fails before this, `view_built`; this holds for every other reader of the scope).
+            return Permit(Some(HashSet::new()));
+        }
         match verified.own_place_only() {
             true => Permit(Some(
                 crate::view_gate::own_turns(store, session, turn, &verified.pov().anchor)
                     .into_iter()
+                    .chain(handed.iter().map(|t| t.to_string()))
                     .collect(),
             )),
             false => Permit(None),
         }
     }
 
-    /// Whether `piece` is in this turn's scope: every piece, or, scoped, an exchange its own session ran.
+    /// Whether `piece` is in this turn's scope: every piece, or, scoped, an exchange its own session ran or
+    /// it was handed.
     fn in_scope(&self, piece: &Piece) -> bool {
         let Some(own) = &self.0 else {
             return true;

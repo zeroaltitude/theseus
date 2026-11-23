@@ -278,6 +278,8 @@ mod tests_budget_loop;
 #[cfg(test)]
 mod tests_budgets;
 #[cfg(test)]
+mod tests_call_ids;
+#[cfg(test)]
 mod tests_cancel;
 #[cfg(test)]
 mod tests_capture;
@@ -445,6 +447,8 @@ mod tests_m3;
 mod tests_manifest_harness;
 #[cfg(test)]
 mod tests_marker;
+#[cfg(test)]
+mod tests_mcp_history;
 #[cfg(test)]
 mod tests_mcp_memory;
 #[cfg(test)]

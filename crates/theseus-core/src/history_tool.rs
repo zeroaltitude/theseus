@@ -6,11 +6,22 @@
 //!   model sees in full (`page::in_view`). A page's `next` cursor, passed back as `before`, gives the ones
 //!   before those, with no horizon. One line an exchange: its date, the place, whose words, the person's words
 //!   (cut by code at 300 characters), the `did` line or the reply's beginning, and a handle.
-//! - **Open**: a handle gives the exchange in spoken form, cut at about 3,000 tokens (`open`).
+//! - **Open**: a handle gives the exchange in spoken form, cut at about 3,000 tokens (`open`); a session's id
+//!   (`ses_…`, this harness's or an imported one) gives a page of its messages the same way, `before` paging
+//!   back (`session`).
 //! - **Narrowing**: `place` (any other place), `thing` (its timeline in the touch index), `words` (the words
-//!   index, searched over the sessions on that timeline, then a filter on the walk).
+//!   index, searched over the sessions on that timeline, then a filter on the walk), and a time span: `when`,
+//!   or `from` / `to` ([`span_of`]: an explicit argument's reader, `recall::when::read_local`, never recall's
+//!   reading of English in a person's message). A span's page holds exactly its exchanges, newest first,
+//!   paged by `before`; an empty span says so; beside `words`, `place` or `thing` it narrows them.
 //! - **Every place, for every reader** (anything goes, 2026-11-22): no presence, place class, seal or move
 //!   keeps an exchange off a page or out of an open.
+//! - **Retraction corrects; it does not hide**: a retracted statement still appears in history as said, and its
+//!   correction is the note the retraction gave the sessions that used it. An erased import is gone (each node
+//!   read by its newest record).
+//! - **Another person's words are outside text** ([`marker`]): a result whose page holds another person's
+//!   line, or whose open holds another person's message, is marked External on its node, as a fetched page
+//!   is, so `external::read_any`, `external::first` and the settings acts' outside-text check see it.
 //! - **Where** ([`anchor`]): a message's turn is anchored where the message arrived; any other turn where its
 //!   reply is delivered (`Outbox::speaks_at`, a wake's or a report's target too); a route that cannot be read
 //!   is no place, and its bare page is the unknown place's.
@@ -35,13 +46,16 @@ use theseus_tools::{
 
 use crate::config::memory::MemoryArm;
 use crate::exchange::{self, Exchange, Opener};
-use crate::view::history::{HistoryArgs, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES};
+use crate::recall::when::When;
+use crate::view::history::{HistoryArgs, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, PointOfView, Present};
 use crate::Core;
 
+pub(crate) mod mcp;
 pub(crate) mod open;
 pub(crate) mod page;
+pub(crate) mod session;
 #[cfg(test)]
 mod tests;
 
@@ -62,6 +76,47 @@ fn parse(input: &Value) -> Result<HistoryArgs, String> {
     serde_json::from_value(input.clone()).map_err(|e| format!("bad input: {e}"))
 }
 
+/// The time span a call names, read as of `now_ms` by the reader an explicit argument takes
+/// (`recall::when::read_local`): `when`, or `from` and `to` (each read as a span, `from` giving its start and
+/// `to` its end). None when none is given; a span that does not read is told in words, never guessed.
+pub(crate) fn span_of(a: &HistoryArgs, now_ms: u64) -> Result<Option<When>, String> {
+    let some = |s: &Option<String>| {
+        s.as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    let read = |s: &str| {
+        crate::recall::when::read_local(s, now_ms).ok_or_else(|| {
+            format!(
+                "\"{}\" does not read as a time: name a day, a date or a span (\"yesterday\", \"2026-11-20\", \
+                 \"last week\", \"from 3 to 5 November\")",
+                page::flat(s)
+            )
+        })
+    };
+    match (some(&a.when), some(&a.from), some(&a.to)) {
+        (None, None, None) => Ok(None),
+        (Some(w), None, None) => Ok(Some(read(&w)?)),
+        (Some(_), _, _) => Err("name a span with when, or with from and to, not both".into()),
+        (None, from, to) => {
+            let start = from.as_deref().map(read).transpose()?;
+            let end = to.as_deref().map(read).transpose()?;
+            let said = match (&from, &to) {
+                (Some(f), Some(t)) => format!("from {f} to {t}"),
+                (Some(f), None) => format!("since {f}"),
+                (None, Some(t)) => format!("before the end of {t}"),
+                (None, None) => unreachable!("one of them is given"),
+            };
+            Ok(Some(When {
+                said,
+                from_ms: start.and_then(|w| w.from_ms),
+                to_ms: end.and_then(|w| w.to_ms),
+            }))
+        }
+    }
+}
+
 /// The registry's `context.history`: its name, schema and plan, for the gate. The runtime runs it
 /// ([`Board::run`]).
 pub struct HistoryTool;
@@ -71,7 +126,7 @@ impl Tool for HistoryTool {
         HISTORY_TOOL
     }
     fn description(&self) -> &'static str {
-        "This place's earlier history, 100 exchanges a page before those you see; before pages back; open reads one."
+        "This place's earlier history, 100 exchanges a page before those you see; before pages back; open reads one (or a ses_ session by its id); when (or from/to) a time span."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -81,7 +136,10 @@ impl Tool for HistoryTool {
                 "open": {"type": "string"},
                 "words": {"type": "string"},
                 "thing": {"type": "string"},
-                "place": {"type": "string"}
+                "place": {"type": "string"},
+                "when": {"type": "string"},
+                "from": {"type": "string"},
+                "to": {"type": "string"}
             },
             "additionalProperties": false
         })
@@ -98,6 +156,9 @@ impl Tool for HistoryTool {
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let a = parse(input)?;
         let summary = match (&a.open, &a.before) {
+            (Some(h), _) if session::names_a_session(&h.0) => {
+                format!("open session {}", page::flat(&h.0))
+            }
             (Some(h), _) => format!("open exchange {}", page::flat(&h.0)),
             (None, Some(_)) => "read further back through history".into(),
             (None, None) => "read back through history".into(),
@@ -111,6 +172,67 @@ impl Tool for HistoryTool {
         Box::pin(std::future::ready(Err(ToolFailure::new(
             "context.history runs through the runtime, which reads the ledger",
         ))))
+    }
+}
+
+/// One open, whatever its handle names: a session's page by its `ses_…` id (`session::open`, `before` paging
+/// back), or one exchange (`open::open_marked`). Behind the lens's seams (the fork's cut, the self loop's
+/// scope); every reader of history opens through here (the model's tool, and any other face of it).
+pub(crate) fn open_any(
+    lens: &page::Lens<'_>,
+    h: &crate::view::Handle,
+    before: Option<&Cursor>,
+) -> Result<OpenedAny, String> {
+    if session::names_a_session(&h.0) {
+        let s = session::open(lens, &h.0, before)?;
+        return Ok(OpenedAny {
+            text: s.text,
+            outside: s.outside,
+            session: true,
+            next: s.next,
+        });
+    }
+    let o = open::open_marked(lens, h)?;
+    Ok(OpenedAny {
+        text: o.text,
+        outside: o.outside,
+        session: false,
+        next: None,
+    })
+}
+
+/// What [`open_any`] gives: the text, whether it shows outside words (its result is marked External,
+/// [`marker`]), whether it was a session's page, and a session page's continuation, as data.
+pub(crate) struct OpenedAny {
+    pub text: String,
+    pub outside: bool,
+    pub session: bool,
+    pub next: Option<Cursor>,
+}
+
+/// The External marker of a call's result (`external`): set when what it shows holds another person's
+/// words (a page's line, an opened exchange or session marked outside text), so every reader of the marker
+/// (`external::read_any`, `external::first`, the settings acts' "outside text since the owner's message")
+/// sees it as it sees a fetched page. Its `url` names what was read: `history:<place>`, `history:<handle>`.
+pub(crate) fn marker(o: &ToolOutput) -> Option<theseus_tools::External> {
+    o.meta["outside"]
+        .as_str()
+        .map(|url| theseus_tools::External {
+            url: url.to_string(),
+        })
+}
+
+/// What a page read, as its marker names it: the place or the thing it was asked for, or here.
+fn read_of<'a>(a: &'a HistoryArgs, here: &'a str) -> &'a str {
+    let some = |s: &'a Option<String>| s.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    some(&a.place).or(some(&a.thing)).unwrap_or(here)
+}
+
+/// The `outside` of a result's meta: what it read, when it shows another person's words.
+fn outside_of(shows: bool, what: &str) -> Value {
+    match shows {
+        true => json!(format!("history:{}", page::flat(what))),
+        false => Value::Null,
     }
 }
 
@@ -203,7 +325,10 @@ impl Board {
         Box::pin(async move {
             answer(&core, &board, (&session, &turn), &pov, &a)
                 .await
-                .map(|o| (o, None, None))
+                .map(|o| {
+                    let external = marker(&o);
+                    (o, external, None)
+                })
                 .map_err(ToolFailure::new)
         })
     }
@@ -268,6 +393,31 @@ fn worker_pov(core: &Core, session: &str, ex: Option<&Exchange>) -> PointOfView 
     }
 }
 
+/// The self loop's scope of `session`'s history read (`view_gate::Verified`, as its view reads it): for a
+/// session the self loop opened, its own place at its verified anchor and the run it was handed as a fork
+/// (read fallibly: a run that cannot be read fails the call); none for any other session, which reads every
+/// place. A scope that cannot be read fails the call plainly, as it fails a turn's view: never the widest.
+fn self_scope(core: &Core, session: &str) -> Result<Option<page::SelfScope>, String> {
+    let v = crate::view_gate::Verified::of_session(&core.runner, session);
+    if v.scope_unread() {
+        return Err(
+            "context.history reads nothing here: whether the self loop opened this session \
+                    cannot be read"
+                .into(),
+        );
+    }
+    if !v.own_place_only() {
+        return Ok(None);
+    }
+    let handed =
+        crate::fork::window::inherited(&core.store, session).map_err(|e| format!("{e:#}"))?;
+    Ok(Some(page::SelfScope {
+        session: session.into(),
+        anchor: v.pov().anchor.clone(),
+        handed: handed.into_iter().map(|e| e.turn_id).collect(),
+    }))
+}
+
 /// Whether `turn`'s exchange has ended.
 fn ended(core: &Core, turn: &str) -> bool {
     exchange::exchange(&core.store, turn)
@@ -287,67 +437,186 @@ pub(crate) async fn answer(
     let Anchor::Place(here) = &pov.anchor else {
         return Err("context.history reads a place's history, and this turn has none".into());
     };
-    let done = |t: &str| ended(core, t);
-    let used = board.count(
-        turn,
-        if a.open.is_some() {
-            Count::Open
-        } else {
-            Count::Look
+    // The turn's allowance is counted first: a call whose lens cannot be built has used its look or open.
+    let allowance = Allowance::Turn { board, turn };
+    let used = count(core, &allowance, a);
+    let in_view = page::in_view(&core.store, session, here).map_err(|e| format!("{e:#}"))?;
+    let scope = self_scope(core, session)?;
+    let lens = lens_for(core, here, in_view, (Some(session), scope), a, pov.now_ms)?;
+    let span = lens.span.clone();
+    Ok(match read(core, lens, &allowance, used, a).await? {
+        Read::OpensUsed { opens } => ToolOutput {
+            text: format!(
+                "This turn's allowance of opens is used: {OPENS_PER_TURN} exchanges opened. Do not open \
+                 more this turn: tell the person what you found and offer to read further."
+            ),
+            meta: json!({"open": null, "opens": opens, "of": OPENS_PER_TURN}),
         },
-        &done,
-    );
-    let mut lens = page::Lens {
-        store: &core.store,
-        here: here.clone(),
-        in_view: page::in_view(&core.store, session, here).map_err(|e| format!("{e:#}"))?,
-        words: None,
+        Read::Opened {
+            handle,
+            opened,
+            opens,
+        } => ToolOutput {
+            meta: json!({
+                "open": page::flat(&handle), "session": opened.session,
+                "opens": opens, "of": OPENS_PER_TURN,
+                "outside": outside_of(opened.outside, handle.trim()),
+            }),
+            text: opened.text,
+        },
+        Read::Page {
+            walked,
+            looks,
+            resume,
+        } => {
+            let p = walked.page;
+            ToolOutput {
+                text: page::render(&p, (here, span.as_ref()), looks, resume.as_ref()),
+                meta: json!({
+                    "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
+                    "look": looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
+                    "outside": outside_of(page::shows_another(&p), read_of(a, here)),
+                }),
+            }
+        }
+    })
+}
+
+/// What a call may do: a turn's allowance (its looks and opens, counted on the board, which keeps its resume
+/// tokens), or none for a caller with no turn (an MCP client: each call is one page or one open, bounded by the
+/// page's size and the reading limit, and nothing is counted across calls).
+pub(crate) enum Allowance<'a> {
+    Turn { board: &'a Board, turn: &'a str },
+    NoTurn,
+}
+
+/// The call counted against `allowance`, and the use before it: a turn's looks or opens; none with no turn.
+pub(crate) fn count(core: &Core, allowance: &Allowance<'_>, a: &HistoryArgs) -> Use {
+    match allowance {
+        Allowance::Turn { board, turn } => {
+            let done = |t: &str| ended(core, t);
+            let what = match a.open.is_some() {
+                true => Count::Open,
+                false => Count::Look,
+            };
+            board.count(turn, what, &done)
+        }
+        Allowance::NoTurn => Use::default(),
+    }
+}
+
+/// The lens a read takes, for both callers: `here`, where a bare page starts (`in_view`), the span `a` names
+/// (as of `now_ms`, `span_of`), the cut of `session` when a session anchors the read (a fork's history holds
+/// nothing an ancestor said at or after its point, `fork::cut`; a cut that cannot be read fails the call
+/// plainly), and the asker's self-loop `scope` its caller read ([`self_scope`] for the model's call; none for
+/// an MCP client, which is not the self loop). With no anchoring session the cut is empty.
+pub(crate) fn lens_for<'a>(
+    core: &'a Core,
+    here: &str,
+    in_view: Option<Cursor>,
+    (session, scope): (Option<&str>, Option<page::SelfScope>),
+    a: &HistoryArgs,
+    now_ms: u64,
+) -> Result<page::Lens<'a>, String> {
+    let span = span_of(a, now_ms)?;
+    let cut = match session {
+        Some(s) => crate::fork::cut::Cut::of(&core.store, s).map_err(|e| format!("{e:#}"))?,
+        None => Default::default(),
     };
+    Ok(page::Lens {
+        store: &core.store,
+        here: here.to_string(),
+        in_view,
+        words: None,
+        span,
+        cut,
+        scope,
+    })
+}
+
+/// A call's answer before it is said: an opened exchange or session ([`open_any`]), a turn's opens used, or a
+/// page. `resume` is a turn's opaque token, or with no turn the raw position a walk stopped by its
+/// bound resumes at.
+pub(crate) enum Read {
+    Opened {
+        handle: String,
+        opened: OpenedAny,
+        opens: u32,
+    },
+    OpensUsed {
+        opens: u32,
+    },
+    Page {
+        walked: page::Walked,
+        looks: u32,
+        resume: Option<Cursor>,
+    },
+}
+
+/// The history tool's one read, for every caller: `a` over `lens`, within `allowance`, `used` being the use
+/// before this call ([`count`]).
+pub(crate) async fn read(
+    core: &Arc<Core>,
+    mut lens: page::Lens<'_>,
+    allowance: &Allowance<'_>,
+    used: Use,
+    a: &HistoryArgs,
+) -> Result<Read, String> {
     if let Some(h) = &a.open {
         if used.opens >= OPENS_PER_TURN {
-            return Ok(ToolOutput {
-                text: format!(
-                    "This turn's allowance of opens is used: {OPENS_PER_TURN} exchanges opened. Do not open \
-                     more this turn: tell the person what you found and offer to read further."
-                ),
-                meta: json!({"open": null, "opens": used.opens, "of": OPENS_PER_TURN}),
-            });
+            return Ok(Read::OpensUsed { opens: used.opens });
         }
-        let text = open::open(&lens, h)?;
-        return Ok(ToolOutput {
-            text,
-            meta: json!({"open": page::flat(&h.0), "opens": used.opens + 1, "of": OPENS_PER_TURN}),
+        // A `ses_…` id opens that session, a page of it, `before` paging back (`session`); any other handle
+        // one exchange.
+        return Ok(Read::Opened {
+            handle: h.0.clone(),
+            opened: open_any(&lens, h, a.before.as_ref())?,
+            opens: used.opens + 1,
         });
     }
-    let before = board.position(turn, a.before.as_ref())?;
+    let before = match allowance {
+        Allowance::Turn { board, turn } => board.position(turn, a.before.as_ref())?,
+        Allowance::NoTurn => a.before.clone(),
+    };
+    let mut stale = false;
     if let Some(w) = a.words.as_deref().map(str::trim).filter(|w| !w.is_empty()) {
         let (root, _) = lens.root(a).map_err(|e| format!("{e:#}"))?;
         let scope = lens.scope(&root).map_err(|e| format!("{e:#}"))?;
-        lens.words = Some(found(core, w, scope).await?);
+        let (turns, cut) = found(core, w, scope).await?;
+        lens.words = Some(turns);
+        stale = cut;
     }
-    let walked = lens
+    let mut walked = lens
         .walk(a, before, used.looks)
         .map_err(|e| format!("{e:#}"))?;
-    let resume = walked.resume.map(|at| board.keep(turn, at));
-    let p = walked.page;
-    Ok(ToolOutput {
-        text: page::render(&p, here, used.looks, resume.as_ref()),
-        meta: json!({
-            "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
-            "look": used.looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
-        }),
+    // Hits no longer on record took places in the search's bound: what lay below them may be missing, so the
+    // search is never told as the end of history (D6 round 3, F).
+    if stale && walked.page.end == PageEnd::HistoryExhausted {
+        walked.page.end = PageEnd::SearchStale;
+    }
+    let resume = match (allowance, walked.resume.take()) {
+        (Allowance::Turn { board, turn }, Some(at)) => Some(board.keep(turn, at)),
+        (_, at) => at,
+    };
+    Ok(Read::Page {
+        walked,
+        looks: used.looks,
+        resume,
     })
 }
 
 /// The turns the words index finds for `words` among `scope`, the sessions on the timeline walked: the search
-/// is scoped to them before it ranks anything.
+/// is scoped to them before it ranks anything. And whether the search may be incomplete: a hit it admitted gave
+/// no live turn (gone, erased, or outside the scope: a stale index entry) while its bound was reached (the most
+/// it asks, or the pack's budget dropped some), so a live hit below the stale ones may have been left out. The
+/// pack is bounded before each hit's node is read, and nothing refills it.
 pub(crate) async fn found(
     core: &Arc<Core>,
     words: &str,
     scope: HashSet<String>,
-) -> Result<HashSet<String>, String> {
+) -> Result<(HashSet<String>, bool), String> {
     if scope.is_empty() {
-        return Ok(HashSet::new());
+        return Ok((HashSet::new(), false));
     }
     let memory = &core.runner.memory;
     let deadline = Duration::from_millis(memory.cfg().recall_deadline_ms).max(DEADLINE);
@@ -391,10 +660,24 @@ pub(crate) async fn found(
             m.outcome
         ));
     }
-    Ok(m.admitted
-        .iter()
-        .filter(|i| scope.contains(&i.session_id))
-        .filter_map(|i| core.store.get_node(&i.node_id).ok().flatten())
-        .filter_map(|(_, n)| n.turn_id)
-        .collect())
+    let mut turns = HashSet::new();
+    let mut discarded = 0usize;
+    for i in &m.admitted {
+        let live = scope
+            .contains(&i.session_id)
+            .then(|| core.store.get_node(&i.node_id).ok().flatten())
+            .flatten()
+            .filter(|(_, n)| !matches!(n.body, crate::node::Body::Erased { .. }))
+            .and_then(|(_, n)| n.turn_id);
+        match live {
+            Some(t) => {
+                turns.insert(t);
+            }
+            None => discarded += 1,
+        }
+    }
+    let bound = m.admitted.len() >= WORDS_K
+        || m.candidates >= WORDS_K as u64
+        || m.drops.get("budget").is_some_and(|n| *n > 0);
+    Ok((turns, discarded > 0 && bound))
 }

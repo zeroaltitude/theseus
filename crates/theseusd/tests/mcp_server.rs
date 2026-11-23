@@ -347,6 +347,7 @@ fn a_client_opens_a_conversation_sends_it_text_and_gets_the_reply() {
     assert_eq!(
         names,
         [
+            "context_history",
             "conversation_open",
             "conversation_send",
             "conversation_status",

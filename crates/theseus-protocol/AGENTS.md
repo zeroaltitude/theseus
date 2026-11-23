@@ -223,8 +223,10 @@ Key modules: `names.rs` (the `method` and `notify` tables), `lib.rs` (the `error
   `RoutinePing`, and `routine.try`; `notices.rs` holds the ping rule's entries (`ROUTINE_PURPOSES`, `routine_urgency`, `routine_pings`,
   `routine_line`, `routine_answers`), sent as `wake.noticed` with a routine purpose.
   `slug_of_place`; since theseus-sjzm also `Speaking` (`turn.submit`'s `speaking`: the Discord origin of a thread turn, and `answer_at`), `ThreadChanged` (the `thread.changed` notification) and `channel_surface`/`surface_channel` (`discord:channel:<id>`). `turn.submit`'s `thread` is in `submit.rs`.
-  `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`. Since theseus-f2g0: `thread.seal` (`ThreadSealParams`, `ThreadSealResult`,
-  `ThreadCrossed`, `crossed_words`), `thread.unseal`, `thread.seal_dismiss`, and `ThreadNewParams.sealed`/`split_from`.
+  `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`. Since theseus-f2g0, kept only so old records and
+  clients still decode (the core answers none of these methods since 2026-11-22): `thread.seal` (`ThreadSealParams`,
+  `ThreadSealResult`, `ThreadCrossed`, `crossed_words`), `thread.unseal`, `thread.seal_dismiss`, and
+  `ThreadNewParams.sealed`/`split_from`.
 - `own_bench.rs` (own-benchmark, theseus-pw1q.12): `turn.replay`'s params and result (`TurnReplayParams`, `TurnReplayResult`,
   `ReplayReply`, `ReplayVerdict`) and `route.report`'s (`RouteReportParams`, `RouteReportResult`, `RouteCell`).
 - `card.rs` (theseus-slvl.6): the owner card's wire types: `CardProposal` (a META record `card.proposal.<id>`: text, kind, scope, the question and its options `Keep/Edit/Not this`, the episodes it rests on, expiry, state), `card.propose|list|answer|done`'s params and results, and `card_question`, the one place the question's words are made. Exported under `CARD_`/`card_` names at the crate root; the lib.rs line budget allowed two lines.

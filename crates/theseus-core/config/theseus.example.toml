@@ -1842,10 +1842,11 @@ min_loops_between = 4                   # at most one verdict per this many loop
 # context = ""                          # one paragraph on what the assistant is and which of its
 #                                       # work is public, given to the classifier as written (cut at
 #                                       # 800 characters); empty says nothing
-# judge_replies = false                 # true: Theseus's own replies are asked the same four
-#                                       # questions, each kept on its own item (never on the
-#                                       # session); off by default, as a reply's ask spends from the
-#                                       # same judge day and daemon ceiling as the inputs'
+# judge_replies = true                  # Theseus's own replies are asked the same four questions,
+#                                       # each kept on its own item (never on the session). A
+#                                       # reply's ask is paid from the same judge day as an input's,
+#                                       # and replies stop at half the day's settled judge spend
+#                                       # (inputs keep the rest); false turns reply labels off
 
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and

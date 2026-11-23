@@ -61,10 +61,15 @@ pub fn mark_parts(
         .map(|p| {
             let (author, outside) = match p.voice {
                 Voice::Person => (author_of(p), false),
+                // The harness's own line: no person's, and its label is its own (below).
+                Voice::Harness => (Author::Unknown, false),
                 Voice::Result => (Author::Theseus, p.outside.is_some()),
                 Voice::Theseus | Voice::Call | Voice::Mark => (Author::Theseus, false),
             };
-            let label = labels::part_label(author, outside, seen.here, seen.live);
+            let label = match p.voice {
+                Voice::Harness => Label::Harness,
+                _ => labels::part_label(author, outside, seen.here, seen.live),
+            };
             let text = match (label, p.voice) {
                 // Another person's words: wrapped on their own, as any outside text.
                 (Label::OutsideText, Voice::Person) => format!(
