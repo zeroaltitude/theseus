@@ -1799,7 +1799,10 @@ pub(crate) mod tests {
         assert_eq!(kept[2].1.body, n3.body, "decoded from the bytes written");
         assert_eq!(store.transcript_reads() - r0, 1, "read once");
         // Another turn reads its own.
-        assert_eq!(store.for_turn("ses_t").transcript("ses_t").unwrap().len(), 3);
+        assert_eq!(
+            store.for_turn("ses_t").transcript("ses_t").unwrap().len(),
+            3
+        );
         assert_eq!(store.transcript_reads() - r0, 2);
         // A node written through another handle does not join the kept one.
         store
@@ -1880,8 +1883,15 @@ pub(crate) mod tests {
         let n2 = mine("two");
         let p2 = x.append(&[n2.record().unwrap()]).unwrap()[0];
         let own = x.transcript("ses_x").unwrap();
-        assert_eq!(store.transcript_reads() - r0, 2, "its own is not read again");
-        assert_eq!(own.last().map(|(p, n)| (*p, n.id.clone())), Some((p2, n2.id)));
+        assert_eq!(
+            store.transcript_reads() - r0,
+            2,
+            "its own is not read again"
+        );
+        assert_eq!(
+            own.last().map(|(p, n)| (*p, n.id.clone())),
+            Some((p2, n2.id))
+        );
     }
 
     /// `flush` writes what still waits in one frame, and nothing when
