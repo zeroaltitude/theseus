@@ -38,6 +38,7 @@
 //! - speech (`speech.transcribed`, `speech.synthesized`, `Kernel::book_spend`);
 //! - the judge's point judgments (its day budget's META record, `judge.budget`,
 //!   whose `spent_micros` is today's when its `day` is);
+//! - nightly guidance (the day mark `onto.dream.last`, added outside the cached ledger total);
 //! - consolidation (`synthesis.proposed`), and the owner's learning runs
 //!   (`judge.replay`, `judge.audit`, `judge.backfill`'s `cost_usd`), and the
 //!   learning loop's writer (`judge.proposal`'s `writer_usd`), and the
@@ -300,9 +301,31 @@ fn judge_spent(store: &Store, day: &str) -> Micros {
     }
 }
 
+/// Guidance's day mark is separate from ledger totals, like the judge's budget.
+/// An unreadable mark cannot grant fresh spending room.
+fn guidance_spent(store: &Store, day: &str) -> Micros {
+    use crate::consolidate::guidance::{DreamMark, MARK};
+    match store.get_meta::<DreamMark>(MARK) {
+        Ok(Some(mark)) if mark.day == day => {
+            if mark.spent_usd.is_finite() && mark.spent_usd >= 0.0 {
+                usd_to_micros(mark.spent_usd)
+            } else {
+                Micros::MAX
+            }
+        }
+        Ok(_) => 0,
+        Err(error) => {
+            tracing::warn!(%error, "day ceiling: guidance spend unreadable; no spending room restored");
+            Micros::MAX
+        }
+    }
+}
+
 fn seeded(t: &Total, rows: u64, resumed: bool, store: &Store, day: &str, limit: Micros) -> Seeded {
     let mut seed = t.seed(limit);
-    seed.spent = seed.spent.saturating_add(judge_spent(store, day));
+    seed.spent = seed.spent
+        .saturating_add(judge_spent(store, day))
+        .saturating_add(guidance_spent(store, day));
     Seeded {
         seed,
         rows,

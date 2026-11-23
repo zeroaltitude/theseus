@@ -366,3 +366,34 @@ fn the_retired_importers_spend_still_counts_after_an_upgrade() {
         );
     }
 }
+
+/// Guidance keeps its own day mark even when an answer fails or is refused.
+/// Reopening the store must not turn that settled spend back into headroom.
+#[test]
+fn guidance_spend_survives_restart_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    let store = Store::open(&path).unwrap();
+    store
+        .put_meta(
+            crate::consolidate::guidance::MARK,
+            &json!({"day": "2026-11-23", "spent_usd": 0.0625}),
+        )
+        .unwrap();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    for _ in 0..2 {
+        let total = read_today_total(&store, 0, "2026-11-23", LIMIT)
+            .unwrap()
+            .unwrap();
+        assert_eq!(total.seed.spent, 62_500);
+    }
+    assert_eq!(
+        read_today_total(&store, 0, "2026-11-24", LIMIT)
+            .unwrap()
+            .unwrap()
+            .seed
+            .spent,
+        0
+    );
+}
