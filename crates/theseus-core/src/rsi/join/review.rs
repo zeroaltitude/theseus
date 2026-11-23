@@ -269,7 +269,11 @@ mod tests {
 
     #[test]
     fn a_conditional_verdict_is_not_approval() {
-        for text in ["accept? no.", "acceptable only after fixing the gate", "fix later"] {
+        for text in [
+            "accept? no.",
+            "acceptable only after fixing the gate",
+            "fix later",
+        ] {
             assert_eq!(word_of(&format!("VERDICT: {text}")).0, "reject");
         }
     }

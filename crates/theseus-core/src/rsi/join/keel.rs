@@ -471,7 +471,10 @@ mod tests {
 
     #[test]
     fn git_confinement_is_reserved_for_the_owner() {
-        assert_eq!(classes(&["crates/theseus-core/src/rsi/tree_git.rs"], ""), ["self"]);
+        assert_eq!(
+            classes(&["crates/theseus-core/src/rsi/tree_git.rs"], ""),
+            ["self"]
+        );
     }
 
     #[test]
