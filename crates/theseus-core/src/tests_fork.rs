@@ -1573,3 +1573,141 @@ async fn a_forks_words_search_crowded_past_its_point_says_it_may_be_incomplete()
     assert_eq!(handles, vec![one]);
     assert_eq!(earlier.end, PageEnd::HistoryExhausted, "nothing held");
 }
+
+/// A stand-in index answering every query with `nodes`, ranked in the order given.
+fn index_ranked(core: &Arc<Core>, nodes: Vec<String>) -> crate::recall::Ask {
+    use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
+    let store = core.store.clone();
+    Arc::new(move |_p| -> crate::recall::AskFuture {
+        let hits = nodes
+            .iter()
+            .filter_map(|id| store.get_node(id).unwrap())
+            .enumerate()
+            .map(|(i, (position, n))| IndexHit {
+                text: crate::recall::text_of(&n),
+                time_ms: n.created_at_ms,
+                node_id: n.id,
+                chunk: 0,
+                session_id: n.session_id,
+                position,
+                kind: "user_message".into(),
+                origin: "operator".into(),
+                author: None,
+                place: None,
+                tool: None,
+                external: false,
+                entities_matched: vec![],
+                entities: Vec::new(),
+                sources: [(
+                    "bm25".to_string(),
+                    IndexSourceRank {
+                        rank: i + 1,
+                        score: 1.0,
+                    },
+                )]
+                .into(),
+                fused: 1.0 / (61 + i) as f64,
+            })
+            .collect();
+        Box::pin(async move {
+            Ok(IndexQueryResult {
+                hits,
+                indexed_through: 0,
+                lag: Default::default(),
+                timings: Default::default(),
+                skipped: Default::default(),
+                weights: Default::default(),
+            })
+        })
+    })
+}
+
+/// A fork's words search that starts from a cursor, or from what is in view, is told it may be incomplete when
+/// the cut held any of its hits (XF8, issue 44), through the tool's entry point with recall's own ranking and cap:
+/// the source's 120 matches after the point outrank its one earlier match, which the cap of 100 leaves out; the
+/// fork asks with `before` older than every post-point hit (and once with the ordinary start), so its walk never
+/// meets a held hit, and the page must still say "may be incomplete", never "exhausted". The source pages its hits.
+#[tokio::test]
+async fn a_forks_words_search_from_a_cursor_crowded_past_its_point_says_it_may_be_incomplete() {
+    let r = rig();
+    let (s, nodes) = three_turns(&r).await;
+    let f = fork(&r.core, &s, &nodes[3].0); // through the answer to "two"
+    let one = turn_of(&r.core, &nodes[0].0);
+    let place = crate::exchange::exchange(&r.core.store, &one)
+        .unwrap()
+        .unwrap()
+        .place;
+    let first_later = theseus_protocol::now_unix_ms() + 60_000;
+    let mut ranked = Vec::new();
+    for i in 0..120u64 {
+        let turn = format!("turn_tide_{i:03}");
+        let ask = crate::node::Node::user(&s, Some(&turn), "owner", &format!("tide {i}"));
+        let at = first_later + i;
+        let x = crate::exchange::Exchange {
+            turn_id: turn.clone(),
+            session_id: s.clone(),
+            place: place.clone(),
+            private: true,
+            opened_by: crate::exchange::Opener::Message,
+            person: Some(crate::exchange::OWNER.into()),
+            start_ms: at,
+            end_ms: Some(at),
+            ask: Some(ask.id.clone()),
+            reply: None,
+            messages: vec![ask.id.clone()],
+            stop: Some("end_turn".into()),
+            rebuilt: false,
+        };
+        let mut recs = vec![
+            ask.record().unwrap(),
+            crate::exchange::exchange_record(&x).unwrap(),
+        ];
+        recs.extend(crate::exchange::touch(
+            crate::exchange::Root::Place(&place),
+            &turn,
+            &s,
+            at,
+        ));
+        r.core.store.append(&recs).unwrap();
+        ranked.push(ask.id.clone());
+    }
+    // The earlier, eligible match ranks last: the cap leaves it out.
+    ranked.push(nodes[0].0.clone());
+    r.core.runner.memory.set_ask(index_ranked(&r.core, ranked));
+    let pov = crate::view::PointOfView {
+        anchor: crate::view::Anchor::Place(place.clone()),
+        person: None,
+        present: crate::view::Present::Open,
+        at_hand: None,
+        now_ms: theseus_protocol::now_unix_ms(),
+    };
+    let b = crate::history_tool::Board::default();
+    let call = |session: String, v: Value| {
+        let a: crate::view::history::HistoryArgs = serde_json::from_value(v).unwrap();
+        let (core, b, pov) = (r.core.clone(), &b, &pov);
+        async move { crate::history_tool::answer(&core, b, (&session, "t"), pov, &a).await }
+    };
+    let before = json!({"words": "tide", "before": {"at_ms": first_later, "turn_id": ""}});
+    let cut = call(f.session_id.clone(), before).await.unwrap().text;
+    assert!(cut.contains("may be incomplete"), "from a cursor: {cut}");
+    assert!(!cut.contains("exhausted"), "from a cursor: {cut}");
+    let bare = call(f.session_id.clone(), json!({"words": "tide"}))
+        .await
+        .unwrap()
+        .text;
+    assert!(
+        bare.contains("may be incomplete"),
+        "the ordinary start: {bare}"
+    );
+    assert!(!bare.contains("exhausted"), "the ordinary start: {bare}");
+    assert!(
+        !bare.contains("turn_tide_"),
+        "nothing past the point: {bare}"
+    );
+    let source = call(s.clone(), json!({"words": "tide"}))
+        .await
+        .unwrap()
+        .text;
+    assert!(source.contains("turn_tide_119"), "the control: {source}");
+    assert!(!source.contains("may be incomplete"), "{source}");
+}
