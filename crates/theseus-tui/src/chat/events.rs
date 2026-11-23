@@ -24,6 +24,11 @@ impl Chat {
 
     /// An answer to one of the chat's requests.
     pub fn answered(&mut self, purpose: Purpose, result: Result<Value, RpcError>) -> Vec<Effect> {
+        if let Purpose::History(sid) | Purpose::Earlier(sid) = &purpose {
+            if self.session.as_deref() != Some(sid.as_str()) {
+                return Vec::new();
+            }
+        }
         let mut effects = match purpose {
             Purpose::AtRoots => self.at_roots(result),
             Purpose::Why(part) => self.why_got(part, result),

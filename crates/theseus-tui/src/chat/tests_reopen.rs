@@ -395,3 +395,44 @@ async fn a_continued_conversations_esc_stops_its_execution() {
     let s = &r.daemon.asked("execution.stop")[0];
     assert_eq!(s["execution_id"], "exe_old000001");
 }
+
+#[test]
+fn history_replies_for_another_session_do_not_change_the_current_view() {
+    use super::state::{Chat, Purpose};
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    let history = json!({
+        "session": session("ses_old000001", "other view", json!({})),
+        "nodes": transcript(1), "pending_confirms": []
+    });
+    for purpose in [
+        Purpose::History("ses_old000001".into()),
+        Purpose::Earlier("ses_old000001".into()),
+    ] {
+        chat.out.clear();
+        chat.answered(purpose, Ok(history.clone()));
+        assert!(
+            chat.out.is_empty(),
+            "late history printed into another view"
+        );
+    }
+}
+
+#[test]
+fn history_errors_for_another_session_are_not_shown_here() {
+    use super::state::{Chat, Purpose};
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    chat.out.clear();
+    chat.answered(
+        Purpose::Earlier("ses_other".into()),
+        Err(theseus_protocol::RpcError {
+            code: -32603,
+            message: "other view failed".into(),
+            data: Value::Null,
+        }),
+    );
+    assert!(chat.out.is_empty());
+}
