@@ -1008,3 +1008,72 @@ async fn a_self_loop_session_lays_its_own_place_only_and_an_ordinary_one_the_wid
     );
     assert!(sent.contains("the heron is grey"), "the widest: {sent}");
 }
+
+/// Round 3: a fork of a self-loop session keeps the run it was handed. Its turn lays the source's exchanges
+/// through the fork's point (handed material, as a brief is), none the source said after the point, and nothing
+/// of another session at the source's place.
+#[tokio::test]
+async fn a_fork_of_a_self_loop_session_lays_its_inherited_run_to_its_point_and_nothing_else_foreign(
+) {
+    use crate::tests_view_hand_backs::unmarked;
+    let r = rig_with(|c| c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act);
+    let c = &r.core;
+    c.self_resume(
+        &theseus_protocol::rsi::SelfResumeParams::default(),
+        &crate::approval::Answerer::from("the CLI"),
+    )
+    .unwrap();
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: the heron is grey", true).await;
+    let fixer = self_session(c, "self fix: kelp");
+    for said in [
+        "fixer: FIRST-KELP",
+        "fixer: SECOND-KELP",
+        "fixer: THIRD-KELP",
+    ] {
+        unmarked(c, &fixer, said).await.unwrap();
+    }
+    // The point: the answer to the second message (the fourth of the source's nodes that are messages).
+    let said: Vec<String> = (c.store.session_nodes(&fixer).unwrap().into_iter())
+        .filter(|(_, n)| {
+            matches!(
+                n.body,
+                crate::node::Body::UserMessage { .. } | crate::node::Body::AssistantMessage { .. }
+            )
+        })
+        .map(|(_, n)| n.id)
+        .collect();
+    assert_eq!(said.len(), 6, "three messages and their answers: {said:?}");
+    let f = c
+        .session_fork(
+            theseus_protocol::SessionForkParams {
+                session: fixer.clone(),
+                at: said[3].clone(),
+                ..Default::default()
+            },
+            crate::approval::Surface::Cli,
+        )
+        .unwrap();
+    let source = crate::view_gate::Verified::of_session(&c.runner, &fixer);
+    let forked = crate::view_gate::Verified::of_session(&c.runner, &f.session_id);
+    assert!(source.own_place_only(), "the source is the self loop's");
+    assert!(forked.own_place_only(), "the fork keeps its source's scope");
+    unmarked(c, &f.session_id, "fork: what came before?")
+        .await
+        .unwrap();
+    let got = texts(
+        &asked(&r, "fork: what came before")
+            .pop()
+            .expect("its request"),
+    );
+    assert!(got.contains("FIRST-KELP"), "the handed run: {got}");
+    assert!(
+        got.contains("SECOND-KELP"),
+        "the handed run, through its point: {got}"
+    );
+    assert!(!got.contains("THIRD-KELP"), "nothing past the point: {got}");
+    assert!(
+        !got.contains("the heron is grey"),
+        "another session's: {got}"
+    );
+}
