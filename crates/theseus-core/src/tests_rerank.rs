@@ -463,19 +463,45 @@ async fn mode_off_calls_nothing() {
 }
 
 /// The requests a core's model got, as bytes.
-/// Each request's message count and how often it carries the heron's note.
-fn shape(requests: &[String]) -> Vec<(usize, usize)> {
-    requests
-        .iter()
-        .map(|q| {
-            let v: Value = serde_json::from_str(q).unwrap();
-            let messages = v[1].as_array().map_or(0, Vec::len);
-            (
-                messages,
-                q.matches("the grey heron nests by the old weir").count(),
-            )
-        })
-        .collect()
+/// A request (its system, messages and tools, as [`sent`] serializes them) with only the values each
+/// daemon makes its own blanked: a recalled note's handle (`[m:…]`), its store position (`@…`) and its
+/// session's short id (`session …`). Every other byte, the text included, is kept.
+fn normalized(request: &str) -> String {
+    let b = request.as_bytes();
+    let hex = |c: &u8| c.is_ascii_hexdigit();
+    let mut out = String::with_capacity(request.len());
+    let mut i = 0;
+    while i < b.len() {
+        let rest = &request[i..];
+        if rest.starts_with("[m:") {
+            let n = b[i + 3..].iter().take_while(|c| hex(c)).count();
+            if n > 0 && b.get(i + 3 + n) == Some(&b']') {
+                out.push_str("[m:_]");
+                i += 4 + n;
+                continue;
+            }
+        }
+        if b[i] == b'@' {
+            let n = b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+            if n > 0 {
+                out.push_str("@_");
+                i += 1 + n;
+                continue;
+            }
+        }
+        if rest.starts_with("session ") {
+            let n = b[i + 8..].iter().take_while(|c| hex(c)).count();
+            if n >= 6 && !b.get(i + 8 + n).is_some_and(u8::is_ascii_alphanumeric) {
+                out.push_str("session _");
+                i += 8 + n;
+                continue;
+            }
+        }
+        let ch = rest.chars().next().unwrap_or_default();
+        out.push(ch);
+        i += ch.len_utf8().max(1);
+    }
+    out
 }
 
 pub(crate) fn sent(model: &FakeProvider) -> Vec<String> {
@@ -499,6 +525,21 @@ async fn a_slow_or_failing_jev_changes_no_turn() {
         .set_ask(index_of(&off.core, vec![notes]));
     let base = turn(&off.core, &here, "Where does the grey heron nest?").await;
     let base_req = sent(&off.model);
+    // The normalizer blanks only those values: a changed word of the recalled note, or of the system
+    // text, still fails the comparison.
+    let one = &base_req[0];
+    assert!(
+        one.contains("the grey heron nests by the old weir"),
+        "{one}"
+    );
+    assert_ne!(
+        normalized(&one.replace("by the old weir", "by the new weir")),
+        normalized(one)
+    );
+    assert_ne!(
+        normalized(&one.replacen("Theseus", "Thesius", 1)),
+        normalized(one)
+    );
     for mode in [
         FakeMode::Slow(Duration::from_secs(10)),
         FakeMode::Down,
@@ -527,12 +568,18 @@ async fn a_slow_or_failing_jev_changes_no_turn() {
             (&base.output, &base.stop_reason, base.loops, base.cost_usd),
             "{mode:?}: the turn's result"
         );
-        // With recall live, each daemon's recalled headers name its own node handles, sessions and
-        // positions, so two daemons' bytes differ there by construction. What the model is sent is
-        // compared on what they share: the requests' shape and the recalled note, in each.
+        // With recall live, each daemon's recalled headers name its own node handle, session and store
+        // position, so two daemons differ there by construction; with those blanked, the whole request
+        // (system, messages and tools, text included) is the judge-off daemon's.
+        let norm = |reqs: &[String]| {
+            reqs.iter()
+                .map(String::as_str)
+                .map(normalized)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(
-            shape(&sent(&r.model)),
-            shape(&base_req),
+            norm(&sent(&r.model)),
+            norm(&base_req),
             "{mode:?}: the turn's request"
         );
         let rows = until_reranked(&c.store, 1).await;
