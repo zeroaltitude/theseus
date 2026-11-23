@@ -638,6 +638,9 @@ async fn a_secrets_name_reaches_only_the_owners_terminal_and_web_page_over_the_w
             said["names"].as_array().is_none_or(|n| n.is_empty()),
             "{surface:?}: {said}"
         );
-        assert!(!got.to_string().contains("anthropic_key"), "{surface:?}: {got}");
+        assert!(
+            !got.to_string().contains("anthropic_key"),
+            "{surface:?}: {got}"
+        );
     }
 }

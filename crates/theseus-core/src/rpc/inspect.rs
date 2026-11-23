@@ -259,11 +259,7 @@ struct Read {
 /// The turn's rows into the answer: its times, outcome, trace, route and
 /// compiles, and every row as the surface may see it: a `request.redacted`
 /// row without its secrets' names unless `secret_names`.
-fn read_rows(
-    out: &mut TurnInspectResult,
-    rows: &[(u64, LedgerRow)],
-    secret_names: bool,
-) -> Read {
+fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)], secret_names: bool) -> Read {
     let mut r = Read {
         errors: 0,
         compiled: BTreeMap::new(),
