@@ -521,21 +521,11 @@ pub(crate) fn sent(model: &FakeProvider) -> Vec<String> {
         .collect()
 }
 
-/// Where every daemon of [`a_slow_or_failing_jev_changes_no_turn`] starts its clock: Monday 2026-11-23 12:00:00
-/// UTC, the start of a minute. Each daemon stamps its recalled note from the clock, and the request names that
-/// stamp to the minute (`said on the terminal, Mon 2026-11-23 12:00 …`), so five daemons built one after another
-/// on the wall clock straddled a minute's turn now and then, and their requests differed by that stamp alone
-/// (X-RERANK-FLAKE: about one run in five, alone, on a gate box). Each starts here instead, well inside one minute.
-const SAME_MINUTE_MS: u64 = 1_795_435_200_000;
-
 /// A slow, failing, or rate-limited Jev changes no turn: the model gets the
 /// same bytes as with the judge off, and the turn never waits for the
 /// rerank, whose deadline here is 5 s (a turn that waited would take it).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_slow_or_failing_jev_changes_no_turn() {
-    // Each daemon from the same instant (`SAME_MINUTE_MS`); the wall clock again when the test ends.
-    let _clock = crate::test_support::ClockPin;
-    theseus_protocol::time::move_clock_to(SAME_MINUTE_MS);
     let off = rig(None, |_| {});
     let notes = session(&off.core, None, &["the grey heron nests by the old weir"]);
     let here = session(&off.core, None, &[]);
@@ -568,7 +558,6 @@ async fn a_slow_or_failing_jev_changes_no_turn() {
         },
         FakeMode::Malformed,
     ] {
-        theseus_protocol::time::move_clock_to(SAME_MINUTE_MS);
         let jev = FakeJev::start().unwrap();
         jev.set_mode(mode.clone());
         let r = rig(Some(&jev), |_| {});
