@@ -123,8 +123,8 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   substituted before the request left (`[privacy] redact_outbound`). `theseus inspect [SESSION] [TURN]`.
 - **`view`**: what a turn was shown and why, from its view record: the point of view, each slot's pieces by id with
   their kinds, forms, tokens and reasons, what was left out and why, and the totals. `--text` adds each piece's
-  text, `--tally` the counts by slot and reason. Yours alone: an agent's process, a job or any other connection is
-  refused, and a piece whose source is sealed today is not listed. `theseus view show TURN [--text] [--tally]`.
+  text, `--tally` the counts by slot and reason. Sources must still be readable; old seals do not hide them.
+  This view read does not have the separate owner-only `turn.inspect` gate. `theseus view show TURN [--text] [--tally]`.
 - **`reach`**: where a node went: the compilations that held it and its copies in other sessions. `theseus reach NODE`.
 - **`fork`**: a new session from any moment of another, by reference; the original is never written to.
   `theseus fork NODE`.

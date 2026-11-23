@@ -56,14 +56,14 @@ A table of names built from the stores that hold them, with no word list and no 
 
 | Thing | Key | Names |
 |---|---|---|
-| a line of work (a thread record, through the threads' board) | `thread:<slug>` | its title, its slug |
+| a historical line of work (a stored thread, through the board) | `thread:<slug>` | its title, its slug |
 | a task | `task:<id>` | its title; its bare id is qualified too |
 | a topic (a category of a kind `onto.v1` files under, `project` apart) | its id, `topic:<local>` | its name |
 
 The table is built for a caller (`table::build_for(core, gate)`): a thing whose record the gate refuses
 (`card::Admits::thing`, with the thread, task or category record) is left out before any alias is resolved, so
-it is no match, no candidate and makes no visible alias ambiguous. A sealed thread's same-thread exception is
-the gate's to decide. `table::build` is `build_for` with `table::Whole`, which admits everything.
+it is no match, no candidate and makes no visible alias ambiguous. Old thread records remain readable, but
+seals and moves no longer affect this admission. `table::build` is `build_for` with `table::Whole`, which admits everything.
 
 The matcher reads a person's words. A **qualified name** (a key, or a task's id, as a whole token) wins and names
 one thing. An **alias** is matched as whole words, case ignored, at most eight words and at least three
@@ -97,9 +97,8 @@ is attached to, through the turn's own permit: every thread, task and topic is m
 (a line of work's and a task's are its session's, as the gate reads them; a topic's are the owner's filing,
 private and of no place a turn is anchored to) and asked of the gate first, so a refused thing is no name, no
 candidate, and makes no alias it shares ambiguous. An exchange a card or "in play" reads is admitted only when
-its session's current marks (place, audience, seal) and its own arrival place both pass, and none of its
-messages was moved into a thread not proven clear (the turn's `view_gate::Moved`); its words are read only then,
-and the sessions it was read from (the moved-to threads' included) join the view's dependencies. The message is
+its session's current place and its own arrival place are readable. Its words are read only then, and the
+sessions it was read from join the view's dependencies. Old seals and moves are not admission rules. The message is
 matched against that table (a qualified name, or an alias one live admitted thing holds; candidates name
 nothing), and its qualified numbered items are the ones the exchange's own naming told the turn
 (`names::items::WAIT` bounds the wait); an unscoped item is a candidate and brings no card. Words the owner's
@@ -121,11 +120,8 @@ read or depended on. Facts about the person (slot B, `view::sources_people`) are
 (the owner by the place rule's owner handles): its name and the owner's guidance for it, marked as the owner's
 filing. Its role line is not laid: no reader clears an operator's or an import's description by the memory
 rules. Each text is read once for the turn and laid by the renderer as one block of its own provenance. A card
-and a waiting line carry the sessions they were read from (ids); the view's record re-checks them against
-today's seals before it shows or counts the piece (kind `card`, `waiting`), to the owner alone, and shows no
-residue count for those bands. That provenance is the sessions and the exchanges read; a record with none
-(written before it was kept) is unproven and neither shown nor counted. Before it shows a card, and before a
-frozen view's every later call, each exchange a card read is asked again of today's moves (a fresh
-`view_gate::Moved`): a message moved since into a thread not proven clear revokes it. A card asks the gate only
-of the standing records its own facts need (its scope's, and those that end one of them).
-
+and a waiting line carry the sessions and exchanges they were read from. The view record checks that provenance
+again before showing the piece (`card`, `waiting`); a record with none is unproven and neither shown nor counted.
+Seals and moved-message records do not revoke a card. In the view, standing facts come through the standing
+reader rather than the card (`ViewAdmits::fact` returns false). Authorship and name matching still describe where
+a card came from; they are not a private-to-shared memory boundary.
