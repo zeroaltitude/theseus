@@ -777,3 +777,166 @@ fn spans<'a>(s: &'a Value, kind: &str) -> Vec<&'a Value> {
     }
     out
 }
+
+/// D5 round 2, part B: the security half of `tests_glide::a_read_from_a_shared_place_is_outside_text_and_holds_nothing`
+/// (deleted with `channel.read`), retargeted onto the history tool's real path: `context_history` → `Board::run` →
+/// its marker → the RECEIVING session's stored result. An open of an exchange holding another person's words is
+/// stored External: `external::read_any` and the settings act's check (`config_change::outside_since_owner`) both
+/// see it. Nothing holds the session: a following fetch runs at its posture and asks nothing. And that fetch IS
+/// judged, the gate's selection seeing the outside read (Q12). The same read of the owner's own exchange stays
+/// clean, and its fetch is not judged. (The retired read-approval half is not restored.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_history_read_of_another_persons_words_is_outside_text_and_holds_nothing() {
+    /// An exchange of `place` in session `sid`, its ask by `person` (marked) and its reply, its touch written.
+    fn exchange(core: &Core, sid: &str, turn: &str, (place, person): (&str, &str), words: &str) {
+        use crate::exchange::{
+            exchange_record, mark_record, touch, Exchange, Opener, OwnerMark, Peer, Root, OWNER,
+        };
+        use crate::node::Node;
+        let at = 1_000_000;
+        let ask = Node::user(sid, Some(turn), person, words);
+        let said = Node::assistant(
+            sid,
+            turn,
+            0,
+            Body::AssistantMessage {
+                blocks: vec![json!({"type": "text", "text": format!("noted: {words}")})],
+                model: "m".into(),
+                provider: "p".into(),
+                stop_reason: None,
+                usage: Default::default(),
+                cost_usd: None,
+                catalog_version: None,
+                request_id: None,
+                correlation_id: None,
+                compilation_id: None,
+                request_digest: None,
+                effort: None,
+            },
+        );
+        let mark = OwnerMark {
+            node: ask.id.clone(),
+            in_person: person == OWNER,
+            owner_handle: None,
+            peer: if person == OWNER {
+                Peer::Person
+            } else {
+                Peer::Transport
+            },
+            agent: None,
+            surface: "cli".into(),
+            place: place.into(),
+            arrived_session: sid.into(),
+            ran_session: sid.into(),
+            author: (person != OWNER).then(|| person.to_string()),
+            at_ms: at,
+        };
+        let x = Exchange {
+            turn_id: turn.into(),
+            session_id: sid.into(),
+            place: place.into(),
+            private: false,
+            opened_by: Opener::Message,
+            person: Some(person.into()),
+            start_ms: at,
+            end_ms: Some(at + 500),
+            ask: Some(ask.id.clone()),
+            reply: Some(said.id.clone()),
+            messages: vec![ask.id.clone()],
+            stop: Some("end_turn".into()),
+            rebuilt: false,
+        };
+        let mut recs = vec![
+            ask.record().unwrap(),
+            said.record().unwrap(),
+            mark_record(&mark).unwrap(),
+            exchange_record(&x).unwrap(),
+        ];
+        recs.extend(touch(Root::Place(place), turn, sid, at));
+        core.store.append(&recs).unwrap();
+    }
+    let jev = FakeJev::start().unwrap();
+    let read = |id: &str, turn: &str| {
+        Scripted::tools("", &[(id, "context_history", json!({ "open": turn }))])
+    };
+    let fetch = |id: &str| {
+        Scripted::tools(
+            "",
+            &[(
+                id,
+                "http_fetch",
+                json!({"url": "http://site.test/page.html"}),
+            )],
+        )
+    };
+    let script = vec![
+        // The owner's own exchange read back, then a fetch and a run (the run is judged; the fetch is not).
+        read("h0", "turn_owner_words"),
+        Scripted::text("Read."),
+        fetch("f0"),
+        run("r0", &["echo", "after"]),
+        Scripted::text("Done."),
+        // A guest's exchange read back, then a fetch (judged: the session now holds outside text).
+        read("h1", "turn_guest_words"),
+        Scripted::text("Read."),
+        fetch("f1"),
+        Scripted::text("Done."),
+    ];
+    let r = rig(script, Some(&jev), |_| {}).await;
+    exchange(
+        &r.core,
+        "ses_owner_words",
+        "turn_owner_words",
+        ("discord:dm:42", crate::exchange::OWNER),
+        "the owner's ferry question",
+    );
+    exchange(
+        &r.core,
+        "ses_guest_words",
+        "turn_guest_words",
+        ("discord:channel:77", "discord:7"),
+        "a guest's words about the ferry",
+    );
+    let stored_external = |sid: &str| {
+        r.core.store.session_nodes(sid).unwrap().iter().any(|(_, n)| {
+            matches!(&n.body, Body::ToolResult { tool, external: Some(_), .. } if tool == "context.history")
+        })
+    };
+    // The control: the owner's own words, read back, stay clean, and the fetch after is not judged.
+    let clean = session(&r.core, None);
+    turn(&r.core, &clean, "read it", None).await;
+    let nodes = r.core.store.session_nodes(&clean).unwrap();
+    assert!(
+        !stored_external(&clean),
+        "the owner's own words are not outside text"
+    );
+    assert!(!crate::external::read_any(&r.core.store, &clean));
+    assert!(!crate::config_change::outside_since_owner(&nodes));
+    let res = turn(&r.core, &clean, "fetch it, then run", None).await;
+    assert_eq!(res.awaiting_confirm, None, "{res:?}");
+    let rows = until_judged(&r.core.store, 1).await;
+    assert!(
+        rows.iter().all(|r| r.data["context"]["tool"] == "proc.run"),
+        "the run's judgment alone: {rows:?}"
+    );
+    let (clean_fetch, _) = the_call(&r.core, &clean, "http.fetch");
+    assert!(r.core.runner.judge.of_call(&clean_fetch).is_empty());
+    // Another person's words, read back: the receiving result is External, and both gate readers see it.
+    let held = session(&r.core, None);
+    turn(&r.core, &held, "read it", None).await;
+    let nodes = r.core.store.session_nodes(&held).unwrap();
+    assert!(stored_external(&held), "the receiving result is External");
+    assert!(crate::external::read_any(&r.core.store, &held));
+    assert!(crate::config_change::outside_since_owner(&nodes));
+    // No blanket hold: the fetch after runs at its posture and asks nothing; and it IS judged.
+    let res = turn(&r.core, &held, "fetch it", None).await;
+    assert_eq!(res.awaiting_confirm, None, "no blanket hold: {res:?}");
+    let rows = until_judged(&r.core.store, 2).await;
+    assert!(
+        rows.iter()
+            .any(|r| r.data["context"]["tool"] == "http.fetch"),
+        "the fetch is judged: {rows:?}"
+    );
+    let (held_fetch, _) = the_call(&r.core, &held, "http.fetch");
+    assert_eq!(r.core.runner.judge.of_call(&held_fetch).len(), 1);
+}
