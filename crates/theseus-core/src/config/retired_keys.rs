@@ -44,11 +44,14 @@ const PREFIX: &str = "the prefix library is gone (2026-11-22): each request's sy
                       rendered afresh by the view, with the same content, and no saved header is reused";
 const THREADS: &str = "threads are no longer containers (2026-11-22): a thread's own recall, its \
                        growth, its home's size and its seals are gone";
-const MAX_LIVE: &str = "threads are no longer containers (2026-11-22): nothing counts live threads, so \
+const MAX_LIVE: &str =
+    "threads are no longer containers (2026-11-22): nothing counts live threads, so \
                         there is no bound to set";
-const EFFORT_FIXED: &str = "nothing reads it since the effort bounds and their clamp went: a profile's \
+const EFFORT_FIXED: &str =
+    "nothing reads it since the effort bounds and their clamp went: a profile's \
                             effort is what it sets, or what the route pack answers";
-const STORE_ENGINE: &str = "redb is the only index engine behind the WAL, so there is nothing to choose";
+const STORE_ENGINE: &str =
+    "redb is the only index engine behind the WAL, so there is nothing to choose";
 const INERT: &str = "nothing read it any more: the link offer, the Discord thread mirror and the \
                      place tail's half-life went with threads as containers";
 
