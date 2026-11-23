@@ -379,7 +379,7 @@ def score(trial: Path, arm: str | None = None) -> dict[str, Any]:
         "overlap": ov["overlap"] if ov else None,
         "slow_busy_s": ov["busy_s"] if ov else None,
         "slow_phase_s": ov["phase_s"] if ov else None,
-        "model_calls": len(model_calls) or None,
+        "model_calls": len(model_calls) if model_calls is not None else None,
         **batching(responses(trial)),
         "order_violations": len(l2.order_violations(family, rec)) if l2.base(family) in l2.DEPS else None,
         **kill_row(trial, family, rec, reward),
