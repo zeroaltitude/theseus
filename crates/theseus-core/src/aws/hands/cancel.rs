@@ -216,7 +216,7 @@ pub async fn stop_hands(
     let open: Vec<Action> = corrs
         .iter()
         .filter_map(|c| ctx.kernel.action(c).ok().flatten())
-        .filter(|a| stoppable(a))
+        .filter(stoppable)
         .collect();
     if open.is_empty() {
         return out;
@@ -454,9 +454,21 @@ pub async fn stop_group(ctx: &Ctx<'_>, group: &str) -> Result<Vec<(Action, &'sta
             }),
         )?
     };
+    finish_group_stop(ctx, &mut rec, &actions, &call)?;
+    out.push((call, rec.backend.as_str()));
+    Ok(out)
+}
+
+/// Keep a concurrent launch's task ids when recording the group's stop.
+fn finish_group_stop(
+    ctx: &Ctx<'_>,
+    rec: &mut GroupRecord,
+    actions: &[Action],
+    call: &Action,
+) -> Result<()> {
     if rec.settled.is_none() {
         rec.settled = Some("cancelled".into());
-        let t = group::tally(ctx.store, &rec, &actions);
+        let t = group::tally(ctx.store, rec, actions);
         let why = call
             .resolution
             .clone()
@@ -465,7 +477,7 @@ pub async fn stop_group(ctx: &Ctx<'_>, group: &str) -> Result<Vec<(Action, &'sta
             rec.record()?,
             fact::row(
                 &group::Settled {
-                    rec: &rec,
+                    rec,
                     tally: &t,
                     met: false,
                     why: Some(&why),
@@ -474,15 +486,14 @@ pub async fn stop_group(ctx: &Ctx<'_>, group: &str) -> Result<Vec<(Action, &'sta
                 None,
             )?,
         ];
-        records.extend(group::extension_row(&rec, &t)?);
+        records.extend(group::extension_row(rec, &t)?);
         ctx.kernel.frame(&[&rec.execution_id], |k| {
-            if let Some(mut current) = GroupRecord::load(ctx.store, group)? {
+            if let Some(mut current) = GroupRecord::load(ctx.store, &rec.group)? {
                 current.settled = Some("cancelled".into());
                 records[0] = current.record()?;
             }
             k.stage(&records)
         })?;
     }
-    out.push((call, rec.backend.as_str()));
-    Ok(out)
+    Ok(())
 }

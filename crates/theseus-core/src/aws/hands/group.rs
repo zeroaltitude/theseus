@@ -413,6 +413,12 @@ pub async fn launch(ctx: &Ctx<'_>, mut rec: GroupRecord, wave: &[u32]) -> Result
         }
     };
     let rec = finish_wave(ctx, rec, &binding, results)?;
+    stop_late(ctx, &rec).await;
+    Ok(rec)
+}
+
+/// Reach a stop that landed while this wave's launch reply was in flight.
+async fn stop_late(ctx: &Ctx<'_>, rec: &GroupRecord) {
     // A stop may have landed while RunTask's reply was in flight.
     let cancelled: Vec<String> = rec
         .hands
@@ -422,8 +428,7 @@ pub async fn launch(ctx: &Ctx<'_>, mut rec: GroupRecord, wave: &[u32]) -> Result
             (h.external_op_id.is_some() && a.cancel.is_some()).then(|| h.correlation_id.clone())
         })
         .collect();
-    super::cancel::stop_hands(ctx, &rec, &cancelled).await;
-    Ok(rec)
+    super::cancel::stop_hands(ctx, rec, &cancelled).await;
 }
 
 /// A wave's frame: the record with its external ids, the `aws.called` and

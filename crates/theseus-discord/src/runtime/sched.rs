@@ -303,6 +303,11 @@ impl Shared {
                 routine: Some((r.clone(), snap.records.get(&r.id).copied())),
             });
         }
+        self.complete_notes(&mut out, recs)?;
+        Some(out)
+    }
+
+    fn complete_notes(&self, out: &mut [Face], recs: &[Rec]) -> Option<()> {
         // The work view's title is already shortened. Recover the complete
         // reminder text before the exit masks it and the card clips it. Keep
         // that raw text in the existing card record for a later ended edit.
@@ -314,7 +319,7 @@ impl Shared {
             .into_iter()
             .map(|(_, w)| (w.id, w.note))
             .collect();
-        for f in &mut out {
+        for f in out {
             if matches!(f.kind, Kind::Reminder | Kind::CheckIn) {
                 if let Some(note) = notes
                     .get(&f.id)
@@ -324,7 +329,7 @@ impl Shared {
                 }
             }
         }
-        Some(out)
+        Some(())
     }
 }
 
