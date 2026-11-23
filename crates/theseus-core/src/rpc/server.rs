@@ -134,6 +134,12 @@ impl Link {
 }
 
 impl Core {
+    /// The NDJSON byte budget, including its final newline. In-process clients
+    /// use the same configured budget before writing to their sole connection.
+    pub fn request_line_cap(&self) -> usize {
+        request_cap(self.cfg.tools.max_attachment_bytes)
+    }
+
     /// Serve one connection until EOF. `client` names the connection (its
     /// session watches are dropped when it goes away) and says which surface
     /// accepted it; a bare label is a surface no listener named.
@@ -182,7 +188,7 @@ impl Core {
         let lane = Arc::new(super::ordered::Lane::default());
         let requests = Admission::new();
         let mut reader = BufReader::new(reader);
-        let line_cap = request_cap(self.cfg.tools.max_attachment_bytes);
+        let line_cap = self.request_line_cap();
         let mut reader_closed = tx.closed_signal();
         loop {
             let next = tokio::select! {

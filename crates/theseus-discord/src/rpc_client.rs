@@ -21,6 +21,7 @@ pub struct RpcClient {
     out: mpsc::UnboundedSender<String>,
     pending: Pending,
     next: AtomicU64,
+    line_cap: usize,
 }
 
 /// A failed call: the core's error, or the pipe itself.
@@ -119,6 +120,7 @@ impl RpcClient {
         core: Arc<Core>,
         client: Client,
     ) -> (Arc<Self>, mpsc::UnboundedReceiver<Notification>) {
+        let line_cap = core.request_line_cap();
         let (ours, theirs) = tokio::io::duplex(1 << 20);
         let (core_r, core_w) = tokio::io::split(theirs);
         tokio::spawn(core.serve_connection(core_r, core_w, client));
@@ -141,6 +143,12 @@ impl RpcClient {
             let mut lines = BufReader::new(from_core).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 match serde_json::from_str::<Message>(&line) {
+                    Ok(Message::Response(r)) if connection_limit(&r) => {
+                        tracing::warn!(
+                            limit_bytes = line_cap,
+                            "discord: core rejected the connection's request size"
+                        );
+                    }
                     Ok(Message::Response(r)) => {
                         let tx = match &r.id {
                             Id::Num(n) => waiters.lock().unwrap().remove(n),
@@ -166,6 +174,7 @@ impl RpcClient {
                 out,
                 pending,
                 next: AtomicU64::new(1),
+                line_cap,
             }),
             nrx,
         )
@@ -179,11 +188,21 @@ impl RpcClient {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         #[cfg(test)]
         CALLS.lock().unwrap().push(method.to_string());
-        let (tx, rx) = oneshot::channel();
-        self.pending.lock().unwrap().insert(id, tx);
         let line =
             serde_json::to_string(&Message::Request(Request::new(Id::Num(id), method, params)))
                 .map_err(CallError::local)?;
+        // Count the encoded request and the newline the writer adds, not the
+        // decoded files: text escaping and coalesced messages count too.
+        if line.len() >= self.line_cap {
+            return Err(CallError {
+                code: theseus_protocol::error_code::LIMIT,
+                message: "The attachments together are too large; please send fewer at once."
+                    .into(),
+                data: Value::Null,
+            });
+        }
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().unwrap().insert(id, tx);
         #[cfg(test)]
         if method == theseus_protocol::method::VAULT_KEEP_ANSWER {
             KEEP_LINES.lock().unwrap().push(line.clone());
@@ -231,5 +250,38 @@ impl RpcClient {
             });
         }
         serde_json::from_value(resp.result.unwrap_or(Value::Null)).map_err(CallError::local)
+    }
+}
+
+fn connection_limit(response: &Response) -> bool {
+    response.id == Id::Num(0)
+        && response
+            .error
+            .as_ref()
+            .is_some_and(|e| e.code == theseus_protocol::error_code::LIMIT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connection_limit_is_not_a_call_reply() {
+        let limit = theseus_protocol::error_code::LIMIT;
+        assert!(connection_limit(&Response::err(
+            Id::Num(0),
+            limit,
+            "too large"
+        )));
+        assert!(!connection_limit(&Response::err(
+            Id::Num(1),
+            limit,
+            "too large"
+        )));
+        assert!(!connection_limit(&Response::err(
+            Id::Num(0),
+            theseus_protocol::error_code::PARSE,
+            "bad json"
+        )));
     }
 }
