@@ -40,11 +40,6 @@
 //! A prompt past a model's long tier pays the tier's prices, on both sides, and
 //! a provider's off-peak hours are the state's `price_period`, not the clock
 //! read again here.
-//!
-//! **`restricted`** is the state's `restricted_models`. The daemon always says
-//! `allowed` since the restricted-origin rule was deleted (2026-11-21); a
-//! replay case recorded before then may say `not_allowed`, and for it a model
-//! of restricted origin is no candidate, as the case was recorded.
 
 use theseus_judge::builders::{PricePeriod, SwitchCost};
 
