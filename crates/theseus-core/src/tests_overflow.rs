@@ -465,6 +465,60 @@ async fn an_answer_cut_twice_fails_the_turn() {
     assert_eq!(thens(&r.core), ["park"]);
 }
 
+/// Z.ai's refusal without numbers, in a conversation with a reminder pending whose note rides the request as its
+/// tail. The retry's first smaller candidate (a clearing, on a new chain) is charged no tail until it is finished,
+/// so it looks smaller than the refused request and is not once finished: the size check sends it back. The size
+/// repair recompiles without the refusal's own input, and only the turn's own record of the refusal
+/// (`Fit::under`) lets it take the bare floor (the long earlier exchange left out, and said so), so the turn
+/// answers. With the bare floor allowed only while the refusal's input is there, the repair finds nothing
+/// smaller and the turn fails.
+#[tokio::test]
+async fn a_size_repair_after_a_refusal_still_answers_on_the_bare_request() {
+    const NOTE: &str = "check the north wall's tide gauge and write down what it reads";
+    let body = r#"{"type":"error","error":{"type":"invalid_request_error","code":"1261","message":"[1261][prompt is too long][20260101000000aaaa0000000000000b]"},"request_id":"20260101000000aaaa0000000000000b"}"#;
+    let refused = ProviderError::from_status(400, body, &reqwest::header::HeaderMap::new());
+    let answer = format!(
+        "The harbor opens at dawn.{}",
+        " The pilots board at the outer buoy and bring each ship through the narrows on the flood."
+            .repeat(12)
+    );
+    let r = rig(vec![
+        Scripted::text(&answer),
+        Scripted::Fail(refused),
+        Scripted::text("The tide turns at four."),
+    ]);
+    let sid = session(&r.core);
+    turn(&r.core, &sid, "when does the harbor open?")
+        .await
+        .unwrap();
+    crate::tests_route::call(
+        &r.core,
+        "wake.create",
+        json!({"when": "in 2h", "note": NOTE, "session_id": sid}),
+    )
+    .await;
+    let second = turn(&r.core, &sid, "and the tide?").await.unwrap();
+    assert_eq!(second.output, "The tide turns at four.");
+
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 3, "the refused call and its one retry");
+    assert!(text_of(&reqs[1]).contains("when does the harbor open?"));
+    let retry = text_of(&reqs[2]);
+    assert!(
+        !retry.contains("when does the harbor open?"),
+        "the retry is the bare floor: {retry}"
+    );
+    assert!(
+        retry.contains("1 more of the newest exchanges here"),
+        "and says what it left out: {retry}"
+    );
+    assert!(
+        last_user_text(&reqs[2]).contains("and the tide?"),
+        "the message is in the retry's last message, the note's tail after it"
+    );
+    assert!(rows(&r.core, "turn.failed").is_empty());
+}
+
 /// When the bare floor answers, the request says what it left out (the newest exchanges here, their count, an
 /// estimate and the handle that opens them), and the next turn's request is back on the normal floor: the
 /// earlier exchange is there again, in its words. The earlier answer is long enough that the line costs less
