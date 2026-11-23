@@ -209,7 +209,7 @@ mod tests {
 
     fn known() -> BTreeSet<String> {
         [
-            "files", "commands", "web", "memory", "tasks", "aws", "other",
+            "files", "commands", "web", "reminders", "tasks", "aws", "other",
         ]
         .iter()
         .map(|s| s.to_string())
@@ -253,7 +253,7 @@ mod tests {
         assert_eq!(pick(&sel, "web"), Why::Default);
         assert_eq!(pick(&sel, "aws"), Why::Deferred);
         let loaded = sel.loaded();
-        assert!(loaded.contains("memory") && !loaded.contains("aws"));
+        assert!(loaded.contains("reminders") && !loaded.contains("aws"));
     }
 
     #[test]
@@ -283,11 +283,11 @@ mod tests {
         let none = BTreeSet::new();
         // The kind has been watched 30 days, 10 turns a day, using only tasks.
         let mut s = watched(30, 10, &[("tasks", 5)]);
-        // Memory was used once, 20 days ago: older than the 14.
-        s.last_used.insert("memory".into(), NOW - 20 * DAY_MS);
+        // The reminders were used once, 20 days ago: older than the 14.
+        s.last_used.insert("reminders".into(), NOW - 20 * DAY_MS);
         let sel = select(Some(&s), PlaceKind::Dm, &cfg(), NOW, &known(), &none);
-        assert!(matches!(pick(&sel, "memory"), Why::Unused { days } if days >= 19));
-        assert!(!sel.loaded().contains("memory"));
+        assert!(matches!(pick(&sel, "reminders"), Why::Unused { days } if days >= 19));
+        assert!(!sel.loaded().contains("reminders"));
         // Web too: never used in the 30 days watched.
         assert!(matches!(pick(&sel, "web"), Why::Unused { .. }));
         // The always-loaded families never hide.
@@ -301,7 +301,7 @@ mod tests {
         let s = watched(3, 50, &[("tasks", 5)]);
         let sel = select(Some(&s), PlaceKind::Dm, &cfg(), NOW, &known(), &none);
         assert_eq!(pick(&sel, "web"), Why::Default);
-        assert_eq!(pick(&sel, "memory"), Why::Default);
+        assert_eq!(pick(&sel, "reminders"), Why::Default);
     }
 
     #[test]

@@ -298,13 +298,11 @@ async fn a_family_unused_for_the_hide_days_hides() {
     let sid = session(&r.core, None);
     say(&r.core, &sid, "hello").await;
     let req = &r.requests()[0];
-    for hidden in ["project_attach"] {
-        assert!(
-            deferred(req, hidden),
-            "{hidden} is unused for 30 days: {:?}",
-            offered(req)
-        );
-    }
+    assert!(
+        deferred(req, "project_attach"),
+        "project_attach is unused for 30 days: {:?}",
+        offered(req)
+    );
     assert!(
         !deferred(req, "fs_read"),
         "the always-loaded families never hide"

@@ -64,7 +64,7 @@ fn the_fallback_leaves_hidden_tools_out_and_offers_tools_find() {
     let out = resolve(&catalog(), &d);
     assert_eq!(
         names(&out),
-        ["fs_read", "context_history", "proc_run", "tools_find"]
+        ["context_history", "fs_read", "proc_run", "tools_find"]
     );
     assert!(out.iter().all(|t| t.get("defer_loading").is_none()));
 }
