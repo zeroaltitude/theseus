@@ -78,7 +78,7 @@ pub enum Purpose {
     Earlier(String),
     History(String),
     Watch,
-    Submit,
+    Submit(String),
     Answer,
     Typing,
     /// `execution.stop`: Esc.
@@ -912,7 +912,7 @@ impl Chat {
             params["profile"] = json!(p);
             params["carried"] = json!(true);
         }
-        call(method::TURN_SUBMIT, params, Purpose::Submit)
+        call(method::TURN_SUBMIT, params, Purpose::Submit(sid.into()))
     }
 
     /// Shift+Tab: the next mode, asked of the daemon, which says whether it

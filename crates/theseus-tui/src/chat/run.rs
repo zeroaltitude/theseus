@@ -325,7 +325,7 @@ impl Runner {
                     let Some(conn) = self.conn.as_mut() else {
                         // Not connected: the answer to a send is lost, and the
                         // person is told.
-                        if call.purpose == Purpose::Submit {
+                        if matches!(call.purpose, Purpose::Submit(_)) {
                             self.chat.flash("not connected · the message was not sent");
                         }
                         continue;

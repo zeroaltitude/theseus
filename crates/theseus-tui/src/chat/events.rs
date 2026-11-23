@@ -24,6 +24,12 @@ impl Chat {
 
     /// An answer to one of the chat's requests.
     pub fn answered(&mut self, purpose: Purpose, result: Result<Value, RpcError>) -> Vec<Effect> {
+        if let Purpose::Submit(sid) = &purpose {
+            if !self.ours(sid) {
+                self.submitted_away(sid, result);
+                return Vec::new();
+            }
+        }
         if let Purpose::History(sid) | Purpose::Earlier(sid) = &purpose {
             if self.session.as_deref() != Some(sid.as_str()) {
                 return Vec::new();
@@ -87,7 +93,7 @@ impl Chat {
                 }
                 Vec::new()
             }
-            Purpose::Submit => {
+            Purpose::Submit(_) => {
                 // The turn's end came as an event; the result is the same
                 // end, taken once.
                 self.released = false;
@@ -180,7 +186,7 @@ impl Chat {
                 );
                 Vec::new()
             }
-            Purpose::Submit => {
+            Purpose::Submit(_) => {
                 self.live.turn = None;
                 self.released = false;
                 self.say_words(Sty::Red, &format!("✗ not sent: {}", e.message));

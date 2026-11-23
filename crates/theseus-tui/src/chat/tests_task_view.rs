@@ -674,3 +674,91 @@ async fn an_image_in_a_joined_tasks_line_is_refused_and_nothing_is_read_or_sent(
         r.text()
     );
 }
+
+#[test]
+fn returning_from_task_keeps_mains_lifecycle_current() {
+    use super::state::Chat;
+    use super::task_view::TaskRef;
+    use theseus_protocol::{ConfirmRequest, Event, TurnStarted, TurnSubmitResult};
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    let started = Event::TurnStarted(TurnStarted {
+        session_id: SID.into(),
+        turn_id: "trn_main".into(),
+        ..Default::default()
+    });
+    let n = started.notification();
+    chat.notified(&n.method, &n.params);
+    chat.question = Some(ConfirmRequest {
+        session_id: SID.into(),
+        correlation_id: "act_main".into(),
+        ..Default::default()
+    });
+    chat.open_task(
+        TaskRef {
+            id: "exe_task".into(),
+            session: TASK.into(),
+            title: TITLE.into(),
+        },
+        false,
+    );
+    chat.notified("confirm.resolved", &json!({"session_id": SID, "approved": true, "correlation_id": "act_main", "option": "approve", "expired": false}));
+    let ended = Event::TurnEnded(TurnSubmitResult {
+        session_id: SID.into(),
+        turn_id: "trn_main".into(),
+        output: "main finished".into(),
+        ..Default::default()
+    });
+    let n = ended.notification();
+    chat.notified(&n.method, &n.params);
+    chat.return_main();
+    assert!(
+        chat.live.turn.is_none(),
+        "main's ended turn was restored as running"
+    );
+    assert!(
+        chat.question.is_none(),
+        "main's resolved question was restored"
+    );
+    assert!(!chat.must_queue());
+}
+
+#[test]
+fn a_submit_answer_while_away_updates_main_not_the_task() {
+    use super::state::{Chat, Effect};
+    use super::task_view::TaskRef;
+    use theseus_protocol::TurnSubmitResult;
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    let Effect::Call(call) = chat.submit_call(SID, "hello".into(), &[]) else {
+        panic!()
+    };
+    chat.released = true;
+    chat.open_task(
+        TaskRef {
+            id: "exe_task".into(),
+            session: TASK.into(),
+            title: TITLE.into(),
+        },
+        false,
+    );
+    chat.out.clear();
+    chat.answered(
+        call.purpose,
+        Ok(serde_json::to_value(TurnSubmitResult {
+            session_id: SID.into(),
+            turn_id: "trn_main".into(),
+            output: "main finished".into(),
+            session_cost_usd: Some(1.0),
+            ..Default::default()
+        })
+        .unwrap()),
+    );
+    assert!(chat.out.is_empty(), "main's reply printed into the task");
+    assert_eq!(chat.cost, 0.0);
+    chat.return_main();
+    assert_eq!(chat.cost, 1.0);
+    assert!(!chat.must_queue());
+}
