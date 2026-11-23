@@ -424,7 +424,10 @@ impl Core {
             Gate::Halted { .. } => {
                 if !self.rsi.pipeline.halt_swept.load(Ordering::SeqCst) {
                     let completed = self.pipeline_halt(seams, &mut tick).await?;
-                    self.rsi.pipeline.halt_swept.store(completed, Ordering::SeqCst);
+                    self.rsi
+                        .pipeline
+                        .halt_swept
+                        .store(completed, Ordering::SeqCst);
                 }
                 return Ok(tick);
             }

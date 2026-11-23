@@ -315,6 +315,9 @@ mod switch_cache_tests {
             })
             .unwrap();
         assert_eq!(got, Some(halted.clone()));
-        assert_eq!(switch.current_with(|| panic!("cached")).unwrap(), Some(halted));
+        assert_eq!(
+            switch.current_with(|| panic!("cached")).unwrap(),
+            Some(halted)
+        );
     }
 }
