@@ -411,3 +411,37 @@ async fn the_sync_is_the_owners_act_from_a_private_place() {
     }
     assert!(c.store.get_meta::<SyncState>(STATE_KEY).unwrap().is_none());
 }
+
+#[tokio::test]
+async fn consecutive_sync_records_report_the_second_runs_counts() {
+    let _clock = crate::test_support::ClockPin;
+    theseus_protocol::time::move_clock_to(1_000_000_000_000);
+    let r = live();
+    record(
+        &r.core,
+        &ImportSyncRecord {
+            imported: 7,
+            messages: 90,
+            ..Default::default()
+        },
+    )
+    .await;
+    let before: SyncState = r.core.store.get_meta(STATE_KEY).unwrap().unwrap();
+    theseus_protocol::time::move_clock_to(1_000_000_100_000);
+    record(
+        &r.core,
+        &ImportSyncRecord {
+            imported: 2,
+            messages: 20,
+            ..Default::default()
+        },
+    )
+    .await;
+    let after: SyncState = r.core.store.get_meta(STATE_KEY).unwrap().unwrap();
+    let ran = super::sync_run::Ran {
+        code: Some(0),
+        ..Default::default()
+    };
+    let line = super::sync_run::finished_line(&ran, &before, &after);
+    assert!(line.contains("2 new sessions, 20 messages"), "{line}");
+}

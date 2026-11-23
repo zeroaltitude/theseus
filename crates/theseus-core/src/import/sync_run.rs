@@ -392,11 +392,9 @@ pub fn finished_line(
     if after.at_ms == before.at_ms {
         return "The OpenClaw sync finished and recorded no run: nothing was imported.".into();
     }
-    let new = after.sessions_new.saturating_sub(before.sessions_new);
-    let grown = after
-        .sessions_appended
-        .saturating_sub(before.sessions_appended);
-    let msgs = after.messages.saturating_sub(before.messages);
+    let new = after.sessions_new;
+    let grown = after.sessions_appended;
+    let msgs = after.messages;
     if new == 0 && grown == 0 && msgs == 0 {
         return "The OpenClaw sync finished: nothing new to import.".into();
     }
@@ -408,7 +406,7 @@ pub fn finished_line(
         parts.push(format!("{grown} session{} that grew", plural(grown)));
     }
     parts.push(format!("{msgs} message{}", plural(msgs)));
-    let rejected = after.rejected.saturating_sub(before.rejected);
+    let rejected = after.rejected;
     let tail = if rejected > 0 {
         format!(" {rejected} message{} were rejected.", plural(rejected))
     } else {

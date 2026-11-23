@@ -250,7 +250,7 @@ fn the_thread_is_told_it_started_and_then_what_it_imported() {
     };
     assert_eq!(
         finished_line(&ok, &before, &after),
-        "The OpenClaw sync finished: 2 new sessions, 1 session that grew, 44 messages. \
+        "The OpenClaw sync finished: 9 new sessions, 3 sessions that grew, 134 messages. \
          The people step waits for tonight's full run."
     );
 
@@ -258,7 +258,7 @@ fn the_thread_is_told_it_started_and_then_what_it_imported() {
     // run DID happen -- `at_ms` moved -- it just found nothing.
     let empty = SyncState {
         at_ms: 3_000,
-        ..after.clone()
+        ..SyncState::default()
     };
     assert_eq!(
         finished_line(&ok, &after, &empty),
