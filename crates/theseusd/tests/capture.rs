@@ -206,7 +206,7 @@ fn a_preference_is_kept_undone_and_counted_when_said_again() {
     // Said again, with it live: counted, never a second record.
     hears(&jev, "preference", 0.9);
     r.wait("a repeat is counted", || {
-        r.ask("I said no tables with me");
+        r.ask("no tables with me");
         (!r.rows("standing.repeated").is_empty()).then_some(())
     });
     assert_eq!(r.live().len(), 1, "no second record");
@@ -222,6 +222,61 @@ fn a_preference_is_kept_undone_and_counted_when_said_again() {
     let labels = r.rows("judge.label");
     assert_eq!(labels.len(), 1, "{labels:?}");
     assert_eq!(labels[0]["data"]["label"], "wrong capture");
+    r.stop(d);
+}
+
+/// A rephrase is kept with its own notice and undo, never silently counted as a repeat.
+#[test]
+fn a_rephrased_preference_is_kept_with_its_own_notice_not_counted_as_a_repeat() {
+    let jev = FakeJev::start().unwrap();
+    hears(&jev, "preference", 0.93);
+    let r = Rig::new(Some(&jev.base()), true);
+    let d = r.spawn();
+    r.ask("no tables with me");
+    r.wait("the first capture", || {
+        (r.rows("standing.captured").len() == 1).then_some(())
+    });
+    let first = r.live();
+    assert_eq!(first.len(), 1);
+    let first_id = first[0]["id"].clone();
+
+    hears(&jev, "preference", 0.9);
+    let res = r.ask("I said no tables with me");
+    assert_eq!(res["stop_reason"], "no_tool_calls", "{res}");
+    let live = r.wait("the rephrase's own record", || {
+        let l = r.live();
+        (l.len() == 2).then_some(l)
+    });
+    let rephrased = live
+        .iter()
+        .find(|record| record["text"] == "I said no tables with me")
+        .expect("the rephrase was kept, not dropped");
+    let id = rephrased["id"].clone();
+    assert_ne!(id, first_id);
+    assert_eq!(rephrased["kind"], "preference");
+    assert_eq!(rephrased["captured_by"], "capture");
+    let cap = r.rows("standing.captured");
+    assert_eq!(cap.len(), 2, "{cap:?}");
+    assert!(cap.iter().any(|row| row["data"]["record"] == id));
+    r.wait("the rephrase's notice", || {
+        let history = r
+            .call("session.history", json!({"session_id": res["session_id"]}))
+            .unwrap();
+        history
+            .to_string()
+            .contains("Kept as a standing preference everywhere (cli): I said no tables with me")
+            .then_some(())
+    });
+    assert!(r.rows("standing.repeated").is_empty());
+    assert!(live.iter().all(|record| record["repeats"] == 0));
+    assert!(r.standing()["asks"].as_array().unwrap().is_empty());
+
+    // Undo belongs to the new record; the first preference stays live.
+    let ended = r.call("standing.revoke", json!({"id": id})).unwrap();
+    assert_eq!(ended["ended"], id);
+    let remaining = r.live();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0]["id"], first_id);
     r.stop(d);
 }
 
