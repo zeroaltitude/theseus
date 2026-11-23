@@ -201,3 +201,13 @@ fn the_old_snooze_options_and_a_stray_time_are_refused_before_anything_is_sent()
         assert_eq!(out.status.code(), Some(1), "{said}");
     }
 }
+
+#[test]
+fn plain_continue_looks_up_a_conversation_instead_of_opening_one() {
+    let (dir, sock, daemon) = one_request(json!({"code": -32603, "message": "fixture ends here"}));
+    let out = theseus(&sock, dir.path(), &["chat", "--plain", "-c"]);
+    assert!(!out.status.success());
+    let req = daemon.join().unwrap();
+    assert_eq!(req["method"], "session.list");
+    assert!(req["params"]["dir"].is_string());
+}
