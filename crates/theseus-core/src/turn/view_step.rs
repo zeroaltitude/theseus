@@ -232,7 +232,7 @@ impl TurnRunner {
                 "this session's execution cannot be read, so whether the self loop opened it cannot be decided"
             );
         }
-        let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified);
+        let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified)?;
         if own_place_only && fork.inherits() {
             // A self-loop session lays its own place only, and a fork's inherited run is another session's:
             // the fork is refused plainly rather than answered without the run it was handed.
@@ -605,6 +605,15 @@ fn verified_pov(verified: &Verified, person: Option<String>, now_ms: u64) -> Poi
 
 /// The items today's recall found for this turn (its pending note), before the view admits them
 /// (`recall::view_recall`).
+///
+/// Read once, at the turn's first freeze, and that is enough: recall is settled before a turn's first
+/// call, so nothing lands after the freeze. The pending note is written only by the first loop's recall
+/// (`recall_first`), which the turn loop awaits before that loop's compile, where the view is frozen. It
+/// answers within its deadline or not at all (a late pack is dropped), the rerank's wait and refill run
+/// inside it, a later loop asks nothing, and a late verdict only marks the pack already held. Held by
+/// `tests_route::a_quick_picks_later_loop_keeps_its_recall` and
+/// `tests_route::a_routed_turn_still_writes_and_sends_its_recall`: every call of the turn, the switched
+/// model's included, carries the note once.
 fn recalled(t: &Turn<'_>) -> Vec<crate::node::RecalledRef> {
     match t.recall.pending.as_ref().map(|n| &n.body) {
         Some(Body::Recall { items, .. }) => items.clone(),
@@ -672,7 +681,7 @@ fn window_of(
         window.extend(match form {
             Form::Whole => nodes,
             Form::Spoken => bounded(nodes, &handle),
-            Form::Line => as_line(store, nodes, &handle)?,
+            Form::Line => as_line((store, read), nodes, &handle)?,
         });
     }
     let mut sessions: Vec<String> = (a.view.shown.iter())
@@ -762,15 +771,19 @@ fn bounded(nodes: Vec<(u64, Stub)>, handle: &Handle) -> Vec<(u64, Stub)> {
 /// A `Line` exchange as the budgeter paid for it: the person's words (as labelled), then the `did` line
 /// (or "reply not summarised") and the handle, as one message of the person's turn.
 fn as_line(
-    store: &Store,
+    (store, read): (&Store, &Sessions),
     nodes: Vec<(u64, Stub)>,
     handle: &Handle,
 ) -> anyhow::Result<Vec<(u64, Stub)>> {
     let Some((p, ask)) = nodes.into_iter().find(|(_, n)| n.kind == Kind::UserMessage) else {
         return Ok(Vec::new());
     };
-    let did = crate::ladder::did::did(store, &handle.0)?
-        .map(|d| crate::ladder::did::shown_line(store, &d));
+    // A fork's point in or before the exchange: its summary would tell the fork what came after (`fork::cut`).
+    let did = match read.summarised(store, &handle.0)? {
+        true => crate::ladder::did::did(store, &handle.0)?
+            .map(|d| crate::ladder::did::shown_line(store, &d)),
+        false => None,
+    };
     let mut node = (*ask).clone();
     if let Body::UserMessage { text, .. } = &mut node.body {
         *text = forms::line(text, did.as_deref(), handle);
@@ -897,8 +910,9 @@ mod tests {
     fn a_kept_form_is_sent_as_that_form() {
         let (_d, s) = store();
         let long = "a long reply ".repeat(2_000);
+        let read = Sessions::default();
         let line = as_line(
-            &s,
+            (&s, &read),
             laid(vec![
                 Node::user("s", Some("t0"), "cli", "what did the audit say?"),
                 answer("t0", vec![json!({"type": "text", "text": long})]),

@@ -714,10 +714,15 @@ async fn proc_run_returns_in_turn_and_a_slow_one_comes_back_later_as_a_late_resu
     let ks = kinds(&r.core, &res.session_id);
     assert!(ks.contains(&"tool_result:ok:late".to_string()), "{ks:?}");
     let last = r.fake.requests().pop().unwrap();
-    let late = last.messages.last().unwrap()["content"][0]["text"]
-        .as_str()
+    // The view leads a turn no message opened with its occasion's line, beside the late result: every text
+    // block of the last message (issue 44).
+    let late = (last.messages.last().unwrap()["content"]
+        .as_array()
         .unwrap()
-        .to_string();
+        .iter())
+    .filter_map(|b| b["text"].as_str())
+    .collect::<Vec<_>>()
+    .join("\n");
     assert!(
         late.contains("Background result") && late.contains("slow done"),
         "{late}"
@@ -2473,6 +2478,45 @@ fn ledger_after(core: &Core, after: u64) -> Vec<String> {
 /// each was its own frame. The template turns the narrative on, and a
 /// subscriber is watching: the narrative is never stored, so it adds no
 /// frame (theseus-5fy).
+/// The one turn that re-titles a conversation (its first message with substance, after a first that had none:
+/// `turn::title_step`) writes ONE frame more than a plain turn: its new compilation and the session record go
+/// at once, in a frame of their own, so a card asked in that very turn names the conversation by its new title
+/// (`turn::settle::persist_compilation`; the owner's decision of 2026-11-22: the cost is stated, not hidden).
+/// The next turn is back at the plain turn's budget, so a second early write cannot creep in unnoticed.
+#[tokio::test]
+async fn the_turn_that_re_titles_a_conversation_writes_one_frame_more_and_the_next_is_back_at_four()
+{
+    let r = rig(vec![
+        Scripted::text("first"),
+        Scripted::text("the heron nests by the weir"),
+        Scripted::text("hello"),
+    ]);
+    let first = turn(&r.core, None, "warm up").await;
+    let sid = first.session_id.clone();
+    let frames = |before: u64| r.core.store.stats().unwrap().frames_appended - before;
+    let before = r.core.store.stats().unwrap().frames_appended;
+    let res = turn(&r.core, Some(&sid), "Where does the grey heron nest?").await;
+    assert_eq!(res.loops, 1);
+    assert_eq!(
+        frames(before),
+        5,
+        "the re-titling turn: the plain turn's four and its early write"
+    );
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    assert_eq!(
+        rec.title_was,
+        vec!["warm up".to_string()],
+        "it re-titled the conversation"
+    );
+    let before = r.core.store.stats().unwrap().frames_appended;
+    turn(&r.core, Some(&sid), "and the herons by the old mill?").await;
+    assert!(
+        frames(before) <= 4,
+        "the next turn is a plain turn again: {}",
+        frames(before)
+    );
+}
+
 #[tokio::test]
 async fn a_plain_turn_stays_within_its_frame_budget() {
     let r = rig(vec![Scripted::text("first"), Scripted::text("hello")]);
@@ -6273,8 +6317,11 @@ mod parallel {
         assert_eq!(again.tool_calls, 7);
         let reqs = r.fake.requests();
         assert_eq!(reqs.len(), 4);
-        assert_eq!(reqs[3].messages, reqs[1].messages);
-        assert_eq!(reqs[3].digest(), reqs[1].digest());
+        // A new session at the same place: the view lays the place's earlier exchange before the turn's own
+        // (issue 44), so the turn's own messages are the same, byte for byte, and so is everything else.
+        let own = &reqs[3].messages[reqs[3].messages.len() - reqs[1].messages.len()..];
+        assert_eq!(own, &reqs[1].messages[..]);
+        assert_eq!(reqs[3].system, reqs[1].system);
         let written = labels(&r.core, &again.session_id);
         let results: Vec<&String> = written.iter().filter(|l| l.starts_with("result")).collect();
         let in_order: Vec<String> = order.iter().map(|id| format!("result {id}")).collect();

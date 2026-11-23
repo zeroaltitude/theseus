@@ -40,12 +40,9 @@ impl Provider for Model {
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
         Box::pin(async move {
-            let answered = req.messages.iter().any(|m| {
-                m["content"]
-                    .as_array()
-                    .is_some_and(|b| b.iter().any(|b| b["type"] == "tool_result"))
-            });
-            let asked = serde_json::to_string(&req.messages).unwrap_or_default();
+            // This turn's own words: an earlier exchange at the place, laid in the request, is not asked again.
+            let answered = crate::tests_places::answers_a_call(req);
+            let asked = crate::tests_places::last_user(req);
             let next = if answered {
                 Scripted::text("done")
             } else if asked.contains("fetch the page") {

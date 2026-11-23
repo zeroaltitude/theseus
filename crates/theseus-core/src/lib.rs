@@ -280,6 +280,8 @@ mod tests_budget_loop;
 #[cfg(test)]
 mod tests_budgets;
 #[cfg(test)]
+mod tests_call_ids;
+#[cfg(test)]
 mod tests_cancel;
 #[cfg(test)]
 mod tests_capture;

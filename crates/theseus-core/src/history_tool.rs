@@ -302,6 +302,9 @@ pub(crate) async fn answer(
         here: here.clone(),
         in_view: page::in_view(&core.store, session, here).map_err(|e| format!("{e:#}"))?,
         words: None,
+        // A fork's history holds nothing an ancestor said at or after its point (`fork::cut`): a cut that
+        // cannot be read fails the call plainly.
+        cut: crate::fork::cut::Cut::of(&core.store, session).map_err(|e| format!("{e:#}"))?,
     };
     if let Some(h) = &a.open {
         if used.opens >= OPENS_PER_TURN {

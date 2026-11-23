@@ -171,10 +171,12 @@ async fn a_live_turn_puts_its_recall_in_front_of_the_model() {
         assert_eq!(reach.descendants.len(), 1);
         assert_eq!(reach.descendants[0].node_id, all[at].1.id);
         assert_eq!(reach.descendants[0].route, "recall");
+        // The Recall node itself is not laid (issue 44): its source is, as the view's recalled item, so
+        // the source's own exposure names the asking session's turn.
         assert!(
-            reach.descendants[0].exposure.loops >= 1,
-            "{:?}",
-            reach.descendants[0]
+            (reach.direct.compilations.iter()).any(|k| k.session_id == b)
+                && reach.direct.loops >= 1,
+            "{reach:?}"
         );
         // The node, the edge, and the row rode the plan frame: the record
         // before the node in the WAL is the provider call's action.

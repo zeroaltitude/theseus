@@ -21,14 +21,24 @@ impl TurnRunner {
         &self,
         asker: &str,
         items: Vec<RecalledRef>,
-    ) -> (Vec<RecalledRef>, Vec<Recalled>) {
+    ) -> anyhow::Result<(Vec<RecalledRef>, Vec<Recalled>)> {
         let cache = Mutex::default();
         let mut sources = Sources::new();
-        // A fork lays nothing its ancestors said after the point each was forked from it (`fork::window`).
-        let after = crate::fork::window::after_point(&self.store, asker).unwrap_or_default();
-        let items: Vec<RecalledRef> = (items.into_iter())
-            .filter(|r| !after.holds_node(&r.node_id))
-            .collect();
+        // A fork lays nothing an ancestor said after the point it was forked from it (`fork::cut`): one keyed
+        // read of each item's node for its position. A read that fails fails the turn.
+        let cut = crate::fork::cut::Cut::of(&self.store, asker)?;
+        let mut kept_items = Vec::with_capacity(items.len());
+        for r in items {
+            let past = match cut.is_empty() {
+                true => false,
+                false => (self.store.get_node(&r.node_id)?)
+                    .is_some_and(|(p, n)| cut.past(&n.session_id, p)),
+            };
+            if !past {
+                kept_items.push(r);
+            }
+        }
+        let items = kept_items;
         for r in &items {
             if let Some(n) = render::source(&self.store, r, &cache) {
                 sources.insert(r.node_id.clone(), n);
@@ -48,7 +58,7 @@ impl TurnRunner {
             });
             kept.push(r);
         }
-        (kept, laid)
+        Ok((kept, laid))
     }
 
     /// What a view turn's recall counts as already in front of the model (issue 44): the turn's own nodes
@@ -96,7 +106,7 @@ impl TurnRunner {
             return Ok(BTreeSet::new());
         };
         let since = crate::ladder::new_mark(store, &place)?;
-        let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified);
+        let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified)?;
         let read = fork.sessions();
         let sources = super::StoreSources {
             store,
@@ -165,5 +175,47 @@ impl TurnRunner {
             sealed: false,
             veiled: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use theseus_protocol::SessionKind;
+
+    use crate::session::SessionRecord;
+
+    /// Recall's own read of a fork's cut fails plainly when the fork's point cannot be read (issue 44, round
+    /// 2): it never answers as though the session were no fork.
+    #[tokio::test]
+    async fn a_forks_recall_fails_when_its_point_cannot_be_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = crate::Config::example();
+        cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+        let work = dir.path().join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        cfg.tools.projects_dir = Some(work.to_string_lossy().into_owned());
+        cfg.tools.roots = vec![];
+        let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+        let model: Arc<dyn crate::provider::Provider> =
+            Arc::new(crate::provider::FakeProvider::default());
+        let core = crate::Core::build(crate::rpc::Parts::for_tests(cfg, model, store)).unwrap();
+        let source = SessionRecord::new(SessionKind::Conversation, None);
+        core.store.put_session(&source.session_id, &source).unwrap();
+        let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+        rec.forked_from = Some(Box::new(theseus_protocol::ForkOrigin {
+            session: source.session_id,
+            node: "nod_gone".into(),
+            position: 1,
+            compilation: None,
+            at_ms: 0,
+        }));
+        core.store.put_session(&rec.session_id, &rec).unwrap();
+        let err = core
+            .runner
+            .view_recall(&rec.session_id, Vec::new())
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("cannot be read"), "{err:#}");
     }
 }
