@@ -7,8 +7,10 @@
 //! - **What is read.** Its people's messages and the model's, and an imported session's messages (its nodes,
 //!   each by its newest record, `import::shown`: an erased one is its tombstone, which has no words, so it reads
 //!   as nothing and is counted). Tool calls and results are left out and counted, and so is an imported message
-//!   of outside text (as `memory.lookup`'s read of a session does); what the harness itself said is not spoken.
-//! - **A task's session and a harness session** are both this harness's sessions: their messages, as said.
+//!   of outside text (as `memory.lookup`'s read of a session does); what the harness itself said, or an agent
+//!   relayed, is not spoken (as an exchange's open does not speak it) and is counted.
+//! - **A task's session and a harness session** are both this harness's sessions: the model's messages and any
+//!   person's, as said. A task's brief is its parent's relayed message: counted, not spoken.
 //! - **A fork** reads no session its cut names (an ancestor's, past its point or not): it reads as no session
 //!   here, as an exchange the cut holds does (`Lens::forked`).
 
@@ -129,7 +131,7 @@ struct Line {
 
 /// The session's spoken messages, oldest first, and what was left out, said.
 fn spoken(lens: &Lens<'_>, nodes: &[(u64, Node)]) -> (Vec<Line>, Option<String>) {
-    let (mut calls, mut outside, mut erased) = (0u64, 0u64, 0u64);
+    let (mut calls, mut outside, mut erased, mut relayed) = (0u64, 0u64, 0u64, 0u64);
     let mut out = Vec::new();
     for (pos, n) in nodes {
         let who = match &n.body {
@@ -139,6 +141,11 @@ fn spoken(lens: &Lens<'_>, nodes: &[(u64, Node)]) -> (Vec<Line>, Option<String>)
                     Author::Other => Who::Other,
                     Author::Unknown => Who::Unknown,
                 }
+            }
+            // What the harness said, or an agent relayed (a task's brief, its parent's): not spoken, counted.
+            Body::UserMessage { .. } => {
+                relayed += 1;
+                continue;
             }
             Body::AssistantMessage { .. } => Who::Theseus,
             Body::Imported { integrity, .. } => match integrity {
@@ -202,6 +209,13 @@ fn spoken(lens: &Lens<'_>, nodes: &[(u64, Node)]) -> (Vec<Line>, Option<String>)
             outside,
             "imported message of outside text",
             "imported messages of outside text",
+        ));
+    }
+    if relayed > 0 {
+        left.push(crate::narrative::count(
+            relayed,
+            "message the harness or an agent relayed",
+            "messages the harness or an agent relayed",
         ));
     }
     if erased > 0 {

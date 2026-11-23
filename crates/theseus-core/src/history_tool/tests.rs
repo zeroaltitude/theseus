@@ -907,6 +907,8 @@ fn a_harness_session_opens_by_its_id_spoken_with_tool_traffic_counted() {
     );
     s.append(&[tool_result_in(sid, "turn_0002").record().unwrap()])
         .unwrap();
+    let brief = Node::relayed(sid, None, Origin::Agent, "parent", "A PARENT'S BRIEF");
+    s.append(&[brief.record().unwrap()]).unwrap();
     let l = lens(&s, HERE);
     let got = session::open(&l, sid, None).unwrap();
     let t = &got.text;
@@ -923,7 +925,13 @@ fn a_harness_session_opens_by_its_id_spoken_with_tool_traffic_counted() {
         "oldest first: {t}"
     );
     assert!(!t.contains("THE TOOL'S OWN TEXT"), "{t}");
-    assert!(t.contains("Left out: 1 tool call or result."), "{t}");
+    assert!(!t.contains("A PARENT'S BRIEF"), "{t}");
+    assert!(
+        t.contains(
+            "Left out: 1 tool call or result and 1 message the harness or an agent relayed."
+        ),
+        "{t}"
+    );
     assert!(t.contains("That is its beginning."), "{t}");
     assert!(got.outside, "another person's words are shown");
     let none = session::open(&l, "ses_nothing", None).unwrap_err();
