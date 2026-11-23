@@ -41,7 +41,15 @@ async fn a_labeled_note_never_reaches_jev(live: bool) {
             jev.script(&format!("helps.{k}"), Jev::Noul(0.97));
         }
         let (r, here, order) = heron_rig(&jev, |c| {
-            pack_mode(c, "rerank.v1", if live { PackMode::Live } else { PackMode::Shadow });
+            pack_mode(
+                c,
+                "rerank.v1",
+                if live {
+                    PackMode::Live
+                } else {
+                    PackMode::Shadow
+                },
+            );
         });
         let c = &r.core;
         let heron = c.store.session_nodes(&order[2]).unwrap()[0].1.id.clone();

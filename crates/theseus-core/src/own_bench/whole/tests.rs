@@ -717,18 +717,33 @@ async fn the_callers_allowance_is_spent_across_replay_loops() {
     let t = original(&w).await;
     let before = w.rig.model.requests().len();
     for i in 0..20 {
-        push(&w.rig, Scripted::BilledBy {
-            usage: |req| theseus_protocol::Usage {
-                input_tokens: req.estimate_tokens(), output_tokens: u64::from(req.max_tokens),
-                ..Default::default()
+        push(
+            &w.rig,
+            Scripted::BilledBy {
+                usage: |req| theseus_protocol::Usage {
+                    input_tokens: req.estimate_tokens(),
+                    output_tokens: u64::from(req.max_tokens),
+                    ..Default::default()
+                },
+                then: Box::new(Scripted::tools(
+                    "",
+                    &[(&format!("read{i}"), "fs_list", json!({"path": w.work}))],
+                )),
             },
-            then: Box::new(Scripted::tools("", &[(&format!("read{i}"), "fs_list", json!({"path": w.work}))])),
-        });
+        );
     }
     let allowance = 30_000;
     let mut spent = 0;
-    let r = w.rig.core.replay_turn_with(&params(&w, &t), "mint", Some(allowance), &mut spent, None).await.unwrap();
-    assert!(spent <= allowance, "spent {spent} past caller allowance {allowance}");
+    let r = w
+        .rig
+        .core
+        .replay_turn_with(&params(&w, &t), "mint", Some(allowance), &mut spent, None)
+        .await
+        .unwrap();
+    assert!(
+        spent <= allowance,
+        "spent {spent} past caller allowance {allowance}"
+    );
     let whole = r.result.whole.unwrap();
     assert_eq!(whole.capped.as_deref(), Some("usd"));
     assert!(whole.loops > 0 && whole.loops < 20);

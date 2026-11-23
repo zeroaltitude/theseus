@@ -891,8 +891,13 @@ mod tests {
         }
         for write_fails in [true, false] {
             let mut s = Shared {
-                queue: VecDeque::new(), spent: 0.25, in_flight: 1, done: 0,
-                stopped_at_cap: false, moved: None, persistence_error: None,
+                queue: VecDeque::new(),
+                spent: 0.25,
+                in_flight: 1,
+                done: 0,
+                stopped_at_cap: false,
+                moved: None,
+                persistence_error: None,
             };
             s.save_result(&mut Broken(write_fails), "{}", 0.125);
             assert!(s.persistence_error.is_some());

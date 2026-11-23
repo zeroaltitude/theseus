@@ -539,6 +539,9 @@ mod usage_tests {
             json!({"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 12}}),
         ];
         let message = whole_message(&events);
-        assert_eq!(message["usage"], json!({"input_tokens": 30, "output_tokens": 12}));
+        assert_eq!(
+            message["usage"],
+            json!({"input_tokens": 30, "output_tokens": 12})
+        );
     }
 }
