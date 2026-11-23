@@ -307,7 +307,7 @@ async fn a_task_sessions_typed_turn_is_a_persons() {
     );
 }
 
-const DM_PERSON: [&str; 6] = ["commands", "files", "history", "memory", "reminders", "web"];
+const DM_PERSON: [&str; 5] = ["commands", "files", "history", "reminders", "web"];
 // 9908 and 7624 until 1.0.4: the tools note's line about the approve list
 // became one about the floor, four characters shorter (theseus-c4i8m).
 // 9906 and 7622 until theseus-wadu, which put the OS and architecture in
@@ -340,7 +340,7 @@ const DM_PERSON: [&str; 6] = ["commands", "files", "history", "memory", "reminde
 // in its schema and a longer description, 56 more tokens in the history family, which a DM loads and the
 // terminal defers. Measured on a box before and after that merge (11,169 and 11,225).
 const DM_PERSON_TOKENS: u64 = 11225;
-const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
+const CLI_PERSON: [&str; 2] = ["commands", "files"];
 // And 7800 until the self card's look-before-asking sentence named `context_history` (issue 44): one
 // token more at the terminal, where the tool itself is deferred.
 // And 7801 until every request was the view's (issue 44): 931 more tokens, as in the DM. A guideline.

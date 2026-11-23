@@ -108,6 +108,6 @@ async fn a_private_place_admits_the_tasks_whatever_the_words_are() {
 fn the_dm_defaults_still_defer_tasks() {
     assert_eq!(
         PlaceKind::Dm.defaults(),
-        ["memory", "history", "reminders", "web"]
+        ["history", "reminders", "web"]
     );
 }
