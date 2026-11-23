@@ -40,6 +40,9 @@ const EVERY: &str = "[model]\n\
                      resume_keep_turns = 20\n\
                      home_warn_percent = 50\n\
                      seal_recommend = false\n\
+                     place_digest = true\n\
+                     place_digest_line_chars = 200\n\
+                     route_wait_ms = 400\n\
                      [profiles.quick]\n\
                      provider = \"anthropic\"\n\
                      model = \"claude-haiku-5-5\"\n\
