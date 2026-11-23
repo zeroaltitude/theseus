@@ -119,3 +119,13 @@ test('Memories opens on the search, then people, topics and a turn, and keeps th
   const ids = [...m.matchAll(/\{ id: '(\w+)'/g)].map((x) => x[1])
   assert.deepEqual(ids, ['search', 'people', 'topics', 'turn', 'context', 'books'], 'the first tab is the address with no `?v=`; `context` and `books` keep the ids old links name')
 })
+
+test('the People and Topics box keeps its focus as you type: it is not keyed by the words it writes', () => {
+  // Each letter writes `?f=`; an input keyed by `f` was then replaced by a new one, and the cursor was gone.
+  const k = read('simple/memories/Kinds.tsx')
+  const at = k.indexOf('aria-label={w.filter}')
+  assert.ok(at > 0, 'the filter box')
+  const box = k.slice(k.lastIndexOf('<input', at), at)
+  assert.match(box, /onChange=\{\(e\) => filter\(e\.target\.value\)\}/)
+  assert.doesNotMatch(box, /\bkey=/, 'the filter box has a key, so it is remade as its words change')
+})
