@@ -456,10 +456,12 @@ Opinionated, and simple. **Every secret lives in 1Password**, in the deployment'
     `op read` per reference names each bad one.
   - A secret that fails is fetched again after 5 s, 10 s, 20 s, 40 s and 60 s, then 10 minutes, then every hour,
     each wait moved up to a fifth either way at random (`secrets::pace`). A retry of one entry is one `op read`. When
-    `op` says the vault itself refused (a rate limit, the token), no entry is read one by one, and the next try waits
-    an hour, or until the reset `op` names. Past 2,000 entries read in a local day (a constant), what failed is not
-    fetched again until the next day or the next start, and health says so. Health counts the
-    daemon's `op` runs and the entries they asked for, per day. _(Amended 2026-11-22, issue 44: until then the wait
+    `op` says the vault itself refused (a rate limit, the token), no entry is read one by one, the next try waits
+    an hour, or until the reset `op` names, and the log and health say only that, in fixed words, with the wait.
+    Before every round the resolver keeps room for that round's worst case (one read, or an injection and a read of
+    each) within 2,000 entries a local day (a constant): a round that could pass it does not start until the next
+    civil midnight or the next start, and health says so; a refusal's wait and the day's are both kept, and the later
+    wins. Health counts the daemon's `op` runs and the entries they asked for, per day and per process. _(Amended 2026-11-22, issue 44: until then the wait
     doubled to a minute and stayed there, about 1,440 rounds a day for one bad entry, each an `op inject` and then an
     `op read`.)_
   - Resolved values are held in memory in zeroizing containers. They are never written to disk, config,
