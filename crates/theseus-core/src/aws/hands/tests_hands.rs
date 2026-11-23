@@ -1079,6 +1079,19 @@ async fn fargate_waits_for_the_nat_and_runs_tagged_in_private_subnets() {
     }) {
         let first = answer(&r.state, request, 0);
         let again = answer(&r.state, request, 1);
+        assert_eq!(first.0, 200);
+        let input: Value = serde_json::from_str(&request.body).unwrap();
+        let token = input["clientToken"].as_str().unwrap();
+        let hand = rec
+            .hands
+            .iter()
+            .find(|h| h.correlation_id == token)
+            .unwrap();
+        let replay: Value = serde_json::from_str(&first.2).unwrap();
+        assert_eq!(
+            replay["tasks"][0]["taskArn"].as_str(),
+            hand.external_op_id.as_deref()
+        );
         assert_eq!(
             (first.0, first.2),
             (again.0, again.2),
@@ -1087,7 +1100,6 @@ async fn fargate_waits_for_the_nat_and_runs_tagged_in_private_subnets() {
     }
     assert_eq!(r.state.ran.lock().unwrap().len(), 2);
     for (i, t) in ran.iter().enumerate() {
-        assert_eq!(t["clientToken"], rec.hands[i].correlation_id);
         assert_eq!(t["launchType"], "FARGATE");
         assert_eq!(t["startedBy"], g);
         let net = &t["networkConfiguration"]["awsvpcConfiguration"];
@@ -1127,6 +1139,7 @@ async fn fargate_waits_for_the_nat_and_runs_tagged_in_private_subnets() {
             ("fargate", 3570)
         );
         assert_eq!(&spec.correlation_id, corr);
+        assert_eq!(t["clientToken"], spec.correlation_id);
         let h = rec
             .hands
             .iter()
