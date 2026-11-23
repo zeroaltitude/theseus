@@ -257,10 +257,17 @@ pub fn own_turns(store: &Store, session: &str, turn: &str, place: &str) -> Vec<S
         .collect::<Vec<_>>();
     (turns.into_iter())
         .filter(|t| match crate::exchange::exchange(store, t) {
-            Ok(Some(e)) => e.session_id == session && e.place == place,
+            Ok(Some(e)) => own_exchange(&e, session, place),
             _ => false,
         })
         .collect()
+}
+
+/// Whether `ex` is one `session` itself ran at `place`: the self loop's own-place rule, read by the view's
+/// permit ([`own_turns`]) and by the history tool's lens (`history_tool::page::Lens::in_scope`). Not a place
+/// alone: another session at the same place is not the asker's.
+pub fn own_exchange(ex: &crate::exchange::Exchange, session: &str, place: &str) -> bool {
+    ex.session_id == session && ex.place == place
 }
 
 /// Whether `session` is a worker's: a task's session, or one the self loop opened (its execution's principal

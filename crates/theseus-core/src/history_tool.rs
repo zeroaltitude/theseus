@@ -268,6 +268,31 @@ fn worker_pov(core: &Core, session: &str, ex: Option<&Exchange>) -> PointOfView 
     }
 }
 
+/// The self loop's scope of `session`'s history read (`view_gate::Verified`, as its view reads it): for a
+/// session the self loop opened, its own place at its verified anchor and the run it was handed as a fork
+/// (read fallibly: a run that cannot be read fails the call); none for any other session, which reads every
+/// place. A scope that cannot be read fails the call plainly, as it fails a turn's view: never the widest.
+fn self_scope(core: &Core, session: &str) -> Result<Option<page::SelfScope>, String> {
+    let v = crate::view_gate::Verified::of_session(&core.runner, session);
+    if v.scope_unread() {
+        return Err(
+            "context.history reads nothing here: whether the self loop opened this session \
+                    cannot be read"
+                .into(),
+        );
+    }
+    if !v.own_place_only() {
+        return Ok(None);
+    }
+    let handed =
+        crate::fork::window::inherited(&core.store, session).map_err(|e| format!("{e:#}"))?;
+    Ok(Some(page::SelfScope {
+        session: session.into(),
+        anchor: v.pov().anchor.clone(),
+        handed: handed.into_iter().map(|e| e.turn_id).collect(),
+    }))
+}
+
 /// Whether `turn`'s exchange has ended.
 fn ended(core: &Core, turn: &str) -> bool {
     exchange::exchange(&core.store, turn)
@@ -305,6 +330,7 @@ pub(crate) async fn answer(
         // A fork's history holds nothing an ancestor said at or after its point (`fork::cut`): a cut that
         // cannot be read fails the call plainly.
         cut: crate::fork::cut::Cut::of(&core.store, session).map_err(|e| format!("{e:#}"))?,
+        scope: self_scope(core, session)?,
     };
     if let Some(h) = &a.open {
         if used.opens >= OPENS_PER_TURN {
