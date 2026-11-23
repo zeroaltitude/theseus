@@ -107,7 +107,8 @@ pub struct SecretsStatus {
     #[serde(default)]
     pub failed: Vec<SecretFailed>,
     /// How the vault was read: `inject` (one `op inject` for every reference),
-    /// or `inject, then read` after a failed injection.
+    /// `read` (one reference, one `op read`), or `inject, then read` after a
+    /// failed injection.
     #[serde(default)]
     pub method: Option<String>,
     /// Rounds run: the first, then one per retry of what failed.

@@ -15,7 +15,8 @@ export type SecretsStatus = {
 state: string, ready: Array<string>, resolving: Array<string>, failed: Array<SecretFailed>, 
 /**
  * How the vault was read: `inject` (one `op inject` for every reference),
- * or `inject, then read` after a failed injection.
+ * `read` (one reference, one `op read`), or `inject, then read` after a
+ * failed injection.
  */
 method: string | null, 
 /**

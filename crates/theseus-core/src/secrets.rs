@@ -158,7 +158,8 @@ pub trait Fetch: Send + Sync {
 
 pub struct Fetched {
     pub values: Vec<Result<Zeroizing<String>, String>>,
-    /// How: `inject`, or `inject, then read` after a failed injection.
+    /// How: `inject`, `read` for one reference, or `inject, then read` after
+    /// a failed injection.
     pub method: String,
 }
 
@@ -506,12 +507,20 @@ impl OpReader {
 }
 
 impl Fetch for OpReader {
-    /// One `op inject` for every reference. If it fails, one `op read` per
-    /// reference, concurrently, so each bad one is named with its own error
-    /// and the good ones still resolve; this costs about a second more, and
-    /// only when something is already wrong.
+    /// One reference: one `op read` (issue 44: a retry of a single failing
+    /// entry was an `op inject` and then an `op read`). More: one `op inject`
+    /// for every reference. If it fails, one `op read` per reference,
+    /// concurrently, so each bad one is named with its own error and the good
+    /// ones still resolve; this costs about a second more, and only when
+    /// something is already wrong.
     fn fetch<'a>(&'a self, refs: &'a [String]) -> BoxFuture<'a, Fetched> {
         Box::pin(async move {
+            if let [one] = refs {
+                return Fetched {
+                    values: vec![self.read_raw(one).await],
+                    method: "read".into(),
+                };
+            }
             match self.inject(refs).await {
                 Ok(values) => Fetched {
                     values: values.into_iter().map(Ok).collect(),

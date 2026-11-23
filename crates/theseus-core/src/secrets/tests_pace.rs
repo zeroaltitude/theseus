@@ -90,3 +90,25 @@ async fn every_op_the_daemon_starts_is_counted_and_health_says_the_days_reads() 
     let uncounted = SecretBoard::for_config(&refs, Instant::now());
     assert_eq!(uncounted.status().vault_today, None, "no count, no line");
 }
+
+/// Commit 2: one reference is one `op read`; two are one `op inject`, and,
+/// when it fails, one `op read` each to name the bad one.
+#[tokio::test]
+async fn one_reference_is_one_op_read_and_two_are_one_inject() {
+    let dir = tempfile::tempdir().unwrap();
+    let op = fake_op(dir.path(), "some", VaultReads::new(Arc::new(SystemClock)));
+    let one = op.fetch(&["op://V/gone/f".to_string()]).await;
+    assert_eq!(runs(dir.path()), ["read"]);
+    assert_eq!(one.method, "read");
+    assert!(one.values[0].is_err());
+    let two = op
+        .fetch(&["op://V/good/f".to_string(), "op://V/gone/f".to_string()])
+        .await;
+    assert_eq!(runs(dir.path()), ["read", "inject", "read", "read"]);
+    assert_eq!(two.method, "inject, then read");
+    assert_eq!(
+        two.values[0].as_ref().unwrap().as_str(),
+        "made-up-read-value"
+    );
+    assert!(two.values[1].is_err());
+}
