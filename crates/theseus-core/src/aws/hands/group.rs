@@ -170,7 +170,7 @@ pub fn tally(store: &Store, rec: &GroupRecord, actions: &[Action]) -> Tally {
         match a.state {
             ActionState::Succeeded => t.succeeded += 1,
             ActionState::Planned | ActionState::Authorized => t.waiting.push(h.index),
-            ActionState::Dispatched => {
+            ActionState::Dispatched | ActionState::OutcomeUnknown => {
                 t.running += 1;
                 t.stopping += u32::from(a.cancel.is_some());
             }
@@ -255,7 +255,7 @@ pub struct Ctx<'a> {
 /// The `aws.hands.launched` row of a wave.
 pub struct Launched<'a> {
     pub rec: &'a GroupRecord,
-    pub wave: &'a [(String, Result<String, String>)],
+    pub wave: &'a [(String, Result<String, launch::LaunchError>)],
 }
 
 impl fact::Fact for Launched<'_> {
@@ -268,7 +268,9 @@ impl fact::Fact for Launched<'_> {
             .iter()
             .map(|(c, r)| match r {
                 Ok(ext) => json!({"correlation_id": c, "external_op_id": ext}),
-                Err(e) => json!({"correlation_id": c, "error": e}),
+                Err(e) => {
+                    json!({"correlation_id": c, "error": e.to_string(), "unknown": e.unknown})
+                }
             })
             .collect();
         json!({"group": self.rec.group, "execution_id": self.rec.execution_id,
@@ -342,18 +344,30 @@ pub async fn launch(ctx: &Ctx<'_>, mut rec: GroupRecord, wave: &[u32]) -> Result
         match td {
             Ok(arn) => rec.task_definition = Some(arn),
             Err(e) => {
-                let results: Vec<(String, Result<String, String>)> = corrs
+                let results: Vec<(String, Result<String, launch::LaunchError>)> = corrs
                     .iter()
-                    .map(|c| (c.clone(), Err(format!("no task definition: {e}"))))
+                    .map(|c| {
+                        (
+                            c.clone(),
+                            Err(launch::LaunchError::not_started(format!(
+                                "no task definition: {e}"
+                            ))),
+                        )
+                    })
                     .collect();
                 return finish_wave(ctx, rec, &binding, results);
             }
         }
     }
-    let results: Vec<(String, Result<String, String>)> = match keys {
+    let results: Vec<(String, Result<String, launch::LaunchError>)> = match keys {
         Err(e) => corrs
             .iter()
-            .map(|c| (c.clone(), Err(e.to_string())))
+            .map(|c| {
+                (
+                    c.clone(),
+                    Err(launch::LaunchError::not_started(e.to_string())),
+                )
+            })
             .collect(),
         Ok(keys) => {
             let launches = wave.iter().zip(&keys).map(|(i, k)| {
@@ -398,7 +412,18 @@ pub async fn launch(ctx: &Ctx<'_>, mut rec: GroupRecord, wave: &[u32]) -> Result
             futures_util::future::join_all(launches).await
         }
     };
-    finish_wave(ctx, rec, &binding, results)
+    let rec = finish_wave(ctx, rec, &binding, results)?;
+    // A stop may have landed while RunTask's reply was in flight.
+    let cancelled: Vec<String> = rec
+        .hands
+        .iter()
+        .filter_map(|h| {
+            let a = ctx.kernel.action(&h.correlation_id).ok().flatten()?;
+            (h.external_op_id.is_some() && a.cancel.is_some()).then(|| h.correlation_id.clone())
+        })
+        .collect();
+    super::cancel::stop_hands(ctx, &rec, &cancelled).await;
+    Ok(rec)
 }
 
 /// A wave's frame: the record with its external ids, the `aws.called` and
@@ -408,47 +433,54 @@ fn finish_wave(
     ctx: &Ctx<'_>,
     mut rec: GroupRecord,
     binding: &AwsBinding,
-    results: Vec<(String, Result<String, String>)>,
+    results: Vec<(String, Result<String, launch::LaunchError>)>,
 ) -> Result<GroupRecord> {
-    for (c, r) in &results {
-        if let (Ok(ext), Some(h)) = (r, rec.hands.iter_mut().find(|h| &h.correlation_id == c)) {
-            h.external_op_id = Some(ext.clone());
+    let execution = rec.execution_id.clone();
+    ctx.kernel.frame(&[&execution], |k| {
+        // Read and merge under the same lock as cancellation's final write.
+        if let Some(mut current) = GroupRecord::load(ctx.store, &rec.group)? {
+            current.task_definition = rec.task_definition.take().or(current.task_definition);
+            rec = current;
         }
-    }
-    let session = Some(rec.session_id.as_str());
-    let mut records = vec![rec.record()?];
-    for r in binding.requests() {
+        for (c, r) in &results {
+            if let (Ok(ext), Some(h)) = (r, rec.hands.iter_mut().find(|h| &h.correlation_id == c)) {
+                h.external_op_id = Some(ext.clone());
+            }
+        }
+        let session = Some(rec.session_id.as_str());
+        let mut records = vec![rec.record()?];
+        for r in binding.requests() {
+            records.push(fact::row(
+                &fact::tool::AwsCalled { row: &r.row },
+                session,
+                None,
+            )?);
+        }
         records.push(fact::row(
-            &fact::tool::AwsCalled { row: &r.row },
+            &Launched {
+                rec: &rec,
+                wave: &results,
+            },
             session,
             None,
         )?);
-    }
-    records.push(fact::row(
-        &Launched {
-            rec: &rec,
-            wave: &results,
-        },
-        session,
-        None,
-    )?);
-    ctx.kernel
-        .frame(&[&rec.execution_id], |k| k.stage(&records))?;
+        k.stage(&records)
+    })?;
     let now = theseus_protocol::now_unix_ms();
     for (c, r) in &results {
         if let Err(e) = r {
             ctx.kernel.accept_completion(&Completion {
                 correlation_id: c.clone(),
-                outcome: Outcome::Failed,
+                outcome: if e.unknown { Outcome::Unknown } else { Outcome::Failed },
                 result_ref: None,
                 external_op_id: None,
                 started_at_ms: now,
                 finished_at_ms: now,
                 producer: "hands:launch".into(),
                 signature: None,
-                // It never started: its reservation settles at nothing.
-                cost_micros: Some(0),
-                detail: Some(json!({"error": format!("did not start: {e}")})),
+                // Only a definite refusal can settle the reservation at zero.
+                cost_micros: (!e.unknown).then_some(0),
+                detail: Some(json!({"error": format!("{}: {e}", if e.unknown { "launch outcome unknown" } else { "did not start" })})),
             })?;
         }
     }

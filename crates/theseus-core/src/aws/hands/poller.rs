@@ -83,9 +83,12 @@ impl Core {
 /// is dispatched and not settled (a hand still running after its group is
 /// done comes home too), by its record.
 pub fn open_groups(core: &Core) -> Result<Vec<GroupRecord>> {
-    let open = core
+    let mut open = core
         .kernel
         .actions_by(&[terms::one(&terms::action_state(ActionState::Dispatched))])?;
+    open.extend(core.kernel.actions_by(&[terms::one(&terms::action_state(
+        ActionState::OutcomeUnknown,
+    ))])?);
     let groups: BTreeSet<&str> = open
         .iter()
         .filter_map(|a| match a.tool.as_str() {

@@ -625,6 +625,31 @@ pub async fn register_task_definition(
         .ok_or_else(|| "RegisterTaskDefinition named no task definition".into())
 }
 
+/// A refused launch is different from a reply lost after the launch left.
+#[derive(Debug, Clone)]
+pub struct LaunchError {
+    pub unknown: bool,
+    pub why: String,
+}
+
+impl LaunchError {
+    pub fn not_started(why: String) -> Self {
+        Self {
+            unknown: false,
+            why,
+        }
+    }
+    fn unknown(why: String) -> Self {
+        Self { unknown: true, why }
+    }
+}
+
+impl std::fmt::Display for LaunchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.why)
+    }
+}
+
 /// Launch one hand. Its external id (Lambda's request id, or the task's
 /// ARN), or why it did not start.
 #[expect(clippy::too_many_arguments, reason = "a launch's whole context")]
@@ -637,8 +662,9 @@ pub async fn launch(
     task_definition: Option<&str>,
     spec: &HandSpec,
     ids: &GroupIds<'_>,
-) -> Result<String, String> {
-    let payload = serde_json::to_string(spec).map_err(|e| e.to_string())?;
+) -> Result<String, LaunchError> {
+    let payload =
+        serde_json::to_string(spec).map_err(|e| LaunchError::not_started(e.to_string()))?;
     let (service, operation, input) = match backend {
         Backend::Lambda => (
             "lambda",
@@ -688,29 +714,37 @@ pub async fn launch(
             },
         )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| LaunchError {
+            unknown: matches!(&e, crate::aws::Failure::Call(error) if error.may_have_run()),
+            why: e.to_string(),
+        })?;
     match backend {
         Backend::Lambda => {
             let status = out.body["StatusCode"]
                 .as_u64()
                 .unwrap_or(u64::from(out.status));
             if status != 202 {
-                return Err(format!("Lambda's Invoke answered {status}, not 202"));
+                return Err(LaunchError::unknown(format!(
+                    "Lambda's Invoke answered {status}, not 202"
+                )));
             }
             Ok(out.request_id.unwrap_or_default())
         }
         Backend::Fargate => {
+            if let Some(task) = out.body["tasks"][0]["taskArn"].as_str() {
+                return Ok(task.into());
+            }
             if let Some(f) = out.body["failures"].as_array().and_then(|f| f.first()) {
-                return Err(format!(
+                return Err(LaunchError::not_started(format!(
                     "RunTask failed: {} {}",
                     f["reason"].as_str().unwrap_or_default(),
                     f["detail"].as_str().unwrap_or_default()
-                ));
+                )));
             }
             out.body["tasks"][0]["taskArn"]
                 .as_str()
                 .map(String::from)
-                .ok_or_else(|| "RunTask started no task".into())
+                .ok_or_else(|| LaunchError::unknown("RunTask returned no task id".into()))
         }
     }
 }

@@ -195,6 +195,14 @@ fn task_of<'r>(rec: &'r GroupRecord, correlation_id: &str) -> Option<&'r str> {
         .and_then(|h| h.external_op_id.as_deref())
 }
 
+/// A late launch still needs its stop, even after an uncertain cancellation.
+fn stoppable(a: &Action) -> bool {
+    matches!(
+        a.state,
+        ActionState::Dispatched | ActionState::OutcomeUnknown
+    ) || (a.state == ActionState::Cancelled && a.cancel == Some(CancelState::OutcomeUncertain))
+}
+
 /// Stop these running hands of `rec` (correlation ids), each by its
 /// backend's means. What each cancel's step wrote that settled it, with its
 /// backend's name: a Fargate hand whose task has not shown STOPPED yet is
@@ -208,7 +216,7 @@ pub async fn stop_hands(
     let open: Vec<Action> = corrs
         .iter()
         .filter_map(|c| ctx.kernel.action(c).ok().flatten())
-        .filter(|a| a.state == ActionState::Dispatched)
+        .filter(|a| stoppable(a))
         .collect();
     if open.is_empty() {
         return out;
@@ -235,9 +243,12 @@ pub async fn stop_hands(
     let mut asked = Vec::new();
     for a in &open {
         let Some(task) = task_of(rec, &a.correlation_id) else {
-            // Dispatched and never launched (its launch's frame was lost):
-            // nothing runs that a stop could reach.
-            if let Ok(a) = ctx.kernel.cancel_verified(&a.correlation_id, None) {
+            // Dispatch precedes RunTask: no saved ARN is not proof of no task.
+            let verdict = Verdict::uncertain(
+                VerifiedBy::Ecs,
+                "the launch may have run; its task id is not known yet",
+            );
+            if let Ok(a) = ctx.kernel.cancel_uncertain(&a.correlation_id, &verdict) {
                 out.push((a, "fargate"));
             }
             continue;
@@ -297,14 +308,33 @@ pub async fn verify(ctx: &Ctx<'_>, rec: &GroupRecord) -> Result<usize> {
     if rec.backend != Backend::Fargate {
         return Ok(0);
     }
+    // A launch's ARN can arrive between the stop's read and its uncertain
+    // mark. Retry the stop once the record has that ARN, including after restart.
+    let late: Vec<String> = group::hands(ctx.kernel, rec)?
+        .into_iter()
+        .filter(|a| {
+            a.cancel == Some(CancelState::OutcomeUncertain)
+                && task_of(rec, &a.correlation_id).is_some()
+        })
+        .map(|a| a.correlation_id)
+        .collect();
+    let corrected = stop_hands(ctx, rec, &late).await;
+    let stopped = corrected
+        .iter()
+        .filter(|(a, _)| a.cancel == Some(CancelState::TerminationVerified))
+        .count();
     let stopping: Vec<Action> = group::hands(ctx.kernel, rec)?
         .into_iter()
         .filter(|a| {
-            a.state == ActionState::Dispatched && a.cancel == Some(CancelState::Acknowledged)
+            stoppable(a)
+                && matches!(
+                    a.cancel,
+                    Some(CancelState::Acknowledged | CancelState::OutcomeUncertain)
+                )
         })
         .collect();
     if stopping.is_empty() {
-        return Ok(0);
+        return Ok(stopped);
     }
     let account = ctx
         .aws
@@ -320,7 +350,7 @@ pub async fn verify(ctx: &Ctx<'_>, rec: &GroupRecord) -> Result<usize> {
         .await
         .map_err(|e| anyhow!(e))?;
     called(ctx, rec, &binding);
-    let mut n = 0;
+    let mut n = stopped;
     for a in &stopping {
         let arn = task_of(rec, &a.correlation_id).unwrap_or_default();
         if let Some((_, st)) = states.iter().find(|(t, _)| t == arn) {
@@ -338,7 +368,7 @@ pub async fn verify(ctx: &Ctx<'_>, rec: &GroupRecord) -> Result<usize> {
 /// ECS says a hand's task stopped, and its cancel was asked: verified.
 /// Whether it was one this stop asked for.
 pub fn stopped_event(ctx: &Ctx<'_>, rec: &GroupRecord, a: &Action, st: &TaskState) -> Result<bool> {
-    if a.state != ActionState::Dispatched || a.cancel.is_none() {
+    if !stoppable(a) || a.cancel.is_none() {
         return Ok(false);
     }
     let ms = theseus_protocol::now_unix_ms()
@@ -366,7 +396,7 @@ pub async fn stop_group(ctx: &Ctx<'_>, group: &str) -> Result<Vec<(Action, &'sta
     }
     let running: Vec<String> = actions
         .iter()
-        .filter(|a| a.state == ActionState::Dispatched)
+        .filter(|a| stoppable(a))
         .map(|a| a.correlation_id.clone())
         .collect();
     let mut out = stop_hands(ctx, &rec, &running).await;
@@ -377,7 +407,12 @@ pub async fn stop_group(ctx: &Ctx<'_>, group: &str) -> Result<Vec<(Action, &'sta
         .collect();
     let pending = ran
         .iter()
-        .filter(|a| a.state == ActionState::Dispatched)
+        .filter(|a| {
+            matches!(
+                a.state,
+                ActionState::Dispatched | ActionState::OutcomeUnknown
+            )
+        })
         .count();
     let unsupported = ran
         .iter()
@@ -390,7 +425,7 @@ pub async fn stop_group(ctx: &Ctx<'_>, group: &str) -> Result<Vec<(Action, &'sta
     let ms = t0.elapsed().as_millis() as u64;
     let call = if pending + uncertain > 0 {
         let why = format!(
-            "{} of its hands' tasks not yet STOPPED (StopTask sent; each hand's own verdict follows)",
+            "{} of its hands' tasks not yet STOPPED (each hand's own stop verdict follows)",
             pending + uncertain
         );
         ctx.kernel.cancel_uncertain(
@@ -440,8 +475,13 @@ pub async fn stop_group(ctx: &Ctx<'_>, group: &str) -> Result<Vec<(Action, &'sta
             )?,
         ];
         records.extend(group::extension_row(&rec, &t)?);
-        ctx.kernel
-            .frame(&[&rec.execution_id], |k| k.stage(&records))?;
+        ctx.kernel.frame(&[&rec.execution_id], |k| {
+            if let Some(mut current) = GroupRecord::load(ctx.store, group)? {
+                current.settled = Some("cancelled".into());
+                records[0] = current.record()?;
+            }
+            k.stage(&records)
+        })?;
     }
     out.push((call, rec.backend.as_str()));
     Ok(out)
