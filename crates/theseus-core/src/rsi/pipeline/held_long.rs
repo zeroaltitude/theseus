@@ -70,11 +70,15 @@ impl Core {
         }
         let items = self.items_by_tree(&place);
         let mut parts: Vec<String> = Vec::new();
-        if let Some(i) = self.self_installing() {
-            parts.push(format!(
-                "the loop is {}: it is working",
-                super::installing::said(&i)
-            ));
+        match self.self_install_state() {
+            super::installing::InstallState::Busy(i) => {
+                parts.push(format!(
+                    "the loop is {}: it is working",
+                    super::installing::said(&i)
+                ));
+            }
+            super::installing::InstallState::NotKnown(why) => parts.push(why),
+            super::installing::InstallState::Quiet => {}
         }
         parts.extend(open.iter().map(|t| tree_line(&place, t, &items, now_ms)));
         Some(format!(

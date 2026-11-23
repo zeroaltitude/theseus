@@ -83,14 +83,19 @@ async fn a_second_daemon_on_the_state_directory_neither_sweeps_nor_opens_a_tree(
     // This process lets go of the lock, and another process takes it: the service daemon, here a shell holding it.
     f.place.owner = None;
     let lock = crate::rsi::trees_lock::lock_path(&f.place.root());
-    let mut holder = std::process::Command::new("sh")
-        .arg("-c")
+    let mut c = std::process::Command::new("sh");
+    c.arg("-c")
         .arg("exec 9>\"$1\" && flock -x 9 && echo locked && exec sleep 60")
         .arg("sh")
         .arg(&lock)
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
+        .stdout(std::process::Stdio::piped());
+    // Registered as every child is (`tests_children_complete`), though a test process runs no sweep.
+    let mut holder = theseus_kernel::children::spawn(
+        theseus_kernel::children::Kind::Owned,
+        || c.spawn(),
+        |c| Some(c.id()),
+    )
+    .unwrap();
     let mut said = String::new();
     std::io::BufRead::read_line(
         &mut std::io::BufReader::new(holder.stdout.take().unwrap()),

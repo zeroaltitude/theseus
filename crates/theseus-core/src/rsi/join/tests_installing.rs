@@ -40,17 +40,18 @@ impl Installer for Peek {
     }
 }
 
-/// systemd, stood in for: what it says of any unit, and the install units it says still run.
+/// systemd, stood in for: what it says of any unit, and the install units it says still run (or that it cannot be
+/// asked).
 struct Said {
     state: Option<String>,
-    running: Vec<String>,
+    running: Result<Vec<String>, String>,
 }
 
 impl Units for Said {
     fn state(&self, _unit: &str) -> Option<String> {
         self.state.clone()
     }
-    fn running(&self, _root: &std::path::Path) -> Vec<String> {
+    fn running(&self, _root: &std::path::Path) -> Result<Vec<String>, String> {
         self.running.clone()
     }
 }
@@ -58,7 +59,7 @@ impl Units for Said {
 fn said(state: &str, running: &[String]) -> Arc<Said> {
     Arc::new(Said {
         state: Some(state.into()),
-        running: running.to_vec(),
+        running: Ok(running.to_vec()),
     })
 }
 
@@ -155,12 +156,23 @@ async fn a_unit_accepted_then_failed_clears_installing_with_its_row() {
 #[tokio::test]
 async fn a_restart_while_the_unit_runs_shows_the_install_again() {
     let (r, _, merge) = joined_with(true).await;
-    // The restart: this daemon's memory of the install is gone.
+    // The restart: this daemon's memory of the install is gone, and its start has not looked yet.
     *r.core.rsi.pipeline.installing.lock().unwrap() = None;
+    *r.core.rsi.pipeline.discovered.0.lock().unwrap() = None;
     let unit = format!("theseus-self-install-{}", &merge[..12]);
     r.core
         .set_units(said("active", std::slice::from_ref(&unit)));
-    assert!(r.core.recover_installing());
+    let before = r
+        .core
+        .self_pipeline(&SelfPipelineParams::default())
+        .unwrap();
+    assert_eq!(
+        before.installing.len(),
+        1,
+        "not known is not quiet: {before:?}"
+    );
+    assert_eq!(before.installing[0].title, "not known yet");
+    assert!(r.core.discover_installing());
     let after = r
         .core
         .self_pipeline(&SelfPipelineParams::default())
@@ -172,4 +184,91 @@ async fn a_restart_while_the_unit_runs_shows_the_install_again() {
         after.installing[0].branch.as_deref(),
         Some("self/20261014-trim-the-sails")
     );
+}
+
+/// The start's discovery fails (systemd cannot be asked): the loop is not known, never quiet, and the loop's own
+/// next install does not start; once a try succeeds and finds nothing, it is quiet.
+#[tokio::test]
+async fn a_failed_discovery_is_not_known_and_never_quiet() {
+    let (r, _, _) = joined_with(false).await;
+    *r.core.rsi.pipeline.discovered.0.lock().unwrap() = None;
+    r.core.set_units(Arc::new(Said {
+        state: None,
+        running: Err("Failed to connect to bus".into()),
+    }));
+    assert!(!r.core.discover_installing());
+    let v = r
+        .core
+        .self_pipeline(&SelfPipelineParams::default())
+        .unwrap();
+    assert_eq!(v.installing.len(), 1, "{v:?}");
+    let why = v.installing[0].why.clone().unwrap();
+    assert!(
+        why.contains("not known yet") && why.contains("Failed to connect to bus"),
+        "{why}"
+    );
+    assert!(
+        r.core.install_blocked().is_some(),
+        "no install starts while it is not known"
+    );
+    r.core.set_units(said("inactive", &[]));
+    assert!(r.core.discover_installing());
+    let v = r
+        .core
+        .self_pipeline(&SelfPipelineParams::default())
+        .unwrap();
+    assert_eq!(v.installing, Vec::<SelfPipelineItem>::new());
+    assert_eq!(r.core.install_blocked(), None);
+}
+
+/// A recovered unit that ends while this daemon runs the install's commit: the install worked (this daemon is its
+/// restart), so the state clears with no failure row. `deactivating` is not ended.
+#[tokio::test]
+async fn a_recovered_unit_that_ends_on_its_own_build_is_a_success() {
+    let (r, _, merge) = joined_with(true).await;
+    *r.core.rsi.pipeline.installing.lock().unwrap() = None;
+    let unit = format!("theseus-self-install-{}", &merge[..12]);
+    r.core
+        .set_units(said("active", std::slice::from_ref(&unit)));
+    assert!(r.core.discover_installing());
+    *r.core.rsi.pipeline.running.lock().unwrap() = Some(merge.clone());
+    r.core.set_units(said("deactivating", &[]));
+    *r.core.rsi.pipeline.unit_seen.lock().unwrap() = None;
+    let v = r
+        .core
+        .self_pipeline(&SelfPipelineParams::default())
+        .unwrap();
+    assert_eq!(v.installing.len(), 1, "deactivating still runs: {v:?}");
+    r.core.set_units(said("inactive", &[]));
+    *r.core.rsi.pipeline.unit_seen.lock().unwrap() = None;
+    let v = r
+        .core
+        .self_pipeline(&SelfPipelineParams::default())
+        .unwrap();
+    assert_eq!(v.installing, Vec::<SelfPipelineItem>::new());
+    let ended = r
+        .core
+        .store
+        .ledger_tail::<crate::ledger::LedgerRow>(10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, row)| row.kind == "self.pipeline.ended")
+        .count();
+    assert_eq!(ended, 0, "a success writes no failure row");
+}
+
+/// A running install unit of this state directory that no join of this loop names is reported, not adopted.
+#[tokio::test]
+async fn a_unit_no_join_names_is_not_adopted() {
+    let (r, _, _) = joined_with(false).await;
+    r.core.set_units(said(
+        "active",
+        &["theseus-self-install-0000feedface".into()],
+    ));
+    assert!(r.core.discover_installing());
+    let v = r
+        .core
+        .self_pipeline(&SelfPipelineParams::default())
+        .unwrap();
+    assert_eq!(v.installing, Vec::<SelfPipelineItem>::new());
 }

@@ -13,13 +13,18 @@
 //! the middle of an install left `install-…` open, and every start waited on "slots" for nine hours).
 //! The sweep closes only what it can PROVE is the loop's own and abandoned; everything else is left as
 //! it is and reported:
-//! - **the loop's own**: `join::git::detached` writes a mark for each tree it opens
-//!   (`<state>/self/trees.opened/<name>`, holding the kind and when) before the tree exists, and
-//!   `tree::close` removes it with the tree. A directory with no mark (an owner's worktree that happens
-//!   to be called `probe-notes`, a tree an older build opened, anything else) is never touched. Nothing
-//!   else writes a mark: `tree::open` / `reopen` make the items' trees, which have none;
-//! - **abandoned**: this process did not open it ([`opened_here`], recorded before the tree exists; the
-//!   check and the close hold the same lock the record takes), and this process owns the trees
+//! - **the loop's own, completely created**: `join::git::detached` reserves the name before the tree
+//!   exists (`<state>/self/trees.opened/<name>`, stage `reserved`) and, once `git worktree add` has made
+//!   it, rewrites the mark as `created` with what ties it to that one worktree ([`Made`]: its git
+//!   directory, a nonce written into that git directory, and that it is detached). `tree::close` removes
+//!   the mark with the tree. The sweep closes only a `created` mark whose worktree, as git lists it now,
+//!   is that same one. A reservation with nothing at its path is cleared; a reservation with something
+//!   there, or a `created` mark whose worktree does not match, is left and reported ("marked, but not
+//!   the tree the loop made"). A directory with no mark (an owner's worktree called `probe-notes`, a tree
+//!   an older build opened, anything else) is never touched. `tree::open` / `reopen` (the items' trees)
+//!   write no mark, clear a stale reservation at their name, and refuse a `created` one ([`item_meets`]);
+//! - **abandoned**: this process does not have it open ([`claim`], taken before anything is done at the path; the
+//!   check and the close hold the same lock the claim takes), and this process owns the trees
 //!   (`trees_lock`: one daemon at a time, whatever store it opened, so a `--stdio` daemon beside the
 //!   service never sweeps the service's live trees);
 //! - and the trees directory resolves inside the state directory.
@@ -44,12 +49,28 @@ fn opened() -> MutexGuard<'static, BTreeSet<PathBuf>> {
     OPENED_HERE.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Record that this process opens the tree at `dir`, before it exists.
-pub fn opened_here(dir: &Path) {
-    opened().insert(dir.to_path_buf());
+/// Claim `dir` for an open by this process, before anything is done at the path: refused when this process has it
+/// open already (its lifetime not ended). Ended by [`closed_here`] when the tree is closed or its open fails: a
+/// record is an open this process has under way, not a count of live passes. Taken under the lock the sweep holds,
+/// so the two never cross.
+pub fn claim(dir: &Path) -> Result<(), String> {
+    let mut here = opened();
+    if here.contains(dir) {
+        return Err(format!(
+            "{} is open in this daemon already: it is not opened again over itself",
+            dir.display()
+        ));
+    }
+    here.insert(dir.to_path_buf());
+    Ok(())
 }
 
-/// Whether this process opened the tree at `dir` (`join::git::detached`).
+/// The tree at `dir` is closed, or its open failed: this process no longer has it open.
+pub fn closed_here(dir: &Path) {
+    opened().remove(dir);
+}
+
+/// Whether this process has the tree at `dir` open (`join::git::detached`).
 pub fn is_opened_here(dir: &Path) -> bool {
     opened().contains(dir)
 }
@@ -60,29 +81,94 @@ pub(crate) fn forget_opened_here() {
     opened().clear();
 }
 
-/// The loop's mark of a tree it opened: its kind (`install`, `planted`, …) and when.
+/// Where a mark stands (issue 41, round 3): written before the tree exists it is a reservation; rewritten once the
+/// tree exists it is proof of that one tree.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage {
+    /// Before `git worktree add`: nothing is proven to exist. A mark written by round 2 (no stage) reads as this.
+    #[default]
+    Reserved,
+    /// After it: [`Made`] names the worktree.
+    Created,
+}
+
+/// What ties a `created` mark to the one worktree the loop made, and cannot be true of another made later at the
+/// same path: the absolute git directory git gave it (`<repo>/.git/worktrees/<name>`), a nonce the loop wrote into
+/// that git directory (`theseus-mark`; it goes with the worktree when git removes it, and a later worktree's git
+/// directory has none), and that it was created DETACHED at `at`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Made {
+    pub git_dir: String,
+    pub nonce: String,
+    pub at: String,
+}
+
+/// The file in a worktree's git directory that holds the loop's nonce.
+pub const NONCE_FILE: &str = "theseus-mark";
+
+/// The loop's mark of a tree it opened: its kind (`install`, `planted`, …), when, its stage and, once created, what
+/// it made.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mark {
     pub kind: String,
     pub at_ms: u64,
     pub pid: u32,
+    #[serde(default)]
+    pub stage: Stage,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub made: Option<Made>,
 }
 
-/// Write the mark of `name`, of kind `kind`, before its tree exists: written and synced, so a crash after it leaves
-/// it on disk.
-pub fn mark(p: &Place, name: &str, kind: &str) -> Result<()> {
+/// Write `m` as the mark of `name`: written to a side file, synced, renamed over the mark, and the directory synced,
+/// so a crash leaves the old mark or the new one, never half of either.
+fn write_mark(p: &Place, name: &str, m: &Mark) -> Result<()> {
     use std::io::Write;
     let dir = p.opened();
     std::fs::create_dir_all(&dir)?;
-    let m = Mark {
-        kind: kind.into(),
+    let side = dir.join(format!(".{name}.new"));
+    let mut f = std::fs::File::create(&side)?;
+    f.write_all(serde_json::to_string(m)?.as_bytes())?;
+    f.sync_all()?;
+    std::fs::rename(&side, dir.join(name))?;
+    std::fs::File::open(&dir)?.sync_all()?;
+    Ok(())
+}
+
+/// Reserve `name` for a tree of kind `kind`, before it exists.
+pub fn mark(p: &Place, name: &str, kind: &str) -> Result<()> {
+    write_mark(
+        p,
+        name,
+        &Mark {
+            kind: kind.into(),
+            at_ms: theseus_protocol::now_unix_ms(),
+            pid: std::process::id(),
+            stage: Stage::Reserved,
+            made: None,
+        },
+    )
+}
+
+/// The worktree at `dir` exists now: write the nonce into its git directory and the `created` mark that names it.
+pub fn mark_created(p: &Place, name: &str, dir: &Path, at: &str) -> Result<()> {
+    let git_dir = p.git_ok(dir, &["rev-parse", "--absolute-git-dir"])?;
+    let nonce = crate::new_id("mark");
+    std::fs::write(Path::new(&git_dir).join(NONCE_FILE), &nonce)?;
+    let mut m = mark_of(p, name).unwrap_or(Mark {
+        kind: String::new(),
         at_ms: theseus_protocol::now_unix_ms(),
         pid: std::process::id(),
-    };
-    let mut f = std::fs::File::create(dir.join(name))?;
-    f.write_all(serde_json::to_string(&m)?.as_bytes())?;
-    f.sync_all()?;
-    Ok(())
+        stage: Stage::Reserved,
+        made: None,
+    });
+    m.stage = Stage::Created;
+    m.made = Some(Made {
+        git_dir,
+        nonce,
+        at: at.into(),
+    });
+    write_mark(p, name, &m)
 }
 
 /// Remove the mark of `name` (its tree was not made, or is closed).
@@ -96,9 +182,73 @@ pub fn mark_of(p: &Place, name: &str) -> Option<Mark> {
     serde_json::from_str(&text).ok()
 }
 
-/// Whether the loop opened `name`.
+/// Whether a mark stands at `name`.
 pub fn marked(p: &Place, name: &str) -> bool {
     mark_of(p, name).is_some()
+}
+
+/// Whether the worktree at `dir` is, as git lists it now, the one a `created` mark names: registered at that path,
+/// detached, with the same git directory, and that git directory holds the mark's nonce. Why not, when it is not.
+pub fn is_the_made_tree(p: &Place, m: &Mark, dir: &Path) -> Result<(), String> {
+    let Some(made) = (m.stage == Stage::Created)
+        .then_some(m.made.as_ref())
+        .flatten()
+    else {
+        return Err(
+            "its mark is a reservation: the loop never finished making a tree there".into(),
+        );
+    };
+    let list = p
+        .git_ok(&p.repo, &["worktree", "list", "--porcelain"])
+        .map_err(|e| format!("git cannot list the worktrees: {e:#}"))?;
+    let path = format!("worktree {}", dir.display());
+    let entry = list
+        .split("\n\n")
+        .find(|e| e.lines().next() == Some(path.as_str()))
+        .ok_or("git does not list a worktree at that path")?;
+    if !entry.lines().any(|l| l == "detached") {
+        return Err(
+            "the worktree at that path is on a branch, not the detached one the loop made".into(),
+        );
+    }
+    let git_dir = p
+        .git_ok(dir, &["rev-parse", "--absolute-git-dir"])
+        .map_err(|e| format!("git cannot read its git directory: {e:#}"))?;
+    if git_dir != made.git_dir {
+        return Err(format!(
+            "its git directory is {git_dir}, not {}",
+            made.git_dir
+        ));
+    }
+    let nonce = std::fs::read_to_string(Path::new(&git_dir).join(NONCE_FILE)).unwrap_or_default();
+    if nonce.trim() != made.nonce {
+        return Err(
+            "its git directory does not hold the loop's mark: another worktree stands there".into(),
+        );
+    }
+    Ok(())
+}
+
+/// An item's opener (`tree::open` / `reopen`) meets the name `name`: a reservation with nothing made is cleared
+/// (nothing was created), a `created` mark or a name this process has open refuses the open.
+pub fn item_meets(p: &Place, name: &str) -> Result<()> {
+    if let Ok(trees) = std::fs::canonicalize(p.trees()) {
+        if is_opened_here(&trees.join(name)) {
+            anyhow::bail!("the loop has {name} open as one of its own trees: an item's tree is not opened over it");
+        }
+    }
+    match mark_of(p, name) {
+        None => Ok(()),
+        Some(m) if m.stage == Stage::Reserved => {
+            unmark(p, name);
+            tracing::info!(tree = %name, "self: an item's tree clears the loop's stale reservation at its name");
+            Ok(())
+        }
+        Some(m) => anyhow::bail!(
+            "the loop's {} tree is marked at {name}: an item's tree is not opened over it",
+            m.kind
+        ),
+    }
 }
 
 /// The trees one phase opens and closes.
@@ -150,6 +300,9 @@ pub enum Swept {
     MarkCleared,
     /// A phase-named directory the loop did not open (no mark): left as it is.
     NotTheLoops,
+    /// A mark stands, but what is at its path is not the tree the loop made (a reservation with something there, or
+    /// a worktree that does not match the `created` mark): why. Left as it is.
+    NotTheTreeTheLoopMade(String),
 }
 
 /// One tree the start looked at.
@@ -177,15 +330,11 @@ pub fn close_dead(p: &Place) -> Result<Vec<Dead>, NoSweep> {
     if p.owner.is_none() {
         return Err(NoSweep::NotOwner);
     }
-    if !p.trees().exists() {
-        return Ok(Vec::new());
-    }
-    if !p.trees_inside() {
+    if p.trees().exists() && !p.trees_inside() {
         return Err(NoSweep::Outside);
     }
-    let Ok(trees) = std::fs::canonicalize(p.trees()) else {
-        return Ok(Vec::new());
-    };
+    // With no trees directory there is nothing to close, and every mark is stale: its path cannot exist.
+    let trees = std::fs::canonicalize(p.trees()).unwrap_or_else(|_| p.trees());
     // Held across the check and the close: a pass that opens a tree now waits for the close.
     let here = opened();
     let mut out = Vec::new();
@@ -206,11 +355,13 @@ pub fn close_dead(p: &Place) -> Result<Vec<Dead>, NoSweep> {
         }
         let Some(m) = mark_of(p, name) else { continue };
         let is_tree = std::fs::symlink_metadata(&dir).is_ok_and(|md| md.file_type().is_dir());
-        let swept = if !is_tree && !dir.exists() {
+        let swept = if !is_tree && std::fs::symlink_metadata(&dir).is_err() {
             unmark(p, name);
             Swept::MarkCleared
         } else if !is_tree {
-            Swept::NotClosed(format!("{} is not a directory", dir.display()))
+            Swept::NotTheTreeTheLoopMade(format!("{} is not a directory", dir.display()))
+        } else if let Err(why) = is_the_made_tree(p, &m, &dir) {
+            Swept::NotTheTreeTheLoopMade(why)
         } else {
             let t = Tree {
                 slug: name.clone(),
@@ -229,7 +380,11 @@ pub fn close_dead(p: &Place) -> Result<Vec<Dead>, NoSweep> {
             swept,
         });
     }
-    for name in left_open(&trees, false) {
+    let unmarked = match p.trees().exists() {
+        true => left_open(&trees, false),
+        false => Vec::new(),
+    };
+    for name in unmarked {
         if names.contains(&name) {
             continue;
         }

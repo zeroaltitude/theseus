@@ -21,14 +21,24 @@ pub fn slug_of(what: &str, branch: &str) -> String {
 }
 
 /// A detached worktree of `rev` named `<what>-<slug of branch>`, with its
-/// own build tree. One the loop left by a crash (its mark is there, `guard`) is
-/// closed first; a directory of that name the loop did not open is in the way
-/// and is left as it is: the open fails, naming it.
+/// own build tree.
 ///
 /// Only the daemon that owns the trees opens one (`trees_lock`, issue 41), and
-/// only under a trees directory inside the state directory. Its mark
-/// (`<state>/self/trees.opened/<name>`) is written before the tree exists and
-/// removed when it is closed (`tree::close`).
+/// only under a trees directory inside the state directory. What stands at the
+/// path is decided before anything is done to it, and every refusal is the
+/// open's failure, naming it (issue 41, round 3):
+/// - a path this daemon has open already (`guard::opened_here`, its lifetime
+///   not ended) is refused, never reopened over;
+/// - a tree a previous process of the loop made and left (its `created` mark,
+///   and git lists that same worktree) is closed with `tree::close`; when the
+///   close refuses (a gate's lease, git) the open fails and the tree stays: no
+///   delete stands in for it;
+/// - anything else at the path (no mark, a reservation, a worktree that is not
+///   the one the mark names) is in the way and is left as it is.
+///
+/// The name is reserved (`guard::mark`) before the tree exists and the mark is
+/// rewritten as `created` once `git worktree add` has made it
+/// (`guard::mark_created`); `tree::close` removes it with the tree.
 pub fn detached(p: &Place, what: &str, branch: &str, rev: &str) -> Result<Tree> {
     let slug = slug_of(what, branch);
     if p.owner.is_none() {
@@ -53,29 +63,56 @@ pub fn detached(p: &Place, what: &str, branch: &str, rev: &str) -> Result<Tree> 
         dir,
         target,
     };
-    // Recorded before the tree exists, so a start's sweep never takes it for a dead daemon's.
-    super::guard::opened_here(&t.dir);
-    if t.dir.exists() {
-        if !super::guard::marked(p, &t.slug) {
-            bail!(
-                "{} is in the way and the loop did not open it: it is left as it is",
-                t.dir.display()
-            );
+    // Claimed before anything is done at the path, so a start's sweep never takes it for a dead daemon's; a path
+    // this daemon has open already is refused here.
+    super::guard::claim(&t.dir).map_err(anyhow::Error::msg)?;
+    let opened = (|| -> Result<()> {
+        if std::fs::symlink_metadata(&t.dir).is_ok() {
+            make_way(p, &t)?;
         }
-        // The loop's own, left by a crash: closed, or, when git no longer knows it, removed, as it always was.
-        if tree::close(p, &t).is_err() {
-            tree::remove_all(&t.dir)?;
-            let _ = p.git(&p.repo, &["worktree", "prune"]);
+        super::guard::mark(p, &t.slug, what)?;
+        let d = t.dir.to_string_lossy().to_string();
+        if let Err(e) = p.git_ok(&p.repo, &["worktree", "add", "-q", "--detach", &d, rev]) {
+            super::guard::unmark(p, &t.slug);
+            return Err(e);
         }
-    }
-    super::guard::mark(p, &t.slug, what)?;
-    let d = t.dir.to_string_lossy().to_string();
-    if let Err(e) = p.git_ok(&p.repo, &["worktree", "add", "-q", "--detach", &d, rev]) {
-        super::guard::unmark(p, &t.slug);
+        let at = p.git_ok(&t.dir, &["rev-parse", "HEAD"])?;
+        if let Err(e) = super::guard::mark_created(p, &t.slug, &t.dir, &at) {
+            // A tree whose mark could not say what it is: closed again, and the open fails.
+            let _ = tree::close(p, &t);
+            return Err(e);
+        }
+        std::fs::create_dir_all(&t.target)?;
+        Ok(())
+    })();
+    if let Err(e) = opened {
+        super::guard::closed_here(&t.dir);
         return Err(e);
     }
-    std::fs::create_dir_all(&t.target)?;
     Ok(t)
+}
+
+/// Something stands at `t`'s path: closed when it is a tree a previous process of the loop made and left, else the
+/// open fails, naming why, and the path is left as it is.
+fn make_way(p: &Place, t: &Tree) -> Result<()> {
+    let Some(m) = super::guard::mark_of(p, &t.slug) else {
+        bail!(
+            "{} is in the way and the loop did not open it: it is left as it is",
+            t.dir.display()
+        );
+    };
+    if let Err(why) = super::guard::is_the_made_tree(p, &m, &t.dir) {
+        bail!(
+            "{} is in the way, marked, but not the tree the loop made ({why}): it is left as it is",
+            t.dir.display()
+        );
+    }
+    tree::close(p, t).with_context(|| {
+        format!(
+            "{} is the loop's tree from an earlier start, and it would not close: it is left as it is",
+            t.dir.display()
+        )
+    })
 }
 
 /// `refs/remotes/<remote>/main`'s commit.

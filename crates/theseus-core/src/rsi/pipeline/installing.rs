@@ -1,17 +1,23 @@
-//! "The loop is installing" (issue 41, round 2): one predicate, `Core::self_installing`, for the pipeline's view,
-//! the long-hold line and anything that waits for a quiet loop. It follows the real install:
-//! - the loop's own install is under way from the start of its phase (`join::joining`); once its unit is accepted
-//!   the state names the unit, and a reader asks systemd whether that unit is still active (bounded, and kept for
-//!   [`FRESH`]). A unit that has ended without the restart it makes clears the state, with a row that says so; a
-//!   unit systemd cannot be asked about keeps it. Nothing clears it on a timer;
-//! - at start the daemon looks for a still-running install unit of its own state directory (its script is under
-//!   `<state>/self`) and shows it again before it answers anything;
-//! - the root helper's install (`join::root_install`) is under way while its record says restarting or started.
+//! "The loop is installing" (issue 41, rounds 2 and 3): one predicate, `Core::self_install_state`, for the pipeline's
+//! view, the long-hold line and the loop's own start of an install. It has three answers, and it never says quiet
+//! before it knows:
+//! - **busy**: the loop's own install is under way (from the start of its phase, `join::joining`, or the root
+//!   helper's build, staging and helper run, `join::root_install`), or the root helper's record says restarting or
+//!   started. Once the loop's install unit is accepted the state names it, and a reader asks systemd whether it
+//!   still runs (bounded, kept for [`FRESH`]). A unit that has ended clears it: with no row when the running build
+//!   is the install's commit (the install worked: this daemon is its restart), with a row that says it did not
+//!   finish otherwise. A unit systemd cannot be asked about keeps it. Nothing clears it on a timer;
+//! - **not known**: until the start's discovery (an install unit of this state directory still running, its exact
+//!   script argument, named by a join of this loop) has once succeeded. A failed or timed-out query keeps it not
+//!   known, and it is asked again, backed off, in the background: no turn waits on it;
+//! - **quiet**: none of the above.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, PoisonError};
 use std::time::{Duration, Instant};
+
+use theseus_kernel::children::{self, Kind};
 
 use super::Installing;
 use crate::fact::rsi_pipeline::{Ended, Moved};
@@ -22,79 +28,138 @@ use crate::rsi::join::root_install::Stage;
 pub const FRESH: Duration = Duration::from_secs(10);
 /// The longest one question to systemd may take.
 const ASK: Duration = Duration::from_secs(2);
+/// The most units the start's discovery looks at.
+const MOST_UNITS: usize = 16;
+/// The start's discovery: how many tries, and the first wait between them (doubled each time, at most [`LAST_WAIT`]).
+const TRIES: u32 = 12;
+const FIRST_WAIT: Duration = Duration::from_secs(5);
+const LAST_WAIT: Duration = Duration::from_secs(300);
 /// The install units' names (`join::install`).
 pub const UNIT_PREFIX: &str = "theseus-self-install-";
 
-/// What a reader asks of the machine's units: a test's stand-in, or systemd.
-pub trait Units: Send + Sync {
-    /// systemd's state of `unit` (`active`, `activating`, `failed`, `inactive`, …); none when it cannot be asked.
-    fn state(&self, unit: &str) -> Option<String>;
-    /// The install units running now whose script is under `root` (`<state>/self`).
-    fn running(&self, root: &Path) -> Vec<String>;
+/// What the predicate says.
+#[derive(Debug, Clone, PartialEq)]
+pub enum InstallState {
+    Quiet,
+    Busy(Installing),
+    /// Whether an install is under way is not known yet: why.
+    NotKnown(String),
 }
 
-/// The machine's own: `systemctl --user`, each call bounded by [`ASK`].
+/// The start's discovery, as far as it got: `None` not done yet, `Some(Err)` the last try failed, `Some(Ok)` done.
+#[derive(Debug)]
+pub struct Discovery(pub(crate) std::sync::Mutex<Option<Result<(), String>>>);
+
+impl Default for Discovery {
+    /// A daemon starts not knowing. A test's core starts as though its start had looked and found nothing (no start
+    /// runs in a test); a test of discovery sets it back.
+    fn default() -> Self {
+        Self(std::sync::Mutex::new(cfg!(test).then_some(Ok(()))))
+    }
+}
+
+/// What a reader asks of the machine's units: a test's stand-in, or systemd.
+pub trait Units: Send + Sync {
+    /// systemd's state of `unit` (`active`, `activating`, `deactivating`, `failed`, `inactive`, …); none when it
+    /// cannot be asked.
+    fn state(&self, unit: &str) -> Option<String>;
+    /// The install units running now whose script is this state directory's, exactly: `<root>/install-<short>.sh`
+    /// for a unit `theseus-self-install-<short>`. Why not, when systemd cannot be asked.
+    fn running(&self, root: &Path) -> Result<Vec<String>, String>;
+}
+
+/// The machine's own: `systemctl --user`, each call a registered child (`children::spawn`), its output drained while
+/// it runs, bounded by [`ASK`].
 pub struct Systemd;
 
-/// `systemctl --user <args>`'s output, or none when it fails or takes longer than [`ASK`].
-fn systemctl(args: &[&str]) -> Option<String> {
-    let mut child = Command::new("systemctl")
-        .arg("--user")
+/// `systemctl --user <args>`'s output, or why there is none (it could not start, failed, or took longer than [`ASK`]).
+fn systemctl(args: &[&str]) -> Result<String, String> {
+    let mut c = Command::new("systemctl");
+    c.arg("--user")
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+        .stderr(Stdio::null());
+    let mut child = children::spawn(Kind::Owned, || c.spawn(), |c| Some(c.id()))
+        .map_err(|e| format!("systemctl could not start: {e}"))?;
+    // Drained on a thread of its own, so a full pipe never reads as no answer.
+    let out = child.stdout.take();
+    let reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut o) = out {
+            let _ = std::io::Read::read_to_end(&mut o, &mut buf);
+        }
+        buf
+    });
     let until = Instant::now() + ASK;
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
+            Ok(Some(s)) => break Ok(s),
             Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(20)),
-            _ => {
+            Ok(None) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return None;
+                break Err(format!("systemctl took longer than {} s", ASK.as_secs()));
             }
+            Err(e) => break Err(format!("systemctl could not be waited for: {e}")),
         }
-    }
-    let out = child.wait_with_output().ok()?;
-    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    };
+    let text = String::from_utf8_lossy(&reader.join().unwrap_or_default())
+        .trim()
+        .to_string();
+    status.map(|_| text)
+}
+
+/// The tokens of `ExecStart` as `systemctl show -p ExecStart --value` prints them: each `argv[]=` list.
+fn argv_of(exec: &str) -> Vec<&str> {
+    exec.split(';')
+        .filter_map(|part| part.trim().strip_prefix("argv[]="))
+        .flat_map(str::split_whitespace)
+        .collect()
 }
 
 impl Units for Systemd {
     fn state(&self, unit: &str) -> Option<String> {
         // `is-active` prints the state whatever its exit code; an empty answer is no answer.
-        systemctl(&["is-active", unit]).filter(|s| !s.is_empty())
+        systemctl(&["is-active", unit])
+            .ok()
+            .filter(|s| !s.is_empty())
     }
 
-    fn running(&self, root: &Path) -> Vec<String> {
+    fn running(&self, root: &Path) -> Result<Vec<String>, String> {
         let pattern = format!("{UNIT_PREFIX}*");
-        let Some(list) = systemctl(&[
+        let list = systemctl(&[
             "list-units",
             "--plain",
             "--no-legend",
-            "--state=active,activating",
+            "--state=active,activating,deactivating",
             &pattern,
-        ]) else {
-            return Vec::new();
-        };
-        let script = root.join("install-").to_string_lossy().into_owned();
-        list.lines()
+        ])?;
+        let mut out = Vec::new();
+        for unit in list
+            .lines()
             .filter_map(|l| l.split_whitespace().next())
             .map(|u| u.trim_end_matches(".service").to_string())
             .filter(|u| u.starts_with(UNIT_PREFIX))
-            .filter(|u| {
-                systemctl(&["show", "-p", "ExecStart", "--value", u])
-                    .is_some_and(|exec| exec.contains(&script))
-            })
-            .collect()
+            .take(MOST_UNITS)
+        {
+            let short = unit.trim_start_matches(UNIT_PREFIX);
+            let script = root.join(format!("install-{short}.sh"));
+            let exec = systemctl(&["show", "-p", "ExecStart", "--value", &unit])?;
+            if argv_of(&exec).iter().any(|a| Path::new(a) == script) {
+                out.push(unit);
+            }
+        }
+        Ok(out)
     }
 }
 
-/// Whether systemd's `state` is a unit still running.
+/// Whether systemd's `state` is a unit not yet ended (`deactivating` still runs its processes).
 fn running_state(state: &str) -> bool {
-    matches!(state, "active" | "activating" | "reloading")
+    matches!(
+        state,
+        "active" | "activating" | "deactivating" | "reloading" | "refreshing"
+    )
 }
 
 impl Core {
@@ -138,13 +203,29 @@ impl Core {
         state
     }
 
-    /// The install the loop has under way, if any: the module's doc.
-    pub(crate) fn self_installing(&self) -> Option<Installing> {
+    /// The commit this daemon runs (a test's stand-in, else the build's stamp).
+    fn running_commit(&self) -> Option<String> {
+        #[cfg(test)]
+        if let Some(c) = self
+            .rsi
+            .pipeline
+            .running
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+        {
+            return Some(c);
+        }
+        crate::build().commit
+    }
+
+    /// Whether the loop is installing: the module's doc.
+    pub(crate) fn self_install_state(&self) -> InstallState {
         if let Some(p) = self
             .root_pending()
             .filter(|p| matches!(p.stage, Stage::Restarting | Stage::Started))
         {
-            return Some(Installing {
+            return InstallState::Busy(Installing {
                 item: String::new(),
                 title: p.what.clone(),
                 branch: p.branch.clone(),
@@ -160,22 +241,41 @@ impl Core {
             .installing
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .clone()?;
-        let Some(unit) = mine.unit.clone() else {
-            // Its build, in this daemon: under way until the phase says otherwise.
-            return Some(mine);
-        };
-        match self.unit_state(&unit) {
-            Some(s) if !running_state(&s) => {
-                self.install_ended(&mine, &unit, &s);
-                None
+            .clone();
+        if let Some(i) = mine {
+            let Some(unit) = i.unit.clone() else {
+                // Its build (or the root helper's work), in this daemon: under way until its phase says otherwise.
+                return InstallState::Busy(i);
+            };
+            match self.unit_state(&unit) {
+                Some(s) if !running_state(&s) => self.install_ended(&i, &unit, &s),
+                // Running, or systemd cannot be asked: under way still.
+                _ => return InstallState::Busy(i),
             }
-            // Running, or systemd cannot be asked: under way still.
-            _ => Some(mine),
+        }
+        match self
+            .rsi
+            .pipeline
+            .discovered
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+        {
+            Some(Ok(())) => InstallState::Quiet,
+            None => InstallState::NotKnown(
+                "whether an install of this loop still runs is not known yet: the start has not finished looking"
+                    .into(),
+            ),
+            Some(Err(why)) => InstallState::NotKnown(format!(
+                "whether an install of this loop still runs is not known yet: systemd could not be asked ({why}), \
+                 and it is asked again"
+            )),
         }
     }
 
-    /// The loop's install's unit ended with no restart of this daemon: no install is under way, and a row says why.
+    /// The loop's install's unit has ended: no install is under way. When this daemon runs the install's commit the
+    /// install worked (this daemon is its restart) and nothing more is said; otherwise a row says it did not finish.
     fn install_ended(&self, i: &Installing, unit: &str, state: &str) {
         {
             let mut held = self
@@ -189,6 +289,13 @@ impl Core {
             }
             *held = None;
         }
+        let worked = self
+            .running_commit()
+            .is_some_and(|c| !c.is_empty() && (c.starts_with(&i.merge) || i.merge.starts_with(&c)));
+        if worked {
+            tracing::info!(%unit, merge = %i.merge, "self: the install's unit ended, and this daemon runs its build");
+            return;
+        }
         let short = &i.merge[..i.merge.len().min(12)];
         let m = Moved::new(
             "",
@@ -199,62 +306,104 @@ impl Core {
         .with("branch", i.branch.as_str())
         .with("state", state)
         .why(format!(
-            "its unit {unit} is no longer running (systemd says {state}) and this daemon was not \
-                 restarted onto the new build: the install did not finish"
+            "its unit {unit} is no longer running (systemd says {state}) and this daemon does not run the build it \
+             installs: the install did not finish"
         ));
         self.rec(None).record(&Ended(m));
         tracing::warn!(%unit, %state, merge = %i.merge, "self: the install's unit ended without a restart");
     }
 
-    /// At start: a still-running install unit of this state directory is the loop's install under way again.
-    /// Whether one was found.
-    pub fn recover_installing(&self) -> bool {
+    /// One try of the start's discovery: an install unit of this state directory still running, named by a join of
+    /// this loop, is the loop's install under way again; one no join of this loop names is reported and not adopted.
+    /// Whether the try succeeded (systemd answered), whatever it found.
+    pub fn discover_installing(&self) -> bool {
+        let set = |r: Result<(), String>| {
+            *self
+                .rsi
+                .pipeline
+                .discovered
+                .0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(r);
+        };
         if self.cfg.self_improve.repo.is_none() {
-            return false;
+            set(Ok(()));
+            return true;
         }
         let root = self.cfg.state_dir().join("self");
-        let Some(unit) = self.units().running(&root).into_iter().next() else {
-            return false;
+        let units = match self.units().running(&root) {
+            Ok(u) => u,
+            Err(why) => {
+                tracing::info!(%why, "self: whether an install still runs is not known yet: asked again later");
+                set(Err(why));
+                return false;
+            }
         };
-        let short = unit.trim_start_matches(UNIT_PREFIX).to_string();
         let joined = crate::rsi::join::rows_of(&self.store, &["self.joined"])
             .ok()
             .flatten()
-            .and_then(|rows| {
-                rows.into_iter().rev().find(|r| {
-                    r.data["merge"]
-                        .as_str()
-                        .is_some_and(|m| m.starts_with(&short))
-                })
-            });
-        let s = |k: &str| {
-            joined
-                .as_ref()
-                .and_then(|r| r.data[k].as_str())
-                .unwrap_or_default()
-                .to_string()
-        };
-        let merge = match s("merge") {
-            m if m.is_empty() => short,
-            m => m,
-        };
-        let i = Installing {
-            item: s("item"),
-            title: String::new(),
-            branch: s("branch"),
-            merge,
-            since_ms: joined.as_ref().map_or(0, |r| r.at_unix_ms),
-            unit: Some(unit.clone()),
-            root_helper: false,
-        };
-        tracing::info!(%unit, "self: an install unit of this state directory still runs: the loop is installing");
-        *self
-            .rsi
-            .pipeline
-            .installing
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(i);
+            .unwrap_or_default();
+        for unit in units {
+            let short = unit.trim_start_matches(UNIT_PREFIX).to_string();
+            let Some(row) = joined.iter().rev().find(|r| {
+                r.data["merge"]
+                    .as_str()
+                    .is_some_and(|m| !short.is_empty() && m.starts_with(&short))
+            }) else {
+                tracing::warn!(%unit,
+                    "self: an install unit of this state directory runs, and no join of this loop names it: not adopted");
+                continue;
+            };
+            let s = |k: &str| row.data[k].as_str().unwrap_or_default().to_string();
+            let i = Installing {
+                item: s("item"),
+                title: String::new(),
+                branch: s("branch"),
+                merge: s("merge"),
+                since_ms: row.at_unix_ms,
+                unit: Some(unit.clone()),
+                root_helper: false,
+            };
+            tracing::info!(%unit, "self: an install unit of this state directory still runs: the loop is installing");
+            *self
+                .rsi
+                .pipeline
+                .installing
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(i);
+            break;
+        }
+        set(Ok(()));
         true
+    }
+
+    /// The start's discovery, in the background: tried until it succeeds, at most [`TRIES`] times, each wait twice
+    /// the last. Until it succeeds the loop is "not known", never quiet.
+    pub fn discover_installing_after_serving(self: &Arc<Self>) {
+        let core = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut wait = FIRST_WAIT;
+            for _ in 0..TRIES {
+                let Some(c) = core.upgrade() else { return };
+                let done = tokio::task::spawn_blocking(move || c.discover_installing())
+                    .await
+                    .unwrap_or(false);
+                if done {
+                    return;
+                }
+                tokio::time::sleep(wait).await;
+                wait = (wait * 2).min(LAST_WAIT);
+            }
+        });
+    }
+
+    /// Why the loop does not start an install now: one is under way, or whether one is is not known yet.
+    pub(crate) fn install_blocked(&self) -> Option<String> {
+        match self.self_install_state() {
+            InstallState::Quiet => None,
+            InstallState::Busy(i) => Some(format!("another install is under way: {}", said(&i))),
+            InstallState::NotKnown(why) => Some(why),
+        }
     }
 
     /// The unit an install handed itself to (`join::joining`): its state names it from now on.
@@ -270,9 +419,41 @@ impl Core {
             i.unit = Some(unit.to_string());
         }
     }
+
+    /// The root helper's build, staging and helper run are under way (`join::root_install`).
+    pub(crate) fn root_install_busy(&self, merge: &str, branch: &str, what: &str) {
+        *self
+            .rsi
+            .pipeline
+            .installing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Installing {
+            item: String::new(),
+            title: what.into(),
+            branch: branch.into(),
+            merge: merge.into(),
+            since_ms: theseus_protocol::now_unix_ms(),
+            unit: None,
+            root_helper: true,
+        });
+    }
+
+    /// The root helper's work ended: refused, failed, waiting on the owner, or handed to its record's stages, which the
+    /// predicate reads from the store.
+    pub(crate) fn root_install_idle(&self) {
+        let mut held = self
+            .rsi
+            .pipeline
+            .installing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if held.as_ref().is_some_and(|i| i.root_helper) {
+            *held = None;
+        }
+    }
 }
 
-/// A unit's line for a reader: how it stands.
+/// An install's line for a reader: how it stands.
 pub fn said(i: &Installing) -> String {
     let short = &i.merge[..i.merge.len().min(12)];
     match (&i.unit, i.root_helper) {
@@ -283,5 +464,28 @@ pub fn said(i: &Installing) -> String {
         (None, _) => {
             format!("installing {short}: its build in L1, then its unit, which restarts the daemon")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A unit is this state directory's only when its `ExecStart` names this script exactly: a longer path that
+    /// holds it, or another state's, does not match.
+    #[test]
+    fn only_the_exact_script_argument_matches() {
+        let script = Path::new("/state/self/install-72af5c3fd1ff.sh");
+        let of = |exec: &str| argv_of(exec).iter().any(|a| Path::new(a) == script);
+        assert!(of(
+            "{ path=/bin/bash ; argv[]=/bin/bash /state/self/install-72af5c3fd1ff.sh ; ignore_errors=no }"
+        ));
+        assert!(!of(
+            "{ path=/bin/bash ; argv[]=/bin/bash /other/state/self/install-72af5c3fd1ff.sh ; ignore_errors=no }"
+        ));
+        assert!(!of(
+            "{ path=/bin/bash ; argv[]=/bin/bash /state/self/install-72af5c3fd1ff.sh.old ; ignore_errors=no }"
+        ));
+        assert!(!of(""));
     }
 }

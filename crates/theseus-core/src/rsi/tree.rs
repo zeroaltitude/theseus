@@ -603,6 +603,8 @@ pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
     if dir.exists() {
         bail!("a tree for {item} is open already at {}", dir.display());
     }
+    // A mark of the loop's own trees at this name (issue 41): a stale reservation is cleared, a made tree refuses.
+    super::join::guard::item_meets(p, &slug)?;
     p.git_ok(&repo, &["rev-parse", "--verify", "origin/main^{commit}"])
         .context("[self] repo has no origin/main to branch from")?;
     std::fs::create_dir_all(p.trees())?;
@@ -671,6 +673,7 @@ pub fn reopen(p: &Place, item: &str, branch: &str, head: &str) -> Result<Tree> {
     if p.trees().join(&slug).exists() {
         bail!("a tree for {item} is open already");
     }
+    super::join::guard::item_meets(p, &slug)?;
     let tip = p.git_ok(
         &repo,
         &[
@@ -1523,8 +1526,10 @@ fn close_with(p: &Place, tree: &Tree, target_too: bool) -> Result<()> {
     }
     p.git_ok(&p.repo, &["worktree", "remove", "--force", &d])?;
     let _ = p.git(&p.repo, &["worktree", "prune"]);
-    // The loop's mark of a tree it opened (`join::guard`), gone with the tree; an item's tree has none.
+    // The loop's mark of a tree it opened (`join::guard`), gone with the tree, and this daemon no longer has it
+    // open; an item's tree has neither.
     let _ = std::fs::remove_file(p.opened().join(&tree.slug));
+    super::join::guard::closed_here(&tree.dir);
     if target_too && tree.target.starts_with(p.targets()) && tree.target.exists() {
         remove_all(&tree.target)?;
     }

@@ -39,6 +39,8 @@ pub use offer::confirm_request;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_busy;
+#[cfg(test)]
 mod tests_dropin;
 #[cfg(test)]
 mod tests_stage;

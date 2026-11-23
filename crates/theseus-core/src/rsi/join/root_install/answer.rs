@@ -335,7 +335,16 @@ impl Core {
         Ok((unit, old, new, text))
     }
 
+    /// The steps, with the loop's busy state set while they run (issue 41): once they end the record's stages (or the
+    /// failure) say what holds.
     async fn root_install_steps(&self, go: &Go) -> Result<String, String> {
+        self.root_install_busy(&go.merge, &go.branch, &go.what);
+        let done = self.root_install_steps_under_way(go).await;
+        self.root_install_idle();
+        done
+    }
+
+    async fn root_install_steps_under_way(&self, go: &Go) -> Result<String, String> {
         let board = self.tools.root_install.clone();
         let say = |e: anyhow::Error| format!("{e:#}");
         // One install at a time, whatever commit: two would share the one staging directory and race their restarts.

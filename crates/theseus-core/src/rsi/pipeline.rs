@@ -164,6 +164,12 @@ pub struct Shared {
     pub(crate) units: std::sync::Mutex<Option<Arc<dyn installing::Units>>>,
     /// systemd's last answer about the install's unit: which unit, when, and what it said.
     pub(crate) unit_seen: std::sync::Mutex<Option<(String, std::time::Instant, Option<String>)>>,
+    /// The start's discovery of an install still running (`installing`): until it has once succeeded, the loop is
+    /// "not known", never quiet.
+    pub(crate) discovered: installing::Discovery,
+    /// A test's stand-in for the commit this daemon runs.
+    #[cfg(test)]
+    pub(crate) running: std::sync::Mutex<Option<String>>,
 }
 
 /// An install the loop has under way, as the pipeline's view names it.

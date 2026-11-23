@@ -48,6 +48,11 @@ impl Core {
                 tracing::info!(tree = %d.tree, "self: a mark with no tree any more is cleared");
                 return;
             }
+            Swept::NotTheTreeTheLoopMade(why) => {
+                tracing::warn!(tree = %d.tree, %why,
+                    "self: marked, but not the tree the loop made: left as it is");
+                return;
+            }
             Swept::NotTheLoops => {
                 tracing::info!(tree = %d.tree,
                     "self: a directory named like a phase's tree, which the loop did not open: left as it is");
