@@ -1055,3 +1055,31 @@ fn reconnect_does_not_skip_a_reply_received_while_away() {
         "recovery skipped an unshown background reply"
     );
 }
+
+#[test]
+fn reconnect_keeps_the_task_inspector_on_the_recovered_turn() {
+    use super::state::{Chat, Effect};
+    use super::task_view::TaskRef;
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    chat.open_task(
+        TaskRef {
+            id: "exe_task".into(),
+            session: TASK.into(),
+            title: TITLE.into(),
+        },
+        false,
+    );
+    chat.note_last_turn(TASK, Some("trn_old".into()));
+    let Effect::Call(c) = chat.recover_session(TASK).remove(0) else {
+        panic!()
+    };
+    chat.answered(c.purpose, Ok(json!({
+        "session": {"session_id": TASK, "kind": "conversation", "label": null, "created_at_unix_ms": T0, "turns": 2},
+        "nodes": [node(TASK, 20, "assistant_message", "new task reply", "trn_new")],
+        "pending_confirms": [], "turn_running": false
+    })));
+    let calls = chat.inspect_cmd("");
+    assert!(calls.iter().any(|e| matches!(e, Effect::Call(c) if c.method == "turn.inspect" && c.params["turn_id"] == "trn_new")), "recovery left the inspector on the old turn");
+}

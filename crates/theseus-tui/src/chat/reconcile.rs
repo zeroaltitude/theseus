@@ -87,6 +87,7 @@ impl Chat {
             self.released = false;
             self.question = h.pending_confirms.first().cloned();
             self.ask_sync();
+            self.note_last_turn(sid, h.nodes.iter().rev().find_map(|n| n.turn_id.clone()));
             // Turn results carry no node position. Resolve the last rendered
             // turn's nodes here. The event-dedup set also contains unshown
             // background replies, so it cannot stand in for this cursor.
