@@ -355,7 +355,7 @@ async fn an_outside_result_keeps_its_mark_and_links_its_source() {
         &r.core,
         &guest,
         ("turn_guest_1", now),
-        ("discord:channel:9", "discord:7"),
+        ("channel:pier", "guest:kestrel"),
         (
             "does the zircon heron nest here?",
             "It nests by the north weir.",
