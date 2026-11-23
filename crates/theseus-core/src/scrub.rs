@@ -337,30 +337,44 @@ fn percent_spans(t: &[u8], v: &[u8]) -> Vec<(usize, usize)> {
     let hex = |c: Option<&u8>| c.and_then(|c| (*c as char).to_digit(16));
     let mut spans = Vec::new();
     let mut i = 0;
-    'start: while i < t.len() {
-        let (mut j, mut encoded) = (i, false);
+    if v.is_empty() {
+        return spans;
+    }
+    while i < t.len() {
+        if t[i] != v[0] && t[i] != b'%' {
+            i += 1;
+            continue;
+        }
+        let mut states = vec![(i, false)];
         for &want in v {
-            match t.get(j) {
-                Some(&c) if c == want => j += 1,
-                Some(b'%') => match (hex(t.get(j + 1)), hex(t.get(j + 2))) {
-                    (Some(h), Some(l)) if h * 16 + l == u32::from(want) => {
-                        j += 3;
-                        encoded = true;
-                    }
-                    _ => {
-                        i += 1;
-                        continue 'start;
-                    }
-                },
-                _ => {
-                    i += 1;
-                    continue 'start;
+            let mut next = Vec::new();
+            for (j, encoded) in states {
+                if t.get(j) == Some(&want) {
+                    next.push((j + 1, encoded));
+                }
+                if t.get(j) == Some(&b'%')
+                    && hex(t.get(j + 1))
+                        .zip(hex(t.get(j + 2)))
+                        .is_some_and(|(h, l)| h * 16 + l == u32::from(want))
+                {
+                    next.push((j + 3, true));
                 }
             }
+            next.sort_unstable();
+            next.dedup();
+            states = next;
+            if states.is_empty() {
+                break;
+            }
         }
-        if encoded {
-            spans.push((i, j));
-            i = j;
+        if let Some(end) = states
+            .into_iter()
+            .filter(|(_, encoded)| *encoded)
+            .map(|(j, _)| j)
+            .max()
+        {
+            spans.push((i, end));
+            i = end;
         } else {
             i += 1;
         }
@@ -563,5 +577,22 @@ mod tests {
             text.len()
         );
         assert!(took < std::time::Duration::from_secs(20), "took {took:?}");
+    }
+
+    #[test]
+    fn percent_values_accept_literal_and_encoded_percent() {
+        for (text, value) in [
+            ("abc%25defghi", "abc%defghi"),
+            ("abc%2525def%67hi", "abc%25defghi"),
+            ("abc%25def%67hi", "abc%25defghi"),
+        ] {
+            assert_eq!(
+                percent_spans(text.as_bytes(), value.as_bytes()),
+                vec![(0, text.len())]
+            );
+            let (out, counts) = Substitution::new(vec![(value, "demo")]).apply(text);
+            assert_eq!(out, "[redacted:demo]");
+            assert_eq!(counts.get("demo"), Some(&1));
+        }
     }
 }
