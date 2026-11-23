@@ -1,7 +1,7 @@
 //! The future in Discord (theseus-j90w2; horizon HZ9), end to end on the
 //! stand-ins: `/agenda`, `/routine`, `/snooze`, `/watch`, the board's Coming
 //! up and Routines, a routine's report and failure, a met watch, and what a
-//! shared place is never shown.
+//! shared board shows without changing command permissions.
 //!
 //! **What makes a test here load-sensitive** (theseus-a0kte, accounted apart
 //! from the `until` family at 12889bcf). The default-forum mechanism cannot
@@ -20,10 +20,9 @@
 //!    file is one of `Rig::until`'s, and they share one budget: a slow host
 //!    spends it cumulatively across the test's waits, each nap's stall credited
 //!    (`tests_gateway/patience.rs`).
-//! 2. **Three waits are not waits at all but fixed real-time sleeps**, and
-//!    only the first of the three guards a negative: `a_shared_place_…`'s
-//!    1,500 ms, `a_routines_failure_…`'s 1,500 ms before `posts == 1`, and
-//!    `met_watch`'s 2,500 ms before its caller asserts `posts.len() == 1`.
+//! 2. **Two waits are fixed real-time sleeps**: `a_routines_failure_…`'s
+//!    1,500 ms before `posts == 1`, and `met_watch`'s 2,500 ms before its
+//!    caller asserts `posts.len() == 1`.
 //!    `met_watch` also sets the watch's period to 700 ms, so that sleep is
 //!    about three and a half further checks. **A count of 2 there is a wrong
 //!    answer, not a timeout**: it would mean a met watch posted twice, which
@@ -216,7 +215,7 @@ async fn agenda_renders_its_sections_for_the_owner_in_a_private_place() {
 }
 
 #[tokio::test]
-async fn a_shared_place_is_shown_no_routine_and_no_agenda() {
+async fn a_shared_board_shows_routines_without_changing_command_permissions() {
     let r = rig(model(false), true).await;
     let rpc = owner(&r);
     remind(&r, 3600, "stretch");
@@ -256,16 +255,15 @@ async fn a_shared_place_is_shown_no_routine_and_no_agenda() {
         .find(|x| x.interaction.as_deref() == Some(id.as_str()))
         .unwrap();
     assert!(reply.choices.is_empty(), "{reply:?}");
-    // And no board of the shared place names the routine.
-    tokio::time::sleep(Duration::from_millis(1500)).await;
-    assert!(
-        r.fake
-            .messages(LAB)
-            .iter()
-            .all(|m| !m.content.contains("Morning digest") && !m.content.contains("Routines")),
-        "{:#?}",
-        r.fake.messages(LAB)
-    );
+    // The read-only board names the routine; the DM's own reminder stays
+    // with that conversation. Command permissions above are unchanged.
+    r.until("the shared board names the routine", || {
+        r.fake.messages(LAB).iter().any(|m| {
+            m.content.contains("Morning digest") && m.content.contains("Routines")
+        })
+    })
+    .await;
+    assert!(r.fake.messages(LAB).iter().all(|m| !m.content.contains("stretch")));
 }
 
 #[tokio::test]
