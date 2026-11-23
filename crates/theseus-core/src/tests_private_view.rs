@@ -196,7 +196,7 @@ pub(crate) fn session_in(c: &Core, place: Option<&str>, dir: &Path) -> String {
 
 /// The request's body, as the golden holds it: its directories `<dir>`, the
 /// ids it names aliased (whole, then the six characters a handle keeps), the
-/// time zone a stamp names `<zone>`, every run of digits `#`, the machine's
+/// timestamp `<stamp>`, ledger position `<row>`, the machine's
 /// CPU count `<cpus>`, the OS and architecture `<os>`;
 /// the tools by name and the digest of their definitions, so a request's
 /// every byte is held without 100 KB of schemas in the file.
@@ -215,27 +215,35 @@ pub(crate) fn body(req: &ProviderRequest, dir: &Path, ids: &[String]) -> String 
                 &format!("<id{}>", (b'A' + i as u8) as char),
             );
         }
-        let s: String = s
-            .chars()
-            .fold((String::new(), false), |(mut out, digit), ch| {
-                let d = ch.is_ascii_digit();
-                if !d {
-                    out.push(ch);
-                } else if !digit {
-                    out.push('#');
-                }
-                (out, d)
-            })
-            .0;
-        // `said Wed #:# MST`: the zone is the machine's.
-        let mut parts = s.split("#:# ");
-        let mut out = parts.next().unwrap_or_default().to_string();
-        for p in parts {
-            let rest = p
-                .find([' ', '(', ')', '"', ';', '\\'])
-                .map_or("", |i| &p[i..]);
-            out.push_str("#:# <zone>");
-            out.push_str(rest);
+        // Only volatile timestamps and ledger positions are normalized.
+        // Numbers in rules, model names, token limits and schemas stay literal.
+        let mut out = String::new();
+        let mut rest = s.as_str();
+        while !rest.is_empty() {
+            let bytes = rest.as_bytes();
+            let stamp = bytes.len() >= 17
+                && bytes[..16].iter().enumerate().all(|(i, c)| match i {
+                    4 | 7 => *c == b'-',
+                    10 => *c == b' ',
+                    13 => *c == b':',
+                    _ => c.is_ascii_digit(),
+                })
+                && bytes[16] == b' ';
+            if stamp {
+                let end = rest[17..]
+                    .find([' ', '(', ')', '"', ';', '\\'])
+                    .map_or(rest.len(), |i| i + 17);
+                out.push_str("<stamp>");
+                rest = &rest[end..];
+            } else if let Some(tail) = rest.strip_prefix("as of @") {
+                let end = tail.bytes().take_while(u8::is_ascii_digit).count();
+                out.push_str("as of @<row>");
+                rest = &tail[end..];
+            } else {
+                let ch = rest.chars().next().unwrap();
+                out.push(ch);
+                rest = &rest[ch.len_utf8()..];
+            }
         }
         // `CPUs available to commands: # (cgroup quota; …).`: the machine's.
         let cpus = "CPUs available to commands: ";
@@ -308,4 +316,24 @@ async fn a_private_sessions_request_is_byte_identical() {
         "a private session's request moved from tests/golden/private_requests.txt \
          (THESEUS_GOLDEN=write writes it again):\n{got}"
     );
+}
+
+#[test]
+fn request_goldens_preserve_numeric_contracts() {
+    let req = ProviderRequest {
+        max_tokens: 1024,
+        tools: vec![serde_json::json!({"name": "sample", "input_schema": {"maximum": 10}})],
+        system: vec![serde_json::json!({"text": "Keep 30 days"})],
+        ..Default::default()
+    };
+    let baseline = body(&req, Path::new("/fixture"), &[]);
+    let mut changed = req.clone();
+    changed.max_tokens = 64000;
+    assert_ne!(baseline, body(&changed, Path::new("/fixture"), &[]));
+    changed = req.clone();
+    changed.tools[0]["input_schema"]["maximum"] = serde_json::json!(11);
+    assert_ne!(baseline, body(&changed, Path::new("/fixture"), &[]));
+    changed = req;
+    changed.system[0]["text"] = serde_json::json!("Keep 31 days");
+    assert_ne!(baseline, body(&changed, Path::new("/fixture"), &[]));
 }

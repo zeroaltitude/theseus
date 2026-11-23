@@ -32,7 +32,7 @@ async fn health_calls_inside_a_second_make_one_status_read() {
     );
     let task = tokio::spawn(t.clone().run());
     settle().await;
-    let began = std::time::Instant::now();
+    t.advance_status_clock(Duration::ZERO);
     let first = t.health(HEALTH_DEADLINE).await;
     let second = t.health(STATUS_DEADLINE).await;
     let many: Vec<_> = (0..5)
@@ -44,23 +44,18 @@ async fn health_calls_inside_a_second_make_one_status_read() {
     for h in many {
         assert_eq!(h.await.unwrap().state, "ready");
     }
-    let inside = began.elapsed() < every;
     assert_eq!(
         (first.state.as_str(), second.state.as_str()),
         ("ready", "ready")
     );
     assert_eq!(second.status.map(|s| s.documents), Some(3));
     assert_eq!(second.why, None, "a fresh read says nothing more");
-    if inside {
-        assert_eq!(asked.load(Ordering::SeqCst), 1, "one read on the socket");
-        assert_eq!(t.status_reads(), 1);
-    }
-    tokio::time::sleep(every).await;
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "one read on the socket");
+    assert_eq!(t.status_reads(), 1);
+    t.advance_status_clock(every);
     assert_eq!(t.health(HEALTH_DEADLINE).await.state, "ready");
-    if inside {
-        assert_eq!(asked.load(Ordering::SeqCst), 2, "a read a window");
-    }
-    assert!(asked.load(Ordering::SeqCst) >= 2);
+    assert_eq!(asked.load(Ordering::SeqCst), 2, "a read a window");
+    assert_eq!(t.status_reads(), 2);
     task.abort();
 }
 
@@ -91,9 +86,10 @@ async fn a_tender_that_does_not_answer_gives_its_last_status_marked_stale() {
     );
     let task = tokio::spawn(t.clone().run());
     settle().await;
+    t.advance_status_clock(Duration::ZERO);
     assert_eq!(t.health(HEALTH_DEADLINE).await.state, "ready");
     hang.store(true, Ordering::SeqCst);
-    tokio::time::sleep(every).await;
+    t.advance_status_clock(every);
     let h = t.health(HEALTH_DEADLINE).await;
     assert_eq!(h.state, "ready", "its last answer");
     let why = h.why.unwrap();
@@ -106,9 +102,7 @@ async fn a_tender_that_does_not_answer_gives_its_last_status_marked_stale() {
 
     t.age_status(STALE_AFTER.as_millis() as u64 + 60_000);
     let reads = asked.load(Ordering::SeqCst);
-    let t0 = std::time::Instant::now();
     let h = t.health(HEALTH_DEADLINE).await;
-    let quick = t0.elapsed() < every;
     assert_eq!(h.status.as_ref().map(|s| s.documents), Some(3));
     let why = h.why.unwrap();
     assert!(
@@ -117,14 +111,12 @@ async fn a_tender_that_does_not_answer_gives_its_last_status_marked_stale() {
         ),
         "{why}"
     );
-    if quick {
-        assert_eq!(
-            asked.load(Ordering::SeqCst),
-            reads,
-            "the cached failure answers"
-        );
-    }
-    tokio::time::sleep(every).await;
+    assert_eq!(
+        asked.load(Ordering::SeqCst),
+        reads,
+        "the cached failure answers"
+    );
+    t.advance_status_clock(every);
     let h = t.health(HEALTH_DEADLINE).await;
     assert!(
         h.why.unwrap().starts_with("stale: "),

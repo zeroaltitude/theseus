@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -505,6 +506,38 @@ def tool_validate_config(args: list[str]) -> int:
     return 1 if problems else 0
 
 
+def coding_behaviour(family: str) -> list[str]:
+    """Execute the edited modules in a fresh interpreter, independent of their text."""
+    if family == "rename":
+        check = """
+import importlib
+m = importlib.import_module('m1')
+for table in ([], [0, 1, '', 'row', None], [2, 3]):
+    expected = [r for r in table if r]
+    assert m.load_rows(table) == expected
+    for i in range(2, 7):
+        step = getattr(importlib.import_module('m' + str(i)), 'step_' + str(i))
+        assert step(table) == len(expected) + i
+"""
+    else:
+        check = """
+import settings, server, test_flags
+assert settings.DEFAULTS == {'compat_mode': False, 'workers': 4}
+assert server.mode() is False
+settings.DEFAULTS['compat_mode'] = True
+assert server.mode() is True
+settings.DEFAULTS['compat_mode'] = False
+test_flags.test_flag()
+"""
+    setup = "import sys; sys.path[:0] = [sys.argv[1] + '/src', sys.argv[1] + '/tests']\n"
+    try:
+        r = subprocess.run([sys.executable, "-I", "-B", "-c", setup + check, str(ab.app())],
+                           capture_output=True, timeout=5)
+        return [] if r.returncode == 0 else [f"{family}: executable behaviour failed"]
+    except (OSError, subprocess.TimeoutExpired):
+        return [f"{family}: executable behaviour unavailable"]
+
+
 def tool_run_tests(args: list[str]) -> int:
     if args:
         return _usage("usage: run-tests")
@@ -519,6 +552,7 @@ def tool_run_tests(args: list[str]) -> int:
             problems.append(f"FAIL test_{f[:-3]}: NameError: name '{RENAME_OLD}' is not defined")
         elif RENAME_NEW not in text:
             problems.append(f"FAIL test_{f[:-3]}: {RENAME_NEW} is never called")
+    problems += coding_behaviour("rename")
     print("\n".join(problems) if problems else "6 passed")
     s.end(passed=not problems, tree=before)
     return 1 if problems else 0
@@ -662,6 +696,7 @@ def tool_test_suite(args: list[str]) -> int:
                             else f"FAIL {rel}: still reads the removed flag {FLAG_OLD}")
         elif FLAG_NEW not in text:
             problems.append(f"FAIL {rel}: never reads {FLAG_NEW}")
+    problems += coding_behaviour("edit-test")
     print("\n".join(problems) if problems else "3 passed")
     s.end(passed=not problems, tree=before)
     return 1 if problems else 0
@@ -1103,7 +1138,7 @@ def check_scaffold(rec: list[dict[str, Any]]) -> list[str]:
 
 
 def check_rename(rec: list[dict[str, Any]]) -> list[str]:
-    problems = []
+    problems = coding_behaviour("rename")
     files = [ab.app() / "src" / f for f in RENAME_FILES]
     for f in files:
         text = f.read_text() if f.exists() else ""
@@ -1147,7 +1182,9 @@ def check_migrations(rec: list[dict[str, Any]]) -> list[str]:
 
 
 def check_edit_test(rec: list[dict[str, Any]]) -> list[str]:
-    problems = [] if ab.by(rec, "end", "codemod") else ["codemod never finished"]
+    problems = coding_behaviour("edit-test")
+    if not ab.by(rec, "end", "codemod"):
+        problems.append("codemod never finished")
     for rel in EDIT_FILES:
         p = ab.app() / rel
         text = p.read_text() if p.exists() else ""

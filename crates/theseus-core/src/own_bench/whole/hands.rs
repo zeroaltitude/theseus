@@ -85,6 +85,8 @@ impl Programs for InL1 {
 pub struct Recorded {
     pub tool: String,
     pub content: String,
+    pub input: Value,
+    pub ok: bool,
 }
 
 /// One run of a program.
@@ -223,7 +225,7 @@ impl<'a> Hands<'a> {
         } else if ON_THE_COPY.contains(&name.as_str()) {
             self.on_the_copy(tool, &input).await
         } else {
-            self.stub(&name)
+            self.stub(&name, &remap_json(&input, &self.scratch, &self.orig))
         };
         Answer {
             text: self.shown(&answer.text),
@@ -258,19 +260,24 @@ impl<'a> Hands<'a> {
         )
     }
 
-    fn stub(&mut self, name: &str) -> Answer {
+    fn stub(&mut self, name: &str, input: &Value) -> Answer {
         self.note(name, "stub", None);
-        let at = self.recorded.iter().position(|r| r.tool == name);
-        let text = match at {
-            Some(i) => self.recorded.remove(i).content,
-            None => format!(
-                "Not run: {name} would reach outside the replay (a message, a task, a wake, a \
-                 fetch or the daemon's own state), so nothing was done."
-            ),
-        };
-        Answer {
-            text,
-            is_error: false,
+        let at = self
+            .recorded
+            .iter()
+            .position(|r| r.tool == name && r.input == *input);
+        match at {
+            Some(i) => {
+                let r = self.recorded.remove(i);
+                Answer {
+                    text: r.content,
+                    is_error: !r.ok,
+                }
+            }
+            None => Answer {
+                text: format!("Not run: {name} has no matching recorded input; nothing was done."),
+                is_error: true,
+            },
         }
     }
 
@@ -382,7 +389,11 @@ impl<'a> Hands<'a> {
             };
             self.note_why(PROGRAM, how, run.code, why);
             self.ran.push(Ran {
-                argv: spec.argv.clone(),
+                argv: spec
+                    .argv
+                    .iter()
+                    .map(|a| remap(a, &self.scratch, &self.orig))
+                    .collect(),
                 exit: run.code,
             });
             text.push_str(&format!(

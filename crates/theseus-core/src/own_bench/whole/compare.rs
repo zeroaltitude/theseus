@@ -57,6 +57,22 @@ impl Facts {
     }
 }
 
+pub const EXIT_CONTRADICTION: &str = "a matched command's exit contradicts the original";
+
+/// Compare occurrences of identical commands, not sets of unrelated exit codes.
+pub fn contradicted(original: &Facts, replay: &Facts) -> bool {
+    let mut remaining = original.runs.clone();
+    for r in &replay.runs {
+        if let Some(i) = remaining.iter().position(|o| o.argv == r.argv) {
+            let o = remaining.remove(i);
+            if o.exit != r.exit || r.exit.is_none() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// The two sides compared.
 pub fn same(original: &Facts, replay: &Facts) -> WholeSame {
     let tests = match (original.last_test_passed(), replay.last_test_passed()) {
@@ -86,6 +102,16 @@ mod tests {
             changed: paths.iter().map(|s| (*s).into()).collect(),
             runs,
         }
+    }
+
+    #[test]
+    fn matched_command_exits_cannot_hide_in_equal_sets() {
+        let a = facts(&[], vec![run(&["cargo", "build"], 0), run(&["other"], 1)]);
+        let b = facts(&[], vec![run(&["cargo", "build"], 1), run(&["other"], 0)]);
+        assert!(same(&a, &b).exits);
+        assert!(contradicted(&a, &b));
+        assert!(!contradicted(&a, &a));
+        assert!(!contradicted(&a, &facts(&[], vec![run(&["unrelated"], 1)])));
     }
 
     /// A test run is told by its words, whatever the program, and `cargo

@@ -123,6 +123,8 @@ pub struct CellRecall {
 /// One cell's record: a JSON line in the run's output.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Record {
+    #[serde(default)]
+    pub identity: Option<String>,
     pub exam: String,
     pub digest: String,
     pub item: String,
@@ -171,6 +173,7 @@ pub struct Record {
 pub type Notes = BTreeMap<String, Option<String>>;
 
 pub struct Plan {
+    pub identity: Option<String>,
     /// Each daemon's socket, by its `[memory] arm` (`Arm::daemon`).
     pub sockets: BTreeMap<String, PathBuf>,
     pub notes: Notes,
@@ -241,6 +244,17 @@ pub const REPLY_CHARS: usize = 20_000;
 const RPC: Duration = Duration::from_secs(30);
 
 pub use crate::rng::Rng;
+
+/// Historical results remain readable, but cannot prove a new run's identity.
+pub fn validate_resume(records: &[Record], identity: Option<&str>) -> Result<()> {
+    for r in records {
+        anyhow::ensure!(
+            identity.is_some() && r.identity.as_deref() == identity,
+            "resume identity is missing or differs; use a new results file"
+        );
+    }
+    Ok(())
+}
 
 /// The cells, in run order: run by run, the items shuffled, each item's arms
 /// next to each other in a shuffled order.
@@ -497,6 +511,7 @@ pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, r
     let started_at_ms = theseus_protocol::now_unix_ms();
     let t0 = Instant::now();
     let mut rec = Record {
+        identity: plan.identity.clone(),
         exam: exam.file.version.clone(),
         digest: exam.digest.clone(),
         item: item.id.clone(),
@@ -715,6 +730,20 @@ struct Shared {
     stopped_at_cap: bool,
     /// The first cell whose answer came from another model than its profile's.
     moved: Option<String>,
+    persistence_error: Option<String>,
+}
+
+impl Shared {
+    fn save_result(&mut self, out: &mut impl Write, line: &str, cost: f64) {
+        self.in_flight -= 1;
+        self.spent += cost;
+        match writeln!(out, "{line}").and_then(|()| out.flush()) {
+            Ok(()) => self.done += 1,
+            Err(e) => {
+                self.persistence_error.get_or_insert_with(|| e.to_string());
+            }
+        }
+    }
 }
 
 /// What a run did.
@@ -740,6 +769,7 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
             .collect::<Result<_>>()?
     };
     let prior = read_records(&plan.out)?;
+    validate_resume(&prior, plan.identity.as_deref())?;
     let spent_before: f64 = prior.iter().map(|r| r.cost_usd).sum();
     let done: BTreeSet<(String, String, u32)> = prior
         .iter()
@@ -763,6 +793,7 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
         done: 0,
         stopped_at_cap: false,
         moved: None,
+        persistence_error: None,
     }));
     let out = Arc::new(Mutex::new(
         std::fs::OpenOptions::new()
@@ -779,7 +810,7 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
             scope.spawn(move || loop {
                 let next = {
                     let mut s = shared.lock().expect("lock");
-                    if s.moved.is_some() {
+                    if s.moved.is_some() || s.persistence_error.is_some() {
                         None
                     } else if s.spent + (s.in_flight as f64 + 1.0) * RESERVE_USD > plan.limit_usd {
                         if !s.queue.is_empty() {
@@ -800,16 +831,10 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
                 let item = exam.item(&id).expect("planned from the exam");
                 let r = run_cell(plan, exam, m, item, arm, run);
                 let line = serde_json::to_string(&r).expect("a record serializes");
-                {
-                    let mut f = out.lock().expect("lock");
-                    let _ = writeln!(f, "{line}");
-                    let _ = f.flush();
-                }
                 let (k, spent) = {
                     let mut s = shared.lock().expect("lock");
-                    s.in_flight -= 1;
-                    s.done += 1;
-                    s.spent += r.cost_usd;
+                    let mut f = out.lock().expect("lock");
+                    s.save_result(&mut *f, &line, r.cost_usd);
                     if s.moved.is_none() {
                         if let Some(m) = foreign_model(&r, &plan.profile_model) {
                             s.moved = Some(format!(
@@ -842,6 +867,9 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
         }
     });
     let s = shared.lock().expect("lock");
+    if let Some(why) = &s.persistence_error {
+        bail!("saving exam results failed: {why}; charged total ${:.6}; do not resume from this incomplete ledger", s.spent);
+    }
     if let Some(why) = &s.moved {
         bail!("{why}");
     }
@@ -859,8 +887,51 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn resume_requires_proven_matching_identity() {
+        let mut r = super::Record::default();
+        assert!(super::validate_resume(&[r.clone()], None).is_err());
+        assert!(super::validate_resume(&[r.clone()], Some("new")).is_err());
+        r.identity = Some("old".into());
+        assert!(super::validate_resume(&[r.clone()], Some("new")).is_err());
+        assert!(super::validate_resume(&[r], Some("old")).is_ok());
+    }
+
     use super::*;
     use crate::item::EXAM_V2;
+
+    #[test]
+    fn a_failed_result_write_stops_admission_and_keeps_paid_spend() {
+        struct Broken(bool);
+        impl std::io::Write for Broken {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if self.0 {
+                    Err(std::io::Error::other("disk full"))
+                } else {
+                    Ok(bytes.len())
+                }
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Err(std::io::Error::other("flush failed"))
+            }
+        }
+        for write_fails in [true, false] {
+            let mut s = Shared {
+                queue: VecDeque::new(),
+                spent: 0.25,
+                in_flight: 1,
+                done: 0,
+                stopped_at_cap: false,
+                moved: None,
+                persistence_error: None,
+            };
+            s.save_result(&mut Broken(write_fails), "{}", 0.125);
+            assert!(s.persistence_error.is_some());
+            assert_eq!(s.spent, 0.375);
+            assert_eq!(s.in_flight, 0);
+            assert_eq!(s.done, 0, "a lost result is not done");
+        }
+    }
 
     #[test]
     fn the_order_pairs_each_items_arms_and_is_reproducible() {

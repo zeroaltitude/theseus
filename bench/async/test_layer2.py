@@ -369,5 +369,30 @@ class Overlap(unittest.TestCase):
         self.assertIsNone(l2.overlap([], {"fetch-log"}))
 
 
+class CodingBehaviour(unittest.TestCase):
+    def test_coding_mutants_fail_even_with_expected_words(self):
+        import tempfile
+        from unittest.mock import patch
+        for family, files in (("rename", {"src/" + k: v.replace(l2.RENAME_OLD, l2.RENAME_NEW)
+                                         for k, v in l2.RENAME_FILES.items()}),
+                              ("edit-test", {k: v.replace(l2.FLAG_OLD, l2.FLAG_NEW)
+                                             for k, v in l2.EDIT_FILES.items()})):
+            with tempfile.TemporaryDirectory() as d, patch.object(ab, "app", return_value=Path(d)):
+                root = Path(d)
+                for rel, source in files.items():
+                    p = root / rel
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.write_text(source)
+                self.assertEqual(l2.coding_behaviour(family), [])
+                rel = "src/m1.py" if family == "rename" else "src/server.py"
+                good = files[rel]
+                wrong = (good.replace("return [r for r in table if r]", "return []") if family == "rename"
+                         else good.replace('return DEFAULTS["compat_mode"]', 'return False # compat_mode'))
+                for mutant in ("\n".join("# " + line for line in good.splitlines()), good + "\n!syntax", wrong):
+                    with self.subTest(family=family, mutant=mutant):
+                        (root / rel).write_text(mutant)
+                        self.assertTrue(l2.coding_behaviour(family))
+
+
 if __name__ == "__main__":
     unittest.main()

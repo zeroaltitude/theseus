@@ -41,9 +41,15 @@ async fn a_labeled_note_never_reaches_jev(live: bool) {
             jev.script(&format!("helps.{k}"), Jev::Noul(0.97));
         }
         let (r, here, order) = heron_rig(&jev, |c| {
-            if live {
-                c.memory.mode = MemoryMode::Live;
-            }
+            pack_mode(
+                c,
+                "rerank.v1",
+                if live {
+                    PackMode::Live
+                } else {
+                    PackMode::Shadow
+                },
+            );
         });
         let c = &r.core;
         let heron = c.store.session_nodes(&order[2]).unwrap()[0].1.id.clone();
@@ -60,6 +66,7 @@ async fn a_labeled_note_never_reaches_jev(live: bool) {
         .unwrap();
         turn(c, &here, "Where does the grey heron nest?").await;
         let rows = until_reranked(&c.store, 1).await;
+        assert_eq!(rows[0].data["mode"], if live { "live" } else { "shadow" });
         let seen = jev.seen();
         assert_eq!(seen.len(), 1, "{word}: one rerank");
         let state = serde_json::to_string(&seen[0].body).unwrap();

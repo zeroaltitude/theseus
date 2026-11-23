@@ -410,6 +410,11 @@ pub fn whole_message(events: &[Value]) -> Value {
             }
             Some("message_delta") => {
                 msg["stop_reason"] = ev["delta"]["stop_reason"].clone();
+                if let Some(usage) = ev["usage"].as_object() {
+                    for (key, value) in usage {
+                        msg["usage"][key] = value.clone();
+                    }
+                }
             }
             _ => {}
         }
@@ -521,4 +526,22 @@ pub fn group(events: &[Value]) -> Vec<Vec<Value>> {
             .push(e.clone());
     }
     writes
+}
+
+#[cfg(test)]
+mod usage_tests {
+    use super::*;
+
+    #[test]
+    fn nonstream_usage_merges_the_final_stream_counters() {
+        let events = vec![
+            json!({"type": "message_start", "message": {"usage": {"input_tokens": 30, "output_tokens": 1}}}),
+            json!({"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 12}}),
+        ];
+        let message = whole_message(&events);
+        assert_eq!(
+            message["usage"],
+            json!({"input_tokens": 30, "output_tokens": 12})
+        );
+    }
 }

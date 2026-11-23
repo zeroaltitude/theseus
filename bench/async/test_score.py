@@ -228,5 +228,22 @@ class Scores(unittest.TestCase):
         self.assertEqual(len(json.loads((self.out / "scores.json").read_text())), 4)
 
 
+class MissingTelemetry(unittest.TestCase):
+    def test_missing_or_malformed_calls_are_not_free_waits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "agent").mkdir()
+            events = [{"kind": "start", "tool": "train-model", "step": "train", "wall": 1.0},
+                      {"kind": "end", "tool": "train-model", "step": "train", "wall": 3.0}]
+            for content in [None, "{broken", '{"rows": [{}]}']:
+                if content is not None:
+                    (root / "agent/theseus-calls.json").write_text(content)
+                self.assertIsNone(score.calls(root))
+                self.assertIsNone(score.wait_tax("interrupt", events, score.calls(root)))
+            (root / "agent/theseus-calls.json").write_text('{"rows": [], "total": 0}')
+            self.assertEqual(score.calls(root), [])
+            self.assertEqual(score.wait_tax("interrupt", events, score.calls(root))["calls"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
