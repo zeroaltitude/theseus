@@ -528,7 +528,9 @@ pub(crate) fn sent(model: &FakeProvider) -> Vec<String> {
 async fn a_slow_or_failing_jev_changes_no_turn() {
     // The clock at the start of a minute, first: both daemons' requests stamp a recalled turn to the minute
     // ("said on the terminal" with its day, date and time), so a run that crossed a minute failed by the clock alone.
+    // Each daemon starts again at that moment (`start`), so a run that load stretches past a minute does not either.
     let _clock = crate::test_support::pin_mid_period();
+    let start = theseus_protocol::now_unix_ms();
     let off = rig(None, |_| {});
     let notes = session(&off.core, None, &["the grey heron nests by the old weir"]);
     let here = session(&off.core, None, &[]);
@@ -563,6 +565,7 @@ async fn a_slow_or_failing_jev_changes_no_turn() {
     ] {
         let jev = FakeJev::start().unwrap();
         jev.set_mode(mode.clone());
+        theseus_protocol::time::move_clock_to(start);
         let r = rig(Some(&jev), |_| {});
         let c = &r.core;
         c.runner.judge.set_rerank_deadline(Duration::from_secs(5));
