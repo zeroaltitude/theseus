@@ -553,3 +553,185 @@ async fn a_line_and_an_open_that_hold_another_persons_words_say_outside() {
     let opened = history(&r.core, json!({"open": handle})).await;
     assert_eq!(opened["open"]["outside"], true, "{opened}");
 }
+
+/// An exchange of `place` in `sid`: its ask said by `person` (marked), its reply `said`, its touch written.
+fn exchange_said(
+    core: &Core,
+    sid: &str,
+    (turn, at): (&str, u64),
+    (place, person): (&str, &str),
+    (words, said): (&str, &str),
+) {
+    use crate::exchange::{
+        exchange_record, mark_record, touch, Exchange, Opener, OwnerMark, Peer, Root, OWNER,
+    };
+    use crate::node::{Body, Node};
+    let ask = Node::user(sid, Some(turn), person, words);
+    let answer = Node::assistant(
+        sid,
+        turn,
+        0,
+        Body::AssistantMessage {
+            blocks: vec![json!({"type": "text", "text": said})],
+            model: "m".into(),
+            provider: "p".into(),
+            stop_reason: None,
+            usage: Default::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+            effort: None,
+        },
+    );
+    let mark = OwnerMark {
+        node: ask.id.clone(),
+        in_person: person == OWNER,
+        owner_handle: None,
+        peer: if person == OWNER {
+            Peer::Person
+        } else {
+            Peer::Transport
+        },
+        agent: None,
+        surface: "cli".into(),
+        place: place.into(),
+        arrived_session: sid.into(),
+        ran_session: sid.into(),
+        author: (person != OWNER).then(|| person.to_string()),
+        at_ms: at,
+    };
+    let x = Exchange {
+        turn_id: turn.into(),
+        session_id: sid.into(),
+        place: place.into(),
+        private: false,
+        opened_by: Opener::Message,
+        person: Some(person.into()),
+        start_ms: at,
+        end_ms: Some(at + 500),
+        ask: Some(ask.id.clone()),
+        reply: Some(answer.id.clone()),
+        messages: vec![ask.id.clone()],
+        stop: Some("end_turn".into()),
+        rebuilt: false,
+    };
+    let mut recs = vec![
+        ask.record().unwrap(),
+        answer.record().unwrap(),
+        mark_record(&mark).unwrap(),
+        exchange_record(&x).unwrap(),
+    ];
+    recs.extend(touch(Root::Place(place), turn, sid, at));
+    core.store.append(&recs).unwrap();
+}
+
+/// A reply-only session page holds its source turn's input provenance for an outside agent too (D6 round 3,
+/// A): a guest's long reply alone on the page (the guest's message on the page before) says `outside`; the
+/// owner's same shape does not.
+#[tokio::test]
+async fn a_reply_only_session_page_says_outside_for_a_guests_turn() {
+    let r = rig(true);
+    let long = "the guest asked whether the ferry runs at dawn, and I said it does. ".repeat(600);
+    let (guest, owner) = (session(&r.core, None), session(&r.core, None));
+    exchange_said(
+        &r.core,
+        &guest,
+        ("turn_guest_1", 1_000_000),
+        ("discord:channel:77", "discord:7"),
+        ("does the ferry run at dawn?", &long),
+    );
+    exchange_said(
+        &r.core,
+        &owner,
+        ("turn_owner_1", 1_000_000),
+        ("discord:dm:42", crate::exchange::OWNER),
+        ("does the ferry run at dawn?", &long),
+    );
+    let page = history(&r.core, json!({"open": guest})).await;
+    let text = page["open"]["text"].as_str().unwrap();
+    assert!(
+        text.contains("ferry runs at dawn") && !text.contains("does the ferry run at dawn?"),
+        "{page}"
+    );
+    assert_eq!(page["open"]["outside"], true, "{page}");
+    let page = history(&r.core, json!({"open": owner})).await;
+    assert_eq!(page["open"]["outside"], false, "{page}");
+}
+
+/// A stand-in index that answers `stale` hits no longer on record (in `sid`, ranked first), then `sid`'s own
+/// nodes.
+fn stale_then_live(core: &Arc<Core>, sid: String, stale: usize) -> crate::recall::Ask {
+    use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
+    let store = core.store.clone();
+    let hit =
+        |node_id: String, session_id: String, position: u64, text: String, rank: usize| IndexHit {
+            text,
+            node_id,
+            chunk: 0,
+            session_id,
+            position,
+            kind: "user_message".into(),
+            origin: "operator".into(),
+            author: None,
+            place: None,
+            tool: None,
+            time_ms: 0,
+            external: false,
+            entities_matched: vec![],
+            entities: vec![],
+            sources: [("bm25".to_string(), IndexSourceRank { rank, score: 1.0 })].into(),
+            fused: 1.0 / (rank as f64 + 1.0),
+        };
+    Arc::new(move |_| -> crate::recall::AskFuture {
+        let mut hits: Vec<IndexHit> = (0..stale)
+            .map(|i| {
+                hit(
+                    format!("nd_gone_{i:04}"),
+                    sid.clone(),
+                    i as u64,
+                    format!("the ferry note, number {i}"),
+                    i + 1,
+                )
+            })
+            .collect();
+        for (k, (position, n)) in store.session_nodes(&sid).unwrap().into_iter().enumerate() {
+            hits.push(hit(
+                n.id.clone(),
+                sid.clone(),
+                position,
+                crate::recall::text_of(&n),
+                stale + k + 1,
+            ));
+        }
+        Box::pin(async move {
+            Ok(IndexQueryResult {
+                hits,
+                indexed_through: 0,
+                lag: Default::default(),
+                timings: Default::default(),
+                skipped: Default::default(),
+                weights: Default::default(),
+            })
+        })
+    })
+}
+
+/// Stale hits that fill the search's bound end the page "may be incomplete", never "exhausted" (D6 round 3,
+/// F): 120 hits no longer on record, ranked above the one live exchange, fill the words search; the live
+/// exchange below them may be lost, so the page says the search may be incomplete.
+#[tokio::test]
+async fn stale_hits_that_fill_the_bound_end_the_search_incomplete() {
+    let r = rig(true);
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, "the ferry note that is still here").await;
+    let place = place_of(&r.core, &sid);
+    r.core
+        .runner
+        .memory
+        .set_ask(stale_then_live(&r.core, sid.clone(), 120));
+    let v = history(&r.core, json!({"place": place, "words": "ferry note"})).await;
+    assert_eq!(v["end"], "search_cut", "{v}");
+}

@@ -1727,3 +1727,171 @@ async fn an_ordinary_sessions_history_stays_wide_and_an_unread_scope_fails() {
     let failed = xs2_ask(c, &unread, json!({"place": DM})).await;
     assert!(failed.is_err(), "an unread scope: {failed:?}");
 }
+
+/// One exchange of `place` in `session`, its ask by `person` and its reply `said`, written as `put` writes one.
+fn put_said(store: &Store, e: &Ex<'_>, said: &str) {
+    let ask = Node::user(e.session, Some(&e.turn), "owner", &e.words);
+    let answer = reply(e.session, &e.turn, said);
+    let x = Exchange {
+        turn_id: e.turn.clone(),
+        session_id: e.session.into(),
+        place: e.place.into(),
+        private: e.private,
+        opened_by: Opener::Message,
+        person: e.person.map(str::to_string),
+        start_ms: e.at,
+        end_ms: Some(e.at + 500),
+        ask: Some(ask.id.clone()),
+        reply: Some(answer.id.clone()),
+        messages: vec![ask.id.clone()],
+        stop: Some("end_turn".into()),
+        rebuilt: false,
+    };
+    let mut recs = vec![ask.record().unwrap(), answer.record().unwrap()];
+    recs.extend(mark_of(&ask, e.person, e.place).and_then(|m| mark_record(&m).ok()));
+    recs.push(exchange_record(&x).unwrap());
+    recs.extend(touch(Root::Place(e.place), &e.turn, e.session, e.at));
+    store.append(&recs).unwrap();
+}
+
+/// A model whose message `CALL {…}` calls `context_history` with those arguments, and the receiving session's
+/// stored result as the two gate readers see it.
+fn reading_rig() -> crate::tests_places::Rig {
+    use crate::provider::Scripted;
+    use crate::tests_places::{answers_a_call, last_user, rig_scripted};
+    rig_scripted(
+        |_| {},
+        |req| {
+            if answers_a_call(req) {
+                return Scripted::text("Read.");
+            }
+            match last_user(req).split_once("CALL ") {
+                Some((_, a)) => Scripted::tools(
+                    "Reading.",
+                    &[(
+                        "h1",
+                        "context_history",
+                        serde_json::from_str(a.trim()).unwrap(),
+                    )],
+                ),
+                None => Scripted::text("Hello."),
+            }
+        },
+    )
+}
+
+async fn gate_reads(core: &Arc<crate::Core>, args: Value) -> (String, bool, bool) {
+    use crate::tests_places::{session, turn};
+    let clean = session(core, None);
+    turn(core, &clean, &format!("CALL {args}")).await;
+    let said = crate::tests_places::result_of(core, &clean, "h1");
+    let nodes = core.store.session_nodes(&clean).unwrap();
+    (
+        said,
+        crate::external::read_any(&core.store, &clean),
+        crate::config_change::outside_since_owner(&nodes),
+    )
+}
+
+/// A reply-only session page keeps its input's provenance (D6 round 3, A): a guest's exchange whose reply
+/// quotes the guest, with no External result in it, opened as its session where the page holds the long reply
+/// alone (the guest's message falls on the page before): the receiving result is External, and both gate
+/// readers see it. The same shape with the owner's own message stays clean.
+#[tokio::test]
+async fn a_reply_only_session_page_keeps_its_guests_input_provenance() {
+    use crate::tests_places::session;
+    let r = reading_rig();
+    let (guest, owner) = (session(&r.core, None), session(&r.core, None));
+    let long = "the guest asked whether the ferry runs at dawn, and I said it does. ".repeat(600);
+    put_said(
+        &r.core.store,
+        &Ex {
+            person: Some("discord:7"),
+            words: "does the ferry run at dawn?".into(),
+            ..ex(1, LOBBY, &guest)
+        },
+        &long,
+    );
+    put_said(&r.core.store, &ex(2, DM, &owner), &long);
+    let (said, any, since) = gate_reads(&r.core, json!({ "open": guest.clone() })).await;
+    assert!(
+        said.contains("ferry runs at dawn"),
+        "the reply is on the page: {said}"
+    );
+    assert!(
+        !said.contains("does the ferry run at dawn?"),
+        "the guest's message is on the page before: {said}"
+    );
+    assert!(any, "read_any sees the guest's reply: {said}");
+    assert!(since, "the settings act sees it");
+    let (said, any, since) = gate_reads(&r.core, json!({ "open": owner.clone() })).await;
+    assert!(said.contains("ferry runs at dawn"), "{said}");
+    assert!(
+        !any && !since,
+        "the owner's own exchange stays clean: {said}"
+    );
+}
+
+/// An imported agent message is not asserted clean where its session holds outside messages, which the page
+/// omits (D6 round 3, A): that session's page is outside text. An import of the operator's and the agent's
+/// messages only stays clean.
+#[tokio::test]
+async fn an_imported_agent_message_beside_omitted_outside_text_is_outside() {
+    use crate::tests_memory_lookup::{episode, import};
+    let r = reading_rig();
+    let with = |n: usize, msgs: Value| {
+        let mut v = episode(n, "personal", "2026-03-03T18:00:00Z", "the kelp survey");
+        v["messages"] = msgs;
+        v["hash"] = json!(crate::import::episode::hash_of(&v));
+        v
+    };
+    let msg = |idx: u64, integrity: &str, author: &str, text: &str| {
+        json!({"idx": idx, "time": "2026-03-03T18:00:00Z", "author": author, "integrity": integrity,
+               "text": text, "unit": format!("u-{idx}"), "sha256": "ab".repeat(32)})
+    };
+    let ids = import(
+        &r.core,
+        &[
+            with(
+                41,
+                json!([
+                    msg(
+                        0,
+                        "outside",
+                        "a stranger",
+                        "a stranger's note on the kelp beds"
+                    ),
+                    msg(
+                        1,
+                        "agent",
+                        "main",
+                        "Noted: the kelp beds are thinning, the note says."
+                    ),
+                ]),
+            ),
+            with(
+                42,
+                json!([
+                    msg(0, "operator", "wren", "count the kelp beds"),
+                    msg(1, "agent", "main", "Counted: eleven kelp beds."),
+                ]),
+            ),
+        ],
+    );
+    let (said, any, since) = gate_reads(&r.core, json!({ "open": ids[0].clone() })).await;
+    assert!(said.contains("kelp beds are thinning"), "{said}");
+    assert!(
+        !said.contains("stranger's note"),
+        "the outside message itself is omitted: {said}"
+    );
+    assert!(
+        any && since,
+        "the agent's message beside it is not asserted clean: {said}"
+    );
+    let (said, any, since) = gate_reads(&r.core, json!({ "open": ids[1].clone() })).await;
+    assert!(said.contains("eleven kelp beds"), "{said}");
+    assert!(
+        !any && !since,
+        "operator and agent only stays clean: {said}"
+    );
+}
