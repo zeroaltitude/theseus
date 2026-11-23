@@ -133,7 +133,15 @@ mod tests {
         let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
         assert_eq!(cfg.threads, ThreadsConfig::default());
         assert!(cfg.threads.enabled);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# [threads]\n# enabled = true"));
+        let section = crate::Config::EXAMPLE_TOML
+            .split("# [threads]\n")
+            .nth(1)
+            .unwrap()
+            .split("# ----------------------------------------------------------------")
+            .next()
+            .unwrap();
+        assert!(section.contains("# persona_engage = \"shadow\""));
+        assert!(!section.contains("# enabled ="));
         let off = crate::Config::from_toml("[threads]\nenabled = false\n").unwrap();
         assert!(!off.threads.enabled);
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
