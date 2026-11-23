@@ -1894,11 +1894,10 @@ esac
             "test",
         );
         let status = board.status();
-        assert!(status.summary().contains("not redacted"));
-        assert!(status.summary().contains("pin"));
+        assert_eq!(status.unprotected, ["pin"]);
         assert!(!serde_json::to_string(&status).unwrap().contains("123456"));
         assert!(board.get("pin").is_some());
         board.hold("pin", Secret::new("long-enough-value".into()));
-        assert!(!board.status().summary().contains("not redacted"));
+        assert!(board.status().unprotected.is_empty());
     }
 }

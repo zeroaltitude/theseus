@@ -153,14 +153,7 @@ impl SecretsStatus {
             "" => "unknown".into(),
             s => s.into(),
         };
-        if self.unprotected.is_empty() {
-            state
-        } else {
-            format!(
-                "{state}\n  warning: not redacted at exits (shorter than eight bytes): {}",
-                self.unprotected.join(", ")
-            )
-        }
+        state
     }
 
     /// `outside the vault: a (env), b (file)`, naming each secret whose value
