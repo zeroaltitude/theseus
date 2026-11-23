@@ -1795,3 +1795,39 @@ async fn a_forks_words_search_from_a_cursor_crowded_past_its_point_says_it_may_b
     assert!(!source.contains("turn_tide_119"), "past the cap: {source}");
     assert!(!source.contains("may be incomplete"), "{source}");
 }
+
+#[tokio::test]
+async fn repeated_item_labels_reach_existing_and_future_forks() {
+    use crate::content::{Flag, ItemKind, Label};
+    use theseus_judge::band::Band;
+    let r = rig();
+    let (sid, nodes) = three_turns(&r).await;
+    let label = |node: &str| Label {
+        flag: Flag::Confidential,
+        node: Some(node.into()),
+        kind: ItemKind::ToolResult,
+        source: "fixture".into(),
+        confidence: 1.0,
+        band: Band::Act,
+        at_ms: 9,
+        judgment: String::new(),
+    };
+    // The source's aggregate points past the fork, but the earlier item later gets the same label.
+    r.core
+        .runner
+        .judge
+        .land_deterministic(&sid, vec![(label(&nodes[4].0), 1)]);
+    let existing = fork(&r.core, &sid, &nodes[3].0);
+    r.core
+        .runner
+        .judge
+        .land_deterministic(&sid, vec![(label(&nodes[1].0), 1)]);
+    let future = fork(&r.core, &sid, &nodes[3].0);
+    for id in [&existing.session_id, &future.session_id] {
+        let rec: SessionRecord = r.core.store.get_session(id).unwrap().unwrap();
+        assert!(
+            rec.data.as_ref().is_some_and(|d| d.has(Flag::Confidential)),
+            "an included labeled item must label its fork"
+        );
+    }
+}

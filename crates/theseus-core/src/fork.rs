@@ -208,6 +208,49 @@ pub fn data_through(
     (forked != crate::content::ContentFlags::default()).then(|| Box::new(forked))
 }
 
+/// Recover all included item labels, not only the source's first label of each kind.
+/// Reads label records rather than the whole transcript, so unlabeled history stays cheap.
+pub(crate) fn item_data_through(
+    store: &Store,
+    session: &str,
+    point: u64,
+    flags: &mut crate::content::ContentFlags,
+) -> Result<()> {
+    let mut bounds = std::collections::BTreeMap::new();
+    let (mut sid, mut through) = (session.to_string(), point);
+    for _ in 0..MAX_DEPTH {
+        if bounds.insert(sid.clone(), through).is_some() {
+            break;
+        }
+        let Some(origin) = origin_of(store, &sid)? else {
+            break;
+        };
+        through = through.min(origin.position);
+        sid = origin.session;
+    }
+    for record in store
+        .inner()
+        .latest_with_prefix(kinds::META, crate::item_labels::PREFIX)?
+    {
+        let item: crate::item_labels::ItemLabels = serde_json::from_slice(&record.payload)?;
+        if !item.kind.on_session() {
+            continue;
+        }
+        let Some((pos, node)) = store.get_node(&item.node)? else {
+            continue;
+        };
+        if !bounds.get(&node.session_id).is_some_and(|end| pos <= *end) {
+            continue;
+        }
+        for label in &item.raised {
+            if item.stands(label.flag, crate::item_labels::Reading { session, flags }) {
+                flags.raise_after(label.clone(), item.entered_ms);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Whether a position falls in a compilation's inherited run.
 pub fn inherited(c: &crate::compiler::Compilation, position: u64) -> bool {
     c.inherits
