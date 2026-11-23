@@ -5,7 +5,7 @@
 //! out of the source's compile; nothing is withheld by a move now, so a moved node is read where it was said,
 //! as any other. What stays is history: the `Moved` node decodes and renders its one line ([`line`]) at its
 //! own place, and recall and `node.info` read `moved.of.<node>` to say where a node once went. A split's own
-//! record (`thread.split.<id>`, [`SplitRecord`]) still decodes as it was stored.
+//! record (`thread.split.<id>`, `SplitRecord`) still decodes as it was stored.
 
 /// The author of a `Moved` node.
 pub const AUTHOR: &str = "harness:moved";
@@ -43,13 +43,13 @@ impl MovedTo {
 /// The META key of a split's record (`thread.split.<id>`), as an older build wrote it.
 // Read by the test-only split writer and by the old-store test: no production path reads a split's record now,
 // and its typed decoder is kept so an old store's record still reads as it was stored.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn split_key(id: &str) -> String {
     format!("thread.split.{id}")
 }
 
 /// What a split left, for its undo: the stored `thread.split.<id>` record of an older build.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SplitRecord {
     pub id: String,
