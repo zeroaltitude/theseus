@@ -1824,7 +1824,6 @@ where
     text
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
