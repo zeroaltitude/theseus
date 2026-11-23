@@ -202,18 +202,25 @@ def block_text(content):
 
 
 def sender_of(text):
-    """The inbound envelope's sender, its metadata blocks taken out of the text."""
-    sender = {}
-    for m in META_BLOCK.finditer(text):
-        head = text[m.start() : m.start() + 12]
-        if head.startswith("Sender"):
+    """Read only the leading envelope; a body block cannot replace its sender."""
+    sender, end, seen_sender = {}, 0, False
+    while True:
+        start = end + len(text[end:]) - len(text[end:].lstrip())
+        m = META_BLOCK.match(text, start)
+        if m is None:
+            break
+        if text[m.start():].startswith("Sender"):
+            if seen_sender:
+                break
+            seen_sender = True
             try:
                 v = json.loads(m.group(1))
                 if isinstance(v, dict):
                     sender = v
             except ValueError:
                 pass
-    return sender, META_BLOCK.sub("", text).strip()
+        end = m.end()
+    return sender, text[end:].strip()
 
 
 def iso(ms):
