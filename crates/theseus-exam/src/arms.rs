@@ -412,6 +412,57 @@ mod tests {
     use super::*;
 
     #[test]
+    fn both_skip_sites_require_matching_resume_identity() {
+        let d = tempfile::tempdir().unwrap();
+        let exam = Exam::parse(crate::item::EXAM_V2).unwrap();
+        let m = Manifest {
+            exam: exam.file.version.clone(),
+            digest: exam.digest.clone(),
+            utc_offset_min: 0,
+            sessions: vec![],
+            nodes: BTreeMap::new(),
+            last_position: 0,
+        };
+        let item = exam.file.items[0].id.clone();
+        let mut p = Plan {
+            identity: Some("current".into()),
+            sockets: BTreeMap::new(),
+            notes: BTreeMap::new(),
+            profile: "test".into(),
+            profile_model: "model-a".into(),
+            arms: vec![Arm::None],
+            runs: 1,
+            items: vec![item.clone()],
+            limit_usd: 0.0,
+            workers: 1,
+            seed: 0,
+            timeout: Duration::from_secs(1),
+            out: d.path().join("results.jsonl"),
+            only_run: Some(1),
+            cells: None,
+        };
+        let r = drive::Record {
+            identity: Some("current".into()),
+            digest: exam.digest.clone(),
+            item,
+            arm: "none".into(),
+            run: 1,
+            pass: Some(true),
+            ..Default::default()
+        };
+        std::fs::write(&p.out, serde_json::to_string(&r).unwrap() + "\n").unwrap();
+        assert_eq!(left_in_run(&p, &exam).unwrap(), 0);
+        assert_eq!(drive::run(&p, &exam, &m).unwrap().skipped, 1);
+        for identity in [None, Some("different".into())] {
+            p.identity = identity;
+            let why = left_in_run(&p, &exam).unwrap_err().to_string();
+            assert!(why.contains("resume identity"), "{why}");
+            let why = drive::run(&p, &exam, &m).err().unwrap().to_string();
+            assert!(why.contains("resume identity"), "{why}");
+        }
+    }
+
+    #[test]
     fn resume_identity_changes_with_build_config_profile_and_fixture() {
         let d = tempfile::tempdir().unwrap();
         let binary = d.path().join("daemon");
