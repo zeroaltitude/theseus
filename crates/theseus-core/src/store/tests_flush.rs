@@ -87,3 +87,57 @@ async fn the_flusher_stops_after_its_tries_against_a_store_that_refuses() {
         "and the next parked row arms a flusher again"
     );
 }
+
+/// The same deferred rows ride a flusher, a plain write, or a turn. An index
+/// failure after the WAL sync must never enqueue those rows a second time.
+#[test]
+fn retained_unindexed_rows_are_not_deferred_again() {
+    for path in ["flusher", "plain", "turn"] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let row = |key: &str| NewRecord::bytes(kinds::META, Some(key), key.as_bytes().to_vec());
+        store.pending.park(row("parked"));
+        store.inner.fail_next_index_writes(3);
+        let turn = store.for_turn("session");
+        match path {
+            "flusher" => store.flush_waiting(),
+            "plain" => assert!(store.append(&[row("direct")]).is_err()),
+            "turn" => {
+                turn.defer(row("waiting")).unwrap();
+                assert!(turn.append(&[row("direct")]).is_err());
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            !store.pending.any(),
+            "{path}: retained rows were queued again"
+        );
+        assert!(turn
+            .turn
+            .as_ref()
+            .unwrap()
+            .waiting
+            .lock()
+            .unwrap()
+            .is_empty());
+        turn.flush().unwrap();
+        store.append(&[row("next")]).unwrap();
+        drop(turn);
+        drop(store);
+        let store = Store::open(dir.path()).unwrap();
+        for key in if path == "turn" {
+            vec!["parked", "waiting"]
+        } else {
+            vec!["parked"]
+        } {
+            let rows = store.inner.scan(0, None, 100).unwrap();
+            assert_eq!(
+                rows.iter()
+                    .filter(|r| r.key.as_deref() == Some(key))
+                    .count(),
+                1,
+                "{path}: {key}"
+            );
+        }
+    }
+}

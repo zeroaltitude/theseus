@@ -36,6 +36,21 @@ use crate::pages::{tags_of, Page, PageOut};
 use crate::record::{NewRecord, Record, RecordKind};
 use crate::wal::{History, RecordLocation, Recovery, Verified, Wal, WalConfig, WalError};
 
+/// An append failed to index a frame the WAL still holds after syncing.
+/// Retrying that frame would duplicate it. The error remains an error: no
+/// indexed acknowledgement is given. With fsync disabled this is retention,
+/// not a durability promise, just as a successful append is not a barrier.
+#[derive(Debug)]
+pub struct RetainedFrame(String);
+
+impl std::fmt::Display for RetainedFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "frame retained in the WAL but not indexed: {}", self.0)
+    }
+}
+
+impl std::error::Error for RetainedFrame {}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreStats {
     pub last_position: u64,
@@ -101,6 +116,8 @@ pub const REFUSED_SHOWN: usize = 16;
 /// visibility, not durability: the writer syncs after answering its batch.
 /// A successful `checkpoint` is a durability barrier for preceding frames
 /// when WAL fsync is enabled; an index gap or sync failure refuses that barrier.
+/// An append error carrying [`RetainedFrame`] means the WAL already holds
+/// the frame: deferred rows in it must not be queued for another append.
 pub trait Store: Send + Sync {
     /// Append records as one atomic frame; returns their positions in order.
     fn append(&self, batch: &[NewRecord]) -> Result<Vec<u64>>;
@@ -1911,7 +1928,16 @@ impl Inner {
                     .collect()),
                 // An index write that failed fails every frame it covered, as
                 // a failed group sync failed each one it led.
-                (Ok(_), Err(e)) => Err(anyhow::anyhow!("{e:#}")),
+                (Ok((placed, _)), Err(e)) => {
+                    if placed
+                        .last()
+                        .is_some_and(|(p, _)| *p <= self.wal.last_position())
+                    {
+                        Err(RetainedFrame(format!("{e:#}")).into())
+                    } else {
+                        Err(anyhow::anyhow!("{e:#}"))
+                    }
+                }
             };
             self.queued.fetch_sub(1, Ordering::SeqCst);
             let _ = job.answer.send(answer);
@@ -2023,6 +2049,20 @@ impl Inner {
             // settled, before its caller is told.
             let synced = self.sync_batch(wrote);
             self.after_sync(&synced, &indexed, records, chained);
+            if synced.is_err()
+                && written.iter().any(|w| {
+                    w.as_ref().is_ok_and(|(p, _)| {
+                        p.last()
+                            .is_some_and(|(at, _)| *at <= self.wal.last_position())
+                    })
+                })
+            {
+                // A roll synced some frames, but the final sync cut others.
+                // Reopen must rebuild the chain head from the surviving WAL.
+                let why = "store: an unindexed batch only partly survived a failed sync; no further frame and no checkpoint until reopen";
+                tracing::error!("{why}");
+                *self.answered_lost.lock().unwrap() = Some(why.into());
+            }
             self.answer_all(batch, written, &indexed, began);
             return;
         }

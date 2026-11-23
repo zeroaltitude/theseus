@@ -228,3 +228,61 @@ fn a_failed_roll_never_answers_or_indexes_the_frames_it_cut() {
         }
     }
 }
+
+#[test]
+fn append_errors_distinguish_retained_frames_from_cut_frames() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = small_segments(dir.path());
+    let held = s.inner.appending.write().unwrap();
+    let mut answers = Vec::new();
+    let mut jobs: Vec<_> = ["retained", "cut"]
+        .into_iter()
+        .map(|key| {
+            let (answer, answered) = mpsc::sync_channel(1);
+            answers.push(answered);
+            Job {
+                records: vec![NewRecord::bytes(kinds::META, Some(key), vec![3; 100])],
+                projected: vec![(None, None)],
+                tags: vec![vec![]],
+                hidden: None,
+                answer,
+            }
+        })
+        .collect();
+    s.inner.queued.fetch_add(2, Ordering::SeqCst);
+    let (written, _) = s.inner.write_batch(&mut jobs);
+    assert!(written.iter().all(Result::is_ok));
+    s.inner.wal.fail_next_sync();
+    assert!(s.inner.sync_batch(true).is_err());
+    assert_eq!(
+        s.inner.wal.last_position(),
+        1,
+        "the roll saved only the first frame"
+    );
+    s.inner.answer_all(
+        jobs,
+        written,
+        &Err(anyhow::anyhow!("index unavailable")),
+        std::time::Instant::now(),
+    );
+    let mut answers = answers.into_iter();
+    assert!(answers
+        .next()
+        .unwrap()
+        .recv()
+        .unwrap()
+        .unwrap_err()
+        .is::<RetainedFrame>());
+    assert!(!answers
+        .next()
+        .unwrap()
+        .recv()
+        .unwrap()
+        .unwrap_err()
+        .is::<RetainedFrame>());
+    drop(held);
+    drop(s);
+    let s = small_segments(dir.path());
+    assert!(s.latest_by_key(kinds::META, "retained").unwrap().is_some());
+    assert!(s.latest_by_key(kinds::META, "cut").unwrap().is_none());
+}
