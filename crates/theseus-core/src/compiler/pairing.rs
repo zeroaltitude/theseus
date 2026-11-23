@@ -2,29 +2,30 @@
 //! position. One association, used by every site that shows a call with its result (the render, the view's
 //! receipts, an exchange's spoken form, the bounded window).
 //!
-//! A call is its response's `tool_use`: the assistant node that makes it, its id, and its place among that
-//! response's uses with the same id (so two uses with one id in ONE response are two calls). The gate writes
-//! a `ToolCall` record for each, in order, with the kernel action's `correlation_id`; a result carries the
-//! same `correlation_id`.
+//! A call is its response's `tool_use`: the assistant node that makes it and its id. A gate record (`ToolCall`)
+//! names a call the same way, by its response (`assistant_node`) and id, with the kernel action's
+//! `correlation_id` when the call reached one; a result carries the same `correlation_id`. A record does not
+//! name WHICH use when a response repeats an id, so:
 //!
+//! 0. A response that gives one id to more than one use pairs NONE of them: each keeps the harness's "no result"
+//!    stub, whatever records or results exist. (Such a response is never run: `toolrun::calls`.)
 //! 1. A result with a `correlation_id` answers the call whose record has the same one. Nothing else.
-//! 2. A result with none (a call refused before any action, a harness's own call) answers the call the
-//!    gate's record beside it names: the earliest record with its id and no correlation of its OWN exchange
-//!    (its session and turn), whose call has no result yet (a render reads the records apart from the nodes it
-//!    lays, so a record is placed by its exchange, not by where it stands) (the gate writes the record and
-//!    the result together, and a continuation writes them for a call of the turn it continues). With no such
-//!    record, the earliest call with its id of its own exchange standing before it, that carries no
-//!    correlation and no result yet.
+//! 2. A result with none (a call refused before any action, a harness's own call) answers the one call the
+//!    gate's records of its OWN exchange (its session and turn) name with its id and no correlation, written
+//!    no later than it (a continuation writes a record and its result together for a call of the turn it
+//!    continues); with no such record, the one call with its id of its own exchange standing before it, with no
+//!    correlation. Either way the call has no result yet, and when more than one candidate matches, the result
+//!    answers none.
 //! 3. Nothing beyond that: a result whose call is not established answers no call, and that call keeps the
-//!    harness's "no result" stub. Inventing an execution is the fault; a truthful "no result" is not.
+//!    harness's stub. Inventing an execution is the fault; a truthful "no result" is not.
 //! 4. A late result (`late: true`) answers no call: it is told as what came back later.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::node::{Body, Node};
 
-/// A call: its assistant node's id, its provider id, and its place among that response's uses with the id.
-pub(crate) type Call<'n> = (&'n str, &'n str, usize);
+/// A call: its assistant node's id and its provider id.
+pub(crate) type Call<'n> = (&'n str, &'n str);
 
 /// The association of results and calls among a run of nodes ([`pairing`]).
 #[derive(Default)]
@@ -51,51 +52,36 @@ impl<'n> Pairing<'n> {
     }
 }
 
-/// The calls of an assistant message's blocks, in order: each `tool_use` with its place among the uses with
-/// its id.
-pub(crate) fn uses_of<'b>(
-    blocks: impl Iterator<Item = &'b serde_json::Value>,
-) -> Vec<(&'b str, usize)> {
-    places(
-        (blocks.filter(|b| b["type"] == "tool_use")).map(|b| b["id"].as_str().unwrap_or_default()),
-    )
-}
-
-/// Each of a response's call ids, in order, with its place among the uses with the same id.
-pub(crate) fn places<'a>(ids: impl Iterator<Item = &'a str>) -> Vec<(&'a str, usize)> {
-    let mut seen: HashMap<&str, usize> = HashMap::new();
-    ids.map(|id| {
-        let k = seen.entry(id).or_default();
-        *k += 1;
-        (id, *k - 1)
-    })
-    .collect()
-}
-
 /// The calls among a run of nodes, as their responses and the gate's records hold them.
 #[derive(Default)]
 struct Calls<'n> {
     /// Where each call stands, and its exchange (session and turn).
     at: HashMap<Call<'n>, (usize, &'n str, Option<&'n str>)>,
+    /// The calls whose response gives their id to more than one use: never paired.
+    repeated: HashSet<Call<'n>>,
     /// Each call's correlation, where its record has one.
     correlated: HashMap<Call<'n>, &'n str>,
     /// Each correlation's call.
     by_corr: HashMap<&'n str, Call<'n>>,
     /// Each record's call, by the record's node id.
     by_record: HashMap<&'n str, Call<'n>>,
-    /// The records with no correlation: where each stands, its exchange, and its call.
-    plain: Vec<(usize, &'n str, Option<&'n str>, Call<'n>)>,
+    /// The records with no correlation: when each was written, its exchange, and its call.
+    plain: Vec<(u64, &'n str, Option<&'n str>, Call<'n>)>,
 }
 
 fn calls<'n>(nodes: &[&'n Node]) -> Calls<'n> {
     let mut c = Calls::default();
-    let mut records: HashMap<(&'n str, &'n str), usize> = HashMap::new();
     for (i, &n) in nodes.iter().enumerate() {
         let exchange = (i, n.session_id.as_str(), n.turn_id.as_deref());
         match &n.body {
             Body::AssistantMessage { blocks, .. } => {
-                for (id, k) in uses_of(blocks.iter()) {
-                    c.at.entry((n.id.as_str(), id, k)).or_insert(exchange);
+                let mut seen = HashSet::new();
+                for b in blocks.iter().filter(|b| b["type"] == "tool_use") {
+                    let call = (n.id.as_str(), b["id"].as_str().unwrap_or_default());
+                    if !seen.insert(call) {
+                        c.repeated.insert(call);
+                    }
+                    c.at.entry(call).or_insert(exchange);
                 }
             }
             Body::ToolCall {
@@ -104,10 +90,7 @@ fn calls<'n>(nodes: &[&'n Node]) -> Calls<'n> {
                 correlation_id,
                 ..
             } => {
-                let k =
-                    (records.entry((assistant_node.as_str(), tool_use_id.as_str()))).or_default();
-                let call = (assistant_node.as_str(), tool_use_id.as_str(), *k);
-                *k += 1;
+                let call = (assistant_node.as_str(), tool_use_id.as_str());
                 c.by_record.insert(n.id.as_str(), call);
                 c.at.entry(call).or_insert(exchange);
                 match correlation_id.as_deref() {
@@ -115,7 +98,9 @@ fn calls<'n>(nodes: &[&'n Node]) -> Calls<'n> {
                         c.correlated.insert(call, corr);
                         c.by_corr.insert(corr, call);
                     }
-                    None => c.plain.push((exchange.0, exchange.1, exchange.2, call)),
+                    None => c
+                        .plain
+                        .push((n.created_at_ms, exchange.1, exchange.2, call)),
                 }
             }
             _ => {}
@@ -125,34 +110,45 @@ fn calls<'n>(nodes: &[&'n Node]) -> Calls<'n> {
 }
 
 impl<'n> Calls<'n> {
-    /// Rule 2: for a result with no correlation, standing at `i` in exchange `own`, the call of the earliest
-    /// record with its id and no correlation of the same exchange; else the earliest call
-    /// with its id of the same exchange standing before it; either with no correlation and no result in
-    /// `answered`.
+    /// Rule 2: for result `r`, standing at `i`, with no correlation: the one call its exchange's uncorrelated
+    /// records name with its id, written no later than it; else the one call with its id of its exchange
+    /// standing before it, with no correlation. A call already answered or of a repeated id is no candidate;
+    /// two candidates or more are no answer.
     fn own(
         &self,
+        r: &Node,
         id: &str,
         i: usize,
-        own: (&str, Option<&str>),
         answered: &HashMap<Call<'n>, &'n Node>,
     ) -> Option<Call<'n>> {
-        let recorded = (self.plain.iter())
-            .filter(|(_, session, turn, call)| {
-                call.1 == id && (*session, *turn) == own && !answered.contains_key(call)
+        let own = (r.session_id.as_str(), r.turn_id.as_deref());
+        let open = |call: &Call<'n>| {
+            call.1 == id && !answered.contains_key(call) && !self.repeated.contains(call)
+        };
+        let recorded: HashSet<Call<'n>> = (self.plain.iter())
+            .filter(|(at, session, turn, call)| {
+                *at <= r.created_at_ms && (*session, *turn) == own && open(call)
             })
-            .map(|(j, _, _, call)| (*j, *call))
-            .min();
-        if let Some((_, call)) = recorded {
-            return Some(call);
+            .map(|(_, _, _, call)| *call)
+            .collect();
+        let candidates: HashSet<Call<'n>> = if recorded.is_empty() {
+            (self.at.iter())
+                .filter(|(call, (j, session, turn))| {
+                    *j < i
+                        && (*session, *turn) == own
+                        && open(*call)
+                        && !self.correlated.contains_key(*call)
+                })
+                .map(|(call, _)| *call)
+                .collect()
+        } else {
+            recorded
+        };
+        let mut only = candidates.into_iter();
+        match (only.next(), only.next()) {
+            (Some(call), None) => Some(call),
+            _ => None,
         }
-        (self.at.iter())
-            .filter(|(call, (j, session, turn))| call.1 == id && *j < i && (*session, *turn) == own)
-            .filter(|(call, _)| {
-                !self.correlated.contains_key(*call) && !answered.contains_key(*call)
-            })
-            .map(|(call, (j, _, _))| (*j, *call))
-            .min()
-            .map(|(_, call)| call)
     }
 }
 
@@ -173,14 +169,11 @@ pub(crate) fn pairing<'n>(nodes: impl IntoIterator<Item = &'n Node>) -> Pairing<
         };
         let call = match correlation_id.as_deref() {
             Some(corr) => c.by_corr.get(corr).copied(),
-            None => c.own(
-                tool_use_id,
-                i,
-                (n.session_id.as_str(), n.turn_id.as_deref()),
-                &p.by_call,
-            ),
+            None => c.own(n, tool_use_id, i, &p.by_call),
         };
-        let Some(call) = call else { continue };
+        let Some(call) = call.filter(|call| !c.repeated.contains(call)) else {
+            continue;
+        };
         // The same call answered again (its own correlation twice): its last result, as before.
         if let Some(before) = p.by_call.insert(call, n) {
             p.by_result.remove(before.id.as_str());

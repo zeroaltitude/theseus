@@ -69,9 +69,12 @@ impl ToolRuntime {
         let mut ran = Vec::new();
         let mut runnable = Vec::new();
         let mut ask = None;
+        // One id on two calls of one response: neither runs (issue 44). A result and a record name their call
+        // by its response and that id, so which use a result answered could not be told.
+        let repeated = repeated_ids(calls);
         for (i, c) in calls.iter().enumerate() {
             let started = Instant::now();
-            let answered = match self.admit(tc, assistant_node, c).await? {
+            let answered = match self.admitted(tc, assistant_node, c, &repeated).await? {
                 Admitted::Answered(outcome) => outcome,
                 Admitted::Asks(_, g) if declined => {
                     self.not_asked(tc, assistant_node, c.call, g)?
@@ -207,6 +210,35 @@ impl ToolRuntime {
         failed.map_or(Ok(()), Err)
     }
 
+    /// `admit`, but a call whose id another of its response carries is answered not run ([`Self::repeated_id`]).
+    async fn admitted(
+        &self,
+        tc: &TurnCtx<'_>,
+        assistant_node: &str,
+        c: &Call<'_>,
+        repeated: &std::collections::BTreeSet<&str>,
+    ) -> Result<Admitted> {
+        if repeated.contains(c.call.id.as_str()) {
+            return Ok(Admitted::Answered(self.repeated_id(tc, c.call)?));
+        }
+        self.admit(tc, assistant_node, c).await
+    }
+
+    /// A call whose id another call of its response also carries (issue 44): not run, and said so in plain
+    /// words. It reaches no gate and no action, so its result has no correlation and no record.
+    fn repeated_id(&self, tc: &TurnCtx<'_>, call: &ToolUse) -> Result<CallOutcome> {
+        let (_, tool) = self.tool_of(call);
+        let text = format!(
+            "Not run: this response used the tool-call id {} for more than one call; give each call its own \
+             id.",
+            call.id
+        );
+        let r = ResultNode::new(&call.id, &tool, ResultStatus::Error, text);
+        Ok(CallOutcome::Done {
+            status: self.answer(tc, r)?,
+        })
+    }
+
     /// A call that would wait, in a batch an earlier call of which was
     /// declined: never planned, so no action waits and no card is posted. Its
     /// `ToolCall` node keeps the gate's record (no correlation id, as an
@@ -241,4 +273,13 @@ impl ToolRuntime {
             status: ResultStatus::Cancelled,
         })
     }
+}
+
+/// The ids more than one of `calls` carries.
+fn repeated_ids<'a>(calls: &'a [Call<'_>]) -> std::collections::BTreeSet<&'a str> {
+    let mut seen = std::collections::BTreeSet::new();
+    (calls.iter())
+        .map(|c| c.call.id.as_str())
+        .filter(|id| !seen.insert(*id))
+        .collect()
 }
