@@ -689,6 +689,13 @@ class GateTree(unittest.TestCase):
                 self.assertEqual(calls, [], "it refused before the first compile")
                 self.assertNotIn("gate: ok", out)
 
+    def test_the_floor_uses_an_external_cargo_target(self):
+        external = self.root / "elsewhere"
+        external.mkdir()
+        rc, out, _ = self.gate(STUB_DF_AVAIL_KB=str(2 * GIB), CARGO_TARGET_DIR=str(external / "missing"))
+        self.assertEqual(rc, FLOOR, out)
+        self.assertEqual(self.df_calls(), [str(external)])
+
     def test_the_floor_reads_the_filesystem_that_holds_the_target(self):
         self.gate(STUB_DF_AVAIL_KB=str(2 * GIB))
         self.assertEqual(self.df_calls(), ["target"], "a lane's target may be a symlink to another disk: df follows it")
