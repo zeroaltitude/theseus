@@ -73,8 +73,8 @@ pub const DEFAULT_BURN_MICROS: Micros = 200 * MICROS_PER_USD;
 pub const BURN_WINDOW_MS: u64 = 10 * 60 * 1000;
 
 /// How many executions above one its settled cost reaches in their burn
-/// windows: far more than the depth tasks allow (one), a bound for a cycle.
-const BURN_ANCESTORS: usize = 8;
+/// windows: the same bounded, cycle-safe depth as the task ancestry walk.
+const BURN_ANCESTORS: usize = crate::task_depth::WALK_MAX;
 
 /// The counter. Shared by every view of a kernel.
 pub struct DayCeiling {
