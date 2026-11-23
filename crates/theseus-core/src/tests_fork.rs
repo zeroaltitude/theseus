@@ -1366,6 +1366,7 @@ async fn a_forks_history_tool_holds_nothing_past_its_point() {
         in_view: None,
         words: None,
         cut,
+        scope: None,
     };
     let args = crate::view::history::HistoryArgs::default();
     let page = |l: &Lens<'_>| -> Vec<String> {
@@ -1541,6 +1542,7 @@ async fn a_forks_words_search_crowded_past_its_point_says_it_may_be_incomplete()
         in_view: None,
         words: Some(words),
         cut,
+        scope: None,
     };
     let args = crate::view::history::HistoryArgs::default();
     let cut = crate::fork::cut::Cut::of(&r.core.store, &f.session_id).unwrap();

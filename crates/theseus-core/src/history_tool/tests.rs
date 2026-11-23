@@ -135,6 +135,7 @@ fn lens<'a>(store: &'a Store, here: &str) -> Lens<'a> {
         in_view: None,
         words: None,
         cut: Default::default(),
+        scope: None,
     }
 }
 
