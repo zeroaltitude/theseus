@@ -225,8 +225,7 @@ impl Core {
 
     /// Who asks: a self task as "Theseus's self-repair: <the backlog item's
     /// title>", any other task by its own record's title, else its short id,
-    /// else the thread's title for a thread's session, else the conversation's
-    /// title (theseus-suvpe).
+    /// else the conversation's title (theseus-suvpe).
     pub(crate) fn asker_name(&self, req: &ConfirmRequest) -> String {
         if req.task.is_some() {
             let own = crate::task_graph::all(&self.store).ok().and_then(|all| {
