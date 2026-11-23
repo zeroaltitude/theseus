@@ -97,16 +97,14 @@ pub(super) fn selected<'n>(c: &Compilation, nodes: &'n [(u64, Stub)]) -> Selecte
         })
         .map(|(p, n)| (*p, &**n))
         .collect();
-    // A range a split moved stays out of a tail as it does out of a recompile, and a record
-    // undone renders no note (theseus-q9b85); a frozen prefix is never changed after the fact.
-    let moves = crate::moved::read(nodes);
+    // A range a split once moved is read where it was said, as any other (2026-11-22: nothing is
+    // withheld by a move); its `Moved` note renders at its own place, as history.
     let tail = nodes
         .iter()
-        .filter(|(pos, n)| *pos > c.as_of && renderable(n) && !section(n) && moves.shows(n))
+        .filter(|(pos, n)| *pos > c.as_of && renderable(n) && !section(n))
         .map(|(p, n)| (*p, &**n))
         .collect();
-    // A moved range's note stands where the range began.
-    (crate::moved::in_place(prefix), tail)
+    (prefix, tail)
 }
 
 /// A request that may not be sent: a set that does not close, or (from the

@@ -66,28 +66,15 @@ impl TurnRunner {
         // The records of this turn's surface (theseus-slvl.4), in the tail too.
         Self::standing_here(t, compiled);
         // What the observer noted of the owner's own words today, so a turn
-        // asked what it has learned can name it (theseus-6f8t0, stop 5). Only
-        // where the owner is alone, and never for a task's session.
+        // asked what it has learned can name it (theseus-6f8t0, stop 5). Wherever the turn is; never for
+        // a task's session (a task's own run).
         if session.task.is_none() {
-            crate::card::noted::attach(
-                &self.store,
-                t.tc.place().class,
-                self.target_of(&session.session_id).as_deref(),
-                self.kernel.now_ms(),
-                compiled,
-            );
+            crate::card::noted::attach(&self.store, self.kernel.now_ms(), compiled);
         }
         // What the harness made of the owner's yes, for the turn that yes
         // started and for no later one (theseus-2yowd). Off by default.
         if self.cfg.standing.yes_fact && session.task.is_none() {
-            crate::yes_fact::attach(
-                &self.yes_facts,
-                t.tc.session_id,
-                t.tc.turn_id,
-                t.tc.place().class,
-                self.target_of(&session.session_id).as_deref(),
-                compiled,
-            );
+            crate::yes_fact::attach(&self.yes_facts, t.tc.session_id, t.tc.turn_id, compiled);
         }
         // Who answers this turn, one tail line (theseus-c1uz).
         Self::persona_line(t, compiled);

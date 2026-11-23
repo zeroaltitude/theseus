@@ -9,9 +9,8 @@
 //! warm model never told a switch is cheaper.
 
 use theseus_judge::builders::PricePeriod::{OffPeak, Peak};
-use theseus_judge::builders::RestrictedModels::{Allowed, NotAllowed};
 use theseus_judge::builders::SwitchCost::{AboutTheSame, CheaperToStay, CheaperToSwitch};
-use theseus_judge::builders::{PricePeriod, RestrictedModels, SwitchCost};
+use theseus_judge::builders::{PricePeriod, SwitchCost};
 
 use super::switch::{classify, Switch};
 use super::{switch_cost, Catalog};
@@ -22,14 +21,14 @@ const OPUS: &str = "claude-opus-5-5";
 const FABLE: &str = "claude-fable-5-1";
 const FLASH: &str = "deepseek-flash";
 
-/// The word and the name, at a period and under the data rule.
-fn full(current: &str, tokens: u64, period: PricePeriod, r: RestrictedModels) -> Switch {
-    switch_cost(&Catalog::builtin(), Some(current), tokens, period, r)
+/// The word and the name, at a period.
+fn full(current: &str, tokens: u64, period: PricePeriod) -> Switch {
+    switch_cost(&Catalog::builtin(), Some(current), tokens, period)
 }
 
-/// The word, at a period, with restricted models allowed.
+/// The word, at a period.
 fn word(current: &str, tokens: u64, period: PricePeriod) -> SwitchCost {
-    full(current, tokens, period, Allowed).cost
+    full(current, tokens, period).cost
 }
 
 /// The word off-peak (the cases file's default, and the commoner hour).
@@ -39,7 +38,7 @@ fn at(current: &str, tokens: u64) -> SwitchCost {
 
 /// The name the state would carry, or "-" for none.
 fn name(current: &str, tokens: u64, period: PricePeriod) -> String {
-    full(current, tokens, period, Allowed)
+    full(current, tokens, period)
         .cheaper_model
         .map_or_else(|| "-".to_string(), String::from)
 }
@@ -111,13 +110,6 @@ fn every_candidate_cheaper_than_staying_is_named_cheapest_first() {
     assert_eq!(name(OPUS, 100_001, OffPeak), "deepseek_flash (off-peak)");
     // At peak Flash's $0.30 is above staying's $0.20: only Haiku is named.
     assert_eq!(name(OPUS, 90_000, Peak), "haiku");
-    // The data rule keeps Flash out of the list and leaves Haiku in it.
-    assert_eq!(
-        full(OPUS, 90_000, OffPeak, NotAllowed)
-            .cheaper_model
-            .as_deref(),
-        Some("haiku")
-    );
 }
 
 /// The state clips `cheaper_model` at 40 characters, which holds three names
@@ -131,18 +123,16 @@ fn a_list_of_cheaper_models_fits_the_states_clip() {
     for m in [SONNET, HAIKU, OPUS, FABLE, FLASH] {
         for n in (0..=500_000).step_by(5_000) {
             for p in [OffPeak, Peak] {
-                for r in [Allowed, NotAllowed] {
-                    sweeps += 1;
-                    if let Some(names) = switch_cost(&c, Some(m), n, p, r).cheaper_model {
-                        lists += 1;
-                        longest = longest.max(names.chars().count());
-                        assert!(names.chars().count() <= 40, "{m} {n} {p:?} {r:?}: {names}");
-                    }
+                sweeps += 1;
+                if let Some(names) = switch_cost(&c, Some(m), n, p).cheaper_model {
+                    lists += 1;
+                    longest = longest.max(names.chars().count());
+                    assert!(names.chars().count() <= 40, "{m} {n} {p:?}: {names}");
                 }
             }
         }
     }
-    assert_eq!(sweeps, 5 * 101 * 2 * 2);
+    assert_eq!(sweeps, 5 * 101 * 2);
     assert!(lists > 100, "{lists} lists");
     assert_eq!(longest, "haiku, deepseek_flash (off-peak)".len());
 }
@@ -175,36 +165,6 @@ fn nothing_is_cheaper_than_a_warm_haiku_or_a_warm_flash() {
     }
 }
 
-/// The data rule in the state is read here too (theseus-h66v4.8): a state that
-/// keeps restricted-origin models off must not name one as the cheaper choice,
-/// or it forbids and recommends the same model in one breath. W14 is this case,
-/// and it is why W14's state did not move. The floor that refuses the pick is
-/// `routing::model`'s and is untouched.
-#[test]
-fn a_restricted_session_is_never_told_flash_is_cheaper() {
-    let s = full(OPUS, 180_000, OffPeak, NotAllowed);
-    // Without Flash the cheapest left at 180K is Haiku's long tier, $0.50,
-    // against staying at $0.20: there is nothing cheaper to name.
-    assert_eq!(s.cost, CheaperToStay);
-    assert_eq!(s.cheaper_model, None);
-    // The same message with the labels allowing it is Flash's.
-    let s = full(OPUS, 180_000, OffPeak, Allowed);
-    assert_eq!(s.cost, CheaperToSwitch);
-    assert_eq!(
-        s.cheaper_model.as_deref(),
-        Some("deepseek_flash (off-peak)")
-    );
-    // Under 100K Haiku is cheapest either way, and the rule takes only Flash out.
-    for (r, named) in [
-        (Allowed, "haiku, deepseek_flash (off-peak)"),
-        (NotAllowed, "haiku"),
-    ] {
-        let s = full(OPUS, 40_000, OffPeak, r);
-        assert_eq!(s.cost, CheaperToSwitch, "{r:?}");
-        assert_eq!(s.cheaper_model.as_deref(), Some(named), "{r:?}");
-    }
-}
-
 /// Sonnet 5.5 reads its cache at $0.10, the vendor's page (2026-11-14): Haiku's
 /// short tier is the same price, Flash is $0.15 off-peak and $0.30 at peak, and
 /// every long-tier Haiku price is $0.50, so no candidate is under staying by the
@@ -217,27 +177,25 @@ fn a_warm_sonnet_is_never_told_a_switch_is_cheaper() {
     let mut seen = 0;
     for n in (0..=500_000).step_by(5_000) {
         for p in [OffPeak, Peak] {
-            for r in [Allowed, NotAllowed] {
-                let s = switch_cost(&c, Some(SONNET), n, p, r);
-                let want = if n <= 100_000 {
-                    AboutTheSame
-                } else {
-                    CheaperToStay
-                };
-                assert_eq!(s.cost, want, "{n} {p:?} {r:?}");
-                assert_eq!(s.cheaper_model, None, "{n} {p:?} {r:?}");
-                seen += 1;
-            }
+            let s = switch_cost(&c, Some(SONNET), n, p);
+            let want = if n <= 100_000 {
+                AboutTheSame
+            } else {
+                CheaperToStay
+            };
+            assert_eq!(s.cost, want, "{n} {p:?}");
+            assert_eq!(s.cheaper_model, None, "{n} {p:?}");
+            seen += 1;
         }
     }
-    assert_eq!(seen, 101 * 2 * 2);
+    assert_eq!(seen, 101 * 2);
 }
 
 #[test]
 fn a_fresh_or_unpriced_session_is_about_the_same_and_names_nothing() {
     let c = Catalog::builtin();
     for m in [None, Some("no-such-model")] {
-        let s = switch_cost(&c, m, 3_000, OffPeak, Allowed);
+        let s = switch_cost(&c, m, 3_000, OffPeak);
         assert_eq!(s.cost, AboutTheSame, "{m:?}");
         assert_eq!(s.cheaper_model, None, "{m:?}");
     }
@@ -251,14 +209,12 @@ fn a_name_is_carried_only_with_cheaper_to_switch() {
     for m in [SONNET, HAIKU, OPUS, FABLE, FLASH] {
         for n in [1_000, 40_000, 100_001, 200_000, 400_000] {
             for p in [OffPeak, Peak] {
-                for r in [Allowed, NotAllowed] {
-                    let s = switch_cost(&c, Some(m), n, p, r);
-                    assert_eq!(
-                        s.cheaper_model.is_some(),
-                        s.cost == CheaperToSwitch,
-                        "{m} {n} {p:?} {r:?}: {s:?}"
-                    );
-                }
+                let s = switch_cost(&c, Some(m), n, p);
+                assert_eq!(
+                    s.cheaper_model.is_some(),
+                    s.cost == CheaperToSwitch,
+                    "{m} {n} {p:?}: {s:?}"
+                );
             }
         }
     }
@@ -285,6 +241,7 @@ fn every_cases_switch_cost_is_what_the_daemons_rule_says() {
     let set =
         theseus_judge::route_cases::CaseSet::parse(theseus_judge::route_cases::V10, &pack).unwrap();
     let catalog = Catalog::builtin();
+    let mut checked = 0;
     for c in &set.cases {
         let s = &c.state;
         let current = Some(s.current_model.as_str()).filter(|m| !m.is_empty());
@@ -292,11 +249,12 @@ fn every_cases_switch_cost_is_what_the_daemons_rule_says() {
             "peak" => Peak,
             _ => OffPeak,
         };
-        let restricted = match s.restricted_models.as_str() {
-            "allowed" => Allowed,
-            _ => NotAllowed,
-        };
-        let got = switch_cost(&catalog, current, s.est_tokens, period, restricted);
+        // A state under the retired data rule (`not_allowed`) is one no daemon makes since 2026-11-21:
+        // its price excluded restricted-origin models, which no switch price does now.
+        if s.restricted_models != "allowed" {
+            continue;
+        }
+        let got = switch_cost(&catalog, current, s.est_tokens, period);
         assert_eq!(got.cost.as_str(), s.switch_cost, "{}: {s:?}", c.id);
         assert_eq!(
             got.cheaper_model.as_deref().unwrap_or(""),
@@ -304,5 +262,7 @@ fn every_cases_switch_cost_is_what_the_daemons_rule_says() {
             "{}: {s:?}",
             c.id
         );
+        checked += 1;
     }
+    assert!(checked > 0, "no case's state was checked");
 }

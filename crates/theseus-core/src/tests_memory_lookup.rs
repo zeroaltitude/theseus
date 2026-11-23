@@ -98,8 +98,6 @@ pub(crate) fn script(req: &ProviderRequest) -> Scripted {
 }
 
 async fn call(core: &Arc<Core>, sid: &str, input: Value) -> Result<String, String> {
-    // Called past any turn: as from a turn of the owner's in person.
-    crate::view_gate::seat_owner(&core.runner, sid);
     crate::memory_lookup::call(core.clone(), sid, input)
         .await
         .map(|o| o.text)

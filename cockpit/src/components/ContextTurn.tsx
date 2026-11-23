@@ -14,8 +14,7 @@ import { useMode } from '@/lib/mode'
 import { daylightColor } from '@/lib/daylight'
 import { Empty, Field, Panel, Pill } from './ui'
 import { ChartPanel, Swatch, TipArea, TipBody, TipTarget, type LegendItem } from './ChartPanel'
-import { BLOCKS, anatomy, anatomyNote, hasBytes, contextHref, count, episodeHref, namedParams, sensitivityWords, shortIds, thenWords, veiled, when, type BlockKey } from '@/lib/explorer'
-import { useSearchParams } from 'react-router'
+import { BLOCKS, anatomy, anatomyNote, hasBytes, contextHref, count, episodeHref, namedParams, sensitivityWords, shortIds, thenWords, when, type BlockKey } from '@/lib/explorer'
 
 type SetParams = (patch: Record<string, string | null | undefined>) => void
 
@@ -202,11 +201,6 @@ function SourceWords({ id, src }: { id: string; src?: ContextSource }) {
 /** Recall's manifests: each admitted node with why (its rank, its fused score, each source's rank and score), where it
  *  came from, its tokens and excerpt; then the drops by reason. */
 export function Recalls({ recalls, sources, title }: { recalls: RecallManifest[]; sources: Record<string, ContextSource>; title: ReactNode }) {
-  // The episodes' veil (lib/explorer.ts), the same address key: a personal or partner-confidential note's excerpt
-  // waits for a click, its labels shown.
-  const [params] = useSearchParams()
-  const veilOn = params.get('veil') !== 'off'
-  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set())
   if (!recalls.length) return <Panel help="context.recall" title={title} icon={<Sparkles size={13} />}><Empty>no recall recorded for this turn</Empty></Panel>
   return (
     <>
@@ -232,13 +226,7 @@ export function Recalls({ recalls, sources, title }: { recalls: RecallManifest[]
                   <span className="num ml-auto text-ink-faint">{count(it.tokens)} tokens · {it.kind}</span>
                 </div>
                 <div className="mt-0.5 text-[11.5px]"><SourceWords id={it.session_id} src={sources[it.session_id]} /></div>
-                {it.text && (() => {
-                  const imp = sources[it.session_id]?.imported
-                  if (imp && veiled(imp, veilOn, opened)) {
-                    return <button type="button" onClick={() => setOpened(new Set([...opened, imp.session_id]))} className="mt-1 text-[12px] italic text-ink-faint hover:text-ink">{sensitivityWords(imp.sensitivity).word} · veiled on screen: click to read</button>
-                  }
-                  return <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-[12px] text-ink-dim">{it.text}</p>
-                })()}
+                {it.text && <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-[12px] text-ink-dim">{it.text}</p>}
               </li>
             ))}
             {!m.admitted.length && <li><Empty>nothing admitted</Empty></li>}
@@ -270,7 +258,7 @@ function AskForm({ initial, submit }: { initial: string; submit: (t: string) => 
  *  writes nothing. */
 export function AskIndex({ ask, set }: { ask: string; set: SetParams }) {
   const { data, error, isFetching } = useRpc<RecallManifest>('memory.search', { query: ask }, 0, { enabled: ask.trim() !== '' })
-  // The hits' episodes, for their labels and the veil: one read of the named sessions.
+  // The hits' episodes, for their labels: one read of the named sessions.
   const imported = [...new Set((data?.admitted ?? []).map((i) => i.session_id).filter((s) => s.startsWith('ses_ep')))]
   const { data: rows } = useRpc<ImportSessionsResult>('import.sessions', namedParams(imported), 0, { enabled: imported.length > 0 })
   const ids = [...new Set((data?.admitted ?? []).map((i) => i.session_id))]

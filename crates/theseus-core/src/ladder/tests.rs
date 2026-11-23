@@ -308,6 +308,10 @@ async fn the_window_folds_its_oldest_n_at_2n_and_keeps_n() {
     );
 }
 
+/// What a first-level node over a sealed or veiled source said in place of an account, before anything goes
+/// (2026-11-22): no node is made so any more, and one already written is read and shown as it stands.
+const OLD_HIDDEN: &str = "Not summarised: a source of these exchanges is sealed or veiled.";
+
 /// A first-level node written over a sealed or veiled source before anything goes (2026-11-22), as the
 /// store holds it: it still decodes, the ladder reads it, and it is shown as it stands: a node is written
 /// once for its range, so the fold step takes it and asks no model for its exchanges again.
@@ -321,7 +325,7 @@ async fn an_old_node_over_a_sealed_source_still_reads_and_is_shown_as_it_stands(
     let old = json!({
         "id": "fld_old", "place": PLACE, "level": 1, "exchanges": &turns[..N],
         "first_ms": 1_000, "last_ms": last_ms, "his": [], "counted": 0, "children": [],
-        "title": format!("{N} exchanges, not summarised"), "account": fold::HIDDEN,
+        "title": format!("{N} exchanges, not summarised"), "account": OLD_HIDDEN,
         "marks": {"place": PLACE, "audience": "private", "author": "theseus", "outside": false,
                   "sealed": true, "veiled": true},
         "model": null, "writer": 1, "at_ms": 5,

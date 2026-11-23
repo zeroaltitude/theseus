@@ -127,8 +127,8 @@ pub struct Assembled {
     pub faults: u32,
 }
 
-/// Run every selector once, gate every piece, and fit. A band absent in company (slots C and F) is not run
-/// unless the owner is alone. The outer error is a source's read; the inner one is rule 9's overflow.
+/// Run every selector once, gate every piece, and fit; every band runs, whoever is present (2026-11-22). The
+/// outer error is a source's read; the inner one is rule 9's overflow.
 pub fn assemble(
     pov: &PointOfView,
     snap: &dyn Snapshot,

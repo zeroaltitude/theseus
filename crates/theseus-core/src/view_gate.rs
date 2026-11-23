@@ -319,20 +319,3 @@ pub fn test_mark(
         at_ms: 0,
     }
 }
-
-/// Seat `session`'s turn with `present` at `place`, for a test: nothing now (anything goes, 2026-11-22;
-/// no presence is held). Kept for the tests that call it until the sweep.
-#[cfg(test)]
-pub fn seat_for_tests(
-    _runner: &TurnRunner,
-    _session: &str,
-    _turn_id: &str,
-    _present: Present,
-    _place: &str,
-) {
-}
-
-/// Seat the owner alone in `session`, for a test: nothing now (no presence is held). Kept for the tests
-/// that call it until the sweep.
-#[cfg(test)]
-pub fn seat_owner(_runner: &TurnRunner, _session: &str) {}

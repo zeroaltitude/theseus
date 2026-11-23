@@ -33,20 +33,6 @@ pub enum Place {
     Unknown,
 }
 
-impl Place {
-    /// Whether a turn speaking here may draw on a session speaking at `from`:
-    /// a private place on any; a shared place on its own sessions alone.
-    /// Recall reads it no more (anything goes); the core's view gate still
-    /// does until its own cut.
-    pub fn may_draw_on(&self, from: &Place) -> bool {
-        match (self, from) {
-            (Place::Private, _) => true,
-            (Place::Shared(here), Place::Shared(there)) => here == there,
-            _ => false,
-        }
-    }
-}
-
 /// Why a candidate was not admitted (§2.4's table, as 30a builds it; 30b's
 /// labels add `labeled_wrong`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

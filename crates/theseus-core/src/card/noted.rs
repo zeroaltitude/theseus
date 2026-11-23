@@ -88,19 +88,14 @@ fn one_line(text: &str) -> String {
 
 /// The turn's side (`compile_step::tail_blocks`): the day's observations,
 /// attached to the compiled request after the surface's standing records,
-/// their tokens counted in the estimate. Returns the text it attached; `None`,
-/// and the request untouched, where the owner is not alone, or when nothing
-/// was noted today.
+/// their tokens counted in the estimate, wherever the turn is (nothing is withheld by place or presence,
+/// 2026-11-22). Returns the text it attached; `None`, and the request untouched, when nothing was noted
+/// today.
 pub fn attach(
     store: &crate::store::Store,
-    class: theseus_protocol::PlaceClass,
-    place: Option<&str>,
     now_ms: u64,
     compiled: &mut crate::compiler::Compiled,
 ) -> Option<String> {
-    if !crate::capture::owner_alone(class, place) {
-        return None;
-    }
     let all = match crate::card::state::observations(store, Some(ObservationState::Open)) {
         Ok(a) => a,
         Err(e) => {

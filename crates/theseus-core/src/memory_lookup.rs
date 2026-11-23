@@ -54,10 +54,6 @@ pub const FAMILY: &str = "memory";
 /// Its name, as the config's `[policy.tools]` checks it.
 pub const NAMES: [&str; 1] = [LOOKUP];
 
-/// The sensitivities the cockpit's Context page veils
-/// (`cockpit/src/lib/explorer.ts`'s `VEILED`). Nothing here veils by them
-/// any more (anything goes); the replay bench still reads the list.
-pub const VEILED: [&str; 2] = ["personal", "partner-confidential"];
 /// The label of an imported item whose episode's labels could not be read.
 pub const UNREAD: &str = "labels unread";
 

@@ -312,8 +312,8 @@ impl State {
                 let text = summary::rendered(header, text);
                 push(out, "user", vec![json!({"type": "text", "text": text})])
             }
-            // A moved range's one line (theseus-q9b85): where the range began in
-            // a recompile (`moved::in_place`), and at its own place in a tail.
+            // A moved range's one line (theseus-q9b85), at its own place: history of where
+            // the range once went (nothing is left out for it).
             Body::Moved {
                 undoes: None,
                 quiet: false,

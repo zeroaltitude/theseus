@@ -1,7 +1,7 @@
 // The context explorer's pure parts (theseus-7n3e): its state in the address, the imported episodes' filters as
-// `import.sessions` takes them, the topic tree folded from the facets, the veil over sensitive text, a turn's anatomy
+// `import.sessions` takes them, the topic tree folded from the facets, a turn's anatomy
 // by block, and the as-of months. Pure: it imports the protocol's types alone, so node's runner tests it.
-import type { ContextPart, ImportFacet, ImportSessionsParams, ImportedEpisode, OntologyCategory } from '@protocol'
+import type { ContextPart, ImportFacet, ImportSessionsParams, OntologyCategory } from '@protocol'
 
 /** The explorer's tabs, in the rail's order. */
 export const TABS = ['episodes', 'turn', 'search', 'books', 'standing', 'card'] as const
@@ -126,15 +126,6 @@ export function ancestors(path: string | undefined): string[] {
   if (!path) return []
   const parts = path.split('/')
   return parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/'))
-}
-
-/** The sensitivities the veil covers: the owner's personal history and a partner's confidence. */
-export const VEILED = ['personal', 'partner-confidential'] as const
-
-/** Whether an episode's text is veiled on screen: its label is one the veil covers, the veil is on, and it was not
- *  opened. The labels themselves are always shown. */
-export function veiled(e: Pick<ImportedEpisode, 'sensitivity' | 'session_id'>, veilOn: boolean, opened: ReadonlySet<string>): boolean {
-  return veilOn && (VEILED as readonly string[]).includes(e.sensitivity) && !opened.has(e.session_id)
 }
 
 /** A sensitivity in words, and the tone that carries it beside the words. */
