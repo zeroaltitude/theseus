@@ -13,7 +13,9 @@ use super::*;
 /// The fake `op`: `ok` answers every read and injection; `missing` refuses
 /// every reference as an item that is not there; `limited` says the vault's
 /// rate limit, naming an item and a vault in its words; `limited2h` says it
-/// with a reset two hours away; `some` fails an injection and the read of
+/// with a reset two hours away; `twowaits` fails an injection as a missing
+/// item, then refuses the read of `short` for a minute and every other read
+/// for two hours; `some` fails an injection and the read of
 /// `gone`, and answers every other read.
 const FAKE_OP: &str = r#"#!/bin/sh
 D="$(dirname "$0")"
@@ -27,6 +29,12 @@ case "$(cat "$D/mode")" in
   missing) echo "[ERROR] 2026/11/22 12:00:00 \"gone\" isn't an item in the \"V\" vault" >&2; exit 1 ;;
   limited) echo "[ERROR] 2026/11/22 12:00:00 Too many requests reading \"made-up-item-words\" in \"made-up-vault-words\"" >&2; exit 1 ;;
   limited2h) echo "[ERROR] 2026/11/22 12:00:00 Too many requests. Retry after 2 hours" >&2; exit 1 ;;
+  twowaits)
+    if [ "$1" = inject ]; then echo "[ERROR] 2026/11/22 12:00:00 \"gone\" isn't an item in the \"V\" vault" >&2; exit 1; fi
+    case "$3" in
+      *short*) echo "[ERROR] 2026/11/22 12:00:00 Too many requests. Retry after 60 seconds" >&2; exit 1 ;;
+      *) echo "[ERROR] 2026/11/22 12:00:00 Too many requests. Retry after 2 hours" >&2; exit 1 ;;
+    esac ;;
   some)
     if [ "$1" = inject ]; then echo "[ERROR] 2026/11/22 12:00:00 \"gone\" isn't an item in the \"V\" vault" >&2; exit 1; fi
     case "$3" in
@@ -397,3 +405,37 @@ async fn the_refusal_path_says_fixed_words_and_none_of_ops() {
 fn no_method_refreshes_the_vaults_entries() {
     assert!(!theseus_protocol::method::ALL.contains(&"secrets.refresh"));
 }
+
+/// Round 3: an ordinary failed injection, then fallback reads the vault refuses
+/// with different waits (a minute, two hours): the round waits the LONGER, and
+/// each refused entry says its own fixed sentence with no reference before it.
+#[tokio::test]
+async fn differing_fallback_refusals_wait_the_longest() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = Virtual::span(90 * 60);
+    let reads = VaultReads::new(clock.clone());
+    let op = fake_op(dir.path(), "twowaits", reads.clone());
+    let refs = refs(&[("a", "op://V/short/f"), ("b", "op://V/long/f")]);
+    let b = board(&refs, reads);
+    run_until_the_end(&b, refs, op, &clock, u32::MAX).await;
+    assert_eq!(
+        runs(dir.path()),
+        ["inject", "read", "read"],
+        "no round before the two hours"
+    );
+    let failed: BTreeMap<String, String> = b
+        .status()
+        .failed
+        .into_iter()
+        .map(|f| (f.name, f.error))
+        .collect();
+    assert_eq!(
+        failed["a"],
+        "the vault refused the read: its rate limit; it is asked again in 1 min"
+    );
+    assert_eq!(
+        failed["b"],
+        "the vault refused the read: its rate limit; it is asked again in 2 h"
+    );
+}
+
