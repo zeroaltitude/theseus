@@ -1,6 +1,7 @@
 // A sheet: a dialog that names the effect and asks for what the act needs (theseus-jid7t.6). It replaces
-// `window.prompt` and `window.confirm` for the acts that need words. Esc closes it, Ctrl+Enter sends; the act's
-// verb goes through `enabled`, so under the time machine the button is off.
+// `window.prompt` and `window.confirm` for the acts that need words. Esc closes it, Ctrl+Enter sends (the form is the
+// one owner of that key: a field that handled it too would send twice); the act's verb goes through `enabled`, so under
+// the time machine the button is off.
 import { useEffect, type FormEvent, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/format'
@@ -27,7 +28,7 @@ export function Sheet({ title, note, help, verb, submit, busy, disabled, result,
   const send = (e?: FormEvent) => { e?.preventDefault(); if (!disabled && !busy) onSubmit() }
   return (
     <div className="fixed inset-0 z-40 grid place-items-start justify-center bg-black/50 pt-[12vh] backdrop-blur-sm" role="dialog" aria-modal aria-label={title} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <form onSubmit={send} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send() }}
+      <form onSubmit={send} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send() } }}
         className={cn('brass-card flex max-h-[76vh] flex-col gap-2.5 overflow-auto p-4 shadow-2xl', wide ? 'w-[640px]' : 'w-[460px]', 'max-w-[94vw]')}>
         <div className="flex items-center gap-2">
           <h2 className="font-display text-[13px] font-bold uppercase tracking-[0.08em] text-gold">{title}</h2>

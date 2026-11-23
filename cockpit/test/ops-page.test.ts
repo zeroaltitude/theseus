@@ -155,6 +155,19 @@ test('the model menu sends one session.profile at a time: set returns while a ca
   assert.doesNotMatch(src('ops/act.ts'), /out\.current/)
 })
 
+test('one ⌘⏎ in the New task sheet starts one task: the form alone handles the key, and start returns while a call is out', () => {
+  // The brief box once handled ⌘⏎ too, and the key bubbled on to the form's own handler: two task.start calls, two budgets.
+  for (const f of parts.filter(([, s]) => /<Sheet\b/.test(s)).map(([f]) => f)) {
+    const code = src(`ops/${f}`).replace(/\/\/.*$/gm, '')
+    assert.doesNotMatch(code, /onKeyDown=\{[^}]*Enter[^}]*(ctrlKey|metaKey)|onKeyDown=\{[^}]*(ctrlKey|metaKey)[^}]*Enter/, `${f}: a field inside a sheet handles ⌘⏎ itself`)
+  }
+  assert.match(src('ops/Sheet.tsx'), /<form onSubmit=\{send\} onKeyDown=\{\(e\) => \{ if \(e\.key === 'Enter' && \(e\.ctrlKey \|\| e\.metaKey\)\) \{ e\.preventDefault\(\); send\(\) \} \}\}/)
+  const n = src('ops/NewTask.tsx')
+  const start = n.slice(n.indexOf('const start = async'), n.indexOf('return (\n    <Sheet'))
+  assert.match(start, /if \(!p \|\| chosen\?\.grey \|\| out\.current\) return\n\s+out\.current = true\n\s+setBusy\(true\)/)
+  assert.match(start, /finally \{ out\.current = false; setBusy\(false\) \}/)
+})
+
 test('a hold takes the daemon’s clock, never this browser’s', () => {
   assert.doesNotMatch(src('ops/ui.ts').replace(/\/\/.*$/gm, ''), /Date\.now\(\)/)
 })

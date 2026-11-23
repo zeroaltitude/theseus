@@ -4,7 +4,7 @@
 // selected on the board (the page writes it into the address), and a refusal shows the daemon's own words. `N` opens it
 // with the conversation under the cursor as its home. A caller may pass a profile, a brief and a title (the Timeline
 // does for a calendar event, theseus-jid7t.5).
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Send } from 'lucide-react'
 import type { ProfileListResult, SessionInfo, TaskStartResult } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
@@ -30,9 +30,12 @@ export function NewTask({ home: initialHome = '', profile: initialProfile = '', 
   const chosen = choices.find((c) => c.name === profile)
   const bad = dollarsOf(f.budget).bad
   const p = startParams({ ...f, profile })
+  // One start at a time: `busy` is only seen at the next render, so two calls in one event would both pass it.
+  const out = useRef(false)
   const start = async () => {
     if (!on('new_task')) return
-    if (!p || chosen?.grey) return
+    if (!p || chosen?.grey || out.current) return
+    out.current = true
     setBusy(true)
     try {
       const r = await call<TaskStartResult>('task.start', p)
@@ -41,13 +44,13 @@ export function NewTask({ home: initialHome = '', profile: initialProfile = '', 
       onStarted(r.task_id)
     } catch (e: any) {
       setSaid({ ok: false, text: e?.message ?? String(e) })
-    } finally { setBusy(false) }
+    } finally { out.current = false; setBusy(false) }
   }
   return (
     <Sheet title="New task" note="A task works on its own and reports back. It starts at once, with no model turn." help="tasks.new" verb="new_task" submit="Start task" busy={busy}
       disabled={!p || !!chosen?.grey} result={said} onClose={onClose} onSubmit={() => void start()} wide>
       <textarea autoFocus value={f.brief} onChange={set('brief')} rows={3} placeholder="What should it do? A task works on its own and reports back." aria-label="Brief"
-        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && p && !busy) { e.preventDefault(); void start() } }} className={cn(FIELD, 'resize-y')} />
+        className={cn(FIELD, 'resize-y')} />
       <div className="flex flex-wrap items-center gap-2">
         <input value={f.title} onChange={set('title')} placeholder="Title (the brief’s first line)" aria-label="Title" className={cn(FIELD, 'min-w-48 flex-1')} />
         <input value={f.budget} onChange={set('budget')} placeholder="Budget $ (a quarter of what’s left)" aria-label="Budget in dollars" inputMode="decimal" className={cn(FIELD, 'w-52', bad && 'ring-fault/60')} />
