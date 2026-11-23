@@ -1605,3 +1605,19 @@ fn sync_timers_preserve_every_foreign_unit_file() {
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
     }
 }
+
+
+#[test]
+fn sync_timer_follows_the_installed_socket_without_an_environment_override() {
+    let r = rig!();
+    let (code, out) = installed(&r);
+    assert_eq!(code, 0, "{out}");
+    let mut command = r.command(&["sync-timer", "install"]);
+    command.env_remove("THESEUS_SOCKET");
+    let (code, out) = Rig::said(&command.output().unwrap());
+    assert_eq!(code, 0, "{out}");
+    for name in ["theseusd-sync.service", "theseusd-sync-hourly.service"] {
+        let service = std::fs::read_to_string(r.home().join(".config/systemd/user").join(name)).unwrap();
+        assert!(service.contains(&format!("Environment=THESEUS_SOCKET={}", r.socket().display())), "{service}");
+    }
+}

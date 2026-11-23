@@ -738,6 +738,8 @@ cmd_sync_timer() {
   fi
   case $sub in
   install)
+    detect_unit
+    resolve_from_unit
     bin=$(command -v theseus || true)
     [ -n "$bin" ] || bin=$HOME/.local/bin/theseus
     # The sync's PATH is this shell's, as the daemon's unit's is: the exporter it runs is python3, which
