@@ -206,6 +206,8 @@ impl ToolRuntime {
             (Ok((o, img, external)), None) => (ResultStatus::Ok, o.text, o.meta, img, external),
             (Err(m), None) => failure(m, failed),
         };
+        // What a result shows the words of (P0's rule 3): its edges ride in its frame, as a glide's did.
+        let copied = crate::copies::copied(tool.name(), &mut meta);
         // An edit's diagnostics, and what arrived since for the session's
         // pending files, in a private place only (L3); none for a call a
         // cancel settled.
@@ -222,6 +224,8 @@ impl ToolRuntime {
         // A failed call's words ride in its completion, and so in its ledger
         // row, so the backlog can say why it failed.
         let detail = failed_detail(status, &text, dur, &meta);
+        // What the cap leaves of the words it copies (D6 round 6).
+        let copied = self.cap_copied(&call.id, &text, copied);
         let node = self.result_node(
             tc,
             ResultNode {
@@ -274,14 +278,20 @@ impl ToolRuntime {
             Some(_) => Accepted::LateAfterCancel {
                 correlation_id: correlation_id.into(),
             },
-            None => self.complete(tc, &c, &node, crate::rewind::records(&pre_images)?)?,
+            None => {
+                let mut extra = crate::rewind::records(&pre_images)?;
+                extra.extend(crate::copies::edges(&node.id, &copied)?);
+                self.complete(tc, &c, &node, extra)?
+            }
         };
         // A call a cancel settled while it ran: its completion is recorded on
         // the action alone, and the kernel dropped the node that rode with it.
         // The call did run, and this turn still holds what it said, so the
         // transcript gets it as the call's result (theseus-0o8).
         if matches!(accepted, Accepted::LateAfterCancel { .. }) {
-            tc.store.append(&[node.record()?])?;
+            let mut late = vec![node.record()?];
+            late.extend(crate::copies::edges(&node.id, &copied)?);
+            tc.store.append(&late)?;
         }
         Self::announce_end(tc, &node);
         Ok(CallOutcome::Done { status })

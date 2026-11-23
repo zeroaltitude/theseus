@@ -46,6 +46,8 @@ pub struct Opened {
     pub text: String,
     pub outside: bool,
     pub next: Option<Cursor>,
+    /// The nodes whose words it shows: what its result copies (`history_tool::copies`).
+    pub sources: Vec<String>,
 }
 
 /// Records read a store page at a time, and at most in one call.
@@ -112,6 +114,7 @@ pub fn open(lens: &Lens<'_>, id: &str, before: Option<&Cursor>) -> Result<Opened
     }
     Ok(Opened {
         outside: lines.iter().any(|l| l.outside),
+        sources: lines.into_iter().map(|l| l.node).collect(),
         text,
         next,
     })
@@ -343,6 +346,8 @@ struct Line {
     outside: bool,
     theirs: Option<bool>,
     agent: bool,
+    /// The message it shows.
+    node: String,
 }
 
 /// What a page left out, counted.
@@ -445,6 +450,7 @@ fn line_of(lens: &Lens<'_>, _position: u64, n: &Node, left: &mut Left) -> Option
         outside: who == Who::Other,
         theirs,
         agent: who == Who::Agent,
+        node: n.id.clone(),
     })
 }
 

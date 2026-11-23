@@ -215,3 +215,28 @@ fn a_projects_line_counts_its_tasks_and_names_none() {
         with.len() - bare.len()
     );
 }
+
+/// **What the answer's cuts leave decides what it copies** (D6 round 6). With every part asked, history comes
+/// last, and the parts before it can fill the answer's 24,000 characters: a message the answer's cut leaves
+/// out is no copy. The same message where the cut keeps it is one, with where its words are in the answer.
+#[test]
+fn a_message_the_answer_cut_leaves_out_is_no_copy() {
+    let big = "x".repeat(TOTAL_CHARS + 100);
+    let history = || "- the owner: hello\n".to_string();
+    let hello = || vec![("msg_1".to_string(), 13, 18)];
+    let (said, shown) = assemble(vec![
+        (big.clone(), vec![]),
+        (big.clone(), vec![]),
+        (big.clone(), vec![]),
+        (history(), hello()),
+    ]);
+    assert!(
+        said.contains("[cut at 24000 characters"),
+        "the answer is cut"
+    );
+    assert!(!said.contains("hello"), "the history part is cut away");
+    assert!(shown.is_empty(), "no copy: {shown:?}");
+    let (said, shown) = assemble(vec![(history(), hello()), (big, vec![])]);
+    assert!(said.contains("hello"));
+    assert_eq!(shown, hello());
+}

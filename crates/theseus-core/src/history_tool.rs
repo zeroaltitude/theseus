@@ -47,7 +47,9 @@ use theseus_tools::{
 use crate::config::memory::MemoryArm;
 use crate::exchange::{self, Exchange, Opener};
 use crate::recall::when::When;
-use crate::view::history::{HistoryArgs, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES};
+use crate::view::history::{
+    HistoryArgs, HistoryPage, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES,
+};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, PointOfView, Present};
 use crate::Core;
@@ -190,6 +192,7 @@ pub(crate) fn open_any(
             outside: s.outside,
             session: true,
             next: s.next,
+            sources: s.sources,
         });
     }
     let o = open::open_marked(lens, h)?;
@@ -198,16 +201,62 @@ pub(crate) fn open_any(
         outside: o.outside,
         session: false,
         next: None,
+        sources: o.sources,
     })
 }
 
 /// What [`open_any`] gives: the text, whether it shows outside words (its result is marked External,
-/// [`marker`]), whether it was a session's page, and a session page's continuation, as data.
+/// [`marker`]), whether it was a session's page, a session page's continuation, as data, and the nodes whose
+/// words it shows.
 pub(crate) struct OpenedAny {
     pub text: String,
     pub outside: bool,
     pub session: bool,
     pub next: Option<Cursor>,
+    pub sources: Vec<String>,
+}
+
+/// The nodes a page's lines show the words of (`copies`): each line's message when its words are on it, and
+/// its reply when its beginning is; a stored account (`did`) is written from both (`ladder::did::material`), so
+/// a line that shows one links both, whatever the page could read of the message itself (D6 round 5). An
+/// exchange that cannot be read again fails the call: no words go out whose sources are unknown.
+///
+/// Each source carries where its words are in the page's text (`lines`, [`page::render_lines`]): the message
+/// its words' span (and through the account, when a stored account speaks for both), the reply what the line
+/// says you did. A later cut of the text drops a source none of whose words it keeps (D6 round 6).
+fn page_sources(
+    core: &Core,
+    p: &HistoryPage,
+    lines: &[page::LineSpans],
+) -> Result<Vec<Value>, String> {
+    let mut ids = Vec::new();
+    for (l, &(words, did)) in p.lines.iter().zip(lines) {
+        let gone = || {
+            format!(
+                "what the page shows could not be read again: {}",
+                l.handle.0
+            )
+        };
+        let ex = exchange::exchange(&core.store, &l.handle.0)
+            .map_err(|e| format!("{}: {e:#}", gone()))?
+            .ok_or_else(gone)?;
+        let ask = match l.did {
+            Some(_) => (words.0, did.1),
+            None => words,
+        };
+        if !l.his_words.is_empty() || l.did.is_some() {
+            ids.extend(ex.ask.into_iter().map(|id| (id, ask)));
+        }
+        if l.did.is_some() || l.reply_begins.is_some() {
+            ids.extend(ex.reply.into_iter().map(|id| (id, did)));
+        }
+    }
+    if lines.len() != p.lines.len() {
+        return Err("the page's lines could not be placed in its text".into());
+    }
+    Ok((ids.iter())
+        .map(|(id, (from, to))| crate::copies::span(id, *from, *to))
+        .collect())
 }
 
 /// The External marker of a call's result (`external`): set when what it shows holds another person's
@@ -456,28 +505,32 @@ pub(crate) async fn answer(
             handle,
             opened,
             opens,
-        } => ToolOutput {
-            meta: json!({
+        } => {
+            let mut meta = json!({
                 "open": page::flat(&handle), "session": opened.session,
                 "opens": opens, "of": OPENS_PER_TURN,
                 "outside": outside_of(opened.outside, handle.trim()),
-            }),
-            text: opened.text,
-        },
+            });
+            meta[crate::copies::KEY] = json!(opened.sources);
+            ToolOutput {
+                meta,
+                text: opened.text,
+            }
+        }
         Read::Page {
             walked,
             looks,
             resume,
         } => {
             let p = walked.page;
-            ToolOutput {
-                text: page::render(&p, (here, span.as_ref()), looks, resume.as_ref()),
-                meta: json!({
-                    "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
-                    "look": looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
-                    "outside": outside_of(page::shows_another(&p), read_of(a, here)),
-                }),
-            }
+            let mut meta = json!({
+                "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
+                "look": looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
+                "outside": outside_of(page::shows_another(&p), read_of(a, here)),
+            });
+            let (text, lines) = page::render_lines(&p, (here, span.as_ref()), looks, resume.as_ref());
+            meta[crate::copies::KEY] = json!(page_sources(core, &p, &lines)?);
+            ToolOutput { text, meta }
         }
     })
 }
