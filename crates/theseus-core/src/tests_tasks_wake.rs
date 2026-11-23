@@ -339,14 +339,17 @@ const DM_PERSON: [&str; 5] = ["commands", "files", "history", "reminders", "web"
 // And 11169 until `context_history` read a time span (issue 46, the history head): `when`, `from` and `to`
 // in its schema and a longer description, 56 more tokens in the history family, which a DM loads and the
 // terminal defers. Measured on a box before and after that merge (11,169 and 11,225).
-const DM_PERSON_TOKENS: u64 = 11225;
+// And 11225 until `memory.lookup` went (D6 step 6): its definition, its family, its open posture's name and
+// the self card's words naming it, 756 fewer. Measured on a box.
+const DM_PERSON_TOKENS: u64 = 10469;
 const CLI_PERSON: [&str; 2] = ["commands", "files"];
 // And 7800 until the self card's look-before-asking sentence named `context_history` (issue 44): one
 // token more at the terminal, where the tool itself is deferred.
 // And 7801 until every request was the view's (issue 44): 931 more tokens, as in the DM. A guideline.
 // And 8732 until `memory.lookup`'s shorter description and the memory page's version 4, as in the DM
 // (21 fewer, then 24 more).
-const CLI_PERSON_TOKENS: u64 = 8735;
+// And 8735 until `memory.lookup` went (D6 step 6), as in the DM: 755 fewer. Measured on a box.
+const CLI_PERSON_TOKENS: u64 = 7980;
 
 /// The shipped default (theseus-6su0y), which the rigs above turn off: a person's turn in a
 /// private place carries the tasks family without asking for one, and that is the whole of what
