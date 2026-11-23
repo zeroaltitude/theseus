@@ -1919,7 +1919,7 @@ impl TurnRunner {
                 )
                 .await?
             {
-                Ok(c) => Some(c),
+                Ok(c) => c,
                 // A request that could not be made smaller than the one the provider refused for its
                 // size: the window's failure, in its words (nothing earlier could be dropped).
                 Err(f) => match (&overflow, f.class == WINDOW_CLASS) {

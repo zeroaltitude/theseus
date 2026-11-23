@@ -512,12 +512,8 @@ async fn a_shared_place_is_told_the_git_state_too() {
         .bind_place("channel:555000222", &rec.session_id)
         .unwrap();
     submit_in(&r.core, &dir, Some(&rec.session_id)).await;
-    let (tail, _) = tail_of(&r.fake.requests().pop().expect("a request"));
-    assert!(
-        tail.iter()
-            .any(|t| t.starts_with("Date: ") && t.contains("Git: branch harbour")),
-        "{tail:?}"
-    );
+    let facts = facts_of(&r.fake.requests().pop().expect("a request")).expect("the facts");
+    assert!(facts.contains("Git: branch harbour"), "{facts}");
 }
 
 #[tokio::test]
