@@ -140,22 +140,27 @@ impl Queue {
         q.drain(..n).collect()
     }
 
+    /// Restore a failed batch ahead of judgments that arrived during its append.
+    fn requeue(&self, batch: Vec<Judgment>) {
+        let mut q = self.lock();
+        for j in batch.into_iter().rev() {
+            q.push_front(j);
+        }
+    }
+
     /// One frame from the front, unless the stop has flushed. Returns the
     /// judgments still queued.
-    fn write_one(&self, svc: &JudgeService) -> usize {
+    fn write_one(&self, svc: &JudgeService) -> (usize, bool) {
         let _w = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
-        let batch = self.take(MAX_ROWS);
-        if !batch.is_empty() {
-            if self.closed.load(SeqCst) {
-                tracing::debug!(
-                    rows = batch.len(),
-                    "judge: the stop's last checkpoint is written: judgments after it are dropped"
-                );
-            } else {
-                svc.write(&batch);
-            }
+        if self.closed.load(SeqCst) {
+            return (0, false);
         }
-        self.len()
+        let batch = self.take(MAX_ROWS);
+        if !batch.is_empty() && !svc.write(&batch) {
+            self.requeue(batch);
+            return (self.len(), true);
+        }
+        (self.len(), false)
     }
 
     /// The stop's flush: every judgment queued, their staged blobs first as
@@ -173,7 +178,11 @@ impl Queue {
                 self.flushed_frames.store(frames, SeqCst);
                 return written;
             }
-            svc.write(&batch);
+            if !svc.write(&batch) {
+                self.requeue(batch);
+                self.flushed_frames.store(frames, SeqCst);
+                return written;
+            }
             written += batch.len();
             frames += 1;
         }
@@ -215,6 +224,9 @@ impl Drop for Channel {
 pub async fn run(q: Arc<Queue>, svc: Weak<JudgeService>, every: Duration) {
     let mut pass: Option<tokio::time::Instant> = None;
     loop {
+        if q.closed.load(SeqCst) {
+            return;
+        }
         if pass.is_none() {
             // A new pass: the first judgment, then the window for more.
             if !q.wait_for(1, None).await {
@@ -248,9 +260,13 @@ pub async fn run(q: Arc<Queue>, svc: Weak<JudgeService>, every: Duration) {
         };
         let Some(s) = svc.upgrade() else { return };
         let q2 = q.clone();
-        let left = tokio::task::spawn_blocking(move || q2.write_one(&s))
+        let (left, failed) = tokio::task::spawn_blocking(move || q2.write_one(&s))
             .await
-            .unwrap_or(0);
+            .unwrap_or((0, false));
+        if failed {
+            drop(_writing);
+            tokio::time::sleep(every).await;
+        }
         if left == 0 {
             pass = None;
         }
@@ -321,7 +337,7 @@ impl JudgeService {
     /// disk may yet lose (theseus-otny): the writer wrote the frame's before
     /// its wait (theseus-ehkp), so here only those that landed since, and a
     /// stop's.
-    fn write(&self, batch: &[Judgment]) {
+    fn write(&self, batch: &[Judgment]) -> bool {
         self.write_staged_blobs(batch.iter().filter_map(|j| j.context.get("blob")?.as_str()));
         let mut records: Vec<NewRecord> = Vec::new();
         for j in batch {
@@ -376,19 +392,17 @@ impl JudgeService {
         records.extend(self.budget.record());
         let written = self.store.append(&records);
         drop(blocks);
-        // Written (or lost with their rows): the store's from now on.
-        self.marks_written(batch);
-        // Written (or lost with their frame): a press reads them from the
-        // store from now on.
-        self.pending_remove(&batch.iter().map(|j| j.id.clone()).collect::<Vec<_>>());
         if let Err(e) = written {
-            tracing::warn!(error = %format!("{e:#}"), rows = batch.len(), "judge: the judgments' frame was not written");
-            return;
+            tracing::warn!(error = %format!("{e:#}"), rows = batch.len(), "judge: the judgments' frame was not written; retained for retry");
+            return false;
         }
+        self.marks_written(batch);
+        self.pending_remove(&batch.iter().map(|j| j.id.clone()).collect::<Vec<_>>());
         if let Some(f) = filing {
             f.written();
         }
         self.announce_written(batch, shed);
+        true
     }
 
     /// Once the frame is written: each judgment's sentences, its breaker's
@@ -453,4 +467,26 @@ fn call(j: &Judgment) -> JudgeCall<'_> {
 fn where_of(j: &Judgment) -> (Option<&str>, Option<&str>) {
     let s = |k: &str| j.context.get(k).and_then(|v| v.as_str());
     (s("session"), s("turn"))
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use crate::tests_sink_backlog::{settled, written};
+
+    #[tokio::test]
+    async fn a_failed_flush_keeps_its_batch_and_does_not_count_it_written() {
+        let r = crate::tests_judge::rig_with(vec![], None, |_| {});
+        let svc = &r.core.runner.judge;
+        svc.settle(&settled(0));
+        r.core.store.fail_plain_frame(|rows| {
+            rows.iter()
+                .any(|r| r.key.as_deref() == Some("jdg_backlog_00000"))
+        });
+        assert_eq!(svc.flush_sink(), 0, "a failed append wrote no judgments");
+        assert_eq!(svc.unwritten(), 1, "the batch remains available to retry");
+        assert_eq!(written(&r.core.store), 0);
+        assert_eq!(svc.flush_sink(), 1);
+        assert_eq!(svc.unwritten(), 0);
+        assert_eq!(written(&r.core.store), 1, "the recovered batch lands once");
+    }
 }
