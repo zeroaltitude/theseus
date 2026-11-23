@@ -689,6 +689,17 @@ class GateTree(unittest.TestCase):
                 self.assertEqual(calls, [], "it refused before the first compile")
                 self.assertNotIn("gate: ok", out)
 
+    def test_measurements_receive_the_resolved_target(self):
+        target = str(self.root / "target")
+        for script, var in [("size-step.sh", "THESEUS_SIZE_TARGET"),
+                            ("prompt-step.sh", "THESEUS_PROMPT_TARGET")]:
+            self.put(self.root / "scripts" / script,
+                     '#!/bin/sh\nprintf "measurement-' + var + '=%s\\n" "$' + var + '"\n')
+        rc, out, _ = self.gate(CARGO_TARGET_DIR=target)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("measurement-THESEUS_SIZE_TARGET=" + target, out)
+        self.assertIn("measurement-THESEUS_PROMPT_TARGET=" + target, out)
+
     def test_the_floor_uses_an_external_cargo_target(self):
         external = self.root / "elsewhere"
         external.mkdir()
