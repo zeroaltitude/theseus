@@ -99,8 +99,10 @@ and, last, during a long wait; nothing is sent again now. An older build's `keep
 **mode**: a conversation's mode: `ask`, `edits`, `plan`, `auto`. The word used to name more: a pack's *rung*
 (`[routing] rung`, `[judge.packs.*] rung`) and `on_max_loops` are the new names (a routing *task class*, once
 `[routing.classes.<name>]`, is gone: Jev chooses the model).
-That leaves `[memory] mode` (`off`, `shadow`, `canary`, `live`), `[self] mode` (`off` or `act`) and the spend-limit modes
-(`[kernel] spend_limit_mode`, `daily_spend_ceiling_mode`) to rename later.
+That leaves `[memory] mode` (`off` or `live`), `[self] mode` (`off` or `act`) and the spend-limit modes
+(`[kernel] spend_limit_mode`, `daily_spend_ceiling_mode`) to rename later. Legacy memory modes `shadow` and `canary`
+load with a warning and now mean `live`: they put recall in front of the model, not just in a record. This does not
+change the separate judge-pack rungs.
 
 **task class**: retired in 1.0.4 (route.v10, theseus-h66v4). The route pack used to decide which of eight classes a
 message needed (`trivial`, `quick`, `chat`, `sophisticated`, `deep_coding`, `routine_coding`, `review`, `other`), with
