@@ -75,6 +75,9 @@ impl Core {
         if w.calls.iter().any(|c| c.how == "stub") {
             return none("stubbed evidence cannot teach routing");
         }
+        if w.caveats.iter().any(|c| c == super::compare::EXIT_CONTRADICTION) {
+            return none(super::compare::EXIT_CONTRADICTION);
+        }
         if w.same.tests == Some(false) {
             return none("the last test run differs from the original's");
         }

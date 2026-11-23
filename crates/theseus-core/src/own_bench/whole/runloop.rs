@@ -88,7 +88,7 @@ fn whole_row(
     (loops, capped): (u32, Option<String>),
     hands: &Hands<'_>,
     (original, scratch): (&Facts, &scratch::Scratch),
-    caveats: Vec<String>,
+    mut caveats: Vec<String>,
 ) -> WholeReplay {
     let replay = Facts {
         changed: hands.changed.clone(),
@@ -101,6 +101,9 @@ fn whole_row(
             })
             .collect(),
     };
+    if compare::contradicted(original, &replay) {
+        caveats.push(compare::EXIT_CONTRADICTION.into());
+    }
     WholeReplay {
         loops,
         capped,

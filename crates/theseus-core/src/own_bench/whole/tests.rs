@@ -640,6 +640,10 @@ async fn a_judged_match_becomes_a_machine_label_once() {
     });
     w.rig.core.label_whole(&p, &p.profile, &mut stubbed);
     assert!(stubbed.whole.unwrap().label.unwrap().contains("stubbed evidence"));
+    let mut contradicted = r.clone();
+    contradicted.whole.as_mut().unwrap().caveats.push(super::compare::EXIT_CONTRADICTION.into());
+    w.rig.core.label_whole(&p, &p.profile, &mut contradicted);
+    assert!(contradicted.whole.unwrap().label.unwrap().contains("matched command"));
     // The same turn again writes no second label.
     same(&w);
     let again = w.rig.core.turn_replay(p, "cli").await.unwrap();
