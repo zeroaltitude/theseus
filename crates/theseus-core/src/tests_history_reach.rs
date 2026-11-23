@@ -160,7 +160,7 @@ async fn a_session_opened_from_its_own_later_turn_is_found_from_its_message() {
 /// An imported conversation's message, read by opening its session: found from the imported node.
 #[tokio::test]
 async fn an_imported_message_opened_by_its_session_is_found_from_it() {
-    use crate::tests_memory_lookup::{episode, import};
+    use crate::tests_imports::{episode, import};
     let r = rig();
     let ids = import(
         &r.core,
@@ -330,7 +330,7 @@ async fn a_search_page_and_a_span_page_link_their_lines() {
     r.core
         .runner
         .memory
-        .set_ask(crate::tests_memory_lookup::index_over(
+        .set_ask(crate::tests_imports::index_over(
             &r.core,
             vec![said.session.clone()],
         ));
@@ -381,6 +381,95 @@ async fn an_outside_result_keeps_its_mark_and_links_its_source() {
         "the result is marked outside text: {node:?}"
     );
     finds(&reach(&r.core, &ask), &copy, &other);
+}
+
+/// A page line whose opening message is not a person's (a task's first exchange opens with its brief, its
+/// parent's relayed words, `turn/exchange_step.rs`): the page speaks it whatever its origin (`page::spoken`),
+/// so the result links it as it links a person's message (review of D6 round 5).
+#[tokio::test]
+async fn a_page_line_of_a_relayed_message_links_its_node() {
+    use crate::exchange::{exchange_record, touch, Exchange, Opener, Root};
+    use crate::node::{Node, Origin};
+    const PLACE: &str = "channel:brief-room";
+    let r = rig();
+    let task = session(&r.core, None);
+    let mut brief = Node::user(&task, Some("turn_brief_1"), "task:t1", SAID);
+    brief.origin = Origin::Harness;
+    let reply = Node::assistant(
+        &task,
+        "turn_brief_1",
+        0,
+        Body::AssistantMessage {
+            blocks: vec![json!({"type": "text", "text": "Briefed."})],
+            model: "m".into(),
+            provider: "p".into(),
+            stop_reason: None,
+            usage: Default::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+            effort: None,
+        },
+    );
+    let at = theseus_protocol::now_unix_ms();
+    let x = Exchange {
+        turn_id: "turn_brief_1".into(),
+        session_id: task.clone(),
+        place: PLACE.into(),
+        private: false,
+        opened_by: Opener::Message,
+        person: None,
+        start_ms: at,
+        end_ms: Some(at + 500),
+        ask: Some(brief.id.clone()),
+        reply: Some(reply.id.clone()),
+        messages: vec![brief.id.clone()],
+        stop: Some("end_turn".into()),
+        rebuilt: false,
+    };
+    let mut recs = vec![
+        brief.record().unwrap(),
+        reply.record().unwrap(),
+        exchange_record(&x).unwrap(),
+    ];
+    recs.extend(touch(Root::Place(PLACE), "turn_brief_1", &task, at));
+    r.core.store.append(&recs).unwrap();
+    let other = session(&r.core, None);
+    let (copy, text) = read_in(&r.core, &other, json!({ "place": PLACE })).await;
+    assert!(
+        text.contains(WORD),
+        "the relayed message is on the page: {text}"
+    );
+    finds(&reach(&r.core, &brief.id), &copy, &other);
+}
+
+/// The model's search of imported conversations by words (D6 step 6, round 2) links each imported message
+/// it shows: `node.reach` of that message lists the result, as an open of its session's does.
+#[tokio::test]
+async fn an_imported_message_found_by_words_is_found_from_it() {
+    use crate::tests_imports::{episode, import};
+    let r = rig();
+    let ids = import(
+        &r.core,
+        &[episode(8, "personal", "2026-03-03T18:00:00Z", SAID)],
+    );
+    r.core
+        .runner
+        .memory
+        .set_ask(crate::tests_imports::index_over(&r.core, ids.clone()));
+    let node = (r.core.store.session_nodes(&ids[0]).unwrap().into_iter())
+        .map(|(_, n)| n)
+        .find(|n| matches!(&n.body, Body::Imported { text, .. } if text.contains(WORD)))
+        .expect("the imported message")
+        .id;
+    let other = session(&r.core, None);
+    let (copy, text) = read_in(&r.core, &other, json!({ "place": "import", "words": WORD })).await;
+    assert!(text.contains(WORD), "{text}");
+    assert!(text.contains(&ids[0]), "the session to open: {text}");
+    finds(&reach(&r.core, &node), &copy, &other);
 }
 
 /// **A runtime cut never loses a page's link; it can keep one to words it cut** (D6 round 7, the named limit).

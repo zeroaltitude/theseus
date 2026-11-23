@@ -151,7 +151,6 @@ async fn searched(core: &Arc<Core>, p: &MemoryLookupParams) -> Result<MemoryLook
         return Err("memory_search needs words: what to find, as you would say it".into());
     };
     let a = Args {
-        words: Some(words.to_string()),
         from: p.since.clone(),
         to: p.until.clone(),
         book: p.book.clone(),

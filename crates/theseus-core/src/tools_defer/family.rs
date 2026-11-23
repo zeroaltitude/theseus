@@ -39,10 +39,6 @@ pub const FAMILIES: &[(&str, &str)] = &[
     ),
     ("web", "search the web and fetch web pages"),
     (
-        "memory",
-        "look things up in your memory of past conversations",
-    ),
-    (
         TASKS,
         "tasks and sub-sessions, and the task graph; background work with a budget is task_create",
     ),
@@ -178,7 +174,6 @@ pub fn of_wire(wire: &str) -> String {
         "tools_find" => TOOLS,
         "context_history" => HISTORY,
         "file_read" => "files",
-        "memory_lookup" => "memory",
         "card_observed" => CARD,
         "proc_run" => "commands",
         "owner_ask" => "ask",
@@ -336,8 +331,9 @@ impl PlaceKind {
     /// place's own use loads them.
     pub fn defaults(self) -> &'static [&'static str] {
         match self {
-            // A coding session at a terminal: memory, with the files and
-            // commands every place loads. The tasks are the largest family
+            // A coding session at a terminal: the files and commands every
+            // place loads (its memory family went with `memory.lookup`, D6
+            // step 6). The tasks are the largest family
             // (about 6,000 tokens of 15,500), and a coding session's use of
             // them is what the ledger learns. The language servers (`code`,
             // seven tools, about 1,860 tokens) are deferred in every place
@@ -346,8 +342,8 @@ impl PlaceKind {
             // census), and with them the owner's cli read 9,510 tokens of
             // its 8,000; a search loads them, and the ledger's use puts them
             // back where a place calls them.
-            PlaceKind::Cli => &["memory"],
-            // A person's message: memory, reminders, the web. Posting
+            PlaceKind::Cli => &[],
+            // A person's message: reminders, the web. Posting
             // to and reading other places is deferred (theseus-to0xw): a
             // direct message answers in itself, and the family is 855 tokens
             // of the DM's 15,000 budget; a search loads it, and the ledger's
@@ -363,8 +359,8 @@ impl PlaceKind {
             //
             // The history tool loads in both (issue 44, the owner's design: offered on every turn). The
             // terminal's first request has no room for it under its budget, so there it is one search away.
-            PlaceKind::Dm => &["memory", HISTORY, "reminders", "web"],
-            PlaceKind::Channel => &["memory", HISTORY, "tasks", "reminders", "web", "channels"],
+            PlaceKind::Dm => &[HISTORY, "reminders", "web"],
+            PlaceKind::Channel => &[HISTORY, "tasks", "reminders", "web", "channels"],
             // A task's session works: the files and commands. Its wakes and
             // sub-tasks, and the language servers, load once its place kind
             // has used them.
@@ -393,7 +389,6 @@ mod tests {
             ("job_wait", "commands"),
             ("http_fetch", "web"),
             ("web_search", "web"),
-            ("memory_lookup", "memory"),
             ("task_create", "tasks"),
             ("task_wait", "helpers"),
             ("task_fan_out", "helpers"),
@@ -492,11 +487,11 @@ mod tests {
             assert!(!k.defaults().contains(&HELPERS), "{}", k.as_str());
         }
         let was: [(PlaceKind, &[&str]); 5] = [
-            (PlaceKind::Cli, &["memory"]),
-            (PlaceKind::Dm, &["memory", HISTORY, "reminders", "web"]),
+            (PlaceKind::Cli, &[]),
+            (PlaceKind::Dm, &[HISTORY, "reminders", "web"]),
             (
                 PlaceKind::Channel,
-                &["memory", HISTORY, "tasks", "reminders", "web", "channels"],
+                &[HISTORY, "tasks", "reminders", "web", "channels"],
             ),
             (PlaceKind::Task, &[]),
             (PlaceKind::Headless, &["terminals"]),

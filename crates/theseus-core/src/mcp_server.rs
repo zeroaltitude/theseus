@@ -179,6 +179,20 @@ impl Board {
     }
 }
 
+/// The newest reply among a `session.history` answer's nodes, with the vault's values substituted (review
+/// G-R2 r2): MCP's `conversation_status` and `conversation_send` read it (`theseusd::mcp`), and no provider
+/// call is on that path, so the exits' own substitution runs here, as for the memory reads' replies.
+pub fn mcp_last_reply(core: &crate::Core, nodes: &[serde_json::Value]) -> Option<String> {
+    nodes
+        .iter()
+        .rev()
+        .find(|n| {
+            n["kind"] == "assistant_message" && n["text"].as_str().is_some_and(|t| !t.is_empty())
+        })
+        .and_then(|n| n["text"].as_str())
+        .map(|t| core.exits.text(t).0.into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

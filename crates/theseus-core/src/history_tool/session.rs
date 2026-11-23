@@ -7,7 +7,7 @@
 //! - **What is read.** Its people's messages and the model's, and an imported session's messages (its nodes,
 //!   each by its newest record, `import::shown`: an erased one is its tombstone, which has no words, so it reads
 //!   as nothing and is counted). Tool calls and results are left out and counted, and so is an imported message
-//!   of outside text (as `memory.lookup`'s read of a session does); what the harness itself said, or an agent
+//!   of outside text (as `memory.lookup`'s read of a session did); what the harness itself said, or an agent
 //!   relayed, is not spoken (as an exchange's open does not speak it) and is counted.
 //! - **A task's session and a harness session** are both this harness's sessions: the model's messages and any
 //!   person's, as said. A task's brief is its parent's relayed message: counted, not spoken.
@@ -302,6 +302,21 @@ pub(super) fn input_outside(store: &crate::store::Store, turn: &str) -> bool {
     }
 }
 
+/// Whether an imported message is outside text, by the rule a session's page reads it with: another person's
+/// words (`Outside`) are; an agent's are when its session holds outside text it may derive from
+/// ([`holds_outside`], conservative); the operator's are not. Any other node is not asserted clean. The import
+/// search's hits are marked by this one rule (`imports::project`).
+pub(super) fn imported_outside(store: &crate::store::Store, n: &Node) -> bool {
+    match &n.body {
+        Body::Imported { integrity, .. } => match integrity {
+            crate::import::Integrity::Outside => true,
+            crate::import::Integrity::Agent => holds_outside(store, &n.session_id),
+            crate::import::Integrity::Operator => false,
+        },
+        _ => true,
+    }
+}
+
 /// Whether session `id` holds an imported outside message (a page omits them), each record read once, a store
 /// page at a time, at most [`MOST`] records: an imported agent's message beside one may derive from it, which
 /// the page cannot tell. A read that fails, or a session longer than [`MOST`] records, counts as holding one.
@@ -445,8 +460,11 @@ fn line_of(lens: &Lens<'_>, _position: u64, n: &Node, left: &mut Left) -> Option
         Who::Theseus => None,
         _ => Some(who == Who::Other),
     };
+    // A volatile value is read with the time it was true at, never as a bare fact (M6 §2.11).
+    let mark =
+        crate::recall::render::volatile(n, &words).map_or_else(String::new, |m| format!(" · {m}"));
     Some(Line {
-        text: format!("{} · {label}\n{body}", when(n.created_at_ms)),
+        text: format!("{} · {label}{mark}\n{body}", when(n.created_at_ms)),
         outside: who == Who::Other,
         theirs,
         agent: who == Who::Agent,

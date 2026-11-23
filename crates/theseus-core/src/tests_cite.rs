@@ -280,7 +280,7 @@ fn first_item(c: &Core, sid: &str) -> (RecalledRef, String) {
 /// Recall's own rendering reads the same source and gets none either.
 #[tokio::test]
 async fn a_shared_and_an_imported_source_are_cited_and_an_erased_one_never() {
-    use crate::tests_memory_lookup::{episode, import};
+    use crate::tests_imports::{episode, import};
     let r = canary();
     let c = &r.core;
     let shared = session(c, Some(&format!("channel:{PIER}")), &[TIDE]);

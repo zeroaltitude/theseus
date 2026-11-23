@@ -61,6 +61,7 @@ const EVERY: &str = "[model]\n\
                      [policy.tools]\n\
                      \"thread.read\" = \"open\"\n\
                      \"channel.read\" = \"notify\"\n\
+                     \"memory.lookup\" = \"open\"\n\
                      [profiles.quick]\n\
                      provider = \"anthropic\"\n\
                      model = \"claude-haiku-5-5\"\n\

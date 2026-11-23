@@ -1952,7 +1952,6 @@ impl Config {
                 .chain(crate::google::NAMES)
                 .chain(crate::term::NAMES)
                 .chain(crate::lsp::NAMES)
-                .chain(crate::memory_lookup::NAMES)
                 .chain(crate::history_tool::NAMES)
                 .chain(crate::look::NAMES)
                 .chain(crate::profile_tool::NAMES)

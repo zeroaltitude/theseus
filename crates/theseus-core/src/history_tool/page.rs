@@ -217,24 +217,24 @@ impl Lens<'_> {
 
     /// One exchange's line.
     fn line(&self, ex: &Exchange) -> HistoryLine {
-        let words = ex
-            .ask
-            .as_deref()
-            .and_then(|id| node(self.store, id))
-            .map(|n| spoken(&n))
-            .unwrap_or_default();
+        let ask = ex.ask.as_deref().and_then(|id| node(self.store, id));
+        let words = ask.as_ref().map(spoken).unwrap_or_default();
+        let answer = ex.reply.as_deref().and_then(|id| node(self.store, id));
+        // Each text's volatile mark is dated by its source's own time (M6 §2.11): the message's, and the
+        // reply's for its beginning and for a stored account of it; the exchange's start only for a source
+        // that cannot be read.
+        let at = |n: &Option<Node>| n.as_ref().map_or(ex.start_ms, |n| n.created_at_ms);
         let stored = match crate::ladder::did::said(self.store, &ex.turn_id) {
             Ok(crate::ladder::did::Said::Line(d)) => Some(d),
             _ => None,
         };
-        let did = (stored.as_ref())
-            .map(|d| cut(&crate::ladder::did::shown_line(self.store, d), REPLY_CHARS));
-        let reply = ex
-            .reply
-            .as_deref()
+        let did = (stored.as_ref()).map(|d| {
+            let shown = cut(&crate::ladder::did::shown_line(self.store, d), REPLY_CHARS);
+            volatile_marked(shown, at(&answer))
+        });
+        let reply = (answer.as_ref())
             .filter(|_| did.is_none())
-            .and_then(|id| node(self.store, id))
-            .map(|n| spoken(&n))
+            .map(spoken)
             .filter(|r| !r.trim().is_empty());
         // The reply's provenance, not only the opening person's: the stored summary's own mark, or, for the
         // reply's beginning, whether its turn read an External result before it (a failed read counts).
@@ -258,10 +258,10 @@ impl Lens<'_> {
             handle: Handle(ex.turn_id.clone()),
             place: ex.place.clone(),
             at_ms: ex.start_ms,
-            his_words: cut(&words, WORDS_CHARS),
+            his_words: volatile_marked(cut(&words, WORDS_CHARS), at(&ask)),
             did,
             person: ex.person.clone(),
-            reply_begins: reply.map(|r| cut(&r, REPLY_CHARS)),
+            reply_begins: reply.map(|r| volatile_marked(cut(&r, REPLY_CHARS), at(&answer))),
             outside,
         }
     }
@@ -356,6 +356,15 @@ impl Lens<'_> {
 impl History for Lens<'_> {
     fn page(&self, _pov: &PointOfView, a: &HistoryArgs, looks: u32) -> Result<HistoryPage> {
         Ok(self.walk(a, a.before.clone(), looks)?.page)
+    }
+}
+
+/// `shown` with the as-of mark a volatile value takes when it is read back (M6 §2.11,
+/// `recall::render::volatile_at`), dated by `at_ms`: never a bare fact.
+pub(super) fn volatile_marked(shown: String, at_ms: u64) -> String {
+    match crate::recall::render::volatile_at(&shown, at_ms) {
+        Some(m) => format!("{shown} ({m})"),
+        None => shown,
     }
 }
 

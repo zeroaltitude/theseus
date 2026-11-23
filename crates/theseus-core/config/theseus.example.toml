@@ -725,7 +725,6 @@ agent_processes = ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]
 "git.diff"  = "open"
 "git.log"   = "open"
 "text.diff" = "open"
-"memory.lookup" = "open"  # the owner's memory, in a private place only (never offered in a shared one)
 # writers: inherit enforcement; raise or lower per taste
 # "fs.edit"  = "notify"
 # "fs.write" = "notify"

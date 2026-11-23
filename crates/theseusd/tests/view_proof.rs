@@ -309,8 +309,9 @@ fn wait<T>(what: &str, secs: u64, mut f: impl FnMut() -> Option<T>) -> T {
 /// After `/new` in the owner's DM (decision 7: "Nothing of that place's earlier conversation is shown as its
 /// conversation; his own earlier words there are still part of his past"): the next turn's request lays no
 /// real turn (slot G is empty: no exchange as conversation, no reply of Theseus's from before the mark); his
-/// earlier words sit only in blocks headed as his past, testimony; and the memory tool still reads the
-/// conversation from before the mark.
+/// earlier words sit only in blocks headed as his past, testimony; and the history tool still reads the
+/// conversation from before the mark, by opening its session (`memory.lookup`'s read, retargeted when that
+/// tool went, D6 step 6).
 #[test]
 fn after_new_nothing_before_is_the_conversation_his_words_are_his_past_and_memory_answers() {
     let earlier: Arc<Mutex<String>> = Arc::default();
@@ -318,7 +319,7 @@ fn after_new_nothing_before_is_the_conversation_his_words_are_his_past_and_memor
     let r = Rig::new(move |prompt| {
         if prompt.contains("Look up the earlier buoy talk") {
             let sid = asked.lock().unwrap().clone();
-            return vec![("memory_lookup", json!({"session": sid}))];
+            return vec![("context_history", json!({"open": sid}))];
         }
         vec![]
     });
@@ -359,12 +360,12 @@ fn after_new_nothing_before_is_the_conversation_his_words_are_his_past_and_memor
     // asserted non-empty after that choice, so the rule below binds at least one request.
     let after = r.turn(ana, None, "What should we chart next?");
     assert!(!after.is_empty(), "the turn after /new reached the model");
-    // The memory turn runs before the rule on `after` is asserted, so a failure of one does not hide the other.
+    // The history turn runs before the rule on `after` is asserted, so a failure of one does not hide the other.
     let looked = r.turn(ana, None, "Look up the earlier buoy talk.");
     let read = looked.iter().map(tool_results).collect::<String>();
     assert!(
         read.contains(BEFORE),
-        "the memory tool reads the conversation from before /new: {read}"
+        "the history tool reads the conversation from before /new: {read}"
     );
     for q in &after {
         assert_eq!(

@@ -11,7 +11,7 @@ use theseus_memory::gate::Present;
 use theseus_memory::recall::Place;
 
 use crate::places::BoundPlace;
-use crate::tests_memory_lookup::script;
+use crate::tests_imports::script;
 use crate::tests_places::{rig_scripted, session, Rig, LAB};
 use crate::view_gate::{self, OwnerMarks};
 use crate::Core;

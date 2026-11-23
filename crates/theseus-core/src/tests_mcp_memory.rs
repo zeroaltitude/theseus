@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use theseus_protocol::method;
 
 use crate::approval::Surface;
-use crate::tests_memory_lookup::{episode, episodes, import, index_over, script, SHOWN};
+use crate::tests_imports::{episode, episodes, import, index_over, script, SHOWN};
 use crate::tests_places::{rig_scripted, session, turn, Rig, LAB};
 use crate::Core;
 
@@ -200,7 +200,7 @@ async fn a_vault_value_is_substituted_in_every_mcp_memory_reply() {
 
 /// An MCP error's words and `conversation_status`'s last reply carry the vault's values substituted too
 /// (review G-R2 r2): an error that echoes what was asked, and the newest reply as the status reads it
-/// (`memory_lookup::mcp_last_reply` over the session's `session.history`, the MCP's own route).
+/// (`mcp_server::mcp_last_reply` over the session's `session.history`, the MCP's own route).
 #[tokio::test]
 async fn an_mcp_error_and_the_status_reply_carry_the_vault_value_substituted() {
     let secret = "marsh-kelp-vault-value-77";
@@ -278,7 +278,7 @@ async fn an_mcp_error_and_the_status_reply_carry_the_vault_value_substituted() {
     .await
     .unwrap();
     let nodes = h["nodes"].as_array().cloned().unwrap_or_default();
-    let last = crate::memory_lookup::mcp_last_reply(&r.core, &nodes).expect("a reply");
+    let last = crate::mcp_server::mcp_last_reply(&r.core, &nodes).expect("a reply");
     assert!(
         !last.contains(secret) && last.contains("[redacted:marsh_vault]"),
         "{last}"
