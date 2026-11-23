@@ -175,6 +175,7 @@ impl TurnRunner {
         let more = self.tools.chat_acts.offers(
             t.tc.session_id,
             t.tc.turn_id,
+            t.arrived,
             t.tc.class,
             t.continuation || t.self_authored,
         );

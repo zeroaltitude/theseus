@@ -58,6 +58,7 @@ impl Core {
             && self.owner_input(p, &who);
         self.runner.tools.chat_acts.heard.stage(
             session,
+            conn.arrived,
             crate::chat_acts::Said {
                 text: p.input.clone(),
                 who,

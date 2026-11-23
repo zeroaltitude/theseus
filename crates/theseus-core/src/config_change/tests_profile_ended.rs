@@ -39,6 +39,7 @@ fn steered(r: &Rig) -> String {
 fn the_owner_speaks(r: &Rig, sid: &str) {
     r.core.runner.tools.chat_acts.heard.stage(
         sid,
+        std::time::Instant::now(),
         Said {
             text: "stay on haiku".into(),
             who: crate::test_support::owner_cli(),

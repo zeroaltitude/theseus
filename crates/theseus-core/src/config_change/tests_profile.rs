@@ -54,6 +54,7 @@ fn called(r: &Rig, sid: &str) -> Vec<String> {
 fn the_owner_speaks(r: &Rig, sid: &str) {
     r.core.runner.tools.chat_acts.heard.stage(
         sid,
+        std::time::Instant::now(),
         Said {
             text: "stay on haiku".into(),
             who: crate::test_support::owner_cli(),
@@ -346,6 +347,7 @@ async fn a_message_that_is_not_the_owners_own_input_holds_nothing() {
     let sid = r.session();
     r.core.runner.tools.chat_acts.heard.stage(
         &sid,
+        std::time::Instant::now(),
         Said {
             text: "stay on haiku".into(),
             who: crate::test_support::stranger(),

@@ -823,18 +823,26 @@ async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
     let sid = session(&r.core);
     let acts = &r.core.runner.tools.chat_acts;
     let offered = |turn: &str| -> Vec<String> {
+        let arrived = std::time::Instant::now();
         acts.heard.stage(
             &sid,
+            arrived,
             crate::chat_acts::Said {
                 text: "whatever he said".into(),
                 who: crate::approval::Answerer::from("owner"),
                 owner_input: true,
             },
         );
-        acts.offers(&sid, turn, crate::places::PlaceClass::Private, false)
-            .iter()
-            .map(|d| d["name"].as_str().unwrap_or_default().to_string())
-            .collect()
+        acts.offers(
+            &sid,
+            turn,
+            arrived,
+            crate::places::PlaceClass::Private,
+            false,
+        )
+        .iter()
+        .map(|d| d["name"].as_str().unwrap_or_default().to_string())
+        .collect()
     };
 
     // Nothing waiting and nothing held: the sync tool alone, because the
@@ -864,15 +872,23 @@ async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
     })
     .await;
     let acts = &r.core.runner.tools.chat_acts;
+    let arrived = std::time::Instant::now();
     acts.heard.stage(
         &sid,
+        arrived,
         crate::chat_acts::Said {
             text: "yes".into(),
             who: crate::approval::Answerer::from("owner"),
             owner_input: true,
         },
     );
-    let defs = acts.offers(&sid, "turn_q", crate::places::PlaceClass::Private, false);
+    let defs = acts.offers(
+        &sid,
+        "turn_q",
+        arrived,
+        crate::places::PlaceClass::Private,
+        false,
+    );
     let names: Vec<&str> = defs.iter().filter_map(|d| d["name"].as_str()).collect();
     assert!(
         names.contains(&"chat_answer_question"),
@@ -891,11 +907,23 @@ async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
     // A continuation — a wake, a task's report — is offered none of them and
     // claims no message of his.
     assert!(acts
-        .offers(&sid, "turn_2", crate::places::PlaceClass::Private, true)
+        .offers(
+            &sid,
+            "turn_2",
+            arrived,
+            crate::places::PlaceClass::Private,
+            true
+        )
         .is_empty());
     // Nor is a shared place.
     assert!(acts
-        .offers(&sid, "turn_3", crate::places::PlaceClass::Shared, false)
+        .offers(
+            &sid,
+            "turn_3",
+            arrived,
+            crate::places::PlaceClass::Shared,
+            false
+        )
         .is_empty());
 
     // And none of the three is ever in a place's kept catalog.
@@ -1274,18 +1302,26 @@ async fn answering_a_question_that_is_no_longer_waiting_refuses_and_answers_noth
 /// message of the owner's own.
 fn offered_in(r: &Rig, sid: &str, turn: &str) -> Vec<String> {
     let acts = &r.core.runner.tools.chat_acts;
+    let arrived = std::time::Instant::now();
     acts.heard.stage(
         sid,
+        arrived,
         crate::chat_acts::Said {
             text: "whatever he said".into(),
             who: crate::approval::Answerer::from("owner"),
             owner_input: true,
         },
     );
-    acts.offers(sid, turn, crate::places::PlaceClass::Private, false)
-        .iter()
-        .map(|d| d["name"].as_str().unwrap_or_default().to_string())
-        .collect()
+    acts.offers(
+        sid,
+        turn,
+        arrived,
+        crate::places::PlaceClass::Private,
+        false,
+    )
+    .iter()
+    .map(|d| d["name"].as_str().unwrap_or_default().to_string())
+    .collect()
 }
 
 /// The item tools, the list among them, are a private place's alone (issue 13, review round 2's B3, the model's
@@ -1316,15 +1352,17 @@ async fn the_item_tools_are_offered_in_a_private_place_alone() {
     .expect("project.attach");
     let acts = &r.core.runner.tools.chat_acts;
     let items_offered = |turn: &str, class: crate::places::PlaceClass, continuation: bool| {
+        let arrived = std::time::Instant::now();
         acts.heard.stage(
             &sid,
+            arrived,
             crate::chat_acts::Said {
                 text: "whatever he said".into(),
                 who: crate::approval::Answerer::from("owner"),
                 owner_input: true,
             },
         );
-        acts.offers(&sid, turn, class, continuation)
+        acts.offers(&sid, turn, arrived, class, continuation)
             .iter()
             .filter_map(|d| d["name"].as_str())
             .any(|n| n == "project_item_list")
