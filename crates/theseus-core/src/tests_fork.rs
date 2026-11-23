@@ -1783,6 +1783,11 @@ async fn a_forks_words_search_from_a_cursor_crowded_past_its_point_says_it_may_b
     // its control starts above every hit.
     let above = json!({"words": "tide", "before": {"at_ms": first_later + 1_000, "turn_id": ""}});
     let source = call(s.clone(), above).await.unwrap().text;
-    assert!(source.contains("turn_tide_119"), "the control: {source}");
+    // The cap keeps the 100 best-ranked hits, the first 100 written (tide 0 to 99); the source pages them.
+    assert!(
+        source.contains("turn_tide_099") && source.contains("turn_tide_000"),
+        "the control: {source}"
+    );
+    assert!(!source.contains("turn_tide_119"), "past the cap: {source}");
     assert!(!source.contains("may be incomplete"), "{source}");
 }
