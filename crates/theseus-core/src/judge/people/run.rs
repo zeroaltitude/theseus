@@ -451,7 +451,8 @@ impl JudgeService {
         let mut spent_all = 0;
         let mut ids = Vec::new();
         let share = need / judgments.len().max(1) as u64;
-        for j in judgments {
+        for (i, j) in judgments.iter().enumerate() {
+            let share = share + u64::from(i == 0) * (need % judgments.len() as u64);
             let (called, failed, unknown) = match &j.outcome {
                 Outcome::Answered => (true, false, false),
                 Outcome::Failed { usage_unknown, .. } => (true, true, *usage_unknown),
@@ -480,4 +481,26 @@ fn retry_after(e: &JevError) -> u64 {
 /// A record of `kind` META, keyed.
 pub(crate) fn meta<T: serde::Serialize>(key: &str, value: &T) -> anyhow::Result<NewRecord> {
     NewRecord::json(kinds::META, Some(key), value)
+}
+
+#[cfg(test)]
+mod reservation_tests {
+    #[tokio::test]
+    async fn a_batch_releases_its_whole_reservation() {
+        use crate::judge::spend::{self, Class, BLOCK_MICROS};
+        let _clock = crate::test_support::pin_mid_period();
+        let r = crate::tests_judge::rig_with(vec![], None, |_| {});
+        let svc = &r.core.runner.judge;
+        let today = spend::local_day(theseus_protocol::now_unix_ms());
+        assert!(svc.reserve(&today, 5, Class::Live));
+        let mut judgments: Vec<_> = (0..3).map(crate::tests_sink_backlog::settled).collect();
+        for j in &mut judgments {
+            j.cost_micros = Some(0);
+        }
+        svc.settle_round(&today, 5, &judgments);
+        assert!(
+            !svc.budget.needs_frame(&today, BLOCK_MICROS, Class::Live),
+            "no fractional reservation remains in flight"
+        );
+    }
 }
