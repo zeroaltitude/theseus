@@ -111,7 +111,7 @@ pub fn classify(
     };
     Classified {
         class,
-        repeat: if matches!(verb.as_str(), "GET" | "HEAD" | "PUT" | "PATCH") {
+        repeat: if matches!(verb.as_str(), "GET" | "HEAD" | "PUT") {
             Repeat::Safe
         } else {
             Repeat::NonRepeatable
@@ -246,6 +246,14 @@ mod tests {
         assert_eq!(
             classify("GET", "/spreadsheets/x", None, &[]).repeat,
             Repeat::Safe
+        );
+    }
+
+    #[test]
+    fn generic_patch_requests_need_an_idempotence_guarantee() {
+        assert_eq!(
+            classify("PATCH", "/resources/item", None, &[]).repeat,
+            Repeat::NonRepeatable
         );
     }
 }
