@@ -3,7 +3,7 @@
 //! [`Effect`]s, with the finished lines in [`Chat::out`] for the scrollback
 //! (the runner writes them once and never again).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crossterm::event::KeyEvent;
@@ -146,6 +146,8 @@ pub struct Call {
 
 #[derive(Debug)]
 pub enum Effect {
+    /// Retry a failed history reconciliation with the connection backoff.
+    RecoverLater(String),
     Call(Call),
     /// Write this directory's history file.
     SaveHistory(Vec<String>),
@@ -216,6 +218,10 @@ pub struct Chat {
     pub offline: bool,
     pub(super) recovery_epoch: u64,
     pub(super) recovering: HashSet<String>,
+    /// Highest transcript node shown in each visited session.
+    pub(super) shown_nodes: HashMap<String, u64>,
+    /// Last turn actually rendered here, not merely observed while away.
+    pub(super) shown_turns: HashMap<String, String>,
     /// Tasks this session started that are open, from the task changes seen
     /// since the chat began (cli-tasks brings the board's own count).
     pub tasks: u32,
@@ -311,6 +317,8 @@ impl Chat {
             offline: false,
             recovery_epoch: 0,
             recovering: HashSet::new(),
+            shown_nodes: HashMap::new(),
+            shown_turns: HashMap::new(),
             tasks: 0,
             task_open: Default::default(),
             board: Default::default(),

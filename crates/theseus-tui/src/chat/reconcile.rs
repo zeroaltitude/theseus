@@ -1,7 +1,6 @@
 //! Re-read turn state and transcript after a gap; never resend an uncertain submit.
 use super::live::{Live, Phase, TurnLive};
 use super::state::{call, Chat, Effect, Purpose};
-use super::style::Sty;
 use serde_json::{json, Value};
 use theseus_protocol::{method, Event, EventsLost, RpcError, SessionHistoryResult};
 
@@ -77,11 +76,10 @@ impl Chat {
             .ok()
             .and_then(|v| serde_json::from_value::<SessionHistoryResult>(v).ok());
         let Some(h) = h.filter(|h| h.session.session_id == sid && h.turn_running.is_some()) else {
-            self.say_plain(
-                Sty::Yellow,
-                "could not reconcile the conversation; queued messages remain unsent",
+            self.flash(
+                "could not reconcile the conversation; retrying before sending queued messages",
             );
-            return Vec::new();
+            return vec![Effect::RecoverLater(sid.into())];
         };
         let running = h.turn_running == Some(true);
         if self.ours(sid) {
@@ -89,7 +87,26 @@ impl Chat {
             self.released = false;
             self.question = h.pending_confirms.first().cloned();
             self.ask_sync();
-            self.history(sid, &h);
+            // Turn results carry no node position. Resolve the last rendered
+            // turn's nodes here. The event-dedup set also contains unshown
+            // background replies, so it cannot stand in for this cursor.
+            let ended_at = h
+                .nodes
+                .iter()
+                .filter(|n| {
+                    n.turn_id
+                        .as_ref()
+                        .is_some_and(|id| self.shown_turns.get(sid) == Some(id))
+                })
+                .map(|n| n.position)
+                .max()
+                .unwrap_or(0);
+            let shown = self.shown_nodes.entry(sid.into()).or_default();
+            *shown = (*shown).max(ended_at);
+            let shown = *shown;
+            for n in h.nodes.iter().filter(|n| n.position > shown) {
+                self.node_line(n);
+            }
         } else {
             self.recovered_away(sid, &h, running);
         }

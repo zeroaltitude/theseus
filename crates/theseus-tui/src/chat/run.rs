@@ -47,6 +47,12 @@ enum Woke {
     History(Option<Result<(), String>>),
 }
 
+fn retry_ms(attempt: u32) -> u64 {
+    RETRY_FIRST_MS
+        .saturating_mul(1u64 << attempt.saturating_sub(1).min(16))
+        .min(RETRY_MAX_MS)
+}
+
 pub struct Runner {
     pub chat: Chat,
     conn: Option<Conn>,
@@ -55,6 +61,7 @@ pub struct Runner {
     pending: HashMap<Id, Purpose>,
     attempt: u32,
     retry_at: Option<Instant>,
+    recovery_retries: HashMap<String, (Option<Instant>, u32)>,
     screen: Screen,
     /// Where the terminal's bytes go: stdout in the binary, a buffer in tests.
     pub out: Box<dyn Write + Send>,
@@ -97,6 +104,7 @@ impl Runner {
             pending: HashMap::new(),
             attempt: 0,
             retry_at: None,
+            recovery_retries: HashMap::new(),
             screen: Screen::default(),
             out: Box::new(std::io::sink()),
             frame: FRAME,
@@ -228,6 +236,7 @@ impl Runner {
         [self.retry_at, self.draw_at, chat]
             .into_iter()
             .flatten()
+            .chain(self.recovery_retries.values().filter_map(|(at, _)| *at))
             .min()
     }
 
@@ -236,6 +245,24 @@ impl Runner {
         if self.retry_at.is_some_and(|at| at <= now) {
             self.retry_at = None;
             self.reconnect().await;
+        }
+        self.recovery_retries
+            .retain(|sid, _| self.chat.recovering.contains(sid));
+        let due: Vec<_> = self
+            .recovery_retries
+            .iter_mut()
+            .filter_map(|(sid, (at, _))| {
+                if at.is_some_and(|at| at <= now) {
+                    *at = None;
+                    Some(sid.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for sid in due {
+            let effects = self.chat.recover_session(&sid);
+            self.apply(effects).await;
         }
         if self.draw_at.is_some_and(|at| at <= now) {
             self.draw_at = None;
@@ -267,15 +294,14 @@ impl Runner {
     fn lost_connection(&mut self) {
         self.conn = None;
         self.pending.clear();
+        self.recovery_retries.clear();
         self.schedule_retry();
         self.dirty = true;
     }
 
     fn schedule_retry(&mut self) {
         self.attempt += 1;
-        let wait = RETRY_FIRST_MS
-            .saturating_mul(1u64 << (self.attempt - 1).min(16))
-            .min(RETRY_MAX_MS);
+        let wait = retry_ms(self.attempt);
         self.retry_at = Some(Instant::now() + Duration::from_millis(wait));
         self.chat.disconnected();
     }
@@ -296,6 +322,8 @@ impl Runner {
             Message::Request(_) => Vec::new(),
         };
         self.apply(effects).await;
+        self.recovery_retries
+            .retain(|sid, _| self.chat.recovering.contains(sid));
         self.dirty = true;
     }
 
@@ -317,6 +345,11 @@ impl Runner {
     async fn apply(&mut self, effects: Vec<Effect>) {
         for e in effects {
             match e {
+                Effect::RecoverLater(sid) => {
+                    let (at, attempt) = self.recovery_retries.entry(sid).or_insert((None, 0));
+                    *attempt = attempt.saturating_add(1);
+                    *at = Some(Instant::now() + Duration::from_millis(retry_ms(*attempt)));
+                }
                 Effect::Quit => self.quit = true,
                 Effect::Bell => self.write(b"\x07"),
                 Effect::Look(path, position, at_ms) => {

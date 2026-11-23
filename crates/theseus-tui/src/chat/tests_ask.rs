@@ -237,8 +237,15 @@ async fn a_message_that_starts_with_y_is_a_message() {
         "the y was text"
     );
     // The turn waits on the question, so the message waits in the dock; it
-    // goes as a message when the turn ends.
+    // goes as a message when the question is resolved and the turn ends.
     r.shows("queued › yes, but keep the rounding").await;
+    r.daemon.notify(
+        "confirm.resolved",
+        json!({
+            "session_id": SID, "correlation_id": "act_88", "approved": false,
+            "option": "decline", "expired": false
+        }),
+    );
     r.ends_turn("trn_1", "");
     r.asked("turn.submit", 1).await;
     assert_eq!(

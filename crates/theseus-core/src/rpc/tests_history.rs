@@ -283,6 +283,11 @@ async fn a_pending_confirms_card_is_on_every_page() {
     let all = history(&core, &sid, None, None, None);
     let card = serde_json::to_value(&all.pending_confirms).unwrap();
     assert_eq!(all.pending_confirms.len(), 1);
+    assert_eq!(
+        all.turn_running,
+        Some(false),
+        "a parked confirm has released the turn hold"
+    );
     assert_eq!(all.pending_confirms[0].correlation_id, corr);
     assert!(
         !all.pending_confirms[0].reason.is_empty(),

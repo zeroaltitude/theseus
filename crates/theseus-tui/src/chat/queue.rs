@@ -19,6 +19,7 @@ impl Chat {
     /// message has been sent and its turn has not begun.
     pub(super) fn must_queue(&self) -> bool {
         self.live.turn.is_some()
+            || self.question.is_some()
             || self.released
             || self
                 .session

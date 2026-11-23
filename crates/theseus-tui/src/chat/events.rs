@@ -367,6 +367,10 @@ impl Chat {
 
     /// One stored node, as the transcript shows it.
     pub(super) fn node_line(&mut self, n: &NodeInfo) {
+        if let Some(sid) = &self.session {
+            let shown = self.shown_nodes.entry(sid.clone()).or_default();
+            *shown = (*shown).max(n.position);
+        }
         match n.kind.as_str() {
             "user_message" if !n.text.trim().is_empty() => {
                 if self.view.is_none() {
@@ -722,6 +726,8 @@ impl Chat {
         if !self.ended.insert(r.turn_id.clone()) {
             return;
         }
+        self.shown_turns
+            .insert(r.session_id.clone(), r.turn_id.clone());
         match r.stop_reason == "stopped" {
             true => self.say_answers_ended(Some(&r.turn_id), "stopped"),
             false => drop(self.answers.remove(&r.turn_id)),
