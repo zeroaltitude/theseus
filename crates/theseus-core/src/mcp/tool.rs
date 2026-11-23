@@ -262,10 +262,14 @@ impl Tool for McpTool {
                         }
                         (false, e) => e.to_string(),
                     };
+                    let mut meta = json!({"server": server.name, "tool": name, "mcp_ms": ms,
+                        "outcome_unknown": unknown});
+                    if let Some(source) = &external {
+                        meta["external"] = json!(source.url);
+                    }
                     Err(ToolFailure {
                         message: format!("{canonical}: {then}"),
-                        meta: json!({"server": server.name, "tool": name, "mcp_ms": ms,
-                            "outcome_unknown": unknown}),
+                        meta,
                     })
                 }
             }

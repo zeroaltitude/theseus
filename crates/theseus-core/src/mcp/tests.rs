@@ -1189,3 +1189,24 @@ fn a_prompts_messages_become_text_attachments_and_uris() {
 }
 
 mod ceilings;
+
+#[tokio::test]
+async fn a_protocol_error_is_still_the_servers_outside_text() {
+    let r = rig(Mode::RpcError);
+    r.core.mcp.start();
+    r.core
+        .mcp
+        .server("fake")
+        .unwrap()
+        .client(Duration::from_secs(10))
+        .await
+        .map(|_| ())
+        .unwrap();
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, "echo an error").await;
+    let (status, text, external) = result_of(&r.core, &sid, "m1");
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(text.contains("outside-rpc-error-fixture"), "{text}");
+    assert!(external, "the server's error is its text too");
+    r.core.mcp.stop();
+}

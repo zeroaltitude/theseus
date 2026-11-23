@@ -54,6 +54,8 @@ pub enum Mode {
     /// (`notifications/prompts/list_changed`).
     ChangePrompts,
     Error,
+    /// Calls fail at the JSON-RPC envelope, rather than inside a tool result.
+    RpcError,
 }
 
 impl Mode {
@@ -75,6 +77,7 @@ impl Mode {
             "change-tools" => Some(Mode::ChangeTools),
             "change-prompts" => Some(Mode::ChangePrompts),
             "error" => Some(Mode::Error),
+            "rpc-error" => Some(Mode::RpcError),
             _ => None,
         }
     }
@@ -369,6 +372,13 @@ impl Fake {
                 id,
                 code::INVALID_PARAMS,
                 &format!("Unknown tool: {}", jsonrpc::clip(name, 80)),
+            ));
+        }
+        if cfg.mode == Mode::RpcError {
+            return Outcome::Answer(jsonrpc::error_response(
+                id,
+                code::INVALID_PARAMS,
+                "outside-rpc-error-fixture",
             ));
         }
         if cfg.mode == Mode::Slow {
