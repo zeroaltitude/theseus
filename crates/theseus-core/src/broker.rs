@@ -36,12 +36,13 @@
 //!   by default). A call that is given a secret runs at no looser a posture.
 //! - A secret with no grant is never handed out, so the AWS keys stay behind
 //!   the op floor (decision 15).
-//! - A value is never written: not to the spool, the WAL, a node, the ledger,
-//!   or a log. The ledger's `secret.granted` names the program, the variable,
-//!   and the secret, and health counts each grant's uses.
+//! - The broker writes no secret value. Its `secret.granted` row names the
+//!   program, variable and secret, and health counts each grant's uses.
+//!   A granted program's output is recorded raw by design; known vault values
+//!   are redacted on copies that leave the machine (`exits`).
 //!
-//! At L0 a job runs as the operator's user, so this keeps a value out of every
-//! record and every other program's environment. It is not a boundary against
+//! At L0 a job runs as the operator's user. The broker passes the value only
+//! in the granted program's environment. It is not a boundary against
 //! a hostile job of the same user (§3.9, "What the gate is not"); L1 is (M4).
 
 use std::collections::{BTreeMap, BTreeSet};
