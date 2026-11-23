@@ -448,3 +448,29 @@ fn content_probes_never_execute_repository_filter_commands() {
         "repository probe ran a filter before approval"
     );
 }
+
+#[test]
+#[cfg(unix)]
+fn a_tracked_path_beyond_a_symlink_parent_is_dirty() {
+    let s = a_repo("symlink-parent");
+    let outside = Scratch::new("symlink-destination");
+    let parent = s.path().join("a");
+    std::fs::create_dir(&parent).unwrap();
+    let path = parent.join("f");
+    write(&path, "identical committed bytes\n");
+    git(s.path(), &["add", "a/f"]);
+    git(s.path(), &["commit", "-q", "-m", "track nested file"]);
+    let repo = gix::discover(s.path()).unwrap();
+    assert_eq!(
+        GitCli::raw_tracked(&repo, s.path(), &path),
+        Some(Tracked::Clean)
+    );
+    std::fs::rename(&path, outside.path().join("f")).unwrap();
+    std::fs::remove_dir(&parent).unwrap();
+    std::os::unix::fs::symlink(outside.path(), &parent).unwrap();
+    assert_eq!(
+        GitCli::raw_tracked(&repo, s.path(), &path),
+        Some(Tracked::Dirty),
+        "git cannot restore a tracked path beyond a symlink"
+    );
+}

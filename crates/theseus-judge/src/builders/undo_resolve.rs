@@ -299,6 +299,12 @@ impl GitCli {
         let Some(entry) = tree.lookup_entry_by_path(rel).ok()? else {
             return Some(Tracked::Dirty);
         };
+        // Git cannot restore a tracked file through a symlinked directory.
+        for parent in path.ancestors().skip(1).take_while(|p| *p != root) {
+            if parent.symlink_metadata().ok()?.file_type().is_symlink() {
+                return Some(Tracked::Dirty);
+            }
+        }
         let md = match path.symlink_metadata() {
             Ok(md) => md,
             Err(_) => return Some(Tracked::Dirty),
