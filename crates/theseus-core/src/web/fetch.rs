@@ -216,7 +216,12 @@ impl Web {
                     "Not fetched: {first} took longer than {secs} s ([tools.web] timeout_secs), \
                      so the fetch stopped."
                 ))
-            })??;
+            })?
+            .map_err(|mut failure| {
+                // Redirects and HTTP failures may quote the remote peer's words.
+                failure.meta["external"] = json!(first.as_str());
+                failure
+            })?;
         let kind = kind(&got.mime, &got.body);
         let mut text = header(&got, kind);
         let mut media = None;

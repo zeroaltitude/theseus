@@ -172,6 +172,7 @@ fn route(path: &str, headers: &BTreeMap<String, String>, port: u16) -> Reply {
         "/to-private" => redirect("http://10.0.0.1/secret"),
         "/to-metadata" => redirect("http://169.254.169.254/latest/meta-data/"),
         "/to-loopback" => redirect(&format!("http://127.0.0.1:{port}/plain.txt")),
+        "/outside-redirect" => redirect("data:text/plain,outside-location-fixture"),
         "/to-nowhere" => redirect("http://said so.test/words-7c1e"),
         "/search" => brave(headers),
         p if p.starts_with("/r/") => match p[3..].parse::<u32>() {
@@ -878,4 +879,15 @@ async fn no_key_a_refused_key_and_a_rate_limit_are_results_the_model_reads() {
     assert!(!busy.contains("detail-7c1e"));
     // Only the two searches that were handed a key reached the API.
     assert_eq!(s.paths().len(), 2);
+}
+
+#[tokio::test]
+async fn refused_redirects_keep_their_outside_attribution() {
+    let server = serve().await;
+    let web = web(server.port, WebToolsConfig::default(), true);
+    for path in ["/outside-redirect", "/r/6", "/to-private"] {
+        let url = format!("http://site.test:{}{path}", server.port);
+        let failure = fetch(&web, json!({"url": url}), false).await.unwrap_err();
+        assert_eq!(failure.meta["external"], url, "{}", failure.message);
+    }
 }
