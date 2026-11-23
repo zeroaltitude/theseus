@@ -439,3 +439,38 @@ async fn differing_fallback_refusals_wait_the_longest() {
     );
 }
 
+/// Round 3: a first round that can never fit the day's ceiling (two vault
+/// references, worst four entries, at a ceiling of 3) is not slept on for
+/// ever: its vault entries fail at once in fixed words, no `op` runs, a local
+/// entry beside them still resolves, and the board settles (`theseusd check`
+/// waits on that).
+#[tokio::test]
+async fn a_batch_that_can_never_fit_fails_plainly_and_settles() {
+    std::env::set_var("THESEUS_VAULT_BACKOFF_FITS", "made-up-local-value");
+    let dir = tempfile::tempdir().unwrap();
+    let clock = Virtual::span(3600);
+    let reads = VaultReads::new(clock.clone());
+    let op = fake_op(dir.path(), "ok", reads.clone());
+    let refs = refs(&[
+        ("a", "op://V/a/f"),
+        ("b", "op://V/b/f"),
+        ("local", "env:THESEUS_VAULT_BACKOFF_FITS"),
+    ]);
+    let b = board(&refs, reads);
+    tokio::spawn(resolve_with(b.clone(), refs, op, pace(clock.clone(), 3)));
+    b.wait_settled(Duration::from_secs(10))
+        .await
+        .expect("the board settles");
+    assert!(runs(dir.path()).is_empty(), "no op ran");
+    let st = b.status();
+    assert_eq!(st.ready, ["local"]);
+    for f in &st.failed {
+        assert_eq!(
+            f.error,
+            "more vault entries than the daemon reads in a day: 2 distinct references, the day's ceiling \
+             is 3"
+        );
+    }
+    assert_eq!(st.failed.len(), 2);
+}
+
