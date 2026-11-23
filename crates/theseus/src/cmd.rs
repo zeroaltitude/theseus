@@ -594,7 +594,9 @@ pub(crate) async fn follow_resumed(
         };
         let Some(Message::Notification(n)) = msg else {
             if msg.is_none() {
-                return Ok(());
+                return Err(anyhow!(
+                    "connection closed while following {session_id}; outcome is unknown"
+                ));
             }
             continue;
         };
