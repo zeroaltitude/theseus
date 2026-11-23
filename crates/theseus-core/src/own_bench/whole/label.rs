@@ -5,7 +5,8 @@
 //! of work this is, and so which profile runs it. A replay on the profile one
 //! rung down that Jev judged `same` or `better` at `[route_bench] whole_label_bar`,
 //! with the facts not against it (the same last test result when there was one,
-//! the same paths changed, no cap ending it), says the work could run there. The
+//! the same paths changed, no cap ending it, no stubbed calls, and no differing
+//! or unknown matched-command exit), says the work could run there. The
 //! label is the class whose profile list leads with that profile (the first of
 //! `CLASS_ORDER` that does; the class the pack gave when it is one of them),
 //! written on the turn's route judgment as a `judge.label` row of source

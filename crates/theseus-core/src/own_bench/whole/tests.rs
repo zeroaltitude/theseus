@@ -700,8 +700,7 @@ fn assert_unlabelable_evidence(w: &World, p: &TurnReplayParams, r: &TurnReplayRe
         .contains("matched command"));
 }
 
-/// No label when the words say weaker, when the tests differ, or when the
-/// replay ended at a cap: each says why in the row.
+/// No label when the words say weaker: the row says why.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_weak_or_contradicted_replay_writes_no_label() {
     let _g = SERIAL.lock().await;
@@ -738,6 +737,52 @@ async fn a_weak_or_contradicted_replay_writes_no_label() {
     );
     assert!(labels(&w).is_empty());
     *TEST_PROGRAMS.lock().unwrap() = None;
+}
+
+fn assert_label_veto(capped: Option<&str>, tests: bool, why: &str) {
+    use theseus_protocol::own_bench::{ReplayVerdict, WholeReplay, WholeSame};
+
+    let jev = FakeJev::start().unwrap();
+    let w = judged_world(&jev);
+    let p = params(&w, "turn_label_veto");
+    plant_route(&w, &p.turn, "opus");
+    let mut r = TurnReplayResult {
+        verdict: Some(ReplayVerdict {
+            same_or_better: 1.0,
+            ..Default::default()
+        }),
+        whole: Some(WholeReplay {
+            capped: capped.map(str::to_string),
+            same: WholeSame {
+                files: true,
+                tests: Some(tests),
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    w.rig.core.label_whole(&p, &p.profile, &mut r);
+    assert_eq!(r.whole.as_ref().unwrap().label.as_deref(), Some(why));
+    assert!(labels(&w).is_empty());
+    // With only the veto cleared, this same evidence really writes a label.
+    let whole = r.whole.as_mut().unwrap();
+    whole.capped = None;
+    whole.same.tests = Some(true);
+    w.rig.core.label_whole(&p, &p.profile, &mut r);
+    assert_eq!(labels(&w).len(), 1);
+}
+
+#[tokio::test]
+async fn differing_tests_veto_a_whole_replay_label() {
+    assert_label_veto(None, false, "none: the last test run differs from the original's");
+}
+
+#[tokio::test]
+async fn a_cap_vetoes_a_whole_replay_label() {
+    for cap in ["loops", "seconds", "usd"] {
+        assert_label_veto(Some(cap), true, &format!("none: the replay ended at its {cap} cap"));
+    }
 }
 
 /// Which option a rung is: the `model` option whose catalog model the rung's
