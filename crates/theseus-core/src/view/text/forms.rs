@@ -22,6 +22,10 @@ use super::{labels, literal};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Voice {
     Person,
+    /// The harness's own line stored in a turn (its clock line, a nudge, the progress line, a helper's or
+    /// the day ceiling's note: `content::harness_own`). It stands where a person's message does, and is never
+    /// headed or prefixed as a person's words.
+    Harness,
     Theseus,
     Call,
     Result,
@@ -33,7 +37,7 @@ impl Voice {
     /// The window's role of a part; `None` for a mark, which is never a turn of its own.
     pub fn role(self) -> Option<Role> {
         match self {
-            Self::Person => Some(Role::Person),
+            Self::Person | Self::Harness => Some(Role::Person),
             Self::Theseus => Some(Role::Theseus),
             Self::Call => Some(Role::ToolCall),
             Self::Result => Some(Role::ToolResult),
@@ -73,7 +77,13 @@ pub fn whole(nodes: &[Node]) -> Vec<Said> {
     nodes
         .iter()
         .filter_map(|n| match &n.body {
-            Body::UserMessage { .. } => Some(Said::of(Voice::Person, n, crate::recall::text_of(n))),
+            Body::UserMessage { .. } => {
+                let voice = match crate::content::harness_own(n.origin, n.author.as_deref()) {
+                    true => Voice::Harness,
+                    false => Voice::Person,
+                };
+                Some(Said::of(voice, n, crate::recall::text_of(n)))
+            }
             Body::AssistantMessage { blocks, .. } => {
                 let text = crate::provider::text_of(blocks);
                 (!text.is_empty()).then(|| Said::of(Voice::Theseus, n, text))
@@ -307,6 +317,7 @@ pub fn text(parts: &[Said]) -> String {
 pub fn said_text(p: &Said) -> String {
     match p.voice {
         Voice::Person => format!("person: {}", p.text),
+        Voice::Harness => format!("harness: {}", p.text),
         Voice::Theseus => format!("Theseus: {}", p.text),
         Voice::Call => format!("call: {}", p.text),
         Voice::Result => match &p.outside {
@@ -371,7 +382,9 @@ pub fn try_fit(parts: Vec<Said>, max: u64, handle: &Handle) -> Result<Vec<Said>,
     let mut keep: Vec<bool> = units
         .iter()
         .enumerate()
-        .map(|(k, u)| parts[u[0]].voice == Voice::Person || Some(k) == last_reply)
+        .map(|(k, u)| {
+            matches!(parts[u[0]].voice, Voice::Person | Voice::Harness) || Some(k) == last_reply
+        })
         .collect();
     let size = |keep: &[bool]| tokens_of(runs(&units, keep, &bytes, handle).1);
     let needed = size(&keep);
@@ -478,7 +491,7 @@ pub fn ends(part: &Said, head: u64, tail: u64, handle: &Handle) -> Said {
     let per = crate::catalog::TokenRates::CLAUDE.text;
     let (h, t) = ((head as f64 * per) as usize, (tail as f64 * per) as usize);
     let s = &part.text;
-    if part.voice == Voice::Person || s.len() <= h.saturating_add(t) {
+    if matches!(part.voice, Voice::Person | Voice::Harness) || s.len() <= h.saturating_add(t) {
         return part.clone();
     }
     let a = floor_char(s, h);
