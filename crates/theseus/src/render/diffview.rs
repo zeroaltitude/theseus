@@ -26,9 +26,22 @@ const WIDTH: usize = 160;
 
 /// `text` with its marks as sentinels.
 fn marked(text: &str, marks: &[(usize, usize)]) -> String {
+    let clipped = text.chars().count() > WIDTH;
+    let end = if clipped {
+        text.char_indices()
+            .nth(WIDTH - 1)
+            .map_or(text.len(), |(i, _)| i)
+    } else {
+        text.len()
+    };
+    let text = &text[..end];
     let mut out = String::new();
     let mut at = 0;
     for &(a, b) in marks {
+        if a >= end {
+            break;
+        }
+        let b = b.min(end);
         out.push_str(&text[at..a]);
         out.push(MARK_ON);
         out.push_str(&text[a..b]);
@@ -36,6 +49,9 @@ fn marked(text: &str, marks: &[(usize, usize)]) -> String {
         at = b;
     }
     out.push_str(&text[at..]);
+    if clipped {
+        out.push('…');
+    }
     out
 }
 
@@ -128,7 +144,7 @@ pub fn diff_lines(unified: &str, pad: &str) -> Vec<Line> {
             _ => (Tag::Plain, ' ', r.new),
         };
         let no = no.map(|n| n.to_string()).unwrap_or_default();
-        let text = marked(&clip(&r.text, WIDTH), &r.marks);
+        let text = marked(&r.text, &r.marks);
         out.push(Line::new(tag, format!("{pad}{no:>4} {sign} {text}")));
         shown += 1;
     }
@@ -234,6 +250,43 @@ mod tests {
 
     fn texts(l: &[Line]) -> Vec<String> {
         l.iter().map(|l| plain(&l.text)).collect()
+    }
+
+    #[test]
+    fn long_changed_rows_clip_marks_at_utf8_boundaries() {
+        for prefix in ["a".repeat(200), "é".repeat(200), "é".repeat(155)] {
+            let diff = format!("--- f\n+++ f\n@@ -1 +1 @@\n-{prefix} oldword\n+{prefix} newword\n");
+            let lines = diff_lines(&diff, "");
+            for line in lines
+                .iter()
+                .filter(|l| matches!(l.tag, Tag::Add | Tag::Del))
+            {
+                assert!(plain(&line.text).ends_with('…'));
+                assert_eq!(
+                    line.text.matches(MARK_ON).count(),
+                    line.text.matches(MARK_OFF).count()
+                );
+            }
+            let confirm = ConfirmRequest {
+                preview: Some(ConfirmPreview {
+                    kind: ConfirmPreview::DIFF.into(),
+                    body: diff.clone(),
+                }),
+                ..ConfirmRequest::default()
+            };
+            assert!(!preview_lines(&confirm).is_empty());
+            let ended = ToolEnded {
+                diff: Some(ToolDiff {
+                    path: "f".into(),
+                    unified: diff,
+                    added: 1,
+                    removed: 1,
+                    truncated: false,
+                }),
+                ..ToolEnded::default()
+            };
+            assert!(!ended_lines(&ended).is_empty());
+        }
     }
 
     #[test]
