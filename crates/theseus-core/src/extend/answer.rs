@@ -67,6 +67,22 @@ fn require_current_proposal(manifest: Option<&Manifest>, correlation_id: &str) -
     Ok(())
 }
 
+fn manifest_for_answer(
+    mut m: Option<Manifest>,
+    correlation_id: &str,
+    approve: bool,
+) -> Result<Option<Manifest>> {
+    if approve {
+        require_current_proposal(m.as_ref(), correlation_id)?;
+    } else if m
+        .as_ref()
+        .is_some_and(|m| m.question.as_deref() != Some(correlation_id))
+    {
+        m = None;
+    }
+    Ok(m)
+}
+
 impl Core {
     /// The answer to `a`, an `extend.ack` question still waiting, by `by`
     /// through `via`.
@@ -92,16 +108,9 @@ impl Core {
             .writes
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut m: Option<Manifest> = self.store.get_meta(&manifest_key(&name, &digest))?;
+        let m: Option<Manifest> = self.store.get_meta(&manifest_key(&name, &digest))?;
         let approve = matches!(answer, Answer::Ack);
-        if approve {
-            require_current_proposal(m.as_ref(), &a.correlation_id)?;
-        } else if m
-            .as_ref()
-            .is_some_and(|m| m.question.as_deref() != Some(&a.correlation_id))
-        {
-            m = None;
-        }
+        let mut m = manifest_for_answer(m, &a.correlation_id, approve)?;
         let note = answer.note();
         if let Some(m) = &mut m {
             m.state = if approve { "acked" } else { "declined" }.into();

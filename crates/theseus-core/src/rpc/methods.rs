@@ -74,21 +74,7 @@ impl Core {
                     .collect(),
                 ..self.config_gate.status()
             },
-            startup: {
-                let mut phases = self.startup_log.snapshot();
-                if let Some(p) = phases.iter_mut().find(|p| p.name == "day_ceiling") {
-                    if let Some(line) = self
-                        .runner
-                        .day_read_failure
-                        .lock()
-                        .unwrap()
-                        .health(self.kernel.day_ceiling().now())
-                    {
-                        p.detail["read_error"] = serde_json::Value::String(line);
-                    }
-                }
-                phases
-            },
+            startup: self.startup_health(),
             usage_total: totals.usage,
             provider_errors: self.provider_errors.load(Ordering::Relaxed),
             tui_notify: self.cfg.tui.notify.clone(),
@@ -155,6 +141,22 @@ impl Core {
             cache: Some(self.cache_health()),
             threads: self.threads_health(),
         }
+    }
+
+    fn startup_health(&self) -> Vec<theseus_protocol::StartupPhase> {
+        let mut phases = self.startup_log.snapshot();
+        if let Some(p) = phases.iter_mut().find(|p| p.name == "day_ceiling") {
+            if let Some(line) = self
+                .runner
+                .day_read_failure
+                .lock()
+                .unwrap()
+                .health(self.kernel.day_ceiling().now())
+            {
+                p.detail["read_error"] = serde_json::Value::String(line);
+            }
+        }
+        phases
     }
 
     /// Health's session totals (theseus-lv2): from the index's projection,
