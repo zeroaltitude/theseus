@@ -246,7 +246,8 @@ fn a_rephrased_preference_is_kept_with_its_own_notice_not_counted_as_a_repeat() 
     // Notices are live protocol events, not stored conversation messages.
     // Subscribe and read the acknowledgement before the second capture can run.
     let sock = UnixStream::connect(r.sock()).unwrap();
-    sock.set_read_timeout(Some(Duration::from_secs(40))).unwrap();
+    sock.set_read_timeout(Some(Duration::from_secs(40)))
+        .unwrap();
     let watch = json!({"jsonrpc": "2.0", "id": 1, "method": "session.watch",
         "params": {"session_id": first_turn["session_id"]}});
     (&sock).write_all(format!("{watch}\n").as_bytes()).unwrap();
