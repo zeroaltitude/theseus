@@ -40,8 +40,17 @@ impl TurnRunner {
     pub(super) async fn env_tail(&self, t: &Turn<'_>, compiled: &mut Compiled) {
         #[cfg(test)]
         super::view_step::at_env_tail(t.tc.session_id);
+        if let Some(text) = self.env_text(t).await {
+            Self::attach_hint(compiled, &text);
+        }
+    }
+
+    /// The date, the git state where the session may have one, and the
+    /// sentences of the place the turn was spoken in; none where
+    /// `[project] tail_facts` is off.
+    pub(super) async fn env_text(&self, t: &Turn<'_>) -> Option<String> {
         if !self.cfg.project.tail_facts() {
-            return;
+            return None;
         }
         let mut text = date_line(theseus_protocol::now_unix_ms());
         if t.tc.place().class != crate::places::PlaceClass::Shared && self.tools.enabled() {
@@ -73,7 +82,7 @@ impl TurnRunner {
             text.push('\n');
             text.push_str(&line);
         }
-        Self::attach_hint(compiled, &text);
+        Some(text)
     }
 }
 

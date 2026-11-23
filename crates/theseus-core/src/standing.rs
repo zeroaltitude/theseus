@@ -265,18 +265,25 @@ impl Block {
         })
     }
 
+    /// The surface's records as the turn shows them (`turn::now_step`), none
+    /// when it has none. A test's seam drops them, so the check that fails a
+    /// request without them can be seen to fail it.
+    pub fn here_text(&self) -> Option<&str> {
+        #[cfg(test)]
+        if DROP_THE_TAIL.load(std::sync::atomic::Ordering::SeqCst) {
+            return None;
+        }
+        (!self.text.is_empty()).then_some(self.text.as_str())
+    }
+
     /// Put the block in the request's tail, after the cached prefix, in the
     /// last message's last block, and count its tokens in the estimate. The
     /// next loop's request carries it again, so it is never a cache write.
     pub fn attach_here(&self, compiled: &mut Compiled) {
-        #[cfg(test)]
-        if DROP_THE_TAIL.load(std::sync::atomic::Ordering::SeqCst) {
+        let Some(text) = self.here_text() else {
             return;
-        }
-        if self.text.is_empty() {
-            return;
-        }
-        crate::task_graph::view::attach_text(&mut compiled.request, &self.text);
+        };
+        crate::task_graph::view::attach_text(&mut compiled.request, text);
         let t = (self.text.len() as u64).div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
         compiled.est_tokens += t;
         compiled.estimate.tokens += t;

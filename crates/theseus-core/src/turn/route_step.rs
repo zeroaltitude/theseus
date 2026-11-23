@@ -38,6 +38,8 @@
 
 mod correct;
 mod fan_out_cue;
+/// The cue's line, for the harness's block beside the message (`now_step`).
+pub(super) use fan_out_cue::LINE as FAN_OUT_LINE;
 
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};

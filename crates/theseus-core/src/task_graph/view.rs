@@ -25,8 +25,9 @@ use theseus_protocol::tasks::TaskViewSummary;
 
 use super::{depth, line, scope, TaskRecord, OWNERS_MARK};
 
-/// The view's bound, in tokens (estimated at `BYTES_PER_TOKEN`).
-pub const MAX_TOKENS: u64 = 1500;
+/// The view's bound, in tokens (estimated at `BYTES_PER_TOKEN`): lowered from 1,500 so it fits the harness's
+/// part of the block beside the message (`turn::now_step::BUDGET_TOKENS`, issue 46).
+pub const MAX_TOKENS: u64 = 800;
 /// The estimate's figure: conservative for English and ids.
 pub const BYTES_PER_TOKEN: u64 = 3;
 
@@ -245,16 +246,13 @@ pub fn attach_text(request: &mut crate::provider::ProviderRequest, text: &str) {
     blocks.push(json!({"type": "text", "text": text}));
 }
 
-/// The turn's side (`compile_step`): the session's view, attached to the
-/// compiled request, its tokens counted in the estimate; a check's is
-/// restricted by its basis (theseus-w8ys). Returns what it
-/// showed; None, and the request untouched, when the scope holds no task.
-pub fn attach(
+/// The session's view as the turn shows it; a check's is restricted by its
+/// basis (theseus-w8ys). None when the scope holds no task.
+pub fn shown(
     store: &crate::store::Store,
     kernel: &theseus_kernel::Kernel,
     session: &crate::session::SessionRecord,
-    compiled: &mut crate::compiler::Compiled,
-) -> Option<TaskViewSummary> {
+) -> Option<View> {
     let session_id = session.session_id.as_str();
     let check = session.task.as_ref().and_then(|t| t.check.as_ref());
     let tasks = match super::all_shown(store, kernel) {
@@ -265,7 +263,19 @@ pub fn attach(
             return None;
         }
     };
-    let view = render_for(&tasks, session_id, check)?;
+    render_for(&tasks, session_id, check)
+}
+
+/// The turn's side (`compile_step`): [`shown`], attached to the compiled
+/// request, its tokens counted in the estimate. Returns what it showed; None,
+/// and the request untouched, when the scope holds no task.
+pub fn attach(
+    store: &crate::store::Store,
+    kernel: &theseus_kernel::Kernel,
+    session: &crate::session::SessionRecord,
+    compiled: &mut crate::compiler::Compiled,
+) -> Option<TaskViewSummary> {
+    let view = shown(store, kernel, session)?;
     attach_to(&mut compiled.request, &view);
     let t = view.summary.tokens;
     compiled.est_tokens += t;

@@ -98,6 +98,24 @@ pub fn attach(
     now_ms: u64,
     compiled: &mut crate::compiler::Compiled,
 ) -> Option<String> {
+    let text = shown(store, class, place, now_ms)?;
+    crate::task_graph::view::attach_text(&mut compiled.request, &text);
+    let t = tokens(&text);
+    compiled.est_tokens += t;
+    compiled.estimate.tokens += t;
+    compiled.estimate.estimated += t;
+    compiled.estimate.upper += t + t * crate::compiler::MARGIN_PERCENT / 100;
+    Some(text)
+}
+
+/// The day's observations as the turn shows them; `None` where the owner is
+/// not alone, or when nothing was noted today.
+pub fn shown(
+    store: &crate::store::Store,
+    class: theseus_protocol::PlaceClass,
+    place: Option<&str>,
+    now_ms: u64,
+) -> Option<String> {
     if !crate::capture::owner_alone(class, place) {
         return None;
     }
@@ -109,12 +127,5 @@ pub fn attach(
             return None;
         }
     };
-    let text = render(&all, now_ms)?;
-    crate::task_graph::view::attach_text(&mut compiled.request, &text);
-    let t = tokens(&text);
-    compiled.est_tokens += t;
-    compiled.estimate.tokens += t;
-    compiled.estimate.estimated += t;
-    compiled.estimate.upper += t + t * crate::compiler::MARGIN_PERCENT / 100;
-    Some(text)
+    render(&all, now_ms)
 }

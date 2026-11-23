@@ -197,6 +197,24 @@ pub fn render(
     })
 }
 
+/// The session's project slice as the turn shows it; None for a conversation
+/// with no project, or one whose project is gone.
+pub fn shown(
+    store: &crate::store::Store,
+    kernel: &theseus_kernel::Kernel,
+    session: &crate::session::SessionRecord,
+) -> Option<Shown> {
+    let project = session.project.as_deref()?;
+    let tasks = match crate::task_graph::all_shown(store, kernel) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(error = %format!("{e:#}"), "the project's slice was not read");
+            return None;
+        }
+    };
+    render(&tasks, project, kernel.now_ms(), &crate::wake::local)
+}
+
 /// The turn's side (`compile_step`): the session's project slice, attached
 /// to the compiled request after the commitments' block (the last block),
 /// its tokens counted in the estimate. None, and the request untouched, for
@@ -207,15 +225,7 @@ pub fn attach(
     session: &crate::session::SessionRecord,
     compiled: &mut crate::compiler::Compiled,
 ) -> Option<ProjectSliceSummary> {
-    let project = session.project.as_deref()?;
-    let tasks = match crate::task_graph::all_shown(store, kernel) {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::warn!(error = %format!("{e:#}"), "the project's slice was not read");
-            return None;
-        }
-    };
-    let shown = render(&tasks, project, kernel.now_ms(), &crate::wake::local)?;
+    let shown = shown(store, kernel, session)?;
     crate::task_graph::view::attach_text(&mut compiled.request, &shown.text);
     let t = shown.summary.tokens;
     compiled.est_tokens += t;

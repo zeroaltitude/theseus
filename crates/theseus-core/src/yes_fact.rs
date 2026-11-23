@@ -173,10 +173,7 @@ pub(crate) fn attach(
     place: Option<&str>,
     compiled: &mut crate::compiler::Compiled,
 ) -> Option<String> {
-    if !crate::capture::owner_alone(class, place) {
-        return None;
-    }
-    let text = staged.text_for(session, turn)?;
+    let text = shown(staged, session, turn, class, place)?;
     crate::task_graph::view::attach_text(&mut compiled.request, &text);
     let t = tokens(&text);
     compiled.est_tokens += t;
@@ -184,6 +181,21 @@ pub(crate) fn attach(
     compiled.estimate.estimated += t;
     compiled.estimate.upper += t + t * crate::compiler::MARGIN_PERCENT / 100;
     Some(text)
+}
+
+/// The fact staged for this turn as the turn shows it; `None` where the owner
+/// is not alone, or when no fact was staged for this turn.
+pub(crate) fn shown(
+    staged: &Staged,
+    session: &str,
+    turn: &str,
+    class: theseus_protocol::PlaceClass,
+    place: Option<&str>,
+) -> Option<String> {
+    if !crate::capture::owner_alone(class, place) {
+        return None;
+    }
+    staged.text_for(session, turn)
 }
 
 #[cfg(test)]
