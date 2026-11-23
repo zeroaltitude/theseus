@@ -417,10 +417,16 @@ impl Core {
     /// The report stored for `date`, rebuilt from its rows (and its file
     /// written again when it is missing). None when no row is that day's.
     pub fn stored_report(&self, date: &str) -> anyhow::Result<Option<LearningReport>> {
-        let names: Vec<String> = theseus_judge::pack::embedded()
+        // Every version a report may have been stored for: the embedded ones, and the ones this build retired
+        // (`pack::RETIRED`, by version name, as `report_key` keys a row), so a day's report of a retired version
+        // is still read whole (XD3 round 2).
+        let mut names: Vec<String> = theseus_judge::pack::embedded()
             .as_ref()
             .map(|ps| ps.iter().map(|p| p.name()).collect())
             .unwrap_or_default();
+        names.extend(theseus_judge::pack::RETIRED.iter().map(|n| n.to_string()));
+        names.sort();
+        names.dedup();
         let mut found: BTreeMap<String, (u64, Value)> = BTreeMap::new();
         for name in names {
             let Some(r) = self.store.ledger_by_key(&report_key(date, &name))? else {
