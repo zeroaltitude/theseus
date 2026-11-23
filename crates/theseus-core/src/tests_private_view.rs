@@ -45,6 +45,11 @@ pub(crate) const ASKED: &str = "What happened to the hives?";
 /// When the episode was said: a fixed noon, so its stamp names one day.
 const EPISODE_MS: u64 = 1_767_787_200_000;
 
+/// The golden's clock: Sunday 2026-11-22, 12:00 UTC, the day it was written (a Sunday from UTC-11 to UTC+11).
+/// Its turns are stamped from the clock, and the DM's request lays the CLI session's turn with its weekday ("the
+/// owner said, in "local", Sun …"), so on the wall clock the golden held only on Sundays (X190).
+const GOLDEN_NOW_MS: u64 = 1_795_348_800_000;
+
 /// The rig with memory live, and the owner's material: the records, the
 /// person (with guidance naming them), and an earlier session that holds the
 /// episode, which the stand-in index answers; and the ids a request names
@@ -268,6 +273,9 @@ pub(crate) fn body(req: &ProviderRequest, dir: &Path, ids: &[String]) -> String 
 /// request.
 #[tokio::test]
 async fn a_private_sessions_request_is_byte_identical() {
+    // The clock on the golden's day before anything is stamped, and back on the wall clock when the test ends.
+    theseus_protocol::time::move_clock_to(GOLDEN_NOW_MS);
+    let _clock = crate::test_support::ClockPin;
     let (r, ids) = owners_rig(|_| {});
     let c = &r.core;
     let tmp = r.root.parent().unwrap().to_path_buf();
