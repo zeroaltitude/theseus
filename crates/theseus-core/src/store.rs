@@ -1986,8 +1986,8 @@ pub(crate) mod tests {
             .collect();
         assert!(!old.is_empty(), "the fixture holds an old recompiled row");
         assert_eq!(
-            theseus_protocol::ledger::LedgerKind::parse(&old[0].kind),
-            Some(theseus_protocol::ledger::LedgerKind::ContextRecompiled)
+            theseus_protocol::LedgerKind::parse(&old[0].kind),
+            Some(theseus_protocol::LedgerKind::ContextRecompiled)
         );
         assert!(
             old.iter().all(|r| r.data["compilation_id"].is_string()),
