@@ -143,6 +143,23 @@ impl Lens<'_> {
         Ok(!self.cut.is_empty() && !self.cut.proven_inside(self.store, ex)?)
     }
 
+    /// Whether a fork's cut holds any exchange of the words search's whole hit set (`words`), whatever cursor a
+    /// walk starts from. False with no words or no cut, at no cost; a hit whose exchange is not on record is not
+    /// held; a read that fails is an error.
+    fn holds_a_hit(&self) -> Result<bool> {
+        let (Some(words), false) = (&self.words, self.cut.is_empty()) else {
+            return Ok(false);
+        };
+        for turn in words {
+            if let Some(ex) = exchange::exchange(self.store, turn)? {
+                if self.forked(&ex)? {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+
     /// The sessions of the exchanges of `root`, from its newest on, within [`READ_MOST`] touches: what a words
     /// search is scoped to before it ranks anything.
     pub fn scope(&self, root: &TimelineRoot) -> Result<HashSet<String>> {
@@ -223,8 +240,10 @@ impl Lens<'_> {
         let tl = Ledger(self.store);
         let (mut lines, mut read) = (Vec::<HistoryLine>::new(), 0);
         let (mut more, mut exhausted) = (false, false);
-        // A words hit the fork's cut held: the bounded search may have been crowded by them.
-        let mut held = false;
+        // A words hit the fork's cut held: the bounded search may have been crowded by them. Seeded from the
+        // WHOLE hit set on every call, before any cursor, so a walk that starts below the held hits (a `before`,
+        // what is in view, a scan-limit continuation) still knows of them.
+        let mut held = self.holds_a_hit()?;
         'walk: while read < READ_MOST {
             let refs = tl.newest(&root, at.as_ref(), STEP)?;
             read += refs.len();
