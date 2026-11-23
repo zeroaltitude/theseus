@@ -16,8 +16,9 @@ processes: number,
  */
 references: number, 
 /**
- * The entries a day past which a failing entry is no longer fetched
- * again until the next local day or the owner's refresh.
+ * The entries a day the daemon's automatic reads stay within: a round
+ * that could pass it does not start until the next local day or the
+ * next start.
  */
 ceiling: number, 
 /**

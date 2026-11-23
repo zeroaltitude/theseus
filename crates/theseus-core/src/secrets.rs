@@ -520,8 +520,7 @@ impl Fetch for OpReader {
     fn fetch<'a>(&'a self, refs: &'a [String]) -> BoxFuture<'a, Fetched> {
         Box::pin(async move {
             if let [one] = refs {
-                let value = self.read_raw(one).await;
-                let refused = value.as_ref().err().and_then(|e| Refused::of(e));
+                let (value, refused) = said_if_refused(self.read_raw(one).await);
                 return Fetched {
                     values: vec![value],
                     method: "read".into(),
@@ -549,9 +548,12 @@ impl Fetch for OpReader {
                 },
                 Err(InjectFailed::Error(why)) => match Refused::of(&why) {
                     Some(r) => {
-                        tracing::warn!(error = %why, "op inject was refused by the vault; no entry is read one by one");
+                        tracing::warn!(
+                            refusal = r.word(),
+                            "op inject was refused by the vault; no entry is read one by one"
+                        );
                         Fetched {
-                            values: refs.iter().map(|_| Err(why.clone())).collect(),
+                            values: refs.iter().map(|_| Err(r.said())).collect(),
                             method: "inject".into(),
                             refused: Some(r),
                         }
@@ -559,10 +561,16 @@ impl Fetch for OpReader {
                     None => {
                         tracing::info!(error = %why, "op inject failed; reading each reference to name what failed");
                         let reads = refs.iter().map(|r| self.read_raw(r));
-                        let values = futures_util::future::join_all(reads).await;
-                        let refused = values
-                            .iter()
-                            .find_map(|v| v.as_ref().err().and_then(|e| Refused::of(e)));
+                        let mut refused = None;
+                        let values = futures_util::future::join_all(reads)
+                            .await
+                            .into_iter()
+                            .map(|v| {
+                                let (v, r) = said_if_refused(v);
+                                refused = refused.or(r);
+                                v
+                            })
+                            .collect();
                         Fetched {
                             values,
                             method: "inject, then read".into(),
@@ -572,6 +580,17 @@ impl Fetch for OpReader {
                 },
             }
         })
+    }
+}
+
+/// A read's result, with a refusal of the vault's own (`Refused::of`) said in
+/// its fixed words: `op`'s own words for it go no further.
+fn said_if_refused(
+    v: Result<Zeroizing<String>, String>,
+) -> (Result<Zeroizing<String>, String>, Option<Refused>) {
+    match v.as_ref().err().and_then(|e| Refused::of(e)) {
+        Some(r) => (Err(r.said()), Some(r)),
+        None => (v, None),
     }
 }
 
@@ -984,6 +1003,9 @@ async fn round_of(
                 .select(raw.to_string())
                 .map(Secret::new)
                 .map_err(|e| format!("{e:#}")),
+            // A refusal's fixed words stand alone (round 2): no `op` word and
+            // nothing else rides with them.
+            Some(Err(e)) if fetched.refused.is_some_and(|f| *e == f.said()) => Err(e.clone()),
             Some(Err(e)) => Err(format!("{}: {e}", r.as_str())),
             None => Err(format!("{}: no value returned", r.as_str())),
         };
@@ -1027,12 +1049,21 @@ pub(crate) async fn resolve_with(
     let mut pending: Vec<String> = refs.keys().cloned().collect();
     let mut step = 0;
     loop {
+        wait_for_room(&board, &refs, &pending, &pace).await;
         let refused = one_round(&board, &refs, &mut pending, fetch.as_ref()).await;
         if pending.is_empty() {
             return;
         }
-        let wait = next_wait(&board, &pace, refused, step);
+        let wait = refused.map_or_else(|| pace.wait(step), Refused::wait);
         step += 1;
+        if let Some(r) = refused {
+            tracing::warn!(
+                refusal = r.word(),
+                wait_s = wait.as_secs(),
+                "the vault refused; it is asked again after the wait"
+            );
+        }
+        board.retry_at(Instant::now() + wait);
         tracing::warn!(secrets = ?pending, retry_in_s = wait.as_secs(), "secrets failed; their consumers wait, and they are fetched again");
         pace.clock.sleep(wait).await;
     }
@@ -1073,32 +1104,58 @@ async fn one_round(
     refused
 }
 
-/// The wait before the next round: the vault's own when it refused, else
-/// the ladder's `step`; until the next local midnight once today's vault
-/// reads reach the ceiling, which health says in words.
-fn next_wait(board: &SecretBoard, pace: &Pace, refused: Option<Refused>, step: usize) -> Duration {
-    let mut wait = refused.map_or_else(|| pace.wait(step), Refused::wait);
-    if let Some(r) = refused {
-        tracing::warn!(
-            why = r.word(),
-            wait_s = wait.as_secs(),
-            "the vault refused; it is asked again after the wait"
-        );
-    }
-    let entries = board.reads().map_or(0, |r| r.today().1);
-    if entries >= pace.ceiling {
+/// Before every round, the first included (round 2): room in the day's
+/// ceiling for this round's worst case (`pace::worst_case`), so the daemon's
+/// automatic reads never pass it. Without room, the rounds wait for the next
+/// civil midnight, and look again on every wake, at least
+/// `pace::DAY_WAKE_FLOOR` apart. The refusal's or the ladder's wait has
+/// already been slept when this runs, so of the two deadlines the later wins.
+async fn wait_for_room(
+    board: &SecretBoard,
+    refs: &BTreeMap<String, String>,
+    pending: &[String],
+    pace: &Pace,
+) {
+    let Some(reads) = board.reads() else {
+        return;
+    };
+    let worst = pace::worst_case(vault_refs(refs, pending));
+    loop {
+        let entries = reads.today().1;
+        if entries.saturating_add(worst) <= pace.ceiling {
+            return;
+        }
         let now = pace.clock.now_ms();
-        let today = crate::learning::local_midnight(now);
-        let midnight = crate::learning::local_midnight(today + 36 * 3_600_000);
-        wait = Duration::from_millis(midnight.saturating_sub(now).max(1000));
+        let clock = pace.clock.clone();
+        let midnight = pace::next_civil_midnight(now, &|ms| clock.offset_secs(ms));
+        let wait = Duration::from_millis(midnight.saturating_sub(now)).max(pace::DAY_WAKE_FLOOR);
         board.stop(format!(
-            "retries stopped: the daemon read {entries} vault entries today, the most it reads in a day ({}); \
-             what failed is fetched again after midnight, or when Theseus is next started",
+            "retries stopped: the daemon read {entries} vault entries today, and the next round could read \
+             {worst} more, past the day's {}; what failed is fetched again after midnight, or when Theseus \
+             is next started",
             pace.ceiling
         ));
+        board.retry_at(Instant::now() + wait);
+        pace.clock.sleep(wait).await;
     }
-    board.retry_at(Instant::now() + wait);
-    wait
+}
+
+/// The distinct vault references among `pending`: what one round asks `op`
+/// for (an entry from outside the vault costs no read).
+fn vault_refs(refs: &BTreeMap<String, String>, pending: &[String]) -> usize {
+    let mut seen: Vec<String> = Vec::new();
+    for name in pending {
+        let parsed = refs
+            .get(name)
+            .filter(|raw| !is_local(raw))
+            .map(|raw| SecretRef::parse(raw));
+        if let Some(Ok(r)) = parsed {
+            if !seen.iter().any(|s| s == r.op_ref()) {
+                seen.push(r.op_ref().to_string());
+            }
+        }
+    }
+    seen.len()
 }
 
 fn which(bin: &str) -> Option<PathBuf> {

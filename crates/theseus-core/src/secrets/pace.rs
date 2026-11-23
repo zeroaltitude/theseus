@@ -15,10 +15,12 @@
 //!   limit, or the token itself), no entry is read one by one to name the bad
 //!   one, since none is bad, and the next try waits an hour, or until the
 //!   reset `op` names.
-//! - **The ceiling** ([`default_vault_reads_per_day`]): past it, no failing
-//!   entry is fetched again until the next local day or the next start, and
-//!   health says so. It is a constant, not a
-//!   setting.
+//! - **The ceiling** ([`default_vault_reads_per_day`]): before every round the
+//!   resolver keeps room for that round's worst case ([`worst_case`]): a round
+//!   that could pass the day's ceiling does not start until the next local
+//!   midnight ([`next_civil_midnight`]) or the next start, and health says so.
+//!   So the daemon's automatic reads stay within it; a look or a keep the owner
+//!   asks for is counted, and not stopped. It is a constant, not a setting.
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -52,12 +54,73 @@ pub fn default_vault_reads_per_day() -> u32 {
     2000
 }
 
+/// The least wait before the day's ceiling is looked at again, should a wake
+/// come before the day changed (a clock that stepped): never a loop a second
+/// apart.
+pub const DAY_WAKE_FLOOR: Duration = Duration::from_secs(60);
+
 /// The time the pace reads: the daemon's clock, or a test's.
 pub trait Clock: Send + Sync {
     /// Unix milliseconds now.
     fn now_ms(&self) -> u64;
     /// Wait `d`.
     fn sleep(&self, d: Duration) -> BoxFuture<'static, ()>;
+    /// The zone's offset east of UTC at `unix_ms`, in seconds: the daemon's
+    /// zone, as `wake::local` reads a calendar day, or a test's.
+    fn offset_secs(&self, unix_ms: u64) -> i64 {
+        crate::wake::local(unix_ms).offset_secs
+    }
+}
+
+/// The local day `unix_ms` falls on at `offset_secs`, as a day number since
+/// 1970-01-01: dates compare as numbers.
+pub fn day_number(unix_ms: u64, offset_secs: i64) -> i64 {
+    i64::try_from(unix_ms / 1000)
+        .unwrap_or(i64::MAX)
+        .saturating_add(offset_secs)
+        .div_euclid(86_400)
+}
+
+/// The next local midnight after `now_ms`: tomorrow's date at 00:00 in the
+/// zone `offset` gives, as a civil date (the offset of tomorrow's midnight,
+/// not today's, so a day the clock springs or falls is a day). A midnight the
+/// zone skips gives tomorrow's first instant.
+pub fn next_civil_midnight(now_ms: u64, offset: &dyn Fn(u64) -> i64) -> u64 {
+    let today = day_number(now_ms, offset(now_ms));
+    let local = today.saturating_add(1).saturating_mul(86_400);
+    let at = |off: i64| {
+        u64::try_from(local.saturating_sub(off).max(0))
+            .unwrap_or(0)
+            .saturating_mul(1000)
+    };
+    let mut off = offset(now_ms);
+    for _ in 0..3 {
+        let o = offset(at(off));
+        if o == off {
+            break;
+        }
+        off = o;
+    }
+    let mut ms = at(off).max(now_ms.saturating_add(1));
+    // Back to the earliest instant of tomorrow, and on past a skipped midnight.
+    while ms > now_ms.saturating_add(60_000) && day_number(ms - 60_000, offset(ms - 60_000)) > today {
+        ms -= 60_000;
+    }
+    while day_number(ms, offset(ms)) <= today {
+        ms = ms.saturating_add(60_000);
+    }
+    ms
+}
+
+/// The most entries one round can read for `vault_refs` distinct references:
+/// one `op read` for one; an injection of all and, when it fails, a read of
+/// each, for more.
+pub fn worst_case(vault_refs: usize) -> u32 {
+    match vault_refs {
+        0 => 0,
+        1 => 1,
+        n => u32::try_from(n).unwrap_or(u32::MAX).saturating_mul(2),
+    }
 }
 
 /// The system's clock, and tokio's timer.
@@ -74,7 +137,8 @@ impl Clock for SystemClock {
 
 #[derive(Default)]
 struct Day {
-    day: String,
+    /// The day's number ([`day_number`]); 0 before the first read.
+    day: i64,
     processes: u32,
     references: u32,
 }
@@ -106,10 +170,14 @@ impl VaultReads {
         self.clock.clone()
     }
 
+    /// The day's tally, the date sampled under its lock: a later date starts a
+    /// new one, an earlier one (a clock that stepped back, a sample taken a
+    /// moment before another) counts into the later day it already holds.
     fn with_today<T>(&self, f: impl FnOnce(&mut Day) -> T) -> T {
-        let today = crate::judge::spend::local_day(self.clock.now_ms());
         let mut d = self.day.lock().unwrap_or_else(|p| p.into_inner());
-        if d.day != today {
+        let now = self.clock.now_ms();
+        let today = day_number(now, self.clock.offset_secs(now));
+        if today > d.day {
             *d = Day {
                 day: today,
                 ..Day::default()
@@ -182,11 +250,23 @@ impl Refused {
         }
     }
 
-    /// In a word, for the log and health.
+    /// In a word, for the log.
     pub fn word(self) -> &'static str {
         match self {
             Self::RateLimited(_) => "the vault's rate limit",
             Self::Token => "the vault refused the token",
+        }
+    }
+
+    /// What an entry the vault refused says in health: fixed words and the
+    /// bounded wait, never `op`'s own.
+    pub fn said(self) -> String {
+        let again = crate::wake::span(u64::try_from(self.wait().as_millis()).unwrap_or(u64::MAX));
+        match self {
+            Self::RateLimited(_) => {
+                format!("the vault refused the read: its rate limit; it is asked again in {again}")
+            }
+            Self::Token => format!("the vault refused the token; it is asked again in {again}"),
         }
     }
 }
@@ -200,12 +280,16 @@ fn reset_in(w: &str) -> Option<Duration> {
         .find_map(|k| w.find(k).map(|i| i + k.len()))?;
     let rest = w[at..].trim_start();
     let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-    let n: u64 = digits.parse().ok()?;
+    if digits.is_empty() {
+        return None;
+    }
+    // A number past u64 is as long as can be; the clamp bounds it.
+    let n: u64 = digits.parse().unwrap_or(u64::MAX);
     let unit = rest[digits.len()..].trim_start();
     let secs = if unit.starts_with('h') {
-        n * 3600
+        n.saturating_mul(3600)
     } else if unit.starts_with("min") || unit.starts_with("m ") || unit == "m" {
-        n * 60
+        n.saturating_mul(60)
     } else {
         n
     };

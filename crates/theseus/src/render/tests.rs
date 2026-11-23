@@ -479,8 +479,8 @@ fn health_says_the_vault_reads_today_and_why_the_retries_stopped() {
     assert_eq!(
         secrets_line(&failing, &[]),
         "secrets: failed b · 0 ready 900 ms after start (read)\n  b did not resolve: could not \
-         find item\n  fetched again in 54 min\n  vault today: 9 runs of op, 14 entries read (at \
-         most 2000 a day)"
+         find item\n  fetched again in 54 min\n  vault today: 9 runs of op, 14 entries read \
+         (automatic reads stay within 2000 a day)"
     );
     let stopped = SecretsStatus {
         vault_today: Some(VaultToday {
@@ -493,8 +493,8 @@ fn health_says_the_vault_reads_today_and_why_the_retries_stopped() {
     };
     assert!(
         secrets_line(&stopped, &[]).ends_with(
-            "vault today: 1 run of op, 1 entry read (at most 2000 a day)\n  retries stopped: the \
-             daemon read 2000 vault entries today"
+            "vault today: 1 run of op, 1 entry read (automatic reads stay within 2000 a day)\n  \
+             retries stopped: the daemon read 2000 vault entries today"
         ),
         "{}",
         secrets_line(&stopped, &[])

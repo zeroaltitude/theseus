@@ -166,7 +166,8 @@ impl SecretsStatus {
         })
     }
 
-    /// `vault today: 3 runs of op, 14 entries read (at most 2000 a day)`, and
+    /// `vault today: 3 runs of op, 14 entries read (automatic reads stay within
+    /// 2000 a day)`, and
     /// on a second line why the retries stopped, when they have: what health
     /// says of the daemon's own vault reads. None before the first read.
     pub fn vault_today_words(&self) -> Option<String> {
@@ -178,7 +179,7 @@ impl SecretsStatus {
             "entries"
         };
         let mut s = format!(
-            "vault today: {} {runs} of op, {} {entries} read (at most {} a day)",
+            "vault today: {} {runs} of op, {} {entries} read (automatic reads stay within {} a day)",
             v.processes, v.references, v.ceiling
         );
         if let Some(why) = &v.stopped {
@@ -199,8 +200,9 @@ pub struct VaultToday {
     /// The entries they asked for: one per `op read`, each reference of an
     /// `op inject`.
     pub references: u32,
-    /// The entries a day past which a failing entry is no longer fetched
-    /// again until the next local day or the owner's refresh.
+    /// The entries a day the daemon's automatic reads stay within: a round
+    /// that could pass it does not start until the next local day or the
+    /// next start.
     pub ceiling: u32,
     /// Why the retries stopped, in words, while they are stopped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
