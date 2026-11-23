@@ -346,7 +346,6 @@ fn example_template_lists_every_tool_under_policy_tools() {
         .chain(crate::google::NAMES.map(String::from))
         .chain(crate::term::NAMES.map(String::from))
         .chain(crate::lsp::NAMES.map(String::from))
-        .chain(crate::memory_lookup::NAMES.map(String::from))
         .chain(crate::rsi::pr::NAMES.map(String::from))
         .collect();
     for t in &tools {
@@ -375,7 +374,6 @@ fn example_template_lists_every_tool_under_policy_tools() {
         "term.close",
         "job.read",
         "job.wait",
-        "memory.lookup",
     ];
     for r in reads {
         assert_eq!(set.get(r), Some(&Posture::Open), "{r}");

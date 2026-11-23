@@ -323,7 +323,7 @@ mod tests {
             def("fs_read", 100),
             def("aws_whoami", 600),
             def("task_create", 600),
-            def("memory_lookup", 300),
+            def("context_history", 300),
             def("task_fan_out", 600),
         ];
         let loaded: BTreeSet<String> = ["files".to_string()].into();
@@ -331,7 +331,7 @@ mod tests {
         fit.ceiling = 15_000;
         let got = super::extra(
             "start a background task, then run aws_whoami",
-            &[("memory".to_string(), 0.9)],
+            &[("history".to_string(), 0.9)],
             &catalog,
             &loaded,
             &fit,
@@ -342,7 +342,7 @@ mod tests {
             [
                 ("tasks", By::Asked),
                 ("aws", By::Named),
-                ("memory", By::Jev)
+                ("history", By::Jev)
             ]
         );
         assert_eq!(

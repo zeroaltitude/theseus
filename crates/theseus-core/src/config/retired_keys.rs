@@ -118,6 +118,7 @@ pub const RETIRED: &[Retired] = &[
     // A posture set for a tool that is gone (issue 46).
     r("policy.tools", "thread.read", LOOK_BACK),
     r("policy.tools", "channel.read", LOOK_BACK),
+    r("policy.tools", "memory.lookup", LOOK_BACK),
     r("threads", "place_digest", DIGEST),
     r("threads", "place_digest_line_chars", DIGEST),
     r("threads", "route_wait_ms", DIGEST),

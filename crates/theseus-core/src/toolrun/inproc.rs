@@ -94,8 +94,6 @@ impl ToolRuntime {
                 )),
                 // The session's files, found on this task (theseus-c9l6).
                 crate::file_read::FAMILY => self.read_file(tc, &input, &ctx),
-                // The owner's memory, read for this session (theseus-w9qv).
-                crate::memory_lookup::FAMILY => self.lookup.run(tc, &input),
                 // This place's history, read further back (issue 44).
                 _ if tool.name() == crate::view::history::HISTORY_TOOL => {
                     self.history.run(tc, &input)

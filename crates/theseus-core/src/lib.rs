@@ -390,6 +390,8 @@ mod tests_hold_compile;
 #[cfg(test)]
 mod tests_horizon;
 #[cfg(test)]
+mod tests_imports;
+#[cfg(test)]
 mod tests_inbound;
 #[cfg(test)]
 mod tests_initiative;
@@ -450,13 +452,13 @@ mod tests_mcp_memory;
 #[cfg(test)]
 mod tests_memory_arm;
 #[cfg(test)]
-mod tests_memory_lookup;
-#[cfg(test)]
 mod tests_money;
 #[cfg(test)]
 mod tests_names;
 #[cfg(test)]
 mod tests_names_label;
+#[cfg(test)]
+mod tests_native_hint;
 #[cfg(test)]
 mod tests_never;
 #[cfg(test)]

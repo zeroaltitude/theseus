@@ -348,8 +348,6 @@ pub struct ToolRuntime {
     /// The judge (M5 step 24): every call that acts goes to `gate` once it
     /// is planned. Set as the core is built; unset, nothing is judged.
     pub judge: std::sync::OnceLock<Arc<crate::judge::JudgeService>>,
-    /// What `memory.lookup` reads (theseus-w9qv): the core, once built.
-    pub lookup: crate::memory_lookup::Board,
     /// What `context.history` reads (issue 44): the core, once built, and each turn's looks.
     pub history: Arc<crate::history_tool::Board>,
     /// Routines (theseus-pvm5c): the records in memory and the defaults.
@@ -559,7 +557,6 @@ impl ToolRuntime {
             terms: Arc::new(crate::term::Terms::new(Vec::new())),
             lsp: None,
             judge: Default::default(),
-            lookup: Default::default(),
             history: Default::default(),
             routines: Default::default(),
             look: Default::default(),
@@ -2025,8 +2022,6 @@ pub fn build_runtime(
         r.register(Arc::new(crate::glide::ChannelPost));
         // The files people gave the session (theseus-c9l6).
         r.register(Arc::new(crate::file_read::FileRead));
-        // A read of memory the model calls (theseus-w9qv).
-        r.register(Arc::new(crate::memory_lookup::MemoryLookup));
         // The conversation's history, read further back, offered everywhere (issue 44).
         r.register(Arc::new(crate::history_tool::HistoryTool));
         // What the live observer has kept about the owner, read when he asks
@@ -2175,7 +2170,6 @@ pub fn build_runtime(
         lsp,
         extend,
         judge: Default::default(),
-        lookup: Default::default(),
         history: Default::default(),
         routines: crate::routine::Book::new(&cfg.routines),
         look: Default::default(),

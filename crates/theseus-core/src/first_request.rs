@@ -134,11 +134,6 @@ pub const ALWAYS_LOADED: &[(&str, &[&str], &str)] = &[
     ("job_wait", &["cli", "dm", "task", "headless"], "commands: waits for a proc_run's job; always_loaded"),
     ("job_stop", &["cli", "dm", "task", "headless"], "commands: stops a proc_run's job; always_loaded"),
     (
-        "memory_lookup",
-        &["cli", "dm"],
-        "memory: a committed default of cli and dm (PlaceKind::defaults); the use column of `theseus census` confirms it",
-    ),
-    (
         "context_history",
         &["dm", "channel"],
         "history: offered on every turn by the owner's design of 2026-11-21 (issue 44); a cli, task or headless \

@@ -160,7 +160,7 @@ async fn a_session_opened_from_its_own_later_turn_is_found_from_its_message() {
 /// An imported conversation's message, read by opening its session: found from the imported node.
 #[tokio::test]
 async fn an_imported_message_opened_by_its_session_is_found_from_it() {
-    use crate::tests_memory_lookup::{episode, import};
+    use crate::tests_imports::{episode, import};
     let r = rig();
     let ids = import(
         &r.core,
@@ -330,7 +330,7 @@ async fn a_search_page_and_a_span_page_link_their_lines() {
     r.core
         .runner
         .memory
-        .set_ask(crate::tests_memory_lookup::index_over(
+        .set_ask(crate::tests_imports::index_over(
             &r.core,
             vec![said.session.clone()],
         ));

@@ -1,44 +1,18 @@
-//! `memory.lookup` (theseus-w9qv, fix C): a read of memory the model calls
-//! when it wants one, beside what the compiler recalls for the turn.
+//! The read behind the MCP server's `memory_search` and `memory_get` (`mcp`): a search of words through
+//! recall's own pipeline (the index, the filters, the pack), kept to a span of time and to a book's or a
+//! topic's sessions; each item with its as-of date, its session, its source and its sensitivity. A label veils
+//! nothing (anything goes, 2026-11-22).
 //!
-//! - **What it asks**: `words` go through recall's own pipeline (the index,
-//!   the filters, the pack), kept to a span of
-//!   time and to a book's or a topic's sessions when those are given; with
-//!   no words, `when`, `book` and `topic` list the imported episodes as
-//!   `import.sessions` does (its catalog, a query of about 12 ms), each with
-//!   its summary. Small pages (8 items by default, at most 25), a `cursor`
-//!   for the next, and a token budget (`budget_tokens`, 1,500 by default)
-//!   that ends a page early and says where the next begins.
-//! - **What each item carries**: its as-of date (an imported episode's span,
-//!   a native node's creation, in the daemon's time zone), its session id,
-//!   its source, its sensitivity, and its text. A label veils nothing
-//!   (anything goes, 2026-11-22): `personal` and `partner-confidential` are
-//!   shown as labels beside the text.
-//! - **Every session, from every place it is offered in.** Which places
-//!   offer it is the tool ceiling's (`places::offered`: a shared place is
-//!   offered the public tools alone, and this is none); what it reads is not
-//!   narrowed by the asking place, a seal or a move.
-//! - **By session** (theseus-8c8s, `read`): `session` reads one session's
-//!   messages in order, a page at a time; with `words`
-//!   it searches that session alone. A span with no words lists this
-//!   harness's own sessions in it before the imported episodes. (A job
-//!   that runs the daemon's CLI for a search ends with a line naming the
-//!   history tool's call, `native::hint`, since issue 46.)
-//! - **Costs nothing until called**: no state, no warm read; the core is
-//!   reached through a weak handle given at build (`Board::attach`).
+//! The model's own tool over it, `memory.lookup`, is gone (D6 step 6): the history tool, `context.history`, is
+//! the model's one way to look back, and an old `[policy.tools] "memory.lookup"` is a retired key. What is
+//! left here is the MCP server's, and goes with it (D6 step 7).
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, OnceLock, Weak};
+use std::sync::Arc;
 use std::time::Duration;
 
-use serde::Deserialize;
-use serde_json::{json, Value};
 use theseus_memory::recall::Place;
 use theseus_protocol::import::{ImportSessionsParams, ImportedEpisode};
-use theseus_protocol::Plan;
-use theseus_tools::{
-    AsyncMediaRun, Backend, Retry, Tool, ToolClass, ToolCtx, ToolFailure, ToolOutput,
-};
 
 use crate::config::memory::MemoryArm;
 use crate::recall::when::When;
@@ -46,12 +20,6 @@ use crate::Core;
 
 pub(crate) mod mcp;
 mod read;
-
-/// The tool's name, and its family.
-pub const LOOKUP: &str = "memory.lookup";
-pub const FAMILY: &str = "memory";
-/// Its name, as the config's `[policy.tools]` checks it.
-pub const NAMES: [&str; 1] = [LOOKUP];
 
 /// The label of an imported item whose episode's labels could not be read.
 pub const UNREAD: &str = "labels unread";
@@ -67,29 +35,15 @@ const DEADLINE: Duration = Duration::from_secs(2);
 /// The most sessions a book or a topic narrows a search of words to.
 const SESSIONS_MAX: u64 = 500;
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// What a search is kept to: a span (`when`, or `from` and `to`), a book or a topic, or one session.
+#[derive(Debug, Clone, Default)]
 struct Args {
-    #[serde(default)]
-    words: Option<String>,
-    #[serde(default)]
     when: Option<String>,
-    #[serde(default)]
     from: Option<String>,
-    #[serde(default)]
     to: Option<String>,
-    #[serde(default)]
     book: Option<String>,
-    #[serde(default)]
     topic: Option<String>,
-    #[serde(default)]
     session: Option<String>,
-    #[serde(default)]
-    limit: Option<u64>,
-    #[serde(default)]
-    cursor: Option<u64>,
-    #[serde(default)]
-    budget_tokens: Option<u64>,
 }
 
 fn some(s: &Option<String>) -> Option<&str> {
@@ -97,23 +51,6 @@ fn some(s: &Option<String>) -> Option<&str> {
 }
 
 impl Args {
-    fn parse(input: &Value) -> Result<Self, String> {
-        let a: Self =
-            serde_json::from_value(input.clone()).map_err(|e| format!("bad input: {e}"))?;
-        if [
-            &a.words, &a.when, &a.from, &a.to, &a.book, &a.topic, &a.session,
-        ]
-        .iter()
-        .all(|s| some(s).is_none())
-        {
-            return Err("name something to look up: words, when (\"March 2026\", \"last week\"), from and to (2026-03-01), a book, a topic, or a session (ses_…) to read".into());
-        }
-        if some(&a.session).is_some() && (some(&a.book).is_some() || some(&a.topic).is_some()) {
-            return Err("a session is read or searched alone: leave out book and topic".into());
-        }
-        Ok(a)
-    }
-
     /// The span `when`, `from` and `to` name, read as a turn's words are, as
     /// of `now_ms`: `from`'s start to `to`'s end.
     fn span(&self, now_ms: u64) -> Result<Option<When>, String> {
@@ -162,121 +99,11 @@ impl Args {
     }
 }
 
-/// The registry's `memory.lookup`: its name, schema and plan, for the gate.
-/// The runtime runs it ([`Board::run`]).
-pub struct MemoryLookup;
-
-impl Tool for MemoryLookup {
-    fn name(&self) -> &'static str {
-        LOOKUP
-    }
-    fn description(&self) -> &'static str {
-        "Search and read your memory of past conversations and the operator's imported history, in-process. Use it for anything said, done or worked on before, instead of the theseus CLI (theseus memory index search, theseus history, theseus sessions) through proc_run. By words, time (when: \"March 2026\"; from, to), book or topic; a time alone lists its sessions; session reads one session's messages. Page with cursor. Read-only: several calls in one response run at once."
-    }
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "words": {"type": "string", "description": "What to find, as you would say it: \"index tender restart\". Ranked by words, names and meaning. With when, kept inside the span; with session, inside that session."},
-                "when": {"type": "string", "description": "A span in the daemon's time zone: \"March 2026\", \"2026-03\", \"2026-03-14\", \"last week\", \"since August\". Alone, it lists the span's sessions, newest first."},
-                "from": {"type": "string", "description": "First day or month of a span: \"2026-03-01\""},
-                "to": {"type": "string", "description": "Last day or month of a span: \"2026-03-31\""},
-                "book": {"type": "string", "description": "An imported book: \"casebook\", \"diary\""},
-                "topic": {"type": "string", "description": "An imported topic label: \"work/infra\""},
-                "session": {"type": "string", "description": "A session id an item named (ses_…): reads its messages, oldest first; page with cursor"},
-                "limit": {"type": "integer", "maximum": PAGE_MAX, "description": "Items a page, 8 by default"},
-                "cursor": {"type": "integer", "description": "Where the next page begins, as the last answer said"},
-                "budget_tokens": {"type": "integer", "maximum": BUDGET_MAX, "description": "The answer's size, 1500 by default"}
-            },
-            "additionalProperties": false
-        })
-    }
-    fn class(&self) -> ToolClass {
-        ToolClass::Read
-    }
-    fn backend(&self) -> Backend {
-        Backend::Async
-    }
-    fn retry(&self) -> Retry {
-        Retry::SafeToRepeat
-    }
-    fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
-        let a = Args::parse(input)?;
-        a.span(theseus_protocol::now_unix_ms())?;
-        let parts: Vec<String> = [
-            some(&a.words).map(|w| format!("{w:?}")),
-            some(&a.when).map(str::to_string),
-            some(&a.from).map(|f| format!("from {f}")),
-            some(&a.to).map(|t| format!("to {t}")),
-            some(&a.book).map(|b| format!("the {b} book")),
-            some(&a.topic).map(|t| format!("topic {t}")),
-            some(&a.session).map(|s| format!("session {s}")),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        Ok(Plan {
-            summary: format!("look up memory: {}", parts.join(", ")),
-            ..Default::default()
-        })
-    }
-    fn run_async(&self, _input: &Value, _ctx: &ToolCtx) -> theseus_tools::AsyncRun {
-        Box::pin(std::future::ready(Err(ToolFailure::new(
-            "memory.lookup runs through the runtime, which reads the memory",
-        ))))
-    }
-}
-
-/// What `memory.lookup` reads: the core, given once it is built.
-#[derive(Default)]
-pub struct Board {
-    core: OnceLock<Weak<Core>>,
-}
-
-impl Board {
-    pub fn attach(&self, core: &Arc<Core>) {
-        let _ = self.core.set(Arc::downgrade(core));
-    }
-
-    /// The call, in its own task.
-    pub fn run(&self, tc: &crate::toolrun::TurnCtx<'_>, input: &Value) -> AsyncMediaRun {
-        let fail = |why: &str| -> AsyncMediaRun {
-            Box::pin(std::future::ready(Err(ToolFailure::new(why))))
-        };
-        let Some(core) = self.core.get().and_then(Weak::upgrade) else {
-            return fail("memory.lookup is not ready: the core is not built");
-        };
-        let a = match Args::parse(input) {
-            Ok(a) => a,
-            Err(e) => return fail(&e),
-        };
-        let session = tc.session_id.to_string();
-        Box::pin(async move {
-            lookup(core, session, a)
-                .await
-                .map(|o| (o, None, None))
-                .map_err(ToolFailure::new)
-        })
-    }
-}
-
-/// A call as the runtime makes it, for a session: tests reach the tool's
-/// own check this way, past the gate.
-#[cfg(test)]
-pub(crate) async fn call(
-    core: Arc<Core>,
-    session: &str,
-    input: Value,
-) -> Result<ToolOutput, String> {
-    lookup(core, session.to_string(), Args::parse(&input)?).await
-}
-
 /// One item of a page, as the answer says it.
 #[derive(Default)]
 struct Item {
     when: String,
     session_id: String,
-    source: String,
     sensitivity: Option<String>,
     book: Option<String>,
     text: String,
@@ -287,133 +114,6 @@ struct Item {
     at_ms: u64,
     /// The harness that held it: `theseus`, or an imported episode's source.
     harness: String,
-}
-
-async fn lookup(core: Arc<Core>, session: String, a: Args) -> Result<ToolOutput, String> {
-    page(&core, &session, a).await
-}
-
-/// Whether the session `id` is there to read: a native session with no
-/// record and no nodes is not.
-fn by_id_admitted(core: &Arc<Core>, id: &str) -> Result<(), String> {
-    let unrecorded = !crate::import::is_imported(id)
-        && matches!(
-            core.store.get_session::<crate::session::SessionRecord>(id),
-            Ok(None)
-        );
-    if unrecorded && core.store.session_nodes(id).is_ok_and(|n| n.is_empty()) {
-        return Err(format!(
-            "no session is named {id}: give a session id an earlier answer named (ses_…)"
-        ));
-    }
-    Ok(())
-}
-
-/// The answer's page.
-async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, String> {
-    let (core, session) = (core.clone(), session.to_string());
-    let now = theseus_protocol::now_unix_ms();
-    let when = a.span(now)?;
-    let limit = a.limit.unwrap_or(PAGE).clamp(1, PAGE_MAX);
-    let offset = a.cursor.unwrap_or(0);
-    let budget = a.budget_tokens.unwrap_or(BUDGET).clamp(100, BUDGET_MAX);
-    if let Some(id) = some(&a.session) {
-        by_id_admitted(&core, id)?;
-    }
-    if some(&a.session).is_some() && some(&a.words).is_none() {
-        return read::session(&core, &a, when.as_ref(), (offset, limit, budget)).await;
-    }
-    // A search of words asks for one past the page, to know there is more.
-    let (head, items, total, incomplete) = match some(&a.words) {
-        Some(words) => {
-            let k = offset + limit + 1;
-            by_words(
-                &core,
-                Some(&session),
-                words.to_string(),
-                &a,
-                when.as_ref(),
-                k,
-            )
-            .await?
-        }
-        None => {
-            let (head, items, total) = by_catalog(&core, &a, when.as_ref(), offset, limit).await?;
-            (head, items, total, None)
-        }
-    };
-    let counted = some(&a.words).is_none();
-    let items: Vec<Item> = match some(&a.words) {
-        Some(_) => items.into_iter().skip(offset as usize).collect(),
-        None => items,
-    };
-    let mut text = head;
-    let mut shown = 0u64;
-    let mut used = text.len() as u64 / 4;
-    for (i, it) in items.iter().take(limit as usize).enumerate() {
-        let line = render(offset + i as u64 + 1, it);
-        let cost = line.len() as u64 / 4;
-        if shown > 0 && used + cost > budget {
-            break;
-        }
-        text.push_str(&line);
-        used += cost;
-        shown += 1;
-    }
-    let next = offset + shown;
-    let more = next < total;
-    let of = match counted {
-        true => format!(" of {total}"),
-        false => String::new(),
-    };
-    text.push_str(&match (shown, more) {
-        // No promise of progress from a cursor that cannot advance past what was read.
-        (0, _) if incomplete.is_some() => format!(
-            "\nNothing on this page. The search could not be completed ({}): narrow it (words, when, book or topic) to read further.",
-            incomplete.as_deref().unwrap_or_default()
-        ),
-        (0, _) => "\nNothing on this page.".to_string(),
-        (_, true) => format!(
-            "\nShown {}–{next}{of}. More: call again with cursor {next}.",
-            offset + 1
-        ),
-        // The live hits ran out inside what was fetched, or a hit could not be read: never "that is all".
-        (_, false) if incomplete.is_some() => format!(
-            "\nShown {}–{next}{of}. The search could not be completed ({}): more may exist; narrow it (words, when, book or topic) to read further.",
-            offset + 1,
-            incomplete.as_deref().unwrap_or_default()
-        ),
-        (_, false) => format!("\nShown {}–{next}{of}; that is all.", offset + 1),
-    });
-    let ids: Vec<&str> = items
-        .iter()
-        .take(shown as usize)
-        .map(|i| i.session_id.as_str())
-        .collect();
-    Ok(ToolOutput {
-        text,
-        meta: json!({
-            "mode": if some(&a.words).is_some() { "words" } else { "catalog" },
-            "when": when.clone(),
-            "total": total, "shown": shown, "cursor": offset,
-            "next": more.then_some(next), "veiled": 0, "sessions": ids,
-            "tokens": used,
-        }),
-    })
-}
-
-/// The newest reply among a `session.history` answer's nodes, with the vault's values substituted (review
-/// G-R2 r2): MCP's `conversation_status` and `conversation_send` read it (`theseusd::mcp`), and no provider
-/// call is on that path, so the exits' own substitution runs here, as for the memory tools' replies.
-pub fn mcp_last_reply(core: &Core, nodes: &[Value]) -> Option<String> {
-    nodes
-        .iter()
-        .rev()
-        .find(|n| {
-            n["kind"] == "assistant_message" && n["text"].as_str().is_some_and(|t| !t.is_empty())
-        })
-        .and_then(|n| n["text"].as_str())
-        .map(|t| core.exits.text(t).0.into_owned())
 }
 
 /// Whether `session` is an imported episode whose tag was erased.
@@ -440,28 +140,6 @@ fn span_words(start_ms: u64, end_ms: u64) -> String {
     } else {
         format!("{a} to {b}")
     }
-}
-
-fn render(n: u64, it: &Item) -> String {
-    let mut head = format!("\n{n}. {} · {} · {}", it.when, it.session_id, it.source);
-    if let Some(s) = &it.sensitivity {
-        head.push_str(&format!(" · {s}"));
-    }
-    if let Some(b) = &it.book {
-        head.push_str(&format!(" · book {b}"));
-    }
-    // A volatile value is answered with the time it was true at, never as a
-    // bare fact (M6 §2.11, theseus-3nk): the recall render's own rule and
-    // wording, so the same value says the same thing here and in a prefix.
-    // An item whose source's time could not be read has no as-of to give.
-    if let Some(mark) = (it.at_ms > 0)
-        .then(|| crate::recall::render::volatile_at(&it.text, it.at_ms))
-        .flatten()
-    {
-        head.push_str(&format!(" · {mark}"));
-    }
-    let body = it.text.split_whitespace().collect::<Vec<_>>().join(" ");
-    format!("{head}\n   {body}")
 }
 
 fn what(a: &Args, when: Option<&When>) -> String {
@@ -494,69 +172,11 @@ fn offset_words() -> String {
     format!("{sign}{:02}:{:02}", off / 3600, off % 3600 / 60)
 }
 
-/// The catalog's episodes: `import.sessions`, newest first; a span with no
-/// book or topic lists this harness's own sessions in it first (`read`).
-async fn by_catalog(
-    core: &Arc<Core>,
-    a: &Args,
-    when: Option<&When>,
-    offset: u64,
-    limit: u64,
-) -> Result<(String, Vec<Item>, u64), String> {
-    let own = match when {
-        Some(w) if some(&a.book).is_none() && some(&a.topic).is_none() => {
-            read::own_sessions(core, w).await?
-        }
-        _ => Vec::new(),
-    };
-    let n_own = own.len() as u64;
-    let mut items: Vec<Item> = own
-        .into_iter()
-        .skip(offset as usize)
-        .take(limit as usize)
-        .collect();
-    let p = ImportSessionsParams {
-        book: some(&a.book).map(str::to_string),
-        topic: some(&a.topic).map(str::to_string),
-        from_ms: when.and_then(|w| w.from_ms),
-        // The catalog's end is inclusive.
-        to_ms: when.and_then(|w| w.to_ms).map(|t| t.saturating_sub(1)),
-        offset: Some(offset.saturating_sub(n_own)),
-        limit: Some((limit - items.len() as u64).max(1)),
-        summaries: true,
-        ..Default::default()
-    };
-    let r = catalog(core, p).await?;
-    let episodes = |n: u64| format!("{n} imported episode{}", if n == 1 { "" } else { "s" });
-    let head = match n_own {
-        0 => format!(
-            "memory.lookup: {} {}, newest first (episodes overlapping the span).",
-            episodes(r.total),
-            what(a, when)
-        ),
-        n => format!(
-            "memory.lookup: {} of this harness and {} {}, newest first (sessions overlapping the span; the harness's own first).",
-            crate::narrative::count(n, "session", "sessions"),
-            episodes(r.total),
-            what(a, when)
-        ),
-    };
-    let room = limit as usize - items.len();
-    items.extend(
-        r.episodes
-            .into_iter()
-            .take(room)
-            .map(|e| episode_item(&e, None)),
-    );
-    Ok((head, items, n_own + r.total))
-}
-
 fn episode_item(e: &ImportedEpisode, text: Option<String>) -> Item {
     Item {
         when: span_words(e.start_ms, e.end_ms),
         session_id: e.session_id.clone(),
         harness: e.source.clone(),
-        source: format!("imported from {}", e.source),
         sensitivity: Some(e.sensitivity.clone()),
         book: e.book.clone(),
         text: text
@@ -810,7 +430,6 @@ async fn items_of(
             None if crate::import::is_imported(&i.session_id) => Item {
                 when: String::new(),
                 session_id: i.session_id.clone(),
-                source: "imported".into(),
                 harness: "imported".into(),
                 sensitivity: Some(UNREAD.into()),
                 book: None,
@@ -827,7 +446,6 @@ async fn items_of(
                 Item {
                     when: at,
                     session_id: i.session_id.clone(),
-                    source: format!("this harness ({})", i.kind),
                     harness: "theseus".into(),
                     sensitivity: None,
                     book: None,

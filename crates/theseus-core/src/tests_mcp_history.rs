@@ -10,8 +10,8 @@ use serde_json::{json, Value};
 use theseus_protocol::method;
 
 use crate::approval::Surface;
+use crate::tests_imports::{index_over, script};
 use crate::tests_mcp_memory::rpc;
-use crate::tests_memory_lookup::{index_over, script};
 use crate::tests_places::{rig_scripted, session, turn, Rig};
 use crate::Core;
 
@@ -169,7 +169,7 @@ async fn memory_off_answers_the_refusal_and_other_surfaces_are_refused() {
 /// page reaches it before or after.
 #[tokio::test]
 async fn an_erased_import_is_read_as_nothing() {
-    use crate::tests_memory_lookup::{episode, import};
+    use crate::tests_imports::{episode, import};
     const GONE: &str = "the lighthouse keeper's ledger";
     let r = rig(true);
     let imported = import(
@@ -734,4 +734,30 @@ async fn stale_hits_that_fill_the_bound_end_the_search_incomplete() {
         .set_ask(stale_then_live(&r.core, sid.clone(), 120));
     let v = history(&r.core, json!({"place": place, "words": "ferry note"})).await;
     assert_eq!(v["end"], "search_cut", "{v}");
+}
+
+/// A words search whose vector search fails (or is late) answers from the word sources alone, `words_only`
+/// (recall-fallback): the history read takes their hits as an answer, not as an index that did not answer
+/// (retargeted from `memory.lookup`'s `words_only_hits_are_an_answer` when that tool went, D6 step 6).
+#[tokio::test]
+async fn words_only_hits_are_an_answer() {
+    let r = rig(true);
+    let native = session(&r.core, None);
+    turn(&r.core, &native, "the ferry note about the ledger").await;
+    let words = index_over(&r.core, vec![native.clone()]);
+    r.core.runner.memory.set_ask(Arc::new(
+        move |p: theseus_protocol::index::IndexQueryParams| -> crate::recall::AskFuture {
+            if p.sources.iter().any(|s| s == "vector") {
+                return Box::pin(async { Err("the query would not embed".to_string()) });
+            }
+            words(p)
+        },
+    ));
+    let found = history(&r.core, json!({"session_id": native, "words": "ledger"})).await;
+    assert!(
+        lines(&found)
+            .iter()
+            .any(|l| l["words"].as_str().unwrap().contains("ferry note")),
+        "{found}"
+    );
 }

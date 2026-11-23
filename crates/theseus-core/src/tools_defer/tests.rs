@@ -8,7 +8,7 @@ fn catalog() -> Vec<Value> {
     [
         "aws_call",
         "fs_read",
-        "memory_lookup",
+        "context_history",
         "proc_run",
         "term_open",
     ]
@@ -45,7 +45,7 @@ fn a_hidden_familys_tools_carry_defer_loading_and_the_search_tool_comes_first() 
     for t in &out[1..] {
         let hidden = matches!(
             t["name"].as_str(),
-            Some("aws_call" | "memory_lookup" | "term_open")
+            Some("aws_call" | "context_history" | "term_open")
         );
         assert_eq!(
             t.get("defer_loading") == Some(&Value::Bool(true)),
@@ -60,11 +60,11 @@ fn a_hidden_familys_tools_carry_defer_loading_and_the_search_tool_comes_first() 
 
 #[test]
 fn the_fallback_leaves_hidden_tools_out_and_offers_tools_find() {
-    let d = deferral(Mechanism::Find, &["files", "commands", "memory"]);
+    let d = deferral(Mechanism::Find, &["files", "commands", "history"]);
     let out = resolve(&catalog(), &d);
     assert_eq!(
         names(&out),
-        ["fs_read", "memory_lookup", "proc_run", "tools_find"]
+        ["fs_read", "context_history", "proc_run", "tools_find"]
     );
     assert!(out.iter().all(|t| t.get("defer_loading").is_none()));
 }
@@ -73,7 +73,7 @@ fn the_fallback_leaves_hidden_tools_out_and_offers_tools_find() {
 fn with_nothing_hidden_there_is_no_search_tool_and_no_find() {
     let all = deferral(
         Mechanism::Search,
-        &["files", "commands", "memory", "aws", "terminals"],
+        &["files", "commands", "history", "aws", "terminals"],
     );
     let out = resolve(&catalog(), &all);
     assert_eq!(names(&out), names(&catalog()));
@@ -81,7 +81,7 @@ fn with_nothing_hidden_there_is_no_search_tool_and_no_find() {
         &catalog(),
         &deferral(
             Mechanism::Find,
-            &["files", "commands", "memory", "aws", "terminals"],
+            &["files", "commands", "history", "aws", "terminals"],
         ),
     );
     assert_eq!(names(&out), names(&catalog()));
@@ -117,7 +117,7 @@ fn the_hidden_tools_are_the_deferred_and_the_left_out() {
     let native = resolve(&cat, &deferral(Mechanism::Search, &["files", "commands"]));
     let h = hidden_of(&cat, &native);
     let wires: Vec<&str> = h.iter().map(|h| h.wire.as_str()).collect();
-    assert_eq!(wires, ["aws_call", "memory_lookup", "term_open"]);
+    assert_eq!(wires, ["aws_call", "context_history", "term_open"]);
     assert_eq!(h[0].family, "aws");
     assert_eq!(h[0].line, "The aws_call tool.");
     let left = resolve(&cat, &deferral(Mechanism::Find, &["files", "commands"]));
@@ -140,7 +140,7 @@ fn the_families_of_a_catalog_are_listed_once() {
     let f = families_of(&catalog());
     assert_eq!(
         f.into_iter().collect::<Vec<_>>(),
-        ["aws", "commands", "files", "memory", "terminals"]
+        ["aws", "commands", "files", "history", "terminals"]
     );
 }
 

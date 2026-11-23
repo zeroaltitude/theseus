@@ -7,7 +7,7 @@
 //! - **What is read.** Its people's messages and the model's, and an imported session's messages (its nodes,
 //!   each by its newest record, `import::shown`: an erased one is its tombstone, which has no words, so it reads
 //!   as nothing and is counted). Tool calls and results are left out and counted, and so is an imported message
-//!   of outside text (as `memory.lookup`'s read of a session does); what the harness itself said, or an agent
+//!   of outside text (as `memory.lookup`'s read of a session did); what the harness itself said, or an agent
 //!   relayed, is not spoken (as an exchange's open does not speak it) and is counted.
 //! - **A task's session and a harness session** are both this harness's sessions: the model's messages and any
 //!   person's, as said. A task's brief is its parent's relayed message: counted, not spoken.

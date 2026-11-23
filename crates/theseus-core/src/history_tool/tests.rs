@@ -1842,7 +1842,7 @@ async fn a_reply_only_session_page_keeps_its_guests_input_provenance() {
 /// messages only stays clean.
 #[tokio::test]
 async fn an_imported_agent_message_beside_omitted_outside_text_is_outside() {
-    use crate::tests_memory_lookup::{episode, import};
+    use crate::tests_imports::{episode, import};
     let r = reading_rig();
     let with = |n: usize, msgs: Value| {
         let mut v = episode(n, "personal", "2026-03-03T18:00:00Z", "the kelp survey");

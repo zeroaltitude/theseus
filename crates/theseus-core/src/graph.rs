@@ -119,7 +119,8 @@ pub const VIA_MEMORY: &str = "memory";
 /// `channel.read` went (issue 46); an old store's edges still carry it.
 pub const VIA_GLIDE: &str = "glide";
 /// A `context.history` result, from each message whose words it shows (D6 round 4): the copy glide's read
-/// made (`copies`). Not every reader of old words writes one: `memory.lookup` writes none, and goes.
+/// made (`copies`). The model's readers of old words are this and `look.work` ([`VIA_LOOK`]), and both link
+/// (`memory.lookup`, which did not, went in D6 step 6).
 pub const VIA_HISTORY: &str = "history";
 /// `look.work`'s result, from each of this conversation's messages its history part shows (D6 round 5).
 pub const VIA_LOOK: &str = "look";
