@@ -825,3 +825,47 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn a_source_without_old_candidates_does_not_walk_the_archive() {
+    struct NoArchive;
+    impl Timeline for NoArchive {
+        fn newest(
+            &self,
+            _: &TimelineRoot,
+            _: Option<&Cursor>,
+            _: usize,
+        ) -> anyhow::Result<Vec<ExchangeRef>> {
+            anyhow::bail!("old archive must not be scanned when the source has no eligible facts")
+        }
+    }
+    impl Snapshot for NoArchive {
+        fn now_ms(&self) -> u64 {
+            NOW
+        }
+        fn timeline(&self) -> &dyn Timeline {
+            self
+        }
+        fn at_hand(&self, _: &Anchor) -> Option<AtHand> {
+            None
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let real = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    let sessions = super::super::sources_store::Sessions::default();
+    let real_sources = super::super::sources_store::StoreSources {
+        store: &real,
+        mark: None,
+        recalled: vec![],
+        sessions: &sessions,
+        own: None,
+    };
+    let fake = Store::default();
+    let mut src = sources(&fake, "");
+    src.exchanges = &real_sources;
+    let selected = past::Past::new(Band::PastOlder, src)
+        .select(&pov(Present::OwnerAlone), &NoArchive)
+        .unwrap();
+    assert!(selected.is_empty());
+    assert_eq!(sessions.reads.get(), 0);
+}

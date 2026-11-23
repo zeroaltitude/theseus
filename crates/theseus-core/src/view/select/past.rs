@@ -146,6 +146,9 @@ impl Selector for Past<'_> {
     }
 
     fn select(&self, pov: &PointOfView, snap: &dyn Snapshot) -> anyhow::Result<Vec<Piece>> {
+        if self.band == Band::PastOlder && !self.src.exchanges.has_old_candidates() {
+            return Ok(Vec::new());
+        }
         let Some(scope) = Scope::of(pov, &self.src)? else {
             return Ok(Vec::new());
         };
