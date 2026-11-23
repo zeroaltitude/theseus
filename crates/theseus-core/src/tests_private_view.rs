@@ -45,6 +45,11 @@ pub(crate) const ASKED: &str = "What happened to the hives?";
 /// When the episode was said: a fixed noon, so its stamp names one day.
 const EPISODE_MS: u64 = 1_767_787_200_000;
 
+/// The golden's clock: Sunday 2026-11-22, 12:00 UTC, the day it was written (a Sunday from UTC-11 to UTC+11).
+/// Its turns are stamped from the clock, and the DM's request lays the CLI session's turn with its weekday ("the
+/// owner said, in "local", Sun …"), so on the wall clock the golden held only on Sundays (X190).
+const GOLDEN_NOW_MS: u64 = 1_795_348_800_000;
+
 /// The rig with memory live, and the owner's material: the records, the
 /// person (with guidance naming them), and an earlier session that holds the
 /// episode, which the stand-in index answers; and the ids a request names
@@ -191,7 +196,7 @@ pub(crate) fn session_in(c: &Core, place: Option<&str>, dir: &Path) -> String {
 
 /// The request's body, as the golden holds it: its directories `<dir>`, the
 /// ids it names aliased (whole, then the six characters a handle keeps), the
-/// time zone a stamp names `<zone>`, its weekday before a date `<day>`, every run of digits `#`, the machine's
+/// time zone a stamp names `<zone>`, every run of digits `#`, the machine's
 /// CPU count `<cpus>`, the OS and architecture `<os>`;
 /// the tools by name and the digest of their definitions, so a request's
 /// every byte is held without 100 KB of schemas in the file.
@@ -222,11 +227,6 @@ pub(crate) fn body(req: &ProviderRequest, dir: &Path, ids: &[String]) -> String 
                 (out, d)
             })
             .0;
-        // `Sun #-#-#`: the weekday a stamp names is the clock's, so a golden written on one day would fail on the
-        // next.
-        let s = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-            .iter()
-            .fold(s, |s, d| s.replace(&format!("{d} #-#-#"), "<day> #-#-#"));
         // `said Wed #:# MST`: the zone is the machine's.
         let mut parts = s.split("#:# ");
         let mut out = parts.next().unwrap_or_default().to_string();
@@ -273,6 +273,9 @@ pub(crate) fn body(req: &ProviderRequest, dir: &Path, ids: &[String]) -> String 
 /// request.
 #[tokio::test]
 async fn a_private_sessions_request_is_byte_identical() {
+    // The clock on the golden's day before anything is stamped, and back on the wall clock when the test ends.
+    theseus_protocol::time::move_clock_to(GOLDEN_NOW_MS);
+    let _clock = crate::test_support::ClockPin;
     let (r, ids) = owners_rig(|_| {});
     let c = &r.core;
     let tmp = r.root.parent().unwrap().to_path_buf();

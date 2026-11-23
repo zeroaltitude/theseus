@@ -1225,3 +1225,116 @@ async fn a_finished_exchanges_clock_line_is_headed_as_the_harnesss_and_no_person
         "not headed as a person of unknown authorship: {heading}"
     );
 }
+
+/// X190, the install's smoke on build 190: a FRESH terminal session asks one short line at a place whose
+/// recent exchanges are a run of that same line (three here, five at another terminal place), with recall live.
+/// The request the view compiles is printed whole (each message's role, each block's size, head and end, and
+/// the block beside the message line by line). It must end with the person's line; and the harness's block
+/// beside it must say it is the harness's context and not a new request, must not disown its items (some are
+/// the person's own words, said elsewhere, each under its own framing), and must not head itself with an
+/// agenda of topics (what is waiting, in play, said elsewhere, called), which a model read on build 190 as
+/// the thing to report instead of answering the line.
+#[tokio::test]
+async fn x190_a_fresh_terminal_line_after_a_run_of_it_elsewhere_is_what_the_request_ends_with() {
+    const ASK: &str = "Reply with the single word: ok";
+    let r = rig_with(|c| c.memory.mode = crate::config::MemoryMode::Live);
+    let c = &r.core;
+    // Earlier smoke turns: three at this terminal place (the window), five at another terminal place (said
+    // elsewhere lately), all of them in the words index (recall).
+    let mut earlier = Vec::new();
+    for i in 0..8 {
+        let at = (i >= 3).then_some("local:/home/smoke");
+        let s = crate::tests_places::session(c, at);
+        turn_as(c, &s, ASK, true).await;
+        earlier.push(s);
+    }
+    (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, earlier));
+    let fresh = crate::tests_places::session(c, None);
+    turn_as(c, &fresh, ASK, true).await;
+    let q = r
+        .requests()
+        .into_iter()
+        .last()
+        .expect("the fresh turn's request");
+    let cut = |s: &str, n: usize| -> String {
+        let flat = s.replace('\n', "⏎");
+        match flat.chars().count() > 2 * n {
+            true => format!(
+                "{} … {}",
+                flat.chars().take(n).collect::<String>(),
+                flat.chars()
+                    .rev()
+                    .take(n)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<String>()
+            ),
+            false => flat,
+        }
+    };
+    println!("X190 SYSTEM: {} blocks", q.system.len());
+    for (i, b) in q.system.iter().enumerate() {
+        let t = b["text"].as_str().unwrap_or_default();
+        println!("X190 system[{i}] {} chars: {}", t.len(), cut(t, 160));
+    }
+    println!("X190 MESSAGES: {}", q.messages.len());
+    for (i, m) in q.messages.iter().enumerate() {
+        let blocks = m["content"].as_array().cloned().unwrap_or_default();
+        println!(
+            "X190 message[{i}] role={} blocks={}",
+            m["role"],
+            blocks.len()
+        );
+        for (j, b) in blocks.iter().enumerate() {
+            let t = b["text"]
+                .as_str()
+                .map_or_else(|| b.to_string(), str::to_string);
+            println!(
+                "X190   [{i}.{j}] {} {} chars: {}",
+                b["type"],
+                t.len(),
+                cut(&t, 220)
+            );
+            if t.starts_with(crate::view::wire_text::BESIDE_HEAD) {
+                for line in t.lines() {
+                    println!("X190 BESIDE| {line}");
+                }
+            }
+        }
+    }
+    let last = q.messages.last().expect("a message");
+    assert_eq!(
+        last["role"], "user",
+        "the request ends with the person's turn"
+    );
+    let blocks = last["content"].as_array().expect("blocks");
+    let end = blocks
+        .iter()
+        .rev()
+        .find_map(|b| b["text"].as_str())
+        .unwrap_or_default();
+    assert!(
+        end.trim_end().ends_with(ASK),
+        "the request's last words are the person's message, not a block of the harness's: {}",
+        cut(end, 300)
+    );
+    let beside = (blocks.iter().filter_map(|b| b["text"].as_str()))
+        .find(|t| t.starts_with(crate::view::wire_text::BESIDE_HEAD))
+        .expect("the block beside the message (recall laid it)");
+    let head = beside.lines().next().unwrap_or_default();
+    assert!(
+        head.contains("Harness-supplied context") && head.contains("not a new request"),
+        "the block says whose it is and that it asks for nothing: {head}"
+    );
+    assert!(
+        !head.contains("not the person's words"),
+        "it disowns no item: some are the person's words, each under its own framing: {head}"
+    );
+    for agenda in ["what is waiting", "in play", "said elsewhere", "called"] {
+        assert!(
+            !head.contains(agenda),
+            "its heading names no topic to cover ({agenda}): {head}"
+        );
+    }
+}
