@@ -546,8 +546,12 @@ pub fn render(
     resume: Option<&Cursor>,
 ) -> String {
     let within = span.map_or_else(String::new, |s| format!(" in {}", cut(&s.said, 80)));
-    // An empty span says so, unless a fork's cut held its words search's hits: that is told as `SearchCut`.
-    if let (Some(_), true) = (span, p.lines.is_empty() && p.end != PageEnd::SearchCut) {
+    // An empty span says so only when the walk reached its start: a scan stopped by its limit keeps its resume,
+    // a used allowance its ending, a fork's crowded search its `SearchCut`.
+    if let (Some(_), true) = (
+        span,
+        p.lines.is_empty() && p.end == PageEnd::HistoryExhausted,
+    ) {
         return format!(
             "context.history: no exchange of {}'s history{within}: nothing was said there in that span \
              (or nothing this call may read). Try a wider span, or call again without one.",

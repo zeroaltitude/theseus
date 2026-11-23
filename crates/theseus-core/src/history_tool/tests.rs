@@ -1284,3 +1284,48 @@ fn an_unread_scope_admits_nothing() {
         "the control"
     );
 }
+
+/// An empty span page keeps its true ending (D6a round 2, section 4): "nothing was said there" only when the
+/// walk reached the span's start (`HistoryExhausted`); a walk stopped by its reading limit keeps its resume
+/// instruction, and a used allowance says so, never absence.
+#[test]
+fn an_empty_span_page_keeps_a_scan_limit_and_an_allowance_ending() {
+    let span = crate::recall::when::When {
+        said: "last week".into(),
+        from_ms: Some(1),
+        to_ms: Some(2),
+    };
+    let empty = |end| HistoryPage {
+        lines: Vec::new(),
+        next: None,
+        end,
+    };
+    let token = Cursor {
+        at_ms: 7,
+        turn_id: "t".into(),
+    };
+    let scan = render(
+        &empty(PageEnd::ScanLimit),
+        (HERE, Some(&span)),
+        0,
+        Some(&token),
+    );
+    assert!(
+        scan.contains("reading limit") && scan.contains("\"at_ms\":7"),
+        "{scan}"
+    );
+    assert!(!scan.contains("nothing was said"), "{scan}");
+    let used = render(&empty(PageEnd::AllowanceUsed), (HERE, Some(&span)), 4, None);
+    assert!(used.contains("allowance is used"), "{used}");
+    assert!(!used.contains("nothing was said"), "{used}");
+    let gone = render(
+        &empty(PageEnd::HistoryExhausted),
+        (HERE, Some(&span)),
+        0,
+        None,
+    );
+    assert!(
+        gone.contains("nothing was said there in that span"),
+        "{gone}"
+    );
+}
