@@ -119,10 +119,12 @@ async fn dm_cards_off_is_todays_post() {
     let posted = crate::outbox::body_of(&needs_you_posts(&r)[0]).clone();
     assert_eq!(posted, crate::needs_you::body_of(&a, &req, &who));
     let short = &corr[corr.len() - 8..];
-    assert_eq!(
-        posted["text"],
-        format!("● write out.txt needs you: {}\n-# answer with `theseus answer {short} approve` or `decline`, or open Theseus", req.reason)
-    );
+    let text = posted["text"]
+        .as_str()
+        .unwrap()
+        .replace(r.root.to_str().unwrap(), "<work>")
+        .replace(short, "<id>");
+    assert_eq!(text, "● write out.txt needs you: create <work>/out.txt (9 bytes): fs.write — approve (enforcement = approve)\n-# answer with `theseus answer <id> approve` or `decline`, or open Theseus");
     assert_eq!(posted["asked_by"], "write out.txt");
     assert_eq!(posted["prompt"], req.reason);
     assert_eq!(posted["choices"], json!([]));
