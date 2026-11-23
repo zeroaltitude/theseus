@@ -1038,6 +1038,54 @@ mod tests {
         );
     }
 
+    /// **The bounded window keeps a repeated id repeated** (issue 44). A stored response gives one id to a long
+    /// use that ran (its record and correlated result stored) and a short one that did not. Folding only the
+    /// long use would leave the short one the id's sole use, and the compile would then lay the long use's
+    /// result under it. Through the bounded window, the receipts and a compile, no use reads that result.
+    #[test]
+    fn a_fold_never_makes_a_repeated_id_unique() {
+        use crate::compiler::tests_view::{frozen, result, run, said};
+        let input = json!({"path": "big.rs", "content": "x".repeat(50_000)});
+        let long = json!({"type": "tool_use", "id": "call_0", "name": "fs_write", "input": input});
+        let short = json!({"type": "tool_use", "id": "call_0", "name": "fs_read", "input": {"path": "a.rs"}});
+        let both = said("t0", vec![long, short]);
+        let record = Node::tool_call(
+            "s",
+            Some("t0"),
+            None,
+            Body::ToolCall {
+                tool_use_id: "call_0".into(),
+                tool: "fs.write".into(),
+                wire_name: "fs_write".into(),
+                input: json!({"path": "big.rs"}),
+                assistant_node: both.id.clone(),
+                correlation_id: Some("act_long".into()),
+                gate: None,
+            },
+        );
+        let mut wrote = result("t0", "call_0", "wrote the long file");
+        if let Body::ToolResult { correlation_id, .. } = &mut wrote.body {
+            *correlation_id = Some("act_long".into());
+        }
+        let exchange = vec![
+            Node::user("s", Some("t0"), "cli", "ask t0"),
+            both,
+            record,
+            wrote,
+            said("t0", vec![json!({"type": "text", "text": "answer t0"})]),
+        ];
+        let spoken = bounded(laid(exchange), &Handle("t0".into()));
+        let window: Vec<Node> = spoken.into_iter().map(|(_, n)| (*n).clone()).collect();
+        let mut f = frozen("t1", &window);
+        f.window = crate::compiler::view::receipted(f.window, &HashSet::new());
+        let first = run(&f, &[Node::user("s", Some("t1"), "cli", "now")], None);
+        let all = serde_json::to_string(&first.request.messages).unwrap();
+        assert!(
+            !all.contains("wrote the long file"),
+            "no use reads the long use's result: {all}"
+        );
+    }
+
     /// Each session an assembly reads is read from the store once, however many exchanges of it are asked.
     #[test]
     fn an_assembly_reads_each_session_once() {

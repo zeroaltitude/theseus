@@ -1474,6 +1474,43 @@ impl Scripted {
     }
 }
 
+/// A response as the wire gave it (`lines`, server-sent events), through the real stream parser
+/// ([`Accumulator`]): for a test that wants a call whose input did not parse as the parser finds it, not a
+/// string written in its place. A call the parser could not read (its input left empty, its raw text kept)
+/// comes back with that raw text as its input, which is how [`Scripted`] carries one ([`unparsed_inputs`]).
+#[cfg(test)]
+pub(crate) fn scripted_from_sse(lines: &[&str]) -> Scripted {
+    let mut out = ModelResponse::default();
+    let mut acc = Accumulator::default();
+    for l in lines {
+        let Some(ev) = parse_sse_line(l) else {
+            continue;
+        };
+        if matches!(
+            acc.apply(ev, &mut out, &mut |_: Delta<'_>| {}),
+            Ok(Flow::Stop)
+        ) {
+            break;
+        }
+    }
+    let unread = |b: &Value| b["input"] == serde_json::json!({});
+    let blocks = (out.content.iter().cloned())
+        .map(|mut b| {
+            let raw = b["id"]
+                .as_str()
+                .and_then(|id| out.invalid_tool_inputs.get(id));
+            if let Some(raw) = raw.filter(|_| unread(&b)) {
+                b["input"] = Value::String(raw.clone());
+            }
+            b
+        })
+        .collect();
+    Scripted::Blocks {
+        blocks,
+        stop_reason: out.stop_reason.unwrap_or_default(),
+    }
+}
+
 /// A scripted call whose input is a string is one whose streamed input did
 /// not parse: the string is its raw text, and its input is empty.
 fn unparsed_inputs(blocks: Vec<Value>) -> (Vec<Value>, BTreeMap<String, String>) {

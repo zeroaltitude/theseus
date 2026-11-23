@@ -422,6 +422,14 @@ async fn a_repeated_id_in_one_response(
         ("X", second.0, second.1),
         ("Y", "proc_run", json!({"argv": ["echo", "gamma-3"]})),
     ];
+    let calls: Vec<(&str, &str, Value)> = (calls.iter())
+        .map(|(id, n, i)| (*id, *n, i.clone()))
+        .collect();
+    a_repeated_id_in_one_scripted_response(Scripted::tools("Three calls.", &calls)).await;
+}
+
+/// [`a_repeated_id_in_one_response`], for the response `three` (its calls `X`, `X`, and `Y`'s `gamma-3`).
+async fn a_repeated_id_in_one_scripted_response(three: Scripted) {
     let r = rig_scripted(
         |_| {},
         move |req: &ProviderRequest| {
@@ -431,10 +439,7 @@ async fn a_repeated_id_in_one_response(
             if !last_user(req).starts_with("THREE") {
                 return Scripted::text("Hello.");
             }
-            let calls: Vec<(&str, &str, Value)> = (calls.iter())
-                .map(|(id, n, i)| (*id, *n, i.clone()))
-                .collect();
-            Scripted::tools("Three calls.", &calls)
+            three.clone()
         },
     );
     let cli = session(&r.core, None);
@@ -474,12 +479,88 @@ async fn a_repeated_id_in_one_response_runs_neither_unknown_tool_first() {
     .await;
 }
 
-/// **The same, the valid call first and an input that did not parse second.**
+/// **The same, the valid call first and an input that did not parse second**: the response comes through the
+/// real stream parser, whose second call's input fails to parse there.
 #[tokio::test]
 async fn a_repeated_id_in_one_response_runs_neither_invalid_input_second() {
-    a_repeated_id_in_one_response(
-        ("proc_run", json!({"argv": ["echo", "alpha-7"]})),
-        ("fs_write", json!("{not json")),
-    )
-    .await;
+    let wire = crate::provider::scripted_from_sse(&[
+        r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"X","name":"proc_run","input":{}}}"#,
+        r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"argv\": [\"echo\", \"alpha-7\"]}"}}"#,
+        r#"data: {"type":"content_block_stop","index":0}"#,
+        r#"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"X","name":"fs_write","input":{}}}"#,
+        r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\": \"/x"}}"#,
+        r#"data: {"type":"content_block_stop","index":1}"#,
+        r#"data: {"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"Y","name":"proc_run","input":{}}}"#,
+        r#"data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"argv\": [\"echo\", \"gamma-3\"]}"}}"#,
+        r#"data: {"type":"content_block_stop","index":2}"#,
+        r#"data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":9}}"#,
+        r#"data: {"type":"message_stop"}"#,
+    ]);
+    if let Scripted::Blocks { blocks, .. } = &wire {
+        assert_eq!(
+            blocks[1]["input"], "{\"path\": \"/x",
+            "the parser could not read it: {blocks:?}"
+        );
+    }
+    a_repeated_id_in_one_scripted_response(wire).await;
+}
+
+/// **One id on a tool the request deferred and a loaded one** (issue 44): the deferred tool is answered before
+/// any call runs, so the loaded one must not be dispatched as if its id were its own. Neither runs (no file is
+/// made: a side effect of its own, not the absence of its words); the call with its own id makes its file.
+#[tokio::test]
+async fn a_repeated_id_across_a_deferred_and_a_loaded_tool_runs_neither() {
+    let root: Arc<std::sync::OnceLock<String>> = Arc::default();
+    let at = root.clone();
+    let r = crate::tests_places::rig_deferring(
+        crate::tests_places::no_standing_admissions,
+        move |req: &ProviderRequest| {
+            if answers_a_call(req) {
+                return Scripted::text("Done.");
+            }
+            if !last_user(req).starts_with("DEFERRED") {
+                return Scripted::text("Hello.");
+            }
+            let cwd = at.get().cloned().unwrap_or_default();
+            Scripted::tools(
+                "Three calls.",
+                &[
+                    ("X", "term_open", json!({"argv": ["true"]})),
+                    (
+                        "X",
+                        "proc_run",
+                        json!({"argv": ["touch", "ran-x"], "cwd": cwd}),
+                    ),
+                    (
+                        "Y",
+                        "proc_run",
+                        json!({"argv": ["touch", "ran-y"], "cwd": cwd}),
+                    ),
+                ],
+            )
+        },
+    );
+    root.set(r.root.display().to_string()).unwrap();
+    let cli = session(&r.core, None);
+    turn(&r.core, &cli, "DEFERRED").await;
+    assert!(
+        r.root.join("ran-y").exists(),
+        "the call with its own id ran"
+    );
+    assert!(
+        !r.root.join("ran-x").exists(),
+        "the loaded call of the repeated id never ran"
+    );
+    let blocks = answers_of(&r, "ran-y");
+    let results: Vec<&Value> = blocks
+        .iter()
+        .filter(|b| b["type"] == "tool_result")
+        .collect();
+    assert_eq!(results.len(), 3, "one result for each use: {blocks:?}");
+    for b in &results[..2] {
+        assert!(
+            b["content"].to_string().contains("more than one call"),
+            "both uses of the repeated id read the refusal: {blocks:?}"
+        );
+    }
 }
