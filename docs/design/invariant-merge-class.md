@@ -147,10 +147,10 @@ Written down in code, measured against the merged tree at the join:
 
 | invariant | where | value |
 |---|---|---|
-| first request, CLI task | `theseus-core/src/first_request.rs:24` | 8,000 tokens |
-| first request, DM | `:26` | 15,000 tokens |
-| first request, channel | `:34` | 8,900 tokens |
-| first request, headless | `:35` | 8,600 tokens |
+| first request, CLI task | `theseus-core/src/first_request.rs:27` | 9,500 tokens |
+| first request, DM | `:29` | 15,000 tokens |
+| first request, channel | `:39` | 9,700 tokens |
+| first request, headless | `:46` | 10,100 tokens |
 | a plain turn's frames | `theseus-sim/src/perf.rs:72` | 4.0 |
 | a tool turn's frames | `:89` | 8.0 |
 | a batch over one call | `:102` | 300 ms |

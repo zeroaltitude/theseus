@@ -541,10 +541,10 @@ under `build.sh`, and "glibc or static musl").
 | Binary swap | 200 ms | the lifecycle bench |
 | An L1 job's start, p95 | 25 ms | the jobs bench |
 | A plain turn | 4 frames | `tests_m3::a_plain_turn_stays_within_its_frame_budget` and the turn bench |
-| First request: a CLI or task session | 8,000 tokens | `tests_first_request` and the gate |
+| First request: a CLI or task session | 9,500 tokens | `tests_first_request` and the gate |
 | First request: the owner's DM | 15,000 tokens | `tests_first_request` and the gate |
-| First request: a shared channel | 8,900 tokens | `tests_first_request` and the gate |
-| First request: headless | 8,600 tokens | `tests_first_request` and the gate |
+| First request: a shared channel | 9,700 tokens | `tests_first_request` and the gate |
+| First request: headless | 10,100 tokens | `tests_first_request` and the gate |
 | Binary growth per build | 1 MB | the size check |
 
 Raising any of these is `budget-raised`: keel.

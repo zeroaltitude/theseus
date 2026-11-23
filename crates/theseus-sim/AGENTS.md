@@ -81,7 +81,7 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     turn's WAL gains before the stand-in's first byte (counted by the stand-in from the WAL as it is about to send;
     `SYNCS_BEFORE_FIRST_BYTE`, 2, `PLAIN_SYNCS_BEFORE_CALL` since theseus-2uby, only goes down), a fresh session's first request in tokens as sent, per kind of place (a second
     scratch daemon of the default config, `context.census`'s total for `cli`, `task`, `dm`, `channel` and `headless`; at most
-    `theseus_core::first_request::budget`: 8,000 in the cli and task places, 15,000 in the DM's, and the channel's and the
+    `theseus_core::first_request::budget`: 9,500 in the cli and task places, 15,000 in the DM's, and the channel's and the
     headless run's own, theseus-to0xw; its bytes, and the bench config's, are recorded, not judged),
     **the same request's session's own context per place — its total less the tools and the first system block, the
     header — with its share of `[routing] cold_switch_tokens`, recorded and NEVER judged** (theseus-4vsrz, B7: this

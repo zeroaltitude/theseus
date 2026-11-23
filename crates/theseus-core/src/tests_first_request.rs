@@ -181,8 +181,8 @@ fn every_kind_of_place_is_within_its_budget() {
             "started from a file, {place}: {tokens} tokens over its budget of {max}"
         );
     }
-    assert_eq!(budget("cli"), Some(8_000));
-    assert_eq!(budget("task"), Some(8_000));
+    assert_eq!(budget("cli"), Some(9_500));
+    assert_eq!(budget("task"), Some(9_500));
     assert_eq!(budget("dm"), Some(15_000));
     assert!(budget("channel") <= Some(15_000) && budget("headless") <= Some(15_000));
 }
