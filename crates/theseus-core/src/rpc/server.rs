@@ -182,17 +182,18 @@ impl Core {
         let lane = Arc::new(super::ordered::Lane::default());
         let requests = Admission::new();
         let mut reader = BufReader::new(reader);
+        let line_cap = request_cap(self.cfg.tools.max_attachment_bytes);
         let mut reader_closed = tx.closed_signal();
         loop {
             let next = tokio::select! {
                 _ = connection_closed(&mut reader_closed) => break,
-                line = request_line(&mut reader) => line,
+                line = request_line(&mut reader, line_cap) => line,
             };
             let line = match next {
                 Ok(Some(line)) => line,
                 Ok(None) => break,
-                Err(_) => {
-                    tx.close();
+                Err(e) => {
+                    reject_line(&client, line_cap, e, &tx, &flush_tx).await;
                     break;
                 }
             };
@@ -517,7 +518,16 @@ async fn write_connection<W: AsyncWrite + Unpin>(
 
 // Inline images are base64 encoded, and import batches carry many episodes.
 // Bound the whole frame without rejecting the existing multi-megabyte paths.
-const LINE_CAP: usize = 16 * 1024 * 1024;
+// Space for eight full attachments (including the eight document images),
+// base64 padding, and one MiB of JSON/text envelope. This is a wire budget,
+// not permission to bypass each attachment's configured decoded-byte limit.
+// Keep the existing 16 MiB allowance for images/imports even with a tiny file cap.
+fn request_cap(max_attachment_bytes: u64) -> usize {
+    let encoded = max_attachment_bytes.div_ceil(3).saturating_mul(4);
+    usize::try_from(encoded.saturating_mul(8).saturating_add(1024 * 1024))
+        .unwrap_or(usize::MAX - 1)
+        .clamp(16 * 1024 * 1024, usize::MAX - 1)
+}
 const REQUEST_CAP: usize = 64;
 const CONTROL_CAP: usize = 8;
 
@@ -557,19 +567,42 @@ impl Admission {
     }
 }
 
+/// Say why a frame was refused before closing, without waiting forever
+/// for a peer that stopped reading. No request id can be trusted yet.
+async fn reject_line(
+    client: &str,
+    cap: usize,
+    error: std::io::Error,
+    tx: &Outbound,
+    flush: &mpsc::UnboundedSender<oneshot::Sender<()>>,
+) {
+    tracing::warn!(client, limit_bytes = cap, reason = %error, "request line rejected");
+    tx.respond(Message::Response(Response::err(
+        Id::Num(0),
+        error_code::LIMIT,
+        error.to_string(),
+    )));
+    let (ack, written) = oneshot::channel();
+    if flush.send(ack).is_ok() {
+        let _ = tokio::time::timeout(ANSWER_FLUSH, written).await;
+    }
+    tx.close();
+}
+
 /// Take reads at most one bounded line, even if the peer never sends a newline.
 async fn request_line<R: AsyncRead + Unpin>(
     reader: &mut BufReader<R>,
+    cap: usize,
 ) -> std::io::Result<Option<String>> {
     let mut bytes = Vec::new();
     let n = reader
-        .take((LINE_CAP + 1) as u64)
+        .take((cap + 1) as u64)
         .read_until(b'\n', &mut bytes)
         .await?;
-    if n > LINE_CAP {
+    if n > cap {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "request line exceeds the connection limit",
+            format!("request line exceeds {cap} bytes (read {n} bytes)"),
         ));
     }
     if n == 0 {
@@ -737,22 +770,23 @@ mod connection_limits {
 
     #[tokio::test]
     async fn a_request_without_a_newline_cannot_grow_past_the_cap() {
-        let bytes = vec![b'x'; LINE_CAP + 100];
+        let cap = request_cap(0);
+        let bytes = vec![b'x'; cap + 100];
         let mut reader = BufReader::new(bytes.as_slice());
         assert_eq!(
-            request_line(&mut reader).await.unwrap_err().kind(),
+            request_line(&mut reader, cap).await.unwrap_err().kind(),
             std::io::ErrorKind::InvalidData
         );
         let mut reader = BufReader::new(&b"one\ntwo\n"[..]);
         assert_eq!(
-            request_line(&mut reader).await.unwrap(),
+            request_line(&mut reader, cap).await.unwrap(),
             Some("one\n".into())
         );
         assert_eq!(
-            request_line(&mut reader).await.unwrap(),
+            request_line(&mut reader, cap).await.unwrap(),
             Some("two\n".into())
         );
-        assert!(request_line(&mut reader).await.unwrap().is_none());
+        assert!(request_line(&mut reader, cap).await.unwrap().is_none());
     }
 
     #[test]
@@ -770,5 +804,110 @@ mod connection_limits {
         assert!(admission.take(method::SHUTDOWN).is_some());
         drop(holds);
         assert!(admission.take(method::SESSION_WAIT).is_some());
+    }
+}
+
+#[cfg(test)]
+mod attachment_frames {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_configured_attachment_fits_its_request_line() {
+        use base64::Engine as _;
+        for size in [32 * 1024 * 1024, 40 * 1024 * 1024] {
+            let data = base64::engine::general_purpose::STANDARD.encode(vec![0; size]);
+            let mut line = serde_json::to_string(&json!({
+                "jsonrpc": "2.0", "id": 1, "method": "turn.submit",
+                "params": {"input": "read this", "attachments": [{
+                    "name": "report.pdf", "media_type": "application/pdf",
+                    "size": size, "data": data
+                }]}
+            }))
+            .unwrap();
+            line.push('\n');
+            let mut reader = BufReader::new(line.as_bytes());
+            let received = request_line(&mut reader, request_cap(size as u64))
+                .await
+                .expect("configured attachment must fit")
+                .unwrap();
+            assert_eq!(received, line);
+        }
+    }
+
+    #[tokio::test]
+    async fn attachment_at_cap_is_kept_and_one_over_is_not() {
+        use base64::Engine as _;
+        let cap = 32 * 1024 * 1024;
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = crate::blobs::Blobs::new(dir.path());
+        for size in [cap, cap + 1] {
+            let mut bytes = vec![0; size];
+            bytes[..4].copy_from_slice(b"PK\x03\x04");
+            let wire = theseus_protocol::Attachment {
+                name: "report.zip".into(),
+                media_type: "application/zip".into(),
+                size: size as u64,
+                data: Some(base64::engine::general_purpose::STANDARD.encode(bytes)),
+                text: None,
+                not_read: None,
+            };
+            let mut line = serde_json::to_string(&json!({
+                "jsonrpc": "2.0", "id": 1, "method": "turn.submit",
+                "params": {"input": "read", "attachments": [wire]}
+            }))
+            .unwrap();
+            line.push('\n');
+            let received = request_line(
+                &mut BufReader::new(line.as_bytes()),
+                request_cap(cap as u64),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            let request: Request = serde_json::from_str(&received).unwrap();
+            let params: theseus_protocol::TurnSubmitParams =
+                serde_json::from_value(request.params).unwrap();
+            let (files, _) = crate::attach::from_wire(
+                params.attachments,
+                crate::attach::Caps {
+                    max_file: cap as u64,
+                    max_text: 1024,
+                    page_images: None,
+                },
+                &blobs,
+            );
+            let description = crate::attach::header(&files[0], None);
+            assert_eq!(
+                description.contains("over the"),
+                size > cap,
+                "{description}"
+            );
+            assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_oversize_request_gets_a_limit_answer_before_eof() {
+        let core = super::super::tests::test_core_with("unused", |cfg| {
+            cfg.tools.max_attachment_bytes = 0;
+        });
+        let (client, server) = tokio::io::duplex(64 * 1024);
+        let (sr, sw) = tokio::io::split(server);
+        let task = tokio::spawn(core.serve_connection(sr, sw, "frame-test".into()));
+        let (cr, mut cw) = tokio::io::split(client);
+        let cap = request_cap(0);
+        cw.write_all(&vec![b'x'; cap + 1]).await.unwrap();
+        let mut lines = BufReader::new(cr).lines();
+        let line = lines
+            .next_line()
+            .await
+            .unwrap()
+            .expect("limit response, not silent EOF");
+        let answer: Response = serde_json::from_str(&line).unwrap();
+        let error = answer.error.unwrap();
+        assert_eq!(error.code, error_code::LIMIT);
+        assert!(error.message.contains(&cap.to_string()));
+        assert!(lines.next_line().await.unwrap().is_none());
+        task.await.unwrap().unwrap();
     }
 }
