@@ -129,8 +129,8 @@ sessions) or `live` (acts everywhere). The ladder moves a pack between them; the
 `thread:<slug>`. See *place class* and *place kind*.
 
 **place class**: `private` or `shared` (`PlaceClass`, `crates/theseus-protocol/src/places.rs`). Private (the CLI, the
-web UI, a DM with the owner, a channel bound `private = true`) gets everything; shared gets its own conversation and
-the public tools only. `theseus places`.
+web UI, a DM with the owner, a channel bound `private = true`) and shared places draw on the same memory. Shared
+places get the public tools only; place class still matters to act gates, not to context withholding. `theseus places`.
 
 **place kind**: `cli`, `dm`, `channel`, `task` or `headless` (`PlaceKind`,
 `crates/theseus-core/src/tools_defer/family.rs`), the kind of place a loaded tool set is kept for. `cli` covers the
