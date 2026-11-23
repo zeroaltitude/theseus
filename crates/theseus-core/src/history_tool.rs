@@ -183,6 +183,12 @@ pub(crate) fn marker(o: &ToolOutput) -> Option<theseus_tools::External> {
         })
 }
 
+/// What a page read, as its marker names it: the place or the thing it was asked for, or here.
+fn read_of<'a>(a: &'a HistoryArgs, here: &'a str) -> &'a str {
+    let some = |s: &'a Option<String>| s.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    some(&a.place).or(some(&a.thing)).unwrap_or(here)
+}
+
 /// The `outside` of a result's meta: what it read, when it shows another person's words.
 fn outside_of(shows: bool, what: &str) -> Value {
     match shows {
@@ -436,7 +442,7 @@ pub(crate) async fn answer(
         meta: json!({
             "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
             "look": used.looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
-            "outside": outside_of(page::shows_another(&p), here),
+            "outside": outside_of(page::shows_another(&p), read_of(a, here)),
         }),
     })
 }

@@ -779,7 +779,12 @@ async fn a_span_holds_exactly_its_exchanges_and_an_empty_one_says_so() {
         };
         put(&r.core.store, &e);
     }
-    let (b, pov) = (Board::default(), pov(HERE, Present::OwnerAlone));
+    // Read as of 22 November 2026: a date in the future is no span (`recall::when::read`).
+    let at = PointOfView {
+        now_ms: noon_nov(22),
+        ..pov(HERE, Present::OwnerAlone)
+    };
+    let (b, pov) = (Board::default(), at);
     let (core, b, me, pov) = (&r.core, &b, me.as_str(), &pov);
     let call = move |v: Value| {
         let a = args(v);
@@ -848,7 +853,11 @@ async fn a_span_beside_a_place_narrows_it() {
             ..ex(3, DM, &other)
         },
     );
-    let (b, pov) = (Board::default(), pov(HERE, Present::OwnerAlone));
+    let at = PointOfView {
+        now_ms: noon_nov(22),
+        ..pov(HERE, Present::OwnerAlone)
+    };
+    let (b, pov) = (Board::default(), at);
     let got = answer(
         &r.core,
         &b,
