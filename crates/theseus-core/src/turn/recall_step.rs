@@ -1,13 +1,9 @@
 //! The recall step on a turn's first loop (M6 steps 30a, 30b;
 //! `crate::recall`).
 //!
-//! - **Shadow** (30a): begun as the loop's model call
-//!   goes out, and read once it has answered, so the index's wait overlaps
-//!   the model's. Its row rides in the turn's next frame, and the request
-//!   the model got is the one compiled without it.
 //! - **The arm's sources** (34b): a live arm asks the index for its own
 //!   (`MemoryArm::sources`: `bm25` BM25 and entities, `baseline` all three);
-//!   shadow asks for `baseline`'s; and `live` with arm `none` asks nothing.
+//!   arm `none` asks nothing. There is no shadow recall path.
 //! - **Live** (30b): read before the compile, never past
 //!   `[memory] recall_deadline_ms`. What it admits is a `Recall` node, built
 //!   here and held in the turn (`Recalled`) until it rides the provider
