@@ -136,12 +136,11 @@ fn window(
     let mut out = Vec::new();
     let mut page = exchange::newest(store, root, PAGE)?;
     loop {
-        let (mut fresh, mut past) = (0, false);
+        let mut past = false;
         for t in &page {
             if !seen.insert(t.exchange.clone()) {
                 continue;
             }
-            fresh += 1;
             // Ties at the floor's millisecond are each weighed; older is done.
             if floor_ms.is_some_and(|f| t.at_ms < f) {
                 past = true;
@@ -157,18 +156,13 @@ fn window(
                 }
             }
         }
-        let Some(oldest) = page.last().map(|t| t.at_ms) else {
+        let Some(oldest) = page.last() else {
             break;
         };
         if past || page.len() < PAGE {
             break;
         }
-        // The next page again from the oldest millisecond, for its ties; past
-        // it when that page held nothing new.
-        page = match fresh {
-            0 => exchange::newest_before(store, root, oldest, PAGE)?,
-            _ => exchange::newest_before(store, root, oldest.saturating_add(1), PAGE)?,
-        };
+        page = exchange::newest_after_touch(store, root, oldest, PAGE)?;
     }
     out.sort_by_key(|a| pos(a.start_ms, &a.turn_id));
     Ok(out)

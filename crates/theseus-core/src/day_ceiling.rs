@@ -9,8 +9,9 @@
 //!   positions), and today's `spend.ceiling` row, so a restart never resets
 //!   the day and never posts its notice twice. While the index's shape is
 //!   built (an older build wrote last) the pages are not there: the read is
-//!   then made after serving, once they are, and until it lands the day
-//!   counts from this start alone (`Seeded::later`).
+//!   then made after serving, once they are, and until it lands new model
+//!   calls are refused (`Seeded::later`). The read ends at the position
+//!   captured before startup; newer bookings live only in the live counter.
 //! - **A refusal** (`TurnRunner::day_refused`): the day's first writes one
 //!   `spend.ceiling` row and, when a DM with the owner is bound, one post
 //!   there (never a shared place), in one frame. Every refusal is logged.
@@ -38,6 +39,7 @@
 //! - speech (`speech.transcribed`, `speech.synthesized`, `Kernel::book_spend`);
 //! - the judge's point judgments (its day budget's META record, `judge.budget`,
 //!   whose `spent_micros` is today's when its `day` is);
+//! - nightly guidance (the day mark `onto.dream.last`, added outside the cached ledger total);
 //! - consolidation (`synthesis.proposed`), and the owner's learning runs
 //!   (`judge.replay`, `judge.audit`, `judge.backfill`'s `cost_usd`), and the
 //!   learning loop's writer (`judge.proposal`'s `writer_usd`), and the
@@ -62,10 +64,13 @@ use crate::store::Store;
 use crate::turn::TurnRunner;
 
 /// The kinds whose rows of today carry model spend (the module's list).
-pub const SPEND_KINDS: [&str; 16] = [
+pub const SPEND_KINDS: [&str; 19] = [
     "action.succeeded",
     "action.failed",
     "action.outcome_unknown",
+    "action.cancel",
+    "action.resolved",
+    "completion.late_after_cancel",
     "speech.transcribed",
     "speech.synthesized",
     "synthesis.proposed",
@@ -124,6 +129,17 @@ pub struct Seeded {
 /// A row's model spend, by its kind: `None` for a row that is not.
 pub(crate) fn spend_of(row: &LedgerRow) -> Option<Micros> {
     let x = &row.data;
+    if let Some(amount) = x["day_micros"].as_u64() {
+        return Some(amount);
+    }
+    // Older rows carry full bills, not incremental day bookings. Retain their reader;
+    // never add a full resolution's bill on top of its earlier reservation.
+    if matches!(
+        row.kind.as_str(),
+        "action.cancel" | "action.resolved" | "completion.late_after_cancel"
+    ) {
+        return None;
+    }
     let cost = match row.kind.as_str() {
         "judge.proposal" => x["writer_usd"].as_f64()?,
         _ => x["cost_usd"].as_f64()?,
@@ -146,7 +162,7 @@ pub const TOTAL_KEY: &str = "day_ceiling.total";
 
 /// Bumped when `spend_of` or the fold changes what a row counts: a total
 /// written under another rule is not trusted, and the start scans once.
-const TOTAL_RULE: u32 = 1;
+const TOTAL_RULE: u32 = 2;
 
 /// A `spend.ceiling` row today: the limit it was written under, and when.
 /// One entry a distinct limit (the earliest time), since whether a row is
@@ -257,7 +273,12 @@ fn day_tags() -> Vec<String> {
 /// Folds the day's rows into `t`: every one from midnight (`resume` is
 /// `None`, newest page first), or only those past `resume` (oldest first).
 /// Returns the rows decoded, or `None` while the index's shape is built.
-fn scan_day(store: &Store, t: &mut Total, resume: Option<u64>) -> anyhow::Result<Option<u64>> {
+fn scan_day(
+    store: &Store,
+    t: &mut Total,
+    resume: Option<u64>,
+    through_limit: Option<u64>,
+) -> anyhow::Result<Option<u64>> {
     let tags = day_tags();
     let (mut rows, mut cursor) = (0u64, resume);
     let mut through = t.through;
@@ -266,7 +287,9 @@ fn scan_day(store: &Store, t: &mut Total, resume: Option<u64>) -> anyhow::Result
             kind: kinds::LEDGER,
             tags: tags.clone(),
             after: cursor.filter(|_| resume.is_some()),
-            before: cursor.filter(|_| resume.is_none()),
+            before: cursor
+                .filter(|_| resume.is_none())
+                .or_else(|| through_limit.map(|p| p.saturating_add(1))),
             since_ms: Some(t.since_ms),
             until_ms: None,
             limit: 512,
@@ -276,9 +299,14 @@ fn scan_day(store: &Store, t: &mut Total, resume: Option<u64>) -> anyhow::Result
         };
         through = through.max(got.last);
         for r in &got.records {
-            let Ok(row) = r.decode::<LedgerRow>() else {
-                continue;
-            };
+            let row = r.decode::<LedgerRow>()?;
+            anyhow::ensure!(
+                row.data
+                    .get("day_micros")
+                    .is_none_or(|v| v.as_u64().is_some()),
+                "unreadable model spend at position {}",
+                r.position
+            );
             rows += 1;
             t.fold(&row);
         }
@@ -292,23 +320,102 @@ fn scan_day(store: &Store, t: &mut Total, resume: Option<u64>) -> anyhow::Result
     Ok(Some(rows))
 }
 
+/// Ignore a different day's mark before decoding its amount. A missing or
+/// unreadable day must still fail closed.
+fn day_mark<T: serde::de::DeserializeOwned>(
+    store: &Store,
+    key: &str,
+    day: &str,
+) -> anyhow::Result<Option<T>> {
+    let Some(raw) = store.get_meta::<serde_json::Value>(key)? else {
+        return Ok(None);
+    };
+    if raw
+        .get("day")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|d| d != day)
+    {
+        return Ok(None);
+    }
+    Ok(Some(serde_json::from_value(raw)?))
+}
+
 /// The judge's day budget keeps today's settled spend in one record.
-fn judge_spent(store: &Store, day: &str) -> Micros {
-    match store.get_meta::<crate::judge::spend::Stored>(crate::judge::spend::META_KEY) {
-        Ok(Some(j)) if j.day == day => j.spent_micros,
-        _ => 0,
+fn judge_spent(store: &Store, day: &str) -> anyhow::Result<Micros> {
+    use anyhow::Context;
+    Ok(
+        day_mark::<crate::judge::spend::Stored>(store, crate::judge::spend::META_KEY, day)
+            .context("today's judge spending cannot be read")?
+            .map_or(0, |j| j.spent_micros),
+    )
+}
+
+/// Guidance's day mark is separate from ledger totals, like the judge's budget.
+fn guidance_spent(store: &Store, day: &str) -> anyhow::Result<Micros> {
+    use crate::consolidate::guidance::{DreamMark, MARK};
+    use anyhow::Context;
+    let Some(mark) = day_mark::<DreamMark>(store, MARK, day)
+        .context("today's guidance spending cannot be read")?
+    else {
+        return Ok(0);
+    };
+    anyhow::ensure!(
+        mark.spent_usd.is_finite() && mark.spent_usd >= 0.0,
+        "today's guidance spending cannot be read"
+    );
+    Ok(usd_to_micros(mark.spent_usd))
+}
+
+/// In-memory startup read failure: one warning on change, otherwise per minute.
+#[derive(Default)]
+pub(crate) struct ReadFailure {
+    since: u64,
+    logged: u64,
+    error: Option<String>,
+}
+
+impl ReadFailure {
+    pub(crate) fn failed(&mut self, now: u64, error: String) -> bool {
+        if self.error.is_none() {
+            self.since = now;
+        }
+        let log = self.error.as_ref() != Some(&error) || now.saturating_sub(self.logged) >= 60_000;
+        if log {
+            self.logged = now;
+        }
+        self.error = Some(error);
+        log
+    }
+
+    pub(crate) fn health(&self, now: u64) -> Option<String> {
+        self.error.as_ref().filter(|_| now.saturating_sub(self.since) > 60_000).map(|e| {
+            let figure = if e.contains("judge spending") { "judge spending" }
+                else if e.contains("guidance spending") { "guidance spending" }
+                else { "model spending from the ledger" };
+            format!("Today's {figure} cannot be read; the day-spend read has been failing for over a minute.")
+        })
     }
 }
 
-fn seeded(t: &Total, rows: u64, resumed: bool, store: &Store, day: &str, limit: Micros) -> Seeded {
+fn seeded(
+    t: &Total,
+    rows: u64,
+    resumed: bool,
+    store: &Store,
+    day: &str,
+    limit: Micros,
+) -> anyhow::Result<Seeded> {
     let mut seed = t.seed(limit);
-    seed.spent = seed.spent.saturating_add(judge_spent(store, day));
-    Seeded {
+    seed.spent = seed
+        .spent
+        .saturating_add(judge_spent(store, day)?)
+        .saturating_add(guidance_spent(store, day)?);
+    Ok(Seeded {
         seed,
         rows,
         later: false,
         resumed,
-    }
+    })
 }
 
 /// Today's spend and its `spend.ceiling` row, from `since_ms` (local
@@ -322,7 +429,9 @@ pub fn read_today(
     limit: Micros,
 ) -> anyhow::Result<Option<Seeded>> {
     let mut t = Total::new(since_ms, day);
-    Ok(scan_day(store, &mut t, None)?.map(|rows| seeded(&t, rows, false, store, day, limit)))
+    scan_day(store, &mut t, None, None)?
+        .map(|rows| seeded(&t, rows, false, store, day, limit))
+        .transpose()
 }
 
 /// Today's spend as `read_today` finds it, without reading the day's rows
@@ -338,10 +447,20 @@ pub fn read_today_total(
     day: &str,
     limit: Micros,
 ) -> anyhow::Result<Option<Seeded>> {
-    let Some((t, rows, resumed)) = advance_total(store, since_ms, day)? else {
+    read_today_total_at(store, since_ms, day, limit, None)
+}
+
+pub(crate) fn read_today_total_at(
+    store: &Store,
+    since_ms: u64,
+    day: &str,
+    limit: Micros,
+    through: Option<u64>,
+) -> anyhow::Result<Option<Seeded>> {
+    let Some((t, rows, resumed)) = advance_total(store, since_ms, day, through)? else {
         return Ok(None);
     };
-    Ok(Some(seeded(&t, rows, resumed, store, day, limit)))
+    Ok(Some(seeded(&t, rows, resumed, store, day, limit)?))
 }
 
 /// The stored total, read forward to the log's end and stored again if that
@@ -350,16 +469,25 @@ fn advance_total(
     store: &Store,
     since_ms: u64,
     day: &str,
+    through_limit: Option<u64>,
 ) -> anyhow::Result<Option<(Total, u64, bool)>> {
     let stored = match store.get_meta::<Total>(TOTAL_KEY) {
-        Ok(Some(t)) if t.fits(since_ms, day, store.last_position()) => Some(t),
+        Ok(Some(t))
+            if t.fits(
+                since_ms,
+                day,
+                through_limit.unwrap_or_else(|| store.last_position()),
+            ) =>
+        {
+            Some(t)
+        }
         _ => None,
     };
     let resumed = stored.as_ref().is_some_and(|t| t.through.is_some());
     let mut t = stored.unwrap_or_else(|| Total::new(since_ms, day));
     let was = t.through;
     let resume = t.through.filter(|_| resumed);
-    let Some(rows) = scan_day(store, &mut t, resume)? else {
+    let Some(rows) = scan_day(store, &mut t, resume, through_limit)? else {
         return Ok(None);
     };
     if t.through != was {
@@ -378,9 +506,16 @@ impl TurnRunner {
         let now = c.now();
         let (day, since, _) = c.day_of(now);
         let t = Instant::now();
-        match read_today_total(&self.store, since, &day, c.bar()) {
+        match read_today_total_at(
+            &self.store,
+            since,
+            &day,
+            c.bar(),
+            (!c.seed_applied()).then_some(self.day_seed_through),
+        ) {
             Ok(Some(s)) => {
                 c.seed(now, &s.seed);
+                *self.day_read_failure.lock().unwrap() = ReadFailure::default();
                 tracing::info!(day = %day, spent_usd = theseus_kernel::micros_to_usd(s.seed.spent),
                     rows = s.rows, resumed = s.resumed, reached = s.seed.reached_at_ms.is_some(),
                     took_us = t.elapsed().as_micros() as u64, "day ceiling: today's spend read");
@@ -391,8 +526,19 @@ impl TurnRunner {
                 ..Seeded::default()
             },
             Err(e) => {
-                tracing::warn!(error = %format!("{e:#}"), "day ceiling: today's spend was not read; the day counts from this start");
-                Seeded::default()
+                let error = format!("{e:#}");
+                if self
+                    .day_read_failure
+                    .lock()
+                    .unwrap()
+                    .failed(now, error.clone())
+                {
+                    tracing::warn!(%error, "day ceiling: today's spend was not read; retrying");
+                }
+                Seeded {
+                    later: true,
+                    ..Seeded::default()
+                }
             }
         }
     }
@@ -404,7 +550,7 @@ impl TurnRunner {
     pub fn advance_day_total(&self) -> Option<u64> {
         let c = self.kernel.day_ceiling();
         let (day, since, _) = c.day_of(c.now());
-        match advance_total(&self.store, since, &day) {
+        match advance_total(&self.store, since, &day, None) {
             Ok(Some((_, rows, _))) => Some(rows),
             Ok(None) => None,
             Err(e) => {
@@ -447,6 +593,9 @@ impl TurnRunner {
     /// A call the day ceiling refused: logged, and the day's first writes its
     /// `spend.ceiling` row and the owner's post, in one frame.
     pub fn day_refused(&self, r: &Reached, what: &str, session_id: Option<&str>) {
+        if r.pending {
+            return;
+        }
         tracing::warn!(what, day = %r.day, spent_usd = theseus_kernel::micros_to_usd(r.spent),
             limit_usd = theseus_kernel::micros_to_usd(r.limit), "day ceiling: a model call was not made");
         let c = self.kernel.day_ceiling();
@@ -592,19 +741,17 @@ impl crate::rpc::Core {
 
     /// The start's read, after serving, once the index's shape is built: on
     /// a thread of its own, holding the core by `Weak`, trying every second
-    /// for up to an hour.
+    /// until it succeeds or the core closes.
     pub fn seed_day_ceiling_later(self: &std::sync::Arc<Self>) {
         let weak = std::sync::Arc::downgrade(self);
         let spawned = std::thread::Builder::new()
             .name("day-ceiling".into())
-            .spawn(move || {
-                for _ in 0..3600 {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    let Some(core) = weak.upgrade() else { return };
-                    if !core.runner.seed_day_ceiling().later {
-                        core.keep_day_total();
-                        return;
-                    }
+            .spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                let Some(core) = weak.upgrade() else { return };
+                if !core.runner.seed_day_ceiling().later {
+                    core.keep_day_total();
+                    return;
                 }
             });
         if let Err(e) = spawned {

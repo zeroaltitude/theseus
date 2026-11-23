@@ -345,6 +345,7 @@ pub(crate) struct State {
     pub(crate) readiness: Readiness,
     /// Open documents, by normalized URI.
     pub(crate) docs: HashMap<String, Doc>,
+    pub(crate) closed_versions: HashMap<String, i32>,
     /// Pushed diagnostics, by normalized URI.
     pub(crate) pushed: HashMap<String, crate::diagnostics::Pushed>,
     /// Pulled diagnostics, by normalized URI.
@@ -386,6 +387,15 @@ impl Shared {
         st.sent += 1;
         let _ = self.out.send(msg);
         st.sent
+    }
+
+    /// Install an opened lifetime before its notification can trigger a reply.
+    pub(crate) fn send_open(&self, uri: String, mut doc: Doc, msg: Value) {
+        let mut st = self.lock();
+        st.sent += 1;
+        doc.sent_at = st.sent;
+        st.docs.insert(uri, doc);
+        let _ = self.out.send(msg);
     }
 
     fn kill(&self) {

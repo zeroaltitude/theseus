@@ -26,8 +26,8 @@
 //! - **The record**: the block rides in the result node, in its
 //!   completion's frame, so no frame is added; the result's `meta.lsp` says
 //!   what was attached, for L5 to count from the record.
-//! - **The place rule**: a server reads the whole project, so a shared
-//!   place's edit gets no block (`toolrun` asks only in a private place).
+//! - **Server starts stay gated**: a shared place may read diagnostics from
+//!   a server already running for its root, but its edit starts none.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -76,7 +76,7 @@ pub(super) type Pendings = Mutex<HashMap<String, Vec<Pending>>>;
 impl crate::toolrun::ToolRuntime {
     /// `run_inproc`'s hook: the block (and what arrived since for the
     /// session's pending files) onto a result's text and `meta.lsp`,
-    /// in a private place only (the place rule). `status` is `None` for a
+    /// without starting a server in a shared place. `status` is `None` for a
     /// call a cancel settled, which gets none.
     pub(crate) async fn lsp_onto(
         &self,
@@ -90,9 +90,6 @@ impl crate::toolrun::ToolRuntime {
         let (Some(board), Some(status)) = (&self.lsp, status) else {
             return;
         };
-        if tc.class != crate::places::PlaceClass::Private {
-            return;
-        }
         let ok = status == crate::node::ResultStatus::Ok;
         let own = Some(tool)
             .filter(|t| EDITS.contains(t))
@@ -102,6 +99,7 @@ impl crate::toolrun::ToolRuntime {
                 Who {
                     session: tc.session_id,
                     own: own.as_deref(),
+                    start: tc.class == crate::places::PlaceClass::Private,
                 },
                 tool_use_id,
                 tool,
@@ -160,6 +158,7 @@ pub(crate) fn gate(
 /// `rsi::own_tree`) inside which its edits start no server.
 #[derive(Clone, Copy)]
 pub struct Who<'a> {
+    pub start: bool,
     pub session: &'a str,
     pub own: Option<&'a Path>,
 }
@@ -243,7 +242,11 @@ impl Board {
         meta: &Value,
         ctx: &ToolCtx,
     ) -> Option<Attached> {
-        let who = Who { session, own: None };
+        let who = Who {
+            session,
+            own: None,
+            start: true,
+        };
         self.attach_in(who, tool_use_id, tool, ok, meta, ctx).await
     }
 
@@ -258,7 +261,11 @@ impl Board {
         meta: &Value,
         ctx: &ToolCtx,
     ) -> Option<Attached> {
-        let Who { session, own } = who;
+        let Who {
+            session,
+            own,
+            start,
+        } = who;
         let edit = ok && EDITS.contains(&tool) && self.edit_diagnostics;
         if !edit && !tool.starts_with("lsp.") {
             return None;
@@ -281,7 +288,10 @@ impl Board {
         };
         let arrived = self.arrived(session, &paths, &listed).await;
         let now = match edit {
-            true => self.after_edit_in(session, tool_use_id, &paths, own).await,
+            true => {
+                self.after_edit_permitted(session, tool_use_id, &paths, own, start)
+                    .await
+            }
             false => None,
         };
         match (now, arrived) {
@@ -370,7 +380,12 @@ impl Board {
     /// Each file's server: one up for its root, or one that starts on an
     /// edit; a file with neither is left out.
     /// The second is whether a file inside `own` left a server unstarted.
-    fn targets(&self, paths: &[PathBuf], own: Option<&Path>) -> (BTreeMap<Key, Group>, bool) {
+    fn targets(
+        &self,
+        paths: &[PathBuf],
+        own: Option<&Path>,
+        start: bool,
+    ) -> (BTreeMap<Key, Group>, bool) {
         let mut groups: BTreeMap<Key, Group> = BTreeMap::new();
         let mut unstarted = false;
         for p in paths {
@@ -379,6 +394,9 @@ impl Board {
             };
             let key: Key = (spec.name.clone(), root);
             let up = self.up_for(&key);
+            if up.is_none() && !start {
+                continue;
+            }
             if up.is_none() && spec.start_on_edit && in_tree(own, p) {
                 unstarted = true;
                 continue;
@@ -453,9 +471,21 @@ impl Board {
         paths: &[PathBuf],
         own: Option<&Path>,
     ) -> Option<Attached> {
+        self.after_edit_permitted(session, tool_use_id, paths, own, true)
+            .await
+    }
+
+    async fn after_edit_permitted(
+        self: &Arc<Self>,
+        session: &str,
+        tool_use_id: &str,
+        paths: &[PathBuf],
+        own: Option<&Path>,
+        allow_start: bool,
+    ) -> Option<Attached> {
         let start = tokio::time::Instant::now();
         let deadline = start + self.edit_wait;
-        let (groups, unstarted) = self.targets(paths, own);
+        let (groups, unstarted) = self.targets(paths, own, allow_start);
         if groups.is_empty() {
             return unstarted.then(|| Attached {
                 text: String::new(),

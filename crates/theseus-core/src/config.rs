@@ -1372,7 +1372,7 @@ pub struct ModelConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Retries {
-    #[serde(default)]
+    #[serde(default = "default_transient")]
     pub transient: u32,
     /// The wait before the first retry.
     #[serde(default = "default_backoff_ms")]
@@ -1404,6 +1404,9 @@ pub struct Retries {
 fn default_hard_decline_categories() -> Vec<String> {
     ["cyber", "bio", "general_harms"].map(String::from).into()
 }
+fn default_transient() -> u32 {
+    2
+}
 fn default_backoff_ms() -> u64 {
     2_000
 }
@@ -1414,7 +1417,7 @@ fn default_backoff_max_ms() -> u64 {
 impl Default for Retries {
     fn default() -> Self {
         Self {
-            transient: 2,
+            transient: default_transient(),
             backoff_ms: default_backoff_ms(),
             backoff_max_ms: default_backoff_max_ms(),
             refusal: true,
@@ -2156,6 +2159,19 @@ impl Config {
         }
     }
 
+    /// A test's resolved output cap, kept in step with its source profile.
+    #[cfg(test)]
+    pub(crate) fn cap_profile_output(&mut self, name: &str, cap: u32) {
+        self.resolved
+            .profiles
+            .get_mut(name)
+            .expect("the profile")
+            .max_output_tokens = Some(cap);
+        if let Some(raw) = self.profiles.get_mut(name) {
+            raw.max_output_tokens = Some(cap);
+        }
+    }
+
     /// A test's profile `name`, a copy of `like` (theseus-a1wvq.8's
     /// `dsflash`, GLM's model on the `zai` fake).
     #[cfg(test)]
@@ -2443,3 +2459,13 @@ mod tests_persona;
 mod tests_sensitivity;
 #[cfg(test)]
 mod tests_trimmed;
+
+#[test]
+fn sparse_retry_tables_keep_the_default_transient_count() {
+    for table in ["", "backoff_ms = 7", "refusal_retry = false"] {
+        let parsed: Retries = toml::from_str(table).unwrap();
+        assert_eq!(parsed.transient, Retries::default().transient, "{table}");
+    }
+    let explicit: Retries = toml::from_str("transient = 0").unwrap();
+    assert_eq!(explicit.transient, 0);
+}

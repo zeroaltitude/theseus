@@ -1085,7 +1085,12 @@ impl Anthropic {
             .and_then(|v| v.to_str().ok())
             .map(str::to_string);
         if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
+            let text = error_text(
+                resp.bytes_stream(),
+                tokio::time::Instant::from_std(deadline),
+                Duration::from_secs(self.timeouts.stream_idle_secs),
+            )
+            .await;
             return Err(ProviderError::from_status(status.as_u16(), &text, &headers).into());
         }
 
@@ -1118,7 +1123,8 @@ impl Anthropic {
             let chunk = match tokio::time::timeout(budget, stream.next()).await {
                 Ok(Some(Ok(c))) => c,
                 Ok(Some(Err(e))) => {
-                    return Err(ProviderError::Network {
+                    return Err(ProviderError::Stream {
+                        kind: "transport".into(),
                         message: format!("reading stream: {e}"),
                     }
                     .into())
@@ -1776,6 +1782,46 @@ impl Provider for FakeProvider {
             })
         })
     }
+}
+
+async fn error_text<S, B, E>(
+    mut stream: S,
+    deadline: tokio::time::Instant,
+    idle: Duration,
+) -> String
+where
+    S: futures_util::Stream<Item = std::result::Result<B, E>> + Unpin,
+    B: AsRef<[u8]>,
+{
+    const LIMIT: usize = 65_536;
+    let mut bytes = Vec::new();
+    let mut idle_until = tokio::time::Instant::now() + idle;
+    let incomplete = loop {
+        let until = deadline.min(idle_until);
+        if tokio::time::Instant::now() >= until {
+            break true;
+        }
+        match tokio::time::timeout_at(until, stream.next()).await {
+            Ok(Some(Ok(chunk))) => {
+                let chunk = chunk.as_ref();
+                let room = LIMIT - bytes.len();
+                bytes.extend_from_slice(&chunk[..chunk.len().min(room)]);
+                if !chunk.is_empty() {
+                    idle_until = tokio::time::Instant::now() + idle;
+                }
+                if bytes.len() == LIMIT {
+                    break true;
+                }
+            }
+            Ok(None) => break false,
+            Ok(Some(Err(_))) | Err(_) => break true,
+        }
+    };
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    if incomplete {
+        text.push_str(" [error body incomplete]");
+    }
+    text
 }
 
 #[cfg(test)]

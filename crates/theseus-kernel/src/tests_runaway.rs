@@ -480,17 +480,13 @@ fn settle_for(w: &World, execution: &Execution) {
     }]);
 }
 
-/// The walk stops at `BURN_ANCESTORS` (8) steps above the origin: in a chain
-/// of ten, the origin's 8th ancestor holds the settle and its 9th, the top of
-/// the chain, does not. Both sides of the line, so neither a lower nor a
-/// higher bound passes.
+/// Every supported task depth contributes to every ancestor's burn window.
 #[test]
-fn a_settled_cost_stops_at_the_ancestor_bound() {
+fn a_settled_cost_reaches_every_supported_ancestor() {
     let (w, parent, _g, _kids) = family(1);
-    // chain[0] is the deepest, chain[9] the top.
     let mut chain: Vec<Execution> = Vec::new();
     let mut above = None;
-    for _ in 0..10 {
+    for _ in 0..=crate::task_depth::DEPTH_LIMIT_MAX {
         let e = stored_under(&w, &parent, above);
         above = Some(e.id.clone());
         chain.push(e);
@@ -498,18 +494,10 @@ fn a_settled_cost_stops_at_the_ancestor_bound() {
     chain.reverse();
     settle_for(&w, &chain[0]);
     let c = w.kernel.day_ceiling();
-    assert_eq!(c.burn_len(&chain[0].id), 1, "its own");
-    assert_eq!(
-        c.burn_len(&chain[8].id),
-        1,
-        "the 8th ancestor, the last reached"
-    );
-    assert_eq!(
-        c.burn_len(&chain[9].id),
-        0,
-        "the 9th ancestor, past the bound"
-    );
-    assert_eq!(c.burn_rings(), 9, "the origin and eight ancestors, no more");
+    for e in &chain {
+        assert_eq!(c.burn_len(&e.id), 1, "{}", e.id);
+    }
+    assert_eq!(c.burn_rings(), chain.len());
 }
 
 /// A parent cycle (a corrupt store's) ends the walk at the first repeat:
@@ -531,4 +519,23 @@ fn a_parent_cycle_ends_the_walk_at_the_first_repeat() {
     assert_eq!(c.burn_len(&a.id), 1, "a, once");
     assert_eq!(c.burn_len(&b.id), 1, "b, once");
     assert_eq!(c.burn_rings(), 2);
+}
+
+#[test]
+fn a_settled_cost_stops_at_the_ancestor_bound() {
+    let (w, parent, _g, _kids) = family(1);
+    let mut chain = Vec::new();
+    let mut above = None;
+    for _ in 0..crate::task_depth::WALK_MAX + 2 {
+        let e = stored_under(&w, &parent, above);
+        above = Some(e.id.clone());
+        chain.push(e);
+    }
+    chain.reverse();
+    settle_for(&w, &chain[0]);
+    let c = w.kernel.day_ceiling();
+    assert_eq!(c.burn_len(&chain[0].id), 1);
+    assert_eq!(c.burn_len(&chain[crate::task_depth::WALK_MAX].id), 1);
+    assert_eq!(c.burn_len(&chain[crate::task_depth::WALK_MAX + 1].id), 0);
+    assert_eq!(c.burn_rings(), crate::task_depth::WALK_MAX + 1);
 }

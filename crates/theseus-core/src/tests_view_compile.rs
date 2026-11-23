@@ -714,7 +714,6 @@ async fn a_size_repair_comes_back_to_the_size_check() {
     let r = crate::tests_places::rig_setup_scripted(
         |c| {
             c.memory.mode = crate::config::MemoryMode::Live;
-            c.threads.enabled = true;
         },
         |s| *thread.borrow_mut() = kelp(s, false),
         |q| match last_user(q).contains(ASKS) && !q.tools.is_empty() {

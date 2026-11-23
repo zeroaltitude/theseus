@@ -398,7 +398,11 @@ async fn a_tasks_spend_counts_against_its_parent_and_it_asks_at_its_carve() {
             }
             start("CHILD: diff two lines", Some(1.40))
         },
-        |c| c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask,
+        |c| {
+            c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
+            // Keep the first call inside the same carve under cold-cache pricing.
+            c.cap_profile_output("sonnet", 96_000);
+        },
     );
     *r.model.hold.lock().unwrap() = Some("CHILD".into());
     let parent = parent_session(&r.core);
@@ -774,8 +778,15 @@ async fn a_report_that_starts_a_turn_at_the_parents_limit_asks() {
         |req| {
             let (first, last) = (first_user(req), last_user(req));
             if first.contains("CHILD: spend") {
-                // About $1.45 out, which the parent's spend counts.
-                return Scripted::text(&"word ".repeat(145_000));
+                // A known bill reaches the parent's unchanged limit; the report must
+                // still be read before its next model call asks for a reset.
+                return Scripted::Billed {
+                    usage: theseus_protocol::Usage {
+                        output_tokens: 280_000,
+                        ..Default::default()
+                    },
+                    then: Box::new(Scripted::text("The task finished.")),
+                };
             }
             if answers_a_call(req) {
                 return Scripted::text("Started.");
@@ -786,10 +797,9 @@ async fn a_report_that_starts_a_turn_at_the_parents_limit_asks() {
             Scripted::text("this call does not fit")
         },
         |c| {
-            // 2.70 until the tools block grew by routine.create, watch and
-            // thread.read (their joins' review): the report's turn then asked
-            // at its start; 2.80 holds, 2.90 does not.
+            // Keep the original spending limit; the explicit bill above reaches it.
             c.kernel.spend_limit_usd = 2.80;
+            c.cap_profile_output("sonnet", 96_000);
             c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
         },
     );

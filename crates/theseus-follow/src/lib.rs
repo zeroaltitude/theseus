@@ -342,6 +342,9 @@ impl WalFollower {
     /// stopped inside is not named sealed.
     pub fn read_upto(&mut self, max_bytes: usize, upto: u64) -> Result<Batch, FollowError> {
         let began = self.cursor.clone();
+        let sealed_upto = self.sealed_upto;
+        let resync = self.resync;
+        let stop = self.stop.clone();
         let mut batch = Batch::default();
         // Checked after the read: a cut behind the cursor before it or while
         // it read is a rewind, whatever the read made of the bytes after it.
@@ -353,6 +356,9 @@ impl WalFollower {
             Err(e) => {
                 let rewound = self.still_read(&began).err();
                 self.cursor = began;
+                self.sealed_upto = sealed_upto;
+                self.resync = resync;
+                self.stop = stop;
                 Err(rewound.unwrap_or(e))
             }
         }

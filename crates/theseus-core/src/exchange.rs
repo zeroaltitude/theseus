@@ -320,6 +320,20 @@ pub fn newest_before(
     own(store, root, Some(&from), limit)
 }
 
+/// Touches strictly past this full ordered key, including the remaining timestamp ties.
+pub fn newest_after_touch(
+    store: &Store,
+    root: Root<'_>,
+    after: &Touch,
+    limit: usize,
+) -> anyhow::Result<Vec<Touch>> {
+    let from = format!(
+        "{}\u{0}",
+        touch_key(&root.key(), after.at_ms, &after.exchange)
+    );
+    own(store, root, Some(&from), limit)
+}
+
 /// An exchange's record.
 pub fn exchange_record(e: &Exchange) -> anyhow::Result<NewRecord> {
     NewRecord::json(

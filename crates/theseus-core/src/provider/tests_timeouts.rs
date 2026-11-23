@@ -21,6 +21,8 @@ enum Stream {
     Forever,
     /// Headers, then nothing.
     Silent,
+    /// A body shorter than its promised length, after usage has arrived.
+    Broken,
 }
 
 const START: &str = concat!(
@@ -59,6 +61,28 @@ async fn server(stream: Stream) -> String {
                         Ok(n) => head.extend_from_slice(&buf[..n]),
                     }
                 }
+                if matches!(stream, Stream::Broken) {
+                    let end = head.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+                    let length: usize = String::from_utf8_lossy(&head[..end])
+                        .lines()
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .and_then(|n| n.trim().parse().ok())
+                        })
+                        .unwrap_or(0);
+                    while head.len() < end + length {
+                        let n = conn.read(&mut buf).await.unwrap();
+                        assert_ne!(n, 0);
+                        head.extend_from_slice(&buf[..n]);
+                    }
+                    let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: 100000\r\nconnection: close\r\n\r\n";
+                    conn.write_all(format!("{head}{START}").as_bytes())
+                        .await
+                        .unwrap();
+                    conn.shutdown().await.unwrap();
+                    return;
+                }
                 let ok = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n";
                 if conn
                     .write_all(format!("{ok}{START}").as_bytes())
@@ -69,6 +93,7 @@ async fn server(stream: Stream) -> String {
                 }
                 let began = Instant::now();
                 match stream {
+                    Stream::Broken => unreachable!(),
                     Stream::Silent => tokio::time::sleep(Duration::from_secs(30)).await,
                     Stream::Pings(len) => {
                         while began.elapsed() < len {
@@ -158,4 +183,69 @@ async fn a_silent_stream_is_cut_as_idle() {
     let e = got.unwrap_err();
     assert_eq!(phase(&e), Some(TimeoutPhase::StreamIdle), "{e:#}");
     assert!(took < Duration::from_secs(3), "{took:?}");
+}
+
+#[tokio::test]
+async fn a_broken_response_body_keeps_usage_unknown() {
+    for openai in [false, true] {
+        let base = server(Stream::Broken).await;
+        let anthropic = client(&base);
+        let responses = super::openai::OpenAi::new(
+            &base,
+            anthropic.secrets.clone(),
+            "k",
+            anthropic.timeouts.clone(),
+        )
+        .unwrap();
+        let provider: &dyn Provider = if openai { &responses } else { &anthropic };
+        let req = ProviderRequest::simple("test-model", 64, "hello");
+        let error = provider
+            .stream_message(&req, &mut |_| {})
+            .await
+            .unwrap_err();
+        let classified = error.downcast_ref::<ProviderError>().unwrap();
+        assert!(
+            classified.usage_unknown(),
+            "{classified:?}; openai={openai}"
+        );
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_provider_error_body_is_bounded_even_when_it_never_ends() {
+    use futures_util::StreamExt;
+    let body =
+        futures_util::stream::iter([Ok::<_, std::io::Error>(b"service unavailable".to_vec())])
+            .chain(futures_util::stream::pending());
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        super::error_text(body, deadline, Duration::from_secs(1)),
+    )
+    .await;
+    assert!(
+        result.is_ok(),
+        "error body escaped both the idle and hard call bounds"
+    );
+    let text = result.unwrap();
+    assert!(
+        text.contains("service unavailable") && text.contains("incomplete"),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn a_provider_error_body_cannot_grow_without_a_byte_bound() {
+    let body = futures_util::stream::iter([Ok::<_, std::io::Error>(vec![b'x'; 2 * 1024 * 1024])]);
+    let text = super::error_text(
+        body,
+        tokio::time::Instant::now() + Duration::from_secs(3),
+        Duration::from_secs(1),
+    )
+    .await;
+    assert!(
+        text.len() <= 65_600 && text.contains("incomplete"),
+        "error body kept {} bytes",
+        text.len()
+    );
 }

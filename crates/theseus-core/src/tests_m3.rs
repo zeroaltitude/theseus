@@ -3074,9 +3074,9 @@ fn over_budget_rig(then: Vec<Scripted>) -> Rig {
     )];
     script.extend(then);
     rig_with(script, |c| {
-        // The view's waiting call (loop 0's 30,000 words beside the front, at the estimate's margin, and
-        // 128,000 output tokens reserved) needs about $1.45: a limit that call fits once reset, and does not
-        // fit after loop 0's spend. $1.40 was the transcript's request (issue 44; budgets are guidelines).
+        // Keep this a resettable call under cautious cache-write pricing by tightening its
+        // output cap. The spending limit is unchanged; the call fits only after a reset.
+        c.cap_profile_output("sonnet", 110_000);
         c.kernel.spend_limit_usd = 1.60;
         c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
     })
@@ -3651,7 +3651,7 @@ async fn an_ordinary_over_budget_call_still_asks_resets_and_goes_ahead() {
 /// One call's reservation and settlement in dollars, by hand from the
 /// catalog (Sonnet 5.5: $2 in, $10 out, $0.10 cache read, $2.50 cache write
 /// per million tokens). The call reserves 128,000 output tokens at $10 plus
-/// the estimate's upper bound at $2, and settles at 1,200 in, 900 out,
+/// the estimate's upper bound at the $4 cache-write rate, and settles at 1,200 in, 900 out,
 /// 40,000 cache reads, and 3,000 cache writes: $0.0024 + $0.009 + $0.004 +
 /// $0.0075 = $0.0229, in the budget, the session, and the ledger alike.
 #[tokio::test]
@@ -3684,7 +3684,7 @@ async fn one_calls_reservation_and_settlement_match_the_catalog_by_hand() {
         .unwrap();
     // On the estimate's upper bound, as a summary's call is (theseus-ps9i).
     let upper = estimate["upper"].as_u64().unwrap();
-    let reserved = 128_000 * 10 + upper * 2;
+    let reserved = 128_000 * 10 + upper * 4;
     assert_eq!(
         call["reserved_usd"],
         json!(theseus_kernel::micros_to_usd(reserved)),
@@ -7020,6 +7020,7 @@ async fn a_lowered_limit_makes_the_next_turn_over_it_ask() {
     let root = dir.path().join("w");
     std::fs::create_dir_all(&root).unwrap();
     let mut cfg = config(&root.canonicalize().unwrap(), dir.path());
+    cfg.cap_profile_output("sonnet", 110_000);
     cfg.kernel.spend_limit_usd = 5.0;
     cfg.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
     let (sid, exec, spent, lifetime) = {
@@ -7067,7 +7068,7 @@ async fn a_lowered_limit_makes_the_next_turn_over_it_ask() {
         (&json!(5.0), &json!(1.5), &json!(false))
     );
 
-    // Sonnet 5.5's call reserves its 128,000-token cap ($1.28) and its input:
+    // Sonnet 5.5's call reserves its 110,000-token cap ($1.10) and its input:
     // more than the $1.50 limit leaves.
     let res = turn(&core, Some(&sid), "and now?").await;
     assert_eq!(res.stop_reason, "budget");

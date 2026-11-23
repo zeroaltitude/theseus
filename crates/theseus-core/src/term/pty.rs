@@ -5,7 +5,7 @@
 //! everything it started.
 //!
 //! A thread per terminal reads the pty's master and feeds the screen. It
-//! blocks in `read` (never on a runtime worker) and ends when the pty's
+//! waits in `poll` (never on a runtime worker) and ends when the pty's
 //! last slave closes, which is when the program and every child that held
 //! the terminal have gone.
 
@@ -45,6 +45,7 @@ pub struct Shared {
 pub struct Pty {
     pub shared: Arc<Shared>,
     master: Mutex<File>,
+    send_lock: tokio::sync::Mutex<()>,
     child: Mutex<Child>,
     pid: u32,
     /// The pty's slave (`/dev/pts/N`): a process that still holds it open
@@ -72,7 +73,8 @@ fn open_pair(rows: u16, cols: u16) -> std::io::Result<(OwnedFd, File, std::path:
     // SAFETY: plain libc calls on a descriptor this function owns; each
     // result is checked before it is used.
     unsafe {
-        let m = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC);
+        let m =
+            libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC | libc::O_NONBLOCK);
         if m < 0 {
             return Err(last_error("posix_openpt"));
         }
@@ -171,6 +173,7 @@ impl Pty {
         Ok(Pty {
             shared,
             master: Mutex::new(writer),
+            send_lock: tokio::sync::Mutex::new(()),
             child: Mutex::new(child),
             pid,
             slave_path,
@@ -182,6 +185,7 @@ impl Pty {
     }
 
     /// Send bytes to the program, as typed keys.
+    #[cfg(test)]
     pub fn send(&self, bytes: &[u8]) -> std::io::Result<()> {
         let mut m = self.master.lock().unwrap_or_else(|p| p.into_inner());
         m.write_all(bytes)?;
@@ -189,6 +193,54 @@ impl Pty {
             .bytes_in
             .fetch_add(bytes.len() as u64, Ordering::Relaxed);
         Ok(())
+    }
+
+    /// A bounded, cancellable write; close and signals never wait on the send lock.
+    pub async fn send_wait(&self, bytes: &[u8]) -> std::io::Result<()> {
+        let mut sent = 0;
+        let write = async {
+            let _send = self.send_lock.lock().await;
+            let file = self
+                .master
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .try_clone()?;
+            // SAFETY: this owned clone stays open and unchanged until the registration drops.
+            let writer = unsafe {
+                tokio::io::unix::AsyncFd::register_with_interest(
+                    file,
+                    tokio::io::Interest::WRITABLE,
+                )
+            }?;
+            while sent < bytes.len() {
+                let mut ready = writer.writable().await?;
+                match ready.try_io(|fd| {
+                    let mut f = fd.get_ref();
+                    f.write(&bytes[sent..])
+                }) {
+                    Ok(Ok(0)) => return Err(std::io::ErrorKind::WriteZero.into()),
+                    Ok(Ok(n)) => {
+                        sent += n;
+                        self.shared.bytes_in.fetch_add(n as u64, Ordering::Relaxed);
+                    }
+                    Ok(Err(e)) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                    Ok(Err(e)) => return Err(e),
+                    Err(_) => {}
+                }
+            }
+            Ok(())
+        };
+        tokio::time::timeout(Duration::from_secs(5), write)
+            .await
+            .unwrap_or_else(|_| {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!(
+                        "terminal input timed out after {sent} of {} bytes",
+                        bytes.len()
+                    ),
+                ))
+            })
     }
 
     /// How the program ended, once it has; it is reaped then.
@@ -774,9 +826,45 @@ fn signal_group(pgid: u32, sig: libc::c_int) {
     }
 }
 
+/// Replies share the nonblocking master. Wait only on the dedicated reader thread,
+/// with a bound, so a program that ignores input cannot keep that thread forever.
+fn write_reply(mut file: &File, mut bytes: &[u8]) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let end = Instant::now() + Duration::from_secs(5);
+    while !bytes.is_empty() {
+        match file.write(bytes) {
+            Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(n) => bytes = &bytes[n..],
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                let left = end.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    return Err(std::io::ErrorKind::TimedOut.into());
+                }
+                let mut fd = libc::pollfd {
+                    fd: file.as_raw_fd(),
+                    events: libc::POLLOUT,
+                    revents: 0,
+                };
+                // SAFETY: poll reads this one live descriptor, never on a runtime worker.
+                if unsafe { libc::poll(&mut fd, 1, left.as_millis().min(i32::MAX as u128) as i32) }
+                    < 0
+                {
+                    let e = std::io::Error::last_os_error();
+                    if e.kind() != std::io::ErrorKind::Interrupted {
+                        return Err(e);
+                    }
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
 /// The reader thread: the pty's output into the screen, the screen's
 /// answers back to the program, until the last slave closes (EIO).
-fn read_loop(mut master: File, mut replies: File, shared: &Shared) {
+fn read_loop(mut master: File, replies: File, shared: &Shared) {
     let mut buf = [0u8; 8192];
     loop {
         match master.read(&mut buf) {
@@ -789,7 +877,7 @@ fn read_loop(mut master: File, mut replies: File, shared: &Shared) {
                     s.take_replies()
                 };
                 if !answer.is_empty() {
-                    let _ = replies.write_all(&answer);
+                    let _ = write_reply(&replies, &answer);
                 }
                 shared.bytes_out.fetch_add(n as u64, Ordering::Relaxed);
                 shared
@@ -799,9 +887,191 @@ fn read_loop(mut master: File, mut replies: File, shared: &Shared) {
                 shared.feeding.store(false, Ordering::SeqCst);
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                use std::os::fd::AsRawFd;
+                let mut fd = libc::pollfd {
+                    fd: master.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                // SAFETY: poll reads one live descriptor, on this dedicated reader thread.
+                if unsafe { libc::poll(&mut fd, 1, -1) } < 0
+                    && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+                {
+                    break;
+                }
+            }
             Err(_) => break,
         }
     }
     shared.hung_up.store(true, Ordering::Relaxed);
     shared.version.send_modify(|v| *v += 1);
+}
+
+#[cfg(test)]
+mod backpressure_tests {
+    use super::*;
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn terminal_master_never_uses_a_blocking_write() {
+        let (master, _slave, _) = open_pair(24, 80).unwrap();
+        // SAFETY: querying flags on the descriptor this test owns.
+        let flags = unsafe { libc::fcntl(master.as_raw_fd(), libc::F_GETFL) };
+        assert_ne!(
+            flags & libc::O_NONBLOCK,
+            0,
+            "a full terminal queue must yield, not block its worker"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_nonreading_terminal_times_out_and_can_be_cancelled_and_closed() {
+        let argv = vec![
+            "sh".to_string(),
+            "-c".into(),
+            "stty raw -echo; printf ready; exec sleep 60".into(),
+        ];
+        let pty = Arc::new(
+            Pty::spawn(&Spawn {
+                argv: &argv,
+                cwd: Path::new("/"),
+                env: &[],
+                rows: 24,
+                cols: 80,
+                umask: None,
+            })
+            .unwrap(),
+        );
+        let mut changed = pty.shared.version.subscribe();
+        while pty.shared.bytes_out.load(Ordering::Relaxed) < 5 {
+            changed.changed().await.unwrap();
+        }
+        let bytes = vec![b'x'; 2 * 1024 * 1024];
+        {
+            let write = pty.send_wait(&bytes);
+            tokio::pin!(write);
+            loop {
+                assert!(futures_util::poll!(&mut write).is_pending());
+                if pty.shared.bytes_in.load(Ordering::Relaxed) > 0 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+            assert!(pty.shared.bytes_in.load(Ordering::Relaxed) < bytes.len() as u64);
+            tokio::time::advance(Duration::from_secs(5)).await;
+            assert_eq!(
+                write.await.unwrap_err().kind(),
+                std::io::ErrorKind::TimedOut
+            );
+        }
+        {
+            let cancelled = pty.send_wait(&bytes);
+            tokio::pin!(cancelled);
+            assert!(futures_util::poll!(&mut cancelled).is_pending());
+            // Dropping an awaiting send must release its lock without blocking close.
+        }
+        let close = pty.clone();
+        tokio::task::spawn_blocking(move || close.close(Duration::ZERO, false))
+            .await
+            .unwrap();
+        assert!(pty.exited().is_some());
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod real_shell_tests {
+    use super::*;
+
+    fn reader_task(pid: u32) -> std::path::PathBuf {
+        std::fs::read_dir("/proc/self/task")
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| {
+                std::fs::read_to_string(p.join("comm"))
+                    .is_ok_and(|n| n.trim() == format!("term-{pid}"))
+            })
+            .expect("the terminal reader thread")
+    }
+
+    fn cpu_ticks(task: &Path) -> u64 {
+        let stat = std::fs::read_to_string(task.join("stat")).unwrap();
+        let fields: Vec<_> = stat
+            .rsplit_once(')')
+            .unwrap()
+            .1
+            .split_whitespace()
+            .collect();
+        fields[11].parse::<u64>().unwrap() + fields[12].parse::<u64>().unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_real_shell_reader_sleeps_and_hangs_up_while_a_send_is_pending() {
+        let argv = vec![
+            "sh".into(),
+            "-c".into(),
+            "stty raw -echo; printf ready; exec sleep 60".into(),
+        ];
+        let pty = Arc::new(
+            Pty::spawn(&Spawn {
+                argv: &argv,
+                cwd: Path::new("/"),
+                env: &[],
+                rows: 24,
+                cols: 80,
+                umask: None,
+            })
+            .unwrap(),
+        );
+        let mut changed = pty.shared.version.subscribe();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while pty.shared.bytes_out.load(Ordering::Relaxed) < 5 {
+                changed.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        let task = reader_task(pty.pid);
+        let before = cpu_ticks(&task);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let used = cpu_ticks(&task) - before;
+        // SAFETY: sysconf reads the system's clock-tick rate.
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as u64;
+        assert!(
+            used <= hz / 10,
+            "quiet reader used {used} CPU ticks in one second"
+        );
+        let bytes = vec![b'x'; 2 * 1024 * 1024];
+        let send = pty.send_wait(&bytes);
+        tokio::pin!(send);
+        assert!(futures_util::poll!(&mut send).is_pending());
+        assert!(
+            pty.send_lock.try_lock().is_err(),
+            "send really holds the lock"
+        );
+        assert!(pty.shared.bytes_in.load(Ordering::Relaxed) < bytes.len() as u64);
+        let close = pty.clone();
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            tokio::task::spawn_blocking(move || close.close(Duration::ZERO, false)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        // Send remains alive and holds send_lock throughout close.
+        assert!(pty.send_lock.try_lock().is_err());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !pty.shared.hung_up.load(Ordering::Relaxed) {
+                changed.changed().await.unwrap();
+            }
+            while task.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(pty.exited().is_some());
+        eprintln!("reader: {used}/{hz} CPU seconds during a quiet second; hang-up ended thread; close passed with send lock held");
+    }
 }

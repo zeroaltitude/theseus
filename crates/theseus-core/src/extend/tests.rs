@@ -782,3 +782,132 @@ async fn a_trial_stamps_its_beat_after_the_listing_and_after_each_test() {
         "one stamp for the listing, one a test"
     );
 }
+
+#[tokio::test]
+async fn an_older_card_cannot_approve_a_replaced_manifest() {
+    let r = rig();
+    let src = r.server("wc", "ok");
+    let sid = r.session();
+    r.turn(&sid, "first proposal", Some(proposal(&src))).await;
+    let first = r.manifests().remove(0);
+    let sid2 = r.session();
+    let mut second = proposal(&src);
+    second["command"] = json!(["python3", "server.py", "--different"]);
+    r.turn(&sid2, "replacement proposal", Some(second)).await;
+    let replacement = r.manifests().remove(0);
+    assert_eq!(first.digest, replacement.digest);
+    assert_ne!(first.question, replacement.question);
+    let action = r
+        .core
+        .kernel
+        .action(first.question.as_deref().unwrap())
+        .unwrap()
+        .unwrap();
+    let result = r
+        .core
+        .answer_extension(&action, super::answer::Answer::Ack, "test", "cli", None);
+    assert!(
+        result.is_err(),
+        "an older card cannot approve a different proposal"
+    );
+    assert_eq!(r.manifests()[0].question, replacement.question);
+    assert_eq!(r.manifests()[0].state, "proposed");
+    assert!(r.rows("extend.loaded").is_empty());
+}
+
+#[tokio::test]
+async fn replaced_cards_can_close_without_changing_the_current_proposal() {
+    for expired in [false, true] {
+        let r = rig();
+        let src = r.server("wc", "ok");
+        let sid = r.session();
+        r.turn(&sid, "first proposal", Some(proposal(&src))).await;
+        let first = r.manifests().remove(0);
+        let sid2 = r.session();
+        r.turn(&sid2, "replacement proposal", Some(proposal(&src)))
+            .await;
+        let current = r.manifests().remove(0);
+        assert_ne!(first.question, current.question);
+        let action = r
+            .core
+            .kernel
+            .action(first.question.as_deref().unwrap())
+            .unwrap()
+            .unwrap();
+        let answer = if expired {
+            super::answer::Answer::Expired("expired")
+        } else {
+            super::answer::Answer::Decline(None)
+        };
+        r.core
+            .answer_extension(&action, answer, "test", "cli", None)
+            .expect("old question can close");
+        assert_eq!(
+            r.core
+                .kernel
+                .action(&action.correlation_id)
+                .unwrap()
+                .unwrap()
+                .state,
+            theseus_kernel::ActionState::Cancelled
+        );
+        let after = r.manifests().remove(0);
+        assert_eq!(after.question, current.question);
+        assert_eq!(after.state, "proposed");
+        assert_eq!(after.answered_by, current.answered_by);
+        let action = r
+            .core
+            .kernel
+            .action(current.question.as_deref().unwrap())
+            .unwrap()
+            .unwrap();
+        r.core
+            .answer_extension(&action, super::answer::Answer::Ack, "test", "cli", None)
+            .unwrap();
+        assert_eq!(r.manifests()[0].state, "acked");
+    }
+}
+
+#[tokio::test]
+async fn a_missing_manifest_allows_decline_and_expiry_but_not_approval() {
+    for expired in [false, true] {
+        let r = rig();
+        let src = r.server("wc", "ok");
+        let sid = r.session();
+        r.turn(&sid, "propose", Some(proposal(&src))).await;
+        let m = r.manifests().remove(0);
+        let action = r
+            .core
+            .kernel
+            .action(m.question.as_deref().unwrap())
+            .unwrap()
+            .unwrap();
+        r.core
+            .store
+            .delete_meta(&super::manifest_key(&m.name, &m.digest))
+            .unwrap();
+        assert!(r
+            .core
+            .answer_extension(&action, super::answer::Answer::Ack, "test", "cli", None)
+            .is_err());
+        let answer = if expired {
+            super::answer::Answer::Expired("expired")
+        } else {
+            super::answer::Answer::Decline(None)
+        };
+        r.core
+            .answer_extension(&action, answer, "test", "cli", None)
+            .unwrap();
+        assert_eq!(
+            r.core
+                .kernel
+                .action(&action.correlation_id)
+                .unwrap()
+                .unwrap()
+                .state,
+            theseus_kernel::ActionState::Cancelled
+        );
+        assert!(r.manifests().is_empty());
+        assert!(r.rows("extend.loaded").is_empty());
+    }
+}

@@ -2,7 +2,7 @@
 //! fake served in this process: an `fs.edit` that makes an error gets the
 //! block, errors first and capped, with the other files' count; a clean
 //! edit's block says there are none; no server up is no block and no spawn;
-//! a shared place's edit gets none; a server that never answers costs the
+//! a shared place reads existing diagnostics but starts no server; a server that never answers costs the
 //! call the edit bound, on tokio's paused clock; and the block adds no
 //! frame.
 
@@ -230,11 +230,9 @@ async fn no_server_up_is_no_block_and_no_spawn() {
     assert_eq!(r.spawner.count(), 0);
 }
 
-/// The place rule: a server reads the whole project, so a shared place's
-/// edit, which `[places] public_paths` lets it make, gets no block, though
-/// a server is up for its root.
+/// An allowed shared edit receives diagnostics from its already-running server.
 #[tokio::test]
-async fn a_shared_places_edit_gets_no_block() {
+async fn a_shared_places_edit_gets_its_existing_servers_diagnostics() {
     let r = rig(
         edit("e1", "a.fake", "let y = 2\n", "ERROR 2\n"),
         FakeConfig::default(),
@@ -245,8 +243,8 @@ async fn a_shared_places_edit_gets_no_block() {
     turn(&r.core, &sid, "edit").await;
     let (text, meta) = result_of(&r.core, &sid, "e1");
     assert!(text.starts_with("Replaced 1 occurrence"), "it ran: {text}");
-    assert!(!text.contains("Errors after this edit"), "{text}");
-    assert!(meta.get("lsp").is_none(), "{meta}");
+    assert!(text.contains("Errors after this edit"), "{text}");
+    assert!(meta.get("lsp").is_some(), "{meta}");
 }
 
 /// A server that never answers in time: the edit waits the bound and no
@@ -619,4 +617,19 @@ async fn lsp_diagnostics_after_a_pending_edit_lists_each_error_once() {
         extra.text
     );
     assert_eq!(extra.meta["arrived"]["files"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_shared_places_edit_still_starts_no_language_server() {
+    let r = rig(
+        edit("e1", "a.fake", "let y = 2\n", "ERROR 2\n"),
+        FakeConfig::default(),
+        |cfg, work| cfg.places.public_paths = vec![work.to_string_lossy().into_owned()],
+    );
+    let sid = session(&r.core, Some("channel:31415926535"));
+    turn(&r.core, &sid, "edit").await;
+    let (text, meta) = result_of(&r.core, &sid, "e1");
+    assert!(text.starts_with("Replaced 1 occurrence"), "{text}");
+    assert!(meta.get("lsp").is_none(), "{meta}");
+    assert_eq!(r.spawner.count(), 0);
 }

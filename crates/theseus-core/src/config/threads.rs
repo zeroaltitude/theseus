@@ -1,10 +1,5 @@
-//! `[threads]` (theseus-nhew): threads on virtual places `thread:<slug>`.
-//! Every key has a default, so an owner's config names none of them unless
-//! it differs. The rows built on the record (`thread-context`,
-//! `thread-recall`, `thread-route`) add their keys here.
-//!
-//! - `enabled`: threads can be made and addressed (true). Off, `thread.new`
-//!   and a `turn.submit` that names a thread are refused; the records stay.
+//! Historical thread settings; persona engagement remains active.
+//! `enabled` is retired through the loader table; old configurations still load.
 //! - `max_live` is retired (2026-11-22, `config/retired_keys.rs`): nothing
 //!   counts live threads since threads are no longer containers.
 //! - `place_digest`, `place_digest_line_chars` and `route_wait_ms` are retired
@@ -47,11 +42,9 @@ pub enum PersonaEngage {
     Act,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThreadsConfig {
-    #[serde(default = "default_enabled")]
-    pub enabled: bool,
     #[serde(default)]
     pub persona_engage: PersonaEngage,
     /// The retired keys (the module's last paragraph): read, warned of, ignored.
@@ -71,27 +64,6 @@ pub struct ThreadsConfig {
     import_day_usd: Option<toml::Value>,
     #[serde(default, skip_serializing)]
     import_profile: Option<toml::Value>,
-}
-
-fn default_enabled() -> bool {
-    true
-}
-
-impl Default for ThreadsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_enabled(),
-            persona_engage: PersonaEngage::default(),
-            ask_wait_secs: None,
-            sticky_alone_asks: None,
-            ask_every_thread: None,
-            unsure: None,
-            single_offers_new: None,
-            claim_home_turns: None,
-            import_day_usd: None,
-            import_profile: None,
-        }
-    }
 }
 
 impl ThreadsConfig {
@@ -132,10 +104,12 @@ mod tests {
     fn the_templates_threads_section_is_the_default() {
         let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
         assert_eq!(cfg.threads, ThreadsConfig::default());
-        assert!(cfg.threads.enabled);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# [threads]\n# enabled = true"));
         let off = crate::Config::from_toml("[threads]\nenabled = false\n").unwrap();
-        assert!(!off.threads.enabled);
+        assert_eq!(off.threads, ThreadsConfig::default());
+        assert!(off
+            .ignored_keys
+            .iter()
+            .any(|key| key.name == "threads.enabled"));
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
         // The cold resume's sizes are retired (issue 44): any value loads, ignored and named.
         for retired in [
@@ -216,8 +190,14 @@ mod tests {
         assert!(said.iter().any(|w| w.contains("remove it")), "{said:?}");
         let (plain, quiet) =
             crate::Config::parse(&format!("{secrets}\n[threads]\nenabled = true\n")).unwrap();
-        assert!(plain.threads.retired().is_empty());
-        assert!(quiet.iter().all(|w| !w.contains("threads.")), "{quiet:?}");
+        assert!(
+            plain.threads.retired().is_empty(),
+            "the loader removes table-retired keys before this section is read"
+        );
+        assert!(
+            quiet.iter().any(|w| w.contains("threads.enabled")),
+            "{quiet:?}"
+        );
     }
 
     /// The three inert keys retired by XD3 (`discord_channel`, `sticky_half_life_secs`,
@@ -242,5 +222,20 @@ mod tests {
                 "the template still names {key}"
             );
         }
+    }
+}
+
+#[test]
+fn thread_enable_is_retired_without_retiring_persona_engagement() {
+    for enabled in [true, false] {
+        let text = format!("[threads]\nenabled = {enabled}\npersona_engage = 'act'\n");
+        let cfg = crate::Config::from_toml(&text).unwrap();
+        assert!(cfg
+            .ignored_keys
+            .iter()
+            .any(|key| key.name == "threads.enabled"));
+        assert_eq!(cfg.threads.persona_engage, PersonaEngage::Act);
+        let serialized = toml::to_string(&cfg.threads).unwrap();
+        assert!(!serialized.contains("enabled"));
     }
 }

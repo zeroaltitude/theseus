@@ -997,3 +997,26 @@ fn a_run_of_wrong_frames_longer_than_a_budget_that_ends_inside_one_is_read_past(
     assert_eq!(skipped, 6);
     assert_eq!(*f.stop(), Stop::CaughtUp);
 }
+
+#[test]
+fn a_failed_batch_does_not_consume_its_sealed_segments() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(256)).unwrap();
+    for i in 0..30 {
+        w.append(&[row(i)]).unwrap();
+    }
+    assert!(w.segment_count() >= 2);
+    let mut follower = WalFollower::open(dir.path(), Cursor::start()).unwrap();
+    let before = follower.cursor().clone();
+    let second = seg(dir.path(), 2);
+    let saved = dir.path().join("saved-segment");
+    fs::rename(&second, &saved).unwrap();
+    fs::create_dir(&second).unwrap();
+    assert!(follower.read(1 << 20).is_err());
+    assert_eq!(*follower.cursor(), before);
+    fs::remove_dir(&second).unwrap();
+    fs::rename(saved, second).unwrap();
+    let batch = follower.read(1 << 20).unwrap();
+    assert_eq!(batch.sealed, (1..w.segment_count()).collect::<Vec<_>>());
+    assert_eq!(batch.records.len(), 30);
+}

@@ -496,14 +496,17 @@ impl CatalogEntry {
     }
 
     /// What a call reserves before it runs: its output cap at the output
-    /// price plus its input estimate at the input price, both at the tier
+    /// price plus its input estimate at the highest input or cache-write price, at the tier
     /// the estimate picks (an estimate past a long tier's threshold reserves
     /// at the long prices).
     pub fn reserve_micros(&self, max_output_tokens: u32, input_estimate: u64) -> Micros {
         let t = self.tier(input_estimate);
         micros_of(&[
             (max_output_tokens as u64, t.output),
-            (input_estimate, t.input),
+            (
+                input_estimate,
+                t.input.max(t.cache_write).max(t.cache_write_1h),
+            ),
         ])
     }
 
@@ -513,7 +516,10 @@ impl CatalogEntry {
         let t = self.tier(input_estimate);
         (
             micros_of(&[(max_output_tokens as u64, t.output)]),
-            micros_of(&[(input_estimate, t.input)]),
+            micros_of(&[(
+                input_estimate,
+                t.input.max(t.cache_write).max(t.cache_write_1h),
+            )]),
         )
     }
 }
@@ -1725,8 +1731,8 @@ mod tests {
     fn a_calls_reservation_and_cost_in_micro_dollars_match_the_prices() {
         let s55 = Catalog::builtin().get("claude-sonnet-5-5").unwrap().clone();
         // Reserve: the 128,000-token output cap at $10, a 44,000-token input
-        // estimate at $2: 1,280,000 + 88,000 µ$ = $1.368.
-        assert_eq!(s55.reserve_micros(128_000, 44_000), 1_368_000);
+        // estimate at the $4 one-hour write price: 1,280,000 + 176,000 µ$.
+        assert_eq!(s55.reserve_micros(128_000, 44_000), 1_456_000);
         // Settle: 1,200 in at $2, 900 out at $10, 40,000 cache reads at
         // $0.10, 3,000 cache writes at $2.50: 2,400 + 9,000 + 4,000 + 7,500.
         let u = Usage {
@@ -1924,8 +1930,8 @@ mod tests {
         let older = c.cost_usd("claude-fable-5-1", &u).unwrap();
         assert!((usd - 0.8 * older).abs() < 1e-9, "{usd} vs {older}");
         // The reservation a call takes: the output cap at the output price
-        // ($5.12) plus the input estimate at the input price ($1.60).
-        assert_eq!(f.reserve_micros(128_000, 200_000), 6_720_000);
+        // ($5.12) plus the input estimate at the one-hour write price ($3.20).
+        assert_eq!(f.reserve_micros(128_000, 200_000), 8_320_000);
     }
 
     /// Thinking off for a short answer (theseus-050g2): Sonnet 5.5's is
@@ -2265,12 +2271,12 @@ mod tests {
     #[test]
     fn an_estimate_past_the_threshold_reserves_at_the_long_tier() {
         let h = Catalog::builtin().get("claude-haiku-5-5").unwrap().clone();
-        // 8,000 out at $0.50 and 100,000 in at $0.10: 4,000 + 10,000.
-        assert_eq!(h.reserve_micros(8_000, 100_000), 14_000);
-        // 8,000 out at $2.50 and 100,001 in at $0.50: 20,000 + 50,000.5.
-        assert_eq!(h.reserve_micros(8_000, 100_001), 70_001);
-        assert_eq!(h.reserve_parts(8_000, 100_001), (20_000, 50_001));
-        assert_eq!(h.reserve_parts(8_000, 100_000), (4_000, 10_000));
+        // 8,000 out at $0.50 and 100,000 written at $0.20: 4,000 + 20,000.
+        assert_eq!(h.reserve_micros(8_000, 100_000), 24_000);
+        // 8,000 out at $2.50 and 100,001 written at $1: 20,000 + 100,001.
+        assert_eq!(h.reserve_micros(8_000, 100_001), 120_001);
+        assert_eq!(h.reserve_parts(8_000, 100_001), (20_000, 100_001));
+        assert_eq!(h.reserve_parts(8_000, 100_000), (4_000, 20_000));
         assert_eq!(h.reserve_micros(8_000, 0), 4_000);
     }
 
@@ -2390,3 +2396,18 @@ mod tests_moonshot;
 mod tests_peak;
 #[cfg(test)]
 mod tests_switch;
+
+#[test]
+fn a_cold_hour_cache_write_fits_its_reservation() {
+    let model = Catalog::builtin().get("claude-sonnet-5-5").unwrap().clone();
+    let usage = Usage {
+        output_tokens: 1_000,
+        cache_creation_input_tokens: 100_000,
+        cache_creation_1h_input_tokens: 100_000,
+        ..Default::default()
+    };
+    let reserved = model.reserve_micros(1_000, 100_000);
+    assert!(reserved >= model.cost_micros(&usage));
+    let (output, input) = model.reserve_parts(1_000, 100_000);
+    assert_eq!(reserved, output + input);
+}
