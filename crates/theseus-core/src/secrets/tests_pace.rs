@@ -373,14 +373,21 @@ async fn the_refusal_path_says_fixed_words_and_none_of_ops() {
         run_until_the_end(&b, refs, op, &clock, u32::MAX).await;
         assert_eq!(runs(dir.path()).len(), 1, "{pairs:?}");
         let health = serde_json::to_string(&b.status()).unwrap();
-        assert!(health.contains("its rate limit; it is asked again in 1 h"), "{health}");
+        assert!(
+            health.contains("its rate limit; it is asked again in 1 h"),
+            "{health}"
+        );
         for words in ["made-up-item-words", "made-up-vault-words"] {
             assert!(!health.contains(words), "{health}");
         }
     }
     let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
     assert!(log.contains("the vault's rate limit"), "{log}");
-    for words in ["made-up-item-words", "made-up-vault-words", "Too many requests"] {
+    for words in [
+        "made-up-item-words",
+        "made-up-vault-words",
+        "Too many requests",
+    ] {
         assert!(!log.contains(words), "{log}");
     }
 }

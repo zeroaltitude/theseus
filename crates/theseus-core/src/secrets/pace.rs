@@ -103,7 +103,8 @@ pub fn next_civil_midnight(now_ms: u64, offset: &dyn Fn(u64) -> i64) -> u64 {
     }
     let mut ms = at(off).max(now_ms.saturating_add(1));
     // Back to the earliest instant of tomorrow, and on past a skipped midnight.
-    while ms > now_ms.saturating_add(60_000) && day_number(ms - 60_000, offset(ms - 60_000)) > today {
+    while ms > now_ms.saturating_add(60_000) && day_number(ms - 60_000, offset(ms - 60_000)) > today
+    {
         ms -= 60_000;
     }
     while day_number(ms, offset(ms)) <= today {
@@ -392,17 +393,38 @@ mod tests {
     #[test]
     fn the_next_civil_midnight_is_tomorrows_date_at_its_start() {
         // 2026-03-07 22:00 MST: 2026-03-08 00:00 MST.
-        assert_eq!(next_civil_midnight(utc(2026, 3, 8, 5), &denver), utc(2026, 3, 8, 7));
+        assert_eq!(
+            next_civil_midnight(utc(2026, 3, 8, 5), &denver),
+            utc(2026, 3, 8, 7)
+        );
         // 2026-03-08 12:00 MDT, the day the clock sprang: 2026-03-09 00:00 MDT.
-        assert_eq!(next_civil_midnight(utc(2026, 3, 8, 18), &denver), utc(2026, 3, 9, 6));
+        assert_eq!(
+            next_civil_midnight(utc(2026, 3, 8, 18), &denver),
+            utc(2026, 3, 9, 6)
+        );
         // 2026-10-31 20:00 MDT: 2026-11-01 00:00 MDT.
-        assert_eq!(next_civil_midnight(utc(2026, 11, 1, 2), &denver), utc(2026, 11, 1, 6));
+        assert_eq!(
+            next_civil_midnight(utc(2026, 11, 1, 2), &denver),
+            utc(2026, 11, 1, 6)
+        );
         // 2026-11-01 12:00 MST, the day the clock fell back: 2026-11-02 00:00 MST.
-        assert_eq!(next_civil_midnight(utc(2026, 11, 1, 19), &denver), utc(2026, 11, 2, 7));
+        assert_eq!(
+            next_civil_midnight(utc(2026, 11, 1, 19), &denver),
+            utc(2026, 11, 2, 7)
+        );
         // A zone that skips 2026-03-08's midnight (00:00 MST becomes 01:00 MDT):
         // that day begins at 07:00 UTC.
-        let skips = |ms: u64| if ms >= utc(2026, 3, 8, 7) { -6 * 3600 } else { -7 * 3600 };
-        assert_eq!(next_civil_midnight(utc(2026, 3, 8, 5), &skips), utc(2026, 3, 8, 7));
+        let skips = |ms: u64| {
+            if ms >= utc(2026, 3, 8, 7) {
+                -6 * 3600
+            } else {
+                -7 * 3600
+            }
+        };
+        assert_eq!(
+            next_civil_midnight(utc(2026, 3, 8, 5), &skips),
+            utc(2026, 3, 8, 7)
+        );
     }
 
     /// A clock a test sets, in UTC.
@@ -424,15 +446,27 @@ mod tests {
     /// does not reset the day's tally, and its return does not either.
     #[test]
     fn a_backward_date_does_not_reset_the_days_tally() {
-        let clock = Arc::new(Set(std::sync::atomic::AtomicU64::new(utc(2026, 11, 23, 0) + 60_000)));
+        let clock = Arc::new(Set(std::sync::atomic::AtomicU64::new(
+            utc(2026, 11, 23, 0) + 60_000,
+        )));
         let reads = VaultReads::new(clock.clone());
         reads.note(1);
-        clock.0.store(utc(2026, 11, 22, 23), std::sync::atomic::Ordering::SeqCst);
+        clock
+            .0
+            .store(utc(2026, 11, 22, 23), std::sync::atomic::Ordering::SeqCst);
         reads.note(1);
-        assert_eq!(reads.today(), (2, 2), "the earlier date counts into the later day");
-        clock.0.store(utc(2026, 11, 23, 1), std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(
+            reads.today(),
+            (2, 2),
+            "the earlier date counts into the later day"
+        );
+        clock
+            .0
+            .store(utc(2026, 11, 23, 1), std::sync::atomic::Ordering::SeqCst);
         assert_eq!(reads.today(), (2, 2), "and the return resets nothing");
-        clock.0.store(utc(2026, 11, 24, 1), std::sync::atomic::Ordering::SeqCst);
+        clock
+            .0
+            .store(utc(2026, 11, 24, 1), std::sync::atomic::Ordering::SeqCst);
         assert_eq!(reads.today(), (0, 0), "a later day starts afresh");
     }
 
