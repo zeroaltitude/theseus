@@ -383,6 +383,8 @@ mod tests_grants;
 #[cfg(test)]
 mod tests_harness;
 #[cfg(test)]
+mod tests_history_reach;
+#[cfg(test)]
 mod tests_hold_compile;
 #[cfg(test)]
 mod tests_horizon;
