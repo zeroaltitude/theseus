@@ -223,11 +223,13 @@ impl State {
                 self.efforts.extend(effort.map(|e| (out.len(), e)));
                 push(out, "assistant", bl);
                 if !uses.is_empty() {
-                    // Two uses with one id in one response are two calls, each answered by its own result.
-                    let places = super::pairing::places(uses.iter().map(|u| u.id.as_str()));
-                    let rb: Vec<Value> = (uses.iter().zip(places))
-                        .map(
-                            |(u, (id, k))| match ctx.results.result((n.id.as_str(), id, k)) {
+                    // A response that repeats an id: each of those uses reads the harness's refusal of it, or the
+                    // stub (`pairing`, rule 0).
+                    let rb: Vec<Value> = (uses.iter())
+                        .map(|u| {
+                            match (ctx.results.result((n.id.as_str(), u.id.as_str())))
+                                .or_else(|| ctx.results.refusal((n.id.as_str(), u.id.as_str())))
+                            {
                                 // An old result cleared to save context (theseus-3ki0).
                                 // A view's receipt is already that stub, and is laid as it is.
                                 Some(r)
@@ -246,8 +248,8 @@ impl State {
                                     self.repairs.push(u.id.clone());
                                     repaired(&u.id)
                                 }
-                            },
-                        )
+                            }
+                        })
                         .collect();
                     push(out, "user", rb);
                 }

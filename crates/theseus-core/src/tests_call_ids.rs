@@ -387,3 +387,99 @@ async fn of_two_calls_of_one_session_with_one_id_each_reads_its_own_result() {
         "the second call reads its own result, not the first's: {second}"
     );
 }
+
+/// One response's uses, by its first request after the calls: the blocks of the user message right after the
+/// assistant message that holds `word` in a call's input.
+fn answers_of(r: &crate::tests_places::Rig, word: &str) -> Vec<Value> {
+    let req = r
+        .requests()
+        .into_iter()
+        .find(|q| answers_a_call(q) && q.messages.iter().any(|m| m.to_string().contains(word)))
+        .expect("the request after the calls");
+    let at = (req.messages.iter())
+        .position(|m| m["role"] == "assistant" && m.to_string().contains(word))
+        .expect("the response");
+    req.messages[at + 1]["content"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Whether any result `sid` recorded says `word`.
+fn any_result_says(core: &Core, sid: &str, word: &str) -> bool {
+    (core.store.session_nodes(sid).unwrap().iter())
+        .any(|(_, n)| matches!(&n.body, Body::ToolResult { content, .. } if content.contains(word)))
+}
+
+/// A response that gives one id to two calls, and a third its own: the two run neither, each answered "Not
+/// run" for its repeated id, and the third runs.
+async fn a_repeated_id_in_one_response(
+    first: (&'static str, Value),
+    second: (&'static str, Value),
+) {
+    let calls = [
+        ("X", first.0, first.1),
+        ("X", second.0, second.1),
+        ("Y", "proc_run", json!({"argv": ["echo", "gamma-3"]})),
+    ];
+    let r = rig_scripted(
+        |_| {},
+        move |req: &ProviderRequest| {
+            if answers_a_call(req) {
+                return Scripted::text("Done.");
+            }
+            if !last_user(req).starts_with("THREE") {
+                return Scripted::text("Hello.");
+            }
+            let calls: Vec<(&str, &str, Value)> = (calls.iter())
+                .map(|(id, n, i)| (*id, *n, i.clone()))
+                .collect();
+            Scripted::tools("Three calls.", &calls)
+        },
+    );
+    let cli = session(&r.core, None);
+    turn(&r.core, &cli, "THREE").await;
+    let blocks = answers_of(&r, "gamma-3");
+    let results: Vec<&Value> = blocks
+        .iter()
+        .filter(|b| b["type"] == "tool_result")
+        .collect();
+    assert_eq!(results.len(), 3, "one result for each use: {blocks:?}");
+    for b in &results[..2] {
+        assert_eq!(b["tool_use_id"], "X", "{blocks:?}");
+        assert!(
+            b["content"].to_string().contains("more than one call"),
+            "a repeated id runs neither of its calls: {blocks:?}"
+        );
+    }
+    assert!(
+        results[2]["content"].to_string().contains("gamma-3"),
+        "the call with its own id ran and reads its own result: {blocks:?}"
+    );
+    assert!(
+        !any_result_says(&r.core, &cli, "alpha-7"),
+        "the valid call of the repeated id never ran"
+    );
+}
+
+/// **One response, one id twice: an unknown tool, then a valid one** (issue 44). The valid call is not run (a
+/// record names a response and an id, not which of its uses), so neither can read as having run with the
+/// other's result.
+#[tokio::test]
+async fn a_repeated_id_in_one_response_runs_neither_unknown_tool_first() {
+    a_repeated_id_in_one_response(
+        ("no_such_tool", json!({})),
+        ("proc_run", json!({"argv": ["echo", "alpha-7"]})),
+    )
+    .await;
+}
+
+/// **The same, the valid call first and an input that did not parse second.**
+#[tokio::test]
+async fn a_repeated_id_in_one_response_runs_neither_invalid_input_second() {
+    a_repeated_id_in_one_response(
+        ("proc_run", json!({"argv": ["echo", "alpha-7"]})),
+        ("fs_write", json!("{not json")),
+    )
+    .await;
+}

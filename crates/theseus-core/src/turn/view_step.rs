@@ -728,22 +728,12 @@ fn bounded(nodes: Vec<(u64, Stub)>, handle: &Handle) -> Vec<(u64, Stub)> {
             Body::AssistantMessage { blocks, .. } if blocks.iter().any(long) => {
                 let mut node = (*n).clone();
                 if let Body::AssistantMessage { blocks, .. } = &mut node.body {
-                    let ids: Vec<(String, usize)> =
-                        (crate::compiler::pairing::uses_of(blocks.iter()).into_iter())
-                            .map(|(id, k)| (id.to_string(), k))
-                            .collect();
-                    let uses = blocks.iter_mut().filter(|b| b["type"] == "tool_use");
-                    for (b, (id, k)) in uses.zip(ids) {
-                        if !long(b) {
-                            continue;
-                        }
+                    for b in blocks.iter_mut().filter(|b| long(b)) {
+                        let id = b["id"].as_str().unwrap_or_default().to_string();
                         let name = b["name"].as_str().unwrap_or_default().to_string();
                         let input = b["input"].to_string();
                         let head: String = input.chars().take(CALL_INPUT_CHARS / 2).collect();
-                        let result = folds
-                            .get(&(n.id.clone(), id, k))
-                            .cloned()
-                            .unwrap_or_default();
+                        let result = folds.get(&(n.id.clone(), id)).cloned().unwrap_or_default();
                         *b = serde_json::json!({"type": "text", "text": format!(
                             "[earlier call: {name} {head}… ({} characters of input); {result}; open {} for \
                              the whole call]",
@@ -761,13 +751,13 @@ fn bounded(nodes: Vec<(u64, Stub)>, handle: &Handle) -> Vec<(u64, Stub)> {
     out
 }
 
-/// Each long call's fold text, by the call (its assistant node, id and place), and the results folded.
-type Folds = (HashMap<(String, String, usize), String>, HashSet<String>);
+/// Each long call's fold text, by the call (its assistant node and id), and the results folded.
+type Folds = (HashMap<(String, String), String>, HashSet<String>);
 
 /// For [`bounded`]: each long call's fold text (its stub with its own result), by the call, and the results
 /// those folds hold, by node id. A call's result is its own by proven identity (`compiler::pairing`, issue 44):
 /// a provider may repeat an id between the exchange's responses, so a fold describes its own call and only
-/// its own result is dropped.
+/// its own result is dropped; a response that repeats an id folds its uses with "no result".
 fn folds(nodes: &[(u64, Stub)], long: impl Fn(&serde_json::Value) -> bool) -> Folds {
     let p = crate::compiler::pairing::pairing(nodes.iter().map(|(_, n)| &**n));
     let (mut folds, mut folded) = (HashMap::new(), HashSet::new());
@@ -775,19 +765,16 @@ fn folds(nodes: &[(u64, Stub)], long: impl Fn(&serde_json::Value) -> bool) -> Fo
         let Body::AssistantMessage { blocks, .. } = &n.body else {
             continue;
         };
-        let uses = blocks.iter().filter(|b| b["type"] == "tool_use");
-        for (b, (id, k)) in uses.clone().zip(crate::compiler::pairing::uses_of(uses)) {
-            if !long(b) {
-                continue;
-            }
-            let r = p.result((n.id.as_str(), id, k));
+        for b in blocks.iter().filter(|b| long(b)) {
+            let id = b["id"].as_str().unwrap_or_default();
+            let r = p.result((n.id.as_str(), id));
             let name = b["name"].as_str().unwrap_or_default();
             let text = r.map_or_else(
                 || "no result".into(),
                 |r| forms::stub(name, &b["input"], Some(r)),
             );
             folded.extend(r.map(|r| r.id.clone()));
-            folds.insert((n.id.clone(), id.to_string(), k), text);
+            folds.insert((n.id.clone(), id.to_string()), text);
         }
     }
     (folds, folded)

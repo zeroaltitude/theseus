@@ -553,27 +553,27 @@ fn unthought(n: &Stub) -> Stub {
 pub fn receipted(window: Vec<(u64, Stub)>, spoken: &HashSet<String>) -> Vec<(u64, Stub)> {
     // A result's call is the one it provably answers (`pairing`, issue 44), as the render lays it: a window lays
     // many exchanges, and a provider that numbers its calls per response repeats ids between them.
-    let mut by_call: std::collections::HashMap<(String, String, usize), (String, Value)> =
+    let mut by_call: std::collections::HashMap<(String, String), (String, Value)> =
         std::collections::HashMap::new();
     for (_, n) in &window {
         let Body::AssistantMessage { blocks, .. } = &n.body else {
             continue;
         };
-        let uses = blocks.iter().filter(|b| b["type"] == "tool_use");
-        for (b, (id, k)) in uses.clone().zip(super::pairing::uses_of(uses)) {
+        for b in blocks.iter().filter(|b| b["type"] == "tool_use") {
+            let id = b["id"].as_str().unwrap_or_default().to_string();
             let call = (
                 b["name"].as_str().unwrap_or_default().to_string(),
                 b["input"].clone(),
             );
-            by_call.insert((n.id.clone(), id.to_string(), k), call);
+            by_call.insert((n.id.clone(), id), call);
         }
     }
     let paired: std::collections::HashMap<String, (String, Value)> = {
         let p = super::pairing::pairing(window.iter().map(|(_, n)| &**n));
         (window.iter())
             .filter_map(|(_, n)| {
-                let (node, id, k) = p.call_of(&n.id)?;
-                let call = by_call.get(&(node.to_string(), id.to_string(), k))?;
+                let (node, id) = p.call_of(&n.id)?;
+                let call = by_call.get(&(node.to_string(), id.to_string()))?;
                 Some((n.id.clone(), call.clone()))
             })
             .collect()
