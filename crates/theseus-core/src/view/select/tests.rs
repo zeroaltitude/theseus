@@ -77,7 +77,15 @@ impl Timeline for Store {
                 session_id: "s".into(),
                 at_ms: e.at,
             })
-            .filter(|e| before.is_none_or(|c| e.cursor() < *c))
+            .filter(|e| {
+                before.is_none_or(|c| {
+                    if c.turn_id.is_empty() {
+                        e.at_ms < c.at_ms
+                    } else {
+                        e.cursor() < *c
+                    }
+                })
+            })
             .collect();
         out.sort_by_key(|e| std::cmp::Reverse(e.cursor()));
         out.truncate(n);
