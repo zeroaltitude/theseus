@@ -25,9 +25,11 @@ pub(super) struct Entry {
     pub(super) pending: Vec<PendingConfirm>,
     /// Its execution record's position: a record at or below it is older.
     pub(super) exec_pos: u64,
-    /// The highest position of its records that the seed read, frozen: an
-    /// action record at or below it is on the board already.
+    /// The highest seeded position for view metadata, never an action's
+    /// replay watermark: execution and action reads are separate.
     pub(super) seed_pos: u64,
+    /// Only an action's own seed record suppresses its queued history.
+    pub(super) seeded_actions: HashMap<String, u64>,
     /// The model's own calls among its `outstanding`, known by their action
     /// records: its view leaves them out (below, `tool_calls`).
     pub(super) models: Vec<String>,
@@ -123,6 +125,7 @@ fn seed_refs(
         let (p, a) = (*p, a);
         let entry = b.entries.entry(a.execution_id.clone()).or_default();
         entry.seed_pos = entry.seed_pos.max(p);
+        entry.seeded_actions.insert(a.correlation_id.clone(), p);
         b.position = b.position.max(p);
         // Only one in flight: the seed reads every call an execution made.
         if a.tool == PROVIDER_TOOL && !a.state.is_settled() {
@@ -237,7 +240,11 @@ impl Board {
                         continue;
                     };
                     let entry = self.entries.entry(a.execution_id.clone()).or_default();
-                    if *pos <= entry.seed_pos {
+                    if entry
+                        .seeded_actions
+                        .get(&a.correlation_id)
+                        .is_some_and(|seeded| pos <= seeded)
+                    {
                         continue;
                     }
                     // A frame may hold one action several times (planned,
