@@ -631,7 +631,7 @@ impl Shared {
             mention_only: false,
             session_id: m.session.clone(),
             renderer: self.renderer(),
-            view: show::View::new(p.show),
+            view: show::View::new(p.show).with_exits(self.core.exits.clone()),
             lane,
             inflight: false,
             steering: Default::default(),

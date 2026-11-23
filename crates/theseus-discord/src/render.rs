@@ -559,19 +559,7 @@ impl Renderer {
             // shown at once: before the settle's frame and the reply's post,
             // whose edit only seals it and adds the footer. Its text is the
             // whole text, so a dropped delta never shows.
-            Event::ModelAnswered(d) => {
-                let Some(t) = self.turn_mut(turn_id) else {
-                    return vec![];
-                };
-                if t.ended {
-                    return vec![];
-                }
-                let lv = t.loops.entry(d.loop_index).or_default();
-                lv.text.clone_from(&d.text);
-                lv.complete = true;
-                t.dirty = true;
-                self.tick()
-            }
+            Event::ModelAnswered(d) => self.model_answered(turn_id, d),
             Event::ToolProposed(p) => {
                 let mut input = p.input.clone();
                 if let Some(exits) = &self.exits {
@@ -900,6 +888,22 @@ impl Renderer {
             content,
             buttons,
         }
+    }
+
+    fn model_answered(&mut self, turn_id: &str, d: &theseus_protocol::ModelDelta) -> Vec<Op> {
+        let Some(t) = self.turn_mut(turn_id) else {
+            return vec![];
+        };
+        if t.ended {
+            return vec![];
+        }
+        let lv = t.loops.entry(d.loop_index).or_default();
+        if !d.text.trim().is_empty() {
+            lv.text.clone_from(&d.text);
+        }
+        lv.complete = true;
+        t.dirty = true;
+        self.tick()
     }
 
     fn turn_mut(&mut self, turn_id: &str) -> Option<&mut TurnView> {

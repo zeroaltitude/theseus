@@ -354,3 +354,41 @@ async fn refolded_tool_inputs_are_masked_before_summary_clipping() {
     assert!(!sent.contains("vault"), "{sent}");
     assert!(sent.contains("[redacted"), "{sent}");
 }
+
+
+#[tokio::test]
+async fn thinking_never_publishes_a_partial_known_value() {
+    use crate::render::process::{Process, Shown};
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    let mut process = Process::default().with_exits(lane.shared.core.exits.clone());
+    let shown = Shown {
+        tools: true,
+        thinking: true,
+    };
+    let now = tokio::time::Instant::now();
+    for (name, body) in [
+        ("turn.started", json!({"session_id":"s", "turn_id":"think"})),
+        (
+            "model.thinking",
+            json!({"turn_id":"think", "loop_index":0, "text": &VALUE[..VALUE.len()-1]}),
+        ),
+    ] {
+        let e = theseus_protocol::Event::from_notification(name, &body)
+            .unwrap()
+            .unwrap();
+        for op in process
+            .on_event(&e, now, shown)
+            .into_iter()
+            .chain(process.tick(shown))
+        {
+            lane.take(LaneMsg::Live(op));
+        }
+        lane.apply_live().await;
+    }
+    assert!(!fake
+        .messages(CHANNEL)
+        .iter()
+        .any(|m| m.content.contains("vault")));
+}
