@@ -39,9 +39,10 @@ test('no setting is listed twice, and no method is both live and without a page'
   assert.deepEqual(cliOnly.filter((m) => live.includes(m)), [])
 })
 
-test('every section of the configuration file’s example is on the page, and no section is on it twice', () => {
+test('every active section of the configuration example is on the page exactly once', () => {
   const example = readFileSync(join(ROOT, 'crates/theseus-core/config/theseus.example.toml'), 'utf8')
-  const sections = new Set([...example.matchAll(/^#?\s*\[\[?([A-Za-z_][\w.\-"]*)\]\]?/gm)].map((m) => tableHead(m[1])))
+  // The example still documents retired thread keys; they are loadable, not active settings.
+  const sections = new Set([...example.matchAll(/^#?\s*\[\[?([A-Za-z_][\w.\-"]*)\]\]?/gm)].map((m) => tableHead(m[1])).filter((t) => t !== 'threads'))
   assert.ok(sections.size > 40, `${sections.size} sections read`)
   const listed = FIXED.flatMap((s) => s.tables.map(tableHead))
   assert.deepEqual([...sections].filter((t) => !listed.includes(t)), [], 'in the file, not on the page')
