@@ -67,12 +67,9 @@ two by a size limit, is not recognised either. A `secret` label does not stop a 
 in which request to which model. `[privacy] redact_outbound = false` turns the replacement off.
 
 **Personal details.** The owner's personal details may live in Theseus's context; that is what makes it a personal
-assistant. When the routing service is on, it is also asked whether each message tries to draw out the owner's
-personal details, or to open a conversation with other people in which they could come out. A confident yes sends the
-owner a warning in their own direct messages and is recorded. Where only the owner writes, it holds nothing back. In a
-shared place the reply is held: no model is called, the person who asked is told "I don't share that here.", and the
-owner's direct message says who asked, where, what they wrote and why it tripped. Since 2026-11-22 ("anything
-goes"), recall and the context are the same in every place: the owner puts Theseus only in places he trusts.
+assistant. Since 2026-11-22, a request for those details in a shared place runs like any other turn: there is no
+personal-details reply hold or automatic warning to the owner's DM. Recall and context come from the same memory
+in every place. The owner must put Theseus only in places whose participants they trust with that memory.
 
 ## Google API Services User Data Policy
 

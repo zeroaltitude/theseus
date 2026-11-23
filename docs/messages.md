@@ -67,8 +67,6 @@ Core paths are under `crates/theseus-core/src/`, Discord's under `crates/theseus
 | Narrower policy | `aws/narrow/proposal.rs` `Proposal::card` | the weekly CloudTrail read of a hand role | DM, `self_narrow` | Decision |
 | Narrower policy red | `rsi/narrow.rs` `red_card` | AccessDenied after an applied narrower policy | DM, `self_narrow_red` | Alert |
 | Home size | `turn/home_size_step.rs` `warning_text` | a place's home passed `[threads] home_warn_percent` | DM, `home_size` | FYI |
-| Privacy warning | `turn/personal_step.rs` `warning_text` | Theseus read a message as after the owner's details | DM, `privacy_warning` | Alert |
-| Privacy, reply held | `turn/personal_step.rs` `held_text` | the same in a shared place: the reply was held | DM, `privacy_warning` | Alert |
 | Day ceiling / runaway line | `day_ceiling.rs` `notice_text`, `runaway_text` | a model call refused at the day's line | DM, `spend_ceiling` | Alert |
 | Day warning | `day_ceiling.rs` `warning_text` | today's spend passed the ceiling under notify | DM, `spend_ceiling` | Alert |
 | AWS month warning | `aws/month_warn.rs` `warning_text` | the month's AWS spend passed `monthly_warn_usd` | DM, `spend_ceiling` | Alert |
@@ -113,3 +111,6 @@ Core paths are under `crates/theseus-core/src/`, Discord's under `crates/theseus
 | Learning loop proposal | `learning/propose.rs` | the learning loop's row is in flight beside this one |
 | Drafts, publish, policy notice | `draft*`, `rpc/publish.rs`, `external.rs` | other rows' areas, or the owner's own act |
 | The TUI's notices | `theseus_client::notify` | the work board's one-line pings (task ends, questions), shared with the task flow |
+
+The personal-details warning and held-reply messages were retired on 2026-11-22. Older `privacy_warning` rows
+remain readable history; new shared-place turns do not produce those warnings or hold the reply.
