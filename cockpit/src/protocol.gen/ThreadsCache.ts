@@ -15,11 +15,10 @@ day: string, total: ThreadCacheStats,
  */
 threads: Array<ThreadCacheEntry>, 
 /**
- * Thread sessions the keep-warm holds now.
+ * Historical held-session count; current readers return zero.
  */
 kept: number, 
 /**
- * Reads the day's spend line kept the keep-warm from making today
- * (it warms the most recently active first and skips the rest).
+ * Historical skipped-read count; current readers return zero.
  */
 skipped_today: number, };

@@ -26,8 +26,7 @@ seal_pending?: string,
  */
 surfaces?: Array<string>, parent?: string, merged_into?: string, split_from?: string, 
 /**
- * Threads the owner linked to this one: their notes reach this thread's recall with no
- * distance; a seal still holds them out.
+ * Historical links; neither these links nor old seals affect current context.
  */
 links?: Array<string>, 
 /**

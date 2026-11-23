@@ -6,8 +6,7 @@ import type { ThreadsCache } from "./ThreadsCache";
  */
 export type ThreadsHealth = { 
 /**
- * `[cache] threads_keep_warm_hours`: how long after its last owner message an
- * active thread's session is kept warm (0: none).
+ * Historical keep-warm setting; retired, and always zero in current health.
  */
 keep_warm_hours: number, 
 /**
