@@ -52,7 +52,7 @@ pub struct Opened {
 const PAGE: usize = 64;
 const MOST: usize = 512;
 /// What a page's framing (its heading, the left-out count and the continuation) is charged, in tokens.
-const FRAMING: u64 = 160;
+const PAGE_OVERHEAD_TOKENS: u64 = 160;
 
 /// The session `id` names, its page before `before` (a WAL position, in the cursor this answer gave), or why it
 /// cannot be opened (one the lens holds is not told apart from none).
@@ -126,7 +126,7 @@ fn read_back(
 ) -> Result<(Vec<Line>, Left, Option<u64>), String> {
     let none = || format!("no session {} can be opened here", flat(id));
     let read = |e: anyhow::Error| format!("session {} could not be read: {e:#}", flat(id));
-    let budget = OPEN_TOKENS.saturating_sub(FRAMING);
+    let budget = OPEN_TOKENS.saturating_sub(PAGE_OVERHEAD_TOKENS);
     let (mut lines, mut left) = (Vec::<Line>::new(), Left::default());
     let (mut at, mut seen, mut used) = (before, 0usize, 0u64);
     let mut outside_of: HashMap<String, bool> = HashMap::new();
