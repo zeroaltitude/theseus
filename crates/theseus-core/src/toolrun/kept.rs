@@ -48,6 +48,27 @@ pub(super) struct Source {
 const READ_LINES: usize = 2000;
 
 impl ToolRuntime {
+    /// A copier's sources (`crate::copies`) as the cap will leave them (D6 round 6). The cap can cut the text
+    /// the tool already cut to its own size again (a `[tools] result_max_chars` under it), head and tail, after
+    /// the sources were taken out of the meta; a source none of whose words it keeps is no copy. The cut is
+    /// [`super::cap_bounds`], as [`Self::capped`] makes it of a copier's result (it has no cap of its own and
+    /// keeps no output), on the text as the result will begin, its fit note first.
+    pub(super) fn cap_copied(
+        &self,
+        call_id: &str,
+        text: &str,
+        c: crate::copies::Copied,
+    ) -> crate::copies::Copied {
+        let noted = self.fit_notes.peek(call_id).map(|n| format!("{n}\n{text}"));
+        let noted = noted.as_deref().unwrap_or(text);
+        let Some((h, t, _)) = super::cap_bounds(noted, self.result_max_chars) else {
+            return c;
+        };
+        let shift = noted.chars().count() - text.chars().count();
+        let (head, tail) = (noted[..h].chars().count(), noted[..t].chars().count());
+        c.kept(|from, to| from + shift < head || to + shift > tail)
+    }
+
     /// `text`, `r`'s text, capped: the content, whether it was cut, the
     /// file it names when the whole output was kept, and the large payload
     /// it is when that whole output passed `[tools] large_payload_chars`.

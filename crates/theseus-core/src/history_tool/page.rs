@@ -543,14 +543,30 @@ pub fn cursor_text(c: &Cursor) -> String {
     serde_json::json!({"at_ms": c.at_ms, "turn_id": c.turn_id}).to_string()
 }
 
-/// A page, as the model reads it, of `here` and the span the call named. `resume` is the opaque token of a
-/// walk stopped by its bound.
+/// [`render_lines`]' text alone, as the tests read a page.
+#[cfg(test)]
 pub fn render(
+    p: &HistoryPage,
+    at: (&str, Option<&crate::recall::when::When>),
+    looks: u32,
+    resume: Option<&Cursor>,
+) -> String {
+    render_lines(p, at, looks, resume).0
+}
+
+/// A page line's two spans of words, in characters of the page's text: the person's words, and what it says you
+/// did (a stored account, or how the reply began).
+pub type LineSpans = ((usize, usize), (usize, usize));
+
+/// A page, as the model reads it, of `here` and the span the call named (`resume` is the opaque token of a walk
+/// stopped by its bound); and where each of its lines has its words ([`LineSpans`]), so a cut of the text can
+/// tell which words it left (D6 round 6).
+pub fn render_lines(
     p: &HistoryPage,
     (here, span): (&str, Option<&crate::recall::when::When>),
     looks: u32,
     resume: Option<&Cursor>,
-) -> String {
+) -> (String, Vec<LineSpans>) {
     let within = span.map_or_else(String::new, |s| format!(" in {}", cut(&s.said, 80)));
     // An empty span says so only when the walk reached its start: a scan stopped by its limit keeps its resume,
     // a used allowance its ending, a fork's crowded search its `SearchCut`.
@@ -558,11 +574,12 @@ pub fn render(
         span,
         p.lines.is_empty() && p.end == PageEnd::HistoryExhausted,
     ) {
-        return format!(
+        let empty = format!(
             "context.history: no exchange of {}'s history{within}: nothing was said there in that span \
              (or nothing this call may read). Try a wider span, or call again without one.",
             flat(here)
         );
+        return (empty, Vec::new());
     }
     let mut out = format!(
         "context.history: {} exchange{} of {}'s history{within}, newest first. Each: when · place · whose \
@@ -572,6 +589,7 @@ pub fn render(
         if p.lines.len() == 1 { "" } else { "s" },
         flat(here),
     );
+    let (mut chars, mut spans) = (out.chars().count(), Vec::with_capacity(p.lines.len()));
     for l in &p.lines {
         // A reply or summary of an exchange that read outside text says so: it may quote it.
         let after = if l.outside {
@@ -584,14 +602,24 @@ pub fn render(
             (None, Some(r)) => format!("your reply began{after}: \u{ab}{r}\u{bb}"),
             (None, None) => crate::ladder::did::NOT_SUMMARISED.into(),
         };
-        out.push_str(&format!(
-            "\n- {} · {} · {}: \u{ab}{}\u{bb} \u{2192} {did} · {}",
+        let head = format!(
+            "\n- {} · {} · {}: \u{ab}",
             when(l.at_ms),
             cut(&l.place, 120),
             who(l.person.as_deref()),
+        );
+        // The person's words, then what it says you did: where each is.
+        let words = chars + head.chars().count();
+        let arrow = words + l.his_words.chars().count();
+        let reply = arrow + "\u{bb} \u{2192} ".chars().count();
+        let line = format!(
+            "{head}{}\u{bb} \u{2192} {did} · {}",
             l.his_words,
             flat(&l.handle.0)
-        ));
+        );
+        chars += line.chars().count();
+        out.push_str(&line);
+        spans.push(((words, arrow), (reply, reply + did.chars().count())));
     }
     let oldest = p
         .lines
@@ -637,5 +665,5 @@ pub fn render(
              placed, you may ask the person."
         ),
     });
-    out
+    (out, spans)
 }

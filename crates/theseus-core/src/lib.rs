@@ -41,6 +41,7 @@ pub mod content_scene;
 pub mod content_wait;
 pub mod context_files;
 pub mod context_parts;
+pub mod copies;
 pub mod correction;
 pub mod cpu;
 pub mod crash;
@@ -382,6 +383,8 @@ mod tests_glide;
 mod tests_grants;
 #[cfg(test)]
 mod tests_harness;
+#[cfg(test)]
+mod tests_history_reach;
 #[cfg(test)]
 mod tests_hold_compile;
 #[cfg(test)]
