@@ -27,7 +27,7 @@ export function Sheet({ title, note, help, verb, submit, busy, disabled, result,
   const send = (e?: FormEvent) => { e?.preventDefault(); if (!disabled && !busy) onSubmit() }
   return (
     <div className="fixed inset-0 z-40 grid place-items-start justify-center bg-black/50 pt-[12vh] backdrop-blur-sm" role="dialog" aria-modal aria-label={title} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <form onSubmit={send} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send() }}
+      <form onSubmit={send} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send(e) }}
         className={cn('brass-card flex max-h-[76vh] flex-col gap-2.5 overflow-auto p-4 shadow-2xl', wide ? 'w-[640px]' : 'w-[460px]', 'max-w-[94vw]')}>
         <div className="flex items-center gap-2">
           <h2 className="font-display text-[13px] font-bold uppercase tracking-[0.08em] text-gold">{title}</h2>
