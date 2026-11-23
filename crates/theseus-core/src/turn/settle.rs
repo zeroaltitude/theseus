@@ -472,7 +472,6 @@ impl TurnRunner {
         store: &Store,
         compiled: &Compiled,
         session: &mut SessionRecord,
-        turn_id: &str,
     ) -> Result<()> {
         let c = &compiled.compilation;
         session.compilation_id = Some(c.id.clone());

@@ -193,7 +193,7 @@ impl TurnRunner {
         // uses is persisted (`route_step`).
         if compiled.new_compilation && !t.route.defer_persist {
             Self::keep_blocks(t, &mut compiled);
-            Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
+            Self::persist_compilation(t.tc.store, &compiled, session)?;
         }
         ph.mark("persist");
         ph.log(&nodes, "");

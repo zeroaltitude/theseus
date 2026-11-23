@@ -1016,7 +1016,7 @@ impl TurnRunner {
             && session.compilation_id.as_deref() != Some(&compiled.compilation.id)
         {
             Self::keep_blocks(t, &mut compiled);
-            Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
+            Self::persist_compilation(t.tc.store, &compiled, session)?;
             super::view_step::kept::record_kept(t, &compiled);
         }
         if let Some(d) = t.route.deferred.take() {
