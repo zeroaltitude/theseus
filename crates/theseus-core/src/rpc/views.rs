@@ -67,10 +67,10 @@ impl Core {
         self: Arc<Self>,
         name: &str,
         params: Value,
-        _conn: Conn<'_>,
+        conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
         match name {
-            method::TURN_INSPECT => self.rpc_inspect(params).await,
+            method::TURN_INSPECT => self.rpc_inspect(params, conn).await,
             method::VIEW_PREVIEW => self.rpc_preview(params).await,
             _ => self.rpc_views(params).await,
         }
