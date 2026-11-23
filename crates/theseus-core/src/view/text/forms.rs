@@ -134,8 +134,9 @@ pub fn laid(nodes: &[Node], form: Form) -> Vec<String> {
 /// An exchange's spoken form: [`whole`] with each call and its result one stub ([`stub`]), where the call
 /// was. A result that answers no call here is its stub alone.
 ///
-/// A result is its call's by proven identity (`compiler::pairing`, issue 44): its correlation, else the
-/// earliest call of the exchange with its id and no correlation. A late result answers no call (it came back
+/// A result is its call's by proven identity (`compiler::pairing`, issue 44): its correlation, else the ONE
+/// call its exchange's records (or, with none, its exchange's calls) name with its id; two candidates are no
+/// answer, and no use of an id its response repeats is answered. A late result answers no call (it came back
 /// later, and is its stub alone), and a call with no result established reads "no result".
 pub fn spoken(nodes: &[Node]) -> Vec<Said> {
     let p = crate::compiler::pairing::pairing(nodes);

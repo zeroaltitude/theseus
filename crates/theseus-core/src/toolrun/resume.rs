@@ -36,6 +36,7 @@ impl ToolRuntime {
         };
         // The calls as the model meant them (theseus-9dt2), as a turn ran them.
         let pending = self.fit_uses(&pending, &Default::default()).0;
+        let pending = self.refuse_repeated_pending(tc, &nodes, assistant, pending, &mut out)?;
         let calls = calls_of(&nodes, &assistant.id);
         // Calls no turn has gated run as a response's calls do (theseus-a60),
         // but once one of the batch is declined, none of them asks
@@ -102,6 +103,94 @@ impl ToolRuntime {
         self.run_fresh(tc, &assistant.id, &mut fresh, declined, &mut out)
             .await?;
         Ok(out)
+    }
+
+    /// `pending`, less each use of an id its response (`assistant`) gives to more than one call: a stored
+    /// response from before such a response was refused at once (issue 44). What has not run does not run now:
+    /// the actions of its records that have not run are declined, their cards closed, and the use is answered
+    /// not run ([`Self::repeated_id`]). A use one of whose actions already ran is left to be answered as it
+    /// stands; the request shows it no result (`compiler::pairing`).
+    fn refuse_repeated_pending(
+        &self,
+        tc: &TurnCtx<'_>,
+        nodes: &[(u64, crate::stub::Stub)],
+        assistant: &Node,
+        pending: Vec<ToolUse>,
+        out: &mut ResumeOutcome,
+    ) -> Result<Vec<ToolUse>> {
+        let Body::AssistantMessage { blocks, .. } = &assistant.body else {
+            return Ok(pending);
+        };
+        let uses = crate::provider::tool_uses_in(blocks);
+        let repeated = super::calls::repeated_ids(uses.iter().map(|u| u.id.as_str()));
+        let mut rest = Vec::with_capacity(pending.len());
+        for u in pending {
+            if !repeated.contains(u.id.as_str()) {
+                rest.push(u);
+                continue;
+            }
+            let actions = Self::actions_of(tc, nodes, &assistant.id, &u.id)?;
+            if actions.iter().any(ran) {
+                rest.push(u);
+                continue;
+            }
+            let started = Instant::now();
+            for a in &actions {
+                Self::decline_repeated(tc, a)?;
+            }
+            let outcome = self.repeated_id(tc, &assistant.id, &u)?;
+            out.answered(&u, outcome, started);
+            out.wrote += 1;
+        }
+        Ok(rest)
+    }
+
+    /// The actions of every gate record of `assistant`'s call `id`.
+    fn actions_of(
+        tc: &TurnCtx<'_>,
+        nodes: &[(u64, crate::stub::Stub)],
+        assistant: &str,
+        id: &str,
+    ) -> Result<Vec<Action>> {
+        let mut out = Vec::new();
+        for (_, n) in nodes
+            .iter()
+            .filter(|(_, n)| n.kind == crate::stub::Kind::ToolCall)
+        {
+            if let Body::ToolCall {
+                tool_use_id,
+                assistant_node,
+                correlation_id: Some(corr),
+                ..
+            } = &n.body
+            {
+                if assistant_node == assistant && tool_use_id == id {
+                    out.extend(tc.kernel.action(corr)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// A repeated id's action that has not run (planned, asked, or authorized): declined by the harness, and its
+    /// card, if one was posted, closed.
+    fn decline_repeated(tc: &TurnCtx<'_>, a: &Action) -> Result<()> {
+        if !matches!(a.state, ActionState::Planned | ActionState::Authorized) {
+            return Ok(());
+        }
+        let corr = &a.correlation_id;
+        tc.kernel.decline_action(
+            corr,
+            "harness",
+            "the response gave one call id to more than one call",
+        )?;
+        if let Err(e) = tc
+            .outbox
+            .closed(corr, crate::outbox::Closed::new("declined", None))
+        {
+            tracing::warn!(error = %format!("{e:#}"), "the card's settle was not written");
+        }
+        Ok(())
     }
 
     /// Calls no turn has gated, through `run_calls`: after a `declined` one,
@@ -475,6 +564,17 @@ pub(super) fn calls_of<'a>(
             _ => None,
         })
         .collect()
+}
+
+/// Whether an action has run (dispatched, or settled after it ran).
+fn ran(a: &Action) -> bool {
+    matches!(
+        a.state,
+        ActionState::Dispatched
+            | ActionState::Succeeded
+            | ActionState::Failed
+            | ActionState::OutcomeUnknown
+    )
 }
 
 /// A call answered with a result node of `status`.

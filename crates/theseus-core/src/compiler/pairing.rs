@@ -10,7 +10,8 @@
 //! 0. A response that gives one id to more than one use pairs NONE of them: each keeps the harness's "no result"
 //!    stub, whatever records or results exist. Such a response is never run (`toolrun::calls`): each of those
 //!    uses is answered "Not run", by a result that names its response (`meta.repeated_in`), and that refusal is
-//!    what such a use reads ([`Pairing::refusal`]); a stored response of the shape from before reads the stub.
+//!    what such a use reads ([`Pairing::refusal`]) when it is the harness's error in the harness's words; a
+//!    stored response of the shape from before reads the stub.
 //! 1. A result with a `correlation_id` answers the call whose record has the same one. Nothing else.
 //! 2. A result with none (a call refused before any action, a harness's own call) answers the one call the
 //!    gate's records of its OWN exchange (its session and turn) name with its id and no correlation, written
@@ -24,11 +25,25 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::node::{Body, Node};
+use crate::node::{Body, Node, ResultStatus};
 
 /// The meta key of the harness's "Not run" for a use of a response that repeats its id: that response's node
 /// id (`toolrun::calls`).
 pub(crate) const REPEATED_IN: &str = "repeated_in";
+
+/// How the harness's "Not run" for a use of a response that repeats its id begins (`toolrun::calls`).
+pub(crate) const REFUSAL: &str = "Not run: this response used the tool-call id ";
+
+/// Whether `n` is the harness's refusal of a repeated id: an error result in the harness's own words. Its
+/// `repeated_in` alone is no proof: a tool may write any metadata.
+fn is_refusal(n: &Node) -> bool {
+    matches!(&n.body, Body::ToolResult {
+        status: ResultStatus::Error,
+        is_error: true,
+        content,
+        ..
+    } if content.contains(REFUSAL))
+}
 
 /// A call: its assistant node's id and its provider id.
 pub(crate) type Call<'n> = (&'n str, &'n str);
@@ -181,7 +196,7 @@ pub(crate) fn pairing<'n>(nodes: impl IntoIterator<Item = &'n Node>) -> Pairing<
         else {
             continue;
         };
-        if let Some(response) = meta[REPEATED_IN].as_str() {
+        if let Some(response) = meta[REPEATED_IN].as_str().filter(|_| is_refusal(n)) {
             p.refused.insert((response, tool_use_id.as_str()), n);
             continue;
         }
