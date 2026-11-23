@@ -121,7 +121,7 @@ pub fn reach(
     }
 
     // The forks that took it by reference (theseus-2qzx).
-    let (mut forks, forks_partial) = forks_of(store, &reached[0], max)?;
+    let (mut forks, forks_partial) = forks_of(store, &reached[0], max, &mut named)?;
     partial |= forks_partial;
 
     let (sessions, unknown) = by_views(
@@ -263,7 +263,12 @@ fn totals_of(exposure: &[ReachExposure], forks: &[ReachFork], sessions: usize) -
 /// `includes` edges into its session (one per fork, for the run), each kept
 /// when its run reaches the node, and then the forks of each fork. The walk
 /// is `max` generations deep; true when a fork beyond it was left.
-fn forks_of(store: &Store, root: &Reached, max: u32) -> Result<(Vec<ReachFork>, bool)> {
+fn forks_of(
+    store: &Store,
+    root: &Reached,
+    max: u32,
+    named: &mut BTreeSet<String>,
+) -> Result<(Vec<ReachFork>, bool)> {
     let mut out: Vec<ReachFork> = Vec::new();
     let mut partial = false;
     let mut seen: BTreeSet<String> = BTreeSet::new();
@@ -296,8 +301,10 @@ fn forks_of(store: &Store, root: &Reached, max: u32) -> Result<(Vec<ReachFork>, 
                 }
                 let at = c.inherits.as_ref().map_or(0, |i| i.through_position);
                 let nodes = [(root.position, &root.node)];
-                // A fork's view compilations are read with the views (`by_views`).
-                let (got, _) = exposures(store, &c.session_id, &nodes)?;
+                // The view compilations a fork's loops name join the reconciliation (`by_views`): one whose
+                // record is not read makes the answer partial (rule A).
+                let (got, fork_named) = exposures(store, &c.session_id, &nodes)?;
+                named.extend(fork_named);
                 let exposure = got.into_iter().next().unwrap_or_default();
                 next.push(c.session_id.clone());
                 out.push(ReachFork {
@@ -727,24 +734,37 @@ impl<'a> Accounting<'a> {
     }
 
     /// The calls of `compilation`'s chain, kept at `at` in `session`: each `action.dispatched` model call
-    /// after it, to the next compilation of another id. Its position and time.
-    fn calls(&mut self, session: &str, at: u64, compilation: &str) -> Result<Vec<(u64, u64)>> {
+    /// after it, to the next compilation of another id. Its position and time; and true when a record of
+    /// the chain would not decode (rule A): a ledger row that may have been a call, or a compilation that
+    /// may have ended the chain, which also stops the walk so no later call is given to this view.
+    fn calls(
+        &mut self,
+        session: &str,
+        at: u64,
+        compilation: &str,
+    ) -> Result<(Vec<(u64, u64)>, bool)> {
         #[derive(Deserialize)]
         struct Id {
             id: String,
         }
-        let mut out = Vec::new();
+        let (mut out, mut unread) = (Vec::new(), false);
         for r in self
             .records(session, at)?
             .iter()
             .filter(|r| r.position > at)
         {
             if r.kind == kinds::COMPILATION {
-                if r.decode::<Id>().is_ok_and(|c| c.id != compilation) {
-                    break;
+                match r.decode::<Id>() {
+                    Ok(c) if c.id == compilation => {}
+                    Ok(_) => break,
+                    Err(_) => {
+                        unread = true;
+                        break;
+                    }
                 }
             } else if r.kind == kinds::LEDGER {
                 let Ok(row) = r.decode::<crate::ledger::LedgerRow>() else {
+                    unread = true;
                     continue;
                 };
                 if row.kind == "action.dispatched" && row.data["tool"] == MODEL_CALL {
@@ -752,7 +772,14 @@ impl<'a> Accounting<'a> {
                 }
             }
         }
-        Ok(out)
+        if unread {
+            tracing::warn!(
+                session,
+                compilation,
+                "a record of a view's calls would not decode: partial"
+            );
+        }
+        Ok((out, unread))
     }
 
     /// What each form lays of `n`: `text`, the other slots' text renderer, exactly (`forms::laid`: a Line
@@ -818,7 +845,9 @@ impl<'a> Accounting<'a> {
         }
         let mut by: BTreeMap<String, ReachExposure> = BTreeMap::new();
         for c in candidates {
-            let calls = self.calls(&c.compilation.session_id, c.kept, &c.compilation.id)?;
+            let (calls, unread) =
+                self.calls(&c.compilation.session_id, c.kept, &c.compilation.id)?;
+            unknown |= unread;
             if calls.is_empty() {
                 // A view whose calls cannot be found laid what it laid unseen (rule A).
                 unknown = true;
