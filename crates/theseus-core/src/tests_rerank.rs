@@ -464,8 +464,9 @@ async fn mode_off_calls_nothing() {
 
 /// The requests a core's model got, as bytes.
 /// A request (its system, messages and tools, as [`sent`] serializes them) with only the values each
-/// daemon makes its own blanked: a recalled note's handle (`[m:…]`), its store position (`@…`) and its
-/// session's short id (`session …`). Every other byte, the text included, is kept.
+/// daemon makes its own blanked: a recalled note's handle (`[m:…]`), its store position (`@…`), its
+/// session's short id (`session …`) and the full ids it names (`ses_…`, `msg_…`). Every other byte, the
+/// text included, is kept.
 fn normalized(request: &str) -> String {
     let b = request.as_bytes();
     let hex = |c: &u8| c.is_ascii_hexdigit();
@@ -486,6 +487,15 @@ fn normalized(request: &str) -> String {
             if n > 0 {
                 out.push_str("@_");
                 i += 1 + n;
+                continue;
+            }
+        }
+        if let Some(prefix) = ["ses_", "msg_"].into_iter().find(|p| rest.starts_with(p)) {
+            let n = b[i + 4..].iter().take_while(|c| hex(c)).count();
+            if n >= 8 {
+                out.push_str(prefix);
+                out.push('_');
+                i += 4 + n;
                 continue;
             }
         }
@@ -568,8 +578,9 @@ async fn a_slow_or_failing_jev_changes_no_turn() {
             (&base.output, &base.stop_reason, base.loops, base.cost_usd),
             "{mode:?}: the turn's result"
         );
-        // With recall live, each daemon's recalled headers name its own node handle, session and store
-        // position, so two daemons differ there by construction; with those blanked, the whole request
+        // With recall live, each daemon's recalled headers name its own node handle, session (short and
+        // full id) and store position, so two daemons differ there by construction; with those blanked,
+        // the whole request
         // (system, messages and tools, text included) is the judge-off daemon's.
         let norm = |reqs: &[String]| {
             reqs.iter()
