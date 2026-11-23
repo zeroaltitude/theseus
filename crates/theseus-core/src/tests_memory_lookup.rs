@@ -710,9 +710,12 @@ fn the_description_and_schema_say_when_and_how() {
     assert_eq!(t.backend(), theseus_tools::Backend::Async);
 }
 
-/// The model of the owner's DM is offered the lookup (a private place),
-/// and a proc_run of the daemon's own CLI ends with the line naming the
-/// native call, after the cap: the March question's first wrong turn.
+/// The model of the owner's DM is offered the history tool, and a proc_run
+/// of the daemon's own CLI search by words ends with the line naming the
+/// history tool's search of this place by those words, after the cap (issue
+/// 46). The March question's first wrong turn, a search whose words name a
+/// time, gets no line: the history tool's words cannot say a date (D5
+/// review §4).
 #[tokio::test]
 async fn a_proc_run_of_the_cli_in_the_owners_dm_ends_with_the_native_call() {
     use crate::tests_places::OWNER;
@@ -723,20 +726,27 @@ async fn a_proc_run_of_the_cli_in_the_owners_dm_ends_with_the_native_call() {
                 return Scripted::text("Done.");
             }
             let last = last_user(req);
-            let argv = match last.contains("long") {
-                true => json!([
+            let argv = if last.contains("long") {
+                json!([
                     "./theseus",
                     "memory",
                     "index",
                     "search",
                     "--long",
-                    "March 2026"
-                ]),
-                false => json!([
+                    "ferry timetable"
+                ])
+            } else if last.contains("March") {
+                json!([
                     "bash",
                     "-c",
                     "./theseus memory index search -k 20 --json 'March 2026' | head -5"
-                ]),
+                ])
+            } else {
+                json!([
+                    "bash",
+                    "-c",
+                    "./theseus memory index search -k 20 --json 'ferry timetable' | head -5"
+                ])
             };
             Scripted::tools("Searching.", &[("s1", "proc_run", json!({ "argv": argv }))])
         },
@@ -744,7 +754,7 @@ async fn a_proc_run_of_the_cli_in_the_owners_dm_ends_with_the_native_call() {
     let cli = r.root.join("theseus");
     std::fs::write(
         &cli,
-        "#!/bin/sh\nif [ \"$5\" = \"March 2026\" ]; then seq 1 3000; fi\necho \"searched: $*\"\n",
+        "#!/bin/sh\nif [ \"$4\" = \"--long\" ]; then seq 1 3000; fi\necho \"searched: $*\"\n",
     )
     .unwrap();
     let mut p = std::fs::metadata(&cli).unwrap().permissions();
@@ -755,12 +765,12 @@ async fn a_proc_run_of_the_cli_in_the_owners_dm_ends_with_the_native_call() {
         r.core.runner.class_of(&dm),
         crate::places::PlaceClass::Private
     );
-    turn(&r.core, &dm, "do you remember March 2026?").await;
-    assert!(offered(&r.requests()[0]).contains(&"memory_lookup".to_string()));
-    let want = r#"[native: memory_lookup {"when":"March 2026"} does this in-process"#;
+    turn(&r.core, &dm, "the ferry timetable, from before?").await;
+    assert!(offered(&r.requests()[0]).contains(&"context_history".to_string()));
+    let want = r#"[native: context_history {"words":"ferry timetable"} searches this place's history by those words"#;
     let got = result_of(&r.core, &dm, "s1");
     assert!(
-        got.contains("searched: memory index search -k 20 --json March 2026"),
+        got.contains("searched: memory index search -k 20 --json ferry timetable"),
         "{got}"
     );
     assert!(
@@ -777,6 +787,15 @@ async fn a_proc_run_of_the_cli_in_the_owners_dm_ends_with_the_native_call() {
         got.trim_end().lines().last().unwrap().starts_with(want),
         "{got}"
     );
+    // The March question: a search whose words name a time ends with no line.
+    let march = session(&r.core, Some(&format!("dm:{OWNER}")));
+    turn(&r.core, &march, "do you remember March 2026?").await;
+    let got = result_of(&r.core, &march, "s1");
+    assert!(
+        got.contains("searched: memory index search -k 20 --json March 2026"),
+        "{got}"
+    );
+    assert!(!got.contains("[native:"), "{got}");
 }
 
 /// What a volatile value says: a count of a counted noun and a word of the

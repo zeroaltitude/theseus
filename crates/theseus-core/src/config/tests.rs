@@ -197,8 +197,9 @@ fn example_template_uncommented_still_parses() {
     // `watch` (f2r2b), project.attach (theseus-n5ui2), google.call (batvg.1), gmail.* (five,
     // batvg.2), drive.* (four, batvg.3), sheets.* and slides.* (three, batvg.4) and calendar.*
     // (two, batvg.5), task.wait (theseus-z9mze.2) and task.fan_out (theseus-z9mze.3), and the
-    // tag tool-let family: aws.tag.list, .set and .clear (three, theseus-mgw.15).
-    assert_eq!(cfg.policy.tools.len(), 79);
+    // tag tool-let family: aws.tag.list, .set and .clear (three, theseus-mgw.15); channel.read
+    // went (issue 46).
+    assert_eq!(cfg.policy.tools.len(), 78);
     assert_eq!(cfg.policy.tools["aws.tag.list"], Posture::Approve);
     assert_eq!(cfg.policy.tools["aws.tag.set"], Posture::Approve);
     assert_eq!(cfg.policy.tools["aws.tag.clear"], Posture::Approve);

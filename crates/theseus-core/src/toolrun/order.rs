@@ -181,8 +181,6 @@ impl ToolRuntime {
             crate::routine::grant::gate(self, at, tool, plan, input, bound.l1(), decision);
         seen(Layer::Routine, &decision);
         let class = plan.class.unwrap_or(tool.class());
-        // A sealed thread's read asks the owner first (theseus-f2g0).
-        let decision = crate::thread_read::gate(self, tool, input, decision);
         // An MCP client's session (step 41b): its calls that act wait.
         let decision =
             crate::mcp_server::floor(decision, class, (at.mcp)(), tool.name(), &plan.summary);

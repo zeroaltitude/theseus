@@ -153,50 +153,6 @@ impl Fact for GlidePosted<'_> {
     }
 }
 
-/// A glide's read (38b, `glide.read`), in the frame that writes the
-/// borrowed node: from where into where, its messages and characters, how
-/// the place rule allowed it, and whether it is outside text.
-pub struct GlideRead<'a> {
-    pub session_id: &'a str,
-    pub correlation_id: &'a str,
-    pub from: Where<'a>,
-    pub to: Where<'a>,
-    pub messages: usize,
-    pub chars: u64,
-    pub allowed: &'a str,
-    pub why: Option<&'a str>,
-    /// A shared place's: its people wrote it.
-    pub outside: bool,
-    /// The borrowed node, the call's result.
-    pub node_id: &'a str,
-}
-
-impl Fact for GlideRead<'_> {
-    const KIND: Option<LedgerKind> = Some(LedgerKind::GlideRead);
-
-    fn row(&self) -> Value {
-        json!({"correlation_id": self.correlation_id, "from": self.from.place,
-               "from_name": self.from.name, "to": self.to.place, "to_name": self.to.name,
-               "messages": self.messages, "chars": self.chars, "allowed": self.allowed,
-               "why": self.why, "outside": self.outside, "node_id": self.node_id})
-    }
-
-    fn narrate(&self, say: &mut Say<'_>) {
-        say.line(
-            Session,
-            format!(
-                "session {} borrowed {} from {} ({} chars, {}{}).",
-                crate::task::short(self.session_id),
-                crate::narrative::count(self.messages as u64, "message", "messages"),
-                self.from.name,
-                crate::narrative::thousands(self.chars),
-                how(self.allowed),
-                if self.outside { "; outside text" } else { "" }
-            ),
-        );
-    }
-}
-
 /// How the place rule allowed a glide, as its narrative line says it.
 fn how(allowed: &str) -> &'static str {
     match allowed {

@@ -354,8 +354,6 @@ pub struct ToolRuntime {
     pub history: Arc<crate::history_tool::Board>,
     /// Routines (theseus-pvm5c): the records in memory and the defaults.
     pub routines: crate::routine::Book,
-    /// What `thread.read` reads (theseus-f2g0): the core, once built.
-    pub thread_read: crate::thread_read::Board,
     /// `look.theseus`, `look.vault` and `look.work` (issues 26 and 28): the core, and the
     /// daemon's vault reader.
     pub look: crate::look::Board,
@@ -564,7 +562,6 @@ impl ToolRuntime {
             lookup: Default::default(),
             history: Default::default(),
             routines: Default::default(),
-            thread_read: Default::default(),
             look: Default::default(),
             profile: Default::default(),
             card_observed: Default::default(),
@@ -2026,15 +2023,12 @@ pub fn build_runtime(
         // Asking a profile and holding a conversation to one, with no shell (issue 28).
         crate::profile_tool::register(cfg, &mut r);
         r.register(Arc::new(crate::glide::ChannelPost));
-        r.register(Arc::new(crate::glide::ChannelRead));
         // The files people gave the session (theseus-c9l6).
         r.register(Arc::new(crate::file_read::FileRead));
         // A read of memory the model calls (theseus-w9qv).
         r.register(Arc::new(crate::memory_lookup::MemoryLookup));
         // The conversation's history, read further back, offered everywhere (issue 44).
         r.register(Arc::new(crate::history_tool::HistoryTool));
-        // Another thread's card and notes, read on purpose (theseus-f2g0).
-        r.register(Arc::new(crate::thread_read::ThreadRead));
         // What the live observer has kept about the owner, read when he asks
         // what it has learned about him (theseus-6f8t0). With the observer
         // off nothing is kept, so the tool is not offered at all.
@@ -2184,7 +2178,6 @@ pub fn build_runtime(
         lookup: Default::default(),
         history: Default::default(),
         routines: crate::routine::Book::new(&cfg.routines),
-        thread_read: Default::default(),
         look: Default::default(),
         profile: Default::default(),
         card_observed: Default::default(),

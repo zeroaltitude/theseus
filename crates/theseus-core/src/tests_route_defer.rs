@@ -14,9 +14,9 @@ use crate::tests_places::{offered, rows};
 use crate::tests_route::{mode, rig_parts, turn, Rig};
 
 /// A rig whose `anthropic` provider is a stand-in that, asked, calls
-/// `thread_read` at once and never `tools_find`, then answers.
+/// `project_attach` at once and never `tools_find`, then answers.
 fn rig_no_search(jev: &FakeJev) -> (Rig, Arc<FakeProvider>) {
-    rig_no_search_to(jev, "thread_read", false)
+    rig_no_search_to(jev, "project_attach", false)
 }
 
 /// The same with the tool the stand-in calls named, and, when `aws`, an account configured so the
@@ -24,7 +24,7 @@ fn rig_no_search(jev: &FakeJev) -> (Rig, Arc<FakeProvider>) {
 fn rig_no_search_to(jev: &FakeJev, tool: &str, aws: bool) -> (Rig, Arc<FakeProvider>) {
     let haiku = Arc::new(FakeProvider::scripted(vec![
         Scripted::tools("", &[("t1", tool, json!({}))]),
-        Scripted::text("It returned your newest thread."),
+        Scripted::text("It said what it needs to attach."),
     ]));
     let p = haiku.clone();
     let r = rig_parts(
@@ -58,7 +58,7 @@ async fn a_pick_without_tool_search_reaches_a_tool_the_message_names() {
     let res = turn(
         &r.core,
         None,
-        "Call the thread_read tool once (it is read-only) to read my most recent thread, then tell me in one line what it returned.",
+        "Call the project_attach tool once, with no project, then tell me in one line what it returned.",
         None,
     )
     .await;
@@ -68,7 +68,7 @@ async fn a_pick_without_tool_search_reaches_a_tool_the_message_names() {
         ("haiku", "verdict")
     );
     let names = offered(&haiku.requests()[0]);
-    assert!(names.contains(&"thread_read".to_string()), "{names:?}");
+    assert!(names.contains(&"project_attach".to_string()), "{names:?}");
     assert_eq!(res.tool_calls, 1, "the call reached the tool");
     assert!(rows(&r.core, "tools.missed").is_empty());
     let used = rows(&r.core, "tools.used");

@@ -484,7 +484,6 @@ impl TurnRunner {
                     NewRecord::json(theseus_store::kinds::COMPILATION, Some(&c.id), c)?
                         .scoped(&c.session_id),
                 ];
-            records.extend(crate::thread_context::card_record(compiled));
             Ok(records)
         };
         // A view turn builds a compilation every turn (issue 44, issue 46): its records ride the

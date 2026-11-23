@@ -126,7 +126,6 @@ impl TurnRunner {
             context_text,
             // The session's block is its caller's (`session_block`).
             session_text: String::new(),
-            card: None,
             context_files: files.iter().map(|f| f.file.clone()).collect(),
             persona: target.persona.clone(),
             defer: None,

@@ -1,8 +1,10 @@
-//! The native tool a `proc.run` of the daemon's own CLI stands in for
-//! (theseus-8c8s): a job that runs `theseus memory index search`, `theseus memory
-//! search`, `theseus history` or `theseus sessions` asks for what
-//! `memory.lookup` answers in-process, and its result ends with a line that
-//! says so, with the call that does it.
+//! The native tool a `proc.run` of the daemon's own CLI points to
+//! (theseus-8c8s; issue 46): a job that runs `theseus memory search` or
+//! `theseus memory index search` with words alone ends with a line naming
+//! the history tool's own search, `context.history` by words: a search of
+//! THIS place's history, which a `place` turns to another place's. It is not
+//! the CLI's search (that reads the memory index, every place's), and the
+//! line never says it is.
 //!
 //! - **Why a line, not a refusal.** The CLI is the right thing to run when
 //!   the work is the CLI itself (a check of its output, a bench, a bug in
@@ -12,22 +14,26 @@
 //! - **What it reads.** The call's argv by words, as `external::Listed`
 //!   does: `argv[0]` by file name, or a shell's or a launcher's command
 //!   split on its quotes and operators, in every step of a batch. The first
-//!   `theseus` whose subcommand a native tool answers names the line; a
+//!   `theseus` whose subcommand the history tool answers names the line; a
 //!   query held in a shell variable gives the call's shape with no value.
-//! - **What it maps.** `memory index search` and `memory search` to `words` (to
-//!   `when` when the query is a time, as "March 2026" is); `history` and
-//!   `rpc session.history` to `session`; `sessions` and `sessions list` and
-//!   `rpc import.sessions` to a span's listing. Nothing else has a native
-//!   twin today, so nothing else gets a line.
+//! - **What it maps.** `memory search` and `memory index search` with words
+//!   alone to `words`. A search the line's arguments cannot express gets no
+//!   line: one that names a session, a source filter, a date or a tag
+//!   (`--session`, `--sources`, `--as-of`, `--after`, `--before`, `--tag`),
+//!   or whose words name a time. Nothing else gets a line either: the
+//!   history tool opens no session by its id (`theseus history`, `rpc
+//!   session.history`) and lists no sessions by a span (`theseus sessions`,
+//!   `rpc import.sessions`), so a line for those would steer the model to a
+//!   call that does not do the thing.
 
 use serde_json::Value;
 
 /// The tool the line names, as the model calls it.
-const WIRE: &str = "memory_lookup";
+const WIRE: &str = "context_history";
 
-/// The line a result of `input`, a `proc.run` call's, ends with: the native
-/// call that does what it asked of the daemon's CLI. None when it asks
-/// nothing a native tool answers.
+/// The line a result of `input`, a `proc.run` call's, ends with: the
+/// history tool's search by the same words, as of `now_ms`. None when the
+/// call is not a search by words alone.
 pub fn hint(input: &Value, now_ms: u64) -> Option<String> {
     if let Some(steps) = input.get("steps").and_then(Value::as_array) {
         return steps.iter().find_map(|s| hint(s, now_ms));
@@ -54,11 +60,27 @@ pub fn hint(input: &Value, now_ms: u64) -> Option<String> {
         .filter(|(_, w)| file_name(w) == "theseus")
         .find_map(|(i, _)| native_call(&words[i + 1..], now_ms))?;
     Some(format!(
-        "[native: {WIRE} {call} does this in-process, without a shell: it reads the same index \
-         and sessions, runs beside the response's other calls, keeps the place rule and the \
-         veils, and pages with a cursor. Prefer it to the theseus CLI unless the CLI itself is \
-         the work]"
+        "[native: {WIRE} {call} searches this place's history by those words, in-process and \
+         without a shell; give it a place to search another place's. It is not the CLI's search, \
+         which reads the memory index: run the CLI when its results are what you need]"
     ))
+}
+
+/// The flags that narrow a search in a way the line's arguments cannot say: a session, a source filter, a
+/// date, a tag. A call that names one gets no line.
+const NARROWING: [&str; 6] = [
+    "--session",
+    "--sources",
+    "--as-of",
+    "--after",
+    "--before",
+    "--tag",
+];
+
+fn narrows(w: &str) -> bool {
+    NARROWING
+        .iter()
+        .any(|f| w == *f || w.strip_prefix(f).is_some_and(|r| r.starts_with('=')))
 }
 
 /// The global flags that take a value, and a subcommand's.
@@ -77,14 +99,17 @@ const VALUED: [&str; 12] = [
     "--tag",
 ];
 
-/// The native call `rest`, the words after a `theseus`, asks for, as JSON
-/// with its fields in a fixed order.
+/// The native call `rest`, the words after a `theseus`, asks for, as JSON: none when it narrows the search
+/// in a way the call cannot say.
 fn native_call(rest: &[String], now_ms: u64) -> Option<String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut i = 0;
     while let Some(w) = rest.get(i) {
         if is_operator(w) {
             break;
+        }
+        if narrows(w) {
+            return None;
         }
         if VALUED.contains(&w.as_str()) {
             i += 2;
@@ -95,50 +120,26 @@ fn native_call(rest: &[String], now_ms: u64) -> Option<String> {
         }
         i += 1;
     }
-    const SHAPE: &str = "…";
     let (sub, args) = positional.split_first()?;
-    let fields: Vec<(&str, String)> = match (*sub, args) {
-        ("memory", [verb, query @ ..]) if *verb == "search" => {
-            words_or_when(&query.join(" "), now_ms)
-        }
+    let query = match (*sub, args) {
+        ("memory", [verb, query @ ..]) if *verb == "search" => query.join(" "),
         ("memory", [index, verb, query @ ..]) if *index == "index" && *verb == "search" => {
-            words_or_when(&query.join(" "), now_ms)
+            query.join(" ")
         }
-        ("history", args) => vec![("session", args.first().map_or(SHAPE, |s| s).to_string())],
-        ("sessions", []) => vec![("when", "last week".into())],
-        ("sessions", [verb, ..]) if *verb == "list" => vec![("when", "last week".into())],
-        ("rpc", [method, ..]) if *method == "session.history" => {
-            vec![("session", SHAPE.into())]
-        }
-        ("rpc", [method, ..]) if *method == "import.sessions" => vec![("when", SHAPE.into())],
         _ => return None,
     };
-    let body: Vec<String> = fields
-        .iter()
-        .map(|(k, v)| format!("\"{k}\":{}", Value::String(v.clone())))
-        .collect();
-    Some(format!("{{{}}}", body.join(",")))
-}
-
-/// A query as the native call asks it: a time it names goes to `when`, the
-/// rest to `words`; a query in a shell variable (`$q`), or none, gives the
-/// call's shape.
-fn words_or_when(query: &str, now_ms: u64) -> Vec<(&'static str, String)> {
+    // A query in a shell variable (`$q`), or none, gives the call's shape. Words that name a time are a date
+    // the history tool's words cannot say.
     let query = query.trim();
-    if query.is_empty() || query.contains('$') {
-        return vec![("words", "…".into()), ("when", "…".into())];
+    let shape = query.is_empty() || query.contains('$');
+    if !shape && crate::recall::when::read_local(query, now_ms).is_some() {
+        return None;
     }
-    let Some(w) = crate::recall::when::read_local(query, now_ms) else {
-        return vec![("words", query.into())];
+    let words = match shape {
+        true => "…",
+        false => query,
     };
-    let rest = query.replace(&w.said, " ");
-    let rest = rest.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut fields = Vec::new();
-    if !rest.is_empty() {
-        fields.push(("words", rest));
-    }
-    fields.push(("when", w.said));
-    fields
+    Some(format!("{{\"words\":{}}}", Value::String(words.into())))
 }
 
 /// A shell's operators and redirections end a command's words.
@@ -220,7 +221,7 @@ mod tests {
         ])
         .unwrap();
         assert!(
-            h.contains(r#"memory_lookup {"words":"tide parser"}"#),
+            h.contains(r#"context_history {"words":"tide parser"}"#),
             "{h}"
         );
         assert!(h.starts_with("[native: ") && h.ends_with(']'), "{h}");
@@ -237,19 +238,73 @@ mod tests {
         assert!(h.contains(r#"{"words":"tide parser"}"#), "{h}");
     }
 
+    /// The line says what the call is, and only that (review §4): a search of THIS place's history by the
+    /// words, which a place turns to another's; never the same search as the CLI's, never every place's.
     #[test]
-    fn a_query_that_is_a_time_goes_to_when() {
-        let h = of(&["theseus", "memory", "index", "search", "March 2026"]).unwrap();
-        assert!(h.contains(r#"{"when":"March 2026"}"#), "{h}");
-        let h = of(&[
-            "theseus", "memory", "index", "search", "kelp", "notes", "in", "March", "2026",
-        ])
-        .unwrap();
-        assert!(h.contains(r#"{"words":"kelp notes"#), "{h}");
+    fn the_line_says_what_the_call_is_and_no_more() {
+        let h = of(&["theseus", "memory", "search", "kelp"]).unwrap();
         assert!(
-            h.contains(r#""when":""#) && h.contains("March 2026\"}"),
+            h.contains("searches this place's history by those words"),
             "{h}"
         );
+        assert!(
+            h.contains("give it a place to search another place's"),
+            "{h}"
+        );
+        assert!(h.contains("It is not the CLI's search"), "{h}");
+        for claim in ["does this", "every place", "same search"] {
+            assert!(!h.contains(claim), "{claim:?}: {h}");
+        }
+    }
+
+    /// A search the line's arguments cannot express gets no line (review §4): a session, a source filter, a
+    /// date or a tag named, as a flag or as `--flag=value`, or words that name a time.
+    #[test]
+    fn a_search_the_call_cannot_express_gets_no_line() {
+        for argv in [
+            &["theseus", "memory", "search", "--session", "ses_1", "kelp"][..],
+            &["theseus", "memory", "search", "--session=ses_1", "kelp"],
+            &[
+                "theseus",
+                "memory",
+                "index",
+                "search",
+                "--sources",
+                "bm25",
+                "kelp",
+            ],
+            &[
+                "theseus", "memory", "index", "search", "--as-of", "41", "kelp",
+            ],
+            &[
+                "theseus",
+                "memory",
+                "search",
+                "--after",
+                "2026-03-01",
+                "kelp",
+            ],
+            &["theseus", "memory", "search", "--before=2026-03-31", "kelp"],
+            &[
+                "theseus",
+                "memory",
+                "search",
+                "--tag",
+                "openclaw-2026-10",
+                "kelp",
+            ],
+            &["theseus", "memory", "index", "search", "March 2026"],
+            &[
+                "theseus", "memory", "index", "search", "kelp", "notes", "in", "March", "2026",
+            ],
+            &[
+                "bash",
+                "-c",
+                "theseus memory search --session ses_1 'kelp' | head",
+            ],
+        ] {
+            assert_eq!(of(argv), None, "{argv:?}");
+        }
     }
 
     #[test]
@@ -261,7 +316,7 @@ mod tests {
             "theseus memory index search --help 2>&1 | head -30",
         ])
         .unwrap();
-        assert!(h.contains(r#"{"words":"…","when":"…"}"#), "{h}");
+        assert!(h.contains(r#"{"words":"…"}"#), "{h}");
         // A loop over queries in a variable: the shape, no value.
         let h = of(&[
             "bash",
@@ -269,33 +324,17 @@ mod tests {
             "for q in a b; do theseus memory index search -k 25 --json \"$q\"; done",
         ])
         .unwrap();
-        assert!(h.contains(r#"{"words":"…","when":"…"}"#), "{h}");
+        assert!(h.contains(r#"{"words":"…"}"#), "{h}");
         let h = hint(
-            &json!({"steps": [{"argv": ["ls"]}, {"argv": ["theseus", "history", "ses_abc"]}]}),
+            &json!({"steps": [{"argv": ["ls"]}, {"argv": ["theseus", "memory", "search", "kelp"]}]}),
             now(),
         )
         .unwrap();
-        assert!(h.contains(r#"{"session":"ses_abc"}"#), "{h}");
+        assert!(h.contains(r#"{"words":"kelp"}"#), "{h}");
     }
 
-    #[test]
-    fn sessions_and_their_rpcs_map_to_their_calls() {
-        for argv in [
-            &["theseus", "sessions"][..],
-            &["theseus", "--json", "sessions", "list"],
-        ] {
-            let h = of(argv).unwrap();
-            assert!(h.contains(r#"{"when":"last week"}"#), "{argv:?}: {h}");
-        }
-        let h = of(&[
-            "theseus", "--socket", "/tmp/s", "history", "-n", "5", "ses_1",
-        ])
-        .unwrap();
-        assert!(h.contains(r#"{"session":"ses_1"}"#), "{h}");
-        let h = of(&["theseus", "rpc", "session.history", "{}"]).unwrap();
-        assert!(h.contains(r#"{"session":"…"}"#), "{h}");
-    }
-
+    /// What the history tool does not do gets no line: it opens no session by its id and lists no
+    /// sessions by a span (issue 46), so none of these is steered to it.
     #[test]
     fn what_no_native_tool_answers_gets_no_line() {
         for argv in [
@@ -306,6 +345,13 @@ mod tests {
             &["cargo", "test", "-p", "theseus"],
             &["bash", "-c", "echo theseus; ls"],
             &["git", "log", "--grep", "theseus memory index search"],
+            &["theseus", "sessions"],
+            &["theseus", "--json", "sessions", "list"],
+            &[
+                "theseus", "--socket", "/tmp/s", "history", "-n", "5", "ses_1",
+            ],
+            &["theseus", "rpc", "session.history", "{}"],
+            &["theseus", "rpc", "import.sessions", "{}"],
         ] {
             assert_eq!(of(argv), None, "{argv:?}");
         }

@@ -1,11 +1,10 @@
-//! Threads in recall (theseus-f2g0) through the whole core: a note from
-//! another thread names its thread, and `thread.read` cites a thread's notes.
+//! Threads in recall (theseus-f2g0) through the whole core: a note from an
+//! old thread's session is headed by where it was said, as any note is.
 //! The distance and the seal are gone (p17: anything goes); the helpers here
 //! still serve the other thread tests.
 
 use std::sync::Arc;
 
-use serde_json::json;
 use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
 
 use super::Core;
@@ -96,11 +95,12 @@ pub(super) fn scored_with(
     })
 }
 
-/// A recalled note from another thread begins its header with the thread's
-/// title, the day and the position, as a canary turn writes it; a note from
-/// an unthreaded session has no such mark.
+/// A recalled note from an old thread's session is headed by where it was
+/// said, its place (`thread:<slug>`), and carries no thread mark of its own
+/// (issue 46): recall heads an item by place, session and author. A note
+/// from an unthreaded session reads the same way.
 #[tokio::test]
-async fn a_cross_thread_hit_names_its_thread() {
+async fn an_old_threads_hit_is_headed_by_its_place() {
     let r = canary();
     let c = &r.core;
     new_thread(c, "security-fix", "security fix");
@@ -124,14 +124,10 @@ async fn a_cross_thread_hit_names_its_thread() {
         })
         .expect("a Recall node");
     let from_fix = items.iter().find(|i| i.session_id == fix).unwrap();
-    let mark = format!(
-        "[from thread «security fix», {}, @{}]",
-        day_of(c, &from_fix.node_id),
-        from_fix.position
-    );
     assert!(
-        from_fix.header.contains(&mark),
-        "{} / {mark}",
+        from_fix.header.contains(" in thread:security-fix, ")
+            && !from_fix.header.contains("from thread"),
+        "{}",
         from_fix.header
     );
     let from_plain = items.iter().find(|i| i.session_id == plain).unwrap();
@@ -140,43 +136,4 @@ async fn a_cross_thread_hit_names_its_thread() {
         "{}",
         from_plain.header
     );
-}
-
-fn day_of(c: &Core, node: &str) -> String {
-    let (_, n) = c.store.get_node(node).unwrap().unwrap();
-    let (y, m, d) = crate::wake::civil_from_days((n.created_at_ms / 1000 / 86_400) as i64);
-    format!("{y:04}-{m:02}-{d:02}")
-}
-
-/// `thread.read` with a query gives the thread's card and its top notes,
-/// each cited by thread and position.
-#[tokio::test]
-async fn a_read_with_a_query_cites_the_threads_notes() {
-    let r = canary();
-    let c = &r.core;
-    new_thread(c, "security-fix", "security fix");
-    let fix = thread_session(c, "security-fix");
-    let id = say(c, &fix, "The staging proxy listens on port 8443.");
-    let asker = session(c, None, &[]);
-    c.runner
-        .memory
-        .set_ask(scored(c, vec![(fix.clone(), 0, 0.04)]));
-    let out = crate::thread_read::call(
-        c.clone(),
-        &asker,
-        json!({"thread": "Security Fix", "query": "staging proxy port"}),
-    )
-    .await
-    .unwrap();
-    assert!(
-        out.text
-            .contains("Thread «security fix» (security-fix, active)"),
-        "{}",
-        out.text
-    );
-    let (position, _) = c.store.get_node(&id).unwrap().unwrap();
-    let cite = format!("[thread «security fix», {}, @{position}]", day_of(c, &id));
-    assert!(out.text.contains(&cite), "{}", out.text);
-    assert!(out.text.contains("port 8443"), "{}", out.text);
-    assert_eq!(out.meta["shown"], 1);
 }

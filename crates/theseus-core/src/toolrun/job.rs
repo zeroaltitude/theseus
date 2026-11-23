@@ -935,10 +935,10 @@ impl ToolRuntime {
     }
 
     /// The line a job's result ends with when its call ran the daemon's own
-    /// CLI for what `memory.lookup` answers, and this runtime offers it
-    /// (theseus-8c8s).
+    /// CLI for what the history tool answers, and this runtime offers it
+    /// (theseus-8c8s; issue 46).
     fn native_hint(&self, input: Option<&Value>) -> Option<String> {
-        self.registry.get(crate::memory_lookup::LOOKUP)?;
+        self.registry.get(crate::view::history::HISTORY_TOOL)?;
         crate::native::hint(input?, theseus_protocol::now_unix_ms())
     }
 

@@ -21,10 +21,9 @@
 //! - **By session** (theseus-8c8s, `read`): `session` reads one session's
 //!   messages in order, a page at a time; with `words`
 //!   it searches that session alone. A span with no words lists this
-//!   harness's own sessions in it before the imported episodes. So the
-//!   model never needs the daemon's CLI through `proc.run` to say what a
-//!   past month held: a job that runs it ends with a line naming this call
-//!   (`native::hint`).
+//!   harness's own sessions in it before the imported episodes. (A job
+//!   that runs the daemon's CLI for a search ends with a line naming the
+//!   history tool's call, `native::hint`, since issue 46.)
 //! - **Costs nothing until called**: no state, no warm read; the core is
 //!   reached through a weak handle given at build (`Board::attach`).
 

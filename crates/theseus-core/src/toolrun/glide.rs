@@ -1,7 +1,7 @@
-//! A glide's run (38b), the harness's side of `channel.post` and
-//! `channel.read` (`crate::glide`): its places resolved again, the place
-//! rule checked again, and its result node with its row, and its post,
-//! written in the one frame that settles the call.
+//! A glide's run (38b), the harness's side of `channel.post`
+//! (`crate::glide`): its places resolved again, the place rule checked
+//! again, and its result node with its row and its post, written in the one
+//! frame that settles the call.
 //!
 //! The check again is for a call that waited: a place the binding rebound
 //! while its question was open may have a stricter class by now, and a call
@@ -18,16 +18,15 @@ use theseus_store::{kinds, Page};
 use theseus_tools::Tool;
 
 use super::{CallOutcome, ResultNode, ToolRuntime, TurnCtx};
-use crate::fact::place::{GlidePosted, GlideRead, Published, Where};
+use crate::fact::place::{GlidePosted, Published, Where};
 use crate::glide::{self, Resolved};
-use crate::graph::{Edge, EdgeKind, VIA_GLIDE};
 use crate::node::{Node, ResultStatus};
 use crate::places::Glide;
 use crate::policy::Posture;
 use crate::provider::ToolUse;
 
 impl ToolRuntime {
-    /// Run a glide: its places and the rule, then the post or the read.
+    /// Run a glide: its places and the rule, then the post.
     pub(super) fn run_glide(
         &self,
         tc: &TurnCtx<'_>,
@@ -52,10 +51,7 @@ impl ToolRuntime {
                 return self.harness_done(tc, correlation_id, tool, call, t, (Err(why), none));
             }
         };
-        match tool.name() {
-            glide::POST => self.glide_post(tc, correlation_id, tool, call, &r, t),
-            _ => self.glide_read(tc, correlation_id, tool, call, &r, t),
-        }
+        self.glide_post(tc, correlation_id, tool, call, &r, t)
     }
 
     /// The post: one outbox post into the place's lane (`glide:<call>`, its
@@ -131,101 +127,6 @@ impl ToolRuntime {
         if let Some(p) = &published {
             tc.rec().announce(p);
         }
-        Self::announce_end(tc, &node);
-        Ok(CallOutcome::Done {
-            status: ResultStatus::Ok,
-        })
-    }
-
-    /// The read: the place's last messages as the call's result, marked
-    /// `borrowed from <place>`; from a shared place, outside text, whose
-    /// hold rides in the frame that settles it, with its `glide.read` row.
-    fn glide_read(
-        &self,
-        tc: &TurnCtx<'_>,
-        correlation_id: &str,
-        tool: &dyn Tool,
-        call: &ToolUse,
-        r: &Resolved,
-        (started, t0): (u64, Instant),
-    ) -> Result<CallOutcome> {
-        let last = r.last;
-        let key = r
-            .other
-            .target
-            .strip_prefix("discord:")
-            .unwrap_or(&r.other.target);
-        let Some(source) = tc.outbox.place_session(key)? else {
-            let why = format!(
-                "{} has no conversation yet: it gets one when the binding starts",
-                r.other.name
-            );
-            let none = crate::task_graph::tools::Done::default();
-            return self.harness_done(
-                tc,
-                correlation_id,
-                tool,
-                call,
-                (started, t0),
-                (Err(why), none),
-            );
-        };
-        let nodes = tc.store.session_nodes(&source)?;
-        let outside = glide::outside(r.other_class);
-        let now = theseus_protocol::now_unix_ms();
-        let (text, took) = glide::borrowed(&r.other.name, outside, &nodes, last, now);
-        let (messages, chars) = (took.len(), text.chars().count() as u64);
-        let meta = json!({"from": r.other.target, "name": r.other.name, "class": r.other_class,
-                          "borrowed_from": r.other.name, "session_id": source,
-                          "messages": messages, "chars": chars, "outside": outside,
-                          "allowed": r.allowed()});
-        let node = self.result_node(
-            tc,
-            ResultNode {
-                correlation_id: Some(correlation_id),
-                duration_ms: Some(t0.elapsed().as_millis() as u64),
-                meta: meta.clone(),
-                // A shared place's people wrote it: outside text, as a page
-                // `http.fetch` read is.
-                external: outside.then(|| theseus_tools::External {
-                    url: r.other.name.clone(),
-                }),
-                ..ResultNode::new(&call.id, tool.name(), ResultStatus::Ok, text)
-            },
-        );
-        let read = GlideRead {
-            session_id: tc.session_id,
-            correlation_id,
-            from: Where {
-                place: Some(&r.other.target),
-                name: &r.other.name,
-            },
-            to: Where {
-                place: r.own_target.as_deref(),
-                name: &r.own_name,
-            },
-            messages,
-            chars,
-            allowed: r.allowed(),
-            why: r.why(),
-            outside,
-            node_id: &node.id,
-        };
-        // Content into another context lands with its edges (P0's rule 3):
-        // the borrowed node copies each message it took.
-        let mut more = vec![tc.rec().row(&read)?];
-        for to in &took {
-            let edge = Edge::new(EdgeKind::DerivedFrom, &node.id, to, VIA_GLIDE);
-            more.push(edge.record()?);
-        }
-        let c = completion(correlation_id, tool, &node, started, &meta, t0);
-        let mut frame = vec![node.record()?];
-        frame.append(&mut more);
-        let accepted = tc.kernel.accept_completion_with(&c, frame)?;
-        if !written(&accepted) {
-            return self.not_moved(tc, correlation_id, tool, call, "read");
-        }
-        tc.rec().announce(&read);
         Self::announce_end(tc, &node);
         Ok(CallOutcome::Done {
             status: ResultStatus::Ok,

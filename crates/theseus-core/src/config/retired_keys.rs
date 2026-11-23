@@ -15,8 +15,9 @@
 /// Every section's `*` (only `profiles.*`): the key in each table under it.
 const EACH: &str = "*";
 
-/// One retired key: its section (`profiles.*` for each profile), its name,
-/// and one sentence of what replaced it or why it is gone.
+/// One retired key: its section, dotted when it is nested (`policy.tools`;
+/// `profiles.*` for each profile), its name, and one sentence of what
+/// replaced it or why it is gone.
 pub struct Retired {
     pub section: &'static str,
     pub key: &'static str,
@@ -57,6 +58,9 @@ const STORE_ENGINE: &str =
     "redb is the only index engine behind the WAL, so there is nothing to choose";
 const INERT: &str = "nothing read it any more: the link offer, the Discord thread mirror and the \
                      place tail's half-life went with threads as containers";
+const LOOK_BACK: &str =
+    "the history tool, context.history, is the one way to look back (issue 46): it \
+                         reads every place, by words, a thing or a place, so this tool is gone";
 
 /// The whole list (the map of the cut, §6 step 8), less the one key something that stays still reads:
 /// `[cache] keep_warm_min_tokens` (the sticky effort rule), a live setting. The thread keys whose readers
@@ -108,6 +112,9 @@ pub const RETIRED: &[Retired] = &[
     r("threads", "max_live", MAX_LIVE),
     r("profiles.*", "effort_fixed", EFFORT_FIXED),
     r("server", "store_engine", STORE_ENGINE),
+    // A posture set for a tool that is gone (issue 46).
+    r("policy.tools", "thread.read", LOOK_BACK),
+    r("policy.tools", "channel.read", LOOK_BACK),
 ];
 
 const fn r(section: &'static str, key: &'static str, why: &'static str) -> Retired {
@@ -126,11 +133,11 @@ pub struct Ignored {
 pub fn strip(doc: &mut toml::Table) -> Vec<Ignored> {
     let mut out = Vec::new();
     for k in RETIRED {
-        let (head, each) = match k.section.split_once('.') {
+        let (head, each) = match k.section.rsplit_once('.') {
             Some((head, EACH)) => (head, true),
             _ => (k.section, false),
         };
-        let Some(section) = doc.get_mut(head).and_then(toml::Value::as_table_mut) else {
+        let Some(section) = table_at(doc, head) else {
             continue;
         };
         if !each {
@@ -147,6 +154,12 @@ pub fn strip(doc: &mut toml::Table) -> Vec<Ignored> {
         }
     }
     out
+}
+
+/// The table at the dotted `path` of `doc` (`policy.tools`), when each step is one.
+fn table_at<'a>(doc: &'a mut toml::Table, path: &str) -> Option<&'a mut toml::Table> {
+    path.split('.')
+        .try_fold(doc, |t, step| t.get_mut(step)?.as_table_mut())
 }
 
 fn ignored(section: &str, key: &str, why: &'static str) -> Ignored {

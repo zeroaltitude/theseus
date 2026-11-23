@@ -337,7 +337,6 @@ facts![
     data::RequestRedacted<'static>,
     place::Published<'static>,
     place::GlidePosted<'static>,
-    place::GlideRead<'static>,
     turn::LoopStarted<'static>,
     route::RouteDecided<'static>,
     route::RouteCorrected<'static>,

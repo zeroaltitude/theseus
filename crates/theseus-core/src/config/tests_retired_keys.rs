@@ -55,6 +55,9 @@ const EVERY: &str = "[model]\n\
                      candidates = 16\n\
                      [server]\n\
                      store_engine = \"redb\"\n\
+                     [policy.tools]\n\
+                     \"thread.read\" = \"open\"\n\
+                     \"channel.read\" = \"notify\"\n\
                      [profiles.quick]\n\
                      provider = \"anthropic\"\n\
                      model = \"claude-haiku-5-5\"\n\

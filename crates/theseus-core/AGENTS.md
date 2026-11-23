@@ -191,21 +191,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     harness puts in a request, and that a recalled note is no part of the person's message; theseus-fpm2), the
     precedence line (`compiler::situation::PRECEDENCE`, 35a), the tools note, and the profile's text, all static.
     Harness facts every request needs go there, never into a session's messages.
-  - **The layered request and the thread's context** (theseus-h4a7; `compiler/layers.rs`, `compiler/card.rs`,
-    `thread_context.rs`): the system is three layers with a breakpoint each, then the messages'
+  - **The layered request** (theseus-h4a7; `compiler/layers.rs`): the system is three layers with a breakpoint each, then the messages'
     automatic one, the provider's four: `header` (the header text and the standing block), `persona` (the persona in
     play's files), `project` (the system-level files, then the guidance of the session's categories, a thread's
     `topics` among them: `Walk::with_topics`), and an unmarked `session` block (its directory). Nothing per request
     goes inside the three, so two sessions on a profile and a place class send them byte for byte; `layers.rs` is the
     one place they are rendered, and `context.compiled`'s `cache.layers`
-    holds each one's digest (the stored manifest is unchanged: no store format). In a thread's session the thread's
-    card heads the first message (`card.rs`), a snapshot kept as the META record `thread.card.<compilation id>` in the
-    compilation's own frame; a view turn's chain takes the card as it stands at its first call.
-    `thread.note {line}` (threaded sessions only; the tool is left out of every other spec) rides the call's frame
-    with the thread's next record. A thread is no longer resumed cold from a cut transcript (`cold.rs` and the stubs
-    of a cold rewrite were removed 2026-11-22): its next turn's view reads its conversation's exchanges, as any
-    turn's does, and `[threads] working_tokens` and `working_percent` are retired keys (a file naming them loads with
-    a warning). Tests: `compiler/tests_layers.rs`, `rpc/tests_thread_context.rs`.
+    holds each one's digest (the stored manifest is unchanged: no store format). A thread's session gets no card
+    any more (issue 46): no card block heads its messages and no `thread.card.<compilation id>` META record is
+    written; an old store's records of it stay where they are, read by nothing. A thread is no longer resumed cold
+    from a cut transcript (`cold.rs` and the stubs of a cold rewrite were removed 2026-11-22): its next turn's view
+    reads its conversation's exchanges, as any turn's does, and `[threads] working_tokens` and `working_percent` are
+    retired keys (a file naming them loads with a warning). Tests: `compiler/tests_layers.rs`.
   - **The prefix library is gone** (theseus-rr15, retired 2026-11-22): no saved header of the third layer is reused
     across sessions; the view renders each request's system sections afresh, with the same content. Two sessions
     in two places on one project still send layers 1 to 3 byte for byte, from the view's own fixed front
@@ -665,13 +662,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `import_profile` (read and ignored, `ThreadsConfig::retired`) with it; old `thread.imported` rows still read. The
   rule extractor it brought is `thread_grow/extract.rs`. The session import (`import/`) is unrelated and unchanged.
   **Thread recall and seals** (theseus-f2g0; no store change; owner D12: Jev recommends, the owner seals).
-  `thread_recall.rs` maps a candidate's session to its thread (`Board::of_session`, else the record's supersession
+  Since issue 46 recall reads no thread at all: no lens, no thread mark in a header (an old thread's note is headed by
+  its thread's place, `thread:<slug>`, where it was said, since such a session speaks nowhere else), no thread
+  category, no name matcher; `thread_recall.rs` keeps only the session-to-thread memo, which recall reads for that
+  place alone and the seal's crossing report reads too. What follows is the history. `thread_recall.rs` mapped a candidate's session to its thread (`Board::of_session`, else the record's supersession
   link naming `thread:<slug>`, else its task parent, kept in `Memory::thread_memo`) and builds the pure
   `theseus_memory::ThreadLens` over a recall's candidates (`Scene.threads`, `TurnRunner::thread_scene`: none while no
   thread exists, so a daemon without threads recalls as before). In a threaded session a candidate of *another*
   thread pays `[threads] cross_recall_penalty` (0.35 of its score, in the pack's rank) and is dropped as `thread`
   unless its fused score is above `cross_recall_bar` (0.75) of the query's best, unless the message names its thread
-  (slug, title, or a working-set entity: `thread_recall::named`). **Streams do not mix** (theseus-wncdv; the
+  (slug, title, or a working-set entity: `thread_recall::named`, gone). **Streams do not mix** (theseus-wncdv; the
   threadbench's threads arms answered about another stream's facts on 4 to 7 of 12 cross-stream questions, one
   session on 0: streams share the shape of their facts, so a question about this thread's port scores another's
   nearly as high, and the place's own conversation, where each stream's first messages ran before its thread
@@ -695,9 +695,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   until the sweep, and old `thread.sealed` rows still decode. **The place digest** (theseus-98bz.9; `[threads]
   place_digest`, `compiler::place_digest`, `turn/digest_step.rs`) is still wired: `classify.v4`'s `scope` answered
   `place` gives that turn's request a digest of the place's other live threads. Tests: `rpc/tests_place_digest.rs`.
-  `thread_read.rs`: the model tool `thread.read {thread, query?}` is still registered (private places; the card and the
-  top hits, cited by thread and position; `gate` raises it to `approve` when the thread is sealed or proposed). Tests:
-  `rpc/tests_thread_recall.rs`.
+  The model tool `thread.read` is gone (issue 46): the model looks back with `context.history`, and an old thread's
+  records stay readable (`thread list`, `thread show`). Tests: `rpc/tests_thread_recall.rs`.
 
 - **The thread router, moves, working-set growth and the bench's clock: removed 2026-11-22** (threads are not
   containers). There is no thread-based routing: no message is sent to a thread's session by its address (an old
@@ -750,7 +749,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   2026-11-22.)
   The nodes stay in the store: `session.history` marks them (`detail.moved_to`), and recall indexes them as before: the
   turn's `in_context` leaves them out of the source's, so it may bring them back, and a recalled node's header names the
-  thread it moved to (`moved.of.<node>`, `ThreadScene::other_title_of`). `thread.unsplit {split}` writes a second `Moved`
+  place it was said in (until issue 46 it named the thread it moved to). `thread.unsplit {split}` writes a second `Moved`
   node that `undoes` the first (the source reads the range again in its own place), a quiet `Moved` node in an existing
   target that hides the quoted turns without a note, and `thread.done` on a thread the split opened; a ledger row
   (`thread.unsplit`) records it and nothing is deleted. `thread.split_plan` is the dry run: it plans as a split does,
@@ -1664,9 +1663,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     manifest); `theseus-ontology`'s `tests_manifest.rs` is the golden for a session in six kinds. The harness-given
     `thread` and `project` categories are not read at compile (the slice and the thread's topics already carry them).
     (4) **Recall's category term**: `CategoryScene` (private places only, the held snapshot, `[ontology] recall_boost`
-    0.25, 0 off) reads the stored memberships, the thread (`ThreadScene::of`) and the project of the asker and of each
-    candidate's session, and hands the pure pipeline a `theseus_memory::CategoryBoost` (project and thread weight 1, topic
-    0.6, the rest 0.3). Ambient turn recall only: the model's lookups, `thread.read` and a shared place have none. Tests:
+    0.25, 0 off) reads the stored memberships and the project of the asker and of each candidate's session (a thread is no
+    category since issue 46), and hands the pure pipeline a `theseus_memory::CategoryBoost` (project weight 1, topic
+    0.6, the rest 0.3). Ambient turn recall only: the model's lookups and a shared place have none. Tests:
     `tests_onto.rs`, `tests_category.rs` (memory), `tests_manifest.rs`.
   - **People from text** (theseus-wy7y, `judge/people/`): `people.v1`, live (`WIRED`), at the same exchange end as
     `categorize.v1` (`live.rs`: private places only, never a task's, `categorize::due` over the records after its own
@@ -2260,8 +2259,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     partner-confidential text veiled. Its description names the CLI commands it replaces and when to use it: the
     owner's DM once answered a question about a past month with four `proc_run`s of `theseus memory index search` while
     this tool was offered (the context held the CLI from before the tool existed). A `proc_run` of the daemon's own
-    CLI for what it answers ends with a `[native: memory_lookup {…} …]` line, after the cap (`native.rs`,
-    `ResultNode.hint`); the CLI still runs, since running it may be the work. Tests: `tests_memory_lookup.rs`,
+    CLI's search by words alone (`memory search`, `memory index search`) ends with a `[native: context_history
+    {"words":…} …]` line, after the cap (`native.rs`, `ResultNode.hint`). It says what that call is: a search of THIS
+    place's history by those words, which a `place` turns to another's, and not the CLI's search. It named this tool
+    until issue 46. A search naming a session, a source filter, a date or a tag, or whose words name a time, gets no
+    line, nor does a session or span command, since the history tool can say none of them. The CLI still runs,
+    since running it may be the work. Tests: `tests_memory_lookup.rs`,
     `native::tests`.
   - **The MCP server's memory tools** (theseus-02i1h; `memory_lookup/mcp.rs`, `rpc/memory_read.rs`): `memory_search` and
     `memory_get` are one read-only method, `memory.lookup`, in `mcp_server::ALLOWED`, served by `memory_lookup`'s own

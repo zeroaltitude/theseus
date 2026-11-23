@@ -942,7 +942,6 @@ impl Core {
             standing: Default::default(),
             persona: Default::default(),
             threads: Default::default(),
-            cards: Default::default(),
             run_compiles: Default::default(),
             failed_turns: Default::default(),
             reconsiders: Default::default(),
@@ -1069,7 +1068,6 @@ impl Core {
         core.tools.self_pr.attach(&core);
         core.tools.lookup.attach(&core);
         core.tools.history.attach(&core);
-        core.tools.thread_read.attach(&core);
         core.tools.look.attach(&core);
         core.tools.profile.attach(&core);
         core.tools.card_observed.attach(&core);

@@ -761,13 +761,11 @@ agent_processes = ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]
 # "routine.create" = "approve"
 # long-term work (projects): attaching a conversation to a project
 # "project.attach" = "notify"
-# gliding (38b): a post into another bound place, and a read of one's recent
-# conversation. Both inherit enforcement; the place rule decides the rest:
-# into a private place a glide keeps its posture, and what a read brings from
-# a shared place is outside text; out of a private place, or between two
-# shared places, it waits for your approval, as /publish does
+# gliding (38b): a post into another bound place. It inherits enforcement;
+# the place rule decides the rest: into a private place a post keeps its
+# posture; out of a private place, or between two shared places, it waits for
+# your approval, as /publish does
 # "channel.post" = "notify"
-# "channel.read" = "notify"
 # terminals (a program on a pty: a REPL, an editor, a pager): term.open is
 # judged as proc.run is, by its program and arguments, and term.send as a run
 # of its terminal's program, so the floor and the approve and allow lists

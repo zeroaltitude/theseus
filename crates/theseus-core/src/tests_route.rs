@@ -864,7 +864,7 @@ async fn a_quick_picks_later_loop_keeps_its_recall() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "quick", 0.95);
     let haiku = Arc::new(FakeProvider::scripted(vec![
-        Scripted::tools("", &[("t1", "thread_read", serde_json::json!({}))]),
+        Scripted::tools("", &[("t1", "job_read", serde_json::json!({}))]),
         Scripted::text("Behind the tide board."),
     ]));
     let p = haiku.clone();
@@ -882,7 +882,7 @@ async fn a_quick_picks_later_loop_keeps_its_recall() {
     let notes = crate::tests_recall::session(&r.core, None, &[KEY_NOTE]);
     let ask = crate::tests_recall::index_of(&r.core, vec![notes]);
     r.core.runner.memory.set_ask(ask);
-    let msg = "Call the thread_read tool once, then say where the lock-keeper keeps the spare key.";
+    let msg = "Call the job_read tool once, then say where the lock-keeper keeps the spare key.";
     let res = turn(&r.core, None, msg, None).await;
     assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
     assert_eq!((res.tool_calls, res.recalled), (1, 1));

@@ -163,7 +163,6 @@ pub const ALWAYS_LOADED: &[(&str, &[&str], &str)] = &[
         &["channel"],
         "channels: a shared channel is offered the public tools alone, and none is deferred; a DM defers them",
     ),
-    ("channel_read", &["channel"], "channels: a shared channel's public tool"),
 ];
 
 /// Whether `tool` is named for `place` in [`ALWAYS_LOADED`].

@@ -43,8 +43,8 @@ none reads as not the owner alone.
 
 ## Recall's places
 
-`view_gate::RecallPlaces` reads places for recall, `memory.lookup` (words, a session by id, a span's listing),
-`memory.search` with a session, and `thread.read`:
+`view_gate::RecallPlaces` reads places for recall, `memory.lookup` (words, a session by id, a span's listing) and
+`memory.search` with a session (`thread.read` was a third until issue 46 removed it):
 
 - a channel bound private draws on itself alone, whatever the ledger says;
 - with the ledger on, a turn that is not the owner alone, proof absent included, draws on its exact arrival place
@@ -112,8 +112,6 @@ reader's own thread is clear to it. A frozen view asks again after all of a call
   (`moved.of.<node>`) is checked against that thread's seal on a search and on every message a read by id or by
   session returns (`node_seal`, `readable_nodes`); a `moved.of` that does not decode, or names a thread the board
   does not hold, is `Unread`. A seal follows a merge chain. The ladder's `ladder_hidden` asks the same rule.
-- **thread.read** holds the call for the owner when the board cannot be read at planning, and at execution reads a
-  sealed thread only on a call the owner approved.
 - **Presence** is made only by the gate (`view_gate::begin`, from the input's mark or what set the turn up, and
   `steered`, which only narrows). `Asking`'s fields and the table's writer are private. A steer the running turn
   absorbs narrows it at once; what the turn sets up inherits the narrowest of its exchange's messages' marks.

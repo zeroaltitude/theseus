@@ -415,7 +415,6 @@ impl Rig {
 /// for the public tree.
 pub(crate) const SHARED_TOOLS: &[&str] = &[
     "channel_post",
-    "channel_read",
     "context_history",
     "fs_edit",
     "fs_glob",
