@@ -461,7 +461,9 @@ Opinionated, and simple. **Every secret lives in 1Password**, in the deployment'
     Before every round the resolver keeps room for that round's worst case (one read, or an injection and a read of
     each) within 2,000 entries a local day (a constant): a round that could pass it does not start until the next
     civil midnight or the next start, and health says so; a refusal's wait and the day's are both kept, and the later
-    wins. Health counts the daemon's `op` runs and the entries they asked for, per day and per process. _(Amended 2026-11-22, issue 44: until then the wait
+    wins, and of a round's refusals the longest. A round that asks the vault for nothing needs no room; one that
+    could never fit (more distinct references than half the ceiling) fails its vault entries at once, in fixed words,
+    rather than wait for a midnight that never makes room. Health counts the daemon's `op` runs and the entries they asked for, per day and per process. _(Amended 2026-11-22, issue 44: until then the wait
     doubled to a minute and stayed there, about 1,440 rounds a day for one bad entry, each an `op inject` and then an
     `op read`.)_
   - Resolved values are held in memory in zeroizing containers. They are never written to disk, config,
