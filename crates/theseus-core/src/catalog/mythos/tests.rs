@@ -80,7 +80,7 @@ fn what_the_maker_does_not_publish_is_left_out_and_the_row_says_so() {
 }
 
 /// A million of each class: 8 + 40 + 0.20 + 10, and the reservation a call takes
-/// is the output cap at $40 plus the input estimate at $8.
+/// is the output cap at $40 plus the input estimate at the highest cache-write rate ($16).
 #[test]
 fn mythos_5_2_is_priced_as_published() {
     let c = Catalog::builtin();
@@ -95,7 +95,7 @@ fn mythos_5_2_is_priced_as_published() {
     assert!((usd - 58.20).abs() < 1e-9, "{usd}");
     assert_eq!(
         c.get(ID).unwrap().reserve_micros(128_000, 200_000),
-        6_720_000
+        8_320_000
     );
 }
 
