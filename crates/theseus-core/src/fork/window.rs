@@ -60,11 +60,6 @@ impl Fork {
         }
     }
 
-    /// Whether this session is a fork that inherits a run.
-    pub fn inherits(&self) -> bool {
-        !self.inherited.is_empty()
-    }
-
     /// The sessions an assembly of this fork reads, cut at its point (`Sessions::cut`).
     pub fn sessions(&self) -> crate::view::sources_store::Sessions {
         crate::view::sources_store::Sessions::with_cut(self.cut.clone())

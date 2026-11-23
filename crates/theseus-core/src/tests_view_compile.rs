@@ -1051,3 +1051,52 @@ async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_s
         assert!(!got.contains("5519"), "{asks}: another place's: {got}");
     }
 }
+
+/// Round 3: a scope that cannot be read never widens. A conversation whose execution the kernel does not hold
+/// reads as unread, and its census (the turn's own assembler, `view_built`) fails plainly. A turn of it does
+/// not reach that read: a missing execution is given an operator one before the turn runs (`turn.rs`), so the
+/// rig cannot fail a live turn's read.
+#[tokio::test]
+async fn a_scope_that_cannot_be_read_fails_the_assembly_and_widens_nothing() {
+    let r = rig_with(|_| {});
+    let c = &r.core;
+    let sid = crate::tests_places::session(c, None);
+    let mut rec: crate::session::SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
+    rec.execution_id = Some("exe_gone".into());
+    c.store.put_session(&sid, &rec).unwrap();
+    let v = crate::view_gate::Verified::of_preview(&c.runner, &sid, "local");
+    assert!(v.scope_unread(), "an execution the kernel does not hold");
+    let sent = r.requests().len();
+    let err = c
+        .context_census(&theseus_protocol::census::ContextCensusParams {
+            session_id: Some(sid),
+            place: None,
+            exact: false,
+        })
+        .err()
+        .expect("the census fails");
+    assert!(
+        format!("{err:#}").contains("cannot be decided"),
+        "plainly: {err:#}"
+    );
+    assert_eq!(r.requests().len(), sent, "nothing is sent");
+}
+
+/// Round 3: a self-principal task's census is assembled under the scope its live turn gets
+/// (`Verified::of_task` and `Verified::of_turn` read one discriminator), and an operator task's under none.
+#[tokio::test]
+async fn a_self_principal_tasks_census_has_its_live_turns_scope() {
+    let r = rig_with(|c| c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act);
+    let c = &r.core;
+    let parent = crate::tests_places::session(c, None);
+    let worker = self_session(c, "self fix: census");
+    crate::tests_self_budget::make_task(c, &worker, &parent, crate::rsi::SELF_PRINCIPAL, None);
+    let (ordinary, _) = crate::tests_self_budget::principal_session(c, &parent, "operator", None);
+    for (sid, scoped) in [(&worker, true), (&ordinary, false)] {
+        let census = crate::view_gate::Verified::of_task(&c.runner, sid).expect("a task's");
+        let live = crate::view_gate::Verified::of_turn(&c.runner, sid, None);
+        assert_eq!(census.own_place_only(), scoped, "{sid}: the census");
+        assert_eq!(live.own_place_only(), scoped, "{sid}: its live turn");
+        assert_eq!(census.pov().anchor, live.pov().anchor, "{sid}: one place");
+    }
+}
