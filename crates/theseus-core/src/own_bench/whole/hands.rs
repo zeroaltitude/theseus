@@ -389,7 +389,11 @@ impl<'a> Hands<'a> {
             };
             self.note_why(PROGRAM, how, run.code, why);
             self.ran.push(Ran {
-                argv: spec.argv.clone(),
+                argv: spec
+                    .argv
+                    .iter()
+                    .map(|a| remap(a, &self.scratch, &self.orig))
+                    .collect(),
                 exit: run.code,
             });
             text.push_str(&format!(

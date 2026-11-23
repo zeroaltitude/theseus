@@ -792,3 +792,24 @@ async fn the_callers_allowance_is_spent_across_replay_loops() {
     assert!(whole.loops > 0 && whole.loops < 20);
     assert_eq!(w.rig.model.requests().len() - before, whole.loops as usize);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn command_exit_evidence_uses_original_paths() {
+    let w = world(|_| {});
+    let copy = tempfile::tempdir().unwrap();
+    std::fs::write(copy.path().join("build.sh"), "exit 7\n").unwrap();
+    let rt = w.rig.core.runner.tools.clone();
+    let mut hands = Hands::new(
+        &rt,
+        (w.work.clone(), copy.path().to_path_buf()),
+        vec![],
+        Arc::new(Sh::default()),
+    );
+    let argv = vec!["sh".to_string(), w.work.join("build.sh").display().to_string()];
+    hands
+        .call("proc_run", &json!({"argv": argv, "cwd": w.work}))
+        .await;
+    assert_eq!(hands.ran.len(), 1);
+    assert_eq!(hands.ran[0].argv, argv);
+    assert_eq!(hands.ran[0].exit, Some(7));
+}
