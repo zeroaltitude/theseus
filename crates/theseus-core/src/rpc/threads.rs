@@ -18,12 +18,7 @@ use super::server::{route, Conn, RpcFailure};
 use super::Core;
 use crate::approval::{Answerer, Refusal};
 use crate::ledger::LedgerRow;
-use crate::session::SessionRecord;
 use crate::threads::Board;
-
-/// The most sessions of one thread `thread_sessions` follows (its chain of
-/// successors).
-const MAX_SESSIONS: usize = 50;
 
 impl Core {
     /// The two read-only methods (threads were retired on 2026-11-22, issue
@@ -247,27 +242,6 @@ impl Core {
                 _ => return out,
             }
         }
-    }
-
-    /// The sessions of a thread, newest first: its current one and the ones
-    /// before it in its place's chain.
-    pub(crate) fn thread_sessions(&self, t: &ThreadInfo) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        let mut cur = t.session_id.clone();
-        while let Some(s) = cur {
-            if out.contains(&s) || out.len() >= MAX_SESSIONS {
-                break;
-            }
-            cur = self
-                .store
-                .get_session::<SessionRecord>(&s)
-                .ok()
-                .flatten()
-                .and_then(|r| r.supersedes)
-                .map(|l| l.session_id);
-            out.push(s);
-        }
-        out
     }
 }
 
