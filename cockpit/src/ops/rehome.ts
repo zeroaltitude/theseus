@@ -6,7 +6,7 @@
 // | a task, a conversation | a project            | attaches it                       | `project.attach`             | do      |
 //
 // Refused, with the reason on the cursor: ended work, jobs, questions, the system row, routine runs, a conversation
-// onto a home (it has no parent), a home the page can already tell is weaker in data mark than the task, and anything
+// onto a home (it has no parent), and anything
 // under the time machine. The daemon has the last word: its refusal shows in the results toast in its own words.
 import type { DataMark } from '@protocol'
 import { PAST_WORDS } from './keys.ts'
@@ -36,8 +36,6 @@ export type Drop =
   | { method: 'task.rehome' | 'project.attach'; params: Record<string, string>; posture: 'ask' | 'do'; words: string }
   | { refused: string }
 
-const RANK: Readonly<Record<DataMark, number>> = { open: 0, private: 1, sensitive: 2 }
-
 /** The budget sentence the re-home sheet says: the daemon's `note` replaces it once it answers. */
 export const budgetWords = (homeTitle: string | undefined): string => `The budget stays charged to ${homeTitle ?? 'its original parent'}.`
 
@@ -62,9 +60,6 @@ export function dropOf(source: DragItem, target: DropTarget, past: boolean): Dro
   const home = target.sessionId
   if (target.sessionId === source.sessionId) return { refused: 'a task cannot report to itself' }
   if (home === source.home) return { refused: 'it already reports there' }
-  if (target.data && source.data && RANK[target.data] < RANK[source.data]) {
-    return { refused: `a ${source.data} task cannot report into ${target.data === 'open' ? 'an open' : `a ${target.data}`} conversation` }
-  }
   return { method: 'task.rehome', params: { task: source.sessionId, home }, posture: 'ask', words: `Its report goes to the conversation “${target.title}” from now on. ${budgetWords(source.homeTitle)}` }
 }
 
