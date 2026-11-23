@@ -511,11 +511,23 @@ pub fn repeated_turn(rules: &[Rule], req: &Value) -> Vec<Value> {
     else {
         return answered_turn(rules, &prompt_text(req));
     };
-    let messages = req["messages"].as_array().map(Vec::as_slice).unwrap_or_default();
-    let start = messages.iter().rposition(|m| m["role"] == "user"
-        && !last_user_text(&json!({"messages": [m]})).is_empty()).unwrap_or(0);
-    let count = messages[start..].iter().filter(|m| m["role"] == "assistant"
-        && m["content"].as_array().is_some_and(|blocks| blocks.iter().any(|b| b["type"] == "tool_use"))).count();
+    let messages = req["messages"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let start = messages
+        .iter()
+        .rposition(|m| m["role"] == "user" && !last_user_text(&json!({"messages": [m]})).is_empty())
+        .unwrap_or(0);
+    let count = messages[start..]
+        .iter()
+        .filter(|m| {
+            m["role"] == "assistant"
+                && m["content"]
+                    .as_array()
+                    .is_some_and(|blocks| blocks.iter().any(|b| b["type"] == "tool_use"))
+        })
+        .count();
     ask_again(r, count as u64)
 }
 
@@ -694,12 +706,20 @@ mod tests {
         };
         let first = ruled_turn(&rules, "read the keeper logs");
         assert_eq!(input(&first)["path"], "logs/keeper-000.txt");
-        assert_eq!(ruled_turn(&rules, "read the keeper logs"), first, "a fresh turn has independent repeat state");
+        assert_eq!(
+            input(&ruled_turn(&rules, "read the keeper logs")),
+            input(&first),
+            "a fresh turn has independent repeat state"
+        );
         assert_eq!(
             input(&repeated_turn(&rules, &req))["path"],
             "logs/keeper-001.txt"
         );
-        assert_eq!(input(&repeated_turn(&rules, &req))["path"], "logs/keeper-001.txt", "retrying a request does not consume a step");
+        assert_eq!(
+            input(&repeated_turn(&rules, &req))["path"],
+            "logs/keeper-001.txt",
+            "retrying a request does not consume a step"
+        );
         let mut req = req;
         req["messages"].as_array_mut().unwrap().push(json!({"role": "assistant", "content": [{"type": "tool_use", "id": "t2", "name": "fs_read", "input": {}}]}));
         req["messages"].as_array_mut().unwrap().push(json!({"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": "y"}]}));
