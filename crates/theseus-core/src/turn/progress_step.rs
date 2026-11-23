@@ -569,6 +569,12 @@ pub(super) fn tell(
     Ok(())
 }
 
+/// The turn's numbers now, to tell it with, marking nothing.
+pub(super) fn now(t: &mut Turn<'_>, guarded: bool) -> (Signals, Option<Deadline>) {
+    let (cost, now) = (t.cost, Instant::now());
+    with(t, |s| (s.signals(cost, now, guarded), s.deadline))
+}
+
 /// Whether the turn wrote or edited a file with a file tool: it built
 /// something, which is what the deliverable hint (theseus-eb4o4) is for.
 pub(super) fn edited(t: &Turn<'_>) -> bool {

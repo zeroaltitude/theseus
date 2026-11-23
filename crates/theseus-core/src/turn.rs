@@ -448,6 +448,8 @@ struct Turn<'a> {
     /// The harness's part of the block beside the message, each part rendered once at the turn's first
     /// compile (`now_step`), composed at each freeze of its view.
     now: Option<now_step::Rendered>,
+    /// The deliverable's note was said at the turn's close-out (`close_out_step::deliverable_note`).
+    deliverable_told: bool,
     /// A running task's checkpoints (theseus-ypnxt.9).
     checkpoint: checkpoint_step::Checkpoints,
     /// A refusal moved the turn to its model's fallback (theseus-7gir.18).
@@ -600,6 +602,7 @@ impl<'a> Turn<'a> {
             repeats: repeat_step::Repeats::default(),
             route: route_step::RouteState::default(),
             now: None,
+            deliverable_told: false,
             checkpoint: checkpoint_step::Checkpoints::default(),
             fallback: None,
             again: Default::default(),
@@ -2140,6 +2143,9 @@ impl TurnRunner {
             run_model = run_model || (window_failed.is_none() && self.end_note(t, i)?);
             // A stop whose message names a doubt, early in the turn, once (theseus-rqu7j).
             run_model = run_model || (window_failed.is_none() && self.doubt_note(t, i)?);
+            // A stop of a turn that built something in coding or bench work: call it once as the task
+            // spells it, once (theseus-eb4o4; at close-out since issue 46).
+            run_model = run_model || (window_failed.is_none() && self.deliverable_note(t, i)?);
             if let Some(f) = window_failed {
                 return Ok(Next::Fail(f));
             }
