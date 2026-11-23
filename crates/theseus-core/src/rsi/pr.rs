@@ -74,6 +74,8 @@ pub struct Board {
     /// The branches whose fix runs now in this process: a fix row with no end is cut short only
     /// when its branch is not here (`fixing::resumed`).
     live_fixes: Mutex<std::collections::HashSet<String>>,
+    /// A disk failure cannot authorize another attempt while this daemon is alive.
+    failed_keel_holds: Mutex<std::collections::HashSet<String>>,
     /// A test's switch (`set_role_ceilings_off`); never set in a daemon.
     role_ceilings_off: std::sync::atomic::AtomicBool,
     /// A test's switch (`set_index_unread`): the fix rows read as a ledger index still being
@@ -157,6 +159,13 @@ impl Board {
             .unwrap_or_else(PoisonError::into_inner)
             .insert(session.to_string(), read);
         read
+    }
+
+    pub(crate) fn failed_keel_hold(&self, item: &str) -> bool {
+        self.failed_keel_holds
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&tree::slug(item))
     }
 
     /// `branch`'s fix runs now in this process, until what this returns is dropped.
@@ -519,6 +528,12 @@ pub async fn propose(
         return Err(format!(
             "Not run: {PROPOSE} runs only in a self session (principal \"self\"), and this \
              session's is \"{principal}\"."
+        ));
+    }
+    if board.failed_keel_hold(&i.item) {
+        return Err(format!(
+            "Not run: {} waits for the owner; its keel hold could not be persisted.",
+            i.item
         ));
     }
     // An item whose tries ran out builds no more until the owner's retry (issue 6).
@@ -974,7 +989,11 @@ fn told_on_task(
     session: &str,
 ) -> Option<String> {
     // Never publish the snapshot taken before the owner could drop or retry it.
-    let _one = core.rsi.backlog.lock().unwrap_or_else(PoisonError::into_inner);
+    let _one = core
+        .rsi
+        .backlog
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
     let mut t = match crate::task_graph::get(&core.store, &e.item) {
         Ok(task) => task?,
         Err(err) => {
@@ -983,8 +1002,12 @@ fn told_on_task(
         }
     };
     if t.state != theseus_protocol::tasks::TaskState::InProgress
-        || t.evidence.iter().rev().find_map(|e| e.identity.strip_prefix("session:"))
-            .is_some_and(|started| started != session) {
+        || t.evidence
+            .iter()
+            .rev()
+            .find_map(|e| e.identity.strip_prefix("session:"))
+            .is_some_and(|started| started != session)
+    {
         return None;
     }
     let now = theseus_protocol::now_unix_ms();
@@ -1064,7 +1087,15 @@ fn keel(
     a: &mut Attempt<'_>,
 ) -> Result<(String, Value), String> {
     a.stopped_at = Some(PUSH);
-    let _ = std::fs::write(keel_mark(place, &a.tree), &a.tree.branch);
+    if let Err(e) = std::fs::write(keel_mark(place, &a.tree), &a.tree.branch) {
+        core.tools
+            .self_pr
+            .failed_keel_holds
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(tree::slug(&a.i.item));
+        return Err(format!("It stopped at the keel but could not persist the keel hold: {e}. This daemon refuses further attempts on the item; repair the hold before restarting."));
+    }
     if !core.runner.place_rule.owner_dm_bound() {
         // Nothing retries around it either way: the mark above is written
         // first and is what holds the branch.
@@ -1305,7 +1336,6 @@ impl Core {
     }
 }
 
-
 #[cfg(test)]
 mod task_write_tests {
     use super::*;
@@ -1317,25 +1347,49 @@ mod task_write_tests {
         let mut cfg = crate::Config::example();
         cfg.server.state_dir = dir.path().display().to_string();
         let core = Core::build(crate::rpc::Parts::for_tests(
-            cfg, std::sync::Arc::new(crate::provider::FakeProvider::default()), store
-        )).unwrap();
-        let old = TaskRecord { id: "self-test".into(), state: TaskState::InProgress,
-            version: 1, ..Default::default() };
+            cfg,
+            std::sync::Arc::new(crate::provider::FakeProvider::default()),
+            store,
+        ))
+        .unwrap();
+        let old = TaskRecord {
+            id: "self-test".into(),
+            state: TaskState::InProgress,
+            version: 1,
+            ..Default::default()
+        };
         let mut dropped = old.clone();
         dropped.version += 1;
         dropped.state = TaskState::Abandoned;
-        dropped.evidence.push(theseus_protocol::tasks::TaskEvidence {
-            identity: "owner:drop".into(), ..Default::default()
-        });
-        core.store.append(&[crate::task_graph::record(&dropped).unwrap()]).unwrap();
+        dropped
+            .evidence
+            .push(theseus_protocol::tasks::TaskEvidence {
+                identity: "owner:drop".into(),
+                ..Default::default()
+            });
+        core.store
+            .append(&[crate::task_graph::record(&dropped).unwrap()])
+            .unwrap();
         let ended = crate::rsi::backlog::Ended {
-            item: old.id.clone(), title: "test".into(), verdict: "red".into(),
-            phase: None, report: None,
+            item: old.id.clone(),
+            title: "test".into(),
+            verdict: "red".into(),
+            phase: None,
+            report: None,
         };
-        let run = GateRun { verdict: Verdict::Red, exit: Some(1), blob: String::new(),
-            log: PathBuf::new(), secs: 1, tail: String::new(), unrunnable: false };
+        let run = GateRun {
+            verdict: Verdict::Red,
+            exit: Some(1),
+            blob: String::new(),
+            log: PathBuf::new(),
+            secs: 1,
+            tail: String::new(),
+            unrunnable: false,
+        };
         told_on_task(&core, Some(old), &ended, &run, None, "old-build");
-        let now = crate::task_graph::get(&core.store, &ended.item).unwrap().unwrap();
+        let now = crate::task_graph::get(&core.store, &ended.item)
+            .unwrap()
+            .unwrap();
         assert_eq!(now.state, TaskState::Abandoned);
         assert!(now.evidence.iter().any(|e| e.identity == "owner:drop"));
     }

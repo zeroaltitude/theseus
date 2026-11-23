@@ -359,7 +359,10 @@ impl Write {
     }
 
     fn task(&mut self, q: &Queues, t: &theseus_protocol::tasks::TaskRecord) -> Result<()> {
-        let old = q.tasks.iter().find(|old| old.id == t.id)
+        let old = q
+            .tasks
+            .iter()
+            .find(|old| old.id == t.id)
             .ok_or_else(|| anyhow::anyhow!("the queued task {} was not read", t.id))?;
         if !self.expected.iter().any(|e| e.id == old.id) {
             self.expected.push(old.clone());
@@ -410,12 +413,22 @@ impl Core {
         }
         // The frame is all-or-nothing: a new owner word or a new build invalidates its old
         // transitions and notices. The next tick reads the new queues; no stale state is merged.
-        let _one = self.rsi.backlog.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = self
+            .rsi
+            .backlog
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         for old in &w.expected {
-            if !crate::task_graph::get(&self.store, &old.id)?.is_some_and(|now|
-                now.version == old.version && now.state == old.state && now.session == old.session
-                    && now.evidence == old.evidence) {
-                anyhow::bail!("the task {} changed during this tick; it will be read again", old.id);
+            if !crate::task_graph::get(&self.store, &old.id)?.is_some_and(|now| {
+                now.version == old.version
+                    && now.state == old.state
+                    && now.session == old.session
+                    && now.evidence == old.evidence
+            }) {
+                anyhow::bail!(
+                    "the task {} changed during this tick; it will be read again",
+                    old.id
+                );
             }
         }
         w.frame.push(w.mark.record()?);
@@ -919,6 +932,9 @@ impl Core {
         w: &mut Write,
     ) -> Result<()> {
         self.end_item_sessions(&e.item, None).await?;
+        if reason != "dropped" && self.tools.self_pr.failed_keel_hold(&e.item) {
+            return Ok(());
+        }
         remove_trees(place, e, reason, w)
     }
 }
