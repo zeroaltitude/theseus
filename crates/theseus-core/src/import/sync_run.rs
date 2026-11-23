@@ -384,10 +384,10 @@ pub fn finished_line(
     after: &super::sync::SyncState,
 ) -> String {
     if let Some(why) = ran.why() {
-        return format!("The OpenClaw sync failed: {why}. Nothing was imported.");
+        return format!("The OpenClaw sync failed: {why}. Any history already imported is kept.");
     }
     if let Some(e) = &after.error {
-        return format!("The OpenClaw sync failed: {e}. Nothing was imported.");
+        return format!("The OpenClaw sync failed: {e}. Any history already imported is kept.");
     }
     if after.at_ms == before.at_ms {
         return "The OpenClaw sync finished and recorded no run: nothing was imported.".into();
