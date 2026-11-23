@@ -782,3 +782,25 @@ async fn a_trial_stamps_its_beat_after_the_listing_and_after_each_test() {
         "one stamp for the listing, one a test"
     );
 }
+
+#[tokio::test]
+async fn an_older_card_cannot_approve_a_replaced_manifest() {
+    let r = rig();
+    let src = r.server("wc", "ok");
+    let sid = r.session();
+    r.turn(&sid, "first proposal", Some(proposal(&src))).await;
+    let first = r.manifests().remove(0);
+    let sid2 = r.session();
+    let mut second = proposal(&src);
+    second["command"] = json!(["python3", "server.py", "--different"]);
+    r.turn(&sid2, "replacement proposal", Some(second)).await;
+    let replacement = r.manifests().remove(0);
+    assert_eq!(first.digest, replacement.digest);
+    assert_ne!(first.question, replacement.question);
+    let action = r.core.kernel.action(first.question.as_deref().unwrap()).unwrap().unwrap();
+    let result = r.core.answer_extension(&action, super::answer::Answer::Ack, "test", "cli", None);
+    assert!(result.is_err(), "an older card cannot approve a different proposal");
+    assert_eq!(r.manifests()[0].question, replacement.question);
+    assert_eq!(r.manifests()[0].state, "proposed");
+    assert!(r.rows("extend.loaded").is_empty());
+}
