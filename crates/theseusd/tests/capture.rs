@@ -293,7 +293,7 @@ fn a_rephrased_preference_is_kept_with_its_own_notice_not_counted_as_a_repeat() 
     assert_eq!(notice["what"], "kept");
     assert_eq!(
         notice["line"],
-        "📌 Kept as a standing preference everywhere (cli): I said no tables with me"
+        "📌 Kept as a standing preference everywhere (terminal): I said no tables with me"
     );
     assert!(r.rows("standing.repeated").is_empty());
     assert!(live.iter().all(|record| record["repeats"] == 0));
