@@ -50,6 +50,7 @@ pub use clearing::Pass;
 pub mod situation;
 pub mod view;
 pub use effort::{output_config, BETA_TURN_EFFORT};
+pub(crate) mod pairing;
 mod render;
 mod server_calls;
 #[cfg(test)]
