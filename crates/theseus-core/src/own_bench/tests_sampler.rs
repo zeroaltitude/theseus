@@ -401,3 +401,23 @@ async fn comparison_respects_allowance_and_retains_failed_charges() {
     assert!(bad.is_err());
     assert!(charged > 0, "failed paid comparison must remain charged");
 }
+
+#[tokio::test]
+async fn sampled_failed_comparison_is_charged_in_the_replay_day() {
+    let jev = jev_same();
+    let r = rig_compare_only(&jev);
+    script(&r, &["original", "replayed"]);
+    asked(&r).await;
+    jev.set_mode(theseus_judge::fake::FakeMode::Malformed);
+    let sampled = r.core.replay_sample(now()).await.unwrap();
+    assert_eq!(sampled.replayed, 1);
+    assert_eq!(sampled.judged, 0);
+    let rows = judged_rows(&r);
+    assert_eq!(rows.len(), 1);
+    let judge = rows[0].data["judge_usd"].as_f64().unwrap();
+    let replay = rows[0].data["replay_usd"].as_f64().unwrap();
+    assert!(judge > 0.0, "charged failed judgment must reach the day ledger");
+    assert!((sampled.spent_usd - judge - replay).abs() < 0.000_002);
+    let report = r.core.route_report_now(true, now()).unwrap();
+    assert!((report.replay_today_usd - sampled.spent_usd).abs() < 0.000_002);
+}
