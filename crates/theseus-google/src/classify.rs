@@ -111,7 +111,11 @@ pub fn classify(
     };
     Classified {
         class,
-        repeat: Repeat::Safe,
+        repeat: if matches!(verb.as_str(), "GET" | "HEAD" | "PUT" | "PATCH") {
+            Repeat::Safe
+        } else {
+            Repeat::NonRepeatable
+        },
         why: None,
         send: false,
     }
@@ -230,6 +234,18 @@ mod tests {
         assert_eq!(
             classify("POST", path, Some("calendar.events.insert"), &[]).class,
             Class::Write
+        );
+    }
+
+    #[test]
+    fn generic_creates_are_not_repeatable() {
+        assert_eq!(
+            classify("POST", "/spreadsheets/x/values/y:append", None, &[]).repeat,
+            Repeat::NonRepeatable
+        );
+        assert_eq!(
+            classify("GET", "/spreadsheets/x", None, &[]).repeat,
+            Repeat::Safe
         );
     }
 }
