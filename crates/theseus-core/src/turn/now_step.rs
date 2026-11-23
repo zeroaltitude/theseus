@@ -322,7 +322,7 @@ impl TurnRunner {
         // What the observer noted of the owner's own words today (theseus-6f8t0): wherever the turn is, and
         // never for a task's session (a task's own run).
         if session.task.is_none() {
-            let noted = self.noted_now(t).unwrap_or_else(|e| {
+            let noted = self.noted_now().unwrap_or_else(|e| {
                 tracing::warn!(error = %format!("{e:#}"),
                     "the day's observations were not read: this turn goes without them");
                 None
@@ -337,7 +337,7 @@ impl TurnRunner {
     }
 
     /// The day's observations as the turn's block shows them, with their ids, read now.
-    fn noted_now(&self, t: &Turn<'_>) -> anyhow::Result<Option<(String, Vec<String>)>> {
+    fn noted_now(&self) -> anyhow::Result<Option<(String, Vec<String>)>> {
         crate::card::noted::shown(&self.store, self.kernel.now_ms())
     }
 
@@ -375,7 +375,7 @@ impl TurnRunner {
         }
         let had = r.ids(Name::Noted);
         if !had.is_empty() {
-            let now = self.noted_now(t).ok().flatten().map(|(_, ids)| ids);
+            let now = self.noted_now().ok().flatten().map(|(_, ids)| ids);
             if gone(had, &now.unwrap_or_default()) {
                 out.push(Name::Noted);
             }
@@ -397,7 +397,7 @@ impl TurnRunner {
             }
         }
         if stale.contains(&Name::Noted) {
-            let part = self.noted_now(t)?;
+            let part = self.noted_now()?;
             if let Some(r) = t.now.as_mut() {
                 r.sourced(Name::Noted, part);
             }

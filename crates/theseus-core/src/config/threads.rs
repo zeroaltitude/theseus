@@ -33,7 +33,7 @@
 //! that read them, `link_proposals`, `discord_channel` and
 //! `sticky_half_life_secs` (XD3).
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 /// Whether Jev's persona verdict engages a persona.

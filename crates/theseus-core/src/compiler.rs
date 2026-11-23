@@ -579,7 +579,7 @@ pub fn render_request(
         .filter(|(_, n)| !renderable(n))
         .map(|(_, n)| &**n)
         .collect();
-    let mut rendered = render_messages(
+    let rendered = render_messages(
         &prefix,
         &tail,
         strip,

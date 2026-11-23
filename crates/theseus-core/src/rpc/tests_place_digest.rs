@@ -12,19 +12,10 @@ use theseus_protocol::{method, Id, Request, TurnSubmitParams, TurnSubmitResult};
 use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use super::Core;
-use crate::approval::{Answerer, Client, Surface};
+use crate::approval::{Client, Surface};
 use crate::provider::ProviderRequest;
 use crate::tests_inbound::inbound_only;
 use crate::tests_judge::{rig_on, texts, Rig};
-
-fn cli() -> Answerer {
-    Answerer {
-        label: "the CLI".into(),
-        surface: Surface::Cli,
-        discord: None,
-        agent: None,
-    }
-}
 
 /// What each thread holds: slug, title, goal, card, a working-set host.
 const THREADS: [(&str, &str, &str, &[&str], &str); 5] = [
