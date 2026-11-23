@@ -29,6 +29,22 @@ ME = subprocess.run(["id", "-un"], capture_output=True, text=True, check=True).s
 
 
 class RootInstall(unittest.TestCase):
+    def test_a_failed_remove_never_reports_success(self):
+        self.install()
+        bindir = os.path.join(self.tmp.name, "bin")
+        os.mkdir(bindir)
+        failing = os.path.join(bindir, "rm")
+        write(failing, "#!/bin/sh\nexit 1\n")
+        os.chmod(failing, 0o755)
+        out = subprocess.run(
+            ["bash", SCRIPT, "--root", self.root, "remove", "--yes"],
+            env={**os.environ, "PATH": bindir + os.pathsep + os.environ["PATH"]},
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(out.returncode, 0)
+        self.assertNotIn("removed. The daemon", out.stdout)
+        self.assertTrue(os.path.exists(self.path("etc/sudoers.d/theseus-root-install")))
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

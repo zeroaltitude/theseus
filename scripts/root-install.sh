@@ -67,7 +67,7 @@ if [ "$as_root" = 1 ] && [ "$CMD" != check ] && [ "$(id -u)" != 0 ] && [ $DRY = 
 fi
 
 say() { echo "$*"; }
-run() { echo "+ $*"; [ $DRY = 1 ] || "$@"; }
+run() { echo "+ $*"; [ $DRY = 1 ] || "$@" || die "step failed: $*"; }
 # `install` with an owner only as root: a test runs as its own user.
 own() { if [ "$as_root" = 1 ]; then echo "-o $1 -g $2"; fi; }
 
@@ -159,7 +159,7 @@ do_install() {
     rule_text | sed 's/^/+   /'
   else
     tmp=$(mktemp "$tmpdir/theseus-root-install.sudoers.XXXXXX") || die "no temporary file"
-    rule_text >"$tmp"
+    rule_text >"$tmp" || die "could not write the temporary rule"
     if [ "$as_root" = 1 ]; then
       command -v visudo >/dev/null || { rm -f "$tmp"; die "visudo is not installed: the rule is not written unchecked"; }
       visudo -cf "$tmp" >/dev/null || { rm -f "$tmp"; die "visudo does not accept the rule: nothing written"; }
@@ -167,6 +167,7 @@ do_install() {
   fi
   run install $(own root root) -m 0440 "$tmp" "$SUDOERS"
   [ $DRY = 1 ] || rm -f "$tmp"
+  [ $DRY = 1 ] || do_check || die "installed files failed verification"
   say "done. The daemon's health says the helper is installed once it has looked again."
   say "check it:  $0 check --user $USER_NAME      (and, as $USER_NAME: sudo -n -l)"
 }
@@ -186,6 +187,9 @@ do_remove() {
     if [ -z "$(ls -A "$STATE")" ]; then run rmdir "$STATE"; else say "kept $STATE: it is not empty"; fi
   fi
   say "kept $LIB and every build in it: the service may be running from one. Remove old ones by hand."
+  if [ $DRY = 0 ] && { [ -e "$SUDOERS" ] || [ -L "$SUDOERS" ] || [ -e "$HELPER" ] || [ -L "$HELPER" ]; }; then
+    die "removal did not remove the helper and rule"
+  fi
   say "removed. The daemon says the helper is not installed once it has looked again."
 }
 
