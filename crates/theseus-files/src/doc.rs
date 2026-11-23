@@ -448,13 +448,41 @@ fn pptx(bytes: &[u8]) -> Result<Doc, String> {
         })
         .collect();
     slides.sort();
+    let presentation = member_text(&mut z, "ppt/presentation.xml")?;
+    let unordered = presentation.is_none();
+    let ordered = match presentation {
+        Some(presentation) => {
+            let relationships = member_text(&mut z, "ppt/_rels/presentation.xml.rels")?
+                .ok_or("the presentation has no slide relationships")?;
+            let relationships = rels(&relationships);
+            let mut ordered = Vec::new();
+            for item in xml::items(&presentation) {
+                if let Item::Open { name, attrs, .. } = item {
+                    if Item::local(name) == "sldId" {
+                        let id = xml::attr(&attrs, "r:id").ok_or("a slide has no relationship id")?;
+                        let target = relationships.iter().find(|(key, _)| key == id)
+                            .map(|(_, target)| target).ok_or("a slide relationship is missing")?;
+                        let path = match target.strip_prefix('/') {
+                            Some(path) => path.to_string(),
+                            None => format!("ppt/{}", target.trim_start_matches("./")),
+                        };
+                        ordered.push(path);
+                    }
+                }
+            }
+            ordered
+        }
+        None => slides.into_iter().map(|(_, path)| path).collect(),
+    };
     let mut sections = Vec::new();
-    for (num, path) in slides {
+    for (index, path) in ordered.into_iter().enumerate() {
+        let num = index + 1;
         let Some(x) = member_text(&mut z, &path)? else {
             continue;
         };
         let (title, body) = slide_text(&x);
-        let rels_path = format!("ppt/slides/_rels/slide{num}.xml.rels");
+        let (dir, name) = path.rsplit_once('/').ok_or("a slide part has no directory")?;
+        let rels_path = format!("{dir}/_rels/{name}.rels");
         let notes_target = rels(&member_text(&mut z, &rels_path)?.unwrap_or_default())
             .into_iter()
             .find(|(_, t)| t.contains("notesSlide"))
@@ -481,7 +509,7 @@ fn pptx(bytes: &[u8]) -> Result<Doc, String> {
     }
     Ok(Doc {
         sections,
-        cut: None,
+        cut: unordered.then(|| "The presentation order is absent; slides are listed by part name.".into()),
     })
 }
 
@@ -1159,6 +1187,24 @@ mod tests {
                 ("sheet Fees".into(), "none | TRUE".into()),
             ]
         );
+    }
+
+    #[test]
+    fn slide_order_and_numbers_follow_the_presentation() {
+        let deck = sample_zip(&[
+            ("ppt/presentation.xml", r#"<p:presentation><p:sldIdLst><p:sldId id="256" r:id="second"/><p:sldId id="257" r:id="first"/></p:sldIdLst></p:presentation>"#),
+            ("ppt/_rels/presentation.xml.rels", r#"<Relationships><Relationship Id="first" Target="slides/slide1.xml"/><Relationship Id="second" Target="slides/slide2.xml"/></Relationships>"#),
+            ("ppt/slides/slide1.xml", "<p:sld><a:p><a:t>one</a:t></a:p></p:sld>"),
+            ("ppt/slides/slide2.xml", "<p:sld><a:p><a:t>two</a:t></a:p></p:sld>"),
+            ("ppt/slides/slide3.xml", "<p:sld><a:p><a:t>unused</a:t></a:p></p:sld>"),
+            ("ppt/slides/_rels/slide2.xml.rels", r#"<Relationships><Relationship Id="notes" Target="../notesSlides/notesSlide2.xml"/></Relationships>"#),
+            ("ppt/notesSlides/notesSlide2.xml", "<p:notes><a:p><a:t>second part notes</a:t></a:p></p:notes>"),
+        ]);
+        let doc = read(&deck, Kind::Pptx).unwrap();
+        assert_eq!(texts(&doc), vec![
+            ("slide 1".into(), "two\n\nNotes: second part notes".into()),
+            ("slide 2".into(), "one".into()),
+        ]);
     }
 
     #[test]
