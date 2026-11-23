@@ -271,6 +271,21 @@ fn identity(plan: &ArmsPlan, exam: &Exam, m: &Manifest) -> Result<String> {
     Ok(format!("{:x}", hash.finalize()))
 }
 
+fn prepare_identity(plan: &ArmsPlan, exam: &Exam, m: &Manifest) -> Result<String> {
+    let identity = identity(plan, exam, m)?;
+    drive::validate_resume(&drive::read_records(&plan.out)?, Some(&identity))?;
+    let marker = plan.work.join("run-identity");
+    if plan.work.exists() && std::fs::read_dir(&plan.work)?.next().is_some() {
+        ensure!(
+            std::fs::read_to_string(&marker).ok().as_deref() == Some(identity.as_str()),
+            "snapshot identity is missing or differs; use a new work directory"
+        );
+    }
+    std::fs::create_dir_all(&plan.work)?;
+    std::fs::write(&marker, &identity)?;
+    Ok(identity)
+}
+
 /// The command: prepare, then each run on fresh daemons; see the module's
 /// note.
 pub fn run(
@@ -295,17 +310,7 @@ pub fn run(
             .map(|id| exam.item(id).with_context(|| format!("no item {id}")))
             .collect::<Result<_>>()?
     };
-    let identity = identity(plan, exam, m)?;
-    drive::validate_resume(&drive::read_records(&plan.out)?, Some(&identity))?;
-    let marker = plan.work.join("run-identity");
-    if plan.work.exists() && std::fs::read_dir(&plan.work)?.next().is_some() {
-        ensure!(
-            std::fs::read_to_string(&marker).ok().as_deref() == Some(identity.as_str()),
-            "snapshot identity is missing or differs; use a new work directory"
-        );
-    }
-    std::fs::create_dir_all(&plan.work)?;
-    std::fs::write(&marker, &identity)?;
+    let identity = prepare_identity(plan, exam, m)?;
     let notes = drive::oracle_notes(&plan.store, m, &items)?;
     let daemons = daemons_for(&plan.arms);
     std::fs::create_dir_all(&plan.work)?;
