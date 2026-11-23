@@ -373,7 +373,7 @@ async fn three_failures_in_a_row_inform_once() {
     let p = posts(&l.core);
     assert_eq!(p.len(), 1, "{p:?}");
     assert!(
-        p[0].1.contains("keeps failing") && p[0].1.contains("Is a directory"),
+        p[0].1.contains("keeps failing") && p[0].1.contains("requires a regular file"),
         "{}",
         p[0].1
     );
