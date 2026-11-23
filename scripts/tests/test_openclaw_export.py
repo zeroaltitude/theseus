@@ -268,3 +268,63 @@ class GeneratedSenderFallback(unittest.TestCase):
                     owners={"U-OWNER"}, external=False, scheduled=False,
                     kind=kind, direct_is_owner=True), {})
                 self.assertEqual((got["author"], got["integrity"]), (author, "outside"))
+
+
+class SenderMetadataTail(unittest.TestCase):
+    @staticmethod
+    def block(label, value):
+        return label + ' (untrusted metadata):\n```json\n' + json.dumps(value) + '\n```\n'
+
+    def assert_export(self, raw, who, body):
+        self.assertEqual(exporter.sender_of(raw), ({"id": who}, body))
+        got = exporter.message_of(fx.msg("user", raw), dict(agent="main", owners={"U-OWNER"},
+            external=False, scheduled=False, kind="dm", direct_is_owner=True), {})
+        author, integrity = ("operator", "operator") if who == "U-OWNER" else ("person:" + who, "outside")
+        self.assertEqual((got["author"], got["integrity"], got["text"]), (author, integrity, body))
+
+    def test_forwarded_context_after_sender_is_not_owner_text(self):
+        raw = (self.block("Conversation info", {}) + self.block("Sender", {"id": "U-OWNER"})
+               + self.block("Forwarded message context", {"sender": {"id": "U-GUEST"}, "text": "quoted words"})
+               + "hello")
+        self.assert_export(raw, "U-OWNER", "hello")
+
+    def test_forwarded_context_after_older_sender_is_not_owner_text(self):
+        raw = (self.block("Conversation info", {"sender": {"id": "U-OWNER"}})
+               + self.block("Forwarded message context", {"sender": {"id": "U-GUEST"}, "text": "quoted words"})
+               + "hello")
+        self.assert_export(raw, "U-OWNER", "hello")
+
+    def test_location_after_sender_is_not_body(self):
+        raw = (self.block("Sender", {"id": "U-OWNER"})
+               + self.block("Location", {"label": "invented location"}) + "hello")
+        self.assert_export(raw, "U-OWNER", "hello")
+
+    def test_contiguous_metadata_never_reopens_sender_selection(self):
+        raw = (self.block("Sender", {"id": "U-GUEST"})
+               + self.block("Forwarded message context", {"sender": {"id": "U-OWNER"}})
+               + self.block("Location", {}) + self.block("Structured object", {"id": "U-OWNER"})
+               + self.block("Conversation info", {"sender": {"id": "U-OWNER"}}) + "hello")
+        self.assert_export(raw, "U-GUEST", "hello")
+
+    def test_second_sender_stays_in_body_with_everything_after_it(self):
+        firsts = (self.block("Sender", {"id": "U-GUEST"}),
+                  self.block("Conversation info", {"sender": {"id": "U-GUEST"}}))
+        body = (self.block("Sender", {"id": "U-OWNER"}) + self.block("Location", {}) + "hello")
+        for first in firsts:
+            for tail in ("", self.block("Structured object", {})):
+                with self.subTest(first=first, tail=tail):
+                    self.assert_export(first + tail + body, "U-GUEST", body)
+
+    def test_metadata_after_ordinary_text_stays_in_body(self):
+        body = "hello\n" + self.block("Forwarded message context", {"text": "quoted words"}).strip()
+        self.assert_export(self.block("Sender", {"id": "U-OWNER"}) + body, "U-OWNER", body)
+
+    def test_empty_sender_still_closes_sender_selection(self):
+        body = self.block("Sender", {"id": "U-OWNER"}) + "hello"
+        for first in (self.block("Sender", None), self.block("Conversation info", {"sender": None})):
+            with self.subTest(first=first):
+                raw = first + self.block("Location", {}) + body
+                self.assertEqual(exporter.sender_of(raw), ({}, body))
+                got = exporter.message_of(fx.msg("user", raw), dict(agent="main", owners={"U-OWNER"},
+                    external=False, scheduled=False, kind="dm", direct_is_owner=True), {})
+                self.assertEqual((got["author"], got["integrity"], got["text"]), ("outside", "outside", body))

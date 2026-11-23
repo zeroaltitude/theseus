@@ -212,27 +212,31 @@ def sender_of(text):
     """Read only the leading envelope; a body block cannot replace its sender."""
     text, stripped_header = GENERATED_HEADER.subn("", text, count=1)
     sender, end = {}, 0
+    sender_closed = False
     while True:
         start = end + len(text[end:]) - len(text[end:].lstrip())
         m = META_BLOCK.match(text, start)
         if m is None:
             break
         is_sender = text[m.start():].startswith("Sender")
-        # A timestamp alone does not establish that a following block is metadata.
-        if is_sender and stripped_header and end == 0:
+        # A second sender is body; a timestamp alone cannot authenticate a sender.
+        if is_sender and (sender_closed or (stripped_header and end == 0)):
             break
+        end = m.end()
+        # Keep stripping contiguous metadata, without letting it choose another sender.
+        if sender_closed:
+            continue
         try:
             v = json.loads(m.group(1))
         except ValueError:
             v = None
-        end = m.end()
         if is_sender:
             sender = v if isinstance(v, dict) else {}
-            break
+            sender_closed = True
         if text[m.start():].startswith("Conversation info") and isinstance(v, dict) and "sender" in v:
-            # Older envelopes put the sender here; everything following is body.
+            # Older envelopes also close sender selection, but not metadata stripping.
             sender = v["sender"] if isinstance(v["sender"], dict) else {}
-            break
+            sender_closed = True
     return sender, text[end:].strip()
 
 
