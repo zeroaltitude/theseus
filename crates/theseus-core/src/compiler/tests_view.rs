@@ -262,6 +262,35 @@ fn the_window_clears_on_its_own_numbers_and_the_clearing_holds() {
     );
 }
 
+/// Two calls of one exchange with ONE id (a provider that numbers its calls per response), both results kept
+/// spoken (issue 44): each receipt names its own call, never the first one's.
+#[test]
+fn each_receipt_names_its_own_call_when_two_calls_share_an_id() {
+    let read_as = |path: &str| json!({"type": "tool_use", "id": "call_0", "name": "fs_read", "input": {"path": path}});
+    let window = vec![
+        Node::user("s", Some("t0"), "cli", "ask t0"),
+        said("t0", vec![read_as("first.rs")]),
+        result("t0", "call_0", "one"),
+        said("t0", vec![read_as("second.rs")]),
+        result("t0", "call_0", "two"),
+        said("t0", vec![json!({"type": "text", "text": "answer t0"})]),
+    ];
+    let f0 = frozen("t1", &window);
+    let spoken = std::collections::HashSet::from([window[2].id.clone(), window[4].id.clone()]);
+    let mut f = f0.clone();
+    f.window = view::receipted(f0.window, &spoken);
+    let first = run(&f, &[Node::user("s", Some("t1"), "cli", "now")], None);
+    let all = serde_json::to_string(&first.request.messages).unwrap();
+    assert!(
+        all.contains("[Result cleared to save context: fs_read first.rs"),
+        "{all}"
+    );
+    assert!(
+        all.contains("[Result cleared to save context: fs_read second.rs"),
+        "the second call's receipt names the second call: {all}"
+    );
+}
+
 /// A window exchange kept spoken that ended in a result with no answer: its receipt is made once from the
 /// window alone, so the turn's own first answer never becomes its "after it you wrote", and the second call
 /// of the turn sends the receipt byte for byte as the first did.

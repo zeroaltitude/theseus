@@ -104,8 +104,8 @@ pub(super) struct State {
 
 /// What every node of a render reads besides itself.
 pub(super) struct Ctx<'a, 'n> {
-    /// Each call's result, by the call: the assistant node that makes it and its id ([`results_of`]).
-    pub results: &'a HashMap<(&'n str, &'n str), &'n Node>,
+    /// Each call's result, by proven identity ([`super::pairing`]).
+    pub results: &'a super::pairing::Pairing<'n>,
     /// The answers a later call replaced.
     pub replaced: &'a HashSet<&'n str>,
     pub strip_prefix_thinking: bool,
@@ -119,103 +119,15 @@ pub(super) struct Ctx<'a, 'n> {
     pub offers: &'a Offers,
 }
 
-/// Each call's result among `nodes`, by the CALL: the assistant node that makes it, and its id (issue 44).
-///
-/// A result answers a call of its own exchange (the same `turn_id`): the earliest call with its id that stands
-/// before it and is not yet answered. Ids a provider repeats (one that numbers its calls per response) then
-/// pair in order, between two responses of one turn and between two exchanges laid in one request, and a
-/// result is never placed twice. When every call with its id in its exchange is already answered, it is the
-/// latest one's answer again (a call answered twice keeps its last result, as before). A result whose own
-/// exchange holds no call with its id was written by a turn that continues another (a call resumed after its
-/// approval: `turn::resume_step::continued_turns`, "the turn that made each call its own results answer"). It
-/// answers the unanswered call with its id OF THE TURN IT CONTINUES: the turn of its session's gate record
-/// of the call (the `ToolCall` with its correlation, else the first with its id, as `continued_turns` reads
-/// it). Where that record is not among `nodes`, it answers the latest unanswered call with its id standing
-/// before it IN ITS OWN SESSION. Never a call of another session: a request lays many sessions' exchanges, and
-/// another session's parked call with the same id must not read as having run. A result that finds no call
-/// is not laid, as an unpaired result never was. A call no result answers is closed with the harness's stub
-/// ([`repaired`]), never with another call's output: a call parked on an approval never reads as having run.
-/// Late results are not paired here.
-pub(super) fn results_of<'n>(
-    nodes: impl Iterator<Item = &'n Node>,
-) -> HashMap<(&'n str, &'n str), &'n Node> {
-    let mut results = HashMap::new();
-    // The calls seen so far with each id, in order: the assistant node, its exchange and its session.
-    let mut calls: HashMap<&'n str, Vec<Call<'n>>> = HashMap::new();
-    // The gate's record of each call, by session and id, in order: its exchange and its correlation.
-    let mut gated: Gated<'n> = HashMap::new();
-    let mut answered: HashSet<(&'n str, &'n str)> = HashSet::new();
-    for n in nodes {
-        match &n.body {
-            Body::AssistantMessage { blocks, .. } => {
-                for id in (blocks.iter())
-                    .filter(|b| b["type"] == "tool_use")
-                    .filter_map(|b| b["id"].as_str())
-                {
-                    (calls.entry(id).or_default()).push((
-                        n.id.as_str(),
-                        n.turn_id.as_deref(),
-                        n.session_id.as_str(),
-                    ));
-                }
-            }
-            Body::ToolCall {
-                tool_use_id,
-                correlation_id,
-                ..
-            } => (gated
-                .entry((n.session_id.as_str(), tool_use_id.as_str()))
-                .or_default())
-            .push((n.turn_id.as_deref(), correlation_id.as_deref())),
-            Body::ToolResult {
-                tool_use_id,
-                late: false,
-                correlation_id,
-                ..
-            } => {
-                let id = tool_use_id.as_str();
-                let Some(before) = calls.get(id) else {
-                    continue;
-                };
-                let open = |c: &&Call<'n>| !answered.contains(&(c.0, id));
-                let own: Vec<&Call<'n>> = (before.iter())
-                    .filter(|c| c.1 == n.turn_id.as_deref())
-                    .collect();
-                let call = match own.iter().copied().find(open) {
-                    Some(c) => Some(c),
-                    None if !own.is_empty() => own.last().copied(),
-                    None => {
-                        let mine = || before.iter().filter(|c| c.2 == n.session_id.as_str());
-                        let record = gated.get(&(n.session_id.as_str(), id)).and_then(|g| {
-                            (g.iter())
-                                .find(|r| r.1.is_some() && r.1 == correlation_id.as_deref())
-                                .or_else(|| g.first())
-                        });
-                        match record {
-                            Some((Some(turn), _)) => {
-                                mine().filter(|c| c.1 == Some(*turn)).find(open)
-                            }
-                            _ => mine().rev().find(open),
-                        }
-                    }
-                };
-                if let Some(&(node, _, _)) = call {
-                    answered.insert((node, id));
-                    results.insert((node, id), n);
-                }
-            }
-            _ => {}
-        }
-    }
-    results
-}
-
-/// A call as [`results_of`] reads it: the assistant node that makes it, its exchange, its session.
-type Call<'n> = (&'n str, Option<&'n str>, &'n str);
-
-/// The gate's records of the calls as [`results_of`] reads them: by session and id, each call's exchange and
-/// correlation, in order.
-type Gated<'n> = HashMap<(&'n str, &'n str), Vec<(Option<&'n str>, Option<&'n str>)>>;
+/// What a render reads beside its nodes: recall's sources, the results cleared, what the request's tools
+/// offer, and the gate's call records (`ToolCall` nodes, which render nothing) that prove which call each
+/// result answers ([`super::pairing`]).
+pub type Around<'a> = (
+    &'a crate::recall::render::Sources,
+    &'a HashSet<&'a str>,
+    &'a Offers,
+    &'a [&'a Node],
+);
 
 /// Nodes → provider messages. Tool results are placed in one user message
 /// right after the assistant message whose `tool_use` blocks they answer,
@@ -233,10 +145,11 @@ pub fn render_messages(
     provider: &str,
     media: &Media,
     retrying: Option<&str>,
-    (sources, cleared, offers): (&crate::recall::render::Sources, &HashSet<&str>, &Offers),
+    (sources, cleared, offers, records): Around<'_>,
 ) -> Messages {
     let all = || prefix.iter().chain(tail.iter()).copied();
-    let results = results_of(all());
+    // The gate's call records render nothing, but they are what proves which call a result answers.
+    let results = super::pairing::pairing(all().chain(records.iter().copied()));
     let replaced = replaced_answers(all(), retrying);
     let notes = clearing::notes(all(), cleared, &replaced);
     let ctx = Ctx {
@@ -310,28 +223,31 @@ impl State {
                 self.efforts.extend(effort.map(|e| (out.len(), e)));
                 push(out, "assistant", bl);
                 if !uses.is_empty() {
-                    let rb: Vec<Value> = uses
-                        .iter()
-                        .map(|u| match ctx.results.get(&(n.id.as_str(), u.id.as_str())) {
-                            // An old result cleared to save context (theseus-3ki0).
-                            // A view's receipt is already that stub, and is laid as it is.
-                            Some(r)
-                                if ctx.cleared.contains(r.id.as_str())
-                                    && !super::view::is_receipt(r) =>
-                            {
-                                clearing::block(
-                                    &u.name,
-                                    &u.input,
-                                    r,
-                                    ctx.notes.get(r.id.as_str()).map(String::as_str),
-                                )
-                            }
-                            Some(r) => tool_result_block(r, media, &mut self.spend),
-                            None => {
-                                self.repairs.push(u.id.clone());
-                                repaired(&u.id)
-                            }
-                        })
+                    // Two uses with one id in one response are two calls, each answered by its own result.
+                    let places = super::pairing::places(uses.iter().map(|u| u.id.as_str()));
+                    let rb: Vec<Value> = (uses.iter().zip(places))
+                        .map(
+                            |(u, (id, k))| match ctx.results.result((n.id.as_str(), id, k)) {
+                                // An old result cleared to save context (theseus-3ki0).
+                                // A view's receipt is already that stub, and is laid as it is.
+                                Some(r)
+                                    if ctx.cleared.contains(r.id.as_str())
+                                        && !super::view::is_receipt(r) =>
+                                {
+                                    clearing::block(
+                                        &u.name,
+                                        &u.input,
+                                        r,
+                                        ctx.notes.get(r.id.as_str()).map(String::as_str),
+                                    )
+                                }
+                                Some(r) => tool_result_block(r, media, &mut self.spend),
+                                None => {
+                                    self.repairs.push(u.id.clone());
+                                    repaired(&u.id)
+                                }
+                            },
+                        )
                         .collect();
                     push(out, "user", rb);
                 }
