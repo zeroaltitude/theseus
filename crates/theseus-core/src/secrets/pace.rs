@@ -285,6 +285,95 @@ mod tests {
         );
     }
 
+    /// A zone with both clock changes, as Denver has them in 2026: UTC-7, and
+    /// UTC-6 from 2026-03-08 02:00 local (09:00 UTC) to 2026-11-01 02:00 local
+    /// (08:00 UTC).
+    fn denver(ms: u64) -> i64 {
+        let (on, off) = (utc(2026, 3, 8, 9), utc(2026, 11, 1, 8));
+        if (on..off).contains(&ms) {
+            -6 * 3600
+        } else {
+            -7 * 3600
+        }
+    }
+
+    /// `y-m-d h:00` UTC, in Unix milliseconds.
+    fn utc(y: i64, m: u32, d: u32, h: u64) -> u64 {
+        crate::wake::days_from_civil(y, m, d) as u64 * 86_400_000 + h * 3_600_000
+    }
+
+    /// Round 2: the next midnight is tomorrow's date at 00:00 local, across a
+    /// spring-forward and a fall-back day, and the first instant of a day whose
+    /// midnight the zone skips.
+    #[test]
+    fn the_next_civil_midnight_is_tomorrows_date_at_its_start() {
+        // 2026-03-07 22:00 MST: 2026-03-08 00:00 MST.
+        assert_eq!(next_civil_midnight(utc(2026, 3, 8, 5), &denver), utc(2026, 3, 8, 7));
+        // 2026-03-08 12:00 MDT, the day the clock sprang: 2026-03-09 00:00 MDT.
+        assert_eq!(next_civil_midnight(utc(2026, 3, 8, 18), &denver), utc(2026, 3, 9, 6));
+        // 2026-10-31 20:00 MDT: 2026-11-01 00:00 MDT.
+        assert_eq!(next_civil_midnight(utc(2026, 11, 1, 2), &denver), utc(2026, 11, 1, 6));
+        // 2026-11-01 12:00 MST, the day the clock fell back: 2026-11-02 00:00 MST.
+        assert_eq!(next_civil_midnight(utc(2026, 11, 1, 19), &denver), utc(2026, 11, 2, 7));
+        // A zone that skips 2026-03-08's midnight (00:00 MST becomes 01:00 MDT):
+        // that day begins at 07:00 UTC.
+        let skips = |ms: u64| if ms >= utc(2026, 3, 8, 7) { -6 * 3600 } else { -7 * 3600 };
+        assert_eq!(next_civil_midnight(utc(2026, 3, 8, 5), &skips), utc(2026, 3, 8, 7));
+    }
+
+    /// A clock a test sets, in UTC.
+    struct Set(std::sync::atomic::AtomicU64);
+
+    impl Clock for Set {
+        fn now_ms(&self) -> u64 {
+            self.0.load(std::sync::atomic::Ordering::SeqCst)
+        }
+        fn sleep(&self, _: Duration) -> BoxFuture<'static, ()> {
+            Box::pin(std::future::ready(()))
+        }
+        fn offset_secs(&self, _: u64) -> i64 {
+            0
+        }
+    }
+
+    /// Round 2: a date that goes back (the clock stepped back over a midnight)
+    /// does not reset the day's tally, and its return does not either.
+    #[test]
+    fn a_backward_date_does_not_reset_the_days_tally() {
+        let clock = Arc::new(Set(std::sync::atomic::AtomicU64::new(utc(2026, 11, 23, 0) + 60_000)));
+        let reads = VaultReads::new(clock.clone());
+        reads.note(1);
+        clock.0.store(utc(2026, 11, 22, 23), std::sync::atomic::Ordering::SeqCst);
+        reads.note(1);
+        assert_eq!(reads.today(), (2, 2), "the earlier date counts into the later day");
+        clock.0.store(utc(2026, 11, 23, 1), std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(reads.today(), (2, 2), "and the return resets nothing");
+        clock.0.store(utc(2026, 11, 24, 1), std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(reads.today(), (0, 0), "a later day starts afresh");
+    }
+
+    /// Round 2: a reset's number is multiplied with saturation before the
+    /// clamp, and the refusal's words are fixed: its class and its wait.
+    #[test]
+    fn a_huge_reset_saturates_and_the_refusals_words_are_fixed() {
+        let r = Refused::of("too many requests; try again in 99999999999999999999 hours")
+            .expect("a rate limit");
+        assert_eq!(r.wait(), Duration::from_secs(86_400));
+        let r = Refused::of("too many requests; try again in 9999999999999999 hours").unwrap();
+        assert_eq!(r.wait(), Duration::from_secs(86_400));
+        assert_eq!(
+            Refused::RateLimited(Some(Duration::from_secs(600))).said(),
+            "the vault refused the read: its rate limit; it is asked again in 10 min"
+        );
+        assert_eq!(
+            Refused::Token.said(),
+            "the vault refused the token; it is asked again in 1 h"
+        );
+        assert_eq!(worst_case(0), 0);
+        assert_eq!(worst_case(1), 1);
+        assert_eq!(worst_case(3), 6);
+    }
+
     #[test]
     fn a_wait_climbs_the_ladder_and_stays_on_its_last_rung() {
         let pace = Pace {

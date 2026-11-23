@@ -12,8 +12,9 @@ use super::*;
 
 /// The fake `op`: `ok` answers every read and injection; `missing` refuses
 /// every reference as an item that is not there; `limited` says the vault's
-/// rate limit; `some` fails an injection and the read of `gone`, and answers
-/// every other read.
+/// rate limit, naming an item and a vault in its words; `limited2h` says it
+/// with a reset two hours away; `some` fails an injection and the read of
+/// `gone`, and answers every other read.
 const FAKE_OP: &str = r#"#!/bin/sh
 D="$(dirname "$0")"
 printf '%s\n' "$1" >> "$D/runs"
@@ -24,7 +25,8 @@ case "$(cat "$D/mode")" in
       inject) awk '/^\{\{ .* \}\}$/ { n++; printf "made-up-inject-%d\n\n", n; next } { print }' ;;
     esac ;;
   missing) echo "[ERROR] 2026/11/22 12:00:00 \"gone\" isn't an item in the \"V\" vault" >&2; exit 1 ;;
-  limited) echo "[ERROR] 2026/11/22 12:00:00 Too many requests" >&2; exit 1 ;;
+  limited) echo "[ERROR] 2026/11/22 12:00:00 Too many requests reading \"made-up-item-words\" in \"made-up-vault-words\"" >&2; exit 1 ;;
+  limited2h) echo "[ERROR] 2026/11/22 12:00:00 Too many requests. Retry after 2 hours" >&2; exit 1 ;;
   some)
     if [ "$1" = inject ]; then echo "[ERROR] 2026/11/22 12:00:00 \"gone\" isn't an item in the \"V\" vault" >&2; exit 1; fi
     case "$3" in
@@ -71,7 +73,13 @@ struct Virtual {
 impl Virtual {
     /// From an hour after a local midnight, for `secs` and a second more.
     fn span(secs: u64) -> Arc<Self> {
-        let start = crate::learning::local_midnight(theseus_protocol::now_unix_ms()) + 3_600_000;
+        Self::at(3600, secs)
+    }
+
+    /// From `after` seconds after a local midnight, for `secs` and a second
+    /// more.
+    fn at(after: u64, secs: u64) -> Arc<Self> {
+        let start = crate::learning::local_midnight(theseus_protocol::now_unix_ms()) + after * 1000;
         Arc::new(Self {
             now: AtomicU64::new(start),
             end: start + secs * 1000 + 1000,
@@ -241,7 +249,10 @@ async fn the_vaults_rate_limit_reads_no_entry_alone_and_waits_an_hour() {
     assert_eq!(runs(dir.path()), ["inject"; 4]);
     assert_eq!(reads.today(), (4, 8));
     for f in &b.status().failed {
-        assert!(f.error.contains("Too many requests"), "{f:?}");
+        assert_eq!(
+            f.error,
+            "the vault refused the read: its rate limit; it is asked again in 1 h"
+        );
     }
 }
 
@@ -272,4 +283,110 @@ async fn past_the_days_ceiling_the_retries_stop() {
         why.ends_with("after midnight, or when Theseus is next started"),
         "{why}"
     );
+}
+
+/// Round 2: the day's ceiling is kept before every round, for the round's
+/// worst case: three failing entries are one injection and three reads (six
+/// entries), so at a ceiling of 7 the second round, which could read six
+/// more, never starts. Health says why.
+#[tokio::test]
+async fn a_batch_never_crosses_the_days_ceiling() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = Virtual::span(20 * 3600);
+    let reads = VaultReads::new(clock.clone());
+    let op = fake_op(dir.path(), "missing", reads.clone());
+    let refs = refs(&[
+        ("a", "op://V/a/f"),
+        ("b", "op://V/b/f"),
+        ("c", "op://V/c/f"),
+    ]);
+    let b = board(&refs, reads.clone());
+    run_until_the_end(&b, refs, op, &clock, 7).await;
+    assert_eq!(runs(dir.path()), ["inject", "read", "read", "read"]);
+    assert_eq!(reads.today(), (4, 6), "never past 7");
+    let why = b.status().vault_today.unwrap().stopped.expect("stopped");
+    assert!(
+        why.contains("the next round could read 6 more, past the day's 7"),
+        "{why}"
+    );
+}
+
+/// Round 2: a refusal and the day's boundary are two deadlines, and the later
+/// wins. A two-hour refusal at 23:00 with the day's ceiling reached waits its
+/// two hours: no round at midnight, one at 01:00 on the new day.
+#[tokio::test]
+async fn a_refusal_spanning_midnight_waits_out_the_refusal() {
+    for (secs, want) in [(90 * 60, 1), (150 * 60, 2)] {
+        let dir = tempfile::tempdir().unwrap();
+        let clock = Virtual::at(23 * 3600, secs);
+        let reads = VaultReads::new(clock.clone());
+        let op = fake_op(dir.path(), "limited2h", reads.clone());
+        let refs = refs(&[("gone", "op://V/gone/f")]);
+        let b = board(&refs, reads.clone());
+        run_until_the_end(&b, refs, op, &clock, 1).await;
+        assert_eq!(runs(dir.path()).len(), want, "{secs} s after 23:00");
+    }
+}
+
+/// A log of everything the rounds write while it is held, as text.
+#[derive(Clone)]
+struct Sink(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for Sink {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(b);
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Sink {
+    type Writer = Sink;
+    fn make_writer(&'a self) -> Sink {
+        self.clone()
+    }
+}
+
+/// Round 2: on the refusal path the log and health carry the fixed sentence
+/// and the reset, never `op`'s own words: the fake's stderr names an item and
+/// a vault, and neither is anywhere, for an injection or a single read.
+#[tokio::test]
+async fn the_refusal_path_says_fixed_words_and_none_of_ops() {
+    let buf = Arc::new(Mutex::new(Vec::new()));
+    let sub = tracing_subscriber::fmt()
+        .with_writer(Sink(buf.clone()))
+        .with_max_level(tracing::Level::TRACE)
+        .finish();
+    let _guard = tracing::subscriber::set_default(sub);
+    for pairs in [
+        &[("a", "op://V/a/f"), ("b", "op://V/b/f")][..],
+        &[("a", "op://V/a/f")][..],
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let clock = Virtual::span(60);
+        let reads = VaultReads::new(clock.clone());
+        let op = fake_op(dir.path(), "limited", reads.clone());
+        let refs = refs(pairs);
+        let b = board(&refs, reads);
+        run_until_the_end(&b, refs, op, &clock, u32::MAX).await;
+        assert_eq!(runs(dir.path()).len(), 1, "{pairs:?}");
+        let health = serde_json::to_string(&b.status()).unwrap();
+        assert!(health.contains("its rate limit; it is asked again in 1 h"), "{health}");
+        for words in ["made-up-item-words", "made-up-vault-words"] {
+            assert!(!health.contains(words), "{health}");
+        }
+    }
+    let log = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+    assert!(log.contains("the vault's rate limit"), "{log}");
+    for words in ["made-up-item-words", "made-up-vault-words", "Too many requests"] {
+        assert!(!log.contains(words), "{log}");
+    }
+}
+
+/// Round 2: the refresh verb is out of this change, and its method with it.
+#[test]
+fn no_method_refreshes_the_vaults_entries() {
+    assert!(!theseus_protocol::method::ALL.contains(&"secrets.refresh"));
 }
