@@ -201,33 +201,38 @@ def block_text(content):
     return "\n".join(parts), other
 
 
+GENERATED_LABEL = re.compile(r"\(untrusted[ ,]|^Untrusted context \(metadata|⟦openclaw:ctx⟧", re.M)
 GENERATED_HEADER = re.compile(
-    r"^\s*\[(?:[A-Za-z]{3} \d{4}-\d{2}-\d{2} \d{2}:\d{2}[^\]]*|"
-    r"(?:WebChat|Slack|Discord|Telegram|Signal|WhatsApp|iMessage|IRC|Matrix|Teams)\b[^\]]*|"
-    r"[^\]\n]*\d{4}-\d{2}-\d{2}[^\]\n]*)\][ \t]*"
+    r"^\s*\[(?:[^\]\n]*\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2}|T\d{2}:\d{2}Z)[^\]\n]*|"
+    r"(?:WebChat|Slack|Discord|Telegram|Signal|WhatsApp|iMessage|IRC|Matrix|Teams|Google Chat|Zalo) [^\]\n]*)\][ \t]*"
 )
 
 
 def sender_of(text):
     """Read only the leading envelope; a body block cannot replace its sender."""
-    text = GENERATED_HEADER.sub("", text, count=1)
-    sender, end, seen_sender = {}, 0, False
+    text, stripped_header = GENERATED_HEADER.subn("", text, count=1)
+    sender, end = {}, 0
     while True:
         start = end + len(text[end:]) - len(text[end:].lstrip())
         m = META_BLOCK.match(text, start)
         if m is None:
             break
-        if text[m.start():].startswith("Sender"):
-            if seen_sender:
-                break
-            seen_sender = True
-            try:
-                v = json.loads(m.group(1))
-                if isinstance(v, dict):
-                    sender = v
-            except ValueError:
-                pass
+        is_sender = text[m.start():].startswith("Sender")
+        # A timestamp alone does not establish that a following block is metadata.
+        if is_sender and stripped_header and end == 0:
+            break
+        try:
+            v = json.loads(m.group(1))
+        except ValueError:
+            v = None
         end = m.end()
+        if is_sender:
+            sender = v if isinstance(v, dict) else {}
+            break
+        if text[m.start():].startswith("Conversation info") and isinstance(v, dict) and "sender" in v:
+            # Older envelopes put the sender here; everything following is body.
+            sender = v["sender"] if isinstance(v["sender"], dict) else {}
+            break
     return sender, text[end:].strip()
 
 
@@ -288,7 +293,7 @@ def message_of(event, ctx, counts):
         return {"author": "schedule", "integrity": "operator", "text": text}
     if owner:
         return {"author": "operator", "integrity": "operator", "text": text}
-    if not sender and "(untrusted metadata):" not in raw and ctx["kind"] in ("cli", "dm") and ctx["direct_is_owner"]:
+    if not sender and not GENERATED_LABEL.search(raw) and ctx["kind"] in ("cli", "dm") and ctx["direct_is_owner"]:
         # The CLI and the main session carry no envelope: the owner at their keyboard.
         return {"author": "operator", "integrity": "operator", "text": text}
     if name:
