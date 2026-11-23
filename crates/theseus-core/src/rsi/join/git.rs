@@ -107,7 +107,8 @@ fn make_way(p: &Place, t: &Tree) -> Result<()> {
             t.dir.display()
         );
     }
-    tree::close(p, t).with_context(|| {
+    // The claim on the path is this open's, held through the replacement: the predecessor's close does not end it.
+    tree::close_predecessor(p, t).with_context(|| {
         format!(
             "{} is the loop's tree from an earlier start, and it would not close: it is left as it is",
             t.dir.display()

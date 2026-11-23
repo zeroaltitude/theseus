@@ -1499,17 +1499,23 @@ pub(crate) fn open_dir_nofollow(
 
 /// Remove the tree and its build tree; the branch stays in the repo.
 pub fn close(p: &Place, tree: &Tree) -> Result<()> {
-    close_with(p, tree, true)
+    close_with(p, tree, true, true)
+}
+
+/// Close the tree a previous start of the loop left at the path an open is replacing (`join::git::detached`): as
+/// [`close`] does, except that the claim on the path stays, since it is the replacing open's (issue 41, round 4).
+pub(crate) fn close_predecessor(p: &Place, tree: &Tree) -> Result<()> {
+    close_with(p, tree, true, false)
 }
 
 /// Remove the tree alone, leaving its build tree where it is: what an
 /// install's tree needs (`join::install`), whose L0 half still reads
 /// `release/` out of the build tree after the tree itself is gone.
 pub fn close_keeping_target(p: &Place, tree: &Tree) -> Result<()> {
-    close_with(p, tree, false)
+    close_with(p, tree, false, true)
 }
 
-fn close_with(p: &Place, tree: &Tree, target_too: bool) -> Result<()> {
+fn close_with(p: &Place, tree: &Tree, target_too: bool, end_claim: bool) -> Result<()> {
     if let Some(busy) = super::tree_lease::held(&[&tree.dir, &tree.target]) {
         bail!(
             "a gate is still running in {}, so its tree stays until the gate ends",
@@ -1529,7 +1535,9 @@ fn close_with(p: &Place, tree: &Tree, target_too: bool) -> Result<()> {
     // The loop's mark of a tree it opened (`join::guard`), gone with the tree, and this daemon no longer has it
     // open; an item's tree has neither.
     let _ = std::fs::remove_file(p.opened().join(&tree.slug));
-    super::join::guard::closed_here(&tree.dir);
+    if end_claim {
+        super::join::guard::closed_here(&tree.dir);
+    }
     if target_too && tree.target.starts_with(p.targets()) && tree.target.exists() {
         remove_all(&tree.target)?;
     }

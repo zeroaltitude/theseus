@@ -8,8 +8,10 @@
 //!   is the install's commit (the install worked: this daemon is its restart), with a row that says it did not
 //!   finish otherwise. A unit systemd cannot be asked about keeps it. Nothing clears it on a timer;
 //! - **not known**: until the start's discovery (an install unit of this state directory still running, its exact
-//!   script argument, named by a join of this loop) has once succeeded. A failed or timed-out query keeps it not
-//!   known, and it is asked again, backed off, in the background: no turn waits on it;
+//!   script argument, named by a join of this loop) has once succeeded. Succeeded means all of it: `list-units` and
+//!   each `show` exited 0 (their exit status is kept apart from what they print), no more than [`MOST_UNITS`] units
+//!   ran, and the loop's joins were read (not an index still being built). Anything less keeps it not known, and it
+//!   is asked again, backed off, in the background, [`TRIES`] times, then at the next start: no turn waits on it;
 //! - **quiet**: none of the above.
 
 use std::path::Path;
@@ -91,7 +93,7 @@ fn program() -> std::ffi::OsString {
 }
 
 /// `systemctl --user <args>`'s output, or why there is none (it could not start, failed, or took longer than [`ASK`]).
-fn systemctl(args: &[&str]) -> Result<String, String> {
+fn systemctl(args: &[&str]) -> Result<Answer, String> {
     let mut c = Command::new(program());
     c.arg("--user")
         .args(args)
@@ -125,7 +127,26 @@ fn systemctl(args: &[&str]) -> Result<String, String> {
     let text = String::from_utf8_lossy(&reader.join().unwrap_or_default())
         .trim()
         .to_string();
-    status.map(|_| text)
+    status
+        .map(|s| (s.success(), text))
+        .map(|(ok, text)| Answer { ok, text })
+}
+
+/// What `systemctl` said: whether it succeeded, and what it printed. `is-active` prints a state whatever its exit
+/// status; `list-units` and `show` count only when they succeed.
+struct Answer {
+    ok: bool,
+    text: String,
+}
+
+impl Answer {
+    /// Its text, when it succeeded; else why not.
+    fn succeeded(self, what: &str) -> Result<String, String> {
+        match self.ok {
+            true => Ok(self.text),
+            false => Err(format!("systemctl {what} failed")),
+        }
+    }
 }
 
 /// The tokens of `ExecStart` as `systemctl show -p ExecStart --value` prints them: each `argv[]=` list.
@@ -141,6 +162,7 @@ impl Units for Systemd {
         // `is-active` prints the state whatever its exit code; an empty answer is no answer.
         systemctl(&["is-active", unit])
             .ok()
+            .map(|a| a.text)
             .filter(|s| !s.is_empty())
     }
 
@@ -152,18 +174,27 @@ impl Units for Systemd {
             "--no-legend",
             "--state=active,activating,deactivating",
             &pattern,
-        ])?;
-        let mut out = Vec::new();
-        for unit in list
+        ])?
+        .succeeded("list-units")?;
+        let units: Vec<String> = list
             .lines()
             .filter_map(|l| l.split_whitespace().next())
             .map(|u| u.trim_end_matches(".service").to_string())
             .filter(|u| u.starts_with(UNIT_PREFIX))
-            .take(MOST_UNITS)
-        {
+            .collect();
+        // The bound stays; past it the unit not looked at could be this loop's, so the answer is incomplete.
+        if units.len() > MOST_UNITS {
+            return Err(format!(
+                "{} install units run, more than the {MOST_UNITS} looked at: not all could be looked at",
+                units.len()
+            ));
+        }
+        let mut out = Vec::new();
+        for unit in units {
             let short = unit.trim_start_matches(UNIT_PREFIX);
             let script = root.join(format!("install-{short}.sh"));
-            let exec = systemctl(&["show", "-p", "ExecStart", "--value", &unit])?;
+            let exec =
+                systemctl(&["show", "-p", "ExecStart", "--value", &unit])?.succeeded("show")?;
             if argv_of(&exec).iter().any(|a| Path::new(a) == script) {
                 out.push(unit);
             }
@@ -286,8 +317,7 @@ impl Core {
                     .into(),
             ),
             Some(Err(why)) => InstallState::NotKnown(format!(
-                "whether an install of this loop still runs is not known yet: systemd could not be asked ({why}), \
-                 and it is asked again"
+                "whether an install of this loop still runs is not known yet: {why}"
             )),
         }
     }
@@ -352,14 +382,31 @@ impl Core {
             Ok(u) => u,
             Err(why) => {
                 tracing::info!(%why, "self: whether an install still runs is not known yet: asked again later");
-                set(Err(why));
+                set(Err(format!(
+                    "systemd could not be asked ({why}); it is asked again"
+                )));
                 return false;
             }
         };
-        let joined = crate::rsi::join::rows_of(&self.store, &["self.joined"])
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+        // The joins must be read to tell this loop's unit from a stranger's: an index still being built, or a ledger
+        // that cannot be read, leaves discovery not done.
+        let joined = match crate::rsi::join::rows_of(&self.store, &["self.joined"]) {
+            Ok(Some(rows)) => rows,
+            Ok(None) => {
+                set(Err(
+                    "the ledger's index is still being built, so the loop's joins cannot be read yet; it is asked \
+                     again"
+                        .into(),
+                ));
+                return false;
+            }
+            Err(e) => {
+                set(Err(format!(
+                    "the loop's joins could not be read ({e:#}); it is asked again"
+                )));
+                return false;
+            }
+        };
         for unit in units {
             let short = unit.trim_start_matches(UNIT_PREFIX).to_string();
             let Some(row) = joined.iter().rev().find(|r| {
@@ -410,6 +457,21 @@ impl Core {
                 }
                 tokio::time::sleep(wait).await;
                 wait = (wait * 2).min(LAST_WAIT);
+            }
+            // The tries are spent: say what is true now.
+            let Some(c) = core.upgrade() else { return };
+            let mut d = c
+                .rsi
+                .pipeline
+                .discovered
+                .0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if let Some(Err(why)) = d.as_mut() {
+                *why = format!(
+                    "{}; after {TRIES} tries it is asked again only at the next start",
+                    why.trim_end_matches("; it is asked again")
+                );
             }
         });
     }
