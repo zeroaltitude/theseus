@@ -152,6 +152,13 @@ class BehaviourBug(unittest.TestCase):
             (wt / "textkit/words.py").write_text(fixture.git(b.repo, "show", f"{b.base}:textkit/words.py"))
             self.assertNotEqual(fixture.run(b.gap.suite, wt)[0], 0)
 
+    def test_an_old_rounding_failure_cannot_prove_an_unrelated_new_test(self):
+        b = Branch(self, "open-rounding")
+        weak = "import unittest\nclass Unrelated(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n"
+        r = b.judge(b.commit({"money/rounding.py": ROUNDING_FIX, "tests/test_unrelated.py": weak}))
+        self.assertTrue(r["verified"], r)
+        self.assertFalse(r["proved"], r)
+
     def test_a_fix_with_no_test_proves_nothing(self):
         b = Branch(self, "open-wordcount")
         words = (b.repo / "textkit/words.py").read_text()

@@ -12,6 +12,7 @@ Standard library only.
 
 from __future__ import annotations
 
+import ast
 import fnmatch
 import re
 import shutil
@@ -217,8 +218,30 @@ def prove(gap: Gap, repo: Path, base: str, head: str, wt: Path, tests: list[str]
             else:
                 (wt / path).parent.mkdir(parents=True, exist_ok=True)
                 (wt / path).write_text(git(repo, "show", f"{base}:{path}"))
-    rc, _ = run(gap.suite, wt)
-    return rc != 0, ("" if rc != 0 else "the suite still passes with the fix planted out")
+    # Only a changed assertion-bearing test can earn proof, not an old
+    # symptom elsewhere in the suite, a timeout, or an import failure.
+    def methods(text: str) -> dict[str, str]:
+        tree = ast.parse(text)
+        return {f"{cls.name}.{fn.name}": ast.dump(fn, include_attributes=False)
+                for cls in tree.body if isinstance(cls, ast.ClassDef)
+                for fn in cls.body if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and fn.name.startswith("test")}
+
+    for path in tests:
+        if not path.endswith(".py") or not (wt / path).is_file():
+            continue
+        try:
+            old = methods(git(repo, "show", f"{base}:{path}", check=False))
+            new = methods((wt / path).read_text())
+        except (SyntaxError, OSError):
+            continue
+        changed_methods = {name for name, body in new.items() if old.get(name) != body}
+        rc, output = unittest_file(wt, wt / path)
+        failed = re.findall(r"^FAIL: \S+ \(([^)]+)\)", output, re.MULTILINE)
+        if rc == 1 and "ERROR:" not in output and any(
+                any(name.endswith("." + method) for name in failed) for method in changed_methods):
+            return True, ""
+    return False, "the suite still passes with the fix planted out"
 
 
 # The notes `judge_branch` can write, fixed words: the only free text a sealed gap's score may keep.
