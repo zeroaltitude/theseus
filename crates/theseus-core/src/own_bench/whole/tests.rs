@@ -634,16 +634,7 @@ async fn a_judged_match_becomes_a_machine_label_once() {
     assert_eq!(l[0].data["label"], "haiku");
     assert_eq!(l[0].data["weight"], crate::learning::REPLAY_WEIGHT);
     assert_eq!(l[0].data["pack"], "route.v11");
-    let mut stubbed = r.clone();
-    stubbed.whole.as_mut().unwrap().calls.push(theseus_protocol::own_bench::WholeCall {
-        tool: "wake.at".into(), how: "stub".into(), exit: None, why: None,
-    });
-    w.rig.core.label_whole(&p, &p.profile, &mut stubbed);
-    assert!(stubbed.whole.unwrap().label.unwrap().contains("stubbed evidence"));
-    let mut contradicted = r.clone();
-    contradicted.whole.as_mut().unwrap().caveats.push(super::compare::EXIT_CONTRADICTION.into());
-    w.rig.core.label_whole(&p, &p.profile, &mut contradicted);
-    assert!(contradicted.whole.unwrap().label.unwrap().contains("matched command"));
+    assert_unlabelable_evidence(&w, &p, &r);
     // The same turn again writes no second label.
     same(&w);
     let again = w.rig.core.turn_replay(p, "cli").await.unwrap();
@@ -671,6 +662,42 @@ async fn a_judged_match_becomes_a_machine_label_once() {
         (2, 2, 2)
     );
     *TEST_PROGRAMS.lock().unwrap() = None;
+}
+
+fn assert_unlabelable_evidence(w: &World, p: &TurnReplayParams, r: &TurnReplayResult) {
+    let mut stubbed = r.clone();
+    stubbed
+        .whole
+        .as_mut()
+        .unwrap()
+        .calls
+        .push(theseus_protocol::own_bench::WholeCall {
+            tool: "wake.at".into(),
+            how: "stub".into(),
+            exit: None,
+            why: None,
+        });
+    w.rig.core.label_whole(p, &p.profile, &mut stubbed);
+    assert!(stubbed
+        .whole
+        .unwrap()
+        .label
+        .unwrap()
+        .contains("stubbed evidence"));
+    let mut contradicted = r.clone();
+    contradicted
+        .whole
+        .as_mut()
+        .unwrap()
+        .caveats
+        .push(super::compare::EXIT_CONTRADICTION.into());
+    w.rig.core.label_whole(p, &p.profile, &mut contradicted);
+    assert!(contradicted
+        .whole
+        .unwrap()
+        .label
+        .unwrap()
+        .contains("matched command"));
 }
 
 /// No label when the words say weaker, when the tests differ, or when the

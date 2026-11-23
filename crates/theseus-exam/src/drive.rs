@@ -248,8 +248,10 @@ pub use crate::rng::Rng;
 /// Historical results remain readable, but cannot prove a new run's identity.
 pub fn validate_resume(records: &[Record], identity: Option<&str>) -> Result<()> {
     for r in records {
-        anyhow::ensure!(identity.is_some() && r.identity.as_deref() == identity,
-            "resume identity is missing or differs; use a new results file");
+        anyhow::ensure!(
+            identity.is_some() && r.identity.as_deref() == identity,
+            "resume identity is missing or differs; use a new results file"
+        );
     }
     Ok(())
 }

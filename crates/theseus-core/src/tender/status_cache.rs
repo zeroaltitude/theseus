@@ -67,9 +67,13 @@ pub(super) struct Cache {
 }
 
 impl Cache {
+    // Only tests carry a pinned clock; production always uses the runtime clock.
+    #[cfg_attr(not(test), allow(clippy::unused_self))]
     fn now(&self) -> Instant {
         #[cfg(test)]
-        if let Some(now) = self.clock { return now; }
+        if let Some(now) = self.clock {
+            return now;
+        }
         Instant::now()
     }
 }

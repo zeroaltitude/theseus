@@ -124,7 +124,7 @@ impl JudgeService {
         let (verdict, p, same_or_better) =
             read(&j).ok_or_else(|| "Jev's answer held no verdict".to_string())?;
         Ok(Compared {
-            judgment: j.id.clone(),
+            judgment: j.id,
             mode: match mode {
                 theseus_judge::Mode::Live => "live",
                 _ => "shadow",

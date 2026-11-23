@@ -369,10 +369,6 @@ class Overlap(unittest.TestCase):
         self.assertIsNone(l2.overlap([], {"fetch-log"}))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class CodingBehaviour(unittest.TestCase):
     def test_coding_mutants_fail_even_with_expected_words(self):
         import tempfile
@@ -396,3 +392,7 @@ class CodingBehaviour(unittest.TestCase):
                     with self.subTest(family=family, mutant=mutant):
                         (root / rel).write_text(mutant)
                         self.assertTrue(l2.coding_behaviour(family))
+
+
+if __name__ == "__main__":
+    unittest.main()

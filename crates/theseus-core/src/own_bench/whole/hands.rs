@@ -262,11 +262,17 @@ impl<'a> Hands<'a> {
 
     fn stub(&mut self, name: &str, input: &Value) -> Answer {
         self.note(name, "stub", None);
-        let at = self.recorded.iter().position(|r| r.tool == name && r.input == *input);
+        let at = self
+            .recorded
+            .iter()
+            .position(|r| r.tool == name && r.input == *input);
         match at {
             Some(i) => {
                 let r = self.recorded.remove(i);
-                Answer { text: r.content, is_error: !r.ok }
+                Answer {
+                    text: r.content,
+                    is_error: !r.ok,
+                }
             }
             None => Answer {
                 text: format!("Not run: {name} has no matching recorded input; nothing was done."),

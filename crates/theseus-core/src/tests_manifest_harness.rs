@@ -48,9 +48,7 @@ async fn the_manifest_records_the_sessions_thread_and_project() {
         .collect();
     assert_eq!(
         named,
-        [
-            ("project", "project:tsk_harborsurvey", Origin::Transport)
-        ],
+        [("project", "project:tsk_harborsurvey", Origin::Transport)],
         "{named:?}"
     );
     assert!(manifest.memberships.iter().all(|m| m.confidence.is_none()));

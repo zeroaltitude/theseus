@@ -110,11 +110,11 @@ async fn a_tender_that_does_not_answer_gives_its_last_status_marked_stale() {
         ),
         "{why}"
     );
-        assert_eq!(
-            asked.load(Ordering::SeqCst),
-            reads,
-            "the cached failure answers"
-        );
+    assert_eq!(
+        asked.load(Ordering::SeqCst),
+        reads,
+        "the cached failure answers"
+    );
     t.advance_status_clock(every);
     let h = t.health(HEALTH_DEADLINE).await;
     assert!(

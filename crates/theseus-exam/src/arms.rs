@@ -256,8 +256,14 @@ fn identity(plan: &ArmsPlan, exam: &Exam, m: &Manifest) -> Result<String> {
         std::fs::read(std::env::current_exe()?)?,
         serde_json::to_vec(&plan.base_config)?,
         serde_json::to_vec(m)?,
-        serde_json::to_vec(&(exam.digest.as_str(), &plan.profile, &plan.items,
-            plan.seed, plan.timeout, &plan.env))?,
+        serde_json::to_vec(&(
+            exam.digest.as_str(),
+            &plan.profile,
+            &plan.items,
+            plan.seed,
+            plan.timeout,
+            &plan.env,
+        ))?,
     ] {
         hash.update((bytes.len() as u64).to_le_bytes());
         hash.update(bytes);
@@ -293,8 +299,10 @@ pub fn run(
     drive::validate_resume(&drive::read_records(&plan.out)?, Some(&identity))?;
     let marker = plan.work.join("run-identity");
     if plan.work.exists() && std::fs::read_dir(&plan.work)?.next().is_some() {
-        ensure!(std::fs::read_to_string(&marker).ok().as_deref() == Some(identity.as_str()),
-            "snapshot identity is missing or differs; use a new work directory");
+        ensure!(
+            std::fs::read_to_string(&marker).ok().as_deref() == Some(identity.as_str()),
+            "snapshot identity is missing or differs; use a new work directory"
+        );
     }
     std::fs::create_dir_all(&plan.work)?;
     std::fs::write(&marker, &identity)?;
@@ -380,7 +388,8 @@ fn left_in_run(plan: &Plan, exam: &Exam) -> Result<usize> {
     let items: Vec<&Item> = plan.items.iter().filter_map(|id| exam.item(id)).collect();
     let records = drive::read_records(&plan.out)?;
     drive::validate_resume(&records, plan.identity.as_deref())?;
-    let done: BTreeSet<(String, String, u32)> = records.into_iter()
+    let done: BTreeSet<(String, String, u32)> = records
+        .into_iter()
         .filter(|r| r.pass.is_some() && r.digest == exam.digest)
         .map(|r| (r.item, r.arm, r.run))
         .collect();
@@ -403,12 +412,31 @@ mod tests {
         let binary = d.path().join("daemon");
         std::fs::write(&binary, b"build one").unwrap();
         let exam = Exam::parse(crate::item::EXAM_V2).unwrap();
-        let mut m = Manifest { exam: exam.file.version.clone(), digest: exam.digest.clone(),
-            utc_offset_min: 0, sessions: vec![], nodes: BTreeMap::new(), last_position: 0 };
-        let mut p = ArmsPlan { theseusd: binary.clone(), base_config: toml::Table::new(),
-            store: d.path().join("store"), work: d.path().join("work"), arms: vec![Arm::None],
-            runs: 1, items: vec![], limit_usd: 1.0, workers: 1, profile: "test".into(), seed: 0,
-            timeout: Duration::from_secs(1), out: d.path().join("results"), settle: Duration::from_secs(1), env: vec![] };
+        let mut m = Manifest {
+            exam: exam.file.version.clone(),
+            digest: exam.digest.clone(),
+            utc_offset_min: 0,
+            sessions: vec![],
+            nodes: BTreeMap::new(),
+            last_position: 0,
+        };
+        let mut p = ArmsPlan {
+            theseusd: binary.clone(),
+            base_config: toml::Table::new(),
+            store: d.path().join("store"),
+            work: d.path().join("work"),
+            arms: vec![Arm::None],
+            runs: 1,
+            items: vec![],
+            limit_usd: 1.0,
+            workers: 1,
+            profile: "test".into(),
+            seed: 0,
+            timeout: Duration::from_secs(1),
+            out: d.path().join("results"),
+            settle: Duration::from_secs(1),
+            env: vec![],
+        };
         let first = identity(&p, &exam, &m).unwrap();
         assert_eq!(first, identity(&p, &exam, &m).unwrap());
         std::fs::write(&binary, b"build two").unwrap();
@@ -417,7 +445,8 @@ mod tests {
         p.profile = "other".into();
         assert_ne!(first, identity(&p, &exam, &m).unwrap());
         p.profile = "test".into();
-        p.base_config.insert("setting".into(), toml::Value::Boolean(true));
+        p.base_config
+            .insert("setting".into(), toml::Value::Boolean(true));
         assert_ne!(first, identity(&p, &exam, &m).unwrap());
         p.base_config.clear();
         m.last_position = 1;

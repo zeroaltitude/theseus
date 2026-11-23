@@ -385,19 +385,41 @@ async fn comparison_respects_allowance_and_retains_failed_charges() {
     let r = rig_compare_only(&jev);
     let input = || CompareInput {
         request: "compare".into(),
-        a: CompareReply { text: "a".into(), calls: vec![] },
-        b: CompareReply { text: "b".into(), calls: vec![] },
+        a: CompareReply {
+            text: "a".into(),
+            calls: vec![],
+        },
+        b: CompareReply {
+            text: "b".into(),
+            calls: vec![],
+        },
     };
     let mut charged = 99;
-    let denied = r.core.runner.judge.compare_replies("s", "t", input(), Some(0), &mut charged).await;
+    let denied = r
+        .core
+        .runner
+        .judge
+        .compare_replies("s", "t", input(), Some(0), &mut charged)
+        .await;
     assert!(denied.unwrap_err().contains("replay allowance"));
     assert_eq!(charged, 0);
     assert!(jev.seen().is_empty(), "refused before dispatch");
-    let good = r.core.runner.judge.compare_replies("s", "t", input(), Some(1_000_000), &mut charged).await.unwrap();
+    let good = r
+        .core
+        .runner
+        .judge
+        .compare_replies("s", "t", input(), Some(1_000_000), &mut charged)
+        .await
+        .unwrap();
     assert!(charged > 0);
     assert_eq!(theseus_kernel::usd_to_micros(good.cost_usd), charged);
     jev.set_mode(theseus_judge::fake::FakeMode::Malformed);
-    let bad = r.core.runner.judge.compare_replies("s", "t", input(), Some(1_000_000), &mut charged).await;
+    let bad = r
+        .core
+        .runner
+        .judge
+        .compare_replies("s", "t", input(), Some(1_000_000), &mut charged)
+        .await;
     assert!(bad.is_err());
     assert!(charged > 0, "failed paid comparison must remain charged");
 }
@@ -416,7 +438,10 @@ async fn sampled_failed_comparison_is_charged_in_the_replay_day() {
     assert_eq!(rows.len(), 1);
     let judge = rows[0].data["judge_usd"].as_f64().unwrap();
     let replay = rows[0].data["replay_usd"].as_f64().unwrap();
-    assert!(judge > 0.0, "charged failed judgment must reach the day ledger");
+    assert!(
+        judge > 0.0,
+        "charged failed judgment must reach the day ledger"
+    );
     assert!((sampled.spent_usd - judge - replay).abs() < 0.000_002);
     let report = r.core.route_report_now(true, now()).unwrap();
     assert!((report.replay_today_usd - sampled.spent_usd).abs() < 0.000_002);
@@ -428,24 +453,48 @@ async fn replay_that_spends_its_allowance_does_not_dispatch_comparison() {
     let r = rig_compare_only(&jev);
     script(&r, &["original"]);
     let (session, turn) = asked(&r).await;
-    let p = TurnReplayParams { session: session.clone(), turn: turn.clone(), profile: "haiku".into(),
-        effort: None, scope: None, compare: Some(true) };
+    let p = TurnReplayParams {
+        session: session.clone(),
+        turn: turn.clone(),
+        profile: "haiku".into(),
+        effort: None,
+        scope: None,
+        compare: Some(true),
+    };
     let original = r.core.rebuild_first(&session, &turn).unwrap();
     let (live, _) = r.core.live_profile();
-    let target = r.core.runner.resolve_target(&live, Some("haiku"), None, None).unwrap();
+    let target = r
+        .core
+        .runner
+        .resolve_target(&live, Some("haiku"), None, None)
+        .unwrap();
     let request = r.core.replay_request(&p, &original, &target, target.effort);
     let price = r.core.runner.catalog.get(&request.model).unwrap();
     let estimate = crate::compiler::estimate(&request, price.bytes_per_token, None);
     let need = r.core.audit_reserve(&request).unwrap();
-    r.model.script.lock().unwrap().push_back(crate::provider::Scripted::Billed {
-        usage: theseus_protocol::Usage { input_tokens: estimate.tokens,
-            output_tokens: request.max_tokens as u64, ..Default::default() },
-        then: Box::new(crate::provider::Scripted::text("replayed")),
-    });
+    r.model
+        .script
+        .lock()
+        .unwrap()
+        .push_back(crate::provider::Scripted::Billed {
+            usage: theseus_protocol::Usage {
+                input_tokens: estimate.tokens,
+                output_tokens: request.max_tokens as u64,
+                ..Default::default()
+            },
+            then: Box::new(crate::provider::Scripted::text("replayed")),
+        });
     let mut spent = 0;
-    let done = r.core.replay_turn(&p, super::BY_SAMPLER, Some(need), &mut spent).await.unwrap();
+    let done = r
+        .core
+        .replay_turn(&p, super::BY_SAMPLER, Some(need), &mut spent)
+        .await
+        .unwrap();
     assert_eq!(spent, need);
     assert!(done.result.unjudged.unwrap().contains("replay allowance"));
-    assert!(jev.seen().is_empty(), "no comparison may dispatch after exhausting the allowance");
+    assert!(
+        jev.seen().is_empty(),
+        "no comparison may dispatch after exhausting the allowance"
+    );
     assert_eq!(theseus_kernel::usd_to_micros(done.result.cost_usd), need);
 }
