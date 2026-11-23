@@ -292,9 +292,7 @@ async fn poll_once(
             return Some(0);
         }
     };
-    let Some(c) = core.upgrade() else {
-        return None;
-    };
+    let c = core.upgrade()?;
     let received = msgs.len();
     for (receipt, body) in sorted(msgs) {
         take(&c, aws, &acct, (region, url), &receipt, &body).await;
