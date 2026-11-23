@@ -209,7 +209,13 @@ mod tests {
 
     fn known() -> BTreeSet<String> {
         [
-            "files", "commands", "web", "reminders", "tasks", "aws", "other",
+            "files",
+            "commands",
+            "web",
+            "reminders",
+            "tasks",
+            "aws",
+            "other",
         ]
         .iter()
         .map(|s| s.to_string())
