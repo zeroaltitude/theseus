@@ -151,7 +151,7 @@ fn render(lens: &Lens<'_>, ex: &Exchange, nodes: &[Node]) -> String {
     let by_id: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.as_str(), n)).collect();
     let mut parts = forms::spoken(&nodes);
     for p in &mut parts {
-        if matches!(p.voice, Voice::Person | Voice::Theseus) {
+        if matches!(p.voice, Voice::Person | Voice::Harness | Voice::Theseus) {
             p.text = margined(&p.text);
         }
     }

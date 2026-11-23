@@ -1171,3 +1171,62 @@ async fn a_self_principal_tasks_census_has_its_live_turns_scope() {
         assert_eq!(census.pov().anchor, live.pov().anchor, "{sid}: one place");
     }
 }
+
+/// The harness's own line in a finished exchange is headed as the harness's, never as a person's words
+/// (`content::harness_own`): a second session's request at the same place lays the first turn's clock line
+/// under the harness's heading, and under no person's.
+#[tokio::test]
+async fn a_finished_exchanges_clock_line_is_headed_as_the_harnesss_and_no_persons() {
+    use crate::tests_view_hand_backs::unmarked;
+    const CLOCK: &str = "[The harness: 14 minutes left of this turn's 15.]";
+    let r = rig_with(|_| {});
+    let c = &r.core;
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: the heron is grey", true).await;
+    let turn = (c.store.session_nodes(&desk).unwrap().into_iter())
+        .find_map(|(_, n)| n.turn_id)
+        .expect("the desk's turn");
+    let line = crate::node::Node::relayed(
+        &desk,
+        Some(&turn),
+        crate::node::Origin::Harness,
+        crate::turn::clock_step::CLOCK_AUTHOR,
+        CLOCK,
+    );
+    c.store.append(&[line.record().unwrap()]).unwrap();
+    let other = crate::tests_places::session(c, None);
+    unmarked(c, &other, "other: what was said here?")
+        .await
+        .unwrap();
+    let sent = texts(
+        &asked(&r, "other: what was said here")
+            .pop()
+            .expect("its request"),
+    );
+    assert!(
+        sent.contains("the heron is grey"),
+        "the first turn is laid: {sent}"
+    );
+    assert!(
+        sent.contains(&format!("harness: {CLOCK}")),
+        "as the harness's: {sent}"
+    );
+    assert!(
+        sent.contains("the harness's own line, "),
+        "under its heading: {sent}"
+    );
+    assert!(
+        !sent.contains(&format!("person: {CLOCK}")),
+        "no person's: {sent}"
+    );
+    let before = &sent[..sent.find(CLOCK).unwrap()];
+    let heading = before
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or_default();
+    assert!(
+        !heading.contains("author unknown"),
+        "not headed as a person of unknown authorship: {heading}"
+    );
+}

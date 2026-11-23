@@ -821,7 +821,10 @@ fn labelled(
     let author = |s: &forms::Said| author_of(store, &s.node);
     let marked = parts::mark_parts(&forms::whole(&whole), &author, &seen, zone);
     let relabel: HashMap<&str, &parts::MarkedPart> = (marked.iter())
-        .filter(|m| m.label != Label::Here && matches!(m.voice, Voice::Person | Voice::Result))
+        .filter(|m| {
+            m.label != Label::Here
+                && matches!(m.voice, Voice::Person | Voice::Harness | Voice::Result)
+        })
         .map(|m| (m.node.as_str(), m))
         .collect();
     if relabel.is_empty() {
