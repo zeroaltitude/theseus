@@ -272,14 +272,19 @@ async fn a_stored_account_links_the_opening_message_whose_words_were_not_read() 
     r.core
         .store
         .append(&[
-            ask.erased(theseus_protocol::now_unix_ms(), "a test").record().unwrap(),
+            ask.erased(theseus_protocol::now_unix_ms(), "a test")
+                .record()
+                .unwrap(),
             crate::ladder::did::did_record(&d).unwrap(),
         ])
         .unwrap();
     let other = session(&r.core, Some("channel:lab"));
     let (copy, text) = read_in(&r.core, &other, json!({ "place": said.place })).await;
     assert!(text.contains(account), "the account is on the page: {text}");
-    assert!(!text.contains(SAID), "the message's own excerpt is not: {text}");
+    assert!(
+        !text.contains(SAID),
+        "the message's own excerpt is not: {text}"
+    );
     finds(&reach(&r.core, &said.node), &copy, &other);
     finds(&reach(&r.core, &said.reply), &copy, &other);
 }
@@ -291,12 +296,17 @@ async fn a_fitted_line_and_the_page_before_it_link_what_they_show() {
     let r = rig();
     let said = say(&r.core).await;
     turn(&r.core, &said.session, "LONG, please").await;
-    let long = (r.core.store.session_nodes(&said.session).unwrap().into_iter())
-        .map(|(_, n)| n)
-        .filter(|n| matches!(&n.body, Body::AssistantMessage { .. }))
-        .last()
-        .expect("the long reply")
-        .id;
+    let long = (r
+        .core
+        .store
+        .session_nodes(&said.session)
+        .unwrap()
+        .into_iter())
+    .map(|(_, n)| n)
+    .filter(|n| matches!(&n.body, Body::AssistantMessage { .. }))
+    .last()
+    .expect("the long reply")
+    .id;
     let other = session(&r.core, None);
     let (first, text) = read_in(&r.core, &other, json!({ "open": said.session })).await;
     assert!(text.contains("[cut here"), "one long reply, fitted: {text}");
@@ -320,7 +330,10 @@ async fn a_search_page_and_a_span_page_link_their_lines() {
     r.core
         .runner
         .memory
-        .set_ask(crate::tests_memory_lookup::index_over(&r.core, vec![said.session.clone()]));
+        .set_ask(crate::tests_memory_lookup::index_over(
+            &r.core,
+            vec![said.session.clone()],
+        ));
     let other = session(&r.core, Some("channel:lab"));
     let args = json!({ "place": said.place, "words": WORD });
     let (found, text) = read_in(&r.core, &other, args).await;
@@ -343,7 +356,10 @@ async fn an_outside_result_keeps_its_mark_and_links_its_source() {
         &guest,
         ("turn_guest_1", now),
         ("discord:channel:9", "discord:7"),
-        ("does the zircon heron nest here?", "It nests by the north weir."),
+        (
+            "does the zircon heron nest here?",
+            "It nests by the north weir.",
+        ),
     );
     let ask = (r.core.store.session_nodes(&guest).unwrap().into_iter())
         .map(|(_, n)| n)
@@ -355,7 +371,13 @@ async fn an_outside_result_keeps_its_mark_and_links_its_source() {
     assert!(text.contains(WORD), "{text}");
     let (_, node) = r.core.store.get_node(&copy).unwrap().unwrap();
     assert!(
-        matches!(&node.body, Body::ToolResult { external: Some(_), .. }),
+        matches!(
+            &node.body,
+            Body::ToolResult {
+                external: Some(_),
+                ..
+            }
+        ),
         "the result is marked outside text: {node:?}"
     );
     finds(&reach(&r.core, &ask), &copy, &other);

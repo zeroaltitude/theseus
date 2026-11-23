@@ -23,49 +23,60 @@ pub(super) fn who(origin: Origin, author: Option<&str>) -> &'static str {
     }
 }
 
-pub(super) fn history(core: &Core, session: &str, messages: usize) -> String {
+/// The part's words, and the messages they show (what its result copies, `copies`).
+pub(super) fn history(core: &Core, session: &str, messages: usize) -> (String, Vec<String>) {
     let nodes = match core.store.session_nodes(session) {
         Ok(n) => n,
-        Err(_) => return "Messages: they could not be read just now.\n".into(),
+        Err(_) => {
+            return (
+                "Messages: they could not be read just now.\n".into(),
+                Vec::new(),
+            )
+        }
     };
-    let mut lines: Vec<String> = nodes
+    let mut lines: Vec<(String, String)> = nodes
         .iter()
-        .filter_map(|(_, n)| match &n.body {
-            Body::UserMessage { text, .. } if !text.trim().is_empty() => Some(format!(
-                "{}: {}",
-                who(n.origin, n.author.as_deref()),
-                clip(text, LINE_CHARS)
-            )),
-            Body::AssistantMessage { blocks, model, .. } => {
-                let text: String = blocks.iter().filter_map(|b| b["text"].as_str()).collect();
-                (!text.trim().is_empty())
-                    .then(|| format!("Theseus ({model}): {}", clip(&text, LINE_CHARS)))
-            }
-            // Another profile's answer, a message of its own (`profile.ask`).
-            Body::ToolResult { meta, .. } => {
-                theseus_protocol::SubagentAnswer::from_meta(meta).map(|a| {
-                    format!(
-                        "{} (a subagent, {}): {}",
-                        a.profile,
-                        a.model,
-                        clip(&a.text, LINE_CHARS)
-                    )
-                })
-            }
-            _ => None,
+        .filter_map(|(_, n)| {
+            let line = match &n.body {
+                Body::UserMessage { text, .. } if !text.trim().is_empty() => Some(format!(
+                    "{}: {}",
+                    who(n.origin, n.author.as_deref()),
+                    clip(text, LINE_CHARS)
+                )),
+                Body::AssistantMessage { blocks, model, .. } => {
+                    let text: String = blocks.iter().filter_map(|b| b["text"].as_str()).collect();
+                    (!text.trim().is_empty())
+                        .then(|| format!("Theseus ({model}): {}", clip(&text, LINE_CHARS)))
+                }
+                // Another profile's answer, a message of its own (`profile.ask`).
+                Body::ToolResult { meta, .. } => theseus_protocol::SubagentAnswer::from_meta(meta)
+                    .map(|a| {
+                        format!(
+                            "{} (a subagent, {}): {}",
+                            a.profile,
+                            a.model,
+                            clip(&a.text, LINE_CHARS)
+                        )
+                    }),
+                _ => None,
+            };
+            line.map(|l| (l, n.id.clone()))
         })
         .collect();
     let total = lines.len();
     let kept = lines.split_off(total.saturating_sub(messages));
     if kept.is_empty() {
-        return "Messages: this conversation has none yet.\n".into();
+        return (
+            "Messages: this conversation has none yet.\n".into(),
+            Vec::new(),
+        );
     }
     let mut out = format!(
         "The last {} of this conversation's {total} messages:\n",
         kept.len()
     );
-    for l in &kept {
+    for (l, _) in &kept {
         let _ = writeln!(out, "- {l}");
     }
-    out
+    (out, kept.into_iter().map(|(_, id)| id).collect())
 }

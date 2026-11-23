@@ -46,7 +46,6 @@ use theseus_tools::{
 
 use crate::config::memory::MemoryArm;
 use crate::exchange::{self, Exchange, Opener};
-use crate::graph::{Edge, EdgeKind, VIA_HISTORY};
 use crate::recall::when::When;
 use crate::view::history::{
     HistoryArgs, HistoryPage, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES,
@@ -217,42 +216,23 @@ pub(crate) struct OpenedAny {
     pub sources: Vec<String>,
 }
 
-/// Where a result's copies ride from [`answer`] to its completion's frame: its meta's key (written as
-/// `"copies"` there), taken out there ([`copied`]) and never stored.
-const COPIES: &str = "copies";
-
-/// The nodes `tool`'s result copies the words of, taken out of its `meta`: only the history tool's, so no other
-/// tool's meta can write an edge.
-pub(crate) fn copied(tool: &str, meta: &mut Value) -> Vec<String> {
-    if tool != HISTORY_TOOL {
-        return Vec::new();
-    }
-    let ids = meta.as_object_mut().and_then(|m| m.remove(COPIES));
-    serde_json::from_value(ids.unwrap_or_default()).unwrap_or_default()
-}
-
-/// The result `node`'s edges (P0's rule 3): it copies each of `sources`, so `node.reach` of any of them
-/// finds it, and a retraction reaches it, as a glide's borrowed node was found from each message it took.
-pub(crate) fn edges(
-    node: &str,
-    sources: &[String],
-) -> anyhow::Result<Vec<theseus_store::NewRecord>> {
-    let mut seen = HashSet::new();
-    (sources.iter())
-        .filter(|s| seen.insert(s.as_str()))
-        .map(|s| Edge::new(EdgeKind::DerivedFrom, node, s, VIA_HISTORY).record())
-        .collect()
-}
-
-/// The nodes a page's lines show the words of: each line's message when its words are on it, and its reply
-/// when its beginning or its stored account is.
+/// The nodes a page's lines show the words of (`copies`): each line's message when its words are on it, and
+/// its reply when its beginning is; a stored account (`did`) is written from both (`ladder::did::material`), so
+/// a line that shows one links both, whatever the page could read of the message itself (D6 round 5). An
+/// exchange that cannot be read again fails the call: no words go out whose sources are unknown.
 fn page_sources(core: &Core, p: &HistoryPage) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
     for l in &p.lines {
+        let gone = || {
+            format!(
+                "what the page shows could not be read again: {}",
+                l.handle.0
+            )
+        };
         let ex = exchange::exchange(&core.store, &l.handle.0)
-            .map_err(|e| format!("what the page shows could not be read: {e:#}"))?;
-        let Some(ex) = ex else { continue };
-        if !l.his_words.is_empty() {
+            .map_err(|e| format!("{}: {e:#}", gone()))?
+            .ok_or_else(gone)?;
+        if !l.his_words.is_empty() || l.did.is_some() {
             out.extend(ex.ask);
         }
         if l.did.is_some() || l.reply_begins.is_some() {
@@ -508,29 +488,33 @@ pub(crate) async fn answer(
             handle,
             opened,
             opens,
-        } => ToolOutput {
-            meta: json!({
+        } => {
+            let mut meta = json!({
                 "open": page::flat(&handle), "session": opened.session,
                 "opens": opens, "of": OPENS_PER_TURN,
                 "outside": outside_of(opened.outside, handle.trim()),
-                "copies": opened.sources,
-            }),
-            text: opened.text,
-        },
+            });
+            meta[crate::copies::KEY] = json!(opened.sources);
+            ToolOutput {
+                meta,
+                text: opened.text,
+            }
+        }
         Read::Page {
             walked,
             looks,
             resume,
         } => {
             let p = walked.page;
+            let mut meta = json!({
+                "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
+                "look": looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
+                "outside": outside_of(page::shows_another(&p), read_of(a, here)),
+            });
+            meta[crate::copies::KEY] = json!(page_sources(core, &p)?);
             ToolOutput {
                 text: page::render(&p, (here, span.as_ref()), looks, resume.as_ref()),
-                meta: json!({
-                    "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
-                    "look": looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
-                    "outside": outside_of(page::shows_another(&p), read_of(a, here)),
-                    "copies": page_sources(core, &p)?,
-                }),
+                meta,
             }
         }
     })

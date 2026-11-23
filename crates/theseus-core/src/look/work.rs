@@ -158,15 +158,16 @@ pub(super) fn schema() -> Value {
 }
 
 /// The words for each part asked for: Theseus's whole work, this conversation's first, and its own
-/// messages (`session`'s).
+/// messages (`session`'s); and the messages the history part shows (what the result copies, `copies`).
 pub(super) async fn words(
     core: &std::sync::Arc<Core>,
     who: &Caller<'_>,
     ask: &Ask,
-) -> Result<String, String> {
+) -> Result<(String, Vec<String>), String> {
     let session = who.session;
     let r = reader::Reader::new(core, session);
     let mut out = String::new();
+    let mut shown = Vec::new();
     for p in &ask.parts {
         let part = match (*p, ask.here) {
             (part, true) if WHOLE_ONLY.contains(&part) => format!(
@@ -179,7 +180,11 @@ pub(super) async fn words(
             ("projects", _) => horizon::projects(&r),
             ("routines", _) => horizon::routines(&r),
             ("coming", _) => horizon::coming(&r, ask.here),
-            _ => history::history(core, session, ask.messages),
+            _ => {
+                let (words, ids) = history::history(core, session, ask.messages);
+                shown.extend(ids);
+                words
+            }
         };
         out.push_str(&cut(part, TOTAL_CHARS));
         out.push('\n');
@@ -215,7 +220,7 @@ pub(super) async fn words(
             );
         }
     }
-    Ok(cut(out, ANSWER_CHARS))
+    Ok((cut(out, ANSWER_CHARS), shown))
 }
 
 /// Who asks: the conversation and the turn.

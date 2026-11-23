@@ -351,7 +351,12 @@ impl Board {
                     };
                     work::words(&core, &who, &ask)
                         .await
-                        .map(|said| (output(said, WORK), None, None))
+                        .map(|(said, shown)| {
+                            // The messages it shows: its result's edges to them (`copies`).
+                            let mut o = output(said, WORK);
+                            o.meta[crate::copies::KEY] = json!(shown);
+                            (o, None, None)
+                        })
                         .map_err(ToolFailure::new)
                 })
             }

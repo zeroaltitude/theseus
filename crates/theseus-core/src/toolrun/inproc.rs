@@ -206,8 +206,8 @@ impl ToolRuntime {
             (Ok((o, img, external)), None) => (ResultStatus::Ok, o.text, o.meta, img, external),
             (Err(m), None) => failure(m, failed),
         };
-        // What a history result shows the words of (P0's rule 3): its edges ride in its frame, as a glide's did.
-        let copied = crate::history_tool::copied(tool.name(), &mut meta);
+        // What a result shows the words of (P0's rule 3): its edges ride in its frame, as a glide's did.
+        let copied = crate::copies::copied(tool.name(), &mut meta);
         // An edit's diagnostics, and what arrived since for the session's
         // pending files, in a private place only (L3); none for a call a
         // cancel settled.
@@ -278,7 +278,7 @@ impl ToolRuntime {
             },
             None => {
                 let mut extra = crate::rewind::records(&pre_images)?;
-                extra.extend(crate::history_tool::edges(&node.id, &copied)?);
+                extra.extend(crate::copies::edges(&node.id, &copied)?);
                 self.complete(tc, &c, &node, extra)?
             }
         };
@@ -288,7 +288,7 @@ impl ToolRuntime {
         // transcript gets it as the call's result (theseus-0o8).
         if matches!(accepted, Accepted::LateAfterCancel { .. }) {
             let mut late = vec![node.record()?];
-            late.extend(crate::history_tool::edges(&node.id, &copied)?);
+            late.extend(crate::copies::edges(&node.id, &copied)?);
             tc.store.append(&late)?;
         }
         Self::announce_end(tc, &node);
