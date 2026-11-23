@@ -5,8 +5,8 @@
 //!
 //! - `enabled`: threads can be made and addressed (true). Off, `thread.new`
 //!   and a `turn.submit` that names a thread are refused; the records stay.
-//! - `max_live`: the most active and paused threads at once (50); a thread
-//!   made past it is refused until one is done.
+//! - `max_live` is retired (2026-11-22, `config/retired_keys.rs`): nothing
+//!   counts live threads since threads are no longer containers.
 //! - `place_digest` (true; theseus-98bz.9): when Jev's `scope` answer
 //!   (classify.v4) says a message in a thread asks across everything going on,
 //!   that turn's request gains a digest of the place's other live threads, one
@@ -57,8 +57,6 @@ pub enum PersonaEngage {
 pub struct ThreadsConfig {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
-    #[serde(default = "default_max_live")]
-    pub max_live: u32,
     #[serde(default = "default_true")]
     pub place_digest: bool,
     #[serde(default = "default_digest_line_chars")]
@@ -92,9 +90,6 @@ fn default_enabled() -> bool {
 fn default_true() -> bool {
     true
 }
-fn default_max_live() -> u32 {
-    50
-}
 fn default_digest_line_chars() -> usize {
     200
 }
@@ -106,7 +101,6 @@ impl Default for ThreadsConfig {
     fn default() -> Self {
         Self {
             enabled: default_enabled(),
-            max_live: default_max_live(),
             place_digest: true,
             place_digest_line_chars: default_digest_line_chars(),
             route_wait_ms: default_route_wait(),
@@ -148,9 +142,6 @@ impl ThreadsConfig {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.max_live == 0 {
-            bail!("threads.max_live is 0: use enabled = false to turn threads off");
-        }
         if self.place_digest_line_chars < 40 {
             bail!("threads.place_digest_line_chars is under 40: a line could not name its thread");
         }
@@ -167,13 +158,12 @@ mod tests {
     fn the_templates_threads_section_is_the_default() {
         let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
         assert_eq!(cfg.threads, ThreadsConfig::default());
-        assert!(cfg.threads.enabled && cfg.threads.max_live == 50);
+        assert!(cfg.threads.enabled);
         assert_eq!(cfg.threads.route_wait_ms, 400);
         assert!(crate::Config::EXAMPLE_TOML.contains("# [threads]\n# enabled = true"));
-        let off = crate::Config::from_toml("[threads]\nenabled = false\nmax_live = 3\n").unwrap();
-        assert!(!off.threads.enabled && off.threads.max_live == 3);
+        let off = crate::Config::from_toml("[threads]\nenabled = false\n").unwrap();
+        assert!(!off.threads.enabled);
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
-        assert!(crate::Config::parse(&format!("{secrets}\n[threads]\nmax_live = 0\n")).is_err());
         // The cold resume's sizes are retired (issue 44): any value loads, ignored and named.
         for retired in [
             "working_tokens = 10",
@@ -246,7 +236,7 @@ mod tests {
         assert_eq!(one.threads.retired(), ["threads.import_day_usd"]);
         assert!(said.iter().any(|w| w.contains("remove it")), "{said:?}");
         let (plain, quiet) =
-            crate::Config::parse(&format!("{secrets}\n[threads]\nmax_live = 3\n")).unwrap();
+            crate::Config::parse(&format!("{secrets}\n[threads]\nroute_wait_ms = 300\n")).unwrap();
         assert!(plain.threads.retired().is_empty());
         assert!(quiet.iter().all(|w| !w.contains("threads.")), "{quiet:?}");
     }
