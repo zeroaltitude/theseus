@@ -1352,9 +1352,8 @@ impl ToolRuntime {
         call: &ToolUse,
         tool: &str,
         h: &reversible::Hold,
-    ) -> Result<theseus_store::NewRecord> {
-        let mut held = holds::Holds::read(tc.store)?;
-        held.keep(theseus_protocol::work::undo::HeldCall {
+    ) -> theseus_protocol::work::undo::HeldCall {
+        theseus_protocol::work::undo::HeldCall {
             id: holds::id_of(tc.session_id, tc.turn_id, &call.id),
             session_id: tc.session_id.to_string(),
             turn_id: Some(tc.turn_id.to_string()),
@@ -1366,8 +1365,7 @@ impl ToolRuntime {
             held_ms: theseus_protocol::now_unix_ms(),
             allowed: None,
             ran_ms: None,
-        });
-        held.record()
+        }
     }
 
     /// Invalid input: the call node and its error in one frame; it never runs.
@@ -1430,10 +1428,16 @@ impl ToolRuntime {
             .as_ref()
             .map(|h| Self::held_offer(tc, call, tool, h));
         let mut frame = vec![call_node.record()?, node.record()?];
-        if let Some(r) = offer.transpose()? {
-            frame.push(r);
+        if let Some(offer) = offer {
+            holds::Holds::update(tc.store, |held| {
+                held.keep(offer);
+                frame.push(held.record()?);
+                tc.store.append(&frame)?;
+                Ok(())
+            })?;
+        } else {
+            tc.store.append(&frame)?;
         }
-        tc.store.append(&frame)?;
         tc.record(&fact::tool::InvalidInput {
             tool,
             call,

@@ -130,40 +130,41 @@ impl Core {
         taken: Taken<'_>,
     ) -> Result<HeldCall> {
         let who = who.into();
-        let mut held = Holds::read(&self.store)?;
-        let id = Self::one_hold(&held, hold)?;
-        // Judged after the hold is found, so a name that matches nothing is
-        // an error about the name and not a refusal about the place.
-        self.judge_act(
-            &who,
-            Act::UndoAllow {
-                what: &format!("Letting the held call {id} run as it was first proposed"),
-            },
-        )?;
-        let (by, via) = (who.who(), who.via());
-        let at = Allowance {
-            by: by.clone(),
-            via: via.clone(),
-            at_ms: theseus_protocol::now_unix_ms(),
-        };
-        let h = held
-            .allow(&id, at)
-            .ok_or_else(|| anyhow!("{id} is not a held call"))?
-            .clone();
-        let fact = ToolHoldAllowed {
-            hold: &h.id,
-            tool: &h.tool,
-            judgment: &h.judgment,
-            summary: &h.summary,
-            by: &by,
-            via: &via,
-            route: taken.route,
-            judged: taken.judged,
-        };
-        let rec = self.rec(Some(&h.session_id));
-        self.store.append(&[rec.row(&fact)?, held.record()?])?;
-        rec.announce(&fact);
-        Ok(h)
+        Holds::update(&self.store, |held| {
+            let id = Self::one_hold(held, hold)?;
+            // Judged after the hold is found, so a name that matches nothing is
+            // an error about the name and not a refusal about the place.
+            self.judge_act(
+                &who,
+                Act::UndoAllow {
+                    what: &format!("Letting the held call {id} run as it was first proposed"),
+                },
+            )?;
+            let (by, via) = (who.who(), who.via());
+            let at = Allowance {
+                by: by.clone(),
+                via: via.clone(),
+                at_ms: theseus_protocol::now_unix_ms(),
+            };
+            let h = held
+                .allow(&id, at)
+                .ok_or_else(|| anyhow!("{id} is not a held call"))?
+                .clone();
+            let fact = ToolHoldAllowed {
+                hold: &h.id,
+                tool: &h.tool,
+                judgment: &h.judgment,
+                summary: &h.summary,
+                by: &by,
+                via: &via,
+                route: taken.route,
+                judged: taken.judged,
+            };
+            let rec = self.rec(Some(&h.session_id));
+            self.store.append(&[rec.row(&fact)?, held.record()?])?;
+            rec.announce(&fact);
+            Ok(h)
+        })
     }
 
     /// The one hold `name` means. A name that names two is refused with both,
