@@ -1232,9 +1232,12 @@ async fn a_finished_exchanges_clock_line_is_headed_as_the_harnesss_and_no_person
 }
 
 /// X190, the install's smoke on build 190: a FRESH terminal session asks one short line at a place whose
-/// recent exchanges are a run of that same line from OTHER sessions, with recall live. The request the view
-/// compiles is printed whole (each message's role, and each block's size, head and end), and it must end with
-/// the person's message.
+/// recent exchanges are a run of that same line (three here, five at another terminal place), with recall live.
+/// The request the view compiles is printed whole (each message's role, each block's size, head and end, and
+/// the block beside the message line by line). It must end with the person's line; and the harness's block
+/// beside it must say it is context, not the person's words and not a request, and must not head itself with
+/// an agenda of topics (what is waiting, in play, said elsewhere, called), which a model read on build 190 as
+/// the thing to report instead of answering the line.
 #[tokio::test]
 async fn x190_a_fresh_terminal_line_after_a_run_of_it_elsewhere_is_what_the_request_ends_with() {
     const ASK: &str = "Reply with the single word: ok";
@@ -1320,4 +1323,18 @@ async fn x190_a_fresh_terminal_line_after_a_run_of_it_elsewhere_is_what_the_requ
         "the request's last words are the person's message, not a block of the harness's: {}",
         cut(end, 300)
     );
+    let beside = (blocks.iter().filter_map(|b| b["text"].as_str()))
+        .find(|t| t.starts_with(crate::view::wire_text::BESIDE_HEAD))
+        .expect("the block beside the message (recall laid it)");
+    let head = beside.lines().next().unwrap_or_default();
+    assert!(
+        head.contains("not the person's words") && head.contains("not a request"),
+        "the block says what it is not: {head}"
+    );
+    for agenda in ["what is waiting", "in play", "said elsewhere", "called"] {
+        assert!(
+            !head.contains(agenda),
+            "its heading names no topic to cover ({agenda}): {head}"
+        );
+    }
 }
