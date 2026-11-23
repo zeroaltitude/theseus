@@ -37,11 +37,15 @@ pub struct AgendaArgs {
 /// The views the board holds, by id, applied by the position rule.
 #[derive(Default)]
 struct Held {
+    position: u64,
+    total: u64,
     views: BTreeMap<String, WorkView>,
 }
 
 impl Held {
     fn load(&mut self, snap: WorkWatchResult) {
+        self.position = snap.position;
+        self.total = snap.total;
         self.views = snap.views.into_iter().map(|v| (v.id.clone(), v)).collect();
     }
 
@@ -120,6 +124,7 @@ pub async fn run(conn: &mut Conn, json: bool, a: AgendaArgs) -> Result<()> {
     let tty = std::io::stdout().is_terminal();
     for (m, p) in early {
         if let Some(Event::WorkChanged(c)) = Event::from_notification(&m, &p)? {
+            held.position = held.position.max(c.position);
             c.views.into_iter().for_each(|v| held.apply(v));
         }
     }
@@ -136,6 +141,7 @@ pub async fn run(conn: &mut Conn, json: bool, a: AgendaArgs) -> Result<()> {
                     held = snapshot(conn, true, &mut lost).await?.1;
                     redraw = true;
                 } else if let Some(Event::WorkChanged(c)) = Event::from_notification(&n.method, &n.params)? {
+                    held.position = held.position.max(c.position);
                     for id in &c.gone {
                         held.views.remove(id);
                     }
@@ -149,6 +155,11 @@ pub async fn run(conn: &mut Conn, json: bool, a: AgendaArgs) -> Result<()> {
             let now = now_unix_ms();
             agenda = occurrences(conn, now).await?.1;
             if json {
+                let views: Vec<_> = held.views.values().collect();
+                println!(
+                    "{}",
+                    serde_json::json!({"board": {"position": held.position, "total": held.total, "views": views}, "agenda": agenda})
+                );
                 continue;
             }
             if tty {
