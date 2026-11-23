@@ -833,3 +833,39 @@ fn recovery_cannot_overwrite_a_newer_live_event_or_resend_uncertain_input() {
         .iter()
         .any(|e| matches!(e, Effect::Call(c) if c.method == "session.history")));
 }
+
+#[test]
+fn send_now_respects_read_only_task_views_and_commands() {
+    use super::state::{Chat, Effect};
+    use super::task_view::TaskRef;
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = Chat::new(super::tests::cfg(dir.path().to_path_buf()), T0);
+    chat.session = Some(SID.into());
+    chat.open_task(
+        TaskRef {
+            id: "exe_task".into(),
+            session: TASK.into(),
+            title: TITLE.into(),
+        },
+        false,
+    );
+    chat.editor.insert_str("do this");
+    let effects = chat.send_now();
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Call(c) if c.method == "turn.submit")),
+        "read-only view sent a turn"
+    );
+    assert_eq!(chat.editor.text(), "do this");
+    chat.editor.clear();
+    chat.return_main();
+    chat.editor.insert_str("/help");
+    let effects = chat.send_now();
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Call(c) if c.method == "turn.submit")),
+        "command was sent as chat text"
+    );
+}

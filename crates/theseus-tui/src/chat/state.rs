@@ -789,13 +789,17 @@ impl Chat {
 
     /// Enter: a command runs, a message goes as one `turn.submit`.
     pub fn submit(&mut self) -> Vec<Effect> {
+        self.submit_with_policy(false)
+    }
+
+    pub(super) fn submit_with_policy(&mut self, now: bool) -> Vec<Effect> {
         if self.ask.note {
             return self.send_note();
         }
         // A message that names @files must name listed ones, or it is not sent;
         // a command line skips the `@` rule, its re-read too -- `!` is a command
         // line too (its whole rest is a shell command, never an @ file name).
-        let resolved = if matches!(
+        let mut resolved = if matches!(
             self.editor.text().trim_start().chars().next(),
             Some('/') | Some('!')
         ) {
@@ -812,6 +816,7 @@ impl Chat {
                 }
             }
         };
+        resolved.send_now = now;
         if !resolved.images.is_empty() {
             if self.view.is_some() {
                 self.flash("an image is not carried to a task · /back to the conversation");
@@ -867,6 +872,10 @@ impl Chat {
         }
         self.last_said = Some(text.clone());
         let mut effects = vec![Effect::SaveHistory(self.editor.history().to_vec())];
+        if resolved.send_now {
+            effects.extend(self.dispatch_now(taken));
+            return effects;
+        }
         if self.must_queue() {
             self.enqueue(taken);
             return effects;

@@ -45,12 +45,18 @@ impl Chat {
     /// Ctrl-Enter: the line (or the last queued message) goes first, and the
     /// turn that runs stops, so it goes now.
     pub(super) fn send_now(&mut self) -> Vec<Effect> {
-        let typed = self.editor.take();
-        if !typed.text.trim().is_empty() {
-            self.queued.insert(0, typed);
-        } else if let Some(last) = self.queued.pop() {
-            self.queued.insert(0, last);
+        if !self.editor.text().trim().is_empty() {
+            return self.submit_with_policy(true);
         }
+        if let Some(last) = self.queued.pop() {
+            return self.dispatch_now(last);
+        }
+        Vec::new()
+    }
+
+    /// Only prepared messages may bypass the ordinary end-of-turn queue.
+    pub(super) fn dispatch_now(&mut self, taken: Taken) -> Vec<Effect> {
+        self.queued.insert(0, taken);
         if self.queued.is_empty() {
             return Vec::new();
         }
