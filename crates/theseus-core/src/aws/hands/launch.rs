@@ -176,6 +176,9 @@ pub fn parse(input: &Value) -> Result<HandsRequest, String> {
     let inputs = match (a.count, a.inputs) {
         (Some(_), Some(_)) => return Err("give count or inputs, not both".into()),
         (None, Some(i)) => i,
+        (Some(n), None) if n == 0 || n as usize > MAX_HANDS => {
+            return Err(format!("a call starts 1 to {MAX_HANDS} hands, not {n}"));
+        }
         (Some(n), None) => vec![Value::Null; n as usize],
         (None, None) => vec![Value::Null],
     };
@@ -741,6 +744,19 @@ mod tests {
         assert!(choose(&cannot).unwrap_err().contains("its own image"));
         let odd = req(json!({"argv": ["true"], "vcpu": 3, "ttl_secs": 3600}));
         assert!(choose(&odd).unwrap_err().contains("no size"));
+    }
+
+    #[test]
+    fn a_huge_count_is_refused_before_allocating() {
+        // Nextest runs each test in its own process. Bound a regression's
+        // allocation so a failed assertion cannot exhaust the test host.
+        let limit = libc::rlimit {
+            rlim_cur: 512 * 1024 * 1024,
+            rlim_max: 512 * 1024 * 1024,
+        };
+        assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_AS, &limit) }, 0);
+        let error = parse(&json!({"argv": ["true"], "count": u32::MAX})).unwrap_err();
+        assert!(error.contains("1 to 100"), "{error}");
     }
 
     /// What is invalid says so, and a request's defaults are the design's.
