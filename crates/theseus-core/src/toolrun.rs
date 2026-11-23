@@ -439,12 +439,16 @@ fn job_env(names: &[String]) -> Vec<(String, String)> {
     env
 }
 
-/// Where [`cap`] cuts `text` to `max` characters: the byte offsets of the end of the head it keeps and the
-/// start of the tail it keeps, and how many of the two are a line's edge; `None` when it keeps all of it.
-pub(crate) fn cap_bounds(text: &str, max: usize) -> Option<(usize, usize, usize)> {
+/// `text` cut to about `max` characters when it is longer: its head and its
+/// tail, each on a line's edge where the text has one near the cut, and
+/// between them one line that says how much is not shown, and how to get it
+/// as `rest` says from what was left out (theseus-46v; empty: only how
+/// much). A job's or a terminal's whole output is kept, and `kept.rs`'s
+/// `rest` names the file (theseus-v73m); a tool's own `rest` names a call.
+pub fn cap(text: &str, max: usize, rest: impl FnOnce(&str) -> String) -> (String, bool) {
     let n = text.chars().count();
     if n <= max || max < 64 {
-        return None;
+        return (text.to_string(), false);
     }
     let at = |chars: usize| {
         text.char_indices()
@@ -466,19 +470,6 @@ pub(crate) fn cap_bounds(text: &str, max: usize) -> Option<(usize, usize, usize)
         t += i + 1;
         whole += 1;
     }
-    Some((h, t, whole))
-}
-
-/// `text` cut to about `max` characters when it is longer: its head and its
-/// tail, each on a line's edge where the text has one near the cut, and
-/// between them one line that says how much is not shown, and how to get it
-/// as `rest` says from what was left out (theseus-46v; empty: only how
-/// much). A job's or a terminal's whole output is kept, and `kept.rs`'s
-/// `rest` names the file (theseus-v73m); a tool's own `rest` names a call.
-pub fn cap(text: &str, max: usize, rest: impl FnOnce(&str) -> String) -> (String, bool) {
-    let Some((h, t, whole)) = cap_bounds(text, max) else {
-        return (text.to_string(), false);
-    };
     let left = &text[h..t];
     let chars = narrative::count(left.chars().count() as u64, "character", "characters");
     let size = match whole {

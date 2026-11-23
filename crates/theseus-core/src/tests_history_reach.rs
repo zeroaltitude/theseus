@@ -26,26 +26,26 @@ const LONG: &str = "the long tide table: ";
 /// A model whose message `CALL {…}` calls `context_history` with those arguments, and whose message saying
 /// `LONG` is answered at length.
 fn rig() -> Rig {
-    rig_scripted(
-        |_| {},
-        |req| {
-            if answers_a_call(req) {
-                return Scripted::text("Read.");
-            }
-            match last_user(req).split_once("CALL ") {
-                Some((_, a)) => Scripted::tools(
-                    "Reading.",
-                    &[(
-                        "h1",
-                        "context_history",
-                        serde_json::from_str(a.trim()).unwrap(),
-                    )],
-                ),
-                None if last_user(req).contains("LONG") => Scripted::text(&LONG.repeat(1_500)),
-                None => Scripted::text("Noted."),
-            }
-        },
-    )
+    rig_scripted(|_| {}, script)
+}
+
+/// [`rig`]'s model.
+fn script(req: &crate::provider::ProviderRequest) -> Scripted {
+    if answers_a_call(req) {
+        return Scripted::text("Read.");
+    }
+    match last_user(req).split_once("CALL ") {
+        Some((_, a)) => Scripted::tools(
+            "Reading.",
+            &[(
+                "h1",
+                "context_history",
+                serde_json::from_str(a.trim()).unwrap(),
+            )],
+        ),
+        None if last_user(req).contains("LONG") => Scripted::text(&LONG.repeat(1_500)),
+        None => Scripted::text("Noted."),
+    }
 }
 
 /// The session the line was said in, its message's node and its reply's, and its exchange's turn and place.
@@ -470,4 +470,62 @@ async fn an_imported_message_found_by_words_is_found_from_it() {
     assert!(text.contains(WORD), "{text}");
     assert!(text.contains(&ids[0]), "the session to open: {text}");
     finds(&reach(&r.core, &node), &copy, &other);
+}
+
+/// **A runtime cut never loses a page's link; it can keep one to words it cut** (D6 round 7, the named limit).
+/// A page of eight long lines, read with `[tools] result_max_chars` under its size, is cut again, head and tail,
+/// after the tool gave its sources. Every message the page showed stays linked: those whose words survive in the
+/// head and in the tail, and those the runtime cut left out (the limit).
+#[tokio::test]
+async fn a_runtime_cut_keeps_every_link_the_page_gave_even_to_words_it_cut() {
+    let r = rig_scripted(|c| c.tools.result_max_chars = 2_000, script);
+    let said = session(&r.core, None);
+    // Each message's words are its own: any of them on the page shows some of it.
+    let tag = |k: usize| format!("m{k:02}w");
+    for k in 0..8 {
+        let words: Vec<String> = (0..30).map(|j| format!("{}{j:02}", tag(k))).collect();
+        turn(&r.core, &said, &words.join(" ")).await;
+    }
+    let messages: Vec<(usize, String, String)> = (r.core.store.session_nodes(&said).unwrap())
+        .into_iter()
+        .filter_map(|(_, n)| match &n.body {
+            Body::UserMessage { text, .. } => {
+                let k = (0..8).find(|k| text.starts_with(&tag(*k)))?;
+                Some((k, n.id.clone(), n.turn_id.clone()?))
+            }
+            _ => None,
+        })
+        .collect();
+    let place = crate::exchange::exchange(&r.core.store, &messages[0].2)
+        .unwrap()
+        .expect("its exchange")
+        .place;
+    let other = session(&r.core, Some("channel:lab"));
+    let (copy, text) = read_in(&r.core, &other, json!({ "place": place })).await;
+    let cut = text.find("not shown").expect("the runtime cap cut it");
+    let at = |k: usize| text.find(&tag(k));
+    let head = (messages.iter())
+        .filter(|(k, _, _)| at(*k).is_some_and(|p| p < cut))
+        .count();
+    let tail = (messages.iter())
+        .filter(|(k, _, _)| at(*k).is_some_and(|p| p > cut))
+        .count();
+    let gone = (messages.iter())
+        .filter(|(k, _, _)| at(*k).is_none())
+        .count();
+    assert!(
+        head > 0 && tail > 0 && gone > 0,
+        "head {head}, tail {tail}, cut out {gone}: {text}"
+    );
+    for (k, node, _) in &messages {
+        let linked = reach(&r.core, node)
+            .descendants
+            .iter()
+            .any(|d| d.node_id == copy);
+        assert!(
+            linked,
+            "{}: never lost, and the named limit where its words were cut",
+            tag(*k)
+        );
+    }
 }
