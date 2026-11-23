@@ -325,6 +325,16 @@ mod tests {
         assert!(Args::parse(&json!({"days": 2})).is_err(), "no stray keys");
     }
 
+    /// What it tells a model names no tool that is gone: the past is the history tool's, and the span says
+    /// what it takes in its own words (D6 step 6, round 2).
+    #[test]
+    fn its_words_name_no_tool_that_is_gone() {
+        let t = CardObserved;
+        let said = format!("{} {}", t.description(), t.input_schema());
+        assert!(!said.contains("memory_lookup"), "{said}");
+        assert!(said.contains("context_history"), "{said}");
+    }
+
     /// The tool's own contract, which the gate and the deferral read.
     #[test]
     fn the_tool_is_a_read_in_its_own_family() {

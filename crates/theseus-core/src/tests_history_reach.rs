@@ -445,3 +445,29 @@ async fn a_page_line_of_a_relayed_message_links_its_node() {
     );
     finds(&reach(&r.core, &brief.id), &copy, &other);
 }
+
+/// The model's search of imported conversations by words (D6 step 6, round 2) links each imported message
+/// it shows: `node.reach` of that message lists the result, as an open of its session's does.
+#[tokio::test]
+async fn an_imported_message_found_by_words_is_found_from_it() {
+    use crate::tests_imports::{episode, import};
+    let r = rig();
+    let ids = import(
+        &r.core,
+        &[episode(8, "personal", "2026-03-03T18:00:00Z", SAID)],
+    );
+    r.core
+        .runner
+        .memory
+        .set_ask(crate::tests_imports::index_over(&r.core, ids.clone()));
+    let node = (r.core.store.session_nodes(&ids[0]).unwrap().into_iter())
+        .map(|(_, n)| n)
+        .find(|n| matches!(&n.body, Body::Imported { text, .. } if text.contains(WORD)))
+        .expect("the imported message")
+        .id;
+    let other = session(&r.core, None);
+    let (copy, text) = read_in(&r.core, &other, json!({ "place": "import", "words": WORD })).await;
+    assert!(text.contains(WORD), "{text}");
+    assert!(text.contains(&ids[0]), "the session to open: {text}");
+    finds(&reach(&r.core, &node), &copy, &other);
+}
