@@ -422,8 +422,9 @@ impl Core {
         match g {
             Gate::Off => return Ok(tick),
             Gate::Halted { .. } => {
-                if !self.rsi.pipeline.halt_swept.swap(true, Ordering::SeqCst) {
-                    self.pipeline_halt(seams, &mut tick).await?;
+                if !self.rsi.pipeline.halt_swept.load(Ordering::SeqCst) {
+                    let completed = self.pipeline_halt(seams, &mut tick).await?;
+                    self.rsi.pipeline.halt_swept.store(completed, Ordering::SeqCst);
                 }
                 return Ok(tick);
             }
@@ -818,13 +819,13 @@ impl Core {
 
     /// The halt: every build in flight is stopped and returns to ready, so
     /// the owner's resume starts it again.
-    async fn pipeline_halt(&self, seams: &Seams, tick: &mut Tick) -> Result<()> {
+    async fn pipeline_halt(&self, seams: &Seams, tick: &mut Tick) -> Result<bool> {
         let Some(repo) = self.cfg.self_improve.repo.clone() else {
-            return Ok(());
+            return Ok(false);
         };
         let place = self.tools.self_pr.place(&repo);
         let Some(q) = theseus_store::blocking(|| self.pipeline_queues(&place, seams.grace))? else {
-            return Ok(());
+            return Ok(false);
         };
         let mut w = Write {
             mark: Mark::read(&self.store)?,
@@ -862,7 +863,7 @@ impl Core {
             tick.stopped.push(e.item.clone());
         }
         tick.said.extend(self.pipeline_write(&mut w)?);
-        Ok(())
+        Ok(true)
     }
 
     /// One self-join pass for the pipeline, unless one runs already: the
