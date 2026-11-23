@@ -51,8 +51,6 @@ pub struct TurnCtx<'a> {
     /// requests' commitments block shows (theseus-lherl), set by the turn's
     /// read of its wakes and by each wake tool's frame.
     pub commitments: &'a crate::commitments::Pending,
-    /// The threads' board, in memory.
-    pub threads: &'a crate::threads::Threads,
 }
 
 impl TurnCtx<'_> {

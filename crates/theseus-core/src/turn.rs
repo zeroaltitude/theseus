@@ -1661,7 +1661,6 @@ impl TurnRunner {
             },
             dir: dir.as_deref(),
             commitments: &frames.commitments,
-            threads: &self.threads,
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             tc.rec().in_turn(None).record(&fact::turn::SessionResumed {
