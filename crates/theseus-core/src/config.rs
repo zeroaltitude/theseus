@@ -1270,9 +1270,6 @@ pub struct ProfileConfig {
     /// medium; others: high).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<Effort>,
-    /// `effort` stands whatever Jev's route.v3 answers (theseus-qe3v).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub effort_fixed: bool,
     #[serde(default)]
     pub thinking_display: ThinkingDisplay,
     /// Tool loops per turn before a notice, or the turn's end: `on_max_loops`.
@@ -1446,10 +1443,6 @@ pub struct ServerConfig {
     pub drafts_dir: Option<String>,
     #[serde(default = "default_socket")]
     pub socket: String,
-    /// Index engine behind the WAL: "redb", the only one (theseus-0g4). Still
-    /// accepted so a config that names it loads; any other value is refused.
-    #[serde(default)]
-    pub store_engine: theseus_store::Engine,
     /// How long a clean stop waits, from its start, for the posts it has
     /// already sent to settle (theseus-pfv). §9 holds a clean stop to 100 ms.
     /// A post still in flight then stays dispatched, and the next start sends
@@ -1545,7 +1538,6 @@ impl Default for ServerConfig {
             state_dir: default_state_dir(),
             drafts_dir: None,
             socket: default_socket(),
-            store_engine: theseus_store::Engine::Redb,
             stop_grace_ms: default_stop_grace_ms(),
             disk_warn_mb: default_disk_warn_mb(),
             disk_floor_mb: default_disk_floor_mb(),
@@ -2110,7 +2102,6 @@ impl Config {
                 max_output_tokens: m.max_output_tokens,
                 system: m.system.clone(),
                 effort: m.effort,
-                effort_fixed: false,
                 thinking_display: m.thinking_display,
                 max_loops: m.max_loops,
                 on_max_loops: m.on_max_loops,

@@ -42,6 +42,7 @@ const EVERY: &str = "[model]\n\
                      resume_keep_turns = 20\n\
                      home_warn_percent = 50\n\
                      seal_recommend = false\n\
+                     max_live = 50\n\
                      link_proposals = true\n\
                      discord_channel = \"123456789012345678\"\n\
                      sticky_half_life_secs = 600\n\
@@ -51,9 +52,12 @@ const EVERY: &str = "[model]\n\
                      act = 0.9\n\
                      confirm = 0.6\n\
                      candidates = 16\n\
+                     [server]\n\
+                     store_engine = \"redb\"\n\
                      [profiles.quick]\n\
                      provider = \"anthropic\"\n\
                      model = \"claude-haiku-5-5\"\n\
+                     effort_fixed = true\n\
                      keep_warm_hours = 2\n";
 
 fn parse(text: &str) -> anyhow::Result<(Config, Vec<String>)> {

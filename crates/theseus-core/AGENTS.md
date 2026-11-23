@@ -631,7 +631,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   first use and after the session was retired (the owner's `/new` is a retire), under the board's lock so two first
   messages open one; only an active thread takes a message. `thread.done` retires the session and leaves the card in it
   as a harness note (and in its row). Two threads are two executions and run at once, under the one daily ceiling.
-  `[threads] enabled|max_live`. The rows built on it (`thread-context`, `thread-recall`, `thread-route`) add their keys
+  `[threads] enabled` (`max_live` is a retired key since D1, 2026-11-22). The rows built on it (`thread-context`, `thread-recall`, `thread-route`) add their keys
   to `config/threads.rs` and call the board. Tests: `rpc/tests_threads.rs`, `threads::tests`, the layouts' format-33
   sample and format-32 store test in `tests_layouts.rs`.
 - **What a question and a finished edit show** (theseus-z6au; `tool_words.rs`): `ToolRuntime::preview` makes a

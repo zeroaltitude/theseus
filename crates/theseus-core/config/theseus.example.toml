@@ -110,7 +110,6 @@ model = "claude-sonnet-5-5"
 # max_output_tokens = 64000             # omitted: the catalog ceiling (128000 for Sonnet 5.5)
 # system = ""
 # effort = "xhigh"                      # the recommended level for coding and agentic work
-# effort_fixed = false                  # true: effort stands whatever the route pack answers ([routing])
 thinking_display = "summarized"
 max_loops = 40
 refusal_fallbacks = true
@@ -426,7 +425,6 @@ brave_api_key = "op://<your vault>/<Brave Search API key item>/notesPlain"   # w
 [server]
 state_dir = "~/.theseus"                # store (redb) and spool; flag: --state-dir / THESEUS_STATE_DIR
 socket = "~/.theseus/theseus.sock"      # protocol socket, mode 0600; flag: --socket / THESEUS_SOCKET
-store_engine = "redb"                   # index engine behind the WAL; redb is the only one
 stop_grace_ms = 50                      # a clean stop waits up to this long, from its start, for posts already sent to settle
 # Free space on the filesystem that holds state_dir (theseus-102). Health
 # shows it, and says "low" below disk_warn_mb; below disk_floor_mb a job is
@@ -1222,13 +1220,12 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # `thread:<slug>` and so to a chain of sessions of its own (`theseus thread
 # new`, then `theseus ask --thread <slug>`). Two threads are two executions and
 # run at once; a thread is private always, and a shared place never lists or
-# addresses one. max_live bounds the active and paused threads together.
+# addresses one.
 # A message goes to a thread by its address only (theseus-rha2): the place the
 # thread is bound to, a "#slug" or "/t slug", or a reply to a thread's reply.
 # A message that names none runs in the place's own conversation, always.
 # [threads]
 # enabled = true                          # false: no thread is made or addressed (the records stay)
-# max_live = 50                           # active and paused threads at once
 # place_digest = true                     # a message in a thread that Jev reads as asking across everything going on gets, for that turn, one labelled line for each other live thread of the place (a sealed one only counted; false: none, and no turn waits for the answer)
 # place_digest_line_chars = 200           # the longest a digest's line is, in characters
 # route_wait_ms = 400                     # at most this long a thread's turn waits for Jev's reading of its scope (place_digest)

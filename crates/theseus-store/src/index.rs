@@ -42,8 +42,9 @@ use crate::record::{kinds, RecordKind};
 use crate::store::count_rows;
 pub use crate::wal::RecordLocation as Location;
 
-/// The engine a store's manifest and the config's `store_engine` name. redb is
-/// the only one; either naming anything else is refused when it is read.
+/// The engine a store's manifest names. redb is the only one; a manifest
+/// naming anything else is refused when it is read. (The config's
+/// `store_engine` is a retired key: there is nothing to choose.)
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Engine {

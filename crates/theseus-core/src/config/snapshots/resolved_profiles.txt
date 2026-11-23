@@ -6,7 +6,6 @@ ProfileConfig {
     max_output_tokens: None,
     system: None,
     effort: None,
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -24,7 +23,6 @@ ProfileConfig {
     effort: Some(
         High,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -42,7 +40,6 @@ ProfileConfig {
     effort: Some(
         Max,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -60,7 +57,6 @@ ProfileConfig {
     effort: Some(
         High,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -78,7 +74,6 @@ ProfileConfig {
     effort: Some(
         High,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -94,7 +89,6 @@ ProfileConfig {
     max_output_tokens: None,
     system: None,
     effort: None,
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -112,7 +106,6 @@ ProfileConfig {
     effort: Some(
         Low,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -130,7 +123,6 @@ ProfileConfig {
     effort: Some(
         High,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -148,7 +140,6 @@ ProfileConfig {
     effort: Some(
         Medium,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -166,7 +157,6 @@ ProfileConfig {
     effort: Some(
         Medium,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -184,7 +174,6 @@ ProfileConfig {
     effort: Some(
         High,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -201,7 +190,6 @@ ProfileConfig {
     max_output_tokens: None,
     system: None,
     effort: None,
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -217,7 +205,6 @@ ProfileConfig {
     max_output_tokens: None,
     system: None,
     effort: None,
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -233,7 +220,6 @@ ProfileConfig {
     max_output_tokens: None,
     system: None,
     effort: None,
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -249,7 +235,6 @@ ProfileConfig {
     max_output_tokens: None,
     system: None,
     effort: None,
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -265,7 +250,6 @@ ProfileConfig {
     max_output_tokens: None,
     system: None,
     effort: None,
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -283,7 +267,6 @@ ProfileConfig {
     effort: Some(
         Low,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -299,7 +282,6 @@ ProfileConfig {
     max_output_tokens: None,
     system: None,
     effort: None,
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -315,7 +297,6 @@ ProfileConfig {
     max_output_tokens: None,
     system: None,
     effort: None,
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
     on_max_loops: Notify,
@@ -334,7 +315,6 @@ ProfileConfig {
     effort: Some(
         Medium,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 200,
     on_max_loops: End,
@@ -350,7 +330,6 @@ ProfileConfig {
     max_output_tokens: None,
     system: None,
     effort: None,
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 200,
     on_max_loops: End,
@@ -369,7 +348,6 @@ ProfileConfig {
     effort: Some(
         Medium,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 200,
     on_max_loops: End,
@@ -385,7 +363,6 @@ ProfileConfig {
     max_output_tokens: None,
     system: None,
     effort: None,
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 200,
     on_max_loops: End,
@@ -403,7 +380,6 @@ ProfileConfig {
     effort: Some(
         High,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 200,
     on_max_loops: End,
@@ -421,7 +397,6 @@ ProfileConfig {
     effort: Some(
         Low,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 200,
     on_max_loops: End,
@@ -439,7 +414,6 @@ ProfileConfig {
     effort: Some(
         High,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 200,
     on_max_loops: End,
@@ -457,7 +431,6 @@ ProfileConfig {
     effort: Some(
         Medium,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 200,
     on_max_loops: End,
@@ -475,7 +448,6 @@ ProfileConfig {
     effort: Some(
         High,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 200,
     on_max_loops: End,
@@ -493,7 +465,6 @@ ProfileConfig {
     effort: Some(
         Medium,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 200,
     on_max_loops: End,
@@ -511,7 +482,6 @@ ProfileConfig {
     effort: Some(
         High,
     ),
-    effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 200,
     on_max_loops: End,
