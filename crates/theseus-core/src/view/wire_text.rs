@@ -220,10 +220,20 @@ fn line(nodes: &[Node], did: Option<String>, handle: &Handle) -> Vec<Said> {
     out
 }
 
-/// The heading of the block beside the message: the harness's, never the person's words
-/// (`task_graph::view::is_head` lists it for the stand-in models that read those).
-pub const BESIDE_HEAD: &str =
-    "beside your message: what is waiting, in play, said elsewhere lately, and called";
+/// The heading of the block beside the message: the harness's own line
+/// (`task_graph::view::is_head` lists it for the stand-in models that read those). It names no topic: on
+/// build 190 its earlier words, "what is waiting, in play, said elsewhere lately, and called", read to a small
+/// model as an agenda, and a one-line message was answered with a status report and a digest of what was said
+/// elsewhere (X190). Clause by clause:
+/// - "Harness-supplied context, not a new request": who laid the block, and that its presence asks for nothing.
+/// - "Each item's own framing still applies": an order, the owner's words or an outside-text warning inside it
+///   keeps its force; the heading disowns none of them (some items ARE the person's words, said elsewhere).
+/// - "Address the current request or reason for this turn": true for a message, and for a continuation or a
+///   wake, whose actionable line stands BEFORE the block and is followed by nothing.
+/// - "do not summarize this block merely because it is present": the fault itself, named.
+pub const BESIDE_HEAD: &str = "[Harness-supplied context, not a new request. Each item's own framing still \
+                               applies. Address the current request or reason for this turn; do not summarize \
+                               this block merely because it is present.]";
 
 /// The marked blocks beside the message as one: each keeps its own heading.
 fn beside(blocks: Vec<MarkedBlock>) -> Option<MarkedBlock> {
