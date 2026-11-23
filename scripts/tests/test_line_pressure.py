@@ -63,7 +63,9 @@ CALIBRATION = [
     # 93 until issue 44's hand-backs: a view that cannot be assembled soundly fails the turn plainly from here
     # (three counted lines). clippy, run with `too-many-lines-threshold = 88` in a scratch clippy.toml on that
     # tree, prints 96 for it; the script reads 96.
-    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 96),
+    # 96 until issue 44's last withholding went (the personal hold and the place digest's attachment): clippy,
+    # run with `too-many-lines-threshold = 40` in a scratch clippy.toml on 5b0d10c53, prints 91; the script reads 91.
+    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 91),
 ]
 
 

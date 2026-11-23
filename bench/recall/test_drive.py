@@ -1033,34 +1033,6 @@ class TheseusDriver(unittest.TestCase):
             # The stop took its job too: nothing works in the workspace.
             self.assertEqual(run["left_running"], [])
 
-    def test_mains_sizing_fails_the_mark_on_the_counting_stand_in_as_it_did_live(self):
-        """The smoke as main sized it (theseus-523y): a 35000 window, and one
-        log of 6,944 tokens at four bytes a token, which `fs_read` shows at
-        its 30,000-character cap. Counted as a provider counts, the mark's
-        turn fails as the first live smoke's did: its newest exchange alone
-        passes the budget. (On theseus-sim's stand-in, 40 tokens a call, the
-        same progression never compacts, and every turn exits 0.)"""
-        prog = generate.build(7, "smoke", self.measured())
-        prog.context_window = 35000
-        lines, size, i = [], 0, 0
-        while size < 6944 * 4:
-            line = f"step {i:05d} basalt-compile-{i:04d} {10 + (i * 7919) % 4000} ms"
-            lines.append(line)
-            size += len(line) + 1
-            i += 1
-        prog.workspace["logs/build-1.log"] = {"content": "\n".join(lines) + "\n", "executable": False}
-        del prog.workspace["logs/build-1b.log"]
-        after = prog.turns[prog.marks()[0] + 1]
-        after.text, after.role = "How many lines are in src/basalt.py?", "filler"
-        with tempfile.TemporaryDirectory() as d:
-            rc, said, out = self.drive(Path(d), prog, rules_for(prog), counting=True)
-            self.assertEqual(rc, 0, said)
-            rows = {r["index"]: r for r in map(json.loads, (out / "turns.jsonl").read_text().splitlines())}
-            mark = rows[prog.marks()[0]]
-            self.assertEqual(mark["exit"], 1, mark)
-            self.assertIn("class=context_window", mark["error"])
-            self.assertIn("against the 22,154 the window leaves", mark["error"])
-
     _measured: int | None = None
 
     def measured(self) -> int:
@@ -1099,12 +1071,13 @@ class TheseusDriver(unittest.TestCase):
             self.assertFalse((out / "daemon").exists())
             self.assertEqual(list((out / "raw").glob("t0*.json")), [])
 
-    def test_the_smoke_runs_end_to_end_on_a_scratch_daemon_and_leaves_nothing(self):
+    def test_the_smoke_runs_end_to_end_on_the_view_on_a_scratch_daemon_and_leaves_nothing(self):
         """On the counting stand-in, each turn's history costs what it would
-        live: the mark (or the turn after it) compacts, and no turn fails
-        (theseus-523y: the live smoke's mark was an overage). Planned at the
-        daemon's own overhead, it runs (theseus-dp3y), and its written bounds
-        hold there however thin the plan's margin."""
+        live, and no turn fails (theseus-523y: the live smoke's mark was an
+        overage). Every request is the view's (issue 44): it is assembled
+        within the budget and compacts nowhere, the mark's turn too, so the
+        ledger has no `context.compacted` row and the run no compaction.
+        Planned at the daemon's own overhead, it runs (theseus-dp3y)."""
         real = self.measured()
         prog = generate.build(7, "smoke", real)
         with tempfile.TemporaryDirectory() as d:
@@ -1133,31 +1106,25 @@ class TheseusDriver(unittest.TestCase):
             self.assertEqual([k for k, v in delivered.items() if not v["delivered"]], [])
             cfg = tomllib.loads((out / "daemon" / "config.toml").read_text())
             self.assertEqual(cfg["memory"], {"mode": "live", "arm": "baseline"})
-            # Where it compacted is the ledger's word, whatever the marks say;
-            # the scorer measures by it.
-            rows_c = run["compaction_rows"]
-            self.assertEqual([r["turn"] for r in rows_c], run["compactions"])
-            mark = prog.marks()[0]
-            self.assertIn(run["compactions"][0], (mark, mark + 1), run["compaction_rows"])
-            # Its summary fit beside the kept turns: a compaction, not a ring.
-            self.assertEqual(rows_c[0]["outcomes"], ["compaction"], rows_c[0])
-            for r in rows_c:
-                self.assertEqual(r["outcomes"], [c["outcome"] for c in r["cuts"]], r)
-                for c in r["cuts"]:
-                    self.assertIn(c["outcome"], score.MOVING_OUTCOMES, r)
-                    self.assertGreater(c["messages"], 0, r)
+            # The view compacts nowhere: the ledger's word, which the scorer measures by.
+            self.assertEqual((run["compactions"], run["compaction_rows"]), ([], []))
             s = score.summarize(score.score_run(score.load_run(out)))
             self.assertEqual(s["scored"], len(prog.probes))
             self.assertEqual((s["recall_accuracy"], s["abstention_accuracy"]), (1.0, 1.0))
-            self.assertEqual(s["moved"], 0)
+            # Nothing compacted, so each probe the plan put past the mark (its `compaction` bucket) is scored where it
+            # is for an arm that never compacts (`bucket_of`): the scorer moves those, and only those.
+            past_the_mark = sum(1 for p in prog.probes if p.bucket == "compaction")
+            self.assertGreater(past_the_mark, 0)
+            self.assertEqual(s["moved"], past_the_mark)
 
-    def test_the_smoke_compacts_once_however_early_the_index_comes_up(self):
+    def test_the_smoke_compacts_nowhere_however_early_the_index_comes_up(self):
         """theseus-93lkm: the index tender starts 2 s after serving, and from
         then on each turn of the second session writes a recall note into its
         tail. Held back until the tender answers on its socket before the
-        first turn, the run's second session has them from its start: the
-        plan's reserve for them holds, and only the mark compacts (the plan once reserved one note, and a machine
-        whose tender came up early compacted again at turn 23)."""
+        first turn, the run's second session has them from its start, and no
+        turn compacts: the view lays recall within its own ceiling (issue 44;
+        under the old builder a machine whose tender came up early compacted
+        again at turn 23)."""
         real = self.measured()
         prog = generate.build(7, "smoke", real)
         first_turn = pg.apply_before
@@ -1177,19 +1144,19 @@ class TheseusDriver(unittest.TestCase):
                 rc, said, out = self.drive(Path(d), prog, rules_for(prog), counting=True)
             self.assertEqual(rc, 0, said)
             run = json.loads((out / "run.json").read_text())
-            mark = prog.marks()[0]
-            self.assertIn(run["compactions"], ([mark], [mark + 1]), run["compaction_rows"])
+            self.assertEqual(run["compactions"], [], run["compaction_rows"])
             recalls = [n for s in (1, 2) for n in json.loads((out / "raw" / f"history-{s}.json").read_text())["nodes"]
                        if n["kind"] == "recall"]
             self.assertGreater(len(recalls), 3)
 
-    def test_a_run_plans_at_the_overhead_it_measures_and_records_it(self):
+    def test_a_run_plans_at_the_overhead_it_measures_records_it_and_compacts_nowhere(self):
         """theseus-cs8k: no constant: the driver measures the daemon's system
         prompt and tools with a probe exchange on a throwaway daemon, plans
         the progression at that (smoke seed 12, the live check's), and runs
         it to the end. run.json's overhead has the plan and the measure
-        (equal, unpinned), the probe left nothing in the run's daemon, and the
-        mark compacts where the plan put it."""
+        (equal, unpinned), the probe left nothing in the run's daemon, and no
+        turn compacts, the mark's included: every request is the view's
+        (issue 44)."""
         real = self.measured()
         prog = generate.build(12, "smoke", real)
         with tempfile.TemporaryDirectory() as d:
@@ -1214,9 +1181,7 @@ class TheseusDriver(unittest.TestCase):
             for sid in range(1, 3):
                 self.assertNotIn(drive.PROBE_TEXT, (out / "raw" / f"history-{sid}.json").read_text())
             self.assertEqual(drive.processes_naming(out), [])
-            mark = prog.marks()[0]
-            self.assertIn(run["compactions"][0], (mark, mark + 1), run["compaction_rows"])
-            self.assertEqual(run["compaction_rows"][0]["outcomes"], ["compaction"])
+            self.assertEqual((run["compactions"], run["compaction_rows"]), ([], []))
             rows = [json.loads(x) for x in (out / "turns.jsonl").read_text().splitlines()]
             self.assertEqual([r["exit"] for r in rows if r["exit"] != 0], [])
             self.assertEqual(len(rows), len(prog.turns))
