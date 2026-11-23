@@ -104,6 +104,15 @@ mod tests {
     fn the_templates_threads_section_is_the_default() {
         let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
         assert_eq!(cfg.threads, ThreadsConfig::default());
+        let section = crate::Config::EXAMPLE_TOML
+            .split("# [threads]\n")
+            .nth(1)
+            .unwrap()
+            .split("# ----------------------------------------------------------------")
+            .next()
+            .unwrap();
+        assert!(section.contains("# persona_engage = \"shadow\""));
+        assert!(!section.contains("# enabled ="));
         let off = crate::Config::from_toml("[threads]\nenabled = false\n").unwrap();
         assert_eq!(off.threads, ThreadsConfig::default());
         assert!(off

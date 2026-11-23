@@ -36,7 +36,7 @@ async fn a_crate_from_crates_io_builds_offline_from_the_cache_the_pipeline_made(
     assert_eq!(stats.fetched, 1);
     let home = dir.path().join("home");
     std::fs::create_dir_all(&home).unwrap();
-    super::write_cargo_home(&cache, &home).unwrap();
+    super::write_cargo_home(&cache, &cache, &home).unwrap();
 
     let project = dir.path().join("project");
     std::fs::create_dir_all(project.join("src")).unwrap();

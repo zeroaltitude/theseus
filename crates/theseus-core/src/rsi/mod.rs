@@ -239,12 +239,19 @@ pub struct Switch {
 impl Switch {
     /// The switch's last move, read once and then from memory.
     pub fn current(&self, store: &Store) -> anyhow::Result<Option<SwitchRecord>> {
+        self.current_with(|| store.get_meta::<SwitchRecord>(SWITCH_KEY))
+    }
+
+    fn current_with(
+        &self,
+        load: impl FnOnce() -> anyhow::Result<Option<SwitchRecord>>,
+    ) -> anyhow::Result<Option<SwitchRecord>> {
         if let Some(r) = &*self.read.read().unwrap_or_else(PoisonError::into_inner) {
             return Ok(r.clone());
         }
-        let r = store.get_meta::<SwitchRecord>(SWITCH_KEY)?;
-        *self.read.write().unwrap_or_else(PoisonError::into_inner) = Some(r.clone());
-        Ok(r)
+        let r = load()?;
+        let mut cached = self.read.write().unwrap_or_else(PoisonError::into_inner);
+        Ok(cached.get_or_insert(r).clone())
     }
 
     /// Keep a move its frame wrote.
@@ -280,5 +287,37 @@ pub fn state(ctx: &Ctx<'_>) -> SelfState {
         day_spent_usd: None,
         day_line_usd: None,
         sealed: None,
+    }
+}
+
+#[cfg(test)]
+mod switch_cache_tests {
+    use super::{Switch, SwitchRecord};
+
+    #[test]
+    fn a_cold_read_cannot_overwrite_a_completed_halt() {
+        let switch = Switch::default();
+        let halted = SwitchRecord {
+            halted: true,
+            at_ms: 2,
+            by: "owner".into(),
+            via: "cli".into(),
+            why: None,
+        };
+        let mut resumed = halted.clone();
+        resumed.halted = false;
+        resumed.at_ms = 1;
+        let got = switch
+            .current_with(|| {
+                // The store read began before the halt, but finishes after it.
+                switch.set(halted.clone());
+                Ok(Some(resumed))
+            })
+            .unwrap();
+        assert_eq!(got, Some(halted.clone()));
+        assert_eq!(
+            switch.current_with(|| panic!("cached")).unwrap(),
+            Some(halted)
+        );
     }
 }

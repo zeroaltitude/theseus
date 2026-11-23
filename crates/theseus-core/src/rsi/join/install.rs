@@ -96,7 +96,7 @@ pub(super) fn build(p: &Place, tree: &Tree, merge: &str) -> Result<()> {
         .context("an install builds in L1, and this place has none")?;
     // The merge's own lock files, whose crates the owner has just agreed to, are fetched the same
     // way the merge's gate had them (`deps`).
-    crate::rsi::deps::provide_blocking(p, tree)?;
+    let _packages = crate::rsi::deps::provide_blocking(p, tree)?;
     std::fs::create_dir_all(p.gates())?;
     let log = p.gates().join(format!("install-{}.log", tree.slug));
     let argv = [

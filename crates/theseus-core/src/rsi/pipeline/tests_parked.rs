@@ -399,6 +399,7 @@ async fn closing_an_items_trees_ends_its_session_and_withdraws_its_question() {
     let mut w = super::Write {
         mark: super::Mark::read(&r.core.store).unwrap(),
         frame: vec![],
+        expected: vec![],
         said: vec![],
         dirty: false,
         told: vec![],

@@ -1018,3 +1018,27 @@ fn the_card_says_what_where_and_the_way_back() {
         assert!(q.contains(part), "{part} in {q}");
     }
 }
+
+#[tokio::test]
+async fn a_failed_confirmation_keeps_the_rollback_visible() {
+    let t = rooted(SelfInstall::Auto, None);
+    let merge = t.join().await;
+    t.until("the restart", |t| {
+        !t.units.restarts.lock().unwrap().is_empty()
+    })
+    .await;
+    let sock = t.r.f.upstream.parent().unwrap().join("confirm.sock");
+    let _keep = tokio::net::UnixListener::bind(&sock).unwrap();
+    let signal = t.r.core.tools.root_install.signal();
+    std::fs::create_dir_all(&signal).unwrap();
+    let p = t.r.core.root_pending().unwrap();
+    t.r.core.clone().confirm_root_install(p, sock.clone()).await;
+    assert_ne!(t.r.core.root_pending().unwrap().stage, Stage::Confirmed);
+    assert!(!t.steps().contains(&"verified".to_string()));
+    t.r.core
+        .clone()
+        .root_install_after_serving_as(Some(&"0".repeat(40)), sock);
+    assert_eq!(t.r.core.root_pending().unwrap().stage, Stage::RolledBack);
+    assert!(t.steps().contains(&"rolled_back".to_string()));
+    assert!(!merge.is_empty());
+}

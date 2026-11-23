@@ -201,19 +201,43 @@ def block_text(content):
     return "\n".join(parts), other
 
 
+GENERATED_LABEL = re.compile(r"\(untrusted[ ,]|^Untrusted context \(metadata|⟦openclaw:ctx⟧", re.M)
+GENERATED_HEADER = re.compile(
+    r"^\s*\[(?:[^\]\n]*\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2}|T\d{2}:\d{2}Z)[^\]\n]*|"
+    r"(?:WebChat|Slack|Discord|Telegram|Signal|WhatsApp|iMessage|IRC|Matrix|Teams|Google Chat|Zalo) [^\]\n]*)\][ \t]*"
+)
+
+
 def sender_of(text):
-    """The inbound envelope's sender, its metadata blocks taken out of the text."""
-    sender = {}
-    for m in META_BLOCK.finditer(text):
-        head = text[m.start() : m.start() + 12]
-        if head.startswith("Sender"):
-            try:
-                v = json.loads(m.group(1))
-                if isinstance(v, dict):
-                    sender = v
-            except ValueError:
-                pass
-    return sender, META_BLOCK.sub("", text).strip()
+    """Read only the leading envelope; a body block cannot replace its sender."""
+    text, stripped_header = GENERATED_HEADER.subn("", text, count=1)
+    sender, end = {}, 0
+    sender_closed = False
+    while True:
+        start = end + len(text[end:]) - len(text[end:].lstrip())
+        m = META_BLOCK.match(text, start)
+        if m is None:
+            break
+        is_sender = text[m.start():].startswith("Sender")
+        # A second sender is body; a timestamp alone cannot authenticate a sender.
+        if is_sender and (sender_closed or (stripped_header and end == 0)):
+            break
+        end = m.end()
+        # Keep stripping contiguous metadata, without letting it choose another sender.
+        if sender_closed:
+            continue
+        try:
+            v = json.loads(m.group(1))
+        except ValueError:
+            v = None
+        if is_sender:
+            sender = v if isinstance(v, dict) else {}
+            sender_closed = True
+        if text[m.start():].startswith("Conversation info") and isinstance(v, dict) and "sender" in v:
+            # Older envelopes also close sender selection, but not metadata stripping.
+            sender = v["sender"] if isinstance(v["sender"], dict) else {}
+            sender_closed = True
+    return sender, text[end:].strip()
 
 
 def iso(ms):
@@ -259,6 +283,7 @@ def message_of(event, ctx, counts):
             counts["empty"] = counts.get("empty", 0) + 1
             return None
         return {"author": "agent:" + ctx["agent"], "integrity": "agent", "text": text}
+    raw = text
     sender, text = sender_of(text)
     if not text:
         counts["empty"] = counts.get("empty", 0) + 1
@@ -272,7 +297,7 @@ def message_of(event, ctx, counts):
         return {"author": "schedule", "integrity": "operator", "text": text}
     if owner:
         return {"author": "operator", "integrity": "operator", "text": text}
-    if not sender and ctx["kind"] in ("cli", "dm") and ctx["direct_is_owner"]:
+    if not sender and not GENERATED_LABEL.search(raw) and ctx["kind"] in ("cli", "dm") and ctx["direct_is_owner"]:
         # The CLI and the main session carry no envelope: the owner at their keyboard.
         return {"author": "operator", "integrity": "operator", "text": text}
     if name:

@@ -162,9 +162,9 @@ pub fn word_of(reply: &str) -> (&'static str, Vec<String>) {
         .split_once(':')
         .map(|(_, w)| w.trim().to_ascii_lowercase())
         .unwrap_or_default();
-    let word = match word {
-        w if w.starts_with("accept") => "accept",
-        w if w.starts_with("fix") => "fix",
+    let word = match word.as_str() {
+        "accept" => "accept",
+        "fix" => "fix",
         _ => "reject",
     };
     let accept = word == "accept";
@@ -267,6 +267,17 @@ mod tests {
         assert_eq!(r, ["the reviewer gave no verdict line"]);
     }
 
+    #[test]
+    fn a_conditional_verdict_is_not_approval() {
+        for text in [
+            "accept? no.",
+            "acceptable only after fixing the gate",
+            "fix later",
+        ] {
+            assert_eq!(word_of(&format!("VERDICT: {text}")).0, "reject");
+        }
+    }
+
     /// `fix` is a word of its own (issue 36), never an accept; anything else is a reject.
     #[test]
     fn fix_is_its_own_word_and_no_accept() {
@@ -274,7 +285,7 @@ mod tests {
         assert_eq!(w, "fix");
         assert_eq!(r, ["the new test asserts the wrong field"]);
         assert!(!verdict_of("VERDICT: fix\n- x").0, "a fix is no accept");
-        assert_eq!(word_of("VERDICT: fixed it myself").0, "fix");
+        assert_eq!(word_of("VERDICT: fixed it myself").0, "reject");
         assert_eq!(word_of("VERDICT: maybe").0, "reject");
     }
 }

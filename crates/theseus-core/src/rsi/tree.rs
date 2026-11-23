@@ -862,7 +862,11 @@ pub async fn gate_with_benches(p: &Place, tree: &Tree) -> Result<Gated> {
 /// folder, which the gate's run left built), without its other phases. Its exit and its log,
 /// kept beside the gate's. The tree stays for as long as it runs (`tree_lease`).
 pub async fn rerun_tests(p: &Place, tree: &Tree, expr: &str) -> Result<(Option<i32>, PathBuf)> {
-    let _lease = super::tree_lease::Lease::take(&[&tree.dir, &tree.target]);
+    let _lease = super::tree_lease::Lease::take(&[&tree.dir, &tree.target])?;
+    let packages = super::deps::provide(p, tree).await;
+    if let super::deps::Provided::Refused { why, .. } = &packages {
+        bail!("{why}");
+    }
     std::fs::create_dir_all(p.gates())?;
     let log = p
         .gates()
@@ -906,7 +910,7 @@ pub async fn rerun_tests(p: &Place, tree: &Tree, expr: &str) -> Result<(Option<i
 
 async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<Gated> {
     // The tree stays for as long as the gate runs in it (`tree_lease`).
-    let _lease = super::tree_lease::Lease::take(&[&tree.dir, &tree.target]);
+    let _lease = super::tree_lease::Lease::take(&[&tree.dir, &tree.target])?;
     let (pc, t) = (p.clone(), tree.clone());
     let (script, may) = tokio::task::spawn_blocking(move || -> Result<_> {
         let script = pc
@@ -940,7 +944,8 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<Gated> {
     // A branch whose lock files differ from main's has its packages fetched first, by
     // this code and from the registries (`deps`); one that may not be fetched is red
     // with the reason, and the gate never starts.
-    if let super::deps::Provided::Refused { why, infra } = super::deps::provide(p, tree).await {
+    let packages = super::deps::provide(p, tree).await;
+    if let super::deps::Provided::Refused { why, infra } = &packages {
         std::fs::write(&log, format!("gate: {why}\n"))?;
         return Ok(Gated::Ran(GateRun {
             verdict: Verdict::Red,
@@ -949,7 +954,7 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<Gated> {
             log,
             secs: t0.elapsed().as_secs(),
             tail: format!("gate: {why}"),
-            unrunnable: infra,
+            unrunnable: *infra,
         }));
     }
     let status = match p.jail()? {
@@ -1518,12 +1523,18 @@ pub fn close_keeping_target(p: &Place, tree: &Tree) -> Result<()> {
 }
 
 fn close_with(p: &Place, tree: &Tree, target_too: bool, end_claim: bool) -> Result<()> {
-    if let Some(busy) = super::tree_lease::held(&[&tree.dir, &tree.target]) {
-        bail!(
-            "a gate is still running in {}, so its tree stays until the gate ends",
-            busy.display()
-        );
-    }
+    close_with_hook(p, tree, target_too, end_claim, || {})
+}
+
+fn close_with_hook(
+    p: &Place,
+    tree: &Tree,
+    target_too: bool,
+    end_claim: bool,
+    after_check: impl FnOnce(),
+) -> Result<()> {
+    let _closing = super::tree_lease::Closing::take(&[&tree.dir, &tree.target])?;
+    after_check();
     let _one = REPO
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1584,4 +1595,22 @@ pub fn branches(p: &Place) -> Result<Vec<(String, String)>> {
         .collect();
     v.sort_by(|a, b| b.0.cmp(&a.0));
     Ok(v)
+}
+
+#[cfg(test)]
+mod closing_tests {
+    #[test]
+    fn a_close_claim_refuses_a_later_gate_lease() {
+        let f = crate::rsi::tests_tree::fixture();
+        let t = super::open(&f.place, "close-claim", 1_792_000_000_000).unwrap();
+        super::close_with_hook(&f.place, &t, true, true, || {
+            let _lease = crate::rsi::tree_lease::Lease::take(&[&t.dir, &t.target]);
+            assert!(
+                crate::rsi::tree_lease::held(&[&t.dir, &t.target]).is_none(),
+                "a gate must not be admitted after the closer passed its check"
+            );
+        })
+        .unwrap();
+        assert!(!t.dir.exists());
+    }
 }

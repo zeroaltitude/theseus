@@ -493,6 +493,12 @@ impl Run<'_> {
             cost_usd: v.cost_usd,
         };
         let rec = self.core.rec(None);
+        let _one = self
+            .core
+            .rsi
+            .backlog
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut frame = vec![rec.row(&fact)?];
         if v.verdict == "reject" {
             let identity = format!(

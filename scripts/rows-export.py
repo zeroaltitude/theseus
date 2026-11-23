@@ -51,6 +51,7 @@ so two runs over an unchanged row must produce the same bytes.
 """
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -200,14 +201,15 @@ def iso_of(v, fallback):
     s = flat(v) if v is not None else ""
     if not s:
         return fallback
-    s = s.replace(" ", "T")
-    if s.endswith("Z"):
-        return s
-    if "+" in s[10:] or s.endswith("UTC"):
-        return s.split("+")[0].rstrip("UTC").rstrip() + "Z"
-    if "T" not in s:
-        return s + "T00:00:00Z"
-    return s + "Z"
+    try:
+        if s.endswith("UTC"):
+            s = s[:-3].strip() + "+00:00"
+        when = datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=datetime.timezone.utc)
+        return when.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    except ValueError:
+        return fallback
 
 
 def comments_of(row, args, when, unit):

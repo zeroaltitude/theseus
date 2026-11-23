@@ -152,6 +152,7 @@ pub const CLASSES: &[Class] = &[
             "crates/theseus-core/src/rsi/switch.rs",
             "crates/theseus-core/src/rsi/budget.rs",
             "crates/theseus-core/src/rsi/tree.rs",
+            "crates/theseus-core/src/rsi/tree_git.rs",
             "crates/theseus-core/src/rsi/join.rs",
             "crates/theseus-core/src/rsi/join/**",
             "crates/theseus-core/src/turn/self_budget_step.rs",
@@ -466,6 +467,14 @@ mod tests {
             ["aws-iam"]
         );
         assert!(classes(&["crates/theseus-core/src/aws/cost.rs"], "").is_empty());
+    }
+
+    #[test]
+    fn git_confinement_is_reserved_for_the_owner() {
+        assert_eq!(
+            classes(&["crates/theseus-core/src/rsi/tree_git.rs"], ""),
+            ["self"]
+        );
     }
 
     #[test]

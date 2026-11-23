@@ -197,6 +197,12 @@ impl Run<'_> {
             .chars()
             .take(1_000)
             .collect();
+        let _one = self
+            .core
+            .rsi
+            .backlog
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(rec) = self.reopened(identity, note)? {
             self.core.store.append(&[rec])?;
         }

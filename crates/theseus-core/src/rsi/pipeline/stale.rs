@@ -39,7 +39,7 @@ impl Core {
             t.updated_at_ms = now;
             t.evidence
                 .push(evidence("settled:stale".into(), STALE.into(), now));
-            w.task(&t)?;
+            w.task(q, &t)?;
             let m = Moved::new(&e.item, format!("{} was settled as failed", e.item))
                 .with("reason", "stale")
                 .why(STALE);

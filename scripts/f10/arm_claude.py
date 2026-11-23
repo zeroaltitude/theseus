@@ -16,6 +16,8 @@ and the version run is recorded either way.
 
 import json
 import re
+import shlex
+import shutil
 import subprocess
 import threading
 import time
@@ -47,7 +49,14 @@ class ClaudeCode:
 
     # The run's frame
 
+    def command(self, *args):
+        return shlex.join([self.cli, *args])
+
     def setup(self, ctx):
+        found = shutil.which(self.cli)
+        if found is None:
+            raise SystemExit(f"f10: executable not found: {self.cli}")
+        self.cli = str(Path(found).resolve())
         version = subprocess.run([self.cli, "--version"], capture_output=True, text=True).stdout.strip()
         if self.expect and self.expect not in version:
             raise SystemExit(f"f10: {self.cli} is {version!r}, not the pinned {self.expect}")
@@ -145,9 +154,9 @@ class ClaudeCode:
     # The steps
 
     def s1(self, ctx):
-        ctx.rec("S1", open_cmd="claude")
+        ctx.rec("S1", open_cmd=self.command())
         t0 = time.monotonic()
-        ctx.tmux.type("claude")
+        ctx.tmux.type(self.command())
         ctx.tmux.keys("Enter")
         first = ctx.tmux.wait(lambda t: self.ready(t) or bool(TRUST.search(t)), 30, every=0.01)
         if first and TRUST.search(first):
@@ -322,26 +331,26 @@ class ClaudeCode:
         ctx.capture("S11.left")
         alive = bool(ctx.survey_pids())
         ctx.rec("S11", work_alive=alive, alive_after_restart=alive, restart_how="claude's exit")
-        ctx.tmux.type("claude -c")
+        ctx.tmux.type(self.command("-c"))
         ctx.tmux.keys("Enter")
         ctx.tmux.wait(self.ready, 30)
         time.sleep(1.5)
         ctx.capture("S11.reopen")
-        ctx.rec("S11", reopen_cmd="claude -c", reopen_foreground=ctx.tmux.foreground())
+        ctx.rec("S11", reopen_cmd=self.command("-c"), reopen_foreground=ctx.tmux.foreground())
         self.prompt(ctx, "/exit")
         ctx.tmux.wait(lambda t: t.rstrip().endswith("$"), 30)
-        ctx.tmux.type("claude --resume")
+        ctx.tmux.type(self.command("--resume"))
         ctx.tmux.keys("Enter")
         time.sleep(3)
         ctx.tmux.type("log lines")
         time.sleep(1.5)
         ctx.capture("S11.picker")
-        ctx.rec("S11", picker_cmd="claude --resume", picker_searched=True)
+        ctx.rec("S11", picker_cmd=self.command("--resume"), picker_searched=True)
         ctx.tmux.keys("Escape")
         time.sleep(1)
         ctx.tmux.keys("C-c", "C-c")
         ctx.tmux.wait(lambda t: t.rstrip().endswith("$"), 30)
-        ctx.tmux.type("claude -c")
+        ctx.tmux.type(self.command("-c"))
         ctx.tmux.keys("Enter")
         ctx.tmux.wait(self.ready, 30)
 

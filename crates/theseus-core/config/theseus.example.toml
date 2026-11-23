@@ -1209,8 +1209,9 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # empty_grace_minutes = 60.0              # a session never used reads retired this long after it opened
 # retitle_within_turns = 3                # 0: titles stay the first prompt's
 
-# ---------------------------------------------------------------- threads
-# Threads are retired. This historical section name retains the live persona choice.
+# ---------------------------------------------------------------- persona engagement
+# Threads are retired; old thread records remain readable with `thread list` and `thread show`.
+# This legacy table name still configures persona engagement, not thread creation or addressing.
 # [threads]
 # With two or more [personas], each message is answered by the one it calls for: named at its start
 # ("Birch, ..."), `@birch`, or `/as birch` always; else Jev's pick (route.v5's persona question),
@@ -1287,8 +1288,8 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # byte for byte, sent one rung down the models Jev chooses among (dearest first),
 # and judged by compare.v1 against the reply they got; `theseus model bench`
 # says per cell what matched and what moving it would have saved. Never a
-# shared place's turn, and never one that would send a sealed thread's, a
-# veiled recall's or an attachment's bytes to another provider. It moves no
+# shared place's turn, and never one that would send an attachment's bytes to
+# another provider. It moves no
 # routing: a pack that would climbs the ladder on its frozen holdout.
 # [route_bench]
 # replay_day_usd = 1.0                    # the most the replays and their judgments may cost in a local day; 0 turns the sampler off
