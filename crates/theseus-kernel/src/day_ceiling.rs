@@ -106,6 +106,8 @@ impl std::fmt::Debug for DayCeiling {
 
 #[derive(Debug, Default)]
 struct State {
+    seed_pending: bool,
+    seed_applied: bool,
     /// `2026-10-08`; empty before the first read.
     day: String,
     start_ms: u64,
@@ -128,6 +130,8 @@ struct State {
 /// A call the ceiling refused: nothing was made, and nothing written.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reached {
+    /// Startup has not read the historical day yet; this is not a sticky ceiling stop.
+    pub pending: bool,
     pub day: String,
     pub limit: Micros,
     pub spent: Micros,
@@ -154,6 +158,9 @@ pub const RUNAWAY_ENDS: &str = "a refused turn or task ends, it does not wait fo
 
 impl std::fmt::Display for Reached {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.pending {
+            return f.write_str("today's model spending has not been read yet, so no model call was made; try again once the read succeeds");
+        }
         if self.runaway {
             return self.runaway_words(f);
         }
@@ -416,7 +423,8 @@ impl DayCeiling {
     /// Whether a call of `need` is refused now: the day is stopped, or it
     /// would pass the ceiling.
     fn refuses(st: &State, limit: Micros, need: Micros) -> bool {
-        Self::stopped(st, limit)
+        st.seed_pending
+            || Self::stopped(st, limit)
             || (limit > 0 && st.spent.saturating_add(st.held_total).saturating_add(need) > limit)
     }
 
@@ -424,6 +432,7 @@ impl DayCeiling {
         let limit = self.bar();
         let since = match Self::stopped(st, limit) {
             true => st.reached_at_ms.map(|at| local_time(&self.zone, at)),
+            false if st.seed_pending => None,
             false => {
                 st.reached_at_ms = Some(now_ms);
                 st.reached_limit = limit;
@@ -431,6 +440,7 @@ impl DayCeiling {
             }
         };
         Reached {
+            pending: st.seed_pending,
             since,
             runaway: self.notifies(),
             day: st.day.clone(),
@@ -534,10 +544,27 @@ impl DayCeiling {
         Ok(())
     }
 
+    /// Before startup can settle earlier calls, require a complete historical seed.
+    pub fn require_seed(&self) {
+        let mut st = self.lock();
+        if !st.seed_applied {
+            st.seed_pending = true;
+        }
+    }
+
+    pub fn seed_applied(&self) -> bool {
+        self.lock().seed_applied
+    }
+
     /// The start's read of today from the ledger, once, before serving.
     pub fn seed(&self, now_ms: u64, seed: &Seed) {
         let mut st = self.lock();
         self.roll(&mut st, now_ms);
+        if st.seed_applied {
+            return;
+        }
+        st.seed_applied = true;
+        st.seed_pending = false;
         st.spent = st.spent.saturating_add(seed.spent);
         if let Some(at) = seed.reached_at_ms {
             // The start read a row under a ceiling no lower than this one.
@@ -762,6 +789,19 @@ pub(crate) enum Effect {
 }
 
 impl Effect {
+    /// Exactly what this frame adds to model spend, separate from a bill's full cost.
+    pub(crate) fn stamp(data: &mut serde_json::Value, effect: &Option<Self>) {
+        if let Some(effect) = effect {
+            let amount = match effect {
+                Self::Settle {
+                    reserved, actual, ..
+                } => actual.unwrap_or(*reserved),
+                Self::Book(amount) => *amount,
+            };
+            data["day_micros"] = amount.into();
+        }
+    }
+
     /// A provider call's settle, from its action; nothing for any other
     /// tool's (an AWS hand's is not model spend).
     pub(crate) fn of(a: &Action, actual: Option<Micros>) -> Option<Effect> {
@@ -777,8 +817,16 @@ impl Effect {
     /// An unknown call's outcome learned later: its reservation already
     /// counted, so only a cost above it is booked more.
     pub(crate) fn resolved(a: &Action, cost: Option<Micros>) -> Option<Effect> {
-        (a.tool == PROVIDER_TOOL)
-            .then(|| Effect::Book(cost.unwrap_or(0).saturating_sub(a.reserved_micros)))
+        (a.tool == PROVIDER_TOOL).then(|| {
+            Effect::Book(
+                cost.unwrap_or(0).saturating_sub(
+                    a.detail
+                        .as_ref()
+                        .and_then(|d| d["day_counted_micros"].as_u64())
+                        .unwrap_or(a.reserved_micros),
+                ),
+            )
+        })
     }
 }
 

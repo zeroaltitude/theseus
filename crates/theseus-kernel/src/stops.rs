@@ -111,6 +111,7 @@ impl Kernel {
         // Whatever it planned and has not sent, or still asks the operator,
         // never runs: declined, with its reservation released.
         let mut declined = Vec::new();
+        let mut day = Vec::new();
         for mut a in self
             .unsettled_actions(&e.id)?
             .into_iter()
@@ -121,7 +122,7 @@ impl Kernel {
             a.resolution = Some(format!("stopped by {by}"));
             if let Some(r) = &a.reservation_id {
                 settle_reservation_in(&mut e.budget, r, Some(0));
-                self.day_after(crate::day_ceiling::Effect::of(&a, Some(0)));
+                day.extend(crate::day_ceiling::Effect::of(&a, Some(0)));
             }
             frame.push(action_record(&a)?);
             frame.push(self.ledger(
@@ -166,6 +167,7 @@ impl Kernel {
                    "queued_results": e.queued_results.len(), "wakes_pending": e.wakes.len()}),
         )?);
         self.commit(&frame)?;
+        self.day_after(day);
         Ok(Some(Stop {
             execution: e,
             to_kill,

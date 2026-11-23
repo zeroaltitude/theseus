@@ -787,6 +787,8 @@ impl Core {
             kc.wakes.max_routines = cfg.routines.max_routines;
             kc
         }));
+        kernel.day_ceiling().require_seed();
+        let day_seed_through = store.last_position();
         let startup = kernel
             .startup(
                 Some(&spool),
@@ -911,6 +913,7 @@ impl Core {
             tools.scrubber.clone(),
         );
         let runner = TurnRunner {
+            day_seed_through,
             // Reads nothing and starts nothing until a turn ends (FAST).
             pass: crate::memory_pass::MemoryPass::new(
                 memory.clone(),

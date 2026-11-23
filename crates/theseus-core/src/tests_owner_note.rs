@@ -101,6 +101,7 @@ fn self_families() -> Vec<(&'static str, String)> {
 /// Turn warnings, spend and AWS, Google, and personas.
 fn spend_families() -> Vec<(&'static str, String)> {
     let reached = theseus_kernel::Reached {
+        pending: false,
         day: "2026-10-22".into(),
         limit: 5_000_000,
         spent: 5_000_000,

@@ -438,3 +438,120 @@ fn a_tasks_call_at_the_ceiling_is_refused_too() {
     assert_eq!(w.kernel.store().stats().unwrap().frames_appended, frames);
     plan(&w, &tg, "fs.read", 0).unwrap();
 }
+
+struct RejectDayWrites(Arc<dyn theseus_store::Store>);
+impl theseus_store::Store for RejectDayWrites {
+    fn append(&self, _: &[theseus_store::NewRecord]) -> anyhow::Result<Vec<u64>> {
+        anyhow::bail!("fixture append rejected")
+    }
+    fn get(&self, p: u64) -> anyhow::Result<Option<theseus_store::Record>> {
+        self.0.get(p)
+    }
+    fn scan(&self, a: u64, b: Option<u64>, n: usize) -> anyhow::Result<Vec<theseus_store::Record>> {
+        self.0.scan(a, b, n)
+    }
+    fn latest_by_key(
+        &self,
+        k: theseus_store::RecordKind,
+        s: &str,
+    ) -> anyhow::Result<Option<theseus_store::Record>> {
+        self.0.latest_by_key(k, s)
+    }
+    fn latest_of_kind(
+        &self,
+        k: theseus_store::RecordKind,
+    ) -> anyhow::Result<Vec<theseus_store::Record>> {
+        self.0.latest_of_kind(k)
+    }
+    fn tail_of_kind(
+        &self,
+        k: theseus_store::RecordKind,
+        n: usize,
+    ) -> anyhow::Result<Vec<theseus_store::Record>> {
+        self.0.tail_of_kind(k, n)
+    }
+    fn count_of_kind(&self, k: theseus_store::RecordKind) -> anyhow::Result<u64> {
+        self.0.count_of_kind(k)
+    }
+    fn scan_scope(&self, s: &str, a: u64, n: usize) -> anyhow::Result<Vec<theseus_store::Record>> {
+        self.0.scan_scope(s, a, n)
+    }
+    fn count_in_scope(&self, s: &str) -> anyhow::Result<u64> {
+        self.0.count_in_scope(s)
+    }
+    fn last_position(&self) -> u64 {
+        self.0.last_position()
+    }
+    fn checkpoint(&self) -> anyhow::Result<u64> {
+        self.0.checkpoint()
+    }
+    fn stats(&self) -> anyhow::Result<theseus_store::StoreStats> {
+        self.0.stats()
+    }
+}
+
+#[test]
+fn failed_standalone_writes_leave_day_holds_and_spend_unchanged() {
+    for operation in [
+        "cancel",
+        "late",
+        "decline",
+        "stop",
+        "cancel_execution",
+        "end_turn",
+    ] {
+        let w = ceiling_world(1_000);
+        let (_, e, g) = running(&w);
+        let a = if matches!(operation, "cancel" | "late") {
+            dispatched(&w, &g, PROVIDER_TOOL, 100)
+        } else {
+            plan(&w, &g, PROVIDER_TOOL, 100).unwrap()
+        };
+        if operation == "late" {
+            w.kernel
+                .cancel_unsupported(&a.correlation_id, "fixture")
+                .unwrap();
+        }
+        let before = today(&w);
+        let state = w.kernel.action(&a.correlation_id).unwrap().unwrap().state;
+        let kernel = w
+            .kernel
+            .view(Arc::new(RejectDayWrites(w.kernel.store().clone())));
+        let result = match operation {
+            "cancel" => kernel
+                .cancel_unsupported(&a.correlation_id, "fixture")
+                .map(|_| ()),
+            "late" => kernel
+                .accept_completion(&completion(
+                    &a.correlation_id,
+                    Outcome::Succeeded,
+                    Some(150),
+                ))
+                .map(|_| ()),
+            "decline" => kernel
+                .decline_action(&a.correlation_id, "owner", "fixture")
+                .map(|_| ()),
+            "stop" => kernel.stop_execution(&e.id, "owner").map(|_| ()),
+            "cancel_execution" => kernel.cancel_execution(&e.id, "owner").map(|_| ()),
+            _ => kernel
+                .end_turn(
+                    g,
+                    TurnEnd::Complete {
+                        reason: "fixture".into(),
+                    },
+                )
+                .map(|_| ()),
+        };
+        assert!(format!("{:#}", result.unwrap_err()).contains("fixture append rejected"));
+        assert_eq!(
+            (today(&w).spent, today(&w).held),
+            (before.spent, before.held),
+            "{operation}"
+        );
+        assert_eq!(
+            w.kernel.action(&a.correlation_id).unwrap().unwrap().state,
+            state,
+            "{operation}"
+        );
+    }
+}
