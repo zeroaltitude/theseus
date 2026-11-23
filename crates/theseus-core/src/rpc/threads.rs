@@ -18,6 +18,7 @@ use super::server::{route, Conn, RpcFailure};
 use super::Core;
 use crate::approval::{Answerer, Refusal};
 use crate::ledger::LedgerRow;
+use crate::session::SessionRecord;
 use crate::threads::Board;
 
 impl Core {
