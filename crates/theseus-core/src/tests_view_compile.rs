@@ -1240,9 +1240,12 @@ async fn x190_a_fresh_terminal_line_after_a_run_of_it_elsewhere_is_what_the_requ
     const ASK: &str = "Reply with the single word: ok";
     let r = rig_with(|c| c.memory.mode = crate::config::MemoryMode::Live);
     let c = &r.core;
+    // Earlier smoke turns: three at this terminal place (the window), five at another terminal place (said
+    // elsewhere lately), all of them in the words index (recall).
     let mut earlier = Vec::new();
-    for _ in 0..5 {
-        let s = crate::tests_places::session(c, None);
+    for i in 0..8 {
+        let at = (i >= 3).then_some("local:/home/smoke");
+        let s = crate::tests_places::session(c, at);
         turn_as(c, &s, ASK, true).await;
         earlier.push(s);
     }
