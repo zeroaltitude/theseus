@@ -22,7 +22,7 @@ New META families only: no field on an existing record, no store-format step.
 - **A `did` line reads two things**: the person's message and the final reply, each cut by code at 4,000
   characters. Tool results are read only for the marks (outside text). An exchange with no line is shown as
   "reply not summarised" and its handle (`did::Said`).
-- **Readable sources are summarised without seals or moves.** Since 2026-11-22, an old seal, veil or move
+- **Sources are summarised without seals or moves.** Since 2026-11-22, an old seal, veil or move
   does not hold a source out of a `did` line or first-level fold. The writer still needs an ended exchange,
   a reply and a laddered place, and keeps its spend reservations.
 - **Marks record provenance**, not an audience boundary around context. Authorship still determines how
@@ -60,7 +60,8 @@ lines and the folds, prices them at their worst case, and writes nothing.
 - Every turn uses the view (`view-compile.md`); the old `[context] assembly` and `ledger` keys are ignored
   with a startup warning. The window and the ladder are read from
   these records: the fold nodes stand for the exchanges older than the window, and an exchange with no `did` line
-  reads "reply not summarised". A fold's source exchanges must resolve to readable sessions. Old seals, veils
+  reads "reply not summarised". A fold is kept only when every exchange it stands
+  for still resolves (`view_step::fold_constituents`); its sessions become the view's dependencies. Old seals, veils
   and moved-message records do not withhold it or force a code-only summary.
 - **Authors**: each quoted excerpt is shown with its own author, read from the message's mark (the owner, another
   person, author unknown), and the writer is told each author. A node written before authorship was recorded
