@@ -82,6 +82,10 @@ pub enum PageEnd {
     /// after the point): those may have filled the search's bounded top hits and crowded out earlier ones, so
     /// the list may be incomplete. Never told as the end of history.
     SearchCut,
+    /// A words search whose bound was reached with hits no longer on record among those it took (gone, erased,
+    /// or stale index entries): a live match below them may have been left out, so the list may be
+    /// incomplete. Never told as the end of history.
+    SearchStale,
 }
 
 /// One page, newest first, with a stable cursor.

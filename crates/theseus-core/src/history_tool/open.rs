@@ -54,12 +54,15 @@ pub fn open_marked(lens: &Lens<'_>, h: &Handle) -> Result<Opened, String> {
         return Err(none());
     }
     let nodes = nodes(lens, &ex).map_err(|e| format!("{e:#}"))?;
-    // Another person's message, or (derived) an External result the exchange read: its reply may quote it.
+    // Another person's message, or (derived) an External result the exchange read: its reply may quote it. And
+    // the exchange's own opening input (D6 round 3, A): whatever of it the read nodes hold.
     let outside = nodes.iter().any(crate::ladder::did::outside)
         || speakable(&nodes).iter().any(|n| {
             matches!(n.body, Body::UserMessage { .. })
                 && matches!(author_of(lens, n), Author::Other)
-        });
+        })
+        || ex.person.as_deref().is_some_and(|p| p != OWNER)
+        || ex.opened_by == exchange::Opener::Prompt;
     Ok(Opened {
         text: render(lens, &ex, &nodes),
         outside,

@@ -130,6 +130,8 @@ fn read_back(
     let (mut lines, mut left) = (Vec::<Line>::new(), Left::default());
     let (mut at, mut seen, mut used) = (before, 0usize, 0u64);
     let mut outside_of: HashMap<String, bool> = HashMap::new();
+    // Whether the session holds an omitted outside message: read once, when an agent's message needs it.
+    let mut holds: Option<bool> = None;
     // Where the next page begins (exclusive), or none: the session's beginning was reached.
     let mut next: Option<u64> = None;
     'pages: loop {
@@ -161,12 +163,20 @@ fn read_back(
                 let derived = match outside_of.get(&turn) {
                     Some(o) => *o,
                     None => {
-                        let o = turn_read_outside(lens.store, id, &turn, r.position);
+                        // What the turn read, or what opened it: a reply to another person's words is outside
+                        // text too, even where the page holds the reply without them (D6 round 3, A).
+                        let o = turn_read_outside(lens.store, id, &turn, r.position)
+                            || input_outside(lens.store, &turn);
                         outside_of.insert(turn, o);
                         o
                     }
                 };
                 line.outside = derived && matches!(n.body, Body::AssistantMessage { .. });
+            }
+            if line.agent {
+                // An imported agent's message beside outside messages the page omits may derive from them:
+                // it is not asserted clean (D6 round 3, A).
+                line.outside = *holds.get_or_insert_with(|| holds_outside(lens.store, id));
             }
             let cost = crate::view::text::tokens(&line.text) + 1;
             if used + cost > budget {
@@ -270,12 +280,69 @@ pub(super) fn turn_read_outside(
     }
 }
 
-/// One spoken message: its WAL position, its text as the page shows it, whether it is outside text, and,
-/// when its author decides that alone, whether it is another's words (a person's message, an import).
+/// Whether the turn `turn`'s opening input was not the owner's own words: its exchange names another person,
+/// or an MCP server's prompt opened it. Its reply is then outside text too, wherever a page splits them. A
+/// read that fails counts as outside: marking only tightens a gate's input.
+pub(super) fn input_outside(store: &crate::store::Store, turn: &str) -> bool {
+    if turn.is_empty() {
+        return false;
+    }
+    match crate::exchange::exchange(store, turn) {
+        Ok(Some(ex)) => {
+            ex.person
+                .as_deref()
+                .is_some_and(|p| p != crate::exchange::OWNER)
+                || ex.opened_by == crate::exchange::Opener::Prompt
+        }
+        Ok(None) => false,
+        Err(_) => true,
+    }
+}
+
+/// Whether session `id` holds an imported outside message (a page omits them), each record read once, a store
+/// page at a time, at most [`MOST`] records: an imported agent's message beside one may derive from it, which
+/// the page cannot tell. A read that fails, or a session longer than [`MOST`] records, counts as holding one.
+fn holds_outside(store: &crate::store::Store, id: &str) -> bool {
+    let (mut at, mut seen) = (None, 0usize);
+    loop {
+        let page = Page {
+            kind: kinds::NODE,
+            tags: vec![ledger_session(id)],
+            before: at,
+            limit: PAGE,
+            ..Page::default()
+        };
+        let Ok(Some(got)) = store.inner().page(&page) else {
+            return true;
+        };
+        seen += got.records.len();
+        for r in &got.records {
+            let Ok(n) = r.decode::<Node>() else {
+                return true;
+            };
+            if matches!(
+                &n.body,
+                Body::Imported { integrity, .. } if matches!(integrity, crate::import::Integrity::Outside)
+            ) {
+                return true;
+            }
+        }
+        match (got.more, got.first) {
+            (true, Some(first)) if seen < MOST => at = Some(first),
+            (true, Some(_)) => return true,
+            _ => return false,
+        }
+    }
+}
+
+/// One spoken message: its WAL position, its text as the page shows it, whether it is outside text, when its
+/// author decides that alone, whether it is another's words (a person's message, an import), and whether it
+/// is an imported agent's message (outside when its session holds an outside message the page omits).
 struct Line {
     text: String,
     outside: bool,
     theirs: Option<bool>,
+    agent: bool,
 }
 
 /// What a page left out, counted.
@@ -377,6 +444,7 @@ fn line_of(lens: &Lens<'_>, _position: u64, n: &Node, left: &mut Left) -> Option
         text: format!("{} · {label}\n{body}", when(n.created_at_ms)),
         outside: who == Who::Other,
         theirs,
+        agent: who == Who::Agent,
     })
 }
 

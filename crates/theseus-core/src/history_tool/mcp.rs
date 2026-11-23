@@ -250,7 +250,7 @@ async fn read_history(
                     PageEnd::ScanLimit => ("scan_limit", resume),
                     PageEnd::HistoryExhausted if in_span => ("span_start", None),
                     PageEnd::HistoryExhausted => ("history_exhausted", None),
-                    PageEnd::SearchCut => ("search_cut", None),
+                    PageEnd::SearchCut | PageEnd::SearchStale => ("search_cut", None),
                 };
                 HistoryReadResult {
                     place,

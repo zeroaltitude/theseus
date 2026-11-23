@@ -47,7 +47,7 @@ use theseus_tools::{
 use crate::config::memory::MemoryArm;
 use crate::exchange::{self, Exchange, Opener};
 use crate::recall::when::When;
-use crate::view::history::{HistoryArgs, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES};
+use crate::view::history::{HistoryArgs, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, PointOfView, Present};
 use crate::Core;
@@ -578,14 +578,22 @@ pub(crate) async fn read(
         Allowance::Turn { board, turn } => board.position(turn, a.before.as_ref())?,
         Allowance::NoTurn => a.before.clone(),
     };
+    let mut stale = false;
     if let Some(w) = a.words.as_deref().map(str::trim).filter(|w| !w.is_empty()) {
         let (root, _) = lens.root(a).map_err(|e| format!("{e:#}"))?;
         let scope = lens.scope(&root).map_err(|e| format!("{e:#}"))?;
-        lens.words = Some(found(core, w, scope).await?);
+        let (turns, cut) = found(core, w, scope).await?;
+        lens.words = Some(turns);
+        stale = cut;
     }
     let mut walked = lens
         .walk(a, before, used.looks)
         .map_err(|e| format!("{e:#}"))?;
+    // Hits no longer on record took places in the search's bound: what lay below them may be missing, so the
+    // search is never told as the end of history (D6 round 3, F).
+    if stale && walked.page.end == PageEnd::HistoryExhausted {
+        walked.page.end = PageEnd::SearchStale;
+    }
     let resume = match (allowance, walked.resume.take()) {
         (Allowance::Turn { board, turn }, Some(at)) => Some(board.keep(turn, at)),
         (_, at) => at,
@@ -598,14 +606,17 @@ pub(crate) async fn read(
 }
 
 /// The turns the words index finds for `words` among `scope`, the sessions on the timeline walked: the search
-/// is scoped to them before it ranks anything.
+/// is scoped to them before it ranks anything. And whether the search may be incomplete: a hit it admitted gave
+/// no live turn (gone, erased, or outside the scope: a stale index entry) while its bound was reached (the most
+/// it asks, or the pack's budget dropped some), so a live hit below the stale ones may have been left out. The
+/// pack is bounded before each hit's node is read, and nothing refills it.
 pub(crate) async fn found(
     core: &Arc<Core>,
     words: &str,
     scope: HashSet<String>,
-) -> Result<HashSet<String>, String> {
+) -> Result<(HashSet<String>, bool), String> {
     if scope.is_empty() {
-        return Ok(HashSet::new());
+        return Ok((HashSet::new(), false));
     }
     let memory = &core.runner.memory;
     let deadline = Duration::from_millis(memory.cfg().recall_deadline_ms).max(DEADLINE);
@@ -649,10 +660,24 @@ pub(crate) async fn found(
             m.outcome
         ));
     }
-    Ok(m.admitted
-        .iter()
-        .filter(|i| scope.contains(&i.session_id))
-        .filter_map(|i| core.store.get_node(&i.node_id).ok().flatten())
-        .filter_map(|(_, n)| n.turn_id)
-        .collect())
+    let mut turns = HashSet::new();
+    let mut discarded = 0usize;
+    for i in &m.admitted {
+        let live = scope
+            .contains(&i.session_id)
+            .then(|| core.store.get_node(&i.node_id).ok().flatten())
+            .flatten()
+            .filter(|(_, n)| !matches!(n.body, crate::node::Body::Erased { .. }))
+            .and_then(|(_, n)| n.turn_id);
+        match live {
+            Some(t) => {
+                turns.insert(t);
+            }
+            None => discarded += 1,
+        }
+    }
+    let bound = m.admitted.len() >= WORDS_K
+        || m.candidates >= WORDS_K as u64
+        || m.drops.get("budget").is_some_and(|n| *n > 0);
+    Ok((turns, discarded > 0 && bound))
 }

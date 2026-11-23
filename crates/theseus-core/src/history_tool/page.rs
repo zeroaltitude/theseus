@@ -617,6 +617,10 @@ pub fn render(
             resume.map_or_else(|| "{}".into(), cursor_text),
             looks + 1
         ),
+        (PageEnd::SearchStale, _) => format!(
+            "This words search's bound was filled with matches no longer on record{oldest}: a match below them \
+             may be missing, so this list may be incomplete. Try other words, or page without words."
+        ),
         (PageEnd::SearchCut, _) => format!(
             "This words search was cut at this conversation's fork point{oldest}: what was said after the point \
              is not shown, and those matches may have crowded out earlier ones, so this list may be incomplete. \

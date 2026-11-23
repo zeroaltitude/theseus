@@ -57,6 +57,14 @@ fn parents() -> HashMap<u32, u32> {
         .collect()
 }
 
+/// Whether this daemon's own process holds the client's end of the connection from `client` to `server`: the
+/// call comes from this daemon's own outbound MCP attachment, a self-loop session reaching its own endpoint
+/// (D6 round 3, B). Unreadable: false, as any outside client's.
+pub fn from_this_daemon(server: SocketAddr, client: SocketAddr) -> bool {
+    theseus_core::peer::client_inode(server, client)
+        .is_some_and(|inode| holds(std::process::id(), inode))
+}
+
 /// The descendants of `root`, nearest first.
 fn under(root: u32, parents: &HashMap<u32, u32>) -> Vec<u32> {
     let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
@@ -161,5 +169,38 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(got, None);
+    }
+
+    /// A connection this process itself makes is this daemon's own (its outbound attachment calling back); a
+    /// child's is not (D6 round 3, B).
+    #[tokio::test]
+    async fn a_connection_from_this_process_is_this_daemons_own() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _own = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (io, client) = listener.accept().await.unwrap();
+        let server = io.local_addr().unwrap();
+        let ours = tokio::task::spawn_blocking(move || from_this_daemon(server, client))
+            .await
+            .unwrap();
+        assert!(ours, "this process holds its end");
+        let script = format!("exec 3<>/dev/tcp/127.0.0.1/{}; sleep 30", addr.port());
+        let mut job = std::process::Command::new("bash");
+        job.process_group(0).args(["-c", &script]);
+        let mut child = job.spawn().expect("bash runs");
+        let (io, client) =
+            tokio::time::timeout(std::time::Duration::from_secs(10), listener.accept())
+                .await
+                .unwrap()
+                .unwrap();
+        let server = io.local_addr().unwrap();
+        let theirs = tokio::task::spawn_blocking(move || from_this_daemon(server, client))
+            .await
+            .unwrap();
+        let _ = std::process::Command::new("kill")
+            .args(["-9", "--", &format!("-{}", child.id())])
+            .status();
+        let _ = child.wait();
+        assert!(!theirs, "a child's end is not this process's");
     }
 }
