@@ -505,4 +505,3 @@ async fn work_with_no_vault_reference_is_not_held_by_the_vaults_room() {
     assert_eq!(b.status().ready, ["local"]);
     assert!(runs(dir.path()).is_empty(), "no op ran");
 }
-
