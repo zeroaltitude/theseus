@@ -224,6 +224,8 @@ impl ToolRuntime {
         // A failed call's words ride in its completion, and so in its ledger
         // row, so the backlog can say why it failed.
         let detail = failed_detail(status, &text, dur, &meta);
+        // What the cap leaves of the words it copies (D6 round 6).
+        let copied = self.cap_copied(&call.id, &text, copied);
         let node = self.result_node(
             tc,
             ResultNode {

@@ -23,8 +23,14 @@ pub(super) fn who(origin: Origin, author: Option<&str>) -> &'static str {
     }
 }
 
-/// The part's words, and the messages they show (what its result copies, `copies`).
-pub(super) fn history(core: &Core, session: &str, messages: usize) -> (String, Vec<String>) {
+/// The part's words, and the messages they show (what its result copies, `copies`): each with where its words
+/// are in the part, in characters, `from` to `to`. A message whose words clip to nothing (control characters
+/// alone) shows none, and is not one of them (D6 round 6).
+pub(super) fn history(
+    core: &Core,
+    session: &str,
+    messages: usize,
+) -> (String, Vec<(String, usize, usize)>) {
     let nodes = match core.store.session_nodes(session) {
         Ok(n) => n,
         Err(_) => {
@@ -34,33 +40,31 @@ pub(super) fn history(core: &Core, session: &str, messages: usize) -> (String, V
             )
         }
     };
-    let mut lines: Vec<(String, String)> = nodes
+    // Each line as the name it goes under and its words, apart, so where its words are is known.
+    let mut lines: Vec<(String, String, String)> = nodes
         .iter()
         .filter_map(|(_, n)| {
             let line = match &n.body {
-                Body::UserMessage { text, .. } if !text.trim().is_empty() => Some(format!(
-                    "{}: {}",
-                    who(n.origin, n.author.as_deref()),
-                    clip(text, LINE_CHARS)
+                Body::UserMessage { text, .. } if !text.trim().is_empty() => Some((
+                    format!("{}: ", who(n.origin, n.author.as_deref())),
+                    clip(text, LINE_CHARS),
                 )),
                 Body::AssistantMessage { blocks, model, .. } => {
                     let text: String = blocks.iter().filter_map(|b| b["text"].as_str()).collect();
                     (!text.trim().is_empty())
-                        .then(|| format!("Theseus ({model}): {}", clip(&text, LINE_CHARS)))
+                        .then(|| (format!("Theseus ({model}): "), clip(&text, LINE_CHARS)))
                 }
                 // Another profile's answer, a message of its own (`profile.ask`).
                 Body::ToolResult { meta, .. } => theseus_protocol::SubagentAnswer::from_meta(meta)
                     .map(|a| {
-                        format!(
-                            "{} (a subagent, {}): {}",
-                            a.profile,
-                            a.model,
-                            clip(&a.text, LINE_CHARS)
+                        (
+                            format!("{} (a subagent, {}): ", a.profile, a.model),
+                            clip(&a.text, LINE_CHARS),
                         )
                     }),
                 _ => None,
             };
-            line.map(|l| (l, n.id.clone()))
+            line.map(|(name, words)| (name, words, n.id.clone()))
         })
         .collect();
     let total = lines.len();
@@ -75,8 +79,15 @@ pub(super) fn history(core: &Core, session: &str, messages: usize) -> (String, V
         "The last {} of this conversation's {total} messages:\n",
         kept.len()
     );
-    for (l, _) in &kept {
-        let _ = writeln!(out, "- {l}");
+    let mut shown = Vec::new();
+    for (name, words, id) in kept {
+        let _ = write!(out, "- {name}");
+        let from = out.chars().count();
+        out.push_str(&words);
+        if !words.is_empty() {
+            shown.push((id, from, from + words.chars().count()));
+        }
+        out.push('\n');
     }
-    (out, kept.into_iter().map(|(_, id)| id).collect())
+    (out, shown)
 }

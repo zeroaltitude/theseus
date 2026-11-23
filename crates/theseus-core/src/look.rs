@@ -354,6 +354,9 @@ impl Board {
                         .map(|(said, shown)| {
                             // The messages it shows: its result's edges to them (`copies`).
                             let mut o = output(said, WORK);
+                            let shown: Vec<_> = (shown.iter())
+                                .map(|(id, from, to)| crate::copies::span(id, *from, *to))
+                                .collect();
                             o.meta[crate::copies::KEY] = json!(shown);
                             (o, None, None)
                         })

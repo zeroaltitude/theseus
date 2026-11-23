@@ -158,17 +158,18 @@ pub(super) fn schema() -> Value {
 }
 
 /// The words for each part asked for: Theseus's whole work, this conversation's first, and its own
-/// messages (`session`'s); and the messages the history part shows (what the result copies, `copies`).
+/// messages (`session`'s); and the messages the history part shows (what the result copies, `copies`), each
+/// with where its words are in the answer ([`assemble`]).
 pub(super) async fn words(
     core: &std::sync::Arc<Core>,
     who: &Caller<'_>,
     ask: &Ask,
-) -> Result<(String, Vec<String>), String> {
+) -> Result<(String, Vec<Shown>), String> {
     let session = who.session;
     let r = reader::Reader::new(core, session);
-    let mut out = String::new();
-    let mut shown = Vec::new();
+    let mut parts = Vec::new();
     for p in &ask.parts {
+        let mut shown = Vec::new();
         let part = match (*p, ask.here) {
             (part, true) if WHOLE_ONLY.contains(&part) => format!(
                 "{}: not tied to one conversation; ask for scope `all` to see them.\n",
@@ -181,13 +182,12 @@ pub(super) async fn words(
             ("routines", _) => horizon::routines(&r),
             ("coming", _) => horizon::coming(&r, ask.here),
             _ => {
-                let (words, ids) = history::history(core, session, ask.messages);
-                shown.extend(ids);
+                let (words, spans) = history::history(core, session, ask.messages);
+                shown = spans;
                 words
             }
         };
-        out.push_str(&cut(part, TOTAL_CHARS));
-        out.push('\n');
+        parts.push((part, shown));
     }
     // Another conversation's marked words, given to this one: it takes their flags on, before the result
     // is written. With content judging switched off (`[content_based_security] session_flags = false`)
@@ -220,7 +220,36 @@ pub(super) async fn words(
             );
         }
     }
-    Ok((cut(out, ANSWER_CHARS), shown))
+    Ok(assemble(parts))
+}
+
+/// A message a part shows: its node id, and where its words are, in characters, `from` to `to`.
+pub(super) type Shown = (String, usize, usize);
+
+/// The answer from its parts, in order: each cut to [`TOTAL_CHARS`], then the whole to [`ANSWER_CHARS`]; and
+/// the messages some of whose words both cuts leave in it, each with where those words are in the answer
+/// (D6 round 6). A message a cut leaves out is no copy.
+fn assemble(parts: Vec<(String, Vec<Shown>)>) -> (String, Vec<Shown>) {
+    let mut out = String::new();
+    let mut shown = Vec::new();
+    for (part, spans) in parts {
+        let at = out.chars().count();
+        let kept = part.chars().count().min(TOTAL_CHARS);
+        shown.extend(within(spans, kept).map(|(id, from, to)| (id, at + from, at + to)));
+        out.push_str(&cut(part, TOTAL_CHARS));
+        out.push('\n');
+    }
+    let kept = out.chars().count().min(ANSWER_CHARS);
+    let shown = within(shown, kept).collect();
+    (cut(out, ANSWER_CHARS), shown)
+}
+
+/// The spans that begin within the first `kept` characters, each ended there at the latest: what a cut that keeps
+/// those characters leaves of them.
+fn within(spans: Vec<Shown>, kept: usize) -> impl Iterator<Item = Shown> {
+    (spans.into_iter())
+        .filter(move |(_, from, _)| *from < kept)
+        .map(move |(id, from, to)| (id, from, to.min(kept)))
 }
 
 /// Who asks: the conversation and the turn.

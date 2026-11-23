@@ -46,6 +46,11 @@ impl Notes {
         }
     }
 
+    /// The note a result's text will begin with, left in place.
+    pub(super) fn peek(&self, id: &str) -> Option<String> {
+        self.get(id, true)
+    }
+
     /// The note, kept while the call still runs in the background.
     fn get(&self, id: &str, keep: bool) -> Option<String> {
         let mut m = self.0.lock().ok()?;
