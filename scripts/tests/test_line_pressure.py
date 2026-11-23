@@ -46,7 +46,10 @@ CALIBRATION = [
     # with `too-many-lines-threshold = 85`: sync 207 of 207 exact, `#[tokio::test]` 72 of 72, plain async 85 of 85
     # exactly 2 short before the rule. Re-measure a moved row; never loosen it.
     ("crates/theseus-core/src/card/run.rs", "card_run", 89),
-    ("crates/theseus-core/src/rpc/server.rs", "dispatch", 96),
+    # 96 until the history head (issue 46) put `history.read` beside memory's two reads in one arm, which rustfmt
+    # lays on three lines: clippy, run with `too-many-lines-threshold = 40` in a scratch clippy.toml on 697b63fc9,
+    # prints 98; the script reads 98.
+    ("crates/theseus-core/src/rpc/server.rs", "dispatch", 98),
     # 88 until 7fd80132 ("date and git state in the messages' tail"), which added exactly one counted line to
     # this function (`self.env_tail(t, &mut compiled).await;`) and left this row one behind the tree, which is
     # the stale-row case the header describes and not a counting bug: the script reads 88 at 7fd80132^ and 89
@@ -65,7 +68,9 @@ CALIBRATION = [
     # tree, prints 96 for it; the script reads 96.
     # 96 until issue 44's last withholding went (the personal hold and the place digest's attachment): clippy,
     # run with `too-many-lines-threshold = 40` in a scratch clippy.toml on 5b0d10c53, prints 91; the script reads 91.
-    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 91),
+    # 91 until landing 2 met it (the prefix library's pick, the tails' begin and the old last block gone, the one
+    # block beside the message rendered before the view): clippy, threshold 40 on 697b63fc9, prints 90; the script 90.
+    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 90),
 ]
 
 

@@ -336,7 +336,10 @@ const DM_PERSON: [&str; 6] = ["commands", "files", "history", "memory", "reminde
 // And 11166 until two changes of issue 44 met: `memory.lookup`'s description no longer speaks of veils
 // or a place rule, as memory reads read every place (21 tokens fewer, in the memory family), and the
 // memory page says what the view does (version 4: 24 more tokens). Measured at both steps.
-const DM_PERSON_TOKENS: u64 = 11169;
+// And 11169 until `context_history` read a time span (issue 46, the history head): `when`, `from` and `to`
+// in its schema and a longer description, 56 more tokens in the history family, which a DM loads and the
+// terminal defers. Measured on a box before and after that merge (11,169 and 11,225).
+const DM_PERSON_TOKENS: u64 = 11225;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
 // And 7800 until the self card's look-before-asking sentence named `context_history` (issue 44): one
 // token more at the terminal, where the tool itself is deferred.
