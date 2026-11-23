@@ -538,6 +538,25 @@ async fn an_unreadable_view_record_makes_the_answer_partial() {
     assert_eq!(got.totals.contexts, 2, "what was read is still said");
 }
 
+/// A view's call evidence that will not all decode leaves the answer partial (rule A, issue 44): one good
+/// dispatch and one undecodable ledger row in its chain is not a complete count, though the good one is
+/// still said.
+#[tokio::test]
+async fn call_evidence_that_will_not_decode_makes_the_answer_partial() {
+    let r = rig(|_| Scripted::text("Noted."));
+    let sid = conversation(&r.core);
+    turn(&r.core, &sid, "a message").await;
+    let first = nodes(&r.core, &sid)[0].1.id.clone();
+    assert!(!reach(&r.core.store, &first, None).unwrap().unwrap().partial);
+    let bad = theseus_store::NewRecord::json(kinds::LEDGER, None, &json!(["not", "a", "row"]))
+        .unwrap()
+        .scoped(&sid);
+    r.core.store.append(&[bad]).unwrap();
+    let got = reach(&r.core.store, &first, None).unwrap().unwrap();
+    assert!(got.partial, "{got:?}");
+    assert_eq!(got.totals.contexts, 2, "what was read is still said");
+}
+
 /// A reply that is only calls, laid in a later turn's window, is counted there (rule B, issue 44): the
 /// window's own renderer carries its calls, which the text renderer's parts do not model.
 #[tokio::test]
