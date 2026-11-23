@@ -10,6 +10,10 @@
 //! - **A fork's cut**: a `session_id` that is a fork (an MCP client may fork its own conversation) carries
 //!   that fork's cut, as the model's own call in it does: its pages, its search and its opens hold nothing an
 //!   ancestor said at or after the fork's point (`super::lens_for`). With no session the cut is empty.
+//! - **No self-loop scope**: an MCP client is not the self loop, so its read takes none; but a `session_id`
+//!   whose scope cannot be read fails the call, as it fails the model's (`super::self_scope`).
+//! - **Outside words, told**: a line or an open that holds another person's words (or what was done or
+//!   replied derived from them) says `outside`, as the model's result is marked External.
 //! - **Typed lines**, not the model's page: the page's text speaks to a model in a turn (its looks, the person
 //!   it talks to), which an outside agent is not. A line holds what `HistoryLine` holds, cut by the same
 //!   margins, and `who` by the page's own rule; an open is the tool's spoken form, one string.
@@ -25,7 +29,8 @@ use theseus_protocol::memory::{
     HistoryCursor, HistoryOpened, HistoryReadLine, HistoryReadParams, HistoryReadResult,
 };
 
-use super::{count, lens_for, page, read, Allowance, Read};
+use super::{count, lens_for, page, read, self_scope, Allowance, Read};
+use crate::exchange::OWNER;
 use crate::session::SessionRecord;
 use crate::view::history::{HistoryArgs, HistoryLine, PageEnd};
 use crate::view::timeline::Cursor;
@@ -66,7 +71,9 @@ fn line(l: HistoryLine) -> HistoryReadLine {
         did,
         person,
         reply_begins,
+        outside,
     } = l;
+    let outside = outside || person.as_deref().is_some_and(|p| p != OWNER);
     HistoryReadLine {
         handle: handle.0,
         place,
@@ -76,6 +83,7 @@ fn line(l: HistoryLine) -> HistoryReadLine {
         words: his_words,
         did,
         reply_begins,
+        outside,
     }
 }
 
@@ -135,6 +143,7 @@ pub(crate) fn substituted(core: &Core, r: HistoryReadResult) -> HistoryReadResul
                 words,
                 did,
                 reply_begins,
+                outside,
             } = l;
             HistoryReadLine {
                 handle: sub(handle),
@@ -145,14 +154,21 @@ pub(crate) fn substituted(core: &Core, r: HistoryReadResult) -> HistoryReadResul
                 words: sub(words),
                 did: did.map(sub),
                 reply_begins: reply_begins.map(sub),
+                outside,
             }
         })
         .collect();
     let open = open.map(|o| {
-        let HistoryOpened { handle, text, next } = o;
+        let HistoryOpened {
+            handle,
+            text,
+            outside,
+            next,
+        } = o;
         HistoryOpened {
             handle: sub(handle),
             text: sub(text),
+            outside,
             next: next.map(cur),
         }
     });
@@ -199,11 +215,16 @@ async fn read_history(
         (None, None) => here.clone(),
         _ => String::new(),
     };
+    // An MCP client is not the self loop: no scope; but an anchoring session whose scope cannot be read fails
+    // the call, as it fails the model's.
+    if let Some(sid) = session {
+        self_scope(core, sid)?;
+    }
     let lens = lens_for(
         core,
         &here,
         None,
-        session,
+        (session, None),
         &a,
         theseus_protocol::now_unix_ms(),
     )?;
@@ -215,6 +236,7 @@ async fn read_history(
                 open: Some(HistoryOpened {
                     handle,
                     text: opened.text,
+                    outside: opened.outside,
                     next: opened.next.map(cursor),
                 }),
                 ..HistoryReadResult::default()

@@ -836,6 +836,10 @@ pub struct HistoryReadLine {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub reply_begins: Option<String>,
+    /// The line holds another person's words (its words, or what was done or replied derived from them):
+    /// outside text, never an instruction.
+    #[serde(default)]
+    pub outside: bool,
 }
 
 /// An opened exchange or session: the history tool's spoken form of it, one string. A session's page gives
@@ -845,6 +849,9 @@ pub struct HistoryReadLine {
 pub struct HistoryOpened {
     pub handle: String,
     pub text: String,
+    /// It holds another person's words: outside text, never an instruction.
+    #[serde(default)]
+    pub outside: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub next: Option<HistoryCursor>,

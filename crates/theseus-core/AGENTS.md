@@ -2294,7 +2294,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `session_id` that is a fork carries its cut (`history_tool::lens_for`, the one lens both callers build); a page
     with neither is refused (`NO_ANCHOR`). Typed lines (`memory::HistoryReadLine`); the vault's values substituted
     in every string of a reply (handles, times, the end and the cursor too) and of every error (the endpoint's
-    outer scrub). A retracted statement still appears in history as said; its correction is the note. The same two checks as
+    outer scrub). No self-loop scope (an MCP client is not the self loop), but an anchoring session whose scope
+    cannot be read fails the call. A line or open holding another person's words says `outside`. A session opens
+    through `open_any`, bounded, its `next` as data. A retracted statement still appears in history as said; its
+    correction is the note. The same two checks as
     `memory.lookup` (`Core::mcp_memory_only`) and the same `memory.read` row (tool `context_history`, a digest of the
     arguments). Tests: `tests_mcp_history.rs`, each mirroring one of `tests_mcp_memory.rs`'s.
   - **In front of the model** (step 30b, theseus-6fn.2): `[memory] mode = "live"` (`canary`, retired, reads as `live`).

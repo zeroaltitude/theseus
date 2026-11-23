@@ -48,14 +48,18 @@ pub fn open_marked(lens: &Lens<'_>, h: &Handle) -> Result<Opened, String> {
     let ex = exchange::exchange(lens.store, h.0.trim())
         .map_err(|_| none())?
         .ok_or_else(none)?;
-    // A fork opens nothing its cut holds (`Lens::forked`): it reads as no exchange here.
-    if lens.forked(&ex).map_err(|e| format!("{e:#}"))? {
+    // Nothing the asker's scope does not admit (`Lens::in_scope`), and for a fork nothing its cut holds
+    // (`Lens::forked`): either reads as no exchange here.
+    if !lens.in_scope(&ex) || lens.forked(&ex).map_err(|e| format!("{e:#}"))? {
         return Err(none());
     }
     let nodes = nodes(lens, &ex).map_err(|e| format!("{e:#}"))?;
-    let outside = speakable(&nodes).iter().any(|n| {
-        matches!(n.body, Body::UserMessage { .. }) && matches!(author_of(lens, n), Author::Other)
-    });
+    // Another person's message, or (derived) an External result the exchange read: its reply may quote it.
+    let outside = nodes.iter().any(crate::ladder::did::outside)
+        || speakable(&nodes).iter().any(|n| {
+            matches!(n.body, Body::UserMessage { .. })
+                && matches!(author_of(lens, n), Author::Other)
+        });
     Ok(Opened {
         text: render(lens, &ex, &nodes),
         outside,
@@ -167,7 +171,7 @@ fn render(lens: &Lens<'_>, ex: &Exchange, nodes: &[Node]) -> String {
     let by_id: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.as_str(), n)).collect();
     let mut parts = forms::spoken(&nodes);
     for p in &mut parts {
-        if matches!(p.voice, Voice::Person | Voice::Theseus) {
+        if matches!(p.voice, Voice::Person | Voice::Harness | Voice::Theseus) {
             p.text = margined(&p.text);
         }
     }

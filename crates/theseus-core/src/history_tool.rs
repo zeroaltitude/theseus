@@ -175,6 +175,41 @@ impl Tool for HistoryTool {
     }
 }
 
+/// One open, whatever its handle names: a session's page by its `ses_…` id (`session::open`, `before` paging
+/// back), or one exchange (`open::open_marked`). Behind the lens's seams (the fork's cut, the self loop's
+/// scope); every reader of history opens through here (the model's tool, and any other face of it).
+pub(crate) fn open_any(
+    lens: &page::Lens<'_>,
+    h: &crate::view::Handle,
+    before: Option<&Cursor>,
+) -> Result<OpenedAny, String> {
+    if session::names_a_session(&h.0) {
+        let s = session::open(lens, &h.0, before)?;
+        return Ok(OpenedAny {
+            text: s.text,
+            outside: s.outside,
+            session: true,
+            next: s.next,
+        });
+    }
+    let o = open::open_marked(lens, h)?;
+    Ok(OpenedAny {
+        text: o.text,
+        outside: o.outside,
+        session: false,
+        next: None,
+    })
+}
+
+/// What [`open_any`] gives: the text, whether it shows outside words (its result is marked External,
+/// [`marker`]), whether it was a session's page, and a session page's continuation, as data.
+pub(crate) struct OpenedAny {
+    pub text: String,
+    pub outside: bool,
+    pub session: bool,
+    pub next: Option<Cursor>,
+}
+
 /// The External marker of a call's result (`external`): set when what it shows holds another person's
 /// words (a page's line, an opened exchange or session marked outside text), so every reader of the marker
 /// (`external::read_any`, `external::first`, the settings acts' "outside text since the owner's message")
@@ -358,6 +393,31 @@ fn worker_pov(core: &Core, session: &str, ex: Option<&Exchange>) -> PointOfView 
     }
 }
 
+/// The self loop's scope of `session`'s history read (`view_gate::Verified`, as its view reads it): for a
+/// session the self loop opened, its own place at its verified anchor and the run it was handed as a fork
+/// (read fallibly: a run that cannot be read fails the call); none for any other session, which reads every
+/// place. A scope that cannot be read fails the call plainly, as it fails a turn's view: never the widest.
+fn self_scope(core: &Core, session: &str) -> Result<Option<page::SelfScope>, String> {
+    let v = crate::view_gate::Verified::of_session(&core.runner, session);
+    if v.scope_unread() {
+        return Err(
+            "context.history reads nothing here: whether the self loop opened this session \
+                    cannot be read"
+                .into(),
+        );
+    }
+    if !v.own_place_only() {
+        return Ok(None);
+    }
+    let handed =
+        crate::fork::window::inherited(&core.store, session).map_err(|e| format!("{e:#}"))?;
+    Ok(Some(page::SelfScope {
+        session: session.into(),
+        anchor: v.pov().anchor.clone(),
+        handed: handed.into_iter().map(|e| e.turn_id).collect(),
+    }))
+}
+
 /// Whether `turn`'s exchange has ended.
 fn ended(core: &Core, turn: &str) -> bool {
     exchange::exchange(&core.store, turn)
@@ -381,7 +441,8 @@ pub(crate) async fn answer(
     let allowance = Allowance::Turn { board, turn };
     let used = count(core, &allowance, a);
     let in_view = page::in_view(&core.store, session, here).map_err(|e| format!("{e:#}"))?;
-    let lens = lens_for(core, here, in_view, Some(session), a, pov.now_ms)?;
+    let scope = self_scope(core, session)?;
+    let lens = lens_for(core, here, in_view, (Some(session), scope), a, pov.now_ms)?;
     let span = lens.span.clone();
     Ok(match read(core, lens, &allowance, used, a).await? {
         Read::OpensUsed { opens } => ToolOutput {
@@ -394,24 +455,11 @@ pub(crate) async fn answer(
         Read::Opened {
             handle,
             opened,
-            session: true,
             opens,
         } => ToolOutput {
             meta: json!({
-                "open": page::flat(&handle), "session": true,
+                "open": page::flat(&handle), "session": opened.session,
                 "opens": opens, "of": OPENS_PER_TURN,
-                "outside": outside_of(opened.outside, handle.trim()),
-            }),
-            text: opened.text,
-        },
-        Read::Opened {
-            handle,
-            opened,
-            opens,
-            ..
-        } => ToolOutput {
-            meta: json!({
-                "open": page::flat(&handle), "opens": opens, "of": OPENS_PER_TURN,
                 "outside": outside_of(opened.outside, handle.trim()),
             }),
             text: opened.text,
@@ -458,14 +506,15 @@ pub(crate) fn count(core: &Core, allowance: &Allowance<'_>, a: &HistoryArgs) -> 
 }
 
 /// The lens a read takes, for both callers: `here`, where a bare page starts (`in_view`), the span `a` names
-/// (as of `now_ms`, `span_of`), and the cut of `session` when a session anchors the read (a fork's history
-/// holds nothing an ancestor said at or after its point, `fork::cut`; a cut that cannot be read fails the call
-/// plainly). With no anchoring session the cut is empty.
+/// (as of `now_ms`, `span_of`), the cut of `session` when a session anchors the read (a fork's history holds
+/// nothing an ancestor said at or after its point, `fork::cut`; a cut that cannot be read fails the call
+/// plainly), and the asker's self-loop `scope` its caller read ([`self_scope`] for the model's call; none for
+/// an MCP client, which is not the self loop). With no anchoring session the cut is empty.
 pub(crate) fn lens_for<'a>(
     core: &'a Core,
     here: &str,
     in_view: Option<Cursor>,
-    session: Option<&str>,
+    (session, scope): (Option<&str>, Option<page::SelfScope>),
     a: &HistoryArgs,
     now_ms: u64,
 ) -> Result<page::Lens<'a>, String> {
@@ -481,17 +530,17 @@ pub(crate) fn lens_for<'a>(
         words: None,
         span,
         cut,
+        scope,
     })
 }
 
-/// A call's answer before it is said: an opened exchange or session (`session` says which), a turn's opens
-/// used, or a page. `resume` is a turn's opaque token, or with no turn the raw position a walk stopped by its
+/// A call's answer before it is said: an opened exchange or session ([`open_any`]), a turn's opens used, or a
+/// page. `resume` is a turn's opaque token, or with no turn the raw position a walk stopped by its
 /// bound resumes at.
 pub(crate) enum Read {
     Opened {
         handle: String,
-        opened: session::Opened,
-        session: bool,
+        opened: OpenedAny,
         opens: u32,
     },
     OpensUsed {
@@ -519,15 +568,9 @@ pub(crate) async fn read(
         }
         // A `ses_…` id opens that session, a page of it, `before` paging back (`session`); any other handle
         // one exchange.
-        let is_session = session::names_a_session(&h.0);
-        let opened = match is_session {
-            true => session::open(&lens, &h.0, a.before.as_ref())?,
-            false => open::open_marked(&lens, h)?,
-        };
         return Ok(Read::Opened {
             handle: h.0.clone(),
-            opened,
-            session: is_session,
+            opened: open_any(&lens, h, a.before.as_ref())?,
             opens: used.opens + 1,
         });
     }
