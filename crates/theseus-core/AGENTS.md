@@ -428,11 +428,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   answer certain rather than a matter of the model electing to look: owner-alone places only, never a task's session,
   after the cached prefix so it is no cache write. **Older than today**, or more than
   the block's eight lines, is read by `card.observed` (`card/tool.rs`, dispatched in `toolrun.rs` by family `card`,
-  attached in `rpc/mod.rs`): `when` (today by default, read as `memory.lookup` reads it) and `limit`, open notes newest
+  attached in `rpc/mod.rs`): `when` (today by default, read as the history tool reads it) and `limit`, open notes newest
   first, each with its local day,
   kind, id and session, under a head saying they are unconfirmed and on no card. The rest of the wall is whole — still no
   node, no index, no recall, and no span past today in any prompt: only the tool's contract is in the request, as
-  `memory.lookup`'s is. **The tool's wall is the block's, clause for clause** (`card::tool::refusal`, the one point both
+  the history tool's is. **The tool's wall is the block's, clause for clause** (`card::tool::refusal`, the one point both
   the runtime and the tests go through): the owner alone in the place (`tc.class`, then `Core::owner_alone_in` on the
   session's place), never a task's session (its own record, as `turn/compile_step.rs` reads it — a task's place is its
   parent's, so the place checks pass one through). It is no `places::public_tool`, and it is not registered at
@@ -852,7 +852,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   A job a restart found alive gets its short id too (`toolrun/resume.rs`, `check_dispatched`: the same meta, and words naming
   its command and the job tools).
   `job.read`, `job.wait` and `job.stop` (schemas in theseus-tools' `jobs.rs`) run in `toolrun/jobs_tools.rs`, through
-  the core (`Board`, attached as `memory.lookup`'s is): a read is the one tail reader, `toolrun/peek.rs`
+  the core (`Board`, attached in `rpc/mod.rs` as the history tool's is): a read is the one tail reader, `toolrun/peek.rs`
   (`crate::toolrun::peek`, bounded: 64 KiB by seek, lines counted only up to 8 MiB), which the work board's
   `work.peek` is to call too; a wait wakes on `JobWaits::settled` (the drain's take, a stop's and the reconciler's
   wakes) and takes nothing; a stop is `Kernel::stop_call` and `terminate_all`. The gate finds the job in the calling
@@ -2017,7 +2017,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     wrote the node (the landing takes the session's lock, which is not re-entrant), with the node's `created_at_ms` so a Remove
     sticks. There is no mark any more: no META record, no task-locals, no lineage walk, no recall follow, no `data_mark.rs`. A task,
     a retry, a routine's run, a draft and its first pass start with the parent's cn-disqualifying labels
-    (`ContentFlags::inherited`, not `injection`). Recalled notes, the place digest and `memory.lookup` carry no mark; a request to a
+    (`ContentFlags::inherited`, not `injection`). Recalled notes and the place digest carry no mark; a request to a
     restricted model carries no `Recall` node, lists and does not show every standing record kept from a message of another
     session (`standing_step.rs`) and leaves out every milestone's reminder (`commitments.rs`), whatever the labels, and a draft's
     view carries neither the task view nor the project slice. **A model of EU origin is refused

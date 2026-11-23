@@ -190,7 +190,7 @@ pub fn volatile(n: &Node, shown: &str) -> Option<String> {
 }
 
 /// `volatile`, for a reader that holds its source's text and the time it
-/// was written but no node: `memory.lookup`'s page lines (theseus-3nk). The
+/// was written but no node: the history tool's lines (`history_tool/page.rs`; theseus-3nk). The
 /// one rule and the one wording, so a value answered by the tool and the
 /// same value recalled into a prefix say the same thing.
 pub fn volatile_at(shown: &str, created_at_ms: u64) -> Option<String> {
