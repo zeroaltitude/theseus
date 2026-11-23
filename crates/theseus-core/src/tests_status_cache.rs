@@ -55,6 +55,7 @@ async fn health_calls_inside_a_second_make_one_status_read() {
     t.advance_status_clock(every);
     assert_eq!(t.health(HEALTH_DEADLINE).await.state, "ready");
     assert_eq!(asked.load(Ordering::SeqCst), 2, "a read a window");
+    assert_eq!(t.status_reads(), 2);
     task.abort();
 }
 

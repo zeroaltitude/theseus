@@ -62,19 +62,12 @@ pub(super) struct Cache {
     tried: Option<(Instant, Option<Miss>)>,
     /// Status reads sent to the tender, for health's tests.
     reads: u64,
-    #[cfg(test)]
     clock: Option<Instant>,
 }
 
 impl Cache {
-    // Only tests carry a pinned clock; production always uses the runtime clock.
-    #[cfg_attr(not(test), allow(clippy::unused_self))]
     fn now(&self) -> Instant {
-        #[cfg(test)]
-        if let Some(now) = self.clock {
-            return now;
-        }
-        Instant::now()
+        self.clock.unwrap_or_else(Instant::now)
     }
 }
 
