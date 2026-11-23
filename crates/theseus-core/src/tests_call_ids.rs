@@ -417,7 +417,7 @@ async fn a_repeated_id_in_one_response(
     first: (&'static str, Value),
     second: (&'static str, Value),
 ) {
-    let calls = vec![
+    let calls = [
         ("X", first.0, first.1),
         ("X", second.0, second.1),
         ("Y", "proc_run", json!({"argv": ["echo", "gamma-3"]})),

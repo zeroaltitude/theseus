@@ -219,21 +219,36 @@ impl ToolRuntime {
         repeated: &std::collections::BTreeSet<&str>,
     ) -> Result<Admitted> {
         if repeated.contains(c.call.id.as_str()) {
-            return Ok(Admitted::Answered(self.repeated_id(tc, c.call)?));
+            return Ok(Admitted::Answered(self.repeated_id(
+                tc,
+                assistant_node,
+                c.call,
+            )?));
         }
         self.admit(tc, assistant_node, c).await
     }
 
     /// A call whose id another call of its response also carries (issue 44): not run, and said so in plain
-    /// words. It reaches no gate and no action, so its result has no correlation and no record.
-    fn repeated_id(&self, tc: &TurnCtx<'_>, call: &ToolUse) -> Result<CallOutcome> {
+    /// words. It reaches no gate and no action, so its result has no correlation and no record; it names the
+    /// response it refused (`compiler::pairing::REPEATED_IN`), which is how a request shows it.
+    fn repeated_id(
+        &self,
+        tc: &TurnCtx<'_>,
+        assistant_node: &str,
+        call: &ToolUse,
+    ) -> Result<CallOutcome> {
         let (_, tool) = self.tool_of(call);
         let text = format!(
             "Not run: this response used the tool-call id {} for more than one call; give each call its own \
              id.",
             call.id
         );
-        let r = ResultNode::new(&call.id, &tool, ResultStatus::Error, text);
+        let mut meta = json!({});
+        meta[crate::compiler::pairing::REPEATED_IN] = json!(assistant_node);
+        let r = ResultNode {
+            meta,
+            ..ResultNode::new(&call.id, &tool, ResultStatus::Error, text)
+        };
         Ok(CallOutcome::Done {
             status: self.answer(tc, r)?,
         })

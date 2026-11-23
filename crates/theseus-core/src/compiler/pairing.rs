@@ -8,7 +8,9 @@
 //! name WHICH use when a response repeats an id, so:
 //!
 //! 0. A response that gives one id to more than one use pairs NONE of them: each keeps the harness's "no result"
-//!    stub, whatever records or results exist. (Such a response is never run: `toolrun::calls`.)
+//!    stub, whatever records or results exist. Such a response is never run (`toolrun::calls`): each of those
+//!    uses is answered "Not run", by a result that names its response (`meta.repeated_in`), and that refusal is
+//!    what such a use reads ([`Pairing::refusal`]); a stored response of the shape from before reads the stub.
 //! 1. A result with a `correlation_id` answers the call whose record has the same one. Nothing else.
 //! 2. A result with none (a call refused before any action, a harness's own call) answers the one call the
 //!    gate's records of its OWN exchange (its session and turn) name with its id and no correlation, written
@@ -24,6 +26,10 @@ use std::collections::{HashMap, HashSet};
 
 use crate::node::{Body, Node};
 
+/// The meta key of the harness's "Not run" for a use of a response that repeats its id: that response's node
+/// id (`toolrun::calls`).
+pub(crate) const REPEATED_IN: &str = "repeated_in";
+
 /// A call: its assistant node's id and its provider id.
 pub(crate) type Call<'n> = (&'n str, &'n str);
 
@@ -33,9 +39,16 @@ pub(crate) struct Pairing<'n> {
     by_call: HashMap<Call<'n>, &'n Node>,
     by_result: HashMap<&'n str, Call<'n>>,
     by_record: HashMap<&'n str, Call<'n>>,
+    refused: HashMap<Call<'n>, &'n Node>,
 }
 
 impl<'n> Pairing<'n> {
+    /// For a use of a response that repeats its id: the harness's own "Not run" for that response and id, which
+    /// names the response it refused (rule 0).
+    pub(crate) fn refusal(&self, call: Call<'_>) -> Option<&'n Node> {
+        self.refused.get(&call).copied()
+    }
+
     /// The result that answers `call`, if one is established.
     pub(crate) fn result(&self, call: Call<'_>) -> Option<&'n Node> {
         self.by_call.get(&call).copied()
@@ -136,7 +149,7 @@ impl<'n> Calls<'n> {
                 .filter(|(call, (j, session, turn))| {
                     *j < i
                         && (*session, *turn) == own
-                        && open(*call)
+                        && open(call)
                         && !self.correlated.contains_key(*call)
                 })
                 .map(|(call, _)| *call)
@@ -162,11 +175,16 @@ pub(crate) fn pairing<'n>(nodes: impl IntoIterator<Item = &'n Node>) -> Pairing<
             tool_use_id,
             correlation_id,
             late: false,
+            meta,
             ..
         } = &n.body
         else {
             continue;
         };
+        if let Some(response) = meta[REPEATED_IN].as_str() {
+            p.refused.insert((response, tool_use_id.as_str()), n);
+            continue;
+        }
         let call = match correlation_id.as_deref() {
             Some(corr) => c.by_corr.get(corr).copied(),
             None => c.own(n, tool_use_id, i, &p.by_call),

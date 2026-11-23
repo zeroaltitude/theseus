@@ -223,10 +223,13 @@ impl State {
                 self.efforts.extend(effort.map(|e| (out.len(), e)));
                 push(out, "assistant", bl);
                 if !uses.is_empty() {
-                    // A response that repeats an id gets the stub for each of those uses (`pairing`, rule 0).
+                    // A response that repeats an id: each of those uses reads the harness's refusal of it, or the
+                    // stub (`pairing`, rule 0).
                     let rb: Vec<Value> = (uses.iter())
-                        .map(
-                            |u| match ctx.results.result((n.id.as_str(), u.id.as_str())) {
+                        .map(|u| {
+                            match (ctx.results.result((n.id.as_str(), u.id.as_str())))
+                                .or_else(|| ctx.results.refusal((n.id.as_str(), u.id.as_str())))
+                            {
                                 // An old result cleared to save context (theseus-3ki0).
                                 // A view's receipt is already that stub, and is laid as it is.
                                 Some(r)
@@ -245,8 +248,8 @@ impl State {
                                     self.repairs.push(u.id.clone());
                                     repaired(&u.id)
                                 }
-                            },
-                        )
+                            }
+                        })
                         .collect();
                     push(out, "user", rb);
                 }
