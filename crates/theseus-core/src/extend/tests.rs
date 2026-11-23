@@ -797,9 +797,19 @@ async fn an_older_card_cannot_approve_a_replaced_manifest() {
     let replacement = r.manifests().remove(0);
     assert_eq!(first.digest, replacement.digest);
     assert_ne!(first.question, replacement.question);
-    let action = r.core.kernel.action(first.question.as_deref().unwrap()).unwrap().unwrap();
-    let result = r.core.answer_extension(&action, super::answer::Answer::Ack, "test", "cli", None);
-    assert!(result.is_err(), "an older card cannot approve a different proposal");
+    let action = r
+        .core
+        .kernel
+        .action(first.question.as_deref().unwrap())
+        .unwrap()
+        .unwrap();
+    let result = r
+        .core
+        .answer_extension(&action, super::answer::Answer::Ack, "test", "cli", None);
+    assert!(
+        result.is_err(),
+        "an older card cannot approve a different proposal"
+    );
     assert_eq!(r.manifests()[0].question, replacement.question);
     assert_eq!(r.manifests()[0].state, "proposed");
     assert!(r.rows("extend.loaded").is_empty());

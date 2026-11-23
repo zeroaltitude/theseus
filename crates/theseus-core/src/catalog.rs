@@ -503,7 +503,10 @@ impl CatalogEntry {
         let t = self.tier(input_estimate);
         micros_of(&[
             (max_output_tokens as u64, t.output),
-            (input_estimate, t.input.max(t.cache_write).max(t.cache_write_1h)),
+            (
+                input_estimate,
+                t.input.max(t.cache_write).max(t.cache_write_1h),
+            ),
         ])
     }
 
@@ -513,7 +516,10 @@ impl CatalogEntry {
         let t = self.tier(input_estimate);
         (
             micros_of(&[(max_output_tokens as u64, t.output)]),
-            micros_of(&[(input_estimate, t.input.max(t.cache_write).max(t.cache_write_1h))]),
+            micros_of(&[(
+                input_estimate,
+                t.input.max(t.cache_write).max(t.cache_write_1h),
+            )]),
         )
     }
 }

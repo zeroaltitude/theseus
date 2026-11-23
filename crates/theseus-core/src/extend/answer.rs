@@ -86,7 +86,8 @@ impl Core {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut m: Option<Manifest> = self.store.get_meta(&manifest_key(&name, &digest))?;
         anyhow::ensure!(
-            m.as_ref().is_some_and(|m| m.question.as_deref() == Some(a.correlation_id.as_str())),
+            m.as_ref()
+                .is_some_and(|m| m.question.as_deref() == Some(a.correlation_id.as_str())),
             "this extension proposal was replaced; answer its current card instead"
         );
         let approve = matches!(answer, Answer::Ack);

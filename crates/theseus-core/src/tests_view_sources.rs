@@ -335,10 +335,8 @@ fn thread_named(store: &crate::store::Store, slug: &str) -> String {
 async fn a_cards_thing_shows_no_standing_facts_or_preferences() {
     use theseus_protocol::{StandingAddParams, StandingKind, StandingScope};
     let session = std::cell::RefCell::new(String::new());
-    let r = crate::tests_places::rig_setup(
-        |_| {},
-        |s| *session.borrow_mut() = thread_named(s, "kelp"),
-    );
+    let r =
+        crate::tests_places::rig_setup(|_| {}, |s| *session.borrow_mut() = thread_named(s, "kelp"));
     let c = &r.core;
     let kelp_sid = session.into_inner();
     for (kind, text) in [

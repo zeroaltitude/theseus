@@ -104,9 +104,15 @@ fn offset(text: &str, p: Position) -> usize {
             return text.len();
         };
         start += i;
-        start += if text[start..].starts_with("\r\n") { 2 } else { 1 };
+        start += if text[start..].starts_with("\r\n") {
+            2
+        } else {
+            1
+        };
     }
-    let end = text[start..].find(['\r', '\n']).map_or(text.len(), |i| start + i);
+    let end = text[start..]
+        .find(['\r', '\n'])
+        .map_or(text.len(), |i| start + i);
     let row = &text[start..end];
     start + theseus_lsp::position::byte_column(row, p.character).min(row.len())
 }

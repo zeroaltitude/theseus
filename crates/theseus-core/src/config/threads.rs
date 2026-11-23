@@ -106,7 +106,10 @@ mod tests {
         assert_eq!(cfg.threads, ThreadsConfig::default());
         let off = crate::Config::from_toml("[threads]\nenabled = false\n").unwrap();
         assert_eq!(off.threads, ThreadsConfig::default());
-        assert!(off.ignored_keys.iter().any(|key| key.name == "threads.enabled"));
+        assert!(off
+            .ignored_keys
+            .iter()
+            .any(|key| key.name == "threads.enabled"));
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
         // The cold resume's sizes are retired (issue 44): any value loads, ignored and named.
         for retired in [
@@ -187,8 +190,14 @@ mod tests {
         assert!(said.iter().any(|w| w.contains("remove it")), "{said:?}");
         let (plain, quiet) =
             crate::Config::parse(&format!("{secrets}\n[threads]\nenabled = true\n")).unwrap();
-        assert!(plain.threads.retired().is_empty(), "the loader removes table-retired keys before this section is read");
-        assert!(quiet.iter().any(|w| w.contains("threads.enabled")), "{quiet:?}");
+        assert!(
+            plain.threads.retired().is_empty(),
+            "the loader removes table-retired keys before this section is read"
+        );
+        assert!(
+            quiet.iter().any(|w| w.contains("threads.enabled")),
+            "{quiet:?}"
+        );
     }
 
     /// The three inert keys retired by XD3 (`discord_channel`, `sticky_half_life_secs`,
@@ -221,7 +230,10 @@ fn thread_enable_is_retired_without_retiring_persona_engagement() {
     for enabled in [true, false] {
         let text = format!("[threads]\nenabled = {enabled}\npersona_engage = 'act'\n");
         let cfg = crate::Config::from_toml(&text).unwrap();
-        assert!(cfg.ignored_keys.iter().any(|key| key.name == "threads.enabled"));
+        assert!(cfg
+            .ignored_keys
+            .iter()
+            .any(|key| key.name == "threads.enabled"));
         assert_eq!(cfg.threads.persona_engage, PersonaEngage::Act);
         let serialized = toml::to_string(&cfg.threads).unwrap();
         assert!(!serialized.contains("enabled"));
