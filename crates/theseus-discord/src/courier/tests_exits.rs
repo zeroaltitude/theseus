@@ -325,3 +325,32 @@ async fn the_live_preview_never_publishes_a_known_values_prefix() {
     );
     assert_eq!(last(&fake), "[redacted:courier_token]");
 }
+
+#[tokio::test]
+async fn refolded_tool_inputs_are_masked_before_summary_clipping() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    let mut renderer = lane.shared.renderer();
+    let body = theseus_core::node::Body::ToolCall {
+        tool_use_id: "u1".into(),
+        tool: "fs.read".into(),
+        wire_name: "fs_read".into(),
+        input: json!({"path": format!("{}{}", "x".repeat(75), VALUE)}),
+        assistant_node: "msg_1".into(),
+        correlation_id: None,
+        gate: Some(Box::new(
+            serde_json::from_value(json!({"result": {"gate": "allow"}})).unwrap(),
+        )),
+    };
+    let node = theseus_core::node::Node::tool_call("s", Some("old"), Some(0), body);
+    renderer.rebuild(&[(0, node)]);
+    let ops = renderer.on_notification("tool.ended", &json!({"session_id": "s", "turn_id": "old", "tool_use_id": "u1", "status": "ok", "duration_ms": 12}));
+    for op in ops.into_iter().chain(renderer.tick()) {
+        lane.take(LaneMsg::Live(op));
+    }
+    lane.apply_live().await;
+    let sent = last(&fake);
+    assert!(!sent.contains("vault"), "{sent}");
+    assert!(sent.contains("[redacted"), "{sent}");
+}
