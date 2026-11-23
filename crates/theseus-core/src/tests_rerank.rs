@@ -526,6 +526,9 @@ pub(crate) fn sent(model: &FakeProvider) -> Vec<String> {
 /// rerank, whose deadline here is 5 s (a turn that waited would take it).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_slow_or_failing_jev_changes_no_turn() {
+    // The clock at the start of a minute, first: both daemons' requests stamp a recalled turn to the minute
+    // ("said on the terminal" with its day, date and time), so a run that crossed a minute failed by the clock alone.
+    let _clock = crate::test_support::pin_mid_period();
     let off = rig(None, |_| {});
     let notes = session(&off.core, None, &["the grey heron nests by the old weir"]);
     let here = session(&off.core, None, &[]);
