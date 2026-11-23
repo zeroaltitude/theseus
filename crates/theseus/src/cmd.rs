@@ -154,10 +154,6 @@ pub(crate) async fn stream_turn(
         .get("dir")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let thread = params
-        .get("thread")
-        .and_then(Value::as_str)
-        .map(str::to_string);
     let mode = match (json, stream) {
         (true, _) => Mode::Json,
         (false, true) => Mode::Text,
@@ -219,10 +215,6 @@ pub(crate) async fn stream_turn(
         // (theseus-7gir.18, theseus-fh0u).
         for line in r.harness_lines() {
             eprintln!("{line}");
-        }
-        if let Some(slug) = &thread {
-            let title = crate::thread::title_of(conn, slug).await;
-            eprintln!("{}", render::thread::reply_tag(&title));
         }
         crate::print::footer(&render::status_line(&r));
         ran_in(&r);

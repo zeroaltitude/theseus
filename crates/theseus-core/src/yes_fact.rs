@@ -11,7 +11,7 @@
 //! turn cannot read a silence as either.
 //!
 //! **Why a staged block and not a node.** The obvious carrier is a harness
-//! note in the session (`rpc/thread_seal.rs`'s `write_harness_note`), and it
+//! note in the session (as the retired seal writer's redirect note was), and it
 //! is refused here twice over: it bails while a turn runs in the session, and
 //! a stored node would be in every later request too, where this fact is
 //! stale the moment the owner answers. So the fact is staged in memory at

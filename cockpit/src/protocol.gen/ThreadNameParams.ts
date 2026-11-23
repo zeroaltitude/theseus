@@ -2,7 +2,6 @@
 import type { DiscordOrigin } from "./DiscordOrigin";
 
 /**
- * `thread.show`, `thread.pause`, `thread.resume`, `thread.done` and
- * `thread.reopen` name a thread and nothing else.
+ * `thread.show` names a thread and nothing else.
  */
 export type ThreadNameParams = { slug: string, author?: string, discord?: DiscordOrigin, };

@@ -63,7 +63,6 @@ fn wide(msg: &Message) -> bool {
                 | notify::CONFIRM_RESOLVED
                 | notify::TASK_CHANGED
                 | notify::WAKE_NOTICED
-                | notify::THREAD_CHANGED
                 | notify::SELF_CHANGED
                 | notify::CALENDAR_CHANGED
                 | notify::POLICY_TIGHTENED
@@ -160,7 +159,6 @@ impl SessionBus {
             at_ms: out.at_ms,
             views: out.views.clone(),
             gone: out.gone.iter().map(|(id, _)| id.clone()).collect(),
-            threads: Vec::new(),
         }));
         let notices: Vec<Message> = out
             .notices
@@ -187,7 +185,6 @@ impl SessionBus {
                     at_ms: out.at_ms,
                     views,
                     gone,
-                    threads: Vec::new(),
                 }));
                 if !w.tx.notify(&Note::new(&msg), "work") {
                     return false;

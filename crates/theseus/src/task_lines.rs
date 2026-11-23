@@ -129,7 +129,6 @@ mod tests {
             at_ms: 0,
             views,
             gone: vec![],
-            threads: vec![],
         }
     }
 
@@ -143,7 +142,6 @@ mod tests {
             position: 1,
             views: vec![],
             total: 0,
-            threads: vec![],
         };
         assert!(t.snapshot(&snap).is_empty());
         let names = [
@@ -199,7 +197,6 @@ mod tests {
             position: 1,
             views: vec![asking(3)],
             total: 1,
-            threads: vec![],
         };
         assert_eq!(t.snapshot(&snap).len(), 2);
         assert!(t.snapshot(&snap).is_empty());

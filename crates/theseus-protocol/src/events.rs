@@ -606,8 +606,6 @@ events! {
     WorkChanged(crate::work_watch::WorkChanged) = notify::WORK_CHANGED,
     /// The notification policy's notice for a work view's change.
     WorkNotice(crate::notices::Notice) = notify::WORK_NOTICE,
-    /// A thread changed (theseus-sjzm).
-    ThreadChanged(crate::threads::ThreadChanged) = notify::THREAD_CHANGED,
     /// A followed job's output, to the connection that follows it.
     ActionOutputChunk(crate::job_follow::ActionOutputChunk) = notify::ACTION_OUTPUT_CHUNK,
     ActionOutputEnd(crate::job_follow::ActionOutputEnd) = notify::ACTION_OUTPUT_END,
@@ -656,7 +654,6 @@ impl Event {
             | Event::ProfileChanged(_)
             | Event::PolicyTightened(_)
             | Event::PolicyUntightened(_)
-            | Event::ThreadChanged(_)
             | Event::SelfChanged(_)
             | Event::CalendarChanged(_)
             | Event::EventsLost(_) => None,
@@ -696,7 +693,6 @@ impl Event {
             | Event::SessionMode(_)
             | Event::WorkChanged(_)
             | Event::WorkNotice(_)
-            | Event::ThreadChanged(_)
             | Event::ActionOutputChunk(_)
             | Event::ActionOutputEnd(_)
             | Event::SelfChanged(_)

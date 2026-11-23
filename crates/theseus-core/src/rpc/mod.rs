@@ -119,20 +119,6 @@ mod task_pause;
 mod task_rehome;
 mod task_reschedule;
 pub(crate) mod task_start;
-// Threads were retired on 2026-11-22: kept only as a fixture writer for
-// other units' tests, until the sweep.
-#[cfg(test)]
-mod thread_home;
-// Threads were retired on 2026-11-22: kept only as a fixture writer for
-// other units' tests, until the sweep.
-#[cfg(test)]
-mod thread_join;
-// Threads were retired on 2026-11-22: kept only as a fixture writer for
-// other units' tests, until the sweep.
-#[cfg(test)]
-mod thread_link;
-pub(crate) mod thread_seal;
-mod thread_surface;
 mod threads;
 mod undo_allow;
 mod voice_pick;

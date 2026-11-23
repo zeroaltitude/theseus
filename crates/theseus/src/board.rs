@@ -240,7 +240,6 @@ mod tests {
             position: 9,
             total: views.iter().filter(|v| v.parent.is_none()).count() as u64,
             views,
-            threads: vec![],
         }
     }
 

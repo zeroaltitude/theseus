@@ -141,7 +141,6 @@ pub mod scrub;
 pub mod secrets;
 pub mod self_card;
 pub mod session;
-pub mod split_turns;
 pub mod standing;
 pub mod standing_ack;
 pub mod standing_proposals;
@@ -164,10 +163,8 @@ pub mod telemetry;
 pub mod tender;
 pub mod term;
 pub mod thread_context;
-pub mod thread_join;
 pub mod thread_read;
 pub mod thread_recall;
-pub mod thread_split;
 pub mod threads;
 pub mod tighten;
 pub mod tool_set;
@@ -467,6 +464,8 @@ mod tests_observability;
 mod tests_offer;
 #[cfg(test)]
 mod tests_old_store;
+#[cfg(test)]
+mod tests_old_threads;
 #[cfg(test)]
 mod tests_one_hour;
 #[cfg(test)]

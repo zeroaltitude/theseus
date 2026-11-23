@@ -1025,7 +1025,7 @@ fn a_format_47_thread_record_reads_and_writes_back_byte_for_byte() {
 }
 
 /// A store of format 32, which holds a session and no thread: the build opens
-/// it, reads an empty board, takes a thread and moves the manifest to 49,
+/// it, reads an empty board, takes a thread's record and moves the manifest on,
 /// which an older build then refuses.
 #[test]
 fn a_format_32_store_opens_with_no_threads_and_takes_them() {
@@ -1044,9 +1044,8 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
     let threads = crate::threads::Threads::default();
     assert!(threads.all(&store).unwrap().is_empty());
     let t: ThreadInfo = serde_json::from_str(THREAD_AT_33).unwrap();
-    threads
-        .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
-        .unwrap();
+    // The record as an older build wrote it (nothing writes a thread now, issue 44).
+    store.put_meta(&crate::threads::key(&t.slug), &t).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     assert_eq!(moved["format"], 60);
     drop(store);

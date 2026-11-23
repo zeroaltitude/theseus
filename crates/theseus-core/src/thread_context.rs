@@ -24,6 +24,8 @@ use crate::turn::TurnRunner;
 
 /// The name the card tool had.
 pub const NOTE: &str = "thread.note";
+/// The name the model's split tool had.
+const SPLIT: &str = "thread.split";
 
 /// The META key of the card a compilation took.
 pub fn card_key(compilation_id: &str) -> String {
@@ -84,7 +86,7 @@ impl TurnRunner {
             .flatten();
         let Some(t) = board.as_ref().and_then(|b| b.of_session(session_id)) else {
             // The tools are a thread's own.
-            let own = [NOTE, crate::thread_split::SPLIT].map(theseus_tools::wire_name);
+            let own = [NOTE, SPLIT].map(theseus_tools::wire_name);
             spec.tools = spec.tools.reduced("not_a_threads", |all| {
                 let mine = |d: &&Value| !own.iter().any(|n| d["name"] == n.as_str());
                 all.iter().filter(mine).cloned().collect()

@@ -72,7 +72,6 @@ impl Core {
             position,
             views: scope.cut(&views, &self.tools.scrubber),
             total,
-            threads: Vec::new(),
         })
     }
 

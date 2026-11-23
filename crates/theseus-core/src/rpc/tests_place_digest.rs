@@ -7,9 +7,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
-use theseus_protocol::threads::{ThreadEditParams, ThreadNewParams, ThreadSealParams, WorkingSet};
 use theseus_protocol::{method, Id, Request, TurnSubmitParams, TurnSubmitResult};
 use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -78,45 +77,18 @@ fn rig(jev: &FakeJev, n: usize, digest: bool) -> Rig {
     })
 }
 
-/// The five threads, `embargo` sealed and `pending` with a seal proposed.
+/// The five threads, `embargo` sealed and `pending` with a seal proposed: their old records.
 fn threads(c: &Core) {
     for (slug, title, goal, card, host) in THREADS {
-        c.thread_new(
-            &ThreadNewParams {
-                slug: slug.into(),
-                title: Some(title.into()),
-                goal: Some(goal.into()),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
-        c.thread_edit(
-            &ThreadEditParams {
-                slug: slug.into(),
-                card: Some(card.iter().map(|s| (*s).to_string()).collect()),
-                working_set: Some(WorkingSet {
-                    hosts: vec![host.into()],
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
+        let mut more = json!({"goal": goal, "card": card, "working_set": {"hosts": [host]}});
+        if slug == "embargo" {
+            more["sealed"] = json!({"by": "the CLI", "at_ms": 1, "reason": "before disclosure"});
+        }
+        if slug == "pending" {
+            more["seal_pending"] = json!("it names the vault");
+        }
+        crate::tests_old_threads::thread(c, slug, title, more);
     }
-    c.thread_seal(
-        &ThreadSealParams {
-            slug: "embargo".into(),
-            reason: Some("before disclosure".into()),
-            ..Default::default()
-        },
-        cli(),
-    )
-    .unwrap();
-    assert!(c
-        .thread_recommend_seal("pending", "it names the vault")
-        .unwrap());
 }
 
 fn scope(jev: &FakeJev, option: &str) {
@@ -132,7 +104,7 @@ fn scope(jev: &FakeJev, option: &str) {
 /// One `turn.submit` to `thread`'s session (a `turn.submit` names no thread any more: threads are
 /// gone, and an address runs where it was written).
 async fn ask(c: &Arc<Core>, thread: &str, input: &str) -> TurnSubmitResult {
-    let session = c.thread_session(thread, cli()).unwrap().session_id;
+    let session = crate::tests_old_threads::session(c, thread);
     let (client, server) = duplex(1 << 20);
     let (sr, sw) = tokio::io::split(server);
     tokio::spawn(
@@ -367,8 +339,8 @@ async fn a_carried_digest_is_latched_for_its_turn_and_outlives_a_rebind() {
     );
     assert!(carried_in(&c.store, &res.turn_id), "and latched");
     c.retire_session(&res.session_id, &cli()).unwrap();
-    let again = c.thread_session("pr-round", cli()).unwrap();
-    assert_ne!(again.session_id, res.session_id);
+    let again = crate::tests_old_threads::session(c, "pr-round");
+    assert_ne!(again, res.session_id);
     let board = c.runner.threads.held().expect("the board");
     assert!(
         board.of_session(&res.session_id).is_none(),

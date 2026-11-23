@@ -74,7 +74,6 @@ mod task_graph;
 pub mod task_history;
 pub mod task_tree;
 mod tasks;
-pub mod thread;
 pub mod time;
 mod wakes;
 mod warm;

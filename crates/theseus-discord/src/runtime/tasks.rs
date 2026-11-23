@@ -1018,7 +1018,6 @@ mod tests {
             at_ms: 0,
             views,
             gone: gone.iter().map(|s| s.to_string()).collect(),
-            threads: vec![],
         }
     }
 
@@ -1274,7 +1273,6 @@ mod tests {
                     view("exe_a", WorkKind::Task, "exe_chat", WorkState::Done, 9),
                 ],
                 total: 2,
-                threads: vec![],
             },
         );
         assert_eq!(t.view("exe_a").unwrap().state, WorkState::Done);
@@ -1316,7 +1314,6 @@ mod tests {
                     8,
                 )],
                 total: 1,
-                threads: vec![],
             },
         );
         assert_eq!(t.view("exe_a").unwrap().state, WorkState::Running);
@@ -1355,7 +1352,6 @@ mod tests {
                     8,
                 )],
                 total: 1,
-                threads: vec![],
             },
         );
         assert_eq!(t.view("exe_a").unwrap().state, WorkState::Done);
@@ -1398,7 +1394,6 @@ mod tests {
                     8,
                 )],
                 total: 1,
-                threads: vec![],
             },
         );
         assert!(
@@ -1427,7 +1422,6 @@ mod tests {
                     view("exe_bt", WorkKind::Task, "exe_b", WorkState::Running, 6),
                 ],
                 total: 3,
-                threads: vec![],
             },
         );
         let late = t.snapshot(
@@ -1436,7 +1430,6 @@ mod tests {
                 position: 9,
                 views: vec![chat("exe_a", 5)],
                 total: 1,
-                threads: vec![],
             },
         );
         assert!(late.is_empty());

@@ -254,7 +254,7 @@ pub fn pieces(
             Body::AssistantMessage { .. } => Class::Reply,
             Body::ToolResult { late: false, .. } => Class::ToolResult,
             Body::ToolResult { late: true, .. } => Class::LateResult,
-            Body::Arrangement { .. } if crate::thread_split::is_quote(n) => Class::Quoted,
+            Body::Arrangement { .. } if crate::arrangement::is_thread_quote(n) => Class::Quoted,
             Body::Arrangement { .. } => Class::Arrangement,
             // In a tail a summary renders nothing: its range is still in
             // the prefix.

@@ -4,23 +4,12 @@
 //! guidance and no skipped entry.
 
 use theseus_ontology::Origin;
-use theseus_protocol::threads::ThreadNewParams;
 use theseus_protocol::OntologyCategoryAddParams;
 
-use crate::approval::{Answerer, Surface};
 use crate::ontology::{recorded, Walk};
 use crate::session::SessionRecord;
 use crate::tests_day_ceiling::{build, turn_in};
 use theseus_protocol::PlaceClass;
-
-fn cli() -> Answerer {
-    Answerer {
-        label: "the CLI".into(),
-        surface: Surface::Cli,
-        discord: None,
-        agent: None,
-    }
-}
 
 /// A thread's session, attached to a project: the harness's own facts.
 #[tokio::test]
@@ -39,19 +28,9 @@ async fn the_manifest_records_the_sessions_thread_and_project() {
         "the CLI",
     )
     .unwrap();
-    core.thread_new(
-        &ThreadNewParams {
-            slug: "tide-gauges".into(),
-            title: Some("Tide gauges".into()),
-            ..Default::default()
-        },
-        cli(),
-    )
-    .unwrap();
-    let sid = core
-        .thread_session("tide-gauges", cli())
-        .unwrap()
-        .session_id;
+    let none = serde_json::json!({});
+    crate::tests_old_threads::thread(&core, "tide-gauges", "Tide gauges", none);
+    let sid = crate::tests_old_threads::session(&core, "tide-gauges");
     let mut rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
     rec.project = Some("tsk_harborsurvey".into());
     core.store.put_session(&sid, &rec).unwrap();

@@ -1248,7 +1248,6 @@ async fn a_press_on_a_card_whose_item_is_no_longer_held_does_nothing_and_says_so
         at_ms: 0,
         views: vec![],
         gone: vec![wake.clone()],
-        threads: vec![],
     });
     // The agenda's last read, which listed it before it fired, is read again.
     shared.read_future().await;

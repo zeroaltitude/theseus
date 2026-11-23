@@ -1,6 +1,7 @@
 //! Threads are gone (2026-11-22), against a real daemon: a message that names a thread (`#slug`)
 //! runs in the place it was written, like any other message, and its words are in that place's
-//! next request; `theseus ask --thread SLUG` runs here and says so in one line.
+//! next request; `theseus ask --thread SLUG` runs here, says so in one line, and prints no
+//! thread's title after the answer.
 
 mod common;
 
@@ -93,30 +94,39 @@ fn a_message_with_a_thread_address_runs_in_its_own_place() {
     );
 }
 
-/// `theseus ask --thread SLUG` runs here, and says so in one line.
-#[test]
-fn ask_with_a_thread_runs_here_and_says_so() {
-    let r = Rig::new();
-    let _d = r.spawn();
+/// `theseus ask` with a thread named, by `--thread` or by the shell, `env` set on it.
+fn ask_naming_a_thread(r: &Rig, args: &[&str], env: &[(&str, &str)]) -> std::process::Output {
     let bin = common::cli_bin();
     assert!(
         bin.exists(),
         "the theseus binary is built beside the daemon's"
     );
-    let o = std::process::Command::new(bin)
+    std::process::Command::new(bin)
         .arg("--socket")
         .arg(r.path("sock"))
-        .args([
-            "ask",
-            "--no-stream",
+        .args(["ask", "--no-stream"])
+        .args(args)
+        .env_remove("THESEUS_SESSION")
+        .env_remove("THESEUS_THREAD")
+        .envs(env.iter().copied())
+        .output()
+        .expect("running theseus")
+}
+
+/// `theseus ask --thread SLUG` runs here, and says so in one line.
+#[test]
+fn ask_with_a_thread_runs_here_and_says_so() {
+    let r = Rig::new();
+    let _d = r.spawn();
+    let o = ask_naming_a_thread(
+        &r,
+        &[
             "--thread",
             "harbour-log",
             "hello from the shell about the north wall",
-        ])
-        .env_remove("THESEUS_SESSION")
-        .env_remove("THESEUS_THREAD")
-        .output()
-        .expect("running theseus");
+        ],
+        &[],
+    );
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(o.status.success(), "{err}");
     assert!(err.contains("threads are gone; this ran here"), "{err}");
@@ -125,4 +135,34 @@ fn ask_with_a_thread_runs_here_and_says_so() {
             .is_empty(),
         "the turn ran and reached the model"
     );
+}
+
+/// The thread an ask names and ignores is never printed as where the answer was (issue 44): no
+/// reply tag with its title or slug after the answer, by `--thread` or by `THESEUS_THREAD`.
+#[test]
+fn an_ignored_thread_address_prints_no_thread_title() {
+    let r = Rig::new();
+    let _d = r.spawn();
+    for (args, env) in [
+        (
+            vec!["--thread", "harbour-log", "first word from the north wall"],
+            vec![],
+        ),
+        (
+            vec!["second word from the north wall"],
+            vec![("THESEUS_THREAD", "harbour-log")],
+        ),
+    ] {
+        let o = ask_naming_a_thread(&r, &args, &env);
+        let (out, err) = (
+            String::from_utf8_lossy(&o.stdout),
+            String::from_utf8_lossy(&o.stderr),
+        );
+        assert!(o.status.success(), "{err}");
+        assert!(err.contains("threads are gone; this ran here"), "{err}");
+        for text in [&out, &err] {
+            assert!(!text.contains("→ harbour-log"), "a thread's tag: {text}");
+            assert!(!text.contains("Harbour log"), "a thread's title: {text}");
+        }
+    }
 }
