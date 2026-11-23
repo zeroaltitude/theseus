@@ -16,7 +16,15 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-static LEASED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+#[derive(Default)]
+struct Paths {
+    leased: Vec<PathBuf>,
+    closing: Vec<PathBuf>,
+}
+static PATHS: Mutex<Paths> = Mutex::new(Paths {
+    leased: Vec::new(),
+    closing: Vec::new(),
+});
 
 /// A hold on some paths, released when it drops.
 #[derive(Debug)]
@@ -24,24 +32,30 @@ pub struct Lease(Vec<PathBuf>);
 
 impl Lease {
     /// Hold `paths` (a tree and its build tree) until the lease drops.
-    pub fn take(paths: &[&Path]) -> Lease {
-        let mut held = LEASED
+    pub fn take(paths: &[&Path]) -> anyhow::Result<Lease> {
+        let mut held = PATHS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(path) = paths.iter().find(|p| held.closing.iter().any(|c| c == *p)) {
+            anyhow::bail!(
+                "the tree {} is being closed; no gate may start in it",
+                path.display()
+            );
+        }
         let mine: Vec<PathBuf> = paths.iter().map(|p| p.to_path_buf()).collect();
-        held.extend(mine.iter().cloned());
-        Lease(mine)
+        held.leased.extend(mine.iter().cloned());
+        Ok(Lease(mine))
     }
 }
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        let mut held = LEASED
+        let mut held = PATHS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         for p in &self.0 {
-            if let Some(i) = held.iter().position(|h| h == p) {
-                held.swap_remove(i);
+            if let Some(i) = held.leased.iter().position(|h| h == p) {
+                held.leased.swap_remove(i);
             }
         }
     }
@@ -49,11 +63,46 @@ impl Drop for Lease {
 
 /// The first of `paths` a gate holds, if any.
 pub fn held(paths: &[&Path]) -> Option<PathBuf> {
-    let held = LEASED
+    let held = PATHS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     paths
         .iter()
-        .find(|p| held.iter().any(|h| h == *p))
+        .find(|p| held.leased.iter().any(|h| h == *p))
         .map(|p| p.to_path_buf())
+}
+
+/// A closer claims the same paths atomically with checking for running gates. New leases
+/// refuse until this guard drops, including when removal returns an error.
+pub(crate) struct Closing(Vec<PathBuf>);
+impl Closing {
+    pub fn take(paths: &[&Path]) -> anyhow::Result<Self> {
+        let mut held = PATHS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(path) = paths
+            .iter()
+            .find(|p| held.leased.iter().chain(&held.closing).any(|h| h == *p))
+        {
+            anyhow::bail!(
+                "a gate is still running or a closer is active in {}, so its tree stays",
+                path.display()
+            );
+        }
+        let mine: Vec<PathBuf> = paths.iter().map(|p| p.to_path_buf()).collect();
+        held.closing.extend(mine.iter().cloned());
+        Ok(Self(mine))
+    }
+}
+impl Drop for Closing {
+    fn drop(&mut self) {
+        let mut held = PATHS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for path in &self.0 {
+            if let Some(i) = held.closing.iter().position(|p| p == path) {
+                held.closing.swap_remove(i);
+            }
+        }
+    }
 }
