@@ -10,7 +10,8 @@
 //! 1. A result with a `correlation_id` answers the call whose record has the same one. Nothing else.
 //! 2. A result with none (a call refused before any action, a harness's own call) answers the call the
 //!    gate's record beside it names: the earliest record with its id and no correlation of its OWN exchange
-//!    (its session and turn) standing before it, whose call has no result yet (the gate writes the record and
+//!    (its session and turn), whose call has no result yet (a render reads the records apart from the nodes it
+//!    lays, so a record is placed by its exchange, not by where it stands) (the gate writes the record and
 //!    the result together, and a continuation writes them for a call of the turn it continues). With no such
 //!    record, the earliest call with its id of its own exchange standing before it, that carries no
 //!    correlation and no result yet.
@@ -125,7 +126,7 @@ fn calls<'n>(nodes: &[&'n Node]) -> Calls<'n> {
 
 impl<'n> Calls<'n> {
     /// Rule 2: for a result with no correlation, standing at `i` in exchange `own`, the call of the earliest
-    /// record with its id and no correlation of the same exchange standing before it; else the earliest call
+    /// record with its id and no correlation of the same exchange; else the earliest call
     /// with its id of the same exchange standing before it; either with no correlation and no result in
     /// `answered`.
     fn own(
@@ -136,8 +137,8 @@ impl<'n> Calls<'n> {
         answered: &HashMap<Call<'n>, &'n Node>,
     ) -> Option<Call<'n>> {
         let recorded = (self.plain.iter())
-            .filter(|(j, session, turn, call)| {
-                call.1 == id && *j < i && (*session, *turn) == own && !answered.contains_key(call)
+            .filter(|(_, session, turn, call)| {
+                call.1 == id && (*session, *turn) == own && !answered.contains_key(call)
             })
             .map(|(j, _, _, call)| (*j, *call))
             .min();
