@@ -1230,3 +1230,86 @@ async fn a_finished_exchanges_clock_line_is_headed_as_the_harnesss_and_no_person
         "not headed as a person of unknown authorship: {heading}"
     );
 }
+
+/// X190, the install's smoke on build 190: a FRESH terminal session asks one short line at a place whose
+/// recent exchanges are a run of that same line from OTHER sessions, with recall live. The request the view
+/// compiles is printed whole (each message's role, and each block's size, head and end), and it must end with
+/// the person's message.
+#[tokio::test]
+async fn x190_a_fresh_terminal_line_after_a_run_of_it_elsewhere_is_what_the_request_ends_with() {
+    const ASK: &str = "Reply with the single word: ok";
+    let r = rig_with(|c| c.memory.mode = crate::config::MemoryMode::Live);
+    let c = &r.core;
+    let mut earlier = Vec::new();
+    for _ in 0..5 {
+        let s = crate::tests_places::session(c, None);
+        turn_as(c, &s, ASK, true).await;
+        earlier.push(s);
+    }
+    (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, earlier));
+    let fresh = crate::tests_places::session(c, None);
+    turn_as(c, &fresh, ASK, true).await;
+    let q = r
+        .requests()
+        .into_iter()
+        .last()
+        .expect("the fresh turn's request");
+    let cut = |s: &str, n: usize| -> String {
+        let flat = s.replace('\n', "⏎");
+        match flat.chars().count() > 2 * n {
+            true => format!(
+                "{} … {}",
+                flat.chars().take(n).collect::<String>(),
+                flat.chars()
+                    .rev()
+                    .take(n)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<String>()
+            ),
+            false => flat,
+        }
+    };
+    println!("X190 SYSTEM: {} blocks", q.system.len());
+    for (i, b) in q.system.iter().enumerate() {
+        let t = b["text"].as_str().unwrap_or_default();
+        println!("X190 system[{i}] {} chars: {}", t.len(), cut(t, 160));
+    }
+    println!("X190 MESSAGES: {}", q.messages.len());
+    for (i, m) in q.messages.iter().enumerate() {
+        let blocks = m["content"].as_array().cloned().unwrap_or_default();
+        println!(
+            "X190 message[{i}] role={} blocks={}",
+            m["role"],
+            blocks.len()
+        );
+        for (j, b) in blocks.iter().enumerate() {
+            let t = b["text"]
+                .as_str()
+                .map_or_else(|| b.to_string(), str::to_string);
+            println!(
+                "X190   [{i}.{j}] {} {} chars: {}",
+                b["type"],
+                t.len(),
+                cut(&t, 220)
+            );
+        }
+    }
+    let last = q.messages.last().expect("a message");
+    assert_eq!(
+        last["role"], "user",
+        "the request ends with the person's turn"
+    );
+    let blocks = last["content"].as_array().expect("blocks");
+    let end = blocks
+        .iter()
+        .rev()
+        .find_map(|b| b["text"].as_str())
+        .unwrap_or_default();
+    assert!(
+        end.trim_end().ends_with(ASK),
+        "the request's last words are the person's message, not a block of the harness's: {}",
+        cut(end, 300)
+    );
+}
