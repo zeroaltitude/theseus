@@ -26,26 +26,26 @@ const LONG: &str = "the long tide table: ";
 /// A model whose message `CALL {…}` calls `context_history` with those arguments, and whose message saying
 /// `LONG` is answered at length.
 fn rig() -> Rig {
-    rig_scripted(
-        |_| {},
-        |req| {
-            if answers_a_call(req) {
-                return Scripted::text("Read.");
-            }
-            match last_user(req).split_once("CALL ") {
-                Some((_, a)) => Scripted::tools(
-                    "Reading.",
-                    &[(
-                        "h1",
-                        "context_history",
-                        serde_json::from_str(a.trim()).unwrap(),
-                    )],
-                ),
-                None if last_user(req).contains("LONG") => Scripted::text(&LONG.repeat(1_500)),
-                None => Scripted::text("Noted."),
-            }
-        },
-    )
+    rig_scripted(|_| {}, script)
+}
+
+/// [`rig`]'s model.
+fn script(req: &crate::provider::ProviderRequest) -> Scripted {
+    if answers_a_call(req) {
+        return Scripted::text("Read.");
+    }
+    match last_user(req).split_once("CALL ") {
+        Some((_, a)) => Scripted::tools(
+            "Reading.",
+            &[(
+                "h1",
+                "context_history",
+                serde_json::from_str(a.trim()).unwrap(),
+            )],
+        ),
+        None if last_user(req).contains("LONG") => Scripted::text(&LONG.repeat(1_500)),
+        None => Scripted::text("Noted."),
+    }
 }
 
 /// The session the line was said in, its message's node and its reply's, and its exchange's turn and place.
@@ -381,4 +381,58 @@ async fn an_outside_result_keeps_its_mark_and_links_its_source() {
         "the result is marked outside text: {node:?}"
     );
     finds(&reach(&r.core, &ask), &copy, &other);
+}
+
+/// **The runtime's cap decides a page's copies** (D6 round 6). A page of eight long lines, read with `[tools]
+/// result_max_chars` under its size, is cut again, head and tail, after the tool gave its sources: a line that
+/// cut leaves out is no copy of its message; a line it keeps is.
+#[tokio::test]
+async fn a_page_line_the_runtime_cap_leaves_out_is_no_copy() {
+    let r = rig_scripted(|c| c.tools.result_max_chars = 2_000, script);
+    let said = session(&r.core, None);
+    // Each message's words are its own: any of them on the page shows some of it.
+    let tag = |k: usize| format!("m{k:02}w");
+    for k in 0..8 {
+        let words: Vec<String> = (0..30).map(|j| format!("{}{j:02}", tag(k))).collect();
+        turn(&r.core, &said, &words.join(" ")).await;
+    }
+    let messages: Vec<(usize, String, String)> = (r.core.store.session_nodes(&said).unwrap())
+        .into_iter()
+        .filter_map(|(_, n)| match &n.body {
+            Body::UserMessage { text, .. } => {
+                let k = (0..8).find(|k| text.starts_with(&tag(*k)))?;
+                Some((k, n.id.clone(), n.turn_id.clone()?))
+            }
+            _ => None,
+        })
+        .collect();
+    let place = crate::exchange::exchange(&r.core.store, &messages[0].2)
+        .unwrap()
+        .expect("its exchange")
+        .place;
+    let other = session(&r.core, Some("channel:lab"));
+    let (copy, text) = read_in(&r.core, &other, json!({ "place": place })).await;
+    assert!(text.contains("not shown"), "the cap cut it: {text}");
+    let (shown, cut): (Vec<_>, Vec<_>) =
+        (messages.iter()).partition(|(k, _, _)| text.contains(&tag(*k)));
+    assert!(
+        !shown.is_empty() && !cut.is_empty(),
+        "shown {shown:?}, cut {cut:?}: {text}"
+    );
+    let lists = |node: &str| {
+        reach(&r.core, node)
+            .descendants
+            .iter()
+            .any(|d| d.node_id == copy)
+    };
+    for (k, node, _) in cut {
+        assert!(
+            !lists(node),
+            "{} is not on the page, yet node.reach lists it",
+            tag(*k)
+        );
+    }
+    for (k, node, _) in shown {
+        assert!(lists(node), "{} is on the page", tag(*k));
+    }
 }
