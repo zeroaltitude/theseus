@@ -517,7 +517,7 @@ async fn budget(out: &mut String) {
         )),
     };
     let mut w = world(vec![first, Scripted::text("The diff is one line.")], |c| {
-        c.profiles.get_mut("sonnet").unwrap().max_output_tokens = Some(110_000);
+        c.cap_profile_output("sonnet", 110_000);
         c.kernel.spend_limit_usd = 1.40;
         c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
     });

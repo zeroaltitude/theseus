@@ -2159,6 +2159,19 @@ impl Config {
         }
     }
 
+    /// A test's resolved output cap, kept in step with its source profile.
+    #[cfg(test)]
+    pub(crate) fn cap_profile_output(&mut self, name: &str, cap: u32) {
+        self.resolved
+            .profiles
+            .get_mut(name)
+            .expect("the profile")
+            .max_output_tokens = Some(cap);
+        if let Some(raw) = self.profiles.get_mut(name) {
+            raw.max_output_tokens = Some(cap);
+        }
+    }
+
     /// A test's profile `name`, a copy of `like` (theseus-a1wvq.8's
     /// `dsflash`, GLM's model on the `zai` fake).
     #[cfg(test)]

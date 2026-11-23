@@ -203,7 +203,10 @@ async fn the_budget_splits_equally_and_the_floor_refuses_a_carve_that_cannot_aff
     let r2 = fan_rig(
         call2,
         |_| Scripted::text("ok"),
-        |c| { c.kernel.spend_limit_usd = 8.0; c.tools.helper_max_output_tokens = 6_000; },
+        |c| {
+            c.kernel.spend_limit_usd = 8.0;
+            c.tools.helper_max_output_tokens = 6_000;
+        },
     );
     let p2 = parent_session(&r2.core);
     turn(&r2.core, &p2, ASK).await;

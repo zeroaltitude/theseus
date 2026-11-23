@@ -3076,7 +3076,7 @@ fn over_budget_rig(then: Vec<Scripted>) -> Rig {
     rig_with(script, |c| {
         // Keep this a resettable call under cautious cache-write pricing by tightening its
         // output cap. The spending limit is unchanged; the call fits only after a reset.
-        c.profiles.get_mut("sonnet").unwrap().max_output_tokens = Some(110_000);
+        c.cap_profile_output("sonnet", 110_000);
         c.kernel.spend_limit_usd = 1.60;
         c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
     })
@@ -7020,7 +7020,7 @@ async fn a_lowered_limit_makes_the_next_turn_over_it_ask() {
     let root = dir.path().join("w");
     std::fs::create_dir_all(&root).unwrap();
     let mut cfg = config(&root.canonicalize().unwrap(), dir.path());
-    cfg.profiles.get_mut("sonnet").unwrap().max_output_tokens = Some(110_000);
+    cfg.cap_profile_output("sonnet", 110_000);
     cfg.kernel.spend_limit_usd = 5.0;
     cfg.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
     let (sid, exec, spent, lifetime) = {
