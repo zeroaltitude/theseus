@@ -135,7 +135,12 @@ async fn a_session_opened_from_its_own_later_turn_is_found_from_its_message() {
     let r = rig();
     let said = say(&r.core).await;
     for n in 0..3 {
-        turn(&r.core, &said.session, &format!("and the tide table, part {n}")).await;
+        turn(
+            &r.core,
+            &said.session,
+            &format!("and the tide table, part {n}"),
+        )
+        .await;
     }
     let (copy, text) = read_in(&r.core, &said.session, json!({ "open": said.session })).await;
     assert!(text.contains(WORD), "{text}");
@@ -172,7 +177,9 @@ async fn an_imported_message_opened_by_its_session_is_found_from_it() {
 
 /// A retraction of the message finds the history result as a copy that was seen (`retract.rs`'s route for a
 /// copy no other kind names, glide's), labels the message wrong so recall never serves it, and leaves the copy
-/// where it lies: it is the reader's own result, as glide's borrowed node was.
+/// where it lies: it is the reader's own result, as glide's borrowed node was. What that leaves is asserted as
+/// it is, so a change to it is seen: the copy is not labeled (a seen copy never was), so recall may still
+/// serve its text, and the reader's next request still holds its own result.
 #[tokio::test]
 async fn a_retraction_of_the_message_lists_the_history_result() {
     let r = rig();
@@ -193,12 +200,16 @@ async fn a_retraction_of_the_message_lists_the_history_result() {
     let e = (out.exposures.iter())
         .find(|e| e.node_id == copy)
         .unwrap_or_else(|| panic!("the retraction does not list the history result: {out:#?}"));
-    assert_eq!((e.kind.as_str(), e.session_id.as_str()), (kind::SEEN, other.as_str()), "{e:?}");
+    assert_eq!(
+        (e.kind.as_str(), e.session_id.as_str()),
+        (kind::SEEN, other.as_str()),
+        "{e:?}"
+    );
     assert!(e.what.contains("history"), "{e:?}");
-    r.core
-        .runner
-        .memory
-        .set_ask(crate::tests_recall::index_of(&r.core, vec![said.session.clone(), other.clone()]));
+    r.core.runner.memory.set_ask(crate::tests_recall::index_of(
+        &r.core,
+        vec![said.session.clone(), other.clone()],
+    ));
     let m = r
         .core
         .memory_search(MemorySearchParams {
@@ -211,15 +222,13 @@ async fn a_retraction_of_the_message_lists_the_history_result() {
         .await
         .unwrap();
     assert!(!m.admitted.iter().any(|i| i.node_id == said.node), "{m:?}");
-    eprintln!(
-        "after the retraction, recall admits the copy: {}",
-        m.admitted.iter().any(|i| i.node_id == copy)
+    assert!(
+        m.admitted.iter().any(|i| i.node_id == copy),
+        "the seen copy is not labeled, so recall still admits it: {m:?}"
     );
     // The reader's next request still holds its own result (the copy is listed, never removed).
     turn(&r.core, &other, "and the weir?").await;
     let last = r.requests().pop().expect("a request");
-    eprintln!(
-        "after the retraction, the reader's next request holds the words: {}",
-        serde_json::to_string(&last.messages).unwrap().contains(WORD)
-    );
+    let sent = serde_json::to_string(&last.messages).unwrap();
+    assert!(sent.contains(WORD), "{sent}");
 }

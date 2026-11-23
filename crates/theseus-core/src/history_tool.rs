@@ -233,7 +233,10 @@ pub(crate) fn copied(tool: &str, meta: &mut Value) -> Vec<String> {
 
 /// The result `node`'s edges (P0's rule 3): it copies each of `sources`, so `node.reach` of any of them
 /// finds it, and a retraction reaches it, as a glide's borrowed node was found from each message it took.
-pub(crate) fn edges(node: &str, sources: &[String]) -> anyhow::Result<Vec<theseus_store::NewRecord>> {
+pub(crate) fn edges(
+    node: &str,
+    sources: &[String],
+) -> anyhow::Result<Vec<theseus_store::NewRecord>> {
     let mut seen = HashSet::new();
     (sources.iter())
         .filter(|s| seen.insert(s.as_str()))
