@@ -291,6 +291,103 @@ fn each_receipt_names_its_own_call_when_two_calls_share_an_id() {
     );
 }
 
+/// The blocks of the user message right after the assistant message that holds `word`, in `c`'s request.
+fn after_said(c: &Compiled, word: &str) -> Vec<Value> {
+    let m = &c.request.messages;
+    let at = (m.iter())
+        .position(|m| m["role"] == "assistant" && m.to_string().contains(word))
+        .expect("the response");
+    m[at + 1]["content"].as_array().cloned().unwrap_or_default()
+}
+
+/// **A stored response that repeats an id** (issue 44): two uses of `call_0` in one response, one gate record
+/// for that response and id, one correlated success. A record names a response and an id, not which use, so
+/// neither use is answered: both read the harness's stub, and the success is laid under neither.
+#[test]
+fn a_stored_response_that_repeats_an_id_lays_its_success_under_neither_use() {
+    let read_as = |path: &str| json!({"type": "tool_use", "id": "call_0", "name": "fs_read", "input": {"path": path}});
+    let said_twice = said("t0", vec![read_as("first.rs"), read_as("second.rs")]);
+    let record = Node::tool_call(
+        "s",
+        Some("t0"),
+        None,
+        Body::ToolCall {
+            tool_use_id: "call_0".into(),
+            tool: "fs.read".into(),
+            wire_name: "fs_read".into(),
+            input: json!({"path": "second.rs"}),
+            assistant_node: said_twice.id.clone(),
+            correlation_id: Some("act_second".into()),
+            gate: None,
+        },
+    );
+    let mut ran = result("t0", "call_0", "the second file");
+    if let Body::ToolResult { correlation_id, .. } = &mut ran.body {
+        *correlation_id = Some("act_second".into());
+    }
+    let window = vec![
+        Node::user("s", Some("t0"), "cli", "ask t0"),
+        said_twice,
+        record,
+        ran,
+        said("t0", vec![json!({"type": "text", "text": "answer t0"})]),
+    ];
+    let first = run(
+        &frozen("t1", &window),
+        &[Node::user("s", Some("t1"), "cli", "now")],
+        None,
+    );
+    let blocks = after_said(&first, "first.rs");
+    let results: Vec<&Value> = blocks
+        .iter()
+        .filter(|b| b["type"] == "tool_result")
+        .collect();
+    assert_eq!(results.len(), 2, "each use is closed: {blocks:?}");
+    for b in &results {
+        assert!(
+            b["content"].to_string().contains("No result was recorded"),
+            "neither use reads as run: {blocks:?}"
+        );
+    }
+    let all = serde_json::to_string(&first.request.messages).unwrap();
+    assert!(
+        !all.contains("the second file"),
+        "the success is laid under neither: {all}"
+    );
+}
+
+/// **Two uncorrelated calls with one id in one exchange, one uncorrelated result** (issue 44): two candidates,
+/// so the result answers neither, and both calls read the harness's stub.
+#[test]
+fn an_uncorrelated_result_with_two_candidates_answers_neither() {
+    let read_as = |path: &str| json!({"type": "tool_use", "id": "call_0", "name": "fs_read", "input": {"path": path}});
+    let window = vec![
+        Node::user("s", Some("t0"), "cli", "ask t0"),
+        said("t0", vec![read_as("first.rs")]),
+        said("t0", vec![read_as("second.rs")]),
+        result("t0", "call_0", "which one"),
+        said("t0", vec![json!({"type": "text", "text": "answer t0"})]),
+    ];
+    let first = run(
+        &frozen("t1", &window),
+        &[Node::user("s", Some("t1"), "cli", "now")],
+        None,
+    );
+    for word in ["first.rs", "second.rs"] {
+        let blocks = after_said(&first, word);
+        assert!(
+            blocks.iter().any(|b| b["type"] == "tool_result"
+                && b["content"].to_string().contains("No result was recorded")),
+            "{word}'s call reads no result: {blocks:?}"
+        );
+    }
+    let all = serde_json::to_string(&first.request.messages).unwrap();
+    assert!(
+        !all.contains("which one"),
+        "the ambiguous result answers neither: {all}"
+    );
+}
+
 /// A window exchange kept spoken that ended in a result with no answer: its receipt is made once from the
 /// window alone, so the turn's own first answer never becomes its "after it you wrote", and the second call
 /// of the turn sends the receipt byte for byte as the first did.
