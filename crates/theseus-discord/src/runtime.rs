@@ -1642,7 +1642,7 @@ fn strip_mentions(content: &str, bot_id: u64, bot_roles: &[u64]) -> String {
     for r in bot_roles {
         s = s.replace(&format!("<@&{r}>"), "");
     }
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+    s.trim().to_string()
 }
 
 fn terminal(state: Option<&str>) -> bool {
