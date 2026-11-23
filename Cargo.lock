@@ -6826,6 +6826,7 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "futures-util",
+ "gix",
  "hex",
  "image",
  "libc",
