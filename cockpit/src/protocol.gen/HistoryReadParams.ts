@@ -4,8 +4,10 @@ import type { HistoryCursor } from "./HistoryCursor";
 /**
  * `history.read` (issue 46): the history tool, `context.history`, read by an MCP client, with no model call.
  * Its anchor is `place` (a place's key, as a line names it), else where `session_id` (the client's own
- * conversation) speaks; `open` and `thing` need none. `words`, `thing` and `before` narrow and page as the
- * model's own calls do. Only the MCP server's connection calls it, and only while `[mcp_server] memory` is on.
+ * conversation) speaks, with that session's fork cut when it is a fork; `open` (an exchange's handle or a
+ * `ses_…` id) and `thing` need none. `words`, `thing`, a span (`when`, or `from` / `to`) and `before` narrow and
+ * page as the model's own calls do. Only the MCP server's connection calls it, and only while
+ * `[mcp_server] memory` is on.
  */
 export type HistoryReadParams = { place?: string, session_id?: string, 
 /**
@@ -17,9 +19,13 @@ thing?: string, words?: string,
  */
 before?: HistoryCursor, 
 /**
- * A line's handle: that exchange, whole.
+ * A line's handle: that exchange, whole; or a `ses_…` id: that session, a page of it (`before` pages back).
  */
 open?: string, 
+/**
+ * A time span (`yesterday`, `2026-11-20`, `last week`), read by the explicit reader; or `from` and `to`.
+ */
+when?: string, from?: string, to?: string, 
 /**
  * The MCP client's name, for the `memory.read` row.
  */
