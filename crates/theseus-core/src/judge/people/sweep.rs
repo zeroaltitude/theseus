@@ -173,7 +173,13 @@ impl Core {
             stopped: out.stopped.as_deref(),
         };
         let mark = SweepMark {
-            at_ms: now,
+            // Successful extractions have their own durable positions. Keep the
+            // window open until every due session was actually reached.
+            at_ms: if out.stopped.is_none() && out.done.len() as u64 == out.due {
+                now
+            } else {
+                from_ms
+            },
             day: today,
             spent_usd: swept_before + spent_usd,
         };

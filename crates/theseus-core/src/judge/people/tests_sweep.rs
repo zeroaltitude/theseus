@@ -205,3 +205,22 @@ async fn an_unset_extract_profile_prices_the_sweep_on_the_live_profile() {
     let (priced, _) = r.core.people_priced_on().unwrap();
     assert_eq!(priced.profile, "haiku", "a pin prices on itself");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_capped_sweep_keeps_the_unfinished_window() {
+    let (_jev, r, _private, _shared) = shut_gate(0.000_1).await;
+    let before = SweepMark {
+        at_ms: 1,
+        day: crate::judge::spend::local_day(theseus_protocol::now_unix_ms()),
+        spent_usd: 0.0,
+    };
+    r.core.store.put_meta(LAST_RUN, &before).unwrap();
+    let out = r.core.people_sweep("nightly").await.unwrap();
+    assert_eq!(out.swept, 0);
+    assert!(out.stopped.is_some());
+    let after: SweepMark = r.core.store.get_meta(LAST_RUN).unwrap().unwrap();
+    assert_eq!(
+        after.at_ms, before.at_ms,
+        "unfinished conversations remain in the window"
+    );
+}
