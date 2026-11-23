@@ -75,7 +75,7 @@ pub struct OntoItem {
     /// The session holds it now.
     #[serde(default)]
     pub session: bool,
-    /// Another session of the thread holds it.
+    /// Historical thread membership, decoded but ignored by live labeling.
     #[serde(default)]
     pub thread: bool,
     /// When a session last held it (ms), for the most recent first.
@@ -121,6 +121,7 @@ pub struct OntoText {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OntoInput {
+    /// Historical thread title, decoded but neither mined nor sent.
     #[serde(default)]
     pub thread_title: Option<String>,
     #[serde(default)]
@@ -171,7 +172,7 @@ fn words(s: &str) -> BTreeSet<String> {
 
 impl OntoKind {
     /// At most [`CANDIDATES`] of the pool for `message`: the session's own,
-    /// the thread's, a word match (more shared words first), then the most
+    /// a word match (more shared words first), then the most
     /// recent, each group newest first and none twice.
     pub fn pick(&self, message: &str) -> Picked {
         let m = words(message);
@@ -182,8 +183,8 @@ impl OntoKind {
         };
         let mut rest: Vec<(&OntoItem, usize)> = self.pool.iter().map(|i| (i, hits(i))).collect();
         rest.sort_by(|(a, ha), (b, hb)| {
-            (!a.session, !a.thread, *ha == 0, std::cmp::Reverse(*ha))
-                .cmp(&(!b.session, !b.thread, *hb == 0, std::cmp::Reverse(*hb)))
+            (!a.session, *ha == 0, std::cmp::Reverse(*ha))
+                .cmp(&(!b.session, *hb == 0, std::cmp::Reverse(*hb)))
                 .then(b.used_ms.cmp(&a.used_ms))
                 .then(a.id.cmp(&b.id))
         });
@@ -258,7 +259,7 @@ impl OntoInput {
             &mine::Text {
                 message,
                 previous,
-                thread_title: self.thread_title.as_deref(),
+                thread_title: None,
                 project_title: self.project_title.as_deref(),
                 private: &self.private_dirs,
             },
@@ -291,9 +292,6 @@ fn sources(kind: &str) -> Option<(Source, Source)> {
 pub(super) fn state(b: &mut StateBuilder, c: &Clipper, cap: u64, i: &super::InboundInput) {
     let Some(o) = &i.onto else { return };
     media(b, c, o);
-    if let Some(t) = o.thread_title.as_deref().filter(|t| !t.trim().is_empty()) {
-        b.scalar("thread", c.clip(t, 80)).cut_if("thread", c.cut());
-    }
     if let Some(t) = o.project_title.as_deref().filter(|t| !t.trim().is_empty()) {
         b.scalar("project", c.clip(t, 80))
             .cut_if("project", c.cut());

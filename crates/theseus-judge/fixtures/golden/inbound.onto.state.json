@@ -21,11 +21,9 @@
   },
   "message": "and the integration tests too, the ones under crates/theseus-core/tests for the Harbor Gate migration",
   "mined_names": [
-    "Harbor Gate migration",
     "Harbor Gate"
   ],
   "minutes_since_last_message": 2,
   "place_kind": "discord_thread",
-  "previous_human_message": "Can you run the unit tests for theseus-store and tell me what fails?",
-  "thread": "Harbor Gate migration"
+  "previous_human_message": "Can you run the unit tests for theseus-store and tell me what fails?"
 }

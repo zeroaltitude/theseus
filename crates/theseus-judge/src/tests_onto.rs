@@ -132,11 +132,10 @@ fn the_state_with_ontology_is_todays_plus_its_fields() {
         assert_eq!(state.get(k), Some(v), "{k} is as it was");
     }
     let added: Vec<&String> = state.keys().filter(|k| !today.contains_key(*k)).collect();
-    assert_eq!(added, ["memberships", "mined_names", "thread"]);
-    assert_eq!(
-        state["mined_names"],
-        json!(["Lantern roll-out"]),
-        "the thread's title"
+    assert_eq!(added, ["memberships"]);
+    assert!(
+        state.get("mined_names").is_none(),
+        "retired thread titles are not mined"
     );
     assert_eq!(state["memberships"], json!({"topic": ["Lantern"]}));
 }
@@ -161,7 +160,7 @@ fn a_kind_is_asked_when_it_is_listed_and_has_new_even_with_no_category() {
     assert!(names.contains(&"kind_of_thing"));
 }
 
-/// The candidates: the session's, the thread's, a word match, then the most
+/// The candidates: the session's, a word match, then the most
 /// recent; at most twenty; `new` and `none` last.
 #[test]
 fn the_picker_orders_the_pool_and_stops_at_twenty() {
@@ -183,8 +182,8 @@ fn the_picker_orders_the_pool_and_stops_at_twenty() {
     let k = kind("topic", pool);
     let picked = k.pick("what is left of the migration work?");
     let order: Vec<&str> = picked.candidates.iter().map(|c| c.id.as_str()).collect();
-    assert_eq!(&order[..3], ["topic:t3", "topic:t4", "topic:t5"]);
-    assert_eq!(order[3], "topic:t29", "then the most recent");
+    assert_eq!(&order[..3], ["topic:t3", "topic:t5", "topic:t29"]);
+    assert_eq!(order[3], "topic:t28", "then the most recent");
     assert_eq!(order.len(), ONTO_CANDIDATES);
     assert_eq!(picked.members.len(), 1);
     let (_, prepared) = onto_state(with_onto(vec![k]));
@@ -207,19 +206,14 @@ fn mined_names_are_options_and_a_membership_is_asked_about() {
     let (state, prepared) = onto_state(i);
     assert_eq!(
         state["mined_names"],
-        json!([
-            "Lantern roll-out",
-            "lantern-core",
-            "github.com",
-            "Lantern Ledger"
-        ])
+        json!(["lantern-core", "github.com", "Lantern Ledger"])
     );
     let asked = by_name("onto.v1").unwrap().ask(&prepared.dynamic);
     let ids_asked: Vec<&str> = asked.iter().map(|a| a.id.as_str()).collect();
     assert!(ids_asked.contains(&"topic_name"));
     assert!(ids_asked.contains(&"still_topic.1"));
     let name = asked.iter().find(|a| a.id == "topic_name").unwrap();
-    assert_eq!(ids(&name.question), ["n1", "n2", "n3", "n4", "none"]);
+    assert_eq!(ids(&name.question), ["n1", "n2", "n3", "none"]);
 }
 
 #[test]
@@ -301,7 +295,7 @@ fn suggested_names_lead_the_mined_ones() {
     i.message = "about Lantern Ledger".into();
     i.onto.as_mut().unwrap().suggested = vec!["Ledger work".into(), "lantern ledger".into()];
     let names = i.onto.as_ref().unwrap().names(&i.message, None);
-    assert_eq!(names, ["Ledger work", "lantern ledger", "Lantern roll-out"]);
+    assert_eq!(names, ["Ledger work", "lantern ledger"]);
 }
 
 // ------------------------------------------------- pictures and attachments
@@ -575,4 +569,27 @@ fn a_pictures_reserve_is_its_tokens_not_its_bytes() {
     let asset_bytes = with.body().len() - without.body().len();
     let bytes_as_text = price.reserve_tokens(asset_bytes, 0, 0) - price.reserve_tokens(0, 0, 0);
     assert!(a - b < bytes_as_text, "not its bytes as text");
+}
+
+#[test]
+fn retired_thread_metadata_cannot_change_ontology_questions() {
+    let mut legacy = with_onto(vec![kind(
+        "topic",
+        vec![
+            item("topic:a", "Alpha", "first"),
+            item("topic:b", "Beta", "second"),
+        ],
+    )]);
+    legacy.message = "do that".into();
+    legacy.onto.as_mut().unwrap().kinds[0].pool[0].thread = true;
+    let mut plain = legacy.clone();
+    let o = plain.onto.as_mut().unwrap();
+    o.thread_title = None;
+    o.kinds[0].pool[0].thread = false;
+    let (legacy, _) = onto_state(legacy);
+    let (plain, _) = onto_state(plain);
+    assert_eq!(
+        legacy, plain,
+        "retired metadata must not label a conversation"
+    );
 }

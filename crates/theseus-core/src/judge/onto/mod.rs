@@ -143,8 +143,8 @@ impl JudgeService {
 }
 
 /// The ontology fields of `input`, for a message in `msg`'s session: the
-/// kinds Jev may assign, with every live category of each, the thread's and
-/// project's titles, and what the naming call suggested. False when the
+/// kinds Jev may assign, with every live category of each, the
+/// project's title, and what the naming call suggested. False when the
 /// ontology cannot be read: nothing is asked then.
 pub(super) fn fill(core: &Core, msg: &Inbound, input: &mut InboundInput) -> bool {
     let Ok(o) = core.runner.ontology.snapshot(&core.store) else {
@@ -186,8 +186,6 @@ fn attached(core: &Core, msg: &Inbound) -> (Vec<Picture>, Vec<OntoText>) {
 /// The input: see [`fill`]. A category's last use is when a session last held it.
 pub(crate) fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput {
     let sid = &msg.session_id;
-    let threads = core.threads();
-    let thread = threads.of_session(sid);
     let project = core
         .store
         .get_session::<crate::session::SessionRecord>(sid)
@@ -231,8 +229,7 @@ pub(crate) fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput 
                     session: held
                         .as_ref()
                         .is_some_and(|l| l.members.iter().any(|m| m.category == c.id)),
-                    thread: k.name == "topic"
-                        && thread.is_some_and(|t| t.topics.iter().any(|x| *x == c.id.as_str())),
+                    thread: false,
                     used_ms: used.get(&c.id).copied().unwrap_or(0),
                 })
                 .collect();
@@ -264,7 +261,7 @@ pub(crate) fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput 
         })
         .collect();
     OntoInput {
-        thread_title: thread.map(|t| t.title.clone()),
+        thread_title: None,
         project_title,
         kinds,
         table,
