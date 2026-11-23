@@ -117,6 +117,11 @@ impl Sends {
     /// Whether a send would be allowed now, counting nothing: a plan asks it,
     /// so a send that cannot go is invalid input and asks the owner nothing.
     pub fn allows(&self) -> Result<(), String> {
+        self.store
+            .get()
+            .ok_or("send count store is not attached")?
+            .as_ref()
+            .map_err(Clone::clone)?;
         self.rolled(|d| self.refusal(d.count)).map_or(Ok(()), Err)
     }
 
@@ -165,4 +170,27 @@ fn an_unreadable_send_count_does_not_reset_the_cap() {
     let sends = Sends::new(25);
     sends.attach(store);
     assert!(sends.reserve().is_err());
+}
+
+#[test]
+fn an_unavailable_counter_refuses_before_approval() {
+    let _clock = crate::test_support::pin_mid_period();
+    let unattached = Sends::new(25);
+    assert!(unattached.allows().is_err());
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    store
+        .put_meta(KEY, &json!({"day": today(), "count": "broken"}))
+        .unwrap();
+    let corrupt = Sends::new(25);
+    corrupt.attach(store);
+    assert!(corrupt.allows().is_err());
+    assert_eq!(corrupt.used(), 0);
+    let unreadable = Sends::new(25);
+    assert!(unreadable
+        .store
+        .set(Err("send count could not be read".into()))
+        .is_ok());
+    assert!(unreadable.allows().is_err());
+    assert_eq!(unreadable.used(), 0);
 }
