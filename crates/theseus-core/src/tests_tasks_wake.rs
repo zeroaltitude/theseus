@@ -333,12 +333,17 @@ const DM_PERSON: [&str; 6] = ["commands", "files", "history", "memory", "reminde
 // self card's sentence naming it, 150 more tokens in the families a person's turn loads.
 // And 10235 until every request was the view's (issue 44): 931 more tokens, the memory page and the
 // view's own blocks. The count is a guideline, set to what is true; the families above are the rule.
-const DM_PERSON_TOKENS: u64 = 11166;
+// And 11166 until two changes of issue 44 met: `memory.lookup`'s description no longer speaks of veils
+// or a place rule, as memory reads read every place (21 tokens fewer, in the memory family), and the
+// memory page says what the view does (version 4: 24 more tokens). Measured at both steps.
+const DM_PERSON_TOKENS: u64 = 11169;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
 // And 7800 until the self card's look-before-asking sentence named `context_history` (issue 44): one
 // token more at the terminal, where the tool itself is deferred.
 // And 7801 until every request was the view's (issue 44): 931 more tokens, as in the DM. A guideline.
-const CLI_PERSON_TOKENS: u64 = 8732;
+// And 8732 until `memory.lookup`'s shorter description and the memory page's version 4, as in the DM
+// (21 fewer, then 24 more).
+const CLI_PERSON_TOKENS: u64 = 8735;
 
 /// The shipped default (theseus-6su0y), which the rigs above turn off: a person's turn in a
 /// private place carries the tasks family without asking for one, and that is the whole of what
