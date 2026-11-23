@@ -119,6 +119,16 @@ pub(super) struct Ctx<'a, 'n> {
     pub offers: &'a Offers,
 }
 
+/// What a render reads beside its nodes: recall's sources, the results cleared, what the request's tools
+/// offer, and the gate's call records (`ToolCall` nodes, which render nothing) that prove which call each
+/// result answers ([`super::pairing`]).
+pub type Around<'a> = (
+    &'a crate::recall::render::Sources,
+    &'a HashSet<&'a str>,
+    &'a Offers,
+    &'a [&'a Node],
+);
+
 /// Nodes → provider messages. Tool results are placed in one user message
 /// right after the assistant message whose `tool_use` blocks they answer,
 /// `tool_result` blocks first; consecutive same-role messages merge. An
@@ -135,10 +145,11 @@ pub fn render_messages(
     provider: &str,
     media: &Media,
     retrying: Option<&str>,
-    (sources, cleared, offers): (&crate::recall::render::Sources, &HashSet<&str>, &Offers),
+    (sources, cleared, offers, records): Around<'_>,
 ) -> Messages {
     let all = || prefix.iter().chain(tail.iter()).copied();
-    let results = super::pairing::pairing(all());
+    // The gate's call records render nothing, but they are what proves which call a result answers.
+    let results = super::pairing::pairing(all().chain(records.iter().copied()));
     let replaced = replaced_answers(all(), retrying);
     let notes = clearing::notes(all(), cleared, &replaced);
     let ctx = Ctx {

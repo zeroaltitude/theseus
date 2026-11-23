@@ -55,7 +55,7 @@ mod render;
 mod server_calls;
 #[cfg(test)]
 use render::is_thinking;
-pub use render::{render_messages, Messages};
+pub use render::{render_messages, Around, Messages};
 
 pub const COMPILER_VERSION: u32 = 1;
 /// 2 since 13c (theseus-ev1): the system goes out as two blocks, and a block
@@ -595,6 +595,11 @@ pub fn render_request(
     let strip = c.manifest.strip_thinking;
     // A replayed tool search stands only on a request that offers what it found (theseus-it6th).
     let offers = server_calls::Offers::of(&spec.tools);
+    // The gate's call records, which render nothing: they prove which call each result answers.
+    let records: Vec<&Node> = (nodes.iter())
+        .filter(|(_, n)| !renderable(n))
+        .map(|(_, n)| &**n)
+        .collect();
     let mut rendered = render_messages(
         &prefix,
         &tail,
@@ -602,7 +607,7 @@ pub fn render_request(
         &spec.provider,
         &media,
         retrying,
-        (sources, &cleared, &offers),
+        (sources, &cleared, &offers, &records),
     );
     card::attach(spec, &mut rendered);
 

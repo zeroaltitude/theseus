@@ -768,14 +768,14 @@ fn bounded(nodes: Vec<(u64, Stub)>, handle: &Handle) -> Vec<(u64, Stub)> {
     out
 }
 
+/// Each long call's fold text, by the call (its assistant node, id and place), and the results folded.
+type Folds = (HashMap<(String, String, usize), String>, HashSet<String>);
+
 /// For [`bounded`]: each long call's fold text (its stub with its own result), by the call, and the results
 /// those folds hold, by node id. A call's result is its own by proven identity (`compiler::pairing`, issue 44):
 /// a provider may repeat an id between the exchange's responses, so a fold describes its own call and only
 /// its own result is dropped.
-fn folds(
-    nodes: &[(u64, Stub)],
-    long: impl Fn(&serde_json::Value) -> bool,
-) -> (HashMap<(String, String, usize), String>, HashSet<String>) {
+fn folds(nodes: &[(u64, Stub)], long: impl Fn(&serde_json::Value) -> bool) -> Folds {
     let p = crate::compiler::pairing::pairing(nodes.iter().map(|(_, n)| &**n));
     let (mut folds, mut folded) = (HashMap::new(), HashSet::new());
     for (_, n) in nodes {
