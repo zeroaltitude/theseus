@@ -249,16 +249,6 @@ impl Core {
                 .clone()
                 .unwrap_or_else(|| format!("task {}", t.short));
         }
-        // A thread's session is asked by the thread's title, not by the
-        // first message it happened to get.
-        let thread = self.runner.threads.held().and_then(|b| {
-            b.of_session(&req.session_id)
-                .map(|t| t.title.clone())
-                .filter(|t| !t.trim().is_empty())
-        });
-        if let Some(t) = thread {
-            return t;
-        }
         self.store
             .get_session::<crate::session::SessionRecord>(&req.session_id)
             .ok()

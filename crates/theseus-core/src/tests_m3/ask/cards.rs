@@ -162,7 +162,7 @@ async fn the_plain_post_says_whether_it_is_held_and_since_when() {
     assert_eq!(posted["requested_at_ms"], card["requested_at_ms"]);
 }
 
-/// A thread's session is asked by the thread's title, not by the first
+/// A former thread's session is asked by its session title, not by the old
 /// message it was given; a task's title still wins where a task asks
 /// (theseus-zcn80).
 #[tokio::test]
@@ -178,5 +178,5 @@ async fn a_thread_sessions_question_is_asked_by_the_thread() {
         session_id: sid,
         ..Default::default()
     };
-    assert_eq!(r.core.asker_name(&req), "Harbour log notes");
+    assert_eq!(r.core.asker_name(&req), "Say ok, nothing else.");
 }

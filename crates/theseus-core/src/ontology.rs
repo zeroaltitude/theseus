@@ -466,16 +466,8 @@ impl crate::turn::TurnRunner {
         )
         .map(|w| {
             let now = theseus_protocol::now_unix_ms();
-            let (thread, project) = self.thread_and_project(session);
-            let w = match &thread {
-                Some(t) => w.with_topics(&t.topics, now),
-                None => w,
-            };
-            w.with_harness(
-                thread.as_ref().map(|t| t.slug.as_str()),
-                project.as_deref(),
-                now,
-            )
+            let (_, project) = self.thread_and_project(session);
+            w.with_harness(None, project.as_deref(), now)
         })
         .map(Arc::new)
     }
@@ -489,18 +481,13 @@ impl crate::turn::TurnRunner {
         Option<theseus_protocol::threads::ThreadInfo>,
         Option<String>,
     ) {
-        let thread = self
-            .threads
-            .all(&self.store)
-            .ok()
-            .and_then(|b| b.of_session(session).cloned());
         let project = self
             .store
             .get_session::<crate::session::SessionRecord>(session)
             .ok()
             .flatten()
             .and_then(|r| r.project);
-        (thread, project)
+        (None, project)
     }
 
     /// Where a session speaks, as `class_of` reads it: its place's target,
