@@ -498,20 +498,28 @@ impl Shared {
         }
         let mut after = 0;
         loop {
-            let page = self
-                .core
-                .store
-                .ledger_after::<theseus_core::ledger::LedgerRow>(after, 512)?;
-            if page.is_empty() {
-                break;
-            }
-            for (position, row) in page {
-                after = position;
-                if row.is_kind(theseus_protocol::LedgerKind::TaskEnded.as_str()) {
-                    if let Some(task) = row.data["task"].as_str().filter(|t| pending.contains(*t)) {
-                        ends.entry(task.to_string()).or_insert(row.at_unix_ms);
-                    }
+            let page = theseus_store::Page {
+                kind: theseus_store::kinds::LEDGER,
+                tags: vec![theseus_store::pages::ledger_kind("task.ended")],
+                after: Some(after),
+                before: None,
+                since_ms: None,
+                until_ms: None,
+                limit: 512,
+            };
+            let Some(got) = self.core.store.ledger_page(&page)? else {
+                // The tagged index is not ready; never fall back to a full scan.
+                return Ok(HashMap::new());
+            };
+            for record in got.records {
+                let row = record.decode::<theseus_core::ledger::LedgerRow>()?;
+                if let Some(task) = row.data["task"].as_str().filter(|t| pending.contains(*t)) {
+                    ends.entry(task.to_string()).or_insert(row.at_unix_ms);
                 }
+            }
+            match got.last {
+                Some(last) if got.more => after = last,
+                _ => break,
             }
         }
         Ok(ends)
@@ -520,7 +528,7 @@ impl Shared {
     pub(crate) async fn sweep_once(&self) {
         let keep = self.core.cfg.discord.task_channel_keep_days * DAY.as_millis() as u64;
         let now = theseus_protocol::now_unix_ms();
-        let ends = match self.work_ends() {
+        let ends = match theseus_store::blocking(|| self.work_ends()) {
             Ok(ends) => ends,
             Err(e) => {
                 self.board.error("task channel sweep", None, e);
@@ -1051,6 +1059,41 @@ mod tests {
             "a pending close cannot extend guest access forever"
         );
     }
+    #[tokio::test]
+    async fn retention_reads_only_task_ended_rows() {
+        let CloseRig {
+            _dir,
+            fake: _,
+            core,
+            shared,
+            m,
+        } = close_rig().await;
+        // A different kind need not even have the task-end reader's schema.
+        // Reading it as a LedgerRow would fail, rather than silently pass.
+        for _ in 0..1025 {
+            core.store
+                .append_ledger(&serde_json::json!({
+                    "kind": "turn.started", "at_unix_ms": "not a task end"
+                }))
+                .unwrap();
+        }
+        let row = theseus_core::ledger::LedgerRow::new(
+            theseus_protocol::LedgerKind::TaskEnded,
+            Some("ses_parent"),
+            None,
+            serde_json::json!({"task": m.task}),
+        );
+        core.store.append_ledger(&row).unwrap();
+        let before = theseus_store::records_read_here();
+        let ends = shared.work_ends().unwrap();
+        let read = theseus_store::records_read_here() - before;
+        assert!(
+            read < 10,
+            "the tagged page read {read} records, not just task ends"
+        );
+        assert_eq!(ends.get(&m.task), Some(&row.at_unix_ms));
+    }
+
     #[test]
     fn close_retries_double_to_one_hour() {
         let chan = Chan::default();
