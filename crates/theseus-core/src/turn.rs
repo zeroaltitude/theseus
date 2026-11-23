@@ -159,6 +159,7 @@ pub const ASSEMBLY: &str = "Context. The harness assembles each request, as the 
 pub struct TurnRunner {
     /// Last ledger position before this process can book model spend.
     pub(crate) day_seed_through: u64,
+    pub(crate) day_read_failure: std::sync::Mutex<crate::day_ceiling::ReadFailure>,
     pub cfg: Arc<Config>,
     /// Providers by name; `cfg.model.provider` is the default.
     pub providers: BTreeMap<String, Arc<dyn Provider>>,

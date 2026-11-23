@@ -320,25 +320,81 @@ fn scan_day(
     Ok(Some(rows))
 }
 
+/// Ignore a different day's mark before decoding its amount. A missing or
+/// unreadable day must still fail closed.
+fn day_mark<T: serde::de::DeserializeOwned>(
+    store: &Store,
+    key: &str,
+    day: &str,
+) -> anyhow::Result<Option<T>> {
+    let Some(raw) = store.get_meta::<serde_json::Value>(key)? else {
+        return Ok(None);
+    };
+    if raw
+        .get("day")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|d| d != day)
+    {
+        return Ok(None);
+    }
+    Ok(Some(serde_json::from_value(raw)?))
+}
+
 /// The judge's day budget keeps today's settled spend in one record.
 fn judge_spent(store: &Store, day: &str) -> anyhow::Result<Micros> {
-    Ok(store
-        .get_meta::<crate::judge::spend::Stored>(crate::judge::spend::META_KEY)?
-        .filter(|j| j.day == day)
-        .map_or(0, |j| j.spent_micros))
+    use anyhow::Context;
+    Ok(
+        day_mark::<crate::judge::spend::Stored>(store, crate::judge::spend::META_KEY, day)
+            .context("today's judge spending cannot be read")?
+            .map_or(0, |j| j.spent_micros),
+    )
 }
 
 /// Guidance's day mark is separate from ledger totals, like the judge's budget.
 fn guidance_spent(store: &Store, day: &str) -> anyhow::Result<Micros> {
     use crate::consolidate::guidance::{DreamMark, MARK};
-    let Some(mark) = store.get_meta::<DreamMark>(MARK)?.filter(|m| m.day == day) else {
+    use anyhow::Context;
+    let Some(mark) = day_mark::<DreamMark>(store, MARK, day)
+        .context("today's guidance spending cannot be read")?
+    else {
         return Ok(0);
     };
     anyhow::ensure!(
         mark.spent_usd.is_finite() && mark.spent_usd >= 0.0,
-        "unreadable guidance spending"
+        "today's guidance spending cannot be read"
     );
     Ok(usd_to_micros(mark.spent_usd))
+}
+
+/// In-memory startup read failure: one warning on change, otherwise per minute.
+#[derive(Default)]
+pub(crate) struct ReadFailure {
+    since: u64,
+    logged: u64,
+    error: Option<String>,
+}
+
+impl ReadFailure {
+    pub(crate) fn failed(&mut self, now: u64, error: String) -> bool {
+        if self.error.is_none() {
+            self.since = now;
+        }
+        let log = self.error.as_ref() != Some(&error) || now.saturating_sub(self.logged) >= 60_000;
+        if log {
+            self.logged = now;
+        }
+        self.error = Some(error);
+        log
+    }
+
+    pub(crate) fn health(&self, now: u64) -> Option<String> {
+        self.error.as_ref().filter(|_| now.saturating_sub(self.since) > 60_000).map(|e| {
+            let figure = if e.contains("judge spending") { "judge spending" }
+                else if e.contains("guidance spending") { "guidance spending" }
+                else { "model spending from the ledger" };
+            format!("Today's {figure} cannot be read; the day-spend read has been failing for over a minute.")
+        })
+    }
 }
 
 fn seeded(
@@ -459,6 +515,7 @@ impl TurnRunner {
         ) {
             Ok(Some(s)) => {
                 c.seed(now, &s.seed);
+                *self.day_read_failure.lock().unwrap() = ReadFailure::default();
                 tracing::info!(day = %day, spent_usd = theseus_kernel::micros_to_usd(s.seed.spent),
                     rows = s.rows, resumed = s.resumed, reached = s.seed.reached_at_ms.is_some(),
                     took_us = t.elapsed().as_micros() as u64, "day ceiling: today's spend read");
@@ -469,7 +526,15 @@ impl TurnRunner {
                 ..Seeded::default()
             },
             Err(e) => {
-                tracing::warn!(error = %format!("{e:#}"), "day ceiling: today's spend was not read; model calls remain stopped until the read succeeds");
+                let error = format!("{e:#}");
+                if self
+                    .day_read_failure
+                    .lock()
+                    .unwrap()
+                    .failed(now, error.clone())
+                {
+                    tracing::warn!(%error, "day ceiling: today's spend was not read; retrying");
+                }
                 Seeded {
                     later: true,
                     ..Seeded::default()

@@ -914,6 +914,7 @@ impl Core {
         );
         let runner = TurnRunner {
             day_seed_through,
+            day_read_failure: Default::default(),
             // Reads nothing and starts nothing until a turn ends (FAST).
             pass: crate::memory_pass::MemoryPass::new(
                 memory.clone(),

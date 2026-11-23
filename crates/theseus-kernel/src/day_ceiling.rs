@@ -423,7 +423,7 @@ impl DayCeiling {
     /// Whether a call of `need` is refused now: the day is stopped, or it
     /// would pass the ceiling.
     fn refuses(st: &State, limit: Micros, need: Micros) -> bool {
-        st.seed_pending
+        (st.seed_pending && limit > 0)
             || Self::stopped(st, limit)
             || (limit > 0 && st.spent.saturating_add(st.held_total).saturating_add(need) > limit)
     }

@@ -763,3 +763,103 @@ fn a_failed_restart_read_closes_core_admission_until_a_successful_retry() {
     core.runner.seed_day_ceiling();
     assert_eq!(c.today(now).spent, 99);
 }
+
+#[test]
+fn damaged_day_marks_stop_today_but_not_tomorrow() {
+    let _clock = crate::test_support::ClockPin;
+    let now = 1_800_000_000_000;
+    theseus_protocol::time::move_clock_to(now);
+    for key in [
+        crate::judge::spend::META_KEY,
+        crate::consolidate::guidance::MARK,
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store");
+        let clock = theseus_kernel::VirtualClock::new(now);
+        let mut cfg = crate::Config::example();
+        cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+        cfg.tools.roots = vec![];
+        let midnight;
+        {
+            let store = Store::open(&path).unwrap();
+            let k = theseus_kernel::Kernel::new(
+                store.shared(),
+                clock.clone(),
+                cfg.kernel.to_kernel_config(),
+            );
+            let (today, _, end) = k.day_ceiling().day_of(now);
+            midnight = end;
+            store
+                .put_meta(
+                    key,
+                    &json!({"day": today, "spent_micros": "garbage", "spent_usd": "garbage"}),
+                )
+                .unwrap();
+        }
+        let parts = crate::rpc::Parts::for_tests(
+            cfg,
+            std::sync::Arc::new(crate::provider::FakeProvider::scripted(vec![])),
+            Store::open(&path).unwrap(),
+        );
+        let core = crate::Core::build_with_clock(parts, clock.clone()).unwrap();
+        assert!(core.runner.seed_day_ceiling().later);
+        assert!(core.runner.day_hold(1, "test").is_err());
+        clock.set(midnight + 1);
+        theseus_protocol::time::move_clock_to(midnight + 1);
+        let seeded = core.runner.seed_day_ceiling();
+        assert!(
+            !seeded.later,
+            "yesterday's damaged mark must not stop today: {key}"
+        );
+        assert_eq!(seeded.seed.spent, 0);
+        assert!(core.runner.day_hold(1, "test").is_ok());
+        theseus_protocol::time::move_clock_to(now);
+    }
+}
+
+#[test]
+fn pending_seed_without_a_bar_refuses_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let k = theseus_kernel::Kernel::new(
+        store.shared(),
+        theseus_kernel::VirtualClock::new(1_800_000_000_000),
+        theseus_kernel::KernelConfig::default(),
+    );
+    let c = k.day_ceiling();
+    c.set_limit(0);
+    c.require_seed();
+    assert!(!c.seed_applied());
+    assert!(c.fits(c.now(), 1).is_ok());
+    assert!(c.hold_call(c.now(), 1).is_ok());
+}
+
+#[test]
+fn day_read_failure_warns_on_change_or_minute_and_clears_on_success() {
+    let dir = tempfile::tempdir().unwrap();
+    let (core, _) = crate::tests_day_ceiling::build(dir.path(), vec![], |_| {});
+    let now = core.kernel.day_ceiling().now();
+    let mut failure = core.runner.day_read_failure.lock().unwrap();
+    let error = "today's judge spending cannot be read".to_string();
+    assert!(failure.failed(now - 60_001, error.clone()));
+    assert!(!failure.failed(now - 60_000, error.clone()));
+    assert!(failure.failed(now - 1, error));
+    drop(failure);
+    let h = core.health();
+    let phase = h.startup.iter().find(|p| p.name == "day_ceiling").unwrap();
+    assert!(phase.detail["read_error"]
+        .as_str()
+        .unwrap()
+        .contains("judge spending"));
+    let mut failure = core.runner.day_read_failure.lock().unwrap();
+    assert!(failure.failed(now, "today's guidance spending cannot be read".into()));
+    drop(failure);
+    assert!(!core.runner.seed_day_ceiling().later);
+    assert!(core
+        .runner
+        .day_read_failure
+        .lock()
+        .unwrap()
+        .health(now)
+        .is_none());
+}
