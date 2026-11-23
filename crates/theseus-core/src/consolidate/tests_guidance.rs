@@ -529,3 +529,23 @@ async fn a_pinned_dream_still_writes_at_high_effort() {
 fn the_dreams_effort_is_high() {
     assert_eq!(super::guidance::DREAM_EFFORT, crate::config::Effort::High);
 }
+
+#[tokio::test]
+async fn shared_place_sessions_still_supply_dream_guidance() {
+    let _clock = crate::test_support::pin_mid_period();
+    let r = rig(ANSWER, |_| {});
+    plant(&r.core, "harbour", "jev:j-0001", 5);
+    for i in 0..5 {
+        let sid = format!("harbour-{i}");
+        r.core
+            .outbox
+            .bind_place(&format!("discord:channel:{}", 1000 + i), &sid)
+            .unwrap();
+        assert_eq!(
+            r.core.runner.class_of(&sid),
+            crate::places::PlaceClass::Shared
+        );
+    }
+    let done = r.core.dream_guidance(now_unix_ms()).await.unwrap();
+    assert_eq!(done.written.len(), 1);
+}

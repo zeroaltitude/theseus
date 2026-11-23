@@ -7,8 +7,7 @@
 //!
 //! - **Which**: a category of an interpreted kind that a machine wrote (never
 //!   the operator's or the import's), no guidance yet, held by [`MIN_SESSIONS`]
-//!   sessions of private places that a person wrote (never a task's, an
-//!   import's or a shared place's); at most [`PER_NIGHT`] a night, most held
+//!   sessions that a person wrote (never a task's or an import's); at most [`PER_NIGHT`] a night, most held
 //!   first.
 //! - **The call**: one, through the provider path the background jobs use. **Its model
 //!   is route.v10's one named exception (theseus-xdi65), see [`DREAM_MODEL`]:**
@@ -60,7 +59,6 @@ use theseus_store::{kinds, Page, Store as _};
 use crate::config::Effort;
 use crate::judge::spend;
 use crate::node::{Body, Node, Origin as NodeOrigin};
-use crate::places::PlaceClass;
 use crate::provider::{Provider, ProviderRequest};
 use crate::rpc::Core;
 use crate::session::SessionRecord;
@@ -294,17 +292,13 @@ impl Core {
     }
 
     /// The sessions that hold `id`, newest first, that a call may read: a
-    /// person's, in a private place, not a task's nor an import's.
+    /// person's, in any place, not a task's nor an import's.
     fn dream_sessions(&self, lists: &[Cow<'_, MemberList>], id: &CategoryId) -> Vec<SessionRecord> {
         let mut found: Vec<SessionRecord> = lists
             .iter()
             .filter(|l| l.kind == id.kind() && l.members.iter().any(|m| &m.category == id))
             .filter_map(|l| self.store.get_session::<SessionRecord>(&l.session).ok()?)
-            .filter(|s| {
-                s.task.is_none()
-                    && s.imported.is_none()
-                    && self.runner.class_of(&s.session_id) == PlaceClass::Private
-            })
+            .filter(|s| s.task.is_none() && s.imported.is_none())
             .collect();
         found.sort_by(|a, b| {
             (b.last_active_ms, &b.session_id).cmp(&(a.last_active_ms, &a.session_id))
