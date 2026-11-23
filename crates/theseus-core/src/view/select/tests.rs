@@ -403,11 +403,21 @@ fn elsewhere_is_his_last_two_days_and_his_newest_in_five_places() {
     for (i, p) in ["p1", "p2", "p3", "p4", "p5", "p6"].iter().enumerate() {
         s.ex.push(ex(&format!("{p}x"), p, 200 + i as u64));
     }
-    let words = select(&s, Band::ElsewhereWords, Present::OwnerAlone);
-    assert_eq!(ids(&words), ["a1", "a2", "p1x", "p2x", "p3x", "p4x"]);
+    let pov = pov(Present::OwnerAlone);
+    let gate = permit::Permit::of(crate::view_gate::Verified::of_fresh(
+        theseus_memory::recall::Place::Private,
+        "local",
+    ));
+    let select = |band| {
+        elsewhere::Elsewhere::new(band, sources_with(&s, "", &gate))
+            .select(&pov, &s)
+            .unwrap()
+    };
+    let words = select(Band::ElsewhereWords);
+    assert_eq!(ids(&words), ["a1", "sh", "a2", "p1x", "p2x", "p3x"]);
     assert!(words.iter().all(|p| p.form == Form::Line));
-    let replies = select(&s, Band::ElsewhereReplies, Present::OwnerAlone);
-    assert_eq!(ids(&replies), ["a1", "p1x", "p2x", "p3x", "p4x"]);
+    let replies = select(Band::ElsewhereReplies);
+    assert_eq!(ids(&replies), ["a1", "sh", "p1x", "p2x", "p3x"]);
     assert_eq!(
         replies[0].sizes.spoken,
         10 + 1_500,
