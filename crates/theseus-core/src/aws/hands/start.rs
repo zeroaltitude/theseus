@@ -182,7 +182,7 @@ fn frame(
             )?;
             k.authorize(&a.correlation_id, &proposal, None)?;
             if wave.contains(&i) {
-                k.dispatch(&a.correlation_id, None)?;
+                k.dispatch_for(&a.correlation_id, None, ttl_ms + REPORT_GRACE_MS)?;
             }
             rec.hands.push(HandEntry {
                 index: i,

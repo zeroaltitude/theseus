@@ -175,7 +175,17 @@ impl Kernel {
     /// `dispatched`: committed before the call is made (transactional
     /// outbox). The execution records the action as outstanding.
     pub fn dispatch(&self, correlation_id: &str, external_op_id: Option<&str>) -> Result<Action> {
-        self.dispatch_or_refuse(correlation_id, external_op_id)?
+        self.dispatch_or_refuse(correlation_id, external_op_id, None)?
+    }
+
+    /// An action whose lifetime starts when it leaves, not while it waits to run.
+    pub fn dispatch_for(
+        &self,
+        correlation_id: &str,
+        external_op_id: Option<&str>,
+        lifetime_ms: u64,
+    ) -> Result<Action> {
+        self.dispatch_or_refuse(correlation_id, external_op_id, Some(lifetime_ms))?
     }
 
     /// `authorize` and `dispatch` in one frame, a transaction, for a call the
@@ -211,7 +221,7 @@ impl Kernel {
             Ok(
                 match k.authorize_or_invalid(correlation_id, &digest, confirm_required_from)? {
                     Err(why) => Answered::Invalid(why),
-                    Ok(_) => match k.dispatch_or_refuse(correlation_id, external_op_id)? {
+                    Ok(_) => match k.dispatch_or_refuse(correlation_id, external_op_id, None)? {
                         Ok(a) => Answered::Dispatched(Box::new(a)),
                         Err(refused) => Answered::Refused(refused),
                     },
@@ -234,6 +244,7 @@ impl Kernel {
         &self,
         correlation_id: &str,
         external_op_id: Option<&str>,
+        lifetime_ms: Option<u64>,
     ) -> Result<Result<Action>> {
         let (_w, mut a) = self.locked_known_action(correlation_id)?;
         if let Some(end) = self.ended_with_execution(&a)? {
@@ -280,6 +291,9 @@ impl Kernel {
         let now = self.now_ms();
         a.state = ActionState::Dispatched;
         a.dispatched_at_ms = Some(now);
+        if let Some(lifetime) = lifetime_ms {
+            a.deadline_at_ms = now.saturating_add(lifetime);
+        }
         a.external_op_id = external_op_id.map(str::to_string);
         if !e.outstanding.contains(&a.correlation_id) {
             e.outstanding.push(a.correlation_id.clone());

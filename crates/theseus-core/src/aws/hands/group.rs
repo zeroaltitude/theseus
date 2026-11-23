@@ -356,9 +356,18 @@ pub async fn launch(ctx: &Ctx<'_>, mut rec: GroupRecord, wave: &[u32]) -> Result
             .map(|c| (c.clone(), Err(e.to_string())))
             .collect(),
         Ok(keys) => {
-            let ids = rec.ids();
             let launches = wave.iter().zip(&keys).map(|(i, k)| {
                 let h = &rec.hands[*i as usize];
+                let mut ids = rec.ids();
+                let dispatched = ctx
+                    .kernel
+                    .action(&h.correlation_id)
+                    .ok()
+                    .flatten()
+                    .and_then(|a| a.dispatched_at_ms)
+                    .unwrap_or(rec.created_at_ms);
+                ids.ttl_at =
+                    super::start::utc(dispatched.saturating_add(rec.request.ttl_secs * 1000));
                 let spec = launch::spec(
                     &rec.env,
                     &rec.request,
@@ -370,7 +379,7 @@ pub async fn launch(ctx: &Ctx<'_>, mut rec: GroupRecord, wave: &[u32]) -> Result
                     &rec.region,
                     rec.endpoint.as_deref(),
                 );
-                let (account, binding, rec, ids) = (&account, &binding, &rec, &ids);
+                let (account, binding, rec) = (&account, &binding, &rec);
                 async move {
                     let r = launch::launch(
                         account,
@@ -380,7 +389,7 @@ pub async fn launch(ctx: &Ctx<'_>, mut rec: GroupRecord, wave: &[u32]) -> Result
                         rec.backend,
                         rec.task_definition.as_deref(),
                         &spec,
-                        ids,
+                        &ids,
                     )
                     .await;
                     (spec.correlation_id.clone(), r)
@@ -521,7 +530,7 @@ pub fn dispatch(kernel: &Kernel, execution_id: &str, corrs: &[&str]) -> Result<V
         for c in corrs {
             let a = k.action(c)?.ok_or_else(|| anyhow!("hand {c} vanished"))?;
             if matches!(a.state, ActionState::Planned | ActionState::Authorized) {
-                k.dispatch(c, None)?;
+                k.dispatch_for(c, None, a.deadline_at_ms.saturating_sub(a.planned_at_ms))?;
                 claimed.push((*c).to_string());
             }
         }

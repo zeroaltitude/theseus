@@ -1141,3 +1141,54 @@ async fn aws_still_stops_at_its_lines_under_the_soft_money_settings() {
     assert!(result_text(&r.core, &res).contains("Not run: AWS runaway mode"));
     assert!(r.state.invoked().is_empty(), "nothing launched");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_later_wave_gets_a_full_hand_lifetime_at_dispatch() {
+    let _clock = crate::test_support::pin_mid_period();
+    let r = fargate_rig(json!({"argv": ["true"], "count": 2, "concurrency": 1,
+        "backend": "fargate", "ttl_secs": 3600}));
+    turn(&r.core, "run in two waves").await;
+    let rec = record(&r.core, &group_of(&r.core));
+    let at = r.core.kernel.now_ms() + 3_500_000;
+    theseus_protocol::time::move_clock_to(at);
+    r.core
+        .kernel
+        .accept_completion(&theseus_kernel::Completion {
+            correlation_id: rec.hands[0].correlation_id.clone(),
+            outcome: theseus_kernel::Outcome::Succeeded,
+            result_ref: None,
+            external_op_id: None,
+            started_at_ms: rec.created_at_ms,
+            finished_at_ms: at,
+            producer: "test".into(),
+            signature: None,
+            cost_micros: Some(1),
+            detail: None,
+        })
+        .unwrap();
+    let aws = r.core.tools.aws.clone().unwrap();
+    let ctx = super::group::Ctx {
+        kernel: &r.core.kernel,
+        store: &r.core.store,
+        aws: &aws,
+    };
+    super::group::step(&ctx, &rec.group).await.unwrap();
+    let second = action(&r, &rec.hands[1].correlation_id);
+    assert!(
+        second.deadline_at_ms >= at + 3_600_000,
+        "late hand inherits the old clock: {second:?}"
+    );
+    let ran = r.state.ran.lock().unwrap();
+    assert_eq!(ran.len(), 2);
+    let tag = ran[1]["tags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["key"] == "theseus:ttl")
+        .unwrap();
+    let ttl = crate::wake::parse_at(tag["value"].as_str().unwrap()).unwrap();
+    assert!(
+        ttl >= at + 3_599_000,
+        "the reaper must follow the hand's own clock"
+    );
+}

@@ -111,12 +111,16 @@ pub fn open_groups(core: &Core) -> Result<Vec<GroupRecord>> {
         .into_iter()
         .filter_map(|r| r.decode::<GroupRecord>().ok())
     {
-        let until = rec.created_at_ms + rec.request.ttl_secs * 1000 + LATE_GRACE_MS;
-        if now > until || groups.contains(rec.group.as_str()) {
+        if groups.contains(rec.group.as_str()) {
             continue;
         }
         let running_on = group::hands(&core.kernel, &rec)?.iter().any(|a| {
-            a.state == ActionState::Cancelled
+            let until = a
+                .dispatched_at_ms
+                .unwrap_or(rec.created_at_ms)
+                .saturating_add(rec.request.ttl_secs * 1000 + LATE_GRACE_MS);
+            now <= until
+                && a.state == ActionState::Cancelled
                 && a.dispatched_at_ms.is_some()
                 && a.completions_seen == 0
                 && matches!(
