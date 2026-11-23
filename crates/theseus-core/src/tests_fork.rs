@@ -1706,10 +1706,10 @@ async fn a_forks_words_search_from_a_cursor_crowded_past_its_point_says_it_may_b
         !bare.contains("turn_tide_"),
         "nothing past the point: {bare}"
     );
-    let source = call(s.clone(), json!({"words": "tide"}))
-        .await
-        .unwrap()
-        .text;
+    // The source's ordinary start is below what it has in view, which these later writes are not part of:
+    // its control starts above every hit.
+    let above = json!({"words": "tide", "before": {"at_ms": first_later + 1_000, "turn_id": ""}});
+    let source = call(s.clone(), above).await.unwrap().text;
     assert!(source.contains("turn_tide_119"), "the control: {source}");
     assert!(!source.contains("may be incomplete"), "{source}");
 }
