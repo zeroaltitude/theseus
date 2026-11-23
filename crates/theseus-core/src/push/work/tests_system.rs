@@ -370,11 +370,9 @@ fn a_silent_job_stops_and_an_old_one_leaves_with_the_root() {
     assert!(w.views.is_empty());
 }
 
-/// System work is the owner's: the snapshot gives the root to a scope that
-/// sees the whole board, and to no scope that names its roots or reads no
-/// private text, whatever it names.
+/// Explicit roots still filter system work, but a surface does not hide it.
 #[test]
-fn a_shared_place_never_sees_the_theseus_root() {
+fn a_shared_place_sees_system_work_when_its_scope_names_it() {
     let mut w = WorkBoard::default();
     feed(&mut w, 1, T0, vec![batch(T0, 1, 3, "claude-code")]);
     let ids = |s: &Scope| -> Vec<String> {
@@ -387,23 +385,19 @@ fn a_shared_place_never_sees_the_theseus_root() {
     let whole = ids(&Scope::default());
     assert_eq!(whole.len(), 2, "the root and its job: {whole:?}");
     assert!(whole.contains(&ROOT.to_string()));
-    for scope in [
-        Scope {
-            roots: Some(["exe_a".to_string()].into()),
-            guarded: true,
-        },
-        Scope {
-            roots: Some([ROOT.to_string()].into()),
-            guarded: true,
-        },
-    ] {
-        assert!(ids(&scope).is_empty(), "{scope:?}");
-        assert!(!scope.sees(ROOT) && !scope.sees("anything under system"));
-        assert_eq!(
-            scope.gone(&[("x".into(), ROOT.into())]),
-            Vec::<String>::new()
-        );
-    }
+    let other = Scope {
+        roots: Some(["exe_a".to_string()].into()),
+        guarded: true,
+    };
+    assert!(ids(&other).is_empty());
+    assert!(!other.sees(ROOT));
+    let system = Scope {
+        roots: Some([ROOT.to_string()].into()),
+        guarded: true,
+    };
+    assert_eq!(ids(&system), whole);
+    assert!(system.sees(ROOT));
+    assert_eq!(system.gone(&[("x".into(), ROOT.into())]), vec!["x"]);
 }
 
 /// A scope that reads private text and names `system` has the root and its
