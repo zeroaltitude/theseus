@@ -167,10 +167,10 @@ function Gate({ confirms, tight, rows, title, now, onOpen, disabled }: { confirm
             </div>
             <div className={cn('mt-0.5 text-[12px] text-ink-dim', c.plain?.detail ? 'whitespace-pre-wrap break-words' : 'line-clamp-2')}>{c.plain?.detail || c.reason}</div>
           </div>
-          <div className="flex shrink-0 flex-col gap-1">
-            <Btn disabled={disabled} tone="ok" onClick={() => act('action.confirm', { correlation_id: c.correlation_id, approve: true }, `Approve ${c.tool}?\n\n${c.plain?.detail || c.reason}`)}><CircleCheck size={12} /> Approve</Btn>
-            <Btn disabled={disabled} tone="fault" onClick={() => act('action.confirm', { correlation_id: c.correlation_id, approve: false }, `Decline ${c.tool}?`)}><OctagonX size={12} /> Decline</Btn>
-          </div>
+          <fieldset disabled={disabled} className="flex shrink-0 flex-col gap-1">
+            <Btn tone="ok" onClick={() => act('action.confirm', { correlation_id: c.correlation_id, approve: true }, `Approve ${c.tool}?\n\n${c.plain?.detail || c.reason}`)}><CircleCheck size={12} /> Approve</Btn>
+            <Btn tone="fault" onClick={() => act('action.confirm', { correlation_id: c.correlation_id, approve: false }, `Decline ${c.tool}?`)}><OctagonX size={12} /> Decline</Btn>
+          </fieldset>
         </div>
       ))}
       <div className="ship-engraved mt-1 text-[9.5px]">Tightenings · “Make actions like this ask in the future”</div>
