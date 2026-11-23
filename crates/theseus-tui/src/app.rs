@@ -106,9 +106,9 @@ pub enum Purpose {
     /// The follow pane (theseus-e1hu4): `action.list` finds the session's
     /// running job, `work.peek` reads it, `action.output` follows it, and
     /// `action.unfollow` lets it go.
-    FollowFind,
-    FollowPeek,
-    FollowStart,
+    FollowFind(u64),
+    FollowPeek(u64, String),
+    FollowStart(u64, String),
     Unfollow,
     /// A key in the Horizon section (a snooze, a pause, a run): the words
     /// the footer says when it is done.
@@ -269,6 +269,7 @@ pub struct App {
     save_at: Option<u64>,
     /// The follow pane: a running job's output, over the detail area.
     pub follow: Option<Follow>,
+    pub(crate) follow_generation: u64,
     /// The future under the task tree (theseus-nuhsz).
     pub horizon: crate::horizon::Section,
     /// The newest board position applied: what "looked at the board" is
@@ -317,6 +318,7 @@ impl App {
             notify_pinned: false,
             tui_notify: None,
             follow: None,
+            follow_generation: 0,
             selfview: SelfView::default(),
             standing: None,
             system: Default::default(),
@@ -863,11 +865,13 @@ impl App {
             Purpose::NewTask => self.task_started(v),
             Purpose::Hold => self.task_held(v),
             Purpose::HorizonAct(_) => self.horizon_answered(purpose),
-            Purpose::FollowFind | Purpose::FollowPeek => return self.follow_answered(&purpose, v),
+            Purpose::FollowFind(_) | Purpose::FollowPeek(..) => {
+                return self.follow_answered(&purpose, v)
+            }
             Purpose::Digest => self.digest_said(v),
             Purpose::Mode(sid) => self.mode_read(&sid, v),
             Purpose::Watch | Purpose::Typing | Purpose::SelfLog => {}
-            Purpose::FollowStart | Purpose::Unfollow => {}
+            Purpose::FollowStart(..) | Purpose::Unfollow => {}
         }
         Vec::new()
     }
@@ -993,9 +997,11 @@ impl App {
             Purpose::Retry { .. } => method::TASK_RETRY,
             Purpose::Typing => method::SESSION_TYPING,
             Purpose::Health => method::HEALTH,
-            Purpose::FollowFind => return self.follow_failed(method::ACTION_LIST, e),
-            Purpose::FollowPeek => return self.follow_failed(method::WORK_PEEK, e),
-            Purpose::FollowStart => return self.follow_failed(method::ACTION_OUTPUT, e),
+            Purpose::FollowFind(_) => return self.follow_failed(purpose, method::ACTION_LIST, e),
+            Purpose::FollowPeek(..) => return self.follow_failed(purpose, method::WORK_PEEK, e),
+            Purpose::FollowStart(..) => {
+                return self.follow_failed(purpose, method::ACTION_OUTPUT, e)
+            }
             Purpose::Unfollow => return,
             Purpose::SelfLog => method::SELF_LOG,
             Purpose::Standing(_) => method::STANDING_LIST,

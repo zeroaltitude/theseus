@@ -23,6 +23,7 @@ pub struct Follow {
     /// The session whose job it is, and its execution.
     pub session_id: String,
     pub execution_id: String,
+    generation: u64,
     /// The job (`act_…`), once found.
     pub job: Option<String>,
     lines: Vec<String>,
@@ -128,8 +129,12 @@ impl Follow {
 
 /// A peek of the job: its lines and size, then (while it runs) the stream
 /// from there.
-fn peek(id: &str) -> Effect {
-    call(method::WORK_PEEK, json!({ "id": id }), Purpose::FollowPeek)
+fn peek(generation: u64, id: &str) -> Effect {
+    call(
+        method::WORK_PEEK,
+        json!({ "id": id }),
+        Purpose::FollowPeek(generation, id.into()),
+    )
 }
 
 fn call(method: &'static str, params: Value, purpose: Purpose) -> Effect {
@@ -160,11 +165,14 @@ impl App {
         let mut out = Vec::new();
         // One pane at a time: the job before it is let go.
         out.extend(self.follow_close());
-        self.follow = Some(Follow::new(&sid, &exe));
+        self.follow_generation += 1;
+        let mut follow = Follow::new(&sid, &exe);
+        follow.generation = self.follow_generation;
+        self.follow = Some(follow);
         out.push(call(
             method::ACTION_LIST,
             json!({ "execution_id": exe, "unsettled": true }),
-            Purpose::FollowFind,
+            Purpose::FollowFind(self.follow_generation),
         ));
         out
     }
@@ -183,8 +191,11 @@ impl App {
 
     /// An answer to the pane's requests.
     pub(crate) fn follow_answered(&mut self, purpose: &Purpose, v: Value) -> Vec<Effect> {
+        if !self.follow_matches(purpose) {
+            return Vec::new();
+        }
         match purpose {
-            Purpose::FollowFind => {
+            Purpose::FollowFind(_) => {
                 let Some(f) = self.follow.as_mut() else {
                     return Vec::new();
                 };
@@ -199,7 +210,7 @@ impl App {
                 match found {
                     Some(a) => {
                         f.job = Some(a.correlation_id.clone());
-                        vec![peek(&a.correlation_id)]
+                        vec![peek(f.generation, &a.correlation_id)]
                     }
                     None => {
                         let name = self.board.name(&f.session_id);
@@ -209,13 +220,16 @@ impl App {
                     }
                 }
             }
-            Purpose::FollowPeek => {
+            Purpose::FollowPeek(..) => {
                 let (Some(f), Ok(p)) = (
                     self.follow.as_mut(),
                     serde_json::from_value::<WorkPeekResult>(v),
                 ) else {
                     return Vec::new();
                 };
+                if f.job.as_deref() != Some(p.id.as_str()) {
+                    return Vec::new();
+                }
                 f.peeked(&p);
                 if p.complete {
                     return Vec::new();
@@ -223,15 +237,29 @@ impl App {
                 vec![call(
                     method::ACTION_OUTPUT,
                     json!({ "id": p.id, "from": p.bytes }),
-                    Purpose::FollowStart,
+                    Purpose::FollowStart(f.generation, p.id.clone()),
                 )]
             }
             _ => Vec::new(),
         }
     }
 
+    fn follow_matches(&self, purpose: &Purpose) -> bool {
+        let Some(f) = &self.follow else { return false };
+        match purpose {
+            Purpose::FollowFind(g) => *g == f.generation,
+            Purpose::FollowPeek(g, id) | Purpose::FollowStart(g, id) => {
+                *g == f.generation && f.job.as_ref() == Some(id)
+            }
+            _ => false,
+        }
+    }
+
     /// A request of the pane failed: say why, and close it.
-    pub(crate) fn follow_failed(&mut self, what: &str, e: &RpcError) {
+    pub(crate) fn follow_failed(&mut self, purpose: &Purpose, what: &str, e: &RpcError) {
+        if !self.follow_matches(purpose) {
+            return;
+        }
         self.follow = None;
         self.flash = Some((Tag::Bad, format!("{what}: {}", e.message)));
     }
@@ -265,13 +293,17 @@ impl App {
             return Vec::new();
         }
         f.note = Some("fell behind; read again".into());
-        vec![peek(&id)]
+        vec![peek(f.generation, &id)]
     }
 
     /// The daemon came back: its follow was the old connection's.
     pub(crate) fn follow_reconnected(&mut self) -> Vec<Effect> {
-        match self.follow.as_ref().and_then(|f| f.job.clone()) {
-            Some(id) => vec![peek(&id)],
+        match self
+            .follow
+            .as_ref()
+            .and_then(|f| f.job.as_ref().map(|id| (f.generation, id)))
+        {
+            Some((generation, id)) => vec![peek(generation, id)],
             None => Vec::new(),
         }
     }
@@ -280,6 +312,75 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_late_follow_find_cannot_replace_the_new_pane() {
+        use theseus_protocol::SessionKind;
+        let mut app = App::new(theseus_protocol::utc_hm);
+        for sid in ["ses_a", "ses_b"] {
+            let v = crate::tests::view(
+                1,
+                sid,
+                SessionKind::Conversation,
+                None,
+                "running",
+                None,
+                vec![],
+                1,
+                0.0,
+            );
+            app.board.apply(v);
+        }
+        app.selected = Some("ses_a".into());
+        let old = app
+            .follow_key()
+            .into_iter()
+            .find_map(|e| match e {
+                Effect::Call(c) if c.method == method::ACTION_LIST => Some(c.purpose),
+                _ => None,
+            })
+            .unwrap();
+        app.selected = Some("ses_b".into());
+        app.follow_key();
+        app.follow_answered(&old, json!({"actions": [], "total": 0}));
+        assert_eq!(
+            app.follow.as_ref().map(|f| f.session_id.as_str()),
+            Some("ses_b"),
+            "stale reply closed the newer pane"
+        );
+    }
+
+    #[test]
+    fn stale_peeks_and_failures_do_not_change_a_new_follow() {
+        let mut app = App::new(theseus_protocol::utc_hm);
+        let mut f = Follow::new("ses_b", "exe_b");
+        f.generation = 2;
+        f.job = Some("act_b".into());
+        app.follow = Some(f);
+        let old = Purpose::FollowPeek(1, "act_a".into());
+        assert!(app
+            .follow_answered(&old, serde_json::to_value(peek(&["wrong job"], 9)).unwrap())
+            .is_empty());
+        app.follow_failed(
+            &old,
+            method::WORK_PEEK,
+            &RpcError {
+                code: -1,
+                message: "old error".into(),
+                data: Value::Null,
+            },
+        );
+        assert!(app.follow.as_ref().unwrap().lines().is_empty());
+        assert!(app.flash.is_none());
+        let current = Purpose::FollowPeek(2, "act_b".into());
+        assert!(app
+            .follow_answered(
+                &current,
+                serde_json::to_value(peek(&["wrong identity"], 9)).unwrap()
+            )
+            .is_empty());
+        assert!(app.follow.as_ref().unwrap().lines().is_empty());
+    }
 
     fn peek(lines: &[&str], bytes: u64) -> WorkPeekResult {
         WorkPeekResult {
