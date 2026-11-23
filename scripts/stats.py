@@ -2,6 +2,12 @@
 """Write STATS.md at the repository's root: the size of the code and of what it builds (issue 45).
 
     scripts/stats.py [--sizes-from TARGET/PROFILE] [--installed DIR]... [--root DIR]
+    scripts/stats.py --range BEFORE..AFTER [--root DIR]
+    scripts/stats.py --prepare-landing [--sizes-from TARGET/PROFILE] [--root DIR]
+
+`--range` writes nothing: it counts the trees of two commits from git's objects (no checkout) and prints one line, the
+change in lines a landing's note states (code, test code, comments; before -> after). A landing's range is its merge's
+first parent and the merge: `scripts/stats.py --range <merge>^1..<merge>`.
 
 Lines: every file git tracks, by the rule printed at the top of STATS.md, per crate under `crates/` and per
 top-level directory for code that is in no crate. `vendor/` is shown but kept out of the total: it is not ours.
@@ -11,6 +17,14 @@ Sizes: `--sizes-from` reads an optimised build's profile directory (`$CARGO_TARG
 `.theseus-build-stamp`. `--installed` reads the executables of an install directory named for its commit
 (`/usr/local/lib/theseus/<commit>`), and may be given more than once (the root helper's directory too). A part of the sizes not asked for is copied
 from the STATS.md already there, so a recount at a landing leaves the sizes measured at the last install alone.
+
+`--prepare-landing` is a step of preparing a landing, before its merge is committed: with a merge onto `main` prepared
+(`git merge --no-commit`), it counts the PREPARED TREE (the index's, `git write-tree`, read from git's objects, never
+the working files), writes STATS.md and stages it, and nothing else. It refuses when HEAD is not `main`, when no merge
+is in progress, when the index holds unmerged paths, or when anything but STATS.md would change. The landing's own
+commit, signed by whoever lands, then holds the count, and every gate judges the tree that lands; no commit is ever
+rewritten. Build sizes are read again from the release build when it has its stamp (`$CARGO_TARGET_DIR` or `target`,
+profile `release`), else kept. A merge in progress is named by MERGE_HEAD and HEAD, the parents it will have.
 
 Nothing here reads a clock: the same tree and the same arguments give the same bytes.
 Python 3, standard library only.
@@ -180,12 +194,14 @@ def count(text, kind, test_file):
     return code, test, comment
 
 
-def kind_of(path, full):
+def kind_of(path, full=None, first=None):
+    """The kind of the file at PATH, by its extension, else by its first line (read from FULL, or given as FIRST)."""
     kind = KINDS.get(os.path.splitext(path)[1])
     if kind or "." in os.path.basename(path):
         return kind
-    with open(full, "rb") as f:
-        first = f.readline(200)
+    if first is None:
+        with open(full, "rb") as f:
+            first = f.readline(200)
     return "py" if first.startswith(b"#!") and b"python" in first else "sh" if first.startswith(b"#!") else None
 
 
@@ -213,6 +229,44 @@ def count_tree(root):
             got = count(read(full), kind, is_test_file(path))
             rows[area(path)] = [a + b for a, b in zip(rows.get(area(path), (0, 0, 0)), got)]
     return rows
+
+
+def count_rev(root, rev):
+    """count_tree's rows for the tree of commit REV, read from git's objects: no checkout, no working tree."""
+    listed = git(root, "ls-tree", "-r", "-z", rev).split("\0")
+    blobs = []
+    for entry in (e for e in listed if e):
+        meta, path = entry.split("\t", 1)
+        mode, typ, sha = meta.split()
+        if typ == "blob" and mode != "120000":
+            blobs.append((path, sha))
+    proc = subprocess.run(["git", "-C", root, "cat-file", "--batch"], check=True, capture_output=True,
+                          input="".join(f"{sha}\n" for _, sha in blobs).encode())
+    out, i, rows = proc.stdout, 0, {}
+    for path, _ in blobs:
+        nl = out.index(b"\n", i)
+        size = int(out[i:nl].split()[2])
+        body = out[nl + 1:nl + 1 + size]
+        i = nl + 1 + size + 1
+        kind = kind_of(path, first=body.split(b"\n", 1)[0][:200])
+        if kind:
+            got = count(body.decode("utf-8", errors="replace"), kind, is_test_file(path))
+            rows[area(path)] = [a + b for a, b in zip(rows.get(area(path), (0, 0, 0)), got)]
+    return rows
+
+
+def totals(rows):
+    """Code, test code and comment lines in all, `vendor/` left out as STATS.md leaves it out."""
+    return [sum(r[k] for name, r in rows.items() if name != "vendor/") for k in range(3)]
+
+
+def range_line(root, spec):
+    """The line a landing's note states for BEFORE..AFTER: each total before -> after, and its change."""
+    before, after = spec.split("..", 1)
+    names = [git(root, "rev-parse", "--short=8", r).strip() for r in (before, after)]
+    old, new = totals(count_rev(root, before)), totals(count_rev(root, after))
+    parts = [f"{what} {a:,} -> {b:,} ({b - a:+,})" for what, a, b in zip(("code", "test code", "comments"), old, new)]
+    return f"lines {names[0]}..{names[1]}: " + "; ".join(parts)
 
 
 def read(path):
@@ -291,12 +345,25 @@ def kept(old, heading):
     return f"{heading}\n\nNot yet measured: `scripts/stats.py --sizes-from <target dir>/release --installed <dir>`.\n"
 
 
-def render(root, rows, old, sizes_from, installed):
-    # A merge is named by its parents: a landing folds STATS.md into the merge it counted, which changes the merge's
-    # own hash but not its parents, so the line stays true of the commit that carries it.
+def merge_head(root):
+    """The merge in progress (`git merge --no-commit`), short, or ''."""
+    return subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", "--short=8", "MERGE_HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+
+
+def render(root, rows, old, sizes_from, installed, prepared=False):
+    # A merge is named by its parents. A merge in progress is the landing being prepared, named by the parents it
+    # will have (HEAD and MERGE_HEAD), whatever HEAD itself is: HEAD may be an earlier landing's merge.
     head, *parents = git(root, "log", "-1", "--abbrev=8", "--format=%h %p", "HEAD").split()
-    at = f"the merge of {parents[1]} into {parents[0]}" if len(parents) == 2 else f"commit {head}"
-    dirty = git(root, "status", "--porcelain", "--untracked-files=no", "--", ".", ":!STATS.md").strip()
+    merging = merge_head(root)
+    if merging:
+        at = f"the merge of {merging} into {head}"
+        # A prepared count is of the index's tree, so no working file is in it; else the merge's own changes are
+        # staged, and only what is not staged is uncommitted.
+        dirty = "" if prepared else git(root, "diff", "--name-only", "--", ".", ":!STATS.md").strip()
+    else:
+        at = f"the merge of {parents[1]} into {parents[0]}" if len(parents) == 2 else f"commit {head}"
+        dirty = git(root, "status", "--porcelain", "--untracked-files=no", "--", ".", ":!STATS.md").strip()
     out = ["# STATS", "", "The size of Theseus's code and of what it builds. Written by `scripts/stats.py`; "
            "do not edit it by hand.", "", f"Counted at {at}" + (" with uncommitted changes" if dirty else "")
            + ", over every file git tracks:", "", RULE, "## Lines", "",
@@ -314,12 +381,52 @@ def render(root, rows, old, sizes_from, installed):
     return "\n".join(out).rstrip("\n") + "\n"
 
 
+def prepare_landing(root, sizes_from, installed):
+    """`--prepare-landing`: count the prepared landing's tree and stage STATS.md alone; refuse plainly otherwise."""
+    def refuse(why):
+        raise SystemExit(f"stats: not counted: {why}")
+    if subprocess.run(["git", "-C", root, "symbolic-ref", "-q", "HEAD"], capture_output=True,
+                      text=True).stdout.strip() != "refs/heads/main":
+        refuse("HEAD is not main; a landing is prepared on main")
+    if not merge_head(root):
+        refuse("no merge is in progress; prepare the landing with `git merge --no-commit --no-ff <branch>` first")
+    if git(root, "ls-files", "--unmerged").strip():
+        refuse("the merge has unmerged paths; resolve them and stage the result first")
+    before = git(root, "write-tree").strip()
+    if not sizes_from:
+        prof = os.path.join(os.environ.get("CARGO_TARGET_DIR") or os.path.join(root, "target"), "release")
+        sizes_from = prof if os.path.isfile(os.path.join(prof, ".theseus-build-stamp")) else None
+    path = os.path.join(root, "STATS.md")
+    old = read(path) if os.path.isfile(path) else ""
+    text = render(root, count_rev(root, before), old, sizes_from, installed, prepared=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    git(root, "add", "--", "STATS.md")
+    after = git(root, "write-tree").strip()
+    changed = [p for p in git(root, "diff-tree", "-r", "--name-only", before, after).split("\n") if p]
+    if changed not in ([], ["STATS.md"]):
+        git(root, "read-tree", before)
+        refuse(f"staging STATS.md would change {', '.join(changed)} too; the index is put back")
+    print(f"stats: counted the prepared landing; STATS.md {'staged' if changed else 'unchanged'}", file=sys.stderr)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", default=ROOT, help="the repository to count (default: this script's)")
     ap.add_argument("--sizes-from", metavar="DIR", help="an optimised build's profile directory, e.g. target/release")
     ap.add_argument("--installed", metavar="DIR", action="append", default=[], help="an install directory")
+    ap.add_argument("--range", metavar="BEFORE..AFTER", help="print the change in lines between two commits; write nothing")
+    ap.add_argument("--prepare-landing", action="store_true",
+                    help="count a prepared merge onto main from its index tree, and stage STATS.md alone")
     args = ap.parse_args(argv)
+    if args.prepare_landing:
+        prepare_landing(args.root, args.sizes_from, args.installed)
+        return
+    if args.range:
+        if ".." not in args.range:
+            ap.error("--range takes BEFORE..AFTER")
+        print(range_line(args.root, args.range))
+        return
     path = os.path.join(args.root, "STATS.md")
     old = read(path) if os.path.isfile(path) else ""
     text = render(args.root, count_tree(args.root), old, args.sizes_from, args.installed)

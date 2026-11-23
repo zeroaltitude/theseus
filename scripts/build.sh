@@ -90,8 +90,8 @@ target_dir="${CARGO_TARGET_DIR:-$root/target}"
 flags="--remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$rustup_home=/rustup"
 flags="$flags --remap-path-prefix=$root=/theseus --remap-path-prefix=$target_dir=/target -C force-unwind-tables=no"
 # The flag reaches only the crates rustc compiles; the precompiled std and the C code keep theirs, so the link drops the
-# section whole (scripts/discard-eh-frame.ld).
-flags="$flags -C link-arg=$root/scripts/discard-eh-frame.ld"
+# section whole (scripts/discard-eh-frame.ld), given with -T: GNU ld refuses an INSERT script passed as a bare input.
+flags="$flags -C link-arg=-T -C link-arg=$root/scripts/discard-eh-frame.ld"
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }$flags"
 # The commit's time; a tree with no history (a `git archive`) is given it.
 : "${SOURCE_DATE_EPOCH:=$(git log -1 --format=%ct 2>/dev/null || echo 0)}"
