@@ -231,6 +231,8 @@ impl Core {
         }
         match self.watch_write(&before, &news) {
             Ok(true) => {}
+            // The WAL holds the news; reopening will index it, not re-check it.
+            Err(e) if e.is::<theseus_store::store::RetainedFrame>() => {}
             // Cancelled, or its conversation ended.
             Ok(false) => self.watch_leave(wake_id),
             Err(e) => {

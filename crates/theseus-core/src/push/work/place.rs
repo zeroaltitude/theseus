@@ -1,14 +1,7 @@
-//! The place rule for the work board (theseus-hkx30). A connection that
-//! reads no private text (Discord's binding, the MCP server, a connection no
-//! listener named) asks `work.watch` for roots of a shared place, and hears
-//! about those roots alone. What it hears passes the session's scrubber: a
-//! title, a job's argv, a question's words and a task's report are text a
-//! person or a tool wrote. It may not answer a question from here
-//! (`may_answer` false): the answer comes from the operator's private place.
-//!
-//! The board itself is one: a view is built once and its line is shared by
-//! every connection that sees the whole board. A scoped connection gets its
-//! own copy, cut to its roots and scrubbed.
+//! Explicit root filtering and the work board's act rule. Every surface
+//! receives the same information under its requested roots. Guarded copies
+//! are scrubbed and cannot answer a question (`may_answer` stays false):
+//! answering still requires the operator's authorized place.
 
 use std::collections::HashSet;
 
@@ -23,8 +16,7 @@ use crate::scrub::Scrubber;
 pub struct Scope {
     /// The roots (execution ids) it may see; None for the whole board.
     pub roots: Option<HashSet<String>>,
-    /// Whether what it reads passes the scrubber and may not answer: set for
-    /// a surface that reads no private text.
+    /// Whether this copy passes the scrubber and cannot authorize answers.
     pub guarded: bool,
 }
 
@@ -36,13 +28,6 @@ impl Scope {
 
     /// Whether a view under `root` is one it sees.
     pub fn sees(&self, root: &str) -> bool {
-        // System work is the owner's (theseus-jn17m): the whole board has it,
-        // and a scope that reads private text sees it when it names `system`
-        // among its roots; a guarded scope (a surface that reads no private
-        // text) never does, whatever it names.
-        if theseus_protocol::work_system::is_root(root) {
-            return !self.guarded && self.roots.as_ref().is_none_or(|r| r.contains(root));
-        }
         self.roots.as_ref().is_none_or(|r| r.contains(root))
     }
 
@@ -62,12 +47,6 @@ impl Scope {
             return v.clone();
         }
         let mut v = scrubbed(v, scrubber);
-        // The address names the owner's guild and post: private places alone.
-        v.forum_url = None;
-        // A job's last output line is for private places alone (theseus-e1hu4).
-        if let Some(d) = v.doing.as_mut() {
-            d.last_line = None;
-        }
         if let Some(q) = v.question.as_mut() {
             q.may_answer = false;
         }
@@ -143,12 +122,9 @@ mod tests {
     use crate::push::work::views::blank as view;
     use theseus_protocol::work::WorkKind;
 
-    /// A shared place (a guarded scope) is given no forum address: it names
-    /// the owner's guild and post, and the session's words are withheld there
-    /// already. A scope that reads private text is given it, so the bar is not
-    /// met by a view that never had one.
+    /// Forum links are information, not authority to answer.
     #[test]
-    fn a_shared_place_is_not_given_the_forum_address_and_a_private_one_is() {
+    fn every_surface_is_given_the_forum_address() {
         let mut v = view("exe_reef", WorkKind::Task, 5);
         v.forum_url = Some("https://discord.com/channels/4242/777".into());
         let scrubber = Scrubber::default();
@@ -156,7 +132,7 @@ mod tests {
             roots: None,
             guarded: true,
         };
-        assert_eq!(guarded.show(&v, &scrubber).forum_url, None);
+        assert_eq!(guarded.show(&v, &scrubber).forum_url, v.forum_url);
         assert_eq!(
             Scope::default().show(&v, &scrubber).forum_url,
             v.forum_url,

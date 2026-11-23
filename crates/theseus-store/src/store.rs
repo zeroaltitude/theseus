@@ -36,6 +36,21 @@ use crate::pages::{tags_of, Page, PageOut};
 use crate::record::{NewRecord, Record, RecordKind};
 use crate::wal::{History, RecordLocation, Recovery, Verified, Wal, WalConfig, WalError};
 
+/// An append failed to index a frame the WAL still holds after syncing.
+/// Retrying that frame would duplicate it. The error remains an error: no
+/// indexed acknowledgement is given. With fsync disabled this is retention,
+/// not a durability promise, just as a successful append is not a barrier.
+#[derive(Debug)]
+pub struct RetainedFrame(String);
+
+impl std::fmt::Display for RetainedFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "frame retained in the WAL but not indexed: {}", self.0)
+    }
+}
+
+impl std::error::Error for RetainedFrame {}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreStats {
     pub last_position: u64,
@@ -97,11 +112,17 @@ pub struct StoreStats {
 /// How many refused positions `StoreStats` names; the count goes on past it.
 pub const REFUSED_SHOWN: usize = 16;
 
-/// What the kernel writes through. Every method is durable when it returns.
+/// What the kernel writes through. Append acknowledgements establish indexed
+/// visibility, not durability: the writer syncs after answering its batch.
+/// A successful `checkpoint` is a durability barrier for preceding frames
+/// when WAL fsync is enabled; an index gap or sync failure refuses that barrier.
+/// An append error carrying [`RetainedFrame`] means the WAL already holds
+/// the frame: deferred rows in it must not be queued for another append.
 pub trait Store: Send + Sync {
     /// Append records as one atomic frame; returns their positions in order.
     fn append(&self, batch: &[NewRecord]) -> Result<Vec<u64>>;
-    /// Settle a completion and the continuation state it implies, atomically (§3.16).
+    /// Settle a completion and its continuation atomically (§3.16), with the
+    /// same indexed-before-sync acknowledgement as `append`.
     fn settle(&self, completion: NewRecord, continuation: NewRecord) -> Result<(u64, u64)> {
         let v = self.append(&[completion, continuation])?;
         Ok((v[0], v[1]))
@@ -1721,7 +1742,7 @@ impl Inner {
     }
 
     /// The batch's index write, tried up to `INDEX_TRIES` times: its frames are
-    /// durable already, and `apply` over what a failed one left equals one
+    /// written but not necessarily synced, and `apply` over what a failed one left equals one
     /// whole `apply` (`tests/index_reapply.rs`), so a retry is safe. The tries
     /// follow each other at once: a full disk is met three times, and what
     /// they buy is transient contention on redb's write lock. A failure past
@@ -1907,11 +1928,79 @@ impl Inner {
                     .collect()),
                 // An index write that failed fails every frame it covered, as
                 // a failed group sync failed each one it led.
-                (Ok(_), Err(e)) => Err(anyhow::anyhow!("{e:#}")),
+                (Ok((placed, _)), Err(e)) => {
+                    if placed
+                        .last()
+                        .is_some_and(|(p, _)| *p <= self.wal.last_position())
+                    {
+                        Err(RetainedFrame(format!("{e:#}")).into())
+                    } else {
+                        Err(anyhow::anyhow!("{e:#}"))
+                    }
+                }
             };
             self.queued.fetch_sub(1, Ordering::SeqCst);
             let _ = job.answer.send(answer);
         }
+    }
+
+    /// Place a group without retaining any placement a failed roll cut.
+    fn write_batch(&self, batch: &mut [Job]) -> (Vec<Result<Placed>>, chain_writer::ChainState) {
+        // Each frame, unsynced: a frame the log refuses fails alone. A frame's
+        // ledger rows are chained first, on the head this batch's earlier
+        // frames left; a frame that fails gives its links back, and the head
+        // follows accepted placements; a later sync failure stops the store.
+        let mut chained = self.chain.lock().unwrap().clone();
+        let mut written: Vec<Result<Placed>> = Vec::with_capacity(batch.len());
+        let mut heads = Vec::with_capacity(batch.len());
+        let mut cut = false;
+        for j in batch {
+            if cut {
+                written.push(Err(anyhow::anyhow!(
+                    "batch stopped after a failed roll sync"
+                )));
+                continue;
+            }
+            let saved = chained.clone();
+            heads.push(saved.clone());
+            if let Err(e) = self.chain_job(&mut chained, j) {
+                chained = saved;
+                written.push(Err(e));
+                continue;
+            }
+            let before = self.wal.last_position();
+            let w = self
+                .wal
+                .write_timed(&j.records)
+                .map_err(anyhow::Error::from);
+            match &w {
+                Ok((placed, _)) => Inner::chain_placed(&mut chained, j, placed),
+                Err(_) => {
+                    chained = saved;
+                    let last = self.wal.last_position();
+                    if last < before {
+                        // A roll cut earlier unsynced jobs too. No position
+                        // is reused in this group, and durable jobs stay put.
+                        cut = true;
+                        let mut restored = false;
+                        for (i, earlier) in written.iter_mut().enumerate() {
+                            if earlier
+                                .as_ref()
+                                .is_ok_and(|(p, _)| p.last().is_some_and(|(pos, _)| *pos > last))
+                            {
+                                if !restored {
+                                    chained = heads[i].clone();
+                                    restored = true;
+                                }
+                                *earlier = Err(anyhow::anyhow!("frame cut by a failed roll sync"));
+                            }
+                        }
+                    }
+                }
+            }
+            written.push(w);
+        }
+        (written, chained)
     }
 
     /// Write, index, answer, and sync one batch (theseus-7yhp: the sync
@@ -1936,30 +2025,7 @@ impl Inner {
             }
             return;
         }
-        // Each frame, unsynced: a frame the log refuses fails alone. A frame's
-        // ledger rows are chained first, on the head this batch's earlier
-        // frames left; a frame that fails gives its links back, and the head
-        // moves for good only once the batch is durable and indexed.
-        let mut chained = self.chain.lock().unwrap().clone();
-        let written: Vec<Result<Placed>> = batch
-            .iter_mut()
-            .map(|j| {
-                let saved = chained.clone();
-                if let Err(e) = self.chain_job(&mut chained, j) {
-                    chained = saved;
-                    return Err(e);
-                }
-                let w = self
-                    .wal
-                    .write_timed(&j.records)
-                    .map_err(anyhow::Error::from);
-                match &w {
-                    Ok((placed, _)) => Inner::chain_placed(&mut chained, j, placed),
-                    Err(_) => chained = saved,
-                }
-                w
-            })
-            .collect();
+        let (written, chained) = self.write_batch(&mut batch);
         let wrote = written
             .iter()
             .any(|w| w.as_ref().is_ok_and(|(p, _)| !p.is_empty()));
@@ -1983,6 +2049,20 @@ impl Inner {
             // settled, before its caller is told.
             let synced = self.sync_batch(wrote);
             self.after_sync(&synced, &indexed, records, chained);
+            if synced.is_err()
+                && written.iter().any(|w| {
+                    w.as_ref().is_ok_and(|(p, _)| {
+                        p.last()
+                            .is_some_and(|(at, _)| *at <= self.wal.last_position())
+                    })
+                })
+            {
+                // A roll synced some frames, but the final sync cut others.
+                // Reopen must rebuild the chain head from the surviving WAL.
+                let why = "store: an unindexed batch only partly survived a failed sync; no further frame and no checkpoint until reopen";
+                tracing::error!("{why}");
+                *self.answered_lost.lock().unwrap() = Some(why.into());
+            }
             self.answer_all(batch, written, &indexed, began);
             return;
         }
@@ -2158,8 +2238,9 @@ fn checked(position: u64, r: Record) -> Result<Record> {
 }
 
 impl Store for WalStore {
-    /// Hand the frame to the writer and wait for its answer: durable and
-    /// indexed when it returns. The wait holds no runtime worker
+    /// Hand the frame to the writer and wait for indexed visibility. The
+    /// batch's sync follows its answer; a checkpoint is the durability barrier.
+    /// The wait holds no runtime worker
     /// (`blocking`), and the caller's thread keeps what it holds by thread.
     fn append(&self, batch: &[NewRecord]) -> Result<Vec<u64>> {
         if batch.is_empty() {

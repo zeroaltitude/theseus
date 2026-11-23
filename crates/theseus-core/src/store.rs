@@ -357,9 +357,11 @@ fn write_waiting(
             tracing::warn!(
                 error = %format!("{e:#}"),
                 rows = rows.len(),
-                "store: the rows waiting for a frame were not written; they wait for the next"
+                "store: a deferred frame failed; only rows absent from the WAL wait for the next"
             );
-            pending.give_back(rows);
+            if !e.is::<theseus_store::store::RetainedFrame>() {
+                pending.give_back(rows);
+            }
             false
         }
     }
@@ -512,6 +514,9 @@ impl TurnState {
                 Ok(positions)
             }
             Err(e) => {
+                if e.is::<theseus_store::store::RetainedFrame>() {
+                    return Err(e);
+                }
                 frame.truncate(n);
                 let mut mine = frame.split_off(p);
                 pending.give_back(frame);
@@ -1020,8 +1025,10 @@ impl Store {
                         Ok(positions.split_off(n))
                     }
                     Err(e) => {
-                        frame.truncate(n);
-                        self.pending.give_back(frame);
+                        if !e.is::<theseus_store::store::RetainedFrame>() {
+                            frame.truncate(n);
+                            self.pending.give_back(frame);
+                        }
                         Err(e)
                     }
                 }

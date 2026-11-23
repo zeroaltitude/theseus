@@ -1173,3 +1173,48 @@ async fn a_day_ceiling_notice_goes_to_the_owners_dm_alone() {
     assert!(asked.requests().is_empty(), "no model call was made");
     assert_eq!(r.ledger("spend.ceiling").len(), 1);
 }
+
+#[tokio::test]
+async fn oversized_attachments_leave_the_binding_connected() {
+    let r = Rig::start_tweaked(
+        |_, _| {
+            Arc::new(FakeProvider::scripted(vec![Scripted::text(
+                "Still connected.",
+            )]))
+        },
+        guild(false),
+        &bindings(true),
+        &[],
+        |cfg| {
+            cfg.tools.max_attachment_bytes = 0;
+            cfg.tools.max_read_bytes = 20 * 1024 * 1024;
+        },
+    )
+    .await;
+    let path = r.dir.path().join("long.txt");
+    std::fs::write(&path, vec![b'x'; 17 * 1024 * 1024]).unwrap();
+    r.fake
+        .say(&Typed {
+            user: ANA,
+            name: "ana",
+            channel: Some(LAB),
+            content: "Read this.",
+            file: Some(&path),
+        })
+        .unwrap();
+    r.until("attachment size refusal", || {
+        r.posted(LAB).iter().any(|m| {
+            m.content
+                .contains("The attachments together are too large; please send fewer at once.")
+        })
+    })
+    .await;
+    r.say((ANA, "ana"), Some(LAB), "Are you there?");
+    r.until("same binding still answers", || {
+        r.posted(LAB)
+            .iter()
+            .any(|m| m.content.contains("Still connected."))
+    })
+    .await;
+    r.stop();
+}

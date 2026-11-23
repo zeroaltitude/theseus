@@ -187,7 +187,15 @@ impl Conn {
         while let Some(msg) = self.next().await? {
             match msg {
                 Message::Notification(n) => on_notify(&n.method, &n.params),
-                Message::Response(r) if r.id == id => return answer(r),
+                Message::Response(r)
+                    if r.id == id
+                        || (r.id == Id::Num(0)
+                            && r.error.as_ref().is_some_and(|e| {
+                                e.code == theseus_protocol::error_code::LIMIT
+                            })) =>
+                {
+                    return answer(r);
+                }
                 _ => {}
             }
         }
@@ -766,6 +774,33 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "the provider is overloaded [class=overloaded, transient=true, code -32003]"
+        );
+        script.await.unwrap();
+    }
+    #[tokio::test]
+    async fn a_connection_limit_is_shown_instead_of_silent_eof() {
+        let (mut conn, daemon) = pair();
+        let (dr, mut dw) = tokio::io::split(daemon);
+        let script = tokio::spawn(async move {
+            let mut lines = BufReader::new(dr).lines();
+            lines.next_line().await.unwrap().unwrap();
+            let response = Response::err(
+                Id::Num(0),
+                theseus_protocol::error_code::LIMIT,
+                "request line exceeds 100 bytes",
+            );
+            let mut line = serde_json::to_string(&response).unwrap();
+            line.push('\n');
+            dw.write_all(line.as_bytes()).await.unwrap();
+        });
+        let error = conn
+            .request("turn.submit", serde_json::json!({"input": "read"}))
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("request line exceeds 100 bytes"));
+        assert_eq!(
+            error.downcast_ref::<CallError>().unwrap().code,
+            theseus_protocol::error_code::LIMIT
         );
         script.await.unwrap();
     }

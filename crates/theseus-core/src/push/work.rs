@@ -789,7 +789,8 @@ impl WorkBoard {
             None if board
                 .entries
                 .get(&a.execution_id)
-                .is_some_and(|e| pos <= e.seed_pos) =>
+                .and_then(|e| e.seeded_actions.get(&corr))
+                .is_some_and(|seeded| pos <= *seeded) =>
             {
                 return
             }

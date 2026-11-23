@@ -204,7 +204,8 @@ impl Core {
             offset,
         };
         let h = tokio::spawn(follower.run());
-        self.bus.follow(conn.client, &p.id, h.abort_handle());
+        self.bus
+            .follow(conn.client, &p.id, h.abort_handle(), conn.tx);
         Ok(ActionOutputResult {
             id: p.id,
             offset,

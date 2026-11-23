@@ -77,8 +77,12 @@ impl SessionBus {
     /// replacing an earlier watch of the same connection.
     pub fn watch_all(&self, conn: &str, tx: impl Into<Outbound>) {
         let mut all = self.all.lock().unwrap();
+        let tx = tx.into();
+        if tx.watches_closed() {
+            return;
+        }
         all.retain(|(c, _)| c != conn);
-        all.push((conn.to_string(), tx.into()));
+        all.push((conn.to_string(), tx));
     }
 
     /// End a connection's `executions.watch`: true if it had one.
@@ -104,10 +108,14 @@ impl SessionBus {
         interactive: bool,
     ) {
         let mut w = self.work.lock().unwrap();
+        let tx = tx.into();
+        if tx.watches_closed() {
+            return;
+        }
         w.retain(|x| x.conn != conn);
         w.push(WorkWatcher {
             conn: conn.to_string(),
-            tx: tx.into(),
+            tx,
             scope,
             interactive,
         });
@@ -202,9 +210,13 @@ impl SessionBus {
 
     pub fn watch(&self, session: &str, conn: &str, tx: impl Into<Outbound>) {
         let mut g = self.subs.lock().unwrap();
+        let tx = tx.into();
+        if tx.watches_closed() {
+            return;
+        }
         let v = g.entry(session.to_string()).or_default();
         v.retain(|(c, _)| c != conn);
-        v.push((conn.to_string(), tx.into()));
+        v.push((conn.to_string(), tx));
     }
 
     pub fn unwatch(&self, session: &str, conn: &str) {
@@ -214,8 +226,12 @@ impl SessionBus {
     }
 
     /// Keep a connection's follower of a job, ending the one it had.
-    pub fn follow(&self, conn: &str, id: &str, h: tokio::task::AbortHandle) {
+    pub fn follow(&self, conn: &str, id: &str, h: tokio::task::AbortHandle, tx: &Outbound) {
         let mut f = self.follows.lock().unwrap();
+        if tx.watches_closed() {
+            h.abort();
+            return;
+        }
         if let Some(old) = f.insert((conn.to_string(), id.to_string()), h) {
             old.abort();
         }
@@ -429,6 +445,36 @@ impl EventSink {
 mod tests {
     use super::*;
     use tokio::sync::mpsc::unbounded_channel;
+
+    /// Force both sides of cleanup without a scheduler race. Late watch
+    /// requests retain the closed queue, not a reusable connection label.
+    #[tokio::test]
+    async fn closed_connections_cannot_register_after_cleanup() {
+        let bus = SessionBus::default();
+        let (tx, _rx) = crate::outbound::channel(Arc::default());
+        bus.watch("session", "conn", tx.clone());
+        bus.watch_all("conn", tx.clone());
+        bus.watch_work("conn", tx.clone(), WorkScope::default(), true);
+        tx.stop_watching();
+        bus.drop_conn("conn");
+        bus.watch("session", "conn", tx.clone());
+        bus.watch_all("conn", tx.clone());
+        bus.watch_work("conn", tx.clone(), WorkScope::default(), true);
+        assert_eq!(bus.watchers("session"), 0);
+        assert_eq!(bus.all_watchers(), 0);
+        assert_eq!(bus.work_watchers(), 0);
+        let h = tokio::spawn(std::future::pending::<()>());
+        bus.follow("conn", "job", h.abort_handle(), &tx);
+        assert_eq!(bus.followers(), 0);
+        assert!(h.await.unwrap_err().is_cancelled());
+        assert!(
+            tx.respond(Message::Response(theseus_protocol::Response::ok(
+                theseus_protocol::Id::Num(1),
+                true
+            ))),
+            "EOF still permits an accepted act's answer"
+        );
+    }
 
     #[test]
     fn publish_reaches_watchers_but_not_the_requester_twice_and_prunes_closed() {

@@ -366,6 +366,7 @@ struct Writer {
 #[derive(Default)]
 struct Planted {
     sync: bool,
+    sync_after: Option<usize>,
     cut: bool,
     hold: Option<std::sync::Arc<stand::Gate>>,
 }
@@ -445,6 +446,14 @@ impl Writer {
         #[cfg(test)]
         if std::mem::take(&mut self.planted.sync) {
             return Some(io::Error::other("a sync that failed (a test's)"));
+        }
+        #[cfg(test)]
+        if let Some(left) = &mut self.planted.sync_after {
+            if *left == 0 {
+                self.planted.sync_after = None;
+                return Some(io::Error::other("a later sync failed (a test's)"));
+            }
+            *left -= 1;
         }
         None
     }
@@ -1097,6 +1106,12 @@ impl Wal {
     #[cfg(test)]
     pub(crate) fn fail_next_sync(&self) {
         self.w.lock().unwrap().planted.sync = true;
+    }
+
+    /// Fail a sync after exactly `successful` sync attempts.
+    #[cfg(test)]
+    pub(crate) fn fail_sync_after(&self, successful: usize) {
+        self.w.lock().unwrap().planted.sync_after = Some(successful);
     }
 
     /// Fail the cut that follows the next failed sync.
