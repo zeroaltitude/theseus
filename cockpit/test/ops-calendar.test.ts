@@ -100,7 +100,7 @@ test('event verbs quote the title regardless of the calendar label', () => {
   assert.equal(eventVerbPayload(redactEvent(secret, work, true), work, 'join', now).kind, 'none')
   // Nor Google's own link: its eid carries the sensitive calendar's id.
   assert.equal(eventVerbPayload(redactEvent(secret, work, true), work, 'google', now).kind, 'none')
-  assert.match(read('src/ops/EventDetail.tsx'), /v === 'join' \|\| v === 'google' \? shown : ev/)
+  assert.match(read('src/ops/EventDetail.tsx'), /eventVerbPayload\(shown, cal, v\)/)
   assert.equal(eventVerbPayload(secret, work, 'remind', local(2026, 10, 23, 15)).kind, 'none', 'a reminder for a meeting begun is refused')
 })
 
@@ -161,7 +161,7 @@ test('the New task sheet: a sensitive event offers every profile the daemon list
   assert.deepEqual(s.choices.map((c) => c.name), ['harbour', 'quay', 'dock'])
   // The panel and the verbs promise no origin: no "US" words anywhere the sheet or the event shows.
   assert.doesNotMatch(PRIVACY_NOTE, /US origin|US model/)
-  assert.match(PRIVACY_NOTE, /reminders, prep tasks and chats include event titles regardless of this label/)
+  assert.match(PRIVACY_NOTE, /Reminders, prep tasks and chats name its events by title; while redact mode masks it, they name only the calendar and the time/)
   for (const f of ['src/ops/NewTask.tsx', 'src/ops/EventDetail.tsx', 'src/ops/calendar.ts', 'src/ops/newtask.ts']) {
     assert.doesNotMatch(read(f), /usOnly|US_ONLY|US-only|US models only/, f)
   }

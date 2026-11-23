@@ -158,7 +158,7 @@ export function eventMatches(ev: CalendarEvent, cal: CalendarWindow, redact: boo
 }
 
 /** How the sensitive label and screen redaction affect calendar actions. */
-export const PRIVACY_NOTE = 'This calendar is labelled sensitive; reminders, prep tasks and chats include event titles regardless of this label, even when screen redaction masks the event.'
+export const PRIVACY_NOTE = 'This calendar is labelled sensitive. Reminders, prep tasks and chats name its events by title; while redact mode masks it, they name only the calendar and the time.'
 
 // ---------------------------------------------------------------- the verbs
 
