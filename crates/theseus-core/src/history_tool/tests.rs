@@ -136,6 +136,7 @@ fn lens<'a>(store: &'a Store, here: &str) -> Lens<'a> {
         words: None,
         span: None,
         cut: Default::default(),
+        scope: Default::default(),
     }
 }
 
@@ -1186,4 +1187,100 @@ async fn read_any_sees_a_history_result_of_another_persons_words() {
     .expect("the first outside text");
     assert_eq!(first.tool, crate::view::history::HISTORY_TOOL);
     assert_eq!(first.url, "history:turn_0002");
+}
+
+/// A session the self loop opened (its execution's principal is `self`), as a self builder's.
+fn self_session(c: &crate::Core) -> String {
+    c.open_session_as(
+        theseus_protocol::SessionOpenParams {
+            label: Some("self build: kelp".into()),
+            ..Default::default()
+        },
+        theseus_kernel::Authority {
+            principal: crate::rsi::SELF_PRINCIPAL.into(),
+            ..Default::default()
+        },
+        None,
+    )
+    .unwrap()
+    .session_id
+}
+
+/// The self loop's scope stays in the history reader (D6a round 2, section 2): a session the self loop opened
+/// reads its own place only, as its view does (`view_gate::Verified::own_place_only`). Another place's exchange
+/// is neither paged (by `place` or by span) nor opened, another session's id does not open, and its own run is
+/// paged and opened. An ordinary session at the same call reads everything (anything goes, 2026-11-22).
+#[tokio::test]
+async fn a_self_loop_session_reads_its_own_place_only_in_history() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let me = self_session(&r.core);
+    let mine =
+        crate::view_gate::place_name(&r.core.runner, &me).unwrap_or_else(|| "unknown".into());
+    let other = session(&r.core, None);
+    put(
+        &r.core.store,
+        &Ex {
+            at: noon_nov(11),
+            ..ex(1, &mine, &me)
+        },
+    );
+    put(
+        &r.core.store,
+        &Ex {
+            at: noon_nov(11) + 1_000,
+            ..ex(2, DM, &other)
+        },
+    );
+    let at = PointOfView {
+        now_ms: noon_nov(22),
+        ..pov(&mine, Present::Open)
+    };
+    let b = Board::default();
+    let call = |s: &str, v: Value| {
+        let (s, a) = (s.to_string(), args(v));
+        let (core, b, at) = (&r.core, &b, &at);
+        async move { answer(core, b, (&s, "t"), at, &a).await }
+    };
+    let own = call(&me, json!({})).await.unwrap().text;
+    assert!(own.contains("turn_0001"), "its own run: {own}");
+    assert!(call(&me, json!({"open": "turn_0001"})).await.is_ok());
+    assert!(call(&me, json!({"open": me.clone()})).await.is_ok());
+    let there = call(&me, json!({"place": DM})).await.unwrap().text;
+    assert!(
+        !there.contains("turn_0002"),
+        "another place by place: {there}"
+    );
+    let span = call(&me, json!({"place": DM, "when": "2026-11-11"}))
+        .await
+        .unwrap()
+        .text;
+    assert!(!span.contains("turn_0002"), "another place by span: {span}");
+    let shut = call(&me, json!({"open": "turn_0002"})).await.unwrap_err();
+    assert!(shut.contains("no exchange"), "{shut}");
+    let shut = call(&me, json!({"open": other.clone()})).await.unwrap_err();
+    assert!(shut.contains("no session"), "{shut}");
+    // The control: an ordinary session reads both.
+    let wide = call(&other, json!({"place": DM})).await.unwrap().text;
+    assert!(wide.contains("turn_0002"), "{wide}");
+    assert!(call(&other, json!({"open": me.clone()})).await.is_ok());
+}
+
+/// An unread scope (whether the self loop opened the session cannot be read) admits nothing: fail closed.
+#[test]
+fn an_unread_scope_admits_nothing() {
+    let (_d, s) = store();
+    put(&s, &ex(1, HERE, "ses_x"));
+    let mut l = lens(&s, HERE);
+    l.scope = super::page::Scope::Unread;
+    let p = walk(&l, &HistoryArgs::default(), None, 0);
+    assert!(p.lines.is_empty(), "{p:?}");
+    assert!(open(&l, &crate::view::Handle("turn_0001".into())).is_err());
+    assert!(super::session::open(&l, "ses_x", None).is_err());
+    l.scope = Default::default();
+    assert_eq!(
+        walk(&l, &HistoryArgs::default(), None, 0).lines.len(),
+        1,
+        "the control"
+    );
 }

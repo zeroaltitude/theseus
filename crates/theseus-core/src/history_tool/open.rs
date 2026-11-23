@@ -48,8 +48,9 @@ pub fn open_marked(lens: &Lens<'_>, h: &Handle) -> Result<Opened, String> {
     let ex = exchange::exchange(lens.store, h.0.trim())
         .map_err(|_| none())?
         .ok_or_else(none)?;
-    // A fork opens nothing its cut holds (`Lens::forked`): it reads as no exchange here.
-    if lens.forked(&ex).map_err(|e| format!("{e:#}"))? {
+    // A fork opens nothing its cut holds (`Lens::forked`), nor the self loop anything out of its scope
+    // (`page::Scope`): it reads as no exchange here.
+    if !lens.scope.admits(&ex) || lens.forked(&ex).map_err(|e| format!("{e:#}"))? {
         return Err(none());
     }
     let nodes = nodes(lens, &ex).map_err(|e| format!("{e:#}"))?;

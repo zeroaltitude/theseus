@@ -91,6 +91,7 @@ async fn a_bare_history_call_begins_where_the_views_window_does() {
         words: None,
         span: None,
         cut: Default::default(),
+        scope: Default::default(),
     };
     let paged: Vec<String> = (lens
         .walk(&HistoryArgs::default(), None, 0)
@@ -311,6 +312,7 @@ fn bare_page(c: &crate::Core, session: &str, here: &str) -> Vec<String> {
         words: None,
         span: None,
         cut: Default::default(),
+        scope: Default::default(),
     };
     let walked = lens.walk(&HistoryArgs::default(), None, 0).unwrap();
     walked.page.lines.into_iter().map(|l| l.handle.0).collect()

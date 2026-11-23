@@ -11,6 +11,7 @@
 //!   relayed, is not spoken (as an exchange's open does not speak it) and is counted.
 //! - **A task's session and a harness session** are both this harness's sessions: the model's messages and any
 //!   person's, as said. A task's brief is its parent's relayed message: counted, not spoken.
+//! - **The self loop's scope** (`page::Scope`): a session it opened opens its own session only.
 //! - **A fork** reads no session its cut names (an ancestor's, past its point or not): it reads as no session
 //!   here, as an exchange the cut holds does (`Lens::forked`).
 
@@ -39,7 +40,7 @@ pub struct Opened {
 pub fn open(lens: &Lens<'_>, id: &str, before: Option<&Cursor>) -> Result<Opened, String> {
     let id = id.trim();
     let none = || format!("no session {} can be opened here", flat(id));
-    if lens.cut.names(id) {
+    if lens.cut.names(id) || !lens.scope.admits_session(id) {
         return Err(none());
     }
     let before = match before {

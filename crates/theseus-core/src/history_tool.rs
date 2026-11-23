@@ -354,6 +354,29 @@ fn worker_pov(core: &Core, session: &str, ex: Option<&Exchange>) -> PointOfView 
     }
 }
 
+/// The self loop's scope for `session`'s history (`view_gate::Verified`, as its view reads it): a session the
+/// self loop opened reads its own place, and, as a fork, the run it was handed (`fork::window::inherited`); a
+/// scope that cannot be read reads nothing; every other session, everything. A handed run that cannot be read
+/// is an error.
+pub(crate) fn scope_of(core: &Core, session: &str) -> anyhow::Result<page::Scope> {
+    let v = crate::view_gate::Verified::of_session(&core.runner, session);
+    if v.scope_unread() {
+        return Ok(page::Scope::Unread);
+    }
+    if !v.own_place_only() {
+        return Ok(page::Scope::Wide);
+    }
+    let handed = crate::fork::window::inherited(&core.store, session)?
+        .into_iter()
+        .map(|e| e.turn_id)
+        .collect();
+    Ok(page::Scope::Own {
+        session: session.to_string(),
+        place: v.pov().anchor.clone(),
+        handed,
+    })
+}
+
 /// Whether `turn`'s exchange has ended.
 fn ended(core: &Core, turn: &str) -> bool {
     exchange::exchange(&core.store, turn)
@@ -393,6 +416,7 @@ pub(crate) async fn answer(
         // A fork's history holds nothing an ancestor said at or after its point (`fork::cut`): a cut that
         // cannot be read fails the call plainly.
         cut: crate::fork::cut::Cut::of(&core.store, session).map_err(|e| format!("{e:#}"))?,
+        scope: scope_of(core, session).map_err(|e| format!("{e:#}"))?,
     };
     if let Some(h) = &a.open {
         if used.opens >= OPENS_PER_TURN {
