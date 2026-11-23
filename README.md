@@ -81,8 +81,8 @@ contract](docs/features/fast-as-a-contract.md).
 ### Judgment in the loop
 
 Before the model answers, Theseus asks [TypeSafe](https://typesafe.ai)'s Jev a handful of small typed questions:
-what kind of message this is, which model should answer and with how much effort, which persona speaks, which
-thread it belongs in, and what the message carries. A thank-you goes to a small model and a hard refactor to a
+what kind of message this is, which model should answer and with how much effort, which persona speaks, and what
+the message carries. A thank-you goes to a small model and a hard refactor to a
 large one, and `theseus why` says which, and why. Every judgment is recorded with its probabilities and can be
 replayed, so a new version of a question is measured before it decides anything. If Jev is slow or down, the work
 goes on without it. [Jev in the core](docs/features/jev-in-the-core.md).
@@ -90,7 +90,7 @@ goes on without it. [Jev in the core](docs/features/jev-in-the-core.md).
 ### A prompt you can read
 
 Each request is compiled from the store for that turn: the standing instructions and personas, your context files,
-the guidance for the thread's topics, the conversation so far with a summary in place of what no longer fits, the
+the guidance for the conversation's topics, the conversation so far with a summary in place of what no longer fits, the
 notes recall found, and an attached project's slice at the end. Every request has a manifest, and `theseus why`
 prints it: each block, its tokens, where it came from, and what was left out and why. [Context compiled for each
 turn](docs/features/compiled-context.md).
@@ -99,7 +99,7 @@ turn](docs/features/compiled-context.md).
 
 Something you said last week, in another channel, about another project, comes back when it matters, with a link to
 the message it came from. Bring your history from Claude Code, Codex or OpenClaw with `theseus import`, and it
-knows your past from the first day. Every persona, thread and task draws on the same memory, so nothing has to be
+knows your past from the first day. Every persona, conversation and task draws on the same memory, so nothing has to be
 told twice. [It remembers everything](docs/features/memory-across-sessions.md).
 
 ### A self-guided, expanding ontology
@@ -136,9 +136,9 @@ switch. [It fixes itself](docs/features/self-improvement.md).
 ### Many characters, one mind
 
 Give it more than one persona: a name, an emoji, a voice, and a file that describes its character. Start a message
-with `@name` and that persona answers, in the same conversation, with the same memory. Make a thread for each thing
-you are working on, and a router places each message by the repositories, branches and paths the thread holds,
-asking in one line when it cannot tell. [Personas and threads](docs/features/personas-and-threads.md).
+with `@name` and that persona answers, in the same conversation, with the same memory. Messages run in their
+place's conversation; tasks have runs of their own. Activity threads and their router were retired; old records
+remain readable. [Personas and historical threads](docs/features/personas-and-threads.md).
 
 ### It trusts you, and asks only when it matters
 
@@ -211,10 +211,10 @@ one build to one machine rather than a library to the world.
 
 ## How it works
 
-<p align="center"><img src="docs/assets/readme/a-turn.svg" alt="One turn: you say something; Jev judges what kind of message it is, which model and effort, and which persona and thread; the context is compiled for this turn with a manifest; the model works with real tools, and each call is first asked whether it can be undone; and all of it is written down before it is attempted." width="820"></p>
+<p align="center"><img src="docs/assets/readme/a-turn.svg" alt="One turn: you say something; Jev judges what kind of message it is, which model and effort, and which persona; the context is compiled for this turn with a manifest; the model works with real tools, and each call is first asked whether it can be undone; and all of it is written down before it is attempted." width="820"></p>
 
 - **One agent over one graph.** Every message, tool call, result, task and summary is a node in one store. Personas
-  are views of the same agent, and tasks and threads are sessions of their own, so nothing is copied between
+  are views of the same agent, and tasks are sessions of their own, so nothing is copied between
   agents.
 - **A durable kernel under the model.** Every action is written before it is attempted and its result when it
   settles, so a restart resumes and nothing runs twice. The write-ahead log of checksummed frames is the truth, and

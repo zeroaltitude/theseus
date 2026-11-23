@@ -18,7 +18,7 @@ the words mean.
 - Ids: a session, task, wake, job or node is named by its whole id or by a unique end of it (four characters at least;
   six for a wake or a node).
 - Writes that change what Theseus does for the owner (answers, undo of a tightening, removing a content label, publish, the standing
-  orders, threads, routines, projects) are refused inside a job, whose shell carries `THESEUS_SESSION`; the operator
+  orders, routines, projects) are refused inside a job, whose shell carries `THESEUS_SESSION`; the operator
   runs them from their own shell.
 
 On a terminal, bare `theseus` (no argument) opens a conversation in this directory, the same as `theseus chat`.
@@ -26,7 +26,8 @@ On a terminal, bare `theseus` (no argument) opens a conversation in this directo
 ## Talk to Theseus
 
 - **`ask`**: send one prompt as one turn and print the reply; reads stdin when PROMPT is omitted or `-`.
-  `theseus ask -s SESSION "and then?"`; `--thread SLUG`, `-P PROFILE`, `--attach FILE`, `--json`.
+  `theseus ask -s SESSION "and then?"`; `-P PROFILE`, `--attach FILE`, `--json`. The legacy `--thread`
+  argument warns and is ignored: it does not route the message.
 - **`prompt`**: run an MCP server's prompt as a turn's input and print the reply, as `ask` does.
   `theseus prompt SERVER/PROMPT --arg name=Ada`; `theseus mcp` lists the prompts.
 - **`chat`**: an inline conversation in this directory, new or SESSION's; runs `theseus-tui chat`.
@@ -50,7 +51,7 @@ On a terminal, bare `theseus` (no argument) opens a conversation in this directo
   `theseus task show ID` prints one task whole (its brief, plan, children, spend, times, its whole report, and the
   commands that act on it now); `theseus task pause ID` holds a running task at its next loop and `theseus task resume ID`
   lets it go on (yours alone, refused inside a job). `theseus task rehome ID HOME` sends its report to another
-  conversation or `thread:<slug>`; `theseus task reschedule ID --at WHEN | --in-time SPAN` moves a deferred start;
+  conversation; `theseus task reschedule ID --at WHEN | --in-time SPAN` moves a deferred start;
   `theseus sessions model SESSION PROFILE|--off` holds a session's turns to a profile or lets the hold go. `task` acts on one; `tasks` lists them.
 - **`agenda`**: the future in one view: Now, Today, This week, Later, Recurring, Waiting on the world, Projects.
   `theseus agenda --watch`.
@@ -122,8 +123,8 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   substituted before the request left (`[privacy] redact_outbound`). `theseus inspect [SESSION] [TURN]`.
 - **`view`**: what a turn was shown and why, from its view record: the point of view, each slot's pieces by id with
   their kinds, forms, tokens and reasons, what was left out and why, and the totals. `--text` adds each piece's
-  text, `--tally` the counts by slot and reason. Yours alone: an agent's process, a job or any other connection is
-  refused, and a piece whose source is sealed today is not listed. `theseus view show TURN [--text] [--tally]`.
+  text, `--tally` the counts by slot and reason. Sources must still be readable; old seals do not hide them.
+  The current view read does not require an owner-in-person check. `theseus view show TURN [--text] [--tally]`.
 - **`reach`**: where a node went: the compilations that held it and its copies in other sessions. `theseus reach NODE`.
 - **`fork`**: a new session from any moment of another, by reference; the original is never written to.
   `theseus fork NODE`.
@@ -152,7 +153,7 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 - **`content`**: a session's content labels: `injection` tells you something tried to steer the assistant — at the
   shipped default (`[content_based_security] injection = "notify"`) nothing stops, and under `injection = "refuse"`
   its calls that act are refused — and `secret`, `confidential` and
-  `personal` keep it off a China-origin model, until you remove them. A sensitive word you listed, a Google result and
+  `personal` describe its content without restricting model origin or recall. A sensitive word you listed, a Google result and
   Jev each raise them. `theseus content SESSION` lists them, each with its source and how to call it wrong;
   `theseus content remove SESSION FLAG` (or `--all`) removes one, and is yours alone to run. In Discord, `/trust`
   removes the conversation's `injection` label and nothing else.
@@ -217,8 +218,9 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 
 ## Threads, places and projects
 
-- **`thread`**: lines of work on `thread:<slug>`, each with a session of its own. `theseus thread`; `thread new|show|edit|
-  pause|resume|done|reopen|switch|seal`; address one with `ask --thread SLUG`.
+- **`thread`**: read-only history since 2026-11-22. `theseus thread list` and `thread show SLUG` read stored
+  records; creation, routing, sealing and moving are gone. Messages run in their place's conversation.
+  The old `thread import --vestige PATH` alias now points to `theseus import vestige PATH`.
 - **`places`**: each place Theseus speaks in, and its class (private or shared). `theseus places`.
 - **`publish`**: put one item (a node, a file, or `--text`) into a place's conversation as your message.
   `theseus publish --to '#general' --text "hello"`.

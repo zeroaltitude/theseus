@@ -37,8 +37,11 @@ back where they rode (`turn::sent_tail`). The next turn assembles afresh: its fi
 bytes but the window, which only appends. A change of the system text (a membership, guidance, a context file)
 starts a new chain at the next turn: there is no recompile to ask for.
 
-**Nothing of the view is written into the session.** The beside block lives in the turn alone; recall reaches
-the model as a selector's piece.
+**The rendered front, window and beside blocks are not copied into the session.** They live in the turn, and
+recall reaches the model as a selector's piece. The provenance is durable: `turn::recall_step` keeps a `Recall`
+node and its `derived_from` edges to the sources, and those records and the recall rows ride the provider
+action's plan frame (`turn::model_call`). Citations, reach and retraction use those links; they are not an old
+transcript-builder fallback. The `Recall` node itself is kept out of the view window and the turn's tail.
 
 **Tool output** in the window is cleared by the build's own pass (`compiler::clearing`), with this strategy's
 numbers: past 80,000 tokens of results not yet cleared, the oldest become receipts until the newest 40,000
