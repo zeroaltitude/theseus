@@ -1657,7 +1657,8 @@ phase "recall tests" ran_or_skipped scripts/recall-tests.sh
 # the recall tests: it runs the debug theseusd and theseus-sim and says it skipped when either is missing. It
 # NEVER fails the gate: a printed warning and a committed baseline, never a ceiling (scripts/prompt-step.sh's own
 # doc says why, and scripts/shape.sh owns the hard ones).
-THESEUS_PROMPT_TARGET="$target_dir" phase prompt ran_or_skipped scripts/prompt-step.sh
+export THESEUS_PROMPT_TARGET="$target_dir"
+phase prompt ran_or_skipped scripts/prompt-step.sh
 locked_checks
 phase deny deny_check
 if [ -n "$door_after" ]; then phase "own gate.sh" door_own; fi
