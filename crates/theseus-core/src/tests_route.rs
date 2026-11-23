@@ -439,6 +439,9 @@ fn the_panes_carried_profile_is_no_pin() {
 /// verdict is `late`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failing_jev_or_the_judge_off_leaves_the_request_unrouted() {
+    // The clock mid-period, first: each daemon's request carries the day (the tail's date line), so a run across
+    // midnight differed there alone.
+    let _clock = crate::test_support::pin_mid_period();
     let off_rig = rig(None, 1, |_| {});
     let base = turn(&off_rig.core, None, "Say done.", None).await;
     assert!(base.route.is_none(), "the judge off: nothing asked");

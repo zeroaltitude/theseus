@@ -385,6 +385,9 @@ async fn a_judged_turn_keeps_its_frame_budget() {
 /// on none of it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failing_jev_is_recorded_by_its_class_and_changes_no_turn() {
+    // The clock mid-period, first: each daemon's request carries the day (the tail's date line), so a run across
+    // midnight differed there alone.
+    let _clock = crate::test_support::pin_mid_period();
     let off_rig = rig_on(texts(1), None, |_| {});
     let base = turn(&off_rig.core, None, "Say done.").await;
     let base_req = serde_json::to_value(&off_rig.fake.requests()[0]).unwrap();
