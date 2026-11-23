@@ -222,3 +222,25 @@ class TmuxIsolation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SelectedClaude(unittest.TestCase):
+    def test_the_selected_program_is_the_command_typed(self):
+        import shlex
+        from unittest.mock import Mock, patch
+        from arm_claude import ClaudeCode
+        with tempfile.TemporaryDirectory() as root:
+            cli = Path(root) / "chosen cli"
+            cli.write_text("#!/bin/sh\necho pinned-version\n")
+            cli.chmod(0o755)
+            arm = ClaudeCode(str(cli), "pinned-version", 1)
+            ctx = Mock()
+            ctx.meta = {}
+            with patch.object(arm, "model_name", return_value="fixture"):
+                arm.setup(ctx)
+            ctx.tmux.wait.side_effect = RuntimeError("stop after typing")
+            with self.assertRaisesRegex(RuntimeError, "stop after typing"):
+                arm.s1(ctx)
+            self.assertEqual(shlex.split(ctx.tmux.type.call_args.args[0]), [str(cli)])
+            for args in [("-c",), ("--resume",)]:
+                self.assertEqual(shlex.split(arm.command(*args)), [str(cli), *args])
