@@ -650,28 +650,45 @@ impl Shared {
         self.open_channel(p, v, why, Some(old)).await;
     }
 
+    fn retry_task_close(self: &Arc<Self>, task: String) {
+        let shared = self.clone();
+        tokio::spawn(async move {
+            let stopped = shared.core.outbox.stopped();
+            tokio::pin!(stopped);
+            tokio::select! {
+                () = tokio::time::sleep(Duration::from_secs(60)) => {}
+                () = &mut stopped => return,
+            }
+            shared.task_threads.settle(&task);
+            shared.broadcast(|| PlaceMsg::Tasks);
+        });
+    }
+
     /// The task ended: its report is said in the channel, and the channel
     /// moves to the done category, closed to the owner's words.
     pub(super) async fn finish_task_channel(self: &Arc<Self>, m: Made, mark: Mark, v: WorkView) {
         let target = format!("discord:channel:{}", m.thread);
-        self.say_to(&target, format!("🏁 {}", report_line(&v)), &m.session);
         let name = channel_name(mark, &m.task, &v.title);
         let guild = m.guild.unwrap_or_default();
         let closed = self.task_channel_close(&m, guild, &name).await;
         match closed {
             Ok(()) => self.end_guests(&m).await,
             Err(Refused::Forbidden) => {
-                if self.task_threads.chan.refuse() {
-                    let line = "-# I can't move task channels: grant the bot Manage Channels \
-                                and Manage Roles"
-                        .to_string();
-                    self.say_to(&target, line, &m.session);
-                }
+                self.board.error(
+                    "task channel close",
+                    Some(&m.session),
+                    "grant the bot Manage Channels and Manage Roles; the close will be retried",
+                );
+                self.retry_task_close(m.task);
+                return;
             }
             Err(Refused::Other(e) | Refused::Unsure(e)) => {
-                self.board.error("task channel", Some(&m.session), e)
+                self.board.error("task channel", Some(&m.session), e);
+                self.retry_task_close(m.task);
+                return;
             }
         }
+        self.say_to(&target, format!("🏁 {}", report_line(&v)), &m.session);
         self.task_threads.update(&m.task, |x| {
             x.name.clone_from(&name);
             x.ended_ms = Some(theseus_protocol::now_unix_ms());
@@ -780,6 +797,96 @@ mod tests {
     use super::*;
     use crate::runtime::tests::{core_with, place_for_tests};
     use crate::runtime::voice_status::tests::view;
+
+    #[tokio::test]
+    async fn a_failed_close_remains_due_after_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = theseus_sim::fake_discord::FakeDiscord::start();
+        fake.refuse_channels(true);
+        let core = core_with(
+            dir.path(),
+            theseus_core::secrets::SecretBoard::empty(),
+            |c| {
+                c.discord.rest_proxy = Some(fake.addr.clone());
+            },
+        );
+        let shared = crate::runtime::shared_for_tests(&core);
+        let m = Made {
+            task: "exe_reef".into(),
+            session: "ses_reef".into(),
+            thread: 42,
+            kind: super::super::threads::PlaceKind::Channel,
+            parent: 43,
+            parent_session: "ses_parent".into(),
+            name: "reef".into(),
+            guild: Some(theseus_sim::fake_discord::DEFAULT_GUILD),
+            private: true,
+            ceiling: None,
+            created_ms: theseus_protocol::now_unix_ms(),
+            ended_ms: None,
+        };
+        shared.task_threads.add(m.clone());
+        shared.task_threads.save(&core.store);
+        let v = work_view(&m.task, "done");
+        shared.finish_task_channel(m, Mark::Done, v.clone()).await;
+        assert!(
+            shared.task_threads.all()[0].ended_ms.is_none(),
+            "a failed close is not complete"
+        );
+        assert!(
+            !shared.task_threads.chan.off(),
+            "a close failure must not disable its parent's retry routing"
+        );
+        let restarted = crate::runtime::shared_for_tests(&core);
+        restarted.task_threads.load(&core.store);
+        assert!(matches!(
+            restarted.task_threads.next(&v, None, true),
+            super::super::threads::Next::Finish(_, _)
+        ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_close_is_released_for_a_retry_after_one_minute() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = core_with(
+            dir.path(),
+            theseus_core::secrets::SecretBoard::empty(),
+            |_| {},
+        );
+        let shared = crate::runtime::shared_for_tests(&core);
+        shared.task_threads.add(Made {
+            task: "exe_reef".into(),
+            session: "ses_reef".into(),
+            thread: 42,
+            kind: super::super::threads::PlaceKind::Channel,
+            parent: 43,
+            parent_session: "ses_parent".into(),
+            name: "reef".into(),
+            guild: None,
+            private: true,
+            ceiling: None,
+            created_ms: theseus_protocol::now_unix_ms(),
+            ended_ms: None,
+        });
+        let v = work_view("exe_reef", "done");
+        assert!(matches!(
+            shared.task_threads.next(&v, None, true),
+            super::super::threads::Next::Finish(_, _)
+        ));
+        shared.retry_task_close(v.id.clone());
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(59)).await;
+        assert!(matches!(
+            shared.task_threads.next(&v, None, true),
+            super::super::threads::Next::Nothing
+        ));
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert!(matches!(
+            shared.task_threads.next(&v, None, true),
+            super::super::threads::Next::Finish(_, _)
+        ));
+    }
 
     /// A working task that does not qualify yet gets exactly one timer, which
     /// sends its place the next sync at the config's minute (the paused clock
