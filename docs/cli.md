@@ -152,7 +152,7 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 - **`content`**: a session's content labels: `injection` tells you something tried to steer the assistant — at the
   shipped default (`[content_based_security] injection = "notify"`) nothing stops, and under `injection = "refuse"`
   its calls that act are refused — and `secret`, `confidential` and
-  `personal` keep it off a China-origin model, until you remove them. A sensitive word you listed, a Google result and
+  `personal` describe its content without restricting model origin or recall. A sensitive word you listed, a Google result and
   Jev each raise them. `theseus content SESSION` lists them, each with its source and how to call it wrong;
   `theseus content remove SESSION FLAG` (or `--all`) removes one, and is yours alone to run. In Discord, `/trust`
   removes the conversation's `injection` label and nothing else.

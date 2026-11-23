@@ -83,8 +83,8 @@ acts. `theseus judge log` lists them.
 
 **label** (a content label): one of four flags on a session, `injection`, `secret`, `confidential` or `personal`, with what
 raised it. Jev's content pack raises them, and so do two free rules: a `[privacy] sensitive_names` word and a Google
-result. `secret`, `confidential` and `personal` keep the session off a model of restricted origin (`cn_models` reads
-them); `injection` tells you something tried to steer the assistant, and by default (`[content_based_security] injection =
+result. `secret`, `confidential` and `personal` describe content; they do not restrict model origin or recall. The
+retired `cn_models` setting loads with a warning and is ignored; `injection` tells you something tried to steer the assistant, and by default (`[content_based_security] injection =
 "notify"`) the call runs and you are told — write `injection = "refuse"` and the session's calls that act are refused
 instead, until you remove the label. Only you remove one, and a removal sticks
 (`crates/theseus-core/src/content.rs`). `theseus content SESSION`. Not the learning ledger's *labels* (your right, wrong
