@@ -286,6 +286,13 @@ async fn file(conn: &mut Conn, path: &PathBuf) -> Result<ImportEpisodesResult> {
         number += 1;
         match String::from_utf8(std::mem::take(&mut buf)) {
             Ok(text) => {
+                if batch.len() >= BATCH_LINES || bytes >= BATCH_BYTES {
+                    sent += 1;
+                    let n = Numbered::of(sent, estimate, false);
+                    send(conn, &name, std::mem::take(&mut batch), &mut total, n).await?;
+                    bytes = 0;
+                    tokio::time::sleep(PAUSE).await;
+                }
                 bytes += text.len();
                 batch.push(ImportLine { line: number, text });
             }
@@ -297,13 +304,6 @@ async fn file(conn: &mut Conn, path: &PathBuf) -> Result<ImportEpisodesResult> {
                     why: "not UTF-8".into(),
                 });
             }
-        }
-        if batch.len() >= BATCH_LINES || bytes >= BATCH_BYTES {
-            sent += 1;
-            let n = Numbered::of(sent, estimate, false);
-            send(conn, &name, std::mem::take(&mut batch), &mut total, n).await?;
-            bytes = 0;
-            tokio::time::sleep(PAUSE).await;
         }
     }
     if !batch.is_empty() {
@@ -508,6 +508,42 @@ pub fn list(r: &ImportListResult) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_full_final_import_batch_is_marked_final() {
+        use tokio::io::AsyncWriteExt;
+        for (count, text) in [
+            (256usize, "{}\n".repeat(256)),
+            (512, "{}\n".repeat(512)),
+            (1, format!("{}\n", "x".repeat(BATCH_BYTES))),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("episodes.jsonl");
+            std::fs::write(&path, text).unwrap();
+            let (client, server) = tokio::io::duplex(65536);
+            let (r, w) = tokio::io::split(client);
+            let mut conn = Conn::over(r, w);
+            let daemon = tokio::spawn(async move {
+                let (r, mut w) = tokio::io::split(server);
+                let mut lines = BufReader::new(r).lines();
+                let mut batches = Vec::new();
+                while let Some(line) = lines.next_line().await.unwrap() {
+                    let req: Value = serde_json::from_str(&line).unwrap();
+                    batches.push(req["params"].clone());
+                    let reply = serde_json::json!({"jsonrpc": "2.0", "id": req["id"],
+                        "result": ImportEpisodesResult::default()});
+                    w.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+                }
+                batches
+            });
+            file(&mut conn, &path).await.unwrap();
+            drop(conn);
+            let batches = daemon.await.unwrap();
+            assert_eq!(batches.len(), count.div_ceil(BATCH_LINES));
+            let last = batches.last().unwrap();
+            assert_eq!(last["batch"], last["batches"], "{last}");
+        }
+    }
 
     #[test]
     fn a_files_counts_and_its_rejected_lines_by_number() {
