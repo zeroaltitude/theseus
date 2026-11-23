@@ -39,10 +39,9 @@ test('no setting is listed twice, and no method is both live and without a page'
   assert.deepEqual(cliOnly.filter((m) => live.includes(m)), [])
 })
 
-test('every active section of the configuration example is on the page exactly once', () => {
+test('every section of the configuration file’s example is on the page, and no section is on it twice', () => {
   const example = readFileSync(join(ROOT, 'crates/theseus-core/config/theseus.example.toml'), 'utf8')
-  // The example still documents retired thread keys; they are loadable, not active settings.
-  const sections = new Set([...example.matchAll(/^#?\s*\[\[?([A-Za-z_][\w.\-"]*)\]\]?/gm)].map((m) => tableHead(m[1])).filter((t) => t !== 'threads'))
+  const sections = new Set([...example.matchAll(/^#?\s*\[\[?([A-Za-z_][\w.\-"]*)\]\]?/gm)].map((m) => tableHead(m[1])))
   assert.ok(sections.size > 40, `${sections.size} sections read`)
   const listed = FIXED.flatMap((s) => s.tables.map(tableHead))
   assert.deepEqual([...sections].filter((t) => !listed.includes(t)), [], 'in the file, not on the page')
@@ -62,6 +61,13 @@ test('the words are for a person: no internal name, and each setting says Theseu
     for (const t of [s.name, s.words]) assert.doesNotMatch(t, /\b(kernel|daemon|theseusd|rpc|protocol|ledger)\b/i, `${s.id}: ${t}`)
     assert.ok(s.words.length >= 20 && /[.]$/.test(s.words), `${s.id} says its words in a sentence`)
   }
+})
+
+test('the memory row does not teach threads as a setting: they are retired, and only the persona key of their section is used', () => {
+  const memory = FIXED.find((s) => s.id === 'memory')!
+  assert.doesNotMatch(memory.words, /sessions and threads/, 'threads offered as a current setting')
+  assert.match(memory.words, /which persona answers a message \(the threads section’s one setting still used: threads are retired/)
+  assert.ok(memory.tables.includes('threads'), 'the section is still in the example file, so it stays on the page')
 })
 
 test('what Theseus is running with now is read from health, and a missing report says nothing', () => {
