@@ -404,7 +404,7 @@ mod tests {
             (Name::Env, 60),
             (Name::Standing, 300),
             (Name::Commitments, 600),
-            (Name::Tasks, 1_800),
+            (Name::Tasks, 3_000),
             (Name::Project, 900),
         ]);
         let c = compose(&given, BUDGET_TOKENS).unwrap();
