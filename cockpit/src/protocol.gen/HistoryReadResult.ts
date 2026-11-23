@@ -15,7 +15,7 @@ place: string, lines: Array<HistoryReadLine>,
 /**
  * How the page ends: `more` (pass `next` as `before`), `history_exhausted` (nothing older is on record),
  * `span_start` (the span's start is reached: nothing older is in it), `scan_limit` (a limit of the tool, not
- * the end of history: pass `next` as `before`) or `search_cut` (a fork's words search the fork's cut
- * crowded: the list may be incomplete, never the end of history); empty for an open.
+ * the end of history: pass `next` as `before`) or `search_cut` (a words search that may be incomplete: a
+ * fork's cut, or hits no longer on record, crowded its bound; never the end of history); empty for an open.
  */
 end: string, next?: HistoryCursor, open?: HistoryOpened, };

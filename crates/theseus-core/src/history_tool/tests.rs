@@ -1013,7 +1013,12 @@ fn an_imported_session_opens_from_its_nodes_its_erased_and_outside_messages_coun
         t.contains("Left out: 1 imported message of outside text and 1 erased message."),
         "{t}"
     );
-    assert!(!got.outside, "no other person's words are shown");
+    // The agent's message sits beside an imported outside message the page omits: its derivation cannot be
+    // established, so the page is not asserted clean (D6 round 3, A).
+    assert!(
+        got.outside,
+        "an agent's message beside omitted outside text is outside"
+    );
 }
 
 /// A long session pages back by `before`, the position its page named: each page the newest that fit, the
