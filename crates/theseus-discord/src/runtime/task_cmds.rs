@@ -365,6 +365,10 @@ impl Shared {
     }
 
     pub(super) async fn autocomplete(&self, i: &Interaction, pairs: Vec<(String, String)>) {
+        let pairs = pairs
+            .into_iter()
+            .map(|(name, value)| (self.core.exits.text(&name).0.into_owned(), value))
+            .collect();
         let data = InteractionResponseData {
             choices: Some(choice_list(pairs)),
             ..Default::default()
@@ -721,5 +725,25 @@ mod tests {
         assert_eq!(super::quiet_until_span("30m", now), Some(now + 1_800_000));
         assert_eq!(super::quiet_until_span("1h", now), Some(now + 3_600_000));
         assert_eq!(super::quiet_until_span("tea", now), None);
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn task_autocomplete_masks_before_choice_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        shared
+            .autocomplete(
+                &interaction(),
+                vec![(format!("{}{}", "x".repeat(90), VALUE), "task".into())],
+            )
+            .await;
+        let replies = fake.replies();
+        assert_eq!(replies.len(), 1);
+        let name = &replies[0].choices[0].0;
+        assert!(!name.contains("vault"), "{name}");
+        assert!(name.contains("[redact"), "{name}");
     }
 }

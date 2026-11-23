@@ -436,7 +436,11 @@ async fn approval_words_mask_before_the_command_line_cut() {
         )
         .unwrap();
     action.tool = "proc.run".into();
-    let input = json!({"argv": [format!("{}{}", "x".repeat(100), VALUE)]});
+    // A space inside the known value forces the plain-word cut to keep a prefix.
+    let spaced = "vault token 4c8e1f7a92b3";
+    core.secrets
+        .hold("approval_token", Secret::new(spaced.into()));
+    let input = json!({"argv": [format!("{}{}", "x".repeat(100), spaced)]});
     let node = theseus_core::node::Node::tool_call(
         &session.session_id,
         Some("turn_approval"),
@@ -473,7 +477,7 @@ async fn approval_words_mask_before_the_command_line_cut() {
         lane.write(&post(&format!("approval:{n}"), text))
             .await
             .unwrap();
-        assert!(!last(&fake).contains("7a92b3"), "{}", last(&fake));
+        assert!(!last(&fake).contains("vault"), "{}", last(&fake));
     }
     assert!(req.plain.as_ref().unwrap().what.contains("[redacted:"));
 }
@@ -502,4 +506,185 @@ async fn approval_details_and_classic_mask_before_each_cut() {
         assert!(!last(&fake).contains("vault"), "{}", last(&fake));
         assert!(last(&fake).contains("[redacted:"), "{}", last(&fake));
     }
+}
+
+async fn clipped_outbox_text(kind: &str, field: &str, cut: usize) {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    let mut body = json!({"kind": kind, "outcome": "complete", "short": "reef"});
+    body[field] = json!(format!("{}{}", "x".repeat(cut - 10), VALUE));
+    let a = lane
+        .shared
+        .core
+        .outbox
+        .post("", "", &lane.target, body)
+        .unwrap();
+    let plan = lane.plan(&a).await.unwrap();
+    assert!(!plan.writes.is_empty());
+    for w in plan.writes {
+        lane.write(&w).await.unwrap();
+    }
+    assert!(!last(&fake).contains("vault"), "{}", last(&fake));
+}
+
+#[tokio::test]
+async fn task_report_masks_before_its_cut() {
+    clipped_outbox_text("report", "text", 1700).await;
+}
+
+#[tokio::test]
+async fn turn_failed_masks_before_its_cut() {
+    clipped_outbox_text("failed", "error", 600).await;
+}
+
+#[tokio::test]
+async fn settled_closed_note_masks_before_its_cut() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    lane.write(&post("closed-card", "waiting")).await.unwrap();
+    let message = fake.messages(CHANNEL).pop().unwrap().id;
+    let mut card = lane
+        .shared
+        .core
+        .outbox
+        .post("", "", &lane.target, json!({"kind":"card", "question":"q"}))
+        .unwrap();
+    card.state = ActionState::Succeeded;
+    card.detail = Some(
+        json!({"line":"a call", "messages":[{"key":"closed-card", "channel":CHANNEL.to_string(), "id":message.to_string()}]}),
+    );
+    lane.shared
+        .core
+        .store
+        .append(&[theseus_store::NewRecord::json(
+            theseus_store::kinds::OUTBOX,
+            Some(&card.correlation_id),
+            &card,
+        )
+        .unwrap()])
+        .unwrap();
+    let a = lane.shared.core.outbox.post("", "", &lane.target, json!({"kind":"settle", "card":card.correlation_id,"closed":{"how":"unknown", "note":format!("{}{}", "x".repeat(190), VALUE)}})).unwrap();
+    let plan = lane.plan(&a).await.unwrap();
+    assert!(!plan.writes.is_empty());
+    for w in plan.writes {
+        lane.write(&w).await.unwrap();
+    }
+    assert!(!last(&fake).contains("vault"), "{}", last(&fake));
+}
+
+#[tokio::test]
+async fn stored_task_report_masks_before_its_cut() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    let text = format!("{}{}", "x".repeat(1690), VALUE);
+    let node = theseus_core::node::Node::assistant(
+        "s",
+        "turn_report",
+        0,
+        theseus_core::node::Body::AssistantMessage {
+            blocks: vec![json!({"type":"text", "text":text})],
+            model: "fake".into(),
+            provider: "fake".into(),
+            stop_reason: None,
+            usage: Default::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+            effort: None,
+        },
+    );
+    lane.shared
+        .core
+        .store
+        .append(&[node.record().unwrap()])
+        .unwrap();
+    let a = lane
+        .shared
+        .core
+        .outbox
+        .post(
+            "",
+            "",
+            &lane.target,
+            json!({"kind":"report", "outcome":"complete", "short":"reef", "node":node.id}),
+        )
+        .unwrap();
+    let plan = lane.plan(&a).await.unwrap();
+    assert!(!plan.writes.is_empty());
+    for w in plan.writes {
+        lane.write(&w).await.unwrap();
+    }
+    assert!(!last(&fake).contains("vault"), "{}", last(&fake));
+}
+
+#[tokio::test]
+async fn replayed_card_masks_pending_closed_note_before_its_cut() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    let core = lane.shared.core.clone();
+    let session = theseus_core::session::SessionRecord::new(
+        theseus_protocol::SessionKind::Conversation,
+        None,
+    );
+    core.store
+        .put_session(&session.session_id, &session)
+        .unwrap();
+    let mut question = core
+        .outbox
+        .to_operator(
+            Some(&session.session_id),
+            json!({"kind":"notice", "text":"test"}),
+        )
+        .unwrap();
+    question.tool = "proc.run".into();
+    question.state = ActionState::Cancelled;
+    let node = theseus_core::node::Node::tool_call(
+        &session.session_id,
+        Some("turn_card"),
+        Some(0),
+        theseus_core::node::Body::ToolCall {
+            tool_use_id: "u1".into(),
+            tool: "proc.run".into(),
+            wire_name: "proc_run".into(),
+            input: json!({"argv":["pwd"]}),
+            assistant_node: "msg_1".into(),
+            correlation_id: Some(question.correlation_id.clone()),
+            gate: None,
+        },
+    );
+    core.store
+        .append(&[
+            node.record().unwrap(),
+            theseus_store::NewRecord::json(
+                theseus_store::kinds::ACTION,
+                Some(&question.correlation_id),
+                &question,
+            )
+            .unwrap(),
+        ])
+        .unwrap();
+    core.outbox.post("", "", &lane.target, json!({"kind":"settle", "question":question.correlation_id, "closed":{"how":"unknown", "note":format!("{}{}", "x".repeat(190), VALUE)}})).unwrap();
+    let a = core
+        .outbox
+        .post(
+            "",
+            "",
+            &lane.target,
+            json!({"kind":"card", "question":question.correlation_id, "node":node.id}),
+        )
+        .unwrap();
+    let plan = lane.plan(&a).await.unwrap();
+    assert!(!plan.writes.is_empty());
+    for w in plan.writes {
+        lane.write(&w).await.unwrap();
+    }
+    assert!(last(&fake).contains("Closed"), "{}", last(&fake));
+    assert!(!last(&fake).contains("vault"), "{}", last(&fake));
 }

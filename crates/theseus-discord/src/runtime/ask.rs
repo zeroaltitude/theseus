@@ -227,6 +227,10 @@ impl Shared {
                 },
             ),
         };
+        let mut data = data;
+        data.content = data
+            .content
+            .map(|s| super::command_reply::leaving(&self.core.exits, &s));
         let resp = InteractionResponse {
             kind,
             data: Some(data),
@@ -294,6 +298,10 @@ impl Shared {
                 },
             ),
         };
+        let mut data = data;
+        data.content = data
+            .content
+            .map(|s| super::command_reply::leaving(&self.core.exits, &s));
         let resp = InteractionResponse {
             kind,
             data: Some(data),
@@ -362,5 +370,39 @@ mod tests {
                 "need:details:act_1"
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn ask_again_error_masks_its_words() {
+        let (_dir, _core, fake, shared) = rig();
+        shared
+            .ask_again_press(&interaction(), VALUE.into(), "discord:7", None)
+            .await;
+        let replies = fake.replies();
+        assert_eq!(replies.len(), 1);
+        let content = replies[0].content.as_deref().unwrap();
+        assert!(!content.contains(VALUE), "{content}");
+        assert!(content.contains("[redacted:"), "{content}");
+    }
+}
+
+#[cfg(test)]
+mod option_exit_tests {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn ask_option_error_masks_its_words() {
+        let (_dir, _core, fake, shared) = rig();
+        shared
+            .ask_press(&interaction(), (1, VALUE.into()), "discord:7", None)
+            .await;
+        let replies = fake.replies();
+        assert_eq!(replies.len(), 1);
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains(VALUE), "{text}");
+        assert!(text.contains("[redacted:"), "{text}");
     }
 }

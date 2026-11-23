@@ -2474,3 +2474,6 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
 // cores and places with its helpers.
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod tests_exits_r3;

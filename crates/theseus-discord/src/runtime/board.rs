@@ -131,9 +131,9 @@ impl Place {
             .await
         {
             Ok(l) => render::tasks_here(
-                &l.records,
+                &render::leaving::copy(&self.shared.core.exits, &l.records).unwrap_or_default(),
                 &self.session_id,
-                &l.tasks,
+                &render::leaving::copy(&self.shared.core.exits, &l.tasks).unwrap_or_default(),
                 theseus_protocol::now_unix_ms(),
             ),
             Err(e) => format!("⚠️ Could not list the tasks: {e}."),
@@ -195,5 +195,54 @@ mod tests {
                 ("Decline".to_string(), false, "act_0000reef".to_string()),
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn task_list_masks_before_title_cut() {
+        let (_dir, core, fake, _) = rig();
+        let home = core.home().unwrap();
+        let e = core
+            .kernel
+            .open_task_owned(
+                &home.execution_id,
+                "act_reef",
+                100,
+                Default::default(),
+                |_| Ok(vec![]),
+            )
+            .unwrap()
+            .task;
+        let mut rec = theseus_core::session::SessionRecord::with_id(
+            e.session_id.clone(),
+            theseus_protocol::SessionKind::Task,
+            None,
+        );
+        rec.execution_id = Some(e.id);
+        rec.title = Some(format!("{}{}", "x".repeat(70), VALUE));
+        rec.task = Some(theseus_core::session::TaskOf {
+            parent_session: home.session_id.clone(),
+            parent_execution: home.execution_id,
+            by: "test".into(),
+            target: Some("discord:dm:42".into()),
+            arrangement: None,
+            check: None,
+            notify_done: false,
+        });
+        core.store.put_session(&rec.session_id, &rec).unwrap();
+        let (place, _rx) = crate::runtime::tests::place_for_tests(&core, &home.session_id);
+        let text = place.tasks_here().await;
+        place
+            .shared
+            .finish_command(&interaction(), &text, "task list")
+            .await;
+        let replies = fake.replies();
+        assert_eq!(replies.len(), 1);
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains("vault"), "{text}");
+        assert!(text.contains("[redact"), "{text}");
     }
 }

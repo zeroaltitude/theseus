@@ -40,6 +40,7 @@ pub(crate) fn json(exits: &Exits, value: &mut Value) {
                         | "from"
                         | "source"
                         | "reason"
+                        | "error"
                         | "words"
                         | "input"
                         | "choices"

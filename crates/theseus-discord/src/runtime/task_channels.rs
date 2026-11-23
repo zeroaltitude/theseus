@@ -547,7 +547,14 @@ impl Shared {
 
     /// The task has a channel: made, listed, run as a place, and linked.
     /// `from` is the thread it leaves.
-    async fn open_channel(self: &Arc<Self>, p: Parent, v: WorkView, why: Why, from: Option<Made>) {
+    async fn open_channel(
+        self: &Arc<Self>,
+        p: Parent,
+        mut v: WorkView,
+        why: Why,
+        from: Option<Made>,
+    ) {
+        v.title = self.core.exits.text(&v.title).0.into_owned();
         let (Some(session), Some(guild)) = (v.session_id.clone(), self.place_bits.trusted_guild())
         else {
             self.task_threads.chan.end(&v.id, false);
@@ -747,10 +754,15 @@ impl Shared {
     /// moves to the done category, closed to the owner's words.
     pub(super) async fn finish_task_channel(self: &Arc<Self>, m: Made, mark: Mark, v: WorkView) {
         let target = format!("discord:channel:{}", m.thread);
-        let name = channel_name(mark, &m.task, &v.title);
+        let title = self.core.exits.text(&v.title).0;
+        let name = channel_name(mark, &m.task, &title);
         let guild = m.guild.unwrap_or_default();
         if self.task_threads.chan.close_first(&m.task) {
-            self.say_to(&target, format!("🏁 {}", report_line(&v)), &m.session);
+            self.say_to(
+                &target,
+                format!("🏁 {}", report_line(&self.core.exits, &v)),
+                &m.session,
+            );
         }
         let closed = self.task_channel_close(&m, guild, &name).await;
         match closed {
@@ -1194,5 +1206,40 @@ mod tests {
         // The sync then asks the rule, which the timer satisfies.
         let why = place.shared.channel_why(&v);
         assert_eq!(why, Some(Why::Promoted));
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn task_channel_create_masks_before_slug_and_topic() {
+        let (_dir, _core, fake, shared) = rig();
+        let mut v = view();
+        v.title = VALUE.into();
+        shared.open_channel(parent(), v, Why::Long, None).await;
+        let channels = fake.made_channels();
+        let c = channels.iter().find(|c| c.kind == 0).expect("task channel");
+        assert!(!c.name.contains("vault"), "{}", c.name);
+        assert!(c.name.contains("redacted-display-token"), "{}", c.name);
+        let topic = &c.topic;
+        assert!(!topic.contains("vault"), "{topic}");
+        assert!(topic.contains("[redacted:"), "{topic}");
+    }
+    #[tokio::test]
+    async fn task_channel_rename_masks_before_slug() {
+        let (_dir, _core, fake, shared) = rig();
+        let mut v = view();
+        shared
+            .open_channel(parent(), v.clone(), Why::Long, None)
+            .await;
+        let m = shared.task_threads.all().pop().unwrap();
+        v.title = VALUE.into();
+        shared.finish_task_channel(m.clone(), Mark::Done, v).await;
+        let channels = fake.made_channels();
+        let c = channels.iter().find(|c| c.id == m.thread).unwrap();
+        assert!(!c.name.contains("vault"), "{}", c.name);
+        assert!(c.name.contains("redacted-display-token"), "{}", c.name);
     }
 }

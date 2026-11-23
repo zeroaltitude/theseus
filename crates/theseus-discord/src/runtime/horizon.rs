@@ -84,6 +84,11 @@ pub(crate) struct Future {
 }
 
 impl Future {
+    #[cfg(test)]
+    pub(super) fn seed_for_test(&self, s: Snapshot) {
+        self.set(s);
+    }
+
     /// The future may have changed: read it again, once for a burst.
     pub fn dirty(&self) {
         self.dirty.notify_one();

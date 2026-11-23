@@ -871,7 +871,8 @@ impl Lane {
         reason = "shape budget: a post kind is one arm; split it"
     )]
     async fn plan(&mut self, a: &Action) -> Result<Plan, SendErr> {
-        let body = body_of(a).clone();
+        let mut body = body_of(a).clone();
+        render::leaving::json(&self.shared.core.exits, &mut body);
         let corr = &a.correlation_id;
         let silent = self.silent();
         let text =
@@ -1222,7 +1223,11 @@ impl Lane {
         let mut buttons = ask::card_buttons(&req, &q);
         // The card as one V2 message (theseus-2j2ka) when the bot may send one.
         let v2 = self.shared.v2_cards() && !req.options.is_empty();
-        let closed = Closed::of(&question).map(|c| self.waiting_settle(&q).unwrap_or(c));
+        let closed = Closed::of(&question).map(|c| {
+            let mut c = self.waiting_settle(&q).unwrap_or(c);
+            c.note = c.note.map(|s| core.exits.text(&s).0.into_owned());
+            c
+        });
         if let Some(c) = &closed {
             // Written as its settle would leave it: no buttons, no mention.
             card.content = render::settled(c, &card.line, card.budget);
@@ -1582,6 +1587,7 @@ impl Lane {
         let said = body["node"]
             .as_str()
             .and_then(|n| self.shared.core.outbox.said(n))
+            .map(|s| self.shared.core.exits.text(&s).0.into_owned())
             .or_else(|| body["text"].as_str().map(str::to_string));
         // A routine's run speaks as the routine (theseus-j90w2).
         let routine = self.shared.routine_report(body, said.as_deref());

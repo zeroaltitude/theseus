@@ -190,7 +190,7 @@ impl Mirror {
 }
 
 /// How a task ended, in a line: its state and its report.
-pub(super) fn report_line(v: &WorkView) -> String {
+pub(super) fn report_line(exits: &Exits, v: &WorkView) -> String {
     let word = match v.state {
         theseus_protocol::work::WorkState::Done => "✅ done",
         theseus_protocol::work::WorkState::Failed => "❌ failed",
@@ -205,7 +205,7 @@ pub(super) fn report_line(v: &WorkView) -> String {
     if said.is_empty() {
         word.to_string()
     } else {
-        format!("{word}: {}", clip(said, 300))
+        format!("{word}: {}", clip(&exits.text(said).0, 300))
     }
 }
 
@@ -294,7 +294,9 @@ impl Shared {
             let text = mirror.sendable(
                 &self.core.exits,
                 &view,
-                ended.then(|| report_line(&view)).as_deref(),
+                ended
+                    .then(|| report_line(&self.core.exits, &view))
+                    .as_deref(),
             );
             let due = ended
                 || (dirty
@@ -540,5 +542,33 @@ mod tests {
         let (head, rest) = text.split_once('\n').unwrap();
         assert!(head.contains("a1b2c3"), "{head}");
         assert!(rest.starts_with("-# in <#900000000000500002>"), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn finishing_report_masks_before_its_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        let mut v = view();
+        v.state = theseus_protocol::work::WorkState::Done;
+        v.report = Some(theseus_protocol::work::WorkReport {
+            outcome: "done".into(),
+            first_line: Some(format!("{}{}", "x".repeat(290), VALUE)),
+            reason: None,
+        });
+        let text = format!("🏁 {}", report_line(&shared.core.exits, &v));
+        shared
+            .http
+            .create_message(Id::new(42))
+            .content(&text)
+            .await
+            .unwrap();
+        let messages = fake.messages(42);
+        assert_eq!(messages.len(), 1);
+        let text = &messages[0].content;
+        assert!(!text.contains("vault"), "{text}");
     }
 }

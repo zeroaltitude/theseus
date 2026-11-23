@@ -719,14 +719,18 @@ impl Shared {
             return self.offer(i, vec![]).await;
         }
         let snap = self.tasks.future.snapshot();
+        let routines =
+            crate::render::leaving::copy(&self.core.exits, &snap.routines).unwrap_or_default();
+        let wakes = crate::render::leaving::copy(&self.core.exits, &self.tasks.future.wakes())
+            .unwrap_or_default();
         let choices = match (c.name.as_str(), which.as_str()) {
-            ("routine", "name") => routine_choices(&snap.routines, &typed),
-            ("snooze", "wake") => wake_choices(&self.tasks.future.wakes(), &typed, true),
+            ("routine", "name") => routine_choices(&routines, &typed),
+            ("snooze", "wake") => wake_choices(&wakes, &typed, true),
             ("snooze", "when") => super::remind::suggest(&typed)
                 .into_iter()
-                .map(|s| choice(&s, &s))
+                .map(|s| choice(&self.core.exits.text(&s).0, &s))
                 .collect(),
-            ("cancel", "id") => wake_choices(&self.tasks.future.wakes(), &typed, false),
+            ("cancel", "id") => wake_choices(&wakes, &typed, false),
             _ => return false,
         };
         self.offer(i, choices).await
@@ -1248,5 +1252,49 @@ mod tests {
     fn the_commands_list_carries_the_four_of_the_future_and_every_name_is_bare() {
         let names: Vec<String> = commands().into_iter().map(|c| c.name).collect();
         assert_eq!(names, ["agenda", "routine", "snooze", "watch"]);
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    async fn choices(routine: bool) {
+        let (_dir, _core, fake, shared) = rig();
+        let mut snap = super::super::horizon::Snapshot::default();
+        let (name, field) = if routine {
+            snap.routines.push(serde_json::from_value(serde_json::json!({"id":"routine", "short":"routine", "title":format!("{}{}", "x".repeat(85), VALUE), "schedule":"", "series":"", "brief":"", "paused":false, "run_usd":1.0, "month_usd":10.0, "month_spent_usd":0.0, "deliver_to":"dm", "catch_up":"skip", "speak":"always", "carry":"none", "runs":0})).unwrap());
+            ("routine", "name")
+        } else {
+            snap.lines
+                .push(theseus_protocol::work::horizon::AgendaLine {
+                    at_ms: 1,
+                    id: "wak_reef".into(),
+                    kind: theseus_protocol::work::WorkKind::Wake,
+                    what: theseus_protocol::work::horizon::AgendaWhat::Due,
+                    title: format!("{}{}", "x".repeat(50), VALUE),
+                    session_id: None,
+                    purpose: Some("remind".into()),
+                    occurrence: None,
+                });
+            ("snooze", "wake")
+        };
+        shared.tasks.future.seed_for_test(snap);
+        let command: CommandData = serde_json::from_value(serde_json::json!({"id":"3", "name":name, "type":1, "options":[{"name":field,"type":3,"value":"","focused":true}]})).unwrap();
+        assert!(shared.horizon_autocomplete(&interaction(), &command).await);
+        let replies = fake.replies();
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0].choices.len(), 1);
+        let name = &replies[0].choices[0].0;
+        assert!(!name.contains("vault"), "{name}");
+        assert!(name.contains("[redact"), "{name}");
+    }
+    #[tokio::test]
+    async fn wake_autocomplete_masks_before_choice_cut() {
+        choices(false).await;
+    }
+    #[tokio::test]
+    async fn routine_autocomplete_masks_before_choice_cut() {
+        choices(true).await;
     }
 }
