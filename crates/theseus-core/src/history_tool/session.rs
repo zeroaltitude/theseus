@@ -11,7 +11,7 @@
 //!   relayed, is not spoken (as an exchange's open does not speak it) and is counted.
 //! - **A task's session and a harness session** are both this harness's sessions: the model's messages and any
 //!   person's, as said. A task's brief is its parent's relayed message: counted, not spoken.
-//! - **The self loop's scope** (`page::Scope`): a session it opened opens its own session only.
+//! - **The self loop's scope** (`Lens::in_scope_session`): a session it opened opens its own session only.
 //! - **Bounded** (D6a round 2): the session is read backwards a store page at a time ([`PAGE`] records, at
 //!   most [`MOST`] a call), each node by its newest record, never whole; a single message larger than the
 //!   allowance is cut in words, never shown past it; the page ends with an honest continuation.
@@ -57,7 +57,7 @@ const FRAMING: u64 = 160;
 pub fn open(lens: &Lens<'_>, id: &str, before: Option<&Cursor>) -> Result<Opened, String> {
     let id = id.trim();
     let none = || format!("no session {} can be opened here", flat(id));
-    if lens.cut.names(id) || !lens.scope.admits_session(id) {
+    if lens.cut.names(id) || !lens.in_scope_session(id) {
         return Err(none());
     }
     let before = match before {

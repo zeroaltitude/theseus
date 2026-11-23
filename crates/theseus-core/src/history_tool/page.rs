@@ -97,51 +97,23 @@ pub struct Lens<'a> {
     /// The asking session's cut, when it is a fork (`fork::cut`): an exchange the fork point falls in, or one
     /// an ancestor began after it, is not in the fork's history, by position. Empty for any other session.
     pub cut: crate::fork::cut::Cut,
-    /// The self loop's scope (`history_tool::scope_of`): a session it opened reads its own place only, and the
-    /// run it was handed as a fork; an unread scope reads nothing. Wide for every other session.
-    pub scope: Scope,
+    /// The self loop's scope, for a session it opened ([`SelfScope`]); none for every other asker, which reads
+    /// every place.
+    pub scope: Option<SelfScope>,
 }
 
-/// What a session may read of history, by the self loop's scope (`view_gate::Verified`), the one rule the
-/// owner keeps beside the fork's cut: not a withholding rule (anything goes for ordinary sessions and the
-/// tasks people start, 2026-11-22), a scope rule of the self loop (its workers' independence and cost).
+/// What a session the self loop opened reads of history (`view_gate::Verified::own_place_only`), as its view
+/// lays it: the exchanges it ran itself at its verified anchor (`view_gate::own_exchange`), and the run it was
+/// handed as a fork (`fork::window::inherited`, by turn id). Nothing else: no other place, and no other
+/// session at its own place.
 #[derive(Debug, Clone, Default)]
-pub enum Scope {
-    /// Every exchange, every session.
-    #[default]
-    Wide,
-    /// A session the self loop opened: its own exchanges at its own place, and the run it was handed.
-    Own {
-        session: String,
-        place: String,
-        handed: HashSet<String>,
-    },
-    /// Whether the self loop opened the session cannot be read: nothing (fail closed, never wide by default).
-    Unread,
-}
-
-impl Scope {
-    /// Whether `ex` is in scope.
-    pub fn admits(&self, ex: &Exchange) -> bool {
-        match self {
-            Scope::Wide => true,
-            Scope::Own {
-                session,
-                place,
-                handed,
-            } => (ex.session_id == *session && ex.place == *place) || handed.contains(&ex.turn_id),
-            Scope::Unread => false,
-        }
-    }
-
-    /// Whether the session `id` may be opened whole: any, or, scoped, its own only.
-    pub fn admits_session(&self, id: &str) -> bool {
-        match self {
-            Scope::Wide => true,
-            Scope::Own { session, .. } => session == id,
-            Scope::Unread => false,
-        }
-    }
+pub struct SelfScope {
+    /// The asking session.
+    pub session: String,
+    /// Its verified anchor (`view_gate::Verified`).
+    pub anchor: String,
+    /// The turn ids of the run it was handed as a fork; empty for a session that is no fork.
+    pub handed: HashSet<String>,
 }
 
 /// A walk's page, and where a walk stopped by its bound would resume (kept by the tool, never shown).
@@ -170,14 +142,30 @@ impl Lens<'_> {
         }
     }
 
-    /// The exchange `r` names, unless a fork's cut holds it ([`Lens::forked`]) or it is out of the self loop's
-    /// scope ([`Scope::admits`]). Every page, every count and every words search's scope reads exchanges
-    /// through here.
+    /// The exchange `r` names, when the asker's scope admits it ([`Lens::in_scope`]) and a fork's cut does not
+    /// hold it ([`Lens::forked`]): both, the cut never replaced. Every page, every count and every words
+    /// search's scope reads exchanges through here.
     fn admitted(&self, r: &ExchangeRef) -> Result<Option<Exchange>> {
         let Some(ex) = exchange::exchange(self.store, &r.turn_id)? else {
             return Ok(None);
         };
-        Ok((self.scope.admits(&ex) && !self.forked(&ex)?).then_some(ex))
+        Ok((self.in_scope(&ex) && !self.forked(&ex)?).then_some(ex))
+    }
+
+    /// Whether the asker's scope admits `ex`: every exchange for an asker the self loop did not open; for one
+    /// it opened ([`SelfScope`]), its own exchange at its verified anchor, or one of the run it was handed.
+    pub fn in_scope(&self, ex: &Exchange) -> bool {
+        self.scope.as_ref().is_none_or(|s| {
+            crate::view_gate::own_exchange(ex, &s.session, &s.anchor)
+                || s.handed.contains(&ex.turn_id)
+        })
+    }
+
+    /// Whether the asker's scope admits opening session `id` whole (`history_tool::session`): any session for
+    /// an asker the self loop did not open; for one it opened ([`SelfScope`]), its own session only. The run it
+    /// was handed is read by its exchanges' handles, through [`Lens::in_scope`].
+    pub fn in_scope_session(&self, id: &str) -> bool {
+        self.scope.as_ref().is_none_or(|s| s.session == id)
     }
 
     /// Whether a fork's cut holds `ex` out of its history: any ancestor's exchange not PROVEN wholly before the
