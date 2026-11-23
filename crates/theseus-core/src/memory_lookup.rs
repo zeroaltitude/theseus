@@ -4,8 +4,9 @@
 //! nothing (anything goes, 2026-11-22).
 //!
 //! The model's own tool over it, `memory.lookup`, is gone (D6 step 6): the history tool, `context.history`, is
-//! the model's one way to look back, and an old `[policy.tools] "memory.lookup"` is a retired key. What is
-//! left here is the MCP server's, and goes with it (D6 step 7).
+//! the model's one way to look back, and an old `[policy.tools] "memory.lookup"` is a retired key. The history
+//! tool's search of imported conversations by words reads through this engine too ([`imported`]): one search,
+//! never a second.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -35,9 +36,11 @@ const DEADLINE: Duration = Duration::from_secs(2);
 /// The most sessions a book or a topic narrows a search of words to.
 const SESSIONS_MAX: u64 = 500;
 
-/// What a search is kept to: a span (`when`, or `from` and `to`), a book or a topic, or one session.
+/// What a search is kept to: a span (`when`, or `from` and `to`), a book or a topic, or one session; and, for
+/// the history tool's search, imported sessions alone (`imports`).
 #[derive(Debug, Clone, Default)]
 struct Args {
+    imports: bool,
     when: Option<String>,
     from: Option<String>,
     to: Option<String>,
@@ -199,7 +202,7 @@ async fn by_words(
     k: u64,
 ) -> Result<(String, Vec<Item>, u64, Option<String>), String> {
     // A book or a topic: its sessions, from the catalog.
-    let (sessions, narrowed) = match narrowed_to(core, a).await? {
+    let (sessions, narrowed) = match narrowed_to(core, a, when).await? {
         Some(n) => n,
         None => {
             return Ok((
@@ -264,6 +267,52 @@ async fn by_words(
 /// The most candidates a search of words fetches, refills included.
 const CANDIDATES_MAX: usize = 100;
 
+/// One imported message a search found: its node, its session, its own time, its book and its words.
+pub(crate) struct ImportHit {
+    pub node_id: String,
+    pub session_id: String,
+    pub at_ms: u64,
+    pub book: Option<String>,
+    pub text: String,
+}
+
+/// The history tool's search of imported conversations (D6 step 6, round 2): this engine's [`by_words`], kept to
+/// imported sessions (a `book`'s, or every book's in the span) and to `when`; the hits from `offset`, at most
+/// `limit`, whether more lie past them, and why the search may be incomplete (stale hits that filled what was
+/// read, a hit that could not be read, or the bound of [`CANDIDATES_MAX`] reached).
+pub(crate) async fn imported(
+    core: &Arc<Core>,
+    words: &str,
+    when: Option<&When>,
+    book: Option<&str>,
+    (offset, limit): (u64, u64),
+) -> Result<(Vec<ImportHit>, bool, Option<String>), String> {
+    let a = Args {
+        imports: true,
+        book: book.map(str::to_string),
+        ..Args::default()
+    };
+    let k = offset + limit + 1;
+    let (_, items, _, incomplete) = by_words(core, None, words.to_string(), &a, when, k).await?;
+    let items: Vec<Item> = (items.into_iter())
+        .filter(|i| crate::import::is_imported(&i.session_id))
+        .collect();
+    let capped = k > CANDIDATES_MAX as u64 && items.len() >= CANDIDATES_MAX;
+    let incomplete = incomplete
+        .or_else(|| capped.then(|| format!("a search reads at most {CANDIDATES_MAX} hits")));
+    let more = items.len() as u64 > offset + limit;
+    let hits = (items.into_iter().skip(offset as usize).take(limit as usize))
+        .map(|i| ImportHit {
+            node_id: i.node_id,
+            session_id: i.session_id,
+            at_ms: i.at_ms,
+            book: i.book,
+            text: i.text,
+        })
+        .collect();
+    Ok((hits, more, incomplete))
+}
+
 /// One fetch of a search of words: recall's pipeline over the index's `want` best, as a turn of `session`
 /// would run it.
 async fn asked(
@@ -320,17 +369,25 @@ async fn asked(
 
 /// A book's or a topic's sessions, from the catalog, and what the answer
 /// says of a cut; none when nothing is in it. No book or topic: no
-/// narrowing.
-async fn narrowed_to(core: &Arc<Core>, a: &Args) -> Result<Option<(Vec<String>, String)>, String> {
+/// narrowing, unless the search keeps to imported sessions (`imports`), when it is the catalog's in `when`.
+async fn narrowed_to(
+    core: &Arc<Core>,
+    a: &Args,
+    when: Option<&When>,
+) -> Result<Option<(Vec<String>, String)>, String> {
     if let Some(s) = some(&a.session) {
         return Ok(Some((vec![s.to_string()], format!(" in session {s}"))));
     }
-    if some(&a.book).is_none() && some(&a.topic).is_none() {
+    if some(&a.book).is_none() && some(&a.topic).is_none() && !a.imports {
         return Ok(Some((Vec::new(), String::new())));
     }
+    // An import search keeps to the episodes that meet the span (the catalog's end is inclusive).
+    let span = when.filter(|_| a.imports);
     let p = ImportSessionsParams {
         book: some(&a.book).map(str::to_string),
         topic: some(&a.topic).map(str::to_string),
+        from_ms: span.and_then(|w| w.from_ms),
+        to_ms: span.and_then(|w| w.to_ms).map(|t| t.saturating_sub(1)),
         limit: Some(SESSIONS_MAX),
         ..Default::default()
     };

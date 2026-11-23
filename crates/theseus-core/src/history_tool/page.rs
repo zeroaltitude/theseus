@@ -258,7 +258,7 @@ impl Lens<'_> {
             handle: Handle(ex.turn_id.clone()),
             place: ex.place.clone(),
             at_ms: ex.start_ms,
-            his_words: cut(&words, WORDS_CHARS),
+            his_words: volatile_marked(cut(&words, WORDS_CHARS), ex.start_ms),
             did,
             person: ex.person.clone(),
             reply_begins: reply.map(|r| cut(&r, REPLY_CHARS)),
@@ -356,6 +356,15 @@ impl Lens<'_> {
 impl History for Lens<'_> {
     fn page(&self, _pov: &PointOfView, a: &HistoryArgs, looks: u32) -> Result<HistoryPage> {
         Ok(self.walk(a, a.before.clone(), looks)?.page)
+    }
+}
+
+/// `shown` with the as-of mark a volatile value takes when it is read back (M6 §2.11,
+/// `recall::render::volatile_at`), dated by `at_ms`: never a bare fact.
+pub(super) fn volatile_marked(shown: String, at_ms: u64) -> String {
+    match crate::recall::render::volatile_at(&shown, at_ms) {
+        Some(m) => format!("{shown} ({m})"),
+        None => shown,
     }
 }
 

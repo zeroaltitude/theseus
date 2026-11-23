@@ -19,7 +19,7 @@
 //! - **Nothing past the day's block enters a prompt.** The notes are still
 //!   never a node, never indexed and never recalled, and no span beyond
 //!   today is in a turn's system or tail. Only the tool's contract is in the
-//!   request, as `memory.lookup`'s is for the memory it does not carry
+//!   request, as the history tool's is for the history it does not carry
 //!   either; a turn that does not ask reads none.
 //! - **The owner's own places only.** Refused unless he is alone there
 //!   (`capture::owner_alone`): a shared place, and a private place others
@@ -109,7 +109,7 @@ impl Args {
     }
 
     /// The span the call takes, read as a turn's words are: today when it
-    /// names none. `memory.lookup`'s reader, so the two take the same words.
+    /// names none. Recall's reader of a span (`recall::when`), so it takes the words a turn does.
     fn span(&self, now_ms: u64) -> Result<When, String> {
         let w = self.words();
         crate::recall::when::read_local(w, now_ms).ok_or_else(|| {
@@ -127,14 +127,14 @@ impl Tool for CardObserved {
         OBSERVED
     }
     fn description(&self) -> &'static str {
-        "What you have kept about the owner from their own words, newest first: the unconfirmed notes the live observer made at the end of an exchange, which are on their card only once they answer. Read it when they ask what you have learned or noticed about them, or what you know about them lately; for what was said or done before, use memory_lookup instead. Their own places only. Read-only."
+        "What you have kept about the owner from their own words, newest first: the unconfirmed notes the live observer made at the end of an exchange, which are on their card only once they answer. Read it when they ask what you have learned or noticed about them, or what you know about them lately; for what was said or done before, use context_history instead. Their own places only. Read-only."
     }
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
                 "when": {"type": "string",
-                    "description": "The span, in the daemon's time zone, as memory_lookup takes it: \"today\" (the default), \"this week\", \"2026-03-14\", \"March 2026\""},
+                    "description": "The span, in the daemon's time zone: \"today\" (the default), \"this week\", \"2026-03-14\", \"March 2026\""},
                 "limit": {"type": "integer", "minimum": 1, "maximum": PAGE_MAX,
                     "description": "Notes at most, 12 by default"}
             },

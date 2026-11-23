@@ -445,8 +445,11 @@ fn line_of(lens: &Lens<'_>, _position: u64, n: &Node, left: &mut Left) -> Option
         Who::Theseus => None,
         _ => Some(who == Who::Other),
     };
+    // A volatile value is read with the time it was true at, never as a bare fact (M6 §2.11).
+    let mark =
+        crate::recall::render::volatile(n, &words).map_or_else(String::new, |m| format!(" · {m}"));
     Some(Line {
-        text: format!("{} · {label}\n{body}", when(n.created_at_ms)),
+        text: format!("{} · {label}{mark}\n{body}", when(n.created_at_ms)),
         outside: who == Who::Other,
         theirs,
         agent: who == Who::Agent,

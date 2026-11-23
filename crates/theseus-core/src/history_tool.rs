@@ -54,6 +54,7 @@ use crate::view::timeline::Cursor;
 use crate::view::{Anchor, PointOfView, Present};
 use crate::Core;
 
+pub(crate) mod imports;
 pub(crate) mod mcp;
 pub(crate) mod open;
 pub(crate) mod page;
@@ -128,7 +129,7 @@ impl Tool for HistoryTool {
         HISTORY_TOOL
     }
     fn description(&self) -> &'static str {
-        "This place's earlier history, 100 exchanges a page before those you see; before pages back; open reads one (or a ses_ session by its id); when (or from/to) a time span."
+        "This place's earlier history, 100 exchanges a page before those you see; before pages back; open reads one (or a ses_ session by its id); when (or from/to) a time span. place \"import\" (or \"import:<book>\") with words searches the imported conversations."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -504,6 +505,7 @@ pub(crate) async fn answer(
             walked,
             looks,
             resume,
+            imported,
         } => {
             let p = walked.page;
             let mut meta = json!({
@@ -511,11 +513,16 @@ pub(crate) async fn answer(
                 "look": looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
                 "outside": outside_of(page::shows_another(&p), read_of(a, here)),
             });
-            meta[crate::copies::KEY] = json!(page_sources(core, &p)?);
-            ToolOutput {
-                text: page::render(&p, (here, span.as_ref()), looks, resume.as_ref()),
-                meta,
-            }
+            // An import search's page shows imported messages, which no exchange holds: its own sources.
+            let (text, sources) = match imported {
+                Some(nodes) => (imports::render(&p, a, span.as_ref()), nodes),
+                None => (
+                    page::render(&p, (here, span.as_ref()), looks, resume.as_ref()),
+                    page_sources(core, &p)?,
+                ),
+            };
+            meta[crate::copies::KEY] = json!(sources);
+            ToolOutput { text, meta }
         }
     })
 }
@@ -588,6 +595,8 @@ pub(crate) enum Read {
         walked: page::Walked,
         looks: u32,
         resume: Option<Cursor>,
+        /// An import search's page ([`imports`]): the imported nodes whose words its lines show.
+        imported: Option<Vec<String>>,
     },
 }
 
@@ -616,6 +625,23 @@ pub(crate) async fn read(
         Allowance::Turn { board, turn } => board.position(turn, a.before.as_ref())?,
         Allowance::NoTurn => a.before.clone(),
     };
+    // The imported conversations, searched by words: not a timeline the walk reads (`imports`).
+    if let Some(book) = imports::named(a) {
+        let (page, nodes) = imports::read(
+            core,
+            a,
+            (book, lens.span.as_ref()),
+            before.as_ref(),
+            used.looks,
+        )
+        .await?;
+        return Ok(Read::Page {
+            walked: page::Walked { page, resume: None },
+            looks: used.looks,
+            resume: None,
+            imported: Some(nodes),
+        });
+    }
     let mut stale = false;
     if let Some(w) = a.words.as_deref().map(str::trim).filter(|w| !w.is_empty()) {
         let (root, _) = lens.root(a).map_err(|e| format!("{e:#}"))?;
@@ -640,6 +666,7 @@ pub(crate) async fn read(
         walked,
         looks: used.looks,
         resume,
+        imported: None,
     })
 }
 
