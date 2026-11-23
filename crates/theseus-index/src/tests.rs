@@ -1161,6 +1161,41 @@ fn index_commits_coalesce_within_the_window() {
 }
 
 #[test]
+fn a_failed_publication_replays_on_the_same_tender() {
+    for fail_reload in [false, true] {
+        let v = crate::vtests::VRig::new();
+        let rig = &v.rig;
+        many(rig, 0, 3);
+        let doomed = user("ses_removed", "remove this indexed message");
+        rig.put(std::slice::from_ref(&doomed));
+        let mut t = v.open();
+        settle(&mut t);
+        let before = t.cursor().clone();
+        many(rig, 3, 4);
+        rig.put(&[doomed.erased(1_790_000_000_000, "test erase")]);
+        let tmp = rig.index.join("cursor.json.tmp");
+        if fail_reload {
+            t.fail_reload = true;
+        } else {
+            std::fs::create_dir(&tmp).unwrap();
+        }
+        assert!(t.step().is_err());
+        assert_eq!(*t.cursor(), before, "failed publication must be replayable");
+        if !fail_reload {
+            std::fs::remove_dir(tmp).unwrap();
+        }
+        settle(&mut t);
+        assert_eq!(dump(&t).iter().filter(|c| c.chunk == 0).count(), 7);
+        assert_eq!(t.shared().status().state, "ready");
+        assert_eq!(
+            t.shared().status().vectors.unwrap().chunks,
+            dump(&t).len() as u64
+        );
+        assert!(!t.shared().engine.holds(&doomed.id).unwrap());
+    }
+}
+
+#[test]
 fn an_interrupted_clear_rebuilds_before_following_again() {
     for restart in [false, true] {
         let rig = Rig::new();
