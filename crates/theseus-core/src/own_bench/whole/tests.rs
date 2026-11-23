@@ -805,7 +805,10 @@ async fn command_exit_evidence_uses_original_paths() {
         vec![],
         Arc::new(Sh::default()),
     );
-    let argv = vec!["sh".to_string(), w.work.join("build.sh").display().to_string()];
+    let argv = vec![
+        "sh".to_string(),
+        w.work.join("build.sh").display().to_string(),
+    ];
     hands
         .call("proc_run", &json!({"argv": argv, "cwd": w.work}))
         .await;
