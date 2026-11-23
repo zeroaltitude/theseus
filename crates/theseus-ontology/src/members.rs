@@ -31,6 +31,15 @@ pub trait MemberSource: Send + Sync + fmt::Debug {
     fn of_session(&self, session: &str) -> Vec<MemberList>;
     /// Every list stored.
     fn all(&self) -> Vec<MemberList>;
+    /// Freeze old versions before the caller appends these keys to its store.
+    fn before_write(&self, _keys: &[(String, String)]) -> Result<(), String> {
+        Ok(())
+    }
+    /// A source for the new snapshot after the append. Existing sources stay
+    /// valid for older snapshots. In-memory test sources may use `written`.
+    fn after_write(&self) -> Option<Arc<dyn MemberSource>> {
+        None
+    }
     /// A write put these lists: forget what was kept of them.
     fn written(&self, _keys: &[(String, String)]) {}
 }
@@ -188,6 +197,16 @@ impl Members {
         self.held.insert(key, list);
     }
 
+    pub(crate) fn before_write(&self) -> Result<(), String> {
+        if let Some(lean) = &self.lean {
+            if !lean.staged.is_empty() {
+                lean.source
+                    .before_write(&lean.staged.iter().cloned().collect::<Vec<_>>())?;
+            }
+        }
+        Ok(())
+    }
+
     /// The store has what was put: it speaks for those lists again.
     pub(crate) fn settle(&mut self) {
         let Some(lean) = &mut self.lean else { return };
@@ -195,7 +214,12 @@ impl Members {
         for k in &keys {
             self.held.remove(k);
         }
-        lean.source.written(&keys);
+        if !keys.is_empty() {
+            lean.source.written(&keys);
+            if let Some(source) = lean.source.after_write() {
+                lean.source = source;
+            }
+        }
     }
 
     pub(crate) fn held_lists(&self) -> usize {

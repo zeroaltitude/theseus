@@ -119,6 +119,7 @@ impl Board {
                 frame.push(NewRecord::json(kinds::META, Some(&r.key()), &r.to_value())?);
             }
             frame.extend(rows(&now)?);
+            next.before_write().map_err(anyhow::Error::msg)?;
             store.append(&frame)?;
             // The store has the lists put: the snapshot reads them from it.
             next.settle();
@@ -157,6 +158,7 @@ impl Board {
             frame.push(NewRecord::json(kinds::META, Some(&r.key()), &r.to_value())?);
         }
         frame.extend(rows);
+        next.before_write().map_err(anyhow::Error::msg)?;
         Ok(Some(Staged {
             _guard: guard,
             board: self,
