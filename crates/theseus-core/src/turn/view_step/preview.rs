@@ -157,6 +157,7 @@ impl TurnRunner {
                 recalled: Vec::new(),
                 message: Some(p.message.unwrap_or_default().to_string()),
                 items: Vec::new(),
+                harness: 0,
             },
             spec,
             &self.view_budget(spec),

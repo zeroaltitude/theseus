@@ -4,7 +4,7 @@
 //! fixed order under one budget, counted in the view's budget before the other bands are admitted, and
 //! laid first in the block beside the message, frozen for the turn (`view_step`).
 //!
-//! - **The order** ([`ORDER`]): the date and the place's facts, who answers, what stands here, what the
+//! - **The order** (the order of [`Name`]): the date and the place's facts, who answers, what stands here, what the
 //!   harness did with a yes, the pending wakes, the task graph, the day's observations, the coding hint,
 //!   the fan-out cue, the project. Facts come before hints, so a hint that differs leaves the facts' bytes
 //!   alone.
@@ -15,13 +15,12 @@
 //! - **Within a turn** the block says what was true at the turn's first call. A tool that changes a task,
 //!   a wake or the branch says so in its own result; the next turn composes afresh.
 
-// Composed, not yet laid: the next commit lays it in slot I (issue 46).
-#![allow(dead_code)]
-
 use theseus_protocol::projects::ProjectSliceSummary;
 use theseus_protocol::tasks::TaskViewSummary;
 
 use super::{Turn, TurnRunner};
+use crate::compiler::view::Frozen;
+use crate::node::{Body, Node};
 use crate::session::SessionRecord;
 use crate::task_graph::view::BYTES_PER_TOKEN;
 
@@ -60,7 +59,8 @@ pub(crate) enum Name {
 }
 
 /// The fixed order of the parts: the order of `Name`.
-pub(crate) const ORDER: [Name; 10] = [
+#[cfg(test)]
+const ORDER: [Name; 10] = [
     Name::Env,
     Name::Persona,
     Name::Standing,
@@ -93,11 +93,6 @@ impl Name {
     /// Never dropped for room.
     fn kept(self) -> bool {
         matches!(self, Self::Env | Self::Persona | Self::Standing)
-    }
-
-    /// Decided by the turn's route, after its first compile (`route_step`).
-    pub(crate) fn routed(self) -> bool {
-        matches!(self, Self::Persona | Self::Coding | Self::FanOut)
     }
 }
 
@@ -184,6 +179,37 @@ pub(crate) fn compose(parts: &[(Name, String)], budget: u64) -> Option<Composed>
         left_out,
         text,
     })
+}
+
+/// The block beside the message with the harness's part first; the part alone when nothing else is
+/// beside it. Laid after an occasion's line, so the harness's heading opens the block.
+pub(crate) fn beside_with(
+    beside: Option<Node>,
+    harness: &str,
+    (sid, turn): (&str, &str),
+) -> Option<Node> {
+    Some(match beside {
+        Some(mut n) => {
+            if let Body::UserMessage { text, .. } = &mut n.body {
+                *text = format!("{harness}\n\n{text}");
+            }
+            n
+        }
+        None => Frozen::block(sid, turn, "", harness),
+    })
+}
+
+/// The composition in the turn's trace: its tokens, each part's, and what was left out.
+pub(super) fn traced(t: &mut Turn<'_>, c: &Composed) {
+    let shown: Vec<serde_json::Value> = (c.shown.iter())
+        .map(|(n, k)| serde_json::json!({"part": n.as_str(), "tokens": k}))
+        .collect();
+    let left: Vec<&str> = c.left_out.iter().map(|n| n.as_str()).collect();
+    t.trace.mark(
+        "view",
+        "harness",
+        serde_json::json!({"tokens": c.tokens, "shown": shown, "left_out": left}),
+    );
 }
 
 /// What the route's lines may add after the view was frozen at the turn's first compile, reserved in the
@@ -391,7 +417,5 @@ mod tests {
         let line = "a persona with a long name answers this turn";
         assert!(tokens(line) <= ROUTED_PERSONA_TOKENS);
         assert!(routed_reserve() < BUDGET_TOKENS / 4, "{}", routed_reserve());
-        assert!(Name::Persona.routed() && Name::Coding.routed() && Name::FanOut.routed());
-        assert!(!Name::Tasks.routed());
     }
 }

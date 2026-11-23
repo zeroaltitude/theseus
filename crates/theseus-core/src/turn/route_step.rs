@@ -619,6 +619,9 @@ impl TurnRunner {
         let class = verdict.as_ref().filter(|_| reason.is_none());
         self.fan_out_cue(t, spec, class);
         Self::fan_out_line(t, &mut compiled);
+        // Who answers, the coding hint and the fan-out cue, now decided, in the harness's block beside the
+        // message: a block that changed is laid again, and the first compile is not the call's.
+        let relaid = self.now_relaid(t, spec)?;
         if live {
             // A routed turn: the owner's pin of another profile within 10
             // minutes after it counts on route.v1's ladder (26a).
@@ -627,15 +630,16 @@ impl TurnRunner {
                 .map_or(base.as_str(), |d| d.profile.as_str());
             self.judge.set_routed(t.tc.session_id, ran);
         }
+        let again = (force, strip, overflow);
         let Some(d) = decision else {
             return self
-                .stays_on_its_own(t, session, spec, compiled, (force, strip, overflow), i)
+                .stays_on_its_own(t, session, spec, compiled, (again, relaid), i)
                 .await;
         };
         Self::hold_next(session, &d.hold);
         let Some((target, p)) = self.switch_target(t, &base, &d) else {
             return self
-                .stays_on_its_own(t, session, spec, compiled, (force, strip, overflow), i)
+                .stays_on_its_own(t, session, spec, compiled, (again, relaid), i)
                 .await;
         };
         // The first compile is not the call's: its rows go with it.
@@ -1010,22 +1014,27 @@ impl TurnRunner {
     ///
     /// `again` is what a compile made again is made with, as `compile_step`
     /// takes it: the recompile the turn carries, the thinking a retry strips,
-    /// and the window a request overflowed.
+    /// and the window a request overflowed. `relaid`: the harness's block
+    /// beside the message changed with the route (`now_relaid`), so the first
+    /// compile does not carry what the call must.
     async fn stays_on_its_own<'a>(
         &self,
         t: &mut Turn<'a>,
         session: &mut SessionRecord,
         spec: &mut RequestSpec,
         compiled: Compiled,
-        again: (bool, Option<&'static str>, Option<&Overflowed>),
+        (again, relaid): ((bool, Option<&'static str>, Option<&Overflowed>), bool),
         i: u32,
     ) -> Result<Result<Compiled, Failure>> {
-        if !self.tools_behind(t) {
+        let behind = self.tools_behind(t);
+        if !relaid && !behind {
             return Self::keep_first(t, session, compiled, spec, i);
         }
         let (force, strip, overflow) = again;
         self.drop_first(t, &compiled);
-        self.defer_tools(t, spec);
+        if behind {
+            self.defer_tools(t, spec);
+        }
         Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await
     }
 

@@ -94,6 +94,8 @@ impl TurnRunner {
                 recalled: Vec::new(),
                 message: Some(String::new()),
                 items: Vec::new(),
+                // A census measures the view a turn assembles; the harness's part is the turn's own.
+                harness: 0,
             },
             input.spec,
             &self.view_budget(input.spec),

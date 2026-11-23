@@ -489,3 +489,73 @@ async fn a_tail_block_the_model_has_is_not_sent_again_within_its_turn() {
         reqs[2].messages
     );
 }
+
+/// The text blocks of a request's messages, each with its message's index.
+fn text_blocks(q: &ProviderRequest) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    for (i, m) in q.messages.iter().enumerate() {
+        match &m["content"] {
+            Value::String(s) => out.push((i, s.clone())),
+            c => out.extend(
+                (c.as_array().into_iter().flatten())
+                    .filter_map(|b| b["text"].as_str())
+                    .map(|t| (i, t.to_string())),
+            ),
+        }
+    }
+    out
+}
+
+/// The harness's part of the block beside the message (issue 46): composed once at the turn's first call,
+/// counted in slot I of the view, and carried byte for byte at every call of the turn, in the message the
+/// first call put it in.
+#[tokio::test]
+async fn the_harness_block_is_the_same_at_every_call_of_its_turn() {
+    let r = rig(
+        Binding::Refuse,
+        vec![
+            thinks_then_reads("toolu_a"),
+            thinks_then_reads("toolu_b"),
+            Scripted::text("Four."),
+        ],
+    );
+    let sid = private_session(&r.core);
+    let res = say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .unwrap();
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 3, "three calls");
+    let harness = |q: &ProviderRequest| -> (usize, String) {
+        let found: Vec<(usize, String)> = (text_blocks(q).into_iter())
+            .filter(|(_, t)| t.starts_with(crate::turn::now_step::HEAD))
+            .collect();
+        assert_eq!(found.len(), 1, "one harness block: {found:?}");
+        found.into_iter().next().unwrap()
+    };
+    let first = harness(&reqs[0]);
+    assert!(first.1.contains("Date: "), "{}", first.1);
+    for q in &reqs[1..] {
+        assert_eq!(
+            harness(q),
+            first,
+            "the block moved or changed within its turn"
+        );
+    }
+    let view = crate::view::record::newest(&r.core.store, &res.turn_id)
+        .unwrap()
+        .expect("the turn's view is kept");
+    let counted = (view.shown.iter())
+        .find(|s| {
+            matches!(&s.piece.range.space, crate::view::Space::Code { part } if part == "harness")
+        })
+        .expect("slot I counts the harness's part");
+    assert_eq!(counted.piece.slot, crate::view::Slot::Now);
+    let beside = format!("\n\n{}", crate::view::wire_text::BESIDE_HEAD);
+    let own = first.1.split(beside.as_str()).next().unwrap();
+    let est = (own.len() as u64).div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
+    assert!(
+        counted.piece.sizes.whole >= est,
+        "counted {} for a part of {est}",
+        counted.piece.sizes.whole
+    );
+}

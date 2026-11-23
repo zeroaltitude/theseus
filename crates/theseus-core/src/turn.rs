@@ -95,7 +95,7 @@ mod join_step;
 mod later_step;
 mod model_call;
 mod noop_step;
-mod now_step;
+pub(crate) mod now_step;
 pub mod nudge_step;
 pub mod overage;
 mod persona_engage;
@@ -453,6 +453,9 @@ struct Turn<'a> {
     /// The request's last message before its tail, where the loop's tail begins: kept with the
     /// tail once routing has finished with the request (`sent_tail`).
     tail: Option<sent_tail::Begun>,
+    /// The harness's part of the block beside the message, each part rendered once at the turn's first
+    /// compile (`now_step`), composed at each freeze of its view.
+    now: Option<now_step::Rendered>,
     /// A running task's checkpoints (theseus-ypnxt.9).
     checkpoint: checkpoint_step::Checkpoints,
     /// A refusal moved the turn to its model's fallback (theseus-7gir.18).
@@ -605,6 +608,7 @@ impl<'a> Turn<'a> {
             repeats: repeat_step::Repeats::default(),
             route: route_step::RouteState::default(),
             tail: None,
+            now: None,
             checkpoint: checkpoint_step::Checkpoints::default(),
             fallback: None,
             again: Default::default(),

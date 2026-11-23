@@ -155,6 +155,21 @@ impl TurnRunner {
         }
     }
 
+    /// After the turn's route decided who answers and what kind of turn it is (issue 46): the parts the
+    /// route decides are set in the harness's block, and a block that changed is laid again with the view
+    /// re-frozen, on a new chain, before any request of the turn is sent. Whether it was.
+    pub(super) fn now_relaid(&self, t: &mut Turn<'_>, spec: &RequestSpec) -> anyhow::Result<bool> {
+        let mut r = t.now.take().unwrap_or_default();
+        let changed = Self::now_routed(t, &mut r);
+        t.now = Some(r);
+        if !changed || !t.view.as_ref().is_some_and(|f| f.turn_id == t.tc.turn_id) {
+            return Ok(false);
+        }
+        self.view_refrozen(t, spec, None)?;
+        Self::view_reset(t, &[]);
+        Ok(true)
+    }
+
     /// Whether an exchange the frozen view lays is gone now, or a node its recall laid is gone or erased
     /// (`kept::held_now`).
     pub(super) fn view_gone(&self, t: &Turn<'_>) -> bool {
@@ -210,6 +225,7 @@ impl TurnRunner {
             recalled,
             message: given,
             items,
+            harness,
         } = asked;
         let snap = StoreSnapshot {
             now_ms: self.kernel.now_ms(),
@@ -267,7 +283,7 @@ impl TurnRunner {
             sessions: Some(&read),
             zone: &crate::recall::stamp::system,
         };
-        let (frame, now) = frame_and_now(spec, renderer.memory_page().1, &message);
+        let (frame, now) = frame_and_now(spec, renderer.memory_page().1, &message, harness);
         let selectors = table(src, frame, now);
         let parts = Parts {
             selectors: &selectors,
@@ -407,6 +423,9 @@ pub(super) struct Asked<'a> {
     pub message: Option<String>,
     /// The message's numbered items, as the exchange's naming told them (none for a preview).
     pub items: Vec<String>,
+    /// The tokens of the harness's part of the block beside the message (`now_step`), with what the
+    /// route may add to it, counted in slot I before the other bands (none for a preview).
+    pub harness: u64,
 }
 
 /// A view as assembled: what a turn freezes, and the assembly (or the floor's overflow).
@@ -564,8 +583,14 @@ fn sources_of<'a, 'b>(
     }
 }
 
-/// Slots A and I as code lays them: the system part with the memory page, and the message.
-fn frame_and_now(spec: &RequestSpec, page: &str, message: &str) -> (Vec<Part>, Vec<Part>) {
+/// Slots A and I as code lays them: the system part with the memory page; the harness's part of the block
+/// beside the message (`now_step`), counted here before the other bands are admitted, and the message.
+fn frame_and_now(
+    spec: &RequestSpec,
+    page: &str,
+    message: &str,
+    harness: u64,
+) -> (Vec<Part>, Vec<Part>) {
     let system = [
         &spec.system_text,
         &spec.persona_text,
@@ -576,11 +601,18 @@ fn frame_and_now(spec: &RequestSpec, page: &str, message: &str) -> (Vec<Part>, V
         name: "system".into(),
         tokens: system.iter().map(|s| tokens(s)).sum::<u64>() + tokens(page),
     };
-    let now = Part {
+    let mut now = Vec::new();
+    if harness > 0 {
+        now.push(Part {
+            name: "harness".into(),
+            tokens: harness,
+        });
+    }
+    now.push(Part {
         name: "message".into(),
         tokens: tokens(message),
-    };
-    (vec![frame], vec![now])
+    });
+    (vec![frame], now)
 }
 
 /// The view's point of view from the turn's verified one: its anchor and its presence are the gate's, never

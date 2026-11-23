@@ -187,6 +187,12 @@ impl TurnRunner {
             assembled: assembled.as_deref(),
             situation: &given,
         };
+        // The harness's part of the block beside the message: each part rendered once a turn, before the
+        // view that lays it is first assembled (`now_step`).
+        if t.now.is_none() {
+            let rendered = self.now_rendered(t, session).await;
+            t.now = Some(rendered);
+        }
         // Past the window with nothing left to drop, the turn fails before any call.
         // A place set to `view` builds it from the turn's view instead (issue 44, `view_step`).
         // A view that cannot be assembled soundly fails the turn plainly, before anything is sent.
