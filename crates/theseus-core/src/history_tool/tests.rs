@@ -135,6 +135,7 @@ fn lens<'a>(store: &'a Store, here: &str) -> Lens<'a> {
         in_view: None,
         words: None,
         cut: Default::default(),
+        scope: None,
     }
 }
 
@@ -756,4 +757,224 @@ fn a_tasks_window_holds_its_newest_two_n_and_history_reaches_the_rest() {
         }
     }
     assert!(seen.iter().any(|t| t == "turn_0001"), "{seen:?}");
+}
+
+/// XS2's fixture: a builder the self loop opened (principal `self`; offered the history tool, so no role
+/// ceiling hides it), which ran two real turns at its verified anchor ("OWN-HERON", then "LATER-OWN-TERN");
+/// another session's exchange at that same place (`turn_0002`, "SAMEPLACE-KELP"); another place's
+/// (`turn_0003`, "FOREIGN-LAMP"); all of them in the words index.
+struct Xs2 {
+    r: crate::tests_places::Rig,
+    builder: String,
+    at: String,
+    first: String,
+    later: String,
+}
+
+async fn xs2() -> Xs2 {
+    use crate::tests_places::{rig_with, session};
+    use crate::tests_view_hand_backs::unmarked;
+    let r = rig_with(|c| {
+        c.memory.mode = crate::config::MemoryMode::Live;
+        c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act;
+    });
+    let c = r.core.clone();
+    c.self_resume(
+        &theseus_protocol::rsi::SelfResumeParams::default(),
+        &crate::approval::Answerer::from("the CLI"),
+    )
+    .unwrap();
+    let builder = c
+        .open_session_as(
+            theseus_protocol::SessionOpenParams {
+                label: Some("self build: kelp".into()),
+                ..Default::default()
+            },
+            theseus_kernel::Authority {
+                principal: crate::rsi::SELF_PRINCIPAL.into(),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap()
+        .session_id;
+    let verified = crate::view_gate::Verified::of_session(&c.runner, &builder);
+    assert!(verified.own_place_only(), "the builder is the self loop's");
+    let at = verified.pov().anchor.clone();
+    let offered = c.runner.view_of(&builder);
+    assert!(
+        offered.offered(crate::view::history::HISTORY_TOOL, &[]),
+        "the builder is offered the history tool"
+    );
+    unmarked(&c, &builder, "OWN-HERON").await.unwrap();
+    unmarked(&c, &builder, "LATER-OWN-TERN").await.unwrap();
+    let turn_of = |w: &str| {
+        (c.store.session_nodes(&builder).unwrap().into_iter())
+            .find(|(_, n)| matches!(&n.body, Body::UserMessage { text, .. } if text.contains(w)))
+            .and_then(|(_, n)| n.turn_id)
+            .expect("the builder's turn")
+    };
+    let (first, later) = (turn_of("OWN-HERON"), turn_of("LATER-OWN-TERN"));
+    let (other, foreign) = (session(&c, None), session(&c, None));
+    let words = |i: u64, w: &str| Ex {
+        words: w.into(),
+        ..ex(i, "", "")
+    };
+    put(
+        &c.store,
+        &Ex {
+            place: &at,
+            session: &other,
+            ..words(2, "SAMEPLACE-KELP")
+        },
+    );
+    put(
+        &c.store,
+        &Ex {
+            place: DM,
+            session: &foreign,
+            ..words(3, "FOREIGN-LAMP")
+        },
+    );
+    (c.runner.memory).set_ask(crate::tests_private_view::index_of(
+        &c,
+        vec![builder.clone(), other, foreign],
+    ));
+    Xs2 {
+        r,
+        builder,
+        at,
+        first,
+        later,
+    }
+}
+
+/// `session`'s answer to a history call, through `pov_of` and `answer` as the tool runs them.
+async fn xs2_ask(c: &Arc<crate::Core>, session: &str, a: Value) -> Result<String, String> {
+    let pov = pov_of(c, session, "t_now", None, PlaceClass::Private);
+    answer(c, &Board::default(), (session, "t_now"), &pov, &args(a))
+        .await
+        .map(|o| o.text)
+}
+
+/// XS2: the self loop's scope holds in the history tool as in the view (`view_gate::Verified::own_place_only`).
+/// The builder reads its own older exchanges, by page and by handle, and nothing of another place or of another
+/// session at its own place, by page, by words or by handle.
+#[tokio::test]
+async fn a_self_loop_builders_history_holds_its_own_place_only() {
+    let x = xs2().await;
+    let c = &x.r.core;
+    let ask = |a: Value| xs2_ask(c, &x.builder, a);
+    let text = |r: Result<String, String>| r.unwrap_or_else(|e| e);
+    let page = text(ask(json!({})).await);
+    assert!(page.contains("OWN-HERON"), "its own older history: {page}");
+    assert!(
+        !page.contains("SAMEPLACE-KELP"),
+        "another session at its place: {page}"
+    );
+    let there = text(ask(json!({"place": DM})).await);
+    assert!(
+        !there.contains("FOREIGN-LAMP"),
+        "another place's page: {there}"
+    );
+    let sought = text(ask(json!({"place": DM, "words": "FOREIGN-LAMP"})).await);
+    assert!(
+        !sought.contains("FOREIGN-LAMP"),
+        "another place's words: {sought}"
+    );
+    let near = text(ask(json!({"words": "SAMEPLACE-KELP"})).await);
+    assert!(
+        !near.contains("SAMEPLACE-KELP"),
+        "another session's words: {near}"
+    );
+    for turn in ["turn_0002", "turn_0003"] {
+        let opened = text(ask(json!({ "open": turn })).await);
+        assert!(
+            !opened.contains("KELP") && !opened.contains("LAMP"),
+            "{turn} opened: {opened}"
+        );
+    }
+    let mine = text(ask(json!({ "open": x.first })).await);
+    assert!(mine.contains("OWN-HERON"), "its own exchange opens: {mine}");
+}
+
+/// XS2: a fork of the builder, made at its first exchange's reply, reads the run it was handed, by page and by
+/// handle, through the fork's cut and no further, and nothing of another session.
+#[tokio::test]
+async fn a_fork_of_a_self_loop_builder_reads_its_handed_run_through_the_cut_only() {
+    let x = xs2().await;
+    let c = &x.r.core;
+    let reply = (c.store.session_nodes(&x.builder).unwrap().into_iter())
+        .find(|(_, n)| {
+            n.turn_id.as_deref() == Some(x.first.as_str())
+                && matches!(n.body, Body::AssistantMessage { .. })
+        })
+        .map(|(_, n)| n.id)
+        .expect("the first exchange's reply");
+    let fork = c
+        .session_fork(
+            theseus_protocol::SessionForkParams {
+                session: x.builder.clone(),
+                at: reply,
+                ..Default::default()
+            },
+            crate::approval::Surface::Cli,
+        )
+        .unwrap()
+        .session_id;
+    assert!(
+        crate::view_gate::Verified::of_session(&c.runner, &fork).own_place_only(),
+        "the fork keeps the builder's scope"
+    );
+    let ask = |a: Value| xs2_ask(c, &fork, a);
+    let text = |r: Result<String, String>| r.unwrap_or_else(|e| e);
+    let handed = text(ask(json!({ "open": x.first })).await);
+    assert!(
+        handed.contains("OWN-HERON"),
+        "the handed run opens: {handed}"
+    );
+    let page = text(ask(json!({ "place": x.at })).await);
+    assert!(page.contains("OWN-HERON"), "the handed run pages: {page}");
+    assert!(
+        !page.contains("LATER-OWN-TERN"),
+        "nothing past the cut: {page}"
+    );
+    assert!(!page.contains("SAMEPLACE-KELP"), "another session: {page}");
+    let later = text(ask(json!({ "open": x.later })).await);
+    assert!(
+        !later.contains("LATER-OWN-TERN"),
+        "past the cut, by handle: {later}"
+    );
+}
+
+/// XS2's controls: an ordinary session still reads the other place, by page, by words and by handle; a session
+/// whose scope cannot be read is answered with an error, and reads nothing.
+#[tokio::test]
+async fn an_ordinary_sessions_history_stays_wide_and_an_unread_scope_fails() {
+    use crate::tests_places::session;
+    let x = xs2().await;
+    let c = &x.r.core;
+    let plain = session(c, None);
+    let text = |r: Result<String, String>| r.unwrap_or_else(|e| e);
+    let wide = text(xs2_ask(c, &plain, json!({"place": DM})).await);
+    assert!(
+        wide.contains("FOREIGN-LAMP"),
+        "an ordinary session's page: {wide}"
+    );
+    let sought = text(xs2_ask(c, &plain, json!({"place": DM, "words": "FOREIGN-LAMP"})).await);
+    assert!(
+        sought.contains("FOREIGN-LAMP"),
+        "an ordinary session's words: {sought}"
+    );
+    let opened = text(xs2_ask(c, &plain, json!({"open": "turn_0003"})).await);
+    assert!(
+        opened.contains("FOREIGN-LAMP"),
+        "an ordinary session's open: {opened}"
+    );
+    let unread = session(c, None);
+    let mut rec: crate::session::SessionRecord = c.store.get_session(&unread).unwrap().unwrap();
+    rec.execution_id = Some("exe_gone".into());
+    c.store.put_session(&unread, &rec).unwrap();
+    let failed = xs2_ask(c, &unread, json!({"place": DM})).await;
+    assert!(failed.is_err(), "an unread scope: {failed:?}");
 }

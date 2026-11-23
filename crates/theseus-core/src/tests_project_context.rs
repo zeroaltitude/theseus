@@ -512,6 +512,34 @@ async fn the_date_and_the_git_state_are_in_the_tail_and_the_prefix_does_not_move
     assert_eq!(reqs[0].system, reqs[1].system, "the cached prefix moved");
 }
 
+/// A turn in a shared place (a session bound to a channel) is told the git
+/// state as a private one is: the line follows the tools alone, never the
+/// place's class (2026-11-22). What the place may act on is its tool ceiling's.
+#[tokio::test]
+async fn a_shared_place_is_told_the_git_state_too() {
+    use theseus_protocol::SessionKind;
+    let r = rig_with(|c| c.project.tail_facts = Some(true));
+    let dir = r.root.join("tide-gauges");
+    std::fs::create_dir_all(&dir).unwrap();
+    if !real_repo(&dir) {
+        return; // the fixture needs git to build a repository; the read does not
+    }
+    let dir = dir.canonicalize().unwrap();
+    let rec = crate::session::SessionRecord::new(SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    r.core
+        .outbox
+        .bind_place("channel:555000222", &rec.session_id)
+        .unwrap();
+    submit_in(&r.core, &dir, Some(&rec.session_id)).await;
+    let (tail, _) = tail_of(&r.fake.requests().pop().expect("a request"));
+    assert!(
+        tail.iter()
+            .any(|t| t.starts_with("Date: ") && t.contains("Git: branch harbour")),
+        "{tail:?}"
+    );
+}
+
 #[tokio::test]
 async fn a_directory_that_is_no_repository_says_unknown_and_the_turn_goes_on() {
     let r = rig_with(|c| c.project.tail_facts = Some(true));

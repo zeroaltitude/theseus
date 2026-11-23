@@ -43,21 +43,16 @@
 //! - `cross_recall_judge` (true; theseus-98bz.10): the notes the distance
 //!   dropped whose score is above the bar go to Jev (`recall_cross.v1`), at
 //!   most `cross_recall_judge_k` (3, 1 to 10) of them, best first, in one
-//!   request the turn waits for at most `route_wait_ms`: a note Jev reads as
+//!   request the turn waits for at most 400 ms: a note Jev reads as
 //!   about the message's subject, not only the same kind of fact, is
 //!   admitted with the penalty and labelled with its thread. Off, none is
 //!   asked about and the drops stand.
-//! - `place_digest` (true; theseus-98bz.9): when Jev's `scope` answer
-//!   (classify.v4) says a message in a thread asks across everything going on,
-//!   that turn's request gains a digest of the place's other live threads, one
-//!   labelled line each, a sealed or seal-pending one only counted. Off, no
-//!   turn waits for the answer and no request carries a digest.
-//! - `place_digest_line_chars` (200): the longest a digest's line is.
 //! - `sticky_half_life_secs`: how far back the place tail reaches before the
 //!   place's last exchange (600; issue 43): a turn that runs in another session
 //!   than that exchange is given what was said from this many seconds before it.
-//! - `route_wait_ms`: the most a thread's turn waits for Jev's notes of another
-//!   thread (`cross_recall_judge`) and its `scope` answer (`place_digest`), 400.
+//! - `place_digest`, `place_digest_line_chars` and `route_wait_ms` are retired
+//!   (2026-11-22): the place digest and the turn's wait for its `scope` answer
+//!   are gone (`config/retired_keys.rs`).
 //! - `working_set_grows` (true; theseus-98bz.5): after each turn that ran in a
 //!   thread, the paths its calls touched (a file under the session's directory
 //!   and its first component as a root) and the entities its message named join
@@ -132,14 +127,8 @@ pub struct ThreadsConfig {
     pub cross_recall_judge: bool,
     #[serde(default = "default_judge_k")]
     pub cross_recall_judge_k: usize,
-    #[serde(default = "default_true")]
-    pub place_digest: bool,
-    #[serde(default = "default_digest_line_chars")]
-    pub place_digest_line_chars: usize,
     #[serde(default = "default_half_life")]
     pub sticky_half_life_secs: u64,
-    #[serde(default = "default_route_wait")]
-    pub route_wait_ms: u64,
     #[serde(default = "default_true")]
     pub working_set_grows: bool,
     #[serde(default)]
@@ -191,14 +180,8 @@ fn default_bar() -> f64 {
 fn default_judge_k() -> usize {
     3
 }
-fn default_digest_line_chars() -> usize {
-    200
-}
 fn default_half_life() -> u64 {
     600
-}
-fn default_route_wait() -> u64 {
-    400
 }
 fn default_resume_keep_turns() -> u32 {
     20
@@ -221,10 +204,7 @@ impl Default for ThreadsConfig {
             own_top_admissible: true,
             cross_recall_judge: true,
             cross_recall_judge_k: default_judge_k(),
-            place_digest: true,
-            place_digest_line_chars: default_digest_line_chars(),
             sticky_half_life_secs: default_half_life(),
-            route_wait_ms: default_route_wait(),
             working_set_grows: true,
             bench_clock: false,
             resume_keep_turns: default_resume_keep_turns(),
@@ -293,9 +273,6 @@ impl ThreadsConfig {
                 self.cross_recall_judge_k
             );
         }
-        if self.place_digest_line_chars < 40 {
-            bail!("threads.place_digest_line_chars is under 40: a line could not name its thread");
-        }
         if self.sticky_half_life_secs == 0 {
             bail!("threads.sticky_half_life_secs is 0: a half-life is at least a second");
         }
@@ -322,10 +299,7 @@ mod tests {
         let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
         assert_eq!(cfg.threads, ThreadsConfig::default());
         assert!(cfg.threads.enabled && cfg.threads.max_live == 50);
-        assert_eq!(
-            (cfg.threads.sticky_half_life_secs, cfg.threads.route_wait_ms),
-            (600, 400)
-        );
+        assert_eq!(cfg.threads.sticky_half_life_secs, 600);
         assert!(crate::Config::EXAMPLE_TOML.contains("# [threads]\n# enabled = true"));
         let off = crate::Config::from_toml("[threads]\nenabled = false\nmax_live = 3\n").unwrap();
         assert!(!off.threads.enabled && off.threads.max_live == 3);
@@ -344,21 +318,27 @@ mod tests {
         assert!(crate::Config::from_toml("[threads]\nbogus = 1\n").is_err());
     }
 
-    /// The place digest (theseus-98bz.9) is on by default, named in the
-    /// template with its line cap, turns off, and refuses a cap too short to
-    /// name a thread.
+    /// The place digest's keys are retired (2026-11-22): a settings file that
+    /// still names one loads, each named among the ignored keys, and the
+    /// template names none of them.
     #[test]
-    fn the_place_digest_is_on_by_default_and_turns_off() {
-        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert!(cfg.threads.place_digest);
-        assert_eq!(cfg.threads.place_digest_line_chars, 200);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# place_digest = true"));
-        assert!(crate::Config::EXAMPLE_TOML.contains("# place_digest_line_chars = 200"));
-        let off = crate::Config::from_toml("[threads]\nplace_digest = false\n").unwrap();
-        assert!(!off.threads.place_digest);
+    fn the_place_digests_keys_are_retired_and_still_load() {
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
-        let bad = format!("{secrets}\n[threads]\nplace_digest_line_chars = 10\n");
-        assert!(crate::Config::parse(&bad).is_err());
+        for retired in [
+            "place_digest = false",
+            "place_digest_line_chars = 10",
+            "route_wait_ms = 400",
+        ] {
+            let (c, _) =
+                crate::Config::parse(&format!("{secrets}\n[threads]\n{retired}\n")).unwrap();
+            assert_eq!(c.ignored_keys.len(), 1, "{retired}");
+        }
+        for key in ["place_digest", "route_wait_ms"] {
+            assert!(
+                !crate::Config::EXAMPLE_TOML.contains(&format!("# {key} =")),
+                "{key}"
+            );
+        }
     }
 
     /// A config that sets the keys retired on 2026-11-21 still loads (the

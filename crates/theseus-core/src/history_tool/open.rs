@@ -39,8 +39,9 @@ pub fn open(lens: &Lens<'_>, h: &Handle) -> Result<String, String> {
     let ex = exchange::exchange(lens.store, h.0.trim())
         .map_err(|_| none())?
         .ok_or_else(none)?;
-    // A fork opens nothing its cut holds (`Lens::forked`): it reads as no exchange here.
-    if lens.forked(&ex).map_err(|e| format!("{e:#}"))? {
+    // Nothing the asker's scope does not admit (`Lens::in_scope`), and for a fork nothing its cut holds
+    // (`Lens::forked`): either reads as no exchange here.
+    if !lens.in_scope(&ex) || lens.forked(&ex).map_err(|e| format!("{e:#}"))? {
         return Err(none());
     }
     let nodes = nodes(lens, &ex).map_err(|e| format!("{e:#}"))?;
@@ -151,7 +152,7 @@ fn render(lens: &Lens<'_>, ex: &Exchange, nodes: &[Node]) -> String {
     let by_id: HashMap<&str, &Node> = nodes.iter().map(|n| (n.id.as_str(), n)).collect();
     let mut parts = forms::spoken(&nodes);
     for p in &mut parts {
-        if matches!(p.voice, Voice::Person | Voice::Theseus) {
+        if matches!(p.voice, Voice::Person | Voice::Harness | Voice::Theseus) {
             p.text = margined(&p.text);
         }
     }

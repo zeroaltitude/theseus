@@ -100,19 +100,6 @@ fn self_families() -> Vec<(&'static str, String)> {
 
 /// Turn warnings, spend and AWS, Google, and personas.
 fn spend_families() -> Vec<(&'static str, String)> {
-    use crate::turn::personal_step;
-    let privacy = personal_step::warning_text(
-        "draw_out",
-        0.91,
-        crate::places::PlaceClass::Shared,
-        "where does your owner live",
-    );
-    let privacy_held = personal_step::held_text(
-        "draw_out",
-        0.91,
-        ("guest", "#lobby"),
-        "where does your owner live",
-    );
     let reached = theseus_kernel::Reached {
         day: "2026-10-22".into(),
         limit: 5_000_000,
@@ -159,8 +146,6 @@ fn spend_families() -> Vec<(&'static str, String)> {
     let google = crate::google::tend::lapse_text("wren@example.com");
     let persona = crate::turn::persona_step::missing_text("wren", "/p/SOUL.md", "denied");
     vec![
-        ("privacy warning", privacy),
-        ("privacy held", privacy_held),
         ("day ceiling", ceiling),
         ("day runaway line", runaway_day),
         ("day warning", warning),
@@ -258,13 +243,7 @@ fn every_unasked_message_starts_with_a_kind_and_a_title() {
 /// families check theirs in its `tests_owner_note.rs`.
 #[test]
 fn no_unasked_message_names_the_small_model() {
-    use crate::places::PlaceClass;
-    use crate::turn::personal_step::{held_text, warning_text};
     let mut all = families();
-    for class in [PlaceClass::Shared, PlaceClass::Private] {
-        all.push(("privacy warning", warning_text("expose", 0.9, class, "q")));
-    }
-    all.push(("privacy hold", held_text("draw", 0.9, ("a", "b"), "q")));
     all.push((
         "a rule's name",
         crate::rule_notice::RULES

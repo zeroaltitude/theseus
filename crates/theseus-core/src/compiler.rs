@@ -33,7 +33,6 @@ pub(crate) mod clearing;
 pub mod effort;
 pub mod layers;
 pub(crate) mod phases;
-pub mod place_digest;
 pub mod session_block;
 pub mod summary;
 #[cfg(test)]

@@ -66,6 +66,10 @@ pub enum PageEnd {
     /// The walk read its bound of records before its page was full: a limit of the tool, not the end of
     /// history; it resumes from a token the tool keeps for the turn.
     ScanLimit,
+    /// A words search in a fork reached the end of its walk with hits the fork's cut held (the source's words
+    /// after the point): those may have filled the search's bounded top hits and crowded out earlier ones, so
+    /// the list may be incomplete. Never told as the end of history.
+    SearchCut,
 }
 
 /// One page, newest first, with a stable cursor.

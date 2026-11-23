@@ -434,10 +434,7 @@ impl Core {
         let mut sessions: BTreeMap<String, Option<Sess>> = BTreeMap::new();
         // The sessions the walk reached by a copy are sorted by the copy's route below, which knows more
         // (used, seen); a view's laying of the node there adds nothing to that.
-        let reached: Vec<&str> = (walk.descendants.iter())
-            .map(|d| d.session_id.as_str())
-            .chain([walk.session_id.as_str()])
-            .collect();
+        let reached = self.copies_by_session(walk)?;
         // The node's own session, if its requests laid it.
         let direct = &walk.direct;
         let own = (direct.compilations.iter())
@@ -466,6 +463,7 @@ impl Core {
         }
         // Every other session whose view turn laid it with no copy to follow (issue 44).
         for sid in view_sessions(direct, &walk.session_id, &reached) {
+            // A session a copy names keeps the copy's row too; `merge` lets an acting kind win.
             let at = (walk.node_id.as_str(), 0, direct.last_ms);
             out.extend(self.laid_by_view(&mut sessions, memory_session.as_deref(), sid, at)?);
         }
@@ -525,6 +523,33 @@ impl Core {
         Ok(merge(out))
     }
 
+    /// Each session the walk reached by a copy, with the compilations of the turns its copies were written
+    /// in (from those turns' view index); the node's own session as `None` (its row is its own block's). A
+    /// copy of no turn excludes nothing (rule B).
+    fn copies_by_session(
+        &self,
+        walk: &theseus_protocol::NodeReachResult,
+    ) -> Result<BTreeMap<String, Option<BTreeSet<String>>>> {
+        let mut out: BTreeMap<String, Option<BTreeSet<String>>> =
+            BTreeMap::from([(walk.session_id.clone(), None)]);
+        for d in &walk.descendants {
+            let turn = (self.store.get_node(&d.node_id)?).and_then(|(_, n)| n.turn_id);
+            let theirs: BTreeSet<String> = match turn {
+                Some(t) => (crate::view::record::of_turn(&self.store, &t)?.into_iter())
+                    .map(|v| v.compilation)
+                    .collect(),
+                None => BTreeSet::new(),
+            };
+            if let Some(set) = out
+                .entry(d.session_id.clone())
+                .or_insert_with(|| Some(BTreeSet::new()))
+            {
+                set.extend(theirs);
+            }
+        }
+        Ok(out)
+    }
+
     /// A session a view turn laid the node in, found by the compilations its exposure names (issue 44),
     /// sorted by the rules a session the walk reaches has always had: a retired one is seen only (it will
     /// never run again, so no note), a task's is a task, any other a session that gets a note; the memory
@@ -567,16 +592,24 @@ impl Core {
     }
 }
 
-/// The sessions an exposure's compilations name, other than `own` and those in `reached`, once each.
+/// The sessions an exposure's compilations name, other than `own`, once each. A session the walk reached
+/// by a copy counts only for a compilation of another turn than its copies' (`copies`: those turns'
+/// compilations; none: the node's own session, which is its own block's): an independent request, not the
+/// copy's own turn, so a recall that was seen and not used stays seen.
 fn view_sessions<'a>(
     e: &'a theseus_protocol::ReachExposure,
     own: &str,
-    reached: &[&str],
+    copies: &BTreeMap<String, Option<BTreeSet<String>>>,
 ) -> Vec<&'a str> {
     let mut out: Vec<&str> = Vec::new();
     for c in &e.compilations {
         let sid = c.session_id.as_str();
-        if !sid.is_empty() && sid != own && !reached.contains(&sid) && !out.contains(&sid) {
+        let independent = match copies.get(sid) {
+            None => true,
+            Some(None) => false,
+            Some(Some(theirs)) => !theirs.contains(&c.compilation_id),
+        };
+        if !sid.is_empty() && sid != own && independent && !out.contains(&sid) {
             out.push(sid);
         }
     }

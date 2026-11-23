@@ -1,13 +1,14 @@
-//! A held reach whose first compile fails (theseus-cljlz): Jev's verdict is
-//! read after a failed compile too, so a message past the window in a shared
-//! place still gets the fixed line and the owner's DM, not the compile's error.
+//! A turn whose first compile fails (theseus-cljlz): Jev's verdict is read
+//! after a failed compile too, and the turn is counted in the route's books.
+//! Nothing holds the turn any more (2026-11-22: the `personal` answer acts on
+//! nothing), so a message past the window fails with the compile's own error
+//! in every place, a shared one too, and nothing warns the owner.
 
 use serde_json::Value;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 
 use crate::correction::{Steer, Steering};
 use crate::node::Body;
-use crate::outbox::{body_of, kind_of, OPERATOR_TARGET};
 use crate::rpc::Core;
 use crate::session::SessionRecord;
 use crate::tests_judge::kinds;
@@ -16,7 +17,6 @@ use crate::turn::{TurnError, TurnRequest};
 use theseus_protocol::{SessionKind, TurnSubmitResult};
 
 const PLACE: &str = "channel:555000111";
-const HELD: &str = "I don't share that here.";
 const WINDOW: u64 = 48_000;
 
 /// A message of about `tokens` tokens of prose, led by the reach.
@@ -154,43 +154,25 @@ fn said(core: &Core, sid: &str) -> Vec<String> {
         .collect()
 }
 
-/// The compile overflows, and the verdict still holds the turn: the fixed
-/// line, no model call, one `privacy.warned` row with `held`, the owner told,
-/// and the compile's own `context.overage` row kept.
+/// A compile failure in a shared place is a routed turn in the books: its
+/// `route.decided` row (no decision) is written, once, and the turn fails
+/// with the compile's own error: nothing holds it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_held_turn_whose_compile_fails_is_still_held() {
+async fn a_compile_failure_in_a_shared_place_records_its_route() {
     let (r, _jev, sid) = rigged(true);
-    let res = run(&r.core, &sid, &reach(50_000))
+    let err = run(&r.core, &sid, &reach(50_000))
         .await
-        .expect("held, not failed");
-    assert_eq!(res.output, HELD);
-    assert!(r.claude.requests().is_empty() && r.zai.requests().is_empty());
-    assert_eq!(said(&r.core, &sid), vec![HELD.to_string()]);
-    let warned = rows(&r.core, "privacy.warned");
-    assert_eq!(warned.len(), 1, "{warned:?}");
-    assert_eq!(warned[0]["held"].as_bool(), Some(true));
-    let dm: Vec<_> = r
-        .core
-        .outbox
-        .open_for(OPERATOR_TARGET)
-        .iter()
-        .filter(|a| kind_of(a) == crate::turn::personal_step::KIND)
-        .map(|a| body_of(a).clone())
-        .collect();
-    assert_eq!(dm.len(), 1, "{dm:?}");
-    assert_eq!(rows(&r.core, "context.overage").len(), 1);
-}
-
-/// A held compile failure is a routed turn in the books: its `route.decided`
-/// row (no decision) is written, once.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_held_compile_failure_records_its_route() {
-    let (r, _jev, sid) = rigged(true);
-    let res = run(&r.core, &sid, &reach(50_000)).await.expect("held");
+        .expect_err("past the window alone");
+    let te = err.downcast_ref::<TurnError>().unwrap();
+    assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     let routed = rows(&r.core, "route.decided");
     assert_eq!(routed.len(), 1, "{routed:?}");
     assert_eq!(routed[0]["mode"], "sonnet");
-    assert_eq!(res.output, HELD);
+    assert!(said(&r.core, &sid).is_empty(), "no fixed line was said");
+    assert!(rows(&r.core, "privacy.warned").is_empty());
+    // Not the hold's: a failed compilation sends no request, and its overage row is kept.
+    assert!(r.claude.requests().is_empty() && r.zai.requests().is_empty());
+    assert_eq!(rows(&r.core, "context.overage").len(), 1);
 }
 
 /// Where nothing is held, a compile failure fails the turn as before, and
@@ -205,10 +187,6 @@ async fn a_compile_failure_in_a_private_place_still_fails() {
     assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     assert!(r.claude.requests().is_empty());
     assert!(said(&r.core, &sid).is_empty());
-    // The verdict warns, so the owner is told, but nothing is held.
-    let warned = rows(&r.core, "privacy.warned");
-    assert_eq!(warned.len(), 1, "{warned:?}");
-    assert_eq!(warned[0]["held"].as_bool(), Some(false));
 }
 
 /// A compile failure's route row carries the turn's own wait: a verdict held
@@ -237,21 +215,20 @@ async fn a_held_compile_failure_records_its_wait() {
 
 /// A compile failure's route row carries the turn's steering: an owner's
 /// correction pending for the session reaches the row as its `source` and
-/// `follows`, though the compile failed and the turn was held
-/// (theseus-m1a51, theseus-7zs0f).
+/// `follows`, though the compile failed (theseus-m1a51, theseus-7zs0f).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_held_compile_failure_records_its_steer() {
+async fn a_compile_failure_records_its_steer() {
     let (r, _jev, sid) = rigged(true);
     // The place is shared, so since theseus-3i6d1 the production rule has
-    // this turn wait for its verdict, which is what the hold it asserts
-    // needs. The pin is kept so the test stands on its own rather than on
-    // that rule: it is the switch a pinned turn's tests use
-    // (theseus-fpvn8, `tests_route_open`). The rule itself is asserted by
-    // `a_steered_turn_in_a_shared_place_waits_for_the_privacy_verdict`.
+    // this turn wait for its verdict. The pin is kept so the test stands on
+    // its own rather than on that rule: it is the switch a pinned turn's
+    // tests use (theseus-fpvn8, `tests_route_open`). The rule itself is
+    // asserted by `a_steered_turn_in_a_shared_place_waits_for_the_privacy_verdict`.
     r.core.runner.judge.pins_wait_for_verdicts();
     r.core.runner.judge.corrections.set_pending(&sid, steer());
-    let res = run(&r.core, &sid, &reach(50_000)).await.expect("held");
-    assert_eq!(res.output, HELD);
+    run(&r.core, &sid, &reach(50_000))
+        .await
+        .expect_err("past the window alone");
     let routed = rows(&r.core, "route.decided");
     assert_eq!(routed.len(), 1, "{routed:?}");
     let d = &routed[0];
@@ -262,13 +239,12 @@ async fn a_held_compile_failure_records_its_steer() {
     );
 }
 
-/// A steered turn in a **shared place** waits for the privacy verdict. The
-/// owner's correction decides where the turn runs; it is not consent to
-/// answer a guest without the privacy check, and the one verdict carries
-/// both. The judge answers long after the compile ends, so with the old rule
-/// the turn read `late`, nothing held it, and the requester in the shared
-/// place got the compile's overage instead of the fixed line (theseus-3i6d1,
-/// the side finding of theseus-ler3c).
+/// A steered turn in a **shared place** waits for its verdict (theseus-3i6d1,
+/// the side finding of theseus-ler3c): the owner's correction decides where
+/// the turn runs, and the one verdict is read before the turn goes on. The
+/// judge answers long after the compile ends; the turn still reads it. Nothing
+/// holds the turn any more (2026-11-22), so it fails on the compile's overage,
+/// and nothing warns.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_steered_turn_in_a_shared_place_waits_for_the_privacy_verdict() {
     let (r, jev, sid) = rigged_waiting(true, WAIT_MS, |c| c.judge.total_secs = 30);
@@ -278,13 +254,14 @@ async fn a_steered_turn_in_a_shared_place_waits_for_the_privacy_verdict() {
         std::time::Duration::from_millis(SLOW_MS),
     ));
     r.core.runner.judge.corrections.set_pending(&sid, steer());
-    let res = run(&r.core, &sid, &reach(50_000)).await.expect("held");
-    assert_eq!(res.output, HELD);
+    let err = run(&r.core, &sid, &reach(50_000))
+        .await
+        .expect_err("past the window alone");
+    let te = err.downcast_ref::<TurnError>().unwrap();
+    assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     assert!(r.claude.requests().is_empty() && r.zai.requests().is_empty());
-    assert_eq!(said(&r.core, &sid), vec![HELD.to_string()]);
-    let warned = rows(&r.core, "privacy.warned");
-    assert_eq!(warned.len(), 1, "{warned:?}");
-    assert_eq!(warned[0]["held"].as_bool(), Some(true));
+    assert!(said(&r.core, &sid).is_empty(), "no fixed line was said");
+    assert!(rows(&r.core, "privacy.warned").is_empty());
     let routed = rows(&r.core, "route.decided");
     assert_eq!(routed.len(), 1, "{routed:?}");
     let d = &routed[0];
