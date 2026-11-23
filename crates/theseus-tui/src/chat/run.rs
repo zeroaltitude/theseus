@@ -44,6 +44,7 @@ enum Woke {
     Signal,
     Files(Option<Listing>),
     Images(Option<ImagesRead>),
+    History(Option<Result<(), String>>),
 }
 
 pub struct Runner {
@@ -73,6 +74,8 @@ pub struct Runner {
     images_rx: UnboundedReceiver<ImagesRead>,
     /// Frames drawn, for a test that holds the redraw count.
     pub frames: u64,
+    history_tx: UnboundedSender<Result<(), String>>,
+    history_rx: UnboundedReceiver<Result<(), String>>,
 }
 
 impl Runner {
@@ -85,6 +88,7 @@ impl Runner {
     ) -> Self {
         let (files_tx, files_rx) = tokio::sync::mpsc::unbounded_channel();
         let (images_tx, images_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (history_tx, history_rx) = tokio::sync::mpsc::unbounded_channel();
         Self {
             chat,
             conn,
@@ -107,6 +111,8 @@ impl Runner {
             images_tx,
             images_rx,
             frames: 0,
+            history_tx,
+            history_rx,
         }
     }
 
@@ -148,6 +154,7 @@ impl Runner {
             let signals = &mut self.signals;
             let files = &mut self.files_rx;
             let images = &mut self.images_rx;
+            let history = &mut self.history_rx;
             tokio::select! {
                 m = async {
                     match conn {
@@ -158,6 +165,7 @@ impl Runner {
                 e = events.recv() => Woke::Terminal(e),
                 f = files.recv() => Woke::Files(f),
                 i = images.recv() => Woke::Images(i),
+                h = history.recv() => Woke::History(h),
                 _ = async {
                     match deadline {
                         Some(at) => tokio::time::sleep_until(at).await,
@@ -190,7 +198,15 @@ impl Runner {
                 self.chat.at_walked(w);
                 self.dirty = true;
             }
-            Woke::Files(None) | Woke::Images(None) => {}
+            Woke::Files(None)
+            | Woke::Images(None)
+            | Woke::History(None)
+            | Woke::History(Some(Ok(()))) => {}
+            Woke::History(Some(Err(error))) => {
+                self.chat
+                    .flash(format!("could not save input history: {error}"));
+                self.dirty = true;
+            }
             Woke::Images(Some(read)) => {
                 let effects = self.chat.images_read(read);
                 self.dirty = true;
@@ -343,14 +359,21 @@ impl Runner {
 
     /// The directory's history, written off the loop's thread.
     fn save_history(&self, messages: Vec<String>) {
+        // Each SaveHistory follows one editor.take(). Only that new entry
+        // belongs to this write; other windows may have newer history already.
+        let Some(message) = messages.last().cloned() else {
+            return;
+        };
         let (Some(path), dir) = (
             self.chat.cfg.history_path.clone(),
             self.chat.cfg.dir.clone(),
         ) else {
             return;
         };
+        let errors = self.history_tx.clone();
         drop(tokio::task::spawn_blocking(move || {
-            env::save_history(&path, &dir, &messages)
+            let _ =
+                errors.send(env::save_history(&path, &dir, &[message]).map_err(|e| e.to_string()));
         }));
     }
 
@@ -405,5 +428,31 @@ impl Runner {
         }
         let _ = width;
         self.write(text.as_bytes());
+    }
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn an_old_window_saves_only_its_new_line() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut cfg = super::super::tests::cfg(folder.path().to_path_buf());
+        cfg.dir = "/project".into();
+        let recent: Vec<String> = (0..200).map(|i| format!("recent {i}")).collect();
+        env::save_history(folder.path(), &cfg.dir, &recent).unwrap();
+        let chat = Chat::new(cfg, super::super::tests::T0);
+        let (_, events) = tokio::sync::mpsc::unbounded_channel();
+        let connect: Connector = Box::new(|| Box::pin(std::future::pending()));
+        let mut runner = Runner::new(chat, None, connect, events, || super::super::tests::T0);
+        let mut old: Vec<String> = (0..199).map(|i| format!("old {i}")).collect();
+        old.push("new line".into());
+        runner.save_history(old);
+        runner.history_rx.recv().await.unwrap().unwrap();
+        let saved = env::load_history(folder.path(), "/project");
+        assert_eq!(saved.len(), 200);
+        assert_eq!(saved.first().map(String::as_str), Some("recent 1"));
+        assert_eq!(saved.last().map(String::as_str), Some("new line"));
     }
 }
