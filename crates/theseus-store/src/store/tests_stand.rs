@@ -150,3 +150,81 @@ async fn a_position_asked_on_the_worker_waits_without_holding_it() {
         "the position after the write it waited for"
     );
 }
+
+#[test]
+fn a_failed_roll_never_answers_or_indexes_the_frames_it_cut() {
+    for ledger in [false, true] {
+        let kind = if ledger { kinds::LEDGER } else { kinds::META };
+        let dir = tempfile::tempdir().unwrap();
+        let s = small_segments(dir.path());
+        let held = s.inner.appending.write().unwrap();
+        let mut answers = Vec::new();
+        let jobs = (0..3)
+            .map(|i| {
+                let key = format!("roll_{i}");
+                let record = if ledger {
+                    NewRecord::json(
+                        kind,
+                        Some(&key),
+                        &serde_json::json!({"kind": "test.row", "data": i}),
+                    )
+                    .unwrap()
+                } else {
+                    NewRecord::bytes(kind, Some(&key), vec![7; 100])
+                };
+                let (answer, answered) = mpsc::sync_channel(1);
+                answers.push(answered);
+                Job {
+                    records: vec![record],
+                    projected: vec![(None, None)],
+                    tags: vec![vec![]],
+                    hidden: None,
+                    answer,
+                }
+            })
+            .collect();
+        s.inner.queued.fetch_add(3, Ordering::SeqCst);
+        s.inner.wal.fail_next_sync();
+        s.inner.commit(jobs);
+        drop(held);
+        for (i, answer) in answers.into_iter().enumerate() {
+            assert!(
+                answer.recv().unwrap().is_err(),
+                "cut or unattempted job {i} succeeded"
+            );
+            assert!(s
+                .latest_by_key(kind, &format!("roll_{i}"))
+                .unwrap()
+                .is_none());
+        }
+        assert_eq!(s.inner.wal.last_position(), 0);
+        s.append(&[NewRecord::json(
+            kinds::LEDGER,
+            None,
+            &serde_json::json!({"kind": "test.after"}),
+        )
+        .unwrap()])
+            .unwrap();
+        assert!(crate::chain_walk::verify(&s, None, None)
+            .unwrap()
+            .broken
+            .is_none());
+        s.append(&[NewRecord::bytes(kinds::META, Some("after"), vec![9; 100])])
+            .unwrap();
+        drop(s);
+        let s = small_segments(dir.path());
+        assert_eq!(
+            s.latest_by_key(kinds::META, "after")
+                .unwrap()
+                .unwrap()
+                .payload,
+            vec![9; 100]
+        );
+        for i in 0..3 {
+            assert!(s
+                .latest_by_key(kind, &format!("roll_{i}"))
+                .unwrap()
+                .is_none());
+        }
+    }
+}
