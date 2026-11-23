@@ -78,8 +78,9 @@ pub fn detached(p: &Place, what: &str, branch: &str, rev: &str) -> Result<Tree> 
         }
         let at = p.git_ok(&t.dir, &["rev-parse", "HEAD"])?;
         if let Err(e) = super::guard::mark_created(p, &t.slug, &t.dir, &at) {
-            // A tree whose mark could not say what it is: closed again, and the open fails.
-            let _ = tree::close(p, &t);
+            // A tree whose mark could not say what it is: closed again, and the open fails. The claim is held through
+            // the close; the open's failure below is its one release.
+            let _ = tree::close_holding_claim(p, &t);
             return Err(e);
         }
         std::fs::create_dir_all(&t.target)?;
@@ -108,7 +109,7 @@ fn make_way(p: &Place, t: &Tree) -> Result<()> {
         );
     }
     // The claim on the path is this open's, held through the replacement: the predecessor's close does not end it.
-    tree::close_predecessor(p, t).with_context(|| {
+    tree::close_holding_claim(p, t).with_context(|| {
         format!(
             "{} is the loop's tree from an earlier start, and it would not close: it is left as it is",
             t.dir.display()

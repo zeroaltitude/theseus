@@ -1502,9 +1502,11 @@ pub fn close(p: &Place, tree: &Tree) -> Result<()> {
     close_with(p, tree, true, true)
 }
 
-/// Close the tree a previous start of the loop left at the path an open is replacing (`join::git::detached`): as
-/// [`close`] does, except that the claim on the path stays, since it is the replacing open's (issue 41, round 4).
-pub(crate) fn close_predecessor(p: &Place, tree: &Tree) -> Result<()> {
+/// Close a tree at a path an open has claimed and is still under way at (`join::git::detached`): the tree a previous
+/// start left that the open is replacing, or the tree the open just made whose mark could not be rewritten. As
+/// [`close`] does, except that the claim on the path stays: it is the open's, and the open alone ends it (issue 41,
+/// rounds 4 and 5).
+pub(crate) fn close_holding_claim(p: &Place, tree: &Tree) -> Result<()> {
     close_with(p, tree, true, false)
 }
 

@@ -447,13 +447,16 @@ impl Core {
         let core = Arc::downgrade(self);
         tokio::spawn(async move {
             let mut wait = FIRST_WAIT;
-            for _ in 0..TRIES {
+            for n in 1..=TRIES {
                 let Some(c) = core.upgrade() else { return };
                 let done = tokio::task::spawn_blocking(move || c.discover_installing())
                     .await
                     .unwrap_or(false);
                 if done {
                     return;
+                }
+                if n == TRIES {
+                    break;
                 }
                 tokio::time::sleep(wait).await;
                 wait = (wait * 2).min(LAST_WAIT);
