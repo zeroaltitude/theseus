@@ -471,3 +471,12 @@ fn the_first_line_says_the_daemons_own_jobs_running() {
     );
     assert_eq!(short_line(&s), "●1 ◐2 ✗1");
 }
+
+#[test]
+fn displayed_positions_include_only_the_rendered_rows() {
+    let views: Vec<_> = (0..21).map(|i| asking(&i.to_string(), i, i + 1)).collect();
+    let board = board(views);
+    let shown = displayed_views(&board);
+    assert_eq!(shown.len(), 20);
+    assert_eq!(shown.last().unwrap().position, 20);
+}
