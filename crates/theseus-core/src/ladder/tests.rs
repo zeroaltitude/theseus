@@ -696,3 +696,20 @@ async fn an_exchange_that_read_outside_text_is_sent_inside_the_wrapper() {
     assert!(asked[0].text.trim_end().ends_with(']'));
     assert!(!asked[1].text.contains("[outside text from "));
 }
+
+#[test]
+fn a_ladder_keeps_every_exchange_when_one_millisecond_spans_pages() {
+    let (_d, s) = store();
+    let mut turns: Vec<_> = (0..401)
+        .map(|_| exchange_at(&s, "ses_a", PLACE, 1_000, false))
+        .collect();
+    turns.sort();
+    let l = read::ladder(&s, PLACE, None).unwrap();
+    assert_eq!(
+        l.window
+            .iter()
+            .map(|e| e.turn_id.clone())
+            .collect::<Vec<_>>(),
+        turns
+    );
+}
