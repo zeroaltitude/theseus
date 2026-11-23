@@ -1297,6 +1297,11 @@ async fn x190_a_fresh_terminal_line_after_a_run_of_it_elsewhere_is_what_the_requ
                 t.len(),
                 cut(&t, 220)
             );
+            if t.starts_with(crate::view::wire_text::BESIDE_HEAD) {
+                for line in t.lines() {
+                    println!("X190 BESIDE| {line}");
+                }
+            }
         }
     }
     let last = q.messages.last().expect("a message");
