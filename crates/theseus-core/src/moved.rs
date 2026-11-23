@@ -4,7 +4,8 @@
 //! them, and a META `moved.of.<node>` = [`MovedTo`] for each. Until 2026-11-22 the compiler left those nodes
 //! out of the source's compile; nothing is withheld by a move now, so a moved node is read where it was said,
 //! as any other. What stays is history: the `Moved` node decodes and renders its one line ([`line`]) at its
-//! own place, and recall and `node.info` read `moved.of.<node>` to say where a node once went.
+//! own place, and recall and `node.info` read `moved.of.<node>` to say where a node once went. A split's own
+//! record (`thread.split.<id>`, [`SplitRecord`]) still decodes as it was stored.
 
 /// The author of a `Moved` node.
 pub const AUTHOR: &str = "harness:moved";
@@ -37,4 +38,37 @@ impl MovedTo {
     pub fn is_claim(&self) -> bool {
         self.split.starts_with("claim_")
     }
+}
+
+/// The META key of a split's record (`thread.split.<id>`), as an older build wrote it.
+// Read by the test-only split writer and by the old-store test: no production path reads a split's record now,
+// and its typed decoder is kept so an old store's record still reads as it was stored.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn split_key(id: &str) -> String {
+    format!("thread.split.{id}")
+}
+
+/// What a split left, for its undo: the stored `thread.split.<id>` record of an older build.
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SplitRecord {
+    pub id: String,
+    /// How the source was named, and the session it is.
+    pub from: String,
+    pub source_session: String,
+    /// The `Moved` node in the source.
+    pub moved_node: String,
+    /// The thread, its session, and whether the split opened it.
+    pub thread: String,
+    pub target_session: String,
+    pub opened: bool,
+    /// The brief and the arrangement written into the target's session.
+    pub target_nodes: Vec<String>,
+    pub moved: u32,
+    pub first: u64,
+    pub last: u64,
+    pub gist: String,
+    pub at_ms: u64,
+    #[serde(default)]
+    pub undone: bool,
 }

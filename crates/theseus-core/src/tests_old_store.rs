@@ -1,7 +1,8 @@
 //! An old store opens (issue 44, anything goes, 2026-11-22): the records the withholding and the threads
 //! wrote are no longer written or honoured, and every one still decodes as it was stored. Here: what the
 //! gate gave a message-less turn (`given.<turn>`), where a split or a claim moved a node (`moved.of.<node>`),
-//! a thread's record with its seal, its pending seal or its merge (`thread:<slug>`), and the `thread.*`
+//! a split's record (`thread.split.<id>`), a thread's record with its seal, its pending seal or its merge
+//! (`thread:<slug>`), and the `thread.*`
 //! ledger rows. The others have their own: a release and its end (`release::tests::a_stored_release_and_its_end_still_decode`),
 //! a fold node over a sealed source (`ladder::tests::an_old_node_over_a_sealed_source_still_reads_and_is_shown_as_it_stands`).
 
@@ -46,6 +47,52 @@ fn an_old_given_record_still_decodes() {
     assert!(crate::exchange::given::given(&s, "trn_none")
         .unwrap()
         .is_none());
+}
+
+/// A split's record (`thread.split.<id>`), as an older build stored it, one written before `undone` existed and one
+/// undone: each reads back whole through its typed decoder.
+#[test]
+fn an_old_split_record_still_decodes() {
+    let (_d, s) = store();
+    let key = crate::moved::split_key;
+    s.put_meta(
+        &key("spl_1"),
+        &json!({"id": "spl_1", "from": "home@local", "source_session": "ses_home", "moved_node": "mov_1",
+                "thread": "kelp", "target_session": "ses_kelp", "opened": true,
+                "target_nodes": ["msg_brief", "arr_1"], "moved": 3, "first": 10, "last": 14,
+                "gist": "the kelp survey", "at_ms": 1_790_000_000_000u64}),
+    )
+    .unwrap();
+    s.put_meta(
+        &key("spl_2"),
+        &json!({"id": "spl_2", "from": "kelp", "source_session": "ses_kelp", "moved_node": "mov_2",
+                "thread": "tides", "target_session": "ses_tides", "opened": false, "target_nodes": [],
+                "moved": 1, "first": 20, "last": 20, "gist": "a tide line", "at_ms": 1_790_000_000_001u64,
+                "undone": true}),
+    )
+    .unwrap();
+    let read = |id: &str| {
+        s.get_meta::<crate::moved::SplitRecord>(&key(id))
+            .unwrap()
+            .expect("the record")
+    };
+    let a = read("spl_1");
+    assert_eq!(key("spl_1"), "thread.split.spl_1");
+    assert_eq!(
+        (
+            a.thread.as_str(),
+            a.moved,
+            a.first,
+            a.last,
+            a.opened,
+            a.undone
+        ),
+        ("kelp", 3, 10, 14, true, false),
+        "a record from before `undone` reads as not undone"
+    );
+    assert_eq!(a.target_nodes, ["msg_brief", "arr_1"]);
+    let b = read("spl_2");
+    assert!(b.undone && !b.opened && b.target_nodes.is_empty());
 }
 
 /// A `moved.of.<node>` record, a split's and a claim's, and one an undo nulled: each reads as stored.

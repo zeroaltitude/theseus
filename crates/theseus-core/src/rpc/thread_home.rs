@@ -35,41 +35,11 @@ use super::Core;
 use crate::approval::Answerer;
 use crate::fact;
 use crate::fact::thread::{ThreadSplit, ThreadUnsplit};
-use crate::moved::{self, MovedTo};
+use crate::moved::{self, split_key, MovedTo, SplitRecord};
 use crate::node::{Body, Node, Origin};
 use crate::session::SessionRecord;
 use crate::thread_join::{day, split_note};
 use crate::thread_split::{self, Chosen, Pick};
-
-/// The META key of a split's record, which `thread.unsplit` reads (moved here from `moved.rs` with the
-/// retired split, 2026-11-22: only this test-only writer reads it).
-pub(crate) fn split_key(id: &str) -> String {
-    format!("thread.split.{id}")
-}
-
-/// What a split left, for its undo.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct SplitRecord {
-    pub id: String,
-    /// How the source was named, and the session it is.
-    pub from: String,
-    pub source_session: String,
-    /// The `Moved` node in the source.
-    pub moved_node: String,
-    /// The thread, its session, and whether the split opened it.
-    pub thread: String,
-    pub target_session: String,
-    pub opened: bool,
-    /// The brief and the arrangement written into the target's session.
-    pub target_nodes: Vec<String>,
-    pub moved: u32,
-    pub first: u64,
-    pub last: u64,
-    pub gist: String,
-    pub at_ms: u64,
-    #[serde(default)]
-    pub undone: bool,
-}
 
 /// What a split's source is, as named.
 struct Source {
