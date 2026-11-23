@@ -205,10 +205,10 @@ pub fn decide(
 ) -> Plan {
     let kind = v.heard.record_kind();
     if let Some(k) = kind.filter(|_| v.band != Band::Escalate) {
-        // Said again: the same kind of record as one the turn already holds.
+        // Only the same words count as a repeat: similarity can hide a reversal.
         if let Some(r) = live
             .iter()
-            .find(|r| r.kind == k && words::same(&r.text, line))
+            .find(|r| r.kind == k && r.text.split_whitespace().eq(line.split_whitespace()))
         {
             return Plan::Repeat(r.id.clone());
         }
@@ -216,7 +216,7 @@ pub fn decide(
         if state
             .asks
             .iter()
-            .any(|o| o.ask.kind == k && words::same(&o.ask.text, line))
+            .any(|o| o.ask.kind == k && o.ask.text.split_whitespace().eq(line.split_whitespace()))
         {
             return Plan::Nothing;
         }
