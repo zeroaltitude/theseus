@@ -20,7 +20,7 @@
 //! objective and claim. Its other lines, and every other session's view,
 //! are as they were.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use theseus_protocol::tasks::TaskViewSummary;
 
 use super::{depth, line, scope, TaskRecord, OWNERS_MARK};
@@ -211,30 +211,6 @@ pub fn render_for(
         restricted: lines.iter().filter(|l| l.1).count() as u32,
     };
     Some(View { text, summary })
-}
-
-/// A tail block's text, the last block of the request's last message, with the
-/// conversation's breakpoint moved to the block before it: moved, not copied,
-/// since the top-level one takes a slot of the provider's four too
-/// (theseus-aab7). The place digest's, until it goes (XD2); every other block
-/// the harness says is in the block beside the message (`turn::now_step`).
-pub fn attach_text(request: &mut crate::provider::ProviderRequest, text: &str) {
-    let Some(last) = request.messages.last_mut() else {
-        return;
-    };
-    let content = &mut last["content"];
-    if let Value::String(s) = content {
-        *content = json!([{"type": "text", "text": s.clone()}]);
-    }
-    let Some(blocks) = content.as_array_mut() else {
-        return;
-    };
-    if let Some(Value::Object(b)) = blocks.last_mut() {
-        if let Some(m) = request.cache_control.take() {
-            b.entry("cache_control").or_insert(m);
-        }
-    }
-    blocks.push(json!({"type": "text", "text": text}));
 }
 
 /// The session's view as the turn shows it; a check's is restricted by its

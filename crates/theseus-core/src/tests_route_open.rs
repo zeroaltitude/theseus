@@ -505,7 +505,7 @@ fn warnings(o: &Open) -> Vec<serde_json::Value> {
         .outbox
         .open_for(crate::outbox::OPERATOR_TARGET)
         .iter()
-        .filter(|a| crate::outbox::kind_of(a) == crate::turn::personal_step::KIND)
+        .filter(|a| crate::outbox::kind_of(a) == "privacy_warning")
         .map(|a| crate::outbox::body_of(a).clone())
         .collect()
 }
@@ -517,11 +517,11 @@ fn warned_rows(o: &Open) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// A pinned turn is not asked the model, but Jev's `personal` answer still acts:
-/// the owner is warned, the turn runs on the pinned model, and a correction of it
+/// A pinned turn is not asked the model: it runs on the pinned model, Jev's
+/// `personal` answer acts on nothing (no warning, no row), and a correction of it
 /// names no mode (theseus-7l8lr.2, omnibus pass 2 F1).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_pinned_turn_still_warns_on_a_personal_answer() {
+async fn a_pinned_turn_with_a_personal_answer_runs_on_its_pin() {
     let jev = FakeJev::start().unwrap();
     says(&jev, "haiku", "low", 0.97);
     personal(&jev, "elicit", 0.95);
@@ -532,23 +532,22 @@ async fn a_pinned_turn_still_warns_on_a_personal_answer() {
     let res = turn(&o.r.core, None, ASK_PERSONAL, Some("fable")).await;
     assert_eq!(o.r.claude.requests()[0].model, "claude-fable-5-2");
     assert_eq!(res.route.as_ref().unwrap().reason, "pinned");
-    let rows = warned_rows(&o);
-    assert_eq!(rows.len(), 1, "the personal answer acted: {rows:?}");
-    assert_eq!(
-        (rows[0]["choice"].as_str(), rows[0]["posted"].as_bool()),
-        (Some("elicit"), Some(true))
+    assert!(
+        warned_rows(&o).is_empty(),
+        "the personal answer acts on nothing"
     );
-    assert_eq!(warnings(&o).len(), 1, "the owner's DM was warned");
+    assert!(warnings(&o).is_empty(), "and warns nobody");
     // The verdict has no mode word, so a later correction of this turn labels nothing `not:`.
     let last = o.r.core.runner.judge.corrections.last_of(&res.session_id);
     assert_eq!(last.expect("the turn is noted").mode, None);
 }
 
-/// The same pin in a place others write in: the reply is held, with no model call.
-/// This is the place the hold exists for, and `live_pin` makes every turn there a
-/// pinned one the moment the owner runs `theseus profile use X`.
+/// The same message in a place others write in, the stand-in judge marking it a
+/// reach for the owner's personal details: the turn is answered as any turn is.
+/// The request is sent, the model's answer is the reply, and nothing is held,
+/// warned or recorded (the owner's decision of 2026-11-22: only trusted places).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_pinned_turn_in_a_shared_place_is_still_held() {
+async fn a_shared_place_turn_marked_personal_is_answered_and_its_request_sent() {
     use theseus_protocol::SessionKind;
     let jev = FakeJev::start().unwrap();
     says(&jev, "haiku", "low", 0.97);
@@ -569,15 +568,20 @@ async fn a_pinned_turn_in_a_shared_place_is_still_held() {
         Some("fable"),
     )
     .await;
+    let sent = o.r.claude.requests();
+    assert_eq!(sent.len(), 1, "the request was sent: {}", res.output);
+    assert_eq!(sent[0].model, "claude-fable-5-2");
     assert!(
-        o.r.claude.requests().is_empty(),
-        "no model was called: {}",
-        res.output
+        serde_json::to_string(&sent[0].messages)
+            .unwrap()
+            .contains(ASK_PERSONAL),
+        "the message is in it"
     );
-    assert_eq!(res.output, "I don't share that here.");
-    let rows = warned_rows(&o);
-    assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!(rows[0]["held"].as_bool(), Some(true), "{rows:?}");
+    assert_ne!(res.output, "I don't share that here.");
+    assert!(!res.output.is_empty(), "the model's answer is the reply");
+    assert_ne!(res.stop_reason, "held", "{}", res.output);
+    assert!(warned_rows(&o).is_empty(), "nothing recorded as a warning");
+    assert!(warnings(&o).is_empty(), "and nothing posted to the owner");
 }
 
 // ------------------------------------------------------------------- `why`

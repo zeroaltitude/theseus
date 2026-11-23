@@ -10,7 +10,7 @@
 //!
 //! So the day's open observations ride in the request's tail, beside the
 //! commitments' block and the surface's standing records
-//! (`task_graph::view::attach_text`): after the cached prefix, so they are
+//! (the harness's block beside the message, `turn::now_step`): after the cached prefix, so they are
 //! never a cache write, and built again every turn, so one noted mid-session
 //! shows at the next turn.
 //!

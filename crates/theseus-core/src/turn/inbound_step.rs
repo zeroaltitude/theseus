@@ -38,7 +38,6 @@ impl TurnRunner {
                 .chars()
                 .take(crate::tools_defer::want::ASK_CHARS)
                 .collect();
-            t.route.asker = author.to_string();
         }
         if !self.judge.config().enabled {
             if !steered {
@@ -92,20 +91,14 @@ impl TurnRunner {
                 task: t.tc.task.is_some(),
                 own: super::defer_step::is_self(author),
                 threads: Vec::new(),
-                in_thread: !steered && self.scope_in_thread(t.tc.session_id),
                 persona: self.persona_ctx(t.tc.session_id, class),
                 capture,
                 data_names: self.cfg.privacy.data_names(),
                 attachments: attachments.clone(),
             })
             .map(|e| (e, None));
-        // classify.v4's `scope` answer, for the place digest (theseus-98bz.9):
-        // a steered message's is not the running turn's.
         let mut breaker_open = false;
-        let wait = early.and_then(|(mut e, said)| {
-            if !steered {
-                t.digest.scope = e.scope.take();
-            }
+        let wait = early.and_then(|(e, said)| {
             breaker_open = e.breaker_open;
             e.adopt(&mut t.trace, said)
         });

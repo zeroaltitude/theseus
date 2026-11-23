@@ -104,8 +104,8 @@ impl crate::keep_warm::KeepWarm {
 }
 
 /// Whether the request asks the provider to cache: the top-level breakpoint, or
-/// the one the task view moved into the last block of the last message
-/// (`task_graph::view::attach_text`), which every conversation with a task has.
+/// one in the last block of the last message (a tail block once moved it there;
+/// none does since issue 46).
 fn caches(request: &crate::provider::ProviderRequest) -> bool {
     request.cache_control.is_some()
         || request

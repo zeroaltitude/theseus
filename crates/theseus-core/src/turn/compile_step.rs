@@ -135,8 +135,6 @@ impl TurnRunner {
         // was: a test's seam for what is removed in between.
         #[cfg(test)]
         super::view_step::at_assembled(sid);
-        // The place's other threads, for a turn that asks across them (theseus-98bz.9; XD2's).
-        Self::digest_line(t, &mut compiled);
         // What the task graph and the project showed, as the harness's block carries them (`now_step`).
         let (tasks, project) = (t.now.as_ref())
             .map(|r| (r.tasks.clone(), r.project.clone()))

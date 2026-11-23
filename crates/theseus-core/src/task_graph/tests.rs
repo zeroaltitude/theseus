@@ -217,33 +217,6 @@ fn the_view_is_bounded_and_counts_what_it_left_out() {
     );
 }
 
-/// The view goes last in the request's last message, and the block before
-/// it takes the conversation's breakpoint, so the next request still begins
-/// with cached bytes.
-#[test]
-fn the_view_is_the_last_block_and_the_breakpoint_sits_before_it() {
-    let mut req = crate::provider::ProviderRequest {
-        messages: vec![serde_json::json!({"role": "user", "content": "chart the harbour"})],
-        cache_control: Some(serde_json::json!({"type": "ephemeral"})),
-        ..Default::default()
-    };
-    let all = vec![task(
-        "tsk_aaaa01",
-        "ses_lighthouse",
-        None,
-        TaskState::Accepted,
-    )];
-    let v = view::render_for(&all, "ses_lighthouse", None).unwrap();
-    view::attach_text(&mut req, &v.text);
-    let blocks = req.messages[0]["content"].as_array().unwrap();
-    assert_eq!(blocks.len(), 2);
-    assert_eq!(blocks[0]["text"], "chart the harbour");
-    assert_eq!(blocks[0]["cache_control"]["type"], "ephemeral");
-    assert_eq!(blocks[1]["text"], v.text.as_str());
-    assert!(blocks[1].get("cache_control").is_none());
-    assert!(req.cache_control.is_none(), "moved, not copied: one slot");
-}
-
 /// A check's basis over `ses_maker`, which excludes it (theseus-w8ys).
 fn basis_over_maker() -> theseus_protocol::TaskCheck {
     theseus_protocol::TaskCheck {

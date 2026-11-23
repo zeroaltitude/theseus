@@ -96,12 +96,6 @@ pub(super) struct RouteState {
     /// The message's text, its first characters: what a model without tool
     /// search is given the tools for (theseus-jpjcd).
     pub(super) ask: String,
-    /// Who sent the message (the client's or the binding's person), for the
-    /// owner's warning of a reach for their personal details (theseus-i1z13).
-    pub(super) asker: String,
-    /// The turn's verdict held it: a reach for the owner's personal details
-    /// in a shared place, answered without a model call (`personal_step`).
-    pub(super) held: bool,
     /// The turn is the owner's correction itself: a later correction finds
     /// the turn it corrected, not this one.
     pub(super) correcting: bool,
@@ -602,7 +596,7 @@ impl TurnRunner {
             let carried = v.is_some_and(|v| v.turn != t.tc.turn_id);
             b.raise_low_effort(v, carried);
         }
-        self.verdict_asides(t, verdict.as_ref());
+        self.engage_verdict(t, verdict.as_ref());
         self.record_route(
             t,
             verdict.as_ref(),
@@ -685,9 +679,8 @@ impl TurnRunner {
         }
     }
 
-    /// A compile failed (every failure comes here, held or not): the verdict
-    /// is read and the privacy check run, and `f` goes on as it was; the turn
-    /// loop then ends the turn held where the verdict holds (theseus-cljlz).
+    /// A compile failed (every failure comes here): the verdict is read, and
+    /// `f` goes on as it was.
     /// The turn is still counted in the route's books (theseus-qiyxq): its
     /// `route.decided` row (no decision, so the profile it would have run on
     /// and a reason of the verdict's absence or kind; the wait, `late`,
@@ -705,7 +698,6 @@ impl TurnRunner {
     ) -> Failure {
         let last = session.last_turn_id.as_deref();
         let (verdict, reason) = self.read_verdict(t, got, live, rx, last, unreachable);
-        self.personal_warn(t, verdict.as_ref());
         self.record_route(t, verdict.as_ref(), None, reason, timed, steering);
         self.note_routed(t, verdict.as_ref(), None);
         f

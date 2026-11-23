@@ -21,7 +21,7 @@
 //!
 //! **Where in the request.** The request's tail, beside the task view, the
 //! commitments and the day's observations
-//! (`task_graph::view::attach_text`), never inside the three cached system
+//! (the harness's block beside the message, `turn::now_step`), never inside the three cached system
 //! layers: nothing per request goes in those, so no prefix byte moves and
 //! this is never a cache write. The head says the harness wrote it.
 //!

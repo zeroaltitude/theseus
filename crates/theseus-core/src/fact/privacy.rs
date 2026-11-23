@@ -1,6 +1,7 @@
 //! A message that reached for the operator's personal details (theseus-gasov):
 //! route.v7's `personal` answer at the act band. A warning to the owner, by DM,
-//! and this row; the turn goes on.
+//! and this row; the turn goes on. No longer written (2026-11-22: the answer
+//! acts on nothing); the kind stays so old `privacy.warned` rows still read.
 
 use serde_json::{json, Value};
 use theseus_protocol::LedgerKind;
