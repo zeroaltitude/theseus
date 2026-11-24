@@ -142,14 +142,22 @@ bytes from one turn to the next until the profile, its model or the persona chan
 unchanged. And who am I talking to (slot B, `view/select/people.rs`): the people present are the speaker and the
 distinct persons who opened the exchanges the window lays, at most eight, each named once whatever handle they
 spoke by, and only people the owner's records hold. In the front, each one's name, description and the owner's
-guidance (in shared places too, by his word of the same day), about 100 tokens a person in company and 1,500 at
-most in all, cut by code where longer. Beside the message, for each person but the owner, their newest three
-exchanges in other places, on their own timeline, leaving out every exchange the window lays: one line each (the
-words and the `did` line, cut beyond 150 tokens with the handle), headed with the person's name and the place,
-600 tokens at most in all; real exchanges, never stored notes about a person. The owner gets none of his own: they
-are in the window and the look-backs. A turn no person opened (a wake, an agent's process) is told none of it,
-and a self-loop session's turn lays no recent line. The front's block still heads itself with the turn's time, as
-slot B did before, so it is not yet the same bytes from one turn to the next. **Not built yet**: the topic block,
+guidance (in shared places too, by his word of the same day), in one wording for every person ("In this
+conversation: NAME") whoever speaks, in an order fixed by record, about 100 tokens a person in company and 1,500
+at most in all, cut by code where longer, never inside a known value. It is headed as the owner's filing with no
+time, so it is the same bytes from one turn to the next while the people and their records stay. Beside the
+message, one line names the speaker ("Who is speaking: NAME"); then for each person but the owner, their newest
+three exchanges in other places, by any of their handles (walked as one timeline, one allowance of 300 touches
+read and three lines a person), leaving out every exchange the window lays: one line each (the words and the
+`did` line, cut beyond 150 tokens with the handle), headed with the person's name and the place, 600 tokens at
+most in all as the request lays them (headings, wrappers and the escaped name counted); real exchanges, never
+stored notes about a person. Which of them may be laid is one decision (`people::may_lay`): until the owner rules,
+a line from a private place (private by the place rule when it was said, or a direct conversation) is laid only
+when nobody but that person and the owner is present, and a shared place's line in any company. The owner gets
+none of his own, by identity (every effective owner handle, those the bindings make among them, and the records
+they resolve to; a filter of what is chosen, never authority): they are in the window and the look-backs. A turn
+no person opened (a wake, an agent's process) is told none of it, and a self-loop session's turn lays none of the
+lines beside the message. **Not built yet**: the topic block,
 and the look-back over every place that replaces slot F, with the one walk over every place they share. The
 folded ladder stays above the 30 (his answer).
 
