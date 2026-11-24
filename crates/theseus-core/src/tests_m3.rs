@@ -4502,7 +4502,10 @@ fn last_user_blocks(r: &Rig) -> Vec<Value> {
     let msgs = &reqs.last().unwrap().messages;
     let user = msgs.iter().rev().find(|m| m["role"] == "user").unwrap();
     let blocks = user["content"].as_array().unwrap().iter();
-    blocks.filter(|b| !crate::task_graph::view::is_view(b)).cloned().collect()
+    blocks
+        .filter(|b| !crate::task_graph::view::is_view(b))
+        .cloned()
+        .collect()
 }
 
 /// Discord sends a long paste as `message.txt`: its text reaches the model
@@ -4968,7 +4971,10 @@ fn refused_image(m: usize, b: usize) -> Scripted {
 /// `task_graph::view::is_view`).
 fn first_user_blocks(q: &crate::provider::ProviderRequest) -> Vec<Value> {
     let blocks = q.messages[0]["content"].as_array().unwrap().iter();
-    blocks.filter(|b| !crate::task_graph::view::is_view(b)).cloned().collect()
+    blocks
+        .filter(|b| !crate::task_graph::view::is_view(b))
+        .cloned()
+        .collect()
 }
 
 fn carries_an_image(q: &crate::provider::ProviderRequest) -> bool {

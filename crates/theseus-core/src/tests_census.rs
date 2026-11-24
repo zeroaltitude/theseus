@@ -312,7 +312,10 @@ async fn exact_asks_the_provider_to_count() {
     // A fresh session has no message of the person's to count (theseus-7okz9): its total is its system, its tools
     // and who am I (`view::who`), and the fake counts by the estimate, which the smallest form's own word rounds by
     // a token.
-    assert!(e.messages > 0 && e.messages < crate::view::who::MOST_TOKENS, "{e:?}");
+    assert!(
+        e.messages > 0 && e.messages < crate::view::who::MOST_TOKENS,
+        "{e:?}"
+    );
     assert_eq!(e.total, e.system + e.tools + e.messages);
     assert!(
         e.total.abs_diff(c.total_tokens) <= 2,

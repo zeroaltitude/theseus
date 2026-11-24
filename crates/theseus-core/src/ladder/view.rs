@@ -57,7 +57,9 @@ impl Ladder for StoreLadder<'_> {
     /// the window. The grain is [`FOLD_STEP`]: a read at another `n` is refused.
     fn read(&self, place: &str, n: usize, since: Option<&Pos>) -> anyhow::Result<LadderRead> {
         if n != FOLD_STEP {
-            return Err(anyhow!("the ladder is folded {FOLD_STEP} at a time, not {n}"));
+            return Err(anyhow!(
+                "the ladder is folded {FOLD_STEP} at a time, not {n}"
+            ));
         }
         let l = read::ladder(self.0, place, since)?;
         Ok(LadderRead {

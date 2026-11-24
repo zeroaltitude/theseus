@@ -154,7 +154,10 @@ async fn a_view_turn_is_replayed_with_its_own_request() {
     // The same messages; each request carries its own profile's cache lifetime on the front's mark (who am I
     // is a fresh conversation's front).
     let plain = |q: &crate::provider::ProviderRequest| -> Vec<serde_json::Value> {
-        q.messages.iter().map(crate::provider::binding::unmarked).collect()
+        q.messages
+            .iter()
+            .map(crate::provider::binding::unmarked)
+            .collect()
     };
     assert_eq!(plain(re), plain(orig), "the same messages");
     assert_eq!(re.tools, orig.tools, "the same tools");

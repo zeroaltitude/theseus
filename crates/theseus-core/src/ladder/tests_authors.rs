@@ -57,7 +57,10 @@ async fn fold(who: impl Fn(u64) -> Option<Option<&'static str>>) -> (String, Str
     let out = read::fold_step(&s, CHANNEL, None, &step).await.unwrap();
     assert_eq!(out.made.len(), 1, "{:?}", out.failed);
     let read = w.asks.lock().unwrap().last().unwrap().text.clone();
-    let nodes = StoreLadder(&s).read(CHANNEL, FOLD_STEP, None).unwrap().nodes;
+    let nodes = StoreLadder(&s)
+        .read(CHANNEL, FOLD_STEP, None)
+        .unwrap()
+        .nodes;
     let renderer = crate::view::wire_text::TextRenderer {
         store: &s,
         kernel: None,
@@ -156,7 +159,10 @@ async fn an_older_summarys_account_is_withheld_where_it_could_credit_another_to_
         at_ms: ex.start_ms,
     };
     s.append(&super::fold::records(&node).unwrap()).unwrap();
-    let nodes = StoreLadder(&s).read(CHANNEL, FOLD_STEP, None).unwrap().nodes;
+    let nodes = StoreLadder(&s)
+        .read(CHANNEL, FOLD_STEP, None)
+        .unwrap()
+        .nodes;
     assert_eq!(nodes.len(), 1);
     let renderer = crate::view::wire_text::TextRenderer {
         store: &s,
@@ -215,7 +221,10 @@ async fn an_older_summary_over_a_missing_message_is_withheld() {
         at_ms: ex.start_ms,
     };
     s.append(&super::fold::records(&node).unwrap()).unwrap();
-    let nodes = StoreLadder(&s).read(CHANNEL, FOLD_STEP, None).unwrap().nodes;
+    let nodes = StoreLadder(&s)
+        .read(CHANNEL, FOLD_STEP, None)
+        .unwrap()
+        .nodes;
     let renderer = crate::view::wire_text::TextRenderer {
         store: &s,
         kernel: None,

@@ -71,15 +71,24 @@ async fn who_am_i_names_the_live_profile_model_and_persona() {
         who.contains(&format!("- profile: {live}; model: {}", q.model)),
         "{who}"
     );
-    assert!(who.contains("- persona: Theseus"), "the built-in one: {who}");
+    assert!(
+        who.contains("- persona: Theseus"),
+        "the built-in one: {who}"
+    );
     assert!(
         crate::view::text::tokens(&who) < crate::view::who::MOST_TOKENS,
         "{who}"
     );
-    assert!(!system(&q).contains("Who you are"), "not in the system part");
+    assert!(
+        !system(&q).contains("Who you are"),
+        "not in the system part"
+    );
     let message = (q.messages[0]["content"].as_array().unwrap().iter())
         .position(|b| b["text"] == "first: the tide");
-    assert!(message.is_some_and(|i| i > 0), "it comes before the message");
+    assert!(
+        message.is_some_and(|i| i > 0),
+        "it comes before the message"
+    );
 }
 
 /// Two turns on one profile: the block is the same bytes, and so is the system part; a turn on another

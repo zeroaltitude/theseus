@@ -269,10 +269,7 @@ async fn the_window_folds_its_oldest_step_at_floor_plus_step_and_keeps_its_floor
         .await
         .unwrap();
     assert!(s1.made.is_empty(), "49 exchanges: no fold");
-    assert_eq!(
-        read::ladder(&s, PLACE, None).unwrap().window.len(),
-        due - 1
-    );
+    assert_eq!(read::ladder(&s, PLACE, None).unwrap().window.len(), due - 1);
     let last = exchange_at(&s, "ses_a", PLACE, 1_000 + due as u64, false);
     let s2 = read::fold_step(&s, PLACE, None, &step(&w, &DayPurse::new(&s, None, false)))
         .await
@@ -294,7 +291,11 @@ async fn the_window_folds_its_oldest_step_at_floor_plus_step_and_keeps_its_floor
     let first = exchange::exchange(&s, &turns[0]).unwrap().unwrap();
     assert_eq!(node.his[0].node, first.ask.unwrap());
     let l = read::ladder(&s, PLACE, None).unwrap();
-    assert_eq!(l.window.len(), WINDOW_FLOOR, "the window is its floor again");
+    assert_eq!(
+        l.window.len(),
+        WINDOW_FLOOR,
+        "the window is its floor again"
+    );
     assert_eq!(l.window.last().unwrap().turn_id, last);
     assert_eq!(l.rungs[0].nodes, vec![node.clone()]);
     // The handle opens its exchanges; a node never changes once written.

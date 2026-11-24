@@ -104,9 +104,16 @@ async fn a_place_laddered_while_the_window_held_twenty_to_thirty_nine_reads_and_
     let read = StoreLadder(&s).read(PLACE, FOLD_STEP, None).unwrap();
     assert_eq!(read.nodes.len(), 2);
     assert!(read.nodes.iter().all(|n| n.exchanges == 20));
-    assert_eq!(read.nodes[1].last.id, turns[39], "the newest node ends at 40");
+    assert_eq!(
+        read.nodes[1].last.id, turns[39],
+        "the newest node ends at 40"
+    );
     let ids: Vec<&String> = read.window.iter().map(|e| &e.turn_id).collect();
-    assert_eq!(ids, turns[40..].iter().collect::<Vec<_>>(), "and the window starts after it");
+    assert_eq!(
+        ids,
+        turns[40..].iter().collect::<Vec<_>>(),
+        "and the window starts after it"
+    );
     each_once(&s, &turns);
     // No fold before the window reaches 50: the old rule would have folded at 40.
     assert!(step(&s, &w).await.made.is_empty(), "a window of 39");
@@ -178,9 +185,15 @@ fn laid_once(s: &Store, turns: &[String]) {
         at_hand: None,
         now_ms: 10_000,
     };
-    let v = assemble(&pov, &snap, &selectors, &gate, &Budget::new(1_000_000, 8_000))
-        .unwrap()
-        .expect("fits");
+    let v = assemble(
+        &pov,
+        &snap,
+        &selectors,
+        &gate,
+        &Budget::new(1_000_000, 8_000),
+    )
+    .unwrap()
+    .expect("fits");
     let mut exchanges: Vec<String> = Vec::new();
     let mut folds = 0;
     for x in &v.shown {
@@ -192,5 +205,9 @@ fn laid_once(s: &Store, turns: &[String]) {
     }
     exchanges.sort_by_key(|t| turns.iter().position(|x| x == t));
     assert_eq!(folds, 3, "three nodes: two of the old rule, one of the new");
-    assert_eq!(exchanges, turns[60..].to_vec(), "the window's 30, each once");
+    assert_eq!(
+        exchanges,
+        turns[60..].to_vec(),
+        "the window's 30, each once"
+    );
 }

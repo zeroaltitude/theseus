@@ -219,8 +219,8 @@ pub async fn fold_step(
             }
             continue;
         }
-        let full = (1..=MAX_LEVEL)
-            .find_map(|lv| l.rung(lv).filter(|r| r.nodes.len() >= 2 * FOLD_STEP));
+        let full =
+            (1..=MAX_LEVEL).find_map(|lv| l.rung(lv).filter(|r| r.nodes.len() >= 2 * FOLD_STEP));
         let Some(rung) = full else { return Ok(out) };
         let Some(node) = fold::above(&rung.nodes[..FOLD_STEP]) else {
             return Ok(out);

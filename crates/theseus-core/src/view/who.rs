@@ -89,13 +89,24 @@ mod tests {
 
     #[test]
     fn who_am_i_names_the_profile_model_and_persona() {
-        let t = text(&who(Some("A patient harbour pilot.\nSecond line, never laid.")));
+        let t = text(&who(Some(
+            "A patient harbour pilot.\nSecond line, never laid.",
+        )));
         assert_eq!(t.lines().count(), 4, "{t}");
-        assert!(t.contains("- profile: everyday; model: claude-sonnet-5-5"), "{t}");
-        assert!(t.contains("- persona: Kestrel: A patient harbour pilot."), "{t}");
+        assert!(
+            t.contains("- profile: everyday; model: claude-sonnet-5-5"),
+            "{t}"
+        );
+        assert!(
+            t.contains("- persona: Kestrel: A patient harbour pilot."),
+            "{t}"
+        );
         assert!(!t.contains("Second line"), "the card's one line only: {t}");
         assert!(t.contains("config_show") && t.contains("look_theseus"));
-        assert!(crate::task_graph::view::is_head(&t), "the harness's own block");
+        assert!(
+            crate::task_graph::view::is_head(&t),
+            "the harness's own block"
+        );
         let built_in = text(&who(None));
         assert!(built_in.contains("- persona: Kestrel\n"), "{built_in}");
     }

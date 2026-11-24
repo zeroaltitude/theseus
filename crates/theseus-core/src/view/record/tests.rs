@@ -484,7 +484,11 @@ fn an_old_view_record_naming_a_retired_band_still_reads() {
     let (_d, store) = store();
     store
         .append(&[
-            NewRecord::bytes(kinds::META, Some("view.c-old"), OLD_VIEW.as_bytes().to_vec()),
+            NewRecord::bytes(
+                kinds::META,
+                Some("view.c-old"),
+                OLD_VIEW.as_bytes().to_vec(),
+            ),
             NewRecord::bytes(
                 kinds::META,
                 Some("view_tally.c-old"),
@@ -492,7 +496,9 @@ fn an_old_view_record_naming_a_retired_band_still_reads() {
             ),
         ])
         .unwrap();
-    let rec = read(&store, "c-old").unwrap().expect("the old record decodes");
+    let rec = read(&store, "c-old")
+        .unwrap()
+        .expect("the old record decodes");
     assert_eq!(rec.shown.len(), 5);
     let v = owner(&All).show(&rec);
     let slots: Vec<_> = v.slots.iter().map(|s| s.slot.as_str()).collect();
@@ -506,7 +512,11 @@ fn an_old_view_record_naming_a_retired_band_still_reads() {
         (retired.first.as_str(), retired.band.as_str()),
         ("his-d3", "retired")
     );
-    assert_eq!(retired.reasons, ["past"], "a reason still laid keeps its name");
+    assert_eq!(
+        retired.reasons,
+        ["past"],
+        "a reason still laid keeps its name"
+    );
     assert!(v
         .dropped
         .iter()
@@ -526,7 +536,11 @@ fn an_old_view_record_naming_a_retired_band_still_reads() {
     let by_name = |m: &std::collections::BTreeMap<Slot, Count>| -> Vec<(String, u64)> {
         m.iter().map(|(k, c)| (show::name(k), c.pieces)).collect()
     };
-    assert!(by_name(&t.slots).contains(&("retired".to_string(), 1)), "{:?}", t.slots);
+    assert!(
+        by_name(&t.slots).contains(&("retired".to_string(), 1)),
+        "{:?}",
+        t.slots
+    );
     assert_eq!(t.tokens, 400);
     assert_eq!(
         t.dropped_reasons
