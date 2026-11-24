@@ -912,6 +912,8 @@ async fn a_shadow_onto_judgment_labels_no_picture() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pictures_labels_ride_its_judgments_frame_and_land_once_after_a_retry() {
     use std::sync::Mutex;
+    // The failed frame's records, each as its scope and its key.
+    type Frame = Vec<(Option<String>, Option<String>)>;
     let jev = FakeJev::start().unwrap();
     script_pictures(&jev, ("document", 0.95), 0.9);
     let r = rig(jev);
@@ -921,7 +923,7 @@ async fn a_pictures_labels_ride_its_judgments_frame_and_land_once_after_a_retry(
         exchange::TOUCH_PREFIX,
         Root::Thing(crate::names::pictures::PREFIX).key()
     );
-    let failed: Arc<Mutex<Vec<(Option<String>, Option<String>)>>> = Arc::default();
+    let failed: Arc<Mutex<Frame>> = Arc::default();
     let seen = failed.clone();
     r.core.store.fail_plain_frame(move |rows| {
         let hit = rows
@@ -954,10 +956,7 @@ async fn a_pictures_labels_ride_its_judgments_frame_and_land_once_after_a_retry(
     assert_eq!(r.core.runner.judge.unwritten(), 0, "the retry wrote it");
     assert_eq!(picture_keys(&r).len(), 2, "{:?}", picture_keys(&r));
     for root in ["picture:document", "picture:shows_screen_or_document"] {
-        let touched: Vec<String> = pictures(&r, root)
-            .into_iter()
-            .map(|t| t.exchange)
-            .collect();
+        let touched: Vec<String> = pictures(&r, root).into_iter().map(|t| t.exchange).collect();
         assert_eq!(touched, vec![turn.clone()], "{root}");
     }
 }
