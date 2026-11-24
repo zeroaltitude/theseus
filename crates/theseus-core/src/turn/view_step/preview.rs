@@ -168,15 +168,12 @@ impl TurnRunner {
             restricted: gate_pov.present != theseus_memory::gate::Present::OwnerAlone,
         };
         let (view, overflow, folds) = match &built.assembled {
-            Ok(a) => {
-                let levels: BTreeMap<&str, u8> = (a.ladder.nodes.iter())
-                    .map(|n| (n.handle.0.as_str(), n.level))
-                    .collect();
+            Ok(_) => {
                 let record = built.frozen.record.clone();
                 let record = record.map(|v| ViewRecord::new(PREVIEW_TURN, v));
                 let shown = record.as_ref().map(|r| {
                     let v = reader.show(r);
-                    let folds = folds_of(&v, &levels);
+                    let folds = folds_of(&v);
                     (v, folds)
                 });
                 let (v, f) = shown.map_or((None, BTreeMap::new()), |(v, f)| (Some(v), f));
@@ -242,10 +239,9 @@ impl TurnRunner {
 }
 
 /// The folds the listing holds, counted by level: the shared reader lists a fold only when it proves it.
-fn folds_of(v: &ViewShown, levels: &BTreeMap<&str, u8>) -> BTreeMap<String, u64> {
+fn folds_of(v: &ViewShown) -> BTreeMap<String, u64> {
     let mut by_level = BTreeMap::new();
-    let folds = (v.slots.iter().flat_map(|s| &s.pieces)).filter(|x| x.kind == "folds");
-    for level in folds.filter_map(|x| levels.get(x.handle.as_str())) {
+    for level in (v.slots.iter().flat_map(|s| &s.pieces)).filter_map(|x| x.level) {
         *by_level.entry(level.to_string()).or_default() += 1;
     }
     by_level

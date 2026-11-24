@@ -123,6 +123,7 @@ impl Reader<'_> {
                 reasons: d.reasons.iter().map(name).collect(),
                 tokens: d.tokens,
                 why: name(&d.why),
+                level: level_of(&d.range.space),
             });
         }
         ViewShown {
@@ -197,6 +198,15 @@ fn piece_ref(p: &Piece) -> ViewPiece {
         label: String::new(),
         labels: Vec::new(),
         text: None,
+        level: level_of(&p.range.space),
+    }
+}
+
+/// A fold's rung; none for every other kind.
+fn level_of(space: &Space) -> Option<u8> {
+    match space {
+        Space::Folds { level, .. } => Some(*level),
+        _ => None,
     }
 }
 

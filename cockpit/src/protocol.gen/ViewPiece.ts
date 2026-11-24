@@ -26,4 +26,8 @@ labels: Array<string>,
 /**
  * The piece's text, when asked for and allowed; none when its source holds no text this build reads.
  */
-text?: string, };
+text?: string, 
+/**
+ * A fold's rung: 1 over exchanges, 2 and up over folds. Absent for every other kind.
+ */
+level?: number, };

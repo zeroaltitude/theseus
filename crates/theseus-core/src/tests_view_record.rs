@@ -453,6 +453,15 @@ async fn view_show_lists_a_laid_fold_with_its_range_and_tokens() {
     assert_eq!(f.handle, laid[0].piece.handle.0);
     assert!(f.tokens == laid[0].tokens && f.tokens > 0, "{f:?}");
     assert_eq!(f.text, None, "never a fold's words");
+    // Its rung, and no other piece's.
+    assert_eq!(f.level, Some(1));
+    assert!(
+        (listed(v).iter()).all(|(_, p)| (p.kind == "folds") == p.level.is_some()),
+        "{v:?}"
+    );
+    let line = format!("fold-tide-1 folds@1 {}..{} [ladder]", folded[0], folded[1]);
+    let lines = theseus_protocol::view::lines(v);
+    assert!(lines.contains(&line), "{lines}");
     let said = serde_json::to_string(&shown).unwrap();
     assert!(
         !said.contains("FOLD TITLE") && !said.contains("FOLD ACCOUNT"),
