@@ -112,21 +112,6 @@ impl Board {
         live.sort_by(|a, b| (b.last_active_ms, &a.slug).cmp(&(a.last_active_ms, &b.slug)));
         live
     }
-
-    /// The threads merged into `slug`, and those split from it, by slug.
-    pub fn links_of(&self, slug: &str) -> (Vec<String>, Vec<String>) {
-        let by = |f: fn(&ThreadInfo) -> Option<&str>| -> Vec<String> {
-            self.threads
-                .values()
-                .filter(|t| f(t) == Some(slug))
-                .map(|t| t.slug.clone())
-                .collect()
-        };
-        (
-            by(|t| t.merged_into.as_deref()),
-            by(|t| t.split_from.as_deref()),
-        )
-    }
 }
 
 /// The board, and the lock its one load takes.

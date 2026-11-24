@@ -104,7 +104,7 @@ fn use_everything(s: &Served) {
     );
     let file = s.path("watched.txt");
     std::fs::write(&file, "one").unwrap();
-    let reads: [(&str, Value); 22] = [
+    let reads: [(&str, Value); 21] = [
         ("session.list", Value::Null),
         ("session.history", json!({"session_id": ses["session_id"]})),
         ("execution.list", Value::Null),
@@ -127,7 +127,6 @@ fn use_everything(s: &Served) {
         ),
         ("wake.create", json!({"when": "1d", "note": "later"})),
         ("wake.list", Value::Null),
-        ("thread.list", Value::Null),
         ("thread.new", json!({"title": "t", "slug": "t"})),
         ("memory.search", json!({"query": "hello"})),
         ("memory.recalls", json!({})),

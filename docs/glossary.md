@@ -197,8 +197,8 @@ In the code it is a session of kind `task`: a child that works on its own and re
 there (`crates/theseus-discord/src/runtime/task_channels.rs`). It is a task's place. It is not a Theseus thread.
 
 **thread**: two meanings. (1) A retired Theseus line of work, formerly a virtual place `thread:<slug>` with its
-own session and sometimes a Discord activity thread. Since 2026-11-22 only `theseus thread list` and `thread show`
-read its stored records; creation, routing, seals and moves are gone. (2) A *task thread*: a task's live Discord
+own session and sometimes a Discord activity thread. Retired on 2026-11-22: its stored records are kept, no command
+reads them, and creation, routing, seals and moves are gone. (2) A *task thread*: a task's live Discord
 place (see above). Conversations and tasks now draw on the same memory without activity-thread containers.
 
 **turn**: One run of the model in a conversation or a task, from a message to its reply. ("working" counts turns.)

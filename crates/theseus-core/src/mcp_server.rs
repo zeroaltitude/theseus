@@ -284,8 +284,6 @@ mod tests {
         method::ONTOLOGY_PROPOSALS,
         method::ONTOLOGY_PROPOSAL_ACCEPT,
         method::THREAD_NEW,
-        method::THREAD_LIST,
-        method::THREAD_SHOW,
         method::THREAD_EDIT,
         method::THREAD_PAUSE,
         method::THREAD_RESUME,

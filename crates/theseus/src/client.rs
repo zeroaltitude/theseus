@@ -631,14 +631,6 @@ mod tests {
         }
     }
 
-    /// A thread's records are read in a job as anywhere: `thread list` and `thread show` are
-    /// not refused. (Threads were retired on 2026-11-22; no `theseus thread` verb writes.)
-    #[test]
-    fn a_jobs_process_reads_threads() {
-        assert!(refuse_in_a_job(method::THREAD_LIST, Some("ses_0000aa1b2c3")).is_ok());
-        assert!(refuse_in_a_job(method::THREAD_SHOW, Some("ses_0000aa1b2c3")).is_ok());
-    }
-
     /// A job's process cannot label a judgment (M5 25c): the learning
     /// ledger grades the judge watching it by those labels. The report is a
     /// read, and goes.

@@ -1217,11 +1217,6 @@ pub(crate) enum Act<'a> {
     /// spends money on a schedule, so only the owner, from a private place.
     /// `what` names it: `the routine a41d04`.
     Routine { method: &'static str, what: &'a str },
-    /// A thread's making, edit, pause, resume, finish or reopening, or a
-    /// read of the threads (theseus-nhew): a thread is private always, so
-    /// only the owner, from a private place, reads or writes one. `what`
-    /// names it: `the thread tides`.
-    Thread { method: &'static str, what: &'a str },
     /// A watch's making (theseus-f2r2b, `watch.create`): it runs a command, reads a
     /// file or fetches a URL by itself on a timer, so a job's process that
     /// made one would schedule its own work. Only the owner, from a private
@@ -1303,7 +1298,6 @@ impl Act<'_> {
             Act::Unlabel { .. } => theseus_protocol::method::CONTENT_UNLABEL,
             Act::Standing { method, .. } | Act::Trust { method, .. } => method,
             Act::Routine { method, .. } => method,
-            Act::Thread { method, .. } => method,
             Act::Watch { method, .. } => method,
             Act::SelfResume { .. } => theseus_protocol::method::SELF_RESUME,
             Act::SelfBacklog { method, .. } => method,

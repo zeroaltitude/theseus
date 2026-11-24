@@ -279,27 +279,6 @@ impl crate::rpc::Core {
             kept: 0,
         }
     }
-
-    /// One thread's numbers for `thread show` and `thread list`, for the
-    /// sessions `rows` name: none for a session with none today.
-    pub(crate) fn thread_cache_for(
-        &self,
-        sessions: &[String],
-    ) -> BTreeMap<String, ThreadCacheStats> {
-        let mut want = BTreeMap::new();
-        for sid in sessions {
-            let start = crate::learning::local_midnight(theseus_protocol::now_unix_ms())
-                .saturating_sub(crate::config::CacheTtl::OneHour.ms());
-            let existed = self
-                .store
-                .get_session::<crate::session::SessionRecord>(sid)
-                .ok()
-                .flatten()
-                .is_some_and(|r| r.created_at_unix_ms < start);
-            want.insert(sid.clone(), existed);
-        }
-        self.thread_cache_stats(&want)
-    }
 }
 
 /// A ledger row as an event: a `provider.call`'s usage (its turn's first

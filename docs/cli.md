@@ -226,9 +226,9 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 
 ## Threads, places and projects
 
-- **`thread`**: read-only history since 2026-11-22. `theseus thread list` and `thread show SLUG` read stored
-  records; creation, routing, sealing and moving are gone. Messages run in their place's conversation.
-  The old `thread import --vestige PATH` alias now points to `theseus import vestige PATH`.
+- **`thread`**: retired on 2026-11-22. No command reads the stored thread records, which are kept; creation,
+  routing, sealing and moving are gone too. Messages run in their place's conversation. The old
+  `thread import --vestige PATH` alias now points to `theseus import vestige PATH`.
 - **`places`**: each place Theseus speaks in, and its class (private or shared). `theseus places`.
 - **`publish`**: put one item (a node, a file, or `--text`) into a place's conversation as your message.
   `theseus publish --to '#general' --text "hello"`.

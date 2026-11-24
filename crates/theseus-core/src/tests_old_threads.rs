@@ -1,6 +1,6 @@
 //! Thread records as an older store holds them. Threads were retired on 2026-11-22 (issue 44) and nothing
-//! writes one any more, so the tests of what still reads them (`thread list` / `show`, the card, the place
-//! digest, recall) write the old records here, literally: a `thread:<slug>` META record and the place
+//! writes one any more, so the tests of what still reads them (the board, the card, the place digest,
+//! recall) write the old records here, literally: a `thread:<slug>` META record and the place
 //! binding of the session the thread ran on.
 
 use serde_json::{json, Value};

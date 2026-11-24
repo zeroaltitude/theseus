@@ -53,7 +53,7 @@ your own DM counts on its own** — it is your surface, and the core checks that
 ## Historical activity threads
 
 `/thread` and `/move` were removed on 2026-11-22. A message runs in this place's conversation, not in a routed
-activity thread. Stored thread records remain readable through `theseus thread list` and `theseus thread show`.
+activity thread. Stored thread records are kept; no command reads them.
 Discord task threads are different: they still hold a task's posts and steers.
 
 ## Yours alone

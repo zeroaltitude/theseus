@@ -960,7 +960,7 @@ slot F is built, the search is not, and the sizes are unmeasured. In (c), the ca
 
 ## 9. What becomes of threads, sessions and places; what stays a wall
 
-*Superseded on 2026-11-22: threads are not containers. No message is sent to a thread's own session; `theseus thread list` and `thread show` read the stored records, and every other thread command is gone. What follows is the design as it was.*
+*Superseded on 2026-11-22: threads are not containers. No message is sent to a thread's own session; the stored records are kept, and every thread command is gone. What follows is the design as it was.*
 
 - **A place** is an address, an audience and a timeline. It holds no conversation of its own.
 - **A session** is one run: the execution and the provider's chain of one point of view. Two places run at
@@ -995,7 +995,7 @@ built). Threads are not containers: there is no thread-based routing (no message
 address; an old session can still be opened by its ordinary session id), and `thread.move` is refused ("thread.move is gone"). A seal is no wall: nothing is withheld from a request because of
 who is present, where it is, a seal, a move or a veil (the gate reads only whether a piece's place is known), and
 the seal methods are refused; old seal and move records still decode. Thread records stay as things
-(`thread list`, `thread show`). What went on 2026-11-21 stays gone: the router's scoring and its questions, the
+(kept, with no command that reads them). What went on 2026-11-21 stays gone: the router's scoring and its questions, the
 fusion with the judge's `thread` pick, the learned corrections, the misroute guard, the home claim
 (`thread.unclaim` is refused; old claim records and their types stay readable) and the thread importer (the session import stays; its spend
 still counts toward the day's ceiling). The paragraphs that described thread addressing, sealed threads' own
