@@ -321,12 +321,15 @@ async fn view_show_says_which_view_this_build_cannot_read() {
             .with_ansi(false)
             .finish(),
     );
-    let unread = shown(&first).await;
+    // The listing `view show` reads, on this thread: the RPC reads it on a blocking thread this log does not see.
+    let (_, listed) = record::of_turn_unread(&c.store, &first).unwrap();
     drop(g);
+    assert_eq!(listed, vec![cid.clone()]);
     let left_out = log.lines(LEFT_OUT);
     assert_eq!(left_out.len(), 1, "one warning: {left_out:?}");
     assert!(left_out[0].contains(&cid), "names it: {left_out:?}");
     log.quotes_nothing_planted();
+    let unread = shown(&first).await;
     assert!(
         !unread.views.iter().any(|v| v.compilation == cid),
         "{unread:?}"
