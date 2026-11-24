@@ -450,10 +450,9 @@ pub fn observe(
 /// `looked`, at the digest `old` stored for it: this compile did not look
 /// for it, so it says nothing about it.
 fn carry(now: &mut Seen, old: &Seen, looked: &[PathBuf]) {
+    let looked: std::collections::HashSet<&Path> = looked.iter().map(PathBuf::as_path).collect();
     for (path, digest) in &old.files {
-        let here = Path::new(path)
-            .parent()
-            .is_some_and(|d| looked.iter().any(|l| l == d));
+        let here = Path::new(path).parent().is_some_and(|d| looked.contains(d));
         if !here {
             now.files
                 .entry(path.clone())
