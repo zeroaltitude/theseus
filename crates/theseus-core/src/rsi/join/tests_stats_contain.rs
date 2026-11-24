@@ -1,7 +1,7 @@
 //! What the count in the self-join's merge may reach (issue 45). Its checks and its fold run outside
 //! L1, so they may run nothing the branch selects: no filter its `.gitattributes` names, no hook, no
 //! file-system monitor. Its one lasting write is the tree: a build directory it writes into is never
-//! the gate's.
+//! the gate's. The notice's `Lines:` is the counter's own shape or nothing.
 
 use serde_json::Value;
 use theseus_protocol::rsi::SelfMode;
@@ -258,4 +258,18 @@ async fn the_count_leaves_nothing_in_the_gates_build_directory() {
             .collect();
         assert!(left.is_empty(), "{left:?}");
     }
+}
+
+/// F3: a counter whose `--range` prints its line and then something else gives no `lines`, and the
+/// notice no `Lines:`.
+#[tokio::test]
+async fn a_range_not_of_the_counters_shape_gives_no_lines() {
+    let r = rig(SelfMode::Act);
+    let range = format!("{RANGE}stats: and then this\n");
+    let c = counter_with("pass", &range, "");
+    let (_, _, merge, j) = join(&r, &[("scripts/stats.py", &c)], PROVED, r.seams()).await;
+    assert_eq!(j["numbers"]["stats"], "counted", "{j}");
+    assert_eq!(j["numbers"]["lines"], Value::Null, "{j}");
+    let said = super::install::notice(&j, None, &merge);
+    assert!(!said.contains("Lines:"), "{said}");
 }

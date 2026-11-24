@@ -20,7 +20,8 @@
 //!   `skipped: <why>`. The one exception: a tree that cannot be shown put back stops the join.
 //!
 //! A main with no counter joins as before. Before the count, the same counter's `--range` gives
-//! the merge's change in lines for the notice (issue 45, line 2), checked by the same containment.
+//! the merge's change in lines for the notice (issue 45, line 2), checked by the same containment and
+//! kept only when its last line is the counter's own shape ([`range_line`]).
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -240,13 +241,53 @@ fn at_l0(
     Ok(status?.code())
 }
 
-/// The change in lines the counter's `--range` printed, without its `lines <a>..<b>: ` ids: the
-/// merge it names is not yet the one that lands.
+/// The change in lines the counter's `--range` printed, without its `lines <a>..<b>: ` ids (the
+/// merge it names is not yet the one that lands): only the log's last line that is not empty, and
+/// only when the whole of it is the counter's own shape, `lines <hex>..<hex>: code A -> B (±D); test
+/// code A -> B (±D); comments A -> B (±D)`, each number an integer grouped by commas. Anything else is
+/// no line at all.
 fn range_line(log: &Path) -> Option<String> {
     let said = std::fs::read_to_string(log).ok()?;
-    let line = said.lines().rev().find(|l| l.starts_with("lines "))?;
-    let (_, change) = line.split_once(": ")?;
-    Some(change.chars().take(300).collect())
+    let line = said.lines().rev().find(|l| !l.trim().is_empty())?;
+    let rest = line.strip_prefix("lines ")?;
+    let (ids, change) = rest.split_once(": ")?;
+    let (a, b) = ids.split_once("..")?;
+    let hex = |s: &str| (4..=64).contains(&s.len()) && s.bytes().all(|c| c.is_ascii_hexdigit());
+    if !hex(a) || !hex(b) {
+        return None;
+    }
+    let parts: Vec<&str> = change.split("; ").collect();
+    let names = ["code", "test code", "comments"];
+    if parts.len() != names.len() {
+        return None;
+    }
+    for (part, name) in parts.iter().zip(names) {
+        let (from, rest) = part
+            .strip_prefix(name)?
+            .strip_prefix(' ')?
+            .split_once(" -> ")?;
+        let (to, delta) = rest.split_once(" (")?;
+        let delta = delta.strip_suffix(')')?;
+        let signed = delta
+            .strip_prefix('+')
+            .or_else(|| delta.strip_prefix('-'))?;
+        if !grouped(from) || !grouped(to) || !grouped(signed) {
+            return None;
+        }
+    }
+    Some(change.to_string())
+}
+
+/// An integer as Python's `{:,}` writes it: `0`, or a first group of one to three digits with no
+/// leading zero, then groups of three after commas.
+fn grouped(s: &str) -> bool {
+    let mut groups = s.split(',');
+    let first = groups.next().unwrap_or("");
+    let digits = |g: &str| g.bytes().all(|c| c.is_ascii_digit());
+    let first_ok = (1..=3).contains(&first.len())
+        && digits(first)
+        && (first == "0" || !first.starts_with('0'));
+    first_ok && groups.all(|g| g.len() == 3 && digits(g)) && !(first == "0" && s.len() > 1)
 }
 
 /// The count in the tree, checked and folded into `merge`: the folded merge, or none when the tree
@@ -470,3 +511,6 @@ fn restore(p: &Place, t: &Tree, merge: &str, before: &Snapshot) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod range_tests;
