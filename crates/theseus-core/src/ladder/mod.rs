@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 pub mod build;
 pub mod did;
 pub mod fold;
+pub mod gists;
 pub mod read;
 pub mod view;
 pub mod writer;
@@ -44,6 +45,8 @@ pub mod writer;
 mod tests;
 #[cfg(test)]
 mod tests_authors;
+#[cfg(test)]
+mod tests_gists;
 #[cfg(test)]
 mod tests_job;
 #[cfg(test)]

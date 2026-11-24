@@ -378,6 +378,50 @@ async fn the_exchange_methods_answer_the_terminal_and_refuse_a_transport() {
     assert!(no.error.is_some());
 }
 
+/// The reading sheet is the owner's to read in person (issue 44, step 4): his own terminal or the web UI
+/// answers it; an agent's process on either, a job's and a process with no terminal are refused, and so is
+/// a chat transport.
+#[tokio::test]
+async fn gists_is_refused_to_an_agents_process() {
+    let r = rig(0, |_| {});
+    let c = &r.core;
+    let asked = json!({"lines": 5, "nodes": 2, "seed": 7});
+    for owner in [
+        owner_cli(),
+        Client::new("ws#1", Surface::Web).behind(Behind::Owner),
+    ] {
+        let ok = call(c, owner, "exchange.gists", asked.clone()).await;
+        assert!(ok.error.is_none(), "{:?}", ok.error);
+        let sheet: theseus_protocol::exchange::ExchangeGistsResult =
+            serde_json::from_value(ok.result.unwrap()).unwrap();
+        assert_eq!(
+            (sheet.seed, sheet.lines_total, sheet.nodes_total),
+            (7, 0, 0)
+        );
+    }
+    let agents = [
+        ("claude", Surface::Cli),
+        (peer_proc::JOB, Surface::Cli),
+        (peer_proc::NO_TERMINAL, Surface::Cli),
+        ("claude", Surface::Web),
+    ];
+    for (name, surface) in agents {
+        let agent = Client::new("sock#9", surface).behind(Behind::Agent(name.into()));
+        let no = call(c, agent, "exchange.gists", asked.clone()).await;
+        let e = no.error.expect("an agent's process is refused");
+        assert_eq!(
+            e.code,
+            theseus_protocol::error_code::REFUSED,
+            "{name}: {e:?}"
+        );
+        assert!(e.message.contains("agent's process"), "{name}: {e:?}");
+    }
+    let dc = Client::new("discord#1", Surface::Discord);
+    let no = call(c, dc, "exchange.gists", asked).await;
+    let e = no.error.expect("a chat transport is refused");
+    assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{e:?}");
+}
+
 /// The bytes of the ledger's own records after two turns: each message's mark, each turn's exchange and
 /// its touches, keys included.
 async fn ledger_bytes() -> u64 {

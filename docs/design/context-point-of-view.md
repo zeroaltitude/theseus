@@ -970,7 +970,7 @@ naming either still loads, with a warning.) Step by step:
   session listings and a narrowing steer's already-sent text are not behind it yet.
 - **3**: not built as planned. His words in his other private places reach a model only in a place set to the
   view, as slot F; the per-turn block of a transcript place does not carry them. 3b is not built.
-- **4**: built, without the `gists` view and without his reading of 50 lines and 10 nodes.
+- **4**: built, with the `gists` view (`theseus ledger gists`), and without his reading of 50 lines and 10 nodes.
 - **5**: the recognition half built, not run in shadow and not read by the view; the search and `leans_on` not
   built.
 - **6 and 7**: built as one, live behind `[context] assembly` with no shadow run, no labelled set, no replay, no

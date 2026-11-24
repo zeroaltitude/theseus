@@ -1,0 +1,146 @@
+//! The reading sheet (`exchange.gists`, issue 44, step 4; design §10): a
+//! sample of `did` lines and of first-level fold nodes, each beside what its
+//! writer read, so the owner can say whether each is true. A line is shown
+//! as the view shows it ([`did::shown_line`]), and a node as the view's fold
+//! block, so a wrong verdict is the writer's error, not the reader's. The
+//! draw is by a seed, so the same seed over the same records draws the same
+//! items. It only reads: nothing is stored and no model is called.
+
+use theseus_protocol::exchange::{ExchangeGistsParams, ExchangeGistsResult, GistLine, GistNode};
+use theseus_store::{kinds, Store as _};
+
+use super::did::{self, DidLine, Said, DID_PREFIX};
+use super::fold::{self, FoldNode, FOLD_PREFIX};
+use crate::store::Store;
+
+/// The sheet for `p`: its seed, or one chosen now and returned.
+pub fn sheet(store: &Store, p: &ExchangeGistsParams) -> anyhow::Result<ExchangeGistsResult> {
+    let seed = p
+        .seed
+        .unwrap_or_else(|| theseus_protocol::now_unix_ms() % 1_000_000);
+    let place = p.place.as_deref();
+    let mut lines: Vec<DidLine> = Vec::new();
+    for r in store.inner().latest_with_prefix(kinds::META, DID_PREFIX)? {
+        let d: DidLine = r.decode()?;
+        if place.is_none_or(|p| d.marks.place.as_deref() == Some(p)) {
+            lines.push(d);
+        }
+    }
+    // The prefix is not the boundary: a node is of the place, and of the
+    // first level, when it says so itself.
+    let prefix = match place {
+        Some(p) => format!("{FOLD_PREFIX}{p}{}1{}", super::SEP, super::SEP),
+        None => FOLD_PREFIX.to_string(),
+    };
+    let mut nodes: Vec<FoldNode> = Vec::new();
+    for r in store.inner().latest_with_prefix(kinds::META, &prefix)? {
+        let n: FoldNode = r.decode()?;
+        if n.level == 1 && place.is_none_or(|p| n.place == p) {
+            nodes.push(n);
+        }
+    }
+    let (lines_total, nodes_total) = (lines.len() as u64, nodes.len() as u64);
+    let mut lines = draw(lines, p.lines as usize, seed)
+        .iter()
+        .map(|d| line(store, d))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    lines.sort_by(|a, b| (a.at_ms, &a.turn_id).cmp(&(b.at_ms, &b.turn_id)));
+    // A second stream of the seed, so a change in how many lines are asked
+    // never changes which nodes are drawn.
+    let mut nodes = draw(nodes, p.nodes as usize, seed ^ NODES)
+        .iter()
+        .map(|n| node(store, n))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    nodes.sort_by(|a, b| (a.first_ms, &a.id).cmp(&(b.first_ms, &b.id)));
+    Ok(ExchangeGistsResult {
+        place: p.place.clone(),
+        seed,
+        lines_total,
+        nodes_total,
+        lines,
+        nodes,
+    })
+}
+
+const NODES: u64 = 0x6e6f_6465_7321;
+
+/// `k` of `all` (in the store's key order), drawn by `seed`: a partial
+/// Fisher-Yates shuffle on splitmix64, written here so a seed draws the
+/// same items on every build.
+fn draw<T>(mut all: Vec<T>, k: usize, seed: u64) -> Vec<T> {
+    let mut state = seed;
+    let k = k.min(all.len());
+    for i in 0..k {
+        state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^= z >> 31;
+        let j = i + (z % (all.len() - i) as u64) as usize;
+        all.swap(i, j);
+    }
+    all.truncate(k);
+    all
+}
+
+/// A line beside what its writer reads for its exchange.
+fn line(store: &Store, d: &DidLine) -> anyhow::Result<GistLine> {
+    let r = did::read(store, &d.turn_id)?;
+    Ok(GistLine {
+        turn_id: d.turn_id.clone(),
+        place: d.marks.place.clone().unwrap_or_default(),
+        at_ms: r.as_ref().map_or(d.at_ms, |r| r.ex.start_ms),
+        model: d.model.clone(),
+        writer: d.writer,
+        read: r.as_ref().map(did::material),
+        line: did::shown_line(store, d),
+    })
+}
+
+/// A node beside what its writer read: each exchange still readable, with
+/// the `did` line it had when the node was written (a line written after it
+/// was not read), and the node as the view's fold block shows it.
+fn node(store: &Store, n: &FoldNode) -> anyhow::Result<GistNode> {
+    let mut reads = Vec::new();
+    for t in &n.exchanges {
+        let Some(r) = did::read(store, t)? else {
+            continue;
+        };
+        let said = match did::said(store, t)? {
+            Said::Line(d) if d.at_ms > n.at_ms => Said::NotSummarised { handle: t.clone() },
+            said => said,
+        };
+        reads.push((r, said));
+    }
+    let renderer = crate::view::wire_text::TextRenderer {
+        store,
+        kernel: None,
+        sessions: None,
+        zone: &crate::recall::stamp::system,
+    };
+    let pov = crate::view::PointOfView {
+        anchor: crate::view::Anchor::Place(n.place.clone()),
+        person: Some(crate::exchange::OWNER.into()),
+        present: crate::view::Present::Private,
+        at_hand: None,
+        now_ms: theseus_protocol::now_unix_ms(),
+    };
+    let shown = renderer
+        .ladder(&pov, &[super::view::shown(n)])?
+        .into_iter()
+        .map(|b| format!("{}\n{}", b.heading, b.text))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(GistNode {
+        id: n.id.clone(),
+        place: n.place.clone(),
+        first_ms: n.first_ms,
+        last_ms: n.last_ms,
+        exchanges: n.exchanges.len() as u32,
+        readable: reads.len() as u32,
+        model: n.model.clone(),
+        writer: n.writer,
+        read: fold::material(&reads),
+        shown,
+    })
+}

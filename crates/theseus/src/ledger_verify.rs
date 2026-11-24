@@ -60,6 +60,22 @@ pub enum LedgerCmd {
         #[arg(long)]
         over_day_line: bool,
     },
+    /// A reading sheet of the one-line summaries and first-level fold nodes, each beside what its
+    /// writer read and as the view shows it, for you to mark each one right or wrong. Yours alone,
+    /// at your own terminal; it stores nothing and calls no model. `--seed` draws the same items again.
+    Gists {
+        /// One place, as the exchange ledger names it; default: every place.
+        place: Option<String>,
+        /// How many one-line summaries to draw.
+        #[arg(long, default_value_t = 50)]
+        lines: u32,
+        /// How many first-level fold nodes to draw.
+        #[arg(long, default_value_t = 10)]
+        nodes: u32,
+        /// The draw's seed, as a sheet printed it; default: a new one.
+        #[arg(long)]
+        seed: Option<u64>,
+    },
 }
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
@@ -89,6 +105,20 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
                 (dry_run, cap_usd, over_day_line),
             )
             .await
+        }
+        LedgerCmd::Gists {
+            place,
+            lines,
+            nodes,
+            seed,
+        } => {
+            let p = theseus_protocol::exchange::ExchangeGistsParams {
+                place,
+                lines,
+                nodes,
+                seed,
+            };
+            return crate::exchanges_cmd::gists(conn, json, p).await;
         }
         LedgerCmd::Head => (
             LedgerVerifyParams {

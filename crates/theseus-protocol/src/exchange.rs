@@ -119,3 +119,95 @@ pub struct ExchangeLadderResult {
     #[cfg_attr(test, ts(optional))]
     pub stopped: Option<String>,
 }
+
+/// `exchange.gists` (issue 44, step 4): a reading sheet of `did` lines and
+/// first-level fold nodes, each beside what its writer read, drawn by a
+/// seed so a reading can be repeated. A read for the owner in person; it
+/// stores nothing and calls no model.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ExchangeGistsParams {
+    /// One place, as the ledger names it; none: every place.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub place: Option<String>,
+    /// How many lines, and how many nodes, to draw.
+    pub lines: u32,
+    pub nodes: u32,
+    /// The draw's seed; none: one is chosen and returned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub seed: Option<u64>,
+}
+
+impl Default for ExchangeGistsParams {
+    fn default() -> Self {
+        ExchangeGistsParams {
+            place: None,
+            lines: 50,
+            nodes: 10,
+            seed: None,
+        }
+    }
+}
+
+/// A reading sheet: how many lines and first-level nodes exist where it
+/// looked, the seed it drew with, and what it drew, oldest first.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ExchangeGistsResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub place: Option<String>,
+    pub seed: u64,
+    pub lines_total: u64,
+    pub nodes_total: u64,
+    pub lines: Vec<GistLine>,
+    pub nodes: Vec<GistNode>,
+}
+
+/// A `did` line beside its exchange.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct GistLine {
+    pub turn_id: String,
+    pub place: String,
+    /// The exchange's start (the line's own time when it cannot be read).
+    pub at_ms: u64,
+    pub model: String,
+    pub writer: u32,
+    /// What the line's writer reads for its exchange: the message and the
+    /// final reply at its own cuts, each author as it is told; none when the
+    /// exchange cannot be read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub read: Option<String>,
+    /// The line as the view shows it.
+    pub line: String,
+}
+
+/// A first-level fold node beside its exchanges.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct GistNode {
+    pub id: String,
+    pub place: String,
+    pub first_ms: u64,
+    pub last_ms: u64,
+    /// The exchanges it stands for, and how many of them can still be read.
+    pub exchanges: u32,
+    pub readable: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub model: Option<String>,
+    pub writer: u32,
+    /// What its writer reads for those still readable, at its own cuts, each
+    /// with the `did` line it had when the node was written.
+    pub read: String,
+    /// The node as the view shows it: its heading, then its text.
+    pub shown: String,
+}

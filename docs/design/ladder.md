@@ -67,3 +67,15 @@ lines and the folds, prices them at their worst case, and writes nothing.
   person, author unknown), and the writer is told each author. A node written before authorship was recorded
   (writer version 1) shows its excerpts but no title and no account, unless it is a first-level node whose every
   message is shown as the owner's; a `did` line of that version is not fed to a new summary.
+
+## Reading them (`theseus ledger gists`)
+
+`theseus ledger gists [PLACE] [--lines 50] [--nodes 10] [--seed N]` (`exchange.gists`, `ladder::gists`) prints a
+reading sheet: a draw of `did` lines and of first-level fold nodes, from one place or every place. Each item shows
+what its writer read (`did::material` for a line; `fold::material` for a node, each exchange with the `did` line it
+had when the node was written), then the line or node as the view shows it (`did::shown_line`; the view's fold
+block), then a blank verdict: wrong number, name or choice; other error; or ok. So a wrong verdict is the writer's
+error, never a cut the reader did not see. The sheet says how many lines and first-level nodes exist, and says so
+when fewer exist than were asked. It prints its seed: the same seed over the same records draws the same items.
+It is the owner's in person (the check `exchange.ladder` uses): an agent's process, a job and a chat surface are
+refused. It stores nothing, no verdict and no sample, and calls no model; the owner keeps his own counts.
