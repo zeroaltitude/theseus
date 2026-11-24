@@ -28,7 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 VIEW = ROOT / "bench" / "view"
-sys.path[:0] = [str(VIEW), str(ROOT / "bench" / "recall")]
+sys.path[:0] = [str(VIEW), str(ROOT / "bench" / "recall"), str(ROOT)]
 NEW_ENOUGH = sys.version_info >= (3, 11)
 if NEW_ENOUGH:
     import cases as vc  # noqa: E402
@@ -900,9 +900,9 @@ class Pieces(unittest.TestCase):
         self.assertFalse(done)  # no message_stop: the caller keeps the reservation
 
 
-def built_bins() -> Path | None:
-    d = ROOT / "target" / "debug"
-    return d if all((d / b).is_file() for b in ("theseus", "theseusd")) else None
+def built_bins() -> Path:
+    from scripts.tests.built_bins import current_bins
+    return current_bins(ROOT)
 
 
 @unittest.skipUnless(NEW_ENOUGH, "the view kit reads TOML with tomllib: Python 3.11 or newer")
@@ -913,8 +913,6 @@ class RealDaemon(unittest.TestCase):
 
     def test_a_built_store_replays_with_no_marker_in_anything_written(self):
         bins = built_bins()
-        if bins is None:
-            self.skipTest("target/debug has no theseus and theseusd")
         tmp = Path(tempfile.mkdtemp(prefix="view-kit-real-"))
         self.addCleanup(shutil.rmtree, tmp, True)
         case = {"id": "m", "class": "callback_here",
