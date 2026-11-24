@@ -9,10 +9,15 @@
 //!   other surface is refused (a shared place's client could be one), and a
 //!   call with memory off answers `OFF`: one check ([`Core::mcp_memory_only`])
 //!   for both methods, so their refusals cannot drift.
+//! - **And `history.read` for the owner's terminal** (issue 44): `theseus
+//!   history` with a search reads the same page an MCP client does, the
+//!   vault's values substituted alike, whatever `[mcp_server] memory` says
+//!   (that switch is for other agents). A web or chat surface is refused.
 //! - **Ledgered**: each call that reads writes one `memory.read` row: the
-//!   principal `mcp`, the tool, the client, a digest of the words (or the id,
-//!   or the session; never the text), and how many hits answered. Nothing
-//!   else is written, and no turn is on the path.
+//!   principal (`mcp`, or `cli` for the terminal), the tool, the client, a
+//!   digest of the words (or the id, or the session; never the text), and
+//!   how many hits answered. Nothing else is written, and no turn is on the
+//!   path.
 
 use std::sync::Arc;
 
@@ -98,6 +103,7 @@ impl Core {
         };
         let hits = read.as_ref().map_or(0, |r| r.hits.len() as u64);
         self.read_row(
+            crate::mcp_server::PRINCIPAL,
             p.client.clone(),
             tool,
             asked.unwrap_or_default().trim(),
@@ -108,7 +114,8 @@ impl Core {
         read.map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e))
     }
 
-    /// `history.read` from a connection of `surface`: the history tool's read for an MCP client. Its row's
+    /// `history.read` from a connection of `surface`: the history tool's read for an MCP client, or for the
+    /// owner's terminal ([`Core::history_reader`]). Its row's
     /// digest is of the arguments asked (the client's name aside), as one JSON line; its count, the lines
     /// answered (an open is one). A call refused before it reads (a non-MCP surface, memory off, or, in `mem`,
     /// params that do not decode) writes no row, as `memory.lookup`'s do not.
@@ -117,7 +124,7 @@ impl Core {
         p: HistoryReadParams,
         surface: Surface,
     ) -> Result<HistoryReadResult, RpcFailure> {
-        self.mcp_memory_only(method::HISTORY_READ, surface)?;
+        let principal = self.history_reader(surface)?;
         let read = crate::history_tool::mcp::history(self, &p).await;
         let hits = read.as_ref().map_or(0, |r| match r.open {
             Some(_) => 1,
@@ -128,8 +135,15 @@ impl Core {
             ..p.clone()
         };
         let asked = serde_json::to_string(&asked).unwrap_or_default();
-        self.read_row(p.client.clone(), TOOL_HISTORY, &asked, hits, read.is_ok())
-            .await;
+        self.read_row(
+            principal,
+            p.client.clone(),
+            TOOL_HISTORY,
+            &asked,
+            hits,
+            read.is_ok(),
+        )
+        .await;
         read.map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e))
     }
 
@@ -150,10 +164,31 @@ impl Core {
         Ok(())
     }
 
-    /// A read's `memory.read` row: the principal `mcp`, the client, the tool, the first 16 hex digits of the
+    /// Who may read `history.read` on `surface`, as its row's principal: the owner's terminal (`cli`), whatever
+    /// `[mcp_server] memory` says; the MCP connection as every MCP memory read ([`Core::mcp_memory_only`]); a web
+    /// or chat surface is refused.
+    fn history_reader(&self, surface: Surface) -> Result<&'static str, RpcFailure> {
+        match surface {
+            Surface::Cli => Ok(CLI),
+            Surface::Mcp => self
+                .mcp_memory_only(method::HISTORY_READ, surface)
+                .map(|()| crate::mcp_server::PRINCIPAL),
+            _ => Err(RpcFailure::new(
+                error_code::REFUSED,
+                format!(
+                    "{} is the terminal's and the MCP server's: it reads the owner's memory, \
+                     and this surface may not",
+                    method::HISTORY_READ
+                ),
+            )),
+        }
+    }
+
+    /// A read's `memory.read` row: its principal, the client, the tool, the first 16 hex digits of the
     /// SHA-256 of what was asked (never the words), how many answered, and whether it did.
     async fn read_row(
         self: &Arc<Self>,
+        principal: &'static str,
         client: Option<String>,
         tool: &'static str,
         asked: &str,
@@ -168,7 +203,7 @@ impl Core {
         let core = self.clone();
         let _ = tokio::task::spawn_blocking(move || {
             core.rec(None).record(&fact::memory::MemoryRead {
-                principal: crate::mcp_server::PRINCIPAL,
+                principal,
                 client: client.as_deref(),
                 tool,
                 digest: &digest,
@@ -179,6 +214,9 @@ impl Core {
         .await;
     }
 }
+
+/// The principal of a terminal's `history.read`, as its `memory.read` row names it.
+pub const CLI: &str = "cli";
 
 /// The MCP tool `history.read` answers, as its `memory.read` row names it.
 pub const TOOL_HISTORY: &str = "context_history";

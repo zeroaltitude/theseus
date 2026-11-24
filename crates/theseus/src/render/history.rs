@@ -2,6 +2,7 @@
 //! `theseus reach` takes (theseus-glyw), and where the page it printed ends,
 //! with the command for the next one either way (theseus-xo0m, theseus-kym3).
 
+use theseus_protocol::memory::HistoryReadResult;
 use theseus_protocol::{short_id as short, NodeInfo, SessionHistoryResult};
 
 use super::md::Markdown;
@@ -28,6 +29,68 @@ pub fn page_lines(h: &SessionHistoryResult) -> Vec<Line> {
         );
     }
     out
+}
+
+/// A search's page (`history.read`, issue 44): a heading, one line an exchange (when · place · whose words:
+/// the words → what was done · handle, and what a content label was on), and how the page ends, with the
+/// command that reads on (`again`, the search's own flags) when there is more.
+pub fn read_lines(r: &HistoryReadResult, again: &str) -> Vec<Line> {
+    let mut out = Vec::new();
+    let of = match r.place.as_str() {
+        "" => "every place",
+        p => place_said(p),
+    };
+    let n = r.lines.len();
+    let s = if n == 1 { "" } else { "s" };
+    push(
+        &mut out,
+        Tag::Dim,
+        &format!("── {n} exchange{s} of {of}'s history, newest first"),
+    );
+    for l in &r.lines {
+        let did = match (&l.did, &l.reply_begins) {
+            (Some(d), _) => format!("you did: «{d}»"),
+            (None, Some(b)) => format!("your reply began: «{b}»"),
+            (None, None) => "reply not summarised".into(),
+        };
+        let mut text = format!(
+            "{} · {} · {}: «{}» → {did} · {}",
+            l.when,
+            place_said(&l.place),
+            l.who,
+            l.words,
+            l.handle
+        );
+        if let Some(labels) = &l.labels {
+            text.push_str(&format!(" · {labels}"));
+        }
+        push(&mut out, Tag::Plain, &text);
+    }
+    let on = |c: &theseus_protocol::memory::HistoryCursor| {
+        format!("{again} --before {}:{}", c.at_ms, c.turn_id)
+    };
+    let end = match (r.end.as_str(), &r.next) {
+        ("more", Some(c)) => format!("── more before these: {}", on(c)),
+        ("scan_limit", Some(c)) => format!(
+            "── the reading limit stopped this page before it was full, not the end of history: {}",
+            on(c)
+        ),
+        ("span_start", _) => "── that is all of the span".into(),
+        ("search_cut", _) => {
+            "── this search may be incomplete: try other words, or read without --words".into()
+        }
+        _ => "── nothing older is on record".into(),
+    };
+    push(&mut out, Tag::Dim, &end);
+    out
+}
+
+/// A place as a page says it: history whose place was never recorded says so.
+fn place_said(place: &str) -> &str {
+    match place {
+        "unknown" => "place not recorded",
+        p => p,
+    }
 }
 
 /// A node's lines as `super::node_lines` writes them, its short id after its

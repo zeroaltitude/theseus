@@ -143,7 +143,7 @@ async fn memory_off_answers_the_refusal_and_other_surfaces_are_refused() {
     );
     assert!(rows(&r.core, "memory.read").is_empty());
     let on = rig(true);
-    for surface in [Surface::Cli, Surface::Discord] {
+    for surface in [Surface::Web, Surface::Discord] {
         let e = rpc(
             &on.core,
             surface,
@@ -154,11 +154,76 @@ async fn memory_off_answers_the_refusal_and_other_surfaces_are_refused() {
         .unwrap_err();
         assert_eq!(
             e.message,
-            "history.read is the MCP server's: it reads the owner's memory for another agent",
+            "history.read is the terminal's and the MCP server's: it reads the owner's memory, and this \
+             surface may not",
             "{e:?}"
         );
     }
+    assert!(rows(&on.core, "memory.read").is_empty());
     assert!(crate::mcp_server::allowed(method::HISTORY_READ));
+}
+
+/// The owner's terminal reads `history.read` (issue 44: `theseus history` with a search), whatever
+/// `[mcp_server] memory` says, and its row names it `cli`; a web or chat surface is still refused, and an MCP
+/// client with memory off still answers the refusal.
+#[tokio::test]
+async fn the_terminal_reads_history_and_a_web_or_chat_surface_is_still_refused() {
+    let r = rig(false);
+    let native = session(&r.core, None);
+    turn(&r.core, &native, "the gull at the pier").await;
+    let v = rpc(
+        &r.core,
+        Surface::Cli,
+        method::HISTORY_READ,
+        json!({"from": "2000-01-01"}),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(v.to_string().contains("the gull at the pier"), "{v}");
+    let written = rows(&r.core, "memory.read");
+    assert_eq!(written.len(), 1, "{written:?}");
+    assert_eq!(written[0]["principal"], "cli");
+    assert_eq!(written[0]["tool"], "context_history");
+    for surface in [Surface::Web, Surface::Discord] {
+        let e = rpc(
+            &r.core,
+            surface,
+            method::HISTORY_READ,
+            json!({"from": "2000-01-01"}),
+        )
+        .await
+        .unwrap_err();
+        assert!(e.message.contains("this surface may not"), "{e:?}");
+    }
+    let e = ask(&r.core, json!({"from": "2000-01-01"}))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        e.message,
+        "memory is off for MCP clients (`[mcp_server] memory`)"
+    );
+}
+
+/// A terminal's read is masked as an MCP one: a vault value in a line comes back substituted.
+#[tokio::test]
+async fn a_terminal_reads_reply_is_masked_as_an_mcp_one() {
+    let r = rig(false);
+    r.core
+        .secrets
+        .hold("marsh_vault", crate::secrets::Secret::new(SECRET.into()));
+    let native = session(&r.core, None);
+    turn(&r.core, &native, &format!("the ferry note: {SECRET}")).await;
+    let v = rpc(
+        &r.core,
+        Surface::Cli,
+        method::HISTORY_READ,
+        json!({"from": "2000-01-01"}),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    let said = v.to_string();
+    assert!(!said.contains(SECRET), "{said}");
+    assert!(said.contains("[redacted:marsh_vault]"), "{said}");
 }
 
 /// An erased import is read as nothing, with a control: before the erase, the import's session opens by its

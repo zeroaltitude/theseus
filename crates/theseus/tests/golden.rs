@@ -1033,6 +1033,43 @@ fn history_pages_say_how_to_read_past_them() {
     golden("history_pages", &format!("{back}{forward}"));
 }
 
+/// `theseus history` with a search (issue 44): `--when` and `--label` read `history.read`, one line an
+/// exchange from every place (history whose place was never recorded says so), and the command that reads on;
+/// `--json` is the raw result.
+#[test]
+fn history_search_reads_every_place_and_says_how_to_read_on() {
+    let page = json!({"place": "", "end": "more",
+    "next": {"at_ms": 1_794_312_000_000u64, "turn_id": "turn_a1"},
+    "lines": [
+        {"handle": "turn_b2", "place": "discord:dm:5551", "at_ms": 1_794_340_000_000u64,
+         "when": "2026-11-11 13:06", "who": "the owner",
+         "words": "the clinic moved my appointment to Friday",
+         "did": "noted the new time and set a wake", "outside": false,
+         "labels": "personal: on the message"},
+        {"handle": "turn_a1", "place": "unknown", "at_ms": 1_794_312_000_000u64,
+         "when": "2026-11-11 05:20", "who": "author unknown", "words": "draft the note to my sister",
+         "reply_begins": "Here is a draft", "outside": false,
+         "labels": "personal: on the reply"}
+    ]});
+    let text = run(
+        &["history", "--when", "2026-11-11", "--label", "personal"],
+        vec![step("history.read", page.clone())],
+    );
+    let raw = run(
+        &[
+            "--json",
+            "history",
+            "--when",
+            "last week",
+            "--words",
+            "the boat",
+        ],
+        vec![step("history.read", page)],
+    );
+    let refused = run(&["history", "--before", "1794312000000:turn_a1"], vec![]);
+    golden("history_search", &format!("{text}{raw}{refused}"));
+}
+
 #[test]
 fn history_with_no_sessions_says_so() {
     golden(

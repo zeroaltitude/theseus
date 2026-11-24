@@ -1,0 +1,24 @@
+$ theseus history --when 2026-11-11 --label personal
+--- requests
+history.read
+--- stdout
+── 2 exchanges of every place's history, newest first
+2026-11-11 13:06 · discord:dm:5551 · the owner: «the clinic moved my appointment to Friday» → you did: «noted the new time and set a wake» · turn_b2 · personal: on the message
+2026-11-11 05:20 · place not recorded · author unknown: «draft the note to my sister» → your reply began: «Here is a draft» · turn_a1 · personal: on the reply
+── more before these: theseus history --when 2026-11-11 --label personal --before 1794312000000:turn_a1
+--- stderr
+--- exit 0
+$ theseus --json history --when last week --words the boat
+--- requests
+history.read
+--- stdout
+{"end":"more","lines":[{"at_ms":1794340000000,"did":"noted the new time and set a wake","handle":"turn_b2","labels":"personal: on the message","outside":false,"place":"discord:dm:5551","when":"2026-11-11 13:06","who":"the owner","words":"the clinic moved my appointment to Friday"},{"at_ms":1794312000000,"handle":"turn_a1","labels":"personal: on the reply","outside":false,"place":"unknown","reply_begins":"Here is a draft","when":"2026-11-11 05:20","who":"author unknown","words":"draft the note to my sister"}],"next":{"at_ms":1794312000000,"turn_id":"turn_a1"},"place":""}
+--- stderr
+--- exit 0
+$ theseus history --before 1794312000000:turn_a1
+--- requests
+
+--- stdout
+--- stderr
+theseus: --before "1794312000000:turn_a1": a session's page takes a position (a number); a search's cursor goes with its search's flags (--when, --label, …)
+--- exit 1
