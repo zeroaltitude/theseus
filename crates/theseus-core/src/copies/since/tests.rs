@@ -387,7 +387,8 @@ fn a_look_backs_result_reads_each_source_once() {
     s.fail_scope_reads(true);
     let laid = since.lay(vec![(0, Stub::from(a.clone()))]);
     s.fail_scope_reads(false);
-    assert!(content(&laid.unwrap()[0].1).contains("[Since this was read: "));
+    let laid = laid.unwrap();
+    assert!(content(&laid[0].1).contains("[Since this was read: "));
 }
 
 /// Two windows with nothing said between them lay the same bytes.
