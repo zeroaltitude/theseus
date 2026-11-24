@@ -616,7 +616,7 @@ fn frame_and_now(
 
 impl TurnRunner {
     /// The who-am-I block (`view::who`) for a request of `spec`: its profile and model, and the persona in
-    /// play by name with its card's one line (the built-in one when none is configured or found).
+    /// play by its name (the built-in one when none is configured or found).
     fn who_am_i(&self, spec: &RequestSpec) -> String {
         let book = self.personas();
         let persona = (spec.persona.as_deref())
@@ -627,7 +627,6 @@ impl TurnRunner {
             profile: &spec.profile,
             model: &spec.model,
             persona: &persona.name,
-            card: persona.card.as_deref(),
         })
     }
 }
