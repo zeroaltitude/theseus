@@ -743,8 +743,8 @@ fn lists(source: &dyn crate::view::record::show::Source, p: &Piece) -> bool {
 }
 
 /// One source, as one `view.show` call keeps it: a fold it proved, read again after one of its exchanges was
-/// ended (`Store::delete_meta`), is refused. What a source proved holds only while the store stands where it
-/// stood when it was proved.
+/// ended (`Store::delete_meta`) and that write returned, is refused. The stamp notices a write that finished
+/// between two views of one call: a best-effort freshener, not a guarantee (`view::record::source`).
 #[tokio::test]
 async fn a_fold_proved_once_is_refused_once_an_exchange_of_it_goes() {
     let r = rig();
@@ -804,9 +804,91 @@ async fn a_task_card_proved_once_is_refused_once_its_home_or_its_record_goes() {
     assert!(!lists(&source, &p), "its record does not read");
 }
 
-/// The stamp a source keeps with each proof is the store's last position, so every writer of what a proof
-/// reads must move it: a fold's node and its handle, an exchange's record, a session's record (its place) and
-/// a task's record, each written and each ended.
+/// A view of turn `t-call` at `local` holding one fold over two exchanges of a session here: the session.
+fn a_kept_fold(c: &Core) -> String {
+    let desk = session(c, None);
+    for turn in ["t-a", "t-b"] {
+        exchange_of(c, turn, &desk, "local");
+    }
+    fold_node(c, "fold-whole", "local", 1, &["t-a", "t-b"], 10);
+    let p = fold_piece("local", 1, ("t-a", "t-b"), "fold-whole");
+    keep(c, "t-call", "cmp_call", "local", vec![p]);
+    desk
+}
+
+/// Nothing one call proved is reused by another (the reader's contract): `view.show` lists the fold, one of
+/// its exchanges is ended and that write returns, and the next call refuses it. Each call makes its own
+/// sources and drops them when it answers, so a write that finished before a call began is in that call.
+#[tokio::test]
+async fn each_view_show_call_proves_from_the_store_as_it_stands() {
+    let r = rig();
+    let c = &r.core;
+    a_kept_fold(c);
+    let handles = |s: &ViewShowResult| -> Vec<String> {
+        (listed(&s.views[0]).into_iter())
+            .map(|(_, p)| p.handle.clone())
+            .collect()
+    };
+    let first = shown_of(c, json!({"turn_id": "t-call"})).await;
+    assert_eq!(handles(&first), ["fold-whole"], "proven");
+    c.store
+        .delete_meta(&format!("{}t-b", exchange::EXCHANGE_PREFIX))
+        .unwrap();
+    let second = shown_of(c, json!({"turn_id": "t-call"})).await;
+    let said = theseus_protocol::view::lines(&second.views[0]);
+    assert!(handles(&second).is_empty(), "an exchange of it is gone: {said}");
+    assert_eq!(second.views[0].totals.shown, 0, "{said}");
+}
+
+/// The same through the model's look: each look makes its own source, so the next look refuses the fold.
+#[tokio::test]
+async fn each_look_proves_from_the_store_as_it_stands() {
+    let r = rig();
+    let c = &r.core;
+    let desk = a_kept_fold(c);
+    let first = crate::look::view::words(c, &desk, "t-call");
+    assert!(first.contains("fold-whole folds"), "proven: {first}");
+    c.store
+        .delete_meta(&format!("{}t-b", exchange::EXCHANGE_PREFIX))
+        .unwrap();
+    let second = crate::look::view::words(c, &desk, "t-call");
+    assert!(
+        !second.contains("fold-whole"),
+        "an exchange of it is gone: {second}"
+    );
+}
+
+/// On a store that does not move, a second call reuses nothing the first proved: each proves the fold's node,
+/// its three exchanges and the task list itself.
+#[tokio::test]
+async fn a_second_call_proves_again_what_the_first_proved() {
+    let (r, t) = a_task().await;
+    let c = &r.core;
+    let desk = crate::tests_task_graph::session(c);
+    let turns = ["t-1", "t-2", "t-3"];
+    for turn in turns {
+        exchange_of(c, turn, &desk, "local");
+    }
+    fold_node(c, "fold-three", "local", 1, &turns, 10);
+    let pieces = vec![
+        fold_piece("local", 1, ("t-1", "t-3"), "fold-three"),
+        task_piece(&t.id),
+    ];
+    keep(c, "t-twice", "cmp_twice", "local", pieces);
+    let views = record::of_turn(&c.store, "t-twice").unwrap();
+    let at = c.store.last_position();
+    for call in ["first", "second"] {
+        let (shown, reads) = c.owners_all(&views, None);
+        assert_eq!(shown[0].totals.shown, 2, "{call}");
+        assert_eq!(reads, 1 + 3 + 1, "{call}");
+    }
+    assert_eq!(c.store.last_position(), at, "the store did not move");
+}
+
+/// The stamp a source keeps with each proof is the store's last position, so for the freshener to notice a
+/// finished write, every writer of what a proof reads moves it: a fold's node and its handle, an exchange's
+/// record, a session's record (its place) and a task's record, each written and each ended. Necessary, not
+/// sufficient: when a write is published to the reader is another matter (`view::record::source`).
 #[tokio::test]
 async fn every_write_a_proof_reads_moves_the_stores_position() {
     let (r, t) = a_task().await;

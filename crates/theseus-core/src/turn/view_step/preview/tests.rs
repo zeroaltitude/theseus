@@ -181,6 +181,35 @@ async fn a_preview_lays_the_pieces_the_next_turn_records() {
     );
 }
 
+/// Each preview proves from the store as it stands (the reader's contract): a preview lists the place's fold,
+/// the exchange it stands for is ended and that write returns, and the next preview lists the fold nowhere.
+/// Each preview assembles and makes its own source; nothing the first proved is reused.
+#[tokio::test]
+async fn each_preview_proves_from_the_store_as_it_stands() {
+    let r = view_rig();
+    let c = &r.core;
+    let sid = session_in(c, None, &r.root);
+    turn(c, &sid, "first: the tide").await;
+    turn(c, &sid, "second: the moon").await;
+    let first = turns_of(c, &sid).remove(0);
+    fold_over(c, &first);
+    let at = exchange::exchange(&c.store, &first).unwrap().unwrap().place;
+    let asked = json!({"place": at, "message": "third: and now"});
+    let folds = |p: &ViewPreviewResult| -> usize {
+        let v = p.view.as_ref().expect("a view");
+        let shown = (v.slots.iter().flat_map(|s| &s.pieces)).filter(|x| x.kind == "folds");
+        shown.count() + v.dropped.iter().filter(|d| d.kind == "folds").count()
+    };
+    let p = preview(&r.core, asked.clone()).await.unwrap();
+    assert_eq!(folds(&p), 1, "proven: {p:?}");
+    c.store
+        .delete_meta(&format!("{}{first}", exchange::EXCHANGE_PREFIX))
+        .unwrap();
+    let p = preview(&r.core, asked).await.unwrap();
+    assert_eq!(folds(&p), 0, "its exchange is gone: {p:?}");
+    assert_eq!(p.folds.get("1"), None, "{p:?}");
+}
+
 /// A session whose earlier turn the ledger holds no exchange for is the view's all the same (that turn is
 /// out of its reach, issue 44): the preview counts it, says no fallback, and writes no fallback row and no
 /// view record.
