@@ -4,7 +4,7 @@
 use theseus_judge::band::band;
 use theseus_judge::client::Answer;
 use theseus_judge::judge::AnswerRecord;
-use theseus_judge::{Judgment, Mode, Thresholds};
+use theseus_judge::{Judgment, Mode, Outcome, Skip, Thresholds};
 
 use super::{acting, roots, PREFIX, SCREEN, SUBJECT};
 use crate::exchange::{touch, Root};
@@ -89,4 +89,33 @@ fn only_the_wired_acting_onto_judgment_is_read() {
     let read: Vec<&str> = acting(&batch).iter().map(|j| j.pack.as_str()).collect();
     assert_eq!(read, vec![ONTO_PACK]);
     assert_eq!(acting(&batch)[0].mode, Mode::Live);
+}
+
+/// The screen question's yes is a label exactly at the act band, and none
+/// just below it.
+#[test]
+fn a_screen_yes_exactly_at_the_band_is_a_label_and_just_below_it_none() {
+    let at = onto(vec![noul(SCREEN, 0.80)]);
+    assert_eq!(roots(&at, ACT), ["picture:shows_screen_or_document"]);
+    assert!(roots(&onto(vec![noul(SCREEN, 0.79)]), ACT).is_empty());
+}
+
+/// KEY: the gate is the one topics use: an unanswered judgment is never
+/// read, and the wired pack's canary judgment is, and writes its labels, as
+/// it touches topics. Canary is not shadow here.
+#[test]
+fn an_unanswered_judgment_is_not_read_and_a_canary_one_is() {
+    let answers = || vec![choice(SUBJECT, "document", 0.95), noul(SCREEN, 0.9)];
+    let mut unanswered = onto(answers());
+    unanswered.outcome = Outcome::Skipped {
+        reason: Skip::CircuitOpen,
+    };
+    let mut canary = onto(answers());
+    canary.mode = Mode::Canary;
+    let batch = vec![unanswered, canary];
+    let read = acting(&batch);
+    let modes: Vec<Mode> = read.iter().map(|j| j.mode).collect();
+    assert_eq!(modes, [Mode::Canary]);
+    let want = ["picture:document", "picture:shows_screen_or_document"];
+    assert_eq!(roots(read[0], ACT), want, "a canary judgment's labels");
 }
