@@ -36,7 +36,9 @@ including in a commit message, because it is stale by the next departure.
   `THESEUS_SIZE_ACCEPT_GROWTH=1` accepts a growth. `size-breakdown.py` (an unstripped
   build in its own target directory) prints the top crates by bytes and the cockpit bundle's.
 - `stats.py`, `tests/test_stats.py` (issue 45): writes the root's `STATS.md` (lines of code, test code and comment per crate,
-  build sizes). Branches never touch STATS.md; a landing recounts it. Sizes only from `--sizes-from`/`--installed`.
+  build sizes). Branches never touch STATS.md; a landing recounts it. A release `build.sh` records its crate sizes outside
+  the tree (`--record-sizes`, `~/.cache/theseus/stats-sizes.md`; a build of edits records nothing), and a count with no
+  `--sizes-from` takes that record only when its build is of main and newer than the sizes there. `--installed` is explicit.
   `stats.py --range <merge>^1..<merge>` prints a landing's change in lines (before -> after), for its note.
   `stats.py --prepare-landing` is a step of preparing a landing, called after `git merge --no-commit --no-ff` on `main`
   and before the landing's own signed commit, by the person's landing steps and by any landing script: it counts the

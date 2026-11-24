@@ -4,6 +4,7 @@
     scripts/stats.py [--sizes-from TARGET/PROFILE] [--installed DIR]... [--root DIR]
     scripts/stats.py --range BEFORE..AFTER [--root DIR]
     scripts/stats.py --prepare-landing [--sizes-from TARGET/PROFILE] [--root DIR]
+    scripts/stats.py --sizes-from TARGET/PROFILE --record-sizes FILE [--root DIR]
 
 `--range` writes nothing: it counts the trees of two commits from git's objects (no checkout) and prints one line, the
 change in lines a landing's note states (code, test code, comments; before -> after). A landing's range is its merge's
@@ -18,13 +19,19 @@ Sizes: `--sizes-from` reads an optimised build's profile directory (`$CARGO_TARG
 (`/usr/local/lib/theseus/<commit>`), and may be given more than once (the root helper's directory too). A part of the sizes not asked for is copied
 from the STATS.md already there, so a recount at a landing leaves the sizes measured at the last install alone.
 
+`--record-sizes FILE` writes nothing in the tree: it writes the "What each crate builds" part of the build `--sizes-from`
+names to FILE, and refuses a build whose stamp is not `clean` (a build of edits, not of one commit). `scripts/build.sh`
+records each release build so, in `$THESEUS_STATS_SIZES` or `~/.cache/theseus/stats-sizes.md`. With no `--sizes-from`, a
+count and `--prepare-landing` take that record when it is newer and of main: its build's commit is an ancestor of HEAD
+(the landing's first parent) and a descendant of the build the sizes there name. Else the sizes there are kept, so a
+landing never moves them back to an older build, or to a build of a commit main does not hold.
+
 `--prepare-landing` is a step of preparing a landing, before its merge is committed: with a merge onto `main` prepared
 (`git merge --no-commit`), it counts the PREPARED TREE (the index's, `git write-tree`, read from git's objects, never
 the working files), writes STATS.md and stages it, and nothing else. It refuses when HEAD is not `main`, when no merge
 is in progress, when the index holds unmerged paths, or when anything but STATS.md would change. The landing's own
 commit, signed by whoever lands, then holds the count, and every gate judges the tree that lands; no commit is ever
-rewritten. Build sizes are read again from the release build when it has its stamp (`$CARGO_TARGET_DIR` or `target`,
-profile `release`), else kept. A merge in progress is named by MERGE_HEAD and HEAD, the parents it will have.
+rewritten. A merge in progress is named by MERGE_HEAD and HEAD, the parents it will have.
 
 Nothing here reads a clock: the same tree and the same arguments give the same bytes.
 Python 3, standard library only.
@@ -53,6 +60,8 @@ PY_DOC = re.compile(r"[rRuUbBfF]*(\"\"\"|\'\'\')")
 PY_LEAD = {tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT}
 PY_SKIP = {tokenize.NEWLINE, tokenize.NL, tokenize.INDENT, tokenize.DEDENT, tokenize.ENDMARKER}
 SIZES = ("### What each crate builds", "### Executables that are installed and run")
+BUILT_OF = re.compile(r"^From the `[^`]*` build of ([0-9a-f]{7,40}) ", re.M)
+RECORD = os.path.join("~", ".cache", "theseus", "stats-sizes.md")
 RULE = """\
 - **Code**: a line that is not blank and not only comment (code with a comment after it is code). **Test code**: a file in a directory, or with a name (before its first dot), that is `test`, `tests`, `fixtures`, `benches`, `test_…`, `tests_…`, `…_test` or `…_tests`; files named `*.test.*`; and Rust's `#[cfg(test)] mod … { … }` blocks.
 - **Comments**: `//`, `///`, `//!` and `/* … */` (nested, in Rust) in Rust, TypeScript, JavaScript, C and CSS; in Python, comment tokens and triple-quoted strings that begin a statement (read with Python's own tokenizer); in shell, a `#` that begins a word outside quotes. A marker inside a string literal is not a comment.
@@ -345,13 +354,56 @@ def kept(old, heading):
     return f"{heading}\n\nNot yet measured: `scripts/stats.py --sizes-from <target dir>/release --installed <dir>`.\n"
 
 
+def record_sizes(root, prof, out):
+    """`--record-sizes`: the sizes part of the build at PROF, written to OUT (whole, by a rename); none of a build
+    whose stamp is not `clean`."""
+    stamp = os.path.join(prof, ".theseus-build-stamp")
+    words = read(stamp).split() if os.path.isfile(stamp) else []
+    if len(words) < 2 or words[1] != "clean":
+        raise SystemExit(f"stats: no sizes recorded: {prof} is not a clean build of one commit "
+                         f"(its stamp: {' '.join(words[:2]) or 'none'})")
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    with open(f"{out}.tmp", "w", encoding="utf-8") as f:
+        f.write(crate_sizes(root, prof))
+    os.replace(f"{out}.tmp", out)
+
+
+def commit_named(root, part):
+    """The commit a sizes PART names as its build's, in full; None when it names none, or one this repository lacks."""
+    m = BUILT_OF.search(part)
+    if not m:
+        return None
+    return subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", f"{m.group(1)}^{{commit}}"],
+                          capture_output=True, text=True).stdout.strip() or None
+
+
+def is_ancestor(root, a, b):
+    return subprocess.run(["git", "-C", root, "merge-base", "--is-ancestor", a, b], capture_output=True).returncode == 0
+
+
+def recorded(root, old, tip):
+    """The recorded sizes part (`--record-sizes`), when it is newer and of main: its build's commit is an ancestor of
+    TIP and a descendant of the build OLD's sizes name (any, when they name none this repository has). None otherwise,
+    and the sizes in OLD are kept."""
+    path = os.environ.get("THESEUS_STATS_SIZES") or os.path.expanduser(RECORD)
+    if os.path.islink(path) or not os.path.isfile(path) or os.path.getsize(path) > 65536:
+        return None
+    text = read(path)
+    if not text.startswith(SIZES[0] + "\n"):
+        return None
+    new, now = commit_named(root, text), commit_named(root, kept(old, SIZES[0]))
+    if not new or not is_ancestor(root, new, tip) or (now and not is_ancestor(root, now, new)):
+        return None
+    return kept(text, SIZES[0])
+
+
 def merge_head(root):
     """The merge in progress (`git merge --no-commit`), short, or ''."""
     return subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", "--short=8", "MERGE_HEAD"],
                           capture_output=True, text=True).stdout.strip()
 
 
-def render(root, rows, old, sizes_from, installed, prepared=False):
+def render(root, rows, old, sizes_from, installed, prepared=False, record=None):
     # A merge is named by its parents. A merge in progress is the landing being prepared, named by the parents it
     # will have (HEAD and MERGE_HEAD), whatever HEAD itself is: HEAD may be an earlier landing's merge.
     head, *parents = git(root, "log", "-1", "--abbrev=8", "--format=%h %p", "HEAD").split()
@@ -376,7 +428,7 @@ def render(root, rows, old, sizes_from, installed, prepared=False):
     if "vendor/" in rows:
         out.append("| vendor/ (third-party, not in the total) | " + " | ".join(f"{n:,}" for n in rows["vendor/"]) + " |")
     out += ["", "## Build sizes", "",
-            crate_sizes(root, sizes_from) if sizes_from else kept(old, SIZES[0]),
+            crate_sizes(root, sizes_from) if sizes_from else record or kept(old, SIZES[0]),
             installed_sizes(installed) if installed else kept(old, SIZES[1])]
     return "\n".join(out).rstrip("\n") + "\n"
 
@@ -393,12 +445,10 @@ def prepare_landing(root, sizes_from, installed):
     if git(root, "ls-files", "--unmerged").strip():
         refuse("the merge has unmerged paths; resolve them and stage the result first")
     before = git(root, "write-tree").strip()
-    if not sizes_from:
-        prof = os.path.join(os.environ.get("CARGO_TARGET_DIR") or os.path.join(root, "target"), "release")
-        sizes_from = prof if os.path.isfile(os.path.join(prof, ".theseus-build-stamp")) else None
     path = os.path.join(root, "STATS.md")
     old = read(path) if os.path.isfile(path) else ""
-    text = render(root, count_rev(root, before), old, sizes_from, installed, prepared=True)
+    record = None if sizes_from else recorded(root, old, "HEAD")
+    text = render(root, count_rev(root, before), old, sizes_from, installed, prepared=True, record=record)
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
     git(root, "add", "--", "STATS.md")
@@ -418,7 +468,14 @@ def main(argv=None):
     ap.add_argument("--range", metavar="BEFORE..AFTER", help="print the change in lines between two commits; write nothing")
     ap.add_argument("--prepare-landing", action="store_true",
                     help="count a prepared merge onto main from its index tree, and stage STATS.md alone")
+    ap.add_argument("--record-sizes", metavar="FILE",
+                    help="write the sizes of the build --sizes-from names to FILE, outside the tree; nothing else")
     args = ap.parse_args(argv)
+    if args.record_sizes:
+        if not args.sizes_from:
+            ap.error("--record-sizes takes --sizes-from")
+        record_sizes(args.root, args.sizes_from, args.record_sizes)
+        return
     if args.prepare_landing:
         prepare_landing(args.root, args.sizes_from, args.installed)
         return
@@ -429,7 +486,8 @@ def main(argv=None):
         return
     path = os.path.join(args.root, "STATS.md")
     old = read(path) if os.path.isfile(path) else ""
-    text = render(args.root, count_tree(args.root), old, args.sizes_from, args.installed)
+    record = None if args.sizes_from else recorded(args.root, old, "HEAD")
+    text = render(args.root, count_tree(args.root), old, args.sizes_from, args.installed, record=record)
     if text != old:
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)

@@ -139,3 +139,11 @@ if [ -x "$out/theseus-sim" ] && [ -f "$out/theseusd" ]; then
 else
   echo "build: size check skipped: no theseusd and theseus-sim in $out (a build of other packages)"
 fi
+# STATS.md's sizes (issue 45): a release build, the install profile, records what each crate builds outside the tree,
+# for the next landing's count to take (scripts/stats.py --record-sizes; a build of edits records nothing). It never
+# fails the build: the record is a size table, and the binaries are what was asked for.
+if [ "$profile" = release ] && [ -f "$out/.theseus-build-stamp" ]; then
+  python3 -I scripts/stats.py --sizes-from "$out" \
+    --record-sizes "${THESEUS_STATS_SIZES:-$HOME/.cache/theseus/stats-sizes.md}" ||
+    echo "build: the sizes were not recorded for STATS.md (scripts/stats.py --record-sizes); the build stands" >&2
+fi
