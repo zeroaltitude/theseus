@@ -42,9 +42,13 @@
 //!   nothing), and each answer's row is written by the sink before the next
 //!   exchange is asked and before the run returns ([`Core::history_written`]),
 //!   so the next run's plan reads every answer, one that touched nothing
-//!   included. What no run can promise: a daemon crash after Jev took a
-//!   request and before its answer's row was written may pay for that one
-//!   exchange again.
+//!   included. A run that returns before its answer's row is written (its
+//!   wait ran out, its touches failed, the daemon is stopping) leaves that
+//!   answer known to the judge until the row is written, queued or in a
+//!   frame the sink has taken: a new run waits a little for it, and is
+//!   refused if it is still not written. What no run can promise: a daemon
+//!   crash, or an ordinary stop, while a call is out or its answer is not
+//!   yet written may pay for that one exchange again.
 //! - **Spend**: each exchange's worst case is reserved before its call
 //!   against the judge's day budget, which holds on the daemon's day ceiling,
 //!   as the people backfill's judgments are; the run stops before an exchange
@@ -109,16 +113,27 @@ struct Plan {
     r: ExchangeTopicsResult,
 }
 
-/// A second run while one goes (issue 46): refused, and asks nothing.
+/// A run refused before it reads anything (issue 46): it asks nothing.
 #[derive(Debug)]
-pub struct Busy;
+pub enum Busy {
+    /// Another run goes.
+    Running,
+    /// An earlier run's answer is still not written, after a short wait.
+    Writing,
+}
 
 impl std::fmt::Display for Busy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(
-            "your history is already being filed under topics: this one asked nothing and spent \
-             nothing. Run it again once that one has ended",
-        )
+        f.write_str(match self {
+            Busy::Running => {
+                "your history is already being filed under topics: this one asked nothing and \
+                 spent nothing. Run it again once that one has ended"
+            }
+            Busy::Writing => {
+                "an earlier answer of your history's filing is still being written: this one asked \
+                 nothing and spent nothing. Run it again shortly"
+            }
+        })
     }
 }
 
@@ -128,6 +143,19 @@ impl std::error::Error for Busy {}
 /// sink's own longest wait for a moment between turns, and a minute.
 const WRITTEN_BOUND: std::time::Duration =
     crate::memory_pass::BUSY_BOUND.saturating_add(std::time::Duration::from_secs(60));
+
+/// The longest a new run waits for an earlier run's answers to be written
+/// before it is refused: a quiet daemon's sink writes in a few seconds.
+const DRAIN_BOUND: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// What became of an answer's row while the run waited for it.
+enum Row {
+    Written,
+    /// The daemon is stopping: the row may be written by its flush, or not.
+    Stopping,
+    /// Not written in [`WRITTEN_BOUND`].
+    Late,
+}
 
 /// Why a run stops before an exchange.
 enum Stop {
@@ -141,6 +169,9 @@ enum Stop {
     Client,
     /// The sink did not write the last answer's row in [`WRITTEN_BOUND`].
     Unwritten,
+    /// The daemon is stopping after an exchange was asked, its touches or
+    /// its row not yet written.
+    Stopping,
 }
 
 /// The turns whose exchange already touches a category of a kind `onto`
@@ -308,11 +339,41 @@ impl JudgeService {
         let j = judgments.into_iter().next().ok_or(Stop::Client)?;
         let j = withheld(j);
         // Its id stays pending until the sink has written its row
-        // (`Core::history_written` waits on it), as the gate's ids do.
+        // (`Core::history_written` waits on it), as the gate's ids do; and
+        // its turn is unwritten until then, whatever the run does next.
         self.pending_insert([j.id.clone()]);
+        let turn = j.context["turn"].as_str().unwrap_or_default();
+        self.unwritten_answers()
+            .insert(turn.to_string(), j.id.clone());
         built.judge.sink().record(&j);
         Ok((j, spent))
     }
+
+    fn unwritten_answers(&self) -> std::sync::MutexGuard<'_, HashMap<String, String>> {
+        (self.history_unwritten.lock()).unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The history's answers received and not yet written: an answer's
+    /// entry goes once its row is (its id has left `pending`).
+    fn answers_unwritten(&self) -> usize {
+        let mut u = self.unwritten_answers();
+        u.retain(|_, id| self.pending_has(id));
+        u.len()
+    }
+}
+
+/// How long a run waits for its answer's row, and a new run for an earlier
+/// run's.
+#[cfg(not(test))]
+fn bounds(_: &JudgeService) -> (std::time::Duration, std::time::Duration) {
+    (WRITTEN_BOUND, DRAIN_BOUND)
+}
+
+/// How long a run waits for its answer's row, and a new run for an earlier
+/// run's: a test's shorter bounds, else the daemon's.
+#[cfg(test)]
+fn bounds(judge: &JudgeService) -> (std::time::Duration, std::time::Duration) {
+    (judge.history_bounds.get().copied()).unwrap_or((WRITTEN_BOUND, DRAIN_BOUND))
 }
 
 /// The words this job's rows put where Jev's or its server's own went.
@@ -376,8 +437,13 @@ impl Core {
         // One run at a time: a second would plan the same exchanges, and
         // spend a second cap on them.
         let Ok(_one) = self.runner.judge.history.try_lock() else {
-            return Err(Busy.into());
+            return Err(Busy::Running.into());
         };
+        // And none while an earlier run's answer is still not written: its
+        // plan would not see it, and would ask that exchange again.
+        if !self.history_drained().await {
+            return Err(Busy::Writing.into());
+        }
         let core = self.clone();
         let Plan { todo, again, mut r } = theseus_store::blocking(move || core.topics_plan())?;
         (r.dry_run, r.cap_usd, r.to_ask) = (p.dry_run, cap_usd, todo.len() as u64);
@@ -410,7 +476,7 @@ impl Core {
             if let Some(stop) = self.topics_one(old, (cap, &mut spent), &mut r).await? {
                 // An answer not written was asked: it is not left.
                 let left = match stop {
-                    Stop::Unwritten => left - 1,
+                    Stop::Unwritten | Stop::Stopping => left - 1,
                     _ => left,
                 };
                 (r.left, r.stopped) = (left, Some(stopped(&stop, spent, cap_usd, left)));
@@ -519,22 +585,41 @@ impl Core {
                 self.topics_write(&j, r).await?;
             }
         }
-        Ok((!self.history_written(&j.id).await).then_some(Stop::Unwritten))
+        Ok(match self.history_written(&j.id).await {
+            Row::Written => None,
+            Row::Stopping => Some(Stop::Stopping),
+            Row::Late => Some(Stop::Unwritten),
+        })
     }
 
     /// Wait until the sink has written judgment `id`'s row: its id leaves
     /// the judge's `pending` once its frame is written, as the gate's
-    /// `of_call` reads it. A stop ends the wait (its flush writes what is
-    /// queued, and nothing after it). False when the sink has not written it
-    /// in [`WRITTEN_BOUND`].
-    async fn history_written(&self, id: &str) -> bool {
+    /// `of_call` reads it. A stop ends the wait, and is no proof of the row:
+    /// its flush writes what is queued, and nothing after it.
+    async fn history_written(&self, id: &str) -> Row {
         let judge = &self.runner.judge;
-        let until = tokio::time::Instant::now() + WRITTEN_BOUND;
+        let until = tokio::time::Instant::now() + bounds(judge).0;
         while judge.pending_has(id) {
             if self.outbox.stopping() || judge.queue.is_closed() {
-                return true;
+                return Row::Stopping;
             }
             if tokio::time::Instant::now() >= until {
+                return Row::Late;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        Row::Written
+    }
+
+    /// Wait a little for an earlier run's answers to be written (one that
+    /// stopped, or whose wait for its row ran out, or whose touches failed):
+    /// true once none is left unwritten; false at [`DRAIN_BOUND`], or on a
+    /// stop.
+    async fn history_drained(&self) -> bool {
+        let judge = &self.runner.judge;
+        let until = tokio::time::Instant::now() + bounds(judge).1;
+        while judge.answers_unwritten() > 0 {
+            if self.outbox.stopping() || tokio::time::Instant::now() >= until {
                 return false;
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -576,6 +661,16 @@ fn stopping(left: u64) -> String {
     format!("the daemon is stopping: {left} exchanges left; run the same command again to go on")
 }
 
+/// The words of a run the daemon's stop ended after an exchange was asked,
+/// before its row was known written or its touches were.
+fn stopping_asked(left: u64) -> String {
+    format!(
+        "the daemon is stopping, and the last answer's row or touches may not be written (a \
+         rerun may ask that exchange again); {left} exchanges left; run the same command again \
+         to go on"
+    )
+}
+
 /// The words of a dry run that could not price an exchange.
 fn no_estimate(stop: &Stop) -> String {
     let why = match stop {
@@ -606,5 +701,6 @@ fn stopped(stop: &Stop, spent: Micros, cap_usd: f64, left: u64) -> String {
              {go_on} once the daemon is quieter",
             WRITTEN_BOUND.as_secs() / 60
         ),
+        Stop::Stopping => stopping_asked(left),
     }
 }

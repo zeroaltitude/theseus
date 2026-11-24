@@ -95,11 +95,12 @@ fn params(dry_run: bool, cap_usd: Option<f64>) -> ExchangeTopicsParams {
     ExchangeTopicsParams { dry_run, cap_usd }
 }
 
-/// The job, as the command runs it once the owner's act is judged.
+/// The job, as the command runs it once the owner's act is judged. Each
+/// answer's row is written before it returns, so nothing is flushed here:
+/// the sink's flush is a stop's, and closes it, so a later run's rows would
+/// never be written.
 async fn run(core: &Arc<Core>, p: ExchangeTopicsParams) -> ExchangeTopicsResult {
-    let r = core.topics_history(&p).await.unwrap();
-    flush(core).await;
-    r
+    core.topics_history(&p).await.unwrap()
 }
 
 /// The sink's rows written now.
@@ -1063,6 +1064,29 @@ fn project_named(core: &Core, id: &str, title: &str) {
         .unwrap();
 }
 
+/// Wait until the judge holds `n` judgments settled and not yet written.
+async fn queued(core: &Core, n: usize) {
+    let t0 = std::time::Instant::now();
+    while core.runner.judge.unwritten() < n {
+        assert!(t0.elapsed().as_secs() < 30, "{n} judgment(s) queued");
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
+/// Wait until the ledger holds `n` judgments' rows.
+async fn rows_written(core: &Core, n: usize) {
+    let t0 = std::time::Instant::now();
+    while of_kind(core, LedgerKind::JudgeCall).len() < n {
+        assert!(t0.elapsed().as_secs() < 30, "{n} judgment row(s) written");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
+
+/// A frame that holds a judgment's row (keyed by its `jdg_` id).
+fn a_judgments_row(records: &[theseus_store::NewRecord]) -> bool {
+    (records.iter()).any(|r| r.key.as_deref().is_some_and(|k| k.starts_with("jdg_")))
+}
+
 /// KEY (the stored words): a candidate project's title is the owner's own
 /// words, and here the message's too: it reaches Jev in the state, and no
 /// row; the candidate's id stays in the row's `kinds`. Every row is read.
@@ -1097,4 +1121,143 @@ async fn a_candidate_projects_title_is_in_no_row() {
         "the candidate's id stays: {onto}"
     );
     assert!(onto.get("projects").is_none(), "{onto}");
+}
+
+/// KEY (once): a run whose wait for its answer's row ran out (the sink's
+/// first frame failed, as a full disk would, and is retried) leaves that
+/// answer known: a rerun at once waits for its row and asks nothing again,
+/// though the answer touched nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rerun_after_an_unwritten_answer_asks_nothing_again() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "none", 0.9);
+    let r = rig(jev);
+    let bounds = (
+        std::time::Duration::from_millis(300),
+        std::time::Duration::from_secs(20),
+    );
+    r.core.runner.judge.history_bounds.set(bounds).unwrap();
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_old", SAID, 5_000);
+    r.core.store.fail_plain_frame(a_judgments_row);
+    let first = r.core.topics_history(&params(false, None)).await.unwrap();
+    let why = first.stopped.as_deref().unwrap_or_default();
+    assert!(why.contains("was not written within"), "{first:?}");
+    assert_eq!((first.asked, first.touches), (1, 0), "{first:?}");
+    assert!(
+        of_kind(&r.core, LedgerKind::JudgeCall).is_empty(),
+        "its row is not written yet"
+    );
+    let again = r.core.topics_history(&params(false, None)).await.unwrap();
+    assert_eq!(r.jev.seen().len(), 1, "no second call: {again:?}");
+    assert_eq!(
+        (again.asked_before, again.to_ask, again.asked),
+        (1, 0, 0),
+        "{again:?}"
+    );
+}
+
+/// KEY (once): while an earlier run's answer is still not written (the
+/// sink's frame failed, and its retry waits behind a running turn), a new
+/// run and a dry run wait a little and are refused in words: nothing asked,
+/// nothing spent. Once its row is written, a run asks nothing of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_run_is_refused_while_an_earlier_answer_is_unwritten() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "none", 0.9);
+    let r = rig(jev);
+    let bounds = (
+        std::time::Duration::from_millis(300),
+        std::time::Duration::from_secs(2),
+    );
+    r.core.runner.judge.history_bounds.set(bounds).unwrap();
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_old", SAID, 5_000);
+    r.core.store.fail_plain_frame(a_judgments_row);
+    let first = r.core.topics_history(&params(false, None)).await.unwrap();
+    assert_eq!(first.asked, 1, "{first:?}");
+    let running = r.core.runner.pass.turns().begin().await;
+    for dry_run in [false, true] {
+        let second = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            command(&r.core, dry_run),
+        )
+        .await;
+        assert_eq!(r.jev.seen().len(), 1, "nothing asked again: {second:?}");
+        let e = second
+            .expect("refused within its short wait")
+            .expect_err("refused while an earlier answer is unwritten");
+        assert_eq!(e.code, error_code::LIMIT, "{e:?}");
+        assert!(e.message.contains("still being written"), "{e:?}");
+        assert!(
+            e.message.contains("asked nothing and spent nothing"),
+            "{e:?}"
+        );
+    }
+    drop(running);
+    rows_written(&r.core, 1).await;
+    let again = r.core.topics_history(&params(false, None)).await.unwrap();
+    assert_eq!(r.jev.seen().len(), 1, "no second call");
+    assert_eq!((again.asked_before, again.asked), (1, 0), "{again:?}");
+}
+
+/// KEY (once): a run whose touches failed to be written returns at once,
+/// its answer's row not yet written; a rerun at once waits for that row and
+/// asks nothing again, and writes the touch from it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rerun_after_a_touch_write_failed_asks_nothing_again() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_old", SAID, 5_000);
+    r.core.store.fail_plain_frame(|records| {
+        (records.iter())
+            .any(|r| (r.key.as_deref()).is_some_and(|k| k.starts_with(exchange::TOUCH_PREFIX)))
+    });
+    let e = r.core.topics_history(&params(false, None)).await;
+    assert!(e.is_err(), "the touches' frame failed: {e:?}");
+    let again = r.core.topics_history(&params(false, None)).await.unwrap();
+    assert_eq!(r.jev.seen().len(), 1, "no second call: {again:?}");
+    assert_eq!(
+        (again.asked_before, again.asked, again.touches),
+        (1, 0, 1),
+        "{again:?}"
+    );
+    assert_eq!(timeline(&r.core, "topic:ledger").len(), 1);
+}
+
+/// KEY (once): a stop while the run waits for its last answer's row is no
+/// proof the row is written: the run says it was stopping, and that a rerun
+/// may ask that exchange again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_while_the_last_answer_is_unwritten_says_so() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    jev.set_mode(FakeMode::Says(500, "the server is down".into()));
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_old", SAID, 5_000);
+    // The sink writes between turns: a running turn holds the row back.
+    let running = r.core.runner.pass.turns().begin().await;
+    let core = r.core.clone();
+    let job = tokio::spawn(async move { core.topics_history(&params(false, None)).await });
+    seen(&r.jev, 1).await;
+    queued(&r.core, 1).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    r.core.outbox.stop_sending();
+    let out = tokio::time::timeout(std::time::Duration::from_secs(10), job)
+        .await
+        .expect("a stop ends the wait")
+        .unwrap()
+        .unwrap();
+    drop(running);
+    let why = out.stopped.as_deref().unwrap_or_default();
+    assert!(why.starts_with("the daemon is stopping"), "{out:?}");
+    assert!(why.contains("may ask that exchange again"), "{out:?}");
+    assert_eq!((out.asked, out.left), (1, 0), "{out:?}");
 }

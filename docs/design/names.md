@@ -60,8 +60,12 @@ prices their worst case, and asks nothing.
   judgment says so, and writes its touches again from that row where they are missing.
 - **Once**: one run at a time; a second, a dry run included, is refused while one goes and asks nothing. Each
   answer's row is written by the sink before the next exchange is asked and before the run returns, so the next
-  run's plan reads every answer, one that touched nothing included. What cannot be promised: a daemon crash after
-  the provider took a request and before its answer was stored may pay for that one exchange again.
+  run's plan reads every answer, one that touched nothing included. A run that returns before its answer's row is
+  written (its wait ran out, its touches failed, the daemon is stopping) leaves that answer known to the judge, in
+  memory, until the row is written, queued or in a frame the sink has taken: a new run, or a dry run, waits a little
+  for it and is otherwise refused ("an earlier answer ... is still being written"), asking nothing. A stop is no
+  proof that the row was written: the run says it was stopping. What cannot be promised: a daemon crash, or an
+  ordinary stop while a call is out or its answer is not yet written, may pay for that one exchange again.
 - **Money**: the run's cap (`--cap-usd`, default $10; a number of dollars of at least $0.000001, so NaN, an infinity,
   zero, a negative number and any sum under $0.000001 are refused by the CLI before it builds the request and by the
   daemon again; the output's first line says the cap in use, to the cent from a cent up, and under a cent with its
