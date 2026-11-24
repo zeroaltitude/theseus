@@ -20,6 +20,7 @@ fn waiting() -> Rig {
     r.write(&format!("{KEPT}\n"));
     r.core
         .own_file_first_start()
+        .unwrap()
         .expect("the first start accepts");
     r.write(&format!("{LATER}\n"));
     r
@@ -233,7 +234,7 @@ async fn show_gives_a_bounded_diff_with_unseen_characters_escaped() {
 async fn accepting_a_gone_file_carries_nothing_after() {
     let r = rig();
     r.write(&format!("{KEPT}\n"));
-    r.core.own_file_first_start().unwrap();
+    r.core.own_file_first_start().unwrap().unwrap();
     std::fs::remove_file(r.path()).unwrap();
     let s = r.core.own_file_show();
     assert_eq!(s.state, theseus_protocol::own_file::OwnFileState::Gone);

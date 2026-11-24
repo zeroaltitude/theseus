@@ -27,17 +27,40 @@ impl Core {
     /// its `own_file.accepted` row; and one line in the daemon's log. Never
     /// again by itself: a later start finds the pointer and does nothing,
     /// and a pointer it cannot read is not "none".
-    pub fn own_file_first_start(&self) -> Option<Version> {
+    ///
+    /// A first start that finds a file it cannot read, or cannot write its
+    /// accept, still records that it happened ([`Accepted::Unread`]):
+    /// nothing is carried, one line is logged, and only the owner's accept
+    /// sets a version. When even that record cannot be written, the error
+    /// is returned.
+    pub fn own_file_first_start(&self) -> Result<Option<Version>> {
         let look = Look::of(&self.cfg, &self.store, &self.runner.context_files);
         if look.accepted == Accepted::Unreadable {
             // The decode's own words stay out of the log: they could quote
             // the record.
             tracing::warn!(path = %look.path.display(),
                 "your own instruction file: its accepted version cannot be read from the store, so this start accepts nothing and none of it is carried");
-            return None;
+            return Ok(None);
         }
-        let v = own_file::first_start(&look, &self.store, theseus_protocol::now_unix_ms())?;
-        match self.own_file_keep(&look, &v) {
+        if !own_file::first_start_due(&look, &self.store) {
+            return Ok(None);
+        }
+        if let Some(v) = self.own_file_first_accept(&look) {
+            return Ok(Some(v));
+        }
+        if self.own_file_unread(&look)? {
+            tracing::warn!(path = %look.path.display(),
+                "your own instruction file could not be read at this first start, so no version is accepted and none of it is carried until `theseus own-file accept`");
+        }
+        Ok(None)
+    }
+
+    /// The first start's accept of what is on disk, with its line in the
+    /// log. None when the disk holds a file the reader cannot read, or the
+    /// accept was not written.
+    fn own_file_first_accept(&self, look: &Look) -> Option<Version> {
+        let v = own_file::first_start(look, &self.store, theseus_protocol::now_unix_ms())?;
+        match self.own_file_keep(look, &v) {
             Ok(seq) => {
                 tracing::info!(path = %look.path.display(), bytes = v.bytes, seq,
                     present = v.digest.is_some(),
@@ -52,10 +75,23 @@ impl Core {
         }
     }
 
+    /// The first start recorded as having happened with no version
+    /// (`Look::unread_record`), under the accepts' lock. False, and nothing
+    /// written, when a pointer stands by then.
+    fn own_file_unread(&self, look: &Look) -> Result<bool> {
+        let _one = own_file::one_at_a_time();
+        if own_file::read_now(&self.store, &look.pid) != Accepted::None {
+            return Ok(false);
+        }
+        let at_ms = theseus_protocol::now_unix_ms();
+        self.store.append(&[look.unread_record(at_ms)?])?;
+        Ok(true)
+    }
+
     /// [`Core::own_file_first_start`] off the runtime's workers: it reads
-    /// the file and writes one frame.
-    pub fn own_file_after_serving(&self) {
-        theseus_store::blocking(|| self.own_file_first_start());
+    /// the file and writes one frame. Its error is the caller's.
+    pub fn own_file_after_serving(&self) -> Result<()> {
+        theseus_store::blocking(|| self.own_file_first_start()).map(|_| ())
     }
 
     /// `v` accepted for the file `look` read: its records and its row, in
@@ -135,7 +171,7 @@ impl Core {
             _ => None,
         };
         let state = match (&look.accepted, look.differs()) {
-            (Accepted::None, _) => OwnFileState::NotAccepted,
+            (Accepted::None | Accepted::Unread, _) => OwnFileState::NotAccepted,
             (Accepted::Unreadable, _) => OwnFileState::Unreadable,
             (Accepted::Some(_), false) => OwnFileState::Same,
             (Accepted::Some(n), true) => match (&n.digest, &look.disk.found) {

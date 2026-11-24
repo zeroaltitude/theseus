@@ -146,6 +146,10 @@ impl Noticed {
 pub enum Accepted {
     /// No pointer: no version was ever accepted.
     None,
+    /// The first start found a file it could not read, and recorded that it
+    /// had happened: a pointer to no version ([`Look::unread_record`]).
+    /// Nothing is carried, and only the owner's accept sets a version.
+    Unread,
     /// The pointer, or the version it names, could not be read: missing,
     /// not decoding, or not holding the body its sum names. Nothing is
     /// carried, and nothing is accepted by itself on top of it.
@@ -156,7 +160,7 @@ pub enum Accepted {
 /// The number the version after `a` takes; none when the store cannot say.
 pub fn seq_after(a: &Accepted) -> Option<u64> {
     match a {
-        Accepted::None => Some(1),
+        Accepted::None | Accepted::Unread => Some(1),
         Accepted::Some(n) => Some(n.seq + 1),
         Accepted::Unreadable => None,
     }
@@ -325,6 +329,17 @@ impl Look {
         ])
     }
 
+    /// The pointer that records a first start that could not read the file:
+    /// number 0, which no version takes, and no digest.
+    pub fn unread_record(&self, at_ms: u64) -> Result<NewRecord> {
+        let now = Now {
+            seq: 0,
+            digest: None,
+            at_ms,
+        };
+        NewRecord::json(kinds::META, Some(&now_key(&self.pid)), &now)
+    }
+
     /// The number the next accepted version takes.
     pub fn next_seq(&self) -> Result<u64> {
         match seq_after(&self.accepted) {
@@ -350,6 +365,10 @@ impl Look {
                 "Your own instruction file has no accepted version, so none of it is carried: \
                  `{accept}`"
             )),
+            Accepted::Unread => Some(format!(
+                "Your own instruction file could not be read at the first start, so no version \
+                 is accepted and none of it is carried until you accept one: `{accept}`"
+            )),
             Accepted::Unreadable => Some(
                 "Your own instruction file: its accepted version cannot be read from the store, \
                  so none of it is carried"
@@ -374,7 +393,7 @@ impl Look {
         let size = || crate::narrative::thousands(self.disk.found.as_ref().map_or(0, |f| f.bytes));
         let accept = theseus_protocol::own_file::accept_command();
         let n = match &self.accepted {
-            Accepted::None => {
+            Accepted::None | Accepted::Unread => {
                 return Carry {
                     section: None,
                     line: self.disk.found.as_ref().map(|_| {
@@ -494,6 +513,8 @@ fn resolve(
     pid: &str,
 ) -> (Accepted, Option<Arc<str>>) {
     let n = match read_now(store, pid) {
+        Accepted::Some(n) if n.seq == 0 && n.digest.is_none() => return (Accepted::Unread, None),
+        Accepted::Some(n) if n.seq == 0 => return (Accepted::Unreadable, None),
         Accepted::Some(n) => n,
         other => return (other, None),
     };
@@ -525,13 +546,19 @@ pub fn started(store: &crate::store::Store) -> Result<bool> {
         .is_empty())
 }
 
+/// Whether this start is the store's first: no pointer for the file, and
+/// none under any path. Not when the pointer, or the store's marker, cannot
+/// be read (nothing is accepted on top of an error).
+pub fn first_start_due(look: &Look, store: &crate::store::Store) -> bool {
+    look.accepted == Accepted::None && matches!(started(store), Ok(false))
+}
+
 /// What the daemon's first start accepts, given its look at the file: what
-/// is on disk, or its absence, when this store has never accepted a version
-/// at all. None when it has; when the pointer, or the store's marker,
-/// cannot be read (nothing is accepted on top of an error); and when the
-/// disk holds a file the reader cannot read.
+/// is on disk, or its absence, when this start is the store's first
+/// ([`first_start_due`]). None when it is not, and when the disk holds a
+/// file the reader cannot read.
 pub fn first_start(look: &Look, store: &crate::store::Store, at_ms: u64) -> Option<Version> {
-    if look.accepted != Accepted::None || !matches!(started(store), Ok(false)) {
+    if !first_start_due(look, store) {
         return None;
     }
     if look.disk.found.is_some() && look.disk.digest.is_none() {
@@ -565,6 +592,11 @@ pub fn check_line(store_dir: &Path, path: &Path) -> String {
             .to_string();
     };
     match (this, disk.found.as_ref()) {
+        (Some(n), _) if n.seq == 0 && n.digest.is_none() => format!(
+            "Your own instruction file: it could not be read at the first start, so no version is \
+             accepted, none of it is carried, and a start accepts nothing by itself: an accept \
+             is needed, `{accept}`."
+        ),
         (Some(n), _) if !version.is_some_and(|v| v.holds(&n)) => {
             "Your own instruction file: its accepted version cannot be read from the store, so \
              none of it is carried, and a start accepts nothing by itself."

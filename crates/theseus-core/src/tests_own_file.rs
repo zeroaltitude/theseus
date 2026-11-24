@@ -159,6 +159,7 @@ async fn the_first_start_accepts_what_is_on_disk_once() {
     let v = r
         .core
         .own_file_first_start()
+        .unwrap()
         .expect("the first start accepts");
     assert_eq!(v.how, own_file::HOW_FIRST_START);
     assert_eq!(v.text.as_deref(), Some(KEPT));
@@ -173,7 +174,10 @@ async fn the_first_start_accepts_what_is_on_disk_once() {
     );
     let after = turn(&r.core, &r.fake, &r.work).await;
     assert!(block_3(&after).contains(KEPT), "{}", block_3(&after));
-    assert!(r.core.own_file_first_start().is_none(), "never twice");
+    assert!(
+        r.core.own_file_first_start().unwrap().is_none(),
+        "never twice"
+    );
     assert_eq!(rows(&r.core, "own_file.accepted").len(), 1);
 }
 
@@ -185,6 +189,7 @@ async fn the_first_start_with_no_file_accepts_its_absence() {
     let v = r
         .core
         .own_file_first_start()
+        .unwrap()
         .expect("the first start accepts");
     assert_eq!((v.text, v.digest), (None, None));
     r.write(&format!("{LATER}\n"));
@@ -202,11 +207,12 @@ async fn a_second_start_never_accepts_a_file_written_between_starts() {
     r.write(&format!("{KEPT}\n"));
     r.core
         .own_file_first_start()
+        .unwrap()
         .expect("the first start accepts");
     r.write(&format!("{LATER}\n"));
     let core = r.restarted();
     assert!(
-        core.own_file_first_start().is_none(),
+        core.own_file_first_start().unwrap().is_none(),
         "the second start accepts nothing"
     );
     assert_eq!(rows(&core, "own_file.accepted").len(), 1);
@@ -236,7 +242,7 @@ async fn a_pointer_that_cannot_be_read_is_never_accepted_over() {
         .unwrap()])
         .unwrap();
     assert_eq!(look_of(&r.core).accepted, Accepted::Unreadable);
-    assert!(r.core.own_file_first_start().is_none());
+    assert!(r.core.own_file_first_start().unwrap().is_none());
     assert!(rows(&r.core, "own_file.accepted").is_empty());
     let block = block_3(&turn(&r.core, &r.fake, &r.work).await);
     assert!(!block.contains("BRINDLEWICK-9"), "{block}");
@@ -263,7 +269,7 @@ async fn a_store_that_accepted_under_another_path_accepts_nothing_by_itself() {
         .append(&other.accept_records(&v).unwrap())
         .unwrap();
     r.write(&format!("{LATER}\n"));
-    assert!(r.core.own_file_first_start().is_none());
+    assert!(r.core.own_file_first_start().unwrap().is_none());
     let block = block_3(&turn(&r.core, &r.fake, &r.work).await);
     assert!(!block.contains("BRINDLEWICK-9"), "{block}");
     assert!(
@@ -278,7 +284,7 @@ async fn a_store_that_accepted_under_another_path_accepts_nothing_by_itself() {
 async fn a_changed_digest_is_one_row_however_many_turns() {
     let r = rig();
     r.write(&format!("{KEPT}\n"));
-    r.core.own_file_first_start().unwrap();
+    r.core.own_file_first_start().unwrap().unwrap();
     r.write(&format!("{LATER}\n"));
     let mut blocks = Vec::new();
     for _ in 0..3 {
@@ -301,7 +307,7 @@ async fn a_changed_digest_is_one_row_however_many_turns() {
 async fn a_second_change_is_a_second_row() {
     let r = rig();
     r.write(&format!("{KEPT}\n"));
-    r.core.own_file_first_start().unwrap();
+    r.core.own_file_first_start().unwrap().unwrap();
     r.write(&format!("{LATER}\n"));
     turn(&r.core, &r.fake, &r.work).await;
     turn(&r.core, &r.fake, &r.work).await;
@@ -318,7 +324,7 @@ async fn a_second_change_is_a_second_row() {
 async fn the_block_writes_nothing_and_only_the_turn_writes_the_row() {
     let r = rig();
     r.write(&format!("{KEPT}\n"));
-    r.core.own_file_first_start().unwrap();
+    r.core.own_file_first_start().unwrap().unwrap();
     r.write(&format!("{LATER}\n"));
     let files = &r.core.runner.context_files;
     let first = crate::project_context::block(&r.core.cfg, &r.core.store, files, &r.work, false);
@@ -341,7 +347,7 @@ async fn the_block_writes_nothing_and_only_the_turn_writes_the_row() {
 async fn health_says_so_while_it_differs() {
     let r = rig();
     r.write(&format!("{KEPT}\n"));
-    r.core.own_file_first_start().unwrap();
+    r.core.own_file_first_start().unwrap().unwrap();
     assert_eq!(r.core.health().own_file, None);
     r.write(&format!("{LATER}\n"));
     let today = crate::owner_note::day(theseus_protocol::now_unix_ms());
@@ -374,7 +380,7 @@ async fn health_says_so_while_it_differs() {
 async fn a_turns_compiled_row_names_the_accepted_digest() {
     let r = rig();
     r.write(&format!("{KEPT}\n"));
-    r.core.own_file_first_start().unwrap();
+    r.core.own_file_first_start().unwrap().unwrap();
     r.write(&format!("{LATER}\n"));
     let req = turn(&r.core, &r.fake, &r.work).await;
     let rows = crate::test_support::rows_100k(&r.core, "context.compiled");
@@ -407,7 +413,7 @@ async fn a_turns_compiled_row_names_the_accepted_digest() {
 async fn explain_does_not_list_the_user_file_as_gone() {
     let r = rig();
     r.write(&format!("{KEPT}\n"));
-    r.core.own_file_first_start().unwrap();
+    r.core.own_file_first_start().unwrap().unwrap();
     let (session, _) = turn_in(&r.core, &r.fake, &r.work).await;
     let out = r
         .core
@@ -522,7 +528,7 @@ async fn a_missing_or_undecodable_version_record_is_not_readable() {
 async fn two_accepts_from_one_pointer_never_write_one_version_twice() {
     let r = rig();
     r.write(&format!("{KEPT}\n"));
-    r.core.own_file_first_start().unwrap();
+    r.core.own_file_first_start().unwrap().unwrap();
     r.write(&format!("{LATER}\n"));
     let first = look_of(&r.core);
     r.write("Another change entirely. TANSYWHARF-3\n");
@@ -568,7 +574,7 @@ async fn an_accept_during_a_turn_leaves_its_rows_naming_the_version_it_carried()
     });
     std::fs::write(r.work.join("note.txt"), "a note\n").unwrap();
     r.write(&format!("{KEPT}\n"));
-    r.core.own_file_first_start().unwrap();
+    r.core.own_file_first_start().unwrap().unwrap();
     let Accepted::Some(carried) = look_of(&r.core).accepted else {
         panic!("accepted at the first start")
     };
@@ -600,4 +606,46 @@ async fn an_accept_during_a_turn_leaves_its_rows_naming_the_version_it_carried()
         assert_eq!(own.len(), 1, "{row}");
         assert_eq!(own[0]["digest"], carried.digest.clone().unwrap(), "{row}");
     }
+}
+
+/// A first start that finds a file it cannot read is still the store's
+/// first start: it carries nothing, and a readable file put there later is
+/// not accepted by the next start. Health and `theseusd check` say an
+/// accept is needed.
+#[tokio::test]
+async fn a_first_start_that_cannot_read_the_file_is_still_the_first_start() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let r = rig();
+    r.write(&format!("{KEPT}\n"));
+    std::fs::set_permissions(r.path(), std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert!(
+        std::fs::read(r.path()).is_err(),
+        "this test needs a user the file's mode keeps out"
+    );
+    assert_eq!(r.core.own_file_first_start().unwrap(), None);
+    std::fs::remove_file(r.path()).unwrap();
+    r.write(&format!("{LATER}\n"));
+    let core = r.restarted();
+    assert_eq!(core.own_file_first_start().unwrap(), None);
+    assert!(rows(&core, "own_file.accepted").is_empty());
+    assert_eq!(look_of(&core).accepted, Accepted::Unread);
+    let block = block_3(&turn(&core, &r.fake, &r.work).await);
+    assert!(!block.contains("BRINDLEWICK-9"), "{block}");
+    assert!(
+        block.contains("No version of it has been accepted yet"),
+        "{block}"
+    );
+    assert_eq!(
+        core.health().own_file.as_deref(),
+        Some(
+            "Your own instruction file could not be read at the first start, so no version is \
+             accepted and none of it is carried until you accept one: `theseus own-file accept`"
+        )
+    );
+    assert_eq!(
+        own_file::check_line(&store_dir(&r), &r.path()),
+        "Your own instruction file: it could not be read at the first start, so no version is \
+         accepted, none of it is carried, and a start accepts nothing by itself: an accept is \
+         needed, `theseus own-file accept`."
+    );
 }
