@@ -1,5 +1,6 @@
 """A measuring test must not start binaries from another checkout."""
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -75,3 +76,37 @@ class CurrentBinaries(unittest.TestCase):
                 with self.subTest(module=module.__name__), patch.object(module, "ROOT", root), patch("subprocess.check_output", side_effect=["a" * 40, "", "b" * 40]):
                     with self.assertRaisesRegex(unittest.SkipTest, "current CLI"):
                         module.built_bins()
+
+    def _failed_probe(self, index, error, reason):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            debug = root / "target" / "debug"
+            debug.mkdir(parents=True)
+            (debug / "theseusd").write_bytes(b"theseus-build-stamp:" + b"a" * 40 + b":")
+            (debug / "theseus").write_bytes(b"cli")
+            replies = ["a" * 40, "", "a" * 40]
+            replies[index] = error
+            from scripts.tests.built_bins import current_bins
+            with patch("subprocess.check_output", side_effect=replies) as run:
+                with self.assertRaises(unittest.SkipTest) as skipped:
+                    current_bins(root)
+                self.assertIn(reason, str(skipped.exception))
+                self.assertIn(str(debug), str(skipped.exception))
+                self.assertEqual(run.call_count, index + 1)
+                for call in run.call_args_list:
+                    self.assertGreater(call.kwargs.get("timeout", 0), 0)
+
+    def test_git_head_timeout_skips_with_reason(self):
+        self._failed_probe(0, subprocess.TimeoutExpired("git", 5), "timed out")
+
+    def test_git_status_timeout_skips_with_reason(self):
+        self._failed_probe(1, subprocess.TimeoutExpired("git", 5), "timed out")
+
+    def test_git_head_decode_error_skips_with_reason(self):
+        self._failed_probe(0, UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid byte"), "not decodable")
+
+    def test_git_status_decode_error_skips_with_reason(self):
+        self._failed_probe(1, UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid byte"), "not decodable")
+
+    def test_cli_decode_error_skips_with_reason(self):
+        self._failed_probe(2, UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid byte"), "not decodable")

@@ -11,10 +11,10 @@ def current_bins(root: Path) -> Path:
     debug = Path(os.environ.get("CARGO_TARGET_DIR") or root / "target") / "debug"
     try:
         head = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=root, stderr=subprocess.DEVNULL, text=True
+            ["git", "rev-parse", "HEAD"], cwd=root, stderr=subprocess.DEVNULL, text=True, timeout=5
         ).strip()
         dirty = subprocess.check_output(
-            ["git", "status", "--porcelain", "--untracked-files=normal"], cwd=root, text=True
+            ["git", "status", "--porcelain", "--untracked-files=normal"], cwd=root, text=True, timeout=5
         ).strip()
         if dirty:
             raise unittest.SkipTest(f"cannot verify binaries at {debug} against an edited tree; commit and rebuild theseus and theseusd")
@@ -31,5 +31,9 @@ def current_bins(root: Path) -> Path:
         if cli != head:
             raise unittest.SkipTest(f"cannot verify current CLI: {debug}/theseus was not stamped with this HEAD; rebuild this tree")
         return debug
+    except subprocess.TimeoutExpired as error:
+        raise unittest.SkipTest(f"cannot verify binary stamps at {debug}: probe timed out after {error.timeout} seconds") from error
+    except UnicodeDecodeError as error:
+        raise unittest.SkipTest(f"cannot verify binary stamps at {debug}: probe output is not decodable as {error.encoding}") from error
     except (OSError, subprocess.SubprocessError) as error:
         raise unittest.SkipTest(f"cannot verify this tree's binary stamps at {debug}; build theseus and theseusd in a clean git checkout") from error
