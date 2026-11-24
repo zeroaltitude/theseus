@@ -1501,43 +1501,29 @@ async fn the_residual_a_new_file_in_a_directory_no_compile_has_discovered_is_not
     );
 }
 
-/// **The residual, case 2: a granted repository no session has ever been
-/// opened in.** The owner grants a second repository **by path, from
-/// somewhere else** -- which is how the CLI grants -- and never starts a
-/// session in it. A flagged session working in the FIRST repository then
-/// MODIFIES the second's own `AGENTS.md`, and a clean session opening there
-/// reads it.
+/// **Case 2, contained: a granted repository no session has ever been opened
+/// in.** The owner grants a second repository **by path, from somewhere
+/// else** -- which is how the CLI grants -- and never starts a session in
+/// it. A flagged session working in the FIRST repository then MODIFIES the
+/// second's own `AGENTS.md`, and a clean session opening there does not read
+/// it.
 ///
 /// `change::swept` is the stored sighting's paths plus, for the session's own
-/// repository, the chain from its root to its cwd. A granted repository
-/// nothing has compiled in has **no stored sighting at all** -- the grant
-/// stores none; `rpc::project_trust` only deletes `Seen` and `Held`, on
-/// untrust -- and it is not the session's own repository, so both halves are
-/// empty and `change::wrote` skips it.
+/// repository, the chain from its root to its cwd. The grant stores the
+/// repository's sighting (`rpc::project_trust`), so the second repository's
+/// own `AGENTS.md` is in the swept set although no compile has opened there,
+/// the sweep sees it move, and the hold names the change in the block.
 ///
-/// **Nothing was created and nothing is undiscovered here**, which is why
-/// case 1's wording excluded this and why it needs its own test: the file is
-/// the very one the grant was given for, and the repository was simply never
-/// opened. It is also **quieter** than case 1 -- there is no "changed" notice
-/// on the block at all, because a repository's first sighting is not a diff,
-/// where case 1 at least produces a row.
-///
-/// The difference from `probe_another_granted_repositorys_file_is_held_too`,
-/// which is GREEN, is one line: that probe compiles in the second repository
-/// once before the write, so the sighting exists and the sweep has something
-/// to compare. Finding A2 is closed for a repository the owner has opened.
-///
-/// **When someone closes it, this test fails, and that is the point.** Flip
-/// it to the containment then; do not delete it.
+/// `probe_another_granted_repositorys_file_is_held_too` is the same case with
+/// one compile in the second repository before the write.
 #[tokio::test]
-async fn the_residual_a_granted_repository_no_compile_has_opened_in_is_not_held() {
+async fn a_granted_repository_no_compile_has_opened_in_is_held() {
     let (r, _repo, here, session) =
         granted_and_flagged(crate::content::InjectionMode::Notify).await;
     let second = second_repo(&r.root);
     r.core.project_trust(&second, "cli").expect("both trusted");
-    // The whole of this case is the line that is NOT here: no `submit_in` in
-    // the second repository, so no session has ever been opened in it and the
-    // grant stored no sighting.
+    // No `submit_in` in the second repository: no session has ever been
+    // opened in it, and its sighting is the grant's.
 
     let file = second.join("AGENTS.md");
     moves_the_file(&r, &here, &session, By::Program, &file).await;
@@ -1552,19 +1538,14 @@ async fn the_residual_a_granted_repository_no_compile_has_opened_in_is_not_held(
     assert_ne!(clean, session, "a different session, carrying nothing");
     let block = session_block(&r.fake.requests().pop().unwrap());
     assert!(
-        block.contains(BY_THE_CALL),
-        "THE RESIDUAL, case 2: a granted repository no compile has opened in has \
-         no stored sighting and is not the session's own, so both halves of the \
-         swept set are empty and a clean session opening there DOES read what a \
-         flagged session's call put in it. If this assertion has started \
-         failing, the hole is closed -- invert it:\n{block}"
+        !block.contains(BY_THE_CALL),
+        "case 2: the grant stored the second repository's sighting, so the \
+         flagged session's change to its own AGENTS.md is held and a clean \
+         session opening there does not read it:\n{block}"
     );
     assert!(
-        !block.contains("changed since the owner last read them"),
-        "and it arrives with NO 'changed' notice at all, because this is the \
-         repository's first sighting and a first sighting is not a diff. That \
-         is quieter than case 1, which at least produces a row. If a notice has \
-         appeared, say so where the residual is described:\n{block}"
+        block.contains("changed since the owner last read them"),
+        "and the block names the change:\n{block}"
     );
 }
 
