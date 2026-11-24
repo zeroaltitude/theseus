@@ -430,30 +430,35 @@ async fn each_read_is_a_memory_read_row_with_a_digest_and_no_words() {
         let all = row.to_string();
         assert!(!all.contains("ferry") && !all.contains("parser"), "{all}");
     }
-    // The same call, the same digest; a refused one is a row too, not answered.
+    // The same call, the same digest; a refused one (a bare page with no anchor) is a row too, not answered.
     history(&r.core, asked).await;
-    ask(&r.core, json!({"words": "ferry"})).await.unwrap_err();
+    ask(&r.core, json!({})).await.unwrap_err();
     let again = rows(&r.core, "memory.read");
     assert_eq!(again[2]["digest"], digest);
     assert_eq!((again.len(), &again[3]["ok"]), (4, &json!(false)));
 }
 
-/// The anchor: a page or a words search names a place or the client's conversation, or is refused in words;
-/// `session_id` reads where that conversation speaks, the same page as its place.
+/// The anchor: a bare page names a place or the client's conversation, or is refused in words; a words search
+/// with neither reads every place (the owner's one rule: only a bare look-back stays in one place); `session_id`
+/// reads where that conversation speaks, the same page as its place.
 #[tokio::test]
 async fn a_page_needs_a_place_or_a_conversation() {
     let r = rig(true);
-    for p in [json!({}), json!({"words": "ferry"})] {
-        let e = ask(&r.core, p).await.unwrap_err();
-        assert_eq!(
-            e.message,
-            crate::history_tool::mcp::NO_ANCHOR,
-            "{}",
-            e.message
-        );
-    }
+    let e = ask(&r.core, json!({})).await.unwrap_err();
+    assert_eq!(
+        e.message,
+        crate::history_tool::mcp::NO_ANCHOR,
+        "{}",
+        e.message
+    );
     let native = session(&r.core, None);
     turn(&r.core, &native, "the first ferry note").await;
+    r.core
+        .runner
+        .memory
+        .set_ask(index_over(&r.core, vec![native.clone()]));
+    let found = history(&r.core, json!({"words": "ferry"})).await;
+    assert!(found.to_string().contains("first ferry note"), "{found}");
     let place = place_of(&r.core, &native);
     let by_place = history(&r.core, json!({"place": place})).await;
     let by_session = history(&r.core, json!({"session_id": native})).await;
@@ -1180,4 +1185,68 @@ async fn a_forged_import_cursor_is_answered() {
     )
     .await;
     assert!(lines(&got).is_empty(), "{got}");
+}
+
+/// A span with no place and no conversation reads every place (issue 44): each line names its own place; a
+/// bare page with neither is still refused.
+#[tokio::test]
+async fn history_read_with_a_span_and_no_anchor_reads_every_place() {
+    let r = rig(true);
+    let here = session(&r.core, None);
+    let there = session(&r.core, Some("channel:5"));
+    turn(&r.core, &here, "the gull at the pier").await;
+    turn(&r.core, &there, "the heron on the reef").await;
+    let (a, b) = (place_of(&r.core, &here), place_of(&r.core, &there));
+    assert_ne!(a, b, "two places");
+    let v = history(&r.core, json!({"from": "2000-01-01"})).await;
+    let got = lines(&v);
+    assert_eq!(got.len(), 2, "{v}");
+    assert!(got[0]["words"].as_str().unwrap().contains("heron"), "{v}");
+    assert_eq!(got[0]["place"], b.as_str(), "{v}");
+    assert_eq!(got[1]["place"], a.as_str(), "{v}");
+    assert_eq!(v["end"], "span_start", "{v}");
+}
+
+/// A fork's page of every place by date holds nothing an ancestor said at or after its point, whatever place
+/// it reads; another place's exchange is on it.
+#[tokio::test]
+async fn an_mcp_forks_span_page_holds_nothing_past_its_point_in_any_place() {
+    use theseus_protocol::fork::SessionForkParams;
+    let r = rig(true);
+    let s = r
+        .core
+        .mcp_open(theseus_protocol::SessionOpenParams {
+            label: Some("mcp lab".into()),
+            ..Default::default()
+        })
+        .unwrap()
+        .session_id;
+    turn(&r.core, &s, "the first tide note").await;
+    turn(&r.core, &s, "the second tide note").await;
+    let elsewhere = session(&r.core, Some("channel:5"));
+    turn(&r.core, &elsewhere, "the heron on the reef").await;
+    let point = (r.core.store.session_nodes(&s).unwrap().into_iter())
+        .find(|(_, n)| {
+            matches!(&n.body, crate::node::Body::UserMessage { text, .. } if text.contains("second"))
+        })
+        .expect("the second message")
+        .1
+        .id;
+    let fork = r
+        .core
+        .session_fork(
+            SessionForkParams {
+                session: s.clone(),
+                at: point,
+                ..Default::default()
+            },
+            Surface::Mcp,
+        )
+        .unwrap()
+        .session_id;
+    let v = history(&r.core, json!({"session_id": fork, "from": "2000-01-01"})).await;
+    let said = v.to_string();
+    assert!(said.contains("first tide note"), "{v}");
+    assert!(said.contains("heron on the reef"), "another place: {v}");
+    assert!(!said.contains("second tide note"), "past the point: {v}");
 }

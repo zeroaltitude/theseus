@@ -14,6 +14,10 @@
 //!   or `from` / `to` ([`span_of`]: an explicit argument's reader, `recall::when::read_local`, never recall's
 //!   reading of English in a person's message). A span's page holds exactly its exchanges, newest first,
 //!   paged by `before`; an empty span says so; beside `words`, `place` or `thing` it narrows them.
+//! - **Every place, when a call narrows and names none**: only a bare look-back stays here. A span or words
+//!   with no place and no thing read every place's timeline as one (`page::Walks::EveryPlace`), newest first,
+//!   each line naming its place (history whose place was never recorded says so); a session the self loop
+//!   opened keeps to its own place.
 //! - **Every place, for every reader** (anything goes, 2026-11-22): no presence, place class, seal or move
 //!   keeps an exchange off a page or out of an open.
 //! - **Retraction corrects; it does not hide**: a retracted statement still appears in history as said, and its
@@ -508,6 +512,11 @@ pub(crate) async fn answer(
             resume,
             imported,
         } => {
+            // A page of every place is named so, and its marker says what it read.
+            let (heading, of) = match walked.every {
+                true => (page::EVERY_PLACE, page::EVERY_PLACE),
+                false => (here.as_str(), read_of(a, here)),
+            };
             let p = walked.page;
             // An import search's page holds its own size of hits.
             let size = match imported {
@@ -517,7 +526,7 @@ pub(crate) async fn answer(
             let mut meta = json!({
                 "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
                 "look": looks + 1, "of": LOOKS_PER_TURN, "page": size,
-                "outside": outside_of(page::shows_another(&p), read_of(a, here)),
+                "outside": outside_of(page::shows_another(&p), of),
             });
             // An import search's page shows imported messages, which no exchange holds: its own sources.
             let (text, sources) = match imported {
@@ -526,7 +535,7 @@ pub(crate) async fn answer(
                     f.nodes,
                 ),
                 None => (
-                    page::render(&p, (here, span.as_ref()), looks, resume.as_ref()),
+                    page::render(&p, (heading, span.as_ref()), looks, resume.as_ref()),
                     page_sources(core, &p)?,
                 ),
             };
@@ -658,7 +667,11 @@ pub(crate) async fn read(
         let (page, found) =
             imports::read(core, a, (book, &lens), before.as_ref(), used.looks).await?;
         return Ok(Read::Page {
-            walked: page::Walked { page, resume: None },
+            walked: page::Walked {
+                page,
+                resume: None,
+                every: false,
+            },
             looks: used.looks,
             resume: None,
             imported: Some(found),
@@ -666,9 +679,9 @@ pub(crate) async fn read(
     }
     let mut stale = false;
     if let Some(w) = a.words.as_deref().map(str::trim).filter(|w| !w.is_empty()) {
-        let (root, _) = lens.root(a).map_err(|e| format!("{e:#}"))?;
-        let scope = lens.scope(&root).map_err(|e| format!("{e:#}"))?;
-        let (turns, cut) = found(core, w, scope).await?;
+        let (walks, _) = lens.root(a).map_err(|e| format!("{e:#}"))?;
+        let scope = lens.scope(&walks).map_err(|e| format!("{e:#}"))?;
+        let (turns, cut) = found(core, w, lens.span.clone(), scope).await?;
         lens.words = Some(turns);
         stale = cut;
     }
@@ -692,14 +705,16 @@ pub(crate) async fn read(
     })
 }
 
-/// The turns the words index finds for `words` among `scope`, the sessions on the timeline walked: the search
-/// is scoped to them before it ranks anything. And whether the search may be incomplete: a hit it admitted gave
-/// no live turn (gone, erased, or outside the scope: a stale index entry) while its bound was reached (the most
-/// it asks, or the pack's budget dropped some), so a live hit below the stale ones may have been left out. The
-/// pack is bounded before each hit's node is read, and nothing refills it.
+/// The turns the words index finds for `words` among `scope`, the sessions on the timeline walked, within
+/// `span` when the call names one: the search is scoped to both before it ranks anything. And whether the
+/// search may be incomplete: a hit it admitted gave no live turn (gone, erased, or outside the scope: a stale
+/// index entry) while its bound was reached (the most it asks, or the pack's budget dropped some), so a live
+/// hit below the stale ones may have been left out. The pack is bounded before each hit's node is read, and
+/// nothing refills it.
 pub(crate) async fn found(
     core: &Arc<Core>,
     words: &str,
+    span: Option<When>,
     scope: HashSet<String>,
 ) -> Result<(HashSet<String>, bool), String> {
     if scope.is_empty() {
@@ -715,7 +730,7 @@ pub(crate) async fn found(
         WORDS_K,
         MemoryArm::Baseline,
         deadline,
-        None,
+        span,
         sessions,
     );
     begun.max_items = Some(WORDS_K);

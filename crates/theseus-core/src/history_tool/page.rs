@@ -5,7 +5,7 @@
 //! finishing its page stops as a limit of the tool, never as the end of history, and its resume position is
 //! kept by the tool for the turn behind an opaque token (`super::Board`), never shown.
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use anyhow::{bail, Result};
 use theseus_store::{kinds, Store as _};
@@ -26,6 +26,8 @@ pub const REPLY_CHARS: usize = 200;
 /// Touches read a step, and the most one page reads before it stops as a limit of the tool.
 const STEP: usize = PAGE_EXCHANGES;
 pub const READ_MOST: usize = 20 * PAGE_EXCHANGES;
+/// Touches of one place read at a time when every place is walked ([`Merge`]).
+const CHUNK: usize = 8;
 /// The compilation's drops that are not the conversation's own nodes.
 const RECALL_TIER: &str = "recall";
 
@@ -44,6 +46,12 @@ fn root_key(root: &TimelineRoot) -> String {
         TimelineRoot::Person(p) => Root::Person(p).key(),
         TimelineRoot::Thing(t) => Root::Thing(t).key(),
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Touch records this thread's timelines read: a page's cost, as a test counts it.
+    pub(crate) static TOUCHES_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// The ledger's touch index as the view's [`Timeline`]. Its order is the index's own: newest first, then by
@@ -70,6 +78,8 @@ impl Timeline for Ledger<'_> {
                     .first_with_prefix_from(kinds::META, &prefix, &from, n)?
             }
         };
+        #[cfg(test)]
+        TOUCHES_READ.with(|n| n.set(n.get() + recs.len()));
         recs.iter()
             .map(|rec| {
                 let t: Touch = rec.decode()?;
@@ -80,6 +90,121 @@ impl Timeline for Ledger<'_> {
                 })
             })
             .collect()
+    }
+}
+
+/// What a page walks: one timeline of the touch index, or every place's at once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Walks {
+    One(TimelineRoot),
+    /// Every place's timeline as one, in the index's own order ([`Merge`]).
+    EveryPlace,
+}
+
+/// The exchanges a walk reads, a batch at a time.
+enum Feed<'a> {
+    One(Ledger<'a>, TimelineRoot),
+    Every(Merge<'a>),
+}
+
+impl<'a> Feed<'a> {
+    fn of(store: &'a Store, walks: &Walks) -> Self {
+        match walks {
+            Walks::One(root) => Feed::One(Ledger(store), root.clone()),
+            Walks::EveryPlace => Feed::Every(Merge {
+                store,
+                lanes: None,
+                last: None,
+            }),
+        }
+    }
+
+    /// At most `n` exchanges strictly older than `at`, newest first. A merge is asked only from where its last
+    /// batch stopped, and keeps its own place between calls.
+    fn newest(&mut self, at: Option<&Cursor>, n: usize) -> Result<Vec<ExchangeRef>> {
+        match self {
+            Feed::One(tl, root) => tl.newest(root, at, n),
+            Feed::Every(m) => m.newest(at, n),
+        }
+    }
+}
+
+/// Every place's timeline as one, in the index's own order (newest first, then by turn id ascending within one
+/// millisecond): each place found by one read (`exchange::places`), then read [`CHUNK`] touches at a time from
+/// the walk's start and refilled only when drained, so a page costs about its own reads and a chunk a place,
+/// never a page a place. A turn is one exchange in one place, so a cursor pages across places with no gap and
+/// no repeat; one touched under two places is given once.
+struct Merge<'a> {
+    store: &'a Store,
+    /// Each place's next touches, once the first batch read them.
+    lanes: Option<Vec<Lane>>,
+    last: Option<Cursor>,
+}
+
+/// One place's next touches, and whether its timeline holds no more.
+struct Lane {
+    root: TimelineRoot,
+    next: VecDeque<ExchangeRef>,
+    done: bool,
+}
+
+impl Lane {
+    fn fill(&mut self, store: &Store, from: Option<&Cursor>) -> Result<()> {
+        let got = Ledger(store).newest(&self.root, from, CHUNK)?;
+        self.done = got.len() < CHUNK;
+        self.next.extend(got);
+        Ok(())
+    }
+}
+
+impl Merge<'_> {
+    fn newest(&mut self, start: Option<&Cursor>, n: usize) -> Result<Vec<ExchangeRef>> {
+        let store = self.store;
+        if self.lanes.is_none() {
+            let places = exchange::places(store)?;
+            #[cfg(test)]
+            TOUCHES_READ.with(|n| n.set(n.get() + places.len()));
+            let mut lanes = Vec::with_capacity(places.len());
+            for p in places {
+                let mut lane = Lane {
+                    root: TimelineRoot::Place(p),
+                    next: VecDeque::new(),
+                    done: false,
+                };
+                lane.fill(store, start)?;
+                lanes.push(lane);
+            }
+            self.lanes = Some(lanes);
+        }
+        let Some(lanes) = self.lanes.as_mut() else {
+            return Ok(Vec::new());
+        };
+        // The index's own order: the newer first, then the lower turn id.
+        let first = |a: &ExchangeRef, b: &ExchangeRef| {
+            b.at_ms
+                .cmp(&a.at_ms)
+                .then_with(|| a.turn_id.cmp(&b.turn_id))
+        };
+        let mut out = Vec::new();
+        while out.len() < n {
+            let Some(lane) = (lanes.iter_mut())
+                .filter(|l| !l.next.is_empty())
+                .min_by(|a, b| first(&a.next[0], &b.next[0]))
+            else {
+                break;
+            };
+            let Some(r) = lane.next.pop_front() else {
+                break;
+            };
+            if lane.next.is_empty() && !lane.done {
+                lane.fill(store, Some(&r.cursor()))?;
+            }
+            if self.last.as_ref() != Some(&r.cursor()) {
+                self.last = Some(r.cursor());
+                out.push(r);
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -116,30 +241,51 @@ pub struct SelfScope {
     pub handed: HashSet<String>,
 }
 
-/// A walk's page, and where a walk stopped by its bound would resume (kept by the tool, never shown).
+/// A walk's page, where a walk stopped by its bound would resume (kept by the tool, never shown), and whether
+/// it read every place.
 pub struct Walked {
     pub page: HistoryPage,
     pub resume: Option<Cursor>,
+    pub every: bool,
 }
 
 impl Lens<'_> {
-    /// The timeline a call reads, and whether a bare call's start applies to it.
-    pub fn root(&self, a: &HistoryArgs) -> Result<(TimelineRoot, bool)> {
+    /// The timeline a call reads, and whether a bare call's start applies to it. Only a bare look-back stays
+    /// here: a span or words with no place read every place, except for a session the self loop opened, which
+    /// keeps to its own anchor.
+    pub fn root(&self, a: &HistoryArgs) -> Result<(Walks, bool)> {
         let some = |s: &Option<String>| {
             s.as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .map(str::to_string)
         };
+        let narrows = self.span.is_some() || some(&a.words).is_some();
         match (some(&a.place), some(&a.thing)) {
             (Some(_), Some(_)) => bail!("narrow by a place or by a thing, not both"),
             (Some(p), None) => {
                 let bare = p == self.here;
-                Ok((TimelineRoot::Place(p), bare))
+                Ok((Walks::One(TimelineRoot::Place(p)), bare))
             }
-            (None, Some(t)) => Ok((TimelineRoot::Thing(t), false)),
-            (None, None) => Ok((TimelineRoot::Place(self.here.clone()), true)),
+            (None, Some(t)) => Ok((Walks::One(TimelineRoot::Thing(t)), false)),
+            (None, None) if narrows && self.scope.is_none() => Ok((Walks::EveryPlace, false)),
+            (None, None) => Ok((Walks::One(TimelineRoot::Place(self.here.clone())), true)),
         }
+    }
+
+    /// Where a span's walk starts: its end, before every exchange of that millisecond.
+    fn span_end(&self) -> Option<Cursor> {
+        self.span.as_ref().and_then(|s| s.to_ms).map(|t| Cursor {
+            at_ms: t,
+            turn_id: String::new(),
+        })
+    }
+
+    /// Whether `at_ms` is older than the span's start: newest first, nothing past it is in the span.
+    fn past_span(&self, at_ms: u64) -> bool {
+        (self.span.as_ref())
+            .and_then(|s| s.from_ms)
+            .is_some_and(|f| at_ms < f)
     }
 
     /// The exchange `r` names, when the asker's scope admits it ([`Lens::in_scope`]) and a fork's cut does not
@@ -201,16 +347,22 @@ impl Lens<'_> {
         Ok(false)
     }
 
-    /// The sessions of the exchanges of `root`, from its newest on, within [`READ_MOST`] touches: what a words
-    /// search is scoped to before it ranks anything.
-    pub fn scope(&self, root: &TimelineRoot) -> Result<HashSet<String>> {
-        let tl = Ledger(self.store);
-        let (mut out, mut before, mut read) = (HashSet::new(), None, 0);
+    /// The sessions of the exchanges `walks` reads, from the span's end (or the newest) back to its start,
+    /// within [`READ_MOST`] touches: what a words search is scoped to before it ranks anything.
+    pub fn scope(&self, walks: &Walks) -> Result<HashSet<String>> {
+        let mut feed = Feed::of(self.store, walks);
+        let (mut out, mut before, mut read) = (HashSet::new(), self.span_end(), 0);
         while read < READ_MOST {
-            let refs = tl.newest(root, before.as_ref(), STEP)?;
+            let refs = feed.newest(before.as_ref(), STEP)?;
             read += refs.len();
             for r in &refs {
+                if self.past_span(r.at_ms) {
+                    return Ok(out);
+                }
                 before = Some(r.cursor());
+                if self.span.as_ref().is_some_and(|s| !s.holds(r.at_ms)) {
+                    continue;
+                }
                 if !out.contains(&r.session_id) && self.admitted(r)?.is_some() {
                     out.insert(r.session_id.clone());
                 }
@@ -284,19 +436,16 @@ impl Lens<'_> {
                     end: PageEnd::AllowanceUsed,
                 },
                 resume: None,
+                every: false,
             });
         }
-        let (root, bare) = self.root(a)?;
+        let (walks, bare) = self.root(a)?;
         // A span's page starts at its end, whatever is in view: it holds exactly the span's exchanges.
-        let span_end = self.span.as_ref().and_then(|s| s.to_ms).map(|t| Cursor {
-            at_ms: t,
-            turn_id: String::new(),
-        });
         let mut at = match &self.span {
-            Some(_) => before.or(span_end),
+            Some(_) => before.or(self.span_end()),
             None => before.or_else(|| bare.then(|| self.in_view.clone()).flatten()),
         };
-        let tl = Ledger(self.store);
+        let mut feed = Feed::of(self.store, &walks);
         let (mut lines, mut read) = (Vec::<HistoryLine>::new(), 0);
         let (mut more, mut exhausted) = (false, false);
         // A words hit the fork's cut held: the bounded search may have been crowded by them. Seeded from the
@@ -304,17 +453,12 @@ impl Lens<'_> {
         // what is in view, a scan-limit continuation) still knows of them.
         let mut held = self.holds_a_hit()?;
         'walk: while read < READ_MOST {
-            let refs = tl.newest(&root, at.as_ref(), STEP)?;
+            let refs = feed.newest(at.as_ref(), STEP)?;
             read += refs.len();
             let last = refs.len() < STEP;
             for r in refs {
                 // Newest first: past the span's start, nothing older is in it.
-                if self
-                    .span
-                    .as_ref()
-                    .and_then(|s| s.from_ms)
-                    .is_some_and(|f| r.at_ms < f)
-                {
+                if self.past_span(r.at_ms) {
                     exhausted = true;
                     break 'walk;
                 }
@@ -356,6 +500,7 @@ impl Lens<'_> {
         Ok(Walked {
             page: HistoryPage { lines, next, end },
             resume,
+            every: walks == Walks::EveryPlace,
         })
     }
 }
@@ -537,6 +682,17 @@ pub(super) fn when(ms: u64) -> String {
     )
 }
 
+/// What [`render`] names every place's history by.
+pub const EVERY_PLACE: &str = "every place";
+
+/// A line's place as a page says it: history whose place was never recorded says so.
+pub(crate) fn place_said(place: &str) -> String {
+    match place {
+        exchange::rebuild::UNKNOWN => "place not recorded".into(),
+        p => cut(p, 120),
+    }
+}
+
 /// Whose words a line's are: the owner's, another known person's (outside text), or not known.
 pub(super) fn who(person: Option<&str>) -> String {
     match person {
@@ -603,7 +759,7 @@ pub fn render(
         out.push_str(&format!(
             "\n- {} · {} · {}: \u{ab}{}\u{bb} \u{2192} {did} · {}",
             when(l.at_ms),
-            cut(&l.place, 120),
+            place_said(&l.place),
             who(l.person.as_deref()),
             l.his_words,
             flat(&l.handle.0)

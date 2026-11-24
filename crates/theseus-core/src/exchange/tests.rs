@@ -347,6 +347,25 @@ async fn the_rebuild_never_takes_an_author_or_a_place_from_a_binding() {
     assert_eq!((again.kept, again.exchanges, again.touches), (3, 0, 0));
 }
 
+/// History whose place was never recorded is touched under `unknown` by the
+/// rebuild, at its exchange's start, so a look-back by date reaches it (a date
+/// page shows it, marked "place not recorded"); a second run writes nothing.
+#[tokio::test]
+async fn the_rebuild_touches_history_whose_place_was_never_recorded() {
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let old = turn(c, owner_cli(), None, "an old terminal message").await;
+    crate::test_support::before_the_ledger(&c.store, &old.session_id);
+    rebuilt(c, None, false).await;
+    let e = exchange(&c.store, &old.turn_id).unwrap().unwrap();
+    assert_eq!(e.place, rebuild::UNKNOWN);
+    let t = newest(&c.store, Root::Place(rebuild::UNKNOWN), 8).unwrap();
+    let turns: Vec<&str> = t.iter().map(|t| t.exchange.as_str()).collect();
+    assert_eq!(turns, [old.turn_id.as_str()]);
+    assert_eq!(t[0].at_ms, e.start_ms);
+    assert_eq!(rebuilt(c, None, false).await.touches, 0);
+}
+
 /// The index of the tests: `file:wal.rs` for a text that names it, after
 /// `delay`.
 struct Naming {

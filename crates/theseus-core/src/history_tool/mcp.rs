@@ -4,8 +4,9 @@
 //! a session opened by id (an imported one included, each node by its newest record), a words search, a thing.
 //!
 //! - **Its anchor**: `place` (a place's key, as a line names it), else where `session_id`, the client's own
-//!   conversation, speaks (`super::anchor`). An `open` and a `thing`'s timeline need none; a page or a words
-//!   search with neither is refused in words ([`NO_ANCHOR`]). Nothing is in view with no turn, so a bare page
+//!   conversation, speaks (`super::anchor`). An `open`, a `thing`'s timeline, and a page that narrows (a span, or
+//!   words) need none: with no place named, a page that narrows reads every place; a bare page with neither is
+//!   refused in words ([`NO_ANCHOR`]). Nothing is in view with no turn, so a bare page
 //!   starts at the newest exchange.
 //! - **A fork's cut**: a `session_id` that is a fork (an MCP client may fork its own conversation) carries
 //!   that fork's cut, as the model's own call in it does: its pages, its search and its opens hold nothing an
@@ -204,7 +205,11 @@ async fn read_history(
         Some(sid) => place_of_session(core, sid)?,
         None => None,
     };
-    let needs_none = some(&p.open).is_some() || some(&p.thing).is_some();
+    // Only a bare page needs an anchor: one that narrows (a span, words) reads every place.
+    let narrows = [&p.words, &p.when, &p.from, &p.to]
+        .into_iter()
+        .any(|s| some(s).is_some());
+    let needs_none = some(&p.open).is_some() || some(&p.thing).is_some() || narrows;
     let here = match (some(&p.place), session_place) {
         (Some(place), _) => place.to_string(),
         (None, Some(place)) => place,
@@ -244,6 +249,11 @@ async fn read_history(
             // A call with no turn counts no opens.
             Read::OpensUsed { .. } => return Err("no exchange can be opened now".into()),
             Read::Page { walked, resume, .. } => {
+                // Every place's page names no one place.
+                let place = match walked.every {
+                    true => String::new(),
+                    false => place,
+                };
                 let pg = walked.page;
                 let (end, next) = match pg.end {
                     PageEnd::More | PageEnd::AllowanceUsed => ("more", pg.next),

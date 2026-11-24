@@ -7,7 +7,8 @@
 //!   message arrived): a session's binding is where it posts now, not proof
 //!   of where a message arrived or who typed it (an agent's terminal submit
 //!   into a bound DM is the operator's too). With no mark the place is
-//!   `unknown` and there is no person. No mark is ever made here.
+//!   `unknown` and there is no person, and its place's touch is `unknown`'s, so a look-back by date reaches
+//!   it (and says its place was not recorded). No mark is ever made here.
 //! - **A turn with an exchange** keeps it, and its mark, as written; only its
 //!   missing touches are written (a restart, or an index that was late or
 //!   down, can leave a thing's touch unwritten).
@@ -208,10 +209,9 @@ fn records(
             out.extend(exchange_record(ex).ok());
         }
         let (turn, sid, at) = (&ex.turn_id, &ex.session_id, ex.start_ms);
+        // History whose place was never recorded is touched under `unknown`, so a look-back by date reaches it.
         let mut touches: Vec<NewRecord> = Vec::new();
-        if ex.place != UNKNOWN {
-            touches.extend(touch(Root::Place(&ex.place), turn, sid, at));
-        }
+        touches.extend(touch(Root::Place(&ex.place), turn, sid, at));
         if let Some(person) = &ex.person {
             touches.extend(touch(Root::Person(person), turn, sid, at));
         }
