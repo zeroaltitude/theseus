@@ -30,6 +30,8 @@ pub(super) struct Merged {
     pub(super) uncounted: String,
     pub(super) stats: String,
     pub(super) lines: Option<String>,
+    /// Why the count was skipped, in the code's own words (`stats::Skip`), when it was.
+    pub(super) skip: Option<stats::Skip>,
 }
 
 impl Run<'_> {
@@ -295,6 +297,9 @@ impl Run<'_> {
                 if let Some(lines) = &m.lines {
                     numbers["lines"] = json!(lines);
                 }
+                if let Some(skip) = m.skip {
+                    numbers["stats_skip"] = json!(skip.key());
+                }
                 self.core.rec(None).record(&SelfJoined {
                     item: self.b.item.clone(),
                     branch: self.b.branch.clone(),
@@ -334,13 +339,14 @@ impl Run<'_> {
     /// The dry run on the remote's main, then the merge in its tree with the count folded in
     /// (`stats`, issue 45); none (held) when the head is on main already or conflicts.
     async fn merge(&mut self, remote: &str, message: &str) -> Result<Option<Merged>> {
-        let (p, r, h, b, m, limit) = (
+        let (p, r, h, b, m, limit, after_fold) = (
             self.place.clone(),
             remote.to_string(),
             self.b.head.clone(),
             self.b.branch.clone(),
             message.to_string(),
             self.seams.stats_limit,
+            self.seams.after_fold.clone(),
         );
         let merged = blocking(move || {
             git::fetch(&p, &r)?;
@@ -353,8 +359,10 @@ impl Run<'_> {
                 return Ok(Err(Refused::Conflict(why)));
             }
             let t = git::detached(&p, "join", &b, &base)?;
-            let made = git::merge(&p, &t, &h, &m)
-                .and_then(|made| Ok((stats::count(&p, &t, &base, &made, limit)?, made)));
+            let made = git::merge(&p, &t, &h, &m).and_then(|made| {
+                let c = stats::count(&p, &t, &base, &made, limit, after_fold.as_deref())?;
+                Ok((c, made))
+            });
             match made {
                 Ok((c, uncounted)) => Ok(Ok(Merged {
                     t,
@@ -363,6 +371,7 @@ impl Run<'_> {
                     uncounted,
                     stats: c.said,
                     lines: c.lines,
+                    skip: c.skip,
                 })),
                 Err(e) => {
                     let _ = tree::close(&p, &t);

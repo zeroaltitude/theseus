@@ -1532,6 +1532,20 @@ class BuildStamp(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("build: the sizes were not recorded", p.stderr)
 
+    def test_a_record_that_fails_is_one_line_of_the_build(self):
+        (self.root / "scripts" / "stats.py").write_text((HERE / "stats.py").read_text())
+        (self.root / "crates").mkdir()
+        for args in (("add", "-A"), ("commit", "-q", "-m", "counter")):
+            self.assertEqual(run(["git", *args], self.root, self.env).returncode, 0)
+        ok = self.build()
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+        # The record's directory is a file: the record fails, and all the build says of it is one line.
+        p = self.build(THESEUS_STATS_SIZES=str(self.root / "notes.txt" / "sizes.md"))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        said = [line for line in (p.stdout + p.stderr).splitlines() if line not in (ok.stdout + ok.stderr).splitlines()]
+        self.assertEqual(len(said), 1, said)
+        self.assertTrue(said[0].startswith("build: the sizes were not recorded for STATS.md"), said)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,13 +5,15 @@
 //!
 //! - **The counter is main's**, pinned to the join's base: the blob `<base>:scripts/stats.py`,
 //!   frozen under `<state>/self/gates/`, never the branch's copy nor the merged tree's.
-//! - **It runs in L1**, as every command in a join's tree does (`Place::jail`), with its time limit,
-//!   and with the tree its one lasting write: the build directory its view gives it is a throwaway
-//!   one, never the gate's (`Tree::target`), and is removed after it.
+//! - **It runs in L1**, as every command in a join's tree does (`Place::jail`), with the tree its one
+//!   lasting write: the build directory its view gives it is a throwaway one, never the gate's
+//!   (`Tree::target`), and is removed after it. Its two runs (`--range`, then `--count-head`) share one
+//!   limit, on the clock.
 //! - **Containment is the whole tree, read from the file system** ([`stats_tree`]): no git reads the
 //!   tree's files for the count, so the count runs nothing the tree's attributes select (a filter, a
 //!   diff driver) outside L1. Before and after the counter, every path is taken with its kind, bits
-//!   and content; nothing but STATS.md may differ, and it must be a plain file.
+//!   and content; nothing but STATS.md may differ, and it must be a plain file of UTF-8 text no
+//!   larger than [`STATS_MAX`].
 //! - **The fold reads no attributes from the tree**: the blob is written from the bytes checked, the
 //!   tree is the merge's with that one entry (`mktree`), the commit is the merge's object with that
 //!   tree, and HEAD and the index move to it with git pointed at an empty directory, never at the tree.
@@ -28,7 +30,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use theseus_kernel::children::{self, Kind};
@@ -41,6 +43,9 @@ use crate::rsi::tree::{Place, Tree};
 const COUNTER: &str = "scripts/stats.py";
 /// The one path the count may change.
 const STATS: &str = "STATS.md";
+/// The largest STATS.md a count may fold: the file is about 4.4 KB, and grows by a line a crate.
+pub(super) const STATS_MAX: u64 = 64 * 1024;
+
 /// What the count did to a made merge.
 pub(super) struct Count {
     /// The merge the join carries on with: the folded one when it was counted, else the one made.
@@ -49,52 +54,144 @@ pub(super) struct Count {
     pub(super) said: String,
     /// The merge's change in lines, as the counter's `--range` says it without its ids.
     pub(super) lines: Option<String>,
+    /// Why it was skipped, in the code's own words, when it was.
+    pub(super) skip: Option<Skip>,
 }
 
-/// Count the made merge `merge` (on `base`) in its tree `t`, and fold the count into it. An error
-/// only when the tree could not be shown put back after a count that failed.
+/// Why a count was skipped: the reasons the installed notice may give, and no others.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Skip {
+    NoCounter,
+    Unread,
+    Failed,
+    Changed,
+    NotPlain,
+    TooLarge,
+    Unfolded,
+}
+
+impl Skip {
+    const ALL: [Skip; 7] = [
+        Skip::NoCounter,
+        Skip::Unread,
+        Skip::Failed,
+        Skip::Changed,
+        Skip::NotPlain,
+        Skip::TooLarge,
+        Skip::Unfolded,
+    ];
+
+    /// Its key in the row (`numbers.stats_skip`).
+    pub(super) fn key(self) -> &'static str {
+        match self {
+            Skip::NoCounter => "no-counter",
+            Skip::Unread => "unread",
+            Skip::Failed => "failed",
+            Skip::Changed => "changed",
+            Skip::NotPlain => "not-plain",
+            Skip::TooLarge => "too-large",
+            Skip::Unfolded => "unfolded",
+        }
+    }
+
+    /// Its words in the installed notice.
+    fn words(self) -> &'static str {
+        match self {
+            Skip::NoCounter => "main has no counter",
+            Skip::Unread => "main's counter could not be read",
+            Skip::Failed => "the counter failed or ran out of time",
+            Skip::Changed => "the counter changed more than STATS.md",
+            Skip::NotPlain => "STATS.md was not a plain file",
+            Skip::TooLarge => "STATS.md was too large or not UTF-8 text",
+            Skip::Unfolded => "the count could not be folded into the merge",
+        }
+    }
+
+    /// The notice's words for a row's key: one of the fixed reasons, whatever the row holds.
+    pub(super) fn said_for(key: &str) -> &'static str {
+        Skip::ALL
+            .into_iter()
+            .find(|s| s.key() == key)
+            .map_or("a reason this build does not name", Skip::words)
+    }
+}
+
+/// A step of the count that failed, and which of the fixed reasons it is.
+struct Skipped(Skip, anyhow::Error);
+
+trait Because<T> {
+    fn because(self, s: Skip) -> std::result::Result<T, Skipped>;
+}
+
+impl<T> Because<T> for Result<T> {
+    fn because(self, s: Skip) -> std::result::Result<T, Skipped> {
+        self.map_err(|e| Skipped(s, e))
+    }
+}
+
+/// Count the made merge `merge` (on `base`) in its tree `t`, and fold the count into it, within
+/// `limit` for both of the counter's runs. `after_fold` is a test's way in once the fold has moved HEAD
+/// and the index. An error only when the tree could not be shown put back after a count that failed.
 pub(super) fn count(
     p: &Place,
     t: &Tree,
     base: &str,
     merge: &str,
     limit: Duration,
+    after_fold: Option<&(dyn Fn(&Path) + Send + Sync)>,
 ) -> Result<Count> {
-    let kept = |said: String| Count {
+    let kept = |skip: Skip, why: String| Count {
         merge: merge.to_string(),
-        said,
+        said: format!("skipped: {why}"),
         lines: None,
+        skip: Some(skip),
     };
     let frozen = match frozen(p, base) {
         Ok(Some(f)) => f,
-        Ok(None) => return Ok(kept(format!("skipped: main has no {COUNTER}"))),
-        Err(e) => return Ok(kept(format!("skipped: {e:#}"))),
+        Ok(None) => return Ok(kept(Skip::NoCounter, format!("main has no {COUNTER}"))),
+        Err(e) => return Ok(kept(Skip::Unread, format!("{e:#}"))),
     };
     let before = match stats_tree::snapshot(&t.dir) {
         Ok(s) => s,
-        Err(e) => return Ok(kept(format!("skipped: the tree could not be read: {e:#}"))),
+        Err(e) => {
+            return Ok(kept(
+                Skip::Unfolded,
+                format!("the tree could not be read: {e:#}"),
+            ))
+        }
     };
-    let ran = Scratch::new(p, t).and_then(|s| {
+    let scratch = Scratch::new(p, t);
+    let until = Instant::now() + limit;
+    let ran = scratch.and_then(|s| {
         let range = format!("{base}..HEAD");
-        let lines = run(p, &s.job, &frozen, &["--range", &range], limit)
+        let lines = run(p, &s.job, &frozen, &["--range", &range], until, limit)
             .ok()
             .and_then(|log| range_line(&log));
-        run(p, &s.job, &frozen, &["--count-head"], limit).map(|_| lines)
+        run(p, &s.job, &frozen, &["--count-head"], until, limit).map(|_| lines)
     });
-    let counted = ran.and_then(|lines| Ok((fold(p, t, merge, &before)?, lines)));
-    match counted {
-        Ok((Some(folded), lines)) => Ok(Count {
+    let lines = match ran.because(Skip::Failed) {
+        Ok(lines) => lines,
+        Err(Skipped(skip, why)) => {
+            restore(p, t, merge, &before)?;
+            return Ok(kept(skip, format!("{why:#}")));
+        }
+    };
+    match fold(p, t, merge, &before, after_fold) {
+        Ok(Some(folded)) => Ok(Count {
             merge: folded,
             said: "counted".into(),
             lines,
+            skip: None,
         }),
-        Ok((None, lines)) => Ok(Count {
+        Ok(None) => Ok(Count {
+            merge: merge.to_string(),
+            said: "unchanged".into(),
             lines,
-            ..kept("unchanged".into())
+            skip: None,
         }),
-        Err(why) => {
+        Err(Skipped(skip, why)) => {
             restore(p, t, merge, &before)?;
-            Ok(kept(format!("skipped: {why:#}")))
+            Ok(kept(skip, format!("{why:#}")))
         }
     }
 }
@@ -157,29 +254,46 @@ impl Drop for Scratch {
 }
 
 /// `python3 -I <frozen> <args> --root <tree>` in L1, its output to a log of its own under the
-/// gates; the log when it exited 0.
-fn run(p: &Place, job: &Tree, frozen: &Path, args: &[&str], limit: Duration) -> Result<PathBuf> {
+/// gates, stopped at `until`; the log when it exited 0.
+fn run(
+    p: &Place,
+    job: &Tree,
+    frozen: &Path,
+    args: &[&str],
+    until: Instant,
+    limit: Duration,
+) -> Result<PathBuf> {
     let what = args[0].trim_start_matches('-');
     let log = p.gates().join(format!("stats-{what}-{}.log", job.slug));
     std::fs::create_dir_all(p.gates())?;
+    let left = until.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        bail!(
+            "main's counter ({}) had none left of its {} s",
+            args[0],
+            limit.as_secs()
+        );
+    }
     let mut argv: Vec<OsString> = vec!["python3".into(), "-I".into(), frozen.into()];
     argv.extend(args.iter().map(OsString::from));
     argv.extend(["--root".into(), job.dir.clone().into()]);
     let code = match p.jail()? {
-        Some(j) => j.run_blocking(
-            p,
-            &Job {
-                tree: job,
-                ro: vec![frozen.to_path_buf()],
-                argv,
-                env: Vec::new(),
-                log: &log,
-                limit,
-            },
-        )?,
+        Some(j) => j
+            .run_clocked(
+                p,
+                &Job {
+                    tree: job,
+                    ro: vec![frozen.to_path_buf()],
+                    argv,
+                    env: Vec::new(),
+                    log: &log,
+                    limit: left,
+                },
+            )
+            .with_context(|| format!("main's counter ({}) did not finish", args[0]))?,
         // Only a test's place has no jail (`Place::jail`): its stand-in counter runs at L0, as its
         // stand-in gate does.
-        None => at_l0(p, job, &argv, &log, limit)?,
+        None => at_l0(p, job, &argv, &log, left)?,
     };
     if code != Some(0) {
         let said = std::fs::read_to_string(&log).unwrap_or_default();
@@ -235,7 +349,7 @@ fn at_l0(
     if watcher.join().unwrap_or(false) {
         bail!(
             "main's counter ran past its {} s and was stopped",
-            limit.as_secs()
+            limit.as_secs_f64()
         );
     }
     Ok(status?.code())
@@ -291,57 +405,73 @@ fn grouped(s: &str) -> bool {
 }
 
 /// The count in the tree, checked and folded into `merge`: the folded merge, or none when the tree
-/// is the merge's still. An error when anything but STATS.md changed, or STATS.md is not a plain
-/// file, or the fold is not the merge with the count; the caller puts the tree back.
-fn fold(p: &Place, t: &Tree, merge: &str, before: &Snapshot) -> Result<Option<String>> {
-    let after = stats_tree::snapshot(&t.dir)?;
+/// is the merge's still. Refused when anything but STATS.md changed, or STATS.md is not a plain file
+/// of UTF-8 text within [`STATS_MAX`], or the fold is not the merge with the count; the caller puts
+/// the tree back.
+fn fold(
+    p: &Place,
+    t: &Tree,
+    merge: &str,
+    before: &Snapshot,
+    after_fold: Option<&(dyn Fn(&Path) + Send + Sync)>,
+) -> std::result::Result<Option<String>, Skipped> {
+    let after = stats_tree::snapshot(&t.dir).because(Skip::Unfolded)?;
     let changed = stats_tree::changed(before, &after);
     if changed.is_empty() {
         return Ok(None);
     }
     if changed != [STATS.as_bytes()] {
         let shown: Vec<String> = changed.iter().map(|c| stats_tree::shown(c)).collect();
-        bail!(
-            "the count changed more than {STATS} ({}), so it was undone",
-            shown.join(", ")
-        );
+        return Err(Skipped(
+            Skip::Changed,
+            anyhow!(
+                "the count changed more than {STATS} ({}), so it was undone",
+                shown.join(", ")
+            ),
+        ));
     }
-    let text = plain(t, &after)?;
-    let blob = fed(p, &["hash-object", "-w", "--no-filters", "--stdin"], &text)?;
-    let tree = with_stats(p, merge, &blob)?;
-    let was = p.git_ok(&p.repo, &["rev-parse", &format!("{merge}^{{tree}}")])?;
-    if tree == was {
-        return Ok(None);
-    }
-    let commit = p.git(&p.repo, &["cat-file", "commit", merge])?;
-    let object = retree(&commit.stdout, &tree)?;
-    let folded = fed(
-        p,
-        &["hash-object", "-w", "-t", "commit", "--stdin"],
-        &object,
-    )?;
-    p.git_ok(
-        &t.dir,
-        &["update-ref", "--no-deref", "HEAD", &folded, merge],
-    )?;
-    let entry = format!("100644,{blob},{STATS}");
-    apart(p, t, &["update-index", "--add", "--cacheinfo", &entry])?;
-    let parents = |c: &str| p.git_ok(&p.repo, &["rev-parse", &format!("{c}^@")]);
-    let head = p.git_ok(&t.dir, &["rev-parse", "HEAD"])?;
-    let now = p.git_ok(&p.repo, &["rev-parse", &format!("{folded}^{{tree}}")])?;
-    let index = apart(p, t, &["write-tree"])?;
-    if head != folded || now != tree || index != tree || parents(&folded)? != parents(merge)? {
-        bail!("the folded merge {folded} is not {merge} with the count");
-    }
-    if stats_tree::snapshot(&t.dir)? != after {
-        bail!("the tree changed while the count was folded");
-    }
-    Ok(Some(folded))
+    let text = plain(t, &after).map_err(|(s, e)| Skipped(s, e))?;
+    let folded = (|| -> Result<Option<String>> {
+        let blob = fed(p, &["hash-object", "-w", "--no-filters", "--stdin"], &text)?;
+        let tree = with_stats(p, merge, &blob)?;
+        let was = p.git_ok(&p.repo, &["rev-parse", &format!("{merge}^{{tree}}")])?;
+        if tree == was {
+            return Ok(None);
+        }
+        let commit = p.git(&p.repo, &["cat-file", "commit", merge])?;
+        let object = retree(&commit.stdout, &tree)?;
+        let folded = fed(
+            p,
+            &["hash-object", "-w", "-t", "commit", "--stdin"],
+            &object,
+        )?;
+        p.git_ok(
+            &t.dir,
+            &["update-ref", "--no-deref", "HEAD", &folded, merge],
+        )?;
+        let entry = format!("100644,{blob},{STATS}");
+        apart(p, t, &["update-index", "--add", "--cacheinfo", &entry])?;
+        if let Some(f) = after_fold {
+            f(&t.dir);
+        }
+        let parents = |c: &str| p.git_ok(&p.repo, &["rev-parse", &format!("{c}^@")]);
+        let head = p.git_ok(&t.dir, &["rev-parse", "HEAD"])?;
+        let now = p.git_ok(&p.repo, &["rev-parse", &format!("{folded}^{{tree}}")])?;
+        let index = apart(p, t, &["write-tree"])?;
+        if head != folded || now != tree || index != tree || parents(&folded)? != parents(merge)? {
+            bail!("the folded merge {folded} is not {merge} with the count");
+        }
+        if stats_tree::snapshot(&t.dir)? != after {
+            bail!("the tree changed while the count was folded");
+        }
+        Ok(Some(folded))
+    })();
+    folded.because(Skip::Unfolded)
 }
 
-/// STATS.md as the counter left it, when it is a plain file: not a link, a directory or an
-/// executable.
-fn plain(t: &Tree, after: &Snapshot) -> Result<Vec<u8>> {
+/// STATS.md as the counter left it, when it is a plain file (not a link, a directory or an
+/// executable) of UTF-8 text within [`STATS_MAX`].
+fn plain(t: &Tree, after: &Snapshot) -> std::result::Result<Vec<u8>, (Skip, anyhow::Error)> {
     let Some(stats_tree::Entry::File(mode, sum)) = after.get(STATS.as_bytes()) else {
         let what = match after.get(STATS.as_bytes()) {
             None => "gone",
@@ -349,14 +479,36 @@ fn plain(t: &Tree, after: &Snapshot) -> Result<Vec<u8>> {
             Some(stats_tree::Entry::Link(_)) => "a link",
             _ => "not a file",
         };
-        bail!("{STATS} is {what} in the count's tree, so it was undone");
+        return Err((
+            Skip::NotPlain,
+            anyhow!("{STATS} is {what} in the count's tree, so it was undone"),
+        ));
     };
     if mode & 0o111 != 0 {
-        bail!("{STATS} is executable in the count's tree, so it was undone");
+        return Err((
+            Skip::NotPlain,
+            anyhow!("{STATS} is executable in the count's tree, so it was undone"),
+        ));
     }
-    let text = std::fs::read(t.dir.join(STATS))?;
-    if <[u8; 32]>::from(<sha2::Sha256 as sha2::Digest>::digest(&text)) != *sum {
-        bail!("{STATS} changed as it was read");
+    let at = t.dir.join(STATS);
+    let size = std::fs::symlink_metadata(&at).map_or(u64::MAX, |m| m.len());
+    if size > STATS_MAX {
+        return Err((
+            Skip::TooLarge,
+            anyhow!("{STATS} is {size} bytes, more than {STATS_MAX}, so it was undone"),
+        ));
+    }
+    let text = std::fs::read(&at).map_err(|e| (Skip::Unfolded, e.into()))?;
+    if text.len() as u64 > STATS_MAX
+        || <[u8; 32]>::from(<sha2::Sha256 as sha2::Digest>::digest(&text)) != *sum
+    {
+        return Err((Skip::Unfolded, anyhow!("{STATS} changed as it was read")));
+    }
+    if std::str::from_utf8(&text).is_err() {
+        return Err((
+            Skip::TooLarge,
+            anyhow!("{STATS} is not UTF-8 text, so it was undone"),
+        ));
     }
     Ok(text)
 }

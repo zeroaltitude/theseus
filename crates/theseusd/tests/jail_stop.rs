@@ -26,7 +26,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use common::{check, Case};
 use theseus_core::rsi::jail::{Jail, Job};
@@ -46,6 +46,10 @@ fn main() -> ! {
             Case {
                 name: "a_stopped_jailed_job_leaves_nothing_of_itself_running",
                 run: a_stopped_jailed_job_leaves_nothing_of_itself_running,
+            },
+            Case {
+                name: "a_clocked_job_that_keeps_printing_is_stopped_at_its_limit",
+                run: a_clocked_job_that_keeps_printing_is_stopped_at_its_limit,
             },
         ],
         &[],
@@ -183,9 +187,10 @@ fn git(at: &Path, args: &[&str]) -> Result<String, String> {
 }
 
 /// The join's count, as it runs: main's `scripts/stats.py`, frozen outside the tree and bound
-/// read-only, run with `python3 -I` in the view over a detached worktree holding a made merge. It
-/// counts (git reads the repository through the view's overlay) and writes STATS.md in the tree, and
-/// its `--range` prints the change in lines.
+/// read-only, run with `python3 -I` in the view over a detached worktree holding a made merge, on the
+/// clock (`Jail::run_clocked`). It counts (git reads the repository through the view's overlay, a
+/// private writable copy that ends with the job) and writes STATS.md in the tree, and its `--range`
+/// prints the change in lines.
 fn the_counter_runs_in_l1_with_python_and_git() -> Result<(), String> {
     if refused_as_root()? {
         return Ok(());
@@ -227,7 +232,7 @@ fn the_counter_runs_in_l1_with_python_and_git() -> Result<(), String> {
             limit: Duration::from_secs(60),
         };
         let code = jail
-            .run_blocking(&place, &job)
+            .run_clocked(&place, &job)
             .map_err(|e| format!("{e:#}"))?;
         let said = std::fs::read_to_string(log).unwrap_or_default();
         check(code == Some(0), format!("{args:?} exited {code:?}: {said}"))
@@ -287,5 +292,45 @@ fn a_stopped_jailed_job_leaves_nothing_of_itself_running() -> Result<(), String>
     check(
         !tree.dir.join("late").exists(),
         "a process of the stopped job ran on after the stop",
+    )
+}
+
+/// The count's runs are bounded by the clock (issue 45): a job that keeps printing is stopped at its
+/// limit, where a build's bound on silence would let it run on to 24 times that.
+fn a_clocked_job_that_keeps_printing_is_stopped_at_its_limit() -> Result<(), String> {
+    if refused_as_root()? {
+        return Ok(());
+    }
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).map_err(|e| format!("{e}"))?;
+    let (place, tree, jail) = jailed_rig(dir.path())?;
+    for d in [&tree.dir, &tree.target] {
+        std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+    }
+    let log = dir.path().join("printing.log");
+    let job = Job {
+        tree: &tree,
+        ro: Vec::new(),
+        argv: ["sh", "-c", "while :; do echo tick; sleep 0.2; done"]
+            .map(OsString::from)
+            .to_vec(),
+        env: Vec::new(),
+        log: &log,
+        limit: Duration::from_secs(3),
+    };
+    let t0 = Instant::now();
+    let r = jail.run_clocked(&place, &job);
+    let took = t0.elapsed();
+    check(
+        !matches!(r, Ok(Some(0))),
+        format!("a job stopped at its limit said it passed: {r:?}"),
+    )?;
+    check(
+        took < Duration::from_secs(20),
+        format!("a printing job ran {took:?} past a 3 s clock"),
+    )?;
+    let said = std::fs::read_to_string(&log).unwrap_or_default();
+    check(
+        said.contains("tick"),
+        format!("its output was not kept: {said:?} ({r:?})"),
     )
 }

@@ -293,3 +293,23 @@ fn the_installed_notice_states_the_change_in_lines() {
     j["numbers"]["lines"] = Value::Null;
     assert!(!super::install::notice(&j, None, "0123456789abcdef").contains("Lines:"));
 }
+
+/// A fold that breaks after it moved HEAD and the index (here, a file appears in the tree) is undone:
+/// the tree, HEAD and the index are the merge's again, and the join lands uncounted.
+#[tokio::test]
+async fn a_fold_that_breaks_after_head_moved_is_undone() {
+    let r = rig(SelfMode::Act);
+    let seams = Seams {
+        after_fold: Some(Arc::new(|dir: &std::path::Path| {
+            std::fs::write(dir.join("late.txt"), "late\n").unwrap()
+        })),
+        ..r.seams()
+    };
+    let main = counter("");
+    let (base, head, merge, j) = join(&r, &[("scripts/stats.py", &main)], PROVED, seams).await;
+    assert_eq!(tree_of(&r, &merge), plain_tree(&r, &base, &head));
+    let n = &j["numbers"];
+    assert!(n["stats"].as_str().unwrap().starts_with("skipped: "), "{n}");
+    assert_eq!(n["stats_skip"], "unfolded", "{n}");
+    assert_eq!(n["uncounted"], Value::Null);
+}

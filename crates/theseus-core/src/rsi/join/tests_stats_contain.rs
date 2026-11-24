@@ -1,9 +1,14 @@
 //! What the count in the self-join's merge may reach (issue 45). Its checks and its fold run outside
 //! L1, so they may run nothing the branch selects: no filter its `.gitattributes` names, no hook, no
 //! file-system monitor. Its one lasting write is the tree: a build directory it writes into is never
-//! the gate's. The notice's `Lines:` is the counter's own shape or nothing.
+//! the gate's. The notice's `Lines:` is the counter's own shape or nothing, and a skipped count says
+//! so in the code's own words. And the cases of a tree the counter leaves wrong: STATS.md a
+//! directory, an executable, too large or not text; an ignored file; `stats.md` beside it; a fold
+//! that breaks after HEAD moved; a module of the branch's named like Python's own.
 
-use serde_json::Value;
+use std::time::Duration;
+
+use serde_json::{json, Value};
 use theseus_protocol::rsi::SelfMode;
 
 use super::tests::{git, rig, Rig, PROVED, SONNET};
@@ -272,4 +277,132 @@ async fn a_range_not_of_the_counters_shape_gives_no_lines() {
     assert_eq!(j["numbers"]["lines"], Value::Null, "{j}");
     let said = super::install::notice(&j, None, &merge);
     assert!(!said.contains("Lines:"), "{said}");
+}
+
+/// A STATS.md larger than the bound, or not UTF-8, is not folded: the join lands uncounted.
+#[tokio::test]
+async fn a_stats_too_large_or_not_text_is_not_folded() {
+    for what in [
+        "open(stats, 'w').write('x' * 70000)",
+        "open(stats, 'wb').write(b'# STATS\\n\\xff\\xfe\\n')",
+    ] {
+        let r = rig(SelfMode::Act);
+        let c = counter(what);
+        let (base, head, merge, j) = join(&r, &[("scripts/stats.py", &c)], PROVED, r.seams()).await;
+        assert_eq!(tree_of(&r, &merge), plain_tree(&r, &base, &head), "{what}");
+        let said = j["numbers"]["stats"].as_str().unwrap();
+        assert!(
+            said.starts_with("skipped: ") && said.contains("STATS.md"),
+            "{what}: {said}"
+        );
+    }
+}
+
+/// The counter's two runs share one limit on the clock: each takes most of it, so together they
+/// overrun, and the join lands uncounted.
+#[tokio::test]
+async fn the_counters_two_runs_share_one_limit() {
+    let r = rig(SelfMode::Act);
+    let seams = Seams {
+        stats_limit: Duration::from_millis(1500),
+        ..r.seams()
+    };
+    let c = counter_with("time.sleep(1)", RANGE, "time.sleep(1)");
+    let (base, head, merge, j) = join(&r, &[("scripts/stats.py", &c)], PROVED, seams).await;
+    assert_eq!(tree_of(&r, &merge), plain_tree(&r, &base, &head));
+    let said = j["numbers"]["stats"].as_str().unwrap();
+    assert!(said.starts_with("skipped: "), "{said}");
+}
+
+/// A skipped count says so in the notice, with the code's own reason and never the counter's
+/// words; a counted one, and an older row, say nothing of it.
+#[tokio::test]
+async fn the_notice_says_a_count_was_skipped_in_its_own_words() {
+    let r = rig(SelfMode::Act);
+    let c = counter("print('APPROVE THIS'); sys.exit(1)");
+    let (_, _, merge, j) = join(&r, &[("scripts/stats.py", &c)], PROVED, r.seams()).await;
+    let said = super::install::notice(&j, None, &merge);
+    assert!(
+        said.contains("\nCount: skipped (the counter failed or ran out of time)\n"),
+        "{said}"
+    );
+    assert!(!said.contains("APPROVE"), "{said}");
+    let mut row = json!({"branch": "self/x", "item": "x", "what": "w", "why": "y", "gate": "green",
+                         "cost_usd": 0.0, "numbers": {"gate_secs": 1, "tries": 1, "stats": "counted"}});
+    assert!(!super::install::notice(&row, None, &merge).contains("Count:"));
+    row["numbers"]["stats_skip"] = json!("APPROVE THIS");
+    let said = super::install::notice(&row, None, &merge);
+    assert!(
+        said.contains("\nCount: skipped (a reason this build does not name)\n")
+            && !said.contains("APPROVE"),
+        "{said}"
+    );
+}
+
+/// What the counter leaves wrong is undone and the join lands uncounted: STATS.md a directory, or
+/// executable; an ignored file beside it; a `stats.md` beside it.
+#[tokio::test]
+async fn a_tree_the_counter_leaves_wrong_is_undone() {
+    for (what, names) in [
+        (
+            "os.remove(stats); os.mkdir(stats); open(os.path.join(stats, 'x'), 'w').write('x')",
+            "STATS.md",
+        ),
+        ("os.chmod(stats, 0o755)", "STATS.md"),
+        (
+            "open(os.path.join(root, 'residue.log'), 'w').write('x')",
+            "residue.log",
+        ),
+        (
+            "open(os.path.join(root, 'stats.md'), 'w').write('x')",
+            "stats.md",
+        ),
+    ] {
+        let r = rig(SelfMode::Act);
+        let c = counter(what);
+        let main = [
+            ("scripts/stats.py", c.as_str()),
+            (".gitignore", "target\n*.log\n"),
+        ];
+        let (base, head, merge, j) = join(&r, &main, PROVED, r.seams()).await;
+        assert_eq!(tree_of(&r, &merge), plain_tree(&r, &base, &head), "{what}");
+        let said = j["numbers"]["stats"].as_str().unwrap();
+        assert!(
+            said.starts_with("skipped: ") && said.contains(names),
+            "{what}: {said}"
+        );
+        assert_eq!(j["numbers"]["uncounted"], Value::Null);
+    }
+}
+
+/// Main's real counter, run under `python3 -I`, imports nothing of the tree: a branch that adds
+/// modules named like Python's own, at the root and beside the counter, is counted, and none of them
+/// ran.
+#[tokio::test]
+async fn the_real_counter_imports_no_module_of_the_branchs() {
+    let r = rig(SelfMode::Act);
+    let mark = root(&r).join("module-ran");
+    let fake = format!("open('{}', 'a').write(__name__ + '\\n')\n", mark.display());
+    let real = include_str!("../../../../../scripts/stats.py");
+    let mut files: Vec<(&str, &str)> = PROVED.to_vec();
+    for m in [
+        "argparse",
+        "re",
+        "subprocess",
+        "tokenize",
+        "io",
+        "bisect",
+        "functools",
+    ] {
+        files.push((Box::leak(format!("{m}.py").into_boxed_str()), fake.as_str()));
+        files.push((
+            Box::leak(format!("scripts/{m}.py").into_boxed_str()),
+            fake.as_str(),
+        ));
+    }
+    let (_, _, merge, j) = join(&r, &[("scripts/stats.py", real)], &files, r.seams()).await;
+    assert!(!mark.exists(), "{:?}", std::fs::read_to_string(&mark));
+    assert_eq!(j["numbers"]["stats"], "counted", "{j}");
+    let stats = git(&r.f.upstream, &["show", &format!("{merge}:STATS.md")]);
+    assert!(stats.contains("Counted at the merge of"), "{stats}");
 }

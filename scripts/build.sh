@@ -141,9 +141,10 @@ else
 fi
 # STATS.md's sizes (issue 45): a release build, the install profile, records what each crate builds outside the tree,
 # for the next landing's count to take (scripts/stats.py --record-sizes; a build of edits records nothing). It never
-# fails the build: the record is a size table, and the binaries are what was asked for.
+# fails the build: the record is a size table, and the binaries are what was asked for. Its own words go to a file in
+# the build's directory, so a record that fails is the one line below.
 if [ "$profile" = release ] && [ -f "$out/.theseus-build-stamp" ]; then
   python3 -I scripts/stats.py --sizes-from "$out" \
-    --record-sizes "${THESEUS_STATS_SIZES:-$HOME/.cache/theseus/stats-sizes.md}" ||
-    echo "build: the sizes were not recorded for STATS.md (scripts/stats.py --record-sizes); the build stands" >&2
+    --record-sizes "${THESEUS_STATS_SIZES:-$HOME/.cache/theseus/stats-sizes.md}" >"$out/stats-sizes.log" 2>&1 ||
+    echo "build: the sizes were not recorded for STATS.md (scripts/stats.py --record-sizes; why: $out/stats-sizes.log); the build stands" >&2
 fi

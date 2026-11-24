@@ -58,6 +58,19 @@ pub fn run_in(
     )];
     env.extend(std::env::var("HOME").ok().map(|h| ("HOME".to_string(), h)));
     env.extend(extra.iter().cloned());
+    run_with(l1, argv, (cwd, env), id, deadline_ms, max_bytes)
+}
+
+/// `run_in` with `env` as the command's whole environment (a self build's, whose view names its own `PATH` and
+/// `HOME`: issue 45's count, bounded by the clock where a build is bounded by its silence).
+pub fn run_with(
+    l1: &L1,
+    argv: &[String],
+    (cwd, env): (&std::path::Path, Vec<(String, String)>),
+    id: &str,
+    deadline_ms: u64,
+    max_bytes: usize,
+) -> ProbeRun {
     let args = WrapperArgs {
         spool_dir: PathBuf::new(),
         correlation_id: id.into(),

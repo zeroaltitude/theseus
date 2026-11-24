@@ -44,7 +44,11 @@ including in a commit message, because it is stale by the next departure.
   and before the landing's own signed commit, by the person's landing steps and by any landing script: it counts the
   index's tree and stages STATS.md alone. No hook runs it, and no commit is ever rewritten for it. The self-join folds
   the count into its own unsigned merge before its gate, with main's copy frozen at its base (`--count-head`, in L1;
-  `rsi/join/stats.rs`).
+  `rsi/join/stats.rs`). In L1 the counter's one lasting write is the tree: its build directory is a throwaway one, and
+  the repository is a private writable copy that ends with the job. Only STATS.md may change, a plain UTF-8 file of at
+  most 64 KB; the count's checks read the tree from the file system and its fold reads no attributes from the tree, so
+  neither runs anything a `.gitattributes` selects. A failed count is undone and the join goes on uncounted; only a tree that cannot be shown put back
+  stops the join.
 - `prompt-step.sh` (theseus-4vsrz, B7): the gate's `prompt` phase, which **never fails it**. It runs
   `theseus-sim bench prompt` on the debug binaries after the test build (like `recall-tests.sh`, and for the same
   reason: a stale daemon counts the previous head's prompt) and says `prompt: skipped: no <path>` when either

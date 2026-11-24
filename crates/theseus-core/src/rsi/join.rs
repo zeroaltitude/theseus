@@ -31,7 +31,8 @@
 //!    keel is held again with a new card. Nothing is remembered from the hold.
 //! 3. **The join**, one a pass, under the lock ([`lock`]): fetch, the dry
 //!    run on the remote's main (`merge-tree`), a plain `--no-ff` merge in a
-//!    tree, main's count folded into it ([`stats`], issue 45; never a stop),
+//!    tree, main's count folded into it ([`stats`], issue 45; a failed count
+//!    goes on uncounted, unless its tree cannot be shown put back),
 //!    main's gate on it through the door with the benches, the
 //!    signature (no `user.signingkey` in `[self] repo`: the owner's card, and
 //!    nothing is pushed), the push of main, never forced; main moved before
@@ -144,6 +145,9 @@ pub const TRIES: u32 = 3;
 /// A test's hook, called with a phase's name.
 pub type PhaseHook = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// A test's hook, called with the join tree's path once the count is folded into the merge.
+pub type FoldHook = Arc<dyn Fn(&std::path::Path) + Send + Sync>;
+
 /// What the pass reaches outside the core: the reviewer, the test runner,
 /// the lock's pace, the install, and a test's hooks.
 #[derive(Clone)]
@@ -161,8 +165,11 @@ pub struct Seams {
     pub on_phase: Option<PhaseHook>,
     /// Called with the try's number before each push of main.
     pub before_push: Option<Arc<dyn Fn(u32) + Send + Sync>>,
-    /// How long main's counter may print nothing in a join's merge before it is stopped (issue 45).
+    /// How long main's counter may run in a join's merge, its two runs together, before it is stopped (issue 45).
     pub stats_limit: Duration,
+    /// Called with the join tree's path once the count is folded into the merge, before the fold is checked: a
+    /// test's way to break it.
+    pub after_fold: Option<FoldHook>,
 }
 
 impl Default for Seams {
@@ -178,6 +185,7 @@ impl Default for Seams {
             on_phase: None,
             before_push: None,
             stats_limit: Duration::from_secs(120),
+            after_fold: None,
         }
     }
 }
