@@ -4,7 +4,8 @@
 //! after it, the report holds no place, exchange or task id, an old row still reads, and a field the
 //! counter does not know is counted as present, never by its value. No stored string leaves it, by
 //! value or by key: a word its producer does not make counts as `unlisted`. `since` reads every row,
-//! however their times are ordered.
+//! however their times are ordered, and a turn whose first call was not measured is not measured,
+//! first here or not.
 
 use std::collections::BTreeMap;
 
@@ -508,4 +509,42 @@ fn since_with_a_limit_keeps_the_newest_rows_that_qualify() {
     rows_at(&s, &[1_000, 5_000, 6_000, 2_000, 7_000]);
     let r = ledger::report(&s, &since(Some(4_000), Some(2))).unwrap();
     assert_eq!((r.rows, r.from_ms, r.to_ms), (2, Some(6_000), Some(7_000)));
+}
+
+/// His turn with nothing before it in the place, and its first call not measured.
+fn unmeasured_first(store: &Store, turn: &str, at: u64) {
+    let ex = exchange_of(turn, Opener::Message, Some(OWNER), at);
+    let mut row = row_of(&ex, Prev::None);
+    row.sent = Sent::default();
+    put(store, &ex, &row, at + 1);
+}
+
+#[test]
+fn an_unmeasured_first_turn_is_not_measured() {
+    let (_d, s) = store();
+    unmeasured_first(&s, "turn_1", 1_000);
+    let (_, a) = answers(&s, &ExchangeReportParams::default());
+    assert_eq!((a.his_turns, a.context_turns), (1, 0));
+    assert_eq!(a.previous, map(&[("not_measured", 1)]));
+}
+
+#[test]
+fn an_unmeasured_first_turn_beside_measured_misses_stays_out_of_the_measured() {
+    let (_d, s) = store();
+    unmeasured_first(&s, "turn_1", 1_000);
+    for (turn, at) in [("turn_2", 2_000), ("turn_3", 3_000)] {
+        let ex = exchange_of(turn, Opener::Message, Some(OWNER), at);
+        let mut row = row_of(&ex, Prev::Missed);
+        row.prev_same_session = Some(true);
+        put(&s, &ex, &row, at + 1);
+    }
+    let first = exchange_of("turn_4", Opener::Message, Some(OWNER), 4_000);
+    put(&s, &first, &row_of(&first, Prev::None), 4_001);
+    let (_, a) = answers(&s, &ExchangeReportParams::default());
+    assert_eq!((a.his_turns, a.context_turns), (4, 3));
+    assert_eq!(
+        a.previous,
+        map(&[("not_measured", 1), ("missed", 2), ("first_here", 1)])
+    );
+    assert_eq!(a.missed_by_session, map(&[("same", 2)]));
 }

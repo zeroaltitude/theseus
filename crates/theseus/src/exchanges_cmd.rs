@@ -323,6 +323,52 @@ mod tests {
         assert_eq!(report_lines(&r), want.join("\n"));
     }
 
+    /// The answers `ledger::report` gives for his turns, as its own tests assert them: an unmeasured
+    /// first turn alone, and beside two measured misses and a measured first turn.
+    #[test]
+    fn an_unmeasured_first_turn_is_out_of_every_measured_whole() {
+        let report = |his_turns, context_turns, previous: &[(&str, u64)]| ExchangeReportResult {
+            rows: his_turns,
+            answers: Some(ExchangeAnswers {
+                his_turns,
+                previous: map(previous),
+                missed_by_session: map(&[("same", 2)]),
+                named: map(&[("none", his_turns)]),
+                context_turns,
+                context: map(&[
+                    ("header", 50 * context_turns),
+                    ("total", 60 * context_turns),
+                ]),
+                ..ExchangeAnswers::default()
+            }),
+            ..ExchangeReportResult::default()
+        };
+        let alone = report_lines(&report(1, 0, &[("not_measured", 1)]));
+        let lines: Vec<&str> = alone.lines().collect();
+        assert_eq!(
+            lines[2],
+            "  the previous exchange here, of his 0 measured turns: shown 0 (-), missed 0 (-; held by a \
+             seal or a gate, or a real miss), held after a /new 0 (-), first here 0 (-); not measured 1"
+        );
+        assert_eq!(
+            lines[4],
+            "  the context sent: no turn's first call was measured"
+        );
+        let beside = report_lines(&report(
+            4,
+            3,
+            &[("not_measured", 1), ("missed", 2), ("first_here", 1)],
+        ));
+        assert_eq!(
+            beside.lines().nth(2),
+            Some(
+                "  the previous exchange here, of his 3 measured turns: shown 0 (0%), missed 2 (67%; held \
+                 by a seal or a gate, or a real miss), held after a /new 0 (0%), first here 1 (33%); not \
+                 measured 1"
+            )
+        );
+    }
+
     /// The groups and kinds `ledger::report` gives for rows whose stored strings it does not list, as
     /// its own test asserts them: the words show as the one word, and nothing else.
     #[test]

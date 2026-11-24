@@ -695,8 +695,9 @@ fn answer(store: &Store, a: &mut ExchangeAnswers, row: &Row) {
     }
     a.his_turns += 1;
     let previous = match row.prev {
-        Prev::None => "first_here",
+        // Its first call not measured, it is no measured turn, first here or not.
         _ if !measured => "not_measured",
+        Prev::None => "first_here",
         Prev::Transcript | Prev::PlaceTail => "shown",
         Prev::Missed => match row.prev_why.as_deref() {
             Some(WHY_NEW) => "after_new",
