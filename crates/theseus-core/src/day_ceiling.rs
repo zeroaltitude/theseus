@@ -57,7 +57,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use theseus_kernel::{usd_to_micros, Micros, Reached, Seed};
 use theseus_store::pages::ledger_kind;
-use theseus_store::{kinds, Page};
+use theseus_store::{kinds, Page, Store as _};
 
 use crate::fact::limits::DayCeilingReached;
 use crate::store::Store;
@@ -320,41 +320,65 @@ fn scan_day(
     Ok(Some(rows))
 }
 
-/// Ignore a different day's mark before decoding its amount. A missing or
-/// unreadable day must still fail closed.
+/// Ignore a different day's mark before decoding its amount. A mark whose
+/// own day cannot be read (none, not a string, no JSON) is dated by its
+/// record's write time, as the day's ledger rows are. On the day the mark
+/// was written nothing changes: it stops spending, as it always did. From
+/// the next local midnight (`since_ms`) it counts zero, by the owner's rule;
+/// that is the one case that allows more spending than before. A write time
+/// of zero is the clock's "unknown" and is never before today: such a mark
+/// stays closed (issue 46).
 fn day_mark<T: serde::de::DeserializeOwned>(
     store: &Store,
     key: &str,
     day: &str,
+    since_ms: u64,
 ) -> anyhow::Result<Option<T>> {
-    let Some(raw) = store.get_meta::<serde_json::Value>(key)? else {
+    let Some(record) = store.inner().latest_by_key(kinds::META, key)? else {
         return Ok(None);
     };
-    if raw
-        .get("day")
+    let raw = record.decode::<serde_json::Value>();
+    let other_day = match raw
+        .as_ref()
+        .ok()
+        .and_then(|v| v.get("day"))
         .and_then(serde_json::Value::as_str)
-        .is_some_and(|d| d != day)
     {
+        Some(d) => d != day,
+        None => written_before(record.at_unix_ms, since_ms),
+    };
+    if other_day {
         return Ok(None);
     }
-    Ok(Some(serde_json::from_value(raw)?))
+    Ok(Some(serde_json::from_value(raw?)?))
+}
+
+/// Whether a mark written at `written_ms` was written before `since_ms`
+/// (today's local midnight). Zero, the clock's "unknown", never is.
+pub(crate) fn written_before(written_ms: u64, since_ms: u64) -> bool {
+    written_ms != 0 && written_ms < since_ms
 }
 
 /// The judge's day budget keeps today's settled spend in one record.
-fn judge_spent(store: &Store, day: &str) -> anyhow::Result<Micros> {
+fn judge_spent(store: &Store, day: &str, since_ms: u64) -> anyhow::Result<Micros> {
     use anyhow::Context;
     Ok(
-        day_mark::<crate::judge::spend::Stored>(store, crate::judge::spend::META_KEY, day)
-            .context("today's judge spending cannot be read")?
-            .map_or(0, |j| j.spent_micros),
+        day_mark::<crate::judge::spend::Stored>(
+            store,
+            crate::judge::spend::META_KEY,
+            day,
+            since_ms,
+        )
+        .context("today's judge spending cannot be read")?
+        .map_or(0, |j| j.spent_micros),
     )
 }
 
 /// Guidance's day mark is separate from ledger totals, like the judge's budget.
-fn guidance_spent(store: &Store, day: &str) -> anyhow::Result<Micros> {
+fn guidance_spent(store: &Store, day: &str, since_ms: u64) -> anyhow::Result<Micros> {
     use crate::consolidate::guidance::{DreamMark, MARK};
     use anyhow::Context;
-    let Some(mark) = day_mark::<DreamMark>(store, MARK, day)
+    let Some(mark) = day_mark::<DreamMark>(store, MARK, day, since_ms)
         .context("today's guidance spending cannot be read")?
     else {
         return Ok(0);
@@ -408,8 +432,8 @@ fn seeded(
     let mut seed = t.seed(limit);
     seed.spent = seed
         .spent
-        .saturating_add(judge_spent(store, day)?)
-        .saturating_add(guidance_spent(store, day)?);
+        .saturating_add(judge_spent(store, day, t.since_ms)?)
+        .saturating_add(guidance_spent(store, day, t.since_ms)?);
     Ok(Seeded {
         seed,
         rows,

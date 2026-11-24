@@ -7,7 +7,7 @@
 use serde_json::json;
 use theseus_store::{records_read_here, NewRecord};
 
-use crate::day_ceiling::{read_today, read_today_total, spend_of, TOTAL_KEY};
+use crate::day_ceiling::{read_today, read_today_total, spend_of, written_before, TOTAL_KEY};
 use crate::store::Store;
 use crate::tests_day_ceiling::rig;
 
@@ -907,4 +907,186 @@ fn a_failed_seed_retry_thread_releases_the_core_and_store_on_drop() {
     assert!(weak_core.upgrade().is_none());
     assert!(weak_store.upgrade().is_none());
     Store::open(&dir.path().join("store")).unwrap();
+}
+
+/// A core started on a store whose `key` mark is `payload`, written at `now`:
+/// the core, its clock, and the next local midnight.
+fn started_on_mark(
+    dir: &std::path::Path,
+    key: &str,
+    payload: &[u8],
+    now: u64,
+) -> (
+    std::sync::Arc<crate::Core>,
+    std::sync::Arc<theseus_kernel::VirtualClock>,
+    u64,
+) {
+    theseus_protocol::time::move_clock_to(now);
+    let path = dir.join("store");
+    let clock = theseus_kernel::VirtualClock::new(now);
+    let mut cfg = crate::Config::example();
+    cfg.server.state_dir = dir.to_string_lossy().into_owned();
+    cfg.tools.roots = vec![];
+    let midnight;
+    {
+        let store = Store::open(&path).unwrap();
+        let k = theseus_kernel::Kernel::new(
+            store.shared(),
+            clock.clone(),
+            cfg.kernel.to_kernel_config(),
+        );
+        midnight = k.day_ceiling().day_of(now).2;
+        store
+            .append(&[NewRecord::bytes(
+                theseus_store::kinds::META,
+                Some(key),
+                payload.to_vec(),
+            )])
+            .unwrap();
+    }
+    let parts = crate::rpc::Parts::for_tests(
+        cfg,
+        std::sync::Arc::new(crate::provider::FakeProvider::scripted(vec![])),
+        Store::open(&path).unwrap(),
+    );
+    let core = crate::Core::build_with_clock(parts, clock.clone()).unwrap();
+    (core, clock, midnight)
+}
+
+/// Spend marks whose own day cannot be read: none, not a string, no JSON.
+const UNDATED_MARKS: [&[u8]; 3] = [
+    br#"{"reserved_micros": 0, "spent_micros": 5, "spent_usd": 5.0}"#,
+    br#"{"day": 7, "reserved_micros": 0, "spent_micros": 5, "spent_usd": 5.0}"#,
+    b"not json",
+];
+
+/// A mark that cannot be read never raises what may be spent: through the
+/// rest of the day it was written in, nothing is admitted, however small.
+#[test]
+fn a_damaged_mark_never_raises_what_may_be_spent() {
+    let _clock = crate::test_support::ClockPin;
+    let now = 1_800_000_000_000;
+    for key in [
+        crate::judge::spend::META_KEY,
+        crate::consolidate::guidance::MARK,
+    ] {
+        for payload in UNDATED_MARKS {
+            let dir = tempfile::tempdir().unwrap();
+            let (core, clock, midnight) = started_on_mark(dir.path(), key, payload, now);
+            let c = core.kernel.day_ceiling();
+            let (day, since, _) = c.day_of(now);
+            for at in [now, midnight - 1] {
+                clock.set(at);
+                theseus_protocol::time::move_clock_to(at);
+                assert!(core.runner.seed_day_ceiling().later, "{key}");
+                assert!(c.hold(at, "model", 1).unwrap_err().pending, "{key}");
+                assert!(c.fits(at, 1).is_err(), "{key}");
+                assert!(core.runner.day_hold(1, "test").is_err(), "{key}");
+            }
+            for since in [0, since, now] {
+                assert!(
+                    read_today_total(&core.store, since, &day, LIMIT).is_err(),
+                    "a mark written in its day stops that day: {key}"
+                );
+            }
+        }
+    }
+}
+
+/// Once the day a mark that cannot be read was written in has passed, it
+/// adds nothing, while the new day's own spend still counts in full.
+#[test]
+fn a_damaged_mark_adds_nothing_to_the_next_days_spend() {
+    let _clock = crate::test_support::ClockPin;
+    let now = 1_800_000_000_000;
+    for key in [
+        crate::judge::spend::META_KEY,
+        crate::consolidate::guidance::MARK,
+    ] {
+        for payload in UNDATED_MARKS {
+            let dir = tempfile::tempdir().unwrap();
+            let (core, _, midnight) = started_on_mark(dir.path(), key, payload, now);
+            let c = core.kernel.day_ceiling();
+            let next = midnight + 10;
+            theseus_protocol::time::move_clock_to(next);
+            core.store
+                .append(&[row_at(
+                    "action.succeeded",
+                    next,
+                    json!({"producer": "provider:anthropic", "day_micros": 1234}),
+                )])
+                .unwrap();
+            let (tomorrow, since, _) = c.day_of(next);
+            let seeded = read_today_total(&core.store, since, &tomorrow, LIMIT)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                seeded.seed.spent, 1234,
+                "the next day counts its own spend and nothing of the mark: {key}"
+            );
+            theseus_protocol::time::move_clock_to(now);
+        }
+    }
+}
+
+/// The day after a mark that cannot be read was written, spending is
+/// allowed again from zero.
+#[test]
+fn a_damaged_mark_counts_zero_the_day_after() {
+    let _clock = crate::test_support::ClockPin;
+    let now = 1_800_000_000_000;
+    for key in [
+        crate::judge::spend::META_KEY,
+        crate::consolidate::guidance::MARK,
+    ] {
+        for payload in UNDATED_MARKS {
+            let dir = tempfile::tempdir().unwrap();
+            let (core, clock, midnight) = started_on_mark(dir.path(), key, payload, now);
+            assert!(core.runner.seed_day_ceiling().later, "{key}");
+            clock.set(midnight + 1);
+            theseus_protocol::time::move_clock_to(midnight + 1);
+            let seeded = core.runner.seed_day_ceiling();
+            assert!(
+                !seeded.later,
+                "a damaged mark from yesterday must not stop today: {key}"
+            );
+            assert_eq!(seeded.seed.spent, 0, "{key}");
+            let c = core.kernel.day_ceiling();
+            assert_eq!(c.today(midnight + 1).spent, 0, "{key}");
+            assert!(core.runner.day_hold(1, "test").is_ok(), "{key}");
+            theseus_protocol::time::move_clock_to(now);
+        }
+    }
+}
+
+/// A mark that cannot be read, written one millisecond before local
+/// midnight, is closed at that millisecond and counts zero at midnight.
+#[test]
+fn a_damaged_mark_of_the_days_last_millisecond_counts_zero_at_midnight() {
+    let r = rig(vec![], |_| {});
+    let c = r.core.kernel.day_ceiling();
+    let midnight = c.day_of(1_800_000_000_000).2;
+    assert!(!written_before(midnight - 1, c.day_of(midnight - 1).1));
+    assert!(written_before(midnight - 1, c.day_of(midnight).1));
+}
+
+/// A mark that cannot be read, written at local midnight, is closed for all
+/// of that day.
+#[test]
+fn a_damaged_mark_written_at_midnight_stops_that_whole_day() {
+    let r = rig(vec![], |_| {});
+    let c = r.core.kernel.day_ceiling();
+    let midnight = c.day_of(1_800_000_000_000).2;
+    let end = c.day_of(midnight).2;
+    assert!(!written_before(midnight, c.day_of(midnight).1));
+    assert!(!written_before(midnight, c.day_of(end - 1).1));
+}
+
+/// A mark that cannot be read whose write time is zero, the clock's
+/// "unknown", is never before today: it stays closed.
+#[test]
+fn a_damaged_mark_written_at_time_zero_stays_closed() {
+    let r = rig(vec![], |_| {});
+    let c = r.core.kernel.day_ceiling();
+    assert!(!written_before(0, c.day_of(1_800_000_000_000).1));
 }
