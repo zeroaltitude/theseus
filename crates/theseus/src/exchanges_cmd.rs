@@ -201,7 +201,8 @@ pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
 mod tests {
     use super::*;
 
-    /// The command prints counts and dollars: what the dry run would ask and
+    /// The command prints counts and dollars, whole and in order: the cap in
+    /// use first, then what the ledger holds, what the dry run would ask and
     /// its worst case, what a run asked and spent, and why it stopped.
     #[test]
     fn the_topics_lines_are_counts_and_dollars() {
@@ -236,14 +237,12 @@ mod tests {
             stopped: Some("stopped at the cap".into()),
             ..dry
         };
-        let lines = topics_lines(&run);
-        assert!(lines.starts_with("a run with a cap of $10.00\n"), "{lines}");
-        assert!(
-            lines.ends_with(
-                "\nasked 1 of 3 (1 answered): 1 exchanges filed with 2 touches; spent $0.0003 of \
-                 a cap of $10.00\nstopped: stopped at the cap"
-            ),
-            "{lines}"
+        assert_eq!(
+            topics_lines(&run),
+            "a run with a cap of $10.00\n9 exchanges: 2 already touch a topic, 1 are not yours, 1 \
+             were asked before, 2 open with no message of yours, 0 are in places the ontology's \
+             judge does not act on now\nasked 1 of 3 (1 answered): 1 exchanges filed with 2 \
+             touches; spent $0.0003 of a cap of $10.00\nstopped: stopped at the cap"
         );
     }
 
