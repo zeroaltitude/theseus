@@ -911,6 +911,8 @@ fn the_memory_page_names_what_it_must() {
         "a wake or a task",
         "open it before relying on a number, a name",
         "what this turn was shown",
+        // Version 5 (issue 44, step 5): a recalled note's handle opens its whole exchange.
+        "A recalled note's \"open:\" opens its exchange",
     ] {
         assert!(MEMORY_PAGE.contains(must), "the page does not say {must:?}");
     }

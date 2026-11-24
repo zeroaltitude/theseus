@@ -47,6 +47,7 @@ use theseus_tools::{
 use crate::config::memory::MemoryArm;
 use crate::exchange::{self, Exchange, Opener};
 use crate::recall::when::When;
+use crate::turn::TurnRunner;
 use crate::view::history::{
     HistoryArgs, HistoryPage, PageEnd, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES,
 };
@@ -430,8 +431,8 @@ fn worker_pov(core: &Core, session: &str, ex: Option<&Exchange>) -> PointOfView 
 /// session the self loop opened, its own place at its verified anchor and the run it was handed as a fork
 /// (read fallibly: a run that cannot be read fails the call); none for any other session, which reads every
 /// place. A scope that cannot be read fails the call plainly, as it fails a turn's view: never the widest.
-fn self_scope(core: &Core, session: &str) -> Result<Option<page::SelfScope>, String> {
-    let v = crate::view_gate::Verified::of_session(&core.runner, session);
+fn self_scope(runner: &TurnRunner, session: &str) -> Result<Option<page::SelfScope>, String> {
+    let v = crate::view_gate::Verified::of_session(runner, session);
     if v.scope_unread() {
         return Err(
             "context.history reads nothing here: whether the self loop opened this session \
@@ -443,7 +444,7 @@ fn self_scope(core: &Core, session: &str) -> Result<Option<page::SelfScope>, Str
         return Ok(None);
     }
     let handed =
-        crate::fork::window::inherited(&core.store, session).map_err(|e| format!("{e:#}"))?;
+        crate::fork::window::inherited(&runner.store, session).map_err(|e| format!("{e:#}"))?;
     Ok(Some(page::SelfScope {
         session: session.into(),
         anchor: v.pov().anchor.clone(),
@@ -474,7 +475,7 @@ pub(crate) async fn answer(
     let allowance = Allowance::Turn { board, turn };
     let used = count(core, &allowance, a);
     let in_view = page::in_view(&core.store, session, here).map_err(|e| format!("{e:#}"))?;
-    let scope = self_scope(core, session)?;
+    let scope = self_scope(&core.runner, session)?;
     let lens = lens_for(core, here, in_view, (Some(session), scope), a, pov.now_ms)?;
     let span = lens.span.clone();
     Ok(match read(core, lens, &allowance, used, a).await? {
@@ -584,6 +585,24 @@ pub(crate) fn lens_for<'a>(
         span,
         cut,
         scope,
+    })
+}
+
+/// What `session`'s model opens through: its fork's cut and its self-loop scope ([`self_scope`]), as [`answer`]
+/// reads them for an `open`; the rest of a lens only shapes a page or an open's heading. A recalled note names its
+/// exchange's handle only where this lens opens it (`turn::view_step::recall`).
+pub(crate) fn open_lens<'a>(
+    runner: &'a TurnRunner,
+    session: &str,
+) -> Result<page::Lens<'a>, String> {
+    Ok(page::Lens {
+        store: &runner.store,
+        here: String::new(),
+        in_view: None,
+        words: None,
+        span: None,
+        cut: crate::fork::cut::Cut::of(&runner.store, session).map_err(|e| format!("{e:#}"))?,
+        scope: self_scope(runner, session)?,
     })
 }
 

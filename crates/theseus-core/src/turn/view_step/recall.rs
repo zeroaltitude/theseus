@@ -1,7 +1,9 @@
 //! What slot H lays of the turn's recall (issue 44: memory intact on the view): the items today's recall
 //! found, each whose source still reads, read for the view (`view::sources_recall`): the note's own
 //! rendering of each, and its source session's place and who wrote it. Anything goes (2026-11-22): no
-//! presence, seal or move holds an item out.
+//! presence, seal or move holds an item out. A note whose exchange the history tool opens for the asker
+//! (`history_tool::page::Lens::opens`) ends with that exchange's handle, so the whole of it is one `open` away
+//! (issue 44, step 5); no other note names one.
 
 use std::collections::BTreeSet;
 use std::sync::Mutex;
@@ -10,14 +12,16 @@ use theseus_memory::gate::Veil;
 use theseus_memory::recall::Place;
 
 use super::super::TurnRunner;
+use crate::history_tool::page::Lens;
 use crate::node::{Body, Node, RecalledRef};
 use crate::recall::render::{self, Sources};
+use crate::view::history::HISTORY_TOOL;
 use crate::view::sources_recall::Recalled;
 use crate::view::{Audience, Author, Marks};
 
 impl TurnRunner {
     /// Of `items`, those whose source still reads, and each as slot H reads it.
-    pub(super) fn view_recall(
+    pub(crate) fn view_recall(
         &self,
         asker: &str,
         items: Vec<RecalledRef>,
@@ -44,13 +48,29 @@ impl TurnRunner {
                 sources.insert(r.node_id.clone(), n);
             }
         }
+        // What the asker's `open` reads through; a lens that cannot be read names no handle.
+        let lens = match items.is_empty() {
+            true => None,
+            false => (crate::history_tool::open_lens(self, asker))
+                .inspect_err(|e| tracing::warn!(error = %e, "recall: no note names its exchange"))
+                .ok(),
+        };
         let (mut kept, mut laid) = (Vec::new(), Vec::new());
         for r in items {
             let Some(n) = sources.get(&r.node_id) else {
                 continue;
             };
+            let mut text = render::item(&r, Some(n));
+            if let Some(turn) =
+                (n.turn_id.as_deref()).filter(|t| lens.as_ref().is_some_and(|l| opens(l, t)))
+            {
+                text.push_str(&format!(
+                    "\n    open: {turn} ({})",
+                    theseus_tools::wire_name(HISTORY_TOOL)
+                ));
+            }
             laid.push(Recalled {
-                text: render::item(&r, Some(n)),
+                text,
                 marks: self.recall_marks(asker, n),
                 at_ms: n.created_at_ms,
                 turn: n.turn_id.clone(),
@@ -172,6 +192,15 @@ impl TurnRunner {
             sealed: false,
             veiled: false,
         }
+    }
+}
+
+/// Whether the history tool's `open` gives `turn`'s exchange through `lens` (`history_tool::open`): its record
+/// read, and the lens opening it. A read that fails gives none.
+fn opens(lens: &Lens<'_>, turn: &str) -> bool {
+    match crate::exchange::exchange(lens.store, turn) {
+        Ok(Some(ex)) => lens.opens(&ex).unwrap_or(false),
+        _ => false,
     }
 }
 

@@ -149,7 +149,14 @@ impl Lens<'_> {
         let Some(ex) = exchange::exchange(self.store, &r.turn_id)? else {
             return Ok(None);
         };
-        Ok((self.in_scope(&ex) && !self.forked(&ex)?).then_some(ex))
+        Ok(self.opens(&ex)?.then_some(ex))
+    }
+
+    /// Whether `ex` is read through this lens: the asker's scope admits it ([`Lens::in_scope`]) and a fork's cut
+    /// does not hold it ([`Lens::forked`]). The one test of a page, an open (`open::open_marked`), and a
+    /// recalled note's handle (`turn::view_step::recall`).
+    pub fn opens(&self, ex: &Exchange) -> Result<bool> {
+        Ok(self.in_scope(ex) && !self.forked(ex)?)
     }
 
     /// Whether the asker's scope admits `ex`: every exchange for an asker the self loop did not open; for one

@@ -121,9 +121,10 @@ view's reach, and the turn takes the view all the same. The rebuild erases nothi
 that was written as it happened or carries a mark, and only its unmarked older history is out of its reach. No mark
 is ever made backwards.
 
-**Not built**: the search before the first word (§6, rung 2) and the `leans_on` question; asking a task itself, and
+**Not built**: asking a task itself, and
 §7's own table for a task (a task's turns use a place's table at the task's own place: §7, "as built"); writing `did` lines and fold nodes again after a correction; the yardstick; the aside;
-step 10; and the `derived_from` edges of §3.
+step 10; and the `derived_from` edges of §3. The search before the first word is recall, and rung 2's own search
+is not built; the `leans_on` question is dropped with issue 43's line (both §6, "As built").
 
 **Numbers the plan calls settings are constants.** N (20), the ceiling (60,000), slot G's allowance (150,000),
 the clearing's marks (80,000 and 40,000), the history tool's looks a turn (5), the floor (three exchanges) and
@@ -159,7 +160,8 @@ the rest are fixed in the code. The sprint added no setting beyond `[context] le
    of the ladder; by search over what was really said in the last two days; and by a tool the model is always
    offered, which hands it the next hundred exchanges back whenever *it* thinks it is missing something, with
    no horizon. One clear find is brought in; several are offered. **As built**: the tool is there; the search
-   of the last two days before the first word is not, and a name brings nothing into the view yet.
+   before the first word is recall, each note naming the handle that opens its exchange, and the search of the
+   last two days is not built, by the owner's decision of 2026-11-23 (§6); a name brings nothing into the view yet.
 9. **A task is a point of view too.** Its context is assembled around its objective, its jobs, its evidence and
    what the owner has said about it anywhere. Joining it gives its status at once from records. Its objective
    changes only through the owner's own gate, on his current words.
@@ -711,8 +713,25 @@ The search reads replies as well as his words for a reason: "the second one" ref
 **If the judge is absent.** After three timeouts in a row the turn stops waiting until one answers. Rungs 0, 1
 and 3 need no judge.
 
-**As built**, only rungs 0 and 3 exist. Nothing is recognised into the view (rung 1), there is no search before
-the first word (rung 2), and `leans_on` is not asked. The judge's `fragment`, `mentions_other_conversation` and
+**As built**, rungs 0 and 3 exist, and the search before the first word is recall. Nothing is recognised into
+the view (rung 1).
+
+- **Rung 2 is recall, by the owner's decision of 2026-11-23.** Recall, as it runs before every first word, is the
+  search before the first word; rung 2's separate search is not built: no judge trigger, no two-day limit, no
+  small-model check of the top hits, no offer of candidates to ask which, no "unresolved" line. Why: recall
+  already searches before every first word, over his words, Theseus's replies and tool results in every place,
+  with the message and the reply before it as its query, and leaves out what is already in view; rung 2 would be
+  a second search beside it.
+- **What rung 2 brought into slot H is one open away.** Each recalled note ends with a line
+  `open: <handle> (context_history)`, the handle of its exchange, and the memory page (version 5) says so. A note
+  names a handle only where the history tool's `open` gives that exchange to the asking session, by the same
+  test (`Lens::opens`): an exchange on record, within a self-loop session's own place, not held by a fork's cut.
+  A node of no turn, a turn from before the ledger and an imported message name none. The line is rendered when
+  the view is assembled; nothing stored changes.
+- **`leans_on` is not asked.** It is the question of issue 43's dropped line (a message's dangling reference),
+  dropped with it by the owner's decision of the same day; its one reader would have been rung 2's trigger.
+
+The judge's `fragment`, `mentions_other_conversation` and
 `addressed_task` answers are recorded on the ledger's measuring row; of them only `addressed_task` is acted on
 (§7). The history tool, `context.history`:
 
@@ -971,8 +990,9 @@ naming either still loads, with a warning.) Step by step:
 - **3**: not built as planned. His words in his other private places reach a model only in a place set to the
   view, as slot F; the per-turn block of a transcript place does not carry them. 3b is not built.
 - **4**: built, without the `gists` view and without his reading of 50 lines and 10 nodes.
-- **5**: the recognition half built, not run in shadow and not read by the view; the search and `leans_on` not
-  built.
+- **5**: the recognition half built, not run in shadow and not read by the view. The search before the first word
+  is recall, each note naming the handle that opens its exchange; rung 2's own search is not built and `leans_on`
+  is dropped with issue 43's line, both by the owner's decision of 2026-11-23 (§6).
 - **6 and 7**: built as one, live behind `[context] assembly` with no shadow run, no labelled set, no replay, no
   benchmark arm and no yardstick. `theseus view show`, `theseus view preview` and the memory page came with it. Which place to try first is
   the owner's: the setting names it.
