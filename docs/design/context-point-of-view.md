@@ -129,6 +129,17 @@ step 10; and the `derived_from` edges of §3.
 the clearing's marks (80,000 and 40,000), the history tool's looks a turn (5), the floor (three exchanges) and
 the rest are fixed in the code. The sprint added no setting beyond `[context] ledger` and `[context] assembly`.
 
+**The shape of a turn's context, 2026-11-24.** The owner ruled on its shape: who am I; who am I talking to; the
+topic; here (this place's last 30 exchanges, with a pager); and everywhere (every place's newest, each with its
+place, with its own pager). The slices of his words by age go. **Built**: slot E, his words by age, is removed
+(§5.3); the window keeps 30 exchanges whole and a fold still takes 20, so it holds 30 to 49 (§5.2); and who am
+I: a few lines laid by code at the head of the first user message, first in the front, naming the profile the
+turn runs on, its model, the persona in play with its card's one line, and where to read more. They are the same
+bytes from one turn to the next until the profile, its model or the persona changes, and the system part is
+unchanged. **Not built yet**: who am I talking to (the people present and their recent lines), the topic block,
+and the look-back over every place that replaces slot F, with the one walk over every place they share. The
+folded ladder stays above the 30 (his answer).
+
 ---
 
 # Part One: the design
@@ -409,15 +420,16 @@ joined task's card, say) is neither listed nor counted.
 **The order on the wire** (the owner's point: what is fixed goes first, what moves goes last):
 
 1. A, the system part.
-2. B, who and where. Marked blocks.
+2. Who am I: code's few lines naming the profile the turn runs on, its model and the persona in play (2026-11-24);
+   then B, who and where. Marked blocks.
 3. G's ladder, oldest node first. Marked blocks.
 4. G's window, as real turns of the person and of Theseus, in the order they happened, with tool calls and
    results paired as the provider requires. Nothing else is sent as conversation.
 5. Beside the new message, in one marked block that is never stored: C (waiting), D (in play), F (elsewhere
    in the last two days), H (called by this message). Then his message.
 
-Parts 1 to 4 are the same bytes from one turn to the next and change only at a fold (§5.2) or when a fact about
-him changes. Part 5 is chosen afresh every turn. The order also reads as a conversation
+Parts 1 to 4 are the same bytes from one turn to the next and change only at a fold (§5.2), when a fact about
+him changes, or when the profile, its model or the persona in play changes. Part 5 is chosen afresh every turn. The order also reads as a conversation
 should: who and what, then time running forward, with what is nearest in time nearest the message.
 
 **As built**, the order is this one. Parts 2 and 3 head the first user message as harness text; the window is read

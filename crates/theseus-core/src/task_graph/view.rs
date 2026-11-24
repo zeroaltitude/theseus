@@ -46,7 +46,7 @@ pub fn is_view(block: &Value) -> bool {
 /// (`turn/env_tail.rs`), the context view's block beside the message
 /// (`view::wire_text::BESIDE_HEAD`, also when a turn no message opened leads it with its occasion's line,
 /// `turn::view_step::occasion::HEAD`), the harness's part of that block (`turn::now_step::HEAD`, issue 46),
-/// or a block the view laid under one of its
+/// who am I at the head of the first user message (`view::who::HEAD`), or a block the view laid under one of its
 /// labels (`view::text::labels::is_labelled`). A stand-in model that reads the last user
 /// text skips these, so a block attached here and left out of this list is
 /// read as the person's words.
@@ -60,6 +60,7 @@ pub fn is_head(text: &str) -> bool {
         || text.starts_with(crate::turn::env_tail::HEAD)
         || text.starts_with(crate::turn::view_step::occasion::HEAD)
         || text.starts_with(crate::turn::now_step::HEAD)
+        || text.starts_with(crate::view::who::HEAD)
 }
 
 /// The view's text and what it showed.

@@ -787,6 +787,8 @@ mod tests_wakes;
 #[cfg(test)]
 mod tests_web_offer;
 #[cfg(test)]
+mod tests_who_am_i;
+#[cfg(test)]
 mod tests_wire_mark;
 #[cfg(test)]
 mod tests_work;

@@ -10,6 +10,10 @@
     {
       "content": [
         {
+          "text": "Who you are, as Theseus's settings stand for this turn (laid by code):\n- profile: sonnet; model: claude-sonnet-5-5\n- persona: Theseus\n- to read more: config_show for the settings, look_theseus for what this turn was shown and why",
+          "type": "text"
+        },
+        {
           "text": "first: the tide",
           "type": "text"
         }
@@ -57,6 +61,10 @@ tools sha256: 46af03fc9398f3a276f0f844cafb163bb641df49d25fd29b6ebd7b8640a6575d
   "messages": [
     {
       "content": [
+        {
+          "text": "Who you are, as Theseus's settings stand for this turn (laid by code):\n- profile: sonnet; model: claude-sonnet-5-5\n- persona: Theseus\n- to read more: config_show for the settings, look_theseus for what this turn was shown and why",
+          "type": "text"
+        },
         {
           "text": "first: the tide",
           "type": "text"
@@ -126,6 +134,10 @@ tools sha256: 46af03fc9398f3a276f0f844cafb163bb641df49d25fd29b6ebd7b8640a6575d
   "messages": [
     {
       "content": [
+        {
+          "text": "Who you are, as Theseus's settings stand for this turn (laid by code):\n- profile: sonnet; model: claude-sonnet-5-5\n- persona: Theseus\n- to read more: config_show for the settings, look_theseus for what this turn was shown and why",
+          "type": "text"
+        },
         {
           "text": "first: the tide",
           "type": "text"
@@ -251,6 +263,10 @@ tools sha256: 46af03fc9398f3a276f0f844cafb163bb641df49d25fd29b6ebd7b8640a6575d
   "messages": [
     {
       "content": [
+        {
+          "text": "Who you are, as Theseus's settings stand for this turn (laid by code):\n- profile: sonnet; model: claude-sonnet-5-5\n- persona: Theseus\n- to read more: config_show for the settings, look_theseus for what this turn was shown and why",
+          "type": "text"
+        },
         {
           "text": "first: the tide",
           "type": "text"

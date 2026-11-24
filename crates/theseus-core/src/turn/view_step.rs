@@ -272,7 +272,8 @@ impl TurnRunner {
             sessions: Some(&read),
             zone: &crate::recall::stamp::system,
         };
-        let (frame, now) = frame_and_now(spec, renderer.memory_page().1, &message, harness);
+        let who = self.who_am_i(spec);
+        let (frame, now) = frame_and_now(spec, (renderer.memory_page().1, &who), &message, harness);
         let selectors = table(src, frame, now);
         let parts = Parts {
             selectors: &selectors,
@@ -297,7 +298,10 @@ impl TurnRunner {
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
         let frozen = Frozen {
             turn_id: turn.into(),
-            front: front.map(block).collect(),
+            // Who am I first: code's own lines, the same bytes until the profile or the persona changes.
+            front: std::iter::once(Frozen::block(sid, turn, "", &who))
+                .chain(front.map(block))
+                .collect(),
             window,
             sessions: sorted(sessions),
             exchanges,
@@ -573,11 +577,12 @@ fn sources_of<'a, 'b>(
     }
 }
 
-/// Slots A and I as code lays them: the system part with the memory page; the harness's part of the block
-/// beside the message (`now_step`), counted here before the other bands are admitted, and the message.
+/// Slots A and I as code lays them: the system part with the memory page, and who am I at the head of the
+/// first user message; the harness's part of the block beside the message (`now_step`), counted here before
+/// the other bands are admitted, and the message.
 fn frame_and_now(
     spec: &RequestSpec,
-    page: &str,
+    (page, who): (&str, &str),
     message: &str,
     harness: u64,
 ) -> (Vec<Part>, Vec<Part>) {
@@ -591,6 +596,10 @@ fn frame_and_now(
         name: "system".into(),
         tokens: system.iter().map(|s| tokens(s)).sum::<u64>() + tokens(page),
     };
+    let who = Part {
+        name: "who_am_i".into(),
+        tokens: tokens(who),
+    };
     let mut now = Vec::new();
     if harness > 0 {
         now.push(Part {
@@ -602,7 +611,25 @@ fn frame_and_now(
         name: "message".into(),
         tokens: tokens(message),
     });
-    (vec![frame], now)
+    (vec![frame, who], now)
+}
+
+impl TurnRunner {
+    /// The who-am-I block (`view::who`) for a request of `spec`: its profile and model, and the persona in
+    /// play by name with its card's one line (the built-in one when none is configured or found).
+    fn who_am_i(&self, spec: &RequestSpec) -> String {
+        let book = self.personas();
+        let persona = (spec.persona.as_deref())
+            .and_then(|k| book.get(k))
+            .cloned()
+            .unwrap_or_else(crate::config::PersonaView::built_in);
+        crate::view::who::text(&crate::view::who::Who {
+            profile: &spec.profile,
+            model: &spec.model,
+            persona: &persona.name,
+            card: persona.card.as_deref(),
+        })
+    }
 }
 
 /// The view's point of view from the turn's verified one: its anchor and its presence are the gate's, never

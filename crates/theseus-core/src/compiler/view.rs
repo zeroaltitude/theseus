@@ -430,7 +430,15 @@ fn render(
             Body::UserMessage { text, .. } => Some(text.clone()),
             _ => None,
         });
-    mark_front(&mut rendered, first_tail.as_deref(), spec);
+    // Who am I alone (a fresh conversation's front, `view::who`) takes no mark of its own: the conversation's
+    // mark at the end holds it, and the system keeps its marks as they were before the block was laid.
+    let only_who = split.as_of == 1
+        && nodes.first().is_some_and(|(_, n)| {
+            matches!(&n.body, Body::UserMessage { text, .. } if text.starts_with(crate::view::who::HEAD))
+        });
+    if !only_who {
+        mark_front(&mut rendered, first_tail.as_deref(), spec);
+    }
     rendered
 }
 

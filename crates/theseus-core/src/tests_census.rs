@@ -126,9 +126,10 @@ fn the_parts_add_up_to_the_compiles_total() {
         let tools: u64 = c.tools.iter().map(|t| t.tokens).sum();
         assert_eq!(tools, c.tools_tokens, "{place}");
         assert!(c.tools_tokens > 0 && c.system_tokens > 0, "{place}");
-        assert_eq!(
-            c.messages_tokens, 0,
-            "{place}: a fresh session has no messages"
+        assert!(
+            c.messages_tokens > 0 && c.messages_tokens < crate::view::who::MOST_TOKENS,
+            "{place}: a fresh session's one message is who am I: {}",
+            c.messages_tokens
         );
     }
 }
@@ -308,9 +309,11 @@ async fn exact_asks_the_provider_to_count() {
         .await
         .unwrap();
     let e = c.exact.expect("the fake provider counts by the estimate");
-    // A fresh session has no message to count (theseus-7okz9): its total is its system and its tools, and the
-    // fake counts by the estimate, which the smallest form's own word rounds by a token.
-    assert_eq!(e.total, e.system + e.tools);
+    // A fresh session has no message of the person's to count (theseus-7okz9): its total is its system, its tools
+    // and who am I (`view::who`), and the fake counts by the estimate, which the smallest form's own word rounds by
+    // a token.
+    assert!(e.messages > 0 && e.messages < crate::view::who::MOST_TOKENS, "{e:?}");
+    assert_eq!(e.total, e.system + e.tools + e.messages);
     assert!(
         e.total.abs_diff(c.total_tokens) <= 2,
         "{e:?} {}",
@@ -327,8 +330,8 @@ async fn exact_asks_the_provider_to_count() {
 }
 
 /// The counter refuses a request with no message (HTTP 400, as the API answers), and a fresh session's first
-/// request has none yet: `exact` counts its system and its tools over the smallest form instead, and its
-/// messages are none (theseus-7okz9: `theseus census --exact` on a fresh session answered a 400).
+/// request has none of the person's yet (theseus-7okz9: `theseus census --exact` on a fresh session answered a
+/// 400): its one message is who am I (`view::who`), laid by code, so it is counted whole and answers no error.
 #[tokio::test]
 async fn exact_on_a_fresh_session_counts_with_no_message() {
     let r = rig(vec![]);
@@ -342,17 +345,21 @@ async fn exact_on_a_fresh_session_counts_with_no_message() {
             })
             .await
             .unwrap();
-        assert_eq!(
-            c.messages_tokens, 0,
-            "{place}: a fresh session has no messages"
+        assert!(
+            c.messages_tokens > 0 && c.messages_tokens < crate::view::who::MOST_TOKENS,
+            "{place}: a fresh session's one message is who am I: {}",
+            c.messages_tokens
         );
         assert!(c.exact_error.is_none(), "{place}: {:?}", c.exact_error);
         let e = c
             .exact
             .unwrap_or_else(|| panic!("{place}: no exact counts"));
         assert!(e.system > 0 && e.tools > 0, "{place}: {e:?}");
-        assert_eq!(e.messages, 0, "{place}: {e:?}");
-        assert_eq!(e.total, e.system + e.tools, "{place}: {e:?}");
+        assert!(
+            e.messages > 0 && e.messages < crate::view::who::MOST_TOKENS,
+            "{place}: {e:?}"
+        );
+        assert_eq!(e.total, e.system + e.tools + e.messages, "{place}: {e:?}");
     }
 }
 

@@ -75,6 +75,7 @@ fn first_user(req: &ProviderRequest) -> String {
             Value::String(s) => Some(s.clone()),
             Value::Array(b) => b
                 .iter()
+                .filter(|b| !crate::task_graph::view::is_view(b))
                 .find_map(|b| b["text"].as_str().map(str::to_string)),
             _ => None,
         })

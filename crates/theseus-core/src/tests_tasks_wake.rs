@@ -343,7 +343,8 @@ const DM_PERSON: [&str; 5] = ["commands", "files", "history", "reminders", "web"
 // the self card's words naming it, 756 fewer. Measured on a box.
 // And 10469 until the history tool's description named its search of imported conversations (D6 step 6,
 // round 2): 37 more tokens in the history family, which a DM loads and the terminal defers. Measured on a box.
-const DM_PERSON_TOKENS: u64 = 10506;
+// And 10506 until who am I headed the first user message (`view::who`): 70 more. Measured on a box.
+const DM_PERSON_TOKENS: u64 = 10576;
 const CLI_PERSON: [&str; 2] = ["commands", "files"];
 // And 7800 until the self card's look-before-asking sentence named `context_history` (issue 44): one
 // token more at the terminal, where the tool itself is deferred.
@@ -351,7 +352,8 @@ const CLI_PERSON: [&str; 2] = ["commands", "files"];
 // And 8732 until `memory.lookup`'s shorter description and the memory page's version 4, as in the DM
 // (21 fewer, then 24 more).
 // And 8735 until `memory.lookup` went (D6 step 6), as in the DM: 755 fewer. Measured on a box.
-const CLI_PERSON_TOKENS: u64 = 7980;
+// And 7980 until who am I headed the first user message (`view::who`): 70 more, as in the DM. Measured on a box.
+const CLI_PERSON_TOKENS: u64 = 8050;
 
 /// The shipped default (theseus-6su0y), which the rigs above turn off: a person's turn in a
 /// private place carries the tasks family without asking for one, and that is the whole of what

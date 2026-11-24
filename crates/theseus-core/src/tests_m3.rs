@@ -1972,7 +1972,7 @@ async fn a_session_keeps_its_memory_across_a_restart() {
     assert_eq!(res.output, "You asked who I am.");
     let req = fake.requests().pop().unwrap();
     assert_eq!(req.messages.len(), 3, "{:?}", req.messages);
-    assert_eq!(req.messages[0]["content"][0]["text"], "who are you?");
+    assert_eq!(first_user_blocks(&req)[0]["text"], "who are you?");
     assert_eq!(req.messages[1]["content"][0]["text"], "My name is Theseus.");
     // One compilation a turn, the view's (issue 44): the restart added none of its own.
     assert_eq!(core.store.session_compilations(&sid).unwrap().len(), 2);
@@ -4495,12 +4495,14 @@ fn submit_params(
     }
 }
 
-/// The user content blocks of the last request the provider saw.
+/// The user content blocks of the last request the provider saw, less the harness's own (who am I heads a
+/// fresh conversation's message: `task_graph::view::is_view`).
 fn last_user_blocks(r: &Rig) -> Vec<Value> {
     let reqs = r.fake.requests();
     let msgs = &reqs.last().unwrap().messages;
     let user = msgs.iter().rev().find(|m| m["role"] == "user").unwrap();
-    user["content"].as_array().unwrap().clone()
+    let blocks = user["content"].as_array().unwrap().iter();
+    blocks.filter(|b| !crate::task_graph::view::is_view(b)).cloned().collect()
 }
 
 /// Discord sends a long paste as `message.txt`: its text reaches the model
@@ -4710,6 +4712,7 @@ fn blob_files(r: &Rig) -> usize {
             };
             if let Some(k) = v.kept {
                 system.insert(k.front);
+                system.extend(k.blocks);
                 system.extend(k.window);
                 system.extend(k.beside);
             }
@@ -4961,9 +4964,11 @@ fn refused_image(m: usize, b: usize) -> Scripted {
     })
 }
 
-/// The first message's blocks in a request.
+/// The first message's blocks in a request, less the harness's own (who am I heads it:
+/// `task_graph::view::is_view`).
 fn first_user_blocks(q: &crate::provider::ProviderRequest) -> Vec<Value> {
-    q.messages[0]["content"].as_array().unwrap().clone()
+    let blocks = q.messages[0]["content"].as_array().unwrap().iter();
+    blocks.filter(|b| !crate::task_graph::view::is_view(b)).cloned().collect()
 }
 
 fn carries_an_image(q: &crate::provider::ProviderRequest) -> bool {
@@ -6317,9 +6322,21 @@ mod parallel {
         let reqs = r.fake.requests();
         assert_eq!(reqs.len(), 4);
         // A new session at the same place: the view lays the place's earlier exchange before the turn's own
-        // (issue 44), so the turn's own messages are the same, byte for byte, and so is everything else.
+        // (issue 44), so the turn's own messages are the same, byte for byte, and so is everything else, but
+        // who am I, which heads the first message, the turn's own in a fresh place and the earlier exchange's here.
+        let own_words = |m: &[Value]| -> Vec<Value> {
+            (m.iter())
+                .map(|m| {
+                    let mut m = m.clone();
+                    if let Some(b) = m["content"].as_array_mut() {
+                        b.retain(|b| !crate::task_graph::view::is_view(b));
+                    }
+                    m
+                })
+                .collect()
+        };
         let own = &reqs[3].messages[reqs[3].messages.len() - reqs[1].messages.len()..];
-        assert_eq!(own, &reqs[1].messages[..]);
+        assert_eq!(own_words(own), own_words(&reqs[1].messages));
         assert_eq!(reqs[3].system, reqs[1].system);
         let written = labels(&r.core, &again.session_id);
         let results: Vec<&String> = written.iter().filter(|l| l.starts_with("result")).collect();

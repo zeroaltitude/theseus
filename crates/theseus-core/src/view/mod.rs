@@ -15,6 +15,7 @@
 //! - [`render`]: the seam from a view to the parts of a request, in the order on the wire.
 //! - [`history`]: the history tool's interface.
 //! - [`timeline`]: the read the ledger implements (the newest exchanges of a root, before a cursor).
+//! - [`who`]: who am I, code's own lines at the head of the first user message.
 //!
 //! Names here are imported by other work: add, never rename.
 
@@ -37,6 +38,7 @@ pub mod sources_store;
 pub mod sources_waiting;
 pub mod text;
 pub mod timeline;
+pub mod who;
 pub mod wire;
 pub mod wire_text;
 

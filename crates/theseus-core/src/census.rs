@@ -660,10 +660,11 @@ async fn exact_counts(
         r
     };
     let (small, with_s, with_t) = (one(false, false), one(true, false), one(false, true));
-    // The counter refuses a request with no message (a 400: a fresh session's
-    // first request before its first message, theseus-7okz9). That one is not
-    // counted: its messages are none, so its total is its system and its tools
-    // over the smallest form, which the three counts above already give.
+    // The counter refuses a request with no message (a 400, theseus-7okz9: a
+    // fresh session's first request once had none; it now carries who am I).
+    // Such a request is not counted: its messages are none, so its total is its
+    // system and its tools over the smallest form, which the three counts above
+    // already give.
     let empty = request.messages.is_empty();
     let full = async {
         if empty {
