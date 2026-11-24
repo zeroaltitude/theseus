@@ -45,10 +45,11 @@ fn retracted(store: &Store, node: &str) {
 }
 
 /// A result of `tool` that showed `of`, by `via`, stored with its edge; marked outside, with meta. Its text is
-/// a page's line, which names the handle of [`source`]'s exchange (`t0`) at its end.
+/// a page's head and one line, which names the handle of [`source`]'s exchange (`t0`) at its end.
 fn shown_by(store: &Store, tool: &str, via: &str, of: &str) -> Node {
     let line = format!(
-        "- 2026-03-03 \u{b7} cli \u{b7} the owner: \u{ab}{GIST}\u{bb} \u{2192} you did \u{b7} t0"
+        "context.history: 1 exchange of cli's history, newest first.\n\
+         - 2026-03-03 \u{b7} cli \u{b7} the owner: \u{ab}{GIST}\u{bb} \u{2192} you did \u{b7} t0"
     );
     let mut n = result("t1", "h1", &line);
     if let Body::ToolResult {

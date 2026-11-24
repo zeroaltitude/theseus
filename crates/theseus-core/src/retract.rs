@@ -403,14 +403,18 @@ impl Core {
     }
 
     /// Whether the look back's result `d` showed its reader the node it copies (`d.from`): the stored, kept
-    /// text of the result names it (`copies::shows`). Either node unread is not shown.
+    /// text of the result names it (`copies::shows`; an imported message's line in a cut page only when the
+    /// result links no other node of its session, `copies::since::alone`). Either node unread, or that
+    /// question unanswered, is not shown.
     fn showed(&self, d: &theseus_protocol::ReachDescendant) -> bool {
         let read = |id: &str| match self.store.get_node(id) {
             Ok(Some((_, n))) => Some(n),
             _ => None,
         };
         match (read(&d.node_id), read(&d.from)) {
-            (Some(result), Some(source)) => crate::copies::shows(&result, &source),
+            (Some(result), Some(source)) => crate::copies::shows(&result, &source, || {
+                crate::copies::since::alone(&self.store, &result, &source).unwrap_or(false)
+            }),
             _ => false,
         }
     }

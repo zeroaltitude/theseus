@@ -10,6 +10,8 @@ use super::*;
 use crate::graph::{Edge, EdgeKind, VIA_HISTORY, VIA_LOOK};
 use crate::session::{SessionRecord, TaskOf};
 
+mod cut;
+
 /// Why the line said is retracted.
 const WHY: &str = "the heron nests by the south weir";
 

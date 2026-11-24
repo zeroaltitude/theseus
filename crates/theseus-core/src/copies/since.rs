@@ -9,7 +9,8 @@
 //!   words (`content`, `text`, a text block) gain the line; its tool, mark and meta are as stored.
 //! - **Its words.** The line quotes nothing of a source but the gist and the reason its retraction row holds
 //!   (`retract.rs`, as its correction note does), with the day, and only of a source the kept text showed
-//!   (`copies::shows`; a report shows the one message it relays): a copy's edges are a conservative superset
+//!   (`copies::shows`, asked with whether a source is the one of its session the copy links; a report shows the
+//!   one message it relays): a copy's edges are a conservative superset
 //!   (a runtime cut keeps a link to words it cut), and the line must not bring the words of a message the
 //!   conversation never saw. A source erased since lays one fixed line in place of all the words that may
 //!   have shown it, whether or not they did ([`ERASED_RESULT`], [`ERASED_REPORT`]).
@@ -112,12 +113,23 @@ impl<'a> Since<'a> {
         let Some((via, sources)) = self.sources(n)? else {
             return Ok(Some(Said::Unchecked));
         };
+        let mut read = Vec::new();
         for source in sources {
             let Some(src) = self.readable(&source)? else {
                 return Ok(Some(Said::Erased));
             };
-            if self.wrong.contains(&source) && (via == VIA_REPORT || super::shows(n, &src)) {
-                lines.push(self.line(&source, false)?);
+            read.push(src);
+        }
+        for src in &read {
+            // A session's handle shows `src` only when no other source `n` links shares its session.
+            let alone = || {
+                (read.iter())
+                    .filter(|o| o.session_id == src.session_id)
+                    .count()
+                    == 1
+            };
+            if self.wrong.contains(&src.id) && (via == VIA_REPORT || super::shows(n, src, alone)) {
+                lines.push(self.line(&src.id, false)?);
             }
         }
         if self.wrong.contains(&n.id) {
@@ -233,6 +245,30 @@ pub fn shows_erased(store: &Store, n: &Node) -> Result<bool> {
         }
     }
     Ok(false)
+}
+
+/// Whether `source` is the one node of its session that the look back's result `result` links by its copy
+/// edges (`copies::shows` asks it of an imported message's line, which names only its session). No when
+/// `result` links more than are read, when it does not link `source`, or when a node it links cannot be read
+/// as it is now (erased or not found): failing toward seen.
+pub fn alone(store: &Store, result: &Node, source: &Node) -> Result<bool> {
+    let none = BTreeSet::new();
+    let Some((_, sources)) = Since::new(store, &none).sources(result)? else {
+        return Ok(false);
+    };
+    if !sources.contains(&source.id) {
+        return Ok(false);
+    }
+    let mut same = 0;
+    for id in &sources {
+        match store.get_node(id)? {
+            Some((_, n)) if !matches!(n.body, Body::Erased { .. }) => {
+                same += usize::from(n.session_id == source.session_id);
+            }
+            _ => return Ok(false),
+        }
+    }
+    Ok(same == 1)
 }
 
 /// `n` as laid with `said`: its words, the only part changed. A copy, in memory.

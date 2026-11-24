@@ -38,18 +38,22 @@ pub fn route(tool: &str) -> Option<&'static str> {
         .map(|(_, via)| *via)
 }
 
-/// Whether the stored, kept text of the look back's result `result` shows `source` to its reader: whether a
-/// line the runtime kept of it names the handle `source` is read under. Its edges are a conservative superset
-/// (a runtime cut keeps every link the tool gave, even to words it cut); this tells apart the sources whose
-/// words reached the reader, and fails toward no:
-/// - a page's line ends ` · <handle>`: its exchange's turn (`history_tool/page.rs`, `render`), or an imported
-///   message's session (`history_tool/imports.rs`, `render`); a line the cut took, or split before its
-///   handle, names none;
-/// - an opened exchange or session names its handle once, in its heading (`history_tool/open.rs`, `render`;
-///   `history_tool/session.rs`, `open`): that counts only in a result the runtime did not cut, since a cut
-///   keeps the heading and may drop any part under it;
-/// - `look.work` names no handle (`look/work/history.rs`, `history`): never.
-pub fn shows(result: &Node, source: &Node) -> bool {
+/// Whether the stored, kept text of the look back's result `result` shows `source` to its reader. Its edges
+/// are a conservative superset (a runtime cut keeps every link the tool gave, even to words it cut); this tells
+/// apart the sources whose words reached the reader, and fails toward no (seen) in every doubt:
+/// 1. **What the result is**, by its first line, which the runtime's cut always keeps ([`Head`]): a page of
+///    exchanges, a page of imported messages, an opened exchange or an opened session. Anything else (another
+///    tool, `look.work`, which names no handle, an error, a note before the head) shows nothing.
+/// 2. **An open** names its handle once, in its heading: that counts only when the runtime did not cut the
+///    result, since a cut keeps the heading and may drop any part under it. A body line never counts, even one
+///    a cut left reading as a page's line.
+/// 3. **A page** shows a source by a whole line the renderer wrote that starts `- ` and ends ` · <handle>`:
+///    an exchange's turn on a page of exchanges, an imported message's session on a page of imports. In a
+///    result the runtime cut, a line counts only when it is whole ([`whole`]).
+/// 4. **A session's handle** is shared by every message of that import session: it shows `source` only in a
+///    result not cut, or when `source` is the one node of its session the result links (`alone`, asked only
+///    then).
+pub fn shows(result: &Node, source: &Node, alone: impl FnOnce() -> bool) -> bool {
     let Body::ToolResult {
         tool,
         content,
@@ -64,15 +68,83 @@ pub fn shows(result: &Node, source: &Node) -> bool {
     }
     let turn = source.turn_id.as_deref().filter(|t| !t.is_empty());
     let session = Some(source.session_id.as_str()).filter(|s| !s.is_empty());
-    let ends = |l: &str, h: &str| {
-        l.starts_with("- ") && l.strip_suffix(h).is_some_and(|l| l.ends_with(" \u{b7} "))
+    let first = content.lines().next().unwrap_or_default();
+    let names = |h: &str| {
+        let lines = whole(content, *truncated).unwrap_or_default();
+        let ends = |l: &&str| {
+            l.starts_with("- ") && l.strip_suffix(h).is_some_and(|l| l.ends_with(" \u{b7} "))
+        };
+        lines.iter().any(ends)
     };
-    let heads =
-        |l: &str, form: &str, h: &str| !*truncated && l.starts_with(&format!("[{form} \"{h}\","));
-    content.lines().any(|l| {
-        turn.is_some_and(|t| ends(l, t) || heads(l, "Exchange", t))
-            || session.is_some_and(|s| ends(l, s) || heads(l, "Session", s))
-    })
+    match Head::of(first) {
+        Some(Head::Exchange) => {
+            !*truncated && turn.is_some_and(|t| first.starts_with(&format!("[Exchange \"{t}\",")))
+        }
+        Some(Head::Session) => {
+            !*truncated && session.is_some_and(|s| first.starts_with(&format!("[Session \"{s}\",")))
+        }
+        Some(Head::Page) => turn.is_some_and(names),
+        Some(Head::Imports) => session.is_some_and(names) && (!*truncated || alone()),
+        None => false,
+    }
+}
+
+/// What a history result is, by its first line as each renderer writes it.
+#[derive(Debug, PartialEq)]
+enum Head {
+    /// `context.history: <n> exchange…` (`history_tool/page.rs`, `render`).
+    Page,
+    /// `context.history: <n> imported item…` (`history_tool/imports.rs`, `render`).
+    Imports,
+    /// `[Exchange "<turn>", …` (`history_tool/open.rs`, `render`).
+    Exchange,
+    /// `[Session "<session>", …` (`history_tool/session.rs`, `open`).
+    Session,
+}
+
+impl Head {
+    fn of(first: &str) -> Option<Head> {
+        if first.starts_with("[Exchange \"") {
+            return Some(Head::Exchange);
+        }
+        if first.starts_with("[Session \"") {
+            return Some(Head::Session);
+        }
+        let rest = first.strip_prefix("context.history: ")?;
+        let count = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+        if count.len() == rest.len() {
+            return None;
+        }
+        if count.starts_with(" exchange") {
+            Some(Head::Page)
+        } else if count.starts_with(" imported item") {
+            Some(Head::Imports)
+        } else {
+            None
+        }
+    }
+}
+
+/// The lines of `content` that are whole lines its renderer wrote: every line of a result not cut. A result
+/// the runtime cut (`toolrun::cap`) is its head, one line of its own between two line breaks it inserts
+/// (`…[<what> not shown…]…`, the seam), and its tail; either part may begin or end inside a line, wherever the
+/// cut fell. So the lines kept are those of the head but its last, and those of the tail after its first line
+/// break: never a line beside the seam. A cut result whose seam is not found exactly once shows none.
+fn whole(content: &str, truncated: bool) -> Option<Vec<&str>> {
+    let lines: Vec<&str> = content.lines().collect();
+    if !truncated {
+        return Some(lines);
+    }
+    let seam = |l: &str| {
+        l.starts_with("\u{2026}[") && l.ends_with("]\u{2026}") && l.contains(" not shown")
+    };
+    let mut seams = (lines.iter().enumerate()).filter(|(_, l)| seam(l));
+    let (Some((at, _)), None) = (seams.next(), seams.next()) else {
+        return None;
+    };
+    let head = &lines[..at.saturating_sub(1)];
+    let tail = lines.get(at + 2..).unwrap_or_default();
+    Some(head.iter().chain(tail).copied().collect())
 }
 
 /// What one result copies: its route, and the nodes whose words it shows.
@@ -120,9 +192,12 @@ mod tests {
         assert!(edges("trs_1", &c).unwrap().is_empty());
     }
 
-    /// What the kept text of a history result names: a page's line by its exchange's handle, at the line's
-    /// end; an imported message's line by its session; an open's heading only in a result the runtime did
-    /// not cut. A handle anywhere else, a look's result and another tool's result show nothing.
+    /// What the kept text of a history result names, by what its first line says it is: a page's whole line by
+    /// its exchange's handle, at the line's end; an imported message's line by its session (in a cut page only
+    /// when the result links no other node of that session); an open's heading only in a result the runtime did
+    /// not cut, and never a body line of an open. In a cut result, a line beside the seam is never whole, and a
+    /// result whose seam is not found once shows nothing. A handle anywhere else, a look's result and another
+    /// tool's result show nothing.
     #[test]
     fn a_result_shows_a_source_only_where_its_kept_text_names_the_handle() {
         let mut source = crate::node::Node::user("ses_a", Some("turn_a"), "cli", "words");
@@ -140,29 +215,104 @@ mod tests {
             n
         };
         let history = crate::view::history::HISTORY_TOOL;
-        let line = "context.history: 1 exchange\n- 2026-03-03 \u{b7} cli \u{b7} the owner: \u{ab}words\u{bb} \u{2192} you did \u{b7} turn_a";
+        let shown = |text: &str, truncated: bool, source: &Node| {
+            shows(&result(history, text, truncated), source, || unreachable!())
+        };
+        let head = "context.history: 4 exchanges of cli's history, newest first. Each: when";
+        let line = |h: &str| {
+            format!("- 2026-03-03 \u{b7} cli \u{b7} the owner: \u{ab}words\u{bb} \u{2192} you did \u{b7} {h}")
+        };
+        let seam =
+            "\u{2026}[2 lines (90 characters) not shown: a narrower call returns them]\u{2026}";
+        let page = format!("{head}\n{}\nHistory is exhausted.", line("turn_a"));
+        assert!(shown(&page, false, &source));
+        assert!(!shown(&line("turn_a"), false, &source), "no page's head");
+        // A cut page: the head's lines but its last, the tail's after its first line break.
+        let cut = |at: usize| {
+            let mut l: Vec<String> = ["turn_x", "turn_x", "turn_x", "turn_x"].map(line).into();
+            l[at] = line("turn_a");
+            format!(
+                "{head}\n{}\n{}\n{seam}\n{}\n{}\nHistory is exhausted.",
+                l[0], l[1], l[2], l[3]
+            )
+        };
+        assert!(shown(&cut(0), true, &source), "whole in the head");
+        assert!(
+            !shown(&cut(1), true, &source),
+            "beside the seam, in the head"
+        );
+        assert!(
+            !shown(&cut(2), true, &source),
+            "beside the seam, in the tail"
+        );
+        assert!(shown(&cut(3), true, &source), "whole in the tail");
+        assert!(
+            !shown(&cut(0).replace(seam, "[cut]"), true, &source),
+            "no seam"
+        );
+        let two = cut(3).replace("History is exhausted.", seam);
+        assert!(!shown(&two, true, &source), "two seams");
+        // An open: its heading, only when not cut; never a body line.
         let heading =
             "[Exchange \"turn_a\", in \"cli\", 2026-03-03: what was said then]\n\u{2502} words";
+        assert!(shown(heading, false, &source));
+        assert!(!shown(heading, true, &source), "a cut open");
         let session = "[Session \"ses_a\", imported, its messages]\n\u{2502} words";
-        assert!(shows(&result(history, line, false), &source));
-        assert!(shows(&result(history, line, true), &source), "a kept line");
-        assert!(shows(&result(history, heading, false), &source));
-        assert!(
-            !shows(&result(history, heading, true), &source),
-            "a cut open"
+        assert!(shown(session, false, &source));
+        assert!(!shown(session, true, &source));
+        let forged = format!(
+            "[Session \"ses_b\", its messages]\n\u{2502} a\n{seam}\n{}\n{}\nThat is its beginning.",
+            line("turn_a"),
+            line("turn_a")
         );
-        assert!(shows(&result(history, session, false), &source));
-        assert!(!shows(&result(history, session, true), &source));
+        assert!(!shown(&forged, true, &source), "a body line of a cut open");
+        assert!(!shown(
+            &forged.replace(&format!("{seam}\n"), ""),
+            false,
+            &source
+        ));
+        // An imported message's line: its session's handle.
+        let imports = |h: &str| {
+            format!("context.history: 2 imported items for \u{ab}w\u{bb} in import, best first.\n- 2026-03-03 \u{b7} casebook: \u{ab}w\u{bb} \u{b7} {h}\nThat is all it found.")
+        };
+        assert!(shown(&imports("ses_a"), false, &source));
+        assert!(
+            !shown(&imports("turn_a"), false, &source),
+            "an imports page by a turn"
+        );
+        assert!(
+            !shown(&page.replace("turn_a", "ses_a"), false, &source),
+            "a page by a session"
+        );
+        let cut_imports = |alone: bool| {
+            let i = imports("ses_a");
+            let l: Vec<&str> = i.lines().collect();
+            let text = format!("{}\n{}\nfirst\n{seam}\nlast\n{}", l[0], l[1], l[2]);
+            shows(&result(history, &text, true), &source, || alone)
+        };
+        assert!(
+            cut_imports(true),
+            "the one node of its session the result links"
+        );
+        assert!(
+            !cut_imports(false),
+            "another linked node shares its session"
+        );
+        // Elsewhere, and other tools.
         let elsewhere =
             "More before these: call again with before {\"turn_id\":\"turn_a\"} \u{b7} turn_a.";
-        assert!(!shows(&result(history, elsewhere, false), &source));
-        assert!(!shows(&result(crate::look::WORK, line, false), &source));
-        assert!(!shows(&result("fs.read", line, false), &source));
+        assert!(!shown(elsewhere, false, &source));
+        assert!(!shows(
+            &result(crate::look::WORK, &page, false),
+            &source,
+            || true
+        ));
+        assert!(!shows(&result("fs.read", &page, false), &source, || true));
         source.turn_id = Some("turn_b".into());
-        assert!(!shows(&result(history, line, false), &source));
-        let longer = line.replace("turn_a", "turn_ab");
+        assert!(!shown(&page, false, &source));
+        let longer = page.replace("turn_a", "turn_ab");
         source.turn_id = Some("turn_a".into());
-        assert!(!shows(&result(history, &longer, false), &source));
+        assert!(!shown(&longer, false, &source));
     }
 
     /// A copier's sources are taken out of its meta, and each distinct one is one edge by its route.
