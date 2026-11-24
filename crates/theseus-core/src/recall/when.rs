@@ -69,7 +69,9 @@ pub fn kept(
 /// A clock time is read only after a day: `2026-11-20 14:00` (24-hour, or `2026-11-20T14:00`) is that minute,
 /// from its start to the end of it, so `to` holds all of it. A clock time it cannot place (alone, beside other
 /// words, out of range, in the future) reads as nothing, so an explicit argument that names one is refused in
-/// words by its caller, never read as the whole day with the time dropped.
+/// words by its caller, never read as the whole day with the time dropped. So does what follows an explicit day
+/// straight after it and begins as a time (an hour and a colon) but is none (`14:5`, `14:555`, `14:`): it is
+/// recognised as a time before it is read, and refused. A ratio in words after the day (`, ratio 3:2`) is not.
 pub fn read_local(text: &str, now_ms: u64) -> Option<When> {
     let offset = |ms| crate::wake::local(ms).offset_secs;
     match has_clock(text) {
@@ -78,12 +80,37 @@ pub fn read_local(text: &str, now_ms: u64) -> Option<When> {
     }
 }
 
-/// Whether `text` holds a clock time: one or two digits, a colon, and exactly two digits.
+/// Whether `text` holds a clock time: one or two digits, a colon, and exactly two digits; or, straight after an
+/// explicit day, what purports to be one ([`after_day`]).
 fn has_clock(text: &str) -> bool {
     let b = text.as_bytes();
     let digit = |i: usize| b.get(i).is_some_and(u8::is_ascii_digit);
     (1..b.len())
         .any(|i| b[i] == b':' && digit(i - 1) && digit(i + 1) && digit(i + 2) && !digit(i + 3))
+        || after_day(text)
+}
+
+/// Whether `text` begins with an explicit day (`YYYY-MM-DD`), then a space or `T`, then digits and a colon: a
+/// time of that day, read or refused by [`minute`], never dropped.
+fn after_day(text: &str) -> bool {
+    let t = text.trim_start();
+    let b = t.as_bytes();
+    let day = b.len() > 10
+        && (b[..10].iter().enumerate()).all(|(i, c)| match i {
+            4 | 7 => *c == b'-',
+            _ => c.is_ascii_digit(),
+        });
+    if !day {
+        return false;
+    }
+    let rest = &t[10..];
+    let Some(rest) = (rest.strip_prefix('T')).or_else(|| rest.strip_prefix(char::is_whitespace))
+    else {
+        return false;
+    };
+    let rest = rest.trim_start().as_bytes();
+    let hour = rest.iter().take_while(|c| c.is_ascii_digit()).count();
+    hour > 0 && rest.get(hour) == Some(&b':')
 }
 
 /// The minute `YYYY-MM-DD HH:MM` (or with `T`) names, as of `now_ms` in the zone `offset` gives: none for any
@@ -865,5 +892,55 @@ mod tests {
             assert_eq!(read_local(text, now()), None, "{text:?}");
         }
         assert!(read_local("2026-10-05, ratio 3:2", now()).is_some());
+    }
+
+    /// What follows an explicit day and reads as the start of a clock time (an hour and a colon) is that day's
+    /// time, read or refused: one minute digit, three, none, or not digits is refused, never read as the whole
+    /// day with the time dropped. A ratio in words after the day is no time of it.
+    #[test]
+    fn a_malformed_time_straight_after_a_day_is_refused() {
+        for text in [
+            "2026-10-05 14:5",
+            "2026-10-05 14:555",
+            "2026-10-05 14:",
+            "2026-10-05 14:ab",
+            "2026-10-05T14:5",
+            "2026-10-05  9:7",
+        ] {
+            assert_eq!(read_local(text, now()), None, "{text:?}");
+        }
+        assert!(read_local("2026-10-05, ratio 3:2", now()).is_some());
+        assert!(read_local("2026-10-05 the ratio was 3:2", now()).is_some());
+    }
+
+    /// The history tool's argument reader refuses the same in words (`history_tool::span_of`), for `when`,
+    /// `from` and `to` alike.
+    #[test]
+    fn the_history_tool_refuses_a_malformed_time_after_a_day() {
+        use crate::view::history::HistoryArgs;
+        for bad in [
+            "2026-10-05 14:5",
+            "2026-10-05 14:555",
+            "2026-10-05 14:",
+            "2026-10-05 14:ab",
+        ] {
+            for a in [
+                HistoryArgs {
+                    when: Some(bad.into()),
+                    ..Default::default()
+                },
+                HistoryArgs {
+                    from: Some(bad.into()),
+                    ..Default::default()
+                },
+                HistoryArgs {
+                    to: Some(bad.into()),
+                    ..Default::default()
+                },
+            ] {
+                let e = crate::history_tool::span_of(&a, now()).unwrap_err();
+                assert!(e.contains("does not read as a time"), "{bad:?}: {e}");
+            }
+        }
     }
 }
