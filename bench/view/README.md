@@ -221,6 +221,10 @@ on the daemon's stderr, which the kit discards: that case shows the daemon start
 
 - The replay reads the view a turn recorded as it was assembled; it says nothing of a turn from before the cut,
   which has no record. Adopted history has exchanges but no measuring rows.
+- `view show` lists no `folds` piece today: its record's source check has no case for a fold, so it fails
+  closed (`view/record/source.rs`, `may_show`), while `view preview` lays folds through a check of its own. On a
+  real store the replay's `folded` and the yardstick's `folded_*` cells therefore read 0 until `view show`
+  lists folds; the record's tally still counts their tokens by slot.
 - The measuring row counts tokens by the compiler's estimate (3.6 bytes a token), not the provider's.
 - The yardstick judges only the chosen place's exchanges; what the view laid from another place is not scored.
 - No tool says whether an answer would have been better. §10's paired replay with a rubric compared two builds,
