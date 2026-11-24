@@ -135,10 +135,17 @@ pub struct Held {
     /// Kept so that a hold stored by an earlier build, which named the
     /// files that moved under the call, still decodes.
     pub files: BTreeMap<String, String>,
-    /// The labelled session whose act stored the hold. Not "who wrote":
-    /// the claim is that it acted, which is the one the ledger row makes.
+    /// The labelled session that stored the hold. Not "who wrote": the
+    /// claim is that it acted or received the label ([`held_since`]).
     pub by: String,
     pub at_ms: u64,
+}
+
+/// How a hold is said, in the block's line and in the `project.changed`
+/// row's sentence alike: the session `by` acted or received the `injection`
+/// label, and either stores the hold.
+pub fn held_since(by: &str) -> String {
+    format!("held since a session that carries the `injection` label ({by}) acted or received that label")
 }
 
 impl Held {
@@ -242,10 +249,10 @@ pub struct Observed {
     /// itself is the same hold, and `ask` above is what performs it.
     pub flagged: bool,
     /// The act key's stored hold, when there is one: a session carrying
-    /// `injection` has acted since the owner last read this repository, and
-    /// its changes are held for every session until his yes. It outranks the other two in
-    /// the line, because it is the only one that says something about a
-    /// session OTHER than the one reading.
+    /// `injection` acted or received that label since the owner last read
+    /// this repository, and its changes are held for every session until his
+    /// yes. It outranks the other two in the line, because it is the only one
+    /// that says something about a session OTHER than the one reading.
     pub held: Option<Held>,
 }
 
@@ -279,11 +286,10 @@ impl Observed {
         Some(if let Some(h) = &self.held {
             format!(
                 "Project instructions changed since the owner last read them: {what}. \
-                 A session that carries the `injection` label ({}) has acted since he \
-                 last read them, so their new text is not here for any session: he grants \
+                 They are {}, so their new text is not here for any session: he grants \
                  the repository again (`theseus project untrust`, then `theseus project \
                  trust` naming this session's directory) once he has read it.",
-                h.by
+                held_since(&h.by)
             )
         } else if self.flagged {
             format!(

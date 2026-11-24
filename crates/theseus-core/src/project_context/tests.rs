@@ -1248,3 +1248,56 @@ fn a_hold_on_a_repository_with_no_sighting_holds_every_file() {
         "the file is named new, and the hold says why:\n{clean}"
     );
 }
+
+/// A hold's sentence claims no act: a session holds a repository by acting
+/// or by receiving the `injection` label, so the block's line and the
+/// `project.changed` row's sentence each say both, in the one wording.
+#[test]
+fn a_hold_is_said_as_an_act_or_a_label_in_the_block_and_the_ledger() {
+    let said = "held since a session that carries the `injection` label (ses_flagged) \
+                acted or received that label";
+    let seen = change::Observed {
+        id: "rep_1".into(),
+        root: "/r".into(),
+        changes: vec![change::Change {
+            path: "AGENTS.md".into(),
+            old: "a".into(),
+            new: "b".into(),
+        }],
+        fresh: vec![],
+        write: None,
+        ask: true,
+        flagged: false,
+        held: Some(change::Held {
+            files: Default::default(),
+            by: "ses_flagged".into(),
+            at_ms: 1,
+        }),
+    };
+    let line = seen.line().expect("a change is said");
+    assert!(line.contains(said), "the block's line:\n{line}");
+
+    let (_d, store) = scratch_store();
+    let narrator = crate::narrative::Narrator::new(true);
+    let rec = crate::fact::Rec {
+        narrator: &narrator,
+        session: None,
+        turn: None,
+        to: crate::fact::To::Nobody,
+        store: &store,
+    };
+    rec.announce(&crate::fact::project::ProjectChanged {
+        id: "rep_1",
+        root: "/r",
+        path: "AGENTS.md",
+        old: "a",
+        new: "b",
+        carried: false,
+        wrote: Some("ses_flagged"),
+    });
+    let row: Vec<String> = narrator.tail().into_iter().map(|l| l.text).collect();
+    assert!(
+        row.len() == 1 && row[0].contains(said),
+        "the row's sentence: {row:?}"
+    );
+}

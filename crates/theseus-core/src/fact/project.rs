@@ -60,10 +60,11 @@ pub struct ProjectChanged<'a> {
     /// Whether this compile read the new text: false at `ask` posture, where
     /// the file waits for the owner to grant the repository again.
     pub carried: bool,
-    /// The labelled session whose act holds the repository, when the act
-    /// key is what holds it (S31-1): that session carried `injection` and
-    /// acted, so the new text waits for the owner's yes in **every** session
-    /// and not only in the one that is labelled. `None` for every other row.
+    /// The labelled session that holds the repository, when the act key is
+    /// what holds it (S31-1): that session carried `injection` and acted or
+    /// received that label, so the new text waits for the owner's yes in
+    /// **every** session and not only in the one that is labelled. `None` for
+    /// every other row.
     pub wrote: Option<&'a str>,
 }
 
@@ -85,9 +86,9 @@ impl Fact for ProjectChanged<'_> {
         let did = match (self.carried, self.wrote) {
             (true, _) => "its text is carried".to_string(),
             (false, Some(by)) => format!(
-                "{by}, which carries the `injection` label, has acted since the owner \
-                 last read it, so it is named and not read in any session until the \
-                 repository is granted again"
+                "it is {}, so it is named and not read in any session until the \
+                 repository is granted again",
+                crate::project_context::change::held_since(by)
             ),
             (false, None) => {
                 "it is named and not read until the repository is granted again".to_string()
