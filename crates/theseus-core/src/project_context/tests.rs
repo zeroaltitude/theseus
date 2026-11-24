@@ -574,7 +574,15 @@ fn a_labelled_session_holds_a_changed_file_whatever_the_posture_says() {
     // And the hold is the `ask` hold: what the owner read does not move
     // forward, so the file keeps waiting instead of arriving by itself.
     let found = discover_in(Some(&root), &root, None);
-    let seen = change::observe(&cfg, &store, &files, &root, &found.project, true);
+    let seen = change::observe(
+        &cfg,
+        &store,
+        &files,
+        &root,
+        &found.project,
+        &found.dirs,
+        true,
+    );
     assert!(seen.flagged, "the label is what held it");
     assert_eq!(seen.withheld().len(), 1, "one file is held: {seen:?}");
     let waiting = seen.write.expect("what it asked about is remembered");
@@ -585,7 +593,15 @@ fn a_labelled_session_holds_a_changed_file_whatever_the_posture_says() {
             .files,
         "what the owner read does NOT move: the file keeps waiting"
     );
-    let open = change::observe(&cfg, &store, &files, &root, &found.project, false);
+    let open = change::observe(
+        &cfg,
+        &store,
+        &files,
+        &root,
+        &found.project,
+        &found.dirs,
+        false,
+    );
     assert!(!open.flagged);
     assert!(
         open.withheld().is_empty(),
@@ -611,7 +627,15 @@ fn the_ask_posture_keeps_waiting_and_the_notice_stores_what_it_saw() {
     let found = discover_in(Some(&root), &root, None);
 
     cfg.project.on_change = Some(crate::config::OnChange::Ask);
-    let ask = change::observe(&cfg, &store, &files, &root, &found.project, false);
+    let ask = change::observe(
+        &cfg,
+        &store,
+        &files,
+        &root,
+        &found.project,
+        &found.dirs,
+        false,
+    );
     assert_eq!(ask.changes.len(), 1, "one file changed");
     assert_eq!(ask.fresh, ask.changes, "and it is said once");
     assert_eq!(ask.withheld().len(), 1, "and that file is not read");
@@ -628,13 +652,29 @@ fn the_ask_posture_keeps_waiting_and_the_notice_stores_what_it_saw() {
     store
         .append(&[waiting.record(&crate::flow::spec::repo_id(&root)).unwrap()])
         .unwrap();
-    let again = change::observe(&cfg, &store, &files, &root, &found.project, false);
+    let again = change::observe(
+        &cfg,
+        &store,
+        &files,
+        &root,
+        &found.project,
+        &found.dirs,
+        false,
+    );
     assert_eq!(again.changes.len(), 1, "the block still names it");
     assert!(again.fresh.is_empty(), "the ledger does not say it twice");
     assert!(again.write.is_none(), "and there is nothing new to store");
 
     cfg.project.on_change = Some(crate::config::OnChange::Notice);
-    let notice = change::observe(&cfg, &store, &files, &root, &found.project, false);
+    let notice = change::observe(
+        &cfg,
+        &store,
+        &files,
+        &root,
+        &found.project,
+        &found.dirs,
+        false,
+    );
     assert_eq!(notice.changes, ask.changes, "the same change, either way");
     assert!(notice.write.is_some(), "the notice stores what it saw");
     assert!(notice.withheld().is_empty(), "and withholds nothing");
@@ -654,6 +694,177 @@ fn the_ask_posture_keeps_waiting_and_the_notice_stores_what_it_saw() {
     let d = change::diff(&gone, &now);
     assert_eq!(d.len(), 2);
     assert!(d[0].is_gone() && d[1].is_new(), "{d:?}");
+}
+
+/// One compile in `dir`, as the turn makes it: what it observes, with the
+/// sighting it writes stored.
+fn compile(
+    cfg: &crate::config::Config,
+    store: &crate::store::Store,
+    files: &ContextFiles,
+    repo: &Repo,
+    dir: &Path,
+) -> change::Observed {
+    let found = found_of(repo, dir);
+    let seen = change::observe(
+        cfg,
+        store,
+        files,
+        &repo.root(),
+        &found.project,
+        &found.dirs,
+        false,
+    );
+    if let Some(w) = &seen.write {
+        store.append(&[w.record(&seen.id).unwrap()]).unwrap();
+    }
+    seen
+}
+
+/// A sighting accumulates: a compile in one directory of a repository keeps
+/// what a compile in another directory saw, so the file the owner read there
+/// is still in the stored sighting afterwards.
+#[test]
+fn a_compile_elsewhere_keeps_what_the_owner_read() {
+    let state = tempfile::tempdir().unwrap();
+    let mut cfg = cfg_with_state(state.path());
+    cfg.project.on_change = Some(crate::config::OnChange::Notice);
+    let files = ContextFiles::default();
+    let (_d, store) = scratch_store();
+    let repo = Repo::new();
+    let root = repo.root();
+    grant(&store, &root);
+    repo.write("AGENTS.md", "run the gate before every commit\n");
+    let read = repo.write("sib/AGENTS.md", "the sibling's own rules\n");
+    let nested = repo.write("nested/CLAUDE.md", "the nested rules\n");
+
+    compile(&cfg, &store, &files, &repo, &root.join("sib"));
+    let later = compile(&cfg, &store, &files, &repo, &root.join("nested"));
+    let shown = |p: &Path| p.display().to_string();
+    assert_eq!(
+        later
+            .changes
+            .iter()
+            .map(|c| (c.path.clone(), c.is_new(), c.is_gone()))
+            .collect::<Vec<_>>(),
+        vec![(shown(&nested), true, false)],
+        "the nested file is new to the sighting, and nothing is gone"
+    );
+    let stored = change::Seen::read(&store, &crate::flow::spec::repo_id(&root))
+        .expect("a sighting is stored");
+    assert!(
+        stored.files.contains_key(&shown(&read)),
+        "the file the owner read in the sibling is still in it: {stored:?}"
+    );
+    assert!(stored.files.contains_key(&shown(&nested)), "{stored:?}");
+}
+
+/// A compile at the root after one in a directory below it looked only at
+/// the root, so the file below is not gone: no change, no row, no line.
+#[test]
+fn a_compile_at_the_root_after_one_below_says_nothing_is_gone() {
+    let state = tempfile::tempdir().unwrap();
+    let mut cfg = cfg_with_state(state.path());
+    cfg.project.on_change = Some(crate::config::OnChange::Notice);
+    let files = ContextFiles::default();
+    let (_d, store) = scratch_store();
+    let repo = Repo::new();
+    let root = repo.root();
+    grant(&store, &root);
+    repo.write("AGENTS.md", "run the gate before every commit\n");
+    repo.write("nested/CLAUDE.md", "the nested rules\n");
+
+    compile(&cfg, &store, &files, &repo, &root.join("nested"));
+    let at_root = compile(&cfg, &store, &files, &repo, &root);
+    assert!(at_root.changes.is_empty(), "nothing changed: {at_root:?}");
+    assert!(at_root.fresh.is_empty(), "so no row: {at_root:?}");
+    assert!(at_root.line().is_none(), "and no line: {at_root:?}");
+    assert!(at_root.write.is_none(), "and nothing to store: {at_root:?}");
+}
+
+/// Where a compile drops a stored path and where it keeps one, case by case.
+/// The session works in `a`, so the compile looks in the root and in `a`: a
+/// file deleted from either is gone. A sibling's file and a file in `a/b`,
+/// below the session's directory, were not looked for: each is kept at the
+/// digest stored for it, whatever has happened to it since, until a compile
+/// that looks there.
+#[test]
+fn a_sighting_drops_a_path_only_where_this_compile_looked() {
+    let state = tempfile::tempdir().unwrap();
+    let mut cfg = cfg_with_state(state.path());
+    cfg.project.on_change = Some(crate::config::OnChange::Notice);
+    let files = ContextFiles::default();
+    let (_d, store) = scratch_store();
+    let repo = Repo::new();
+    let root = repo.root();
+    let id = crate::flow::spec::repo_id(&root);
+    grant(&store, &root);
+    let root_agents = repo.write("AGENTS.md", "run the gate before every commit\n");
+    let root_claude = repo.write("CLAUDE.md", "the store is redb\n");
+    let a_agents = repo.write("a/AGENTS.md", "the a rules\n");
+    let a_claude = repo.write("a/CLAUDE.md", "more a rules\n");
+    let child = repo.write("a/b/AGENTS.md", "the rules below\n");
+    let sib = repo.write("sib/AGENTS.md", "the sibling's rules\n");
+    // What the owner has read: every one of them.
+    let mut all = found_of(&repo, &root.join("a/b")).project;
+    all.extend(found_of(&repo, &root.join("sib")).project);
+    let read = change::sighting(&files, &all, 1);
+    store.append(&[read.record(&id).unwrap()]).unwrap();
+    assert_eq!(read.files.len(), 6, "{read:?}");
+
+    std::fs::remove_file(&root_claude).unwrap();
+    std::fs::remove_file(&a_claude).unwrap();
+    std::fs::remove_file(&sib).unwrap();
+    repo.write("a/b/AGENTS.md", "the rules below, edited\n");
+
+    let shown = |p: &Path| p.display().to_string();
+    let in_a = compile(&cfg, &store, &files, &repo, &root.join("a"));
+    assert_eq!(
+        in_a.changes
+            .iter()
+            .map(|c| (c.path.clone(), c.is_gone()))
+            .collect::<Vec<_>>(),
+        vec![(shown(&root_claude), true), (shown(&a_claude), true)],
+        "the two files deleted where it looked are gone, and nothing else changed"
+    );
+    let stored = change::Seen::read(&store, &id).unwrap();
+    let keys: Vec<&str> = stored.files.keys().map(String::as_str).collect();
+    assert_eq!(
+        keys,
+        vec![
+            shown(&root_agents).as_str(),
+            shown(&a_agents).as_str(),
+            shown(&child).as_str(),
+            shown(&sib).as_str(),
+        ],
+        "what it did not look for is kept"
+    );
+    assert_eq!(
+        stored.files[&shown(&child)],
+        read.files[&shown(&child)],
+        "at the digest stored for it"
+    );
+
+    // A compile that looks there says what happened to each.
+    let in_b = compile(&cfg, &store, &files, &repo, &root.join("a/b"));
+    assert_eq!(
+        in_b.changes
+            .iter()
+            .map(|c| (c.path.clone(), c.is_new(), c.is_gone()))
+            .collect::<Vec<_>>(),
+        vec![(shown(&child), false, false)],
+        "the edit below is a change once a compile looks there"
+    );
+    let in_sib = compile(&cfg, &store, &files, &repo, &root.join("sib"));
+    assert_eq!(
+        in_sib
+            .changes
+            .iter()
+            .map(|c| (c.path.clone(), c.is_gone()))
+            .collect::<Vec<_>>(),
+        vec![(shown(&sib), true)],
+        "and the sibling's file is gone once a compile looks there"
+    );
 }
 
 /// **S31-1, the writer key: what a flagged session's acting call leaves
@@ -727,6 +938,7 @@ fn a_file_that_moved_under_a_flagged_calls_watch_is_held_for_every_session() {
         &files,
         &root,
         &found_of(&repo, &root).project,
+        &found_of(&repo, &root).dirs,
         false,
     );
     assert_eq!(again.changes.len(), 1, "the block still names it");

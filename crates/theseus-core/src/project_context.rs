@@ -77,6 +77,10 @@ pub struct Found {
 pub struct Discovered {
     /// The repository this was discovered in, canonical; none outside one.
     pub root: Option<PathBuf>,
+    /// The directories the repository's files were looked for in: the chain
+    /// from the root down to the session's directory, root first. Empty
+    /// outside a repository.
+    pub dirs: Vec<PathBuf>,
     /// The user-level file, when the owner has one.
     pub user: Option<Found>,
     /// The repository's files in precedence order (§5): the root's
@@ -129,28 +133,36 @@ pub fn discover(state_dir: &Path, dir: &Path) -> Discovered {
 /// Discovery over the paths given, so a test drives it without a repository
 /// of its own: the chain from `root` down to `dir`, and `user`.
 pub fn discover_in(root: Option<&Path>, dir: &Path, user: Option<&Path>) -> Discovered {
+    let dirs = root.map(|r| chain_dirs(r, dir)).unwrap_or_default();
     Discovered {
         root: root.map(Path::to_path_buf),
         user: user.and_then(|p| found(p, 0)),
-        project: root.map(|r| chain(r, dir)).unwrap_or_default(),
+        project: chain(&dirs),
+        dirs,
     }
 }
 
-/// The files of every directory from `root` down to `dir`, in precedence
-/// order. A `dir` that is not under `root` is read as the root alone: the
-/// resolver gives both canonically, so that is a race, not a path to follow.
-fn chain(root: &Path, dir: &Path) -> Vec<Found> {
+/// Every directory from `root` down to `dir`, root first. A `dir` that is
+/// not under `root` is read as the root alone: the resolver gives both
+/// canonically, so that is a race, not a path to follow.
+fn chain_dirs(root: &Path, dir: &Path) -> Vec<PathBuf> {
     let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-    let mut dirs: Vec<&Path> = if dir.starts_with(root) {
+    let mut dirs: Vec<PathBuf> = if dir.starts_with(root) {
         dir.ancestors()
             .take_while(|d| *d != root)
             .chain(std::iter::once(root))
+            .map(Path::to_path_buf)
             .collect()
     } else {
-        vec![root]
+        vec![root.to_path_buf()]
     };
     dirs.reverse();
-    dirs.into_iter()
+    dirs
+}
+
+/// The files of `dirs`, in precedence order.
+fn chain(dirs: &[PathBuf]) -> Vec<Found> {
+    dirs.iter()
         .enumerate()
         .flat_map(|(depth, d)| {
             NAMES
@@ -451,7 +463,15 @@ pub fn block(
             // are the turn's (`observe_project`); this is the block's half,
             // which is where the model sees it.
             let root = found.root.as_deref().expect("a project file has a root");
-            let seen = change::observe(cfg, store, files, root, &found.project, flagged);
+            let seen = change::observe(
+                cfg,
+                store,
+                files,
+                root,
+                &found.project,
+                &found.dirs,
+                flagged,
+            );
             let carry: Vec<Found> = found
                 .project
                 .iter()

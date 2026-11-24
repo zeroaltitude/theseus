@@ -96,7 +96,7 @@
 //! had one.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -352,10 +352,19 @@ pub fn sighting(files: &ContextFiles, found: &[Found], at_ms: u64) -> Seen {
 
 /// What a compile of `found` in the repository `root` sees: the sighting,
 /// what it differs from, and whether the change is held. One keyed store
-/// read, as [`super::trust::granted`] is. Called twice in a turn -- once by
-/// [`super::block`] to name the change and withhold what is held, once by
-/// the turn to write the row and the state -- and deterministic on its
-/// inputs, so the block and the ledger cannot disagree.
+/// read, as [`super::trust::granted`] is.
+///
+/// `looked` is the directories the compile looked for files in. **A
+/// sighting accumulates**: a stored path whose directory is not one of them
+/// was not looked for, so it is carried into this sighting as it was
+/// stored, and only a path in a directory the compile looked in can be
+/// gone. A compile in one directory of a repository therefore neither
+/// forgets nor reports as gone what a compile in another one saw.
+///
+/// Called twice in a turn -- once by [`super::block`] to name the change and
+/// withhold what is held, once by the turn to write the row and the state --
+/// and deterministic on its inputs, so the block and the ledger cannot
+/// disagree.
 ///
 /// `flagged` is whether the compiling session carries `injection`
 /// (`ContentFlags::frozen`), and it holds the change on its own (S31-1).
@@ -372,14 +381,18 @@ pub fn observe(
     files: &ContextFiles,
     root: &Path,
     found: &[Found],
+    looked: &[PathBuf],
     flagged: bool,
 ) -> Observed {
     let id = crate::flow::spec::repo_id(root);
     let held = Held::read(store, &id);
     let ask = cfg.project.on_change() == OnChange::Ask || flagged || held.is_some();
     let at_ms = theseus_protocol::now_unix_ms();
-    let now = sighting(files, found, at_ms);
+    let mut now = sighting(files, found, at_ms);
     let old = Seen::read(store, &id);
+    if let Some(o) = &old {
+        carry(&mut now, o, looked);
+    }
     // The first sighting has nothing to differ from: it is stored, and says
     // nothing.
     let changes = old.as_ref().map(|o| diff(o, &now)).unwrap_or_default();
@@ -427,6 +440,22 @@ pub fn observe(
     }
 }
 
+/// Carry into `now` every path of `old` whose directory is not one of
+/// `looked`, at the digest `old` stored for it: this compile did not look
+/// for it, so it says nothing about it.
+fn carry(now: &mut Seen, old: &Seen, looked: &[PathBuf]) {
+    for (path, digest) in &old.files {
+        let here = Path::new(path)
+            .parent()
+            .is_some_and(|d| looked.iter().any(|l| l == d));
+        if !here {
+            now.files
+                .entry(path.clone())
+                .or_insert_with(|| digest.clone());
+        }
+    }
+}
+
 /// What a flagged session's acting call did to a granted repository's
 /// instruction files, when it moved any.
 #[derive(Debug, Clone)]
@@ -469,25 +498,35 @@ pub struct Wrote {
 /// whose directory is undiscovered.
 ///
 /// A stored path that no longer resolves to a regular file is simply left
-/// out, which is exactly right: [`diff`] takes the union of the two
-/// sightings' keys, so a file that was there and is not now comes back as a
+/// out, which is exactly right: its directory is among the directories this
+/// returns beside the files, the ones it looked in, so [`observe`] does not
+/// carry it, and a file that was there and is not now comes back as a
 /// change with an empty new digest -- gone, named in the row, held in
 /// nothing.
-fn swept(store: &crate::store::Store, root: &Path, here: &super::Discovered) -> Vec<Found> {
+fn swept(
+    store: &crate::store::Store,
+    root: &Path,
+    here: &super::Discovered,
+) -> (Vec<Found>, Vec<PathBuf>) {
     let mut by_path: BTreeMap<String, Found> = BTreeMap::new();
+    let mut looked: Vec<PathBuf> = Vec::new();
     if here.root.as_deref() == Some(root) {
         for f in &here.project {
             by_path.insert(f.shown.clone(), f.clone());
         }
+        looked.extend(here.dirs.iter().cloned());
     }
     let Some(seen) = Seen::read(store, &crate::flow::spec::repo_id(root)) else {
-        return by_path.into_values().collect();
+        return (by_path.into_values().collect(), looked);
     };
     for shown in seen.files.keys() {
+        let path = Path::new(shown);
+        if let Some(d) = path.parent() {
+            looked.push(d.to_path_buf());
+        }
         if by_path.contains_key(shown) {
             continue;
         }
-        let path = Path::new(shown);
         // The depth the block orders by, recovered from the path itself; a
         // stored path is always under the root that stored it.
         let depth = path
@@ -498,7 +537,7 @@ fn swept(store: &crate::store::Store, root: &Path, here: &super::Discovered) -> 
             by_path.insert(shown.clone(), f);
         }
     }
-    by_path.into_values().collect()
+    (by_path.into_values().collect(), looked)
 }
 
 /// **The writer key** (S31-1). What a session carrying `injection` did to
@@ -604,11 +643,11 @@ pub fn wrote(
             if !root.is_dir() {
                 return None;
             }
-            let found = swept(store, root, &here);
+            let (found, looked) = swept(store, root, &here);
             if found.is_empty() {
                 return None;
             }
-            let observed = observe(cfg, store, files, root, &found, true);
+            let observed = observe(cfg, store, files, root, &found, &looked, true);
             if observed.changes.is_empty() {
                 return None;
             }
