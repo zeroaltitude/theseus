@@ -65,8 +65,60 @@ pub fn kept(
 }
 
 /// The span `text` names, read in the daemon's time zone as of `now_ms`.
+///
+/// A clock time is read only after a day: `2026-11-20 14:00` (24-hour, or `2026-11-20T14:00`) is that minute,
+/// from its start to the end of it, so `to` holds all of it. A clock time it cannot place (alone, beside other
+/// words, out of range, in the future) reads as nothing, so an explicit argument that names one is refused in
+/// words by its caller, never read as the whole day with the time dropped.
 pub fn read_local(text: &str, now_ms: u64) -> Option<When> {
-    read(text, now_ms, &|ms| crate::wake::local(ms).offset_secs)
+    let offset = |ms| crate::wake::local(ms).offset_secs;
+    match has_clock(text) {
+        true => minute(text, now_ms, &offset),
+        false => read(text, now_ms, &offset),
+    }
+}
+
+/// Whether `text` holds a clock time: one or two digits, a colon, and exactly two digits.
+fn has_clock(text: &str) -> bool {
+    let b = text.as_bytes();
+    let digit = |i: usize| b.get(i).is_some_and(u8::is_ascii_digit);
+    (1..b.len())
+        .any(|i| b[i] == b':' && digit(i - 1) && digit(i + 1) && digit(i + 2) && !digit(i + 3))
+}
+
+/// The minute `YYYY-MM-DD HH:MM` (or with `T`) names, as of `now_ms` in the zone `offset` gives: none for any
+/// other text, a day or a time that does not exist, or a minute not begun yet.
+fn minute(text: &str, now_ms: u64, offset: &dyn Fn(u64) -> i64) -> Option<When> {
+    let said = text.trim();
+    let (day, clock) = said.split_once([' ', 'T'])?;
+    let num = |s: &str, len: std::ops::RangeInclusive<usize>| {
+        (len.contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| s.parse::<i64>().ok())
+            .flatten()
+    };
+    let mut ymd = day.splitn(3, '-');
+    let (y, m, d) = (
+        num(ymd.next()?, 4..=4)?,
+        num(ymd.next()?, 2..=2)?,
+        num(ymd.next()?, 2..=2)?,
+    );
+    let (h, min) = clock.trim().split_once(':')?;
+    let (h, min) = (num(h, 1..=2)?, num(min, 2..=2)?);
+    let (m, d) = (u32::try_from(m).ok()?, u32::try_from(d).ok()?);
+    let days = days_from_civil(y, m, d);
+    if civil_from_days(days) != (y, m, d) || h > 23 || min > 59 {
+        return None;
+    }
+    // The local minute's instant: less the offset there, read again at the guess (as `midnight_ms`).
+    let local = days * 86_400 + h * 3_600 + min * 60;
+    let mut t = local - offset(local.max(0) as u64 * 1000);
+    t = local - offset(t.max(0) as u64 * 1000);
+    let from_ms = u64::try_from(t).ok()? * 1000;
+    (from_ms <= now_ms).then(|| When {
+        said: said.to_string(),
+        from_ms: Some(from_ms),
+        to_ms: Some(from_ms + 60_000),
+    })
 }
 
 /// The span `text` names as of `now_ms`, in the time zone whose offset east
@@ -773,5 +825,45 @@ mod tests {
         let each = t0.elapsed() / 100;
         // A debug build, under load: generous, and still far from a call.
         assert!(each < std::time::Duration::from_millis(5), "{each:?}");
+    }
+
+    /// An explicit argument's day followed by a clock time (`2026-10-05 09:30`, 24-hour, or with `T`) reads as
+    /// that minute, in the daemon's zone: from its start to the end of it. The day alone is still the day.
+    #[test]
+    fn a_day_and_a_clock_time_read_as_that_minute() {
+        let day = read_local("2026-10-05", now()).expect("a day");
+        let start = day.from_ms.unwrap();
+        let minute = |m: u64| start + m * 60_000;
+        for text in ["2026-10-05 09:30", "2026-10-05T09:30", " 2026-10-05 9:30 "] {
+            let w = read_local(text, now()).unwrap_or_else(|| panic!("{text:?}"));
+            assert_eq!(
+                (w.from_ms, w.to_ms),
+                (Some(minute(570)), Some(minute(571))),
+                "{text:?}"
+            );
+        }
+        assert_eq!(
+            read_local("2026-10-05 00:00", now()).unwrap().from_ms,
+            Some(start)
+        );
+        assert_eq!(day.to_ms, Some(minute(24 * 60)), "the day alone is the day");
+    }
+
+    /// A clock time the reader cannot place is refused, never dropped: alone, beside words, out of range, or
+    /// in the future. A colon that is no clock time leaves the day as it was.
+    #[test]
+    fn a_clock_time_the_reader_cannot_read_is_refused_not_dropped() {
+        for text in [
+            "14:00",
+            "2026-10-05 at 14:00",
+            "yesterday 14:00",
+            "2026-10-05 25:00",
+            "2026-10-05 09:75",
+            "2026-10-05 14:00 to 2026-10-05 15:00",
+            "2026-10-09 09:00",
+        ] {
+            assert_eq!(read_local(text, now()), None, "{text:?}");
+        }
+        assert!(read_local("2026-10-05, ratio 3:2", now()).is_some());
     }
 }
