@@ -1,6 +1,7 @@
 //! What the count in the self-join's merge may reach (issue 45). Its checks and its fold run outside
 //! L1, so they may run nothing the branch selects: no filter its `.gitattributes` names, no hook, no
-//! file-system monitor.
+//! file-system monitor. Its one lasting write is the tree: a build directory it writes into is never
+//! the gate's.
 
 use serde_json::Value;
 use theseus_protocol::rsi::SelfMode;
@@ -231,4 +232,30 @@ async fn the_count_runs_no_filter_hook_or_monitor_when_it_is_undone() {
         "{j}"
     );
     assert_eq!(tree_of(&r, &merge), plain_tree(&r, &base, &head));
+}
+
+/// F2: a counter that writes into the build directory its view gives it, and then counts, or then
+/// fails. Main's gate, which runs on the build directory it really uses, finds nothing there, and
+/// the count's own build directory is gone.
+#[tokio::test]
+async fn the_count_leaves_nothing_in_the_gates_build_directory() {
+    let probe = "open(os.path.join(os.environ['CARGO_TARGET_DIR'], 'probe'), 'w').write('x\\n')";
+    for (what, said) in [
+        (probe.to_string(), "counted"),
+        (format!("{probe}; sys.exit(1)"), "skipped: "),
+    ] {
+        let r = rig(SelfMode::Act);
+        let c = counter(&what);
+        let (_, _, _, j) = join(&r, &[("scripts/stats.py", &c)], PROVED, r.seams()).await;
+        let stats = j["numbers"]["stats"].as_str().unwrap();
+        assert!(stats.starts_with(said), "{what}: {stats}");
+        let gates = r.f.place.gates();
+        let left: Vec<_> = std::fs::read_dir(&gates)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("stats-target-") || n.starts_with("stats-empty-"))
+            .collect();
+        assert!(left.is_empty(), "{left:?}");
+    }
 }

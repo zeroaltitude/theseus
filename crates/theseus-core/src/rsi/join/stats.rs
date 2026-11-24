@@ -5,7 +5,9 @@
 //!
 //! - **The counter is main's**, pinned to the join's base: the blob `<base>:scripts/stats.py`,
 //!   frozen under `<state>/self/gates/`, never the branch's copy nor the merged tree's.
-//! - **It runs in L1**, as every command in a join's tree does (`Place::jail`), with its time limit.
+//! - **It runs in L1**, as every command in a join's tree does (`Place::jail`), with its time limit,
+//!   and with the tree its one lasting write: the build directory its view gives it is a throwaway
+//!   one, never the gate's (`Tree::target`), and is removed after it.
 //! - **Containment is the whole tree, read from the file system** ([`stats_tree`]): no git reads the
 //!   tree's files for the count, so the count runs nothing the tree's attributes select (a filter, a
 //!   diff driver) outside L1. Before and after the counter, every path is taken with its kind, bits
@@ -71,13 +73,14 @@ pub(super) fn count(
         Ok(s) => s,
         Err(e) => return Ok(kept(format!("skipped: the tree could not be read: {e:#}"))),
     };
-    let range = format!("{base}..HEAD");
-    let lines = run(p, t, &frozen, &["--range", &range], limit)
-        .ok()
-        .and_then(|log| range_line(&log));
-    let counted = run(p, t, &frozen, &["--count-head"], limit)
-        .and_then(|_| fold(p, t, merge, &before))
-        .map(|folded| (folded, lines));
+    let ran = Scratch::new(p, t).and_then(|s| {
+        let range = format!("{base}..HEAD");
+        let lines = run(p, &s.job, &frozen, &["--range", &range], limit)
+            .ok()
+            .and_then(|log| range_line(&log));
+        run(p, &s.job, &frozen, &["--count-head"], limit).map(|_| lines)
+    });
+    let counted = ran.and_then(|lines| Ok((fold(p, t, merge, &before)?, lines)));
     match counted {
         Ok((Some(folded), lines)) => Ok(Count {
             merge: folded,
@@ -124,20 +127,48 @@ fn frozen(p: &Place, base: &str) -> Result<Option<PathBuf>> {
     Ok(Some(out))
 }
 
+/// The tree as the counter's job sees it: the join's tree, with a throwaway build directory of its
+/// own under the gates in place of the gate's, removed when the count is done.
+struct Scratch {
+    job: Tree,
+}
+
+impl Scratch {
+    fn new(p: &Place, t: &Tree) -> Result<Self> {
+        let target = p.gates().join(format!("stats-target-{}", t.slug));
+        if std::fs::symlink_metadata(&target).is_ok() {
+            std::fs::remove_dir_all(&target)?;
+        }
+        std::fs::create_dir_all(&target)?;
+        Ok(Self {
+            job: Tree {
+                target,
+                ..t.clone()
+            },
+        })
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.job.target);
+    }
+}
+
 /// `python3 -I <frozen> <args> --root <tree>` in L1, its output to a log of its own under the
 /// gates; the log when it exited 0.
-fn run(p: &Place, t: &Tree, frozen: &Path, args: &[&str], limit: Duration) -> Result<PathBuf> {
+fn run(p: &Place, job: &Tree, frozen: &Path, args: &[&str], limit: Duration) -> Result<PathBuf> {
     let what = args[0].trim_start_matches('-');
-    let log = p.gates().join(format!("stats-{what}-{}.log", t.slug));
+    let log = p.gates().join(format!("stats-{what}-{}.log", job.slug));
     std::fs::create_dir_all(p.gates())?;
     let mut argv: Vec<OsString> = vec!["python3".into(), "-I".into(), frozen.into()];
     argv.extend(args.iter().map(OsString::from));
-    argv.extend(["--root".into(), t.dir.clone().into()]);
+    argv.extend(["--root".into(), job.dir.clone().into()]);
     let code = match p.jail()? {
         Some(j) => j.run_blocking(
             p,
             &Job {
-                tree: t,
+                tree: job,
                 ro: vec![frozen.to_path_buf()],
                 argv,
                 env: Vec::new(),
@@ -147,7 +178,7 @@ fn run(p: &Place, t: &Tree, frozen: &Path, args: &[&str], limit: Duration) -> Re
         )?,
         // Only a test's place has no jail (`Place::jail`): its stand-in counter runs at L0, as its
         // stand-in gate does.
-        None => at_l0(p, t, &argv, &log, limit)?,
+        None => at_l0(p, job, &argv, &log, limit)?,
     };
     if code != Some(0) {
         let said = std::fs::read_to_string(&log).unwrap_or_default();
@@ -166,10 +197,11 @@ fn run(p: &Place, t: &Tree, frozen: &Path, args: &[&str], limit: Duration) -> Re
     Ok(log)
 }
 
-/// A test's stand-in for L1: the command in the tree, its whole group stopped at the limit.
+/// A test's stand-in for L1: the command in the tree, with the build directory the view would give
+/// it, its whole group stopped at the limit.
 fn at_l0(
     p: &Place,
-    t: &Tree,
+    job: &Tree,
     argv: &[OsString],
     log: &Path,
     limit: Duration,
@@ -178,11 +210,12 @@ fn at_l0(
     let out = std::fs::File::create(log)?;
     let mut c = std::process::Command::new(&argv[0]);
     c.args(&argv[1..])
-        .current_dir(&t.dir)
+        .current_dir(&job.dir)
         .stdin(Stdio::null())
         .stdout(out.try_clone()?)
         .stderr(out)
         .process_group(0)
+        .env("CARGO_TARGET_DIR", &job.target)
         .envs(p.env.iter().map(|(k, v)| (k, v)));
     let mut child = children::spawn(Kind::Owned, || c.spawn(), |c| Some(c.id()))
         .context("main's counter could not start")?;
