@@ -1197,7 +1197,9 @@ impl Lane {
     fn closed_card(&self, question: &Action, q: &str) -> Option<Closed> {
         Closed::of(question).map(|c| {
             let mut c = self.waiting_settle(q).unwrap_or(c);
-            c.note = c.note.map(|s| self.shared.core.exits.text(&s).0.into_owned());
+            c.note = c
+                .note
+                .map(|s| self.shared.core.exits.text(&s).0.into_owned());
             c
         })
     }
