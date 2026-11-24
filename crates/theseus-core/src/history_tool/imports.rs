@@ -175,12 +175,11 @@ pub(super) fn render(
     a: &HistoryArgs,
     span: Option<&When>,
     why: Option<&str>,
+    cuts: &crate::scrub::Cuts,
 ) -> String {
     let words = flat(a.words.as_deref().unwrap_or_default());
     let place = flat(a.place.as_deref().unwrap_or(PLACE).trim());
-    let within = span.map_or_else(String::new, |s| {
-        format!(" in {}", cut(&s.said, 80, &crate::scrub::Cuts::none()))
-    });
+    let within = span.map_or_else(String::new, |s| format!(" in {}", cut(&s.said, 80, cuts)));
     let mut out = format!(
         "context.history: {} imported item{} for \u{ab}{words}\u{bb} in {place}{within}, best first. Each: when \
          · book · the words · its session (open=<session> reads it whole). Lines marked outside text are another \

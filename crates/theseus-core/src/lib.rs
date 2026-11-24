@@ -323,6 +323,8 @@ mod tests_continuations;
 #[cfg(test)]
 mod tests_cut_sites;
 #[cfg(test)]
+mod tests_cut_stored;
+#[cfg(test)]
 mod tests_day_ceiling;
 #[cfg(test)]
 mod tests_day_notify;

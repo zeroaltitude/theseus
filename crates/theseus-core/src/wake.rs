@@ -416,7 +416,7 @@ impl Tool for WakeAt {
         Retry::NonRepeatable
     }
 
-    fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
+    fn plan(&self, input: &Value, ctx: &ToolCtx) -> Result<Plan, String> {
         let i = input_of(input)?;
         let mut when = match (&i.after, &i.at) {
             (Some(a), _) => format!("in {a}"),
@@ -432,7 +432,7 @@ impl Tool for WakeAt {
         Ok(Plan {
             summary: format!(
                 "wake {when}: {}",
-                crate::session::title_from(&i.note, &crate::scrub::Cuts::none())
+                crate::session::title_cut(&i.note, ctx.cut.get())
             ),
             ..Default::default()
         })

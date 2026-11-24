@@ -388,7 +388,7 @@ impl Tool for TaskCreate {
         Retry::NonRepeatable
     }
 
-    fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
+    fn plan(&self, input: &Value, ctx: &ToolCtx) -> Result<Plan, String> {
         let i = input_of(input)?;
         let Some(brief) = &i.brief else {
             let title = i.title.as_deref().unwrap_or_default().trim().to_string();
@@ -424,7 +424,7 @@ impl Tool for TaskCreate {
                 "{how}: {}",
                 i.title
                     .as_deref()
-                    .unwrap_or(&title_from(brief, &crate::scrub::Cuts::none()))
+                    .unwrap_or(&crate::session::title_cut(brief, ctx.cut.get()))
             ),
             ..Default::default()
         })
@@ -1260,7 +1260,7 @@ impl Report {
     }
 
     /// The node the parent's next turn reads.
-    pub fn node_text(&self) -> String {
+    pub fn node_text(&self, cuts: &crate::scrub::Cuts) -> String {
         let title = self
             .title
             .as_deref()
@@ -1296,7 +1296,7 @@ impl Report {
                 t,
                 REPORT_NODE_CHARS,
                 |_| format!("the whole message stays in task {}'s session", self.short),
-                &crate::scrub::Cuts::none(),
+                cuts,
             );
             out.push_str("\n\n");
             out.push_str(&t);

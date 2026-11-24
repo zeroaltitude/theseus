@@ -124,7 +124,17 @@ pub(crate) fn rig(
     script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
     tweak: impl FnOnce(&mut Config),
 ) -> Rig {
-    rig_defer(script, tweak, false)
+    rig_defer(script, tweak, (false, None))
+}
+
+/// [`rig`], its scrubber knowing `values`.
+pub(crate) fn rig_knowing(
+    script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
+    tweak: impl FnOnce(&mut Config),
+    values: Vec<(String, String)>,
+) -> Rig {
+    let scrubber = crate::scrub::Scrubber::with_values(values);
+    rig_defer(script, tweak, (false, Some(scrubber)))
 }
 
 /// [`rig`], its tools deferred as a daemon's are (`tests_defer`).
@@ -132,13 +142,13 @@ pub(crate) fn rig_deferring(
     script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
     tweak: impl FnOnce(&mut Config),
 ) -> Rig {
-    rig_defer(script, tweak, true)
+    rig_defer(script, tweak, (true, None))
 }
 
 fn rig_defer(
     script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
     tweak: impl FnOnce(&mut Config),
-    deferring: bool,
+    (deferring, scrubber): (bool, Option<crate::scrub::Scrubber>),
 ) -> Rig {
     let dir = crate::scratch::tempdir();
     let root = dir.path().join("work");
@@ -157,6 +167,9 @@ fn rig_defer(
     let wanted = cfg.tools.defer.enabled;
     let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
     parts.cfg.tools.defer.enabled = deferring && wanted;
+    if let Some(s) = scrubber {
+        parts.scrubber = Arc::new(s);
+    }
     let core = Core::build(parts).unwrap();
     // The driver takes every task's turns, as the daemon's does.
     tokio::spawn(crate::harness::drive(core.clone()));

@@ -113,6 +113,11 @@ pub(crate) struct Rig {
 /// `CHECK <input>` a check with that input. The maker reads the harbour log
 /// and reports; a check answers. `PARK` starts a maker that waits on a wake.
 pub(crate) fn rig() -> Rig {
+    rig_reporting(REPORT.into(), vec![])
+}
+
+/// [`rig`], its maker reporting `report`, its scrubber knowing `values`.
+pub(crate) fn rig_reporting(report: String, values: Vec<(String, String)>) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -135,7 +140,7 @@ pub(crate) fn rig() -> Rig {
         }
         if first.starts_with("[Task ") {
             if answers_a_call(req) {
-                return Scripted::text(REPORT);
+                return Scripted::text(&report);
             }
             return Scripted::tools(
                 "Reading the log.",
@@ -171,7 +176,11 @@ pub(crate) fn rig() -> Rig {
         script: Box::new(script),
         requests: Mutex::default(),
     });
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
+    if !values.is_empty() {
+        parts.scrubber = Arc::new(crate::scrub::Scrubber::with_values(values));
+    }
+    let core = Core::build(parts).unwrap();
     core.runner.place_rule.bind_one(crate::places::BoundPlace {
         target: TARGET.into(),
         name: "DM".into(),
@@ -465,9 +474,11 @@ async fn the_basis_is_recorded_and_shown() {
     assert_eq!(report.check.as_deref(), Some(line.as_str()));
     assert_eq!(report.post_body()["check"], line.as_str());
     assert!(
-        report.node_text().contains(&format!("]\n{line}")),
+        report
+            .node_text(&crate::scrub::Cuts::none())
+            .contains(&format!("]\n{line}")),
         "{}",
-        report.node_text()
+        report.node_text(&crate::scrub::Cuts::none())
     );
     // A task that is no check carries none.
     let made = crate::task::load_report(&r.core.store, &r.core.kernel, &m.id)
@@ -728,4 +739,63 @@ fn the_overlap_flag_reads_a_summarys_text() {
         (found[0].node_id.as_str(), found[0].words),
         (summary.id.as_str(), 12)
     );
+}
+
+/// A check's claim is its task's report, cut to a piece's size: the cut
+/// stops at a known value's edge, so the arrangement the check keeps holds
+/// each copy of the value whole or not at all. Its value is invented.
+#[tokio::test]
+async fn a_checks_claim_holds_a_known_value_whole_or_not_at_all() {
+    const V: &str = "kqzv-0417-wjxp-9932-hmfb";
+    let r = rig_reporting(V.repeat(800), vec![(V.into(), "cut_test".into())]);
+    let sid = parent_session(&r.core);
+    let m = maker(&r, &sid).await;
+    let short = crate::task::short(&m.session_id);
+    let (status, content, meta) =
+        check(&r, &sid, json!({"brief": CHECK_BRIEF, "check_of": short})).await;
+    assert_eq!(status, ResultStatus::Ok, "{content}");
+    let c = the_check(&r, &meta);
+    let mine = nodes(&r.core, &c.session_id);
+    let claim = mine
+        .iter()
+        .find_map(|n| match &n.body {
+            Body::Arrangement { claim, .. } => claim.clone(),
+            _ => None,
+        })
+        .expect("the check's claim");
+    assert!(claim.text.contains("not shown"), "the report was cut");
+    let rest = claim.text.replace(V, "");
+    let chars: Vec<char> = V.chars().collect();
+    for w in chars.windows(4) {
+        let w: String = w.iter().collect();
+        assert!(!rest.contains(&w), "the claim holds {w:?} of the value");
+    }
+}
+
+/// A report read into the parent's next turn is cut to a node's size: the
+/// cut stops at a known value's edge, so the relayed node holds each copy
+/// whole or not at all. Its value is invented.
+#[tokio::test]
+async fn a_relayed_report_holds_a_known_value_whole_or_not_at_all() {
+    const V: &str = "kqzv-0417-wjxp-9932-hmfb";
+    let r = rig_reporting(V.repeat(800), vec![(V.into(), "cut_test".into())]);
+    let sid = parent_session(&r.core);
+    maker(&r, &sid).await;
+    turn(&r.core, &sid, "What came back?").await;
+    let relayed: Vec<String> = nodes(&r.core, &sid)
+        .into_iter()
+        .filter(|n| n.author.as_deref().is_some_and(|a| a.starts_with("task:")))
+        .filter_map(|n| crate::arrangement::text_of(&n))
+        .collect();
+    assert_eq!(relayed.len(), 1, "the report, relayed once");
+    assert!(relayed[0].contains("not shown"), "the report was cut");
+    let rest = relayed[0].replace(V, "");
+    let chars: Vec<char> = V.chars().collect();
+    for w in chars.windows(4) {
+        let w: String = w.iter().collect();
+        assert!(
+            !rest.contains(&w),
+            "the relayed report holds {w:?} of the value"
+        );
+    }
 }

@@ -79,7 +79,7 @@ fn line(l: HistoryLine) -> HistoryReadLine {
         place,
         at_ms,
         when: page::when(at_ms),
-        who: page::who(person.as_deref()),
+        who: page::who(person.as_deref(), &crate::scrub::Cuts::none()),
         words: his_words,
         did,
         reply_begins,

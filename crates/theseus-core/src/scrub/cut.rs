@@ -186,6 +186,17 @@ impl Cuts {
     }
 }
 
+/// A tool's plan cuts its summary with the core's cut (`ToolCtx::cut`).
+impl theseus_tools::Cut for Cuts {
+    fn head<'t>(&self, text: &'t str, max: usize) -> (&'t str, bool) {
+        Cuts::head(self, text, max)
+    }
+
+    fn first_line<'t>(&self, text: &'t str, max: usize, keep: usize) -> (&'t str, bool) {
+        Cuts::first_line(self, text, max, keep)
+    }
+}
+
 /// Whether a cut at `at` falls at whitespace or an end: a value with no
 /// whitespace in it never spans it.
 fn at_edge(text: &str, at: usize) -> bool {

@@ -302,7 +302,7 @@ fn claimed(
         &text,
         arr::PIECE_CHARS,
         |_| format!("the whole report stays in task {short}'s session"),
-        &crate::scrub::Cuts::none(),
+        &tc.scrubber.cuts(),
     );
     let claim = Claim {
         task: e.session_id.clone(),

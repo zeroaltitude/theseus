@@ -144,6 +144,7 @@ impl TurnRunner {
         // A held turn's admission rides the frame that takes them, when there
         // are any (theseus-2uby).
         let turn = &*t;
+        let cuts = tc.scrubber.cuts();
         let taken = tc.kernel.frame(&[tc.execution_id], |k| {
             let e = k.execution(tc.execution_id)?;
             if e.is_some_and(|e| !(e.reports.is_empty() && e.report_wakes.is_empty())) {
@@ -156,7 +157,7 @@ impl TurnRunner {
                         continue;
                     };
                     // A report is delivered whole where its work reports.
-                    let text = r.node_text();
+                    let text = r.node_text(&cuts);
                     let n = Node::relayed(
                         tc.session_id,
                         Some(tc.turn_id),

@@ -68,7 +68,11 @@ fn masked_whole(out: &str, case: &Case) {
         assert!(!out.contains(v), "text={:?}, out={out:?}", case.text);
     }
     for r in &case.rest {
-        assert!(!out.contains(r.as_str()), "text={:?}, out={out:?}", case.text);
+        assert!(
+            !out.contains(r.as_str()),
+            "text={:?}, out={out:?}",
+            case.text
+        );
     }
 }
 
@@ -78,7 +82,11 @@ fn a_reading_after_a_taken_value_is_masked() {
         let (out, counts) = Substitution::new(case.values.clone()).apply(&case.text);
         masked_whole(&out, &case);
         for (_, name) in &case.values {
-            assert!(counts.contains_key(*name), "text={:?}, {counts:?}", case.text);
+            assert!(
+                counts.contains_key(*name),
+                "text={:?}, {counts:?}",
+                case.text
+            );
         }
     }
 }

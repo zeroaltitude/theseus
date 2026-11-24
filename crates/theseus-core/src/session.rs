@@ -464,7 +464,12 @@ impl SessionRecord {
 /// cut where `cuts` says (`Cuts::first_line`), so it never ends inside a
 /// known value: it stops before one, and is empty when one starts it.
 pub fn title_from(text: &str, cuts: &Cuts) -> String {
-    match cuts.first_line(text, 60, 60) {
+    title_cut(text, cuts)
+}
+
+/// [`title_from`], cut by a tool's plan's cut (`ToolCtx::cut`).
+pub fn title_cut(text: &str, cut: &dyn theseus_tools::Cut) -> String {
+    match cut.first_line(text, 60, 60) {
         (head, true) if !head.is_empty() => format!("{head}…"),
         (head, _) => head.to_string(),
     }

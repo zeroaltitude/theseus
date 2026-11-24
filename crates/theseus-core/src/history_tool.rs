@@ -521,11 +521,17 @@ pub(crate) async fn answer(
             // An import search's page shows imported messages, which no exchange holds: its own sources.
             let (text, sources) = match imported {
                 Some(f) => (
-                    imports::render(&p, a, span.as_ref(), f.why.as_deref()),
+                    imports::render(&p, a, span.as_ref(), f.why.as_deref(), &core.tools.scrubber.cuts()),
                     f.nodes,
                 ),
                 None => (
-                    page::render(&p, (here, span.as_ref()), looks, resume.as_ref()),
+                    page::render(
+                        &p,
+                        (here, span.as_ref()),
+                        looks,
+                        resume.as_ref(),
+                        &core.tools.scrubber.cuts(),
+                    ),
                     page_sources(core, &p)?,
                 ),
             };

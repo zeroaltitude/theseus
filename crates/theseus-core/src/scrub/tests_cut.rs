@@ -231,3 +231,44 @@ fn a_capped_four_mib_result_is_measured() {
         );
     }
 }
+
+/// A cut asked for inside a character, or past the text's end, falls on a
+/// character boundary outside every value.
+#[test]
+fn a_cut_inside_a_character_or_past_the_end_falls_outside_a_value() {
+    let cuts = knowing(&[V]).cuts();
+    let text = format!("\u{e9}{V}\u{3bb}");
+    let end = 2 + V.len();
+    assert_eq!((cuts.before(&text, 1), cuts.after(&text, 1)), (0, 2));
+    assert_eq!((cuts.before(&text, 5), cuts.after(&text, 5)), (2, end));
+    assert_eq!(
+        (cuts.before(&text, end + 1), cuts.after(&text, end + 1)),
+        (end, text.len())
+    );
+    let past = text.len() + 10;
+    assert_eq!(
+        (cuts.before(&text, past), cuts.after(&text, past)),
+        (text.len(), text.len())
+    );
+    let (head, cut) = cuts.head(&text, 4);
+    assert_eq!((head, cut), ("\u{e9}", true));
+}
+
+/// Two values read together (one taken first, then the other read through
+/// what is left; two that overlap): a cut stops at the edge of what both
+/// take.
+#[test]
+fn a_cut_stops_at_the_edge_of_values_read_together() {
+    let cuts = knowing(&[r"prefixxx\\", "abcdefgh"]).cuts();
+    let text = r"prefixxx\\\\u0061bcdefgh";
+    assert_eq!(
+        cuts.before(text, 15),
+        0,
+        "inside the second value's reading"
+    );
+    assert_eq!(cuts.after(text, 15), text.len());
+    assert_eq!(cuts.head(text, 14), ("", true));
+    let cuts = knowing(&["abcdefgh12", "12345678ij"]).cuts();
+    let text = "abcdefgh12345678ij and more";
+    assert_eq!((cuts.before(text, 12), cuts.after(text, 12)), (0, 18));
+}

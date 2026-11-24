@@ -583,14 +583,15 @@ fn relay(
     turn: &TurnRef,
     (mut r, per): (Report, usize),
 ) -> anyhow::Result<(Vec<NewRecord>, Delivered)> {
-    let (text, cut, outputs) = fit(core, session, &r, per);
+    let cuts = core.tools.scrubber.cuts();
+    let (text, cut, outputs) = fit(core, session, &r, per, &cuts);
     r.text = text;
     let node = Node::relayed(
         session,
         Some(&turn.turn_id),
         Origin::Harness,
         &format!("task:{}", r.short),
-        &r.node_text(),
+        &r.node_text(&cuts),
     );
     let mut records = vec![node.record()?];
     if let Some(last) = &r.node {
@@ -730,7 +731,11 @@ fn deliver(
             .find(|d| d.report.execution_id == e.id)
         {
             row.findings = d.report.text.as_deref().map(findings_in);
-            row.chars = d.report.node_text().chars().count();
+            row.chars = d
+                .report
+                .node_text(&core.tools.scrubber.cuts())
+                .chars()
+                .count();
             (row.cut, row.outputs, row.delivered) = (d.cut, d.outputs.clone(), true);
         } else if row.state == RUNNING {
             open.push((rows.len(), e));
@@ -876,6 +881,7 @@ pub(crate) fn fit(
     session: &str,
     r: &Report,
     per: usize,
+    cuts: &crate::scrub::Cuts,
 ) -> (Option<String>, bool, Option<String>) {
     let Some(text) = &r.text else {
         return (None, false, None);
@@ -918,7 +924,7 @@ pub(crate) fn fit(
                 ),
             }
         },
-        &crate::scrub::Cuts::none(),
+        cuts,
     );
     (Some(cut), true, kept)
 }

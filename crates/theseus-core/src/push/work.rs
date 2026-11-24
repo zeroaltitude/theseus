@@ -1157,6 +1157,8 @@ mod settle;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_cut;
+#[cfg(test)]
 mod tests_ended_job;
 #[cfg(test)]
 mod tests_forecast;

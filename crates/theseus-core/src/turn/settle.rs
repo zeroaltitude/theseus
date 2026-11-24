@@ -303,7 +303,7 @@ impl TurnRunner {
             &format!("{FAULT_CLASS}: {e:#}"),
             400,
             |_| String::new(),
-            &crate::scrub::Cuts::none(),
+            &t.tc.scrubber.cuts(),
         )
         .0;
         Self::fail(

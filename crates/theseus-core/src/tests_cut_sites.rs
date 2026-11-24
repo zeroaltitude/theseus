@@ -16,9 +16,9 @@ use crate::session::SessionRecord;
 use crate::tests_places::{answers_a_call, result_of, rig_knowing, session, turn, Rig, OWNER};
 
 /// The value the core's board holds.
-const V: &str = "kqzv-0417-wjxp-9932-hmfb";
+pub(crate) const V: &str = "kqzv-0417-wjxp-9932-hmfb";
 
-fn whole_or_absent(what: &str, text: &str, value: &str) {
+pub(crate) fn whole_or_absent(what: &str, text: &str, value: &str) {
     let rest = text.replace(value, "");
     let chars: Vec<char> = value.chars().collect();
     for w in chars.windows(4) {
@@ -32,7 +32,7 @@ fn whole_or_absent(what: &str, text: &str, value: &str) {
 
 /// A core whose scrubber and board both know `value`, its model answering by
 /// `script`, its config changed by `tweak`.
-fn knowing_core(
+pub(crate) fn knowing_core(
     value: &str,
     tweak: impl FnOnce(&mut crate::config::Config),
     script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
@@ -43,7 +43,7 @@ fn knowing_core(
 }
 
 /// The text of every tool result a request carries.
-fn tool_results(req: &ProviderRequest) -> Vec<String> {
+pub(crate) fn tool_results(req: &ProviderRequest) -> Vec<String> {
     let mut out = Vec::new();
     for m in &req.messages {
         for b in m["content"].as_array().into_iter().flatten() {
@@ -152,6 +152,11 @@ async fn a_capped_tool_result_keeps_each_value_whole_or_not_at_all() {
     let sent: Vec<String> = r.requests().iter().flat_map(tool_results).collect();
     assert!(!sent.is_empty());
     for s in &sent {
+        assert!(!s.contains(V), "the request's result holds the value: {s}");
+        assert!(
+            s.contains("[redacted:cut_test]"),
+            "the request's result: {s}"
+        );
         whole_or_absent("the request's result", s, V);
     }
 }

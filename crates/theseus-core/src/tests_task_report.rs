@@ -164,8 +164,10 @@ async fn a_task_that_ended_with_nothing_to_report_says_so() {
     assert_eq!(report.text.as_deref(), Some(NO_REPORT));
     assert_eq!(report.post_body()["text"], NO_REPORT);
     assert!(
-        report.node_text().contains(NO_REPORT),
+        report
+            .node_text(&crate::scrub::Cuts::none())
+            .contains(NO_REPORT),
         "{}",
-        report.node_text()
+        report.node_text(&crate::scrub::Cuts::none())
     );
 }

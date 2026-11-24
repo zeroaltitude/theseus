@@ -376,7 +376,7 @@ impl Web {
     /// The result, cut to what the model sees, its head kept: the tail of a
     /// page is seldom what was asked for. The head never ends inside a known
     /// value.
-    fn fit(&self, text: String) -> String {
+    pub(super) fn fit(&self, text: String) -> String {
         let room = self.text_max.saturating_sub(100);
         let n = text.chars().count();
         if n <= self.text_max {

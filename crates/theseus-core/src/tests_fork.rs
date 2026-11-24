@@ -1632,7 +1632,13 @@ async fn a_forks_words_search_crowded_past_its_point_says_it_may_be_incomplete()
         "nothing past the point: {crowded:?}"
     );
     assert_eq!(crowded.end, PageEnd::SearchCut);
-    let said = render(&crowded, (&place, None), 0, None);
+    let said = render(
+        &crowded,
+        (&place, None),
+        0,
+        None,
+        &crate::scrub::Cuts::none(),
+    );
     assert!(said.contains("may be incomplete"), "{said}");
     assert!(!said.contains("exhausted"), "{said}");
     let source = lens(Default::default(), later)

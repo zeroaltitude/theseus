@@ -1048,7 +1048,7 @@ impl TurnRunner {
             .record(&fact::driver::StopNotTaken {
                 execution_id: execution_id.unwrap_or_default(),
                 by: &by,
-                why: &failure_reason(error),
+                why: &failure_reason(error, &self.tools.scrubber.cuts()),
             });
     }
 
@@ -1239,7 +1239,7 @@ impl TurnRunner {
             // reports that it failed.
             Err(e) if task_of.is_some() => (
                 TurnEnd::Fail {
-                    reason: failure_reason(e),
+                    reason: failure_reason(e, &self.tools.scrubber.cuts()),
                 },
                 false,
             ),
@@ -2152,14 +2152,14 @@ pub struct TurnError {
 }
 
 /// Why a task's turn failed, as its report says it (DD7): the class and the
-/// cause, clipped.
-fn failure_reason(e: &anyhow::Error) -> String {
+/// cause, clipped where `cuts` says.
+fn failure_reason(e: &anyhow::Error, cuts: &crate::scrub::Cuts) -> String {
     let why = match e.downcast_ref::<TurnError>() {
         Some(t) if t.class == FAULT_CLASS => format!("an internal error ({:#})", t.source),
         Some(t) => format!("{} ({:#})", t.class, t.source),
         None => format!("an internal error ({e:#})"),
     };
-    crate::toolrun::cap(&why, 400, |_| String::new(), &crate::scrub::Cuts::none()).0
+    crate::toolrun::cap(&why, 400, |_| String::new(), cuts).0
 }
 
 pub fn add_usage(into: &mut Usage, u: &Usage) {
