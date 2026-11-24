@@ -138,10 +138,7 @@ pub(super) fn field(s: &str, cuts: &Cuts) -> String {
 /// the bound name; clipped. Either is cut at a known value's edge.
 pub(super) fn place_words(name: &str, cuts: &Cuts) -> String {
     match name.strip_suffix(" on the CLI or the web UI") {
-        Some(id) => format!(
-            "the CLI or the web UI (…{})",
-            id_tail(name, id.len(), cuts)
-        ),
+        Some(id) => format!("the CLI or the web UI (…{})", id_tail(name, id.len(), cuts)),
         None => field(name, cuts),
     }
 }
@@ -150,7 +147,11 @@ pub(super) fn place_words(name: &str, cuts: &Cuts) -> String {
 /// characters), its edges settled on the whole name: it starts after any known value its start would fall
 /// inside, and ends before any that runs over its end. Empty when nothing is left between them.
 fn id_tail<'n>(name: &'n str, end: usize, cuts: &Cuts) -> &'n str {
-    let start = name[..end].char_indices().rev().nth(5).map_or(0, |(i, _)| i);
+    let start = name[..end]
+        .char_indices()
+        .rev()
+        .nth(5)
+        .map_or(0, |(i, _)| i);
     let (to, from) = cuts.around(name, end, start);
     name.get(from..to).unwrap_or("")
 }

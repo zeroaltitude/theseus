@@ -251,7 +251,11 @@ fn a_place_names_tail_stops_at_a_known_values_edge() {
         "#harbour".to_string(),
     ] {
         let none = crate::scrub::Cuts::none();
-        assert_eq!(place_words(&name, &cuts), place_words(&name, &none), "{name}");
+        assert_eq!(
+            place_words(&name, &cuts),
+            place_words(&name, &none),
+            "{name}"
+        );
     }
     assert_eq!(
         place_words(&format!("ses_0123456789abcdef{CLI}"), &cuts),
