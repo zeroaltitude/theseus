@@ -35,7 +35,17 @@ and, for a yes, `picture:shows_screen_or_document`. A no writes nothing; the ans
 
 - The labels describe the message's pictures, not each one. A picture has no record of its own.
 - The same judgments topics read, and no others: never a learned or a shadow version's.
-- The sweep mints no kind named `picture` (`judge::onto::mint`), so no category shares these roots.
+- The sweep mints no kind named `picture` (`judge::onto::mint`), so it never makes a category share these roots.
+  The owner's own `ontology.kind_add` still can: with a kind `picture` and a category such as `picture:document`,
+  a read of that category by its root (its timeline, the history tool's `thing`) would take the labels for its
+  own. The item view's topics (`item_labels::topics`) would not, in general: they ask for the exact key at the
+  exchange's start or its message's time, and a label is keyed at its turn's time. Recognition cards would not:
+  the names table admits only the six wired kinds (`names::table`), and `picture` is not one.
+- A label is keyed at its turn's time, when the turn's id was minted, not at its exchange's start. The start is a
+  clock read written in the turn's next frame, so a judgment can land before it; the turn's time is the same
+  whether the exchange can be read yet or not, for a retried frame the log kept and for a second pictured message
+  steered into the turn, so the turn holds one key of a label. It sorts just before the exchange's start, and
+  `exchange.rebuild` leaves it there.
 - Nothing that decides an act reads them; a reader asks for one by name, as for any thing's timeline.
 - Pictures sent before this was built have no labels; nothing fills them in.
 
