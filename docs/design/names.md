@@ -25,6 +25,59 @@ kind is a type of the index's extractor, so the id is the term.
 
 The read is `names::topics::timeline(store, id, n)`: one bounded read of the touch index, newest first.
 
+### History, filed once (`judge::onto::history`, `theseus ledger topics`, issue 46)
+
+Touches began with the build that added them, so a topic's timeline started there. `theseus ledger topics` files
+the exchanges from before, oldest first. It is the owner's act, in person, at his own terminal: the terminal alone
+(the web UI, a chat, MCP and an unnamed connection are refused before any history is read), then the people
+backfill's check (the owner, from a private place; the CLI refuses it inside a job), then the in-person rule (never
+an agent's process). Each of these refusals is ledgered but two: MCP's (the MCP server's own list refuses the
+method before the daemon reads it) and the CLI's own refusal inside a job (it sends no request). Run `--dry-run`
+first: it counts the exchanges it would ask and prices their worst case, and asks nothing.
+
+- **Which**: an exchange that touches no category of a kind `onto.v1` asks, that the owner opened (its person is
+  `owner`, as his mark or the rebuild proved it), that this job did not ask before, that opens with his own typed
+  message with words (not a task's, not Theseus's own, not a slash command, not an imported or an erased one), and
+  whose session the ontology's judge acts on now (`[ontology] judge` on, the pack live). A guest's message in a shared
+  place, and one whose person no record proves, are counted apart and never sent: his decision was about his own
+  history. A message he retracted and did not erase is kept: history shows what was said, and a touch says what the
+  exchange was about.
+- **What it asks**: the live point's `onto` question, once, about the opening message alone (no message before it,
+  no reply, no attachment), through the judge's one client and its scrubber.
+- **What it writes: touches only.** The ask goes in shadow, so the sink writes its row and files nothing: no
+  membership, no category minted, no card, no `still_*` answer acted on. The job writes the touches with
+  `names::topics::touches` and no plan, so a `new` answer names nothing. Each touch takes its exchange's start.
+  **What an old touch means**: the old exchange fits that topic as judged today, with today's topics; it is placed
+  at the exchange's own date. It is no evidence that the session held that topic then: the candidates are today's
+  categories, the session's memberships of today first.
+- **The message's words** reach the judge and nothing else: the row's context leaves out the names mined from the
+  message and the candidate projects' titles (the owner's words, which may be the message's; their ids stay in
+  `kinds`), no state blob is kept, and the command prints counts and dollars. Nor does a word the answer brings
+  back reach a row: the judgment is asked unrecorded and recorded only once its error's message, a malformed
+  answer's reason and model, a model that is not the pinned one and the rate headers are withheld. Its class and
+  its accounting stay (the outcome's class, a status, usage, cost and reservation), with the options' ids it
+  chose; no other field is the answer's own words.
+- **Resume**: each judgment's context says `purpose: history`. A rerun asks nothing of an exchange whose answered
+  judgment says so, and writes its touches again from that row where they are missing.
+- **Once**: one run at a time; a second, a dry run included, is refused while one goes and asks nothing. Each
+  answer's row is written by the sink before the next exchange is asked and before the run returns, so the next
+  run's plan reads every answer, one that touched nothing included. A run that returns before its answer's row is
+  written (its wait ran out, its touches failed, the daemon is stopping) leaves that answer known to the judge, in
+  memory, until the row is written, queued or in a frame the sink has taken: a new run, or a dry run, waits a little
+  for it and is otherwise refused ("an earlier answer ... is still being written"), asking nothing. A stop is no
+  proof that the row was written: the run says it was stopping. What cannot be promised: a daemon crash, or an
+  ordinary stop while a call is out or its answer is not yet written, may pay for that one exchange again.
+- **Money**: the run's cap (`--cap-usd`, default $10; a number of dollars of at least $0.000001, so NaN, an infinity,
+  zero, a negative number and any sum under $0.000001 are refused by the CLI before it builds the request and by the
+  daemon again; the output's first line says the cap in use, to the cent from a cent up, and under a cent with its
+  decimals) is checked before each call against the
+  call's worst case, and the run stops before the exchange that would pass it. Each call reserves on the judge's day
+  budget, which holds on the daemon's day ceiling, and settles at its price. Its calls are shadow's, and shadow's
+  lines are `judge/spend.rs`'s, unchanged: its line is 70% of `[judge] shadow_limit_usd_per_day`, and a call past it
+  is still made, with a `judge.over_line` row and a word to the owner at the line and at each multiple of it; the run
+  stops at ten times the line (seven times the day's limit), or sooner at the daemon's day ceiling or the run's cap.
+  Paced by the machine's quiet; the daemon's stop ends it between two exchanges, and a rerun goes on.
+
 ## Numbered items (`names::items`, the index's `entity::item`)
 
 The index's extractor gains an `item` kind: `issue 33` and `issue #33` are `item:issue-33`, `PR 12` and

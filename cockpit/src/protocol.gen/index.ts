@@ -174,6 +174,8 @@ export type * from './ExchangeRebuildParams';
 export type * from './ExchangeRebuildResult';
 export type * from './ExchangeReportParams';
 export type * from './ExchangeReportResult';
+export type * from './ExchangeTopicsParams';
+export type * from './ExchangeTopicsResult';
 export type * from './ExecutionCancelParams';
 export type * from './ExecutionCancelResult';
 export type * from './ExecutionDismissParams';

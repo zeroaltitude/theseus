@@ -2,21 +2,25 @@
 //! the owner's mark of a submitted message, made where the live proof is, and
 //! `exchange.report` and `exchange.rebuild`, which are read and asked from the
 //! terminal or the web UI alone; and `exchange.ladder` and `exchange.gists`
-//! (step 4), the owner's in person.
+//! (step 4), the owner's in person; and `exchange.topics` (issue 46), the
+//! owner's act in person at his own terminal (`topics_judged`).
 
 use std::sync::Arc;
 
 use serde_json::Value;
 use theseus_protocol::exchange::{
     ExchangeGistsParams, ExchangeLadderParams, ExchangeLadderResult, ExchangeRebuildParams,
-    ExchangeReportParams,
+    ExchangeReportParams, ExchangeTopicsParams,
 };
 use theseus_protocol::{error_code, method, TurnSubmitParams};
 
 use super::server::{parse, Conn, RpcFailure};
-use super::Core;
-use crate::approval::Surface;
+use super::{Act, Core};
+use crate::approval::{Answerer, Refusal, Surface};
 use crate::exchange::{ledger, rebuild, OwnerMark, Peer};
+
+/// What `exchange.topics` is, in its refusals.
+const TOPICS_WHAT: &str = "filing your history under topics";
 
 /// The methods `rpc_exchanges` answers.
 pub(super) const OWN: &[&str] = &[
@@ -24,6 +28,7 @@ pub(super) const OWN: &[&str] = &[
     method::EXCHANGE_REBUILD,
     method::EXCHANGE_LADDER,
     method::EXCHANGE_GISTS,
+    method::EXCHANGE_TOPICS,
 ];
 
 impl Core {
@@ -83,8 +88,10 @@ impl Core {
         // Kept on 2026-11-22 for the two that act (`exchange.rebuild` writes
         // records, `exchange.ladder` spends on model calls), and the reading
         // sheet, the owner's alone: the surface rule is their input. The
-        // report is a read, and every surface reads it.
-        if name != method::EXCHANGE_REPORT && !conn.surface.reads_private() {
+        // report is a read, and every surface reads it. `exchange.topics`
+        // asks its own, narrower one, and ledgers it.
+        let own_rule = [method::EXCHANGE_REPORT, method::EXCHANGE_TOPICS];
+        if !own_rule.contains(&name) && !conn.surface.reads_private() {
             return Err(RpcFailure::new(
                 error_code::REFUSED,
                 "the exchange ledger is read from your own terminal or the web UI",
@@ -157,6 +164,17 @@ impl Core {
                 })
             }
             method::EXCHANGE_GISTS => return self.exchange_gists(params, conn).await,
+            method::EXCHANGE_TOPICS => {
+                let p: ExchangeTopicsParams = parse(params)?;
+                self.topics_judged(conn)?;
+                let r = self.topics_history(&p).await.map_err(|e| {
+                    match e.is::<crate::judge::onto::history::Busy>() {
+                        true => RpcFailure::new(error_code::LIMIT, e.to_string()),
+                        false => RpcFailure::invalid(e),
+                    }
+                })?;
+                serde_json::to_value(r)
+            }
             other => {
                 return Err(RpcFailure::new(
                     error_code::METHOD_NOT_FOUND,
@@ -201,5 +219,58 @@ impl Core {
         })
         .await?;
         serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()))
+    }
+
+    /// `exchange.topics` is the owner's act in person, at his own terminal:
+    /// the terminal alone (his decision: never the web UI, a chat or MCP),
+    /// asked before any history is read; then the people backfill's own
+    /// check (`import_judged`: the owner, from a private place); then the
+    /// narrower rule the ladder's spend takes (`places::owner_in_person_of`:
+    /// never an agent's process at the terminal). Each refusal is ledgered
+    /// and narrated, as any refused act is.
+    fn topics_judged(&self, conn: Conn<'_>) -> Result<(), RpcFailure> {
+        let who = conn.answerer(None, None);
+        if conn.surface != Surface::Cli {
+            let from = crate::approval::display_name(conn.surface.as_str());
+            let why =
+                format!("it is run at your own terminal alone, and this came from the {from}");
+            return Err(self.topics_refused(&who, why));
+        }
+        self.import_judged(conn, method::EXCHANGE_TOPICS, TOPICS_WHAT)?;
+        let Err(why) = crate::places::owner_in_person_of(
+            &who,
+            &self.runner.place_rule,
+            &self.cfg,
+            "filing your history under topics sends your old messages to the judge and spends \
+             money",
+            "your history is filed under topics",
+        ) else {
+            return Ok(());
+        };
+        Err(self.topics_refused(&who, why))
+    }
+
+    /// `exchange.topics` refused for `why`: ledgered and narrated, and said.
+    fn topics_refused(&self, who: &Answerer, why: String) -> RpcFailure {
+        let r = Refusal {
+            who: who.who(),
+            via: who.via(),
+            why,
+        };
+        let act = Act::Import {
+            method: method::EXCHANGE_TOPICS,
+            what: TOPICS_WHAT,
+        };
+        if let Err(e) = self.refused(act, who, &r) {
+            return RpcFailure::invalid(e);
+        }
+        RpcFailure {
+            code: error_code::REFUSED,
+            message: format!(
+                "{TOPICS_WHAT} from {} does not count: {}. Nothing was asked.",
+                r.who, r.why
+            ),
+            data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),
+        }
     }
 }

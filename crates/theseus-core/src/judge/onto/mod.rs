@@ -43,6 +43,7 @@ use crate::rpc::Core;
 pub(crate) mod class;
 pub mod decide;
 pub mod digest;
+pub mod history;
 pub mod judged;
 pub mod mark;
 pub mod mint;
@@ -52,6 +53,9 @@ pub(crate) mod stage;
 pub mod sweep;
 mod tidy;
 pub(crate) mod words;
+
+#[cfg(test)]
+mod tests_history;
 
 pub use name::NAMES;
 

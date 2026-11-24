@@ -633,6 +633,8 @@ places, the rules above are.
    is called in at once; and when the judge's answer for this message arrives in time, it calls its topic in as
    well (otherwise the topic is in play from the next turn). History is filed once, by the judge, exchange by
    exchange, under his consent to send history to it.
+   **As built** (issue 46; `docs/design/names.md`): `theseus ledger topics`, his act in person, under a cap he
+   names, after a dry run that prices it. It writes touches only: no topic is made and no session is filed.
 2. **Bring**, for each thing recognised and not already in view: its card (≤12 lines); its current facts; its
    open tasks; the owner's guidance for it; from its timeline the newest exchange in *spoken* form and the two
    before as lines; **and his own words about it through time**: the thing's timeline, his lines verbatim,

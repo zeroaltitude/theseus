@@ -265,9 +265,26 @@ pub struct JudgeService {
     /// The judgments settled and not yet written (`sink::Queue`): the
     /// sink's writer takes its frames from it, and a clean stop the rest.
     queue: Arc<sink::Queue>,
+    /// Held by the one run of the history filed under topics (issue 46;
+    /// `onto::history`): a second is refused while it goes.
+    history: tokio::sync::Mutex<()>,
+    /// The history's answers received and not yet written, by turn, each
+    /// with its judgment's id (issue 46; `onto::history`): kept across a run
+    /// that returned before its row was written, so a new run waits for
+    /// them, or is refused, and never asks the same exchange again. An
+    /// entry goes once its id has left `pending`: its row is written.
+    history_unwritten: Mutex<std::collections::HashMap<String, String>>,
     /// A test's shorter bounds for the sink's waits.
     #[cfg(test)]
     pub(crate) sink_timing: OnceLock<crate::memory_pass::Timing>,
+    /// A test's shorter bounds for the history's waits: for its answer's
+    /// row, and a new run's for an earlier run's rows.
+    #[cfg(test)]
+    pub(crate) history_bounds: OnceLock<(Duration, Duration)>,
+    /// A test's client that cannot be built (`built` fails as a failed
+    /// build fails).
+    #[cfg(test)]
+    pub(crate) unbuilt: std::sync::atomic::AtomicBool,
 }
 
 impl JudgeService {
@@ -338,8 +355,14 @@ impl JudgeService {
             telemetry: OnceLock::new(),
             between: OnceLock::new(),
             queue: Arc::default(),
+            history: tokio::sync::Mutex::new(()),
+            history_unwritten: Mutex::default(),
             #[cfg(test)]
             sink_timing: OnceLock::new(),
+            #[cfg(test)]
+            history_bounds: OnceLock::new(),
+            #[cfg(test)]
+            unbuilt: Default::default(),
         })
     }
 
@@ -492,6 +515,10 @@ impl JudgeService {
     }
 
     fn built(&self) -> anyhow::Result<Arc<Built>> {
+        #[cfg(test)]
+        if self.unbuilt.load(std::sync::atomic::Ordering::SeqCst) {
+            anyhow::bail!("a test's client that is not built");
+        }
         if let Some(b) = self.built.get() {
             return Ok(b.clone());
         }

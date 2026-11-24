@@ -84,6 +84,29 @@ pub enum LedgerCmd {
         #[arg(long)]
         seed: Option<u64>,
     },
+    /// File your exchanges from before topics were filed per exchange: each one's opening message
+    /// is asked of the ontology's judge once, and touches its topics. No topic is made and no
+    /// session is filed. Yours to run, in person, at your own terminal. Run `--dry-run` first.
+    ///
+    /// A touch this writes means the old exchange fits that topic as judged today, with today's
+    /// topics; it is placed at the exchange's own date.
+    Topics {
+        /// Count the exchanges it would ask and their worst case, and ask nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// The most this run may spend, in dollars (default 10). It stops before the exchange
+        /// that would pass it; a rerun goes on from there.
+        #[arg(long, value_parser = cap_usd, allow_negative_numbers = true)]
+        cap_usd: Option<f64>,
+    },
+}
+
+/// `--cap-usd` of `theseus ledger topics`, read before any request is built:
+/// a number, and one [`theseus_protocol::exchange::topics_cap`] holds.
+fn cap_usd(s: &str) -> Result<f64, String> {
+    let usd: f64 =
+        (s.trim().parse()).map_err(|_| format!("--cap-usd is a number of dollars, not {s:?}"))?;
+    theseus_protocol::exchange::topics_cap(usd)
 }
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
@@ -129,6 +152,9 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
                 seed,
             };
             return crate::exchanges_cmd::gists(conn, json, p).await;
+        }
+        LedgerCmd::Topics { dry_run, cap_usd } => {
+            return crate::exchanges_cmd::topics(conn, json, dry_run, cap_usd).await
         }
         LedgerCmd::Head => (
             LedgerVerifyParams {
@@ -341,5 +367,27 @@ mod tests {
         };
         assert!(text(lines(&r)).contains("no chain yet; 12 rows"));
         assert!(text(head_lines(&r)).contains("no chain yet"));
+    }
+
+    /// `theseus ledger topics --help` says what an old touch means: a
+    /// judgment made today, placed at the exchange's own date.
+    #[test]
+    fn the_topics_help_says_what_an_old_touch_means() {
+        use clap::{CommandFactory, Parser};
+        #[derive(Parser)]
+        struct T {
+            #[command(subcommand)]
+            cmd: LedgerCmd,
+        }
+        let mut t = T::command();
+        let help = t.find_subcommand_mut("topics").unwrap().render_long_help();
+        let flat = help
+            .to_string()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let said = "A touch this writes means the old exchange fits that topic as judged today, \
+                    with today's topics; it is placed at the exchange's own date.";
+        assert!(flat.contains(said), "{flat}");
     }
 }

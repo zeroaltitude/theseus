@@ -302,11 +302,13 @@ pub fn job_session() -> Option<String> {
 /// silence security's notices), and the import, its erase and its topics
 /// (theseus-0lrr.6, theseus-anh3: an import can plant memories, an erase take
 /// the owner's away, and the topics write tens of thousands of memberships),
+/// the history filed under topics (issue 46: it sends his old messages to Jev
+/// and spends),
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
 /// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
-pub const OPERATORS: [(&str, &str); 105] = [
+pub const OPERATORS: [(&str, &str); 106] = [
     (method::CONFIG_HISTORY, "theseus config history"),
     (method::CONFIG_WHOLE, "theseus config show"),
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
@@ -375,6 +377,7 @@ pub const OPERATORS: [(&str, &str); 105] = [
     (method::IMPORT_ERASE, "theseus import erase"),
     (method::IMPORT_TOPICS, "theseus import topics"),
     (method::IMPORT_PEOPLE, "theseus import people"),
+    (method::EXCHANGE_TOPICS, "theseus ledger topics"),
     (method::IMPORT_SYNC_PLAN, "theseus import sync"),
     (method::IMPORT_SYNC_RECORD, "theseus import sync"),
     (method::IMPORT_SYNC_REQUEST, "theseus import sync"),

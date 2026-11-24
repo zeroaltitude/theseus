@@ -213,6 +213,9 @@ pub mod method {
         /// A reading sheet of `did` lines and first-level fold nodes beside what their writer read (issue 44,
         /// step 4; `exchange::ExchangeGistsParams`), drawn by a seed. A read for the owner in person.
         EXCHANGE_GISTS = "exchange.gists",
+        /// The exchanges from before topics were filed per exchange, each opening message asked of the
+        /// ontology's judge once and its topics touched (issue 46), with a dry run that counts and prices, and a cap.
+        EXCHANGE_TOPICS = "exchange.topics",
         /// One turn, whole (theseus-x9swu; `inspect::TurnInspectParams`): the cockpit's inspector at
         /// `/session/<id>/turn/<turn>`. A read; thinking and texts to a private place only.
         TURN_INSPECT = "turn.inspect",

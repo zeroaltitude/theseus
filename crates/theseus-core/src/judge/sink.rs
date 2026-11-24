@@ -89,6 +89,11 @@ impl Queue {
         self.lock().is_empty()
     }
 
+    /// The stop has flushed: nothing queued now is written by this process.
+    pub(crate) fn is_closed(&self) -> bool {
+        self.closed.load(SeqCst)
+    }
+
     /// The first judgment landed and not yet written that `f` picks.
     pub(crate) fn find(&self, f: impl Fn(&Judgment) -> bool) -> Option<Judgment> {
         self.lock().iter().find(|j| f(j)).cloned()
