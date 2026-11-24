@@ -44,8 +44,10 @@ and, for a yes, `picture:shows_screen_or_document`. A no writes nothing; the ans
 - A label is keyed at its turn's time, when the turn's id was minted, not at its exchange's start. The start is a
   clock read written in the turn's next frame, so a judgment can land before it; the turn's time is the same
   whether the exchange can be read yet or not, for a retried frame the log kept and for a second pictured message
-  steered into the turn, so the turn holds one key of a label. It sorts just before the exchange's start, and
-  `exchange.rebuild` leaves it there.
+  steered into the turn, so the turn holds one key of a label. It is at or before the exchange's start (by little
+  when the turn opens at once; by as long as the turn's catch-up ran when it had work to resume first), and
+  `exchange.rebuild` leaves it there. A reader that pages or spans a label's timeline goes by the label's own key,
+  not by the exchange's start.
 - Nothing that decides an act reads them; a reader asks for one by name, as for any thing's timeline.
 - Pictures sent before this was built have no labels; nothing fills them in.
 

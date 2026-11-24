@@ -22,7 +22,10 @@
 //! frame the log kept while its append failed and the retry, or between two
 //! pictured messages of one turn judged on either side of the exchange's
 //! write, and one turn would hold two keys of one label. The turn's time is
-//! the same on every path, and sorts just before the exchange's start.
+//! the same on every path. It is at or before the exchange's start: by
+//! little when the turn opens at once, by as long as the turn's catch-up
+//! ran when it had work to resume first. A reader that pages or spans a
+//! label's timeline goes by the label's own key, not by the exchange's start.
 
 use std::collections::BTreeSet;
 
