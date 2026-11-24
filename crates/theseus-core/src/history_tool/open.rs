@@ -118,8 +118,14 @@ fn nodes(lens: &Lens<'_>, ex: &Exchange) -> anyhow::Result<Vec<Node>> {
 
 /// `text` behind the margin, line by line.
 pub(super) fn margined(text: &str) -> String {
-    text.trim()
-        .lines()
+    margin1(text.trim())
+}
+
+/// The form Margin1: each line of `text` (as `str::lines` splits it) behind the margin, its control
+/// characters spaces, nothing trimmed. [`margined`] is it, of the text trimmed.
+/// Frozen once a stored reference names it: a change adds a new numbered form, never edits this one.
+pub(super) fn margin1(text: &str) -> String {
+    text.lines()
         .map(|l| {
             let l: String = l
                 .chars()

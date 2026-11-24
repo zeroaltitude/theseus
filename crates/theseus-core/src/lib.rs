@@ -300,6 +300,8 @@ mod tests_children_complete;
 #[cfg(test)]
 mod tests_cite;
 #[cfg(test)]
+mod tests_classify_before;
+#[cfg(test)]
 mod tests_coding_hint;
 #[cfg(test)]
 mod tests_commitments;
@@ -491,8 +493,6 @@ mod tests_onto_class;
 mod tests_onto_digest;
 #[cfg(test)]
 mod tests_onto_judged;
-#[cfg(test)]
-mod tests_onto_mark;
 #[cfg(test)]
 mod tests_onto_mint;
 #[cfg(test)]
@@ -785,6 +785,8 @@ mod tests_view_record;
 mod tests_view_resume;
 #[cfg(test)]
 mod tests_view_sources;
+#[cfg(test)]
+mod tests_view_unread;
 #[cfg(test)]
 mod tests_wait_cost;
 #[cfg(test)]

@@ -137,6 +137,22 @@ fn a_class_that_is_no_kind_name_or_none_at_all_mints_nothing_and_is_counted() {
     assert!(swept.writes.is_empty());
 }
 
+/// A kind named `picture` would share the picture labels' roots
+/// (`names::pictures`, `picture:<subject>`): the sweep refuses it and counts it.
+#[test]
+fn a_class_named_for_the_picture_labels_mints_no_kind() {
+    let (core, _dir) = core();
+    let now = now_unix_ms();
+    for s in ["s1", "s2", "s3"] {
+        said_other(&core, s, &["Holiday Snaps"], 0.9);
+    }
+    let hints = classed(&[("holidaysnaps", "picture")]);
+    let swept = core.onto_sweep_with(now, &hints).unwrap();
+    assert_eq!((swept.kinds, swept.refused), (0, 1));
+    assert!(swept.writes.is_empty());
+    assert!(snapshot(&core).kind("picture").is_none());
+}
+
 fn said(sessions: &[&str], name: &str) -> Vec<crate::judge::onto::mint::Said> {
     sessions
         .iter()

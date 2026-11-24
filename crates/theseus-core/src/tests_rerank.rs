@@ -64,7 +64,7 @@ pub(crate) fn pack_mode(cfg: &mut Config, pack: &str, mode: PackMode) {
 }
 
 /// Memory live, admitting one item; the judge on against `jev` when
-/// given, with every other wired pack off (`loop.v1`, and the gate's,
+/// given, with every other wired pack off (`loop.v2`, and the gate's,
 /// inbound's, compile's and categorize's points), so every judgment is the
 /// rerank's.
 pub(crate) fn rig(jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig {
@@ -244,7 +244,7 @@ pub(crate) async fn until_reranked(store: &Store, n: usize) -> Vec<LedgerRow> {
 
 /// Every `judge` mark in a trace.
 pub(crate) fn marks(s: &Span, out: &mut Vec<Value>) {
-    // The rerank's marks: 23b marks loop.v1's dispatch at each turn's end.
+    // The rerank's marks: 23b marks loop.v2's dispatch at each turn's end.
     if s.name == "judge" && s.kind == "mark" && s.attrs["pack"] == "rerank.v1" {
         out.push(s.attrs.clone());
     }
@@ -426,30 +426,30 @@ async fn the_days_limit_skips_a_rerank() {
 }
 
 /// `[judge.packs."rerank.v1"] mode = "off"`: a recall calls nothing and
-/// marks nothing, while `loop.v1` still judges.
+/// marks nothing, while `loop.v2` still judges.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mode_off_calls_nothing() {
     let jev = FakeJev::start().unwrap();
     let (r, here, _) = heron_rig(&jev, |c| {
         pack_mode(c, "rerank.v1", PackMode::Off);
-        c.judge.packs.remove("loop.v1");
+        c.judge.packs.remove("loop.v2");
     });
     let c = &r.core;
     let res = turn(c, &here, "Where does the grey heron nest?").await;
     assert_eq!(recalls(c, &here).len(), 1, "the recall ran");
-    // loop.v1's judgment lands after the turn: the rerank would have by then.
+    // loop.v2's judgment lands after the turn: the rerank would have by then.
     let t0 = Instant::now();
     while c.store.scope_after("judge:loop", 0).unwrap().is_empty() {
         assert!(
             t0.elapsed() < Duration::from_secs(20),
-            "loop.v1 never judged"
+            "loop.v2 never judged"
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert!(reranks(&c.store).is_empty());
     for s in jev.seen() {
         let qs = s.body["questions"].as_object().unwrap();
-        assert!(qs.keys().all(|k| k.starts_with("loop.v1/")), "{qs:?}");
+        assert!(qs.keys().all(|k| k.starts_with("loop.v2/")), "{qs:?}");
     }
     let mut found = Vec::new();
     marks(res.trace.as_ref().unwrap(), &mut found);

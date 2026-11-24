@@ -388,7 +388,7 @@ function TurnFellBack({ t }: { t: TurnRow }) {
 function TurnNudged({ t }: { t: TurnRow }) {
   if (!t.nudged) return null
   return (
-    <div className="ml-[76px] px-3 py-1 text-[12px] text-ink-faint" title={`loop.v1 judgment ${t.nudged.judgment}`}>
+    <div className="ml-[76px] px-3 py-1 text-[12px] text-ink-faint" title={`loop judgment ${t.nudged.judgment}`}>
       {nudgeLine(t.nudged)}
     </div>
   )

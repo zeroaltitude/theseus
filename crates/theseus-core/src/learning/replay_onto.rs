@@ -86,7 +86,7 @@ impl Core {
             &who,
             crate::rpc::Act::JudgeRun {
                 method: theseus_protocol::method::JUDGE_REPLAY,
-                what: "replay of onto.v1 over the import's labels",
+                what: "replay of the onto pack over the import's labels",
             },
         )?;
         let core = Arc::downgrade(self);
@@ -117,7 +117,7 @@ impl Core {
         }
         let mut named = p.clone();
         if named.candidate.is_none() && named.pack_text.is_none() {
-            named.candidate = Some("onto.v1".into());
+            named.candidate = Some(crate::judge::onto::ONTO_PACK.into());
         }
         let (pack, text) = candidate_of(&named)?;
         let id = crate::new_id("rpl");

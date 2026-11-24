@@ -46,9 +46,15 @@ pub fn key(name: &str) -> String {
 
 /// The roots the learning loop rewrites: every wired version but those the
 /// step leaves alone (the route pack and rerank.v1, live with their own
-/// rollback rules). Only a wired root is a candidate, so a retired version
-/// needs no line here.
-pub const LEFT_ALONE: [&str; 2] = ["route.v11", "rerank.v1"];
+/// rollback rules; and the undo pack, an act gate's, because a learned
+/// version stands in shadow in its root's place and a shadow undo judgment
+/// holds nothing, issue 46). Only a wired root is a candidate, so a retired
+/// version needs no line here.
+pub const LEFT_ALONE: [&str; 3] = [
+    super::inbound::ROUTE_PACK,
+    "rerank.v1",
+    crate::config::UNDO_PACK,
+];
 
 /// One learned version, read back.
 #[derive(Debug, Clone)]

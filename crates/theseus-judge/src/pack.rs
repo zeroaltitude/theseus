@@ -42,13 +42,13 @@ use crate::learn::RollbackRule;
 /// Older versions (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
-    ("loop.v1", include_str!("../packs/loop.v1.toml")),
+    ("loop.v2", include_str!("../packs/loop.v2.toml")),
     ("security.v3", include_str!("../packs/security.v3.toml")),
-    ("classify.v4", include_str!("../packs/classify.v4.toml")),
+    ("classify.v5", include_str!("../packs/classify.v5.toml")),
     ("directive.v2", include_str!("../packs/directive.v2.toml")),
     ("categorize.v1", include_str!("../packs/categorize.v1.toml")),
     ("rerank.v1", include_str!("../packs/rerank.v1.toml")),
-    ("route.v11", include_str!("../packs/route.v11.toml")),
+    ("route.v12", include_str!("../packs/route.v12.toml")),
     ("effort.v1", include_str!("../packs/effort.v1.toml")),
     ("work.v1", include_str!("../packs/work.v1.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
@@ -60,7 +60,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         "people_seen.v1",
         include_str!("../packs/people_seen.v1.toml"),
     ),
-    ("onto.v1", include_str!("../packs/onto.v1.toml")),
+    ("onto.v2", include_str!("../packs/onto.v2.toml")),
     ("same_thing.v1", include_str!("../packs/same_thing.v1.toml")),
     ("two_things.v1", include_str!("../packs/two_things.v1.toml")),
     ("same_kind.v1", include_str!("../packs/same_kind.v1.toml")),
@@ -70,7 +70,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("content.v4", include_str!("../packs/content.v4.toml")),
     ("split.v1", include_str!("../packs/split.v1.toml")),
     ("delay.v1", include_str!("../packs/delay.v1.toml")),
-    ("undo.v1", include_str!("../packs/undo.v1.toml")),
+    ("undo.v2", include_str!("../packs/undo.v2.toml")),
     ("allow_said.v1", include_str!("../packs/allow_said.v1.toml")),
 ];
 
@@ -87,11 +87,13 @@ pub const EMBEDDED: &[(&str, &str)] = &[
 pub const RETIRED: &[&str] = &[
     "classify.v2",
     "classify.v3",
+    "classify.v4",
     "route.v5",
     "route.v6",
     "route.v7",
     "route.v8",
     "route.v10",
+    "route.v11",
     "content.v1",
     "content.v2",
     "content.v3",
@@ -104,6 +106,12 @@ pub const RETIRED: &[&str] = &[
     // The memory pass's shadow judgments (M6 31a): their answers were recorded and nothing applied them (D8a).
     "memory.v1",
     "attribution.v1",
+    // The ontology pack's questions for the restricted-provider rule went with onto.v2 (issue 46).
+    "onto.v1",
+    // Four questions nothing read and three rules nothing fed went with loop.v2 (issue 46).
+    "loop.v1",
+    // Its advice for overwriting a file kept no copy; undo.v2 keeps the original (issue 46).
+    "undo.v1",
 ];
 
 /// Each retired version's rollback rules, as its file declares them (the
@@ -122,6 +130,14 @@ count = 3
     ),
     (
         "classify.v3",
+        r#"[[rollback]]
+rule = "labels_per_day"
+label = "wrong thread"
+count = 3
+"#,
+    ),
+    (
+        "classify.v4",
         r#"[[rollback]]
 rule = "labels_per_day"
 label = "wrong thread"
@@ -197,6 +213,23 @@ rule = "pins_per_day"      # the operator overriding Jev's model often is the cl
 count = 5
 "#,
     ),
+    (
+        "route.v11",
+        r#"[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 250
+min_samples = 20
+
+[[rollback]]
+rule = "pins_per_day"      # the operator overriding Jev's model often is the clearest signal it chose wrong
+count = 5
+"#,
+    ),
     ("content.v1", r#""#),
     ("content.v2", r#""#),
     ("content.v3", r#""#),
@@ -236,6 +269,39 @@ count = 2
     ("recall_cross.v1", r#""#),
     ("memory.v1", r#""#),
     ("attribution.v1", r#""#),
+    ("onto.v1", r#""#),
+    (
+        "loop.v1",
+        r#"[[rollback]]
+rule = "nudge_loop"
+
+[[rollback]]
+rule = "spend_ratio"
+ratio = 2.0
+min_tasks = 10
+
+[[rollback]]
+rule = "operator_stop_within_nudge"
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 1000
+min_samples = 20
+"#,
+    ),
+    (
+        "undo.v1",
+        r#"[[rollback]]
+rule = "labels_per_day"
+label = "held wrongly"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 300
+min_samples = 20
+"#,
+    ),
 ];
 
 /// A retired version's own rollback rules; `None` for a name this build did
@@ -308,11 +374,16 @@ pub fn retired(name: &str) -> Option<Arc<Pack>> {
             "classify.v3",
             include_str!("../packs/retired/classify.v3.toml"),
         ),
+        (
+            "classify.v4",
+            include_str!("../packs/retired/classify.v4.toml"),
+        ),
         ("route.v5", include_str!("../packs/retired/route.v5.toml")),
         ("route.v6", include_str!("../packs/retired/route.v6.toml")),
         ("route.v7", include_str!("../packs/retired/route.v7.toml")),
         ("route.v8", include_str!("../packs/retired/route.v8.toml")),
         ("route.v10", include_str!("../packs/retired/route.v10.toml")),
+        ("route.v11", include_str!("../packs/retired/route.v11.toml")),
         (
             "content.v1",
             include_str!("../packs/retired/content.v1.toml"),
@@ -347,6 +418,9 @@ pub fn retired(name: &str) -> Option<Arc<Pack>> {
             "attribution.v1",
             include_str!("../packs/retired/attribution.v1.toml"),
         ),
+        ("onto.v1", include_str!("../packs/retired/onto.v1.toml")),
+        ("loop.v1", include_str!("../packs/retired/loop.v1.toml")),
+        ("undo.v1", include_str!("../packs/retired/undo.v1.toml")),
     ];
     static PARSED: OnceLock<Vec<Arc<Pack>>> = OnceLock::new();
     let parsed = PARSED.get_or_init(|| {

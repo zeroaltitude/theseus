@@ -15,14 +15,16 @@
 //! - **A label raised before labels touched** (`item_labels::touch_root`): each flag an item's record holds
 //!   (`labels.<node>`), removed or not, gets its `label:<flag>` touch at its turn's time (`item_labels::at`;
 //!   an id with no time, at its exchange's start), when the store lacks it. It reads the records Jev's answers
-//!   left; it calls no model.
+//!   left; it calls no model. A record under the prefix read as an item's labels in neither their shape nor
+//!   their older one (`item_labels::kept`) is passed over, left as it is, and counted; nothing in it is read.
 //! - **A touch keyed off its exchange's start** (an older build keyed a
 //!   reply's things at its end) is moved, not dropped: its own record is
 //!   written again at the start's key and the old key ended in the same
 //!   frame, with no index asked, so one exchange holds one touch of a root and
 //!   no association is lost. The index only adds touches; it never ends one.
-//!   A label's place is its turn's time (`item_labels::keyed_at`), so one
-//!   there is left, and one elsewhere is moved there.
+//!   A label's place, an item's or a picture's, is its turn's time
+//!   (`item_labels::keyed_at`, `names::pictures::keyed_at`), so one there is
+//!   left, and one elsewhere is moved there.
 //!
 //! The dry run counts and writes nothing.
 
@@ -238,31 +240,42 @@ fn records(
 /// not: it is what Jev said), at its turn's time (`item_labels::at`), as a live label is written; for an id
 /// with no time, at its exchange's start, from `starts` (a planned exchange's turn, session and start, so one
 /// new in this run is touched where it begins) or else the exchange on record (`item_labels::landing`).
+/// A record under the prefix that reads as neither an item's labels nor their older shape
+/// (`item_labels::kept`) is passed over, left as it is, and counted (the second of the pair).
 fn label_touches(
     store: &Store,
     starts: &HashMap<&str, (&str, u64)>,
-) -> anyhow::Result<Vec<NewRecord>> {
+) -> anyhow::Result<(Vec<NewRecord>, u64)> {
+    use crate::item_labels::kept::{of_record, passed_over, Kept};
     let mut out = Vec::new();
     let mut seen = HashSet::new();
+    let mut passed = 0;
     let items = (store.inner()).latest_with_prefix(kinds::META, crate::item_labels::PREFIX)?;
     for r in items {
-        let item: crate::item_labels::ItemLabels = r.decode()?;
-        if item.raised.is_empty() {
+        let (node, raised) = match of_record(&r) {
+            Kept::Whole(item) | Kept::Older(item) => (item.node, item.raised),
+            Kept::Unread => {
+                passed_over(r.key.as_deref().unwrap_or_default());
+                passed += 1;
+                continue;
+            }
+        };
+        if raised.is_empty() {
             continue;
         }
-        let turn = (store.get_node(&item.node)?).and_then(|(_, n)| n.turn_id);
+        let turn = (store.get_node(&node)?).and_then(|(_, n)| n.turn_id);
         let at = match turn.as_deref().and_then(|t| starts.get(t).map(|s| (t, s))) {
             Some((t, &(sid, start))) => (
                 t.to_string(),
                 sid.to_string(),
                 crate::item_labels::at(t).unwrap_or(start),
             ),
-            None => match crate::item_labels::landing(store, &item.node) {
+            None => match crate::item_labels::landing(store, &node) {
                 Some(at) => at,
                 None => continue,
             },
         };
-        let flags = item.raised.iter().map(|l| l.flag);
+        let flags = raised.iter().map(|l| l.flag);
         for t in crate::item_labels::touches((&at.0, &at.1, at.2), flags) {
             let key = t.key.clone().unwrap_or_default();
             if seen.insert(key.clone()) && store.inner().latest_by_key(kinds::META, &key)?.is_none()
@@ -271,7 +284,7 @@ fn label_touches(
             }
         }
     }
-    Ok(out)
+    Ok((out, passed))
 }
 
 /// The touches keyed off their exchange's start, each moved: its record at
@@ -293,9 +306,14 @@ fn misplaced(store: &Store, starts: &HashMap<&str, u64>) -> anyhow::Result<Vec<[
             continue;
         };
         let at = time.parse::<u64>().ok().map(|t| u64::MAX - t);
-        // A label belongs at its turn's time, not its exchange's start.
+        // A label, an item's or a picture's, belongs at its turn's time, not
+        // its exchange's start.
         let Some(start) = (starts.get(turn).copied())
-            .map(|s| crate::item_labels::keyed_at(root, turn).unwrap_or(s))
+            .map(|s| {
+                (crate::item_labels::keyed_at(root, turn))
+                    .or_else(|| crate::names::pictures::keyed_at(root, turn))
+                    .unwrap_or(s)
+            })
             .filter(|s| Some(*s) != at)
         else {
             continue;
@@ -345,7 +363,7 @@ pub async fn run(
         out.things_skipped = Some(why.clone());
     }
     let reader = store.clone();
-    let (recs, ended) = blocking(move || {
+    let (recs, ended, passed) = blocking(move || {
         let mut recs = records(&reader, &planned, named.as_deref().ok())?;
         let starts: HashMap<&str, u64> = planned
             .iter()
@@ -359,12 +377,14 @@ pub async fn run(
                 )
             })
             .collect();
-        recs.extend(label_touches(&reader, &at)?);
-        Ok((recs, misplaced(&reader, &starts)?))
+        let (labels, passed) = label_touches(&reader, &at)?;
+        recs.extend(labels);
+        Ok((recs, misplaced(&reader, &starts)?, passed))
     })
     .await?;
     out.touches = (recs.len() as u64).saturating_sub(out.exchanges);
     out.repaired = ended.len() as u64;
+    out.labels_passed_over = passed;
     if !p.dry_run {
         let writer = store.clone();
         blocking(move || {

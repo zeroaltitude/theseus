@@ -22,6 +22,7 @@ use crate::view::{Anchor, Handle, PointOfView, Present};
 
 mod every;
 mod handles;
+mod kept;
 mod keys;
 mod labels;
 

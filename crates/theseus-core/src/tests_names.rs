@@ -746,3 +746,409 @@ async fn old_threads_neither_make_cards_nor_compete_with_current_names() {
         "the old record still reads"
     );
 }
+
+// ---------------------------------------------------- picture labels (issue 46)
+
+/// Every picture label's touch key the store holds.
+fn picture_keys(r: &Rig) -> Vec<String> {
+    use theseus_store::Store as _;
+    let prefix = format!(
+        "{}{}",
+        exchange::TOUCH_PREFIX,
+        Root::Thing(crate::names::pictures::PREFIX).key()
+    );
+    r.core
+        .store
+        .inner()
+        .latest_with_prefix(theseus_store::kinds::META, &prefix)
+        .unwrap()
+        .into_iter()
+        .filter_map(|x| x.key)
+        .collect()
+}
+
+/// The touches of picture label `root`.
+fn pictures(r: &Rig, root: &str) -> Vec<exchange::Touch> {
+    exchange::newest(&r.core.store, Root::Thing(root), 10).unwrap()
+}
+
+/// Scripts the onto pack's two picture questions.
+fn script_pictures(jev: &FakeJev, subject: (&str, f64), screen: f64) {
+    jev.script_onto("image_subject", subject.0, subject.1);
+    jev.script(
+        &format!("{}/shows_screen_or_document", crate::judge::onto::ONTO_PACK),
+        theseus_judge::fake::Scripted::Noul(screen),
+    );
+}
+
+/// Whether a request to the fake asked the onto pack's subject question.
+fn subject_asked(jev: &FakeJev) -> bool {
+    let q = format!("{}/image_subject", crate::judge::onto::ONTO_PACK);
+    let asked = |s: &theseus_judge::fake::Seen| s.body["questions"].get(&q).is_some();
+    jev.seen().iter().any(asked)
+}
+
+/// A turn in `sid` with one picture, then the sink's frame written: the
+/// turn's id.
+async fn pictured(r: &Rig, sid: &str) -> String {
+    let raw = theseus_judge::fake::gps_png(500, 500);
+    let done = crate::tests_route::turn_attached(
+        &r.core,
+        Some(sid),
+        "what is this?",
+        None,
+        vec![crate::tests_onto::picture_file("shot.png", &raw)],
+    )
+    .await;
+    let judge = r.core.runner.judge.clone();
+    tokio::task::spawn_blocking(move || judge.flush_sink())
+        .await
+        .unwrap();
+    done.turn_id
+}
+
+/// KEY: a picture of a document, at the act band, touches the exchange of the
+/// message that carried it under its subject and under the screen label, at
+/// its turn's time (`names::pictures::at`), which no later write moves.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_picture_of_a_document_touches_its_exchange_under_its_subject() {
+    let jev = FakeJev::start().unwrap();
+    script_pictures(&jev, ("document", 0.95), 0.9);
+    let r = rig(jev);
+    let sid = bound(&r.core);
+    let turn = pictured(&r, &sid).await;
+    let ex = exchange::exchange(&r.core.store, &turn)
+        .unwrap()
+        .expect("the turn's exchange");
+    for root in ["picture:document", "picture:shows_screen_or_document"] {
+        let [t] = pictures(&r, root).try_into().unwrap_or_else(|v| {
+            panic!("{root}: one touch: {v:?}");
+        });
+        assert_eq!(
+            (t.exchange.as_str(), t.session_id.as_str(), Some(t.at_ms)),
+            (turn.as_str(), ex.session_id.as_str(), crate::id_ms(&turn)),
+            "{root}"
+        );
+        assert!(t.at_ms <= ex.start_ms, "{root}: it sorts at its exchange");
+    }
+    assert_eq!(picture_keys(&r).len(), 2, "{:?}", picture_keys(&r));
+}
+
+/// A photo that shows no screen has its subject's label alone: a no to the
+/// screen question writes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_photo_that_shows_no_screen_has_its_subject_alone() {
+    let jev = FakeJev::start().unwrap();
+    script_pictures(&jev, ("photo", 0.95), 0.1);
+    let r = rig(jev);
+    let sid = bound(&r.core);
+    let turn = pictured(&r, &sid).await;
+    let touched: Vec<String> = pictures(&r, "picture:photo")
+        .into_iter()
+        .map(|t| t.exchange)
+        .collect();
+    assert_eq!(touched, vec![turn]);
+    assert!(pictures(&r, "picture:shows_screen_or_document").is_empty());
+    assert_eq!(picture_keys(&r).len(), 1, "{:?}", picture_keys(&r));
+}
+
+/// Below the act band no picture is labelled, though both were asked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_picture_below_the_act_band_is_not_labelled() {
+    let jev = FakeJev::start().unwrap();
+    script_pictures(&jev, ("document", 0.7), 0.7);
+    let r = rig(jev);
+    let sid = bound(&r.core);
+    let turn = pictured(&r, &sid).await;
+    assert!(subject_asked(&r.jev), "the picture was asked about");
+    assert!(exchange::exchange(&r.core.store, &turn).unwrap().is_some());
+    assert!(picture_keys(&r).is_empty(), "{:?}", picture_keys(&r));
+}
+
+/// A message with no picture writes no picture label, and its topic is
+/// touched as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_without_a_picture_writes_no_picture_label() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    script_pictures(&jev, ("document", 0.95), 0.9);
+    let r = rig(jev);
+    ledger_category(&r);
+    let sid = bound(&r.core);
+    let turn = said(&r, &sid).await;
+    assert!(!subject_asked(&r.jev), "no picture, no picture question");
+    assert!(picture_keys(&r).is_empty(), "{:?}", picture_keys(&r));
+    let touched: Vec<String> = timeline(&r, "topic:ledger")
+        .into_iter()
+        .map(|t| t.exchange)
+        .collect();
+    assert_eq!(touched, vec![turn], "the topic is touched as before");
+}
+
+/// KEY: the onto pack in shadow labels no picture: the gate is the one
+/// topics use.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shadow_onto_judgment_labels_no_picture() {
+    let jev = FakeJev::start().unwrap();
+    script_pictures(&jev, ("document", 0.95), 0.9);
+    let r = crate::tests_onto::rig_with(jev, Vec::new(), |c| {
+        c.judge.packs.insert(
+            crate::judge::onto::ONTO_PACK.into(),
+            crate::config::JudgePackConfig {
+                mode: Some(crate::config::PackMode::Shadow),
+                sample: None,
+                notices: None,
+            },
+        );
+    });
+    let sid = bound(&r.core);
+    pictured(&r, &sid).await;
+    assert!(subject_asked(&r.jev), "the shadow pack was asked");
+    assert!(picture_keys(&r).is_empty(), "{:?}", picture_keys(&r));
+}
+
+/// KEY: the labels ride the judgment's own frame, so they and the answer
+/// they rest on are written together or not at all; a frame that failed is
+/// written again whole, and the labels land once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pictures_labels_ride_its_judgments_frame_and_land_once_after_a_retry() {
+    use std::sync::Mutex;
+    // The failed frame's records, each as its scope and its key.
+    type Frame = Vec<(Option<String>, Option<String>)>;
+    let jev = FakeJev::start().unwrap();
+    script_pictures(&jev, ("document", 0.95), 0.9);
+    let r = rig(jev);
+    let sid = bound(&r.core);
+    let prefix = format!(
+        "{}{}",
+        exchange::TOUCH_PREFIX,
+        Root::Thing(crate::names::pictures::PREFIX).key()
+    );
+    let failed: Arc<Mutex<Frame>> = Arc::default();
+    let seen = failed.clone();
+    r.core.store.fail_plain_frame(move |rows| {
+        let hit = rows
+            .iter()
+            .any(|x| x.key.as_deref().is_some_and(|k| k.starts_with(&prefix)));
+        if hit {
+            *seen.lock().unwrap() = rows
+                .iter()
+                .map(|x| (x.scope.clone(), x.key.clone()))
+                .collect();
+        }
+        hit
+    });
+    let turn = pictured(&r, &sid).await;
+    let judge = r.core.runner.judge.clone();
+    tokio::task::spawn_blocking(move || judge.flush_sink())
+        .await
+        .unwrap();
+    let frame = failed.lock().unwrap().clone();
+    assert!(!frame.is_empty(), "a frame carried the picture labels");
+    let rows: Vec<&str> = frame
+        .iter()
+        .filter(|(scope, _)| scope.as_deref() == Some("judge:onto"))
+        .filter_map(|(_, key)| key.as_deref())
+        .collect();
+    assert!(
+        rows.iter().any(|k| k.starts_with("jdg_")),
+        "the onto judgment's row rode the same frame: {frame:?}"
+    );
+    assert_eq!(r.core.runner.judge.unwritten(), 0, "the retry wrote it");
+    assert_eq!(picture_keys(&r).len(), 2, "{:?}", picture_keys(&r));
+    for root in ["picture:document", "picture:shows_screen_or_document"] {
+        let touched: Vec<String> = pictures(&r, root).into_iter().map(|t| t.exchange).collect();
+        assert_eq!(touched, vec![turn.clone()], "{root}");
+    }
+}
+
+/// A pictured turn in `sid` while the sink writes no frame of its own: its
+/// queue is closed first, so only the test's flushes write the judgments.
+/// The turn's id.
+async fn pictured_unwritten(r: &Rig, sid: &str) -> String {
+    assert_eq!(flush(r).await, 0, "nothing was queued yet");
+    let raw = theseus_judge::fake::gps_png(500, 500);
+    let done = crate::tests_route::turn_attached(
+        &r.core,
+        Some(sid),
+        "what is this?",
+        None,
+        vec![crate::tests_onto::picture_file("shot.png", &raw)],
+    )
+    .await;
+    assert!(r.core.runner.judge.unwritten() > 0, "the judgments wait");
+    done.turn_id
+}
+
+/// The sink's flush: the judgments it wrote.
+async fn flush(r: &Rig) -> usize {
+    let judge = r.core.runner.judge.clone();
+    tokio::task::spawn_blocking(move || judge.flush_sink())
+        .await
+        .unwrap()
+}
+
+/// `turn`'s exchange ended, as a judgment finds it that lands before the
+/// turn's next frame writes it: the exchange, and its message's time.
+fn unseen_exchange(r: &Rig, turn: &str) -> (exchange::Exchange, u64) {
+    let ex = exchange::exchange(&r.core.store, turn)
+        .unwrap()
+        .expect("the turn's exchange");
+    let (_, said) = (r.core.store.get_node(ex.ask.as_deref().unwrap()))
+        .unwrap()
+        .expect("the turn's message");
+    let key = format!("{}{turn}", exchange::EXCHANGE_PREFIX);
+    let ended = theseus_store::NewRecord::delete_meta(&key);
+    r.core.store.append(&[ended]).unwrap();
+    assert!(exchange::exchange(&r.core.store, turn).unwrap().is_none());
+    (ex, said.created_at_ms)
+}
+
+/// `ex` written, at a start five seconds after its message's time: the
+/// start is the clock read as the exchange opened, not its message's time.
+fn exchange_seen(r: &Rig, mut ex: exchange::Exchange, said_ms: u64) {
+    ex.start_ms = said_ms + 5_000;
+    let record = exchange::exchange_record(&ex).unwrap();
+    r.core.store.append(&[record]).unwrap();
+}
+
+/// The live picture label keys of `turn` in `store`: each label with how many.
+fn label_keys(
+    store: &crate::store::Store,
+    turn: &str,
+) -> std::collections::BTreeMap<String, usize> {
+    use theseus_store::Store as _;
+    let root = format!("{}{}", exchange::TOUCH_PREFIX, Root::Thing("").key());
+    let labels = format!("{root}{}", crate::names::pictures::PREFIX);
+    let mut out = std::collections::BTreeMap::new();
+    for x in (store.inner())
+        .latest_with_prefix(theseus_store::kinds::META, &labels)
+        .unwrap()
+    {
+        let key = x.key.unwrap_or_default();
+        let mut parts = key.rsplitn(3, exchange::SEP);
+        if let (Some(t), Some(_), Some(label)) = (parts.next(), parts.next(), parts.next()) {
+            if t == turn {
+                *out.entry(label.trim_start_matches(&root).to_string())
+                    .or_default() += 1;
+            }
+        }
+    }
+    out
+}
+
+/// One key of each label a picture of a document comes to.
+fn one_key_each() -> std::collections::BTreeMap<String, usize> {
+    ["picture:document", "picture:shows_screen_or_document"]
+        .into_iter()
+        .map(|l| (l.to_string(), 1))
+        .collect()
+}
+
+/// The store at `dir`, opened again once the core that held it is gone.
+async fn reopened(dir: &std::path::Path) -> crate::store::Store {
+    for _ in 0..50 {
+        if let Ok(s) = crate::store::Store::open(dir) {
+            return s;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    crate::store::Store::open(dir).unwrap()
+}
+
+/// KEY: a turn holds one key of a label whatever path its frame took. The
+/// first try's frame is kept by the log while its append fails, before the
+/// exchange is readable; the exchange is then written, at a start of its own;
+/// the retry writes the frame again; and the store, opened again, indexes
+/// what the log kept. One key of each label, and the judgment's row beside
+/// them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_label_frame_the_log_kept_through_a_failed_append_leaves_one_key_after_the_retry() {
+    use std::sync::Mutex;
+    // The kept frame's records, each as its scope and its key.
+    type Frame = Vec<(Option<String>, Option<String>)>;
+    let jev = FakeJev::start().unwrap();
+    script_pictures(&jev, ("document", 0.95), 0.9);
+    let r = rig(jev);
+    let sid = bound(&r.core);
+    let turn = pictured_unwritten(&r, &sid).await;
+    let (ex, said_ms) = unseen_exchange(&r, &turn);
+    let labels = format!(
+        "{}{}",
+        exchange::TOUCH_PREFIX,
+        Root::Thing(crate::names::pictures::PREFIX).key()
+    );
+    let kept: Arc<Mutex<Frame>> = Arc::default();
+    let seen = kept.clone();
+    r.core.store.retain_plain_frame(move |rows| {
+        let hit = (rows.iter()).any(|x| x.key.as_deref().is_some_and(|k| k.starts_with(&labels)));
+        if hit {
+            *seen.lock().unwrap() = (rows.iter())
+                .map(|x| (x.scope.clone(), x.key.clone()))
+                .collect();
+        }
+        hit
+    });
+    assert_eq!(flush(&r).await, 0, "the append failed");
+    assert!(r.core.runner.judge.unwritten() > 0, "the batch waits");
+    let frame = kept.lock().unwrap().clone();
+    let row = (frame.iter())
+        .filter(|(scope, _)| scope.as_deref() == Some("judge:onto"))
+        .find_map(|(_, key)| key.clone().filter(|k| k.starts_with("jdg_")))
+        .unwrap_or_else(|| panic!("the onto row rode the kept frame: {frame:?}"));
+    exchange_seen(&r, ex, said_ms);
+    assert!(flush(&r).await > 0, "the retry wrote the batch");
+    assert_eq!(r.core.runner.judge.unwritten(), 0);
+    let dir = r.core.store.dir().to_path_buf();
+    let Rig { core, .. } = r;
+    drop(core);
+    let store = reopened(&dir).await;
+    assert_eq!(label_keys(&store, &turn), one_key_each());
+    use theseus_store::Store as _;
+    let beside = (store.inner()).latest_by_key(theseus_store::kinds::LEDGER, &row);
+    assert!(beside.unwrap().is_some(), "the judgment's row {row}");
+}
+
+/// KEY: two pictured messages of one turn, the second steered into it, are
+/// judged in frames of their own, the first before the exchange is readable
+/// and the second after, both of one subject: the turn holds one key of each
+/// label.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_pictured_messages_of_one_turn_judged_apart_leave_one_key_of_each_label() {
+    let jev = FakeJev::start().unwrap();
+    script_pictures(&jev, ("document", 0.95), 0.9);
+    let r = rig(jev);
+    let sid = bound(&r.core);
+    let turn = pictured_unwritten(&r, &sid).await;
+    let onto = |j: &theseus_judge::Judgment| {
+        j.pack == crate::judge::onto::ONTO_PACK && j.context["turn"] == turn.as_str()
+    };
+    let first = (r.core.runner.judge.unwritten_one(onto)).expect("the onto judgment");
+    let ex = exchange::exchange(&r.core.store, &turn).unwrap().unwrap();
+    let (_, said) = (r.core.store.get_node(ex.ask.as_deref().unwrap()))
+        .unwrap()
+        .unwrap();
+    let crate::node::Body::UserMessage { attachments, .. } = said.body else {
+        panic!("the turn's message");
+    };
+    assert!(!attachments.is_empty(), "the message carried its picture");
+    let (ex, said_ms) = unseen_exchange(&r, &turn);
+    assert!(flush(&r).await > 0);
+    assert_eq!(
+        label_keys(&r.core.store, &turn),
+        one_key_each(),
+        "the first"
+    );
+    exchange_seen(&r, ex, said_ms);
+    // The steered message: a later node of the turn with a picture, judged
+    // under the turn's id.
+    let steered =
+        crate::node::Node::user_with(&sid, Some(&turn), "discord", "and this one", attachments);
+    r.core.store.append(&[steered.record().unwrap()]).unwrap();
+    let mut second = first.clone();
+    second.id = theseus_judge::new_id();
+    second.context["node"] = steered.id.clone().into();
+    r.core.runner.judge.settle(&second);
+    assert_eq!(flush(&r).await, 1);
+    assert_eq!(label_keys(&r.core.store, &turn), one_key_each(), "both");
+}

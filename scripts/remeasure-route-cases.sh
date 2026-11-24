@@ -56,9 +56,9 @@ sock=()
 help="$("$bin/theseus" judge replay --help 2>&1)"
 [[ "$help" == *--cases* ]] || { echo "remeasure: this binary has no \`judge replay --cases\`" >&2; exit 2; }
 
-# the cases are written for route.v10 and read for route.v11, the pack that acts (route_cases::read_as)
+# the cases are written for route.v10 and read for route.v12, the pack that acts (route_cases::read_as)
 cases=crates/theseus-judge/packs/route.v10.cases.toml
-route_pack=crates/theseus-judge/packs/route.v11.toml
+route_pack=crates/theseus-judge/packs/route.v12.toml
 effort_pack=crates/theseus-judge/packs/effort.v1.toml
 [ -n "$out" ] || out="bench/smoke/runs/remeasure-$(date +%F-%H%M%S)"
 [ ! -e "$out" ] || { echo "remeasure: $out exists; results of two runs must not mix" >&2; exit 2; }

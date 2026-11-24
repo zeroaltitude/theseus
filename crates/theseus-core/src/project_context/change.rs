@@ -18,9 +18,20 @@
 //! Digests, never text. No watcher: the comparison rides the compile a
 //! session's recompile already pays for.
 //!
-//! **The first sighting says nothing.** A repository granted and compiled
-//! for the first time has no stored state to differ from, so it stores one
-//! and is quiet. The notice is for a change *after* the owner looked.
+//! **The grant stores the first sighting** ([`grant`]). `Core::project_trust`
+//! stores the digests of the instruction files on the chain down to the path
+//! it was given (all of them) and of those a bounded walk of the root finds
+//! ([`super::walk`], within an allowance) in the grant's own frame, so the first compile in any
+//! directory of the repository compares with what was there when the owner
+//! granted it. The notice is for a change *after* the owner looked. A granted
+//! repository with no stored sighting (one granted by an earlier build) has
+//! nothing to differ from: its first compile stores one and is quiet.
+//!
+//! **A sighting accumulates.** A compile looks only along its own chain,
+//! from the root down to the session's directory, and it changes only what
+//! it looked for ([`observe`]): a stored file elsewhere in the repository is
+//! kept as it was stored, and is never reported gone by a compile that did
+//! not look for it.
 //!
 //! **The posture** is `[project] on_change` (`config/project.rs`):
 //!
@@ -32,7 +43,9 @@
 //!   rather than arriving by itself on the next turn; only the digests
 //!   already asked about move ([`Seen::asked`]), so a change that waits for
 //!   days is one row and not one a turn. `project_untrust` drops the stored
-//!   sighting, which makes `untrust` then `trust` the owner's accept.
+//!   sighting, which makes `untrust` then `trust` the owner's accept; a
+//!   `trust` naming the session's directory pins its files even where the
+//!   walk did not reach them.
 //!
 //! **A session carrying `injection` holds the change whatever the posture
 //! says** (S31-1, the owner 2026-11-13: the warning follows the content).
@@ -81,12 +94,8 @@
 //! granted repository already names and, for the repository the session is
 //! working in, the chain from its root down to the session's own directory;
 //! and [`wrote`] does that for EVERY granted repository, not only the
-//! session's own. What that leaves open is ANY instruction file in neither
-//! of those two sets -- whether it was created or merely changed, and
-//! whether or not its directory has ever been compiled in. That is wider
-//! than "a brand-new file in a directory nobody has opened", and it is
-//! listed case by case with the rest of the remainder in [`wrote`]'s own
-//! doc, where the sweep is.
+//! session's own. A file in neither set is not swept; [`wrote`]'s own doc,
+//! where the sweep is, says which files those are.
 //!
 //! The writer key's hold is a **stored record**, not a daemon's memory: a
 //! restart between the write and the next session's open is not the owner's
@@ -96,7 +105,7 @@
 //! had one.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -289,7 +298,7 @@ impl Observed {
                  They moved during a call of a session that carries the `injection` \
                  label ({}), so their new text is not here for any session: he grants \
                  the repository again (`theseus project untrust`, then `theseus project \
-                 trust`) once he has read it.",
+                 trust` naming this session's directory) once he has read it.",
                 h.by
             )
         } else if self.flagged {
@@ -297,14 +306,16 @@ impl Observed {
                 "Project instructions changed since the owner last read them: {what}. \
                  This session carries the `injection` label, so their new text is not \
                  here: he grants the repository again (`theseus project untrust`, then \
-                 `theseus project trust`) once he has read it."
+                 `theseus project trust` naming this session's directory) once he has \
+                 read it."
             )
         } else if self.ask {
             format!(
                 "Project instructions changed since the owner last read them: {what}. \
                  He asks to see a change before it is read, so their new text is not \
                  here: he grants the repository again (`theseus project untrust`, then \
-                 `theseus project trust`) once he has read it."
+                 `theseus project trust` naming this session's directory) once he has \
+                 read it."
             )
         } else {
             format!(
@@ -324,6 +335,73 @@ fn names(changes: &[Change]) -> String {
         _ => c.path.clone(),
     };
     changes.iter().map(one).collect::<Vec<_>>().join(", ")
+}
+
+/// The sighting a grant of the repository at `root` stores, given by `path`
+/// (§8, "After a grant"): the instruction files on the chain from the root
+/// down to `path` (the files a compile there finds), then what
+/// [`super::walk`] found under the root.
+///
+/// The chain is digested whole, outside the digests' allowance: a grant
+/// that names a directory pins every file a compile there finds, so a file
+/// the walk did not reach is pinned by a grant that names its directory.
+/// Its cost is bounded by the depth of the named path (two names a
+/// directory), not by an allowance. The walk's other finds are digested
+/// within [`super::DIGEST_FILES`] files and [`super::WALK_TIME`], and never
+/// replace a digest of the chain. A file found and not digested is not in
+/// the sighting, so it is new when a compile first finds it.
+pub fn grant(files: &ContextFiles, root: &Path, path: &Path, at_ms: u64) -> Seen {
+    let (most, time) = (super::DIGEST_FILES, super::WALK_TIME);
+    grant_within(files, root, path, at_ms, most, time)
+}
+
+/// [`grant`], with the walk's finds digested within `most` files and
+/// `time`.
+pub(crate) fn grant_within(
+    files: &ContextFiles,
+    root: &Path,
+    path: &Path,
+    at_ms: u64,
+    most: usize,
+    time: std::time::Duration,
+) -> Seen {
+    let dir = if path.is_dir() {
+        path
+    } else {
+        path.parent().unwrap_or(root)
+    };
+    let chain = super::discover_in(Some(root), dir, None).project;
+    let mut seen = sighting(files, &chain, at_ms);
+    let rest: Vec<Found> = super::walk(root)
+        .into_iter()
+        .filter(|f| !seen.files.contains_key(&f.shown))
+        .collect();
+    for (shown, digest) in sighting_within(files, &rest, at_ms, most, time).files {
+        seen.files.entry(shown).or_insert(digest);
+    }
+    seen
+}
+
+/// [`sighting`] of the first of `found` it reaches within `most` files and
+/// `time`. The time is checked between files, not between the calls that
+/// read one file: one read that blocks is not interrupted.
+pub(crate) fn sighting_within(
+    files: &ContextFiles,
+    found: &[Found],
+    at_ms: u64,
+    most: usize,
+    time: std::time::Duration,
+) -> Seen {
+    let start = std::time::Instant::now();
+    let mut seen = sighting(files, &[], at_ms);
+    for f in found.iter().take(most) {
+        if start.elapsed() >= time {
+            break;
+        }
+        seen.files
+            .extend(sighting(files, std::slice::from_ref(f), at_ms).files);
+    }
+    seen
 }
 
 /// This compile's sighting of `found`, from the reader's own digests. The
@@ -352,10 +430,19 @@ pub fn sighting(files: &ContextFiles, found: &[Found], at_ms: u64) -> Seen {
 
 /// What a compile of `found` in the repository `root` sees: the sighting,
 /// what it differs from, and whether the change is held. One keyed store
-/// read, as [`super::trust::granted`] is. Called twice in a turn -- once by
-/// [`super::block`] to name the change and withhold what is held, once by
-/// the turn to write the row and the state -- and deterministic on its
-/// inputs, so the block and the ledger cannot disagree.
+/// read, as [`super::trust::granted`] is.
+///
+/// `looked` is the directories the compile looked for files in. **A
+/// sighting accumulates**: a stored path whose directory is not one of them
+/// was not looked for, so it is carried into this sighting as it was
+/// stored, and only a path in a directory the compile looked in can be
+/// gone. A compile in one directory of a repository therefore neither
+/// forgets nor reports as gone what a compile in another one saw.
+///
+/// Called twice in a turn -- once by [`super::block`] to name the change and
+/// withhold what is held, once by the turn to write the row and the state --
+/// and deterministic on its inputs, so the block and the ledger cannot
+/// disagree.
 ///
 /// `flagged` is whether the compiling session carries `injection`
 /// (`ContentFlags::frozen`), and it holds the change on its own (S31-1).
@@ -372,14 +459,18 @@ pub fn observe(
     files: &ContextFiles,
     root: &Path,
     found: &[Found],
+    looked: &[PathBuf],
     flagged: bool,
 ) -> Observed {
     let id = crate::flow::spec::repo_id(root);
     let held = Held::read(store, &id);
     let ask = cfg.project.on_change() == OnChange::Ask || flagged || held.is_some();
     let at_ms = theseus_protocol::now_unix_ms();
-    let now = sighting(files, found, at_ms);
+    let mut now = sighting(files, found, at_ms);
     let old = Seen::read(store, &id);
+    if let Some(o) = &old {
+        carry(&mut now, o, looked);
+    }
     // The first sighting has nothing to differ from: it is stored, and says
     // nothing.
     let changes = old.as_ref().map(|o| diff(o, &now)).unwrap_or_default();
@@ -427,6 +518,21 @@ pub fn observe(
     }
 }
 
+/// Carry into `now` every path of `old` whose directory is not one of
+/// `looked`, at the digest `old` stored for it: this compile did not look
+/// for it, so it says nothing about it.
+fn carry(now: &mut Seen, old: &Seen, looked: &[PathBuf]) {
+    let looked: std::collections::HashSet<&Path> = looked.iter().map(PathBuf::as_path).collect();
+    for (path, digest) in &old.files {
+        let here = Path::new(path).parent().is_some_and(|d| looked.contains(d));
+        if !here {
+            now.files
+                .entry(path.clone())
+                .or_insert_with(|| digest.clone());
+        }
+    }
+}
+
 /// What a flagged session's acting call did to a granted repository's
 /// instruction files, when it moved any.
 #[derive(Debug, Clone)]
@@ -453,41 +559,46 @@ pub struct Wrote {
 /// the session is working beside right now, which may never have been
 /// compiled.
 ///
-/// ⛔ **Together they are still NOT every file a grant covers that anything
-/// has ever looked at**, which is what this doc claimed until round 3. A
-/// sighting is stored per repository but taken from whichever directory the
-/// compiling session was in, and it REPLACES its predecessor -- so a file
-/// the owner has read falls out of it the next time an ordinary clean
-/// session opens elsewhere in the same repository. And a granted repository
-/// no session has ever been opened in has no stored sighting at all.
+/// The stored sighting is what the grant's walk found plus what every
+/// compile since has seen: a compile keeps what it did not look for
+/// ([`observe`]), so an ordinary compile elsewhere in the repository does
+/// not drop a file from it.
 ///
 /// **It is deliberately not a directory walk.** A walk of a granted root per
 /// acting call is a cost that scales with the repository rather than with
 /// the grant, and the sweep runs inside the tool path. What that choice
-/// leaves open is written down in [`wrote`]'s doc rather than glossed, and
-/// it is *any* file in neither set -- not only a new one, and not only one
-/// whose directory is undiscovered.
+/// leaves open is written down in [`wrote`]'s doc.
 ///
 /// A stored path that no longer resolves to a regular file is simply left
-/// out, which is exactly right: [`diff`] takes the union of the two
-/// sightings' keys, so a file that was there and is not now comes back as a
+/// out, which is exactly right: its directory is among the directories this
+/// returns beside the files, the ones it looked in, so [`observe`] does not
+/// carry it, and a file that was there and is not now comes back as a
 /// change with an empty new digest -- gone, named in the row, held in
 /// nothing.
-fn swept(store: &crate::store::Store, root: &Path, here: &super::Discovered) -> Vec<Found> {
+fn swept(
+    store: &crate::store::Store,
+    root: &Path,
+    here: &super::Discovered,
+) -> (Vec<Found>, Vec<PathBuf>) {
     let mut by_path: BTreeMap<String, Found> = BTreeMap::new();
+    let mut looked: Vec<PathBuf> = Vec::new();
     if here.root.as_deref() == Some(root) {
         for f in &here.project {
             by_path.insert(f.shown.clone(), f.clone());
         }
+        looked.extend(here.dirs.iter().cloned());
     }
     let Some(seen) = Seen::read(store, &crate::flow::spec::repo_id(root)) else {
-        return by_path.into_values().collect();
+        return (by_path.into_values().collect(), looked);
     };
     for shown in seen.files.keys() {
+        let path = Path::new(shown);
+        if let Some(d) = path.parent() {
+            looked.push(d.to_path_buf());
+        }
         if by_path.contains_key(shown) {
             continue;
         }
-        let path = Path::new(shown);
         // The depth the block orders by, recovered from the path itself; a
         // stored path is always under the root that stored it.
         let depth = path
@@ -498,7 +609,7 @@ fn swept(store: &crate::store::Store, root: &Path, here: &super::Discovered) -> 
             by_path.insert(shown.clone(), f);
         }
     }
-    by_path.into_values().collect()
+    (by_path.into_values().collect(), looked)
 }
 
 /// **The writer key** (S31-1). What a session carrying `injection` did to
@@ -549,33 +660,12 @@ fn swept(store: &crate::store::Store, root: &Path, here: &super::Discovered) -> 
 /// containment is worse than no comment:**
 ///
 /// 1. **Any instruction file that is neither in a granted repository's
-///    currently-stored sighting nor on the chain from the session's own
-///    repository root to its own working directory** -- whether it was
-///    CREATED or merely CHANGED, and whether or not its directory has ever
-///    been compiled in. [`swept`] says why that is not a walk. This is the
-///    one bypass of the three found in round 1 that is still open, and it
-///    is open on purpose rather than by oversight.
-///
-///    ⛔ It is **wider** than "a brand-new file in a directory no compile
-///    has discovered", which is how rounds 1 and 2 stated it, and two of
-///    its cases are ones that wording excluded:
-///
-///    - **A granted repository no session has ever been opened in.** The
-///      grant stores no sighting -- `rpc::project_trust` only DELETES
-///      [`Seen`] and [`Held`], on untrust -- and the repository is not the
-///      session's own, so BOTH halves of [`swept`] are empty and the
-///      repository's own `AGENTS.md`, the very file the grant was given
-///      for, is unswept. Nothing was created and nothing is undiscovered;
-///      the repository was simply never opened. It arrives with **no
-///      "changed" notice at all**, because a repository's first sighting is
-///      not a diff -- quieter than the new-file case, which at least
-///      produces a row.
-///    - **A file the owner has already read, in a directory he has already
-///      worked in.** A sighting is taken from one session's chain and
-///      replaces its predecessor, so an ORDINARY clean session opening
-///      elsewhere in the same repository evicts that file from it, and from
-///      then on it is in neither set. ⛔ Nothing adversarial causes the
-///      eviction -- ordinary use does.
+///    stored sighting nor on the chain from the session's own repository
+///    root to its own working directory.** The stored sighting holds what
+///    the grant's walk found and what every compile since has seen, so
+///    such a file is one that appeared after the grant where no compile has
+///    looked since, or one the walk did not reach. [`swept`] says why the
+///    sweep is not a walk.
 /// 2. A background job that writes AFTER its call has returned is not seen
 ///    by that call's sweep. The next acting call of the session catches it;
 ///    a clean session that opens before then does not.
@@ -604,11 +694,11 @@ pub fn wrote(
             if !root.is_dir() {
                 return None;
             }
-            let found = swept(store, root, &here);
+            let (found, looked) = swept(store, root, &here);
             if found.is_empty() {
                 return None;
             }
-            let observed = observe(cfg, store, files, root, &found, true);
+            let observed = observe(cfg, store, files, root, &found, &looked, true);
             if observed.changes.is_empty() {
                 return None;
             }

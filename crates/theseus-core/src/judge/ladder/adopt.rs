@@ -11,7 +11,7 @@
 //! keeps them, read beside each file's own (`rules::rules_of`); a rule a
 //! pack's file declares itself wins over the table's of the same kind, so
 //! the table's number is the one for a version whose file names none
-//! (route.v11 names its own 5 pins a day). Each is a day's brake: its
+//! (route.v12 names its own 5 pins a day). Each is a day's brake: its
 //! rollback lapses at the next local midnight.
 
 use theseus_judge::learn::RollbackRule;
@@ -39,12 +39,12 @@ pub struct Adopted {
 /// the owner's word, its rollback rules guarding it. The earlier route versions
 /// (`route.v1` to `route.v8`) were adopted the same way; their rows are in the
 /// store, and the build no longer embeds them (`route.v5` to `route.v8` were
-/// retired in issue 44, `route.v10` in issue 46). A stored adoption of a
+/// retired in issue 44, `route.v10` and `route.v11` in issue 46). A stored adoption of a
 /// retired version is checked by its own file's rules (`rules::rules_of`).
 pub const ADOPTED: &[Adopted] = &[
     Adopted {
-        pack: "route.v11",
-        why: WHY_ROUTE_V11,
+        pack: "route.v12",
+        why: WHY_ROUTE_V12,
     },
     Adopted {
         pack: "rerank.v1",
@@ -56,10 +56,12 @@ pub const ADOPTED: &[Adopted] = &[
     },
 ];
 
-/// `route.v11`'s adoption row's reason: route.v10 word for word but the
-/// `fable` option's description, which says Fable 5.2 and its prices
-/// (issue 5 of 1.0.7).
-pub const WHY_ROUTE_V11: &str = "the owner's decision of 2026-11-14";
+/// `route.v12`'s adoption row's reason: route.v11 without the questions
+/// nothing read. It goes live on landing by the standing rule for a new
+/// compiled version of a judgment pack (`docs/development.md`,
+/// "Self-improvement"), under issue 46's line. (`route.v11`'s stored row
+/// keeps its own reason.)
+pub const WHY_ROUTE_V12: &str = "a new compiled version goes live on landing (docs/development.md); issue 46: the live packs lose the questions nothing reads";
 
 /// The rules this table gives a pack id (every version of it). Most are the
 /// adoption's, from the owner's decisions of 2026-10-04; `recall_cross` has

@@ -162,7 +162,7 @@ fn script(jev: &FakeJev, core: &Core) {
             jev.script_when(
                 &format!("zz{}zz", n + 1),
                 None,
-                &format!("onto.v1/{kind}"),
+                &format!("{}/{kind}", crate::judge::onto::ONTO_PACK),
                 Scripted::Choice {
                     option: format!("c{}", at + 1),
                     confidence: 0.9,
@@ -380,7 +380,7 @@ async fn a_replay_cut_short_leaves_out_every_later_case() {
     assert_eq!(cases.len(), 3);
     // What each case's call reserves; the ceiling admits the dearest once.
     let (pack, _) = super::replay::candidate_of(&JudgeReplayParams {
-        candidate: Some("onto.v1".into()),
+        candidate: Some(crate::judge::onto::ONTO_PACK.into()),
         ..Default::default()
     })
     .unwrap();
@@ -544,4 +544,15 @@ fn undo_rates_count_a_write_once_a_kind_and_a_repeated_undo_once() {
         .map(|r| (r.kind.as_str(), r.writes, r.undone))
         .collect();
     assert_eq!(of, [("person", 1, 1), ("topic", 2, 1)]);
+}
+
+/// `judge replay --onto` with no candidate replays the wired onto pack, whatever its version: the default
+/// is the constant, not a name, so a new version of the pack does not leave the default naming a retired
+/// one (issue 46).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_onto_replay_defaults_to_the_wired_onto_pack() {
+    let jev = FakeJev::start().unwrap();
+    let r = onto_rig(&jev, consenting);
+    let out: JudgeReplayResult = r.core.judge_replay(params(), "cli").await.unwrap();
+    assert_eq!(out.candidate, crate::judge::onto::ONTO_PACK);
 }

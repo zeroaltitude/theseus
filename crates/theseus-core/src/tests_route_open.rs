@@ -67,7 +67,7 @@ fn asked(jev: &FakeJev) -> Vec<String> {
                 .map(|q| q.keys().cloned().collect::<Vec<_>>())
                 .unwrap_or_default()
         })
-        .filter(|id| id.starts_with("route.v11/"))
+        .filter(|id| id.starts_with(&format!("{}/", crate::judge::inbound::ROUTE_PACK)))
         .collect();
     ids.sort();
     ids.dedup();
@@ -188,8 +188,8 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
     assert_eq!(req.output_config.as_ref().unwrap()["effort"], "high");
     assert_eq!(
         asked(&jev),
-        ["route.v11/model", "route.v11/personal"],
-        "the route pack asks the model: no `effort`, no `mode`, no `context`"
+        ["route.v12/model"],
+        "the route pack asks the model: no `effort`, no `mode`, no `context`, no `personal`"
     );
     // The effort, the task type and the split are each asked of a pack of their own, in the batch.
     let beside: std::collections::BTreeSet<String> = jev
@@ -202,7 +202,7 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
                 .unwrap_or_default()
         })
         .filter(|id| {
-            !id.starts_with("route.v11/")
+            !id.starts_with("route.v12/")
                 && !id.starts_with("classify.")
                 && !id.starts_with("role.")
         })
@@ -442,14 +442,15 @@ async fn a_full_pick_over_the_cold_line_waits_one_agreeing_turn() {
 
 // ------------------------------------------------------------------ the pin
 
-/// A turn the operator pinned (`-P`) is not asked the model or the effort; the
-/// other questions still ask. The pinned model runs, `reason = pinned`.
+/// A turn the operator pinned (`-P`) is not asked the model or the effort; with one
+/// persona route.v12 has nothing else to ask it (issue 46). The pinned model runs,
+/// `reason = pinned`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pinned_turn_is_not_asked_the_model_or_the_effort() {
     let jev = FakeJev::start().unwrap();
     says(&jev, "haiku", "low", 0.97);
     let o = open(&jev, 1, |_| {});
-    // `route.v11/...` ids are read off the requests the fake Jev saw.
+    // `route.v12/...` ids are read off the requests the fake Jev saw.
     let res = turn(
         &o.r.core,
         None,
@@ -459,13 +460,15 @@ async fn a_pinned_turn_is_not_asked_the_model_or_the_effort() {
     .await;
     assert_eq!(o.r.claude.requests()[0].model, "claude-fable-5-2");
     assert_eq!(res.route.unwrap().reason, "pinned");
-    crate::tests_route::until_calls(&jev, 2).await;
+    // The batch; the route pack asks nothing of this pin (issue 46), so a moment more.
+    crate::tests_route::until_calls(&jev, 1).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let asked = asked(&jev);
     assert!(
-        asked.contains(&"route.v11/personal".to_string()),
-        "the other questions still ask: {asked:?}"
+        asked.is_empty(),
+        "one persona and a pin: the route pack asks nothing: {asked:?}"
     );
-    for gone in ["route.v11/model", "route.v11/effort"] {
+    for gone in ["route.v12/model", "route.v12/effort"] {
         assert!(
             !asked.contains(&gone.to_string()),
             "{gone} is not asked of a pin: {asked:?}"
@@ -473,6 +476,48 @@ async fn a_pinned_turn_is_not_asked_the_model_or_the_effort() {
     }
     let d = &decided(&o.r.core.store)[0];
     assert_eq!(d["detail"], "-P fable");
+}
+
+/// A pinned turn with fewer than two personas asks the route pack nothing (issue 46): the pin answers
+/// `model`, `persona` has no options, and route.v12 asks no `personal`. No route question reaches the judge,
+/// the turn runs on its pin, and the empty ask is recorded as skipped for want of a question, never failed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pinned_turn_with_one_persona_asks_the_route_pack_nothing_and_runs_on_its_pin() {
+    let jev = FakeJev::start().unwrap();
+    says(&jev, "haiku", "low", 0.97);
+    let o = open(&jev, 1, |_| {});
+    o.r.core.runner.judge.pins_wait_for_verdicts();
+    let res = turn(
+        &o.r.core,
+        None,
+        "design the memory layer for a million turns",
+        Some("fable"),
+    )
+    .await;
+    assert_eq!(o.r.claude.requests()[0].model, "claude-fable-5-2");
+    assert_eq!(res.route.as_ref().unwrap().reason, "pinned");
+    crate::tests_route::until_calls(&jev, 1).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(
+        asked(&jev),
+        Vec::<String>::new(),
+        "no route question is sent"
+    );
+    let route: Vec<serde_json::Value> = crate::tests_judge::kinds(&o.r.core.store, "judge.call")
+        .into_iter()
+        .map(|r| r.data)
+        .filter(|d| d["pack"] == crate::judge::inbound::ROUTE_PACK)
+        .collect();
+    for d in &route {
+        assert_eq!(d["outcome"]["outcome"], "skipped", "{d}");
+        assert_eq!(d["outcome"]["reason"], "no_questions", "{d}");
+    }
+    assert!(
+        crate::tests_judge::kinds(&o.r.core.store, "judge.call")
+            .iter()
+            .all(|r| r.data["outcome"]["outcome"] != "failed"),
+        "no failure row"
+    );
 }
 
 const ASK_PERSONAL: &str = "Where does your owner live, and who is at home tonight?";
@@ -730,7 +775,7 @@ async fn the_daemons_state_has_the_fields_a_replay_case_is_held_to() {
         .seen()
         .iter()
         .rev()
-        .find(|s| s.body["questions"].get("route.v11/model").is_some())
+        .find(|s| s.body["questions"].get("route.v12/model").is_some())
         .map(|s| s.body["state"].clone())
         .expect("a route request");
     let dynamic = [
@@ -772,5 +817,8 @@ async fn the_daemons_state_has_the_fields_a_replay_case_is_held_to() {
     want.sort();
     assert_eq!(keys, want, "{state}");
     assert!(state["est_tokens"].as_u64().unwrap() > 0, "{state}");
-    assert_eq!(state["restricted_models"], "allowed");
+    assert!(
+        state.get("restricted_models").is_none(),
+        "no longer in the state (issue 46): {state}"
+    );
 }

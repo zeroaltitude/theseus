@@ -153,3 +153,113 @@ fn cap_cuts_on_line_edges_and_says_what_it_left_out_and_how_to_get_it() {
     let (c, _) = cap(&"x".repeat(5000), 400, |_| "R".into(), &Cuts::none());
     assert!(c.contains("\n…[4,600 characters not shown: R]…\n"), "{c}");
 }
+
+/// `cap` as it was written before its cut points were apart: the oracle its text is held to.
+fn cap_as_it_was(
+    text: &str,
+    max: usize,
+    rest: impl FnOnce(&str) -> String,
+    cuts: &Cuts,
+) -> (String, bool) {
+    let n = text.chars().count();
+    if n <= max || max < 64 {
+        return (text.to_string(), false);
+    }
+    let at = |chars: usize| {
+        text.char_indices()
+            .nth(chars)
+            .map_or(text.len(), |(i, _)| i)
+    };
+    let head = max * 6 / 10;
+    let (mut h, mut t) = (at(head), at(n - (max - head)));
+    if let Some(i) = text[..h].rfind('\n').filter(|i| i + 1 >= h / 2) {
+        h = i + 1;
+    }
+    let mid_line = !text[..t].ends_with('\n');
+    if let Some(i) = text[t..]
+        .find('\n')
+        .filter(|i| mid_line && *i < (text.len() - t) / 2)
+    {
+        t += i + 1;
+    }
+    let (h, t) = cuts.around(text, h, t);
+    let whole = [h, t]
+        .iter()
+        .filter(|at| text[..**at].ends_with('\n'))
+        .count();
+    let left = &text[h..t];
+    let chars = narrative::count(left.chars().count() as u64, "character", "characters");
+    let size = match whole {
+        2 => format!(
+            "{} ({chars})",
+            narrative::count(left.lines().count() as u64, "line", "lines")
+        ),
+        _ => chars,
+    };
+    let how = match rest(left) {
+        r if r.is_empty() => r,
+        r => format!(": {r}"),
+    };
+    let head = text[..h].strip_suffix('\n').unwrap_or(&text[..h]);
+    (
+        format!("{head}\n…[{size} not shown{how}]…\n{}", &text[t..]),
+        true,
+    )
+}
+
+/// Over random results (characters of one to four bytes, control characters, runs of blanks and line
+/// breaks; shorter and longer than the cap) with a known value at or near the head's cut and one holding a
+/// line break at or near the tail's: the cap is its cut points, then its assembly, and is today's text; the
+/// head it shows is `text[..h]` without one line break it ends with, and the tail `text[t..]`, each as it is,
+/// with the seam line between them; neither splits a character or a known value. All values invented.
+#[test]
+fn cap_is_cut_points_then_assembly() {
+    use crate::view::text::kept::sample::{self, Draw, BROKEN, VALUE};
+    let mut draw = Draw::new(0xbb67_ae85_84ca_a73b);
+    for case in 0..800 {
+        let max = [10, 63, 64, 65, 100, 200, 400][draw.below(7)];
+        let len = max / 2 + draw.below(2 * max);
+        let mut text = draw.text(len);
+        let n = text.chars().count();
+        let head = max * 6 / 10;
+        let mut known = Vec::new();
+        if draw.below(4) > 0 {
+            let near = (head + draw.below(VALUE.len() + 4)).saturating_sub(VALUE.len());
+            text = sample::place(&text, VALUE, near.min(n));
+            known.push(VALUE);
+        }
+        if draw.below(4) > 0 {
+            let n = text.chars().count();
+            let tail = n.saturating_sub(max - head) + draw.below(8);
+            let back = draw.below(BROKEN.len());
+            text = sample::place(&text, BROKEN, tail.saturating_sub(back));
+            known.push(BROKEN);
+        }
+        let cuts = sample::cuts(&known);
+        let rest = |left: &str| match left.len() % 3 {
+            0 => String::new(),
+            _ => format!("{} bytes", left.len()),
+        };
+        let (shown, cut) = cap(&text, max, rest, &cuts);
+        assert_eq!(
+            (shown.clone(), cut),
+            cap_as_it_was(&text, max, rest, &cuts),
+            "case {case}: {text:?}"
+        );
+        let Some((h, t)) = cut_points(&text, max, &cuts) else {
+            assert!(!cut && shown == text);
+            continue;
+        };
+        assert!(cut && h <= t && t <= text.len(), "case {case}");
+        assert_eq!(capped(&text, h, t, rest), shown);
+        let kept = text[..h].strip_suffix('\n').map_or(h, |k| k.len());
+        sample::whole(&text, &(0..kept), &known);
+        sample::whole(&text, &(t..text.len()), &known);
+        assert!(shown.starts_with(&text[..kept]) && shown.ends_with(&text[t..]));
+        let seam = &shown[kept..shown.len() - (text.len() - t)];
+        assert!(
+            seam.starts_with("\n…[") && seam.ends_with("]…\n") && seam.contains(" not shown"),
+            "case {case}: {seam:?}"
+        );
+    }
+}

@@ -980,3 +980,54 @@ fn the_memory_page_names_what_it_must() {
         }
     }
 }
+
+/// A fit says, for each part it gives, which part it was given and the bytes of its text it kept: all of
+/// them, as they are, since a fit cuts between parts and never inside one; a mark is code's own words and
+/// keeps none. The parts it gives are the ones it gave before it said so, at every allowance.
+#[test]
+fn fit_reports_each_parts_kept_bytes() {
+    use crate::view::text::kept::sample::Draw;
+    let mut draw = Draw::new(0x6a09_e667_f3bc_c909);
+    let mut cases = vec![forms::whole(&exchange())];
+    for _ in 0..40 {
+        let n = 1 + draw.below(5);
+        let mut nodes = Vec::new();
+        for k in 0..n {
+            let len = draw.below(400);
+            let text = draw.text(len);
+            nodes.push(match k % 2 {
+                0 => Node::user("s", None, "web", &text),
+                _ => reply(&text),
+            });
+        }
+        cases.push(forms::whole(&nodes));
+    }
+    for parts in cases {
+        for max in [0, 20, 50, 60, 120, 200, 400, 1_000, 2_000, u64::MAX] {
+            let kept = forms::fit_kept(parts.clone(), max, &handle());
+            let shown: Vec<_> = kept.iter().map(|(p, _)| p.clone()).collect();
+            assert_eq!(shown, forms::fit(parts.clone(), max, &handle()));
+            let tried = forms::try_fit_kept(parts.clone(), max, &handle());
+            match forms::try_fit(parts.clone(), max, &handle()) {
+                Ok(given) => {
+                    let tried = tried.expect("both fit");
+                    assert_eq!(given, tried.into_iter().map(|(p, _)| p).collect::<Vec<_>>());
+                }
+                Err(o) => assert_eq!(tried.expect_err("both over"), o),
+            }
+            let mut last = None;
+            for (p, k) in &kept {
+                match k {
+                    Some((i, bytes)) => {
+                        assert_eq!(*bytes, 0..parts[*i].text.len());
+                        assert_eq!(p, &parts[*i]);
+                        assert_eq!(p.text, parts[*i].text[bytes.clone()]);
+                        assert!(last < Some(*i), "parts in order, each once");
+                        last = Some(*i);
+                    }
+                    None => assert_eq!(p.voice, Voice::Mark, "{p:?}"),
+                }
+            }
+        }
+    }
+}

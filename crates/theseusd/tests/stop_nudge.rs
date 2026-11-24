@@ -31,7 +31,7 @@ fn calls(prompt: &str) -> Vec<(&'static str, Value)> {
 }
 
 /// The safe template on the stand-in model, every secret from `KEY_VAR`,
-/// the judge on at `jev` with `loop.v1` judging alone, and `stop_nudge`.
+/// the judge on at `jev` with `loop.v2` judging alone, and `stop_nudge`.
 fn rig(model: &FakeModel, jev: &FakeJev, stop_nudge: bool) -> tempfile::TempDir {
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
     let dir = tempfile::tempdir().unwrap();
@@ -62,7 +62,7 @@ fn rig(model: &FakeModel, jev: &FakeJev, stop_nudge: bool) -> tempfile::TempDir 
     j.insert("total_secs".into(), 5.into());
     j.insert("stop_nudge".into(), stop_nudge.into());
     let packs = table(j, "packs");
-    for p in ["classify.v4", "route.v11", "directive.v2"] {
+    for p in ["classify.v5", "route.v12", "directive.v2"] {
         let mut off = toml::Table::new();
         off.insert("rung".into(), "off".into());
         packs.insert(p.into(), off.into());

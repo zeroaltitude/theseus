@@ -1080,7 +1080,11 @@ async fn an_unset_reviewer_profile_asks_jev_and_reviews_on_its_pick() {
     // The state names the builder's model; no option is kept off by origin
     // (2026-11-21).
     assert!(asks[0].contains("claude-sonnet-5-5"), "{}", asks[0]);
-    assert!(asks[0].contains("\"allowed\""), "{}", asks[0]);
+    assert!(
+        !asks[0].contains("restricted_models") && !asks[0].contains("not_allowed"),
+        "{}",
+        asks[0]
+    );
     assert!(asks[0].contains("job"), "{}", asks[0]);
 }
 

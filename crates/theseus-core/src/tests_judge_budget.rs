@@ -107,7 +107,7 @@
 //! | bound | value / knob | observable it bounds |
 //! |---|---|---|
 //! | `[threads] route_wait_ms` | retired (2026-11-22) | nothing: no turn waits on a thread choice, a cross verdict or a scope answer any more |
-//! | `judge::stop::WAIT` | 1,000 ms; constant, no knob | whether `loop.v1`'s nudge reaches the stopping turn |
+//! | `judge::stop::WAIT` | 1,000 ms; constant, no knob | whether `loop.v2`'s nudge reaches the stopping turn |
 //! | `rerank::DEADLINE` | 600 ms; `set_rerank_deadline` in tests | the rerank call and its waiting turn |
 //! | cross/families call deadline | 5 s; literal, no knob | the call and its eventual record, even after the turn stopped waiting |
 //!

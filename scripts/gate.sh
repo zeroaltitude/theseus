@@ -1269,14 +1269,16 @@ script_tests() {
   return 0
 }
 
-# The measuring kit's RealDaemon cases need this HEAD's binaries: ahead of
-# test build they skip. Run them again after it, reported and not fatal like
-# script tests (theseus-4vsrz); a skip must be visible in the phase table.
+# The measuring kit's RealDaemon and RealKit cases need this HEAD's binaries:
+# ahead of test build they skip. Run them again after it, reported and not
+# fatal like script tests (theseus-4vsrz); a skip must be visible in the phase
+# table.
 real_daemon_tests() {
   resolve_target_dir
   local log="$gate_tmp/real-daemon.log" rc=0
   CARGO_TARGET_DIR="$target_dir" PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
-    scripts.tests.test_view_kit.RealDaemon scripts.tests.test_view_proof.RealDaemon >"$log" 2>&1 || rc=$?
+    scripts.tests.test_view_kit.RealDaemon scripts.tests.test_view_proof.RealDaemon \
+    scripts.tests.test_view_real.RealKit >"$log" 2>&1 || rc=$?
   tail -n 20 "$log"
   if [ "$rc" -ne 0 ]; then
     phase_label="real daemon tests warned"

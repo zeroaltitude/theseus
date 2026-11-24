@@ -392,7 +392,7 @@ pub fn judged_task(store: &Store, session: &str, node: &str) -> Option<String> {
         let Ok(j) = serde_json::from_value::<theseus_judge::Judgment>(row.data) else {
             continue;
         };
-        if j.pack != crate::judge::inbound::CLASSIFY_PACK
+        if !crate::judge::inbound::reads_as_classify(&j.pack)
             || j.context["node"].as_str() != Some(node)
         {
             continue;
@@ -402,7 +402,7 @@ pub fn judged_task(store: &Store, session: &str, node: &str) -> Option<String> {
     None
 }
 
-/// A `classify.v4` judgment's `addressed_task` answer, when it is a task.
+/// A classify judgment's `addressed_task` answer, when it is a task.
 pub fn addressed_of(j: &theseus_judge::Judgment) -> Option<String> {
     j.answers
         .iter()
