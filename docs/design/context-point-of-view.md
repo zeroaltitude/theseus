@@ -139,8 +139,10 @@ record of its own that points at it, and the node is shown with it. As built:
   erased since is refused.
 
 Not yet: a stored result keeps its words as the record of what was shown (whether it should hold references only
-is the owner's decision). `did` lines and fold accounts, exact spans, a recall note's source, and an imported
-summary that is rewritten under its own id are also left.
+is the owner's decision). An exchange laid spoken shows a message and an answer without the line: the window lays
+every exchange with no tool traffic spoken, and the budget can step any exchange down to it. (A result there is
+its receipt, which shows none of its words.) `did` lines and fold accounts, exact spans, a recall note's source,
+and an imported summary that is rewritten under its own id are also left.
 
 **Not built**: the search before the first word (§6, rung 2) and the `leans_on` question; asking a task itself, and
 §7's own table for a task (a task's turns use a place's table at the task's own place: §7, "as built"); writing `did` lines and fold nodes again after a correction; the yardstick; the aside;

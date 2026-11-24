@@ -278,13 +278,23 @@ async fn a_window_lays_no_words_of_an_erased_source() {
     assert!(!sent.contains(WORD), "{sent}");
 }
 
-/// The retracted message itself, laid in its own conversation's window, carries the mark after its words.
+/// The retracted message itself, laid whole in its own conversation's window, carries the mark after its
+/// words.
 #[tokio::test]
 async fn a_retracted_message_in_the_window_carries_the_mark() {
     let r = rig();
-    let said = say(&r.core).await;
-    retract(&r.core, &said.node);
-    turn(&r.core, &said.session, "and the weir?").await;
+    // Said with a call, so its exchange holds tool traffic and the window lays it whole. An exchange with
+    // none is laid spoken, and the line is laid only beside an exchange laid whole.
+    let asked = format!("{SAID} CALL {{}}");
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, &asked).await;
+    let node = (r.core.store.session_nodes(&sid).unwrap().into_iter())
+        .map(|(_, n)| n)
+        .find(|n| matches!(&n.body, Body::UserMessage { text, .. } if text.contains(WORD)))
+        .expect("the person's message")
+        .id;
+    retract(&r.core, &node);
+    turn(&r.core, &sid, "and the weir?").await;
     let last = r.requests().pop().expect("a request");
     let ask = (last.messages.iter())
         .map(|m| m.to_string())
@@ -294,9 +304,9 @@ async fn a_retracted_message_in_the_window_carries_the_mark() {
         ask.contains("[Since this was said: it was marked wrong on "),
         "{ask}"
     );
-    let (_, stored) = r.core.store.get_node(&said.node).unwrap().unwrap();
+    let (_, stored) = r.core.store.get_node(&node).unwrap().unwrap();
     assert!(
-        matches!(&stored.body, Body::UserMessage { text, .. } if text == SAID),
+        matches!(&stored.body, Body::UserMessage { text, .. } if *text == asked),
         "the stored message is as said: {stored:?}"
     );
 }
