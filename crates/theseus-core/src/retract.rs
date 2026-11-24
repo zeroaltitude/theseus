@@ -65,6 +65,9 @@ pub const SCOPE: &str = "retract";
 pub const NOTES_KEY: &str = "retract.notes";
 /// The author of a correction note's node.
 pub const NOTE_AUTHOR: &str = "harness:retraction";
+/// The longest reason a retraction takes, in characters: a longer one is refused when it is given, never
+/// cut. One stored before this limit stays as it is.
+pub const WHY_CHARS: usize = 500;
 /// The longest gist of a node a note or a card quotes.
 const GIST_CHARS: usize = 160;
 /// The longest card.
@@ -251,6 +254,13 @@ impl Core {
         let why = p.why.trim();
         if why.is_empty() {
             bail!("a retraction says why: give the reason in a sentence");
+        }
+        let given = why.chars().count();
+        if given > WHY_CHARS {
+            bail!(
+                "a retraction's reason is at most {WHY_CHARS} characters, and this one is {given}: \
+                 give it shorter. Nothing was written."
+            );
         }
         if let Some(sid) = p.session_id.as_deref() {
             if self.store.get_session::<SessionRecord>(sid)?.is_none() {
