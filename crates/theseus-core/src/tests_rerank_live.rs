@@ -142,14 +142,14 @@ fn wait_span(res: &TurnSubmitResult) -> Value {
 /// Rerank's failures and timeouts move only its own breaker (32d): five
 /// reranks that time out in a row open it (a `judge.circuit` row naming
 /// it, health's judge line), the next rerank skips at once, and a
-/// `loop.v1` judgment still goes out, on the shared breaker, closed.
+/// `loop.v2` judgment still goes out, on the shared breaker, closed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn five_rerank_timeouts_open_reranks_breaker_alone() {
     let jev = FakeJev::start().unwrap();
-    // Slower than rerank's 600 ms, inside loop.v1's 5 s.
+    // Slower than rerank's 600 ms, inside loop.v2's 5 s.
     jev.set_mode(FakeMode::Slow(Duration::from_millis(1500)));
     let (r, here, _) = heron_rig(&jev, |c| {
-        c.judge.packs.remove("loop.v1");
+        c.judge.packs.remove("loop.v2");
     });
     let c = &r.core;
     for i in 1..=5 {
@@ -195,7 +195,7 @@ async fn five_rerank_timeouts_open_reranks_breaker_alone() {
         "the retired cross judge has no breaker: {:?}",
         h.breakers
     );
-    // The sixth rerank skips at once; loop.v1 still goes out, and answers.
+    // The sixth rerank skips at once; loop.v2 still goes out, and answers.
     let loops_before = loop_rows(&c.store).len();
     turn(c, &here, "And the kettle?").await;
     let rows = until_reranked(&c.store, 6).await;
@@ -213,7 +213,7 @@ async fn five_rerank_timeouts_open_reranks_breaker_alone() {
         }
         assert!(
             t0.elapsed() < Duration::from_secs(30),
-            "loop.v1 never answered"
+            "loop.v2 never answered"
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }

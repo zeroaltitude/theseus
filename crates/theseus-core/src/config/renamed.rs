@@ -141,7 +141,7 @@ mod tests {
             "`[routing] mode` was renamed to `[routing] rung`",
         ),
         (
-            "[judge.packs.\"loop.v1\"]\nmode = \"off\"\n",
+            "[judge.packs.\"loop.v2\"]\nmode = \"off\"\n",
             "`[judge.packs.*] mode` was renamed to `[judge.packs.*] rung`",
         ),
         (
@@ -388,7 +388,7 @@ mod tests {
              [profiles.sonnet]\nprovider = \"anthropic\"\nmodel = \"claude-sonnet-5-5\"\nmax_loops_mode = \"notify\"\n\
              [routing]\nmode = \"shadow\"\n[routing.modes.chat]\nprofiles = [\"sonnet\"]\n\
              [routing.data]\nprivate_topics = [\"Acme\"]\n\
-             [judge.packs.\"loop.v1\"]\nmode = \"off\"\n\
+             [judge.packs.\"loop.v2\"]\nmode = \"off\"\n\
              [route]\nreplay_day_usd = 2.0\n\
              [persona]\nimport_files = [\"SOUL.md\"]\nown_boost = 1.5\n\
              [cache]\nkeep_warm_minutes = 50\n[threads]\nkeep_warm_hours = 2\n\
@@ -400,7 +400,7 @@ mod tests {
              [profiles.sonnet]\nprovider = \"anthropic\"\nmodel = \"claude-sonnet-5-5\"\non_max_loops = \"notify\"\n\
              [routing]\nrung = \"shadow\"\n[routing.classes.chat]\nprofiles = [\"sonnet\"]\n\
              [privacy]\nsensitive_names = [\"Acme\"]\n\
-             [judge.packs.\"loop.v1\"]\nrung = \"off\"\n\
+             [judge.packs.\"loop.v2\"]\nrung = \"off\"\n\
              [route_bench]\nreplay_day_usd = 2.0\n\
              [persona_import]\nimport_files = [\"SOUL.md\"]\nown_boost = 1.5\n\
              [cache]\nttl = \"1h\"\nkeep_warm_hours = 12\nkeep_warm_every_minutes = 50\n\

@@ -211,7 +211,8 @@ def tb_part(rows: list[dict[str, Any]], s: dict[str, Any], floor: dict | None, w
 # The cases written for one route pack that are also the set of the pack that acts after it: `route.v11` is
 # `route.v10` with one option's description, so `route.v10.cases.toml` is its set (the owner, 2026-11-14), the same
 # explicit pair as `theseus_judge::route_cases::read_as`. Never "any later version": a route.v8 daemon stays n/a.
-CASES_ALSO_FOR: dict[str, str] = {"route.v10": "route.v11"}
+# `route.v12` (issue 46) is `route.v11` without the questions nothing read: a file declaring v11 is v12's set.
+CASES_ALSO_FOR: dict[str, str] = {"route.v10": "route.v11", "route.v11": "route.v12"}
 
 # Where a cache-busting copy's pack version starts: above anything anybody writes by hand
 # (route.v10 is 10), so a bumped copy is never mistaken for a version of the pack's own history.

@@ -265,13 +265,13 @@ fn the_log_holds_self_rows_and_todays_kinds_newest_first() {
         &c,
         "pack.mode",
         now - 10 * DAY,
-        json!({"pack": "loop.v1", "mode": "live", "from": "shadow", "who": "owner", "why": "old"}),
+        json!({"pack": "loop.v2", "mode": "live", "from": "shadow", "who": "owner", "why": "old"}),
     );
     seed(
         &c,
         "pack.mode",
         now - 3 * DAY,
-        json!({"pack": "loop.v1", "mode": "canary", "from": "shadow", "who": "system", "why": "its bar", "share": 0.2}),
+        json!({"pack": "loop.v2", "mode": "canary", "from": "shadow", "who": "system", "why": "its bar", "share": 0.2}),
     );
     seed(
         &c,
@@ -317,7 +317,7 @@ fn the_log_holds_self_rows_and_todays_kinds_newest_first() {
     );
     assert_eq!(
         all.rows[3].undo.as_deref(),
-        Some("theseus packs rollback loop.v1")
+        Some("theseus packs rollback loop.v2")
     );
     assert_eq!(all.rows[3].numbers["share"], 0.2);
     let week = c
@@ -364,7 +364,7 @@ fn the_digest_lists_a_seeded_week() {
         &c,
         "pack.mode",
         now - 9 * DAY,
-        json!({"pack": "loop.v1", "mode": "live", "from": "shadow", "who": "owner"}),
+        json!({"pack": "loop.v2", "mode": "live", "from": "shadow", "who": "owner"}),
     );
     assert!(halt(&c, &cli(), "a look"));
     let d = c
@@ -410,7 +410,7 @@ fn the_digest_lists_a_seeded_week() {
         "{t}"
     );
     assert!(
-        !t.contains("loop.v1"),
+        !t.contains("loop.v2"),
         "the 9-day-old move is not this week's: {t}"
     );
     assert_eq!(d.rows, 3);

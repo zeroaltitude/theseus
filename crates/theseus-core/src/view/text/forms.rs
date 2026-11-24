@@ -352,6 +352,19 @@ pub struct Overflow {
 /// one unit, so a cut never parts them. When what must be kept cannot fit, an [`Overflow`] says how much it
 /// needs: the person's words are never cut to fit.
 pub fn try_fit(parts: Vec<Said>, max: u64, handle: &Handle) -> Result<Vec<Said>, Overflow> {
+    try_fit_kept(parts, max, handle).map(|kept| kept.into_iter().map(|(p, _)| p).collect())
+}
+
+/// What [`try_fit`] or [`fit`] kept of one part it was given: which one (its index), and the bytes of its
+/// text, as they are. A fit cuts between parts, never inside one, so the bytes are always all of them.
+pub type Kept = (usize, std::ops::Range<usize>);
+
+/// [`try_fit`], each part it gives with what it kept ([`Kept`]), or none for a cut's mark (code's own words).
+pub fn try_fit_kept(
+    parts: Vec<Said>,
+    max: u64,
+    handle: &Handle,
+) -> Result<Vec<(Said, Option<Kept>)>, Overflow> {
     let units = units(&parts);
     let bytes: Vec<u64> = parts.iter().map(|p| said_text(p).len() as u64).collect();
     let last_reply = units
@@ -382,8 +395,10 @@ pub fn try_fit(parts: Vec<Said>, max: u64, handle: &Handle) -> Result<Vec<Said>,
     Ok(runs
         .into_iter()
         .flat_map(|r| match r {
-            Run::Kept(k) => units[k].iter().map(|&i| parts[i].clone()).collect(),
-            Run::Cut(m) => vec![m],
+            Run::Kept(k) => (units[k].iter())
+                .map(|&i| (parts[i].clone(), Some((i, 0..parts[i].text.len()))))
+                .collect(),
+            Run::Cut(m) => vec![(m, None)],
         })
         .collect())
 }
@@ -392,13 +407,23 @@ pub fn try_fit(parts: Vec<Said>, max: u64, handle: &Handle) -> Result<Vec<Said>,
 /// instead (`[too long to show here: about 12,000 tokens, over the 3,000 allowed; open <handle> for the whole
 /// exchange]`), never the words silently over.
 pub fn fit(parts: Vec<Said>, max: u64, handle: &Handle) -> Vec<Said> {
-    try_fit(parts, max, handle).unwrap_or_else(|o| {
-        vec![mark_text(format!(
-            "[too long to show here: about {} tokens, over the {} allowed; open {} for the whole exchange]",
-            crate::narrative::thousands(o.needed),
-            crate::narrative::thousands(o.max),
-            o.handle.0
-        ))]
+    (fit_kept(parts, max, handle).into_iter())
+        .map(|(p, _)| p)
+        .collect()
+}
+
+/// [`fit`], each part it gives with what it kept ([`Kept`]), or none for a mark.
+pub fn fit_kept(parts: Vec<Said>, max: u64, handle: &Handle) -> Vec<(Said, Option<Kept>)> {
+    try_fit_kept(parts, max, handle).unwrap_or_else(|o| {
+        vec![(
+            mark_text(format!(
+                "[too long to show here: about {} tokens, over the {} allowed; open {} for the whole exchange]",
+                crate::narrative::thousands(o.needed),
+                crate::narrative::thousands(o.max),
+                o.handle.0
+            )),
+            None,
+        )]
     })
 }
 

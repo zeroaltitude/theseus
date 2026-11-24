@@ -1,3 +1,6 @@
+# RE-POINTED again (issue 46): route.v11 is retired too, so this file declares `route.v12`, the acting pack, which is route.v11
+# without the `seal` and `personal` questions and two clauses of `model`; its `model` options are the same, and not a case,
+# label or state of this file changed. The state no longer carries `restricted_models`; the cases that set it still parse.
 # RE-POINTED (2026-11-21, issue 46): route.v10 is retired (`packs/retired/`), so this file declares `route.v11`, the acting
 # pack, which is route.v10 word for word but for the `fable` option's description; not a case, label or state changed. The
 # file keeps its name, which the bench and the scripts read. "route.v10" below is the history the file was written in.
@@ -84,7 +87,7 @@
 # denominator. `model` and `effort` are 80% of the replay's own 62, rounded up, with no credit for W39 or W40. W26 and W27 (cyber and biology topics, Sonnet) rest on the ordinary rule only: the Fable
 # block does not name them, by the owner's edit of 2026-10-29 22:46. A miss on either is a finding about the
 # table's text, never a reason to edit the case.
-pack = "route.v11"
+pack = "route.v12"
 also = ["effort.v1"]
 derivation = "design §4.1 (L1 to L20, the owner's 2026-10-26 labels by the mapping rule) and §4.2 (W1 to W38)"
 

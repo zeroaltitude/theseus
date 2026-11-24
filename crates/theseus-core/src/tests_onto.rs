@@ -157,8 +157,8 @@ fn reply(core: &Core) -> Value {
 fn onto_judgment(core: &Core) -> String {
     kinds(&core.store, "judge.call")
         .into_iter()
-        .find(|r| r.data["pack"] == "onto.v1")
-        .expect("onto.v1's row")
+        .find(|r| r.data["pack"] == crate::judge::onto::ONTO_PACK)
+        .expect("the onto pack's row")
         .data["id"]
         .as_str()
         .unwrap()
@@ -327,7 +327,7 @@ fn batch_request(jev: &FakeJev) -> Value {
     jev.seen()
         .into_iter()
         .map(|s| s.body)
-        .find(|b| b["questions"].to_string().contains("classify.v4/"))
+        .find(|b| b["questions"].to_string().contains("classify.v5/"))
         .expect("the batch's request")
 }
 
@@ -346,7 +346,9 @@ async fn off_the_batch_is_todays_and_on_its_state_is_todays_plus_the_fields() {
         let sid = bound(&r.core);
         crate::tests_route::turn(&r.core, Some(&sid), SAID, None).await;
         let body = batch_request(&r.jev);
-        let asks_onto = body["questions"].to_string().contains("onto.v1/");
+        let asks_onto = body["questions"]
+            .to_string()
+            .contains(&format!("{}/", crate::judge::onto::ONTO_PACK));
         assert_eq!(asks_onto, on, "onto.v1 rides the batch only when on");
         for route in r
             .jev
@@ -424,7 +426,7 @@ async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
             .jev
             .seen()
             .iter()
-            .any(|s| s.body["questions"].to_string().contains("classify.v4/"))
+            .any(|s| s.body["questions"].to_string().contains("classify.v5/"))
         {
             assert!(
                 t0.elapsed() < Duration::from_secs(60),
@@ -434,7 +436,7 @@ async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
         }
         let asked = batch_request(&r.jev)["questions"].to_string();
         assert_eq!(
-            asked.contains("onto.v1/"),
+            asked.contains(&format!("{}/", crate::judge::onto::ONTO_PACK)),
             on,
             "onto.v1 is in the held batch only when on"
         );
@@ -487,7 +489,11 @@ async fn the_naming_call_is_made_once_a_session_kind_and_day() {
         .seen()
         .into_iter()
         .map(|s| s.body)
-        .rfind(|b| b["questions"].to_string().contains("onto.v1/topic_name"))
+        .rfind(|b| {
+            b["questions"]
+                .to_string()
+                .contains(&format!("{}/topic_name", crate::judge::onto::ONTO_PACK))
+        })
         .unwrap();
     assert!(batch["state"].to_string().contains("Ledger move"));
 }
@@ -853,7 +859,7 @@ async fn the_term_is_off_at_zero_and_the_persona_state_names_the_categories() {
 }
 
 /// A picture file as a message carries it.
-fn picture_file(name: &str, bytes: &[u8]) -> theseus_protocol::Attachment {
+pub(crate) fn picture_file(name: &str, bytes: &[u8]) -> theseus_protocol::Attachment {
     theseus_protocol::Attachment {
         name: name.into(),
         media_type: "image/png".into(),
@@ -877,7 +883,10 @@ fn onto_questions(s: &theseus_judge::fake::Seen) -> Vec<String> {
         .as_object()
         .map(|q| {
             q.keys()
-                .filter_map(|k| k.strip_prefix("onto.v1/").map(str::to_string))
+                .filter_map(|k| {
+                    k.strip_prefix(&format!("{}/", crate::judge::onto::ONTO_PACK))
+                        .map(str::to_string)
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -1088,4 +1097,33 @@ async fn cancelling_a_naming_call_releases_its_inflight_claim() {
         2,
         "cancellation does not consume the daily marker"
     );
+}
+
+/// The inbound batch asks `onto.v2` (issue 46): its filing questions, under its own name, and none of the
+/// questions that fed the private mark.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_batch_asks_onto_v2_with_no_personal_or_elicits() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(jev);
+    crate::tests_route::turn(&r.core, None, SAID, None).await;
+    let asked: Vec<String> = r
+        .jev
+        .seen()
+        .iter()
+        .flat_map(|s| {
+            s.body["questions"]
+                .as_object()
+                .map(|q| q.keys().cloned().collect::<Vec<_>>())
+                .unwrap_or_default()
+        })
+        .filter(|k| k.starts_with("onto."))
+        .collect();
+    assert!(!asked.is_empty(), "onto rides the batch");
+    assert!(asked.iter().all(|k| k.starts_with("onto.v2/")), "{asked:?}");
+    for gone in ["personal_applies", "personal", "elicits"] {
+        assert!(
+            !asked.contains(&format!("onto.v2/{gone}")),
+            "{gone}: {asked:?}"
+        );
+    }
 }

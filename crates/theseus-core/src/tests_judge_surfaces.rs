@@ -65,7 +65,7 @@ async fn a_shadow_dispatch_marks_the_trace_with_the_id_its_row_carries() {
     let m = &marks[0];
     assert_eq!(
         (m.pack.as_str(), m.point.as_str(), m.mode),
-        ("loop.v1", "loop_end", theseus_judge::Mode::Shadow)
+        ("loop.v2", "loop_end", theseus_judge::Mode::Shadow)
     );
     // The turn's last frame carries the same trace, mark and all.
     let traced = kinds(&r.core.store, "turn.trace");
@@ -178,14 +178,14 @@ async fn judge_list_filters_by_pack_session_and_time() {
     let scopes = r.core.judge_list(all.clone()).unwrap().scopes;
     assert!(scopes.contains(&"judge:loop".to_string()), "{scopes:?}");
     let by = |p: JudgeListParams| list(&r.core, p);
-    for pack in ["loop.v1", "loop"] {
+    for pack in ["loop.v2", "loop"] {
         let p = JudgeListParams {
             pack: Some(pack.into()),
             ..all.clone()
         };
         assert_eq!(by(p), ids, "{pack}");
     }
-    for pack in ["loop.v2", "security.v1"] {
+    for pack in ["loop.v3", "security.v1"] {
         let p = JudgeListParams {
             pack: Some(pack.into()),
             ..all.clone()

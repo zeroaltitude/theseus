@@ -137,8 +137,9 @@ pub fn wired_mode(pack: &str) -> PackMode {
         .map_or(PackMode::Shadow, |(_, m)| *m)
 }
 
-/// JUDGE_STOP (§2.4), at `loop_end`.
-pub const LOOP_PACK: &str = "loop.v1";
+/// JUDGE_STOP (§2.4), at `loop_end`: `loop.v2` since issue 46, `loop.v1`
+/// without the four questions nothing read and the three rules nothing fed.
+pub const LOOP_PACK: &str = "loop.v2";
 
 /// The sink writes its frame at most this long after a judgment lands.
 pub const FLUSH_EVERY: Duration = Duration::from_secs(2);

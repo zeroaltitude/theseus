@@ -13,7 +13,7 @@ fn label_row(source: &str, label: Value) -> LedgerRow {
         turn_id: None,
         data: json!({
             "judgment": "jdg_a",
-            "pack": "loop.v1",
+            "pack": "loop.v2",
             "question": "work_state",
             "label": label,
             "source": source,
@@ -23,7 +23,7 @@ fn label_row(source: &str, label: Value) -> LedgerRow {
 }
 
 /// The system's `false_completion` label is `{"not": "complete"}`: it once filed
-/// `judge.wrong:loop.v1` against Jev, though no person had said Jev was wrong. A person's
+/// `judge.wrong:loop.v2` against Jev, though no person had said Jev was wrong. A person's
 /// label of the same words still files it, and a label that agrees files nothing.
 #[test]
 fn only_a_persons_wrong_label_files_a_wrong_judgment() {
@@ -33,7 +33,7 @@ fn only_a_persons_wrong_label_files_a_wrong_judgment() {
             "system {label}"
         );
         let o = of_row(7, &label_row("operator", label.clone())).expect("filed");
-        assert_eq!(o.key, "judge.wrong:loop.v1", "{label}");
+        assert_eq!(o.key, "judge.wrong:loop.v2", "{label}");
         assert!(o.person, "{label}");
     }
     assert!(of_row(7, &label_row("operator", json!("progressing"))).is_none());

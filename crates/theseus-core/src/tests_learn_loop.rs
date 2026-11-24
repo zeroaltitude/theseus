@@ -71,7 +71,7 @@ fn label(id: &str, j: &str, value: &str, note: &str) -> NewRecord {
         LedgerKind::JudgeLabel,
         None,
         None,
-        json!({"id": id, "judgment": j, "pack": "loop.v1", "question": "work_state",
+        json!({"id": id, "judgment": j, "pack": "loop.v2", "question": "work_state",
             "label": value, "source": "operator", "who": "owner", "via": "cli",
             "weight": 1.0, "note": note}),
     );
@@ -81,13 +81,13 @@ fn label(id: &str, j: &str, value: &str, note: &str) -> NewRecord {
     r.scoped("judge:loop")
 }
 
-/// One `loop.v1` judgment of `name`, answered `top`, labeled `truth` (with
+/// One `loop.v2` judgment of `name`, answered `top`, labeled `truth` (with
 /// `note`), at `at_ms`.
 fn seed_one(c: &Core, name: &str, top: &str, truth: &str, note: &str, at_ms: u64) {
     let (state, blob) = loop_state(c, &format!("Paint the {name} boat by the pier."));
     let j = judgment(
         &format!("jdg_{name}"),
-        "loop.v1",
+        "loop.v2",
         &state,
         vec![choice(top, 0.95)],
         json!({"blob": blob, "session": "ses_harbor", "turn": format!("trn_{name}"),
@@ -150,7 +150,7 @@ pub(crate) fn fake(gull_breaks: bool) -> FakeJev {
     jev
 }
 
-/// The writer's reply: loop.v1 with its `progressing` option reworded.
+/// The writer's reply: loop.v2 with its `progressing` option reworded.
 pub(crate) fn writer_reply() -> Scripted {
     Scripted::text(&format!(
         "Here is the next version.\n```toml\n{}\n```\n",
@@ -159,8 +159,8 @@ pub(crate) fn writer_reply() -> Scripted {
 }
 
 /// A core with the judge on against `jev` and the writer scripted; every
-/// wired pack but loop.v1 off (the tests write loop.v1's judgments), and
-/// loop.v1 a shadow parent: wired live since the stop nudge (theseus-fh0u),
+/// wired pack but loop.v2 off (the tests write loop.v2's judgments), and
+/// loop.v2 a shadow parent: wired live since the stop nudge (theseus-fh0u),
 /// the owner's rollback leaves it acting nowhere, as it stood before.
 pub(crate) fn rig(
     script: Vec<Scripted>,
@@ -169,7 +169,7 @@ pub(crate) fn rig(
 ) -> Rig {
     let r = rig_on(script, Some(jev), |c| {
         for (p, _) in crate::judge::WIRED {
-            if *p != "loop.v1" {
+            if *p != "loop.v2" {
                 c.judge.packs.insert((*p).into(), crate::tests_judge::off());
             }
         }
@@ -179,7 +179,7 @@ pub(crate) fn rig(
         tweak(c);
     });
     let back = PackRollbackParams {
-        pack: "loop.v1".into(),
+        pack: "loop.v2".into(),
         why: Some("a shadow parent".into()),
         off: false,
     };
@@ -190,7 +190,7 @@ pub(crate) fn rig(
 pub(crate) async fn learn(c: &Arc<Core>, split: u64) -> JudgeProposal {
     c.judge_learn(
         JudgeLearnParams {
-            pack: "loop.v1".into(),
+            pack: "loop.v2".into(),
             split: Some(split.to_string()),
         },
         "cli",
@@ -263,7 +263,7 @@ async fn ten_train_errors_propose_once_and_the_holdout_never_reaches_the_writer(
 
 /// Better on train, and better on the holdout with no class worse, below
 /// the minimum: a shadow parent's place in shadow. The version is a row and
-/// a file; it stands at loop.v1's point; the rows rebuild the file; a
+/// a file; it stands at loop.v2's point; the rows rebuild the file; a
 /// rollback gives the place back.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_better_candidate_replaces_a_shadow_parent_and_a_rollback_restores_it() {
@@ -288,7 +288,7 @@ async fn a_better_candidate_replaces_a_shadow_parent_and_a_rollback_restores_it(
         "{}",
         p.said
     );
-    assert!(p.said.contains("replacing loop.v1 in shadow"), "{}", p.said);
+    assert!(p.said.contains("replacing loop.v2 in shadow"), "{}", p.said);
     assert!(
         p.diff.contains("+ ") && p.diff.contains("Plainly"),
         "{}",
@@ -314,9 +314,9 @@ async fn a_better_candidate_replaces_a_shadow_parent_and_a_rollback_restores_it(
         "the file followed [server] state_dir"
     );
     assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
-    // It stands in loop.v1's place: a turn's end dispatches it.
+    // It stands in loop.v2's place: a turn's end dispatches it.
     let j = &c.runner.judge;
-    assert_eq!(j.placed("loop.v1", "ses_harbor"), "loop.v101");
+    assert_eq!(j.placed("loop.v2", "ses_harbor"), "loop.v101");
     let d = j
         .plan_loop_end("no_tool_calls", "trn_new", "ses_harbor")
         .unwrap();
@@ -336,11 +336,11 @@ async fn a_better_candidate_replaces_a_shadow_parent_and_a_rollback_restores_it(
         "cli",
     )
     .unwrap();
-    assert_eq!(j.placed("loop.v1", "ses_harbor"), "loop.v1");
+    assert_eq!(j.placed("loop.v2", "ses_harbor"), "loop.v2");
     let d = j
         .plan_loop_end("no_tool_calls", "trn_newer", "ses_harbor")
         .unwrap();
-    assert_eq!(d.pack, "loop.v1");
+    assert_eq!(d.pack, "loop.v2");
 }
 
 /// Better on train but worse on one holdout class: held, with why, and it
@@ -356,7 +356,7 @@ async fn a_candidate_worse_on_one_holdout_class_is_held() {
     assert_eq!(p.decision, "held", "{}", p.why);
     assert!(p.why.contains("work_state: complete's"), "{}", p.why);
     assert_eq!(p.fixed, 10);
-    assert_eq!(c.runner.judge.placed("loop.v1", "ses_harbor"), "loop.v1");
+    assert_eq!(c.runner.judge.placed("loop.v2", "ses_harbor"), "loop.v2");
     // Its row is written: the owner may still place it.
     assert_eq!(
         rows(c, "judge.learn:loop", LedgerKind::PackVersion).len(),
@@ -373,7 +373,7 @@ async fn a_live_parents_candidate_below_the_minimum_goes_to_the_canary() {
     let c = &r.core;
     c.pack_promote(
         &PackPromoteParams {
-            pack: "loop.v1".into(),
+            pack: "loop.v2".into(),
             to: "live".into(),
             ..PackPromoteParams::default()
         },
@@ -400,9 +400,9 @@ async fn a_live_parents_candidate_below_the_minimum_goes_to_the_canary() {
     let canary = in_arm(theseus_judge::learn::Arm::Canary);
     let control = in_arm(theseus_judge::learn::Arm::Control);
     let j = &c.runner.judge;
-    assert_eq!(j.placed("loop.v1", &canary), "loop.v101");
-    assert_eq!(j.placed("loop.v1", &control), "loop.v1");
-    for (session, want) in [(&canary, "loop.v101"), (&control, "loop.v1")] {
+    assert_eq!(j.placed("loop.v2", &canary), "loop.v101");
+    assert_eq!(j.placed("loop.v2", &control), "loop.v2");
+    for (session, want) in [(&canary, "loop.v101"), (&control, "loop.v2")] {
         let d = j
             .plan_loop_end("no_tool_calls", &format!("trn_{session}"), session)
             .unwrap();
@@ -572,7 +572,7 @@ async fn the_nightly_run_uses_the_interleaved_split() {
     let props = tokio::task::spawn_blocking(move || c.learn_nightly(&rt, now, |_| {}))
         .await
         .unwrap();
-    let p = props.iter().find(|p| p.root == "loop.v1").unwrap();
+    let p = props.iter().find(|p| p.root == "loop.v2").unwrap();
     assert_eq!(p.split, "interleaved");
     let holdout = (0..15)
         .filter(|i| theseus_judge::propose::interleaved_holdout(&format!("jdg_heron{i}")))
@@ -699,7 +699,7 @@ fn replay_label(id: &str, j: &str, value: &str) -> NewRecord {
         LedgerKind::JudgeLabel,
         None,
         None,
-        json!({"id": id, "judgment": j, "pack": "loop.v1", "question": "work_state",
+        json!({"id": id, "judgment": j, "pack": "loop.v2", "question": "work_state",
             "label": value, "source": "replay", "who": "replay", "via": "replay",
             "weight": crate::learning::REPLAY_WEIGHT, "note": "", "rule": "whole_turn"}),
     );
@@ -709,12 +709,12 @@ fn replay_label(id: &str, j: &str, value: &str) -> NewRecord {
     r.scoped("judge:loop")
 }
 
-/// One `loop.v1` judgment of `name` labeled by a machine alone, at `at_ms`.
+/// One `loop.v2` judgment of `name` labeled by a machine alone, at `at_ms`.
 fn seed_machine(c: &Core, name: &str, at_ms: u64) {
     let (state, blob) = loop_state(c, &format!("Paint the {name} boat by the pier."));
     let j = judgment(
         &format!("jdg_{name}"),
-        "loop.v1",
+        "loop.v2",
         &state,
         vec![choice("complete", 0.95)],
         json!({"blob": blob, "session": "ses_harbor", "turn": format!("trn_{name}"),
@@ -748,4 +748,32 @@ async fn a_machine_label_trains_but_never_enters_the_holdout() {
     );
     // The machine label is no error the writer reads: only the owner's are.
     assert_eq!(p.new_errors, 10, "{p:?}");
+}
+
+/// The learning loop never rewrites the acting route pack, whatever version it is: `LEFT_ALONE` names it by
+/// its constant, so a new route version cannot slip into the roots the loop rewrites (issue 46).
+#[test]
+fn the_learning_loop_never_rewrites_the_acting_route_pack() {
+    let route = crate::judge::inbound::ROUTE_PACK;
+    assert_eq!(
+        crate::judge::wired_mode(route),
+        crate::config::PackMode::Live
+    );
+    let roots = crate::learning::propose::roots();
+    assert!(!roots.contains(&route), "{route} in {roots:?}");
+    assert!(!roots.contains(&"rerank.v1"), "{roots:?}");
+}
+
+/// The learning loop never rewrites the undo pack (issue 46). A learned version stands in shadow in its
+/// root's place (`JudgeService::placed`), and a shadow undo judgment holds nothing, so a learned undo version
+/// would switch the reversibility hold off. `LEFT_ALONE` names the undo pack by its constant.
+#[test]
+fn the_learning_loop_never_rewrites_the_undo_pack() {
+    let undo = crate::config::UNDO_PACK;
+    assert_eq!(
+        crate::judge::wired_mode(undo),
+        crate::config::PackMode::Live
+    );
+    let roots = crate::learning::propose::roots();
+    assert!(!roots.contains(&undo), "{undo} in {roots:?}");
 }

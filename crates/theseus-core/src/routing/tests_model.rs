@@ -410,7 +410,7 @@ fn the_models_options_and_the_daemons_table_are_one_list() {
     assert_eq!(model::unknown_options(&pack), Vec::<String>::new());
     assert_eq!(offered(&pack), named, "same options, same order");
     // The acting pack: the table, then the one option that is not a model.
-    let acting = theseus_judge::pack::by_name("route.v11").expect("route.v11");
+    let acting = theseus_judge::pack::by_name("route.v12").expect("route.v12");
     assert_eq!(model::unknown_options(&acting), Vec::<String>::new());
     let mut want = named;
     want.push(model::PARENT.to_string());

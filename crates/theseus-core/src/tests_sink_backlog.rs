@@ -23,10 +23,10 @@ const QUIET_BOUND: Duration = Duration::from_secs(3);
 /// takes to write `N` with no turn running.
 const GAPS: Duration = Duration::from_secs(3);
 
-/// A settled `loop.v1` judgment, as the recording hands it to the sink.
+/// A settled `loop.v2` judgment, as the recording hands it to the sink.
 pub(crate) fn settled(i: usize) -> Judgment {
     serde_json::from_value(json!({
-        "id": format!("jdg_backlog_{i:05}"), "pack": "loop.v1", "version": 1, "pack_sha256": "00",
+        "id": format!("jdg_backlog_{i:05}"), "pack": "loop.v2", "version": 1, "pack_sha256": "00",
         "point": "loop_end", "mode": "shadow", "model": "jev-1.13.0", "answered_by": "jev-1.13.0",
         "model_drift": false,
         "state": {"sha256": "00", "bytes": 10, "tokens": 3, "cap_tokens": 4000,

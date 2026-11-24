@@ -23,8 +23,6 @@ fn the_defaults_are_the_documented_ones() {
     );
     assert_eq!(c.recall_boost, 0.25);
     assert!(c.is_default());
-    // The private mark ships off until the owner says on (theseus-und4g).
-    assert!(!c.private_mark);
     // The nightly sweep ships on: it touches only what a machine wrote.
     assert!(c.sweep);
 }
@@ -33,13 +31,6 @@ fn the_defaults_are_the_documented_ones() {
 fn the_sweep_is_a_key_that_is_on_by_default() {
     let (cfg, _) = Config::parse(&doc("[ontology]\nsweep = false\n")).unwrap();
     assert!(!cfg.ontology.sweep);
-    assert!(!cfg.ontology.is_default());
-}
-
-#[test]
-fn the_private_mark_is_a_key_that_is_off_by_default() {
-    let (cfg, _) = Config::parse(&doc("[ontology]\nprivate_mark = true\n")).unwrap();
-    assert!(cfg.ontology.private_mark);
     assert!(!cfg.ontology.is_default());
 }
 
@@ -121,4 +112,17 @@ fn not_topics_is_a_key_that_is_empty_by_default() {
         .and_then(|s| s.split("\n\n").next())
         .unwrap();
     assert!(section.contains("\n# not_topics = [] "), "{section}");
+}
+
+/// `[ontology] private_mark` is retired with the private mark (issue 46): a settings file that sets it loads,
+/// the key does nothing, and the load names it in the one line of retired keys.
+#[test]
+fn a_settings_file_with_private_mark_loads_and_is_named_retired() {
+    let (_, warnings) = Config::parse(&doc("[ontology]\nprivate_mark = true\n")).unwrap();
+    let lines: Vec<&String> = warnings
+        .iter()
+        .filter(|w| w.contains("nothing reads it any more"))
+        .collect();
+    assert_eq!(lines.len(), 1, "{warnings:?}");
+    assert!(lines[0].contains("ontology.private_mark"), "{}", lines[0]);
 }

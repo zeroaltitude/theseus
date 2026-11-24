@@ -1,0 +1,274 @@
+# onto.v2 (issue 46): onto.v1 with the questions that existed for the restricted-provider rule taken out, and nothing
+# else changed. `personal_applies`, `personal`, `elicits`, `shows_people` and `shows_identifiers` fed only the private
+# mark (`judge::onto::mark`, gone with them), which said what later requests could send to models outside an
+# allowlist; `elicits` and `personal_applies` had no reader at all. Every other question is onto.v1's, field for field,
+# and so are the bands, the state and the action. onto.v1 is retired (`packs/retired/onto.v1.toml`), its judgments read
+# under its own text. It acts from the day it lands (`judge::onto::ONTO_PACK`, `judge::WIRED`).
+# `image_subject` and `shows_screen_or_document` are still asked, unread: whether they become written labels or go is the owner's.
+#
+# What onto.v1 was, and onto.v2 still is: Jev files the session into the ontology as each message arrives (theseus-s1vkl
+# / theseus-xzxqv; docs/design/jev-ontology-growth.md, sections 3.1 and 4.3). Same `inbound` state, so it rides the
+# inbound batch and adds no call. A message with a picture carries it (theseus-und4g): the pictures ride in a top-level
+# `assets` map and the state names each once, in its `images` field; code re-encodes each (`pic.rs`), and a 400 that
+# names an image is retried once without them. For each interpreted kind, one Choice over the candidates code picked,
+# `new` and `none`; `<kind>_name`, a Choice over the names code mined and `none`; and one `still_<kind>` Noul per
+# membership the session holds. `kind_of_thing` is recorded for the sweep's kind proposals. Its bands are the design's:
+# act at 0.80, confirm from 0.55 (`[ontology] act` and `confirm`). Jev never writes a name.
+id = "onto"
+version = 2
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "no_membership"
+action = "none"
+description = "ONTO: which categories of each interpreted kind (topic, project, event, resource, capability, expertise) a message files its session under, whether a new one is called for, and which mined name it takes."
+
+[questions.topic]
+type = "choice"
+decides = true
+instructions = "Which of the listed topic categories, if any, is the person's new message about?"
+act = 0.80
+confirm = 0.55
+options_from = "topics"
+only_when = "topics"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is about no topic that is listed, and names none that is new: it is too general or too brief to file." },
+]
+
+[questions.project]
+type = "choice"
+decides = true
+instructions = "Which of the listed project categories, if any, is the person's new message about?"
+act = 0.80
+confirm = 0.55
+options_from = "projects"
+only_when = "projects"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is about no project that is listed, and names none that is new: it is too general or too brief to file." },
+]
+
+[questions.event]
+type = "choice"
+decides = true
+instructions = "Which of the listed event categories, if any, is the person's new message about?"
+act = 0.80
+confirm = 0.55
+options_from = "events"
+only_when = "events"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is about no event that is listed, and names none that is new: it is too general or too brief to file." },
+]
+
+[questions.resource]
+type = "choice"
+decides = true
+instructions = "Which of the listed resource categories, if any, is the person's new message about?"
+act = 0.80
+confirm = 0.55
+options_from = "resources"
+only_when = "resources"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is about no resource that is listed, and names none that is new: it is too general or too brief to file." },
+]
+
+[questions.capability]
+type = "choice"
+decides = true
+instructions = "Which of the listed capability categories, if any, is the person's new message about?"
+act = 0.80
+confirm = 0.55
+options_from = "capabilities"
+only_when = "capabilities"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is about no capability that is listed, and names none that is new: it is too general or too brief to file." },
+]
+
+[questions.expertise]
+type = "choice"
+decides = true
+instructions = "Which of the listed expertise categories, if any, is the person's new message about?"
+act = 0.80
+confirm = 0.55
+options_from = "expertise"
+only_when = "expertise"
+no_match = "none"
+options = [
+  { id = "none", means = "The message is about no expertise that is listed, and names none that is new: it is too general or too brief to file." },
+]
+
+[questions.topic_name]
+type = "choice"
+instructions = "Which of the listed names best names the topic the person's new message is about?"
+act = 0.80
+confirm = 0.55
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the topic the message is about." },
+]
+
+[questions.project_name]
+type = "choice"
+instructions = "Which of the listed names best names the project the person's new message is about?"
+act = 0.80
+confirm = 0.55
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the project the message is about." },
+]
+
+[questions.event_name]
+type = "choice"
+instructions = "Which of the listed names best names the event the person's new message is about?"
+act = 0.80
+confirm = 0.55
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the event the message is about." },
+]
+
+[questions.resource_name]
+type = "choice"
+instructions = "Which of the listed names best names the resource the person's new message is about?"
+act = 0.80
+confirm = 0.55
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the resource the message is about." },
+]
+
+[questions.capability_name]
+type = "choice"
+instructions = "Which of the listed names best names the capability the person's new message is about?"
+act = 0.80
+confirm = 0.55
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the capability the message is about." },
+]
+
+[questions.expertise_name]
+type = "choice"
+instructions = "Which of the listed names best names the expertise the person's new message is about?"
+act = 0.80
+confirm = 0.55
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits the expertise the message is about." },
+]
+
+[questions.still_topic]
+type = "noul"
+per = "topic_members"
+max = 5
+instructions = "Is the person's new message still about the topic {item}?"
+act = 0.80
+confirm = 0.55
+when_true = "The message continues this topic: its subject, its work, or the things it names."
+when_false = "The message is about something else, even if it shares a word or two with this topic."
+
+[questions.still_project]
+type = "noul"
+per = "project_members"
+max = 5
+instructions = "Is the person's new message still about the project {item}?"
+act = 0.80
+confirm = 0.55
+when_true = "The message continues this project: its subject, its work, or the things it names."
+when_false = "The message is about something else, even if it shares a word or two with this project."
+
+[questions.still_event]
+type = "noul"
+per = "event_members"
+max = 5
+instructions = "Is the person's new message still about the event {item}?"
+act = 0.80
+confirm = 0.55
+when_true = "The message continues this event: its subject, its work, or the things it names."
+when_false = "The message is about something else, even if it shares a word or two with this event."
+
+[questions.still_resource]
+type = "noul"
+per = "resource_members"
+max = 5
+instructions = "Is the person's new message still about the resource {item}?"
+act = 0.80
+confirm = 0.55
+when_true = "The message continues this resource: its subject, its work, or the things it names."
+when_false = "The message is about something else, even if it shares a word or two with this resource."
+
+[questions.still_capability]
+type = "noul"
+per = "capability_members"
+max = 5
+instructions = "Is the person's new message still about the capability {item}?"
+act = 0.80
+confirm = 0.55
+when_true = "The message continues this capability: its subject, its work, or the things it names."
+when_false = "The message is about something else, even if it shares a word or two with this capability."
+
+[questions.still_expertise]
+type = "noul"
+per = "expertise_members"
+max = 5
+instructions = "Is the person's new message still about the expertise {item}?"
+act = 0.80
+confirm = 0.55
+when_true = "The message continues this expertise: its subject, its work, or the things it names."
+when_false = "The message is about something else, even if it shares a word or two with this expertise."
+
+[questions.kind_of_thing]
+type = "choice"
+instructions = "What kind of thing is the person's new message mostly about?"
+act = 0.80
+confirm = 0.55
+options_from = "kinds"
+only_when = "kinds"
+no_match = "other"
+options = [
+  { id = "other", means = "It is mostly about something that none of the listed kinds describes." },
+]
+
+[questions.image_subject]
+type = "choice"
+instructions = "What is the picture in the state's `images` field mostly of, or the first one if there are several?"
+act = 0.80
+confirm = 0.55
+only_when = "images"
+no_match = "other"
+options = [
+  { id = "code", means = "A screenshot or photo of source code, a terminal, or a diff." },
+  { id = "chart", means = "A chart, graph, plot or diagram of data or a system." },
+  { id = "photo", means = "A photograph of a place, object, animal or person." },
+  { id = "screenshot", means = "A screenshot of an application, a web page or a chat that is not mainly code." },
+  { id = "document", means = "A page of a document, a form, a receipt, a slide or handwriting." },
+  { id = "meme", means = "A meme, a joke image, a sticker or a reaction image." },
+  { id = "other", means = "None of the other kinds describes it." },
+]
+
+[questions.shows_screen_or_document]
+type = "noul"
+instructions = "Does a picture in the state's `images` field show the contents of a screen or a document, such as a page, a form, a message thread or a dashboard?"
+act = 0.80
+confirm = 0.55
+only_when = "images"
+when_true = "It shows a screen's or a page's contents that someone could read."
+when_false = "It shows no readable screen or page: it is a photo, a drawing or a plain chart."
