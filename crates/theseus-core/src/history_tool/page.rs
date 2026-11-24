@@ -783,11 +783,11 @@ fn label_said(store: &Store, ex: &Exchange, flag: Flag) -> String {
 /// What [`render`] names every place's history by.
 pub const EVERY_PLACE: &str = "every place";
 
-/// What a page's heading says it reads: `place`'s history, and the label asked by name, cut short of a known
-/// value (`cuts`).
+/// What a page's heading says it reads: `place`'s history, and the label asked by name, each cut short of a
+/// known value (`cuts`), the place at 120 characters as a line's is.
 pub fn history_of(place: &str, label: Option<&str>, cuts: &Cuts) -> String {
     let label = label.map_or_else(String::new, |l| format!(" labelled {}", cut(l, 80, cuts)));
-    format!("{}'s history{label}", flat(place))
+    format!("{}'s history{label}", cut(place, 120, cuts))
 }
 
 /// A line's place as a page says it, cut short of a known value (`cuts`): history whose place was never

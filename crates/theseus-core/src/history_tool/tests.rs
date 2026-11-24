@@ -2146,3 +2146,66 @@ fn a_label_heading_and_a_place_stop_before_a_known_value() {
         "place not recorded"
     );
 }
+
+/// Known values, one on two lines, for an asked place's heading.
+const TWO_LINES: &str = "kelp-one-0417\nferry-two-0417";
+
+fn asked_place_heading(place: String, label: Option<&str>) -> String {
+    let cuts = crate::scrub::Scrubber::with_values(vec![
+        (TWO_LINES.into(), "t".into()),
+        ("kqzv-0417-wjxp-9932-hmfb".into(), "v".into()),
+    ])
+    .cuts();
+    let a = HistoryArgs {
+        place: Some(place),
+        label: label.map(str::to_string),
+        ..Default::default()
+    };
+    super::heading_of(&a, HERE, false, &cuts)
+}
+
+#[test]
+fn an_asked_places_heading_stops_before_a_known_value_on_two_lines() {
+    let heading = asked_place_heading(format!("place:{TWO_LINES} after"), None);
+    assert_eq!(heading, "place:\u{2026}'s history");
+    for half in TWO_LINES.lines() {
+        assert!(!heading.contains(half), "holds {half:?}: {heading}");
+    }
+}
+
+#[test]
+fn an_asked_places_heading_stops_before_a_known_value_across_120() {
+    let v = "kqzv-0417-wjxp-9932-hmfb";
+    let heading = asked_place_heading(format!("{}{v} place", "p".repeat(110)), None);
+    assert_eq!(heading, format!("{}\u{2026}'s history", "p".repeat(110)));
+    let chars: Vec<char> = v.chars().collect();
+    for w in chars.windows(4) {
+        let w: String = w.iter().collect();
+        assert!(!heading.contains(&w), "holds {w:?} of the value: {heading}");
+    }
+}
+
+#[test]
+fn an_asked_places_heading_stops_at_120_characters() {
+    let heading = asked_place_heading(format!("place:{}", "o".repeat(200)), None);
+    assert_eq!(
+        heading,
+        format!("place:{}\u{2026}'s history", "o".repeat(114))
+    );
+}
+
+#[test]
+fn an_asked_short_places_heading_is_the_place_on_one_line() {
+    assert_eq!(
+        asked_place_heading("dm:owner".into(), None),
+        "dm:owner's history"
+    );
+    assert_eq!(
+        asked_place_heading("place:a\nb  [c]".into(), None),
+        "place:a b (c)'s history"
+    );
+    assert_eq!(
+        asked_place_heading("dm:owner".into(), Some("issue:33")),
+        "dm:owner's history labelled issue:33"
+    );
+}
