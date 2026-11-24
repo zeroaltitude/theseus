@@ -65,6 +65,7 @@ pub(super) fn render_turn(
     t: &TurnView,
     tightened: &BTreeMap<String, String>,
     menus: bool,
+    exits: Option<&theseus_core::exits::Exits>,
 ) -> Vec<Rendered> {
     let mut out: Vec<Rendered> = Vec::new();
     // A turn's loops past `STEP_ROLL` share one message, the step's: their
@@ -73,8 +74,15 @@ pub(super) fn render_turn(
     // does for a single loop that calls more than a message holds.
     let mut groups: BTreeMap<u32, Vec<&ToolLine>> = BTreeMap::new();
     for (li, lv) in &t.loops {
-        if !t.ended {
-            for (i, part) in split_text(&super::fence_tables(&lv.text), PART_LIMIT)
+        // An incomplete suffix may be a vault value's prefix. With masking
+        // enabled, keep the text until the model supplies the complete answer;
+        // typing and tool progress still flow while it is held.
+        if !t.ended && (lv.complete || exits.is_none_or(|e| !e.on())) {
+            let text = exits.map_or_else(
+                || std::borrow::Cow::Borrowed(lv.text.as_str()),
+                |e| e.text(&lv.text).0,
+            );
+            for (i, part) in split_text(&super::fence_tables(&text), PART_LIMIT)
                 .into_iter()
                 .enumerate()
             {

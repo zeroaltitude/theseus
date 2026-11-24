@@ -871,7 +871,8 @@ impl Lane {
         reason = "shape budget: a post kind is one arm; split it"
     )]
     async fn plan(&mut self, a: &Action) -> Result<Plan, SendErr> {
-        let body = body_of(a).clone();
+        let mut body = body_of(a).clone();
+        render::leaving::json(&self.shared.core.exits, &mut body);
         let corr = &a.correlation_id;
         let silent = self.silent();
         let text =
@@ -1043,11 +1044,22 @@ impl Lane {
         })
     }
 
+    /// Complete loop text is masked before any message boundary is chosen.
+    fn masked_reply_texts(&self, body: &Value) -> Vec<(u32, String)> {
+        self.shared
+            .core
+            .outbox
+            .reply_texts(body)
+            .into_iter()
+            .map(|(i, text)| (i, self.shared.core.exits.text(&text).0.into_owned()))
+            .collect()
+    }
+
     /// A turn's reply: its loops' final text under the stream's keys, which
     /// edits what the stream posted and creates what it did not.
     fn reply(&mut self, body: &Value, channel: u64) -> Plan {
         let turn_id = body["turn_id"].as_str().unwrap_or("").to_string();
-        let texts = self.shared.core.outbox.reply_texts(body);
+        let texts = self.masked_reply_texts(body);
         let result: Option<TurnSubmitResult> = serde_json::from_value(body["result"].clone()).ok();
         // A task is a subagent (issue 28): its own channel's reply footer says so.
         let task = self.is_task(result.as_ref());
@@ -1057,7 +1069,11 @@ impl Lane {
         let wakes: Vec<String> = ["wakes", "reports"]
             .iter()
             .flat_map(|k| body[*k].as_array().into_iter().flatten())
-            .filter_map(|w| w["text"].as_str().map(str::to_string))
+            .filter_map(|w| {
+                w["text"]
+                    .as_str()
+                    .map(|text| self.shared.core.exits.text(text).0.into_owned())
+            })
             .collect();
         render::wake_header(&mut parts, &wakes);
         // Replying to the turn's message once: only when the stream posted
@@ -1177,6 +1193,17 @@ impl Lane {
             .map(|c| render::cite::jump_link(None, c, &d.message_id))
     }
 
+    /// Replayed close notes are display copies, masked before the card clips them.
+    fn closed_card(&self, question: &Action, q: &str) -> Option<Closed> {
+        Closed::of(question).map(|c| {
+            let mut c = self.waiting_settle(q).unwrap_or(c);
+            c.note = c
+                .note
+                .map(|s| self.shared.core.exits.text(&s).0.into_owned());
+            c
+        })
+    }
+
     /// A confirm card, where its route says: here, in a trusted DM with a
     /// note here, or only a note here. A question that closed while the card
     /// waited (Discord away, say) is written once, already settled, without
@@ -1195,6 +1222,7 @@ impl Lane {
             Ok(None) => return Ok(Plan::nothing("its question could not be read")),
             Err(e) => return Err(SendErr::refused(format!("{e:#}"))),
         };
+        render::leaving::request(&core.exits, &mut req);
         let channel = self.place_channel().await?;
         let route = self.route().await?;
         self.prepare(&mut req, &route);
@@ -1206,7 +1234,7 @@ impl Lane {
         let mut buttons = ask::card_buttons(&req, &q);
         // The card as one V2 message (theseus-2j2ka) when the bot may send one.
         let v2 = self.shared.v2_cards() && !req.options.is_empty();
-        let closed = Closed::of(&question).map(|c| self.waiting_settle(&q).unwrap_or(c));
+        let closed = self.closed_card(&question, &q);
         if let Some(c) = &closed {
             // Written as its settle would leave it: no buttons, no mention.
             card.content = render::settled(c, &card.line, card.budget);
@@ -1566,6 +1594,7 @@ impl Lane {
         let said = body["node"]
             .as_str()
             .and_then(|n| self.shared.core.outbox.said(n))
+            .map(|s| self.shared.core.exits.text(&s).0.into_owned())
             .or_else(|| body["text"].as_str().map(str::to_string));
         // A routine's run speaks as the routine (theseus-j90w2).
         let routine = self.shared.routine_report(body, said.as_deref());
@@ -1715,6 +1744,9 @@ impl Lane {
         if let Some(c) = self.shared.notify_said() {
             return (c, format!("discord:channel:{c}"));
         }
+        if self.shared.notify_dm() {
+            return dm;
+        }
         self.shared.place_bits.notify_place().unwrap_or(dm)
     }
 
@@ -1815,14 +1847,22 @@ impl Lane {
         // The vault's own values never leave in a message (`[privacy]
         // redact_outbound`, theseus-gyjyo R7b): a post, an edit and a live
         // stream's text all come through here. A shape is not a value.
-        let masked = match self.shared.core.exits.text(&w.content).0 {
-            std::borrow::Cow::Owned(content) => Some(Write {
-                content,
-                ..w.clone()
-            }),
-            std::borrow::Cow::Borrowed(_) => None,
-        };
-        let w = masked.as_ref().unwrap_or(w);
+        let mut masked = w.clone();
+        masked.content = self.shared.core.exits.text(&w.content).0.into_owned();
+        match &mut masked.buttons {
+            Buttons::Ask(_, choices) | Buttons::Card(_, choices) => {
+                for label in choices {
+                    *label = self.shared.core.exits.text(label).0.into_owned();
+                }
+            }
+            Buttons::SelfNote(items) => {
+                for (_, title) in items {
+                    *title = self.shared.core.exits.text(title).0.into_owned();
+                }
+            }
+            _ => {}
+        }
+        let w = &masked;
         let mut known = w
             .message
             .map(|m| (w.channel, m))

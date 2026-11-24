@@ -138,7 +138,8 @@ impl Core {
             grant_offer: self.grant_offer_of(session, tool, input, gate.as_deref()),
             plain: None,
         });
-        req.plain = self.plain_of(&req, nodes);
+        let display = self.display_question(&req);
+        req.plain = self.plain_of(&display, nodes);
         Some(req)
     }
 

@@ -289,3 +289,23 @@ fn a_process_knows_its_age() {
     let age = super::hand::process_age().expect("/proc says");
     assert!(age < Duration::from_secs(3600), "{age:?}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_exited_parent_with_a_live_descendant_still_times_out_and_sends() {
+    let _dir = work_dir();
+    let fake = Fake::start(answer);
+    let s = spec(
+        &fake.url,
+        "act_hand_bg",
+        &["sh", "-c", "sleep 3600 & exit 0"],
+        1,
+    );
+    let e = tokio::time::timeout(Duration::from_secs(30), run(&s, None, &creds()))
+        .await
+        .expect("descendant pipes must not outlive the deadline")
+        .unwrap();
+    assert!(e.timed_out, "{e:?}");
+    assert!(fake.seen().iter().any(|r| r
+        .header("x-amz-target")
+        .is_some_and(|t| t.ends_with(".SendMessage"))));
+}

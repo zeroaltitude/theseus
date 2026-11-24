@@ -2426,3 +2426,47 @@ async fn the_hands_network_plan_takes_the_configs_existing_network() {
         "{e}"
     );
 }
+
+#[tokio::test]
+async fn an_unexpanded_template_requires_the_floor() {
+    let (fake, _state) = cloud(Cloud {
+        owner_role: true,
+        ..Default::default()
+    });
+    let aws = layer(&fake, true, None);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("template.yaml");
+    std::fs::write(&path, "Transform: AWS::LanguageExtensions\nResources:\n  Handle:\n    Type: AWS::CloudFormation::WaitConditionHandle\n").unwrap();
+    let (result, _) = super::tests::call(
+        &aws,
+        "aws.stack.plan",
+        json!({"stack": "theseus-example", "template": path}),
+    )
+    .await;
+    let (out, _) = result.unwrap();
+    assert!(out.meta["floor"].as_u64().unwrap() > 0, "{}", out.text);
+}
+
+#[tokio::test]
+async fn a_nested_stack_requires_the_floor() {
+    let (fake, _state) = cloud(Cloud {
+        owner_role: true,
+        ..Default::default()
+    });
+    let aws = layer(&fake, true, None);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("template.yaml");
+    std::fs::write(
+        &path,
+        "Resources:\n  Handle:\n    Type: AWS::CloudFormation::Stack\n",
+    )
+    .unwrap();
+    let (result, _) = super::tests::call(
+        &aws,
+        "aws.stack.plan",
+        json!({"stack": "theseus-example", "template": path}),
+    )
+    .await;
+    let (out, _) = result.unwrap();
+    assert!(out.meta["floor"].as_u64().unwrap() > 0, "{}", out.text);
+}

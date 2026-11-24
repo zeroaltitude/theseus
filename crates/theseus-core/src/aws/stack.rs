@@ -653,6 +653,11 @@ async fn run_plan(
     let tag_migration =
         stack_tags::migration(exists.as_ref(), &tags) && stack_tags::tag_only(&changes);
     let mut floor = p.scan.clone();
+    floor.extend(
+        p.notes
+            .iter()
+            .map(|note| format!("Unscanned template: {note}")),
+    );
     if !tag_migration {
         floor.extend(verdict.floor.iter().map(|h| h.why.clone()));
     }

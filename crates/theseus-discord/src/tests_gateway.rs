@@ -1175,6 +1175,54 @@ async fn a_day_ceiling_notice_goes_to_the_owners_dm_alone() {
 }
 
 #[tokio::test]
+async fn a_masked_whole_turn_seals_the_answer_in_its_original_message() {
+    let r = Rig::start(
+        |_| vec![Scripted::text("Answer fake-token-not-a-secret complete.")],
+        false,
+    )
+    .await;
+    assert!(r.core.exits.on());
+    let input = r.say((ANA, "ana"), Some(LAB), "give the answer");
+    r.until("the sealed reply", || {
+        r.posted(LAB)
+            .iter()
+            .any(|m| m.content.contains("[inspect]"))
+    })
+    .await;
+    let posts = r.posted(LAB);
+    let answers: Vec<_> = posts
+        .iter()
+        .filter(|m| m.content.contains("Answer "))
+        .collect();
+    assert_eq!(answers.len(), 1, "{posts:?}");
+    let answer = answers[0];
+    assert!(answer.content.contains("[redacted:"));
+    assert!(!answer.content.contains("fake-token-not-a-secret"));
+    assert!(answer.content.contains("complete."));
+    assert!(
+        answer.content.contains("[inspect]"),
+        "reply must seal the answer message"
+    );
+    assert!(answer
+        .versions
+        .iter()
+        .all(|v| !v.contains("fake-token-not-a-secret")));
+    assert_eq!(answer.reply_to.as_deref(), Some(input.as_str()));
+    assert_eq!(
+        posts.len(),
+        2,
+        "one bind notice and one sealed answer: {posts:?}"
+    );
+    assert_eq!(
+        posts
+            .iter()
+            .filter(|m| m.content.contains("Theseus is bound here"))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn oversized_attachments_leave_the_binding_connected() {
     let r = Rig::start_tweaked(
         |_, _| {

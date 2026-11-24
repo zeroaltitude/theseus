@@ -239,6 +239,17 @@ pub(super) fn answer(state: &State, s: &Seen, n: usize) -> Reply {
         "RunTask" => {
             let k = {
                 let mut r = state.ran.lock().unwrap();
+                if let Some(i) = r
+                    .iter()
+                    .position(|old| old["clientToken"] == body["clientToken"])
+                {
+                    if r[i] != body {
+                        return (400, vec![], json!({"__type": "ConflictException", "message": "token reused with different parameters"}).to_string());
+                    }
+                    return json(
+                        json!({"tasks": [{"taskArn": format!("arn:aws:ecs:us-west-2:{ACCOUNT}:task/theseus-hands/t{}", i + 1)}], "failures": []}),
+                    );
+                }
                 r.push(body);
                 r.len()
             };
@@ -1057,7 +1068,37 @@ async fn fargate_waits_for_the_nat_and_runs_tagged_in_private_subnets() {
     );
     let ran = r.state.ran.lock().unwrap().clone();
     assert_eq!(ran.len(), 2);
+    assert_ne!(
+        ran[0]["clientToken"], ran[1]["clientToken"],
+        "each hand needs its own idempotency token"
+    );
     let rec = record(&core, &g);
+    for request in r.fake.seen().iter().filter(|s| {
+        s.header("x-amz-target")
+            .is_some_and(|t| t.ends_with(".RunTask"))
+    }) {
+        let first = answer(&r.state, request, 0);
+        let again = answer(&r.state, request, 1);
+        assert_eq!(first.0, 200);
+        let input: Value = serde_json::from_str(&request.body).unwrap();
+        let token = input["clientToken"].as_str().unwrap();
+        let hand = rec
+            .hands
+            .iter()
+            .find(|h| h.correlation_id == token)
+            .unwrap();
+        let replay: Value = serde_json::from_str(&first.2).unwrap();
+        assert_eq!(
+            replay["tasks"][0]["taskArn"].as_str(),
+            hand.external_op_id.as_deref()
+        );
+        assert_eq!(
+            (first.0, first.2),
+            (again.0, again.2),
+            "same token and body must return the same task (request IDs may differ)"
+        );
+    }
+    assert_eq!(r.state.ran.lock().unwrap().len(), 2);
     for (i, t) in ran.iter().enumerate() {
         assert_eq!(t["launchType"], "FARGATE");
         assert_eq!(t["startedBy"], g);
@@ -1098,6 +1139,7 @@ async fn fargate_waits_for_the_nat_and_runs_tagged_in_private_subnets() {
             ("fargate", 3570)
         );
         assert_eq!(&spec.correlation_id, corr);
+        assert_eq!(t["clientToken"], spec.correlation_id);
         let h = rec
             .hands
             .iter()

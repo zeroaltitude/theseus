@@ -1725,3 +1725,23 @@ fn a_job_cut_at_its_limit_reads_as_cut_not_failed() {
     assert!(line.ends_with("· error · 900 ms"), "{line}");
     assert_eq!(card, "❌ error · 900 ms");
 }
+
+#[test]
+fn an_empty_answer_keeps_the_delta_and_marks_the_loop_complete() {
+    let mut r = Renderer::new(true);
+    r.on_notification(
+        "turn.started",
+        &json!({"session_id":"s", "turn_id":"empty"}),
+    );
+    r.on_notification(
+        "model.delta",
+        &json!({"turn_id":"empty", "loop_index":0, "text":"kept"}),
+    );
+    r.on_notification(
+        "model.answered",
+        &json!({"turn_id":"empty", "loop_index":0, "text":""}),
+    );
+    let lp = &r.turns[0].loops[&0];
+    assert_eq!(lp.text, "kept");
+    assert!(lp.complete);
+}

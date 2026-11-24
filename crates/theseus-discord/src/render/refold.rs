@@ -88,7 +88,10 @@ impl Renderer {
             .take(room)
             .collect();
         // Newest first.
-        let mut views: Vec<TurnView> = missing.into_iter().map(|t| fold(t, nodes)).collect();
+        let mut views: Vec<TurnView> = missing
+            .into_iter()
+            .map(|t| fold(t, nodes, self.exits.as_deref()))
+            .collect();
         // Every result settles its call's line wherever that line is, as a late
         // result does live (`update_tool` finds a line by its call): a background
         // job's result is stored under the later turn that took it in, not under
@@ -126,7 +129,11 @@ impl Renderer {
 }
 
 /// One turn's view, from the nodes that name it.
-fn fold(turn_id: &str, nodes: &[(u64, Node)]) -> TurnView {
+fn fold(
+    turn_id: &str,
+    nodes: &[(u64, Node)],
+    exits: Option<&theseus_core::exits::Exits>,
+) -> TurnView {
     let mut loops: BTreeMap<u32, LoopView> = BTreeMap::new();
     for (_, n) in nodes
         .iter()
@@ -142,7 +149,9 @@ fn fold(turn_id: &str, nodes: &[(u64, Node)]) -> TurnView {
                     .collect::<Vec<_>>()
                     .join("");
                 if !text.trim().is_empty() {
-                    loops.entry(li).or_default().text = text;
+                    let lv = loops.entry(li).or_default();
+                    lv.text = text;
+                    lv.complete = true;
                 }
             }
             Body::ToolCall {
@@ -153,7 +162,11 @@ fn fold(turn_id: &str, nodes: &[(u64, Node)]) -> TurnView {
                 gate: Some(gate),
                 ..
             } => {
-                let mut line = ToolLine::proposed(tool_use_id, tool, input, gate);
+                let mut input = input.clone();
+                if let Some(exits) = exits {
+                    super::leaving::strings(exits, &mut input);
+                }
+                let mut line = ToolLine::proposed(tool_use_id, tool, &input, gate);
                 line.correlation_id.clone_from(correlation_id);
                 loops.entry(li).or_default().tools.push(line);
             }

@@ -1583,7 +1583,7 @@ impl ToolRuntime {
         if let (Some(core), Ok(nodes)) =
             (self.self_pr.core(), tc.store.session_nodes(tc.session_id))
         {
-            req.plain = core.plain_of(&req, &nodes);
+            req.plain = core.plain_of(&core.display_question(&req), &nodes);
         }
         tc.record(&fact::tool::CallAsked { request: &req });
         // It expires at its plan's time and the TTL, as `confirm.list` says

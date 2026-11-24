@@ -225,6 +225,10 @@ impl Shared {
         kind: InteractionResponseType,
         data: InteractionResponseData,
     ) {
+        let mut data = crate::render::leaving::copy(&self.core.exits, &data).unwrap_or_default();
+        data.content = data
+            .content
+            .map(|s| super::command_reply::leaving(&self.core.exits, &s));
         let resp = InteractionResponse {
             kind,
             data: Some(data),
@@ -402,5 +406,36 @@ mod tests {
             .control(Control::Extensions, "discord:zeroaltitude")
             .await;
         assert!(gone.starts_with("No extension is loaded."), "{gone}");
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn extensions_response_masks_words() {
+        let (_dir, _core, fake, shared) = rig();
+        let data = InteractionResponseData {
+            content: Some(format!("Loaded {VALUE}")),
+            components: Some(serde_json::from_value(serde_json::json!([{ "type":1,"components":[{"type":2,"style":4,"label":format!("Revoke {VALUE}"),"custom_id":format!("revoke:{VALUE}")}]}])).unwrap()),
+            ..Default::default()
+        };
+        shared
+            .extensions_answer(
+                &interaction(),
+                InteractionResponseType::ChannelMessageWithSource,
+                data,
+            )
+            .await;
+        let replies = fake.replies();
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains(VALUE), "{text}");
+        assert!(text.contains("[redacted:"), "{text}");
+        let m = fake.reply_message("1").unwrap();
+        assert_eq!(m.buttons.len(), 1);
+        assert!(m.buttons[0].label.contains("[redacted:"));
+        assert!(!m.buttons[0].label.contains(VALUE));
+        assert_eq!(m.buttons[0].custom_id, format!("revoke:{VALUE}"));
     }
 }

@@ -111,8 +111,8 @@ impl Worker {
             return Ok(false);
         };
         let found = self.find_card(&intent).await?;
-        self.settle(&f.id);
         let Some(message) = found else {
+            self.settle(&f.id);
             tracing::info!(place = %home.label, "a card meant before a stop was never made: the first is made now");
             return Ok(false);
         };
@@ -134,7 +134,11 @@ impl Worker {
             by: None,
             digest: 0,
         });
-        self.save();
+        if let Err(e) = self.shared.core.store.put_meta(super::KEY, &self.recs) {
+            self.recs.pop();
+            return Err(e);
+        }
+        self.settle(&f.id);
         Ok(true)
     }
 

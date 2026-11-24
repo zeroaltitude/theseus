@@ -66,7 +66,7 @@ impl Shared {
         if ephemeral && kind == 4 {
             flags |= MessageFlags::EPHEMERAL.bits();
         }
-        let body = json!({"type": kind, "data": {"flags": flags, "components": comps,
+        let mut body = json!({"type": kind, "data": {"flags": flags, "components": comps,
                           "allowed_mentions": {"parse": []}}});
         let req = Request::builder(&HttpRoute::InteractionCallback {
             interaction_id: i.id.get(),
@@ -74,7 +74,10 @@ impl Shared {
             with_response: false,
         })
         .use_authorization_token(false)
-        .json(&body)
+        .json(&{
+            crate::render::leaving::json(&self.core.exits, &mut body);
+            body
+        })
         .build();
         match req {
             Ok(req) => {
@@ -88,14 +91,17 @@ impl Shared {
 
     /// The pressed message, edited (after a deferred update).
     pub(super) async fn edit_original_v2(&self, i: &Interaction, comps: &[Value]) {
-        let body = json!({"flags": v2::IS_COMPONENTS_V2, "components": comps,
+        let mut body = json!({"flags": v2::IS_COMPONENTS_V2, "components": comps,
                           "allowed_mentions": {"parse": []}});
         let req = Request::builder(&HttpRoute::UpdateInteractionOriginal {
             application_id: i.application_id.get(),
             interaction_token: &i.token,
         })
         .use_authorization_token(false)
-        .json(&body)
+        .json(&{
+            crate::render::leaving::json(&self.core.exits, &mut body);
+            body
+        })
         .build();
         match req {
             Ok(req) => {
@@ -157,11 +163,15 @@ impl Place {
             return;
         };
         let also = self.shared.board_sessions(&self.target);
-        let p = self.shared.tasks.project_with(&self.session_id, &also);
+        let mut p = self.shared.tasks.project_with(&self.session_id, &also);
+        let exits = &self.shared.core.exits;
+        p.needs = crate::render::leaving::copy(exits, &p.needs).unwrap_or_default();
+        p.working = crate::render::leaving::copy(exits, &p.working).unwrap_or_default();
+        p.done = crate::render::leaving::copy(exits, &p.done).unwrap_or_default();
         let quiet = self.shared.tasks.quiet_until(&self.target);
-        // The future is a private place's alone (theseus-j90w2), and the task
-        // channel's when there is one (issue 30).
-        let future = super::horizon::parts_for(&self.shared, &self.target, &self.session_id);
+        // The task channel owns its scheduled items when there is one.
+        let future = super::horizon::parts_for(&self.shared, &self.target, &self.session_id)
+            .map(|p| crate::render::leaving::future(exits, p));
         let links = self.shared.task_links(&p);
         let comps = board_v2::render(&Parts {
             needs: &p.needs,
@@ -226,8 +236,10 @@ impl Place {
                 } else if let Some(task) = id.strip_prefix(task_view::STOP) {
                     // Stop asks once more.
                     if let Some(v) = s.tasks.view(task) {
-                        s.respond_v2(&p.i, 7, &task_view::confirm_stop(&v), true)
-                            .await;
+                        if let Some(v) = crate::render::leaving::copy(&s.core.exits, &v) {
+                            s.respond_v2(&p.i, 7, &task_view::confirm_stop(&v), true)
+                                .await;
+                        }
                     }
                 } else if let Some(task) = id.strip_prefix(task_view::STOP_YES) {
                     self.stop_task(&p, task).await;
@@ -265,18 +277,25 @@ impl Place {
 
     pub(super) fn detail_of(&self, v: &theseus_protocol::work::WorkView) -> Vec<Value> {
         let tasks = &self.shared.tasks;
+        let exits = &self.shared.core.exits;
+        let Some(v) = crate::render::leaving::copy(exits, v) else {
+            return vec![];
+        };
         let calls: Vec<String> = tasks
             .children_of(&v.id, WorkKind::Job)
             .into_iter()
-            .map(|j| j.title)
+            .map(|j| exits.text(&j.title).0.into_owned())
             .collect();
-        let q = tasks.question_of(&v.id);
+        let q = tasks
+            .question_of(&v.id)
+            .and_then(|q| crate::render::leaving::copy(exits, &q));
         let options = q.as_ref().map(answer_options);
         task_view::detail(
-            v,
+            &v,
             &calls,
             q.as_ref().zip(options.as_deref()),
-            &self.shared.comments_of(&v.id),
+            &crate::render::leaving::copy(exits, &self.shared.comments_of(&v.id))
+                .unwrap_or_default(),
             self.shared.core.kernel.now_ms(),
         )
     }
@@ -391,6 +410,44 @@ impl Place {
                     s.edit_original_v2(&p.i, &card_v2::closed(&line)).await;
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn v2_create_and_edit_mask_known_values() {
+        let d = tempfile::tempdir().unwrap();
+        let fake = theseus_sim::fake_discord::FakeDiscord::start();
+        let core = crate::runtime::tests::core_with(
+            d.path(),
+            theseus_core::secrets::SecretBoard::empty(),
+            |c| c.discord.rest_proxy = Some(fake.addr.clone()),
+        );
+        let value = "vault-card-4c8e1f7a92b3";
+        core.secrets.hold(
+            "card_token",
+            theseus_core::secrets::Secret::new(value.into()),
+        );
+        let (place, _) = crate::runtime::tests::place_for_tests(&core, "ses_exit");
+        let i = crate::runtime::tests::slash(None, 42, 42, "task");
+        let mut view = crate::render::task_view::tests::task();
+        view.title = value.into();
+        place
+            .shared
+            .respond_v2(&i, 4, &place.detail_of(&view), true)
+            .await;
+        let comps = vec![v2::container(None, vec![v2::text(value)])];
+        place.shared.edit_original_v2(&i, &comps).await;
+        let replies = fake.replies();
+        assert_eq!(replies.len(), 2);
+        for r in replies {
+            let said = r.content.unwrap();
+            assert!(!said.contains(value), "{said}");
+            assert!(said.contains("[redacted:card_token]"), "{said}");
         }
     }
 }

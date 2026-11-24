@@ -303,7 +303,33 @@ impl Shared {
                 routine: Some((r.clone(), snap.records.get(&r.id).copied())),
             });
         }
+        self.complete_notes(&mut out, recs)?;
         Some(out)
+    }
+
+    fn complete_notes(&self, out: &mut [Face], recs: &[Rec]) -> Option<()> {
+        // The work view's title is already shortened. Recover the complete
+        // reminder text before the exit masks it and the card clips it. Keep
+        // that raw text in the existing card record for a later ended edit.
+        let notes: HashMap<_, _> = self
+            .core
+            .kernel
+            .pending_wakes()
+            .ok()?
+            .into_iter()
+            .map(|(_, w)| (w.id, w.note))
+            .collect();
+        for f in out {
+            if matches!(f.kind, Kind::Reminder | Kind::CheckIn) {
+                if let Some(note) = notes
+                    .get(&f.id)
+                    .or_else(|| recs.iter().find(|r| r.id == f.id).map(|r| &r.title))
+                {
+                    f.title.clone_from(note);
+                }
+            }
+        }
+        Some(())
     }
 }
 
@@ -731,7 +757,8 @@ impl Worker {
     /// One item's card: posted if it has none, edited if what it says
     /// changed. False when the write failed.
     async fn card_for(&mut self, f: &Face, home: &Home, now: u64) -> bool {
-        let card = crate::render::sched::card(f);
+        let card =
+            crate::render::sched::card(&crate::render::leaving::face(&self.shared.core.exits, f));
         let dig = digest(&card);
         let Some(i) = self.recs.iter().position(|r| r.id == f.id) else {
             let late = match f.life {
@@ -908,7 +935,10 @@ impl Worker {
         let req = Request::builder(&HttpRoute::CreateMessage {
             channel_id: channel,
         })
-        .json(&body)
+        .json(&{
+            crate::render::leaving::json(&self.shared.core.exits, &mut body);
+            body
+        })
         .build()
         .map_err(|e| SendErr::of(&e))?;
         let made: Value = self
@@ -927,13 +957,16 @@ impl Worker {
     }
 
     async fn edit(&self, rec: &Rec, card: &[Value]) -> Result<(), SendErr> {
-        let body = json!({"flags": v2::IS_COMPONENTS_V2, "components": card,
+        let mut body = json!({"flags": v2::IS_COMPONENTS_V2, "components": card,
                           "allowed_mentions": {"parse": []}});
         let req = Request::builder(&HttpRoute::UpdateMessage {
             channel_id: rec.channel,
             message_id: rec.card,
         })
-        .json(&body)
+        .json(&{
+            crate::render::leaving::json(&self.shared.core.exits, &mut body);
+            body
+        })
         .build()
         .map_err(|e| SendErr::of(&e))?;
         self.shared

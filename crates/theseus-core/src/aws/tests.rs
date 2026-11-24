@@ -156,6 +156,10 @@ fn serve(
         k.len()
     };
     let (status, headers, body) = answer(&seen, n);
+    // Zero asks the fake to drop the fully received request without a response.
+    if status == 0 {
+        return Ok(());
+    }
     let mut out = format!(
         "HTTP/1.1 {status} X\r\ncontent-length: {}\r\nconnection: close\r\n",
         body.len()

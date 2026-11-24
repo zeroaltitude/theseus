@@ -36,6 +36,10 @@ fn answers(s: &Seen, n: usize) -> Reply {
             n,
             json!({"Parameter": {"Name": "/app/token", "Type": "SecureString", "Value": PARAM, "Version": 3}}),
         ),
+        Some("GetParameters" | "GetParametersByPath" | "GetParameterHistory") => json_reply(
+            n,
+            json!({"Parameters": [{"Name": "/app/token", "Type": "SecureString", "Value": PARAM, "Version": 3}]}),
+        ),
         _ => (400, vec![], "{}".into()),
     }
 }
@@ -161,4 +165,28 @@ async fn a_handles_value_never_reaches_a_node_the_wal_or_the_ledger() {
         .scrub(&format!("echo {whole}"))
         .0;
     assert_eq!(scrubbed, "echo [redacted:aws-secret:app/db#SecretString]");
+}
+
+#[tokio::test]
+async fn quoted_decryption_true_holds_the_parameter() {
+    let fake = Fake::start(answers);
+    let b = board();
+    let aws = layer(&fake, b.clone());
+    let t = tool(&aws, "aws.call");
+    let ctx = super::tests::plain_ctx();
+    for (operation, mut body) in [
+        ("GetParameter", json!({"Name": "/app/token"})),
+        ("GetParameters", json!({"Names": ["/app/token"]})),
+        ("GetParametersByPath", json!({"Path": "/app"})),
+        ("GetParameterHistory", json!({"Name": "/app/token"})),
+    ] {
+        body["WithDecryption"] = json!("true");
+        let input = json!({"service": "ssm", "operation": operation, "input": body});
+        t.plan(&input, &ctx).unwrap();
+        let (out, _) = t.run_async(&input, &ctx).await.unwrap();
+        assert!(!out.text.contains(PARAM), "{operation}: {}", out.text);
+        let handle = out.meta["secrets"][0].as_str().unwrap();
+        assert!(handle.starts_with("aws-secret:"), "{handle}");
+        assert_eq!(b.get(handle).unwrap().expose(), PARAM);
+    }
 }

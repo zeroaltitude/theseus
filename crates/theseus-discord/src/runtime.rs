@@ -1118,7 +1118,7 @@ impl Shared {
             mention_only,
             session_id,
             renderer,
-            view: show::View::new(show),
+            view: show::View::new(show).with_exits(self.core.exits.clone()),
             lane,
             inflight: false,
             steering: Default::default(),
@@ -1396,6 +1396,7 @@ impl Shared {
                     Ok(_) => format!("❎ **Declined** by {who} · {line}"),
                     Err(e) => format!("⚠️ Could not answer: {e} · {line}"),
                 };
+                let content = command_reply::leaving(&self.core.exits, &content);
                 self.core.binding_ledger(
                     LedgerKind::DiscordConfirm,
                     None,
@@ -1517,8 +1518,8 @@ impl Shared {
     }
 
     /// A place's renderer: the `[discord]` notice setting.
-    fn renderer(&self) -> Renderer {
-        Renderer::new(self.notice_embeds)
+    pub(crate) fn renderer(&self) -> Renderer {
+        Renderer::new(self.notice_embeds).with_exits(self.core.exits.clone())
     }
 
     /// Who may drive the bound channel `channel` (its `[[channel]] users`):
@@ -1634,15 +1635,26 @@ fn addressed(
         || replied_to == Some(bot_id)
 }
 
-/// The message without the tokens that addressed the bot.
+/// The message without the tokens that addressed the bot, each with the
+/// spaces after it; its lines, indentation and code stay as written.
 fn strip_mentions(content: &str, bot_id: u64, bot_roles: &[u64]) -> String {
-    let mut s = content
-        .replace(&format!("<@{bot_id}>"), "")
-        .replace(&format!("<@!{bot_id}>"), "");
-    for r in bot_roles {
-        s = s.replace(&format!("<@&{r}>"), "");
+    let mut tokens = vec![format!("<@{bot_id}>"), format!("<@!{bot_id}>")];
+    tokens.extend(bot_roles.iter().map(|r| format!("<@&{r}>")));
+    let mut s = content.to_string();
+    for t in &tokens {
+        let (mut out, mut rest) = (String::with_capacity(s.len()), s.as_str());
+        while let Some(i) = rest.find(t.as_str()) {
+            out.push_str(&rest[..i]);
+            rest = rest[i + t.len()..].trim_start_matches([' ', '\t']);
+        }
+        out.push_str(rest);
+        s = out;
     }
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+    // Blank lines before the text go; its first line's indentation stays.
+    let s = s.trim_end();
+    let first = s.len() - s.trim_start().len();
+    let start = s[..first].rfind('\n').map_or(first, |i| i + 1);
+    s[start..].to_string()
 }
 
 fn terminal(state: Option<&str>) -> bool {
@@ -2237,7 +2249,13 @@ impl Place {
                     )
                     .await
                 {
-                    Ok(l) => crate::render::wakes(&l.wakes),
+                    Ok(l) => {
+                        let mut shown =
+                            crate::render::leaving::copy(&self.shared.core.exits, &l.wakes)
+                                .unwrap_or_default();
+                        crate::render::leaving::wake_titles(&mut shown);
+                        crate::render::wakes(&shown)
+                    }
                     Err(e) => format!("⚠️ Could not list the wakes: {e}."),
                 }
             }
@@ -2261,12 +2279,13 @@ impl Place {
                     .await
                 {
                     Ok(r) => {
-                        let note = r.wake.note.lines().next().unwrap_or_default();
+                        let note = self.shared.core.exits.text(&r.wake.note).0;
+                        let note = note.lines().next().unwrap_or_default();
                         return format!(
                             "⏹️ Wake `{}` cancelled: it will not run. It was due <t:{}:t>: {}",
                             r.wake.short,
                             r.wake.due_at_ms / 1000,
-                            crate::render::clip(note, 200)
+                            crate::render::clip(&self.shared.core.exits.text(note).0, 200)
                         );
                     }
                     Err(e) if e.code == theseus_protocol::error_code::NOT_FOUND => e.message,
@@ -2443,3 +2462,6 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
 // cores and places with its helpers.
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod tests_exits_r3;

@@ -384,7 +384,8 @@ impl Cx {
         }
         let core = Arc::clone(&self.core);
         let names = self.names.clone();
-        let want = plan::items(lines, now, self.lead_ms, self.max, |l| {
+        let lines = crate::render::leaving::copy(&core.exits, &lines.to_vec()).unwrap_or_default();
+        let want = plan::items(&lines, now, self.lead_ms, self.max, |l| {
             let Some(sid) = l.session_id.as_deref() else {
                 return Shown::default();
             };
@@ -397,7 +398,8 @@ impl Cx {
                 .ok()
                 .flatten()
                 .and_then(|t| t.strip_prefix("discord:channel:").map(str::to_string))
-                .and_then(|id| names.get(&id).cloned());
+                .and_then(|id| names.get(&id))
+                .map(|name| core.exits.text(name).0.into_owned());
             Shown { title: true, place }
         });
         let mut ops = plan::diff(&self.entries, &want, now, usize::MAX);

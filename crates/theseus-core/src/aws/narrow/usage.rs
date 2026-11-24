@@ -143,10 +143,13 @@ impl Observed {
     /// `CloudTrailEvent` string.
     pub fn take(&mut self, e: &Value) {
         self.read += 1;
-        if e["EventTime"]
-            .as_f64()
-            .is_some_and(|t| (t as u64) < self.since_s)
-        {
+        let at = e["EventTime"].as_f64().map(|t| t as u64).or_else(|| {
+            e["EventTime"]
+                .as_str()
+                .and_then(|s| crate::wake::parse_at(s).ok())
+                .map(|ms| ms / 1000)
+        });
+        if at.is_some_and(|t| t < self.since_s) {
             return;
         }
         let Some(record) = e["CloudTrailEvent"]
@@ -208,7 +211,7 @@ pub async fn observed_since(
     if days == 0 || days > HISTORY_DAYS {
         return Err(format!("days must be 1 to {HISTORY_DAYS}"));
     }
-    let start = now_s.saturating_sub(u64::from(days) * 86_400);
+    let start = now_s.saturating_sub(u64::from(days) * 86_400).max(since_s);
     let mut o = Observed {
         role: role.into(),
         days,

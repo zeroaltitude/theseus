@@ -6713,6 +6713,7 @@ dependencies = [
  "theseus-kernel",
  "theseus-protocol",
  "theseus-sim",
+ "theseus-store",
  "theseus-voice",
  "tokio",
  "toml",

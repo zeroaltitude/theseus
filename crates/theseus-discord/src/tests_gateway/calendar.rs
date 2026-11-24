@@ -405,3 +405,18 @@ async fn a_shared_places_reminder_is_named_neutrally_and_a_private_ones_by_title
     assert!(names.contains(&"open errand".to_string()), "{names:?}");
     assert!(!names.iter().any(|n| n.contains("secret")), "{names:?}");
 }
+
+#[tokio::test]
+async fn calendar_event_masks_before_the_name_cut() {
+    let r = rig(true, true).await;
+    let value = "vault-token-4c8e1f7a92b3";
+    r.core.secrets.hold(
+        "calendar_token",
+        theseus_core::secrets::Secret::new(value.into()),
+    );
+    r.remind(HOUR, &format!("{}{}", "x".repeat(90), value));
+    r.until("the masked event", || r.events().len() == 1).await;
+    let name = &r.events()[0].name;
+    assert!(!name.contains("vault"), "{name}");
+    assert!(name.contains("[redact"), "{name}");
+}

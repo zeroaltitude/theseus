@@ -8,10 +8,7 @@
 //!
 //! - **Ephemeral**: the deferred acknowledgement carries the flag, so only
 //!   the presser sees the answer.
-//! - **A shared place hides its sources**: a recalled note from an imported
-//!   or another session is only said to have been there, and its words and
-//!   labels are left out (`WhyInput::hide_sources`, forced by the place's
-//!   class). A private place shows them.
+//! - **Sources**: every place names the sources that the turn recalled.
 
 use serde_json::Value;
 use theseus_protocol::context::{ContextExplainParams, ContextExplainResult};
@@ -64,7 +61,7 @@ pub(super) fn fenced(
             policy: p,
             route,
             tools,
-            hide_sources: x.class != "private",
+            hide_sources: false,
         },
         TOP,
         LIMIT - 2 * FENCE.len() - 2,

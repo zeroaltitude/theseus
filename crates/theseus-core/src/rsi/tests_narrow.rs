@@ -340,7 +340,7 @@ async fn the_week_after_an_apply_a_denied_call_is_told_once_with_the_revert_and_
         &[],
         Some("AccessDenied"),
     );
-    denied["EventTime"] = json!((NOW / 1000 + 100) as f64);
+    denied["EventTime"] = json!("2033-05-18T03:35:00Z");
     let mut old = event(
         "theseus-hand-owner",
         "iam.amazonaws.com",
@@ -348,7 +348,7 @@ async fn the_week_after_an_apply_a_denied_call_is_told_once_with_the_revert_and_
         &[],
         Some("AccessDenied"),
     );
-    old["EventTime"] = json!((NOW / 1000 - 100) as f64);
+    old["EventTime"] = json!("2033-05-18T03:31:40Z");
     w.pages = vec![vec![denied, old]];
     let red = c.narrow_watch(&w, NOW + 2 * DAY).await.unwrap();
     assert!(red[0].contains("denied s3:DeleteBucket"), "{red:?}");

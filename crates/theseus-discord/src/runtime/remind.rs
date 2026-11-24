@@ -271,8 +271,11 @@ impl Shared {
         &self,
         i: &Interaction,
         kind: InteractionResponseType,
-        data: InteractionResponseData,
+        mut data: InteractionResponseData,
     ) {
+        data.content = data
+            .content
+            .map(|s| super::command_reply::leaving(&self.core.exits, &s));
         let resp = InteractionResponse {
             kind,
             data: Some(data),
@@ -407,5 +410,31 @@ mod tests {
             text(&json!({"text": "call the vet\nbefore noon\n"})),
             "⏰ Reminder · call the vet\na reminder you set\nbefore noon"
         );
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn reminder_error_masks_its_words() {
+        let (_dir, _core, fake, shared) = rig();
+        let data = InteractionResponseData {
+            content: Some(format!("That did not count: {VALUE}")),
+            ..Default::default()
+        };
+        shared
+            .remind_answer(
+                &interaction(),
+                InteractionResponseType::ChannelMessageWithSource,
+                data,
+            )
+            .await;
+        let replies = fake.replies();
+        assert_eq!(replies.len(), 1);
+        let content = replies[0].content.as_deref().unwrap();
+        assert!(!content.contains(VALUE), "{content}");
+        assert!(content.contains("[redacted:"), "{content}");
     }
 }

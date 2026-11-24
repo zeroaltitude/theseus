@@ -125,7 +125,7 @@ impl Kernel {
     ) -> Result<Action> {
         let (_w, mut a) = self.locked_known_action(correlation_id)?;
         if a.state.is_settled() {
-            return Ok(a);
+            return self.correct_uncertain_stop(a, st, verdict, cost);
         }
         let now = self.now_ms();
         a.cancel = Some(st);
@@ -167,6 +167,61 @@ impl Kernel {
         frame.push(self.ledger(LedgerKind::ActionCancel, Some(&a.session_id), data)?);
         self.commit(&frame)?;
         self.day_after(day);
+        Ok(a)
+    }
+    /// A task id can arrive after a stop settled uncertain. Only backend
+    /// proof with a cost can release that held reservation.
+    fn correct_uncertain_stop(
+        &self,
+        mut a: Action,
+        st: CancelState,
+        verdict: Option<Verdict>,
+        cost: Option<Micros>,
+    ) -> Result<Action> {
+        let unknown = a.state == ActionState::OutcomeUnknown;
+        if !unknown
+            && (a.state != ActionState::Cancelled
+                || a.cancel != Some(CancelState::OutcomeUncertain))
+        {
+            return Ok(a);
+        }
+        if st != CancelState::TerminationVerified {
+            if !unknown {
+                return Ok(a);
+            }
+            a.cancel = Some(st);
+            a.verdict = verdict;
+            self.commit(&[action_record(&a)?, self.ledger(LedgerKind::ActionCancel,
+                Some(&a.session_id), json!({"correlation_id": a.correlation_id, "cancel": st, "settled": st != CancelState::Acknowledged}))?])?;
+            return Ok(a);
+        }
+        if cost.is_none() {
+            return Ok(a);
+        }
+        let known = self
+            .store()
+            .latest_by_key(theseus_store::kinds::COMPLETION, &a.correlation_id)?
+            .map(|r| r.decode::<Completion>())
+            .transpose()?
+            .is_some_and(|c| c.outcome != Outcome::Unknown);
+        let mut frame = Vec::new();
+        if !known {
+            if let Some(mut e) = self.execution(&a.execution_id)? {
+                let spent_before = e.budget.spent_micros;
+                crate::earlier::resolve_in(&mut e.budget, &a, cost);
+                self.day_after(crate::day_ceiling::Effect::resolved(&a, cost));
+                e.updated_at_ms = self.now_ms();
+                frame.push(exec_record(&e)?);
+                self.carry_to_parent(&e, spent_before, &mut frame)?;
+            }
+        }
+        a.state = ActionState::Cancelled;
+        a.cancel = Some(st);
+        a.verdict = verdict;
+        frame.push(action_record(&a)?);
+        frame.push(self.ledger(LedgerKind::ActionCancel, Some(&a.session_id),
+            json!({"correlation_id": a.correlation_id, "cancel": st, "settled": true, "cost_micros": cost}))?);
+        self.commit(&frame)?;
         Ok(a)
     }
 }

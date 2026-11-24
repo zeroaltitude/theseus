@@ -631,7 +631,7 @@ impl Shared {
             mention_only: false,
             session_id: m.session.clone(),
             renderer: self.renderer(),
-            view: show::View::new(p.show),
+            view: show::View::new(p.show).with_exits(self.core.exits.clone()),
             lane,
             inflight: false,
             steering: Default::default(),
@@ -650,7 +650,8 @@ impl Shared {
 
     /// The task's thread, made now: created, listed, started as a place and
     /// linked from the channel.
-    async fn make_task_thread(self: &Arc<Self>, p: Parent, v: WorkView) {
+    async fn make_task_thread(self: &Arc<Self>, p: Parent, mut v: WorkView) {
+        v.title = self.core.exits.text(&v.title).0.into_owned();
         let Some(session) = v.session_id.clone() else {
             self.task_threads.settle(&v.id);
             return;
@@ -763,7 +764,8 @@ impl Shared {
         if m.kind == PlaceKind::Channel {
             return self.finish_task_channel(m, mark, v).await;
         }
-        let name = task_name(mark, &m.task, &v.title);
+        let title = self.core.exits.text(&v.title).0;
+        let name = task_name(mark, &m.task, &title);
         if name != m.name {
             if let Err(e) = self.guild_thread_set(m.thread, None, Some(&name)).await {
                 self.board
@@ -932,11 +934,10 @@ impl Place {
         let Some(made) = self.shared.task_threads.made_in(m.channel.get()) else {
             return;
         };
-        let title = self
-            .shared
-            .tasks
-            .view(&made.task)
-            .map_or_else(|| made.name.clone(), |v| clip(&v.title));
+        let title = self.shared.tasks.view(&made.task).map_or_else(
+            || made.name.clone(),
+            |v| clip(&self.shared.core.exits.text(&v.title).0),
+        );
         if self.comment_on(&mut m, &made, &title) {
             return;
         }
@@ -1221,3 +1222,32 @@ mod tests {
 
 #[cfg(test)]
 mod tests_owed;
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    async fn names(rename: bool) {
+        let (_dir, _core, fake, shared) = rig();
+        let mut v = view();
+        v.title = if rename { "safe".into() } else { VALUE.into() };
+        shared.make_task_thread(parent(), v.clone()).await;
+        assert_eq!(fake.threads().len(), 1);
+        if rename {
+            let m = shared.task_threads.all().pop().unwrap();
+            v.title = VALUE.into();
+            shared.finish_task_thread(m, Mark::Done, v).await;
+        }
+        let name = &fake.threads()[0].name;
+        assert!(!name.contains("vault"), "{name}");
+        assert!(name.contains("redacted"), "{name}");
+    }
+    #[tokio::test]
+    async fn task_thread_create_masks_its_name() {
+        names(false).await;
+    }
+    #[tokio::test]
+    async fn task_thread_rename_masks_its_name() {
+        names(true).await;
+    }
+}

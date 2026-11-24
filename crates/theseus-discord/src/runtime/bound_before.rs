@@ -24,7 +24,7 @@ impl Shared {
             .filter(|t| t.state != ThreadState::Done)
             .filter_map(|t| {
                 let c = t.surfaces.iter().find_map(|s| surface_channel(s))?;
-                let title: String = t.title.chars().take(60).collect();
+                let title: String = self.core.exits.text(&t.title).0.chars().take(60).collect();
                 Some((c, format!("#{title}")))
             })
             .collect()
@@ -113,5 +113,25 @@ impl Shared {
                 self.board.error("old bound place", None, format!("{e:#}"));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r5 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn legacy_label_masks_before_cut_r5() {
+        let (_dir, core, _fake, shared) = rig();
+        let title = format!("{}{}", "x".repeat(55), VALUE);
+        let rec: theseus_protocol::threads::ThreadInfo = serde_json::from_value(serde_json::json!({"slug":"tides", "title":title, "state":"active", "surfaces":["discord:channel:43"], "created_at_ms":1, "last_active_ms":1})).unwrap();
+        core.store
+            .put_meta(&theseus_core::threads::key("tides"), &rec)
+            .unwrap();
+        let labels = shared.bound_before();
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0].0, 43);
+        assert!(!labels[0].1.contains("vau"), "{:?}", labels);
+        assert!(labels[0].1.contains("[red"), "{:?}", labels);
+        assert_eq!(core.threads().get("tides").unwrap().title, title);
     }
 }

@@ -76,6 +76,16 @@ impl Shared {
             .and_then(|s| s.parse().ok())
     }
 
+    /// A persisted empty string is an explicit DM choice, not an unset override.
+    pub(crate) fn notify_dm(&self) -> bool {
+        self.core
+            .store
+            .get_meta::<String>(KEY)
+            .ok()
+            .flatten()
+            .is_some_and(|s| s.is_empty())
+    }
+
     /// Write the owner's word: the channel, or empty for the DM.
     fn say_notify(&self, channel: Option<u64>) -> anyhow::Result<()> {
         let v = channel.map(|c| c.to_string()).unwrap_or_default();
@@ -134,6 +144,10 @@ impl Place {
     fn notify_where(&self) -> String {
         if let Some(c) = self.shared.notify_said() {
             return format!("The announcements go to <#{c}>, which you bound here. `notify off` gives them back to your DM.");
+        }
+        if self.shared.notify_dm() {
+            return "The announcements go to your DM. `notify here` moves them to a channel."
+                .into();
         }
         match self.shared.place_bits.notify_place() {
             Some((c, label)) => format!(

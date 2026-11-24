@@ -478,7 +478,7 @@ async fn run_job(spec: &HandSpec, dir: &Path, aws: &HandAws<'_>, out: Arc<Mutex<
             s = child.wait(), if status.is_none() => {
                 status = Some(s);
             }
-            _ = tokio::time::sleep_until(deadline), if status.is_none() && !timed_out => {
+            _ = tokio::time::sleep_until(deadline), if deadline_pending(status.is_some(), pipes_open, timed_out) => {
                 timed_out = true;
                 if let Some(p) = pid {
                     // Its whole group: what it started goes with it.
@@ -765,4 +765,20 @@ pub async fn run_since(
         tokio::time::sleep(Duration::from_millis(500 << attempt)).await;
     }
     Err(format!("the envelope was not sent: {last}"))
+}
+
+// The job includes descendants that still own its output pipes.
+fn deadline_pending(exited: bool, pipes_open: bool, timed_out: bool) -> bool {
+    (!exited || pipes_open) && !timed_out
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    #[test]
+    fn a_descendant_holding_pipes_keeps_the_deadline_live() {
+        assert!(super::deadline_pending(true, true, false));
+        assert!(super::deadline_pending(false, false, false));
+        assert!(!super::deadline_pending(true, false, false));
+        assert!(!super::deadline_pending(false, true, true));
+    }
 }

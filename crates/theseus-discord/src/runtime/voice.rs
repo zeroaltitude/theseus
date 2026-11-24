@@ -327,12 +327,13 @@ impl Voice {
     }
 
     /// The reply to a voice turn, to the call that heard it.
-    fn reply(&self, serial: u64, turn: TurnId, text: String) {
+    fn reply(&self, serial: u64, turn: TurnId, text: String, exits: &theseus_core::exits::Exits) {
         if let Some(c) = self.call.lock().unwrap().as_mut() {
             if c.serial == serial {
                 c.inflight = false;
                 // What was said ahead of it is not said again (theseus-xi1x).
                 let text = std::mem::take(&mut c.early).rest(&text);
+                let text = exits.text(&text).0.into_owned();
                 let _ = c.commands.send(Command::Reply { turn, text });
             }
         }
@@ -397,6 +398,11 @@ pub(super) fn join_option(options: &[CommandDataOption]) -> Option<u64> {
             ("channel", CommandOptionValue::Channel(c)) => Some(c.get()),
             _ => None,
         })
+}
+
+fn masked_greeting(core: &theseus_core::Core, session: &str) -> Option<String> {
+    core.greeting_for(Some(session))
+        .map(|text| core.exits.text(&text).0.into_owned())
 }
 
 impl Place {
@@ -575,7 +581,7 @@ impl Place {
         let config = engine_config(place.users.iter().map(|&u| Speaker(u)), &voice.cfg);
         // In the persona's voice, once the join has succeeded and the call's
         // audio flows (theseus-sro04), or after `GREETING_WAIT`.
-        let greeting = shared.core.greeting_for(Some(&self.session_id));
+        let greeting = masked_greeting(&shared.core, &self.session_id);
         let flowing = io.flowing();
         let (engine, handle) = begin(
             config,
@@ -846,9 +852,12 @@ impl Place {
                 )
                 .await;
             let stopped = shared.voice.stopped(t.serial);
-            shared
-                .voice
-                .reply(t.serial, t.turn, spoken_end(&r, stopped));
+            shared.voice.reply(
+                t.serial,
+                t.turn,
+                spoken_end(&r, stopped),
+                &shared.core.exits,
+            );
             let _ = tx.send(PlaceMsg::SubmitDone(r.map(|_| ())));
         });
     }
@@ -868,7 +877,7 @@ impl Place {
             .as_ref()
             .filter(|s| s.board)?;
         let tally = &status.tally;
-        let line = tally.lock().unwrap().spoken();
+        let line = tally.lock().unwrap().spoken_leaving(&core.exits);
         Some(format!("[The board: {line}]"))
     }
 
@@ -940,6 +949,7 @@ impl Place {
                 let said = c.early.ended(l);
                 if let (Some(text), Some(turn)) = (said, c.early.turn) {
                     if c.inflight && !c.stopped {
+                        let text = self.shared.core.exits.text(&text).0.into_owned();
                         let _ = c.commands.send(Command::Say { turn, text });
                     }
                 }
@@ -947,7 +957,7 @@ impl Place {
             CoreEvent::TurnEnded(r) if r.session_id == self.session_id => {
                 if !c.own.remove(&r.turn_id) && !r.output.trim().is_empty() {
                     let _ = c.commands.send(Command::Report {
-                        text: r.output.clone(),
+                        text: self.shared.core.exits.text(&r.output).0.into_owned(),
                     });
                 }
             }
@@ -1685,6 +1695,11 @@ impl Speech for Metered {
 
     fn synthesize<'a>(&'a self, text: &'a str) -> SpeechFuture<'a, Synthesis> {
         Box::pin(async move {
+            let core = self
+                .core
+                .upgrade()
+                .ok_or_else(|| SpeechError("the daemon is stopping".into()))?;
+            let text = core.exits.text(text).0;
             // The persona in play now, at this sentence (theseus-slvl.7).
             let voice = self.voice();
             self.fits(
@@ -1693,7 +1708,7 @@ impl Speech for Metered {
                 Duration::ZERO,
                 text.chars().count(),
             )?;
-            self.inner.synthesize_as(&voice, text).await
+            self.inner.synthesize_as(&voice, &text).await
         })
     }
 }
@@ -2207,6 +2222,77 @@ mod tests {
             .unwrap_err();
         assert!(e.0.contains("reset its spend to go on"), "{e}");
         assert!(t0.elapsed() < Duration::from_millis(400), "never sent");
+    }
+
+    #[tokio::test]
+    async fn voice_reports_are_masked_before_the_engine_splits_sentences() {
+        let d = tempfile::tempdir().unwrap();
+        let value = "vault-first. vault-second";
+        let core = core_with(d.path(), secrets(Some(value)), |_| {});
+        let (mut p, _rx) = place(&core, "ses_voice_redaction");
+        p.session_id = "ses_voice_redaction".into();
+        let (commands, mut engine) = mpsc::unbounded_channel();
+        joined(&p, commands);
+        p.voice_heard(&turn_ended("ses_voice_redaction", "turn_report", value));
+        assert_eq!(
+            engine.try_recv().unwrap(),
+            Command::Report {
+                text: "[redacted:deepgram_api_key]".into()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn synthesis_requests_mask_known_values() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let request = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            let body = loop {
+                assert!(stream.read_buf(&mut bytes).await.unwrap() > 0);
+                let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") else {
+                    continue;
+                };
+                let header = String::from_utf8_lossy(&bytes[..end]).to_lowercase();
+                let len: usize = header
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length: "))
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                if bytes.len() >= end + 4 + len {
+                    break bytes[end + 4..end + 4 + len].to_vec();
+                }
+            };
+            stream
+                .write_all(
+                    b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            String::from_utf8(body).unwrap()
+        });
+        let d = tempfile::tempdir().unwrap();
+        let value = "vault-first. vault-second";
+        let core = core_with(d.path(), secrets(Some(value)), |_| {});
+        let metered = Metered {
+            inner: DeepgramSpeech::new(
+                "fake-speech-key",
+                DeepgramSettings {
+                    api_base: format!("http://{addr}"),
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+            core: Arc::downgrade(&core),
+            key: "test-voice".into(),
+        };
+        let _ = metered.synthesize(value).await;
+        let sent = request.await.unwrap();
+        assert!(!sent.contains(value), "{sent}");
+        assert!(sent.contains("[redacted:deepgram_api_key]"), "{sent}");
     }
 
     #[test]

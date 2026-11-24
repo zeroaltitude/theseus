@@ -320,6 +320,7 @@ impl Shared {
             .session_of(tx)
             .map(|s| self.tasks.in_place(&s))
             .unwrap_or_default();
+        let views = crate::render::leaving::copy(&self.core.exits, &views).unwrap_or_default();
         self.autocomplete(i, snapshot::task_choices(&views, typed))
             .await;
     }
@@ -365,6 +366,10 @@ impl Shared {
     }
 
     pub(super) async fn autocomplete(&self, i: &Interaction, pairs: Vec<(String, String)>) {
+        let pairs = pairs
+            .into_iter()
+            .map(|(name, value)| (self.core.exits.text(&name).0.into_owned(), value))
+            .collect();
         let data = InteractionResponseData {
             choices: Some(choice_list(pairs)),
             ..Default::default()
@@ -441,7 +446,11 @@ impl Place {
         };
         match what {
             What::Tasks(show) => {
-                let p = s.tasks.project(&self.session_id);
+                let mut p = s.tasks.project(&self.session_id);
+                let exits = &self.shared.core.exits;
+                p.needs = crate::render::leaving::copy(exits, &p.needs).unwrap_or_default();
+                p.working = crate::render::leaving::copy(exits, &p.working).unwrap_or_default();
+                p.done = crate::render::leaving::copy(exits, &p.done).unwrap_or_default();
                 let history = self.history(show).await;
                 let parts = Parts {
                     needs: &p.needs,
@@ -472,10 +481,21 @@ impl Place {
     /// The finished tasks the store has for this place, for the shows that
     /// read them (`done`, `all`).
     async fn history(&self, show: Show) -> Vec<crate::render::history::Row> {
-        match show {
+        let mut rows = match show {
             Show::Done | Show::All => super::tasks::finished(&self.shared, &self.target).await,
             _ => Vec::new(),
+        };
+        let exits = &self.shared.core.exits;
+        for row in &mut rows {
+            row.title = exits.text(&row.title).0.into_owned();
+            row.said = row.said.as_ref().map(|s| exits.text(s).0.into_owned());
+            if let crate::render::history::Ended::Failed(why)
+            | crate::render::history::Ended::Stopped(why) = &mut row.ended
+            {
+                *why = why.as_ref().map(|s| exits.text(s).0.into_owned());
+            }
         }
+        rows
     }
 
     /// `/task name:`: Details, or the new-task modal.
@@ -580,7 +600,11 @@ impl Place {
             return true;
         }
         if let Some(show) = id.strip_prefix(snapshot::REFRESH) {
-            let pr = s.tasks.project(&self.session_id);
+            let mut pr = s.tasks.project(&self.session_id);
+            let exits = &self.shared.core.exits;
+            pr.needs = crate::render::leaving::copy(exits, &pr.needs).unwrap_or_default();
+            pr.working = crate::render::leaving::copy(exits, &pr.working).unwrap_or_default();
+            pr.done = crate::render::leaving::copy(exits, &pr.done).unwrap_or_default();
             let show = Show::parse(show).unwrap_or_default();
             let history = self.history(show).await;
             let parts = Parts {
@@ -602,7 +626,7 @@ impl Place {
                         Ok(()) => format!(
                             "👁 Following **{}**: one silent message here mirrors it and ends \
                              with its report.",
-                            crate::render::clip(v.title.trim(), 80)
+                            crate::render::clip(&s.core.exits.text(v.title.trim()).0, 80)
                         ),
                         Err(why) => why,
                     }
@@ -702,5 +726,68 @@ mod tests {
         assert_eq!(super::quiet_until_span("30m", now), Some(now + 1_800_000));
         assert_eq!(super::quiet_until_span("1h", now), Some(now + 3_600_000));
         assert_eq!(super::quiet_until_span("tea", now), None);
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn task_autocomplete_masks_before_choice_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        shared
+            .autocomplete(
+                &interaction(),
+                vec![(format!("{}{}", "x".repeat(90), VALUE), "task".into())],
+            )
+            .await;
+        let replies = fake.replies();
+        assert_eq!(replies.len(), 1);
+        let name = &replies[0].choices[0].0;
+        assert!(!name.contains("vault"), "{name}");
+        assert!(name.contains("[redact"), "{name}");
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn task_choice_producer_masks_title_before_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        let mut v = view();
+        v.title = format!("{}{}", "x".repeat(55), VALUE);
+        let root = v.root.clone();
+        let mut parent = v.clone();
+        parent.id = root;
+        parent.kind = theseus_protocol::work::WorkKind::Conversation;
+        parent.session_id = Some("ses_exit".into());
+        let id = v.id.clone();
+        shared.tasks.snapshot(
+            1,
+            theseus_protocol::WorkWatchResult {
+                views: vec![parent, v],
+                position: 1,
+                total: 1,
+            },
+        );
+        let (tx, _rx) = mpsc::unbounded_channel();
+        shared
+            .routes
+            .lock()
+            .unwrap()
+            .by_session
+            .insert("ses_exit".into(), tx.clone());
+        shared.task_choices(&interaction(), &tx, "").await;
+        let replies = fake.replies();
+        let name = &replies[0]
+            .choices
+            .iter()
+            .find(|(_, value)| value == &id)
+            .unwrap()
+            .0;
+        assert!(!name.contains("vau"), "{name}");
+        assert!(name.contains("[red"), "{name}");
     }
 }

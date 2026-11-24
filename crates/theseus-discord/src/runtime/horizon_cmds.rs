@@ -616,7 +616,16 @@ impl Shared {
                 Ok(r) => format!(
                     "⏹️ Cancelled: it will not run. It was due <t:{}:t>: {}",
                     r.wake.due_at_ms / 1000,
-                    clip(r.wake.note.lines().next().unwrap_or_default(), 200)
+                    clip(
+                        self.core
+                            .exits
+                            .text(&r.wake.note)
+                            .0
+                            .lines()
+                            .next()
+                            .unwrap_or_default(),
+                        200
+                    )
                 ),
                 Err(e) => format!("⚠️ Not cancelled: {}", e.message),
             }
@@ -719,14 +728,18 @@ impl Shared {
             return self.offer(i, vec![]).await;
         }
         let snap = self.tasks.future.snapshot();
+        let routines =
+            crate::render::leaving::copy(&self.core.exits, &snap.routines).unwrap_or_default();
+        let wakes = crate::render::leaving::copy(&self.core.exits, &self.tasks.future.wakes())
+            .unwrap_or_default();
         let choices = match (c.name.as_str(), which.as_str()) {
-            ("routine", "name") => routine_choices(&snap.routines, &typed),
-            ("snooze", "wake") => wake_choices(&self.tasks.future.wakes(), &typed, true),
+            ("routine", "name") => routine_choices(&routines, &typed),
+            ("snooze", "wake") => wake_choices(&wakes, &typed, true),
             ("snooze", "when") => super::remind::suggest(&typed)
                 .into_iter()
-                .map(|s| choice(&s, &s))
+                .map(|s| choice(&self.core.exits.text(&s).0, &s))
                 .collect(),
-            ("cancel", "id") => wake_choices(&self.tasks.future.wakes(), &typed, false),
+            ("cancel", "id") => wake_choices(&wakes, &typed, false),
             _ => return false,
         };
         self.offer(i, choices).await
@@ -778,14 +791,25 @@ impl Shared {
                     .place_session(i)
                     .map(|session| self.tasks.going_in(&session))
                     .unwrap_or_default();
+                let mut watches = s.watches.clone();
+                for w in &mut watches {
+                    w.title = self.core.exits.text(&w.title).0.into_owned();
+                    w.until = self.core.exits.text(&w.until).0.into_owned();
+                    w.value = w
+                        .value
+                        .as_ref()
+                        .map(|v| self.core.exits.text(v).0.into_owned());
+                }
                 let t = agenda_text(
                     span,
                     theseus_protocol::now_unix_ms(),
-                    &s.lines,
-                    &s.routines,
-                    &s.watches,
-                    &s.projects,
-                    &going,
+                    &crate::render::leaving::copy(&self.core.exits, &s.lines).unwrap_or_default(),
+                    &crate::render::leaving::copy(&self.core.exits, &s.routines)
+                        .unwrap_or_default(),
+                    &watches,
+                    &crate::render::leaving::copy(&self.core.exits, &s.projects)
+                        .unwrap_or_default(),
+                    &crate::render::leaving::copy(&self.core.exits, &going).unwrap_or_default(),
                 );
                 self.reply_ephemeral(i, t).await;
             }
@@ -798,7 +822,11 @@ impl Shared {
                     self.redraw_private_boards();
                 }
                 let s = self.tasks.future.snapshot();
-                let data = routine_list(&s.routines, &s.records);
+                let data = routine_list(
+                    &crate::render::leaving::copy(&self.core.exits, &s.routines)
+                        .unwrap_or_default(),
+                    &s.records,
+                );
                 self.answer(
                     i,
                     InteractionResponseType::ChannelMessageWithSource,
@@ -865,12 +893,12 @@ impl Shared {
                     out.push(format!(
                         "👁 `{}` {} · until {} · {} checks{}",
                         w.short,
-                        clip(&w.title, 50),
-                        clip(&w.until, 30),
+                        clip(&self.core.exits.text(&w.title).0, 50),
+                        clip(&self.core.exits.text(&w.until).0, 30),
                         w.checks,
                         w.value
                             .as_deref()
-                            .map(|v| format!(" · last: {}", clip(v, 30)))
+                            .map(|v| format!(" · last: {}", clip(&self.core.exits.text(v).0, 30)))
                             .unwrap_or_default()
                     ));
                 }
@@ -971,7 +999,10 @@ impl Shared {
                 self.redraw_private_boards();
             }
             let s = self.tasks.future.snapshot();
-            let mut data = routine_list(&s.routines, &s.records);
+            let mut data = routine_list(
+                &crate::render::leaving::copy(&self.core.exits, &s.routines).unwrap_or_default(),
+                &s.records,
+            );
             data.content = data.content.map(|c| format!("{c}\n-# {said}"));
             self.answer(i, InteractionResponseType::UpdateMessage, Some(data))
                 .await;
@@ -1248,5 +1279,181 @@ mod tests {
     fn the_commands_list_carries_the_four_of_the_future_and_every_name_is_bare() {
         let names: Vec<String> = commands().into_iter().map(|c| c.name).collect();
         assert_eq!(names, ["agenda", "routine", "snooze", "watch"]);
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    async fn choices(routine: bool) {
+        let (_dir, _core, fake, shared) = rig();
+        let mut snap = super::super::horizon::Snapshot::default();
+        let (name, field) = if routine {
+            snap.routines.push(serde_json::from_value(serde_json::json!({"id":"routine", "short":"routine", "title":format!("{}{}", "x".repeat(85), VALUE), "schedule":"", "series":"", "brief":"", "paused":false, "run_usd":1.0, "month_usd":10.0, "month_spent_usd":0.0, "deliver_to":"dm", "catch_up":"skip", "speak":"always", "carry":"none", "runs":0})).unwrap());
+            ("routine", "name")
+        } else {
+            snap.lines
+                .push(theseus_protocol::work::horizon::AgendaLine {
+                    at_ms: 1,
+                    id: "wak_reef".into(),
+                    kind: theseus_protocol::work::WorkKind::Wake,
+                    what: theseus_protocol::work::horizon::AgendaWhat::Due,
+                    title: format!("{}{}", "x".repeat(50), VALUE),
+                    session_id: None,
+                    purpose: Some("remind".into()),
+                    occurrence: None,
+                });
+            ("snooze", "wake")
+        };
+        shared.tasks.future.seed_for_test(snap);
+        let command: CommandData = serde_json::from_value(serde_json::json!({"id":"3", "name":name, "type":1, "options":[{"name":field,"type":3,"value":"","focused":true}]})).unwrap();
+        assert!(shared.horizon_autocomplete(&interaction(), &command).await);
+        let replies = fake.replies();
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0].choices.len(), 1);
+        let name = &replies[0].choices[0].0;
+        assert!(!name.contains("vault"), "{name}");
+        assert!(name.contains("[redact"), "{name}");
+    }
+    #[tokio::test]
+    async fn wake_autocomplete_masks_before_choice_cut() {
+        choices(false).await;
+    }
+    #[tokio::test]
+    async fn routine_autocomplete_masks_before_choice_cut() {
+        choices(true).await;
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn cancel_select_masks_note_before_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        let wake = theseus_protocol::WakeInfo {
+            note: format!("{}{}", "x".repeat(195), VALUE),
+            ..Default::default()
+        };
+        let hold = crate::rpc_client::slow_once(
+            method::WAKE_CANCEL,
+            "exit_select",
+            serde_json::json!({"wake":wake}),
+        );
+        hold.release.notify_one();
+        assert!(
+            shared
+                .reminder_pick(&interaction(), "hq:cancel:exit_select", "keeper")
+                .await
+        );
+        let replies = fake.replies();
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn watch_list_masks_title_and_last_value_before_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        let watch = serde_json::json!({"wake_id":"wake_exit", "short":"exit", "session_id":"ses_exit", "execution_id":"exe_exit", "title":format!("{}{}", "x".repeat(45), VALUE), "kind":"file", "target":"file", "until":"tomorrow", "every":"1h", "then":"tell", "set_at_ms":1,"expires_at_ms":2,"value":format!("{}{}", "x".repeat(25), VALUE), "checks":1});
+        let hold = crate::rpc_client::slow_once(
+            method::WATCH_LIST,
+            "",
+            serde_json::json!({"watches":[watch]}),
+        );
+        hold.release.notify_one();
+        shared.watch_command(&interaction(), "list", &[]).await;
+        let replies = fake.replies();
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r5 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    fn routine(n: usize) -> theseus_protocol::routines::RoutineInfo {
+        serde_json::from_value(serde_json::json!({"id":VALUE, "short":"routine", "title":format!("{}{}", "x".repeat(n), VALUE), "schedule":"", "series":"", "brief":"", "paused":false, "run_usd":1.0, "month_usd":10.0, "month_spent_usd":0.0, "deliver_to":"dm", "catch_up":"skip", "speak":"always", "carry":"none", "runs":0})).unwrap()
+    }
+    fn keep_snapshot() -> std::sync::Arc<crate::rpc_client::Hold> {
+        let hold = crate::rpc_client::slow_once(method::ROUTINE_LIST, "", serde_json::json!({}));
+        hold.release.notify_one();
+        hold
+    }
+    #[tokio::test]
+    async fn agenda_masks_before_cuts_r5() {
+        let (_dir, _core, fake, shared) = rig();
+        let watch = serde_json::from_value(serde_json::json!({"wake_id":"wake_exit", "short":"exit", "session_id":"ses_exit", "execution_id":"exe_exit", "title":format!("{}{}", "x".repeat(45), VALUE), "kind":"file", "target":"file", "until":format!("{}{}", "x".repeat(25), VALUE), "every":"1h", "then":"tell", "set_at_ms":1,"expires_at_ms":2,"value":format!("{}{}", "x".repeat(25), VALUE), "checks":1})).unwrap();
+        shared
+            .tasks
+            .future
+            .seed_for_test(super::super::horizon::Snapshot {
+                routines: vec![routine(45)],
+                watches: vec![watch],
+                ..Default::default()
+            });
+        let _hold = keep_snapshot();
+        let c = serde_json::from_value(serde_json::json!({"id":"3", "name":"agenda", "type":1,"options":[{"name":"when","type":3,"value":"all"}]})).unwrap();
+        shared.horizon_command(&interaction(), &c, "keeper").await;
+        let text = fake.replies()[0].content.clone().unwrap();
+        assert!(
+            text.contains("Routines") && text.contains("last:"),
+            "{text}"
+        );
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.matches("[red").count() >= 4, "{text}");
+    }
+    #[tokio::test]
+    async fn routine_list_and_redraw_mask_labels_keep_ids_r5() {
+        let (_dir, _core, fake, shared) = rig();
+        let r = routine(35);
+        shared
+            .tasks
+            .future
+            .seed_for_test(super::super::horizon::Snapshot {
+                routines: vec![r.clone()],
+                ..Default::default()
+            });
+        let _hold = keep_snapshot();
+        let c = serde_json::from_value(serde_json::json!({"id":"3", "name":"routine", "type":1,"options":[{"name":"list","type":1,"options":[]}]})).unwrap();
+        shared.horizon_command(&interaction(), &c, "keeper").await;
+        let check = || {
+            let m = fake.reply_message("1").unwrap();
+            assert!(!m.content.contains("vau"), "{}", m.content);
+            assert!(m.content.contains("[red"), "{}", m.content);
+            assert_eq!(m.buttons.len(), 2);
+            for b in m.buttons {
+                assert!(!b.label.contains("vau"), "{}", b.label);
+                assert!(b.label.contains("[red"), "{}", b.label);
+                assert!(b.custom_id.ends_with(VALUE), "{}", b.custom_id);
+            }
+        };
+        check();
+        let mut i = interaction();
+        let mut m = shared
+            .http
+            .create_message(twilight_model::id::Id::new(42))
+            .content("list")
+            .await
+            .unwrap()
+            .model()
+            .await
+            .unwrap();
+        m.flags = Some(MessageFlags::EPHEMERAL);
+        i.message = Some(m);
+        let edit = crate::rpc_client::slow_once(
+            method::ROUTINE_PAUSE,
+            VALUE,
+            serde_json::json!({"routine":r}),
+        );
+        edit.release.notify_one();
+        let _hold = keep_snapshot();
+        shared.routine_press(&i, "pause", VALUE, "keeper").await;
+        assert_eq!(fake.replies().last().unwrap().response_type, Some(7));
+        check();
     }
 }

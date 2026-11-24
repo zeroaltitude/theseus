@@ -270,12 +270,13 @@ impl Shared {
 
     /// One quiet line, a reply to the message reacted to.
     async fn quiet(&self, channel: u64, message: u64, text: &str) {
+        let text = self.core.exits.text(text).0;
         let none = AllowedMentions::default();
         let (c, m): (Id<ChannelMarker>, Id<MessageMarker>) = (Id::new(channel), Id::new(message));
         let sent = self
             .http
             .create_message(c)
-            .content(&clip(text, 1900))
+            .content(&clip(&text, 1900))
             .reply(m)
             .flags(MessageFlags::SUPPRESS_NOTIFICATIONS)
             .allowed_mentions(Some(&none))
@@ -364,6 +365,8 @@ impl Shared {
     /// 🛑: the board's own Stop question, as a message in the place; its Yes
     /// and No are the buttons the board's view has.
     async fn ask_stop(&self, channel: u64, message: u64, v: &WorkView) -> Result<bool, String> {
+        let v = crate::render::leaving::copy(&self.core.exits, v)
+            .ok_or("Could not display this task.")?;
         if v.state.ended() {
             return Err(format!(
                 "**{}** has ended already.",
@@ -371,7 +374,7 @@ impl Shared {
             ));
         }
         let body = json!({"flags": v2::IS_COMPONENTS_V2 | MessageFlags::SUPPRESS_NOTIFICATIONS.bits(),
-            "components": task_view::confirm_stop(v), "allowed_mentions": {"parse": []},
+            "components": task_view::confirm_stop(&v), "allowed_mentions": {"parse": []},
             "message_reference": {"message_id": message.to_string(), "fail_if_not_exists": false}});
         let req = Request::builder(&HttpRoute::CreateMessage {
             channel_id: channel,
@@ -519,5 +522,52 @@ impl Shared {
             .await
             .map_err(|e| format!("⚠️ {e}"))?;
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    #[tokio::test]
+    async fn reaction_quiet_masks_before_its_cut() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = theseus_sim::fake_discord::FakeDiscord::start();
+        let core = crate::runtime::tests::core_with(
+            dir.path(),
+            theseus_core::secrets::SecretBoard::empty(),
+            |c| c.discord.rest_proxy = Some(fake.addr.clone()),
+        );
+        core.secrets.hold(
+            "quiet_token",
+            theseus_core::secrets::Secret::new("vault-token-4c8e1f7a92b3".into()),
+        );
+        let shared = crate::runtime::shared_for_tests(&core);
+        shared
+            .quiet(
+                42,
+                1,
+                &format!("{}vault-token-4c8e1f7a92b3", "x".repeat(1890)),
+            )
+            .await;
+        let messages = fake.messages(42);
+        assert_eq!(messages.len(), 1);
+        assert!(
+            !messages[0].content.contains("vault"),
+            "{}",
+            messages[0].content
+        );
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn stop_question_masks_title_before_cut() {
+        let (_dir, _core, _fake, shared) = rig();
+        let mut v = super::super::task_channels::work_view("exe_exit", "done");
+        v.title = format!("{}{}", "x".repeat(75), VALUE);
+        let text = shared.ask_stop(42, 1, &v).await.unwrap_err();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
     }
 }

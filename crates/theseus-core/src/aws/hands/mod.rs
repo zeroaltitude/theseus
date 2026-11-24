@@ -73,6 +73,8 @@ pub struct Hands {
     envs: Mutex<BTreeMap<(String, String), launch::HandsEnv>>,
     /// Told when a group launches, so an idle poller polls.
     pub(crate) wake: Notify,
+    #[cfg(test)]
+    pub(super) poll_paused: Notify,
     /// A group that did not fit its session's budget, by execution, until
     /// its turn asks the budget question (`take_over_budget`): the turn's
     /// own hand-off, never the record.

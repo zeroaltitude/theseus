@@ -84,11 +84,14 @@ struct Line {
 /// The line `a` would add to a fold, when it may fold: a silent report,
 /// failure or notice, written at or after `since_ms`.
 fn line_of(
+    exits: &theseus_core::exits::Exits,
     a: &Action,
     since_ms: u64,
     silent: &[theseus_core::config::discord::Category],
 ) -> Option<Line> {
-    fold_line(kind_of(a), body_of(a), a.planned_at_ms, since_ms, silent)
+    let mut body = body_of(a).clone();
+    crate::render::leaving::json(exits, &mut body);
+    fold_line(kind_of(a), &body, a.planned_at_ms, since_ms, silent)
 }
 
 /// `line_of`'s rule over a post's parts.
@@ -194,7 +197,7 @@ impl Lane {
             .open_for(&self.target)
             .into_iter()
             .filter(|a| !self.unsure.contains(&a.correlation_id))
-            .filter_map(|a| line_of(&a, since_ms, &silent).map(|l| (a, l)))
+            .filter_map(|a| line_of(&self.shared.core.exits, &a, since_ms, &silent).map(|l| (a, l)))
             .collect();
         if posts.len() < MIN {
             self.catchup.outage = None;

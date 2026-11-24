@@ -98,6 +98,15 @@ pub(crate) fn buttons(key: &str) -> Vec<Component> {
 }
 
 /// The modal "Write its soul" opens: one paragraph.
+fn modal_leaving(exits: &theseus_core::exits::Exits, key: &str) -> Value {
+    let mut data = modal(key);
+    data["data"]["title"] = json!(crate::render::clip(
+        &format!("Soul of {}", exits.text(key).0),
+        45
+    ));
+    data
+}
+
 pub(crate) fn modal(key: &str) -> Value {
     json!({"type": 9, "data": {
         "custom_id": format!("{MODAL}{key}"),
@@ -156,7 +165,10 @@ impl Shared {
     /// A press of the card.
     pub(super) async fn persona_soul_press(&self, i: &Interaction, press: Press, who: &str) {
         match press {
-            Press::Write(key) => self.respond_modal(i, &modal(&key)).await,
+            Press::Write(key) => {
+                self.respond_modal(i, &modal_leaving(&self.core.exits, &key))
+                    .await
+            }
             Press::Decline(key) => {
                 self.respond(
                     i,
@@ -264,5 +276,21 @@ mod tests {
         assert!(buttons("a b").is_empty());
         assert_eq!(key_of(&json!({"persona": "pilot"})), "pilot");
         assert_eq!(modal("pilot")["data"]["custom_id"], "psoul:m:pilot");
+    }
+}
+
+#[cfg(test)]
+mod modal_exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn persona_modal_masks_display_key_before_cut() {
+        let (_dir, core, _fake, _shared) = rig();
+        let key = format!("{}{}", "x".repeat(32), VALUE);
+        assert!(key_ok(&key));
+        let modal = modal_leaving(&core.exits, &key);
+        let title = modal["data"]["title"].as_str().unwrap();
+        assert!(!title.contains("vau"), "{title}");
+        assert_eq!(modal["data"]["custom_id"], format!("psoul:m:{key}"));
     }
 }

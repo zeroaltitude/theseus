@@ -1141,3 +1141,385 @@ async fn aws_still_stops_at_its_lines_under_the_soft_money_settings() {
     assert!(result_text(&r.core, &res).contains("Not run: AWS runaway mode"));
     assert!(r.state.invoked().is_empty(), "nothing launched");
 }
+
+/// The existing AWS fake accepts the task, but its reply is unreadable.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_accepted_launch_with_a_lost_reply_keeps_its_reservation() {
+    use super::tests_hands::{answer, core_at, State};
+    use crate::aws::tests::Fake;
+    use std::sync::Arc;
+    let state = Arc::new(State::default());
+    state.nat.store(true, Ordering::SeqCst);
+    let s = state.clone();
+    let fake = Fake::start(move |seen, n| {
+        let reply = answer(&s, seen, n);
+        if seen
+            .header("x-amz-target")
+            .is_some_and(|h| h.ends_with(".RunTask"))
+        {
+            (200, reply.1, "{truncated".into())
+        } else {
+            reply
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let core = core_at(
+        dir.path(),
+        &fake.url,
+        calls(json!({"argv": ["true"], "backend": "fargate"})),
+    );
+    turn(&core, "run a hand").await;
+    let rec = record(&core, &group_of(&core));
+    let hand = core
+        .kernel
+        .action(&rec.hands[0].correlation_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.ran.lock().unwrap().len(), 1, "AWS accepted it");
+    assert_eq!(
+        hand.state,
+        ActionState::OutcomeUnknown,
+        "not proof that nothing ran"
+    );
+    let exec = core.kernel.execution(&rec.execution_id).unwrap().unwrap();
+    assert!(exec.budget.held_unknown_micros >= hand.reserved_micros);
+    assert!(hand.reserved_micros > 0);
+    let spec: HandSpec = serde_json::from_str(
+        state.ran.lock().unwrap()[0]["overrides"]["containerOverrides"][0]["environment"][0]
+            ["value"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    state.push(signed(&spec, "succeeded", 0));
+    core.poll_hands_after_serving();
+    until("the unknown launch resolved", || {
+        state_of(&core, &hand.correlation_id) == ActionState::Succeeded
+    })
+    .await;
+    assert_eq!(
+        core.kernel
+            .execution(&rec.execution_id)
+            .unwrap()
+            .unwrap()
+            .budget
+            .held_unknown_micros,
+        0
+    );
+}
+
+/// Hold the accepted RunTask response until the cancellation has finished.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_while_the_launch_reply_is_held_stops_the_late_task() {
+    use super::tests_hands::{answer, core_at, State};
+    use crate::aws::tests::Fake;
+    use std::sync::{Arc, Condvar, Mutex};
+    let state = Arc::new(State::default());
+    state.nat.store(true, Ordering::SeqCst);
+    state.stop_at_once.store(true, Ordering::SeqCst);
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    let (sent, entered) = tokio::sync::oneshot::channel();
+    let signal = Mutex::new(Some(sent));
+    let (s, gate) = (state.clone(), release.clone());
+    let fake = Fake::start(move |seen, n| {
+        let reply = answer(&s, seen, n);
+        if seen
+            .header("x-amz-target")
+            .is_some_and(|h| h.ends_with(".RunTask"))
+        {
+            if let Some(sent) = signal.lock().unwrap().take() {
+                let _ = sent.send(());
+            }
+            let (lock, cv) = &*gate;
+            let _released = cv
+                .wait_while(lock.lock().unwrap(), |ready| !*ready)
+                .unwrap();
+        }
+        reply
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let core = core_at(
+        dir.path(),
+        &fake.url,
+        calls(json!({"argv": ["true"], "backend": "fargate"})),
+    );
+    let c = core.clone();
+    let run = tokio::spawn(async move { turn(&c, "run a hand").await });
+    entered.await.unwrap();
+    let spec: HandSpec = serde_json::from_str(
+        state.ran.lock().unwrap()[0]["overrides"]["containerOverrides"][0]["environment"][0]
+            ["value"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    let rec = record(&core, &spec.group);
+    let aws = core.tools.aws.clone().unwrap();
+    let ctx = super::group::Ctx {
+        kernel: &core.kernel,
+        store: &core.store,
+        aws: &aws,
+    };
+    super::cancel::stop_group(&ctx, &rec.group).await.unwrap();
+    let before_reply = core.kernel.action(&spec.correlation_id).unwrap().unwrap();
+    *release.0.lock().unwrap() = true;
+    release.1.notify_all();
+    run.await.unwrap();
+    assert_eq!(before_reply.cancel, Some(CancelState::OutcomeUncertain));
+    assert_eq!(
+        state.stops.lock().unwrap().len(),
+        1,
+        "the late ARN is stopped"
+    );
+    assert_eq!(
+        record(&core, &rec.group).settled.as_deref(),
+        Some("cancelled")
+    );
+    let exec = core.kernel.execution(&rec.execution_id).unwrap().unwrap();
+    assert_eq!(
+        core.kernel
+            .action(&spec.correlation_id)
+            .unwrap()
+            .unwrap()
+            .cancel,
+        Some(CancelState::TerminationVerified)
+    );
+    assert_eq!(exec.budget.held_unknown_micros, 0);
+    assert!(
+        exec.budget.spent_micros > 0,
+        "the task's cost was not erased by the cancellation"
+    );
+    super::cancel::stop_group(&ctx, &rec.group).await.unwrap();
+    assert_eq!(
+        core.kernel
+            .execution(&rec.execution_id)
+            .unwrap()
+            .unwrap()
+            .budget
+            .spent_micros,
+        exec.budget.spent_micros,
+        "the verified stop is counted once"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_later_wave_gets_a_full_hand_lifetime_at_dispatch() {
+    let _clock = crate::test_support::pin_mid_period();
+    let r = fargate_rig(json!({"argv": ["true"], "count": 2, "concurrency": 1,
+        "backend": "fargate", "ttl_secs": 3600}));
+    turn(&r.core, "run in two waves").await;
+    let rec = record(&r.core, &group_of(&r.core));
+    let at = r.core.kernel.now_ms() + 3_500_000;
+    theseus_protocol::time::move_clock_to(at);
+    r.core
+        .kernel
+        .accept_completion(&theseus_kernel::Completion {
+            correlation_id: rec.hands[0].correlation_id.clone(),
+            outcome: theseus_kernel::Outcome::Succeeded,
+            result_ref: None,
+            external_op_id: None,
+            started_at_ms: rec.created_at_ms,
+            finished_at_ms: at,
+            producer: "test".into(),
+            signature: None,
+            cost_micros: Some(1),
+            detail: None,
+        })
+        .unwrap();
+    let aws = r.core.tools.aws.clone().unwrap();
+    let ctx = super::group::Ctx {
+        kernel: &r.core.kernel,
+        store: &r.core.store,
+        aws: &aws,
+    };
+    super::group::step(&ctx, &rec.group).await.unwrap();
+    let second = action(&r, &rec.hands[1].correlation_id);
+    assert!(
+        second.deadline_at_ms >= at + 3_600_000,
+        "late hand inherits the old clock: {second:?}"
+    );
+    let ran = r.state.ran.lock().unwrap();
+    assert_eq!(ran.len(), 2);
+    let tag = ran[1]["tags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["key"] == "theseus:ttl")
+        .unwrap();
+    let ttl = crate::wake::parse_at(tag["value"].as_str().unwrap()).unwrap();
+    assert!(
+        ttl >= at + 3_599_000,
+        "the reaper must follow the hand's own clock"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_accepted_launch_with_a_dropped_connection_keeps_its_reservation() {
+    use super::tests_hands::{answer, core_at, State};
+    use crate::aws::tests::Fake;
+    use std::sync::Arc;
+    let state = Arc::new(State::default());
+    state.nat.store(true, Ordering::SeqCst);
+    let s = state.clone();
+    let fake = Fake::start(move |seen, n| {
+        let reply = answer(&s, seen, n);
+        if seen
+            .header("x-amz-target")
+            .is_some_and(|h| h.ends_with(".RunTask"))
+        {
+            (0, vec![], String::new())
+        } else {
+            reply
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let core = core_at(
+        dir.path(),
+        &fake.url,
+        calls(json!({"argv": ["true"], "backend": "fargate"})),
+    );
+    turn(&core, "run a hand").await;
+    let rec = record(&core, &group_of(&core));
+    let hand = core
+        .kernel
+        .action(&rec.hands[0].correlation_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.ran.lock().unwrap().len(), 1, "AWS accepted it");
+    assert_eq!(
+        hand.state,
+        ActionState::OutcomeUnknown,
+        "not proof that nothing ran"
+    );
+    let exec = core.kernel.execution(&rec.execution_id).unwrap().unwrap();
+    assert!(exec.budget.held_unknown_micros >= hand.reserved_micros);
+    assert!(hand.reserved_micros > 0);
+    let aws = core.tools.aws.as_ref().unwrap();
+    let ctx = super::group::Ctx {
+        kernel: &core.kernel,
+        store: &core.store,
+        aws,
+    };
+    let before = fake.seen().len();
+    for _ in 0..3 {
+        assert_eq!(super::cancel::verify(&ctx, &rec).await.unwrap(), 0);
+        assert!(!super::overdue::pass(&ctx, &rec, u64::MAX).await.unwrap());
+    }
+    assert_eq!(
+        fake.seen().len(),
+        before,
+        "unknown without an ARN has no per-group cloud probe"
+    );
+    assert_eq!(
+        core.kernel
+            .execution(&rec.execution_id)
+            .unwrap()
+            .unwrap()
+            .budget
+            .held_unknown_micros,
+        exec.budget.held_unknown_micros
+    );
+    let spec: HandSpec = serde_json::from_str(
+        state.ran.lock().unwrap()[0]["overrides"]["containerOverrides"][0]["environment"][0]
+            ["value"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    state.push(signed(&spec, "succeeded", 0));
+    core.poll_hands_after_serving();
+    until("the unknown launch resolved", || {
+        state_of(&core, &hand.correlation_id) == ActionState::Succeeded
+    })
+    .await;
+    assert_eq!(
+        core.kernel
+            .execution(&rec.execution_id)
+            .unwrap()
+            .unwrap()
+            .budget
+            .held_unknown_micros,
+        0
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancellation_wakes_an_unknown_only_poller() {
+    let r = rig(calls(json!({"argv": ["true"]})));
+    turn(&r.core, "run one").await;
+    let rec = record(&r.core, &group_of(&r.core));
+    let aws = r.core.tools.aws.clone().unwrap();
+    let ctx = super::group::Ctx {
+        kernel: &r.core.kernel,
+        store: &r.core.store,
+        aws: &aws,
+    };
+    super::overdue::pass(&ctx, &rec, u64::MAX).await.unwrap();
+    // Consume the launch permit before waiting for the actual backoff arm.
+    aws.hands.wake.notified().await;
+    let poller = tokio::spawn(super::poller::run(
+        std::sync::Arc::downgrade(&r.core),
+        aws.clone(),
+    ));
+    tokio::time::timeout(Duration::from_secs(10), aws.hands.poll_paused.notified())
+        .await
+        .unwrap();
+    let before = r.state.receives.load(Ordering::SeqCst);
+    super::cancel::stop_group(&ctx, &rec.group).await.unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
+        while r.state.receives.load(Ordering::SeqCst) == before {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    poller.abort();
+    let _ = poller.await;
+    assert!(
+        result.is_ok(),
+        "cancel left the poller in its sixty-second pause"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn late_envelope_batches_reset_the_unknown_backoff() {
+    let r = rig(calls(
+        json!({"argv": ["true"], "count": 31, "concurrency": 31}),
+    ));
+    turn(&r.core, "run a wave").await;
+    let rec = record(&r.core, &group_of(&r.core));
+    let aws = r.core.tools.aws.clone().unwrap();
+    let ctx = super::group::Ctx {
+        kernel: &r.core.kernel,
+        store: &r.core.store,
+        aws: &aws,
+    };
+    super::overdue::pass(&ctx, &rec, u64::MAX).await.unwrap();
+    let specs = r.state.invoked();
+    assert_eq!(specs.len(), 31);
+    for spec in &specs {
+        r.state.push(signed(spec, "succeeded", 0));
+    }
+    aws.hands.wake.notified().await;
+    let poller = tokio::spawn(super::poller::run(
+        std::sync::Arc::downgrade(&r.core),
+        aws.clone(),
+    ));
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if specs
+                .iter()
+                .all(|s| state_of(&r.core, &s.correlation_id) == ActionState::Succeeded)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    poller.abort();
+    let _ = poller.await;
+    assert!(
+        result.is_ok(),
+        "progress must drain late envelopes without a growing pause"
+    );
+}

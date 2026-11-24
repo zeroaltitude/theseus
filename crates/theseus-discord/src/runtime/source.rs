@@ -98,6 +98,7 @@ pub(super) fn parse(custom_id: &str) -> Option<(&str, &str)> {
 fn shown(exits: &Exits, c: &Citation) -> String {
     let masked = Citation {
         excerpt: exits.text(&c.excerpt).0.into_owned(),
+        header: exits.text(&c.header).0.into_owned(),
         ..c.clone()
     };
     exits.text(&excerpt_text(&masked)).0.into_owned()
@@ -132,7 +133,7 @@ impl Shared {
         let resp = InteractionResponse {
             kind: InteractionResponseType::ChannelMessageWithSource,
             data: Some(InteractionResponseData {
-                content: Some(said),
+                content: Some(super::command_reply::leaving(&self.core.exits, &said)),
                 flags: Some(MessageFlags::EPHEMERAL),
                 allowed_mentions: Some(AllowedMentions::default()),
                 ..Default::default()
@@ -237,5 +238,36 @@ mod tests {
         let two = serde_json::to_value(source_buttons("ses_1", &full, Some("turn_9"))).unwrap();
         assert_eq!(two.as_array().unwrap().len(), 2);
         assert_eq!(two[1]["components"][0]["label"], "➕ Make this a task");
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn source_error_masks_its_words() {
+        let (_dir, _core, fake, shared) = rig();
+        let mut i = interaction();
+        i.data = Some(InteractionData::MessageComponent(serde_json::from_value(serde_json::json!({"custom_id":format!("src:{VALUE}:m:abcdef"), "component_type":2})).unwrap()));
+        assert!(shared.source_interaction(&i).await);
+        let replies = fake.replies();
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains(VALUE), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod header_exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn source_header_masks_before_message_cut() {
+        let (_dir, core, _fake, _shared) = rig();
+        let cite = theseus_protocol::cite::Citation {
+            header: format!("{}{}", "x".repeat(1880), VALUE),
+            ..Default::default()
+        };
+        let text = super::shown(&core.exits, &cite);
+        assert!(!text.contains("vau"), "{text}");
     }
 }

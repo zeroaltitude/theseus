@@ -249,6 +249,10 @@ impl GuardList {
                 scan.notes.push(format!("{id}: no Type"));
                 continue;
             };
+            if ty == "AWS::CloudFormation::Stack" {
+                scan.notes
+                    .push(format!("{id}: nested stack resources are not scanned"));
+            }
             let (exists, condition) = match res.get("Condition").and_then(Node::as_str) {
                 None => (Truth::Yes, None),
                 Some(c) => match r.condition(c) {

@@ -57,6 +57,7 @@ pub(crate) struct Shown {
 
 #[derive(Default)]
 pub(crate) struct Process {
+    exits: Option<std::sync::Arc<theseus_core::exits::Exits>>,
     turns: VecDeque<(String, BTreeMap<u32, Loop>)>,
 }
 
@@ -88,7 +89,7 @@ impl Loop {
 
     /// The message as the place shows it: the thinking (streaming, or
     /// folded), then the tool lines; empty when it shows neither.
-    fn content(&self, s: Shown) -> String {
+    fn content(&self, s: Shown, exits: Option<&theseus_core::exits::Exits>) -> String {
         let tools = if s.tools {
             self.tools.as_deref().unwrap_or("")
         } else {
@@ -97,8 +98,12 @@ impl Loop {
         let head = match self.thought {
             _ if !s.thinking || !self.thinks() => String::new(),
             Some(secs) => format!("-# 💭 thought for {secs} s"),
+            None if exits.is_some_and(|e| e.on()) => HEAD.to_string(),
             None => streaming(
-                &self.text,
+                &exits.map_or_else(
+                    || std::borrow::Cow::Borrowed(self.text.as_str()),
+                    |e| e.text(&self.text).0,
+                ),
                 self.more,
                 (DISCORD_LIMIT - 1).saturating_sub(tools.len()),
             ),
@@ -112,6 +117,11 @@ impl Loop {
 }
 
 impl Process {
+    pub(crate) fn with_exits(mut self, exits: std::sync::Arc<theseus_core::exits::Exits>) -> Self {
+        self.exits = Some(exits);
+        self
+    }
+
     /// One event of the place's session. Thinking's first text shows at
     /// once, the rest at the tick; the fold shows at once.
     pub(crate) fn on_event(&mut self, e: &Event, now: Instant, s: Shown) -> Vec<Op> {
@@ -170,7 +180,7 @@ impl Process {
         for (turn, loops) in &mut self.turns {
             for (li, lp) in loops.iter_mut().filter(|(_, lp)| lp.dirty) {
                 lp.dirty = false;
-                let content = lp.content(s);
+                let content = lp.content(s, self.exits.as_deref());
                 if content.is_empty() || lp.shown.as_ref() == Some(&content) {
                     continue;
                 }
@@ -189,6 +199,7 @@ impl Process {
     /// under its thinking, a place that hides its tools shows its thinking
     /// alone, and a notice embed only with its tools.
     pub(crate) fn fold_ops(&mut self, ops: Vec<Op>, s: Shown) -> Vec<Op> {
+        let exits = self.exits.clone();
         let mut out = Vec::new();
         for op in ops {
             match op {
@@ -209,7 +220,7 @@ impl Process {
                     };
                     lp.tools = Some(content);
                     lp.dirty = false;
-                    let content = lp.content(s);
+                    let content = lp.content(s, exits.as_deref());
                     let buttons = if s.tools { buttons } else { Buttons::Keep };
                     if content.is_empty()
                         || (lp.shown.as_ref() == Some(&content) && buttons == Buttons::Keep)

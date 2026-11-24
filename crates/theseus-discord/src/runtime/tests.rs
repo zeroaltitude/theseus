@@ -197,6 +197,31 @@ fn mention_only_channels_answer_mentions_and_replies_only() {
     assert_eq!(strip_mentions("hey <@&42> look", bot, &[role]), "hey look");
 }
 
+/// A message in a mention-only place keeps its lines, indentation and code:
+/// only the mention and the spaces after it go (before, every run of
+/// whitespace in the message became one space, and pasted code one line).
+#[test]
+fn a_mention_is_taken_out_and_the_message_keeps_its_lines_and_code() {
+    let (bot, role) = (1_618_033_988_749_894_848, 42);
+    let pasted = "<@1618033988749894848> why does this fail?\n```rust\nfn main() {\n    \
+                  let x: u8 = \"1\";\n}\n```\n\nerror[E0308]:  mismatched types\n";
+    assert_eq!(
+        strip_mentions(pasted, bot, &[role]),
+        "why does this fail?\n```rust\nfn main() {\n    let x: u8 = \"1\";\n}\n```\n\n\
+         error[E0308]:  mismatched types"
+    );
+    // The mention on a line of its own: the code under it keeps its indent.
+    assert_eq!(
+        strip_mentions("<@&42>\n    indented();\n\tand tabbed();", bot, &[role]),
+        "    indented();\n\tand tabbed();"
+    );
+    // A reply to the bot names no mention: its text is as written.
+    assert_eq!(
+        strip_mentions("first  line\n  - a list\n  - of two", bot, &[role]),
+        "first  line\n  - a list\n  - of two"
+    );
+}
+
 #[test]
 fn confirm_buttons_carry_the_correlation_id() {
     let c = confirm_buttons("act_9");
@@ -1245,4 +1270,11 @@ fn a_message_or_an_interaction_resolves_to_its_place() {
     assert!(r.resolve(None, true, Some(7)).is_none());
     // A guild channel never reaches a DM binding (theseus-e89).
     assert!(r.resolve(Some(7), true, Some(7)).is_none());
+}
+
+#[test]
+fn addressing_preserves_code_and_reference_reply_whitespace() {
+    let text = "```rust\nfn main() {\n    let x = 1;\n}\n```";
+    assert_eq!(strip_mentions(&format!("<@42> {text}"), 42, &[]), text);
+    assert_eq!(strip_mentions(text, 42, &[]), text);
 }

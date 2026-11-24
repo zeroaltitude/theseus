@@ -254,3 +254,19 @@ async fn in_a_shared_place_the_words_say_it_is_his_alone_and_write_nothing() {
     assert!(!carries(&r, LAB, "still the DM"));
     r.stop();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn notify_off_overrides_the_file_announcement_channel() {
+    let r = rig(true).await;
+    r.say((ANA, "ana"), Some(LAB), "notify off");
+    landed(&r, LAB, "go to your DM again").await;
+    r.say((ANA, "ana"), Some(LAB), "notify where");
+    landed(&r, LAB, "The announcements go to your DM.").await;
+    stage(
+        &r,
+        json!({"kind": "digest", "text": "explicit DM announcement", "id": "dm"}),
+    );
+    landed(&r, ANA_DM, "explicit DM announcement").await;
+    assert!(!carries(&r, NOTIFY, "explicit DM announcement"));
+    r.stop();
+}

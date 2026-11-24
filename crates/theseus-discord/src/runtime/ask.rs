@@ -155,7 +155,11 @@ impl Shared {
                 .find(|c| c.correlation_id == question)
                 .map_or_else(
                     || "That question is not open any more.".to_string(),
-                    crate::render::question_details,
+                    |req| {
+                        let mut req = req.clone();
+                        crate::render::leaving::request(&self.core.exits, &mut req);
+                        crate::render::question_details(&req)
+                    },
                 ),
             Err(e) => format!("Could not read it: {}", e.message),
         };
@@ -223,6 +227,10 @@ impl Shared {
                 },
             ),
         };
+        let mut data = data;
+        data.content = data
+            .content
+            .map(|s| super::command_reply::leaving(&self.core.exits, &s));
         let resp = InteractionResponse {
             kind,
             data: Some(data),
@@ -290,6 +298,10 @@ impl Shared {
                 },
             ),
         };
+        let mut data = data;
+        data.content = data
+            .content
+            .map(|s| super::command_reply::leaving(&self.core.exits, &s));
         let resp = InteractionResponse {
             kind,
             data: Some(data),
@@ -358,5 +370,70 @@ mod tests {
                 "need:details:act_1"
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn ask_again_error_masks_its_words() {
+        let (_dir, _core, fake, shared) = rig();
+        shared
+            .ask_again_press(&interaction(), VALUE.into(), "discord:7", None)
+            .await;
+        let replies = fake.replies();
+        assert_eq!(replies.len(), 1);
+        let content = replies[0].content.as_deref().unwrap();
+        assert!(!content.contains(VALUE), "{content}");
+        assert!(content.contains("[redacted:"), "{content}");
+    }
+}
+
+#[cfg(test)]
+mod option_exit_tests {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn ask_option_error_masks_its_words() {
+        let (_dir, _core, fake, shared) = rig();
+        shared
+            .ask_press(&interaction(), (1, VALUE.into()), "discord:7", None)
+            .await;
+        let replies = fake.replies();
+        assert_eq!(replies.len(), 1);
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains(VALUE), "{text}");
+        assert!(text.contains("[redacted:"), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn details_entry_masks_before_reason_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        let req = theseus_protocol::ConfirmRequest {
+            correlation_id: "act_exit_details".into(),
+            reason: format!("{}{}", "x".repeat(395), VALUE),
+            ..Default::default()
+        };
+        let hold = crate::rpc_client::slow_once(
+            theseus_protocol::method::CONFIRM_LIST,
+            "details-exit",
+            serde_json::json!({"confirms":[req]}),
+        );
+        hold.release.notify_one();
+        let origin = serde_json::from_value(
+            serde_json::json!({"user_id":"details-exit", "channel_id":"42"}),
+        )
+        .unwrap();
+        shared
+            .ask_details(&interaction(), "act_exit_details", Some(origin))
+            .await;
+        let replies = fake.replies();
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
     }
 }

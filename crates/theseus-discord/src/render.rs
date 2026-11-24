@@ -38,6 +38,7 @@ mod held;
 mod heldquestion;
 pub(crate) mod history;
 pub(crate) mod horizon;
+pub(crate) mod leaving;
 mod preview;
 pub(crate) mod process;
 mod refold;
@@ -409,6 +410,7 @@ impl ToolLine {
 #[derive(Debug, Default)]
 struct LoopView {
     text: String,
+    complete: bool,
     tools: Vec<ToolLine>,
 }
 
@@ -440,6 +442,7 @@ impl TurnView {
 
 #[derive(Default)]
 pub struct Renderer {
+    exits: Option<std::sync::Arc<theseus_core::exits::Exits>>,
     turns: VecDeque<TurnView>,
     /// key → the content Discord last received for it.
     emitted: HashMap<String, String>,
@@ -470,6 +473,17 @@ impl Renderer {
             notice_embeds,
             ..Self::default()
         }
+    }
+
+    pub(crate) fn with_exits(mut self, exits: std::sync::Arc<theseus_core::exits::Exits>) -> Self {
+        self.exits = Some(exits);
+        self
+    }
+
+    fn masked(&self, text: &str) -> String {
+        self.exits
+            .as_ref()
+            .map_or_else(|| text.to_string(), |exits| exits.text(text).0.into_owned())
     }
 
     /// True while a turn is running (the place keeps "typing…" alive).
@@ -545,22 +559,13 @@ impl Renderer {
             // shown at once: before the settle's frame and the reply's post,
             // whose edit only seals it and adds the footer. Its text is the
             // whole text, so a dropped delta never shows.
-            Event::ModelAnswered(d) => {
-                let Some(t) = self.turn_mut(turn_id) else {
-                    return vec![];
-                };
-                if t.ended {
-                    return vec![];
-                }
-                let lv = t.loops.entry(d.loop_index).or_default();
-                if !d.text.trim().is_empty() {
-                    lv.text.clone_from(&d.text);
-                }
-                t.dirty = true;
-                self.tick()
-            }
+            Event::ModelAnswered(d) => self.model_answered(turn_id, d),
             Event::ToolProposed(p) => {
-                let line = ToolLine::proposed(&p.tool_use_id, &p.tool, &p.input, &p.gate);
+                let mut input = p.input.clone();
+                if let Some(exits) = &self.exits {
+                    leaving::strings(exits, &mut input);
+                }
+                let line = ToolLine::proposed(&p.tool_use_id, &p.tool, &input, &p.gate);
                 if let Some(t) = self.turn_mut(turn_id) {
                     let li = t.loops.keys().next_back().copied().unwrap_or(0);
                     t.loops.entry(li).or_default().tools.push(line);
@@ -649,12 +654,16 @@ impl Renderer {
                     correlation_id: (!n.correlation_id.is_empty())
                         .then(|| n.correlation_id.clone()),
                 };
+                let mut input = n.input.clone();
+                if let Some(exits) = &self.exits {
+                    leaving::strings(exits, &mut input);
+                }
                 let mut card = NoticeCard {
                     title: "🔔 Ran with a notice".into(),
                     color: AMBER,
-                    description: format!("`{}` {}", n.tool, summarize(&n.tool, &n.input)),
+                    description: format!("`{}` {}", n.tool, summarize(&n.tool, &input)),
                     fields: vec![
-                        ("What".into(), clip(&n.summary, 1000)),
+                        ("What".into(), clip(&self.masked(&n.summary), 1000)),
                         ("Posture".into(), format!("`{}`", n.notice.setting)),
                         ("Outcome".into(), "⏳ running".into()),
                     ]
@@ -814,7 +823,7 @@ impl Renderer {
         for t in self.turns.iter_mut().filter(|t| t.dirty) {
             let due = t.step_due;
             rendered.extend(
-                render_turn(t, &self.tightened, menus)
+                render_turn(t, &self.tightened, menus, self.exits.as_deref())
                     .into_iter()
                     .map(|m| (due, m)),
             );
@@ -879,6 +888,22 @@ impl Renderer {
             content,
             buttons,
         }
+    }
+
+    fn model_answered(&mut self, turn_id: &str, d: &theseus_protocol::ModelDelta) -> Vec<Op> {
+        let Some(t) = self.turn_mut(turn_id) else {
+            return vec![];
+        };
+        if t.ended {
+            return vec![];
+        }
+        let lv = t.loops.entry(d.loop_index).or_default();
+        if !d.text.trim().is_empty() {
+            lv.text.clone_from(&d.text);
+        }
+        lv.complete = true;
+        t.dirty = true;
+        self.tick()
     }
 
     fn turn_mut(&mut self, turn_id: &str) -> Option<&mut TurnView> {

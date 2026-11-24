@@ -54,6 +54,11 @@ impl Default for Show {
 }
 
 impl View {
+    pub(crate) fn with_exits(mut self, exits: std::sync::Arc<theseus_core::exits::Exits>) -> Self {
+        self.process = self.process.with_exits(exits);
+        self
+    }
+
     /// The words this place shows now (a task's thread shows its parent's).
     pub(crate) fn show(&self) -> Show {
         Show {

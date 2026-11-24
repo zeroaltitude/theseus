@@ -29,14 +29,14 @@
 //!   and the guild's owner, see every channel whatever the overwrites say:
 //!   Discord allows nothing narrower. A sweep at the start and once a day
 //!   deletes the channels that ended `task_channel_keep_days` ago.
-//! - **Fallbacks.** A 403 turns channels off until the next start (the owner
+//! - **Fallbacks.** A create 403 turns channels off until the next start (the owner
 //!   gets one DM line saying which permissions are missing) and the task goes
 //!   on as before; so does a task past `task_channel_cap` open channels, and
 //!   one whose create failed otherwise. A create that may have gone through
 //!   (a timeout, a 5xx) is no failure: the task is tried again after `RETRY`
 //!   and has no thread meanwhile (`threads/intent.rs`).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -151,6 +151,9 @@ struct ChanInner {
     /// A call was refused for want of permission: no more are tried until the
     /// next start, and the owner was told.
     off: bool,
+    close_warned: bool,
+    close_reported: HashSet<String>,
+    close_retries: HashMap<String, u32>,
     /// Tasks whose channel failed to be made another way: they go on as before.
     failed: HashSet<String>,
     /// Tasks with a promotion timer set, and those whose timer fired.
@@ -165,6 +168,26 @@ struct ChanInner {
 pub(crate) struct Chan(Mutex<ChanInner>);
 
 impl Chan {
+    fn close_first(&self, task: &str) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .close_reported
+            .insert(task.to_string())
+    }
+
+    fn close_warning(&self) -> bool {
+        !std::mem::replace(&mut self.0.lock().unwrap().close_warned, true)
+    }
+
+    fn close_delay(&self, task: &str) -> Duration {
+        let mut inner = self.0.lock().unwrap();
+        let n = inner.close_retries.entry(task.to_string()).or_default();
+        let seconds = (60_u64 << (*n).min(6)).min(3600);
+        *n = n.saturating_add(1);
+        Duration::from_secs(seconds)
+    }
+
     fn off(&self) -> bool {
         self.0.lock().unwrap().off
     }
@@ -212,6 +235,8 @@ impl Chan {
         i.woken.remove(task);
         i.due.remove(task);
         i.failed.remove(task);
+        i.close_retries.remove(task);
+        i.close_reported.remove(task);
     }
 }
 
@@ -431,6 +456,8 @@ impl Shared {
                 return;
             }
         }
+        self.end_guests(m).await;
+        self.task_threads.chan.forget(&m.task);
         self.task_threads.drop_made(&m.task);
         self.task_threads.save(&self.core.store);
     }
@@ -455,11 +482,62 @@ impl Shared {
         });
     }
 
+    // TaskEnded is durable even after the work board prunes its old views.
+    // Read in bounded pages, retaining only the channels this sweep owns.
+    fn work_ends(&self) -> anyhow::Result<HashMap<String, u64>> {
+        let pending: HashSet<String> = self
+            .task_threads
+            .all()
+            .into_iter()
+            .filter(|m| m.kind == PlaceKind::Channel && m.ended_ms.is_none())
+            .map(|m| m.task)
+            .collect();
+        let mut ends = HashMap::new();
+        if pending.is_empty() {
+            return Ok(ends);
+        }
+        let mut after = 0;
+        loop {
+            let page = theseus_store::Page {
+                kind: theseus_store::kinds::LEDGER,
+                tags: vec![theseus_store::pages::ledger_kind("task.ended")],
+                after: Some(after),
+                before: None,
+                since_ms: None,
+                until_ms: None,
+                limit: 512,
+            };
+            let Some(got) = self.core.store.ledger_page(&page)? else {
+                // The tagged index is not ready; never fall back to a full scan.
+                return Ok(HashMap::new());
+            };
+            for record in got.records {
+                let row = record.decode::<theseus_core::ledger::LedgerRow>()?;
+                if let Some(task) = row.data["task"].as_str().filter(|t| pending.contains(*t)) {
+                    ends.entry(task.to_string()).or_insert(row.at_unix_ms);
+                }
+            }
+            match got.last {
+                Some(last) if got.more => after = last,
+                _ => break,
+            }
+        }
+        Ok(ends)
+    }
+
     pub(crate) async fn sweep_once(&self) {
         let keep = self.core.cfg.discord.task_channel_keep_days * DAY.as_millis() as u64;
         let now = theseus_protocol::now_unix_ms();
+        let ends = match theseus_store::blocking(|| self.work_ends()) {
+            Ok(ends) => ends,
+            Err(e) => {
+                self.board.error("task channel sweep", None, e);
+                HashMap::new()
+            }
+        };
         for m in self.task_threads.all() {
-            let old = m.ended_ms.is_some_and(|e| now.saturating_sub(e) >= keep);
+            let end = m.ended_ms.or_else(|| ends.get(&m.task).copied());
+            let old = end.is_some_and(|e| now.saturating_sub(e) >= keep);
             if m.kind == PlaceKind::Channel && old {
                 self.delete_task_channel(&m).await;
             }
@@ -469,7 +547,14 @@ impl Shared {
 
     /// The task has a channel: made, listed, run as a place, and linked.
     /// `from` is the thread it leaves.
-    async fn open_channel(self: &Arc<Self>, p: Parent, v: WorkView, why: Why, from: Option<Made>) {
+    async fn open_channel(
+        self: &Arc<Self>,
+        p: Parent,
+        mut v: WorkView,
+        why: Why,
+        from: Option<Made>,
+    ) {
+        v.title = self.core.exits.text(&v.title).0.into_owned();
         let (Some(session), Some(guild)) = (v.session_id.clone(), self.place_bits.trusted_guild())
         else {
             self.task_threads.chan.end(&v.id, false);
@@ -540,7 +625,7 @@ impl Shared {
             "-# ↩ from the DM".to_string()
         };
         let first = match why {
-            Why::Promoted => summary(&v, &origin),
+            Why::Promoted => summary(&self.core.exits, &v, &origin),
             Why::Steps | Why::Long => origin,
         };
         self.say_pointer(channel, first, &session);
@@ -650,26 +735,51 @@ impl Shared {
         self.open_channel(p, v, why, Some(old)).await;
     }
 
+    fn retry_task_close(self: &Arc<Self>, task: String) {
+        let delay = self.task_threads.chan.close_delay(&task);
+        let shared = self.clone();
+        tokio::spawn(async move {
+            let stopped = shared.core.outbox.stopped();
+            tokio::pin!(stopped);
+            tokio::select! {
+                () = tokio::time::sleep(delay) => {}
+                () = &mut stopped => return,
+            }
+            shared.task_threads.settle(&task);
+            shared.broadcast(|| PlaceMsg::Tasks);
+        });
+    }
+
     /// The task ended: its report is said in the channel, and the channel
     /// moves to the done category, closed to the owner's words.
     pub(super) async fn finish_task_channel(self: &Arc<Self>, m: Made, mark: Mark, v: WorkView) {
         let target = format!("discord:channel:{}", m.thread);
-        self.say_to(&target, format!("🏁 {}", report_line(&v)), &m.session);
-        let name = channel_name(mark, &m.task, &v.title);
+        let title = self.core.exits.text(&v.title).0;
+        let name = channel_name(mark, &m.task, &title);
         let guild = m.guild.unwrap_or_default();
+        if self.task_threads.chan.close_first(&m.task) {
+            self.say_to(
+                &target,
+                format!("🏁 {}", report_line(&self.core.exits, &v)),
+                &m.session,
+            );
+        }
         let closed = self.task_channel_close(&m, guild, &name).await;
         match closed {
             Ok(()) => self.end_guests(&m).await,
             Err(Refused::Forbidden) => {
-                if self.task_threads.chan.refuse() {
-                    let line = "-# I can't move task channels: grant the bot Manage Channels \
-                                and Manage Roles"
-                        .to_string();
-                    self.say_to(&target, line, &m.session);
+                // refuse() disables DM parent routing, including pending closes.
+                // Keep retries enabled, but retain the once-per-run owner notice.
+                if self.task_threads.chan.close_warning() {
+                    self.say_to(&target, "I can't move task channels: grant the bot Manage Channels and Manage Roles".into(), &m.session);
                 }
+                self.retry_task_close(m.task);
+                return;
             }
             Err(Refused::Other(e) | Refused::Unsure(e)) => {
-                self.board.error("task channel", Some(&m.session), e)
+                self.board.error("task channel", Some(&m.session), e);
+                self.retry_task_close(m.task);
+                return;
             }
         }
         self.task_threads.update(&m.task, |x| {
@@ -691,7 +801,10 @@ fn gone(e: &twilight_http::Error) -> bool {
 
 /// What happened so far, for the first line of a channel a working task was
 /// moved to.
-fn summary(v: &WorkView, origin: &str) -> String {
+fn summary(exits: &theseus_core::exits::Exits, v: &WorkView, origin: &str) -> String {
+    let Some(v) = crate::render::leaving::copy(exits, v) else {
+        return String::new();
+    };
     let mut t = format!("{origin}\n**{}**", clip(&v.title));
     if let Some(d) = &v.doing {
         t.push_str(&format!("\n-# {}", d.label));
@@ -781,6 +894,285 @@ mod tests {
     use crate::runtime::tests::{core_with, place_for_tests};
     use crate::runtime::voice_status::tests::view;
 
+    struct CloseRig {
+        _dir: tempfile::TempDir,
+        fake: Arc<theseus_sim::fake_discord::FakeDiscord>,
+        core: Arc<theseus_core::Core>,
+        shared: Arc<Shared>,
+        m: Made,
+    }
+
+    async fn close_rig() -> CloseRig {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = theseus_sim::fake_discord::FakeDiscord::start();
+        let core = core_with(
+            dir.path(),
+            theseus_core::secrets::SecretBoard::empty(),
+            |c| {
+                c.discord.rest_proxy = Some(fake.addr.clone());
+            },
+        );
+        let shared = crate::runtime::shared_for_tests(&core);
+        let channel = shared
+            .task_channel_create(
+                theseus_sim::fake_discord::DEFAULT_GUILD,
+                "reef",
+                &work_view("exe_reef", "running"),
+            )
+            .await
+            .unwrap();
+        assert!(fake.put_overwrite(
+            channel,
+            theseus_sim::fake_discord::Overwrite {
+                id: 77,
+                kind: 1,
+                allow: 1 << 10,
+                deny: 0
+            }
+        ));
+        let m = Made {
+            task: "exe_reef".into(),
+            session: "ses_reef".into(),
+            thread: channel,
+            kind: super::super::threads::PlaceKind::Channel,
+            parent: 43,
+            parent_session: "ses_parent".into(),
+            name: "reef".into(),
+            guild: Some(theseus_sim::fake_discord::DEFAULT_GUILD),
+            private: true,
+            ceiling: None,
+            created_ms: theseus_protocol::now_unix_ms(),
+            ended_ms: None,
+        };
+        shared.task_threads.add(m.clone());
+        shared.task_threads.save(&core.store);
+        CloseRig {
+            _dir: dir,
+            fake,
+            core,
+            shared,
+            m,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_failed_close_remains_due_after_restart() {
+        let CloseRig {
+            _dir,
+            fake,
+            core,
+            shared,
+            m,
+        } = close_rig().await;
+        let channel = m.thread;
+        fake.refuse_channels(true);
+        let v = work_view(&m.task, "done");
+        core.store
+            .put_meta("discord.task_guests.exe_reef", &vec![77_u64])
+            .unwrap();
+        shared
+            .finish_task_channel(m.clone(), Mark::Done, v.clone())
+            .await;
+        assert_eq!(
+            core.store
+                .get_meta::<Vec<u64>>("discord.task_guests.exe_reef")
+                .unwrap()
+                .unwrap(),
+            vec![77]
+        );
+        assert!(
+            shared.task_threads.all()[0].ended_ms.is_none(),
+            "a failed close is not complete"
+        );
+        assert!(
+            !shared.task_threads.chan.off(),
+            "a close failure must not disable its parent's retry routing"
+        );
+        assert!(fake.overwrites_of(channel).iter().any(|o| o.id == 77));
+        let target = format!("discord:channel:{}", m.thread);
+        let posted = || {
+            core.outbox
+                .open_for(&target)
+                .iter()
+                .map(|a| {
+                    theseus_core::outbox::body_of(a)["text"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string()
+                })
+                .collect::<Vec<_>>()
+        };
+        shared
+            .finish_task_channel(m.clone(), Mark::Done, v.clone())
+            .await;
+        let messages = posted();
+        assert_eq!(
+            messages.iter().filter(|s| s.starts_with("🏁")).count(),
+            1,
+            "{messages:?}"
+        );
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|s| s.contains("Manage Roles"))
+                .count(),
+            1,
+            "{messages:?}"
+        );
+        let restarted = crate::runtime::shared_for_tests(&core);
+        restarted.task_threads.load(&core.store);
+        assert!(matches!(
+            restarted.task_threads.next(&v, None, true),
+            super::super::threads::Next::Finish(_, _)
+        ));
+        fake.refuse_channels(false);
+        shared.finish_task_channel(m, Mark::Done, v).await;
+        assert!(core
+            .store
+            .get_meta::<Vec<u64>>("discord.task_guests.exe_reef")
+            .unwrap()
+            .unwrap()
+            .is_empty());
+        assert!(shared.task_threads.all()[0].ended_ms.is_some());
+        assert!(!fake.overwrites_of(channel).iter().any(|o| o.id == 77));
+    }
+
+    #[tokio::test]
+    async fn a_pending_close_still_expires_from_the_durable_work_end() {
+        let CloseRig {
+            _dir,
+            fake,
+            core,
+            shared,
+            m,
+        } = close_rig().await;
+
+        let mut row = theseus_core::ledger::LedgerRow::new(
+            theseus_protocol::LedgerKind::TaskEnded,
+            Some("ses_parent"),
+            None,
+            serde_json::json!({"task": m.task}),
+        );
+        row.at_unix_ms = theseus_protocol::now_unix_ms() - 30 * DAY.as_millis() as u64;
+        core.store.append_ledger(&row).unwrap();
+        core.store
+            .put_meta("discord.task_guests.exe_reef", &vec![77_u64])
+            .unwrap();
+        shared.sweep_once().await;
+        assert!(core
+            .store
+            .get_meta::<Vec<u64>>("discord.task_guests.exe_reef")
+            .unwrap()
+            .unwrap()
+            .is_empty());
+        assert!(fake
+            .made_channels()
+            .iter()
+            .any(|c| c.id == m.thread && c.deleted));
+        assert!(
+            shared.task_threads.all().is_empty(),
+            "a pending close cannot extend guest access forever"
+        );
+    }
+    #[tokio::test]
+    async fn retention_reads_only_task_ended_rows() {
+        let CloseRig {
+            _dir,
+            fake: _,
+            core,
+            shared,
+            m,
+        } = close_rig().await;
+        // A different kind need not even have the task-end reader's schema.
+        // Reading it as a LedgerRow would fail, rather than silently pass.
+        for _ in 0..1025 {
+            core.store
+                .append_ledger(&serde_json::json!({
+                    "kind": "turn.started", "at_unix_ms": "not a task end"
+                }))
+                .unwrap();
+        }
+        let row = theseus_core::ledger::LedgerRow::new(
+            theseus_protocol::LedgerKind::TaskEnded,
+            Some("ses_parent"),
+            None,
+            serde_json::json!({"task": m.task}),
+        );
+        core.store.append_ledger(&row).unwrap();
+        let before = theseus_store::records_read_here();
+        let ends = shared.work_ends().unwrap();
+        let read = theseus_store::records_read_here() - before;
+        assert!(
+            read < 10,
+            "the tagged page read {read} records, not just task ends"
+        );
+        assert_eq!(ends.get(&m.task), Some(&row.at_unix_ms));
+    }
+
+    #[test]
+    fn close_retries_double_to_one_hour() {
+        let chan = Chan::default();
+        let delays: Vec<_> = (0..9).map(|_| chan.close_delay("task").as_secs()).collect();
+        assert_eq!(delays, [60, 120, 240, 480, 960, 1920, 3600, 3600, 3600]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_close_is_released_for_a_retry_after_one_minute() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = core_with(
+            dir.path(),
+            theseus_core::secrets::SecretBoard::empty(),
+            |_| {},
+        );
+        let shared = crate::runtime::shared_for_tests(&core);
+        shared.task_threads.add(Made {
+            task: "exe_reef".into(),
+            session: "ses_reef".into(),
+            thread: 42,
+            kind: super::super::threads::PlaceKind::Channel,
+            parent: 43,
+            parent_session: "ses_parent".into(),
+            name: "reef".into(),
+            guild: None,
+            private: true,
+            ceiling: None,
+            created_ms: theseus_protocol::now_unix_ms(),
+            ended_ms: None,
+        });
+        let v = work_view("exe_reef", "done");
+        assert!(matches!(
+            shared.task_threads.next(&v, None, true),
+            super::super::threads::Next::Finish(_, _)
+        ));
+        shared.retry_task_close(v.id.clone());
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(59)).await;
+        assert!(matches!(
+            shared.task_threads.next(&v, None, true),
+            super::super::threads::Next::Nothing
+        ));
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert!(matches!(
+            shared.task_threads.next(&v, None, true),
+            super::super::threads::Next::Finish(_, _)
+        ));
+        shared.retry_task_close(v.id.clone());
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(119)).await;
+        tokio::task::yield_now().await;
+        assert!(matches!(
+            shared.task_threads.next(&v, None, true),
+            super::super::threads::Next::Nothing
+        ));
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert!(matches!(
+            shared.task_threads.next(&v, None, true),
+            super::super::threads::Next::Finish(_, _)
+        ));
+    }
+
     /// A working task that does not qualify yet gets exactly one timer, which
     /// sends its place the next sync at the config's minute (the paused clock
     /// is the test's: the wall clock does not move) and marks the task due.
@@ -817,5 +1209,54 @@ mod tests {
         // The sync then asks the rule, which the timer satisfies.
         let why = place.shared.channel_why(&v);
         assert_eq!(why, Some(Why::Promoted));
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn task_channel_create_masks_before_slug_and_topic() {
+        let (_dir, _core, fake, shared) = rig();
+        let mut v = view();
+        v.title = VALUE.into();
+        shared.open_channel(parent(), v, Why::Long, None).await;
+        let channels = fake.made_channels();
+        let c = channels.iter().find(|c| c.kind == 0).expect("task channel");
+        assert!(!c.name.contains("vault"), "{}", c.name);
+        assert!(c.name.contains("redacted-display-token"), "{}", c.name);
+        let topic = &c.topic;
+        assert!(!topic.contains("vault"), "{topic}");
+        assert!(topic.contains("[redacted:"), "{topic}");
+    }
+    #[tokio::test]
+    async fn task_channel_rename_masks_before_slug() {
+        let (_dir, _core, fake, shared) = rig();
+        let mut v = view();
+        shared
+            .open_channel(parent(), v.clone(), Why::Long, None)
+            .await;
+        let m = shared.task_threads.all().pop().unwrap();
+        v.title = VALUE.into();
+        shared.finish_task_channel(m.clone(), Mark::Done, v).await;
+        let channels = fake.made_channels();
+        let c = channels.iter().find(|c| c.id == m.thread).unwrap();
+        assert!(!c.name.contains("vault"), "{}", c.name);
+        assert!(c.name.contains("redacted-display-token"), "{}", c.name);
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn channel_summary_masks_before_title_cut() {
+        let (_dir, core, _fake, _shared) = rig();
+        let mut v = view();
+        v.title = format!("{}{}", "x".repeat(115), VALUE);
+        let text = super::summary(&core.exits, &v, "origin");
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
     }
 }

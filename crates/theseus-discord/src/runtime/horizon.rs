@@ -12,8 +12,7 @@
 //!   here. A burst is one read (`DEBOUNCE`), reads are at least `MIN_GAP`
 //!   apart, and a read that changed nothing redraws nothing. The commands'
 //!   autocomplete reads this snapshot and no daemon: it answers from memory.
-//! - **The board** gets the snapshot in private places only (the place rule:
-//!   a shared place sees no routine, no reminder, no watch). `PlaceMsg::Tasks`
+//! - **The board** gets the snapshot for its conversations. `PlaceMsg::Tasks`
 //!   redraws it, so the lane's own pace (`BOARD_EVERY`) bounds the edits.
 //! - **A post's buttons** (`hz:<answer>:<wake id>`): a failed or blocked
 //!   routine's Run now / Pause / Details, a met watch's Done. A press is
@@ -85,6 +84,11 @@ pub(crate) struct Future {
 }
 
 impl Future {
+    #[cfg(test)]
+    pub(super) fn seed_for_test(&self, s: Snapshot) {
+        self.set(s);
+    }
+
     /// The future may have changed: read it again, once for a burst.
     pub fn dirty(&self) {
         self.dirty.notify_one();
@@ -461,7 +465,7 @@ impl Shared {
     /// An ephemeral line for the presser.
     pub(super) async fn reply_ephemeral(&self, i: &Interaction, text: String) {
         let data = InteractionResponseData {
-            content: Some(crate::render::clip(&text, 1_900)),
+            content: Some(crate::render::clip(&self.core.exits.text(&text).0, 1_900)),
             flags: Some(MessageFlags::EPHEMERAL),
             allowed_mentions: Some(AllowedMentions::default()),
             ..Default::default()
@@ -522,7 +526,7 @@ impl Shared {
         };
         let head = format!(
             "🔁 **{}** · <t:{started}:f> · run {} · {took} · {}",
-            crate::render::clip(&spec.title, 80),
+            crate::render::clip(&self.core.exits.text(&spec.title).0, 80),
             mark.run,
             theseus_protocol::usd(body["spent_usd"].as_f64().unwrap_or(0.0)),
         );
@@ -561,7 +565,7 @@ impl Shared {
     }
 }
 
-/// What a place's board shows of the future (issue 30; `docs/design/board-place.md`). Private places only.
+/// What a place's board shows of the future (issue 30; `docs/design/board-place.md`).
 /// While the task channel stands, or is being looked for, and there is an
 /// owner's DM place to draw it from, the whole future is on the board that
 /// place draws into the task channel, and on no other place's. Otherwise (no
@@ -569,9 +573,6 @@ impl Shared {
 /// drawn by) a place shows the reminders and check-ins of its own
 /// conversations, and the routines and projects as before.
 pub(super) fn parts_for(shared: &Shared, target: &str, session: &str) -> Option<FutureParts> {
-    if !shared.is_private(target) {
-        return None;
-    }
     let names = shared.conversation_names();
     if shared.task_posts.home.expected() && shared.owner_dm_place().is_some() {
         let mut parts = (shared.owner_dm_place().as_deref() == Some(target))
@@ -598,6 +599,31 @@ pub(super) fn parts_for(shared: &Shared, target: &str, session: &str) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_shared_board_shows_its_own_upcoming_reminder() {
+        let d = tempfile::tempdir().unwrap();
+        let core = crate::runtime::tests::core_scripted(d.path(), vec![]);
+        let shared = crate::runtime::shared_for_tests(&core);
+        let target = "discord:channel:123";
+        assert!(!shared.is_private(target));
+        shared.tasks.future.set(Snapshot {
+            lines: vec![AgendaLine {
+                at_ms: 1000,
+                id: "wak_remind".into(),
+                kind: WorkKind::Wake,
+                what: AgendaWhat::Due,
+                title: "stretch".into(),
+                session_id: Some("ses_example".into()),
+                purpose: Some("remind".into()),
+                occurrence: None,
+            }],
+            ..Default::default()
+        });
+        let parts =
+            parts_for(&shared, target, "ses_example").expect("shared is not a withholding rule");
+        assert_eq!(parts.coming[0].title, "stretch");
+    }
 
     #[test]
     fn reminders_come_first_in_the_pending_wakes_a_command_offers() {
@@ -671,5 +697,45 @@ mod tests {
         assert_eq!(parse_post("hz:pause:ses_1"), None);
         assert_eq!(parse_post("wake:done:wak_1"), None);
         assert!(buttons("wak_1", &[]).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn routine_report_masks_title_before_cut() {
+        let (_dir, core, _fake, shared) = rig();
+        let spec = serde_json::json!({"session_id":"routine_exit", "execution_id":"exe_exit", "wake_id":"wake_exit", "title":format!("{}{}", "x".repeat(75), VALUE), "schedule":"daily", "brief":"test", "run_micros":1, "month_micros":1, "deliver_to":"dm", "period_ms":1000, "created_ms":1, "created_by":"owner", "month":"2026-11", "month_told":false});
+        core.store.put_meta("routine:routine_exit", &spec).unwrap();
+        core.store
+            .put_meta(
+                "routine.run:run_exit",
+                &serde_json::json!({"routine":"routine_exit", "run":1,"speak":"always"}),
+            )
+            .unwrap();
+        let text = shared
+            .routine_report(
+                &serde_json::json!({"task":"run_exit","outcome":"complete"}),
+                None,
+            )
+            .unwrap();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod reply_exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn horizon_reply_masks_before_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        shared
+            .reply_ephemeral(&interaction(), format!("{}{}", "x".repeat(1895), VALUE))
+            .await;
+        let replies = fake.replies();
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains("vau"), "{text}");
     }
 }
