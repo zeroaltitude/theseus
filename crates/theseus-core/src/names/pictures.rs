@@ -14,6 +14,15 @@
 //! record of its own. No judge call is added and the request is not changed,
 //! and nothing that decides an act reads these roots: they are found by
 //! name, as any thing's timeline is.
+//!
+//! A label is keyed at its turn's time, when the turn's id was minted
+//! ([`at`]), not at its exchange's start: the start is the clock read as the
+//! exchange opens, written in the turn's next frame, so a judgment can land
+//! before it is readable. A time no record holds would differ between a
+//! frame the log kept while its append failed and the retry, or between two
+//! pictured messages of one turn judged on either side of the exchange's
+//! write, and one turn would hold two keys of one label. The turn's time is
+//! the same on every path, and sorts just before the exchange's start.
 
 use std::collections::BTreeSet;
 
@@ -21,12 +30,13 @@ use theseus_judge::client::Answer;
 use theseus_judge::Judgment;
 use theseus_store::NewRecord;
 
-use crate::exchange::{touch, Root};
+use crate::exchange::{touch, Root, TOUCH_PREFIX};
 use crate::judge::onto::decide;
 use crate::store::Store;
 
-/// What every picture label's root starts with; the sweep mints no kind of
-/// this name (`judge::onto::mint`), so no category shares these roots.
+/// What every picture label's root starts with. The sweep mints no kind of
+/// this name (`judge::onto::mint`), so it never makes a category share these
+/// roots; the owner's own `ontology.kind_add` still can.
 pub const PREFIX: &str = "picture:";
 /// The question whose answer is the subject's label.
 pub const SUBJECT: &str = "image_subject";
@@ -53,9 +63,26 @@ pub fn roots(j: &Judgment, act: f64) -> Vec<String> {
     out
 }
 
+/// When a picture label of turn `turn` is keyed: when `new_id` minted the
+/// turn's id, before its message and its exchange were written. None for an
+/// id of another shape, which no live turn has.
+pub fn at(turn: &str) -> Option<u64> {
+    crate::id_ms(turn)
+}
+
+/// When the touch whose key starts `root` (`touch.thing:picture:document`)
+/// by turn `turn` belongs: [`at`] for a picture label, none for any other
+/// root. `exchange.rebuild` leaves a label there rather than move it to its
+/// exchange's start, so a later write of the label finds its one key.
+pub fn keyed_at(root: &str, turn: &str) -> Option<u64> {
+    let labels = format!("{TOUCH_PREFIX}{}", Root::Thing(PREFIX).key());
+    root.starts_with(&labels).then(|| at(turn)).flatten()
+}
+
 /// The touches the judgments of `batch` come to: each label of [`roots`],
-/// once, to its message's exchange (`topics::landing`). The caller gives only
-/// judgments the ontology may act on ([`acting`]).
+/// once, to its message's exchange (`topics::landing`) at its turn's time
+/// ([`at`]). The caller gives only judgments the ontology may act on
+/// ([`acting`]).
 pub fn touches(store: &Store, batch: &[&Judgment], act: f64) -> Vec<NewRecord> {
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
@@ -64,12 +91,13 @@ pub fn touches(store: &Store, batch: &[&Judgment], act: f64) -> Vec<NewRecord> {
         if roots.is_empty() {
             continue;
         }
-        let Some((turn, session, at)) = super::topics::landing(store, j) else {
+        let Some((turn, session, landed)) = super::topics::landing(store, j) else {
             continue;
         };
+        let time = at(&turn).unwrap_or(landed);
         for root in roots {
             if seen.insert((turn.clone(), root.clone())) {
-                out.extend(touch(Root::Thing(&root), &turn, &session, at));
+                out.extend(touch(Root::Thing(&root), &turn, &session, time));
             }
         }
     }

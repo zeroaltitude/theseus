@@ -16,6 +16,8 @@
 //!   written again at the start's key and the old key ended in the same
 //!   frame, with no index asked, so one exchange holds one touch of a root and
 //!   no association is lost. The index only adds touches; it never ends one.
+//!   A picture label's place is its turn's time (`names::pictures::at`), so
+//!   one there is left, and one elsewhere is moved there.
 //!
 //! The dry run counts and writes nothing.
 
@@ -247,7 +249,11 @@ fn misplaced(store: &Store, starts: &HashMap<&str, u64>) -> anyhow::Result<Vec<[
             continue;
         };
         let at = time.parse::<u64>().ok().map(|t| u64::MAX - t);
-        let Some(start) = starts.get(turn).copied().filter(|s| Some(*s) != at) else {
+        // A picture label belongs at its turn's time, not its exchange's start.
+        let Some(start) = (starts.get(turn).copied())
+            .map(|s| crate::names::pictures::keyed_at(root, turn).unwrap_or(s))
+            .filter(|s| Some(*s) != at)
+        else {
             continue;
         };
         let mut moved: super::Touch = r.decode()?;
