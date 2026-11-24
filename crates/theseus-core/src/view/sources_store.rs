@@ -8,10 +8,11 @@ use std::collections::BTreeSet;
 
 use super::fold::FoldNode;
 use super::select::sources::{
-    ExchangeFacts, Exchanges, Folds, Names, People, Places, Recall, Ref, TaskCards, Things, Waiting,
+    ExchangeFacts, Exchanges, Folds, Held, Names, People, Places, Recall, Ref, TaskCards, Things,
+    Waiting,
 };
 use super::text::tokens;
-use super::{AtHand, Audience, Author, Handle, Marks, PointOfView, Pos, Sizes};
+use super::{AtHand, Audience, Author, Handle, Marks, Piece, PointOfView, Pos, Sizes};
 use crate::exchange::{self, Opener, Root, OWNER};
 use crate::ladder::did;
 use crate::node::Body;
@@ -313,10 +314,19 @@ impl Recall for StoreSources<'_> {
 }
 
 impl People for StoreSources<'_> {
-    fn held(&self, _: &str) -> anyhow::Result<Option<String>> {
+    fn held(&self, _: &str) -> anyhow::Result<Option<Held>> {
         Ok(None)
     }
-    fn about(&self, _: &str, _: bool, _: u64) -> anyhow::Result<Vec<Ref>> {
+    fn owner(&self, person: &str) -> bool {
+        person == OWNER
+    }
+    fn about(&self, _: &str, _: u64) -> anyhow::Result<Vec<Ref>> {
         Ok(Vec::new())
+    }
+    fn speaking(&self, _: &str) -> anyhow::Result<Vec<Ref>> {
+        Ok(Vec::new())
+    }
+    fn laid(&self, piece: &Piece, _: &PointOfView) -> anyhow::Result<u64> {
+        Ok(piece.sizes.line)
     }
 }

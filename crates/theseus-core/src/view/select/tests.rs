@@ -55,6 +55,10 @@ struct Store {
     cards: Vec<(String, Ref)>,
     /// The owner's records of people: a ledger name, and the id of the record that holds it.
     people: Vec<(String, String)>,
+    /// The effective owner handles beside the ledger's own `owner`.
+    owners: Vec<String>,
+    /// What laying a recent line adds beyond its estimate and one heading (names, wrappers).
+    framing: u64,
 }
 
 impl Timeline for Store {
@@ -289,17 +293,47 @@ impl Recall for Store {
 }
 
 impl super::sources::People for Store {
-    fn held(&self, person: &str) -> anyhow::Result<Option<String>> {
-        Ok((self.people.iter())
+    fn held(&self, person: &str) -> anyhow::Result<Option<Held>> {
+        let Some(id) = (self.people.iter())
             .find(|(p, _)| p == person)
-            .map(|(_, id)| id.clone()))
+            .map(|(_, id)| id.clone())
+        else {
+            return Ok(None);
+        };
+        let owners: BTreeSet<&str> = (self.people.iter())
+            .filter(|(p, _)| self.owner(p))
+            .map(|(_, id)| id.as_str())
+            .collect();
+        Ok(Some(Held {
+            owner: self.owner(person) || owners.contains(id.as_str()),
+            handles: (self.people.iter())
+                .filter(|(_, i)| *i == id)
+                .map(|(p, _)| p.clone())
+                .collect(),
+            id,
+        }))
     }
-    /// One fact piece per person, its handle saying whether they are speaking and the bound asked for.
-    fn about(&self, id: &str, speaking: bool, most: u64) -> anyhow::Result<Vec<Ref>> {
+    fn owner(&self, person: &str) -> bool {
+        person == "owner" || self.owners.iter().any(|o| o == person)
+    }
+    /// One fact piece per person, its handle saying the bound asked for.
+    fn about(&self, id: &str, most: u64) -> anyhow::Result<Vec<Ref>> {
         let mut r = card(id);
         r.range.space = Space::Facts { thing: id.into() };
-        r.handle = Handle(format!("{id} speaking={speaking} most={most}"));
+        r.handle = Handle(format!("{id} most={most}"));
         Ok(vec![r])
+    }
+    fn speaking(&self, id: &str) -> anyhow::Result<Vec<Ref>> {
+        let mut r = card(id);
+        r.range.space = Space::Facts {
+            thing: format!("{id}#speaking"),
+        };
+        r.handle = Handle(format!("{id} speaking"));
+        Ok(vec![r])
+    }
+    /// The line's estimate, one heading, and the framing a test gives every line.
+    fn laid(&self, piece: &Piece, _: &PointOfView) -> anyhow::Result<u64> {
+        Ok(piece.sizes.line + super::super::budget::HEADING_TOKENS + self.framing)
     }
 }
 
@@ -501,6 +535,16 @@ impl Gate for AllowPrivate {
     fn admit(&self, _: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
         (piece.marks.audience == Audience::Private && !piece.marks.sealed)
             .then(|| Admitted::for_tests(piece))
+    }
+}
+
+/// Admits what today's permit admits in the owner's trusted places: every piece but a sealed one, of any
+/// audience.
+struct AdmitUnsealed;
+
+impl Gate for AdmitUnsealed {
+    fn admit(&self, _: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
+        (!piece.marks.sealed).then(|| Admitted::for_tests(piece))
     }
 }
 
@@ -809,6 +853,14 @@ fn by(person: &str, turn: &str, place: &str, hours_ago: u64) -> Ex {
     }
 }
 
+/// [`by`], in a place of `audience` (the place rule's class when it was said).
+fn by_in(person: &str, turn: &str, place: &str, hours_ago: u64, audience: Audience) -> Ex {
+    Ex {
+        audience,
+        ..by(person, turn, place, hours_ago)
+    }
+}
+
 fn pov_of(person: &str, place: &str) -> PointOfView {
     PointOfView {
         anchor: Anchor::Place(place.into()),
@@ -820,7 +872,7 @@ fn pov_of(person: &str, place: &str) -> PointOfView {
 }
 
 fn select_as(s: &Store, band: Band, pov: &PointOfView) -> Vec<Piece> {
-    let table = table(sources(s, ""), Vec::new(), Vec::new());
+    let table = table(sources_with(s, "", &AdmitUnsealed), Vec::new(), Vec::new());
     let sel = table
         .iter()
         .find(|t| t.band() == band)
@@ -841,9 +893,26 @@ fn things(pieces: &[Piece]) -> Vec<String> {
     out
 }
 
+/// The recent lines among what is laid beside the message: the exchanges, newest first.
+fn recent(pieces: &[Piece]) -> Vec<&str> {
+    (pieces.iter())
+        .filter(|p| matches!(p.range.space, Space::Exchanges { .. }))
+        .map(|p| p.range.last.id.as_str())
+        .collect()
+}
+
+/// The facts laid beside the message: the speaker's line.
+fn speaking(pieces: &[Piece]) -> Vec<String> {
+    let facts: Vec<Piece> = (pieces.iter())
+        .filter(|p| matches!(p.range.space, Space::Facts { .. }))
+        .cloned()
+        .collect();
+    things(&facts)
+}
+
 /// KEY (the owner's word, 2026-11-24): the people present are the speaker and the distinct persons who opened
 /// the window's exchanges, each named once whatever handle they spoke by; a person no record holds is not
-/// named, nor one who spoke only elsewhere. Their facts are in the front (slot B), the speaker's said so.
+/// named, nor one who spoke only elsewhere. Their facts are in the front (slot B), alike for every person.
 #[test]
 fn in_company_every_person_in_the_window_is_named_once() {
     let s = company(
@@ -872,8 +941,7 @@ fn in_company_every_person_in_the_window_is_named_once() {
     for p in &laid {
         assert_eq!((p.slot, p.form), (Slot::WhoAndWhere, Form::Whole));
         assert_eq!(p.reasons, BTreeSet::from([Reason::Fixed]));
-        let speaking = p.range.last.id == "person:bob";
-        let asked = format!("speaking={speaking} most={PERSON_TOKENS}");
+        let asked = format!("most={PERSON_TOKENS}");
         assert!(p.handle.0.ends_with(&asked), "{}", p.handle.0);
     }
     // Alone, the one person has the whole bound; a turn with no speaker is told nobody.
@@ -882,13 +950,51 @@ fn in_company_every_person_in_the_window_is_named_once() {
     assert!(alone[0]
         .handle
         .0
-        .ends_with(&format!("speaking=true most={PEOPLE_TOKENS}")));
+        .ends_with(&format!("most={PEOPLE_TOKENS}")));
     let nobody = PointOfView {
         person: None,
         ..pov_of("owner", "chan")
     };
     assert!(select_as(&s, Band::WhoAndWhere, &nobody).is_empty());
     assert!(select_as(&s, Band::PeopleRecent, &nobody).is_empty());
+}
+
+/// KEY (the owner's word, 2026-11-24): the front names the same people in the same words whoever of them
+/// speaks; the one line beside the message names the speaker.
+#[test]
+fn the_front_is_the_same_whoever_speaks_and_the_speaker_is_named_beside() {
+    let s = company(
+        &[
+            ("owner", "person:owner"),
+            ("discord:bob", "person:bob"),
+            ("discord:carol", "person:carol"),
+        ],
+        vec![
+            by("discord:bob", "b1", "chan", 3),
+            by("discord:carol", "c1", "chan", 2),
+            by("owner", "o1", "chan", 1),
+        ],
+    );
+    let front = |who: &str| -> Vec<(String, String)> {
+        let laid = select_as(&s, Band::WhoAndWhere, &pov_of(who, "chan"));
+        let mut out: Vec<(String, String)> = (laid.iter())
+            .map(|p| (format!("{:?}", p.range), p.handle.0.clone()))
+            .collect();
+        out.sort();
+        out
+    };
+    assert_eq!(front("discord:bob"), front("discord:carol"));
+    assert_eq!(front("discord:bob"), front("owner"));
+    for (who, id) in [
+        ("discord:bob", "person:bob"),
+        ("discord:carol", "person:carol"),
+    ] {
+        let beside = select_as(&s, Band::PeopleRecent, &pov_of(who, "chan"));
+        assert_eq!(speaking(&beside), [format!("{id}#speaking")], "{who}");
+    }
+    // A speaker no record holds is named nowhere.
+    let beside = select_as(&s, Band::PeopleRecent, &pov_of("discord:zed", "chan"));
+    assert!(speaking(&beside).is_empty());
 }
 
 /// KEY (the owner's word, 2026-11-24): a person's recent lines are their newest three exchanges in other
@@ -910,8 +1016,11 @@ fn a_persons_recent_lines_leave_out_this_window() {
         ],
     );
     let lines = select_as(&s, Band::PeopleRecent, &pov_of("owner", "chan"));
-    assert_eq!(ids(&lines), ["bd1", "bg1", "bg2"]);
-    for p in &lines {
+    assert_eq!(recent(&lines), ["bd1", "bg1", "bg2"]);
+    for p in lines
+        .iter()
+        .filter(|p| p.reasons.contains(&Reason::Present))
+    {
         assert_eq!((p.slot, p.form), (Slot::WhoAndWhere, Form::Line));
         assert_eq!(p.reasons, BTreeSet::from([Reason::Present]));
         assert_ne!(p.marks.place.as_deref(), Some("chan"));
@@ -921,7 +1030,7 @@ fn a_persons_recent_lines_leave_out_this_window() {
 }
 
 /// KEY (the owner's word, 2026-11-24): the owner gets no recent lines of his own: they are in this place's
-/// window and the look-backs, and his facts in the frame.
+/// window and the look-backs, and his facts in the frame. Beside the message he is named as the speaker.
 #[test]
 fn alone_the_owner_gets_no_recent_lines_of_his_own() {
     let s = company(
@@ -933,11 +1042,142 @@ fn alone_the_owner_gets_no_recent_lines_of_his_own() {
         ],
     );
     let me = pov_of("owner", "local");
-    assert!(select_as(&s, Band::PeopleRecent, &me).is_empty());
+    let beside = select_as(&s, Band::PeopleRecent, &me);
+    assert!(recent(&beside).is_empty(), "{:?}", recent(&beside));
+    assert_eq!(speaking(&beside), ["person:owner#speaking"]);
     assert_eq!(
         things(&select_as(&s, Band::WhoAndWhere, &me)),
         ["person:owner"]
     );
+}
+
+/// KEY: the owner is the owner by identity, not by one ledger spelling. Each of his effective handles, a
+/// raw transport handle an older unproven mark kept (later held as his), a handle of his record that no
+/// setting names, and a second record another owner handle names: none gets a recent line, while a guest
+/// speaks and he is met only through the window. The guest's are laid.
+#[test]
+fn the_owner_gets_no_recent_lines_by_any_handle_of_his() {
+    let shared = Audience::Shared;
+    let mut s = company(
+        &[
+            ("owner", "person:me"),
+            ("discord:9", "person:me"),
+            ("slack:me", "person:me"),
+            ("discord:7", "person:me-too"),
+            ("discord:bob", "person:bob"),
+        ],
+        vec![
+            // The window: his words under three spellings, the newest a raw handle; the guest's.
+            by("owner", "o1", "chan", 9),
+            by("discord:9", "r1", "chan", 8),
+            by("slack:me", "k1", "chan", 7),
+            by("discord:7", "t1", "chan", 6),
+            by("discord:bob", "b1", "chan", 5),
+            // Elsewhere, newest first.
+            by_in("discord:9", "r2", "general", 1, shared),
+            by_in("slack:me", "k2", "general", 2, shared),
+            by_in("discord:7", "t2", "general", 3, shared),
+            by_in("discord:bob", "b2", "general", 4, shared),
+        ],
+    );
+    s.owners = vec!["discord:9".into(), "discord:7".into()];
+    let bob = pov_of("discord:bob", "chan");
+    let beside = select_as(&s, Band::PeopleRecent, &bob);
+    assert_eq!(recent(&beside), ["b2"]);
+    let front = things(&select_as(&s, Band::WhoAndWhere, &bob));
+    assert_eq!(front, ["person:bob", "person:me", "person:me-too"]);
+    // He speaking by his raw handle is the owner too, and the guest's line is still laid.
+    let raw = select_as(&s, Band::PeopleRecent, &pov_of("discord:9", "chan"));
+    assert_eq!(recent(&raw), ["b2"]);
+}
+
+/// KEY: "their newest three" are the held person's, by every handle: one who spoke here by one handle and
+/// more recently elsewhere by another has the newer ones; one shared allowance of touches read is spent on
+/// all their handles together.
+#[test]
+fn a_persons_newest_three_are_theirs_by_every_handle() {
+    let shared = Audience::Shared;
+    let s = company(
+        &[
+            ("owner", "person:owner"),
+            ("discord:bob", "person:bob"),
+            ("slack:bob", "person:bob"),
+        ],
+        vec![
+            by("discord:bob", "b1", "chan", 1),
+            by_in("discord:bob", "d1", "general", 10, shared),
+            by_in("discord:bob", "d2", "general", 11, shared),
+            by_in("discord:bob", "d3", "general", 12, shared),
+            by_in("slack:bob", "s1", "team", 2, shared),
+            by_in("slack:bob", "s2", "team", 3, shared),
+        ],
+    );
+    let beside = select_as(&s, Band::PeopleRecent, &pov_of("owner", "chan"));
+    assert_eq!(recent(&beside), ["s1", "s2", "d1"]);
+
+    // 200 touches here by each handle, newer than any line elsewhere: 400 to read, one allowance of 300.
+    let mut ex_ = Vec::new();
+    for i in 0..200u64 {
+        ex_.push(by("discord:bob", &format!("hd{i}"), "chan", 1 + 2 * i));
+        ex_.push(by("slack:bob", &format!("hs{i}"), "chan", 2 + 2 * i));
+    }
+    ex_.push(by_in("discord:bob", "far-d", "general", 900, shared));
+    ex_.push(by_in("slack:bob", "far-s", "team", 901, shared));
+    let s = Store { ex: ex_, ..s };
+    let beside = select_as(&s, Band::PeopleRecent, &pov_of("owner", "chan"));
+    assert!(recent(&beside).is_empty(), "{:?}", recent(&beside));
+}
+
+/// KEY (the careful side, until the owner rules): a guest's lines from a private place (one the place rule
+/// held private, or a direct conversation) are laid only when nobody but the guest and the owner is here;
+/// from a shared place, in any company. A person no record holds is company too.
+#[test]
+fn a_guests_private_lines_are_laid_only_alone_with_them() {
+    let s = |window: Vec<Ex>| {
+        let mut ex_ = vec![
+            by_in("discord:bob", "dm1", "discord:dm:44", 1, Audience::Shared),
+            by_in("discord:bob", "lab1", "lab", 2, Audience::Private),
+            by_in("discord:bob", "gen1", "general", 3, Audience::Shared),
+        ];
+        ex_.extend(window);
+        company(
+            &[
+                ("owner", "person:owner"),
+                ("discord:9", "person:owner"),
+                ("discord:bob", "person:bob"),
+                ("discord:carol", "person:carol"),
+            ],
+            ex_,
+        )
+    };
+    let lines = |st: &Store, who: &str| {
+        let beside = select_as(st, Band::PeopleRecent, &pov_of(who, "chan"));
+        recent(&beside)
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    };
+    // Alone with the owner: every place.
+    let alone = s(vec![by("discord:bob", "b1", "chan", 9)]);
+    assert_eq!(lines(&alone, "owner"), ["dm1", "lab1", "gen1"]);
+    assert_eq!(lines(&alone, "discord:bob"), ["dm1", "lab1", "gen1"]);
+    // The owner by a raw handle of his is still only the owner.
+    let raw = s(vec![
+        by("discord:bob", "b1", "chan", 9),
+        by("discord:9", "r1", "chan", 8),
+    ]);
+    assert_eq!(lines(&raw, "discord:bob"), ["dm1", "lab1", "gen1"]);
+    // Another guest here, held or not: shared places only.
+    let carol = s(vec![
+        by("discord:bob", "b1", "chan", 9),
+        by("discord:carol", "c1", "chan", 8),
+    ]);
+    assert_eq!(lines(&carol, "owner"), ["gen1"]);
+    let zed = s(vec![
+        by("discord:bob", "b1", "chan", 9),
+        by("discord:zed", "z1", "chan", 8),
+    ]);
+    assert_eq!(lines(&zed, "discord:bob"), ["gen1"]);
 }
 
 /// At most eight people are named: the speaker, then the window's people who spoke most recently.
@@ -965,8 +1205,9 @@ fn a_person_past_the_eighth_is_not_laid() {
     }
 }
 
-/// Every person's recent lines together keep to their bound, headings counted; a self-loop session's turn,
-/// which lays its own place only, lays none.
+/// Every person's recent lines together keep to their bound as laid (`People::laid`), whole lines only,
+/// however much a name's framing costs; a self-loop session's turn, which lays its own place only, lays
+/// none.
 #[test]
 fn the_recent_lines_keep_to_their_bound_and_a_self_loop_lays_none() {
     let mut ex_ = Vec::new();
@@ -975,30 +1216,40 @@ fn the_recent_lines_keep_to_their_bound_and_a_self_loop_lays_none() {
         let p = format!("discord:q{i}");
         ex_.push(by(&p, &format!("w{i}"), "local", 30 + i));
         for k in 0..4u64 {
-            ex_.push(by(
+            ex_.push(by_in(
                 &p,
                 &format!("e{i}-{k}"),
                 &format!("place{k}"),
                 1 + i + k,
+                Audience::Shared,
             ));
         }
         people.push((p, format!("person:q{i}")));
     }
-    let s = Store {
+    let mut s = Store {
         ex: ex_,
         people,
         ..Store::default()
     };
-    let lines = select(&s, Band::PeopleRecent, Present::OwnerAlone);
-    assert!(!lines.is_empty());
-    let spent: u64 = (lines.iter())
-        .map(|p| p.sizes.line + super::super::budget::HEADING_TOKENS)
-        .sum();
-    assert!(spent <= RECENT_TOKENS, "{spent}");
+    let mut counts = Vec::new();
+    for framing in [0, 150] {
+        s.framing = framing;
+        let lines = select_as(&s, Band::PeopleRecent, &pov(Present::OwnerAlone));
+        let lines: Vec<&Piece> = (lines.iter())
+            .filter(|p| p.reasons.contains(&Reason::Present))
+            .collect();
+        assert!(!lines.is_empty());
+        let spent: u64 = (lines.iter())
+            .map(|p| p.sizes.line + super::super::budget::HEADING_TOKENS + framing)
+            .sum();
+        assert!(spent <= RECENT_TOKENS, "framing {framing}: {spent}");
+        counts.push(lines.len());
+    }
+    assert!(counts[1] < counts[0], "{counts:?}");
     struct OwnOnly;
     impl Gate for OwnOnly {
         fn admit(&self, pov: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
-            AllowPrivate.admit(pov, piece)
+            AdmitUnsealed.admit(pov, piece)
         }
         fn own_place_only(&self) -> bool {
             true
@@ -1011,6 +1262,7 @@ fn the_recent_lines_keep_to_their_bound_and_a_self_loop_lays_none() {
             .filter(|s| s.piece.band == Band::PeopleRecent)
             .count()
     };
-    assert!(band(&assembled(&s, &AllowPrivate, "hello")) > 0);
+    s.framing = 0;
+    assert!(band(&assembled(&s, &AdmitUnsealed, "hello")) > 0);
     assert_eq!(band(&assembled(&s, &OwnOnly, "hello")), 0);
 }

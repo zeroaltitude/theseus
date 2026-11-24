@@ -8,7 +8,7 @@
 
 use super::super::fold::{FoldNode, Ladder};
 use super::super::gate::Gate;
-use super::super::{AtHand, Form, Handle, Marks, PointOfView, Pos, Sizes, SourceRange};
+use super::super::{AtHand, Form, Handle, Marks, Piece, PointOfView, Pos, Sizes, SourceRange};
 
 /// One exchange as the selectors see it. Tokens are today's estimate.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,15 +98,35 @@ pub trait Recall {
     fn recall(&self, pov: &PointOfView, message: &str) -> anyhow::Result<Vec<Ref>>;
 }
 
+/// A held person, as the selectors of slot B see them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Held {
+    /// The id of the record that holds them: one id whatever handle they spoke by.
+    pub id: String,
+    /// The owner, by identity: the ledger's own spelling, an effective owner handle, or a record one of those
+    /// resolves to, whatever handle this exchange was marked by. A filter of what is selected only: it gives
+    /// no mark the owner's authority.
+    pub owner: bool,
+    /// Every handle but a name the ledger may name them by: the record's, and the one asked for.
+    pub handles: Vec<String>,
+}
+
 /// The owner's records of the people present (slot B, who am I talking to).
 pub trait People {
-    /// The held person `person` is (as the ledger names whoever opened an exchange), by its record's id: one
-    /// id whatever handle they spoke by; none for a person no record holds (nothing is a person until the
-    /// owner accepts it).
-    fn held(&self, person: &str) -> anyhow::Result<Option<String>>;
-    /// What is laid about held person `id`: its name, its description and the owner's guidance for it, in
-    /// under `most` tokens; `speaking` for the turn's speaker.
-    fn about(&self, id: &str, speaking: bool, most: u64) -> anyhow::Result<Vec<Ref>>;
+    /// The held person `person` is (as the ledger names whoever opened an exchange): none for a person no
+    /// record holds (nothing is a person until the owner accepts it).
+    fn held(&self, person: &str) -> anyhow::Result<Option<Held>>;
+    /// Whether `person`, held or not, is the owner by identity: the ledger's own spelling, or an effective
+    /// owner handle (the place rule's).
+    fn owner(&self, person: &str) -> bool;
+    /// What is laid in the front about held person `id`: its name, its description and the owner's guidance
+    /// for it, in under `most` tokens; the same for every person, whoever speaks.
+    fn about(&self, id: &str, most: u64) -> anyhow::Result<Vec<Ref>>;
+    /// The one line beside the message that names held person `id` as the turn's speaker.
+    fn speaking(&self, id: &str) -> anyhow::Result<Vec<Ref>>;
+    /// A recent line's tokens as it is laid beside the message: its headings, both wrappers and the name in
+    /// them, after escaping, and the blank line that parts it from the next (today's estimate).
+    fn laid(&self, piece: &Piece, pov: &PointOfView) -> anyhow::Result<u64>;
 }
 
 /// Every source a turn's selectors read, the gate, and the turn's own text.

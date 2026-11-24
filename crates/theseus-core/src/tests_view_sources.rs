@@ -413,7 +413,7 @@ async fn the_facts_about_the_person_reach_the_owner_alone() {
 
 /// KEY (the owner's word, 2026-11-24): the person's description is laid, with the name and the owner's
 /// guidance, in the front: a block of its own at the head of the first user message, not the block beside the
-/// message.
+/// message, in the one wording every person present has.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_persons_description_is_laid_with_the_name() {
     use theseus_ontology::{Category, CategoryId, Guidance, Origin, Record};
@@ -441,7 +441,7 @@ async fn a_persons_description_is_laid_with_the_name() {
     let blocks: Vec<String> = (q.messages[0]["content"].as_array().unwrap().iter())
         .filter_map(|b| b["text"].as_str().map(str::to_string))
         .collect();
-    let entry = format!("Who is speaking: Ada\n- Description: {ROLE}\n- Guidance: {GUIDED}");
+    let entry = format!("In this conversation: Ada\n- Description: {ROLE}\n- Guidance: {GUIDED}");
     let front: Vec<&String> = blocks.iter().filter(|b| b.contains(&entry)).collect();
     assert_eq!(front.len(), 1, "{blocks:#?}");
     assert!(

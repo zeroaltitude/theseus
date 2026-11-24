@@ -349,10 +349,11 @@ impl TurnRunner {
             },
             people: StorePeople {
                 ontology: self.ontology.snapshot(store)?,
-                owner: self.cfg.places.owner.clone().unwrap_or_default(),
+                // Every effective owner handle, those the bindings make among them: who the owner is.
+                owner: self.place_rule.owners(&self.cfg).into_iter().collect(),
                 now_ms: pov.now_ms,
-                texts,
-                names: &read.names,
+                store,
+                sessions: read,
             },
         })
     }

@@ -151,6 +151,15 @@ impl TextRenderer<'_> {
         Ok(out)
     }
 
+    /// A person's recent line elsewhere (`Band::PeopleRecent`) as it is laid beside the message: its blocks,
+    /// each heading and wrapper with the name in it, and the blank line after it, in tokens by today's estimate.
+    /// The measure the line's bound is kept by (`select::people`), read the way the request lays it.
+    pub fn recent_tokens(&self, p: &Piece, pov: &PointOfView) -> anyhow::Result<u64> {
+        let blocks = self.blocks(p, Form::Line, pov)?;
+        let text: String = blocks.iter().map(|b| laid(b) + "\n\n").collect();
+        Ok(super::text::tokens(&text))
+    }
+
     /// The name of the person who opened exchange `turn`, as the turn's sources found it in the owner's
     /// records (`super::sources_store::Sessions::names`); none when they found none.
     fn person_name(&self, turn: &str) -> anyhow::Result<Option<String>> {
@@ -265,17 +274,18 @@ pub const BESIDE_HEAD: &str = "[Harness-supplied context, not a new request. Eac
                                applies. Address the current request or reason for this turn; do not summarize \
                                this block merely because it is present.]";
 
+/// One block as it is laid beside the message: its heading, then its text.
+fn laid(b: &MarkedBlock) -> String {
+    match b.heading.is_empty() {
+        true => b.text.clone(),
+        false => format!("{}\n{}", b.heading, b.text),
+    }
+}
+
 /// The marked blocks beside the message as one: each keeps its own heading.
 fn beside(blocks: Vec<MarkedBlock>) -> Option<MarkedBlock> {
     let label = blocks.first()?.label;
-    let text = blocks
-        .iter()
-        .map(|b| match b.heading.is_empty() {
-            true => b.text.clone(),
-            false => format!("{}\n{}", b.heading, b.text),
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    let text = blocks.iter().map(laid).collect::<Vec<_>>().join("\n\n");
     Some(MarkedBlock {
         label: match blocks.iter().all(|b| b.label == label) {
             true => label,
