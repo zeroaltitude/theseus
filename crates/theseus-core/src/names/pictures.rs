@@ -25,7 +25,8 @@ use crate::exchange::{touch, Root};
 use crate::judge::onto::decide;
 use crate::store::Store;
 
-/// What every picture label's root starts with.
+/// What every picture label's root starts with; the sweep mints no kind of
+/// this name (`judge::onto::mint`), so no category shares these roots.
 pub const PREFIX: &str = "picture:";
 /// The question whose answer is the subject's label.
 pub const SUBJECT: &str = "image_subject";
