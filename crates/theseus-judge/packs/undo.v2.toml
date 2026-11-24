@@ -7,8 +7,8 @@
 # the fixtures equal). The `on_path_p95` rule, which no code could feed, is gone, and with it the comment that said
 # the pack acts nowhere; `labels_per_day` stays. undo.v1 is retired (`packs/retired/undo.v1.toml`), its judgments
 # read under its own text and its header the record of the design and its measurement. undo.v2 acts from the day it
-# lands (`config::UNDO_PACK`, `judge::WIRED`), live: it holds from its first call, and the learning loop leaves it
-# alone (`lineage::LEFT_ALONE`), so no learned version can stand in shadow in its place.
+# lands (`config::UNDO_PACK`, `judge::WIRED`), live: it holds once the ladder has been read after a start, and the
+# learning loop leaves it alone (`lineage::LEFT_ALONE`), so no learned version can stand in shadow in its place.
 id = "undo"
 version = 2
 jev_model = "jev-1.13.0"
