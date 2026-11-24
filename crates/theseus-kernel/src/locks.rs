@@ -72,6 +72,14 @@ thread_local! {
     static HELD_HERE: Cell<u32> = const { Cell::new(0) };
 }
 
+/// Whether this thread holds an execution's lock now, of any kernel: inside a
+/// `Kernel::frame`, say. It reads the count `lock_all` checks and changes
+/// nothing. A destructor that would settle through the kernel asks it first,
+/// since its lock would be a lock inside a lock.
+pub fn this_thread_holds_a_lock() -> bool {
+    HELD_HERE.get() > 0
+}
+
 /// Executions locked by one transition; released when dropped, a panic
 /// included.
 #[must_use = "the lock is released when this is dropped"]
@@ -291,5 +299,32 @@ mod tests {
         });
         drop(a);
         assert_eq!(locks.held(), 0);
+    }
+
+    /// A thread says whether it holds a lock now, of these locks or of
+    /// another kernel's; a frame's view (`none`) holds none of its own, and
+    /// another thread holds none of this one's.
+    #[test]
+    fn a_thread_says_whether_it_holds_a_lock_now() {
+        let (locks, others) = (ExecLocks::default(), ExecLocks::default());
+        assert!(!this_thread_holds_a_lock());
+        drop(locks.none());
+        assert!(!this_thread_holds_a_lock());
+        for held_by in [&locks, &others] {
+            let a = held_by.lock_all(&["exe_a", "exe_b"]);
+            let inner = locks.none();
+            assert!(this_thread_holds_a_lock());
+            drop(inner);
+            assert!(
+                this_thread_holds_a_lock(),
+                "a view's release keeps the lock"
+            );
+            std::thread::scope(|s| {
+                let there = s.spawn(this_thread_holds_a_lock).join().unwrap();
+                assert!(!there, "another thread holds none");
+            });
+            drop(a);
+            assert!(!this_thread_holds_a_lock());
+        }
     }
 }

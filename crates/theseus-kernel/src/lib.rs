@@ -129,6 +129,7 @@ pub use kernel::{
     Accepted, Cancel, Committed, Ending, Evidence, Kernel, KernelConfig, KernelError, KernelStats,
     LimitFollowed, NoEvidence, Observer, Probe, ReconcileReport, StartupReport, TurnEnd, TurnGuard,
 };
+pub use locks::this_thread_holds_a_lock;
 pub use outbox::{Post, Settled, OUTBOX_TOOL};
 pub use overdraw::{default_hard_multiple, HardStop};
 pub use repeat::{Day, Every, Repeat, TimeZone};

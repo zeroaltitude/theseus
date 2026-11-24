@@ -19,24 +19,24 @@
 //! call under the same lock, so it marks it either before the read, and the owner leaves it to the
 //! cancel, or after the write, and finds it no longer open. The day never counts it twice.
 //!
-//! A drop settles on a thread of its own, which holds no execution's lock: a drop inside a frame
-//! cannot take a lock inside a lock (the kernel's panic for that, in a destructor, could abort the
-//! process). Nothing in the drop panics; what it cannot settle it logs, and the reconcile settles.
+//! A drop settles inline, on the dropping thread, before it returns. It spawns no thread, and waits
+//! only as any frame does (for its execution's lock, for the store's write). The tools keep their
+//! owner in the tool's task, outside any kernel frame, so that is every drop today. An owner must not be dropped inside a kernel frame: that thread already holds
+//! a lock, and the settlement's frame would be a lock inside a lock (the kernel panics on it). Such
+//! a drop writes nothing: it logs one warning and returns at once, and the call stays dispatched
+//! until the reconcile holds it as unknown, past its deadline or at the next start. A store error
+//! from the settlement's frame is logged the same way, and the reconcile settles what is left.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
-use std::time::Duration;
+use std::sync::Arc;
 
 use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_kernel::{Action, ActionState, Completion, Kernel, Outcome};
 use theseus_store::NewRecord;
 
-/// How long a drop waits for its settlement's thread. It lands far sooner; a drop on a thread that
-/// holds the call's own execution's lock waits this long, and the settlement lands as it is let go.
-const DROP_WAIT: Duration = Duration::from_secs(10);
-
 /// The owner of one reserved provider call: it settles the call once, by its completion or on drop.
+/// It must not be dropped inside a kernel frame: such a drop leaves the call to the reconcile.
 pub struct Owed {
     kernel: Arc<Kernel>,
     correlation_id: String,
@@ -107,28 +107,17 @@ impl Drop for Owed {
         if *self.settled.get_mut() {
             return;
         }
+        if theseus_kernel::this_thread_holds_a_lock() {
+            tracing::warn!(correlation_id = %self.correlation_id,
+                "a provider call dropped inside a kernel frame is not settled here; the reconcile settles it");
+            return;
+        }
         let sent = *self.sent.get_mut();
         let c = self.dropped(sent);
-        let (kernel, execution) = (self.kernel.clone(), self.execution_id.clone());
-        let (tx, rx) = mpsc::channel();
-        let spawned = std::thread::Builder::new()
-            .name("owed-call".into())
-            .spawn(move || {
-                let _ = tx.send(land(&kernel, &execution, &c, Vec::new(), by_a_drop));
-            });
-        let why = match spawned {
-            Err(e) => format!("no thread to settle it on: {e}"),
-            Ok(_) => match theseus_store::blocking(|| rx.recv_timeout(DROP_WAIT)) {
-                Ok(Ok(_)) => return,
-                Ok(Err(e)) => format!("{e:#}"),
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    "not settled yet; it settles when its execution is free".into()
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => "its settlement stopped".into(),
-            },
-        };
-        tracing::warn!(correlation_id = %self.correlation_id, why = %why,
-            "a dropped provider call was not settled here; what is left, the reconcile settles");
+        if let Err(e) = land(&self.kernel, &self.execution_id, &c, Vec::new(), by_a_drop) {
+            tracing::warn!(correlation_id = %self.correlation_id, error = %format!("{e:#}"),
+                "a dropped provider call was not settled here; the reconcile settles it");
+        }
     }
 }
 

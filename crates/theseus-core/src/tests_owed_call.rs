@@ -1,17 +1,20 @@
 //! The reserved call's owner settles it in one step (issue 44): a cancel that marks the call while a drop is
 //! deciding cannot make the day count it twice; an unknown settlement that lands after a cancel marked the call
-//! is left to the cancel; a known cost still lands; and a drop inside a frame takes no lock inside a lock. Each
-//! reads the conversation's spend book and the day's, on a bare kernel whose clock can stop a dropping thread
-//! between its start and its write.
+//! is left to the cancel; a known cost still lands. A drop settles on the dropping thread, before it returns; a
+//! drop inside a frame (another execution's, or the call's own) writes nothing, returns at once, and leaves the
+//! call to the reconcile. Each reads the conversation's spend book and the day's, on a bare kernel whose clock
+//! can stop a dropping thread between its start and its write, and notes every thread that reads it.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread::ThreadId;
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 use theseus_kernel::{
-    ActionState, Authority, Clock, Completion, Kernel, KernelConfig, NoEvidence, Outcome, Proposal,
-    RetryClass, SessionKind, TurnGuard, PROVIDER_TOOL,
+    Action, ActionState, Authority, Clock, Completion, Kernel, KernelConfig, NoEvidence, Outcome,
+    Proposal, RetryClass, SessionKind, TurnGuard, PROVIDER_TOOL,
 };
 
 use super::Owed;
@@ -20,15 +23,20 @@ use crate::store::Store;
 const NOW: u64 = 1_800_000_000_000;
 const RESERVE: u64 = 40_000;
 
-/// A clock that stands still, and stops one thread at its next reading until the test lets it go.
+/// A clock that stands still unless a test moves it on (`ahead`), notes the thread of every reading, and stops one
+/// thread at its next reading until the test lets it go.
 #[derive(Default)]
 struct Hooked {
     stop: Mutex<Option<(ThreadId, Arc<Barrier>)>>,
+    ahead: AtomicU64,
+    readers: Mutex<Vec<(ThreadId, Option<String>)>>,
 }
 
 impl Clock for Hooked {
     fn now_ms(&self) -> u64 {
-        let me = std::thread::current().id();
+        let me = std::thread::current();
+        (self.readers.lock().unwrap()).push((me.id(), me.name().map(str::to_string)));
+        let me = me.id();
         let mut stop = self.stop.lock().unwrap();
         if stop.as_ref().is_some_and(|(t, _)| *t == me) {
             let (_, b) = stop.take().unwrap();
@@ -36,7 +44,7 @@ impl Clock for Hooked {
             b.wait(); // stopped: the test may act
             b.wait(); // let go
         }
-        NOW
+        NOW + self.ahead.load(Ordering::SeqCst)
     }
 }
 
@@ -270,11 +278,77 @@ fn a_known_cost_after_a_cancel_marked_the_call_lands_once() {
     assert_eq!(after.day_held, before.day_held - RESERVE);
 }
 
-/// An owner dropped inside a frame (a thread holding another execution's lock): no lock is taken inside a lock,
-/// so nothing panics, and the call is settled as never sent.
+/// An owner dropped on a thread that holds no lock settles before the drop returns, on that thread: every clock
+/// reading of the drop, the settlement's included, is the dropping thread's, so no thread was spawned for it.
 #[test]
-fn a_drop_inside_a_frame_takes_no_lock_inside_a_lock() {
+fn a_drop_on_a_thread_holding_no_lock_settles_on_that_thread_before_it_returns() {
     let (w, owed) = world();
+    let before = books(&w.kernel, &w.exec);
+    w.clock.readers.lock().unwrap().clear();
+    drop(owed);
+    let a = w.kernel.action(&w.call).unwrap().unwrap();
+    assert_eq!(a.state, ActionState::Failed, "settled as never sent: {a:?}");
+    let after = books(&w.kernel, &w.exec);
+    assert!(after.reservations.is_empty(), "{after:?}");
+    assert_eq!(after.day_held, before.day_held - RESERVE);
+    let me = std::thread::current().id();
+    let readers = w.clock.readers.lock().unwrap().clone();
+    assert!(!readers.is_empty(), "the drop read the clock");
+    let elsewhere: Vec<_> = readers.iter().filter(|(t, _)| *t != me).collect();
+    assert!(
+        elsewhere.is_empty(),
+        "the drop read the clock on another thread: {elsewhere:?}"
+    );
+}
+
+/// What a drop inside a frame must be: back at once (bounded well under a second; nothing here sleeps), with no
+/// panic, and nothing written: the call is still dispatched, its books as they were.
+fn dropped_in_a_frame_writes_nothing(w: &World, frame_on: &str, owed: Owed) -> (Books, Action) {
+    let (before, call) = (
+        books(&w.kernel, &w.exec),
+        w.kernel.action(&w.call).unwrap().unwrap(),
+    );
+    let mut took = Duration::ZERO;
+    (w.kernel.frame(&[frame_on], |_k| {
+        let t0 = Instant::now();
+        drop(owed);
+        took = t0.elapsed();
+        Ok(())
+    }))
+    .unwrap();
+    assert!(took < Duration::from_millis(250), "the drop took {took:?}");
+    let now = w.kernel.action(&w.call).unwrap().unwrap();
+    assert_eq!(
+        now.state,
+        ActionState::Dispatched,
+        "left as it was: {now:?}"
+    );
+    assert_eq!(now, call, "nothing written to the call");
+    assert_eq!(
+        books(&w.kernel, &w.exec),
+        before,
+        "nothing written to the books"
+    );
+    (before, call)
+}
+
+/// The reconcile, once the call's deadline has passed, holds a call left dispatched as unknown, once.
+fn the_reconcile_holds_it(w: &World, before: &Books, call: &Action) {
+    let ahead = call.deadline_at_ms.saturating_sub(NOW) + 1;
+    w.clock.ahead.store(ahead, Ordering::SeqCst);
+    let rep = w.kernel.reconcile(&NoEvidence).unwrap();
+    assert_eq!(rep.marked_unknown, vec![w.call.clone()], "{rep:?}");
+    let a = w.kernel.action(&w.call).unwrap().unwrap();
+    assert_eq!(a.state, ActionState::OutcomeUnknown, "{a:?}");
+    held_once(w, before, &books(&w.kernel, &w.exec));
+}
+
+/// An owner dropped inside a frame on ANOTHER execution (a thread holding a lock): it does not take a lock
+/// inside a lock, writes nothing and returns at once; the reconcile settles the call.
+#[test]
+fn a_drop_inside_another_executions_frame_is_left_to_the_reconcile() {
+    let (w, owed) = world();
+    owed.sending();
     let other = (w.kernel.open_execution(
         "ses_other",
         SessionKind::Conversation,
@@ -287,18 +361,15 @@ fn a_drop_inside_a_frame_takes_no_lock_inside_a_lock() {
         None,
     ))
     .unwrap();
-    let before = books(&w.kernel, &w.exec);
-    (w.kernel.frame(&[&other.id], |_k| {
-        drop(owed);
-        Ok(())
-    }))
-    .unwrap();
-    let a = w.kernel.action(&w.call).unwrap().unwrap();
-    assert_eq!(a.state, ActionState::Failed, "settled as never sent: {a:?}");
-    let after = books(&w.kernel, &w.exec);
-    assert!(after.reservations.is_empty(), "{after:?}");
-    assert_eq!(after.spent, before.spent);
-    assert_eq!(after.unknown, before.unknown);
-    assert_eq!(after.day_spent, before.day_spent);
-    assert_eq!(after.day_held, before.day_held - RESERVE);
+    let (before, call) = dropped_in_a_frame_writes_nothing(&w, &other.id, owed);
+    the_reconcile_holds_it(&w, &before, &call);
+}
+
+/// An owner dropped inside a frame on the call's OWN execution: the same, with no wait for its own lock.
+#[test]
+fn a_drop_inside_its_own_executions_frame_is_left_to_the_reconcile() {
+    let (w, owed) = world();
+    let exec = w.exec.clone();
+    let (before, call) = dropped_in_a_frame_writes_nothing(&w, &exec, owed);
+    the_reconcile_holds_it(&w, &before, &call);
 }
