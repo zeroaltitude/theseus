@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use theseus_judge::fake::{FakeJev, Scripted};
+use theseus_judge::fake::{FakeJev, FakeMode, Scripted};
 use theseus_ontology::{Category, CategoryId, MemberList, Membership, Origin, Record};
 use theseus_protocol::exchange::{ExchangeTopicsParams, ExchangeTopicsResult};
 use theseus_protocol::{error_code, method, LedgerKind, SessionKind};
@@ -494,5 +494,62 @@ async fn no_word_of_a_message_is_in_the_answer_or_the_rows() {
     for w in WORDS {
         assert!(!answers.contains(w), "{w} in the answer: {answers}");
         assert!(!rows.contains(w), "{w} in a row");
+    }
+}
+
+/// KEY: a failed, malformed or drifted answer's row keeps its class and its
+/// accounting, and no word the answer brought back. Jev's server says the
+/// message's words in its error (500 and 400), a malformed answer chooses
+/// them and names them as its model, a drifted one names them as its model,
+/// and a rate header carries them each time. Every row is read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_word_an_answer_brings_back_is_in_a_row() {
+    let cases = [
+        ("server", FakeMode::Says(500, SAID.into()), "server"),
+        ("refused", FakeMode::Says(400, SAID.into()), "invalid_request"),
+        ("malformed", FakeMode::Says(200, SAID.into()), "malformed"),
+        ("drifted", FakeMode::Up, ""),
+    ];
+    for (case, mode, class) in cases {
+        let jev = FakeJev::start().unwrap();
+        jev.script_onto("topic", "c1", 0.9);
+        jev.set_mode(mode);
+        if class.is_empty() {
+            jev.answer_as(Some(SAID));
+        }
+        let r = rig(jev);
+        ledger_topic(&r.core);
+        let sid = bound(&r.core);
+        said(&r.core, &sid, "turn_old", SAID, 5_000);
+        let out = run(&r.core, params(false, None)).await;
+        assert_eq!(r.jev.seen().len(), 1, "{case}: one call");
+        let rows = format!("{:?}", ledger(&r.core));
+        for w in WORDS {
+            assert!(!rows.contains(w), "{case}: {w} in a row: {rows}");
+        }
+        assert_eq!(
+            (out.asked, out.answered, out.touches),
+            (1, 0, 0),
+            "{case}: {out:?}"
+        );
+        let calls = of_kind(&r.core, LedgerKind::JudgeCall);
+        let [call] = calls.as_slice() else {
+            panic!("{case}: one judgment: {calls:?}");
+        };
+        let d = &call.data;
+        match class {
+            "" => assert_eq!(
+                (&d["outcome"]["outcome"], &d["model_drift"], &d["answered_by"]),
+                (&json!("answered"), &json!(true), &Value::Null),
+                "{case}: {d}"
+            ),
+            _ => assert_eq!(
+                (&d["outcome"]["class"], &d["outcome"]["error"]["class"]),
+                (&json!(class), &json!(class)),
+                "{case}: {d}"
+            ),
+        }
+        assert!(d["reserve_micros"].as_u64().is_some_and(|m| m > 0), "{case}: {d}");
+        assert_eq!(d["rate_limit"], json!({}), "{case}: {d}");
     }
 }

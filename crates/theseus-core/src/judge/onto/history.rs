@@ -20,7 +20,10 @@
 //!   attachment. Its text goes to Jev through the judge's one client and its
 //!   scrubber, and nowhere else: the row's context leaves out the names
 //!   mined from it, no state blob is kept, and nothing here logs it or puts
-//!   it in an error.
+//!   it in an error. Nor does a word Jev or its server chose reach a row:
+//!   the judgment is recorded only once [`withheld`] has kept its class and
+//!   its accounting and dropped the rest (an error's message, a malformed
+//!   answer's reason, a model that is not the pinned one, the rate headers).
 //! - **Resume** without a record of its own: each judgment's context says
 //!   `purpose: history` (an additive key of the `judge.call` row's free
 //!   data), and an exchange whose answered judgment says so is not asked
@@ -39,7 +42,10 @@ use std::sync::Arc;
 use serde_json::json;
 use theseus_judge::builders::ONTO_KINDS;
 use theseus_judge::price::Micros;
-use theseus_judge::{Ask, DecisionPoint, Input, Judge, Judgment, Mode, Urgency};
+use theseus_judge::judge::UNPINNED;
+use theseus_judge::{
+    Ask, DecisionPoint, Input, JevError, Judge, Judgment, JudgmentSink, Mode, Outcome, Urgency,
+};
 use theseus_kernel::{micros_to_usd, usd_to_micros};
 use theseus_ontology::Ontology;
 use theseus_protocol::exchange::{ExchangeTopicsParams, ExchangeTopicsResult};
@@ -245,8 +251,10 @@ impl JudgeService {
         if !self.reserve(&today, need, spend::Class::of_asks(&asks)) {
             return Err(Stop::Day);
         }
+        // Asked unrecorded, and recorded once withheld: the shared sink never
+        // holds a word the answer brought back.
         let judgments = built
-            .judge
+            .jev()
             .judge(DecisionPoint {
                 asks,
                 urgency: Urgency::Shadow,
@@ -254,8 +262,51 @@ impl JudgeService {
             .await;
         let (_, spent) = self.settle_round(&today, need, &judgments);
         let j = judgments.into_iter().next().ok_or(Stop::Client)?;
+        let j = withheld(j);
+        built.judge.sink().record(&j);
         Ok((j, spent))
     }
+}
+
+/// The words this job's rows put where Jev's or its server's own went.
+pub const WITHHELD: &str = "withheld";
+
+/// What this job records of `j`: its class and its accounting, and no word
+/// Jev or its server chose. An error keeps its class and its numbers (a
+/// status, a retry's wait, a timeout's phase, a malformed answer's usage)
+/// and its message or reason says [`WITHHELD`]; a malformed answer's model
+/// is dropped; the model that answered is kept only when it is the pinned
+/// one; the rate headers are dropped. The answers stay: the client takes a
+/// choice only among the options asked, by their ids.
+fn withheld(mut j: Judgment) -> Judgment {
+    let w = || WITHHELD.to_string();
+    if let Outcome::Failed { error, .. } = &mut j.outcome {
+        *error = match error.clone() {
+            JevError::Network { .. } => JevError::Network { message: w() },
+            JevError::RateLimited {
+                retry_after_secs, ..
+            } => JevError::RateLimited {
+                message: w(),
+                retry_after_secs,
+            },
+            JevError::Server { status, .. } => JevError::Server { status, message: w() },
+            JevError::Auth { status, .. } => JevError::Auth { status, message: w() },
+            JevError::InvalidRequest { status, .. } => JevError::InvalidRequest {
+                status,
+                message: w(),
+            },
+            JevError::Malformed { usage, .. } => JevError::Malformed {
+                reason: w(),
+                usage,
+                model: None,
+            },
+            kept @ (JevError::Timeout { .. } | JevError::OverState { .. }) => kept,
+        };
+    }
+    let pinned = j.model != UNPINNED;
+    j.answered_by = j.answered_by.filter(|m| pinned && *m == j.model);
+    j.rate_limit.clear();
+    j
 }
 
 impl Core {

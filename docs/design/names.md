@@ -41,7 +41,11 @@ from a private place; the CLI refuses it inside a job), then the in-person rule 
   membership, no category minted, no card, no `still_*` answer acted on. The job writes the touches with
   `names::topics::touches` and no plan, so a `new` answer names nothing. Each touch takes its exchange's start.
 - **The message's words** reach the judge and nothing else: the row's context leaves out the names mined from the
-  message, no state blob is kept, and the command prints counts and dollars.
+  message, no state blob is kept, and the command prints counts and dollars. Nor does a word the answer brings
+  back reach a row: the judgment is asked unrecorded and recorded only once its error's message, a malformed
+  answer's reason and model, a model that is not the pinned one and the rate headers are withheld. Its class and
+  its accounting stay (the outcome's class, a status, usage, cost and reservation), with the options' ids it
+  chose; no other field is the answer's own words.
 - **Resume**: each judgment's context says `purpose: history`. A rerun asks nothing of an exchange whose answered
   judgment says so, and writes its touches again from that row where they are missing.
 - **Money**: the run's cap (`--cap-usd`, default $10) is checked before each call against the call's worst case,
