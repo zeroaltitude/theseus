@@ -28,8 +28,9 @@
 //!   over the opening message alone: no message before it, no reply, no
 //!   attachment. Its text goes to Jev through the judge's one client and its
 //!   scrubber, and nowhere else: the row's context leaves out the names
-//!   mined from it, no state blob is kept, and nothing here logs it or puts
-//!   it in an error. Nor does a word Jev or its server chose reach a row:
+//!   mined from it and the candidate projects' titles (their ids stay), no
+//!   state blob is kept, and nothing here logs it or puts it in an error.
+//!   Nor does a word Jev or its server chose reach a row:
 //!   the judgment is recorded only once [`withheld`] has kept its class and
 //!   its accounting and dropped the rest (an error's message, a malformed
 //!   answer's reason, a model that is not the pinned one, the rate headers).
@@ -248,11 +249,13 @@ impl JudgeService {
         input.onto = Some(Box::new(onto));
         let pack = self.pack(&self.placed(ONTO_PACK, &old.session))?;
         let mut answers = super::context(core, &old.session, &input);
-        // The names mined from the message are its words: they reach Jev in
-        // the state, never the row.
+        // The names mined from the message are its words, and a candidate
+        // project's title is the owner's: they reach Jev in the state, never
+        // the row. The candidates' ids stay, in `kinds`.
         if let Some(c) = answers.as_object_mut() {
             c.remove("names");
             c.remove("described");
+            c.remove("projects");
         }
         let state = theseus_judge::prepare(&pack, &Input::Inbound(input), &self.scrub()).ok()?;
         let mut context = json!({

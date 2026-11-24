@@ -50,7 +50,8 @@ prices their worst case, and asks nothing.
   at the exchange's own date. It is no evidence that the session held that topic then: the candidates are today's
   categories, the session's memberships of today first.
 - **The message's words** reach the judge and nothing else: the row's context leaves out the names mined from the
-  message, no state blob is kept, and the command prints counts and dollars. Nor does a word the answer brings
+  message and the candidate projects' titles (the owner's words, which may be the message's; their ids stay in
+  `kinds`), no state blob is kept, and the command prints counts and dollars. Nor does a word the answer brings
   back reach a row: the judgment is asked unrecorded and recorded only once its error's message, a malformed
   answer's reason and model, a model that is not the pinned one and the rate headers are withheld. Its class and
   its accounting stay (the outcome's class, a status, usage, cost and reservation), with the options' ids it

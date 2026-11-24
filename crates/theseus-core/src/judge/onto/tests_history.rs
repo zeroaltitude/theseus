@@ -1028,3 +1028,58 @@ async fn only_the_owners_own_exchanges_are_asked() {
         .collect();
     assert_eq!(touched, vec!["turn_his".to_string()]);
 }
+
+/// A project the owner made, as the task graph holds it: an open project is
+/// a candidate of `onto`'s `project` question.
+fn project_named(core: &Core, id: &str, title: &str) {
+    use theseus_protocol::tasks::{TaskKind, TaskRecord, TaskState};
+    let t = TaskRecord {
+        id: id.into(),
+        title: title.into(),
+        objective: "Move the ledger to the new store".into(),
+        kind: TaskKind::Project,
+        state: TaskState::Accepted,
+        version: 1,
+        owner: "agent".into(),
+        ..TaskRecord::default()
+    };
+    core.store
+        .append(&[crate::task_graph::record(&t).unwrap()])
+        .unwrap();
+}
+
+/// KEY (the stored words): a candidate project's title is the owner's own
+/// words, and here the message's too: it reaches Jev in the state, and no
+/// row; the candidate's id stays in the row's `kinds`. Every row is read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_candidate_projects_title_is_in_no_row() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    project_named(&r.core, "tsk_crossing", "Quillfeather crossing");
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_old", SAID, 5_000);
+    let out = run(&r.core, params(false, None)).await;
+    assert_eq!((out.asked, out.touches), (1, 1), "{out:?}");
+    let sent: String = r.jev.seen().iter().map(|s| s.body.to_string()).collect();
+    assert!(
+        sent.contains("Quillfeather crossing"),
+        "the project was a candidate"
+    );
+    let rows = format!("{:?}", ledger(&r.core));
+    for w in WORDS {
+        assert!(!rows.contains(w), "{w} in a row: {rows}");
+    }
+    let calls = of_kind(&r.core, LedgerKind::JudgeCall);
+    let [call] = calls.as_slice() else {
+        panic!("one judgment: {calls:?}");
+    };
+    let onto = &call.data["context"]["onto"];
+    assert!(
+        (onto["kinds"]["project"].as_array())
+            .is_some_and(|ids| ids.contains(&json!("tsk_crossing"))),
+        "the candidate's id stays: {onto}"
+    );
+    assert!(onto.get("projects").is_none(), "{onto}");
+}
