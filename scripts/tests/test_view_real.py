@@ -3,7 +3,8 @@ store the test fills by script on a stand-in model, so the kit cannot drift from
 (`replay.py` once asked `view preview --turns`, a form no build had, and only a fake daemon ever answered it).
 
 The binaries are chosen by `this_trees_bins` (its text says what it checks and what it does not prove). When it
-cannot admit them, every test here skips, saying why. Nothing here calls a model provider: the model is a local
+cannot admit them, the tests that need a verified pair (`RealKit`) skip, saying why; the tests of the choice
+itself (`Binaries`) need no built binary, and run. Nothing here calls a model provider: the model is a local
 stand-in, and the yardstick runs `--dry-run`. The kit reads TOML with `tomllib`, so on a Python older than 3.11 the
 whole file says it skipped.
 """
@@ -11,6 +12,7 @@ whole file says it skipped.
 from __future__ import annotations
 
 import contextlib
+import errno
 import io
 import json
 import os
@@ -41,12 +43,14 @@ STAMP = re.compile(rb"theseus-build-stamp:([0-9a-f]{40}):")
 
 
 def run(argv: list[str], **kw) -> tuple[str | None, str]:
-    """`(stdout, "")` when `argv` ran and exited 0, else `(None, why)`: a process error or a timeout is a reason,
-    never an exception."""
+    """`(stdout, "")` when `argv` ran and exited 0, else `(None, why)`: a process error, a timeout or output that is
+    not text (on stdout or stderr) is a reason, never an exception."""
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=STAMP_TIMEOUT, **kw)
     except subprocess.TimeoutExpired:
         return None, f"{argv[0]} did not answer in {STAMP_TIMEOUT}s (timed out)"
+    except UnicodeDecodeError:
+        return None, f"{argv[0]} wrote bytes that are not text"
     except OSError as e:
         return None, f"{argv[0]} could not run ({e.strerror or type(e).__name__})"
     except subprocess.SubprocessError as e:
@@ -61,8 +65,9 @@ def this_trees_bins(root: Path = ROOT, bins: Path | None = None) -> Path:
     `theseusd` carry the commit `root` is checked out at, and nothing in `root` differs from that commit (a
     tracked change or an untracked file; ignored files, such as the build's own, are not read). Otherwise it
     raises `unittest.SkipTest` with the reason. It FAILS CLOSED: a check it cannot make (git cannot say the
-    commit or the tree's state, a binary cannot run or does not answer in STAMP_TIMEOUT, a file is empty or
-    holds no stamp, or holds a second) is a skip with its reason, never a pass and never a crash.
+    commit or the tree's state, a binary cannot run, writes bytes that are not text or does not answer in
+    STAMP_TIMEOUT, a file cannot be checked or read, is empty or holds no stamp, or holds a second) is a skip
+    with its reason, never a pass and never a crash.
 
     What it does NOT prove: that the binaries were built from this tree. A stamp names the commit the tree was
     at when it was built (`crates/theseus/build.rs`, `crates/theseusd/build.rs`), not what was compiled: a
@@ -81,7 +86,11 @@ def this_trees_bins(root: Path = ROOT, bins: Path | None = None) -> Path:
     if dirty:
         raise unittest.SkipTest(f"{root} differs from its commit {head}: no binary's stamp can say it holds that")
     for b in ("theseus", "theseusd"):
-        if not (bins / b).is_file():
+        try:
+            there = (bins / b).is_file()
+        except OSError as e:
+            raise unittest.SkipTest(f"{bins / b} could not be checked ({e.strerror or e})") from None
+        if not there:
             raise unittest.SkipTest(f"no {bins / b}: {BUILD}")
     cli, why = run([str(bins / "theseus")], env={"THESEUS_CLI_STAMP": "1", "PATH": "/usr/bin:/bin"})
     if cli is None:
@@ -269,6 +278,24 @@ class Binaries(unittest.TestCase):
     def test_an_empty_daemon_file_is_a_skip(self):
         bins = fake_pair(self.tmp / "bin", f"#!/bin/sh\necho {self.head}\n", b"")
         self.assertIn("theseusd", self.refused(bins))
+
+    def test_a_cli_stamp_that_is_not_text_is_a_skip(self):
+        bins = fake_pair(self.tmp / "bin", f"#!/bin/sh\nprintf '{self.head}\\377\\n'\n",
+                         f"theseus-build-stamp:{self.head}:".encode())
+        self.assertIn("theseus wrote bytes that are not text", self.refused(bins))
+
+    def test_cli_errors_that_are_not_text_are_a_skip_though_its_stamp_is_right(self):
+        bins = fake_pair(self.tmp / "bin", f"#!/bin/sh\nprintf '\\377\\376' >&2\necho {self.head}\n",
+                         f"theseus-build-stamp:{self.head}:".encode())
+        self.assertIn("theseus wrote bytes that are not text", self.refused(bins))
+
+    def test_a_file_check_that_is_refused_is_a_skip(self):
+        """A stat the system refuses (permission denied) is a reason, not an error."""
+        bins = fake_pair(self.tmp / "bin", f"#!/bin/sh\necho {self.head}\n",
+                         f"theseus-build-stamp:{self.head}:".encode())
+        denied = PermissionError(errno.EACCES, "Permission denied")
+        with unittest.mock.patch.object(Path, "is_file", side_effect=denied):
+            self.assertIn("theseus could not be checked (Permission denied)", self.refused(bins))
 
 
 if __name__ == "__main__":

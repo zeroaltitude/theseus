@@ -97,13 +97,16 @@ last N exchanges, `rows.jsonl` holds one line with two sides:
   lays it, `folded` when only a `folds` piece covers it (a fold's first and last are exchange ids); a range no
   place's order resolves makes it unknown, not "absent".
 
-**Which view, and what a record is.** `view show` returns a turn's newest 32 readable views, in the order they
-were built, and leaves out one that cannot be read. So the first view returned is the turn's first only when it
-had fewer than 32 and every one reads: a turn compiled 33 times answers its second first. `returned_views` is
-how many came back, not how many the turn had; `at_the_read_limit` marks a turn that returned 32, and the summary
-counts them (`returned_views_at_the_read_limit`). A record is read through today's source checks, so the kit
-measures the record as it can be inspected now, not a reproduction of everything that was sent then: a piece
-whose source was retracted since, or that today's reader does not list (a fold, a task: below), is not in it.
+**Which view, and what a record is.** `view show` reads a turn's newest 32 views and returns the readable ones
+among them, in the order they were built; one that cannot be read is left out. So the first view returned is the
+turn's first only when the turn had no more than 32 and its first reads: a turn compiled 33 times answers its
+second first. How many came back does not tell which: fewer than 32 returned does not prove that nothing was
+cut (a turn compiled 34 times, two of its newest 32 unreadable, returns 30), and 32 returned may include the
+turn's first. `returned_views` is how many came back, not how many the turn had; `at_the_read_limit` marks a
+turn that returned 32, and the summary counts them (`returned_views_at_the_read_limit`). A record is read
+through today's source checks, so the kit measures the record as it can be inspected now, not a reproduction of
+everything that was sent then: a piece whose source was retracted since, or that today's reader does not list
+(a fold, a task: below), is not in it.
 
 A turn with no view record (one from before the cut) has no view side; it is counted under `no_view_record`,
 never as left out. `summary.json` sums them. Every name it writes is checked against its field's closed set (the
@@ -258,8 +261,8 @@ Output saved before the one-context kit reads differently, and a script that rea
 
 ## What none of it can tell
 
-- The replay reads a turn's record as today's reader returns it: its newest 32 readable views, through today's
-  source checks. It says nothing of a turn from before the cut, which has no record. Adopted history has
+- The replay reads a turn's record as today's reader returns it: the readable ones among its newest 32 views,
+  through today's source checks. It says nothing of a turn from before the cut, which has no record. Adopted history has
   exchanges but no measuring rows.
 - The real-binary tests (`scripts/tests/test_view_real.py`) run only on binaries whose stamps name the commit a
   clean checkout is at, and skip, saying why, on anything they cannot check. A stamp names a commit, not what was

@@ -270,8 +270,8 @@ class FakeDaemon(unittest.TestCase):
         self.assertFalse(scratch.drive.processes_naming(out / "daemon"))
 
     def test_a_series_at_the_readers_limit_is_the_first_returned_view_and_says_so(self):
-        """`view show` returns a turn's newest 32 readable views, in build order: a turn compiled 33 times
-        answers its second view first. The replay names its side the first RETURNED readable view, counts the
+        """`view show` returns the readable ones among a turn's newest 32 views, in build order: a turn compiled
+        33 times answers its second view first. The replay names its side the first RETURNED readable view, counts the
         views returned (not the views the turn had), and marks a series at the reader's limit."""
         f = fixture(True)
         cut = record(tid(2), [(tid(1), tid(1))], views=33)

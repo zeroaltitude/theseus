@@ -18,12 +18,14 @@ The two sides:
 - **view**: the turn's own view record, as `theseus view show TURN --tally
   --json` reads it (never `--text`): its first RETURNED readable view
   (`view_basis`), its counts by slot, what the budget left out and why, and
-  its pieces by kind. The reader returns a turn's newest `VIEWS_READ` (32)
-  readable views in the order they were built, and leaves out one that
-  cannot be read: so the first returned is the turn's first view only when
-  the turn had fewer than 32 and every one reads. `returned_views` is how
-  many it returned, not how many the turn had; `at_the_read_limit` marks a
-  turn that returned 32, which may have had more. A record is read through
+  its pieces by kind. The reader reads a turn's newest `VIEWS_READ` (32)
+  views and returns the readable ones among them, in the order they were
+  built, leaving out one that cannot be read: so the first returned is the
+  turn's first view only when the turn had no more than 32 and its first
+  reads. Fewer than 32 returned does not prove that nothing was cut (some
+  of the newest 32 may not read). `returned_views` is how many it returned,
+  not how many the turn had; `at_the_read_limit` marks a turn that returned
+  32, which may have had more. A record is read through
   today's source checks, so it is the record as it can be inspected now (a
   retracted source, a piece today's reader does not list: a fold, a task),
   not a reproduction of everything that was sent. Every turn since the cut

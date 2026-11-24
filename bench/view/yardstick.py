@@ -38,7 +38,8 @@ this build (the history does not carry it).
 
 - on a store, `view_record`: what the turn's own view record laid (`theseus
   view show TURN --tally`, its first RETURNED readable view: the reader
-  returns a turn's newest 32, and reads them through today's source checks,
+  returns the readable ones among a turn's newest 32 views, read through
+  today's source checks,
   so it is the record as it can be inspected now; `replay.py` reads it the
   same way and says more). An earlier exchange an `exchanges` piece laid is
   held; one that lies only inside a laid `folds` piece is counted in a cell
