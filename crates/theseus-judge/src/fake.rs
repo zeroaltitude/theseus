@@ -470,23 +470,7 @@ fn serve_one(
             String::new(),
             json!({"error": {"message": format!("invalid key: Bearer {}", bearer.unwrap_or_default())}}),
         ),
-        FakeMode::Says(status, text) => {
-            let out = match *status {
-                200 => {
-                    let mut v = answers(&req, &script, Some(text.clone()));
-                    let all = v["answers"]
-                        .as_object_mut()
-                        .into_iter()
-                        .flat_map(|a| a.values_mut());
-                    for a in all.filter(|a| a.get("choice").is_some()) {
-                        a["choice"] = json!(text);
-                    }
-                    v
-                }
-                _ => json!({"error": {"message": text}}),
-            };
-            (*status, format!("x-ratelimit-reset: {text}\r\n"), out)
-        }
+        FakeMode::Says(status, text) => says(&req, &script, *status, text),
     };
     let text = out.to_string();
     let head = format!(
@@ -499,6 +483,27 @@ fn serve_one(
     let _ = stream.write_all(text.as_bytes());
     let _ = stream.flush();
     Ok(keep)
+}
+
+/// [`FakeMode::Says`]'s answer: at 200 every choice and the model are
+/// `text`; at any other status the error's message is; and a rate header
+/// carries it either way.
+fn says(req: &Value, script: &Script, status: u16, text: &str) -> (u16, String, Value) {
+    let out = match status {
+        200 => {
+            let mut v = answers(req, script, Some(text.to_string()));
+            let all = v["answers"]
+                .as_object_mut()
+                .into_iter()
+                .flat_map(|a| a.values_mut());
+            for a in all.filter(|a| a.get("choice").is_some()) {
+                a["choice"] = json!(text);
+            }
+            v
+        }
+        _ => json!({"error": {"message": text}}),
+    };
+    (status, format!("x-ratelimit-reset: {text}\r\n"), out)
 }
 
 /// Why Jev would refuse a request's images, by the rules the probe of
