@@ -1261,3 +1261,71 @@ async fn a_stop_while_the_last_answer_is_unwritten_says_so() {
     assert!(why.contains("may ask that exchange again"), "{out:?}");
     assert_eq!((out.asked, out.left), (1, 0), "{out:?}");
 }
+
+/// KEY (current state): whether the ontology's judge acts, and whether the
+/// daemon is stopping, are asked again once the writer may write, for a
+/// fresh answer and a recorded one. The job's writer is parked behind a
+/// running turn; the pack is rolled back, or the daemon stops, while it
+/// waits; the turn ends: no touch. A stop ends the writer's wait at once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_pack_and_the_stop_are_asked_again_once_the_writer_may_write() {
+    for (answer, case) in [
+        ("fresh", "rolled back"),
+        ("fresh", "stopping"),
+        ("recorded", "rolled back"),
+        ("recorded", "stopping"),
+    ] {
+        let jev = FakeJev::start().unwrap();
+        jev.script_onto("topic", "c1", 0.9);
+        let r = rig(jev);
+        ledger_topic(&r.core);
+        let sid = bound(&r.core);
+        said(&r.core, &sid, "turn_old", SAID, 5_000);
+        if answer == "recorded" {
+            run(&r.core, params(false, None)).await;
+            untouch(&r.core, "turn_old");
+        }
+        let running = r.core.runner.pass.turns().begin().await;
+        let core = r.core.clone();
+        let job = tokio::spawn(async move { core.topics_history(&params(false, None)).await });
+        if answer == "fresh" {
+            seen(&r.jev, 1).await;
+            queued(&r.core, 1).await;
+        }
+        // The job is past its first look, and waits for the writer.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert!(!job.is_finished(), "{answer}, {case}: the writer waits");
+        match case {
+            "rolled back" => rolled_back(&r.core),
+            _ => r.core.outbox.stop_sending(),
+        }
+        let t0 = std::time::Instant::now();
+        while !job.is_finished() && t0.elapsed().as_secs() < 5 && case == "stopping" {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let ended_at_once = job.is_finished();
+        drop(running);
+        let out = tokio::time::timeout(std::time::Duration::from_secs(30), job)
+            .await
+            .expect("the job ends")
+            .unwrap()
+            .unwrap();
+        assert!(
+            timeline(&r.core, "topic:ledger").is_empty(),
+            "{answer}, {case}: no touch: {out:?}"
+        );
+        assert_eq!(out.touches, 0, "{answer}, {case}: {out:?}");
+        assert_eq!(r.jev.seen().len(), 1, "{answer}, {case}: one call");
+        if case == "stopping" {
+            assert!(
+                ended_at_once,
+                "{answer}, {case}: a stop ends the writer's wait"
+            );
+            let why = out.stopped.as_deref().unwrap_or_default();
+            assert!(
+                why.starts_with("the daemon is stopping"),
+                "{answer}, {case}: {out:?}"
+            );
+        }
+    }
+}

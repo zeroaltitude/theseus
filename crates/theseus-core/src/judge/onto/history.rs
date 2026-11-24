@@ -23,7 +23,8 @@
 //!   Its categories are read as the ontology stands when the touch is
 //!   written, under the ontology writers' lock (a category retired while the
 //!   call was out gets none), and whether `onto` acts on the session is
-//!   asked again before each call and before any answer's touches.
+//!   asked again before each call, and before any answer's touches once the
+//!   writer's turn has come.
 //! - **The state** is the live point's (`inbound::input` and `onto_input`)
 //!   over the opening message alone: no message before it, no reply, no
 //!   attachment. Its text goes to Jev through the judge's one client and its
@@ -49,6 +50,10 @@
 //!   refused if it is still not written. What no run can promise: a daemon
 //!   crash, or an ordinary stop, while a call is out or its answer is not
 //!   yet written may pay for that one exchange again.
+//! - **As it stands** when touches are written: after the wait for a moment
+//!   between turns, which a stop ends, whether `onto` acts on the session
+//!   and whether the daemon is stopping are asked again, for a fresh answer
+//!   and a recorded one.
 //! - **Spend**: each exchange's worst case is reserved before its call
 //!   against the judge's day budget, which holds on the daemon's day ceiling,
 //!   as the people backfill's judgments are; the run stops before an exchange
@@ -458,8 +463,10 @@ impl Core {
                 return Ok(r);
             }
             let session = j.context["session"].as_str().unwrap_or_default();
-            if self.runner.judge.onto_acts(self, session) {
-                self.topics_write(j, &mut r).await?;
+            if self.runner.judge.onto_acts(self, session) && !self.topics_write(j, &mut r).await? {
+                let left = (again.len() - i + todo.len()) as u64;
+                (r.left, r.stopped) = (left, Some(stopping(left)));
+                return Ok(r);
             }
         }
         let cap = usd_to_micros(cap_usd);
@@ -581,8 +588,8 @@ impl Core {
         (r.asked, *spent) = (r.asked + 1, *spent + cost);
         if j.actionable() {
             r.answered += 1;
-            if self.runner.judge.onto_acts(self, &old.session) {
-                self.topics_write(&j, r).await?;
+            if self.runner.judge.onto_acts(self, &old.session) && !self.topics_write(&j, r).await? {
+                return Ok(Some(Stop::Stopping));
             }
         }
         Ok(match self.history_written(&j.id).await {
@@ -631,10 +638,28 @@ impl Core {
     /// `new` names nothing), in one frame between turns. They are made from
     /// the ontology as it stands under its writers' lock, and written before
     /// it is let go, so a category retired while the call was out, or before
-    /// a recorded answer is touched, gets no touch.
-    async fn topics_write(&self, j: &Judgment, r: &mut ExchangeTopicsResult) -> anyhow::Result<()> {
+    /// a recorded answer is touched, gets no touch. The wait for a moment
+    /// between turns ends on a stop, and once it is granted, which may be
+    /// minutes on, the pack's mode and the stop are asked again: rolled back
+    /// meanwhile, no touch. False: the daemon is stopping, and nothing was
+    /// written.
+    async fn topics_write(
+        &self,
+        j: &Judgment,
+        r: &mut ExchangeTopicsResult,
+    ) -> anyhow::Result<bool> {
         let act = self.cfg.ontology.act;
-        let w = self.runner.pass.writing().await;
+        let w = tokio::select! {
+            w = self.runner.pass.writing() => w,
+            () = self.outbox.stopped() => return Ok(false),
+        };
+        if self.outbox.stopping() {
+            return Ok(false);
+        }
+        let session = j.context["session"].as_str().unwrap_or_default();
+        if !self.runner.judge.onto_acts(self, session) {
+            return Ok(true);
+        }
         let written = theseus_store::blocking(|| -> anyhow::Result<u64> {
             let board = &self.runner.ontology;
             let staged = board.stage(&self.store, OntoOrigin::Jev, |o| {
@@ -652,7 +677,7 @@ impl Core {
         if n > 0 {
             (r.filed, r.touches) = (r.filed + 1, r.touches + n);
         }
-        Ok(())
+        Ok(true)
     }
 }
 
