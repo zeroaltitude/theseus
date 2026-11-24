@@ -70,7 +70,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("content.v4", include_str!("../packs/content.v4.toml")),
     ("split.v1", include_str!("../packs/split.v1.toml")),
     ("delay.v1", include_str!("../packs/delay.v1.toml")),
-    ("undo.v1", include_str!("../packs/undo.v1.toml")),
+    ("undo.v2", include_str!("../packs/undo.v2.toml")),
     ("allow_said.v1", include_str!("../packs/allow_said.v1.toml")),
 ];
 
@@ -110,6 +110,8 @@ pub const RETIRED: &[&str] = &[
     "onto.v1",
     // Four questions nothing read and three rules nothing fed went with loop.v2 (issue 46).
     "loop.v1",
+    // Its advice for overwriting a file kept no copy; undo.v2 keeps the original (issue 46).
+    "undo.v1",
 ];
 
 /// Each retired version's rollback rules, as its file declares them (the
@@ -287,6 +289,19 @@ max_ms = 1000
 min_samples = 20
 "#,
     ),
+    (
+        "undo.v1",
+        r#"[[rollback]]
+rule = "labels_per_day"
+label = "held wrongly"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 300
+min_samples = 20
+"#,
+    ),
 ];
 
 /// A retired version's own rollback rules; `None` for a name this build did
@@ -405,6 +420,7 @@ pub fn retired(name: &str) -> Option<Arc<Pack>> {
         ),
         ("onto.v1", include_str!("../packs/retired/onto.v1.toml")),
         ("loop.v1", include_str!("../packs/retired/loop.v1.toml")),
+        ("undo.v1", include_str!("../packs/retired/undo.v1.toml")),
     ];
     static PARSED: OnceLock<Vec<Arc<Pack>>> = OnceLock::new();
     let parsed = PARSED.get_or_init(|| {

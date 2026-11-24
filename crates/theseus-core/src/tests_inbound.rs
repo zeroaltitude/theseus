@@ -127,7 +127,7 @@ const INBOUND_ALONE: [&str; 21] = [
     "delay.v1: live",
     // Off in this rig: `inbound_only` turns it off, because the reversibility
     // layer asks about every tool call (theseus-p5kln).
-    "undo.v1: off",
+    "undo.v2: off",
 ];
 
 /// A judgment row's answer to question `q`.

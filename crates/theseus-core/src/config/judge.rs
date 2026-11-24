@@ -113,11 +113,11 @@ pub struct JudgeConfig {
     #[serde(default = "yes")]
     pub stop_nudge: bool,
     /// The reversibility classifier (theseus-p5kln, row B6 `theseus-2yowd`):
-    /// `undo.v1` asked on the tool gate's own path, so a call that would lose
+    /// the undo pack asked on the tool gate's own path, so a call that would lose
     /// something is held and the model re-plans it, and one whose loss no
     /// reshaping could touch waits for the owner. On by default, the owner's
     /// own word (2026-11-12: "i would like it wired and switched on").
-    /// `false` keeps `undo.v1` in shadow: it is still judged and recorded,
+    /// `false` keeps the undo pack in shadow: it is still judged and recorded,
     /// and it holds and raises nothing.
     #[serde(default = "yes")]
     pub reversibility: bool,
@@ -227,9 +227,11 @@ pub const NOTICES_PACK: &str = "security.v3";
 /// own constant, so a new version cannot leave the switch on a retired one.
 pub const STOP_PACK: &str = crate::judge::LOOP_PACK;
 
-/// The pack `reversibility` switches: `undo.v1`, whose learned versions its
-/// line binds too (`JudgeService::capped_by_root`).
-pub const UNDO_PACK: &str = "undo.v1";
+/// The pack `reversibility` switches: `undo.v2` (issue 46; `undo.v1` with its
+/// advice for overwriting a file corrected), whose learned versions its line
+/// binds too (`JudgeService::capped_by_root`). The learning loop leaves it
+/// alone (`judge::lineage::LEFT_ALONE`).
+pub const UNDO_PACK: &str = "undo.v2";
 
 fn live() -> PackMode {
     PackMode::Live
@@ -407,7 +409,7 @@ impl JudgeConfig {
             (STOP_PACK, false) => PackMode::Shadow,
             _ => PackMode::Live,
         };
-        // undo.v1's actions are the hold and the raise (theseus-p5kln): its
+        // The undo pack's actions are the hold and the raise (theseus-p5kln): its
         // switch, which leaves the judgment and takes only the acting.
         let undo = match (pack, self.reversibility) {
             (UNDO_PACK, false) => PackMode::Shadow,
@@ -604,7 +606,7 @@ mod tests {
     }
 
     /// `reversibility` (theseus-p5kln): on by default, the owner's own word,
-    /// so undo.v1 acts as the ladder gives it; off, it is held in shadow,
+    /// so the undo pack acts as the ladder gives it; off, it is held in shadow,
     /// judging and holding nothing, and every other pack is as it was.
     #[test]
     fn the_reversibility_switch_holds_undo_v1_in_shadow() {
@@ -620,10 +622,12 @@ mod tests {
         assert_eq!(
             off.mode_of(STOP_PACK, live),
             live,
-            "undo.v1's switch alone, and not the stop nudge's"
+            "the undo pack's switch alone, and not the stop nudge's"
         );
         assert_eq!(off.mode_of("route.v3", live), live);
-        let quiet = on("reversibility = false\n[packs.\"undo.v1\"]\nrung = \"off\"");
+        let quiet = on(&format!(
+            "reversibility = false\n[packs.\"{UNDO_PACK}\"]\nrung = \"off\""
+        ));
         assert_eq!(quiet.mode_of(UNDO_PACK, live), PackMode::Off);
     }
 

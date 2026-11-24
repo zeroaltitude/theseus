@@ -809,7 +809,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`web::net::PrivateAddresses`, `Web.private`).
   **Reversibility** (theseus-p5kln, row B6 `theseus-2yowd`; `toolrun/reversible.rs`, `judge/undo.rs`,
   `judge/undo/state.rs`; `[judge] reversibility`, on by default, the owner's word 2026-11-12; the design of the
-  consumption is `docs/design/undo-v1.md`): `undo.v1` is asked ONCE for a planned call, on the gate's own path
+  consumption is `docs/design/undo-v1.md`): `undo.v2` (undo.v1 until issue 46) is asked ONCE for a planned call, on the gate's own path
   (`judge_undo`, at most `undo::WAIT`, 300 ms, the pack's own `on_path_p95` bar), at **0d**, which sits AFTER every
   outright refusal (`ToolRuntime::refusals`) and BEFORE the order, so a call the gate was going to refuse never has
   its argv, its paths or the bytes it was about to write sent to a model. Its verdict is consumed TWICE, on opposite

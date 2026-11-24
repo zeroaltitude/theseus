@@ -294,7 +294,7 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
             "delay.v1: live",
             // Live from theseus-p5kln: `[judge] reversibility` is on by
             // default, the owner's own word of 2026-11-12.
-            "undo.v1: live"
+            "undo.v2: live"
         ]
     );
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
@@ -509,7 +509,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
             "delay.v1: live",
             // Live from theseus-p5kln: `[judge] reversibility` is on by
             // default, the owner's own word of 2026-11-12.
-            "undo.v1: live"
+            "undo.v2: live"
         ]
     );
 }

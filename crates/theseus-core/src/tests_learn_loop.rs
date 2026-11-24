@@ -763,3 +763,17 @@ fn the_learning_loop_never_rewrites_the_acting_route_pack() {
     assert!(!roots.contains(&route), "{route} in {roots:?}");
     assert!(!roots.contains(&"rerank.v1"), "{roots:?}");
 }
+
+/// The learning loop never rewrites the undo pack (issue 46). A learned version stands in shadow in its
+/// root's place (`JudgeService::placed`), and a shadow undo judgment holds nothing, so a learned undo version
+/// would switch the reversibility hold off. `LEFT_ALONE` names the undo pack by its constant.
+#[test]
+fn the_learning_loop_never_rewrites_the_undo_pack() {
+    let undo = crate::config::UNDO_PACK;
+    assert_eq!(
+        crate::judge::wired_mode(undo),
+        crate::config::PackMode::Live
+    );
+    let roots = crate::learning::propose::roots();
+    assert!(!roots.contains(&undo), "{undo} in {roots:?}");
+}

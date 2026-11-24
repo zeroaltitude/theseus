@@ -183,3 +183,14 @@ fn a_settings_table_for_loop_v1_loads_and_is_named_retired() {
     assert!(lines[0].contains("judge.packs.\"loop.v1\""), "{}", lines[0]);
     assert_eq!(cfg.judge.retired(), ["judge.packs.\"loop.v1\""]);
 }
+
+/// The same for undo.v1, retired by undo.v2 (issue 46). A table that lowered undo.v1 lowers nothing now:
+/// the gate holds on undo.v2 (`toolrun::tests_undo`).
+#[test]
+fn a_settings_table_for_undo_v1_loads_and_is_named_retired() {
+    let (cfg, warnings) = parse("[judge.packs.\"undo.v1\"]\nrung = \"off\"\n").unwrap();
+    let lines = trimmed(&warnings);
+    assert_eq!(lines.len(), 1, "{warnings:?}");
+    assert!(lines[0].contains("judge.packs.\"undo.v1\""), "{}", lines[0]);
+    assert_eq!(cfg.judge.retired(), ["judge.packs.\"undo.v1\""]);
+}

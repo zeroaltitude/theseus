@@ -95,6 +95,8 @@ mod tests_route_v12;
 mod tests_route_v5;
 #[cfg(test)]
 mod tests_threads;
+#[cfg(test)]
+mod tests_undo_v2;
 
 pub use band::{Band, Banded, Thresholds};
 pub use builders::{prepare, Input, Prepared};

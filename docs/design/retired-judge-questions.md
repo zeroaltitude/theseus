@@ -110,3 +110,14 @@ alias carries it to the new name, so rename it.
   `[judge] stop_nudge` lowers the wired loop pack by the judge's own constant (`config::STOP_PACK` is
   `judge::LOOP_PACK`). The work forecast's line names the loop pack by its id (`loop 0.91`), not a version.
   The loop state keeps `most_repeated_call`, which only `same_action_repeating` read; the builder is unchanged.
+- **`undo.v2`** is `undo.v1` with its advice for overwriting a file corrected (finding 08-judge-13): the
+  `write_then_rename` shape said to write beside the target and rename into place, which keeps no copy once the
+  rename is done; undo.v2 says to keep the original under a kept name first, in that shape's sentence and in the
+  three places `reversible` and `shape` name it. No option id, bar or `no_match` changed, and every decision the
+  gate makes from a judgment is undo.v1's (a test holds each, with the floor and without). The unfed
+  `on_path_p95` rule is gone; `labels_per_day` stays. The undo pack is an act gate's, so the learning loop leaves
+  it alone (`lineage::LEFT_ALONE`): a learned version stands in shadow in its root's place, and a shadow undo
+  judgment holds nothing. A `[judge.packs."undo.v1"]` table, or a stored rollback of undo.v1, names the retired
+  version and lowers nothing: undo.v2 holds from its first call. `[judge] reversibility = false` still lowers
+  the wired undo pack, and the owner's rollback of undo.v2 still lowers it, as they did undo.v1. undo.v1's
+  labelled set is undo.v2's too.
