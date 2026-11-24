@@ -1317,3 +1317,45 @@ async fn an_mcp_forks_span_page_holds_nothing_past_its_point_in_any_place() {
     assert!(said.contains("heron on the reef"), "another place: {v}");
     assert!(!said.contains("second tide note"), "past the point: {v}");
 }
+
+/// KEY: an old caller's `thing` is refused at the daemon in words that name `label`, before any history is read
+/// (no `memory.read` row), whether the call names a place or a date, on the MCP connection and at the terminal;
+/// never answered as a different search. The vault's values are substituted in the refusal.
+#[tokio::test]
+async fn history_read_refuses_thing_in_words_before_reading() {
+    let r = rig(true);
+    r.core
+        .secrets
+        .hold("marsh_vault", crate::secrets::Secret::new(SECRET.into()));
+    let here = session(&r.core, None);
+    turn(&r.core, &here, "the gull at the pier").await;
+    let place = place_of(&r.core, &here);
+    let before = rows(&r.core, "memory.read").len();
+    for surface in [Surface::Mcp, Surface::Cli] {
+        for params in [
+            json!({"place": place, "thing": "topic:kelp"}),
+            json!({"from": "2000-01-01", "thing": SECRET}),
+        ] {
+            let e = rpc(&r.core, surface, method::HISTORY_READ, params.clone())
+                .await
+                .unwrap_err();
+            assert_eq!(
+                e.code,
+                theseus_protocol::error_code::INVALID_PARAMS,
+                "{params}: {}",
+                e.message
+            );
+            assert!(
+                e.message.contains("thing is now label"),
+                "{params}: {}",
+                e.message
+            );
+            assert!(!e.message.contains(SECRET), "{}", e.message);
+        }
+    }
+    assert_eq!(
+        rows(&r.core, "memory.read").len(),
+        before,
+        "no history was read"
+    );
+}

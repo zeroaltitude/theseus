@@ -13,6 +13,8 @@
 //!   history` with a search reads the same page an MCP client does, the
 //!   vault's values substituted alike, whatever `[mcp_server] memory` says
 //!   (that switch is for other agents). A web or chat surface is refused.
+//! - **`thing` is refused in words** (issue 44: it became `label`), before anything is read: the params
+//!   take no unknown field back, so an old caller's `thing` would be dropped and another search answered.
 //! - **Ledgered**: each call that reads writes one `memory.read` row: the
 //!   principal (`mcp`, or `cli` for the terminal), the tool, the client, a
 //!   digest of the words (or the id, or the session; never the text), and
@@ -34,6 +36,11 @@ use crate::fact;
 
 /// What a call with memory off answers.
 pub const OFF: &str = "memory is off for MCP clients (`[mcp_server] memory`)";
+
+/// What `history.read` answers a call that still names `thing`.
+pub const THING: &str =
+    "history.read's thing is now label: call again with label (a topic or a thing by its id, or personal, \
+     secret, confidential, injection)";
 
 /// A result as the wire's value.
 fn reply<R: serde::Serialize>(r: R) -> Result<serde_json::Value, RpcFailure> {
@@ -65,6 +72,11 @@ impl Core {
                     e.message = crate::history_tool::mcp::said(self, &e.message);
                     e
                 };
+                // An old caller's `thing` is refused here, before anything is read: the wire's struct would drop
+                // it and answer another search (issue 44).
+                if params.get("thing").is_some() {
+                    return Err(scrub(RpcFailure::new(error_code::INVALID_PARAMS, THING)));
+                }
                 let p = super::server::parse(params).map_err(scrub)?;
                 let r = self
                     .rpc_history_read(p, conn.surface)
