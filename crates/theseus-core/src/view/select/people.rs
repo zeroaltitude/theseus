@@ -37,7 +37,8 @@ pub const RECENT_TOKENS: u64 = 600;
 /// One recent line's words and `did` line: beyond it, the line is cut where it is laid, with its handle
 /// (`forms::fit`).
 pub const RECENT_LINE_TOKENS: u64 = 150;
-/// The most of one person's timelines read for their recent lines, all their handles together.
+/// The most references of one person's timelines read for their recent lines, all their handles and pages
+/// together, a touch met twice counted twice.
 pub const RECENT_READ_MOST: usize = 300;
 
 /// A person present: the ledger's name they were found by, and what their record holds.
@@ -87,11 +88,14 @@ fn company(src: &Sources<'_>, pov: &PointOfView) -> anyhow::Result<Vec<Present>>
 }
 
 /// One person's timelines, one a handle, walked newest first as one: by the touch index's own order
-/// (`Cursor`), each exchange once, in bounded pages.
+/// (`Cursor`), each exchange once, in bounded pages, every reference read charged to one allowance of
+/// [`RECENT_READ_MOST`].
 struct Walk<'s> {
     snap: &'s dyn Snapshot,
     lanes: Vec<Lane>,
     seen: BTreeSet<String>,
+    /// The references still to be read.
+    left: usize,
 }
 
 struct Lane {
@@ -115,18 +119,29 @@ impl<'s> Walk<'s> {
             snap,
             lanes,
             seen: BTreeSet::new(),
+            left: RECENT_READ_MOST,
         }
     }
 
-    /// The next touch, newest first across every handle; `None` when all are read. A touch already met by
-    /// another handle is still a touch read: `Some(None)`.
+    /// The next touch, newest first across every handle; `None` when all are read, or when a handle's next
+    /// page is wanted and the allowance is spent. Each page asked is sized by what is left, shared among the
+    /// handles that want one. A touch already met by another handle is still a touch read: `Some(None)`.
     fn next(&mut self) -> anyhow::Result<Option<Option<ExchangeRef>>> {
+        let mut wanting = (self.lanes.iter())
+            .filter(|l| l.page.is_empty() && !l.done)
+            .count();
         for l in self
             .lanes
             .iter_mut()
             .filter(|l| l.page.is_empty() && !l.done)
         {
-            let page = (self.snap.timeline()).newest(&l.root, l.before.as_ref(), PAGE_EXCHANGES)?;
+            if self.left == 0 {
+                return Ok(None);
+            }
+            let most = (self.left / wanting).clamp(1, PAGE_EXCHANGES);
+            wanting -= 1;
+            let page = (self.snap.timeline()).newest(&l.root, l.before.as_ref(), most)?;
+            self.left = self.left.saturating_sub(page.len());
             l.done = page.is_empty();
             l.before = page.last().map(ExchangeRef::cursor);
             l.page = page.into();
@@ -190,13 +205,9 @@ impl<'a> People<'a> {
         let mut spent = 0u64;
         for p in present.iter().filter(|p| !p.owner) {
             let mut walk = Walk::new(snap, &p.handles);
-            let (mut read, mut lines) = (0usize, 0usize);
+            let mut lines = 0usize;
             while lines < RECENT_LINES {
                 let Some(touch) = walk.next()? else { break };
-                read += 1;
-                if read > RECENT_READ_MOST {
-                    break;
-                }
                 let Some(e) = touch else { continue };
                 if window.contains(&e.turn_id) {
                     continue;

@@ -1128,6 +1128,81 @@ fn a_persons_newest_three_are_theirs_by_every_handle() {
     assert!(recent(&beside).is_empty(), "{:?}", recent(&beside));
 }
 
+/// The store as a snapshot, counting every reference its timeline returns.
+struct Counted<'a> {
+    s: &'a Store,
+    read: std::cell::Cell<usize>,
+}
+
+impl Timeline for Counted<'_> {
+    fn newest(
+        &self,
+        root: &TimelineRoot,
+        before: Option<&Cursor>,
+        n: usize,
+    ) -> anyhow::Result<Vec<ExchangeRef>> {
+        let page = self.s.newest(root, before, n)?;
+        self.read.set(self.read.get() + page.len());
+        Ok(page)
+    }
+}
+
+impl Snapshot for Counted<'_> {
+    fn now_ms(&self) -> u64 {
+        NOW
+    }
+    fn timeline(&self) -> &dyn Timeline {
+        self
+    }
+    fn at_hand(&self, _: &Anchor) -> Option<AtHand> {
+        None
+    }
+}
+
+/// KEY: one person's recent lines read at most `RECENT_READ_MOST` references of their timelines in all,
+/// every handle and every page, a touch met twice counted twice: four handles, each with more than a page
+/// and none of it laid; one handle with one exchange past the allowance, none of it laid.
+#[test]
+fn a_persons_recent_lines_read_one_allowance_in_all() {
+    let four = ["discord:bob", "slack:bob", "discord:bob2", "slack:bob2"];
+    let mut ex_ = Vec::new();
+    for (k, h) in four.iter().enumerate() {
+        for i in 0..150u64 {
+            ex_.push(by(h, &format!("{k}-{i}"), "chan", 1 + 4 * i + k as u64));
+        }
+    }
+    let mut held: Vec<(&str, &str)> = vec![("owner", "person:owner")];
+    held.extend(four.iter().map(|h| (*h, "person:bob")));
+    let s4 = company(&held, ex_);
+    let one = company(
+        &[("owner", "person:owner"), ("discord:cy", "person:cy")],
+        (0..=people::RECENT_READ_MOST as u64)
+            .map(|i| by("discord:cy", &format!("c{i}"), "chan", 1 + i))
+            .collect(),
+    );
+    let mut reads = Vec::new();
+    for s in [&s4, &one] {
+        let table = table(sources_with(s, "", &AdmitUnsealed), Vec::new(), Vec::new());
+        let sel = (table.iter())
+            .find(|t| t.band() == Band::PeopleRecent)
+            .expect("a selector per band");
+        let counted = Counted {
+            s,
+            read: Default::default(),
+        };
+        let beside = sel
+            .select(&pov_of("owner", "chan"), &counted)
+            .expect("selects");
+        assert!(recent(&beside).is_empty(), "{:?}", recent(&beside));
+        reads.push(counted.read.get());
+    }
+    let most = people::RECENT_READ_MOST;
+    assert!(
+        reads.iter().all(|r| (1..=most).contains(r)),
+        "references read: {reads:?}"
+    );
+}
+
 /// KEY (the owner's word, 2026-11-24: no conversation is private): in company, a person's line from a
 /// one-to-one place is laid, as is one from a place the place rule held private and one from a shared place,
 /// whoever speaks and whoever else is here, held or not.
