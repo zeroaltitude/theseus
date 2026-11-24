@@ -822,7 +822,11 @@ impl Shared {
                     self.redraw_private_boards();
                 }
                 let s = self.tasks.future.snapshot();
-                let data = routine_list(&s.routines, &s.records);
+                let data = routine_list(
+                    &crate::render::leaving::copy(&self.core.exits, &s.routines)
+                        .unwrap_or_default(),
+                    &s.records,
+                );
                 self.answer(
                     i,
                     InteractionResponseType::ChannelMessageWithSource,
@@ -995,7 +999,10 @@ impl Shared {
                 self.redraw_private_boards();
             }
             let s = self.tasks.future.snapshot();
-            let mut data = routine_list(&s.routines, &s.records);
+            let mut data = routine_list(
+                &crate::render::leaving::copy(&self.core.exits, &s.routines).unwrap_or_default(),
+                &s.records,
+            );
             data.content = data.content.map(|c| format!("{c}\n-# {said}"));
             self.answer(i, InteractionResponseType::UpdateMessage, Some(data))
                 .await;
@@ -1399,5 +1406,54 @@ mod exit_tests_r5 {
         );
         assert!(!text.contains("vau"), "{text}");
         assert!(text.matches("[red").count() >= 4, "{text}");
+    }
+    #[tokio::test]
+    async fn routine_list_and_redraw_mask_labels_keep_ids_r5() {
+        let (_dir, _core, fake, shared) = rig();
+        let r = routine(35);
+        shared
+            .tasks
+            .future
+            .seed_for_test(super::super::horizon::Snapshot {
+                routines: vec![r.clone()],
+                ..Default::default()
+            });
+        let _hold = keep_snapshot();
+        let c = serde_json::from_value(serde_json::json!({"id":"3", "name":"routine", "type":1,"options":[{"name":"list","type":1,"options":[]}]})).unwrap();
+        shared.horizon_command(&interaction(), &c, "keeper").await;
+        let check = || {
+            let m = fake.reply_message("1").unwrap();
+            assert!(!m.content.contains("vau"), "{}", m.content);
+            assert!(m.content.contains("[red"), "{}", m.content);
+            assert_eq!(m.buttons.len(), 2);
+            for b in m.buttons {
+                assert!(!b.label.contains("vau"), "{}", b.label);
+                assert!(b.label.contains("[red"), "{}", b.label);
+                assert!(b.custom_id.ends_with(VALUE), "{}", b.custom_id);
+            }
+        };
+        check();
+        let mut i = interaction();
+        let mut m = shared
+            .http
+            .create_message(twilight_model::id::Id::new(42))
+            .content("list")
+            .await
+            .unwrap()
+            .model()
+            .await
+            .unwrap();
+        m.flags = Some(MessageFlags::EPHEMERAL);
+        i.message = Some(m);
+        let edit = crate::rpc_client::slow_once(
+            method::ROUTINE_PAUSE,
+            VALUE,
+            serde_json::json!({"routine":r}),
+        );
+        edit.release.notify_one();
+        let _hold = keep_snapshot();
+        shared.routine_press(&i, "pause", VALUE, "keeper").await;
+        assert_eq!(fake.replies().last().unwrap().response_type, Some(7));
+        check();
     }
 }
