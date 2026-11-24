@@ -1310,6 +1310,7 @@ class SkipRegistry(unittest.TestCase):
             "keel_tests": 1,          # the guard and its suite are the base's
             "lifecycle_bench": 1,     # THESEUS_GATE_NO_BENCH=1
             "ran_or_skipped": 1,      # whatever the wrapped script said of itself
+            "real_daemon_tests": 1,   # no verified binaries for the measuring-kit cases
             "script_tests": 1,        # scripts/tests matched no test at all (a failure there is a `warn`, not a stand-down)
             "scrub_added": 3,         # the flag; no scrubber on the host; nothing added to scan
             "suite_applied": 1,       # nextest says it applied a default-filter
