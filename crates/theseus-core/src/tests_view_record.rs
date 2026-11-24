@@ -29,7 +29,7 @@ fn rig() -> Rig {
 }
 
 /// An exchange of `session` at `place`, as the ledger writes it.
-fn exchange_of(core: &Core, turn: &str, session: &str, place: &str) {
+pub(crate) fn exchange_of(core: &Core, turn: &str, session: &str, place: &str) {
     core.store
         .append(&[exchange::exchange_record(&an_exchange(turn, session, place)).unwrap()])
         .unwrap();
@@ -101,7 +101,7 @@ fn piece(place: &str, turn: &str) -> Piece {
 }
 
 /// A view at `anchor` holding `pieces`, kept for `turn` under `compilation`.
-fn keep(core: &Core, turn: &str, compilation: &str, anchor: &str, pieces: Vec<Piece>) {
+pub(crate) fn keep(core: &Core, turn: &str, compilation: &str, anchor: &str, pieces: Vec<Piece>) {
     keep_at(core, turn, compilation, anchor, pieces, 5_000);
 }
 
@@ -268,7 +268,7 @@ async fn a_turn_with_no_view_says_so() {
 }
 
 /// Fold node `id` at `place` and `level`, standing for `turns` (in the store or not), first at `ms`.
-fn fold_node(core: &Core, id: &str, place: &str, level: u8, turns: &[&str], ms: u64) {
+pub(crate) fn fold_node(core: &Core, id: &str, place: &str, level: u8, turns: &[&str], ms: u64) {
     let node = crate::ladder::fold::FoldNode {
         id: id.into(),
         place: place.into(),
@@ -299,7 +299,12 @@ fn fold_node(core: &Core, id: &str, place: &str, level: u8, turns: &[&str], ms: 
 }
 
 /// A fold piece of `place` at `level` over `first..last`, by `handle`.
-fn fold_piece(place: &str, level: u8, (first, last): (&str, &str), handle: &str) -> Piece {
+pub(crate) fn fold_piece(
+    place: &str,
+    level: u8,
+    (first, last): (&str, &str),
+    handle: &str,
+) -> Piece {
     let mut p = piece(place, first);
     p.range.space = Space::Folds {
         place: place.into(),
