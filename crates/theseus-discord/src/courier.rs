@@ -1193,6 +1193,15 @@ impl Lane {
             .map(|c| render::cite::jump_link(None, c, &d.message_id))
     }
 
+    /// Replayed close notes are display copies, masked before the card clips them.
+    fn closed_card(&self, question: &Action, q: &str) -> Option<Closed> {
+        Closed::of(question).map(|c| {
+            let mut c = self.waiting_settle(q).unwrap_or(c);
+            c.note = c.note.map(|s| self.shared.core.exits.text(&s).0.into_owned());
+            c
+        })
+    }
+
     /// A confirm card, where its route says: here, in a trusted DM with a
     /// note here, or only a note here. A question that closed while the card
     /// waited (Discord away, say) is written once, already settled, without
@@ -1223,11 +1232,7 @@ impl Lane {
         let mut buttons = ask::card_buttons(&req, &q);
         // The card as one V2 message (theseus-2j2ka) when the bot may send one.
         let v2 = self.shared.v2_cards() && !req.options.is_empty();
-        let closed = Closed::of(&question).map(|c| {
-            let mut c = self.waiting_settle(&q).unwrap_or(c);
-            c.note = c.note.map(|s| core.exits.text(&s).0.into_owned());
-            c
-        });
+        let closed = self.closed_card(&question, &q);
         if let Some(c) = &closed {
             // Written as its settle would leave it: no buttons, no mention.
             card.content = render::settled(c, &card.line, card.budget);

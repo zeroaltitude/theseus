@@ -98,6 +98,13 @@ pub(crate) fn future(
     p
 }
 
+/// A display request must be masked before its tool summary or preview is cut.
+pub(crate) fn request(exits: &Exits, req: &mut theseus_protocol::ConfirmRequest) {
+    strings(exits, &mut req.input);
+    req.reason = exits.text(&req.reason).0.into_owned();
+    req.resource = req.resource.as_ref().map(|s| exits.text(s).0.into_owned());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,11 +134,4 @@ mod tests {
         assert_eq!(data["components"][0]["custom_id"], value);
         assert_eq!(data["components"][0]["options"][0]["value"], value);
     }
-}
-
-/// A display request must be masked before its tool summary or preview is cut.
-pub(crate) fn request(exits: &Exits, req: &mut theseus_protocol::ConfirmRequest) {
-    strings(exits, &mut req.input);
-    req.reason = exits.text(&req.reason).0.into_owned();
-    req.resource = req.resource.as_ref().map(|s| exits.text(s).0.into_owned());
 }
