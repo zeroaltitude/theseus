@@ -33,7 +33,8 @@ New META families only: no field on an existing record, no store-format step.
   name holds the key separator (U+0001) has no ladder.
 - **A fold is by count**, never by a judge or the clock. The window is every exchange of the place after the last one
   a first-level node holds, read page by page (nothing is passed over; a long failure grows it, and the budgeter
-  bounds what is shown): at 2N (N = 20) ended exchanges, the oldest N become one node and the window is N again. A level
+  bounds what is shown): at 30 + N (N = 20) ended exchanges, the oldest N become one node and the window is 30 again
+  (its floor, 30 since 2026-11-24). A level
   of 2N standing nodes folds its oldest N into one node of the level above.
 - **No model writes a level above the first.** Code builds it from its children's typed fields: their titles and
   handles, the person's lines that are corrections or made a standing record, and a count of the rest.

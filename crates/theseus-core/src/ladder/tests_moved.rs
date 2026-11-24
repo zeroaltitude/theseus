@@ -6,7 +6,7 @@ use super::did::{self, Outcome};
 use super::fold::NoFlags;
 use super::read::{self, Step};
 use super::tests::{exchange_at, store, Fake};
-use super::{DayPurse, N};
+use super::{DayPurse, FOLD_STEP, WINDOW_FLOOR};
 use crate::exchange;
 use crate::store::Store;
 
@@ -46,7 +46,7 @@ async fn a_moved_message_is_summarised_like_any_other() {
 #[tokio::test]
 async fn a_fold_over_a_moved_message_is_written_by_the_model() {
     let (_d, s) = store();
-    let turns = history(&s, 2 * N as u64);
+    let turns = history(&s, (WINDOW_FLOOR + FOLD_STEP) as u64);
     move_ask(&s, &turns[3], "kelp");
     let w = Fake::default();
     let purse = DayPurse::new(&s, None, false);

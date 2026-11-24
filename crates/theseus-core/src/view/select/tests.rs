@@ -133,7 +133,7 @@ impl Exchanges for Store {
 }
 
 impl super::super::fold::Ladder for Store {
-    /// A place with no fold yet: everything since the mark is the window (the count of N to 2N is the
+    /// A place with no fold yet: everything since the mark is the window (the count of 30 to 49 is the
     /// ladder's own, and not the selectors' to test).
     fn read(&self, place: &str, _: usize, since: Option<&Pos>) -> anyhow::Result<LadderRead> {
         let mut window = self.newest(&TimelineRoot::Place(place.into()), None, usize::MAX)?;

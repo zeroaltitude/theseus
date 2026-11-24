@@ -6,7 +6,7 @@ use super::fold::NoFlags;
 use super::read::{self, Step};
 use super::tests::{exchange_at, store, Fake};
 use super::view::StoreLadder;
-use super::{DayPurse, N};
+use super::{DayPurse, FOLD_STEP, WINDOW_FLOOR};
 use crate::exchange::{self, OwnerMark, Peer};
 use crate::store::Store;
 use crate::view::fold::Ladder as _;
@@ -37,11 +37,11 @@ fn mark(s: &Store, turn: &str, other: Option<&str>) {
     s.append(&[exchange::mark_record(&m).unwrap()]).unwrap();
 }
 
-/// `2N` exchanges of the channel, marked by `who(i)`, the oldest `N` folded: the rendered fold, and what
-/// the fold's writer read.
+/// A window's worth of the channel's exchanges, due a fold, marked by `who(i)`, the oldest [`FOLD_STEP`]
+/// folded: the rendered fold, and what the fold's writer read.
 async fn fold(who: impl Fn(u64) -> Option<Option<&'static str>>) -> (String, String) {
     let (_d, s) = store();
-    for i in 0..2 * N as u64 {
+    for i in 0..(WINDOW_FLOOR + FOLD_STEP) as u64 {
         let t = exchange_at(&s, "ses_ch", CHANNEL, 1_000 + i, false);
         if let Some(other) = who(i) {
             mark(&s, &t, other);
@@ -57,7 +57,7 @@ async fn fold(who: impl Fn(u64) -> Option<Option<&'static str>>) -> (String, Str
     let out = read::fold_step(&s, CHANNEL, None, &step).await.unwrap();
     assert_eq!(out.made.len(), 1, "{:?}", out.failed);
     let read = w.asks.lock().unwrap().last().unwrap().text.clone();
-    let nodes = StoreLadder(&s).read(CHANNEL, N, None).unwrap().nodes;
+    let nodes = StoreLadder(&s).read(CHANNEL, FOLD_STEP, None).unwrap().nodes;
     let renderer = crate::view::wire_text::TextRenderer {
         store: &s,
         kernel: None,
@@ -156,7 +156,7 @@ async fn an_older_summarys_account_is_withheld_where_it_could_credit_another_to_
         at_ms: ex.start_ms,
     };
     s.append(&super::fold::records(&node).unwrap()).unwrap();
-    let nodes = StoreLadder(&s).read(CHANNEL, N, None).unwrap().nodes;
+    let nodes = StoreLadder(&s).read(CHANNEL, FOLD_STEP, None).unwrap().nodes;
     assert_eq!(nodes.len(), 1);
     let renderer = crate::view::wire_text::TextRenderer {
         store: &s,
@@ -215,7 +215,7 @@ async fn an_older_summary_over_a_missing_message_is_withheld() {
         at_ms: ex.start_ms,
     };
     s.append(&super::fold::records(&node).unwrap()).unwrap();
-    let nodes = StoreLadder(&s).read(CHANNEL, N, None).unwrap().nodes;
+    let nodes = StoreLadder(&s).read(CHANNEL, FOLD_STEP, None).unwrap().nodes;
     let renderer = crate::view::wire_text::TextRenderer {
         store: &s,
         kernel: None,

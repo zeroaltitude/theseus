@@ -7,7 +7,7 @@
 //! exchanges are the floor is chosen over those the gate admits, so a denied exchange never pushes a
 //! permitted one out of it.
 
-use super::super::fold::{FoldNode, WINDOW_N};
+use super::super::fold::{FoldNode, FOLD_STEP};
 use super::super::timeline::ExchangeRef;
 use super::super::{Anchor, Form, Piece, PointOfView, Reason, SourceRange, Space};
 use super::make::{self, Cut};
@@ -28,7 +28,7 @@ pub(super) fn anchor_place(pov: &PointOfView) -> Option<&str> {
 /// The window's exchanges, oldest first, with their facts; and the ladder's nodes.
 fn read(src: &Sources<'_>, place: &str) -> anyhow::Result<(Vec<Window>, Vec<FoldNode>)> {
     let since = src.places.new_mark(place)?;
-    let read = src.ladder.read(place, WINDOW_N, since.as_ref())?;
+    let read = src.ladder.read(place, FOLD_STEP, since.as_ref())?;
     let mut window = Vec::with_capacity(read.window.len());
     for e in read.window {
         if let Some(f) = src.exchanges.facts(&e.turn_id)? {

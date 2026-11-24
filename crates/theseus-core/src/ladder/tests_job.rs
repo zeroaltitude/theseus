@@ -13,7 +13,7 @@ use theseus_protocol::SessionLink;
 use super::build::Allowance;
 use super::did::{self, Outcome};
 use super::tests::{exchange_at, Fake};
-use super::{Day, DayPurse, Purse, Reserved, DAY_KEY, N};
+use super::{Day, DayPurse, Purse, Reserved, DAY_KEY, FOLD_STEP, WINDOW_FLOOR};
 use crate::config::Config;
 use crate::judge::categorize::ExchangeEnd;
 use crate::provider::{FakeProvider, Scripted};
@@ -96,7 +96,7 @@ async fn an_exchanges_end_writes_its_line_off_the_turns_path() {
 async fn a_build_counts_and_prices_in_a_dry_run_then_writes_within_its_cap() {
     let (_d, core, _) = core(&[]);
     let sid = session(&core);
-    let total = 2 * N + 3;
+    let total = WINDOW_FLOOR + FOLD_STEP + 3;
     for i in 0..total as u64 {
         exchange_at(&core.store, &sid, PLACE, 1_000 + i, false);
     }
@@ -133,7 +133,7 @@ async fn a_build_counts_and_prices_in_a_dry_run_then_writes_within_its_cap() {
         (5, total as u64 - 5, 1)
     );
     let l = super::read::ladder(&core.store, PLACE, None).unwrap();
-    assert_eq!(l.window.len(), total - N);
+    assert_eq!(l.window.len(), total - FOLD_STEP);
 }
 
 #[tokio::test]
@@ -208,7 +208,7 @@ async fn an_unsettled_reservation_counts_as_spent() {
 async fn a_failed_calls_cost_is_the_builds_and_it_folds_nothing_after() {
     let (_d, core, _) = core(&[]);
     let sid = session(&core);
-    for i in 0..2 * N as u64 {
+    for i in 0..(WINDOW_FLOOR + FOLD_STEP) as u64 {
         exchange_at(&core.store, &sid, PLACE, 1_000 + i, false);
     }
     let w = Fake {

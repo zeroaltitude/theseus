@@ -13,7 +13,7 @@ use super::parts;
 use crate::node::{Body, Node, ResultStatus};
 use crate::recall::stamp::Zone;
 use crate::view::budget::Residue;
-use crate::view::fold::{FoldNode, Writer, WINDOW_N};
+use crate::view::fold::{FoldNode, Writer, FOLD_STEP, WINDOW_FLOOR};
 use crate::view::select::{Band, ADMISSION};
 use crate::view::*;
 use theseus_protocol::Usage;
@@ -888,13 +888,16 @@ fn the_memory_page_fits_its_budget_and_is_its_golden_copy() {
 
 #[test]
 fn the_memory_page_names_what_it_must() {
-    let n = WINDOW_N.to_string();
-    let two_n = (2 * WINDOW_N).to_string();
+    // The window's 30 to 49, and the ladder's 20 at a time.
+    let floor = WINDOW_FLOOR.to_string();
+    let most = (WINDOW_FLOOR + FOLD_STEP - 1).to_string();
+    let step = FOLD_STEP.to_string();
     // Tools are named as the model is sent them: dots become underscores.
     let history = crate::view::history::HISTORY_TOOL.replace('.', "_");
     for must in [
-        n.as_str(),
-        two_n.as_str(),
+        floor.as_str(),
+        most.as_str(),
+        step.as_str(),
         history.as_str(),
         "handle",
         "the owner said, in <place>, <when>",

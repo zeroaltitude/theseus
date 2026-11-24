@@ -9,7 +9,7 @@
 //! [`MEMORY_PAGE_VERSION`].
 
 /// The page's version: raised with every change to [`MEMORY_PAGE`].
-pub const MEMORY_PAGE_VERSION: u32 = 4;
+pub const MEMORY_PAGE_VERSION: u32 = 5;
 
 /// The most the page may be, in tokens by today's estimate ([`super::tokens`]).
 pub const PAGE_TOKENS: u64 = 1_000;
@@ -26,7 +26,7 @@ pub const MEMORY_PAGE: &str = "\
 
 Theseus is open to itself: this page says how your context is built, and where to look for more.
 
-The window. This conversation's recent past is sent as real turns: up to 20 to 40 recent exchanges as the \
+The window. This conversation's recent past is sent as real turns: up to 30 to 49 recent exchanges as the \
 window grows, counted in exchanges, not by the clock. The newest exchange is kept whole and the two before it keep their words; if even that cannot \
 fit, you are told so, with a handle.
 

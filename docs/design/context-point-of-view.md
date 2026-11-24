@@ -125,7 +125,7 @@ is ever made backwards.
 §7's own table for a task (a task's turns use a place's table at the task's own place: §7, "as built"); writing `did` lines and fold nodes again after a correction; the yardstick; the aside;
 step 10; and the `derived_from` edges of §3.
 
-**Numbers the plan calls settings are constants.** N (20), the ceiling (60,000), slot G's allowance (150,000),
+**Numbers the plan calls settings are constants.** The window's floor (30), N, the fold step (20), the ceiling (60,000), slot G's allowance (150,000),
 the clearing's marks (80,000 and 40,000), the history tool's looks a turn (5), the floor (three exchanges) and
 the rest are fixed in the code. The sprint added no setting beyond `[context] ledger` and `[context] assembly`.
 
@@ -145,7 +145,7 @@ the rest are fixed in the code. The sprint added no setting beyond `[context] le
    place where he was alone with Theseus and the words are proven his, for a long time: in his main conversation
    they are 2% of the bytes (measured). Theseus's replies thin to a line and a handle. Tool results thin
    fastest; they stay openable, and are read again when the present state matters.
-5. **Here, time is a ladder.** The last twenty to thirty-nine exchanges of a place are kept in full. Older ones
+5. **Here, time is a ladder.** The last thirty to forty-nine exchanges of a place are kept in full. Older ones
    are folded, twenty at a time, into one node that keeps his words and an account of what was done; twenty
    such nodes fold again. Everything ever said in a place stays in view at some grain. Across places, his own words of
    the last two days are selected (no band by age since 2026-11-24). Nothing is silently absent: every node and every band opens.
@@ -497,7 +497,7 @@ the view is built afresh, and earlier turns' reasoning is not carried, as at eve
 This section is the owner's design (2026-11-21). It replaces an earlier version that kept three exchanges for
 certain and everything since a three-hour pause.
 
-- **The window.** The last N to 2N exchanges that posted to this place, whoever opened them (he, a wake, a job's
+- **The window.** The last 30 to 29 + N exchanges (30 to 49) that posted to this place, whoever opened them (he, a wake, a job's
   late result), in full: his words, Theseus's replies, and their tool results under the rule below. The window is
   counted in exchanges, not by the clock. A subject picked up
   again the next morning still has its working state: about one in seven of his follow-ups in the main
@@ -509,7 +509,8 @@ certain and everything since a three-hour pause.
   chains whole; the ladder carries them. The whole chain so far fits in the last 10 exchanges 45% of the time,
   in 20 62%, in 30 69%. Twenty exchanges are about 15,400 tokens of both sides' words at the median (36,300 at
   the 90th percentile); thirty are 23,900 (53,600). (The daemon's own ledger, 302 exchanges, had suggested 10;
-  it was the wrong corpus.)
+  it was the wrong corpus.) Since 2026-11-24 the window keeps at least 30 exchanges whole (the owner's word),
+  and N, the fold step, stays 20, so the ladder does not grow.
 - **Tool output cannot saturate the window.** It is about 90% of the bytes of his conversations: twenty
   exchanges carry about 156,000 tokens of it at the median and 700,000 at the 90th percentile (measured). The
   rule is the one the build already has, kept as it is: tool output in view may grow to a **high mark**; past
@@ -524,8 +525,8 @@ certain and everything since a three-hour pause.
 - **The floor.** The words of the newest three exchanges in the window can never be cut, need no model, and are
   read from the store itself. The fault that began this (a reply four minutes later that lost the answer before
   it) is answered here; replaying it with the judge unplugged (§10) is the proof.
-- **The fold.** When the window reaches 2N exchanges, its oldest N are folded into **one node**, and the window
-  is N again. A fold node holds: his own words in those exchanges, word for word; an account of what Theseus
+- **The fold.** When the window reaches 30 + N exchanges, its oldest N are folded into **one node**, and the
+  window is 30 again. A fold node holds: his own words in those exchanges, word for word; an account of what Theseus
   did and decided there, written once, off the turn's path, by a small model; the marks of everything it was
   made from; and a handle that opens the exchanges themselves.
 - **The ladder.** Fold nodes are kept the same way: when a level holds 2N nodes, its oldest N are folded into

@@ -10,7 +10,7 @@
 //!   model that wrote it and the exchange's marks. An exchange with none reads
 //!   as [`did::NOT_SUMMARISED`] and its handle.
 //! - **A fold node** (`fold.<place>␁<level>␁<first ms>`, the view contract's
-//!   key, [`fold::FoldNode`]; shown to the view as `crate::view::fold::FoldNode`): [`N`] consecutive
+//!   key, [`fold::FoldNode`]; shown to the view as `crate::view::fold::FoldNode`): [`FOLD_STEP`] consecutive
 //!   exchanges of a place at the first level: the person's words in them by
 //!   node id, a title and an account written once by the same kind of job,
 //!   the union of their marks, and a handle (its id, `foldh.<id>` naming its
@@ -21,9 +21,11 @@
 //!   under its place and level, newest first, so a level's standing nodes are
 //!   the first keys of its prefix.
 //!
-//! The window holds [`N`] to 2[`N`] exchanges; at 2[`N`] its oldest [`N`]
-//! fold (`read::fold_step`), and a level that reaches 2[`N`] nodes folds its
-//! oldest [`N`] into one node of the level above. Only what came after the
+//! The window keeps at least [`WINDOW_FLOOR`] exchanges whole: it holds
+//! [`WINDOW_FLOOR`] to [`WINDOW_FLOOR`] + [`FOLD_STEP`] - 1, and at
+//! [`WINDOW_FLOOR`] + [`FOLD_STEP`] its oldest [`FOLD_STEP`] fold
+//! (`read::fold_step`); a level that reaches 2[`FOLD_STEP`] nodes folds its
+//! oldest [`FOLD_STEP`] into one node of the level above. Only what came after the
 //! place's latest `/new` is counted. Every model call is held on the day's
 //! line [`DAY_USD`] (reserved in `ladder.day` before it is made, [`DayPurse`])
 //! and the daemon's day ceiling first (`writer.rs`).
@@ -45,12 +47,19 @@ mod tests;
 #[cfg(test)]
 mod tests_authors;
 #[cfg(test)]
+mod tests_floor;
+#[cfg(test)]
 mod tests_job;
 #[cfg(test)]
 pub(crate) mod tests_moved;
 
-/// The window's grain: it holds `N` to `2N` exchanges, and a fold takes `N`.
-pub const N: usize = 20;
+/// The window's floor: the newest exchanges it always keeps whole (30 since 2026-11-24; 20 before).
+pub const WINDOW_FLOOR: usize = 30;
+/// The fold step: a fold takes this many exchanges into one first-level node, or this many nodes of a level
+/// into one node above it. Every node, before and after the floor rose, holds this many.
+pub const FOLD_STEP: usize = 20;
+/// A task's window, never folded: its newest 40 (`read::ladder`), the size it had before the floor rose.
+pub const TASK_WINDOW: usize = 40;
 /// What the summaries may spend in a day, in dollars, across every place.
 pub const DAY_USD: f64 = 2.0;
 /// The day's spend so far: `ladder.day`, one record.

@@ -5,7 +5,7 @@
 //! `crate::ladder::view::StoreLadder`).
 
 use super::budget::{Budget, Overflow, View};
-use super::fold::{Ladder, LadderRead, WINDOW_N};
+use super::fold::{Ladder, LadderRead, FOLD_STEP};
 use super::gate::Gate;
 use super::render::{Renderer, RequestParts};
 use super::select::Selector;
@@ -148,7 +148,7 @@ pub fn assemble(
     super::budget::set_aside(&mut view, &carried);
     let rendered = parts.renderer.render(&view, snap)?;
     let ladder = match &pov.anchor {
-        Anchor::Place(place) => parts.ladder.read(place, WINDOW_N, parts.since.as_ref())?,
+        Anchor::Place(place) => parts.ladder.read(place, FOLD_STEP, parts.since.as_ref())?,
         Anchor::Task(_) => LadderRead {
             nodes: Vec::new(),
             window: Vec::new(),

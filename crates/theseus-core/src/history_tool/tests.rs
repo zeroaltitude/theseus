@@ -720,14 +720,14 @@ pub(super) async fn submit(
     serde_json::from_value(r.result.unwrap()).unwrap()
 }
 
-/// A task's place is never summarised, so its window is bounded: the newest 2N of its exchanges; what is
+/// A task's place is never summarised, so its window is bounded: the newest 40 of its exchanges; what is
 /// older is still opened and paged by the task's own history. Another place's unfolded window is not cut.
 #[test]
 fn a_tasks_window_holds_its_newest_two_n_and_history_reaches_the_rest() {
-    use crate::ladder::N;
+    use crate::ladder::TASK_WINDOW;
     let (_d, s) = store();
     let task = "task:tsk_long";
-    for i in 1..=(2 * N as u64 + 5) {
+    for i in 1..=(TASK_WINDOW as u64 + 5) {
         put(
             &s,
             &Ex {
@@ -739,10 +739,10 @@ fn a_tasks_window_holds_its_newest_two_n_and_history_reaches_the_rest() {
     }
     let read = crate::ladder::read::ladder(&s, task, None).unwrap();
     assert!(read.rungs.is_empty());
-    assert_eq!(read.window.len(), 2 * N);
+    assert_eq!(read.window.len(), TASK_WINDOW);
     assert_eq!(read.window.first().unwrap().turn_id, "turn_0006");
     let here = crate::ladder::read::ladder(&s, HERE, None).unwrap();
-    assert_eq!(here.window.len(), 2 * N + 5, "not a task's place");
+    assert_eq!(here.window.len(), TASK_WINDOW + 5, "not a task's place");
     let l = lens(&s, task);
     assert!(open(&l, &Handle("turn_0001".into()))
         .unwrap()

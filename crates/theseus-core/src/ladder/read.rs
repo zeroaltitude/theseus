@@ -8,9 +8,11 @@
 //!   budgeter bounds what is shown).
 //! - **A level's standing nodes**: those after the last one the level above
 //!   holds, oldest first.
-//! - **The fold step**: while the window holds `2N` ended exchanges, its
-//!   oldest [`N`] become a first-level node; while a level holds `2N` nodes,
-//!   its oldest [`N`] become one node of the level above, by code. A node is
+//! - **The fold step**: while the window holds
+//!   [`WINDOW_FLOOR`](super::WINDOW_FLOOR) + [`FOLD_STEP`] ended exchanges
+//!   (`crate::view::fold::fold_due`), its oldest [`FOLD_STEP`] become a
+//!   first-level node; while a level holds 2[`FOLD_STEP`] nodes, its oldest
+//!   [`FOLD_STEP`] become one node of the level above, by code. A node is
 //!   written once for its range (`fold::write_once`).
 //!
 //! Every exchange and node read is checked to be of the place (and level)
@@ -24,16 +26,17 @@ use theseus_store::blocking;
 use super::did::{self, Read};
 use super::fold::{self, Flags, FoldNode};
 use super::writer::Writer;
-use super::{Purse, N};
+use super::{Purse, FOLD_STEP, TASK_WINDOW};
 use crate::exchange::{self, Exchange, Root};
 use crate::store::Store;
 use crate::view::Pos;
 
-/// The most levels a ladder reads: with N = 20, the sixth stands for 64
-/// million exchanges.
+/// The most levels a ladder reads: with a fold step of 20, the sixth stands
+/// for 64 million exchanges.
 pub const MAX_LEVEL: u8 = 6;
-/// The most of a level's nodes one read takes (a level stands at fewer than 2N).
-const READ: usize = 4 * N;
+/// The most of a level's nodes one read takes (a level stands at fewer than
+/// 2[`FOLD_STEP`]).
+const READ: usize = 4 * FOLD_STEP;
 /// The touches one page of the window's read takes.
 const PAGE: usize = 200;
 
@@ -109,10 +112,10 @@ pub fn ladder(store: &Store, place: &str, since: Option<&Pos>) -> anyhow::Result
         first_cover = cover.clone();
     }
     l.window = window(store, place, since, first_cover.as_ref())?;
-    // A task's place is never summarised (`build::ladder_after`): its window holds its newest 2N, the most a
-    // laddered place holds before a fold is due; older exchanges are reached by the history tool.
+    // A task's place is never summarised (`build::ladder_after`): its window holds its newest
+    // [`TASK_WINDOW`]; older exchanges are reached by the history tool.
     if l.rungs.is_empty() && crate::task_graph::place::task_of(place).is_some() {
-        let over = l.window.len().saturating_sub(2 * super::N);
+        let over = l.window.len().saturating_sub(TASK_WINDOW);
         l.window.drain(..over);
     }
     Ok(l)
@@ -184,7 +187,7 @@ pub struct Step<'a> {
     pub purse: &'a dyn Purse,
 }
 
-/// Fold `place`'s ladder until no window or level holds `2N`.
+/// Fold `place`'s ladder until no window is due a fold and no level holds 2[`FOLD_STEP`] nodes.
 pub async fn fold_step(
     store: &Store,
     place: &str,
@@ -198,8 +201,8 @@ pub async fn fold_step(
     }
     loop {
         let l = blocking(|| ladder(store, place, since))?;
-        if l.window.len() >= 2 * N {
-            let oldest = &l.window[..N];
+        if crate::view::fold::fold_due(l.window.len()) {
+            let oldest = &l.window[..FOLD_STEP];
             if oldest.iter().any(|e| e.end_ms.is_none()) {
                 return Ok(out);
             }
@@ -216,9 +219,10 @@ pub async fn fold_step(
             }
             continue;
         }
-        let full = (1..=MAX_LEVEL).find_map(|lv| l.rung(lv).filter(|r| r.nodes.len() >= 2 * N));
+        let full = (1..=MAX_LEVEL)
+            .find_map(|lv| l.rung(lv).filter(|r| r.nodes.len() >= 2 * FOLD_STEP));
         let Some(rung) = full else { return Ok(out) };
-        let Some(node) = fold::above(&rung.nodes[..N]) else {
+        let Some(node) = fold::above(&rung.nodes[..FOLD_STEP]) else {
             return Ok(out);
         };
         out.made.push(fold::write_once(store, node)?);

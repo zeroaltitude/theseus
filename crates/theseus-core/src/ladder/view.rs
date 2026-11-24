@@ -8,7 +8,7 @@ use anyhow::anyhow;
 use super::fold::{self, Flags, FoldNode};
 use super::read::{self, Step};
 use super::writer::Writer;
-use super::N;
+use super::FOLD_STEP;
 use crate::exchange::{self, Exchange};
 use crate::store::Store;
 use crate::view::fold::{FoldNode as ViewNode, FoldWriter, Ladder, LadderRead, Writer as By};
@@ -54,10 +54,10 @@ pub struct StoreLadder<'a>(pub &'a Store);
 
 impl Ladder for StoreLadder<'_> {
     /// Every level's standing nodes, the highest first (so oldest first), and
-    /// the window. The grain is [`N`]: a read at another `n` is refused.
+    /// the window. The grain is [`FOLD_STEP`]: a read at another `n` is refused.
     fn read(&self, place: &str, n: usize, since: Option<&Pos>) -> anyhow::Result<LadderRead> {
-        if n != N {
-            return Err(anyhow!("the ladder is folded at N = {N}, not {n}"));
+        if n != FOLD_STEP {
+            return Err(anyhow!("the ladder is folded {FOLD_STEP} at a time, not {n}"));
         }
         let l = read::ladder(self.0, place, since)?;
         Ok(LadderRead {
