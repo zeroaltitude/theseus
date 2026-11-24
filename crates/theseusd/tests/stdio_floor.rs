@@ -180,8 +180,10 @@ fn a_stdio_daemon_whose_client_went_away_begins_its_stop() {
     let dir = tempfile::tempdir().unwrap();
     served_once(dir.path());
     let log = std::fs::read_to_string(dir.path().join("theseusd.log")).unwrap();
+    // The field's name and its `=` are coloured apart; the value is whole.
     assert!(
-        log.contains("phase=\"began\""),
+        log.lines()
+            .any(|l| l.contains("stop") && l.contains("\"began\"")),
         "the stop never began:\n{log}"
     );
 }
