@@ -32,10 +32,15 @@ fn notes_in(core: &Core, sid: &str) -> usize {
         .count()
 }
 
-/// A new session (a task's, when `task`) holding a result of `tool` that showed `of`'s words, written by hand
-/// as a completion frame writes it (the result, and its edge by the tool's route): never run. Its id and the
-/// result's.
-fn read_by_hand(core: &Core, task: bool, (tool, via): (&str, &str), of: &str) -> (String, String) {
+/// A new session (a task's, when `task`) holding a result of `tool` whose stored text is `text` and that
+/// showed `of`'s words, written by hand as a completion frame writes it (the result, and its edge by the
+/// tool's route): never run. Its id and the result's.
+fn read_by_hand(
+    core: &Core,
+    task: bool,
+    (tool, via): (&str, &str),
+    (of, text): (&str, &str),
+) -> (String, String) {
     let mut rec = SessionRecord::new(
         if task {
             SessionKind::Task
@@ -57,7 +62,7 @@ fn read_by_hand(core: &Core, task: bool, (tool, via): (&str, &str), of: &str) ->
         });
     }
     core.store.put_session(&rec.session_id, &rec).unwrap();
-    let mut n = crate::compiler::tests_view::result("turn_read", "h9", SAID);
+    let mut n = crate::compiler::tests_view::result("turn_read", "h9", text);
     n.session_id = rec.session_id.clone();
     if let Body::ToolResult { tool: t, .. } = &mut n.body {
         *t = tool.into();
@@ -105,31 +110,49 @@ async fn a_retraction_tells_the_conversation_that_read_it_by_history() {
     assert_eq!(notes_in(&r.core, &other), 1, "told once");
 }
 
-/// The same for a result of `look.work`: its conversation is a session the retraction tells.
+/// A result of `look.work` names no handle (its lines are a name and words), so its kept text never shows
+/// which message it holds: a conversation other than the line's own that held one is seen and gets no note.
+/// The look reads only its own conversation, so no real look can be read elsewhere: this one is written by
+/// hand. Its own conversation is told by its own row (`config_change::tests_work`, `…_looked_back_is_told_once`).
 #[tokio::test]
-async fn a_retraction_tells_the_conversation_that_read_it_by_look() {
+async fn a_look_result_names_no_handle_so_its_reader_is_seen() {
     let r = rig();
     let said = say(&r.core).await;
-    let (reader, copy) = read_by_hand(&r.core, false, (crate::look::WORK, VIA_LOOK), &said.node);
+    let (reader, copy) = read_by_hand(
+        &r.core,
+        false,
+        (crate::look::WORK, VIA_LOOK),
+        (&said.node, SAID),
+    );
     let out = retract(&r.core, &said.node);
     let e = of_session(&out, &reader);
     assert_eq!(
         (e.kind.as_str(), e.node_id.as_str()),
-        (kind::SESSION, copy.as_str()),
+        (kind::SEEN, copy.as_str()),
         "{e:?}"
     );
     turn(&r.core, &reader, "and the weir?").await;
-    assert_eq!(notes_in(&r.core, &reader), 1);
+    assert_eq!(notes_in(&r.core, &reader), 0);
 }
 
-/// A task that read the line through the history tool is named on the card, as a task that used it any
-/// other way is; it gets no note.
+/// A task whose history result shows the line (its stored text as a real open of the line's exchange wrote
+/// it) is named on the card the owner gets, as a task that used it any other way is; no note is queued to
+/// the task.
 #[tokio::test]
 async fn a_task_that_read_it_by_history_is_named_on_the_card() {
     let r = rig();
+    r.core.bind_places(vec![crate::places::BoundPlace {
+        target: "discord:dm:5150".into(),
+        name: "DM @owner".into(),
+        private: true,
+        ..Default::default()
+    }]);
     let said = say(&r.core).await;
+    // The words a real open of the exchange stored, read in a conversation of its own.
+    let scratch = session(&r.core, Some("channel:lab"));
+    let (_, text) = read_in(&r.core, &scratch, json!({ "open": said.turn })).await;
     let tool = (crate::view::history::HISTORY_TOOL, VIA_HISTORY);
-    let (task, copy) = read_by_hand(&r.core, true, tool, &said.node);
+    let (task, copy) = read_by_hand(&r.core, true, tool, (&said.node, &text));
     let out = retract(&r.core, &said.node);
     let e = of_session(&out, &task);
     assert_eq!(
@@ -140,6 +163,27 @@ async fn a_task_that_read_it_by_history_is_named_on_the_card() {
     assert!(
         !out.exposures.iter().any(|e| e.kind == kind::SEEN),
         "{out:#?}"
+    );
+    assert!(out.card, "{out:#?}");
+    let cards: Vec<Value> = (r
+        .core
+        .outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter())
+    .filter(|a| crate::outbox::kind_of(a) == "retraction")
+    .map(|a| crate::outbox::body_of(a).clone())
+    .collect();
+    assert_eq!(cards.len(), 1, "{cards:?}");
+    let card = cards[0]["text"].as_str().unwrap();
+    assert!(
+        card.contains("count the herons"),
+        "the task is named: {card}"
+    );
+    assert!(card.contains(WHY) && card.contains("Re-run?"), "{card}");
+    let queued = crate::retract::Notes::default();
+    assert!(
+        !queued.waiting(&r.core.store, &task),
+        "no note is queued to the task"
     );
 }
 
@@ -346,4 +390,137 @@ async fn a_replay_refuses_a_window_that_showed_erased_words_by_history() {
         (e.part, e.why.as_str()),
         ("view", crate::own_bench::rebuild::VIEW_ERASED)
     );
+}
+
+/// A page cut by the runtime, as `a_runtime_cut_keeps_every_link_the_page_gave_even_to_words_it_cut` reads
+/// it: eight long lines said in one conversation, read from `channel:lab` with `[tools] result_max_chars`
+/// under the page's size. The rig, the reader, its result and the result's stored text, and the said
+/// messages, each its node, its exchange's turn and the tag every word of it begins with.
+struct CutPage {
+    r: Rig,
+    reader: String,
+    copy: String,
+    text: String,
+    said: Vec<(String, String, String)>,
+}
+
+async fn cut_page() -> CutPage {
+    let r = rig_scripted(|c| c.tools.result_max_chars = 2_000, script);
+    let sid = session(&r.core, None);
+    for k in 0..8 {
+        let words: Vec<String> = (0..30).map(|j| format!("m{k:02}w{j:02}")).collect();
+        turn(&r.core, &sid, &words.join(" ")).await;
+    }
+    let said: Vec<(String, String, String)> = (r.core.store.session_nodes(&sid).unwrap())
+        .into_iter()
+        .filter_map(|(_, n)| match &n.body {
+            Body::UserMessage { text, .. } if text.starts_with('m') => {
+                let tag = text.get(..4)?.to_string();
+                Some((n.id, n.turn_id?, tag))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(said.len(), 8);
+    let place = crate::exchange::exchange(&r.core.store, &said[0].1)
+        .unwrap()
+        .expect("its exchange")
+        .place;
+    let reader = session(&r.core, Some("channel:lab"));
+    let (copy, text) = read_in(&r.core, &reader, json!({ "place": place })).await;
+    assert!(text.contains("not shown"), "the runtime cap cut it: {text}");
+    CutPage {
+        r,
+        reader,
+        copy,
+        text,
+        said,
+    }
+}
+
+impl CutPage {
+    /// A said message the cut left out entirely: neither its handle nor any of its words is in the kept text.
+    fn cut_out(&self) -> &str {
+        (self.said.iter())
+            .find(|(_, t, tag)| {
+                !self.text.contains(t.as_str()) && !self.text.contains(tag.as_str())
+            })
+            .map(|(n, _, _)| n.as_str())
+            .unwrap_or_else(|| panic!("a message the cut left out: {}", self.text))
+    }
+
+    /// A said message whose line the cut kept: a line of the kept text ends with its handle.
+    fn kept(&self) -> &str {
+        (self.said.iter())
+            .find(|(_, t, _)| {
+                (self.text.lines())
+                    .any(|l| l.starts_with("- ") && l.ends_with(&format!(" \u{b7} {t}")))
+            })
+            .map(|(n, _, _)| n.as_str())
+            .unwrap_or_else(|| panic!("a line the cut kept: {}", self.text))
+    }
+}
+
+/// **A retraction of a message the runtime cut out of a page tells its reader nothing.** The page's link to
+/// it stays (the conservative superset reach and erase walk), but the reader never saw its words: it is
+/// listed as seen, and no note is delivered at its next turns.
+#[tokio::test]
+async fn a_message_the_runtime_cut_out_of_a_page_is_seen_and_no_note_is_delivered() {
+    let p = cut_page().await;
+    let node = p.cut_out().to_string();
+    let linked = (reach(&p.r.core, &node).descendants.iter()).any(|d| d.node_id == p.copy);
+    assert!(linked, "the link is kept: {}", p.text);
+    let out = retract(&p.r.core, &node);
+    let e = of_session(&out, &p.reader);
+    assert_eq!(
+        (e.kind.as_str(), e.node_id.as_str()),
+        (kind::SEEN, p.copy.as_str()),
+        "{e:?}"
+    );
+    turn(&p.r.core, &p.reader, "and the weir?").await;
+    turn(&p.r.core, &p.reader, "and at dawn?").await;
+    assert_eq!(notes_in(&p.r.core, &p.reader), 0);
+    let last = p.r.requests().pop().expect("a request");
+    let sent = serde_json::to_string(&last.messages).unwrap();
+    assert!(!sent.contains(WHY), "no note is in the request: {sent}");
+}
+
+/// A retraction of a message whose line the cut page kept tells its reader: exactly one note.
+#[tokio::test]
+async fn a_message_the_cut_page_kept_is_told_once() {
+    let p = cut_page().await;
+    let node = p.kept().to_string();
+    let out = retract(&p.r.core, &node);
+    let e = of_session(&out, &p.reader);
+    assert_eq!(
+        (e.kind.as_str(), e.node_id.as_str()),
+        (kind::SESSION, p.copy.as_str()),
+        "{e:?}"
+    );
+    turn(&p.r.core, &p.reader, "and the weir?").await;
+    turn(&p.r.core, &p.reader, "and at dawn?").await;
+    assert_eq!(notes_in(&p.r.core, &p.reader), 1);
+}
+
+/// A conversation that said the line and then read it back by opening its own session heard it twice,
+/// directly and by the look back: one row acts for it, and it gets exactly one note.
+#[tokio::test]
+async fn a_conversation_that_said_it_and_read_it_back_by_history_is_told_once() {
+    let r = rig();
+    let said = say(&r.core).await;
+    let (copy, text) = read_in(&r.core, &said.session, json!({ "open": said.session })).await;
+    assert!(text.contains(WORD), "the open shows the line: {text}");
+    let walk = reach(&r.core, &said.node);
+    assert!(
+        walk.descendants.iter().any(|d| d.node_id == copy),
+        "{walk:#?}"
+    );
+    let out = retract(&r.core, &said.node);
+    let acting = (out.exposures.iter())
+        .filter(|e| e.session_id == said.session && e.kind == kind::SESSION)
+        .count();
+    assert_eq!(acting, 1, "{out:#?}");
+    turn(&r.core, &said.session, "and the weir?").await;
+    turn(&r.core, &said.session, "and at dawn?").await;
+    assert_eq!(notes_in(&r.core, &said.session), 1);
 }

@@ -19,8 +19,10 @@
 //!   - a **published copy** is listed with its place (and labeled `wrong`: it is
 //!     the node's text); it cannot be unpublished;
 //!   - a conversation that read the words by a look back (`context.history`,
-//!     `look.work`) is sorted as any session the walk reaches is: a live one
-//!     gets the note, a task's is named on the card, a retired one is seen;
+//!     `look.work`) is sorted as any session the walk reaches is (a live one
+//!     gets the note, a task's is named on the card, a retired one is seen)
+//!     when the kept text of its result shows the node (`copies::shows`);
+//!     a result that does not, or cannot be read, is seen;
 //!   - **seen, not used** is listed.
 //! - **Idempotent**: a node retracted before answers from the stored table
 //!   and writes nothing.
@@ -400,6 +402,19 @@ impl Core {
         Ok(cache[id].clone())
     }
 
+    /// Whether the look back's result `d` showed its reader the node it copies (`d.from`): the stored, kept
+    /// text of the result names it (`copies::shows`). Either node unread is not shown.
+    fn showed(&self, d: &theseus_protocol::ReachDescendant) -> bool {
+        let read = |id: &str| match self.store.get_node(id) {
+            Ok(Some((_, n))) => Some(n),
+            _ => None,
+        };
+        match (read(&d.node_id), read(&d.from)) {
+            (Some(result), Some(source)) => crate::copies::shows(&result, &source),
+            _ => false,
+        }
+    }
+
     /// Whether the turns of `session` used what they recalled of `copied`:
     /// `memory.used` rows say, any one that says so; none, unknown.
     fn used_of(&self, session: &str, copied: &str) -> Result<Option<bool>> {
@@ -466,6 +481,8 @@ impl Core {
             let Some(s) = self.cached(&mut sessions, &d.session_id)? else {
                 continue;
             };
+            let shown =
+                matches!(d.route.as_str(), graph::VIA_HISTORY | graph::VIA_LOOK) && self.showed(d);
             let (k, used) = match d.route.as_str() {
                 graph::VIA_SYNTHESIS => (kind::SYNTHESIS, None),
                 graph::VIA_PUBLISH => (kind::PUBLISHED, None),
@@ -482,10 +499,11 @@ impl Core {
                     (kind::TASK, Some(true))
                 }
                 graph::VIA_REPORT if !s.task && !s.retired => (kind::SESSION, None),
-                // A look back's result showed the words to its conversation: sorted as a session the
-                // walk reaches any other way is, so a live one is told (a retired or imported one is seen).
-                graph::VIA_HISTORY | graph::VIA_LOOK if s.task => (kind::TASK, None),
-                graph::VIA_HISTORY | graph::VIA_LOOK if !s.retired && !s.imported => {
+                // A look back's result whose kept text showed the words to its conversation: sorted as a
+                // session the walk reaches any other way is, so a live one is told (a retired or imported
+                // one is seen). One that did not show them is seen, as its link may be to words cut out.
+                graph::VIA_HISTORY | graph::VIA_LOOK if shown && s.task => (kind::TASK, None),
+                graph::VIA_HISTORY | graph::VIA_LOOK if shown && !s.retired && !s.imported => {
                     (kind::SESSION, None)
                 }
                 _ => (kind::SEEN, None),
