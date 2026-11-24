@@ -224,17 +224,30 @@ fn newest(lens: &Lens<'_>, position: u64, n: Node) -> anyhow::Result<Option<Node
 
 /// `text` cut to about `max` tokens, never inside a known value (`cuts`), with what was cut said.
 fn fitted(text: &str, max: u64, had: u64, cuts: &crate::scrub::Cuts) -> String {
+    fitted_kept(text, max, had, cuts).0
+}
+
+/// [`fitted`], and the bytes of `text` it kept, as they are: always a head, which the line that says what
+/// was cut follows. (`text` is a page's line, its heading and its margined words: not a stored text.)
+fn fitted_kept(
+    text: &str,
+    max: u64,
+    had: u64,
+    cuts: &crate::scrub::Cuts,
+) -> (String, std::ops::Range<usize>) {
     let keep = (max as f64 * crate::catalog::TokenRates::CLAUDE.text) as usize;
     let mut cut: String = text.chars().take(keep).collect();
     while cut.len() > keep {
         cut.pop();
     }
-    let cut = &text[..cuts.before(text, cut.len())];
-    format!(
-        "{cut}\n[cut here: this message is about {} tokens, over the {} this open shows; the rest is not shown]",
+    let end = cuts.before(text, cut.len());
+    let shown = format!(
+        "{}\n[cut here: this message is about {} tokens, over the {} this open shows; the rest is not shown]",
+        &text[..end],
         crate::narrative::thousands(had),
         crate::narrative::thousands(max)
-    )
+    );
+    (shown, 0..end)
 }
 
 /// Whether the turn `turn` of `session`, whose node at `position` is being read, read outside text: an
@@ -500,5 +513,47 @@ mod tests_fitted {
             "{cut}"
         );
         assert!(fitted(&text, 100, 900, &crate::scrub::Cuts::none()).contains("kqzv"));
+    }
+
+    /// `fitted` as it was written before it said what it kept: the oracle its text is held to.
+    fn fitted_as_it_was(text: &str, max: u64, had: u64, cuts: &crate::scrub::Cuts) -> String {
+        let keep = (max as f64 * crate::catalog::TokenRates::CLAUDE.text) as usize;
+        let mut cut: String = text.chars().take(keep).collect();
+        while cut.len() > keep {
+            cut.pop();
+        }
+        let cut = &text[..cuts.before(text, cut.len())];
+        format!(
+            "{cut}\n[cut here: this message is about {} tokens, over the {} this open shows; the rest is not shown]",
+            crate::narrative::thousands(had),
+            crate::narrative::thousands(max)
+        )
+    }
+
+    /// Over random text and known values placed anywhere: the message is today's, and it is the bytes the cut
+    /// says it kept, as they are, then the line that says what was cut; those bytes are a head that splits no
+    /// character and no known value. All values invented.
+    #[test]
+    fn fitted_reports_the_bytes_it_kept() {
+        use crate::view::text::kept::sample::{self, Draw};
+        let mut draw = Draw::new(0x5851_f42d_4c95_7f2d);
+        for case in 0..600 {
+            let max = [0u64, 1, 4, 10, 40][draw.below(5)];
+            let keep = (max as f64 * crate::catalog::TokenRates::CLAUDE.text) as usize;
+            let (text, known) = draw.case(keep, 2 * keep + 12);
+            let cuts = sample::cuts(&known);
+            let had = crate::view::text::tokens(&text);
+            let (shown, kept) = fitted_kept(&text, max, had, &cuts);
+            assert_eq!(shown, fitted_as_it_was(&text, max, had, &cuts), "case {case}");
+            assert_eq!(fitted(&text, max, had, &cuts), shown);
+            assert_eq!(kept.start, 0);
+            sample::whole(&text, &kept, &known);
+            let note = format!(
+                "\n[cut here: this message is about {} tokens, over the {} this open shows; the rest is not shown]",
+                crate::narrative::thousands(had),
+                crate::narrative::thousands(max)
+            );
+            assert_eq!(format!("{}{note}", &text[kept.clone()]), shown, "case {case}: {text:?}");
+        }
     }
 }

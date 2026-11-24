@@ -240,3 +240,45 @@ fn a_message_the_answer_cut_leaves_out_is_no_copy() {
     assert!(said.contains("hello"));
     assert_eq!(shown, hello());
 }
+
+/// `clip` as it was written before it said what it kept: the oracle its line is held to.
+fn clip_as_it_was(s: &str, max: usize) -> String {
+    let plain: String = s
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let one: String = plain.split_whitespace().collect::<Vec<_>>().join(" ");
+    match one.chars().count() > max {
+        true => format!("{}…", one.chars().take(max).collect::<String>()),
+        false => one,
+    }
+}
+
+/// Over random text (characters of one to four bytes, control characters, runs of blanks, a line shorter
+/// than, as long as and longer than the cap): the line is today's, and it is Clip1 of the bytes the clip says
+/// it kept, then `…` exactly when words are left after them; those bytes split no character. (The clip knows
+/// no value: where it falls is today's, and the range says only where that is.)
+#[test]
+fn clip_reports_the_bytes_it_kept() {
+    use crate::view::text::kept::sample::Draw;
+    let mut draw = Draw::new(0x2c1b_3c6d_6a09_e667);
+    for case in 0..1_500 {
+        let max = [0, 1, 3, 8, 20, 80][draw.below(6)];
+        let (text, _) = draw.case(max, 2 * max + 12);
+        let (shown, kept) = clip_kept(&text, max);
+        assert_eq!(shown, clip_as_it_was(&text, max), "case {case}: {text:?}");
+        assert_eq!(clip(&text, max), shown);
+        assert!(kept.start <= kept.end && kept.end <= text.len());
+        assert!(text.is_char_boundary(kept.start) && text.is_char_boundary(kept.end));
+        let left = text[kept.end..]
+            .chars()
+            .any(|c| !(c.is_control() || c.is_whitespace()));
+        let ellipsis = if left { "…" } else { "" };
+        assert_eq!(
+            format!("{}{ellipsis}", clip1(&text[kept.clone()])),
+            shown,
+            "case {case}: {text:?} at {max}, kept {kept:?}"
+        );
+    }
+    assert_eq!(clip_kept(" a\u{0}\n[b] c ", 3), ("a [b…".into(), 1..6));
+}
