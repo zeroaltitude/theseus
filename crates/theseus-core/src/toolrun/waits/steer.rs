@@ -498,7 +498,7 @@ mod tests {
     /// An offerer that goes away takes its message with it, and every turn
     /// takes offers: there is no switch to turn it off.
     #[tokio::test(start_paused = true)]
-    async fn a_dropped_offer_leaves_nothing_and_every_turn_takes_offers() {
+    async fn a_dropped_offer_leaves_nothing_and_the_switch_off_takes_none() {
         let steers = Arc::new(Steers::default());
         let turning = steers.open("ses_a");
         drop(steers.offer("ses_a", message("gone")).unwrap());

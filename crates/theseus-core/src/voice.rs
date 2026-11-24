@@ -398,7 +398,7 @@ mod tests {
     /// = false` is its rollback (theseus-s3dwj), and its wait is the code's
     /// (issue 46): a file that still sets one loads with the key named retired.
     #[test]
-    fn the_judge_of_unclear_transcripts_is_on_by_default_and_its_wait_is_fixed() {
+    fn the_judge_of_unclear_transcripts_is_on_by_default_and_bounded() {
         let with = |section: &str| {
             Config::parse(&format!("{}\n{section}\n", Config::EXAMPLE_TOML)).map(|(c, _)| c)
         };

@@ -62,7 +62,7 @@ fn the_calls_speakers_are_the_engines_listed() {
 /// A call closes an utterance after the pause, 1200 ms, though the engine's own
 /// default is 700 (theseus-bp0lp); a file that still sets `pause_ms` changes it not.
 #[test]
-fn a_call_closes_an_utterance_after_the_fixed_pause() {
+fn a_call_closes_an_utterance_after_the_configured_pause() {
     let none = Config::example();
     let c = engine_config([Speaker(7)], &none.voice);
     assert_eq!(c.end_of_utterance, Duration::from_millis(1_200));
@@ -73,7 +73,7 @@ fn a_call_closes_an_utterance_after_the_fixed_pause() {
 /// A call merges an unfinished utterance with the next within 1500 ms; a file
 /// that still sets `merge_ms` changes it not.
 #[test]
-fn a_call_merges_an_unfinished_utterance_within_the_fixed_window() {
+fn a_call_merges_an_unfinished_utterance_within_the_configured_window() {
     let c = engine_config([Speaker(7)], &Config::example().voice);
     assert_eq!(c.merge, Duration::from_millis(1_500));
     let c = call_with("[voice]\nmerge_ms = 0");

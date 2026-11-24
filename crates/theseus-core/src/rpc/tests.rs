@@ -1874,7 +1874,7 @@ async fn narrative_watch_scoped_to_one_session_gets_only_that_sessions_lines() {
 /// methods answer.
 #[tokio::test]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-async fn narrative_watch_streams_a_turn_and_needs_no_switch() {
+async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
     use theseus_protocol::{NarrativeLine, NarrativePart, NarrativeWatchResult};
     let core = test_core("hello there");
     assert!(core.health().narrative, "the template turns it on");
