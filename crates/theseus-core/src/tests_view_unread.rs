@@ -165,7 +165,10 @@ async fn the_history_tool_answers_when_the_last_view_record_cannot_be_read() {
     assert!(!bare.contains("a_band_of_a_later_build"), "{bare}");
     let warned = log.lines(WARNED);
     assert_eq!(warned.len(), 1, "one warning for the call: {warned:?}");
-    assert!(warned[0].contains(&cid), "it names the compilation: {warned:?}");
+    assert!(
+        warned[0].contains(&cid),
+        "it names the compilation: {warned:?}"
+    );
     // The pointer moved to the call's own turn, whose record this build wrote: a later build's is laid again.
     let cid = written_by_a_later_build(c, &sid);
     let dated = read_in(c, &sid, json!({ "from": "2020-01-01" })).await;

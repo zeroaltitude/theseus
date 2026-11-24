@@ -248,10 +248,7 @@ pub fn of_turn(store: &Store, turn: &str) -> anyhow::Result<Vec<ViewRecord>> {
 
 /// [`of_turn`], and the compilations of those of the views this build cannot read (a later build's names),
 /// each left out with a warning: both in the order built.
-pub fn of_turn_unread(
-    store: &Store,
-    turn: &str,
-) -> anyhow::Result<(Vec<ViewRecord>, Vec<String>)> {
+pub fn of_turn_unread(store: &Store, turn: &str) -> anyhow::Result<(Vec<ViewRecord>, Vec<String>)> {
     let (mut out, mut unread) = (Vec::new(), Vec::new());
     for c in newest_of(store, turn, VIEWS_READ)? {
         match readable(store, turn, &c) {
