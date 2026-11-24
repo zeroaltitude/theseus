@@ -151,9 +151,9 @@ three exchanges in other places, by any of their handles (walked as one timeline
 read and three lines a person), leaving out every exchange the window lays: one line each (the words and the
 `did` line, cut beyond 150 tokens with the handle), headed with the person's name and the place, 600 tokens at
 most in all as the request lays them (headings, wrappers and the escaped name counted); real exchanges, never
-stored notes about a person. Which of them may be laid is one decision (`people::may_lay`): until the owner rules,
-a line from a private place (private by the place rule when it was said, or a direct conversation) is laid only
-when nobody but that person and the owner is present, and a shared place's line in any company. The owner gets
+stored notes about a person. Which of them may be laid is one decision (`people::may_lay`), and it lays a line
+from every place in any company: the owner ruled on 2026-11-24 that no conversation is private (each is his or a
+shared space), and a stricter rule would be a change to that one function. The owner gets
 none of his own, by identity (every effective owner handle, those the bindings make among them, and the records
 they resolve to; a filter of what is chosen, never authority): they are in the window and the look-backs. A turn
 no person opened (a wake, an agent's process) is told none of it, and a self-loop session's turn lays none of the

@@ -9,7 +9,7 @@
 //!   handles, leaving out every exchange the window lays; one line each, with its place and the handle that
 //!   opens it, all of them as laid within [`RECENT_TOKENS`]. Real exchanges from the record, never stored notes
 //!   about a person. The owner's own are in the window and the look-backs, and his facts in the frame. Which
-//!   of a person's lines may be laid in this company is one decision: [`may_lay`].
+//!   of a person's lines may be laid is one decision: [`may_lay`], which lays every place's.
 //!
 //! A turn with no speaker (a wake, an agent's process) is told none of it, as before.
 
@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 
 use super::super::history::PAGE_EXCHANGES;
 use super::super::timeline::{Cursor, ExchangeRef, TimelineRoot};
-use super::super::{Audience, Form, Piece, PointOfView, Reason};
+use super::super::{Form, Piece, PointOfView, Reason};
 use super::here::{anchor_place, shown};
 use super::make::{self, Cut};
 use super::sources::{ExchangeFacts, Sources};
@@ -50,45 +50,17 @@ pub struct Present {
     pub handles: Vec<String>,
 }
 
-/// Everyone in the turn's company, by identity: the speaker and every person who opened an exchange the
-/// window lays, held or not; the people laid among them.
-pub struct Company {
-    pub present: Vec<Present>,
-    /// Each one's identity (a held person's record id, else the ledger's name) and whether they are the
-    /// owner.
-    pub everyone: Vec<(String, bool)>,
+/// Whether `p`'s exchange `source`, of another place, may be laid beside the message: the one decision on a
+/// person's lines from elsewhere, asked of every one. It lays every place's line, in any company.
+/// The owner ruled on 2026-11-24 that no conversation is private; a stricter rule is a change to this function.
+pub fn may_lay(_p: &Present, _source: &ExchangeFacts) -> bool {
+    true
 }
 
-impl Company {
-    /// Nobody here but `p` and the owner.
-    pub fn alone_with(&self, p: &Present) -> bool {
-        (self.everyone.iter()).all(|(who, owner)| *owner || *who == p.id)
-    }
-}
-
-/// Whether `p`'s exchange `source`, of another place, may be laid in this company: the one decision on a
-/// person's lines from elsewhere. A line from a private place (one the place rule held private when it was
-/// said, or a direct conversation) is laid only when nobody but `p` and the owner is here; a line from a
-/// shared place is laid in any company. ("Anything goes" again: `true`. Stricter, every place only alone:
-/// `company.alone_with(p)`.)
-pub fn may_lay(p: &Present, source: &ExchangeFacts, company: &Company) -> bool {
-    !private(source) || company.alone_with(p)
-}
-
-/// Said in a private place: one the place rule held private then (the exchange's audience), or a direct
-/// conversation, a DM (`discord:dm:<id>`, the place rule's spelling), which it holds shared when the other
-/// side is not the owner.
-fn private(source: &ExchangeFacts) -> bool {
-    source.marks.audience == Audience::Private || source.place.starts_with("discord:dm:")
-}
-
-/// The turn's company: the people present, the speaker first, then the window's people newest first, only
-/// people a record holds, each once; and everyone. Nobody for a turn with no speaker.
-fn company(src: &Sources<'_>, pov: &PointOfView) -> anyhow::Result<Company> {
-    let mut c = Company {
-        present: Vec::new(),
-        everyone: Vec::new(),
-    };
+/// The people present: the speaker first, then the window's people newest first, only people a record holds,
+/// each once. Nobody for a turn with no speaker.
+fn company(src: &Sources<'_>, pov: &PointOfView) -> anyhow::Result<Vec<Present>> {
+    let mut c = Vec::new();
     let Some(speaker) = pov.person.as_deref() else {
         return Ok(c);
     };
@@ -100,15 +72,10 @@ fn company(src: &Sources<'_>, pov: &PointOfView) -> anyhow::Result<Company> {
             continue;
         }
         let Some(held) = src.people.held(person)? else {
-            c.everyone
-                .push((person.to_string(), src.people.owner(person)));
             continue;
         };
-        if !c.everyone.iter().any(|(who, _)| *who == held.id) {
-            c.everyone.push((held.id.clone(), held.owner));
-        }
-        if c.present.len() < MOST_PEOPLE && !c.present.iter().any(|p| p.id == held.id) {
-            c.present.push(Present {
+        if c.len() < MOST_PEOPLE && !c.iter().any(|p| p.id == held.id) {
+            c.push(Present {
                 person: person.to_string(),
                 id: held.id,
                 owner: held.owner,
@@ -207,11 +174,10 @@ impl<'a> People<'a> {
         &self,
         pov: &PointOfView,
         snap: &dyn Snapshot,
-        company: &Company,
+        present: &[Present],
     ) -> anyhow::Result<Vec<Piece>> {
         let mut out = Vec::new();
-        let speaker =
-            (company.present.first()).filter(|p| pov.person.as_deref() == Some(&p.person));
+        let speaker = (present.first()).filter(|p| pov.person.as_deref() == Some(&p.person));
         if let Some(p) = speaker {
             for r in self.src.people.speaking(&p.id)? {
                 out.push(make::of_ref(r, self.band, Reason::Fixed));
@@ -222,7 +188,7 @@ impl<'a> People<'a> {
             .map(|w| w.e.turn_id)
             .collect();
         let mut spent = 0u64;
-        for p in company.present.iter().filter(|p| !p.owner) {
+        for p in present.iter().filter(|p| !p.owner) {
             let mut walk = Walk::new(snap, &p.handles);
             let (mut read, mut lines) = (0usize, 0usize);
             while lines < RECENT_LINES {
@@ -239,7 +205,7 @@ impl<'a> People<'a> {
                     continue;
                 };
                 let theirs = f.person.as_ref().is_some_and(|h| p.handles.contains(h));
-                if Some(f.place.as_str()) == here || !theirs || !may_lay(p, &f, company) {
+                if Some(f.place.as_str()) == here || !theirs || !may_lay(p, &f) {
                     continue;
                 }
                 let mut piece =
@@ -267,10 +233,10 @@ impl Selector for People<'_> {
     }
 
     fn select(&self, pov: &PointOfView, snap: &dyn Snapshot) -> anyhow::Result<Vec<Piece>> {
-        let company = company(&self.src, pov)?;
+        let present = company(&self.src, pov)?;
         match self.band {
-            Band::WhoAndWhere => self.about(&company.present),
-            Band::PeopleRecent => self.beside(pov, snap, &company),
+            Band::WhoAndWhere => self.about(&present),
+            Band::PeopleRecent => self.beside(pov, snap, &present),
             _ => Ok(Vec::new()),
         }
     }

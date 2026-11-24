@@ -1128,56 +1128,30 @@ fn a_persons_newest_three_are_theirs_by_every_handle() {
     assert!(recent(&beside).is_empty(), "{:?}", recent(&beside));
 }
 
-/// KEY (the careful side, until the owner rules): a guest's lines from a private place (one the place rule
-/// held private, or a direct conversation) are laid only when nobody but the guest and the owner is here;
-/// from a shared place, in any company. A person no record holds is company too.
+/// KEY (the owner's word, 2026-11-24: no conversation is private): in company, a person's line from a
+/// one-to-one place is laid, as is one from a place the place rule held private and one from a shared place,
+/// whoever speaks and whoever else is here, held or not.
 #[test]
-fn a_guests_private_lines_are_laid_only_alone_with_them() {
-    let s = |window: Vec<Ex>| {
-        let mut ex_ = vec![
+fn in_company_a_persons_line_from_a_one_to_one_place_is_laid() {
+    let s = company(
+        &[
+            ("owner", "person:owner"),
+            ("discord:bob", "person:bob"),
+            ("discord:carol", "person:carol"),
+        ],
+        vec![
+            by("discord:bob", "b1", "chan", 9),
+            by("discord:carol", "c1", "chan", 8),
+            by("discord:zed", "z1", "chan", 7),
             by_in("discord:bob", "dm1", "discord:dm:44", 1, Audience::Shared),
             by_in("discord:bob", "lab1", "lab", 2, Audience::Private),
             by_in("discord:bob", "gen1", "general", 3, Audience::Shared),
-        ];
-        ex_.extend(window);
-        company(
-            &[
-                ("owner", "person:owner"),
-                ("discord:9", "person:owner"),
-                ("discord:bob", "person:bob"),
-                ("discord:carol", "person:carol"),
-            ],
-            ex_,
-        )
-    };
-    let lines = |st: &Store, who: &str| {
-        let beside = select_as(st, Band::PeopleRecent, &pov_of(who, "chan"));
-        recent(&beside)
-            .into_iter()
-            .map(str::to_string)
-            .collect::<Vec<_>>()
-    };
-    // Alone with the owner: every place.
-    let alone = s(vec![by("discord:bob", "b1", "chan", 9)]);
-    assert_eq!(lines(&alone, "owner"), ["dm1", "lab1", "gen1"]);
-    assert_eq!(lines(&alone, "discord:bob"), ["dm1", "lab1", "gen1"]);
-    // The owner by a raw handle of his is still only the owner.
-    let raw = s(vec![
-        by("discord:bob", "b1", "chan", 9),
-        by("discord:9", "r1", "chan", 8),
-    ]);
-    assert_eq!(lines(&raw, "discord:bob"), ["dm1", "lab1", "gen1"]);
-    // Another guest here, held or not: shared places only.
-    let carol = s(vec![
-        by("discord:bob", "b1", "chan", 9),
-        by("discord:carol", "c1", "chan", 8),
-    ]);
-    assert_eq!(lines(&carol, "owner"), ["gen1"]);
-    let zed = s(vec![
-        by("discord:bob", "b1", "chan", 9),
-        by("discord:zed", "z1", "chan", 8),
-    ]);
-    assert_eq!(lines(&zed, "discord:bob"), ["gen1"]);
+        ],
+    );
+    for who in ["owner", "discord:carol", "discord:zed"] {
+        let beside = select_as(&s, Band::PeopleRecent, &pov_of(who, "chan"));
+        assert_eq!(recent(&beside), ["dm1", "lab1", "gen1"], "{who} speaking");
+    }
 }
 
 /// At most eight people are named: the speaker, then the window's people who spoke most recently.
