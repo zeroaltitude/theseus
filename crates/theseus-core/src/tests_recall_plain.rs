@@ -169,6 +169,9 @@ async fn a_now_question_keeps_the_packs_order_and_marks_nothing() {
     turn(c, &now, "How many days of WAL segments do we keep now?").await;
     let (p, n) = (&recalls(c, &plain)[0], &recalls(c, &now)[0]);
     assert_eq!(admitted(n).len(), 2, "both notes are admitted: {n:?}");
+    // The plain question keeps the index's order, the best first; the "now"
+    // question keeps the same, so neither is reordered by its time.
+    assert_eq!(admitted(p), [old.as_str(), new.as_str()], "{p:?}");
     assert_eq!(admitted(n), admitted(p), "{n:?}");
     assert!(!has_temporal(n), "{n:?}");
     let req = sent(&r.model).pop().unwrap();

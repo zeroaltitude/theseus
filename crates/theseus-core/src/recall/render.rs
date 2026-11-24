@@ -485,4 +485,22 @@ mod tests {
             "{text}"
         );
     }
+
+    /// A header an older factory froze with the date a word of its note
+    /// named (`; "yesterday" = …`) renders those bytes unchanged: a header
+    /// says no such date now, but an old record reads as it was written.
+    #[test]
+    fn an_old_header_with_a_resolved_word_renders_its_stored_bytes() {
+        let mut rota = Node::user("ses_weir", None, "cli", "We moved the rota yesterday.");
+        rota.id = "msg_rota".into();
+        rota.created_at_ms = 1_773_801_600_000;
+        let sources: Sources = [(rota.id.clone(), Arc::new(rota))].into_iter().collect();
+        let old = "a message from cli in #harbor, said Tue 2026-03-17 19:40 MST; \
+                   \"yesterday\" = Mon 2026-03-16 (as of @7)";
+        let text = render(&[item("msg_rota", (0, 28), old)], &sources);
+        assert!(
+            text.contains(&format!("\n(1) {old}\n    \"We moved")),
+            "{text}"
+        );
+    }
 }
