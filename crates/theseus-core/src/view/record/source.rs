@@ -19,13 +19,30 @@
 //! This is not the assembly's whole scope check: a self-loop's permit (`view::permit`) and a fork's cut
 //! (`fork::window`) are kept by what the assembly lays, and are not applied again here.
 //!
-//! A fold's proof reads its node and every exchange it stands for, so each source keeps what it proved: one
-//! source serves every view of a call, and a node is proved once however many views hold it while the store
-//! stands still. Each answer is kept with the store's last position when it was proved
-//! (`Store::last_position`: every write, an end of a META key included, is a frame appended to the log, which
-//! moves it), and is proved again once the position has moved. What a proof costs is counted in units (a
-//! fold's node and each exchange it stands for, the task list once), not in the store's own reads: a node is
-//! found through its handle's record first, each session's place is read, and the task list reads every task.
+//! What a listing promises. This reader is a read-only listing, and a source lives for ONE call (one
+//! `view.show`, one preview, one look): it is made for that call and dropped when the call answers. Every
+//! answer in one call's listing was true at some moment during that call. A write that lands while the call
+//! runs may or may not be reflected, as with any read that races a write (a proof is several reads of the
+//! store, not one snapshot). Nothing proved in one call is reused by another, so a write that finished before
+//! a call began is in that call.
+//!
+//! A fold's proof reads its node and every exchange it stands for, so a source keeps what it proved (its
+//! memo): one source serves every view of a call, and a node is proved once however many views hold it.
+//! Each answer is kept with the store's last log position when it was proved (`Store::last_position`), and a
+//! later view of the same call proves it again when that position has moved. The stamp is a best-effort
+//! freshener, not a guarantee: it notices a write the reader could already see between two views, but it does
+//! not mark when a write is published to this reader. Two gaps lie between them. The store's index publishes
+//! a write after the log position has moved, so a proof made in that gap reads the old index and is kept under
+//! the new position. A place binding is published (in the outbox's memory) after its record is written, and
+//! publishing it moves no position. In both gaps the kept answer was still true at a moment of the call.
+//! Reading the stamp may wait while the log writer appends: the store offers no read of it that never waits.
+//!
+//! The listing equals the stored tally's slots only while every source still reads: the tally is history,
+//! and a source gone since is not listed (a dropped one is taken out of its band's residue).
+//!
+//! What a proof costs is counted in units (a fold's node and each exchange it stands for, the task list once),
+//! not in the store's own reads: a node is found through its handle's record first, each session's place is
+//! read, and the task list reads every task.
 //! A source given a budget of units ([`GateSource::within`]) leaves a fold or a card it has no units left for
 //! unchecked: not shown, and counted ([`GateSource::unchecked`]).
 
@@ -67,13 +84,16 @@ struct Memo {
     folds: RefCell<HashMap<(Handle, SourceRange), Kept>>,
     /// By task id.
     tasks: RefCell<HashMap<String, Kept>>,
-    /// Every task, read once while the store's position stands; none when they cannot be read.
+    /// Every task, read again when the store's last position has moved; none when they cannot be read.
     all: RefCell<Option<(u64, Option<Vec<crate::task_graph::TaskRecord>>)>>,
     reads: Cell<u64>,
     unchecked: Cell<u64>,
 }
 
 impl<'a> GateSource<'a> {
+    /// A source for ONE call (one `view.show`, one preview, one look): made for the call and dropped when it
+    /// answers, never kept, nor its memo, across calls. What it lists was true at some moment of the call; its
+    /// stamp is a best-effort freshener within the call, not a guarantee (the module's head says why).
     pub fn new(runner: &'a TurnRunner, pov: PointOfView, asker: Option<&'a str>) -> Self {
         Self {
             runner,
@@ -84,7 +104,7 @@ impl<'a> GateSource<'a> {
         }
     }
 
-    /// [`Self::new`], spending at most `budget` units of proof.
+    /// [`Self::new`], for one call as it says, spending at most `budget` units of proof.
     pub fn within(
         runner: &'a TurnRunner,
         pov: PointOfView,
@@ -118,7 +138,7 @@ impl<'a> GateSource<'a> {
         true
     }
 
-    /// The store's last position: the stamp an answer is kept with.
+    /// The store's last log position: the stamp an answer is kept with, a best-effort freshener.
     fn at(&self) -> u64 {
         self.runner.store.last_position()
     }
@@ -178,8 +198,8 @@ impl GateSource<'_> {
         Some(out)
     }
 
-    /// Whether fold `handle` over `range` of `place` at `level` is proven today: once per source while the
-    /// store's position stands.
+    /// Whether fold `handle` over `range` of `place` at `level` is proven today: once per source, and again
+    /// when the store's last position has moved.
     fn fold(&self, (place, level): (&str, u8), range: &SourceRange, handle: &Handle) -> bool {
         let key = (handle.clone(), range.clone());
         let at = self.at();
@@ -228,7 +248,7 @@ impl GateSource<'_> {
     }
 
     /// Whether task `id`'s card is proven today: its record reads and its home session is clear. Once per
-    /// source while the store's position stands.
+    /// source, and again when the store's last position has moved.
     fn task(&self, id: &str) -> bool {
         let at = self.at();
         let ok = match self.memo.tasks.borrow().get(id) {

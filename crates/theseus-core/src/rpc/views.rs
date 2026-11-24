@@ -134,8 +134,9 @@ impl Core {
         })
     }
 
-    /// Every view of a call as the owner inspects it, and the records read to prove its folds and task
-    /// cards: one source for each anchor, so what several views hold is proven once a call.
+    /// Every view of a call as the owner inspects it, and the units spent proving its folds and task cards:
+    /// one source for each anchor, made here and dropped when this returns, so what several views hold is
+    /// proven once a call and nothing is kept for the next.
     pub(crate) fn owners_all(
         &self,
         views: &[ViewRecord],
