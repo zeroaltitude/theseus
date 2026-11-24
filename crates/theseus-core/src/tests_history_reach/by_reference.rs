@@ -195,8 +195,10 @@ async fn an_erased_import_is_not_recalled_through_a_history_result() {
     crate::import::write::erase(&r.core.store, "kelp-2026", Some("a test"), "cli").unwrap();
     let m = recalled(&r.core, vec![ids[0].clone(), other.clone()]).await;
     assert!(!m.admitted.iter().any(|i| i.node_id == copy), "{m:?}");
+    // Nothing of the reader's holds the words. The import's own nodes are not this test's: the stand-in
+    // index keeps every record of a session, where the real one drops a node once it is erased.
     let shown = |i: &theseus_protocol::memory::RecallItem| {
-        i.text.as_deref().is_some_and(|t| t.contains(WORD))
+        i.session_id == other && i.text.as_deref().is_some_and(|t| t.contains(WORD))
     };
     assert!(!m.admitted.iter().any(shown), "{m:?}");
 }
