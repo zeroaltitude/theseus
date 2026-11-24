@@ -616,7 +616,11 @@ pub(super) fn cut(text: &str, max: usize, cuts: &Cuts) -> String {
 /// later. A transcript's: the newest exchange it cut or cleared anything of is not seen in full, so the page
 /// begins with it; with nothing cut, the page begins before the compilation's first node (a fresh one: before
 /// it was made; none: before the session began). A view compilation whose record is absent (a later chain of
-/// a turn keeps none) is read by the transcript's rule; a record that does not read is an error.
+/// a turn keeps none) is read by the transcript's rule. One whose record this build cannot read (a later build's
+/// names) is read as a window that laid nothing of `here`, with a warning: the page begins just before the view
+/// was made, so every exchange of the place begun before it is paged and none its window held whole is hidden;
+/// some the model sees in full may be paged again. (The transcript's rule could begin before the window's
+/// start, and hide what lies between.)
 pub fn in_view(store: &Store, session: &str, here: &str) -> Result<Option<Cursor>> {
     let from = |at_ms: u64| Cursor {
         at_ms,
@@ -637,8 +641,15 @@ pub fn in_view(store: &Store, session: &str, here: &str) -> Result<Option<Cursor
         return Ok(older(c.created_at_ms));
     }
     if c.strategy == crate::compiler::view::STRATEGY {
-        if let Some(v) = crate::view::record::read(store, &c.id)? {
-            let start = window_start(&v, here, c.created_at_ms);
+        let start = match crate::view::record::read(store, &c.id) {
+            Ok(v) => v.map(|v| window_start(&v, here, c.created_at_ms)),
+            Err(e) => {
+                tracing::warn!(compilation = %c.id, error = %format!("{e:#}"),
+                    "a view record cannot be read: a bare history call begins where that view was made");
+                older(c.created_at_ms)
+            }
+        };
+        if let Some(start) = start {
             return Ok(Some(match cut_start(store, &c, Some(here)) {
                 Some(cleared) => later(start, from(cleared)),
                 None => start,
