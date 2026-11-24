@@ -25,17 +25,43 @@ impl Draw {
     /// Text of about `chars` pieces from the alphabet below.
     pub fn text(&mut self, chars: usize) -> String {
         const PIECES: &[&str] = &[
-            "a", "b", "q", "Z", "0", "7", "-", ".", " ", " ", "  ", "   ", "\n", "\n\n", "\r\n", "\t", "\u{0}",
-            "\u{7}", "\u{85}", "\u{a0}", "\u{2003}", "\u{e9}", "\u{3bb}", "\u{2026}", "\u{1f642}", "\u{ab}",
-            "\u{bb}", "[", "]", "(", "\u{2039}", "word", "kelp", "%41", "\\n",
+            "a",
+            "b",
+            "q",
+            "Z",
+            "0",
+            "7",
+            "-",
+            ".",
+            " ",
+            " ",
+            "  ",
+            "   ",
+            "\n",
+            "\n\n",
+            "\r\n",
+            "\t",
+            "\u{0}",
+            "\u{7}",
+            "\u{85}",
+            "\u{a0}",
+            "\u{2003}",
+            "\u{e9}",
+            "\u{3bb}",
+            "\u{2026}",
+            "\u{1f642}",
+            "\u{ab}",
+            "\u{bb}",
+            "[",
+            "]",
+            "(",
+            "\u{2039}",
+            "word",
+            "kelp",
+            "%41",
+            "\\n",
         ];
         (0..chars).map(|_| PIECES[self.below(PIECES.len())]).collect()
-    }
-
-    /// `text` with `value` put in at a character boundary near `at` characters in.
-    pub fn place(&mut self, text: &str, value: &str, at: usize) -> String {
-        let i = text.char_indices().nth(at).map_or(text.len(), |(i, _)| i);
-        format!("{}{value}{}", &text[..i], &text[i..])
     }
 
     /// A case: text of up to `most` pieces, perhaps with a known value placed before, across or after `max`
@@ -53,7 +79,7 @@ impl Draw {
                 1 => max.saturating_sub(self.below(VALUE.len())),
                 _ => max + self.below(most + 1),
             };
-            text = self.place(&text, value, near);
+            text = place(&text, value, near);
             known.push(value);
         }
         if self.below(4) == 0 {
@@ -61,6 +87,12 @@ impl Draw {
         }
         (text, known)
     }
+}
+
+/// `text` with `value` put in at the character boundary `at` characters in (its end, past it).
+pub fn place(text: &str, value: &str, at: usize) -> String {
+    let i = text.char_indices().nth(at).map_or(text.len(), |(i, _)| i);
+    format!("{}{value}{}", &text[..i], &text[i..])
 }
 
 /// The cuts that know `values`, as a scrubber built from them gives them.

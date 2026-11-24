@@ -280,5 +280,5 @@ fn clip_reports_the_bytes_it_kept() {
             "case {case}: {text:?} at {max}, kept {kept:?}"
         );
     }
-    assert_eq!(clip_kept(" a\u{0}\n[b] c ", 3), ("a [b…".into(), 1..6));
+    assert_eq!(clip_kept(" a\u{0}\n[b] c ", 3), ("a […".into(), 1..5));
 }

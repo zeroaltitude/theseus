@@ -76,7 +76,7 @@ fn a_cut_says_which_bytes_its_line_is() {
     let v = sample::VALUE;
     let cuts = sample::cuts(&[v, sample::BROKEN]);
     let (shown, kept) = cut_kept("  ab \t\n cd ef", 3, &cuts);
-    assert_eq!((shown.as_str(), kept.clone()), ("ab \u{2026}", 2..5));
+    assert_eq!((shown.as_str(), kept), ("ab \u{2026}", 2..5));
     let text = format!("said {v} later");
     assert_eq!(cut_kept(&text, 7, &cuts), ("said \u{2026}".into(), 0..5));
     let text = "x kelp-one-0417\nferry-two-0417 y";

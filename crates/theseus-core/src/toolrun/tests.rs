@@ -225,14 +225,14 @@ fn cap_is_cut_points_then_assembly() {
         let mut known = Vec::new();
         if draw.below(4) > 0 {
             let near = (head + draw.below(VALUE.len() + 4)).saturating_sub(VALUE.len());
-            text = draw.place(&text, VALUE, near.min(n));
+            text = sample::place(&text, VALUE, near.min(n));
             known.push(VALUE);
         }
         if draw.below(4) > 0 {
             let n = text.chars().count();
             let tail = n.saturating_sub(max - head) + draw.below(8);
             let back = draw.below(BROKEN.len());
-            text = draw.place(&text, BROKEN, tail.saturating_sub(back));
+            text = sample::place(&text, BROKEN, tail.saturating_sub(back));
             known.push(BROKEN);
         }
         let cuts = sample::cuts(&known);
