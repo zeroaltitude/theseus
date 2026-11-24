@@ -60,9 +60,12 @@ pub enum LedgerCmd {
         #[arg(long)]
         over_day_line: bool,
     },
-    /// File the exchanges from before topics were filed per exchange: each one's opening message
-    /// is asked of the ontology's judge once, and touches its topics at the exchange's time. No
-    /// topic is made and no session is filed. Yours to run, in person. Run `--dry-run` first.
+    /// File your exchanges from before topics were filed per exchange: each one's opening message
+    /// is asked of the ontology's judge once, and touches its topics. No topic is made and no
+    /// session is filed. Yours to run, in person, at your own terminal. Run `--dry-run` first.
+    ///
+    /// A touch this writes means the old exchange fits that topic as judged today, with today's
+    /// topics; it is placed at the exchange's own date.
     Topics {
         /// Count the exchanges it would ask and their worst case, and ask nothing.
         #[arg(long)]
@@ -324,5 +327,23 @@ mod tests {
         };
         assert!(text(lines(&r)).contains("no chain yet; 12 rows"));
         assert!(text(head_lines(&r)).contains("no chain yet"));
+    }
+
+    /// `theseus ledger topics --help` says what an old touch means: a
+    /// judgment made today, placed at the exchange's own date.
+    #[test]
+    fn the_topics_help_says_what_an_old_touch_means() {
+        use clap::{CommandFactory, Parser};
+        #[derive(Parser)]
+        struct T {
+            #[command(subcommand)]
+            cmd: LedgerCmd,
+        }
+        let mut t = T::command();
+        let help = t.find_subcommand_mut("topics").unwrap().render_long_help();
+        let flat = help.to_string().split_whitespace().collect::<Vec<_>>().join(" ");
+        let said = "A touch this writes means the old exchange fits that topic as judged today, \
+                    with today's topics; it is placed at the exchange's own date.";
+        assert!(flat.contains(said), "{flat}");
     }
 }

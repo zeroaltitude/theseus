@@ -46,6 +46,9 @@ prices their worst case, and asks nothing.
 - **What it writes: touches only.** The ask goes in shadow, so the sink writes its row and files nothing: no
   membership, no category minted, no card, no `still_*` answer acted on. The job writes the touches with
   `names::topics::touches` and no plan, so a `new` answer names nothing. Each touch takes its exchange's start.
+  **What an old touch means**: the old exchange fits that topic as judged today, with today's topics; it is placed
+  at the exchange's own date. It is no evidence that the session held that topic then: the candidates are today's
+  categories, the session's memberships of today first.
 - **The message's words** reach the judge and nothing else: the row's context leaves out the names mined from the
   message, no state blob is kept, and the command prints counts and dollars. Nor does a word the answer brings
   back reach a row: the judgment is asked unrecorded and recorded only once its error's message, a malformed
