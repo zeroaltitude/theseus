@@ -60,9 +60,12 @@ fn rigged(mode: SelfMode, every_branch: bool, items: u64) -> Sealed {
 }
 
 impl Sealed {
+    /// The scorer, on a daemon whose own build is main's commit.
     fn seams(&self, scorer: &Arc<Canned>) -> Seams {
+        let main = self.main.clone();
         Seams {
             sealed: scorer.clone(),
+            installed: Arc::new(move || Some(main.clone())),
             ..self.r.seams()
         }
     }
@@ -296,6 +299,23 @@ async fn main_is_scored_on_its_own_build_only() {
         "{stop}"
     );
     assert!(s.r.rows("self.sealed.checked").is_empty());
+
+    // A build of another commit (main moved past the install) waits the same way, naming it.
+    let s = rigged(SelfMode::Act, false, 2);
+    let (branch, _) = s.r.seed("trim-the-sails", &Sealed::files(true), SONNET);
+    let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 6, 3));
+    let seams = Seams {
+        installed: Arc::new(|| Some("0123456789ab".repeat(3) + "0123")),
+        ..s.seams(&scorer)
+    };
+    let pass = s.r.core.self_join_pass(&seams).await.unwrap();
+    assert_eq!(pass.stopped, [(branch, "sealed".to_string())], "{pass:?}");
+    assert!(scorer.asked().is_empty());
+    let stop = &s.r.rows("self.join.stopped")[0];
+    assert!(
+        stop["why"].as_str().unwrap().contains("installed build is 0123456789ab"),
+        "{stop}"
+    );
 }
 
 /// The check's row says what was compared: main's commit, and the commit of the build that was

@@ -5,8 +5,12 @@
 //!
 //! The candidate is the merge's own build, which main's gate has just made
 //! in the merge's tree (a branch's own build tree is gone once self-pr has
-//! closed it). Main is the installed build, its score cached for the try's
-//! main commit and the sets' digest. The row (`self.sealed.checked`) is
+//! closed it). Main is the installed build, and only while that build is the
+//! try's main commit: when it is another (main moved past the install, or the
+//! install has not finished), nothing is scored and the join stops before
+//! main's gate, to be tried again (`main_build_clear`). Main's score is cached
+//! for the try's main commit and the sets' digest. The row names main's commit
+//! and the commit of the build scored as main's. The row (`self.sealed.checked`) is
 //! checked against the sets' own strings before it is written, as the
 //! scorer's output is.
 //!
@@ -25,6 +29,57 @@ use crate::fact::Fact;
 use crate::rsi::sealed::hold::{self, Verdict, Whose};
 
 impl Run<'_> {
+    /// Before main's gate: true unless the sealed check will score `m` and the installed build, the
+    /// only build of main it has, is not the try's main commit. Then the join stops, to be tried again.
+    pub(super) async fn main_build_clear(&mut self, m: &Merged) -> bool {
+        match self.waits_for_main(m).await {
+            Ok(None) => true,
+            Ok(Some(installed)) => {
+                let said = installed.as_deref().map_or_else(
+                    || "a build that names no commit".to_string(),
+                    |c| short(c).to_string(),
+                );
+                let why = format!(
+                    "the sealed check scores main at {} on that commit's own build, and the installed \
+                     build is {said}: it waits for main's install",
+                    short(&m.base)
+                );
+                self.stop("sealed", &why, json!({"main": m.base, "installed": installed}));
+                false
+            }
+            Err(e) => {
+                let why = format!("the sealed check could not run: {e:#}");
+                self.stop("sealed", &why, Value::Null);
+                false
+            }
+        }
+    }
+
+    /// The installed build's commit when the check will score `m` and that build is not main's; none
+    /// when the check may go on.
+    async fn waits_for_main(&self, m: &Merged) -> Result<Option<Option<String>>> {
+        let installed = (self.seams.installed)();
+        if installed.as_deref() == Some(m.base.as_str()) || !self.sealed_due(m).await? {
+            return Ok(None);
+        }
+        match self.core.sealed() {
+            Some(s) if s.counts().values().any(|n| *n > 0) => Ok(Some(installed)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Whether the branch's diff against the try's main touches a behaviour path, or
+    /// `[self.sealed] every_branch` is set.
+    async fn sealed_due(&self, m: &Merged) -> Result<bool> {
+        let (p, base, head) = (self.place.clone(), m.base.clone(), self.b.head.clone());
+        let paths: Vec<String> = blocking(move || git::paths(&p, &base, &head))
+            .await?
+            .into_iter()
+            .map(|(_, path)| path)
+            .collect();
+        Ok(hold::touches(&paths).is_some() || self.core.cfg.self_improve.sealed.every_branch)
+    }
+
     /// The sealed check of `m`: true when the join may go on.
     pub(super) async fn sealed_clear(&mut self, m: &Merged) -> bool {
         if !self.phase("sealed") {
@@ -42,13 +97,7 @@ impl Run<'_> {
 
     async fn sealed_check(&mut self, m: &Merged) -> Result<bool> {
         let core = self.core.clone();
-        let (p, base, head) = (self.place.clone(), m.base.clone(), self.b.head.clone());
-        let paths: Vec<String> = blocking(move || git::paths(&p, &base, &head))
-            .await?
-            .into_iter()
-            .map(|(_, path)| path)
-            .collect();
-        if hold::touches(&paths).is_none() && !core.cfg.self_improve.sealed.every_branch {
+        if !self.sealed_due(m).await? {
             return Ok(true);
         }
         let Some(sealed) = core.sealed().cloned() else {
@@ -73,6 +122,7 @@ impl Run<'_> {
         let after = scorer.score(&core, &candidate).await?;
         let verdict = hold::judge(&before, &after);
         let outcome = if verdict.holds() { "held" } else { "passed" };
+        let build = (self.seams.installed)();
         let fact = SelfSealedChecked {
             branch: &self.b.branch,
             head: &self.b.head,
@@ -80,6 +130,7 @@ impl Run<'_> {
             reason: None,
             verdict: &verdict,
             cached,
+            main: Some((&m.base, build.as_deref())),
         };
         if !sealed.allows(&fact.row().to_string())? {
             bail!("its numbers held a string of a sealed set, so the filter withheld them");
@@ -102,6 +153,7 @@ impl Run<'_> {
             reason: Some(reason),
             verdict: &verdict,
             cached: false,
+            main: None,
         });
         Ok(true)
     }
@@ -129,6 +181,11 @@ impl Run<'_> {
         self.hold("sealed", &v.why(), numbers);
         Ok(())
     }
+}
+
+/// A commit's first 12 characters, as a reason names it.
+fn short(commit: &str) -> &str {
+    &commit[..commit.len().min(12)]
 }
 
 /// The directory of the running daemon's own binaries: the installed main,
