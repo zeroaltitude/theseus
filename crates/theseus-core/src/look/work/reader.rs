@@ -14,12 +14,15 @@ use std::sync::Mutex;
 
 use theseus_protocol::ops::DataMark;
 
+use crate::scrub::Cuts;
 use crate::Core;
 
 /// The core, and the conversation that asks: what a part reads, and which words are its own.
 pub(super) struct Reader<'a> {
     pub core: &'a Core,
     pub here: &'a str,
+    /// Where the look's cuts may fall: never inside a value the scrubber knew when the call began.
+    pub cuts: &'a Cuts,
     /// What each other conversation's labels mark it as, read once.
     marks: Mutex<HashMap<String, Option<&'static str>>>,
     /// The other conversations whose marked words were given.
@@ -27,10 +30,11 @@ pub(super) struct Reader<'a> {
 }
 
 impl<'a> Reader<'a> {
-    pub(super) fn new(core: &'a Core, here: &'a str) -> Self {
+    pub(super) fn new(core: &'a Core, here: &'a str, cuts: &'a Cuts) -> Self {
         Self {
             core,
             here,
+            cuts,
             marks: Mutex::default(),
             given: Mutex::default(),
         }
@@ -39,21 +43,21 @@ impl<'a> Reader<'a> {
     /// Where `session` speaks, as a person reads it: a bound place's name, or the CLI or the web UI
     /// with the end of the session's id.
     pub(super) fn place(&self, session: &str) -> String {
-        place_words(&self.core.runner.place_name(session))
+        place_words(&self.core.runner.place_name(session), self.cuts)
     }
 
     /// `text`, as a line of at most `max` characters; when `session` is another conversation whose
     /// data is marked, it is noted, so that this session takes its flags on.
     pub(super) fn words(&self, session: &str, text: &str, max: usize) -> String {
         self.note_given(session);
-        super::clip(text, max)
+        super::clip(text, max, self.cuts)
     }
 
     /// `text`, as a line of at most `max` characters, in the hand that wrote it: the owner's, given as
     /// theirs; a model's, the words of the session it wrote them in ([`Reader::words`]).
     pub(super) fn hand(&self, hand: &crate::content::Hand, text: &str, max: usize) -> String {
         match hand {
-            crate::content::Hand::Owner => super::clip(text, max),
+            crate::content::Hand::Owner => super::clip(text, max, self.cuts),
             crate::content::Hand::Model(session) => self.words(session, text, max),
             crate::content::Hand::Unproven(maker) => self.unproven(maker.as_deref(), text, max),
         }
@@ -65,7 +69,7 @@ impl<'a> Reader<'a> {
     pub(super) fn unproven(&self, maker: Option<&str>, text: &str, max: usize) -> String {
         match maker {
             Some(session) => self.words(session, text, max),
-            None => super::clip(text, max),
+            None => super::clip(text, max, self.cuts),
         }
     }
 
@@ -125,16 +129,16 @@ impl<'a> Reader<'a> {
 /// take: each is clipped by itself, not left to the part's own cut.
 pub(super) const FIELD_CHARS: usize = 80;
 
-/// `s` as a short field: one line of at most [`FIELD_CHARS`] characters.
-pub(super) fn field(s: &str) -> String {
-    super::clip(s, FIELD_CHARS)
+/// `s` as a short field: one line of at most [`FIELD_CHARS`] characters, cut at a known value's edge.
+pub(super) fn field(s: &str, cuts: &Cuts) -> String {
+    super::clip(s, FIELD_CHARS, cuts)
 }
 
 /// A place's name as a person reads it: the CLI or the web UI with the end of the session's id, else
 /// the bound name; clipped.
-pub(super) fn place_words(name: &str) -> String {
+pub(super) fn place_words(name: &str, cuts: &Cuts) -> String {
     match name.strip_suffix(" on the CLI or the web UI") {
         Some(id) => format!("the CLI or the web UI (…{})", crate::task::short(id)),
-        None => field(name),
+        None => field(name, cuts),
     }
 }

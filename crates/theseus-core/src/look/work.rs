@@ -24,11 +24,14 @@
 //! **Bounded**, and it says what it left out: per list at most 10 to 15 lines for this conversation
 //! and 15 for the rest (see the constants), a message of at most 600 characters (20 at most), a part
 //! of at most 8,000 characters, and 24,000 in all (a deferred tool: the result is paid only when it is
-//! called). **Never** an answer: it lists what waits, and the owner answers it.
+//! called). **Never** an answer: it lists what waits, and the owner answers it. Every cut, of a line, a part
+//! or the answer, stops at a known value's edge (the call's `Cuts`), so the answer holds each value the
+//! scrubber knows whole or not at all.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::scrub::Cuts;
 use crate::Core;
 
 mod history;
@@ -159,14 +162,16 @@ pub(super) fn schema() -> Value {
 
 /// The words for each part asked for: Theseus's whole work, this conversation's first, and its own
 /// messages (`session`'s); and the messages the history part shows (what the result copies, `copies`): those
-/// some of whose words its own cuts leave in the answer ([`assemble`]).
+/// some of whose words its own cuts leave in the answer ([`assemble`]). Every cut stops at the edge of a value
+/// `cuts` knows.
 pub(super) async fn words(
     core: &std::sync::Arc<Core>,
     who: &Caller<'_>,
     ask: &Ask,
+    cuts: &Cuts,
 ) -> Result<(String, Vec<String>), String> {
     let session = who.session;
-    let r = reader::Reader::new(core, session);
+    let r = reader::Reader::new(core, session, cuts);
     let mut parts = Vec::new();
     for p in &ask.parts {
         let mut shown = Vec::new();
@@ -182,7 +187,7 @@ pub(super) async fn words(
             ("routines", _) => horizon::routines(&r),
             ("coming", _) => horizon::coming(&r, ask.here),
             _ => {
-                let (words, spans) = history::history(core, session, ask.messages);
+                let (words, spans) = history::history(core, session, ask.messages, cuts);
                 shown = spans;
                 words
             }
@@ -220,29 +225,30 @@ pub(super) async fn words(
             );
         }
     }
-    let (said, shown) = assemble(parts);
+    let (said, shown) = assemble(parts, cuts);
     Ok((said, shown.into_iter().map(|(id, _, _)| id).collect()))
 }
 
 /// A message a part shows: its node id, and where its words are, in characters, `from` to `to`.
 pub(super) type Shown = (String, usize, usize);
 
-/// The answer from its parts, in order: each cut to [`TOTAL_CHARS`], then the whole to [`ANSWER_CHARS`]; and
-/// the messages some of whose words both cuts leave in it, each with where those words are in the answer
-/// (D6 round 6). A message a cut leaves out is no copy.
-fn assemble(parts: Vec<(String, Vec<Shown>)>) -> (String, Vec<Shown>) {
+/// The answer from its parts, in order: each cut to [`TOTAL_CHARS`], then the whole to [`ANSWER_CHARS`], each
+/// cut at a known value's edge (`cuts`); and the messages some of whose words both cuts leave in it, each with
+/// where those words are in the answer, up to where each cut really fell (D6 round 6). A message a cut leaves
+/// out is no copy.
+fn assemble(parts: Vec<(String, Vec<Shown>)>, cuts: &Cuts) -> (String, Vec<Shown>) {
     let mut out = String::new();
     let mut shown = Vec::new();
     for (part, spans) in parts {
         let at = out.chars().count();
-        let kept = part.chars().count().min(TOTAL_CHARS);
+        let (part, kept) = cut_kept(part, TOTAL_CHARS, cuts);
         shown.extend(within(spans, kept).map(|(id, from, to)| (id, at + from, at + to)));
-        out.push_str(&cut(part, TOTAL_CHARS));
+        out.push_str(&part);
         out.push('\n');
     }
-    let kept = out.chars().count().min(ANSWER_CHARS);
+    let (out, kept) = cut_kept(out, ANSWER_CHARS, cuts);
     let shown = within(shown, kept).collect();
-    (cut(out, ANSWER_CHARS), shown)
+    (out, shown)
 }
 
 /// The spans that begin within the first `kept` characters, each ended there at the latest: what a cut that keeps
@@ -259,24 +265,35 @@ pub(super) struct Caller<'a> {
     pub turn: &'a str,
 }
 
-/// `s` as one line of at most `max` characters: control characters and line breaks gone.
-fn clip(s: &str, max: usize) -> String {
-    clip_kept(s, max).0
+/// `s` as one line of at most `max` characters: control characters and line breaks gone. The cut never falls
+/// inside a known value (`cuts`), and a value the rewrite would change is cut away before the rewrite.
+fn clip(s: &str, max: usize, cuts: &Cuts) -> String {
+    clip_kept(s, max, cuts).0
 }
 
-/// [`clip`], and the bytes of `s` it kept: the line is [`clip1`] of them, then `…` when it was cut.
-fn clip_kept(s: &str, max: usize) -> (String, std::ops::Range<usize>) {
-    let one = clip1(s);
+/// [`clip`], and the bytes of `s` it kept: the line is [`clip1`] of them, then `…` when anything of `s` but
+/// blanks is left out after them. They hold each known value whole or none of it.
+fn clip_kept(s: &str, max: usize, cuts: &Cuts) -> (String, std::ops::Range<usize>) {
+    let kept = cuts.unchanged(s, |c| c.is_control() || c.is_whitespace());
+    let short = kept < s.len();
+    let head = &s[..kept];
+    let one = clip1(head);
     let one = one.trim();
     match one.char_indices().nth(max) {
-        Some((at, _)) => (
-            format!("{}…", &one[..at]),
-            crate::view::text::kept::source(s, at, |c| c),
-        ),
-        None => (
-            one.to_string(),
-            crate::view::text::kept::source(s, one.len(), |c| c),
-        ),
+        Some((at, _)) => {
+            let p = cuts.before(one, at);
+            (
+                format!("{}…", &one[..p]),
+                crate::view::text::kept::source(head, p, |c| c),
+            )
+        }
+        None => {
+            let range = crate::view::text::kept::source(head, one.len(), |c| c);
+            match short {
+                true => (format!("{one}…"), range),
+                false => (one.to_string(), range),
+            }
+        }
     }
 }
 
@@ -288,13 +305,25 @@ fn clip1(s: &str) -> String {
 }
 
 /// `text` cut to `max` characters, with what was left out said.
-fn cut(text: String, max: usize) -> String {
-    if text.chars().count() <= max {
-        return text;
+#[cfg(test)]
+fn cut(text: String, max: usize, cuts: &Cuts) -> String {
+    cut_kept(text, max, cuts).0
+}
+
+/// [`cut`], and how many characters of `text` it kept: the cut stops at a known value's edge (`cuts`).
+fn cut_kept(text: String, max: usize, cuts: &Cuts) -> (String, usize) {
+    let (head, cut) = cuts.head(&text, max);
+    let kept = head.chars().count();
+    match cut {
+        false => (text, kept),
+        true => (
+            format!("{head}…\n[cut at {max} characters; ask for fewer messages or one part]\n"),
+            kept,
+        ),
     }
-    let head: String = text.chars().take(max).collect();
-    format!("{head}…\n[cut at {max} characters; ask for fewer messages or one part]\n")
 }
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_cut;
