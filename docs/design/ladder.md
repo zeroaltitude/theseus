@@ -51,7 +51,7 @@ New META families only: no field on an existing record, no store-format step.
 
 At an exchange's end, the point the card's observer and `people.v1` already use (`judge::categorize`), in a task
 of its own: never a task's turn, never on the turn's path. It writes the line, then runs the place's fold step.
-One summary job runs at a time. `theseus exchanges ladder <place> [--dry-run] [--cap-usd N]` builds a place's
+One summary job runs at a time. `theseus ledger ladder <place> [--dry-run] [--cap-usd N]` builds a place's
 ladder from its history: the missing lines, oldest first, then the folds. A dry run counts the exchanges, the
 lines and the folds, prices them at their worst case, and writes nothing.
 

@@ -581,7 +581,7 @@ per turn today, so step 1 adds it). A new session does not start a new place or 
   first level keeps the line.
 - **A source is summarised only when it is proven neither sealed nor veiled**, checked again just before the model
   call; a window that is held out folds by code, marked sealed and veiled. The ladder's spend has a daily line of
-  its own ($2), reserved before each call. `theseus exchanges ladder <place>` builds a place's ladder from its
+  its own ($2), reserved before each call. `theseus ledger ladder <place>` builds a place's ladder from its
   history; only the owner in person may run it.
 - **`/new`** is the chat's `/new`; the terminal has none. The terminal and the web page are one place,
   `local:<dir>`.
