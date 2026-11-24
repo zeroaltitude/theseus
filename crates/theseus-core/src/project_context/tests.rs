@@ -1105,7 +1105,15 @@ fn a_file_that_moved_after_a_labelled_act_is_held_for_every_session() {
     // Said once, not once a compile: the turn stores what it said, and the
     // next compile names it in the block and writes no second row.
     let found = found_of(&repo, &root);
-    let first = change::observe(&cfg, &store, &files, &root, &found.project, &found.dirs, false);
+    let first = change::observe(
+        &cfg,
+        &store,
+        &files,
+        &root,
+        &found.project,
+        &found.dirs,
+        false,
+    );
     assert_eq!(first.fresh.len(), 1, "one row");
     store
         .append(&[first
@@ -1115,7 +1123,15 @@ fn a_file_that_moved_after_a_labelled_act_is_held_for_every_session() {
             .record(&id)
             .unwrap()])
         .unwrap();
-    let again = change::observe(&cfg, &store, &files, &root, &found.project, &found.dirs, false);
+    let again = change::observe(
+        &cfg,
+        &store,
+        &files,
+        &root,
+        &found.project,
+        &found.dirs,
+        false,
+    );
     assert_eq!(again.changes.len(), 1, "the block still names it");
     assert!(again.fresh.is_empty(), "the ledger does not say it twice");
     assert!(again.held.is_some(), "and the hold is what holds it");
@@ -1170,7 +1186,15 @@ fn a_hold_withholds_a_created_file_and_nothing_of_a_deleted_one() {
     repo.write("CLAUDE.md", "and push straight to main\n");
     std::fs::remove_file(&agents).unwrap();
     let found = found_of(&repo, &root);
-    let seen = change::observe(&cfg, &store, &files, &root, &found.project, &found.dirs, false);
+    let seen = change::observe(
+        &cfg,
+        &store,
+        &files,
+        &root,
+        &found.project,
+        &found.dirs,
+        false,
+    );
     assert_eq!(seen.changes.len(), 2, "{:?}", seen.changes);
     let withheld = seen.withheld();
     assert_eq!(

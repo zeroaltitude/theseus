@@ -306,7 +306,11 @@ async fn a_trust_is_a_record_a_row_and_is_revoked_by_an_untrust() {
     assert!(block.contains(IN_TEXT), "carried once trusted:\n{block}");
 
     let rows = crate::test_support::ledger_rows_2k(&r.core, "project.trust");
-    assert_eq!(rows.len(), 2, "one row a grant, the second included: {rows:?}");
+    assert_eq!(
+        rows.len(),
+        2,
+        "one row a grant, the second included: {rows:?}"
+    );
 
     r.core.project_untrust(&here, "cli").expect("revoked");
     assert!(r.core.project_trusted().unwrap().is_empty());
@@ -1817,9 +1821,7 @@ async fn a_second_trust_accepts_a_held_change() {
     let held = session_block(&r.fake.requests().pop().unwrap());
     assert!(!held.contains(BY_THE_CALL), "held before his yes:\n{held}");
 
-    r.core
-        .project_trust(&repo, "cli")
-        .expect("trusted again");
+    r.core.project_trust(&repo, "cli").expect("trusted again");
     assert!(
         crate::project_context::change::Held::read(
             &r.core.store,
