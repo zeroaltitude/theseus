@@ -923,8 +923,9 @@ async fn only_his_own_terminal_runs_it() {
 }
 
 /// KEY: the daemon refuses a cap that is no money as the CLI does (zero, a
-/// negative number, a sum too small to round to a micro-dollar), before any
-/// history is read; none is $10; a large one is the owner's and is said back.
+/// negative number, any sum under $0.000001, not as it rounds), before any
+/// history is read; none is $10; $0.000001 is a cap; a large one is the
+/// owner's and is said back.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_daemon_refuses_a_cap_that_is_no_money() {
     let jev = FakeJev::start().unwrap();
@@ -933,7 +934,16 @@ async fn the_daemon_refuses_a_cap_that_is_no_money() {
     ledger_topic(&r.core);
     let sid = bound(&r.core);
     said(&r.core, &sid, "turn_old", SAID, 5_000);
-    for (dry_run, cap) in [(true, 0.0), (false, 0.0), (false, -1.0), (false, 4e-7)] {
+    let no_money = [
+        (true, 0.0),
+        (false, 0.0),
+        (false, -1.0),
+        (false, 4e-7),
+        (false, 5e-7),
+        (true, 7.5e-7),
+        (false, 7.5e-7),
+    ];
+    for (dry_run, cap) in no_money {
         let e = rpc_as(
             &r.core,
             surface("sock#1", Surface::Cli),
@@ -949,7 +959,12 @@ async fn the_daemon_refuses_a_cap_that_is_no_money() {
         );
     }
     assert!(r.jev.seen().is_empty(), "no call");
-    for (cap, said_back) in [(json!(null), 10.0), (json!(1e12), 1e12)] {
+    let caps = [
+        (json!(null), 10.0),
+        (json!(0.000001), 0.000001),
+        (json!(1e12), 1e12),
+    ];
+    for (cap, said_back) in caps {
         let v = rpc_as(
             &r.core,
             surface("sock#1", Surface::Cli),

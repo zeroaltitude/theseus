@@ -138,11 +138,12 @@ pub struct ExchangeTopicsParams {
 
 /// A run's cap of `exchange.topics` (issue 46), as the CLI reads it before
 /// it builds a request and the daemon again: a finite number of dollars
-/// that is at least one micro-dollar once rounded, as budgets count in
-/// them. NaN, an infinity, zero, a negative number and a sum too small to
-/// round to any money are refused; a large one is the owner's to name.
+/// that is at least $0.000001 (one micro-dollar, as budgets count), the
+/// number itself, not as it rounds. NaN, an infinity, zero, a negative
+/// number and any sum under a micro-dollar are refused; a large one is the
+/// owner's to name.
 pub fn topics_cap(usd: f64) -> Result<f64, String> {
-    match usd.is_finite() && (usd * 1_000_000.0).round() >= 1.0 {
+    match usd.is_finite() && usd >= 0.000_001 {
         true => Ok(usd),
         false => Err(format!(
             "--cap-usd is a number of dollars of at least $0.000001, not {usd}"

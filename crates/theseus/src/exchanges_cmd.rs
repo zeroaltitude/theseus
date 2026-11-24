@@ -171,12 +171,10 @@ pub fn ladder_lines(r: &ExchangeLadderResult) -> String {
 /// A filing of the history in two lines: what the ledger holds, and what the
 /// run would ask or did. Counts and dollars, never a message's words.
 pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
+    let cap = cap_dollars(r.cap_usd);
     let mut s = match r.dry_run {
-        true => format!(
-            "a dry run for a cap of ${:.2} a run: nothing is asked\n",
-            r.cap_usd
-        ),
-        false => format!("a run with a cap of ${:.2}\n", r.cap_usd),
+        true => format!("a dry run for a cap of ${cap} a run: nothing is asked\n"),
+        false => format!("a run with a cap of ${cap}\n"),
     };
     s.push_str(&format!(
         "{} exchanges: {} already touch a topic, {} are not yours, {} were asked before, {} open \
@@ -186,21 +184,29 @@ pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
     match r.dry_run {
         true => s.push_str(&format!(
             "\nwould ask {n}: ${:.4} at worst for all {n} of them (it may be more than the cap); a run \
-             stops at its cap of ${:.2}",
+             stops at its cap of ${cap}",
             r.worst_usd,
-            r.cap_usd,
             n = r.to_ask
         )),
         false => s.push_str(&format!(
             "\nasked {} of {} ({} answered): {} exchanges filed with {} touches; spent ${:.4} of a \
-             cap of ${:.2}",
-            r.asked, r.to_ask, r.answered, r.filed, r.touches, r.spent_usd, r.cap_usd
+             cap of ${cap}",
+            r.asked, r.to_ask, r.answered, r.filed, r.touches, r.spent_usd
         )),
     }
     if let Some(why) = &r.stopped {
         s.push_str(&format!("\nstopped: {why}"));
     }
     s
+}
+
+/// A cap's dollars: to the cent from a cent up, and under a cent with the
+/// decimals it has, so a cap of $0.000001 is never shown as $0.00.
+fn cap_dollars(usd: f64) -> String {
+    match usd >= 0.01 {
+        true => format!("{usd:.2}"),
+        false => format!("{usd}"),
+    }
 }
 
 #[cfg(test)]
@@ -250,10 +256,44 @@ mod tests {
              judge does not act on now\nasked 1 of 3 (1 answered): 1 exchanges filed with 2 \
              touches; spent $0.0003 of a cap of $10.00\nstopped: stopped at the cap"
         );
+        // A cap under a cent is shown with its decimals, never as $0.00;
+        // one of a cent or more, to the cent.
+        let small = ExchangeTopicsResult {
+            cap_usd: 0.000001,
+            stopped: None,
+            ..run
+        };
+        assert_eq!(
+            topics_lines(&small),
+            "a run with a cap of $0.000001\n9 exchanges: 2 already touch a topic, 1 are not yours, \
+             1 were asked before, 2 open with no message of yours, 0 are in places the \
+             ontology's judge does not act on now\nasked 1 of 3 (1 answered): 1 exchanges filed \
+             with 2 touches; spent $0.0003 of a cap of $0.000001"
+        );
+        let dry_small = ExchangeTopicsResult {
+            cap_usd: 0.0025,
+            ..dry.clone()
+        };
+        assert_eq!(
+            topics_lines(&dry_small),
+            "a dry run for a cap of $0.0025 a run: nothing is asked\n9 exchanges: 2 already touch \
+             a topic, 1 are not yours, 1 were asked before, 2 open with no message of yours, 0 are \
+             in places the ontology's judge does not act on now\nwould ask 3: $0.0012 at worst \
+             for all 3 of them (it may be more than the cap); a run stops at its cap of $0.0025"
+        );
+        let cent = ExchangeTopicsResult {
+            cap_usd: 0.01,
+            ..dry
+        };
+        assert!(
+            topics_lines(&cent).starts_with("a dry run for a cap of $0.01 a run"),
+            "{}",
+            topics_lines(&cent)
+        );
     }
 
     /// The cap is read before a request is built: NaN, the infinities, zero,
-    /// a negative number and a sum too small to round to any money are
+    /// a negative number and any sum under $0.000001 (not as it rounds) are
     /// refused by the parser, and by the request's builder; a cap that holds
     /// goes on the wire as it was typed, and none goes as none (the daemon's
     /// $10).
@@ -281,11 +321,24 @@ mod tests {
             "-0",
             "-1",
             "0.0000004",
+            "0.0000005",
+            "0.00000075",
+            "0.00000099",
             "ten",
         ] {
             assert!(parse(Some(bad)).is_err(), "{bad} was parsed");
         }
-        let bad = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 0.0, -1.0, 4e-7];
+        let bad = [
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            0.0,
+            -1.0,
+            4e-7,
+            5e-7,
+            7.5e-7,
+            9.9e-7,
+        ];
         for usd in bad {
             assert!(topics_params(false, Some(usd)).is_err(), "{usd} was built");
         }

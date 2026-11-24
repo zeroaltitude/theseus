@@ -63,8 +63,9 @@ prices their worst case, and asks nothing.
   run's plan reads every answer, one that touched nothing included. What cannot be promised: a daemon crash after
   the provider took a request and before its answer was stored may pay for that one exchange again.
 - **Money**: the run's cap (`--cap-usd`, default $10; a number of dollars of at least $0.000001, so NaN, an infinity,
-  zero, a negative number and a sum too small to round to money are refused by the CLI before it builds the request
-  and by the daemon again; the output's first line says the cap in use) is checked before each call against the
+  zero, a negative number and any sum under $0.000001 are refused by the CLI before it builds the request and by the
+  daemon again; the output's first line says the cap in use, to the cent from a cent up, and under a cent with its
+  decimals) is checked before each call against the
   call's worst case, and the run stops before the exchange that would pass it. Each call reserves on the judge's day
   budget, which holds on the daemon's day ceiling, and settles at its price. Its calls are shadow's, and shadow's
   lines are `judge/spend.rs`'s, unchanged: its line is 70% of `[judge] shadow_limit_usd_per_day`, and a call past it
