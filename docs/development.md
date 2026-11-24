@@ -446,6 +446,8 @@ may join together as a batch, landed with one gate.
    - a test one side moved and the other changed.
 5. **Land and gate.** Take the join lock, fast-forward `main` to the reviewed merge chain, and run `main`'s gate on it
    through the door, with the benches.
+   - Every route that lands on `main` recounts `STATS.md` (the landing tool, the self loop's join); the gate refuses a
+     tree on `main` whose `STATS.md` line counts are stale (`scripts/stats.py --check`).
    - A red gate is never rerun until it happens to pass.
    - If the red is in the branch, reset `main` (it was never pushed), fix the branch, and take the lock again.
    - If the red is a race in a test no branch touched, fix the race in its own commit, then land and gate the two
