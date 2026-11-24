@@ -474,7 +474,10 @@ fn serve_one(
             let out = match *status {
                 200 => {
                     let mut v = answers(&req, &script, Some(text.clone()));
-                    let all = v["answers"].as_object_mut().into_iter().flat_map(|a| a.values_mut());
+                    let all = v["answers"]
+                        .as_object_mut()
+                        .into_iter()
+                        .flat_map(|a| a.values_mut());
                     for a in all.filter(|a| a.get("choice").is_some()) {
                         a["choice"] = json!(text);
                     }

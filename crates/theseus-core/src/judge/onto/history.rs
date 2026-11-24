@@ -60,8 +60,8 @@ use std::sync::Arc;
 
 use serde_json::json;
 use theseus_judge::builders::ONTO_KINDS;
-use theseus_judge::price::Micros;
 use theseus_judge::judge::UNPINNED;
+use theseus_judge::price::Micros;
 use theseus_judge::{
     Ask, DecisionPoint, Input, JevError, Judge, Judgment, JudgmentSink, Mode, Outcome, Urgency,
 };
@@ -333,8 +333,14 @@ fn withheld(mut j: Judgment) -> Judgment {
                 message: w(),
                 retry_after_secs,
             },
-            JevError::Server { status, .. } => JevError::Server { status, message: w() },
-            JevError::Auth { status, .. } => JevError::Auth { status, message: w() },
+            JevError::Server { status, .. } => JevError::Server {
+                status,
+                message: w(),
+            },
+            JevError::Auth { status, .. } => JevError::Auth {
+                status,
+                message: w(),
+            },
             JevError::InvalidRequest { status, .. } => JevError::InvalidRequest {
                 status,
                 message: w(),

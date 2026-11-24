@@ -69,7 +69,10 @@ pub fn topics_params(dry_run: bool, cap_usd: Option<f64>) -> Result<serde_json::
     if let Some(usd) = cap_usd {
         theseus_protocol::exchange::topics_cap(usd).map_err(anyhow::Error::msg)?;
     }
-    Ok(serde_json::to_value(ExchangeTopicsParams { dry_run, cap_usd })?)
+    Ok(serde_json::to_value(ExchangeTopicsParams {
+        dry_run,
+        cap_usd,
+    })?)
 }
 
 /// `theseus ledger rebuild-exchanges`.
@@ -169,7 +172,10 @@ pub fn ladder_lines(r: &ExchangeLadderResult) -> String {
 /// run would ask or did. Counts and dollars, never a message's words.
 pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
     let mut s = match r.dry_run {
-        true => format!("a dry run for a cap of ${:.2} a run: nothing is asked\n", r.cap_usd),
+        true => format!(
+            "a dry run for a cap of ${:.2} a run: nothing is asked\n",
+            r.cap_usd
+        ),
         false => format!("a run with a cap of ${:.2}\n", r.cap_usd),
     };
     s.push_str(&format!(
@@ -266,7 +272,16 @@ mod tests {
             T::try_parse_from(argv)
         };
         for bad in [
-            "NaN", "nan", "inf", "-inf", "infinity", "0", "-0", "-1", "0.0000004", "ten",
+            "NaN",
+            "nan",
+            "inf",
+            "-inf",
+            "infinity",
+            "0",
+            "-0",
+            "-1",
+            "0.0000004",
+            "ten",
         ] {
             assert!(parse(Some(bad)).is_err(), "{bad} was parsed");
         }
@@ -277,7 +292,10 @@ mod tests {
         let good = [
             (None, json!({"dry_run": false})),
             (Some("2.5"), json!({"dry_run": false, "cap_usd": 2.5})),
-            (Some("0.000001"), json!({"dry_run": false, "cap_usd": 0.000001})),
+            (
+                Some("0.000001"),
+                json!({"dry_run": false, "cap_usd": 0.000001}),
+            ),
             (Some("1e9"), json!({"dry_run": false, "cap_usd": 1e9})),
         ];
         for (cap, wire) in good {

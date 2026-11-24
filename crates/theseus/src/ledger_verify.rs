@@ -80,8 +80,8 @@ pub enum LedgerCmd {
 /// `--cap-usd` of `theseus ledger topics`, read before any request is built:
 /// a number, and one [`theseus_protocol::exchange::topics_cap`] holds.
 fn cap_usd(s: &str) -> Result<f64, String> {
-    let usd: f64 = (s.trim().parse())
-        .map_err(|_| format!("--cap-usd is a number of dollars, not {s:?}"))?;
+    let usd: f64 =
+        (s.trim().parse()).map_err(|_| format!("--cap-usd is a number of dollars, not {s:?}"))?;
     theseus_protocol::exchange::topics_cap(usd)
 }
 
@@ -341,7 +341,11 @@ mod tests {
         }
         let mut t = T::command();
         let help = t.find_subcommand_mut("topics").unwrap().render_long_help();
-        let flat = help.to_string().split_whitespace().collect::<Vec<_>>().join(" ");
+        let flat = help
+            .to_string()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
         let said = "A touch this writes means the old exchange fits that topic as judged today, \
                     with today's topics; it is placed at the exchange's own date.";
         assert!(flat.contains(said), "{flat}");

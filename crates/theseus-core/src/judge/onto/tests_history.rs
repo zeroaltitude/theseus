@@ -517,7 +517,11 @@ async fn an_agents_process_is_refused_and_asks_nothing() {
         }
     }
     let refused = of_kind(&r.core, LedgerKind::ApprovalRefused);
-    assert_eq!(refused.len(), 4, "the agent's two and Discord's: {refused:?}");
+    assert_eq!(
+        refused.len(),
+        4,
+        "the agent's two and Discord's: {refused:?}"
+    );
     assert!(r.jev.seen().is_empty(), "no call");
     assert!(timeline(&r.core, "topic:ledger").is_empty());
     assert!(of_kind(&r.core, LedgerKind::JudgeCall).is_empty());
@@ -567,7 +571,11 @@ async fn no_word_of_a_message_is_in_the_answer_or_the_rows() {
 async fn no_word_an_answer_brings_back_is_in_a_row() {
     let cases = [
         ("server", FakeMode::Says(500, SAID.into()), "server"),
-        ("refused", FakeMode::Says(400, SAID.into()), "invalid_request"),
+        (
+            "refused",
+            FakeMode::Says(400, SAID.into()),
+            "invalid_request",
+        ),
         ("malformed", FakeMode::Says(200, SAID.into()), "malformed"),
         ("drifted", FakeMode::Up, ""),
     ];
@@ -600,7 +608,11 @@ async fn no_word_an_answer_brings_back_is_in_a_row() {
         let d = &call.data;
         match class {
             "" => assert_eq!(
-                (&d["outcome"]["outcome"], &d["model_drift"], &d["answered_by"]),
+                (
+                    &d["outcome"]["outcome"],
+                    &d["model_drift"],
+                    &d["answered_by"]
+                ),
                 (&json!("answered"), &json!(true), &Value::Null),
                 "{case}: {d}"
             ),
@@ -610,7 +622,10 @@ async fn no_word_an_answer_brings_back_is_in_a_row() {
                 "{case}: {d}"
             ),
         }
-        assert!(d["reserve_micros"].as_u64().is_some_and(|m| m > 0), "{case}: {d}");
+        assert!(
+            d["reserve_micros"].as_u64().is_some_and(|m| m > 0),
+            "{case}: {d}"
+        );
         assert_eq!(d["rate_limit"], json!({}), "{case}: {d}");
     }
 }
@@ -733,11 +748,7 @@ async fn a_category_retired_while_the_call_is_out_gets_no_touch() {
     r.jev.set_mode(FakeMode::Up);
     r.jev.release();
     let out = running.await.unwrap().unwrap();
-    assert_eq!(
-        (out.asked, out.answered, out.touches),
-        (1, 1, 0),
-        "{out:?}"
-    );
+    assert_eq!((out.asked, out.answered, out.touches), (1, 1, 0), "{out:?}");
     assert!(timeline(&r.core, "topic:ledger").is_empty());
 }
 
@@ -789,7 +800,11 @@ async fn a_recorded_answer_is_not_touched_after_a_rollback_or_a_stop() {
         }
         let again = r.core.topics_history(&params(false, None)).await.unwrap();
         assert_eq!(r.jev.seen().len(), 1, "{case}: no call");
-        assert_eq!((again.asked_before, again.touches), (1, 0), "{case}: {again:?}");
+        assert_eq!(
+            (again.asked_before, again.touches),
+            (1, 0),
+            "{case}: {again:?}"
+        );
         assert!(timeline(&r.core, "topic:ledger").is_empty(), "{case}");
         if case == "stopping" {
             let why = again.stopped.as_deref().unwrap_or_default();
@@ -812,7 +827,11 @@ async fn the_days_line_warns_and_ten_times_it_stops() {
         ledger_topic(&r.core);
         let sid = bound(&r.core);
         said(&r.core, &sid, "turn_old", SAID, 5_000);
-        r.core.topics_history(&params(true, None)).await.unwrap().worst_usd
+        r.core
+            .topics_history(&params(true, None))
+            .await
+            .unwrap()
+            .worst_usd
     };
     assert!(worst > 0.0);
     for (case, limit_usd, asked) in [("warning", worst, 1), ("stop", worst / 10.0, 0)] {
@@ -825,7 +844,11 @@ async fn the_days_line_warns_and_ten_times_it_stops() {
         let sid = bound(&r.core);
         said(&r.core, &sid, "turn_old", SAID, 5_000);
         let out = r.core.topics_history(&params(false, None)).await.unwrap();
-        assert_eq!((out.asked, r.jev.seen().len()), (asked, asked as usize), "{case}: {out:?}");
+        assert_eq!(
+            (out.asked, r.jev.seen().len()),
+            (asked, asked as usize),
+            "{case}: {out:?}"
+        );
         let over = of_kind(&r.core, LedgerKind::JudgeOverLine);
         match case {
             "warning" => {
@@ -863,7 +886,10 @@ async fn only_his_own_terminal_runs_it() {
         ),
         ("discord", Client::new("discord", Surface::Discord)),
         ("mcp", Client::new("mcp", Surface::Mcp)),
-        ("an unnamed connection", Client::new("conn#9", Surface::Unnamed)),
+        (
+            "an unnamed connection",
+            Client::new("conn#9", Surface::Unnamed),
+        ),
     ];
     for (who, client) in callers {
         for dry_run in [true, false] {
@@ -884,7 +910,11 @@ async fn only_his_own_terminal_runs_it() {
         }
     }
     let refused = of_kind(&r.core, LedgerKind::ApprovalRefused);
-    assert_eq!(refused.len(), 8, "each refusal ledgered, MCP's apart: {refused:?}");
+    assert_eq!(
+        refused.len(),
+        8,
+        "each refusal ledgered, MCP's apart: {refused:?}"
+    );
     let web = format!("{:?}", refused[0].data);
     assert!(web.contains("own terminal alone"), "{web}");
     assert!(r.jev.seen().is_empty(), "no call");
@@ -913,7 +943,10 @@ async fn the_daemon_refuses_a_cap_that_is_no_money() {
         .await
         .expect_err("no money is no cap");
         assert_eq!(e.code, error_code::INVALID_PARAMS, "{cap}: {e:?}");
-        assert!(e.message.starts_with("--cap-usd is a number of dollars"), "{e:?}");
+        assert!(
+            e.message.starts_with("--cap-usd is a number of dollars"),
+            "{e:?}"
+        );
     }
     assert!(r.jev.seen().is_empty(), "no call");
     for (cap, said_back) in [(json!(null), 10.0), (json!(1e12), 1e12)] {
@@ -943,14 +976,34 @@ async fn only_the_owners_own_exchanges_are_asked() {
     let sid = bound(&r.core);
     let c = &r.core;
     said(c, &sid, "turn_his", SAID, 1_000);
-    let guest = Node::user(&sid, Some("turn_guest"), "discord:77", "a Lantern Harbour guest");
+    let guest = Node::user(
+        &sid,
+        Some("turn_guest"),
+        "discord:77",
+        "a Lantern Harbour guest",
+    );
     exchange_of(c, (&sid, "turn_guest"), &guest, 2_000, Some("discord:77"));
-    let nobody = Node::user(&sid, Some("turn_nobody"), "test", "a Lantern Harbour unknown");
+    let nobody = Node::user(
+        &sid,
+        Some("turn_nobody"),
+        "test",
+        "a Lantern Harbour unknown",
+    );
     exchange_of(c, (&sid, "turn_nobody"), &nobody, 3_000, None);
-    let mut imported = Node::user(&sid, Some("turn_imported"), "test", "a Lantern Harbour import");
+    let mut imported = Node::user(
+        &sid,
+        Some("turn_imported"),
+        "test",
+        "a Lantern Harbour import",
+    );
     imported.origin = crate::node::Origin::Import;
     old_exchange(c, &sid, "turn_imported", &imported, 4_000);
-    let erased = Node::user(&sid, Some("turn_erased"), "test", "a Lantern Harbour erasure");
+    let erased = Node::user(
+        &sid,
+        Some("turn_erased"),
+        "test",
+        "a Lantern Harbour erasure",
+    );
     old_exchange(c, &sid, "turn_erased", &erased, 5_000);
     c.store
         .append(&[erased.erased(6_000, "a test's erase").record().unwrap()])
@@ -959,7 +1012,13 @@ async fn only_the_owners_own_exchanges_are_asked() {
     let sent: String = r.jev.seen().iter().map(|s| s.body.to_string()).collect();
     assert!(!sent.contains("Lantern Harbour"), "only his was sent");
     assert_eq!(
-        (out.exchanges, out.to_ask, out.asked, out.not_owner, out.no_message),
+        (
+            out.exchanges,
+            out.to_ask,
+            out.asked,
+            out.not_owner,
+            out.no_message
+        ),
         (5, 1, 1, 2, 2),
         "{out:?}"
     );

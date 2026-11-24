@@ -192,7 +192,8 @@ impl Core {
         let who = conn.answerer(None, None);
         if conn.surface != Surface::Cli {
             let from = crate::approval::display_name(conn.surface.as_str());
-            let why = format!("it is run at your own terminal alone, and this came from the {from}");
+            let why =
+                format!("it is run at your own terminal alone, and this came from the {from}");
             return Err(self.topics_refused(&who, why));
         }
         self.import_judged(conn, method::EXCHANGE_TOPICS, TOPICS_WHAT)?;
