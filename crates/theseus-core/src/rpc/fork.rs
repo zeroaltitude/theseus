@@ -51,6 +51,15 @@ fn refused(m: impl Into<String>) -> RpcFailure {
     RpcFailure::new(error_code::REFUSED, m)
 }
 
+/// A record under `labels.` that does not read and names an item the fork holds refuses the fork, in its
+/// fixed words; any other error is the store's.
+fn unread_refused(e: anyhow::Error) -> RpcFailure {
+    match e.downcast_ref::<crate::fork::UnreadLabels>() {
+        Some(u) => refused(u.to_string()),
+        None => e.into(),
+    }
+}
+
 impl Core {
     /// `session.fork`.
     pub(crate) fn session_fork(
@@ -71,6 +80,10 @@ impl Core {
         };
         self.fork_allowed(surface, &source, src_exec.as_ref())?;
         let (at_position, at_node) = self.fork_point(&source, &p.at)?;
+        // Every item label the fork would carry reads, or it is refused before anything is written (issue 44).
+        let mut scratch = crate::content::ContentFlags::default();
+        crate::fork::labels_through(&self.store, &source.session_id, at_position, &mut scratch)
+            .map_err(unread_refused)?;
         let base = self.compilation_holding(&at_node, at_position, &source)?;
 
         let (profile, limit) = self.fork_target(&p, &source)?;
@@ -118,7 +131,8 @@ impl Core {
             &source.session_id,
             at_position,
             &mut inherited,
-        )?;
+        )
+        .map_err(unread_refused)?;
         if rec.data.as_deref() != Some(&inherited)
             && inherited != crate::content::ContentFlags::default()
         {

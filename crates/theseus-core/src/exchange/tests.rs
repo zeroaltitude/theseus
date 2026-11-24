@@ -986,6 +986,16 @@ fn older_item(node: &str, flag: &str) -> Value {
            "removed": [{"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2, "note": PAYLOAD}]})
 }
 
+/// An item's record of today's shape but for one raised label, `injection`, that does not read (it has no
+/// `source`): a damaged item's record, which is read for nothing.
+fn damaged_item(node: &str) -> Value {
+    let mut bad = label_json(node, "injection");
+    bad.as_object_mut().unwrap().remove("source");
+    bad["note"] = json!(PAYLOAD);
+    json!({"node": node, "kind": "operator_message", "source": "cli", "entered_ms": 1,
+           "raised": [label_json(node, "personal"), bad]})
+}
+
 /// An object of 268 bytes with no node: the shape of the record a rebuild failed on.
 fn object_268() -> Value {
     let mut big = json!({"kind": "operator_message", "source": "cli", "entered_ms": 1, "note": PAYLOAD,
@@ -1047,9 +1057,10 @@ async fn labelled_with_odd_records(
 }
 
 /// A rebuild over a store that holds records under `labels.` that are no item's reads past them (issue 44):
-/// through the real method, its dry run and its run each say how many it passed over, the dry run writes
-/// nothing, the run writes the label touches of today's record and of the older one (read as far as it
-/// reads), and the records it passed over are left as they are.
+/// through the real method, its dry run and its run each say how many it passed over, the dry run appends
+/// nothing, the run writes the label touches of today's record and of the older one (read in its older
+/// shape), and the older record and those passed over are left as they are, at their positions, byte for
+/// byte.
 #[tokio::test]
 async fn a_rebuild_passes_over_records_under_labels_that_are_no_items() {
     use crate::content::Flag;
@@ -1057,6 +1068,21 @@ async fn a_rebuild_passes_over_records_under_labels_that_are_no_items() {
     let c = &r.core;
     let (first, second, _, older) = labelled_with_odd_records(c).await;
     let roots = [Flag::Personal, Flag::Confidential].map(crate::item_labels::touch_root);
+    let mut left = vec![older];
+    left.extend(["labels.odd-268", "labels.odd-empty", "labels.odd-text"].map(String::from));
+    let held = || -> Vec<(u64, Vec<u8>)> {
+        (left.iter())
+            .map(|key| {
+                let r = (c.store.inner())
+                    .latest_by_key(theseus_store::kinds::META, key)
+                    .unwrap();
+                let r = r.unwrap_or_else(|| panic!("{key} is held"));
+                (r.position, r.payload)
+            })
+            .collect()
+    };
+    let before = held();
+    let end = c.store.last_position();
     let rebuild = |dry_run: bool| {
         call(
             c,
@@ -1079,6 +1105,8 @@ async fn a_rebuild_passes_over_records_under_labels_that_are_no_items() {
             "the dry run wrote {root}"
         );
     }
+    assert_eq!(c.store.last_position(), end, "the dry run appended");
+    assert_eq!(held(), before, "the dry run left each record as it is");
     let run = rebuild(false).await;
     assert!(run.error.is_none(), "{:?}", run.error);
     let run = run.result.unwrap();
@@ -1092,15 +1120,7 @@ async fn a_rebuild_passes_over_records_under_labels_that_are_no_items() {
         let turns: Vec<&str> = got.iter().map(|t| t.exchange.as_str()).collect();
         assert_eq!(turns, [t.turn_id.as_str()], "{root}");
     }
-    let mut left = vec![older];
-    left.extend(["labels.odd-268", "labels.odd-empty", "labels.odd-text"].map(String::from));
-    for key in &left {
-        let r = c
-            .store
-            .inner()
-            .latest_by_key(theseus_store::kinds::META, key);
-        assert!(r.unwrap().is_some(), "{key} is left as it is");
-    }
+    assert_eq!(held(), before, "the run left each record as it is");
     let ended = c
         .store
         .inner()
@@ -1145,11 +1165,40 @@ async fn a_rebuild_over_an_object_of_268_bytes_with_no_node_completes() {
     assert_eq!(turns, [t.turn_id.as_str()]);
 }
 
-/// A fork of a session over such a store completes, and carries every label that reads (issue 44): today's
-/// record's, the older record's (its removal, which names no session, is not read: a label stands), and one
-/// raised in a record that is no item's, placed by its own node inside the fork.
+/// A damaged item's record under `labels.` (one raised label does not read) is passed over and counted by the
+/// rebuild, and none of its labels is touched, not even the one that reads by itself (issue 44).
 #[tokio::test]
-async fn a_fork_reads_past_records_under_labels_that_do_not_read_and_carries_their_labels() {
+async fn a_rebuild_passes_over_a_damaged_items_record_and_touches_none_of_its_labels() {
+    use crate::content::Flag;
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let t = turn(c, owner_cli(), None, "my diagnosis came back").await;
+    let node = input_node(c, &t);
+    let key = crate::item_labels::key(&node);
+    c.store.put_meta(&key, &damaged_item(&node)).unwrap();
+    let run = call(c, owner_cli(), "exchange.rebuild", json!({})).await;
+    assert!(run.error.is_none(), "{:?}", run.error);
+    let run = run.result.unwrap();
+    assert_eq!(
+        (run["labels_passed_over"].as_u64(), run["touches"].as_u64()),
+        (Some(1), Some(0)),
+        "{run}"
+    );
+    for flag in [Flag::Personal, Flag::Injection] {
+        let root = crate::item_labels::touch_root(flag);
+        let got = newest(&c.store, Root::Thing(&root), 8).unwrap();
+        assert!(got.is_empty(), "{root} was touched");
+    }
+    let left = (c.store.inner()).latest_by_key(theseus_store::kinds::META, &key);
+    assert!(left.unwrap().is_some(), "{key} is left as it is");
+}
+
+/// A fork of a session over such a store completes (issue 44), and carries today's record's label and the
+/// older record's (its removal, which names no session, is not read: a label stands). A record that does not
+/// read, whose key and `node` name no item of the fork, is read for nothing: a label raised in it is not
+/// carried, though it names a node inside the fork.
+#[tokio::test]
+async fn a_fork_reads_past_records_under_labels_that_do_not_read() {
     use crate::content::Flag;
     let r = rig(2, |_| {});
     let c = &r.core;
@@ -1170,9 +1219,10 @@ async fn a_fork_reads_past_records_under_labels_that_do_not_read_and_carries_the
     let rec: crate::session::SessionRecord =
         c.store.get_session(&fork.session_id).unwrap().unwrap();
     let flags = rec.data.map(|b| *b).unwrap_or_default();
-    for f in [Flag::Personal, Flag::Confidential, Flag::Secret] {
+    for f in [Flag::Personal, Flag::Confidential] {
         assert!(flags.has(f), "{f:?} is carried: {flags:?}");
     }
+    assert!(!flags.has(Flag::Secret), "nothing is read from it: {flags:?}");
 }
 
 /// A tracing writer that keeps what is logged.
@@ -1197,7 +1247,8 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Log {
 }
 
 /// Each record under `labels.` that does not read is named once, by its key, in a warning that quotes
-/// nothing of its payload (issue 44); an ended key is not read at all.
+/// nothing of its payload (issue 44); a record in the older shape reads, and is not named; an ended key is
+/// not read at all.
 #[tokio::test]
 async fn a_record_under_labels_that_does_not_read_is_named_by_its_key_alone() {
     let r = rig(2, |_| {});
@@ -1214,14 +1265,10 @@ async fn a_record_under_labels_that_does_not_read_is_named_by_its_key_alone() {
     });
     assert!(read.is_ok(), "{read:?}");
     let text = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
-    for key in [
-        older.as_str(),
-        "labels.odd-268",
-        "labels.odd-empty",
-        "labels.odd-text",
-    ] {
+    for key in ["labels.odd-268", "labels.odd-empty", "labels.odd-text"] {
         assert_eq!(text.matches(key).count(), 1, "{key} once: {text}");
     }
+    assert!(!text.contains(older.as_str()), "{text}");
     assert!(!text.contains(PAYLOAD), "a payload was quoted: {text}");
     assert!(!text.contains("labels.odd-ended"), "{text}");
 }

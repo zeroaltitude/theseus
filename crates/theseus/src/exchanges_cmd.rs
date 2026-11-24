@@ -283,7 +283,7 @@ pub fn rebuild_lines(r: &ExchangeRebuildResult) -> String {
     }
     if r.labels_passed_over > 0 {
         s.push_str(&format!(
-            "; {} records under labels. were not item labels: left as they are",
+            "; {} records under labels. could not be read as item labels: left as they are",
             r.labels_passed_over
         ));
     }
@@ -467,8 +467,8 @@ mod tests {
         pairs.iter().map(|(k, n)| (k.to_string(), *n)).collect()
     }
 
-    /// A rebuild that passed over records under `labels.` that are no item's says how many, and that they
-    /// were left as they are (issue 44); one that passed over none says nothing of them.
+    /// A rebuild that passed over records under `labels.` it could not read as item labels says how many,
+    /// and that they were left as they are (issue 44); one that passed over none says nothing of them.
     #[test]
     fn a_rebuild_says_how_many_records_under_labels_it_passed_over() {
         let of =
@@ -477,7 +477,7 @@ mod tests {
             serde_json::json!({"sessions": 1, "labels_passed_over": 3}),
         ));
         assert!(
-            line.ends_with("; 3 records under labels. were not item labels: left as they are"),
+            line.ends_with("; 3 records under labels. could not be read as item labels: left as they are"),
             "{line}"
         );
         let none = rebuild_lines(&of(serde_json::json!({"sessions": 1})));

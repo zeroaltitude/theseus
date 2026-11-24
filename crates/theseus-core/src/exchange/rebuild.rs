@@ -15,8 +15,8 @@
 //! - **A label raised before labels touched** (`item_labels::touch_root`): each flag an item's record holds
 //!   (`labels.<node>`), removed or not, gets its `label:<flag>` touch at its turn's time (`item_labels::at`;
 //!   an id with no time, at its exchange's start), when the store lacks it. It reads the records Jev's answers
-//!   left; it calls no model. A record under the prefix that does not read is read as far as it reads
-//!   (`item_labels::kept`); one that is no item's is passed over, left as it is, and counted.
+//!   left; it calls no model. A record under the prefix read as an item's labels in neither their shape nor
+//!   their older one (`item_labels::kept`) is passed over, left as it is, and counted; nothing in it is read.
 //! - **A touch keyed off its exchange's start** (an older build keyed a
 //!   reply's things at its end) is moved, not dropped: its own record is
 //!   written again at the start's key and the old key ended in the same
@@ -239,22 +239,22 @@ fn records(
 /// not: it is what Jev said), at its turn's time (`item_labels::at`), as a live label is written; for an id
 /// with no time, at its exchange's start, from `starts` (a planned exchange's turn, session and start, so one
 /// new in this run is touched where it begins) or else the exchange on record (`item_labels::landing`).
-/// A record under the prefix is read as far as it reads (`item_labels::kept`); one that is no item's is passed
-/// over, left as it is, and counted (the second of the pair).
+/// A record under the prefix that reads as neither an item's labels nor their older shape
+/// (`item_labels::kept`) is passed over, left as it is, and counted (the second of the pair).
 fn label_touches(
     store: &Store,
     starts: &HashMap<&str, (&str, u64)>,
 ) -> anyhow::Result<(Vec<NewRecord>, u64)> {
-    use crate::item_labels::kept::{of_record, Kept};
+    use crate::item_labels::kept::{of_record, passed_over, Kept};
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     let mut passed = 0;
     let items = (store.inner()).latest_with_prefix(kinds::META, crate::item_labels::PREFIX)?;
     for r in items {
         let (node, raised) = match of_record(&r) {
-            Kept::Whole(item) => (item.node, item.raised),
-            Kept::Part(p) if p.is_item() => (p.node.unwrap_or_default(), p.raised),
-            Kept::Part(_) => {
+            Kept::Whole(item) | Kept::Older(item) => (item.node, item.raised),
+            Kept::Unread => {
+                passed_over(r.key.as_deref().unwrap_or_default());
                 passed += 1;
                 continue;
             }

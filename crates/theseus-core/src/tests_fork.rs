@@ -1839,3 +1839,127 @@ async fn repeated_item_labels_reach_existing_and_future_forks() {
         );
     }
 }
+
+// ------------------------------------------------------------ records under `labels.` that do not read (issue 44)
+
+/// Words in a record that does not read: an error or a log that quoted its payload would show them.
+const UNREAD: &str = "UNREAD-WORDS-k4";
+
+/// A label on `node`, as the scenario above raises it.
+fn label_of(node: &str, flag: crate::content::Flag) -> crate::content::Label {
+    crate::content::Label {
+        flag,
+        node: Some(node.into()),
+        kind: crate::content::ItemKind::ToolResult,
+        source: "fixture".into(),
+        confidence: 1.0,
+        band: theseus_judge::band::Band::Act,
+        at_ms: 9,
+        judgment: String::new(),
+    }
+}
+
+/// The same, as stored JSON.
+fn label_on(node: &str, flag: crate::content::Flag) -> Value {
+    serde_json::to_value(label_of(node, flag)).unwrap()
+}
+
+/// The source's aggregate label on a node past the fork (`nodes[4]`), as the scenario above has it, so the
+/// fork's flag can come only from the earlier item's record.
+fn aggregate_past_the_fork(r: &Rig, sid: &str, nodes: &[(String, String)]) {
+    let label = label_of(&nodes[4].0, crate::content::Flag::Confidential);
+    (r.core.runner.judge).land_deterministic(sid, vec![(label, 1)]);
+}
+
+/// A fork of `sid` at `at` is refused for the record under `key`, in fixed words naming the key alone, and
+/// writes no session.
+fn refused_for(r: &Rig, sid: &str, at: &str, key: &str) {
+    let sessions = || r.core.store.list_sessions::<Value>().unwrap().len();
+    let before = sessions();
+    let params = SessionForkParams {
+        session: sid.into(),
+        at: at.into(),
+        ..Default::default()
+    };
+    let err = (r.core.session_fork(params, Surface::Cli)).expect_err("the fork is refused");
+    assert_eq!(err.code, theseus_protocol::error_code::REFUSED, "{err:?}");
+    assert!(err.message.contains(key), "{err:?}");
+    for words in ["missing field", "expected", UNREAD] {
+        assert!(!err.message.contains(words), "{words}: {err:?}");
+    }
+    assert_eq!(sessions(), before, "no fork is written");
+}
+
+/// The scenario of `repeated_item_labels_reach_existing_and_future_forks`, with the earlier item's record
+/// holding one more raised label, `injection`, that does not read (it has no `source`): the fork would hold
+/// that item, so it is refused, and nothing of a fork is written. A fork never holds fewer labels than its
+/// source may (issue 44).
+#[tokio::test]
+async fn a_fork_is_refused_when_an_item_it_holds_has_a_label_that_does_not_read() {
+    use crate::content::Flag;
+    let r = rig();
+    let (sid, nodes) = three_turns(&r).await;
+    aggregate_past_the_fork(&r, &sid, &nodes);
+    let earlier = label_of(&nodes[1].0, Flag::Confidential);
+    (r.core.runner.judge).land_deterministic(&sid, vec![(earlier, 1)]);
+    let key = crate::item_labels::key(&nodes[1].0);
+    let mut item: Value = r.core.store.get_meta(&key).unwrap().expect("the item's record");
+    let mut bad = label_on(&nodes[1].0, Flag::Injection);
+    bad.as_object_mut().unwrap().remove("source");
+    bad["note"] = json!(UNREAD);
+    item["raised"].as_array_mut().unwrap().push(bad);
+    r.core.store.put_meta(&key, &item).unwrap();
+    refused_for(&r, &sid, &nodes[3].0, &key);
+}
+
+/// Beside it (issue 44): the earlier item's record in the older shape (a removal kept on it names no session)
+/// reads, and the fork keeps its flag; a record that does not read and has no `node`, whose key names no node
+/// in the store, and one whose key names a node of another session, are passed over and do not stop the fork.
+#[tokio::test]
+async fn a_fork_reads_an_older_items_record_and_passes_over_records_naming_no_item_it_holds() {
+    use crate::content::Flag;
+    let r = rig();
+    let (sid, nodes) = three_turns(&r).await;
+    aggregate_past_the_fork(&r, &sid, &nodes);
+    let older = json!({"node": nodes[1].0, "kind": "tool_result", "source": "fixture", "entered_ms": 1,
+                       "raised": [label_on(&nodes[1].0, Flag::Confidential)],
+                       "removed": [{"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2}]});
+    let store = &r.core.store;
+    store.put_meta(&crate::item_labels::key(&nodes[1].0), &older).unwrap();
+    let other = new_session(&r.core, None);
+    turn(&r.core, &other, "elsewhere").await;
+    let elsewhere = crate::item_labels::key(&nodes_of(&r.core, &other)[0].0);
+    let foreign = json!({"raised": [label_on(&nodes[0].0, Flag::Secret)], "note": UNREAD});
+    store.put_meta("labels.no-such-node", &foreign).unwrap();
+    store.put_meta(&elsewhere, &json!({"note": UNREAD})).unwrap();
+    let f = fork(&r.core, &sid, &nodes[3].0);
+    let rec: SessionRecord = store.get_session(&f.session_id).unwrap().unwrap();
+    let flags = rec.data.as_deref().cloned().unwrap_or_default();
+    assert!(flags.has(Flag::Confidential), "the older record's: {flags:?}");
+    assert!(!flags.has(Flag::Secret), "nothing is read from one passed over: {flags:?}");
+}
+
+/// A record that does not read, whose key names an item the fork would hold but which has no `node` (an object
+/// of the kind a rebuild failed on, placed there), refuses the fork as a damaged item's record does; so does
+/// one under another key whose `node` names such an item. With neither, the fork is made (issue 44).
+#[tokio::test]
+async fn a_fork_is_refused_when_a_record_that_does_not_read_names_an_item_it_holds() {
+    let r = rig();
+    let (sid, nodes) = three_turns(&r).await;
+    let placed = [
+        (
+            crate::item_labels::key(&nodes[2].0),
+            json!({"kind": "operator_message", "source": "cli", "entered_ms": 1, "note": UNREAD}),
+        ),
+        (
+            "labels.no-such-node".to_string(),
+            json!({"node": nodes[0].0, "note": UNREAD}),
+        ),
+    ];
+    for (key, v) in &placed {
+        r.core.store.put_meta(key, v).unwrap();
+        refused_for(&r, &sid, &nodes[3].0, key);
+        r.core.store.delete_meta(key).unwrap();
+    }
+    fork(&r.core, &sid, &nodes[3].0);
+}

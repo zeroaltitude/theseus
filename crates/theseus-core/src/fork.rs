@@ -210,17 +210,47 @@ pub fn data_through(
 
 /// Recover all included item labels, not only the source's first label of each kind.
 /// Reads label records rather than the whole transcript, so unlabeled history stays cheap.
-/// A record that does not read is read as far as it reads (`item_labels::kept`), and never fails
-/// the fork: each raised label in it that reads is carried as an item's is, placed by the record's
-/// node, else by its own, and judged by the record's kind, else by its own. One with no node to place
-/// it by is carried (fewer labels is never the careful side); its item's removals are not read, and
-/// the session's still cover it, from when it was raised when the record's entry does not read.
+/// A record read in neither an item's shape nor its older one (`item_labels::kept`) is read for nothing: one
+/// whose key or `node` names an item this fork holds refuses the fork ([`UnreadLabels`]), since a fork is
+/// never made with fewer labels than its source may hold; any other is passed over and named in the log.
 pub(crate) fn item_data_through(
     store: &Store,
     session: &str,
     point: u64,
     flags: &mut crate::content::ContentFlags,
 ) -> Result<()> {
+    for key in labels_through(store, session, point, flags)? {
+        crate::item_labels::kept::passed_over(&key);
+    }
+    Ok(())
+}
+
+/// A record under `labels.` that reads as no item's labels, whose key or `node` names an item a fork holds:
+/// the fork is not made. Its words are fixed, and name the record by its key alone.
+#[derive(Debug)]
+pub struct UnreadLabels(pub String);
+
+impl std::fmt::Display for UnreadLabels {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the record under {} could not be read as an item's labels, and it names an item this fork would \
+             hold: the fork is not made",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for UnreadLabels {}
+
+/// What [`item_data_through`] reads, with nothing logged: the keys of the records it passes over.
+pub(crate) fn labels_through(
+    store: &Store,
+    session: &str,
+    point: u64,
+    flags: &mut crate::content::ContentFlags,
+) -> Result<Vec<String>> {
+    use crate::item_labels::kept::{of_record, Kept};
     let mut bounds = std::collections::BTreeMap::new();
     let (mut sid, mut through) = (session.to_string(), point);
     for _ in 0..MAX_DEPTH {
@@ -233,41 +263,33 @@ pub(crate) fn item_data_through(
         through = through.min(origin.position);
         sid = origin.session;
     }
-    let inside = |node: &str| -> Result<Option<bool>> {
+    let inside = |node: &str| -> Result<bool> {
         Ok((store.get_node(node)?)
-            .map(|(pos, n)| bounds.get(&n.session_id).is_some_and(|end| pos <= *end)))
+            .is_some_and(|(pos, n)| bounds.get(&n.session_id).is_some_and(|end| pos <= *end)))
     };
+    let mut passed = Vec::new();
     for record in store
         .inner()
         .latest_with_prefix(kinds::META, crate::item_labels::PREFIX)?
     {
-        use crate::item_labels::kept::{of_record, Kept};
         let item = match of_record(&record) {
-            Kept::Whole(item) => item,
-            Kept::Part(p) => {
-                for label in p.raised {
-                    if !p.kind.unwrap_or(label.kind).on_session() {
-                        continue;
-                    }
-                    let carried = match p.node.as_deref().or(label.node.as_deref()) {
-                        Some(node) => inside(node)?.unwrap_or(false),
-                        None => true,
-                    };
-                    if carried {
-                        let entered = p.entered_ms.unwrap_or(label.at_ms);
-                        flags.raise_after(label, entered);
+            Kept::Whole(item) | Kept::Older(item) => item,
+            Kept::Unread => {
+                let key = record.key.unwrap_or_default();
+                let named = serde_json::from_slice::<serde_json::Value>(&record.payload)
+                    .ok()
+                    .and_then(|v| v.get("node")?.as_str().map(str::to_string));
+                let by_key = key.strip_prefix(crate::item_labels::PREFIX).map(str::to_string);
+                for node in by_key.into_iter().chain(named) {
+                    if inside(&node)? {
+                        return Err(UnreadLabels(key).into());
                     }
                 }
+                passed.push(key);
                 continue;
             }
         };
-        if !item.kind.on_session() {
-            continue;
-        }
-        let Some((pos, node)) = store.get_node(&item.node)? else {
-            continue;
-        };
-        if !bounds.get(&node.session_id).is_some_and(|end| pos <= *end) {
+        if !item.kind.on_session() || !inside(&item.node)? {
             continue;
         }
         for label in &item.raised {
@@ -276,7 +298,7 @@ pub(crate) fn item_data_through(
             }
         }
     }
-    Ok(())
+    Ok(passed)
 }
 
 /// Whether a position falls in a compilation's inherited run.
