@@ -190,8 +190,9 @@ async fn an_imported_message_opened_by_its_session_is_found_from_it() {
 /// A retraction of the message finds the history result in the conversation that read it, and that
 /// conversation is told (a session's exposure: a correction note at its next turn); it labels the message
 /// wrong so recall never serves it, and leaves the copy where it lies: it is the reader's own result. What
-/// that leaves is asserted as it is, so a change to it is seen: the copy is not labeled, so recall may still
-/// serve its text, and the reader's next request still holds its own result.
+/// that leaves is asserted as it is, so a change to it is seen: the copy is not labeled, and recall still
+/// never serves it (its words are the message's, copied), and the reader's next request still holds its own
+/// result.
 #[tokio::test]
 async fn a_retraction_of_the_message_lists_the_history_result() {
     let r = rig();
@@ -235,8 +236,8 @@ async fn a_retraction_of_the_message_lists_the_history_result() {
         .unwrap();
     assert!(!m.admitted.iter().any(|i| i.node_id == said.node), "{m:?}");
     assert!(
-        m.admitted.iter().any(|i| i.node_id == copy),
-        "the seen copy is not labeled, so recall still admits it: {m:?}"
+        !m.admitted.iter().any(|i| i.node_id == copy),
+        "a look back's result is never recalled as its own words: {m:?}"
     );
     // The reader's next request still holds its own result (the copy is listed, never removed).
     turn(&r.core, &other, "and the weir?").await;

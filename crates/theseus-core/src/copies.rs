@@ -21,6 +21,11 @@ const COPIERS: [(&str, &str); 2] = [
     (crate::look::WORK, VIA_LOOK),
 ];
 
+/// Whether `tool`'s results copy stored words: recall never serves one as its own words.
+pub fn copier(tool: &str) -> bool {
+    COPIERS.iter().any(|(t, _)| *t == tool)
+}
+
 /// What one result copies: its route, and the nodes whose words it shows.
 #[derive(Debug, Default, PartialEq)]
 pub struct Copied {

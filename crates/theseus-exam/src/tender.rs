@@ -284,6 +284,7 @@ pub fn temporal_ranks(kind: Kind, q: &str, hits: &[Value]) -> Result<HashMap<Str
             time_ms: h["time_ms"].as_u64().unwrap_or(0),
             entities: Vec::new(),
             matched: Vec::new(),
+            copy: false,
         });
     }
     Ok(current::order_of(kind, q, &cands)

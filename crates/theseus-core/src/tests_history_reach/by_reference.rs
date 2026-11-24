@@ -139,3 +139,58 @@ async fn a_task_that_read_it_by_history_is_named_on_the_card() {
     );
     assert!(!out.exposures.iter().any(|e| e.kind == kind::SEEN), "{out:#?}");
 }
+
+/// What `memory.search` admits for the line, over `sessions`' nodes.
+async fn recalled(core: &Arc<Core>, sessions: Vec<String>) -> theseus_protocol::memory::RecallManifest {
+    core.runner
+        .memory
+        .set_ask(crate::tests_recall::index_of(core, sessions));
+    core.memory_search(MemorySearchParams {
+        query: "zircon heron weir".into(),
+        session_id: None,
+        k: None,
+        arm: None,
+        as_of: None,
+    })
+    .await
+    .unwrap()
+}
+
+/// Recall never serves a look back's result as its own words: before a retraction the original is served
+/// and the result is not; after it, neither.
+#[tokio::test]
+async fn recall_never_serves_a_history_result_as_its_own_words() {
+    let r = rig();
+    let said = say(&r.core).await;
+    let other = session(&r.core, Some("channel:lab"));
+    let (copy, _) = read_in(&r.core, &other, json!({ "open": said.turn })).await;
+    let both = vec![said.session.clone(), other.clone()];
+    let m = recalled(&r.core, both.clone()).await;
+    assert!(m.admitted.iter().any(|i| i.node_id == said.node), "{m:?}");
+    assert!(!m.admitted.iter().any(|i| i.node_id == copy), "{m:?}");
+    retract(&r.core, &said.node);
+    let m = recalled(&r.core, both).await;
+    assert!(!m.admitted.iter().any(|i| i.node_id == said.node), "{m:?}");
+    assert!(!m.admitted.iter().any(|i| i.node_id == copy), "{m:?}");
+}
+
+/// An erased import's words are not recalled through a history result that showed them.
+#[tokio::test]
+async fn an_erased_import_is_not_recalled_through_a_history_result() {
+    use crate::tests_imports::{episode, import};
+    let r = rig();
+    let ids = import(
+        &r.core,
+        &[episode(7, "personal", "2026-03-03T18:00:00Z", SAID)],
+    );
+    let other = session(&r.core, None);
+    let (copy, text) = read_in(&r.core, &other, json!({ "open": ids[0] })).await;
+    assert!(text.contains(WORD), "{text}");
+    crate::import::write::erase(&r.core.store, "kelp-2026", Some("a test"), "cli").unwrap();
+    let m = recalled(&r.core, vec![ids[0].clone(), other.clone()]).await;
+    assert!(!m.admitted.iter().any(|i| i.node_id == copy), "{m:?}");
+    let shown = |i: &theseus_protocol::memory::RecallItem| {
+        i.text.as_deref().is_some_and(|t| t.contains(WORD))
+    };
+    assert!(!m.admitted.iter().any(shown), "{m:?}");
+}

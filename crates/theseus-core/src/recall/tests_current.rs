@@ -102,6 +102,7 @@ fn cand(id: &str, rank: usize, time_ms: u64, text: &str) -> Candidate {
         time_ms,
         entities: Vec::new(),
         matched: Vec::new(),
+        copy: false,
     }
 }
 

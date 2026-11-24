@@ -462,6 +462,7 @@ pub fn pack(turn: &Turn, rec: &Record, index: &mut dyn Index, sources: &[&str]) 
             time_ms: h["time_ms"].as_u64().unwrap_or(0),
             entities: strings(&h["entities"]),
             matched: strings(&h["entities_matched"]),
+            copy: false,
         });
     }
     let in_context: BTreeSet<String> = rec
