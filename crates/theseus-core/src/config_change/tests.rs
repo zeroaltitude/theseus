@@ -1296,7 +1296,7 @@ async fn a_second_change_waits_for_the_first_to_be_applied() {
     let (s1, s2) = (r.session(), r.session());
     r.turn(&s1, change("import.notes.enabled", json!(false)))
         .await;
-    r.turn(&s2, change("narrative", json!(true))).await;
+    r.turn(&s2, change("standing.yes_fact", json!(true))).await;
     let asks = r.asked();
     assert_eq!(asks.len(), 2);
     let card = |path: &str| {
@@ -1312,7 +1312,7 @@ async fn a_second_change_waits_for_the_first_to_be_applied() {
     let after_first = r.file_text();
     let done = r
         .core
-        .confirm_action(&card("narrative:"), true, None, "cli")
+        .confirm_action(&card("standing.yes_fact:"), true, None, "cli")
         .unwrap();
     assert!(!done.approved);
     assert_eq!(r.file_text(), after_first, "the second wrote nothing");

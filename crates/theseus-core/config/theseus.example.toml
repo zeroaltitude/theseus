@@ -32,9 +32,6 @@
 # is fetched again. A config kept in the vault cannot start without vault
 # access; a config file can, and then only its op:// secrets fail.
 
-# The Narrative: a web UI tab narrating every session, turn, loop, and model call (default false: no tab, no lines).
-narrative = true
-
 # ---------------------------------------------------------------- model
 # The defaults every profile inherits: a profile that leaves a setting out takes
 # this section's (provider, max_output_tokens, system, effort, thinking_display,
@@ -492,7 +489,6 @@ max_wake_ahead_days = 365               # the furthest ahead a wake, a reminder 
 max_wakes = 20                          # check-ins (wake.at) one conversation may hold at once; at least 1
 max_reminders = 100                     # reminders the whole daemon may hold at once, in every conversation; at least 1
 max_watches = 20                        # watches the daemon may hold (see [watch_for])
-steer_queued = true                     # a message sent while a turn runs interrupts its waits (job_wait, a command, a terminal) and joins the turn at its next loop; false: it waits for the turn to end
 task_depth = 10                         # levels of tasks below a conversation: a task may start tasks down to this depth (1 to 32); each child's brief names the root goal and its chain, and a brief that repeats an ancestor's is refused as a cycle
 
 # ---------------------------------------------------------------- tools
@@ -919,8 +915,6 @@ run = "notify"                          # a call that starts code: a task, a fun
 enabled = true
 token_secret = "discord_bot_token"      # name of the [secrets] entry holding the bot token
 bindings_file = "bindings.toml"         # the guild, channel, and who may drive it; relative = in the state dir
-edit_interval_ms = 1200                 # how often a streaming reply is edited (Discord rate-limits edits)
-notice_embeds = false                   # an embed per notified call; off, its line in the tool message says 🔔 notified
 silent = []                             # categories of message that post without a ping; today's pings by default,
                                         # and silence is per category, per place (a [[channel]] or [[dm]] in the
                                         # bindings file may give its own list). Any of "cards", "failures" (a
@@ -938,8 +932,6 @@ task_channels = true                    # a private text channel for each task o
 task_channel_after_minutes = 10         # a task still working this long after it began gets its channel
 task_channel_cap = 25                   # at most this many task channels open at once; past it a task goes on as before
 task_channel_keep_days = 14             # a finished task's channel moves to `⚙️ Theseus tasks · done`, read-only, and is deleted this many days after it ended
-status_line = true                      # the bot's status reads counts only, `🔴 1 needs you · ⚙️ 3 running`, and is cleared when nothing works or waits; everyone who can see the bot sees it
-app_emojis = true                       # task states drawn with the bot's own animated emojis (uploaded once to the application); false, or while Discord refuses them, the plain ones
 digest_at = ["08:00", "18:00"]          # local times a digest of what happened is posted to your DM, only when something did, and not within [notify] unprompted_pace_secs of another unprompted post; [] is none
 # A turn's reply, a confirm card and how it closed, and the notices you must see
 # are posts in the outbox, written when they happen and sent once when Discord
@@ -993,15 +985,12 @@ max_events = 10                         # at most this many events stand at once
 # enabled = true
 # key_secret = "deepgram_api_key"       # the [secrets] entry holding the Deepgram key; only Theseus reads it
 # stt_model = "flux-general-en"         # speech to text: "flux-general-en" (the default: Deepgram Flux, English; its model decides
-#                                       # where your turn ends and it streams your voice for the call; pause_ms and merge_ms do not
-#                                       # apply; if its socket cannot be opened the call uses nova-3 and the pause rules), or
-#                                       # "nova-3" (the fallback by config: a pause of yours ends your turn: pause_ms, merge_ms;
-#                                       # any language). Voice notes and file transcripts always use nova-3. Priced by the minute
-#                                       # streamed
-# eot_threshold = 0.7                   # Flux only: how sure it must be that your turn ended (0.5 to 0.9); higher: fewer early ends
-# eager_eot_threshold = 0.5             # Flux only: start a reply on an early end of turn (0.3 to 0.9) and take it back if you go on;
-#                                       # unset: off, only the end of turn starts a reply
-# eot_timeout_ms = 5000                 # Flux only: force a turn's end after this much silence (500 to 10000)
+#                                       # where your turn ends, by its own defaults, and it streams your voice for the call; if its
+#                                       # socket cannot be opened the call uses nova-3 and the pause rules), or
+#                                       # "nova-3" (the fallback by config: 1.2 s of quiet ends your turn, and a sentence with no
+#                                       # ., ? or ! waits 1.5 s for the rest; any language). Voice notes and file transcripts always
+#                                       # use nova-3. Priced by the minute streamed. A call's timings are the code's: Theseus's first
+#                                       # sound after quiet comes 0.6 s late, so its first word is whole
 # language = "en-US"
 # tts_voice = "aura-2-andromeda-en"     # the voice: an Aura model; a persona's own tts_voice wins while it is in play
 #                                       # (`theseus persona voice` shows the one in play, `theseus persona voice audition` lets you hear several)
@@ -1018,16 +1007,8 @@ max_events = 10                         # at most this many events stand at once
 #                                       # taken out (your speakers' echo never stops it, your voice over it does); false judges the raw stream
 # judge_unclear = true                  # a short (3 words or fewer) or low-confidence transcript that would be a turn, heard over
 #                                       # Theseus's speech, just after it or at the join, is asked of Jev (heard.v1) first: speech to
-#                                       # answer, Theseus's own echo, or noise; at Jev's act band it decides, else the rules do.
-#                                       # false: the rules alone, as before
-# judge_ms = 250                        # how long such a transcript waits for Jev (1 to 2000); past it the rules decide
-# pause_ms = 1200                       # nova-3 only (Flux ends turns itself): how long you are quiet before your sentence is a turn (300 to 3000); longer: fewer chopped
-#                                       # sentences, each reply a little later (1200 adds about 0.5 s over the old 700)
-# lead_in_ms = 600                      # silence sent before Theseus's first sound after quiet (0 to 1000; 0 is off); longer: a whole
-#                                       # first word, a later first sound. Between a reply's sentences silence keeps playing (0.7 s).
-# gap_lead_in_ms = 200                  # silence before a later sentence when nothing kept the line warm between (0 to 1000; 0 is off)
-# merge_ms = 1500                       # nova-3 only: a sentence of yours with no ., ? or ! at its end waits this long (0 to 5000; 0 is off) for the
-#                                       # next thing you say, and the two are one turn; a finished sentence never waits
+#                                       # answer, Theseus's own echo, or noise; at Jev's act band it decides (it waits 250 ms at
+#                                       # most), else the rules do. false: the rules alone, as before
 # speak_tasks = true                    # in a call in a private place, a task's new question and its end are said once at the next
 #                                       # pause (a title and a sentence or two), and "approve", "the second one" or "stop it"
 #                                       # answers the question as you (the core judges it as it judges a button)

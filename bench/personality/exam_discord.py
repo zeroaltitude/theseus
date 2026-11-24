@@ -40,11 +40,11 @@ def bindings_toml() -> str:
 
 
 def config_patch(cfg: dict, rest: str, gateway: str) -> dict:
-    """The daemon's config with Discord on the stand-in: the bot token an `env:` secret, the DM bound, the owner's id
-    an owner of private places, and fast edits (the fake is not rate limited)."""
+    """The daemon's config with Discord on the stand-in: the bot token an `env:` secret, the DM bound, and the owner's
+    id an owner of private places."""
     cfg.setdefault("secrets", {})["discord_bot_token"] = f"env:{TOKEN_ENV}"
     cfg["discord"] = {"enabled": True, "token_secret": "discord_bot_token", "bindings_file": "bindings.toml",
-                      "rest_proxy": rest, "gateway_proxy": f"ws://{gateway}", "edit_interval_ms": 250}
+                      "rest_proxy": rest, "gateway_proxy": f"ws://{gateway}"}
     cfg.setdefault("places", {})["owner"] = [f"discord:{OWNER_ID}"]
     return cfg
 

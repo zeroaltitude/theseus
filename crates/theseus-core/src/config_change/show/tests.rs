@@ -21,9 +21,9 @@ fn read(text: &str, paths: &[&str]) -> String {
 /// the built-in one when it does not.
 #[test]
 fn a_setting_says_its_value_its_source_its_weight_and_its_restart() {
-    let said = read(FILE, &["narrative", "import.notes.enabled"]);
+    let said = read(FILE, &["import.notes.enabled"]);
     assert!(
-        said.contains("- narrative: off · set in the settings file · an ordinary change"),
+        said.contains("- import.notes.enabled: on · set in the settings file · an ordinary change"),
         "{said}"
     );
     assert!(said.contains("takes effect after a restart"), "{said}");

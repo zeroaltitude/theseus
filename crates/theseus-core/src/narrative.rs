@@ -1,4 +1,4 @@
-//! The narrative (theseus-5fy). With `narrative = true`, every architectural
+//! The narrative (theseus-5fy). Every architectural
 //! step of the session/turn/loop/model-call structure says what it did in one
 //! plain sentence, filled into a fixed template from the structure itself.
 //! No model writes it, so it costs no tokens. Each line goes to every
@@ -6,9 +6,10 @@
 //! opened late still shows recent history. Nothing is written to the store:
 //! no frames and no fsyncs.
 //!
-//! Off means off. Every emission goes through [`narrate!`], which tests one
-//! flag before it evaluates or formats anything, so a daemon without the key
-//! pays one branch per step and keeps nothing.
+//! It always runs: the daemon's narrator is on (issue 46). Every emission goes
+//! through [`narrate!`], which tests one flag before it evaluates or formats
+//! anything, so a narrator built off (a test's) pays one branch per step and
+//! keeps nothing.
 //!
 //! A sentence names the tool and its main resource, and gives sizes, counts,
 //! times, and costs. It never carries tool input or output, secrets, or

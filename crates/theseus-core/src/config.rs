@@ -110,12 +110,6 @@ pub use mcp::{McpConfig, McpServerConfig};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// Narrate every step of the session/turn/loop/model-call structure into
-    /// the web UI's The Narrative tab. Absent or false: no line is made and
-    /// the tab never shows. First, because a TOML key after a table is that
-    /// table's.
-    #[serde(default)]
-    pub narrative: bool,
     #[serde(default)]
     pub model: ModelConfig,
     /// Named model profiles. The implicit `default` profile is built from `[model]`.
@@ -357,14 +351,10 @@ pub struct DiscordConfig {
     /// each place's session, so a scratch instance never binds by accident.
     #[serde(default = "default_bindings_file")]
     pub bindings_file: String,
-    /// How often a streaming reply is edited; Discord rate-limits edits per channel.
-    #[serde(default = "default_edit_interval_ms")]
+    /// How often a streaming reply is edited; Discord rate-limits edits per channel. No setting (issue 46): 1200
+    /// ms, and only a test sets it, in the process.
+    #[serde(skip, default = "default_edit_interval_ms")]
     pub edit_interval_ms: u64,
-    /// Post each notified call's own embed, edited with its outcome. Off (the
-    /// default), the call's line in the loop's tool message carries the notice;
-    /// the ledger row and the web UI's notice are the same either way.
-    #[serde(default)]
-    pub notice_embeds: bool,
     /// The kinds of message that post silent (theseus-l1y1): none by default.
     #[serde(default)]
     pub silent: Vec<discord::Category>,
@@ -393,13 +383,11 @@ pub struct DiscordConfig {
     /// A finished task's channel is deleted this many days after it ended.
     #[serde(default = "discord::default_task_channel_keep_days")]
     pub task_channel_keep_days: u64,
-    /// The bot's presence reads the counts of what needs you and what runs
-    /// (`🔴 1 needs you · ⚙️ 3 running`); everyone who can see the bot sees it.
-    #[serde(default = "default_true")]
-    pub status_line: bool,
     /// Task states drawn with the bot's own animated emojis, uploaded once;
-    /// off, or while Discord refuses them, the Unicode ones (theseus-ss36w).
-    #[serde(default = "default_true")]
+    /// while Discord refuses them, the Unicode ones (theseus-ss36w). No setting
+    /// (issue 46): on, and only a test turns it off, in the process, so the
+    /// process's one table of glyphs stays the Unicode ones.
+    #[serde(skip, default = "default_true")]
     pub app_emojis: bool,
     /// The local times of day (`"HH:MM"`) a digest of what happened is posted
     /// to the owner's DM, only when something did; empty is none.
@@ -995,11 +983,6 @@ pub struct KernelSection {
     /// Routines and watches, declared for their rows: 50 and 20.
     #[serde(default = "wake_limits::default_max_watches")]
     pub max_watches: usize,
-    /// A person's message queued behind a running turn interrupts that turn's
-    /// waits and joins it at its next loop (theseus-qu1lc); off, it waits for
-    /// the turn to end and runs as the next one.
-    #[serde(default = "default_true")]
-    pub steer_queued: bool,
     /// How many levels of tasks may sit below a conversation: a task starts
     /// tasks until this depth (theseus-tecj5, the owner's "lets start with 10
     /// deep, and observe"). 1 to 32.
@@ -1061,7 +1044,6 @@ impl Default for KernelSection {
             max_wakes: wake_limits::default_max_wakes(),
             max_reminders: wake_limits::default_max_reminders(),
             max_watches: wake_limits::default_max_watches(),
-            steer_queued: true,
             task_depth: default_task_depth(),
         }
     }

@@ -417,52 +417,13 @@ async fn a_batch_step_goes_to_the_background_for_a_message() {
     assert!(r.request(1).contains("how far along"));
 }
 
-/// With `steer_queued` off a message waits for the turn to end and runs as
-/// the next turn, as it always did: the wait is not interrupted.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn with_the_switch_off_a_message_queues_as_a_turn_of_its_own() {
-    let r = rig(
-        vec![
-            Scripted::tools(
-                "Starting.",
-                &[("t1", "proc_run", background(&["sleep", "30"]))],
-            ),
-            Scripted::tools(
-                "Waiting.",
-                &[("t2", "job_wait", json!({"job": "j1", "timeout_secs": 2}))],
-            ),
-            Scripted::text("Still going."),
-            Scripted::text("Answering you."),
-        ],
-        10,
-        0,
-        |c| c.kernel.steer_queued = false,
-    );
-    let s = r.session();
-    let a = r.submit(&s, "build it");
-    r.until_calls(2).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let b = r.submit(&s, "cancel it");
-    let (a, b) = (a.await.unwrap(), b.await.unwrap());
-    let (_, text, meta) = r.result(&s.session_id, "t2");
-    assert!(text.starts_with("Still running after 2 s."), "{text}");
-    assert!(meta.get("interrupted_by").is_none(), "{meta}");
-    assert_ne!(a.turn_id, b.turn_id, "its own turn");
-    assert_eq!(r.fake.requests().len(), 4);
-    assert!(
-        !r.request(2).contains("cancel it"),
-        "not in the running turn"
-    );
-    assert!(r.rows("turn.steered").is_empty());
-}
-
 /// A wake, a continuation or a task's turn queued behind a running turn is
 /// no person's message: it raises no signal and offers itself to no turn.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn only_a_persons_input_is_offered_to_the_running_turn() {
     let r = rig(vec![], 10, 0, |_| {});
     let s = r.session();
-    let turning = r.core.tools.job_waits.steers.open(&s.session_id, true);
+    let turning = r.core.tools.job_waits.steers.open(&s.session_id);
     let req = request(&r.core, &s, "a message");
     let now = Instant::now();
     for class in [Class::Wake, Class::Task] {

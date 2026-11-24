@@ -2176,8 +2176,8 @@ impl Lane {
             .map_err(|e| SendErr::of(&e))
     }
 
-    /// A structured notice (a Discord embed, no mentions): live, when
-    /// `[discord] notice_embeds` is on.
+    /// A structured notice (a Discord embed, no mentions): live, when the
+    /// renderer posts notice cards (a test's; the binding's renderer does not).
     async fn notice(&mut self, key: &str, card: &NoticeCard) -> Result<(), SendErr> {
         // A notice names the call it is about, command line and paths included.
         let card = &mask_card(&self.shared.core.exits, card);

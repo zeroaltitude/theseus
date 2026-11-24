@@ -281,7 +281,7 @@ pub struct Core {
     /// secret resolves (`install_telemetry`). Until then nothing is exported.
     telemetry: std::sync::OnceLock<Telemetry>,
     telemetry_off: Telemetry,
-    /// The narrative (`narrative = true`): live lines and a bounded tail.
+    /// The narrative: live lines and a bounded tail.
     pub narrator: Arc<Narrator>,
     started: Instant,
     provider_errors: AtomicU64,
@@ -834,7 +834,7 @@ impl Core {
             }
         }
         let bus = Arc::new(SessionBus::default());
-        let narrator = Arc::new(Narrator::new(cfg.narrative));
+        let narrator = Arc::new(Narrator::new(true));
         let mut tools = crate::toolrun::build_runtime(
             &cfg,
             Some(spool.clone()),

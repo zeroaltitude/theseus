@@ -16,8 +16,8 @@
 const EACH: &str = "*";
 
 /// One retired key: its section, dotted when it is nested (`policy.tools`;
-/// `profiles.*` for each profile), its name, and one sentence of what
-/// replaced it or why it is gone.
+/// `profiles.*` for each profile; empty for the top level), its name, and one
+/// sentence of what replaced it or why it is gone.
 pub struct Retired {
     pub section: &'static str,
     pub key: &'static str,
@@ -61,6 +61,14 @@ const INERT: &str = "nothing read it any more: the link offer, the Discord threa
 const LOOK_BACK: &str =
     "the history tool, context.history, is the one way to look back (issue 46): it \
                          reads every place, by words, a thing or a place, so this tool is gone";
+const NARRATIVE: &str = "the narrative always runs and the web UI always shows its tab (issue 46)";
+const VOICE: &str =
+    "a call's timings are the code's, and Flux ends a turn by its own defaults (issue 46)";
+const DISCORD: &str =
+    "fixed at what it did by default: replies edited every 1.2 s, no embed per notified call, \
+                       the status line and the bot's own emojis on (issue 46)";
+const STEER: &str =
+    "a message sent while a turn runs always joins that turn at its next loop (issue 46)";
 const DIGEST: &str =
     "the place digest is gone (2026-11-22): no turn waits on Jev's scope answer, and \
                       no request carries a digest of the other threads";
@@ -123,6 +131,21 @@ pub const RETIRED: &[Retired] = &[
     r("threads", "place_digest", DIGEST),
     r("threads", "place_digest_line_chars", DIGEST),
     r("threads", "route_wait_ms", DIGEST),
+    // Settings nobody set, fixed at what they do today (issue 46).
+    r("", "narrative", NARRATIVE),
+    r("voice", "judge_ms", VOICE),
+    r("voice", "pause_ms", VOICE),
+    r("voice", "lead_in_ms", VOICE),
+    r("voice", "gap_lead_in_ms", VOICE),
+    r("voice", "merge_ms", VOICE),
+    r("voice", "eot_threshold", VOICE),
+    r("voice", "eager_eot_threshold", VOICE),
+    r("voice", "eot_timeout_ms", VOICE),
+    r("discord", "edit_interval_ms", DISCORD),
+    r("discord", "notice_embeds", DISCORD),
+    r("discord", "status_line", DISCORD),
+    r("discord", "app_emojis", DISCORD),
+    r("kernel", "steer_queued", STEER),
 ];
 
 const fn r(section: &'static str, key: &'static str, why: &'static str) -> Retired {
@@ -164,17 +187,20 @@ pub fn strip(doc: &mut toml::Table) -> Vec<Ignored> {
     out
 }
 
-/// The table at the dotted `path` of `doc` (`policy.tools`), when each step is one.
+/// The table at the dotted `path` of `doc` (`policy.tools`), when each step is one; `doc` itself for an empty
+/// path.
 fn table_at<'a>(doc: &'a mut toml::Table, path: &str) -> Option<&'a mut toml::Table> {
     path.split('.')
+        .filter(|step| !step.is_empty())
         .try_fold(doc, |t, step| t.get_mut(step)?.as_table_mut())
 }
 
 fn ignored(section: &str, key: &str, why: &'static str) -> Ignored {
-    Ignored {
-        name: format!("{section}.{key}"),
-        why,
-    }
+    let name = match section {
+        "" => key.to_string(),
+        s => format!("{s}.{key}"),
+    };
+    Ignored { name, why }
 }
 
 /// The start's warning for one: what it was, that it does nothing now, why.

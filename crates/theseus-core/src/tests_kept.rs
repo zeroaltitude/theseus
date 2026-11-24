@@ -500,7 +500,7 @@ async fn a_result_node_holds_the_value_as_printed_and_counts_no_redactions() {
 /// gate's `why` and the started line's subject are not scrubbed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_narrative_names_a_job_as_it_was_asked_for() {
-    let r = rig_with(vec![Scripted::text("Printed.")], |c| c.narrative = true);
+    let r = rig_with(vec![Scripted::text("Printed.")], |_| {});
     r.fake.script.lock().unwrap().push_front(Scripted::tools(
         "",
         &[("t1", "proc_run", json!({"argv": ["echo", PLANTED]}))],

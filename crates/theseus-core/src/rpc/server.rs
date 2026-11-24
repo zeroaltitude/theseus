@@ -398,9 +398,6 @@ impl Core {
             method::WAKE_LIST => route(or_empty(params), |p| self.wake_list(p)),
             method::WAKE_CANCEL => route(params, |p| self.wake_cancel(p, conn)),
             m @ (method::LEDGER_TAIL | method::LEDGER_WINDOW) => self.ledger_reads(m, params),
-            method::NARRATIVE_WATCH | method::NARRATIVE_UNWATCH if !self.narrator.on() => {
-                Err(narration_off())
-            }
             method::NARRATIVE_WATCH => reply(self.narrative_watch(parse(or_empty(params))?, conn)),
             method::NARRATIVE_UNWATCH => reply(self.narrative_unwatch(conn)),
             m @ (method::EXECUTIONS_WATCH | method::STATUS_SHORT) => {
@@ -744,15 +741,6 @@ pub(super) fn or_empty(v: Value) -> Value {
     } else {
         v
     }
-}
-
-/// The narrative's methods while narration is off.
-fn narration_off() -> RpcFailure {
-    RpcFailure::new(
-        error_code::DISABLED,
-        "narration is off: put `narrative = true` at the top of the config, before any \
-         [table], and restart the daemon",
-    )
 }
 
 /// Parse a method's params, run it, and serialize its result.

@@ -635,7 +635,6 @@ impl Shared {
             lane,
             inflight: false,
             steering: Default::default(),
-            queued: Vec::new(),
             saw_failure: false,
             stopped_turn: None,
             stopping: false,

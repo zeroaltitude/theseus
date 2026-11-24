@@ -2,9 +2,8 @@
 //! goes to the daemon at once, not after the turn. The daemon's running turn
 //! hears it, ends its waits, and takes it in at its next loop; if the turn
 //! ends first, the daemon queues it as the next turn, as this binding did.
-//! So the place keeps no queue of its own while the daemon steers
-//! (`[kernel] steer_queued`, on by default): with the switch off the message
-//! waits here for the turn to end and goes with the rest, as before.
+//! So the place keeps no queue of its own: a message sent while a turn runs
+//! always joins it (issue 46).
 //!
 //! The steered request is not the place's turn in flight (`inflight` is the
 //! turn that was running), so its answer, which is that turn's result, only
@@ -30,6 +29,12 @@ pub(super) struct Steering {
 }
 
 impl Steering {
+    /// The steered requests that wait for their answer.
+    #[cfg(test)]
+    pub(super) fn out(&self) -> u32 {
+        self.out
+    }
+
     /// A `/stop` came: the requests out now end with it, and are not counted.
     pub(super) fn stopped(&mut self) {
         self.stops = self.stops.wrapping_add(1);
@@ -109,11 +114,6 @@ pub(super) fn steer_params(sid: &str, m: &Inbound) -> TurnSubmitParams {
 }
 
 impl Place {
-    /// Whether a message that comes while a turn runs goes to the daemon now.
-    pub(super) fn steers(&self) -> bool {
-        self.shared.core.cfg.kernel.steer_queued
-    }
-
     /// Whether a request of the place's is out: its turn's submit, or a
     /// steered one that waits for its answer.
     pub(super) fn turning(&self) -> bool {

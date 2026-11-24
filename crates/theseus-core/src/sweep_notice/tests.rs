@@ -100,7 +100,7 @@ fn rows(r: &crate::tests_judge::Rig, stage: &str) -> usize {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_sweep_says_it_is_going_to_stop_once_and_that_it_stopped_once() {
     let jev = FakeJev::start().unwrap();
-    let r = rig_with(vec![], Some(&jev), |c| c.narrative = true);
+    let r = rig_with(vec![], Some(&jev), |_| {});
     let run = &r.core.runner;
     run.sweep_heads_up(SweepId::Card, 1_000_000, 100_000, 10_000);
     assert_eq!(kinds(&r.core.store, "sweep.stopping").len(), 0, "quiet");

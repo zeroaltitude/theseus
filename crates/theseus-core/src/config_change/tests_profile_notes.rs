@@ -403,7 +403,7 @@ fn narrated(rx: &mut tokio::sync::mpsc::UnboundedReceiver<theseus_protocol::Mess
 #[tokio::test(start_paused = true)]
 async fn the_sessions_note_of_a_stop_that_cancels_the_agent_does_not_say_it_is_working() {
     for all in [false, true] {
-        let r = rig_with(|cfg, _| cfg.narrative = true);
+        let r = rig_with(|_, _| {});
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         assert!(
             r.core.narrator.watch("note", tx).is_some(),
@@ -459,7 +459,7 @@ async fn the_sessions_note_of_a_stop_that_cancels_the_agent_does_not_say_it_is_w
 /// own count is right too). The call ends with the cancel's error, after the line.
 #[tokio::test(start_paused = true)]
 async fn a_stop_all_whose_cancel_fails_says_the_task_goes_on() {
-    let r = rig_with(|cfg, _| cfg.narrative = true);
+    let r = rig_with(|_, _| {});
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     assert!(
         r.core.narrator.watch("note", tx).is_some(),

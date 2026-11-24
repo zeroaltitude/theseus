@@ -59,8 +59,7 @@ pub const SENSITIVE_TABLES: [(&str, &str); 17] = [
 /// A top-level table that is ordinary, apart from its keys that
 /// [`key_reason`] names. The config's own tables, not a list of what is safe
 /// to guess: each was read for what a change to it could do.
-pub const ORDINARY_TABLES: [&str; 33] = [
-    "narrative",
+pub const ORDINARY_TABLES: [&str; 32] = [
     "model",
     "profiles",
     "context",
@@ -330,12 +329,7 @@ mod tests {
 
     #[test]
     fn ordinary_settings_are_ordinary() {
-        for s in [
-            "import.notes.enabled",
-            "narrative",
-            "tui.theme",
-            "memory.enabled",
-        ] {
+        for s in ["import.notes.enabled", "tui.theme", "memory.enabled"] {
             assert_eq!(reason(&p(s)), None, "{s} must be ordinary");
         }
     }

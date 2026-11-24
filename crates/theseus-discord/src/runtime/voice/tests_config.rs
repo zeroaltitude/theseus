@@ -1,6 +1,8 @@
-//! A call's engine config from `[voice]` (theseus-sa4m5): the three switches the
+//! A call's engine config from `[voice]` (theseus-sa4m5): the two switches the
 //! config owns reach the engine as set, and a config with no `[voice]` section
 //! starts a call with the guard and the echo cancel on and the judge at 250 ms.
+//! The timings are the code's (issue 46): a file that still sets one changes no
+//! call.
 //! The engine's own default has the first two off, so a line that stopped
 //! copying one would leave the feature dead in production with every test green.
 
@@ -31,7 +33,7 @@ fn a_config_with_no_voice_section_starts_a_call_with_the_guard_and_echo_cancel_o
 }
 
 /// Each switch in `[voice]` reaches the engine, alone: turning one off leaves
-/// the others as they were.
+/// the others as they were; a judge's wait still set in a file is not read.
 #[test]
 fn each_voice_switch_reaches_the_engine_alone() {
     let c = call_with("[voice]\njoin_guard = false");
@@ -39,7 +41,7 @@ fn each_voice_switch_reaches_the_engine_alone() {
     let c = call_with("[voice]\necho_cancel = false");
     assert!(c.join_guard && !c.echo_cancel);
     let c = call_with("[voice]\njudge_ms = 400");
-    assert_eq!(c.judge_ms, Duration::from_millis(400));
+    assert_eq!(c.judge_ms, Duration::from_millis(250));
     assert!(c.join_guard && c.echo_cancel, "the others stay on");
     let c = call_with("[voice]\nenabled = true");
     assert!(
@@ -57,23 +59,23 @@ fn the_calls_speakers_are_the_engines_listed() {
     assert!(c.listed.contains(&Speaker(9)));
 }
 
-/// A call closes an utterance after `[voice] pause_ms`: 1200 ms with no section,
-/// though the engine's own default is 700 (theseus-bp0lp).
+/// A call closes an utterance after the pause, 1200 ms, though the engine's own
+/// default is 700 (theseus-bp0lp); a file that still sets `pause_ms` changes it not.
 #[test]
 fn a_call_closes_an_utterance_after_the_configured_pause() {
     let none = Config::example();
     let c = engine_config([Speaker(7)], &none.voice);
     assert_eq!(c.end_of_utterance, Duration::from_millis(1_200));
     let c = call_with("[voice]\npause_ms = 1400");
-    assert_eq!(c.end_of_utterance, Duration::from_millis(1_400));
+    assert_eq!(c.end_of_utterance, Duration::from_millis(1_200));
 }
 
-/// A call merges an unfinished utterance with the next within `[voice] merge_ms`:
-/// 1500 ms with no section, and 0 turns it off.
+/// A call merges an unfinished utterance with the next within 1500 ms; a file
+/// that still sets `merge_ms` changes it not.
 #[test]
 fn a_call_merges_an_unfinished_utterance_within_the_configured_window() {
     let c = engine_config([Speaker(7)], &Config::example().voice);
     assert_eq!(c.merge, Duration::from_millis(1_500));
     let c = call_with("[voice]\nmerge_ms = 0");
-    assert_eq!(c.merge, Duration::ZERO);
+    assert_eq!(c.merge, Duration::from_millis(1_500));
 }

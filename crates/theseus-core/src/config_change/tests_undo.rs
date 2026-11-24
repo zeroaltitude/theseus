@@ -38,7 +38,8 @@ const OWNER: u64 = 4_100_000_000_000_000_001;
 
 /// The settings file the owner keeps: comments, an order of its own.
 const FILE: &str = r#"# Theseus, on this machine.
-narrative = false
+[standing]
+yes_fact = false
 
 [secrets]
 anthropic_api_key = "op://v/i/f"
@@ -48,13 +49,13 @@ anthropic_api_key = "op://v/i/f"
 enabled = true   # turn it off to stop the import
 "#;
 
-/// FILE after change 1 (the notes import off) and after change 2 (narrative on).
+/// FILE after change 1 (the notes import off) and after change 2 (the standing yes fact on).
 pub(super) fn after_1() -> String {
     FILE.replace("enabled = true", "enabled = false")
 }
 
 fn after_2() -> String {
-    after_1().replace("narrative = false", "narrative = true")
+    after_1().replace("yes_fact = false", "yes_fact = true")
 }
 
 /// Answers each turn's first request with the call its input names.
@@ -226,10 +227,10 @@ impl Rig {
         n
     }
 
-    /// Changes 1 (notes off) and 2 (narrative on), the file after both.
+    /// Changes 1 (notes off) and 2 (the standing yes fact on), the file after both.
     fn two_changes(&self) {
         self.seed(FILE, &after_1(), &["import.notes.enabled"]);
-        self.seed(&after_1(), &after_2(), &["narrative"]);
+        self.seed(&after_1(), &after_2(), &["standing.yes_fact"]);
     }
 
     fn card(&self) -> String {
@@ -264,7 +265,7 @@ async fn history_lists_the_changes_with_who_approved_each() {
         text.contains("asked in discord:dm:42; approved by cli; it needed a restart."),
         "{text}"
     );
-    assert!(text.contains("- narrative: off → on"), "{text}");
+    assert!(text.contains("- standing.yes_fact: off → on"), "{text}");
     assert!(text.contains("- import.notes.enabled: on → off"), "{text}");
     assert!(
         text.find("#2").unwrap() < text.find("#1").unwrap(),
@@ -287,12 +288,12 @@ async fn an_undo_goes_through_the_card_and_a_yes_puts_back_exactly_its_settings(
     super::tests::assert_worded(
         &r.core,
         &r.asked()[0],
-        "undo change #2, putting back `narrative` from on to off",
+        "undo change #2, putting back `standing.yes_fact` from on to off",
     );
     let card = r.card();
     assert!(card.starts_with("Undo change #2?\n"), "{card}");
     assert!(
-        card.contains("- narrative: on → off (after a restart)"),
+        card.contains("- standing.yes_fact: on → off (after a restart)"),
         "{card}"
     );
     assert!(
@@ -321,11 +322,11 @@ async fn an_undo_goes_through_the_card_and_a_yes_puts_back_exactly_its_settings(
     let undone = &r.rows("config.undone")[0];
     assert_eq!(undone["undone"], json!(2));
     assert_eq!(undone["undone_question"], json!("seed2"));
-    assert_eq!(undone["paths"], json!(["narrative"]));
+    assert_eq!(undone["paths"], json!(["standing.yes_fact"]));
     assert_eq!(undone["approved_by"], json!("cli"));
     // It restarts and goes back as any approved change does.
     let marker = super::restart::load(&super::restart::marker_path(&r.state)).unwrap();
-    assert_eq!(marker.paths, ["narrative"]);
+    assert_eq!(marker.paths, ["standing.yes_fact"]);
 }
 
 /// An older change is undone alone: a later change to another setting stays.
@@ -342,7 +343,7 @@ async fn an_older_change_is_undone_and_later_changes_to_other_settings_stay() {
         card.contains("- import.notes.enabled: off → on (after a restart)"),
         "{card}"
     );
-    assert!(!card.contains("narrative"), "{card}");
+    assert!(!card.contains("yes_fact"), "{card}");
     assert!(!card.contains("Changed again since"), "{card}");
     r.yes();
     let now = r.file_text();
@@ -351,7 +352,7 @@ async fn an_older_change_is_undone_and_later_changes_to_other_settings_stay() {
         "{now}"
     );
     assert!(
-        now.contains("narrative = true"),
+        now.contains("yes_fact = true"),
         "the later change stays: {now}"
     );
     assert_ne!(now, FILE, "the old file is not written back");
@@ -501,7 +502,7 @@ async fn a_task_cannot_read_the_history_or_undo() {
             "{tool}: {text}"
         );
         assert!(
-            !text.contains("narrative"),
+            !text.contains("yes_fact"),
             "no setting is shown to a task: {text}"
         );
     }

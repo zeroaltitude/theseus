@@ -404,7 +404,6 @@ fn config(theseusd: &Path, ends: &Ends<'_>, projects: &Path) -> Result<String> {
         "gateway_proxy".into(),
         format!("ws://{}", ends.gateway).into(),
     );
-    discord.insert("edit_interval_ms".into(), 250.into());
     table(&mut t, "web").insert("enabled".into(), false.into());
     table(&mut t, "tools").insert("projects_dir".into(), projects.display().to_string().into());
     // A write outside the roots takes its tool's posture (theseus-ewi), and

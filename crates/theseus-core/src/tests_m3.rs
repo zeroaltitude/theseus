@@ -2832,24 +2832,6 @@ fn read_hello() -> Vec<Scripted> {
     ]
 }
 
-/// Off means off: a tool turn makes no line, and the health flag is false.
-/// (`narrative.watch` refusing is `rpc::tests::narrative_watch_streams_a_turn_and_refuses_when_off`.)
-#[tokio::test]
-async fn with_narration_off_a_tool_turn_makes_no_line() {
-    let r = rig_with(read_hello(), |cfg| cfg.narrative = false);
-    std::fs::write(r.root.join("hello.txt"), "hi there\n").unwrap();
-    let res = turn(&r.core, None, "what does hello.txt say?").await;
-    assert_eq!((res.loops, res.tool_calls), (2, 1));
-    assert!(
-        r.core.narrator.tail().is_empty(),
-        "{}",
-        dump(&r.core.narrator.tail())
-    );
-    assert!(!r.core.health().narrative);
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    assert!(r.core.narrator.watch("w", tx).is_none());
-}
-
 /// On: a two-loop tool turn narrates each architectural part in order, from
 /// the values the structure holds, and never the input or the file's text.
 #[tokio::test]

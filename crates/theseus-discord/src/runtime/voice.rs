@@ -493,8 +493,8 @@ impl Place {
             guild,
             chan,
             theseus_voice::LeadIn {
-                spell: Duration::from_millis(voice.cfg.lead_in_ms),
-                gap: Duration::from_millis(voice.cfg.gap_lead_in_ms),
+                spell: Duration::from_millis(theseus_core::voice::LEAD_IN_MS),
+                gap: Duration::from_millis(theseus_core::voice::GAP_LEAD_IN_MS),
             },
         );
         let io = match tokio::time::timeout(JOIN_WAIT, joined).await {
@@ -1050,17 +1050,17 @@ async fn greet(
 }
 
 /// The engine's settings for a call: the design's, with the keys `[voice]`
-/// owns (`join_guard`, `echo_cancel`, `judge_ms`, `pause_ms`, `merge_ms`). The
-/// engine's own default has the guard and the echo cancel off, the pause at
-/// 700 ms and the merge off, so the engine's tests read as they did; this is the
-/// one place the config sets them.
+/// owns (`join_guard`, `echo_cancel`) and the code's timings (the judge's wait,
+/// the pause, the merge). The engine's own default has the guard and the echo
+/// cancel off, the pause at 700 ms and the merge off, so the engine's tests read
+/// as they did; this is the one place a call sets them.
 fn engine_config(users: impl IntoIterator<Item = Speaker>, cfg: &VoiceConfig) -> EngineConfig {
     let mut config = EngineConfig::new(users);
     config.join_guard = cfg.join_guard;
     config.echo_cancel = cfg.echo_cancel;
-    config.judge_ms = Duration::from_millis(cfg.judge_ms);
-    config.end_of_utterance = Duration::from_millis(cfg.pause_ms);
-    config.merge = Duration::from_millis(cfg.merge_ms);
+    config.judge_ms = Duration::from_millis(theseus_core::voice::JUDGE_MS);
+    config.end_of_utterance = Duration::from_millis(theseus_core::voice::PAUSE_MS);
+    config.merge = Duration::from_millis(theseus_core::voice::MERGE_MS);
     config
 }
 
@@ -1576,11 +1576,7 @@ impl Listener {
     /// The engine, listening through Flux when the call has it.
     fn attach(&mut self, engine: Engine, cfg: &VoiceConfig) -> Engine {
         match self.flux.take() {
-            Some(flux) => engine.with_listen(
-                Box::new(flux),
-                &cfg.stt_model,
-                cfg.eager_eot_threshold.is_some(),
-            ),
+            Some(flux) => engine.with_listen(Box::new(flux), &cfg.stt_model, false),
             None => engine,
         }
     }
@@ -1661,9 +1657,6 @@ fn flux_listen(
     let settings = theseus_voice::FluxSettings {
         ws_base: theseus_voice::FluxSettings::ws_base_of(&cfg.api_base),
         model: cfg.stt_model.clone(),
-        eot_threshold: cfg.eot_threshold.map(|t| t.0),
-        eager_eot_threshold: cfg.eager_eot_threshold.map(|t| t.0),
-        eot_timeout_ms: cfg.eot_timeout_ms,
         ..theseus_voice::FluxSettings::default()
     };
     let model = cfg.stt_model.clone();

@@ -392,7 +392,6 @@ async fn connect(
         board: board.clone(),
         bot_id: AtomicU64::new(0),
         edit_interval: Duration::from_millis(cfg.edit_interval_ms.max(250)),
-        notice_embeds: cfg.notice_embeds,
         routes: Mutex::new(Routes::default()),
         files_http: files::client(),
         caps: files::Caps {
@@ -610,8 +609,6 @@ pub(crate) struct Shared {
     pub(crate) board: Board,
     bot_id: AtomicU64,
     edit_interval: Duration,
-    /// `[discord] notice_embeds`: each place's renderer posts notice cards.
-    notice_embeds: bool,
     routes: Mutex<Routes>,
     /// Downloads a message's attachments (theseus-9g2).
     files_http: reqwest::Client,
@@ -1122,7 +1119,6 @@ impl Shared {
             lane,
             inflight: false,
             steering: Default::default(),
-            queued: Vec::new(),
             saw_failure: false,
             stopped_turn: None,
             stopping: false,
@@ -1519,7 +1515,7 @@ impl Shared {
 
     /// A place's renderer: the `[discord]` notice setting.
     pub(crate) fn renderer(&self) -> Renderer {
-        Renderer::new(self.notice_embeds).with_exits(self.core.exits.clone())
+        Renderer::new(false).with_exits(self.core.exits.clone())
     }
 
     /// Who may drive the bound channel `channel` (its `[[channel]] users`):
@@ -1922,8 +1918,6 @@ struct Place {
     inflight: bool,
     /// The steered requests beside it (`runtime/steer.rs`).
     steering: steer::Steering,
-    /// Messages that arrived mid-turn, for the next turn.
-    queued: Vec<Inbound>,
     saw_failure: bool,
     /// The turn a `/stop` stopped (W1): its stream and new calls show no
     /// more here, until its end.
@@ -1991,10 +1985,8 @@ impl Place {
                     self.say(&reply, Some(m.message));
                     return;
                 }
-                if self.turning() && self.steers() {
+                if self.turning() {
                     self.steer(m);
-                } else if self.inflight {
-                    self.queued.push(m);
                 } else if self.ready().await {
                     self.submit(vec![m]);
                 }
@@ -2198,9 +2190,8 @@ impl Place {
             }
             Control::Stop | Control::StopAll(_) => {
                 // W1: halt this session's work and keep the conversation. The
-                // messages queued for the next turn go too; the next message
-                // continues this session. Its tasks and wakes are untouched.
-                self.queued.clear();
+                // next message continues this session. Its tasks and wakes are
+                // untouched.
                 self.voice_stop();
                 self.stopping = self.inflight;
                 self.steering.stopped();
@@ -2438,7 +2429,6 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         board: Board::new(core.clone()),
         bot_id: AtomicU64::new(0),
         edit_interval: Duration::from_millis(250),
-        notice_embeds: false,
         routes: Mutex::new(Routes::default()),
         files_http: files::client(),
         caps: files::Caps::default(),

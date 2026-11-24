@@ -59,6 +59,22 @@ const EVERY: &str = "[model]\n\
                      candidates = 16\n\
                      [server]\n\
                      store_engine = \"redb\"\n\
+                     [voice]\n\
+                     judge_ms = 400\n\
+                     pause_ms = 1400\n\
+                     lead_in_ms = 0\n\
+                     gap_lead_in_ms = 0\n\
+                     merge_ms = 0\n\
+                     eot_threshold = 0.8\n\
+                     eager_eot_threshold = 0.5\n\
+                     eot_timeout_ms = 6000\n\
+                     [discord]\n\
+                     edit_interval_ms = 250\n\
+                     notice_embeds = true\n\
+                     status_line = false\n\
+                     app_emojis = false\n\
+                     [kernel]\n\
+                     steer_queued = false\n\
                      [policy.tools]\n\
                      \"thread.read\" = \"open\"\n\
                      \"channel.read\" = \"notify\"\n\
@@ -81,10 +97,12 @@ fn names(cfg: &Config) -> Vec<&str> {
 /// the start's ignored list, and one warning line names it and why it went.
 #[test]
 fn a_settings_file_naming_every_retired_key_loads_and_names_each() {
-    let (cfg, warnings) = parse(EVERY).expect("an old settings file loads");
+    let (cfg, warnings) = Config::parse(&format!("narrative = true\n{BASE}{EVERY}"))
+        .expect("an old settings file loads");
     let ignored = names(&cfg);
     for k in RETIRED {
         let name = match k.section {
+            "" => k.key.to_string(),
             "profiles.*" => format!("profiles.quick.{}", k.key),
             s => format!("{s}.{}", k.key),
         };
@@ -265,4 +283,101 @@ fn an_old_prefix_section_loads_and_a_key_it_never_had_still_fails() {
     );
     let e = parse("[prefix]\nenabled = false\nwarmth = 3\n").unwrap_err();
     assert!(format!("{e:#}").contains("warmth"), "{e:#}");
+}
+
+/// The Narrative tab is always shown (issue 46): a settings file that still says `narrative`, either way, loads
+/// and names it once as retired.
+#[test]
+fn the_narrative_key_is_retired_whatever_it_says() {
+    for v in ["true", "false"] {
+        let (cfg, warnings) = Config::parse(&format!("narrative = {v}\n\n{BASE}")).unwrap();
+        assert_eq!(names(&cfg), ["narrative"], "{v}");
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|w| w.starts_with("narrative is retired: "))
+                .count(),
+            1,
+            "{v}: {warnings:?}"
+        );
+    }
+}
+
+/// The eight voice timings are the code's (issue 46): a `[voice]` that still sets them, to anything, loads, names
+/// each once, and reads as if they were unset.
+#[test]
+fn the_voice_timings_are_retired_and_read_as_unset() {
+    let text = "[voice]\njudge_ms = 2000\npause_ms = 3000\nlead_in_ms = 0\ngap_lead_in_ms = 0\n\
+                merge_ms = 0\neot_threshold = 0.9\neager_eot_threshold = 0.5\neot_timeout_ms = 6000\n";
+    let (cfg, warnings) = parse(text).unwrap();
+    assert_eq!(
+        names(&cfg),
+        [
+            "voice.judge_ms",
+            "voice.pause_ms",
+            "voice.lead_in_ms",
+            "voice.gap_lead_in_ms",
+            "voice.merge_ms",
+            "voice.eot_threshold",
+            "voice.eager_eot_threshold",
+            "voice.eot_timeout_ms"
+        ]
+    );
+    assert_eq!(
+        warnings
+            .iter()
+            .filter(|w| w.starts_with("voice.") && w.contains(" is retired: "))
+            .count(),
+        8,
+        "{warnings:?}"
+    );
+    assert_eq!(cfg.voice, crate::voice::VoiceConfig::default());
+}
+
+/// The four cosmetic Discord switches are fixed (issue 46): a `[discord]` that still sets them loads, names each
+/// once, and reads as today's defaults.
+#[test]
+fn the_cosmetic_discord_switches_are_retired_and_read_as_their_defaults() {
+    let text = "[discord]\nedit_interval_ms = 250\nnotice_embeds = true\nstatus_line = false\n\
+                app_emojis = false\n";
+    let (cfg, warnings) = parse(text).unwrap();
+    assert_eq!(
+        names(&cfg),
+        [
+            "discord.edit_interval_ms",
+            "discord.notice_embeds",
+            "discord.status_line",
+            "discord.app_emojis"
+        ]
+    );
+    assert_eq!(
+        warnings
+            .iter()
+            .filter(|w| w.starts_with("discord.") && w.contains(" is retired: "))
+            .count(),
+        4,
+        "{warnings:?}"
+    );
+    assert_eq!(
+        (cfg.discord.edit_interval_ms, cfg.discord.app_emojis),
+        (1200, true)
+    );
+}
+
+/// A message sent while a turn runs always joins it (issue 46): a settings file that still says
+/// `[kernel] steer_queued`, either way, loads and names it once as retired.
+#[test]
+fn the_steer_switch_is_retired_whatever_it_says() {
+    for v in ["true", "false"] {
+        let (cfg, warnings) = parse(&format!("[kernel]\nsteer_queued = {v}\n")).unwrap();
+        assert_eq!(names(&cfg), ["kernel.steer_queued"], "{v}");
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|w| w.starts_with("kernel.steer_queued is retired: "))
+                .count(),
+            1,
+            "{v}: {warnings:?}"
+        );
+    }
 }
