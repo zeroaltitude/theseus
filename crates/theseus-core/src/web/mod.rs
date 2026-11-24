@@ -16,6 +16,7 @@ use theseus_tools::{Tool, ToolFailure};
 
 use crate::config::WebToolsConfig;
 use crate::cpu::CpuPool;
+use crate::scrub::Scrubber;
 
 pub mod fetch;
 pub mod html;
@@ -57,6 +58,8 @@ pub struct Web {
     /// `[policy] private_addresses`: open, a fetch reaches a private address
     /// as any other (theseus-7gir.20).
     pub private: net::PrivateAddresses,
+    /// Where a page's text may be cut.
+    scrubber: Arc<Scrubber>,
 }
 
 impl Web {
@@ -65,9 +68,10 @@ impl Web {
         text_max: usize,
         cpu: Arc<CpuPool>,
         private: net::PrivateAddresses,
+        scrubber: Arc<Scrubber>,
     ) -> Arc<Self> {
         let dns = net::Dns::checked();
-        Self::with_dns(cfg, text_max, cpu, dns, BRAVE_ENDPOINT, private)
+        Self::with_dns(cfg, text_max, cpu, dns, BRAVE_ENDPOINT, private, scrubber)
     }
 
     /// The web tools over `dns`, asking `search_endpoint` (tests: names that
@@ -79,6 +83,7 @@ impl Web {
         dns: net::Dns,
         search_endpoint: &str,
         private: net::PrivateAddresses,
+        scrubber: Arc<Scrubber>,
     ) -> Arc<Self> {
         Arc::new(Self {
             cfg: cfg.clone(),
@@ -89,6 +94,7 @@ impl Web {
             approved: OnceLock::new(),
             search_endpoint: search_endpoint.into(),
             private,
+            scrubber,
         })
     }
 

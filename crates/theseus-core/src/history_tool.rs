@@ -584,6 +584,7 @@ pub(crate) fn lens_for<'a>(
         span,
         cut,
         scope,
+        cuts: core.tools.scrubber.cuts(),
     })
 }
 

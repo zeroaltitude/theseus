@@ -233,7 +233,7 @@ impl Core {
             session.as_deref(),
             None,
             json!({"execution_id": execution_id, "wake_id": wake.id, "by": by,
-                   "note": wake.note.chars().take(200).collect::<String>()}),
+                   "note": self.tools.scrubber.cuts().head(&wake.note, 200).0}),
         );
         self.store.append(&[theseus_store::NewRecord::json(
             theseus_store::kinds::LEDGER,

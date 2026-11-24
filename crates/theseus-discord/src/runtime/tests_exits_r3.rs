@@ -149,7 +149,10 @@ async fn wakes_rebuild_core_cut_title_from_masked_note_r6() {
     let (mut place, _rx) = tests::place_for_tests(&core, "ses_parent");
     let note = format!("{}{}", "x".repeat(55), VALUE);
     let wake = theseus_protocol::WakeInfo {
-        title: Some(theseus_core::session::title_from(&note)),
+        title: Some(theseus_core::session::title_from(
+            &note,
+            &theseus_core::scrub::Cuts::none(),
+        )),
         note,
         ..Default::default()
     };

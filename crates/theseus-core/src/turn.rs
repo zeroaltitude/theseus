@@ -1664,6 +1664,7 @@ impl TurnRunner {
             },
             dir: dir.as_deref(),
             commitments: &frames.commitments,
+            scrubber: &self.tools.scrubber,
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             tc.rec().in_turn(None).record(&fact::turn::SessionResumed {
@@ -2158,7 +2159,7 @@ fn failure_reason(e: &anyhow::Error) -> String {
         Some(t) => format!("{} ({:#})", t.class, t.source),
         None => format!("an internal error ({e:#})"),
     };
-    crate::toolrun::cap(&why, 400, |_| String::new()).0
+    crate::toolrun::cap(&why, 400, |_| String::new(), &crate::scrub::Cuts::none()).0
 }
 
 pub fn add_usage(into: &mut Usage, u: &Usage) {

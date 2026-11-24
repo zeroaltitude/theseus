@@ -48,6 +48,7 @@ use theseus_kernel::{
 };
 use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
+use crate::scrub::Cuts;
 use crate::toolrun::TurnCtx;
 
 pub const AT: &str = "wake.at";
@@ -429,7 +430,10 @@ impl Tool for WakeAt {
             );
         }
         Ok(Plan {
-            summary: format!("wake {when}: {}", crate::session::title_from(&i.note)),
+            summary: format!(
+                "wake {when}: {}",
+                crate::session::title_from(&i.note, &crate::scrub::Cuts::none())
+            ),
             ..Default::default()
         })
     }
@@ -483,7 +487,7 @@ pub fn set(
                         .flatten()
                         .map(|e| e.wakes)
                         .unwrap_or_default();
-                    too_many(*max, &pending, now)
+                    too_many(*max, &pending, now, &tc.scrubber.cuts())
                 }
                 _ => format!("Not set: {e:#}"),
             })
@@ -623,7 +627,7 @@ fn line(w: &PendingWake, extra: Option<String>, note: &str) -> String {
 }
 
 /// The refusal at the cap: what is pending, soonest first.
-fn too_many(max: usize, pending: &[PendingWake], now_ms: u64) -> String {
+fn too_many(max: usize, pending: &[PendingWake], now_ms: u64, cuts: &Cuts) -> String {
     let list = pending
         .iter()
         .map(|w| {
@@ -632,7 +636,7 @@ fn too_many(max: usize, pending: &[PendingWake], now_ms: u64) -> String {
                 crate::task::short(&w.id),
                 local(w.due_at_ms).full(),
                 span(w.due_at_ms.saturating_sub(now_ms)),
-                crate::session::title_from(&w.note)
+                crate::session::title_from(&w.note, cuts)
             )
         })
         .collect::<Vec<_>>()
@@ -722,7 +726,7 @@ pub fn info(e: &Execution, w: &PendingWake, title: Option<String>) -> theseus_pr
             .map(|r| r.days.iter().map(|d| d.as_str().to_string()).collect())
             .unwrap_or_default(),
         until_ms: w.repeat.as_ref().and_then(|r| r.until_ms),
-        title: Some(crate::session::title_from(&w.note)).filter(|t| !t.is_empty()),
+        title: Some(crate::session::title_from(&w.note, &Cuts::none())).filter(|t| !t.is_empty()),
         purpose: (!w.purpose.is_check()).then(|| w.purpose.as_str().to_string()),
         run: w.run.is_notice().then(|| "notice".to_string()),
         paused: w.paused_at_ms.is_some(),

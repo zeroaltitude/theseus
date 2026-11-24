@@ -299,8 +299,13 @@ impl TurnRunner {
     ) -> anyhow::Error {
         tracing::warn!(session_id = %t.tc.session_id, turn_id = %t.tc.turn_id,
             error = %format!("{e:#}"), "the turn faulted; its books are closed");
-        let reason =
-            crate::toolrun::cap(&format!("{FAULT_CLASS}: {e:#}"), 400, |_| String::new()).0;
+        let reason = crate::toolrun::cap(
+            &format!("{FAULT_CLASS}: {e:#}"),
+            400,
+            |_| String::new(),
+            &crate::scrub::Cuts::none(),
+        )
+        .0;
         Self::fail(
             t,
             session,

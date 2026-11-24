@@ -95,7 +95,13 @@ impl Crash {
                 || "unknown".into(),
                 |l| format!("{}:{}:{}", l.file(), l.line(), l.column()),
             ),
-            message: crate::toolrun::cap(&message, MESSAGE_MAX, |_| String::new()).0,
+            message: crate::toolrun::cap(
+                &message,
+                MESSAGE_MAX,
+                |_| String::new(),
+                &crate::scrub::Cuts::none(),
+            )
+            .0,
         }
     }
 }

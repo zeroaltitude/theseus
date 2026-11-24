@@ -30,7 +30,12 @@ use base64::Engine as _;
 
 use crate::secrets::{SecretBoard, SecretState};
 
+pub use cut::Cuts;
+
+mod cut;
 mod escaped;
+#[cfg(test)]
+mod tests_cut;
 #[cfg(test)]
 mod tests_escaped;
 #[cfg(test)]

@@ -7,6 +7,8 @@
 use serde::{Deserialize, Serialize};
 use theseus_protocol::{SessionInfo, SessionKind, Usage};
 
+use crate::scrub::Cuts;
+
 /// What the session's last turn ran against, recorded from that turn's start
 /// (theseus-kol); a continuation reuses it, so a conversation does not change
 /// model under the model's own thinking blocks.
@@ -458,17 +460,13 @@ impl SessionRecord {
     }
 }
 
-/// A title from a prompt: the first line, trimmed to about sixty characters.
-pub fn title_from(text: &str) -> String {
-    let line = text
-        .lines()
-        .find(|l| !l.trim().is_empty())
-        .unwrap_or("")
-        .trim();
-    if line.chars().count() > 60 {
-        format!("{}…", line.chars().take(60).collect::<String>())
-    } else {
-        line.to_string()
+/// A title from a prompt: the first line, trimmed to about sixty characters,
+/// cut where `cuts` says (`Cuts::first_line`), so it never ends inside a
+/// known value: it stops before one, and is empty when one starts it.
+pub fn title_from(text: &str, cuts: &Cuts) -> String {
+    match cuts.first_line(text, 60, 60) {
+        (head, true) if !head.is_empty() => format!("{head}…"),
+        (head, _) => head.to_string(),
     }
 }
 

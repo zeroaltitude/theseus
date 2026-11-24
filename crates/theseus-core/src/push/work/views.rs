@@ -12,6 +12,8 @@ use theseus_protocol::work::{
 };
 use theseus_protocol::{Attention, Level};
 
+use crate::scrub::Cuts;
+
 use super::{
     answered, eta, hm, horizon, is_job, step_paused, step_state, ActIn, EndedWake, ExecIn,
     WorkBoard,
@@ -20,17 +22,13 @@ use super::{
 /// A title's longest: a command or a note cut to a line.
 const TITLE_CHARS: usize = 120;
 
-pub(super) fn line(s: &str) -> String {
-    let l = s
-        .lines()
-        .find(|l| !l.trim().is_empty())
-        .unwrap_or("")
-        .trim();
-    if l.chars().count() <= TITLE_CHARS {
-        l.to_string()
-    } else {
-        let cut: String = l.chars().take(TITLE_CHARS - 1).collect();
-        format!("{}…", cut.trim_end())
+/// `s`'s first line that is not blank, cut to a title where `cuts` says
+/// (`Cuts::first_line`): never inside a known value.
+pub(super) fn line(s: &str, cuts: &Cuts) -> String {
+    match cuts.first_line(s, TITLE_CHARS, TITLE_CHARS - 1) {
+        (head, true) if !head.trim_end().is_empty() => format!("{}…", head.trim_end()),
+        (_, true) => String::new(),
+        (head, false) => head.to_string(),
     }
 }
 
@@ -241,7 +239,7 @@ impl WorkBoard {
                     .find(|e| e.identity.starts_with("report:"))
             })
             .and_then(|e| e.note.as_deref())
-            .map(line)
+            .map(|n| line(n, &self.scrubber.cuts()))
             .filter(|l| !l.is_empty());
         let outcome = match ei.x.state.as_str() {
             "complete" => "done".to_string(),
@@ -441,7 +439,7 @@ impl WorkBoard {
         v.parent = Some(ei.x.execution_id.clone());
         v.root = self.root_of(&ei.x.execution_id);
         v.session_id = Some(ei.x.session_id.clone());
-        v.title = line(&w.note);
+        v.title = line(&w.note, &self.scrubber.cuts());
         v.state = WorkState::Waiting;
         v.started_at_ms = w.set_at_ms;
         v.state_since_ms = w.set_at_ms;
@@ -469,7 +467,7 @@ impl WorkBoard {
         v.parent = Some(ei.x.execution_id.clone());
         v.root = self.root_of(&ei.x.execution_id);
         v.session_id = Some(ei.x.session_id.clone());
-        v.title = line(&w.note);
+        v.title = line(&w.note, &self.scrubber.cuts());
         v.purpose = Some(w.purpose.as_str().to_string());
         v.state = match self.watches.get(&w.id).and_then(|h| h.end) {
             Some("met") => WorkState::Done,
@@ -518,7 +516,7 @@ impl WorkBoard {
         v.parent = Some(parent);
         v.root = root;
         v.session_id = Some(t.origin.session.clone());
-        v.title = line(&t.title);
+        v.title = line(&t.title, &self.scrubber.cuts());
         v.state = step_state(t.state);
         // A suspended record (cancelled or out of budget, recoverable) is held,
         // as an owner-paused task is: one attention rule reads both (theseus-g00vv).
@@ -531,7 +529,11 @@ impl WorkBoard {
         if t.state == TaskState::Failed {
             v.report = Some(WorkReport {
                 outcome: "failed".into(),
-                first_line: t.evidence.last().and_then(|e| e.note.as_deref()).map(line),
+                first_line: t
+                    .evidence
+                    .last()
+                    .and_then(|e| e.note.as_deref())
+                    .map(|n| line(n, &self.scrubber.cuts())),
                 reason: None,
             });
         }
@@ -550,9 +552,9 @@ fn question_words(ai: &ActIn) -> (String, String) {
     let prompt = if a.tool == BUDGET_TOOL {
         "reset the session's spend".to_string()
     } else if let Some(i) = crate::ask::input_of(a) {
-        line(&i.question)
+        line(&i.question, &Cuts::none())
     } else if !ai.argv.is_empty() {
-        format!("{tool} {}", line(&ai.argv.join(" ")))
+        format!("{tool} {}", line(&ai.argv.join(" "), &Cuts::none()))
     } else {
         match a
             .proposal
@@ -560,7 +562,7 @@ fn question_words(ai: &ActIn) -> (String, String) {
             .and_then(|p| p.resource.clone())
             .or_else(|| a.resource.clone())
         {
-            Some(r) => format!("{tool} {}", line(&r)),
+            Some(r) => format!("{tool} {}", line(&r, &Cuts::none())),
             None => tool.clone(),
         }
     };
@@ -570,7 +572,7 @@ fn question_words(ai: &ActIn) -> (String, String) {
 /// A wake that woke an execution, as its view says it.
 pub(super) fn woke_of(w: &theseus_kernel::PendingWake) -> theseus_protocol::work::Woke {
     theseus_protocol::work::Woke {
-        note: crate::session::title_from(&w.note),
+        note: crate::session::title_from(&w.note, &Cuts::none()),
         at_ms: w.due_at_ms,
         purpose: Some(w.purpose.as_str().to_string()),
     }
@@ -581,7 +583,7 @@ fn job_title(ai: &ActIn) -> String {
     if ai.argv.is_empty() {
         ai.a.tool.clone()
     } else {
-        line(&ai.argv.join(" "))
+        line(&ai.argv.join(" "), &Cuts::none())
     }
 }
 

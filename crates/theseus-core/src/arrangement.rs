@@ -42,6 +42,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::node::{Body, Node, Origin, ResultStatus};
+use crate::scrub::Cuts;
 
 /// The author an old thread split gave the arrangement it wrote (`thread:<source>`), where a task's is
 /// `session:<parent>`. Threads were retired on 2026-11-22 (issue 44) and nothing writes one now; an
@@ -147,12 +148,12 @@ impl Input {
         for (i, p) in self.pieces.iter().enumerate() {
             match (&p.quote, &p.node) {
                 (Some(_), Some(_)) => {
-                    return Err(format!("piece {i} has both `quote` and `node`: give one"))
+                    return Err(format!("piece {i} has both `quote` and `node`: give one"));
                 }
                 (None, None) => {
                     return Err(format!(
                         "piece {i} has neither `quote` nor `node`: quote the message exactly"
-                    ))
+                    ));
                 }
                 _ => {}
             }
@@ -306,11 +307,13 @@ fn candidate(n: &Node) -> String {
 }
 
 /// Resolve the arrangement's pieces against `nodes`, the calling session's
-/// transcript, leaving out `holder`, the reply that holds the call.
+/// transcript, leaving out `holder`, the reply that holds the call. A piece's
+/// text and first line are cut where `cuts` says.
 pub fn resolve(
     input: &Input,
     nodes: &[(u64, crate::stub::Stub)],
     holder: Option<&str>,
+    cuts: &Cuts,
 ) -> Result<Vec<Piece>, Refused> {
     let sources: Vec<(&Node, String)> = nodes
         .iter()
@@ -350,12 +353,17 @@ pub fn resolve(
         }
         let superseded_by = superseded.get(&i).map(|n| *n as u32);
         let body = superseded_by.is_none().then(|| {
-            let (t, _) = crate::toolrun::cap(&text, PIECE_CHARS, |_| {
-                format!(
-                    "the whole message is node {} of session {}",
-                    node.id, node.session_id
-                )
-            });
+            let (t, _) = crate::toolrun::cap(
+                &text,
+                PIECE_CHARS,
+                |_| {
+                    format!(
+                        "the whole message is node {} of session {}",
+                        node.id, node.session_id
+                    )
+                },
+                cuts,
+            );
             t
         });
         out.push(Piece {
@@ -366,7 +374,7 @@ pub fn resolve(
             author: node.author.clone(),
             at_ms: node.created_at_ms,
             text: body,
-            first_line: crate::session::title_from(&text),
+            first_line: crate::session::title_from(&text, cuts),
             trusted: trusted.contains(&i),
             superseded_by,
         });
@@ -741,7 +749,13 @@ mod tests {
     #[test]
     fn a_quote_resolves_to_the_one_node_that_holds_it() {
         let t = transcript();
-        let got = resolve(&quoting("  lamp's bulb with the brighter one. "), &t, None).unwrap();
+        let got = resolve(
+            &quoting("  lamp's bulb with the brighter one. "),
+            &t,
+            None,
+            &Cuts::none(),
+        )
+        .unwrap();
         assert_eq!(got.len(), 1);
         let p = &got[0];
         assert_eq!(p.node, t[0].1.id);
@@ -755,19 +769,40 @@ mod tests {
         );
         assert_eq!(p.first_line, "Replace the  lamp's");
         // A reply's text, and a tool result's content, resolve too.
-        let got = resolve(&quoting("brighter: 60 W, and more"), &t, None);
+        let got = resolve(
+            &quoting("brighter: 60 W, and more"),
+            &t,
+            None,
+            &Cuts::none(),
+        );
         assert_eq!(got.unwrap_err().class, "no_match");
-        let got = resolve(&quoting("bulb: 40 W, brighter: 60 W"), &t, None).unwrap();
+        let got = resolve(
+            &quoting("bulb: 40 W, brighter: 60 W"),
+            &t,
+            None,
+            &Cuts::none(),
+        )
+        .unwrap();
         assert_eq!(got[0].node, t[3].1.id);
         // Case counts.
-        let got = resolve(&quoting("REPLACE THE LAMP'S BULB WITH"), &t, None);
+        let got = resolve(
+            &quoting("REPLACE THE LAMP'S BULB WITH"),
+            &t,
+            None,
+            &Cuts::none(),
+        );
         assert_eq!(got.unwrap_err().class, "no_match");
         // A node named by its id.
         let by_id = input(json!({"pieces": [{"node": t[2].1.id, "role": "objective"}]}));
-        assert_eq!(resolve(&by_id, &t, None).unwrap()[0].node, t[2].1.id);
+        assert_eq!(
+            resolve(&by_id, &t, None, &Cuts::none()).unwrap()[0].node,
+            t[2].1.id
+        );
         let unknown = input(json!({"pieces": [{"node": "msg_gone", "role": "objective"}]}));
         assert_eq!(
-            resolve(&unknown, &t, None).unwrap_err().class,
+            resolve(&unknown, &t, None, &Cuts::none())
+                .unwrap_err()
+                .class,
             "unknown_node"
         );
     }
@@ -777,19 +812,19 @@ mod tests {
     #[test]
     fn an_ambiguous_quote_fails_and_names_its_candidates() {
         let t = transcript();
-        let err = resolve(&quoting("replace the lamp's bulb"), &t, None);
+        let err = resolve(&quoting("replace the lamp's bulb"), &t, None, &Cuts::none());
         // Case keeps the keeper's capital R out: only the reply holds it.
         assert_eq!(err.unwrap()[0].node, t[1].1.id);
-        let err = resolve(&quoting("the lamp's bulb with"), &t, None);
+        let err = resolve(&quoting("the lamp's bulb with"), &t, None, &Cuts::none());
         assert_eq!(err.unwrap()[0].node, t[0].1.id);
         // A short quote is as good as its uniqueness (theseus-e31an).
-        let err = resolve(&quoting("lamp's bulb"), &t, None).unwrap_err();
+        let err = resolve(&quoting("lamp's bulb"), &t, None, &Cuts::none()).unwrap_err();
         assert_eq!(err.class, "ambiguous");
-        let err = resolve(&quoting("Then log it"), &t, None).unwrap_err();
+        let err = resolve(&quoting("Then log it"), &t, None, &Cuts::none()).unwrap_err();
         assert_eq!(err.class, "ambiguous", "{}", err.message);
-        let one = resolve(&quoting("the lamp's bulb wi"), &t, None).unwrap();
+        let one = resolve(&quoting("the lamp's bulb wi"), &t, None, &Cuts::none()).unwrap();
         assert_eq!(one[0].node, t[0].1.id);
-        let err = resolve(&quoting("place the lamp's bulb"), &t, None).unwrap_err();
+        let err = resolve(&quoting("place the lamp's bulb"), &t, None, &Cuts::none()).unwrap_err();
         assert_eq!(err.class, "ambiguous", "{}", err.message);
         assert!(
             err.message.contains("matches 2 messages"),
@@ -813,7 +848,7 @@ mod tests {
             Node::user("ses_lighthouse", None, "cli", "OK."),
             1_790_000_000_000,
         )];
-        let err = resolve(&quoting(" OK. "), &t, None).unwrap_err();
+        let err = resolve(&quoting(" OK. "), &t, None, &Cuts::none()).unwrap_err();
         assert_eq!(err.class, "short");
         assert!(
             err.message.contains("has 3 non-space characters"),
@@ -830,7 +865,7 @@ mod tests {
         let mut t = transcript();
         let quote = "I will replace the lamp's bulb today.";
         let holder = t[1].1.id.clone();
-        let err = resolve(&quoting(quote), &t, Some(&holder)).unwrap_err();
+        let err = resolve(&quoting(quote), &t, Some(&holder), &Cuts::none()).unwrap_err();
         assert_eq!(err.class, "no_match");
         t.push(at(
             result(
@@ -839,17 +874,20 @@ mod tests {
             ),
             1_790_000_240_000,
         ));
-        let got = resolve(&quoting("Replace the lamp's bulb"), &t, None).unwrap();
+        let got = resolve(&quoting("Replace the lamp's bulb"), &t, None, &Cuts::none()).unwrap();
         assert_eq!(got[0].node, t[0].1.id);
         let twice = input(json!({"pieces": [
             {"quote": "with the brighter one", "role": "objective"},
             {"quote": "it.", "role": "acceptance"}]}));
-        let err = resolve(&twice, &t, None).unwrap_err();
+        let err = resolve(&twice, &t, None, &Cuts::none()).unwrap_err();
         assert_eq!(err.class, "short");
         let twice = input(json!({"pieces": [
             {"quote": "with the brighter one", "role": "objective"},
             {"quote": "bulb with the brighter", "role": "acceptance"}]}));
-        assert_eq!(resolve(&twice, &t, None).unwrap_err().class, "same_node");
+        assert_eq!(
+            resolve(&twice, &t, None, &Cuts::none()).unwrap_err().class,
+            "same_node"
+        );
     }
 
     /// The refusal without a piece that defines the work, and indexes out of
@@ -886,7 +924,13 @@ mod tests {
     #[test]
     fn the_fidelity_check_flags_a_short_brief_from_a_long_talk_with_one_piece() {
         let t = transcript();
-        let one = resolve(&quoting("lamp's bulb with the brighter one"), &t, None).unwrap();
+        let one = resolve(
+            &quoting("lamp's bulb with the brighter one"),
+            &t,
+            None,
+            &Cuts::none(),
+        )
+        .unwrap();
         let short = "Swap the bulb.";
         let err = fidelity(short, 11, &one, false).unwrap_err();
         assert_eq!(err.class, "fidelity");
@@ -907,6 +951,7 @@ mod tests {
                 {"quote": "Then log it in the keeper's book.", "role": "acceptance"}]})),
             &t,
             None,
+            &Cuts::none(),
         )
         .unwrap();
         assert!(fidelity(short, 11, &two, false).is_ok());
@@ -935,7 +980,7 @@ mod tests {
             {"quote": "bulb: 40 W, brighter: 60 W", "role": "context"},
             {"quote": "Then log it in the keeper's book.", "role": "acceptance"}],
             "trust": [1], "supersedes": [[0, 2]]}));
-        let pieces = resolve(&a, &t, None).unwrap();
+        let pieces = resolve(&a, &t, None, &Cuts::none()).unwrap();
         assert_eq!(pieces[0].superseded_by, Some(2));
         let out = render(&pieces);
         assert!(!out.contains("brighter one"), "{out}");

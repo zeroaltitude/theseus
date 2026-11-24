@@ -269,6 +269,7 @@ pub(crate) fn web(port: u16, cfg: WebToolsConfig, public: bool) -> Arc<Web> {
         dns,
         &format!("http://search.test:{port}/search"),
         Default::default(),
+        Default::default(),
     )
 }
 
@@ -520,6 +521,7 @@ async fn an_open_policy_reaches_private_addresses_unapproved() {
         dns,
         &format!("http://search.test:{p}/search"),
         super::net::PrivateAddresses::Open,
+        Default::default(),
     );
     let (out, _) = fetch(
         &w,
@@ -647,6 +649,7 @@ fn each_private_url_waits_for_approval_at_the_gate_and_a_public_one_does_not() {
         30_000,
         CpuPool::new(1),
         Default::default(),
+        Default::default(),
     );
     let policy = open_policy();
     let c = ctx(false);
@@ -709,6 +712,7 @@ fn a_private_address_in_a_shared_place_says_so_on_its_card() {
         &WebToolsConfig::default(),
         30_000,
         CpuPool::new(1),
+        Default::default(),
         Default::default(),
     ));
     let c = ctx(false);

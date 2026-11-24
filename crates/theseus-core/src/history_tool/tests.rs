@@ -137,6 +137,7 @@ fn lens<'a>(store: &'a Store, here: &str) -> Lens<'a> {
         span: None,
         cut: Default::default(),
         scope: None,
+        cuts: crate::scrub::Cuts::none(),
     }
 }
 
@@ -1988,8 +1989,28 @@ async fn an_import_hit_whose_node_is_gone_or_erased_shows_no_words() {
             hit("imp_none_such", "WORDS OF NO NODE"),
             hit(&node.id, "WORDS NOW ERASED"),
         ],
+        &crate::scrub::Cuts::none(),
     );
     assert!(lines.is_empty(), "{lines:?}");
     assert!(sources.is_empty(), "{sources:?}");
     assert_eq!(dropped, 2);
+}
+
+/// A history line's words stop before a known value, and a value the line's
+/// rewrite would change is cut away before the rewrite.
+#[test]
+fn a_history_line_cut_stops_before_a_known_value() {
+    use super::page::cut;
+    let (v, w) = ("kqzv-0417-wjxp-9932-hmfb", "ylno[0417]wjxp-9932");
+    let cuts =
+        crate::scrub::Scrubber::with_values(vec![(v.into(), "v".into()), (w.into(), "w".into())])
+            .cuts();
+    let text = format!("{}{v} more", "x".repeat(50));
+    assert_eq!(cut(&text, 60, &cuts), format!("{}\u{2026}", "x".repeat(50)));
+    assert_eq!(cut(&format!("said {w} later"), 200, &cuts), "said\u{2026}");
+    // Knowing no value, the cut falls where it is asked and the rewrite changes the value.
+    assert!(cut(&text, 60, &crate::scrub::Cuts::none()).contains("kqzv"));
+    assert!(
+        cut(&format!("said {w} later"), 200, &crate::scrub::Cuts::none()).contains("ylno(0417)")
+    );
 }

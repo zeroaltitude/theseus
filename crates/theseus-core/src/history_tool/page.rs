@@ -12,6 +12,7 @@ use theseus_store::{kinds, Store as _};
 
 use crate::exchange::{self, Exchange, Root, Touch, OWNER, SEP, TOUCH_PREFIX};
 use crate::node::{Body, Node};
+use crate::scrub::Cuts;
 use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::view::history::{
@@ -100,6 +101,8 @@ pub struct Lens<'a> {
     /// The self loop's scope, for a session it opened ([`SelfScope`]); none for every other asker, which reads
     /// every place.
     pub scope: Option<SelfScope>,
+    /// Where a line's words may be cut.
+    pub cuts: Cuts,
 }
 
 /// What a session the self loop opened reads of history (`view_gate::Verified::own_place_only`), as its view
@@ -229,7 +232,11 @@ impl Lens<'_> {
             _ => None,
         };
         let did = (stored.as_ref()).map(|d| {
-            let shown = cut(&crate::ladder::did::shown_line(self.store, d), REPLY_CHARS);
+            let shown = cut(
+                &crate::ladder::did::shown_line(self.store, d),
+                REPLY_CHARS,
+                &self.cuts,
+            );
             volatile_marked(shown, at(&answer))
         });
         let reply = (answer.as_ref())
@@ -258,10 +265,11 @@ impl Lens<'_> {
             handle: Handle(ex.turn_id.clone()),
             place: ex.place.clone(),
             at_ms: ex.start_ms,
-            his_words: volatile_marked(cut(&words, WORDS_CHARS), at(&ask)),
+            his_words: volatile_marked(cut(&words, WORDS_CHARS, &self.cuts), at(&ask)),
             did,
             person: ex.person.clone(),
-            reply_begins: reply.map(|r| volatile_marked(cut(&r, REPLY_CHARS), at(&answer))),
+            reply_begins: reply
+                .map(|r| volatile_marked(cut(&r, REPLY_CHARS, &self.cuts), at(&answer))),
             outside,
         }
     }
@@ -399,11 +407,17 @@ pub(super) fn flat(text: &str) -> String {
         .join(" ")
 }
 
-/// `text` as one line of data, cut to `max` characters by code, an ellipsis marking the cut.
-pub(super) fn cut(text: &str, max: usize) -> String {
-    let text = flat(text);
+/// `text` as one line of data, cut to `max` characters by code, an ellipsis marking the cut. The cut never
+/// falls inside a known value (`cuts`), and a value [`flat`] would change is cut away before the rewrite.
+pub(super) fn cut(text: &str, max: usize, cuts: &Cuts) -> String {
+    let kept = cuts.unchanged(text, |c| {
+        matches!(c, '\u{ab}' | '\u{bb}' | '[' | ']') || c.is_control() || c.is_whitespace()
+    });
+    let short = kept < text.len();
+    let text = flat(&text[..kept]);
     match text.char_indices().nth(max) {
-        Some((at, _)) => format!("{}\u{2026}", &text[..at]),
+        Some((at, _)) => format!("{}\u{2026}", &text[..cuts.before(&text, at)]),
+        None if short => format!("{text}\u{2026}"),
         None => text,
     }
 }
@@ -534,7 +548,7 @@ pub(super) fn when(ms: u64) -> String {
 pub(super) fn who(person: Option<&str>) -> String {
     match person {
         Some(OWNER) => "the owner".into(),
-        Some(p) => format!("outside text, {}", cut(p, 80)),
+        Some(p) => format!("outside text, {}", cut(p, 80, &Cuts::none())),
         None => "author unknown".into(),
     }
 }
@@ -560,7 +574,9 @@ pub fn render(
     looks: u32,
     resume: Option<&Cursor>,
 ) -> String {
-    let within = span.map_or_else(String::new, |s| format!(" in {}", cut(&s.said, 80)));
+    let within = span.map_or_else(String::new, |s| {
+        format!(" in {}", cut(&s.said, 80, &Cuts::none()))
+    });
     // An empty span says so only when the walk reached its start: a scan stopped by its limit keeps its resume,
     // a used allowance its ending, a fork's crowded search its `SearchCut`.
     if let (Some(_), true) = (
@@ -596,7 +612,7 @@ pub fn render(
         out.push_str(&format!(
             "\n- {} · {} · {}: \u{ab}{}\u{bb} \u{2192} {did} · {}",
             when(l.at_ms),
-            cut(&l.place, 120),
+            cut(&l.place, 120, &Cuts::none()),
             who(l.person.as_deref()),
             l.his_words,
             flat(&l.handle.0)
@@ -639,7 +655,7 @@ pub fn render(
         (PageEnd::HistoryExhausted, _) if span.is_some() => format!(
             "That is all of {}{oldest}: nothing earlier in that span is on record here. Older history lies \
              outside it: call again with a wider span, or without one.",
-            cut(span.map_or("", |s| s.said.as_str()), 80)
+            cut(span.map_or("", |s| s.said.as_str()), 80, &Cuts::none())
         ),
         _ => format!(
             "History is exhausted{oldest}: nothing older is on record here. If the reference is still not \

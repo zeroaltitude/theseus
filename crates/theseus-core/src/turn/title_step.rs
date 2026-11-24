@@ -25,8 +25,9 @@ impl TurnRunner {
         text: &str,
         first_file: Option<&str>,
     ) {
-        let title = match (title_from(text), first_file) {
-            (t, Some(name)) if t.is_empty() => title_from(name),
+        let cuts = self.tools.scrubber.cuts();
+        let title = match (title_from(text, &cuts), first_file) {
+            (t, Some(name)) if t.is_empty() => title_from(name, &cuts),
             (t, _) => t,
         };
         retitle(session, title, self.cfg.sessions.retitle_within_turns);
@@ -69,7 +70,7 @@ mod tests {
     fn after(inputs: &[&str], within: u64) -> SessionRecord {
         let mut s = SessionRecord::new(SessionKind::Conversation, Some("the owner's label".into()));
         for i in inputs {
-            retitle(&mut s, title_from(i), within);
+            retitle(&mut s, title_from(i, &crate::scrub::Cuts::none()), within);
             s.turns += 1;
         }
         s

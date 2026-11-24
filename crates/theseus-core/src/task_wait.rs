@@ -50,6 +50,7 @@ use tokio::time::Instant;
 use crate::fact::{self, To};
 use crate::narrative;
 use crate::node::{Body, Node, Origin};
+use crate::scrub::Cuts;
 use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::task::{self, Report};
@@ -546,15 +547,16 @@ fn said_so_far(store: &Store, session: &str) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join("\n"))
 }
 
-/// `text` cut to its newest `max` characters, at a line's edge.
-fn newest(text: &str, max: usize) -> String {
+/// `text` cut to its newest `max` characters, at a line's edge, never
+/// inside a known value (`cuts`).
+fn newest(text: &str, max: usize, cuts: &Cuts) -> String {
     let n = text.chars().count();
     if n <= max {
         return text.to_string();
     }
     let from = text.char_indices().nth(n - max).map_or(0, |(i, _)| i);
-    let tail = &text[from..];
-    let tail = tail.find('\n').map_or(tail, |i| &tail[i + 1..]);
+    let from = text[from..].find('\n').map_or(from, |i| from + i + 1);
+    let tail = &text[cuts.after(text, from)..];
     format!("[the earliest of its findings are in its session]\n{tail}")
 }
 
@@ -650,14 +652,19 @@ fn take(core: &Core, session: &str, ask: &WaitAsk, total: usize) -> anyhow::Resu
 }
 
 /// A task that has not ended, as the note the parent reads in its place.
-fn running_note(store: &Store, e: &Execution, chars: usize) -> (String, Option<usize>) {
+fn running_note(
+    store: &Store,
+    e: &Execution,
+    chars: usize,
+    cuts: &Cuts,
+) -> (String, Option<usize>) {
     let short = task::short(&e.session_id);
     let said = said_so_far(store, &e.session_id);
     let findings = said.as_deref().map(findings_in);
     let body = match (said, chars) {
         (None, _) => "it has said nothing yet".into(),
         (Some(_), 0) => format!("the room for notes is used; read them in task {short}'s session"),
-        (Some(t), _) => newest(&t, chars),
+        (Some(t), _) => newest(&t, chars, cuts),
     };
     (
         format!("[Task {short} still running: its latest findings so far]\n{body}"),
@@ -733,7 +740,7 @@ fn deliver(
     let used: usize = rows.iter().map(|r| r.chars).sum();
     let each = split_room(total.saturating_sub(used), open.len(), ask.report_chars);
     for ((at, e), chars) in open.iter().zip(each) {
-        let (text, findings) = running_note(&turn.store, e, chars);
+        let (text, findings) = running_note(&turn.store, e, chars, &core.tools.scrubber.cuts());
         let row = &mut rows[*at];
         (row.findings, row.chars) = (findings, text.chars().count());
         let author = format!("task:{}", row.short);
@@ -894,20 +901,25 @@ pub(crate) fn fit(
         };
         return (Some(msg), true, kept);
     }
-    let (cut, _) = crate::toolrun::cap(text, per, |left| {
-        let n = left.lines().filter(|l| !l.trim().is_empty()).count();
-        match &kept {
-            Some(path) => format!(
-                "{} cut; the whole report: fs_read {path}",
-                narrative::count(n as u64, "finding", "findings")
-            ),
-            None => format!(
-                "{} cut; the whole report stays in task {}'s session",
-                narrative::count(n as u64, "finding", "findings"),
-                r.short
-            ),
-        }
-    });
+    let (cut, _) = crate::toolrun::cap(
+        text,
+        per,
+        |left| {
+            let n = left.lines().filter(|l| !l.trim().is_empty()).count();
+            match &kept {
+                Some(path) => format!(
+                    "{} cut; the whole report: fs_read {path}",
+                    narrative::count(n as u64, "finding", "findings")
+                ),
+                None => format!(
+                    "{} cut; the whole report stays in task {}'s session",
+                    narrative::count(n as u64, "finding", "findings"),
+                    r.short
+                ),
+            }
+        },
+        &crate::scrub::Cuts::none(),
+    );
     (Some(cut), true, kept)
 }
 
@@ -1013,4 +1025,20 @@ fn index(
         meta[INTERRUPTED_BY] = json!("message");
     }
     ToolOutput { text, meta }
+}
+
+#[cfg(test)]
+mod tests_newest {
+    use super::*;
+
+    /// The newest findings start after a known value the cut would fall in.
+    #[test]
+    fn the_newest_findings_start_after_a_known_value() {
+        let v = "kqzv-0417-wjxp-9932-hmfb";
+        let cuts = crate::scrub::Scrubber::with_values(vec![(v.into(), "v".into())]).cuts();
+        let text = format!("{}{v}{}", "x".repeat(300), "y".repeat(90));
+        let kept = newest(&text, 100, &cuts);
+        assert!(kept.ends_with(&format!("]\n{}", "y".repeat(90))), "{kept}");
+        assert!(newest(&text, 100, &Cuts::none()).contains("-hmfb"));
+    }
 }
