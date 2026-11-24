@@ -25,13 +25,11 @@ use crate::types::ExecState;
 use anyhow::Result;
 
 impl Kernel {
-    /// A retained frame leaves the execution index stale until reopen. Never
-    /// regenerate a running transition from that stale snapshot.
-    pub(crate) fn require_indexed_admission(&self) -> Result<()> {
-        anyhow::ensure!(
-            self.store().stats()?.index_gap.is_none(),
-            "admission waits for the retained log frames to be replayed on reopen"
-        );
+    /// Refuse only the execution whose own record has not reached the index.
+    pub(crate) fn require_indexed_admission(&self, id: &str) -> Result<()> {
+        if self.retained.lock().unwrap().contains(id) {
+            return Err(KernelError::ExecutionRetained { id: id.into() }.into());
+        }
         Ok(())
     }
 
@@ -54,6 +52,7 @@ impl Kernel {
     fn hold_turn_counted(&self, execution_id: &str, count: bool) -> Result<TurnGuard> {
         self.require_accepting()?;
         let _w = self.lock(&[execution_id]);
+        self.require_indexed_admission(execution_id)?;
         let e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
@@ -75,9 +74,9 @@ impl Kernel {
     /// under the frame's lock: a cancel that landed since the hold refuses it
     /// (`NotRunnable`), and the frame writes nothing.
     pub fn admit_held(&self, guard: &TurnGuard) -> Result<bool> {
-        self.require_indexed_admission()?;
         let id = guard.execution_id.as_str();
         self.frame(&[id], |k| {
+            k.require_indexed_admission(id)?;
             if k.admitted(guard)? {
                 return Ok(false);
             }

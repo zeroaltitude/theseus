@@ -372,3 +372,29 @@ async fn a_failed_input_frame_writes_neither_half_and_the_turn_ends_waiting() {
     assert_eq!(next.output, "after it");
     assert_eq!(inputs(&r.core), ["warm up", "the next input"]);
 }
+
+#[tokio::test]
+async fn a_new_conversations_input_runs_during_another_executions_index_gap() {
+    let r = rig(vec![Scripted::text("first"), Scripted::text("new reply")]);
+    let first = turn(&r.core, None, "warm up").await;
+    let id = first.execution_id.as_ref().unwrap();
+    r.core.kernel.wake_input(id).unwrap();
+    r.core.store.inner().fail_next_index_writes(3);
+    assert!(r
+        .core
+        .kernel
+        .admit_queued(id)
+        .unwrap_err()
+        .is::<theseus_store::store::RetainedFrame>());
+    let second = turn(&r.core, None, "new message").await;
+    assert_ne!(first.session_id, second.session_id);
+    assert_eq!(second.output, "new reply");
+    assert!(r.core.store.inner().ledger_gap().is_some());
+    let rows = ledgered(&r, "execution.running");
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row["execution_id"] == second.execution_id.as_ref().unwrap().as_str())
+            .count(),
+        1
+    );
+}

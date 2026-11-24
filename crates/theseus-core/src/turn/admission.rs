@@ -1040,6 +1040,15 @@ impl TurnRunner {
                     state: "waiting" | "blocked",
                     ..
                 }) => return Ok(None),
+                Some(KernelError::ExecutionRetained { .. }) => {
+                    return Err(turn_error(
+                        "execution_retained",
+                        "",
+                        "",
+                        arrived.elapsed().as_millis() as u64,
+                        e,
+                    ));
+                }
                 Some(KernelError::NotRunnable { state, .. }) => {
                     return Err(turn_error(
                         &format!("execution_{state}"),

@@ -1118,6 +1118,15 @@ impl TurnRunner {
                     | Some(KernelError::NotRunnable {
                         state: "running", ..
                     }) => {}
+                    Some(KernelError::ExecutionRetained { .. }) => {
+                        return Err(turn_error(
+                            "execution_retained",
+                            &req.session.session_id,
+                            "",
+                            0,
+                            e,
+                        ));
+                    }
                     Some(KernelError::NotRunnable { state, .. }) => {
                         self.session_rec(&req.session.session_id, To::Sink(&req.sink))
                             .record(&fact::turn::TurnNotRunnable {

@@ -148,6 +148,8 @@ impl Default for KernelConfig {
 pub enum KernelError {
     #[error("admission ceiling reached ({ceiling}); execution stays queued")]
     AdmissionFull { ceiling: u32 },
+    #[error("this execution has a saved record that is not yet readable; restart the daemon before trying it again")]
+    ExecutionRetained { id: ExecutionId },
     #[error("execution {id} is {state}, not runnable")]
     NotRunnable {
         id: ExecutionId,
@@ -491,6 +493,8 @@ pub struct Kernel {
     clock: Arc<dyn Clock>,
     cfg: KernelConfig,
     held: Arc<Mutex<HashSet<ExecutionId>>>,
+    /// Execution records retained in the log but absent from the index.
+    pub(crate) retained: Arc<Mutex<HashSet<ExecutionId>>>,
     /// One writer at a time per execution. Shared with every view.
     locks: Arc<ExecLocks>,
     /// 0..=4 while starting; 5 once accepting events. Shared with every view.
@@ -581,6 +585,7 @@ impl Kernel {
             store,
             clock: clock.clone(),
             held: Arc::new(Mutex::new(HashSet::new())),
+            retained: Arc::default(),
             locks: Arc::default(),
             phase: Arc::new(Mutex::new(0)),
             started_at_ms: Arc::default(),
@@ -604,6 +609,7 @@ impl Kernel {
             clock: self.clock.clone(),
             cfg: self.cfg.clone(),
             held: self.held.clone(),
+            retained: self.retained.clone(),
             locks: self.locks.clone(),
             phase: self.phase.clone(),
             started_at_ms: self.started_at_ms.clone(),
@@ -624,6 +630,7 @@ impl Kernel {
             clock: self.clock.clone(),
             cfg: self.cfg.clone(),
             held: self.held.clone(),
+            retained: self.retained.clone(),
             locks: self.locks.clone(),
             phase: self.phase.clone(),
             started_at_ms: self.started_at_ms.clone(),
@@ -848,7 +855,30 @@ impl Kernel {
             None => crate::tx::once_each(frame),
         };
         let frame = once.as_deref().unwrap_or(frame);
-        let positions = self.store.append(frame).context("kernel frame")?;
+        let wrote = self.store.append(frame).context("kernel frame");
+        // Staged appends are not indexed writes. Only the outer commit may
+        // forget an id; execution locks serialize these updates with admission.
+        if self.tx().is_none() {
+            let retained_error = wrote
+                .as_ref()
+                .err()
+                .is_some_and(|e| e.is::<theseus_store::store::RetainedFrame>());
+            if wrote.is_ok() || retained_error {
+                let mut retained = self.retained.lock().unwrap();
+                for id in frame
+                    .iter()
+                    .filter(|r| r.kind == kinds::EXECUTION)
+                    .filter_map(|r| r.key.as_ref())
+                {
+                    if retained_error {
+                        retained.insert(id.clone());
+                    } else {
+                        retained.remove(id);
+                    }
+                }
+            }
+        }
+        let positions = wrote?;
         if let Some(observe) = self.observer.get() {
             observe(Committed {
                 records: frame,
@@ -1066,6 +1096,7 @@ impl Kernel {
     fn admit_counted(&self, execution_id: &str, count: bool) -> Result<TurnGuard> {
         self.require_accepting()?;
         let _w = self.lock(&[execution_id]);
+        self.require_indexed_admission(execution_id)?;
         let e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
@@ -1087,7 +1118,7 @@ impl Kernel {
     /// (`held.rs`); without it the core's admission queue keeps the ceiling
     /// (theseus-4g0l).
     pub(crate) fn hold(&self, e: &Execution, count: bool) -> Result<TurnGuard> {
-        self.require_indexed_admission()?;
+        self.require_indexed_admission(&e.id)?;
         {
             let mut held = self.held.lock().unwrap();
             if held.contains(&e.id) {
@@ -1136,6 +1167,7 @@ impl Kernel {
     /// `wake_input` alone would write it, and admission's error is returned.
     pub fn admit_input(&self, execution_id: &str) -> Result<TurnGuard> {
         self.frame(&[execution_id], |k| {
+            k.require_indexed_admission(execution_id)?;
             k.wake_input(execution_id)?;
             Ok(k.admit(execution_id))
         })?
@@ -1147,6 +1179,7 @@ impl Kernel {
     pub fn admit_input_queued(&self, execution_id: &str, slotted: bool) -> Result<TurnGuard> {
         let ceiling = self.cfg.admission_ceiling;
         self.frame(&[execution_id], |k| {
+            k.require_indexed_admission(execution_id)?;
             k.wake_input(execution_id)?;
             if slotted {
                 return Ok(k.admit_queued(execution_id));
