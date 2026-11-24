@@ -61,7 +61,9 @@ impl Draw {
             "%41",
             "\\n",
         ];
-        (0..chars).map(|_| PIECES[self.below(PIECES.len())]).collect()
+        (0..chars)
+            .map(|_| PIECES[self.below(PIECES.len())])
+            .collect()
     }
 
     /// A case: text of up to `most` pieces, perhaps with a known value placed before, across or after `max`
