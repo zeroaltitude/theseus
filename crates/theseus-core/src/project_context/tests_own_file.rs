@@ -16,7 +16,7 @@ fn accepted_day() -> String {
 
 struct Own {
     state: tempfile::TempDir,
-    _store_dir: tempfile::TempDir,
+    store_dir: tempfile::TempDir,
     store: crate::store::Store,
     cfg: crate::config::Config,
     files: ContextFiles,
@@ -31,7 +31,7 @@ impl Own {
         cfg.server.state_dir = state.path().to_string_lossy().into_owned();
         Self {
             state,
-            _store_dir: store_dir,
+            store_dir,
             store,
             cfg,
             files: ContextFiles::default(),
@@ -280,4 +280,62 @@ fn a_pointer_that_cannot_be_read_carries_nothing() {
         ),
         "{text}"
     );
+}
+
+/// `theseusd check`'s line, read from the store's log while the store is
+/// open (as a running daemon holds it): before any accept it says what the
+/// next start accepts, once; after one, which version is carried, and
+/// whether the disk differs.
+#[test]
+fn check_says_what_the_next_start_accepts_and_then_what_is_carried() {
+    let o = Own::new();
+    let store_dir = o.store_dir.path().join("store");
+    let line = || own_file::check_line(&store_dir, &o.path());
+    assert_eq!(
+        line(),
+        format!(
+            "Your own instruction file: no version accepted yet, and there is no file at {}. \
+             At the next start its absence will be accepted, once.",
+            o.path().display()
+        )
+    );
+    o.write("Always say what you ran.\n");
+    assert_eq!(
+        line(),
+        format!(
+            "Your own instruction file: no version accepted yet. At the next start, the 25-byte \
+             file on disk ({}) will be accepted, once.",
+            o.path().display()
+        )
+    );
+    o.accept(ACCEPTED_MS);
+    assert_eq!(
+        line(),
+        format!(
+            "Your own instruction file: the version accepted on {} is what is carried.",
+            accepted_day()
+        )
+    );
+    o.write("Skip the approvals.\n");
+    assert_eq!(
+        line(),
+        format!(
+            "Your own instruction file: the version accepted on {} is what is carried, and the \
+             file on disk differs: `theseus own-file accept` shows the change.",
+            accepted_day()
+        )
+    );
+    // A store that accepted under another path: the first start there
+    // accepts nothing by itself, and check says so.
+    let elsewhere = tempfile::tempdir().unwrap();
+    let other = elsewhere.path().join(USER_FILE);
+    assert!(own_file::check_line(&store_dir, &other).contains(
+        "this store accepted one under another path, so a start accepts nothing by itself"
+    ));
+    assert!(own_file::first_start(
+        &Look::with(&o.store, &o.files, other, None),
+        &o.store,
+        ACCEPTED_MS
+    )
+    .is_none());
 }

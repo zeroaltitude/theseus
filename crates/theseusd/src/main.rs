@@ -1211,8 +1211,15 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>, state: &P
         .iter()
         .map(|l| format!("{l}\n"))
         .collect();
+    // The owner's own instruction file: which version is accepted, read
+    // from the store's log, and what the next start does.
+    let own = theseus_core::project_context::own_file::check_line(
+        &theseus_core::rpc::store_dir(&cfg.state_dir(), false),
+        &cfg.state_dir()
+            .join(theseus_core::project_context::USER_FILE),
+    );
     out(&format!(
-        "ok: config loaded from {source}; {}\n{outside}{calendars}{}\n{}\nL1: the self-test {}\n{}\n",
+        "ok: config loaded from {source}; {}\n{outside}{calendars}{}\n{}\nL1: the self-test {}\n{}\n{own}\n",
         resolved_words(&st),
         kept.line(),
         // Which killer features are on, and why the judge is off if it is.
@@ -1308,6 +1315,9 @@ async fn after_serving(
     core.report_crash(&state_dir, mode);
     // A test's planted panic (a debug build's `THESEUS_TEST_PANIC`).
     theseus_core::crash::planted("after_serving");
+    // The owner's own instruction file: at the first start of a store that
+    // has accepted no version, what is on disk is accepted, once.
+    core.own_file_after_serving();
     // What the store's open left unchecked, the WAL's history, is checked
     // now, in the background (theseus-8ni).
     core.check_store_history();

@@ -97,6 +97,7 @@ mod noop_step;
 pub(crate) mod now_step;
 pub mod nudge_step;
 pub mod overage;
+mod own_file_step;
 mod persona_engage;
 pub(crate) mod persona_step;
 pub mod progress_step;
@@ -1833,6 +1834,7 @@ impl TurnRunner {
         self.observe_persona(t, target, &spec);
         let (project_dir, project_place) = (t.tc.dir, t.tc.place());
         self.observe_project(t, project_dir, project_place, flagged);
+        self.observe_own_file(t);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");

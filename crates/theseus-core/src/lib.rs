@@ -520,6 +520,8 @@ mod tests_outside_text;
 #[cfg(test)]
 mod tests_overflow;
 #[cfg(test)]
+mod tests_own_file;
+#[cfg(test)]
 mod tests_owner_note;
 #[cfg(test)]
 mod tests_pace;

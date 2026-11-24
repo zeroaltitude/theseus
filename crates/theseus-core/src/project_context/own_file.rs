@@ -262,14 +262,7 @@ impl Look {
     /// pointer cannot be read or the disk holds a file the reader cannot
     /// read.
     pub fn accept_records(&self, v: &Version) -> Result<Vec<NewRecord>> {
-        let seq = match &self.accepted {
-            Accepted::None => 1,
-            Accepted::Some(n) => n.seq + 1,
-            Accepted::Unreadable => bail!(
-                "the accepted version of {} cannot be read from the store",
-                self.path.display()
-            ),
-        };
+        let seq = self.next_seq()?;
         if self.disk.found.is_some() && self.disk.digest.is_none() {
             bail!("{} cannot be read", self.path.display());
         }
@@ -283,6 +276,41 @@ impl Look {
             NewRecord::json(kinds::META, Some(&now_key(&self.pid)), &now)?,
             NewRecord::delete_meta(&noticed_key(&self.pid)),
         ])
+    }
+
+    /// The number the next accepted version takes.
+    pub fn next_seq(&self) -> Result<u64> {
+        match &self.accepted {
+            Accepted::None => Ok(1),
+            Accepted::Some(n) => Ok(n.seq + 1),
+            Accepted::Unreadable => bail!(
+                "the accepted version of {} cannot be read from the store",
+                self.path.display()
+            ),
+        }
+    }
+
+    /// `theseus health`'s line: while the disk differs from the accepted
+    /// version, or while nothing of the file is carried for want of one.
+    /// None otherwise.
+    pub fn health(&self, store: &crate::store::Store, now_ms: u64) -> Option<String> {
+        let accept = theseus_protocol::own_file::accept_command();
+        match &self.accepted {
+            Accepted::Some(_) if self.differs() => Some(format!(
+                "Your own instruction file differs from the accepted version since {}: `{accept}`",
+                crate::owner_note::day(self.since_ms(store, now_ms))
+            )),
+            Accepted::None if self.disk.found.is_some() => Some(format!(
+                "Your own instruction file has no accepted version, so none of it is carried: \
+                 `{accept}`"
+            )),
+            Accepted::Unreadable => Some(
+                "Your own instruction file: its accepted version cannot be read from the store, \
+                 so none of it is carried"
+                    .to_string(),
+            ),
+            _ => None,
+        }
     }
 
     /// The day the disk's present state was first ledgered, or `now_ms`'s
@@ -393,4 +421,122 @@ fn accepted_text(
             .filter(|v| v.digest == n.digest)
             .and_then(|v| v.text)
     })
+}
+
+/// Whether this store has ever accepted a version of an own file, under any
+/// path: the first start's marker. A store moved to another state directory
+/// has its pointer under the old path, so the first start there accepts
+/// nothing by itself, and its compiles carry no text until the owner
+/// accepts.
+pub fn started(store: &crate::store::Store) -> Result<bool> {
+    use theseus_store::Store as _;
+    Ok(!store
+        .inner()
+        .latest_with_prefix(kinds::META, NOW_PREFIX)?
+        .is_empty())
+}
+
+/// What the daemon's first start accepts, given its look at the file: what
+/// is on disk, or its absence, when this store has never accepted a version
+/// at all. None when it has; when the pointer, or the store's marker,
+/// cannot be read (nothing is accepted on top of an error); and when the
+/// disk holds a file the reader cannot read.
+pub fn first_start(look: &Look, store: &crate::store::Store, at_ms: u64) -> Option<Version> {
+    if look.accepted != Accepted::None || !matches!(started(store), Ok(false)) {
+        return None;
+    }
+    if look.disk.found.is_some() && look.disk.digest.is_none() {
+        return None;
+    }
+    Some(look.disk.version(
+        &look.path,
+        at_ms,
+        FIRST_START_BY,
+        FIRST_START_VIA,
+        HOW_FIRST_START,
+    ))
+}
+
+/// Who a first start's version names, and by what route.
+pub const FIRST_START_BY: &str = "theseusd";
+pub const FIRST_START_VIA: &str = "start";
+
+/// `theseusd check`'s line about the file at `path`, read-only: what the
+/// store at `store_dir` has accepted of it, read from the store's log
+/// without opening the store (a running daemon holds it), and what the next
+/// start will do.
+pub fn check_line(store_dir: &Path, path: &Path) -> String {
+    let disk = Disk::read(&ContextFiles::default(), super::found(path, 0));
+    let shown = path.display();
+    let accept = theseus_protocol::own_file::accept_command();
+    let Ok((this, any)) = pointers_in_log(&store_dir.join("wal"), &pid(path)) else {
+        return "Your own instruction file: the store's log could not be read, so this check \
+                cannot say which version is accepted. A start accepts nothing by itself while \
+                the store cannot say."
+            .to_string();
+    };
+    match (this, disk.found.as_ref()) {
+        (Some(n), _) => {
+            let look = Look {
+                path: path.to_path_buf(),
+                pid: pid(path),
+                accepted: Accepted::Some(n.clone()),
+                disk: disk.clone(),
+            };
+            let on = crate::owner_note::day(n.at_ms);
+            if look.differs() {
+                format!(
+                    "Your own instruction file: the version accepted on {on} is what is \
+                     carried, and the file on disk differs: `{accept}` shows the change."
+                )
+            } else {
+                format!(
+                    "Your own instruction file: the version accepted on {on} is what is carried."
+                )
+            }
+        }
+        (None, _) if any => format!(
+            "Your own instruction file: no version is accepted for {shown}, and this store \
+             accepted one under another path, so a start accepts nothing by itself and none of \
+             it is carried until `{accept}`."
+        ),
+        (None, Some(f)) => format!(
+            "Your own instruction file: no version accepted yet. At the next start, the {}-byte \
+             file on disk ({shown}) will be accepted, once.",
+            crate::narrative::thousands(f.bytes)
+        ),
+        (None, None) => format!(
+            "Your own instruction file: no version accepted yet, and there is no file at \
+             {shown}. At the next start its absence will be accepted, once."
+        ),
+    }
+}
+
+/// The pointer of `pid` in the log at `wal`, and whether the log holds a
+/// pointer for any path, read from the start of the log. No log: neither.
+/// A pointer that does not decode is an error, never "none".
+fn pointers_in_log(wal: &Path, pid: &str) -> Result<(Option<Now>, bool)> {
+    use theseus_follow::{Cursor, WalFollower};
+    if !wal.is_dir() {
+        return Ok((None, false));
+    }
+    let key = now_key(pid);
+    let (mut this, mut any) = (None, false);
+    let mut f = WalFollower::open(wal, Cursor::start())?;
+    loop {
+        let b = f.read(8 << 20)?;
+        if b.is_empty() {
+            return Ok((this, any));
+        }
+        for r in b.records {
+            let Some(k) = r.key.as_deref().filter(|k| k.starts_with(NOW_PREFIX)) else {
+                continue;
+            };
+            let set = r.kind == kinds::META;
+            any |= set;
+            if k == key {
+                this = if set { Some(r.decode::<Now>()?) } else { None };
+            }
+        }
+    }
 }
