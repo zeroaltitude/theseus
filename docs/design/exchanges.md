@@ -61,10 +61,16 @@ would be a frame of its own there.
 - **What is the context made of?** Over the turns whose first call was measured: the mean of each part in tokens
   (est.) and its share, the compiler's own estimate, and the cache read and written a turn.
 
-`--since` counts only rows written at or after it: rows from before the view became the only path measured the
-transcript. The report never holds a message's text, a name, a place, an exchange or a task: the judge's
-`addressed_task` is counted as `a_task` or `none`, a message's length by its band, and a field of the row the
-counter does not name is counted as present, never by its value.
+`--since` counts only rows whose own time is at or after it, wherever they lie in the store: rows from before
+the view became the only path measured the transcript. The report never holds a message's text, a name, a place,
+an exchange or a task: the judge's `addressed_task` is counted as `a_task` or `none`, a message's length by its
+band, and a field of the row the counter does not name is counted as present, never by its value. A stored word
+is counted by name only when it is one its producer makes (the index's kinds of thing, a situation's kind, a
+compile's trigger, the classify pack's choices); any other is counted as `unlisted`. A daemon from before the
+answers is told to update, and none of its groups are printed.
+
+The totals count rows, not every message he ever sent. Turns in shared places, older history that was never
+marked, and turns that ended without writing a row are outside them.
 
 ## The rebuild
 
