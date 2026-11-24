@@ -876,3 +876,75 @@ async fn a_rung_one_folds_proof_counts_its_units_and_the_records_read() {
     assert_eq!(source.reads(), 1 + n as u64);
     assert!(read > source.reads(), "{read}");
 }
+
+/// The most a settled ladder lays of rungs 1 and 2 (2N - 1 nodes of each, of N and N² exchanges) and a task's
+/// card: the model's look proves every one, lists what its bound of pieces lists and counts the rest as
+/// pieces it may read, with nothing left unchecked.
+#[tokio::test]
+async fn the_look_proves_a_settled_ladder_whole() {
+    let (r, t) = a_task().await;
+    let c = &r.core;
+    let desk = crate::tests_task_graph::session(c);
+    let n = crate::ladder::N;
+    let turns: Vec<String> = (0..n * n).map(|i| format!("t-{i:04}")).collect();
+    exchanges_of(c, &turns, &desk, "local");
+    let ids: Vec<&str> = turns.iter().map(String::as_str).collect();
+    let mut pieces = Vec::new();
+    for i in 0..2 * n - 1 {
+        let one = format!("fold-1-{i:02}");
+        fold_node(c, &one, "local", 1, &ids[..n], 10);
+        pieces.push(fold_piece("local", 1, (ids[0], ids[n - 1]), &one));
+        let two = format!("fold-2-{i:02}");
+        fold_node(c, &two, "local", 2, &ids, 10);
+        pieces.push(fold_piece("local", 2, (ids[0], ids[n * n - 1]), &two));
+    }
+    pieces.push(task_piece(&t.id));
+    let all = pieces.len();
+    keep(c, "t-look", "cmp_look", "local", pieces);
+    let said = crate::look::view::words(c, &desk, "t-look");
+    assert!(said.contains(&format!("total: {all} shown")), "{said}");
+    assert!(
+        said.contains(&format!("({} more pieces you may read", all - 60)),
+        "{said}"
+    );
+    assert!(!said.contains("not checked"), "{said}");
+}
+
+/// More fold work than one look may spend: the look proves in the order it prints, lists what its budget
+/// proved, leaves out each fold it could not check (fail closed), and says how many in one line.
+#[tokio::test]
+async fn the_looks_proof_stops_at_its_budget_and_says_so() {
+    let r = rig();
+    let c = &r.core;
+    let desk = session(c, None);
+    let n = crate::ladder::N;
+    let turns: Vec<String> = (0..n * n * n).map(|i| format!("t-{i:05}")).collect();
+    exchanges_of(c, &turns, &desk, "local");
+    let ids: Vec<&str> = turns.iter().map(String::as_str).collect();
+    let (first, last) = (ids[0], ids[ids.len() - 1]);
+    let mut pieces = Vec::new();
+    for (handle, level) in [
+        ("fold-3-a", 3),
+        ("fold-3-b", 3),
+        ("fold-3-c", 3),
+        ("fold-1-a", 1),
+        ("fold-3-d", 3),
+    ] {
+        let stands = if level == 1 { &ids[..n] } else { &ids[..] };
+        fold_node(c, handle, "local", level, stands, 10);
+        let end = if level == 1 { ids[n - 1] } else { last };
+        pieces.push(fold_piece("local", level, (first, end), handle));
+    }
+    keep(c, "t-many", "cmp_many", "local", pieces);
+    let said = crate::look::view::words(c, &desk, "t-many");
+    let listed: Vec<&str> = (said.lines())
+        .filter_map(|l| l.trim_start().split(' ').next())
+        .filter(|h| h.starts_with("fold-"))
+        .collect();
+    assert_eq!(listed, ["fold-3-a", "fold-3-b", "fold-1-a"], "{said}");
+    assert!(said.contains("total: 3 shown"), "{said}");
+    assert!(
+        said.contains("(2 folds or task cards were not checked and are not listed:"),
+        "{said}"
+    );
+}

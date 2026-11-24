@@ -21,11 +21,24 @@ compilation id holding the key's separator is refused.
 Every reader checks each piece's provenance again before showing its reference (`view::record::source`).
 An exchange range must resolve to readable sessions; a card or waiting line must carry readable session and
 exchange dependencies; recall checks its source session. A fold is found again by its handle: today's node
-must be of the range's place, level and ends, and every exchange it stands for must resolve, be of that place
-and come from a readable session (the rule the model's own assembly holds a fold to). A task's card needs the
-task's record today and a readable home session. Code and fact ranges are accepted directly. Unsupported
-ranges and unproven sources are not shown, and text is read only after that check; a fold or a card has no
-text a reader is given. One source serves a whole `view.show` call, so a fold several views hold is proven once.
+must be of the range's place, level and ends, and every exchange it stands for must resolve (the rule the
+model's own assembly holds a fold to), be of that place and come from a readable session (two checks the
+assembly does not make). A task's card needs the task's record today and a readable home session. Code and fact
+ranges are accepted directly. Unsupported ranges and unproven sources are not shown, and text is read only after
+that check; a fold or a card has no text a reader is given.
+
+This proof is not the assembly's whole scope check. A self-loop's permit (`view/permit.rs`) and a fork's cut
+(`fork/window.rs`) are kept by what the assembly lays; the reader does not apply them again, and is given the
+point of view only.
+
+One source serves a whole `view.show` call. It keeps each fold's and card's answer with the store's last
+position, and proves it again once a write has moved that position, so a fold several views hold is proven once
+while the store stands still. What a proof costs is counted in units: a fold's node and each exchange it stands
+for, and the task list once. These are not the store's own reads: a node is found through its handle's record,
+each session's place is read, and the task list reads every task. The owner's `view show` proves everything, on
+the blocking pool. The model's own look also reads on the blocking pool, and spends at most `look::view::PROOF`
+units (16,459: a settled ladder's rungs 1 and 2 whole, and the task list); a fold or a card past that is not
+listed, and the look says how many in one line.
 
 Since 2026-11-22, seals, veils, moves and the reader's presence withhold nothing. `session_marks` supplies no
 seal, and the source check asks whether the place reads, not whether it is private. Totals count shown pieces;

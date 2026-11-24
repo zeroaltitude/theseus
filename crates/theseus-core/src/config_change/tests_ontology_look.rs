@@ -166,3 +166,22 @@ async fn the_ontology_commands_are_answered_with_it_and_the_acts_run() {
         assert!(r.rows("shell.answered").is_empty(), "{line} was answered");
     }
 }
+
+/// The look at this turn's view walks the store to prove its folds and task cards: it is read on the blocking
+/// pool, never on the runtime's thread that runs the tool's future (on this one-thread runtime, the test's own).
+#[tokio::test]
+async fn the_looks_view_is_read_off_the_runtimes_thread() {
+    let r = rig();
+    let sid = r.session();
+    r.turn_with("look_theseus", &sid, json!({"what": ["view"]}))
+        .await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    let on = crate::look::view::read_on(&sid);
+    assert_eq!(on.len(), 1, "{text}");
+    assert_ne!(
+        on[0],
+        std::thread::current().id(),
+        "the view was read on the runtime's thread"
+    );
+}
