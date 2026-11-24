@@ -48,6 +48,10 @@ from a private place; the CLI refuses it inside a job), then the in-person rule 
   chose; no other field is the answer's own words.
 - **Resume**: each judgment's context says `purpose: history`. A rerun asks nothing of an exchange whose answered
   judgment says so, and writes its touches again from that row where they are missing.
+- **Once**: one run at a time; a second, a dry run included, is refused while one goes and asks nothing. Each
+  answer's row is written by the sink before the next exchange is asked and before the run returns, so the next
+  run's plan reads every answer, one that touched nothing included. What cannot be promised: a daemon crash after
+  the provider took a request and before its answer was stored may pay for that one exchange again.
 - **Money**: the run's cap (`--cap-usd`, default $10) is checked before each call against the call's worst case,
   and the run stops before the exchange that would pass it. Each call reserves on the judge's day budget, which
   holds on the daemon's day ceiling, and settles at its price. Paced by the machine's quiet; the daemon's stop

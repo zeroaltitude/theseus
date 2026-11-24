@@ -28,6 +28,13 @@
 //!   `purpose: history` (an additive key of the `judge.call` row's free
 //!   data), and an exchange whose answered judgment says so is not asked
 //!   again; its touches are written again from that row where missing.
+//! - **Once**: one run at a time (a second is refused, [`Busy`], and asks
+//!   nothing), and each answer's row is written by the sink before the next
+//!   exchange is asked and before the run returns ([`Core::history_written`]),
+//!   so the next run's plan reads every answer, one that touched nothing
+//!   included. What no run can promise: a daemon crash after Jev took a
+//!   request and before its answer's row was written may pay for that one
+//!   exchange again.
 //! - **Spend**: each exchange's worst case is reserved before its call
 //!   against the judge's day budget, which holds on the daemon's day ceiling,
 //!   as the people backfill's judgments are; the run stops before an exchange
@@ -89,6 +96,26 @@ struct Plan {
     r: ExchangeTopicsResult,
 }
 
+/// A second run while one goes (issue 46): refused, and asks nothing.
+#[derive(Debug)]
+pub struct Busy;
+
+impl std::fmt::Display for Busy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "your history is already being filed under topics: this one asked nothing and spent \
+             nothing. Run it again once that one has ended",
+        )
+    }
+}
+
+impl std::error::Error for Busy {}
+
+/// The longest a run waits for the sink to write an answer's row: the
+/// sink's own longest wait for a moment between turns, and a minute.
+const WRITTEN_BOUND: std::time::Duration =
+    crate::memory_pass::BUSY_BOUND.saturating_add(std::time::Duration::from_secs(60));
+
 /// Why a run stops before an exchange.
 enum Stop {
     /// Its worst case would pass what is left of the cap.
@@ -99,6 +126,8 @@ enum Stop {
     Unpriced,
     /// The judge's client could not be built.
     Client,
+    /// The sink did not write the last answer's row in [`WRITTEN_BOUND`].
+    Unwritten,
 }
 
 /// The turns whose exchange already touches a category of a kind `onto`
@@ -263,6 +292,9 @@ impl JudgeService {
         let (_, spent) = self.settle_round(&today, need, &judgments);
         let j = judgments.into_iter().next().ok_or(Stop::Client)?;
         let j = withheld(j);
+        // Its id stays pending until the sink has written its row
+        // (`Core::history_written` waits on it), as the gate's ids do.
+        self.pending_insert([j.id.clone()]);
         built.judge.sink().record(&j);
         Ok((j, spent))
     }
@@ -320,6 +352,11 @@ impl Core {
         if !(cap_usd.is_finite() && cap_usd > 0.0) {
             anyhow::bail!("--cap-usd is a positive number of dollars, not {cap_usd}");
         }
+        // One run at a time: a second would plan the same exchanges, and
+        // spend a second cap on them.
+        let Ok(_one) = self.runner.judge.history.try_lock() else {
+            return Err(Busy.into());
+        };
         let core = self.clone();
         let Plan { todo, again, mut r } = theseus_store::blocking(move || core.topics_plan())?;
         (r.dry_run, r.cap_usd, r.to_ask) = (p.dry_run, cap_usd, todo.len() as u64);
@@ -344,15 +381,14 @@ impl Core {
                 )));
                 break;
             }
-            match self
-                .topics_one(old, cap.saturating_sub(spent), &mut r)
-                .await?
-            {
-                Ok(cost) => spent += cost,
-                Err(stop) => {
-                    (r.left, r.stopped) = (left, Some(stopped(&stop, spent, cap_usd, left)));
-                    break;
-                }
+            if let Some(stop) = self.topics_one(old, (cap, &mut spent), &mut r).await? {
+                // An answer not written was asked: it is not left.
+                let left = match stop {
+                    Stop::Unwritten => left - 1,
+                    _ => left,
+                };
+                (r.left, r.stopped) = (left, Some(stopped(&stop, spent, cap_usd, left)));
+                break;
             }
         }
         r.spent_usd = micros_to_usd(spent);
@@ -420,28 +456,50 @@ impl Core {
         Ok(worst)
     }
 
-    /// One old exchange asked under `left` of the cap, and its touches
-    /// written: its price, or why the run stops before it.
+    /// One old exchange asked under what is left of the cap, its price
+    /// added to `spent`, its touches written and its row written: or why
+    /// the run stops (before it, or after it for an unwritten row).
     async fn topics_one(
         self: &Arc<Self>,
         old: &Old,
-        left: Micros,
+        (cap, spent): (Micros, &mut Micros),
         r: &mut ExchangeTopicsResult,
-    ) -> anyhow::Result<Result<Micros, Stop>> {
+    ) -> anyhow::Result<Option<Stop>> {
         let o = self.onto_now()?;
         let Some(ask) = self.topics_ask(&o, old)? else {
-            return Ok(Ok(0));
+            return Ok(None);
         };
+        let left = cap.saturating_sub(*spent);
         let (j, cost) = match self.runner.judge.history_judge(ask, left).await {
             Ok(done) => done,
-            Err(stop) => return Ok(Err(stop)),
+            Err(stop) => return Ok(Some(stop)),
         };
-        r.asked += 1;
+        (r.asked, *spent) = (r.asked + 1, *spent + cost);
         if j.actionable() {
             r.answered += 1;
             self.topics_write(&o, &j, r).await?;
         }
-        Ok(Ok(cost))
+        Ok((!self.history_written(&j.id).await).then_some(Stop::Unwritten))
+    }
+
+    /// Wait until the sink has written judgment `id`'s row: its id leaves
+    /// the judge's `pending` once its frame is written, as the gate's
+    /// `of_call` reads it. A stop ends the wait (its flush writes what is
+    /// queued, and nothing after it). False when the sink has not written it
+    /// in [`WRITTEN_BOUND`].
+    async fn history_written(&self, id: &str) -> bool {
+        let judge = &self.runner.judge;
+        let until = tokio::time::Instant::now() + WRITTEN_BOUND;
+        while judge.pending_has(id) {
+            if self.outbox.stopping() || judge.queue.is_closed() {
+                return true;
+            }
+            if tokio::time::Instant::now() >= until {
+                return false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        true
     }
 
     /// The touches `j`'s answers come to at the act band, with no plan (so a
@@ -478,5 +536,10 @@ fn stopped(stop: &Stop, spent: Micros, cap_usd: f64, left: u64) -> String {
         ),
         Stop::Unpriced => format!("the judge's model has no price; {left} exchanges left"),
         Stop::Client => format!("the judge's client was not built; {left} exchanges left: {go_on}"),
+        Stop::Unwritten => format!(
+            "the judge's last answer was not written within {} minutes; {left} exchanges left: \
+             {go_on} once the daemon is quieter",
+            WRITTEN_BOUND.as_secs() / 60
+        ),
     }
 }

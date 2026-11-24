@@ -158,7 +158,12 @@ impl Core {
             method::EXCHANGE_TOPICS => {
                 let p: ExchangeTopicsParams = parse(params)?;
                 self.topics_judged(conn)?;
-                let r = self.topics_history(&p).await.map_err(RpcFailure::invalid)?;
+                let r = self.topics_history(&p).await.map_err(|e| {
+                    match e.is::<crate::judge::onto::history::Busy>() {
+                        true => RpcFailure::new(error_code::LIMIT, e.to_string()),
+                        false => RpcFailure::invalid(e),
+                    }
+                })?;
                 serde_json::to_value(r)
             }
             other => {

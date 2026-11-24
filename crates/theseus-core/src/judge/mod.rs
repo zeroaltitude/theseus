@@ -265,6 +265,9 @@ pub struct JudgeService {
     /// The judgments settled and not yet written (`sink::Queue`): the
     /// sink's writer takes its frames from it, and a clean stop the rest.
     queue: Arc<sink::Queue>,
+    /// Held by the one run of the history filed under topics (issue 46;
+    /// `onto::history`): a second is refused while it goes.
+    history: tokio::sync::Mutex<()>,
     /// A test's shorter bounds for the sink's waits.
     #[cfg(test)]
     pub(crate) sink_timing: OnceLock<crate::memory_pass::Timing>,
@@ -338,6 +341,7 @@ impl JudgeService {
             telemetry: OnceLock::new(),
             between: OnceLock::new(),
             queue: Arc::default(),
+            history: tokio::sync::Mutex::new(()),
             #[cfg(test)]
             sink_timing: OnceLock::new(),
         })

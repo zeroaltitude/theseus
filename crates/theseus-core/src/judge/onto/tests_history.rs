@@ -99,6 +99,26 @@ async fn flush(core: &Arc<Core>) {
         .unwrap();
 }
 
+/// Wait until Jev has seen `n` requests.
+async fn seen(jev: &FakeJev, n: usize) {
+    let t0 = std::time::Instant::now();
+    while jev.seen().len() < n {
+        assert!(t0.elapsed().as_secs() < 30, "{n} request(s) seen");
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
+/// The command through the RPC, from the owner's terminal.
+async fn command(core: &Arc<Core>, dry_run: bool) -> Result<Value, theseus_protocol::RpcError> {
+    rpc_as(
+        core,
+        surface("sock#1", Surface::Cli),
+        method::EXCHANGE_TOPICS,
+        json!({"dry_run": dry_run}),
+    )
+    .await
+}
+
 fn timeline(core: &Core, category: &str) -> Vec<exchange::Touch> {
     crate::names::topics::timeline(&core.store, &id(category), 10).unwrap()
 }
@@ -552,4 +572,65 @@ async fn no_word_an_answer_brings_back_is_in_a_row() {
         assert!(d["reserve_micros"].as_u64().is_some_and(|m| m > 0), "{case}: {d}");
         assert_eq!(d["rate_limit"], json!({}), "{case}: {d}");
     }
+}
+
+/// KEY (once): a second run while one goes is refused in words, a dry run's
+/// too; it asks nothing and spends nothing, and the first goes on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_run_while_one_goes_is_refused_and_asks_nothing() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    jev.set_mode(FakeMode::Held);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_old", SAID, 5_000);
+    let core = r.core.clone();
+    let first = tokio::spawn(async move { command(&core, false).await });
+    seen(&r.jev, 1).await;
+    for dry_run in [false, true] {
+        let second = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            command(&r.core, dry_run),
+        )
+        .await
+        .expect("the second is answered at once");
+        let e = second.expect_err("the second is refused");
+        assert_eq!(e.code, error_code::LIMIT, "{e:?}");
+        assert!(e.message.contains("already being filed"), "{e:?}");
+    }
+    assert_eq!(r.jev.seen().len(), 1, "the second asked nothing");
+    r.jev.set_mode(FakeMode::Up);
+    r.jev.release();
+    let v = first.await.unwrap().unwrap();
+    let out: ExchangeTopicsResult = serde_json::from_value(v).unwrap();
+    assert_eq!((out.asked, out.touches), (1, 1), "{out:?}");
+    assert_eq!(r.jev.seen().len(), 1);
+}
+
+/// KEY (once): a run returns only once its answers' rows are written, so a
+/// rerun at once, with no flush between them, asks nothing of an exchange
+/// whose answer touched nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rerun_at_once_asks_nothing_of_an_answer_that_touched_nothing() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "none", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_old", SAID, 5_000);
+    let first = r.core.topics_history(&params(false, None)).await.unwrap();
+    assert_eq!((first.asked, first.filed), (1, 0), "{first:?}");
+    assert_eq!(
+        of_kind(&r.core, LedgerKind::JudgeCall).len(),
+        1,
+        "the answer's row is written before the run returns"
+    );
+    let again = r.core.topics_history(&params(false, None)).await.unwrap();
+    assert_eq!(r.jev.seen().len(), 1, "no second call");
+    assert_eq!(
+        (again.asked_before, again.to_ask, again.asked),
+        (1, 0, 0),
+        "{again:?}"
+    );
 }
