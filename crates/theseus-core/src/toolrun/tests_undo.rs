@@ -1673,11 +1673,12 @@ mod self_floor;
 #[path = "tests_undo/self_own.rs"]
 mod self_own;
 
-/// `undo.v2` (issue 46) holds from the first call it is asked, on a store and a settings file written for
-/// `undo.v1`. A `[judge.packs."undo.v1"]` table that switched the old version off names a retired version and
-/// lowers nothing now: undo.v2 is asked, its judgment is live, and the call is held. A rollback of undo.v2 is
-/// written under its own name and leaves undo.v1's standing as it was, so an older build reading this store
-/// asks undo.v1 and holds as before; and the owner's rollback lowers undo.v2 exactly as it lowered undo.v1.
+/// `undo.v2` (issue 46) holds, once the ladder has been read after a start, on a store and a settings file
+/// written for `undo.v1` (the warm-up before that read is as it was). A `[judge.packs."undo.v1"]` table that
+/// switched the old version off names a retired version and lowers nothing now: undo.v2 is asked, its judgment is
+/// live, and the call is held. A rollback of undo.v2 is written under its own name and leaves undo.v1's standing
+/// as it was, so an older build reading this store asks undo.v1 and holds as before; and the owner's rollback
+/// lowers undo.v2 exactly as it lowered undo.v1.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_undo_gate_holds_on_undo_v2_from_the_first_call_and_after_a_rollback() {
     use crate::judge::undo::PACK_NAME;

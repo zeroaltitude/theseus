@@ -118,6 +118,7 @@ alias carries it to the new name, so rename it.
   `on_path_p95` rule is gone; `labels_per_day` stays. The undo pack is an act gate's, so the learning loop leaves
   it alone (`lineage::LEFT_ALONE`): a learned version stands in shadow in its root's place, and a shadow undo
   judgment holds nothing. A `[judge.packs."undo.v1"]` table, or a stored rollback of undo.v1, names the retired
-  version and lowers nothing: undo.v2 holds from its first call. `[judge] reversibility = false` still lowers
+  version and lowers nothing: undo.v2 holds once the ladder has been read after a start (the warm-up before that
+  read, when an unread ladder keeps the pack in shadow, is unchanged). `[judge] reversibility = false` still lowers
   the wired undo pack, and the owner's rollback of undo.v2 still lowers it, as they did undo.v1. undo.v1's
   labelled set is undo.v2's too.
