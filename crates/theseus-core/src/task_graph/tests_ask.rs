@@ -217,6 +217,22 @@ pub(super) async fn rig_on(
     secrets: &[(&str, &str)],
     tweak: impl FnOnce(&mut crate::Config),
 ) -> Rig {
+    rig_in(own_turn, secrets, false, tweak).await
+}
+
+/// A task that has run one turn of its own, `secrets` the vault's values the exits know and the runtime's
+/// scrubber reads too, from the same board, as the daemon's does.
+pub(super) async fn rig_knowing(secrets: &[(&str, &str)]) -> Rig {
+    rig_in(true, secrets, true, |_| {}).await
+}
+
+/// [`rig_on`], the runtime's scrubber reading the vault's board when `knows`.
+async fn rig_in(
+    own_turn: bool,
+    secrets: &[(&str, &str)],
+    knows: bool,
+    tweak: impl FnOnce(&mut crate::Config),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = crate::Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
@@ -233,6 +249,9 @@ pub(super) async fn rig_on(
             .iter()
             .map(|(n, v)| (n.to_string(), Ok(Secret::new(v.to_string()))));
         b.publish(values.collect(), "test");
+        if knows {
+            parts.scrubber = Arc::new(crate::scrub::Scrubber::from_board(b.clone()));
+        }
         parts.secrets = b;
     }
     let core = crate::rpc::Core::build(parts).unwrap();
@@ -770,7 +789,7 @@ async fn three_asks_in_one_response_send_two() {
 /// conversation stops at the value's edge, keeps no piece of it, and says it was cut.
 #[tokio::test]
 async fn an_answers_cap_stops_before_a_known_value() {
-    let r = rig_on(true, &[("db_password", VALUE)], |_| {}).await;
+    let r = rig_knowing(&[("db_password", VALUE)]).await;
     let lead = "word ".repeat((ANSWER_MAX_CHARS - 10) / 5);
     assert!(lead.len() < ANSWER_MAX_CHARS && lead.len() + VALUE.len() > ANSWER_MAX_CHARS);
     let answer = format!("{lead}{VALUE} and the end");

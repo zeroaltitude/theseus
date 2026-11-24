@@ -316,7 +316,7 @@ async fn a_fold_that_breaks_after_head_moved_is_undone() {
 
 /// A counter that fails on a last line whose known value starts before character 200 and ends
 /// after it: the row's stored `stats` says how it exited and stops before the value, keeping no
-/// piece of it.
+/// piece of it. The runtime's scrubber reads the vault's board, as the daemon's does.
 #[tokio::test]
 async fn a_failed_counters_words_stop_before_a_known_value() {
     const VALUE: &str = "vault-value-9d2f4e1a7c";
@@ -333,6 +333,7 @@ async fn a_failed_counters_words_stop_before_a_known_value() {
                 Ok(crate::secrets::Secret::new(VALUE.to_string())),
             )];
             b.publish(values.into_iter().collect(), "test");
+            p.scrubber = Arc::new(crate::scrub::Scrubber::from_board(b.clone()));
             p.secrets = b;
         },
     );
