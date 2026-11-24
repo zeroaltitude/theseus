@@ -46,6 +46,8 @@ struct Seen {
     /// The ladder writer's calls (a daemon's background job after each exchange), kept apart from the
     /// turns' so a test counts and reads only what its turns sent, and never answered from its queues.
     writers: Mutex<Vec<Value>>,
+    /// What each request was answered with, by its place in `requests`: for a failure to print.
+    answers: Mutex<std::collections::HashMap<usize, String>>,
 }
 
 pub struct FakeModel {
@@ -136,6 +138,36 @@ impl FakeModel {
     pub fn release_stalls(&self) {
         *self.seen.stall_phrase.lock().unwrap() = None;
     }
+
+    /// The last `n` requests, for a failure to print: each block of the last message (its first
+    /// 120 characters), the prompt the stand-in read from it, and what it answered.
+    pub fn last_prompts(&self, n: usize) -> Vec<String> {
+        let r = self.seen.requests.lock().unwrap();
+        let answers = self.seen.answers.lock().unwrap();
+        r.iter()
+            .enumerate()
+            .skip(r.len().saturating_sub(n))
+            .map(|(i, (_, req, _))| {
+                let blocks = match req["messages"].as_array().and_then(|m| m.last()) {
+                    Some(m) => match &m["content"] {
+                        Value::Array(b) => b.iter().map(|b| b.to_string()).collect(),
+                        c => vec![c.to_string()],
+                    },
+                    None => vec![],
+                };
+                let blocks: Vec<String> = blocks
+                    .iter()
+                    .map(|b| format!("    block: {}", b.chars().take(120).collect::<String>()))
+                    .collect();
+                let answer = answers.get(&i).map_or("(not answered yet)", String::as_str);
+                format!(
+                    "request {i}:\n{}\n    prompt read: {:?}\n    answered: {answer}",
+                    blocks.join("\n"),
+                    prompt(req)
+                )
+            })
+            .collect()
+    }
 }
 
 /// The status and body the API refuses with, by status.
@@ -190,11 +222,15 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<
         return stream.flush();
     }
     let port = stream.peer_addr().map_or(0, |a| a.port());
-    {
+    let at = {
         let mut kept = seen.requests.lock().unwrap();
         kept.push((Instant::now(), req.clone(), body));
         seen.peers.lock().unwrap().push(port);
-    }
+        kept.len() - 1
+    };
+    let answered = |what: String| {
+        seen.answers.lock().unwrap().insert(at, what);
+    };
     let refused = {
         let mut f = seen.fails.lock().unwrap();
         match f.front().copied() {
@@ -204,6 +240,7 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<
         }
     };
     if let Some(status) = refused {
+        answered(format!("refused {status}"));
         stream.write_all(refusal(status).as_bytes())?;
         return stream.flush();
     }
@@ -219,6 +256,7 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<
         .as_ref()
         .is_some_and(|p| prompt(&req).contains(p.as_str()));
     if stalls {
+        answered("nothing (stalled)".into());
         // Nothing back: wait for the client to close (its read sees the end),
         // or the read timeout.
         let _ = r.read(&mut [0u8; 1]);
@@ -232,13 +270,22 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<
         declines
     };
     let events = if declines {
+        answered("declined".into());
         declined(model)
     } else if carries_tool_result(&req) {
+        answered("text \"Done.\" (it carries a tool result)".into());
         text_turn(model, "Done.")
     } else {
         match calls(&prompt(&req)) {
-            c if c.is_empty() => text_turn(model, "Nothing to do."),
-            c => tool_turn(model, &c),
+            c if c.is_empty() => {
+                answered("text \"Nothing to do.\" (no call for this prompt)".into());
+                text_turn(model, "Nothing to do.")
+            }
+            c => {
+                let names: Vec<&str> = c.iter().map(|(name, _)| *name).collect();
+                answered(format!("{} call(s): {}", c.len(), names.join(", ")));
+                tool_turn(model, &c)
+            }
         }
     };
     stream.write_all(sse(events).as_bytes())?;
@@ -296,22 +343,68 @@ fn carries_tool_result(req: &Value) -> bool {
         .is_some_and(|b| b["type"] == "tool_result")
 }
 
-/// The last user message's text.
-fn prompt(req: &Value) -> String {
-    let Some(m) = req["messages"].as_array().and_then(|m| m.last()) else {
+/// The turn's own input: the text of the last user message from its last harness block on (issue 46).
+///
+/// The view lays that message as the front and the window first (the place's newest exchanges, from
+/// every session that ran them: another session's message, labelled, or a late result whose turn has
+/// not answered yet), then the turn's one block beside the message, then the turn's own nodes: the
+/// notes written since its previous turn and its message, or, in a turn no message opened, its late
+/// result (`compiler::view::laid`; consecutive user blocks merge into one message). The block beside
+/// the message is the harness's and opens with a head `is_head` knows, and it lives in the turn alone,
+/// so no exchange of the window carries one. So the text after the last harness block that some text
+/// follows is the turn's own, and what comes before it is the window's. A message with no harness
+/// block is read whole, as before.
+///
+/// But a task's window opens with the task's opening (`turn::view_step::task::window_head`): its brief
+/// and its arrangement, written before its first turn and laid on every turn at the window's head,
+/// before any exchange. It holds no answer, so it shares the last message only when no answer comes
+/// before that message, as on a task's first turn; on a later turn it heads the request's first
+/// message, before the earlier exchanges' answers, and is not read (as before). A deferred task's
+/// first turn lays its start note (`turn::deferred_step`) after the block beside the message, so the
+/// cut above would drop the brief the note tells it to start. The opening is told from another
+/// session's unanswered exchange by what follows the block, not by its own text: a person's own message
+/// carries the surface's tag (`surface::lead`; what the harness or a task's parent wrote carries none),
+/// and a task's first turn is opened by its brief and, when deferred, the harness's note. So when no
+/// answer comes before the last message and nothing after the block is tagged, the whole message is
+/// read, its harness blocks left out as before.
+///
+/// What this does not establish: with no block beside the message, the whole message is read, history
+/// included. A head is told by its text (`is_head`), not by where it came from, and a person's message
+/// by its tag (`surface::strip_tag`), so a message from a surface with no tag counts as the harness's.
+/// Notes written between turns (`compiler::view::between`) follow the block and are read. In a request
+/// with no answer before its last message, a turn the harness opened (a wake, a late result, a deferred
+/// start) also reads whatever the window laid before the block (another session's unanswered message,
+/// as the old reading did); a task whose first turn a person's message opened reads that message alone.
+pub fn prompt(req: &Value) -> String {
+    let Some((m, before)) = req["messages"].as_array().and_then(|m| m.split_last()) else {
         return String::new();
     };
+    let answered = before.iter().any(|m| m["role"] == "assistant");
     match &m["content"] {
         Value::String(s) => s.clone(),
-        Value::Array(blocks) => blocks
-            .iter()
-            .filter_map(|b| b["text"].as_str())
-            // The task graph's view (39a) is the harness's, not the prompt.
-            .filter(|t| !theseus_core::task_graph::view::is_head(t))
-            // So is the surface tag at its head (theseus-slvl.3).
-            .map(theseus_core::surface::strip_tag)
-            .collect::<Vec<_>>()
-            .join("\n"),
+        Value::Array(blocks) => {
+            // The task graph's view (39a) and the other tail blocks are the harness's, not the prompt.
+            let is_head = theseus_core::task_graph::view::is_head;
+            let texts: Vec<&str> = blocks.iter().filter_map(|b| b["text"].as_str()).collect();
+            let own = texts.iter().rposition(|t| !is_head(t)).map_or(0, |last| {
+                texts[..last]
+                    .iter()
+                    .rposition(|t| is_head(t))
+                    .map_or(0, |at| at + 1)
+            });
+            // A task's opening, in the message no answer comes before (see above).
+            let tagged = |t: &&str| theseus_core::surface::strip_tag(t) != *t;
+            let opening = !answered && !texts[own..].iter().any(tagged);
+            let own = if opening { 0 } else { own };
+            texts[own..]
+                .iter()
+                .copied()
+                .filter(|t| !is_head(t))
+                // So is the surface tag at its head (theseus-slvl.3).
+                .map(theseus_core::surface::strip_tag)
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
         _ => String::new(),
     }
 }

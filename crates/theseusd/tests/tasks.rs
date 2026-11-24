@@ -764,6 +764,54 @@ fn a_deferred_task_survives_a_kill_and_a_restart_and_starts_once() {
     );
 }
 
+/// A deferred task's first turn acts on its brief (issue 46): the stand-in calls only for a phrase of the
+/// brief, which neither the parent's message nor the arrangement holds, so the call is made only if the
+/// first turn's reading takes in the opening, laid before the block beside the message and the start note.
+#[test]
+fn a_deferred_tasks_first_turn_acts_on_its_brief() {
+    // The brief's phrase first: the arrangement quotes the parent's message, so its phrase is there too.
+    let r = Rig::new(vec![
+        (
+            "Tally the harbour boats",
+            vec![(
+                "proc_run",
+                json!({"argv": ["echo", "harbour-tallied"], "timeout_secs": 30}),
+            )],
+        ),
+        (
+            "Defer the tally",
+            vec![(
+                "task_create",
+                json!({"brief": "Tally the harbour boats and report.", "start_after": "1s",
+                       "arrangement": {"pieces": [{"quote": "Defer the tally as a task", "role": "objective"}]}}),
+            )],
+        ),
+    ]);
+    let _daemon = r.spawn();
+    let sid = r.session();
+    let first = r.ask(&sid, "Defer the tally as a task");
+    assert_eq!(first["output"], "Done.", "{first}");
+    let task = r.wait("the deferred task", || {
+        r.tasks().into_iter().find(|t| t["starts_at_ms"].is_u64())
+    });
+    r.wait("the task complete", || {
+        r.tasks()
+            .into_iter()
+            .find(|t| t["task_id"] == task["task_id"] && t["state"] == "complete")
+    });
+    let h = r
+        .call(
+            "session.history",
+            json!({"session_id": task["task_id"].as_str().unwrap()}),
+        )
+        .unwrap();
+    assert!(
+        h.to_string().contains("harbour-tallied"),
+        "the first turn ran the brief's call: {h}\n{}",
+        r.model.last_prompts(6).join("\n")
+    );
+}
+
 /// A process whose command line holds `needle`, by `/proc` (the sleep a task's job runs).
 fn running(needle: &str) -> bool {
     std::fs::read_dir("/proc").unwrap().flatten().any(|e| {
