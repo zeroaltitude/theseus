@@ -333,7 +333,15 @@ impl Board {
                 Box::pin(async move {
                     let mut said = theseus::words(&core, target.as_ref(), &parts);
                     if parts.contains(&"view") {
-                        said.push_str(&view::words(&core, &session, &turn));
+                        // Its proof walks the store: on the blocking pool, as the owner's `view.show`.
+                        let read = tokio::task::spawn_blocking(move || {
+                            view::words(&core, &session, &turn)
+                        });
+                        said.push_str(
+                            &read.await.unwrap_or_else(|e| {
+                                format!("this turn's view cannot be read: {e}\n")
+                            }),
+                        );
                     }
                     Ok((output(said, THESEUS), None, None))
                 })

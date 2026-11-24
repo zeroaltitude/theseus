@@ -241,15 +241,12 @@ fn owners_reading(
         crate::view::Anchor::Place(p) => p.clone(),
         crate::view::Anchor::Task(t) => format!("task:{t}"),
     };
-    let source = GateSource {
-        runner: &c.runner,
-        pov: PointOfView {
-            anchor,
-            place: Place::Private,
-            present: Present::OwnerAlone,
-        },
-        asker: None,
+    let pov = PointOfView {
+        anchor,
+        place: Place::Private,
+        present: Present::OwnerAlone,
     };
+    let source = GateSource::new(&c.runner, pov, None);
     let reader = Reader {
         source: &source,
         text: None,

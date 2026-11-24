@@ -7,4 +7,8 @@ export type ViewDrop = { handle: string, kind: string, slot: string, band: strin
 /**
  * `merged`, `over_budget`, `unit_cut`.
  */
-why: string, };
+why: string, 
+/**
+ * A fold's rung, as [`ViewPiece::level`]. Absent for every other kind.
+ */
+level?: number, };

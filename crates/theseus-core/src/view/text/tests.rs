@@ -948,6 +948,8 @@ fn the_memory_page_names_what_it_must() {
         "what this turn was shown",
         // Version 5 (issue 44, step 5): a recalled note's handle opens its whole exchange.
         "A recalled note's \"open:\" opens its exchange",
+        // Version 6 (issue 44): a date, a label or words with no place read every place.
+        "or all by date, label or words",
     ] {
         assert!(MEMORY_PAGE.contains(must), "the page does not say {must:?}");
     }

@@ -974,8 +974,10 @@ async fn call<C: CoreClient>(
             (sid.clone(), core.wakes(caller, sid).await)
         }
         crate::memory_tools::HISTORY => {
-            let p = crate::memory_tools::history_params(&args, &client_name);
-            (text("session_id"), core.history(caller, p).await)
+            match crate::memory_tools::history_params(&args, &client_name) {
+                Ok(p) => (text("session_id"), core.history(caller, p).await),
+                Err(e) => (text("session_id"), Err(CoreError(e))),
+            }
         }
         _ => match crate::memory_tools::params(name, &args, &client_name) {
             Some(p) => (None, core.memory(caller, p).await),
@@ -1208,9 +1210,19 @@ impl CoreClient for FakeCore {
 
     async fn history(&self, caller: Caller, params: Value) -> Result<Value, CoreError> {
         self.seen(caller);
-        if ["place", "session_id", "open", "thing"]
-            .iter()
-            .all(|k| params[*k].as_str().is_none_or(str::is_empty))
+        // Only a bare page needs a place: one that narrows reads every place, as the core's does.
+        if [
+            "place",
+            "session_id",
+            "open",
+            "label",
+            "words",
+            "when",
+            "from",
+            "to",
+        ]
+        .iter()
+        .all(|k| params[*k].as_str().is_none_or(str::is_empty))
         {
             return Err(CoreError(
                 "context_history reads a place's history: pass place or session_id".into(),

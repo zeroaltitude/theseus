@@ -9,7 +9,7 @@ import type { HistoryReadLine } from "./HistoryReadLine";
  */
 export type HistoryReadResult = { 
 /**
- * The place read: the anchor, or the `place` asked; empty for a thing or an open.
+ * The place read: the anchor, or the `place` asked; empty for a label, an open, or every place.
  */
 place: string, lines: Array<HistoryReadLine>, 
 /**
