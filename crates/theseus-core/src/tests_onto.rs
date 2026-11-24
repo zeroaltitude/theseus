@@ -797,6 +797,7 @@ async fn the_category_scene_weights_what_two_sessions_share() {
         time_ms: 0,
         entities: Vec::new(),
         matched: Vec::new(),
+        copy: false,
     };
     let cands = [
         cand("a", &topical),
