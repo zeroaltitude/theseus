@@ -33,7 +33,10 @@
 //! FAST: discovery is `stat` alone, two names per directory from the
 //! repository root down to the session's directory, and the reading is the
 //! context-file reader's, with its stat-based cache. A session at the root
-//! of a repository with no nested files pays two stats a compile.
+//! of a repository with no nested files pays two stats a compile. A grant
+//! reads more, once: [`walk`] finds every instruction file under the root
+//! for the sighting the grant stores (§8, "After a grant"), bounded in
+//! entries and in time.
 
 use std::path::{Path, PathBuf};
 

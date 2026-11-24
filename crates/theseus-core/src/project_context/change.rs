@@ -18,9 +18,19 @@
 //! Digests, never text. No watcher: the comparison rides the compile a
 //! session's recompile already pays for.
 //!
-//! **The first sighting says nothing.** A repository granted and compiled
-//! for the first time has no stored state to differ from, so it stores one
-//! and is quiet. The notice is for a change *after* the owner looked.
+//! **The grant stores the first sighting.** `Core::project_trust` walks the
+//! root for every instruction file ([`super::walk`]) and stores their
+//! digests in the grant's own frame, so the first compile in any directory
+//! of the repository compares with what was there when the owner granted
+//! it. The notice is for a change *after* the owner looked. A granted
+//! repository with no stored sighting (one granted by an earlier build) has
+//! nothing to differ from: its first compile stores one and is quiet.
+//!
+//! **A sighting accumulates.** A compile looks only along its own chain,
+//! from the root down to the session's directory, and it changes only what
+//! it looked for ([`observe`]): a stored file elsewhere in the repository is
+//! kept as it was stored, and is never reported gone by a compile that did
+//! not look for it.
 //!
 //! **The posture** is `[project] on_change` (`config/project.rs`):
 //!
@@ -81,12 +91,8 @@
 //! granted repository already names and, for the repository the session is
 //! working in, the chain from its root down to the session's own directory;
 //! and [`wrote`] does that for EVERY granted repository, not only the
-//! session's own. What that leaves open is ANY instruction file in neither
-//! of those two sets -- whether it was created or merely changed, and
-//! whether or not its directory has ever been compiled in. That is wider
-//! than "a brand-new file in a directory nobody has opened", and it is
-//! listed case by case with the rest of the remainder in [`wrote`]'s own
-//! doc, where the sweep is.
+//! session's own. A file in neither set is not swept; [`wrote`]'s own doc,
+//! where the sweep is, says which files those are.
 //!
 //! The writer key's hold is a **stored record**, not a daemon's memory: a
 //! restart between the write and the next session's open is not the owner's
@@ -482,20 +488,15 @@ pub struct Wrote {
 /// the session is working beside right now, which may never have been
 /// compiled.
 ///
-/// ⛔ **Together they are still NOT every file a grant covers that anything
-/// has ever looked at**, which is what this doc claimed until round 3. A
-/// sighting is stored per repository but taken from whichever directory the
-/// compiling session was in, and it REPLACES its predecessor -- so a file
-/// the owner has read falls out of it the next time an ordinary clean
-/// session opens elsewhere in the same repository. And a granted repository
-/// no session has ever been opened in has no stored sighting at all.
+/// The stored sighting is what the grant's walk found plus what every
+/// compile since has seen: a compile keeps what it did not look for
+/// ([`observe`]), so an ordinary compile elsewhere in the repository does
+/// not drop a file from it.
 ///
 /// **It is deliberately not a directory walk.** A walk of a granted root per
 /// acting call is a cost that scales with the repository rather than with
 /// the grant, and the sweep runs inside the tool path. What that choice
-/// leaves open is written down in [`wrote`]'s doc rather than glossed, and
-/// it is *any* file in neither set -- not only a new one, and not only one
-/// whose directory is undiscovered.
+/// leaves open is written down in [`wrote`]'s doc.
 ///
 /// A stored path that no longer resolves to a regular file is simply left
 /// out, which is exactly right: its directory is among the directories this
@@ -588,33 +589,12 @@ fn swept(
 /// containment is worse than no comment:**
 ///
 /// 1. **Any instruction file that is neither in a granted repository's
-///    currently-stored sighting nor on the chain from the session's own
-///    repository root to its own working directory** -- whether it was
-///    CREATED or merely CHANGED, and whether or not its directory has ever
-///    been compiled in. [`swept`] says why that is not a walk. This is the
-///    one bypass of the three found in round 1 that is still open, and it
-///    is open on purpose rather than by oversight.
-///
-///    ⛔ It is **wider** than "a brand-new file in a directory no compile
-///    has discovered", which is how rounds 1 and 2 stated it, and two of
-///    its cases are ones that wording excluded:
-///
-///    - **A granted repository no session has ever been opened in.** The
-///      grant stores no sighting -- `rpc::project_trust` only DELETES
-///      [`Seen`] and [`Held`], on untrust -- and the repository is not the
-///      session's own, so BOTH halves of [`swept`] are empty and the
-///      repository's own `AGENTS.md`, the very file the grant was given
-///      for, is unswept. Nothing was created and nothing is undiscovered;
-///      the repository was simply never opened. It arrives with **no
-///      "changed" notice at all**, because a repository's first sighting is
-///      not a diff -- quieter than the new-file case, which at least
-///      produces a row.
-///    - **A file the owner has already read, in a directory he has already
-///      worked in.** A sighting is taken from one session's chain and
-///      replaces its predecessor, so an ORDINARY clean session opening
-///      elsewhere in the same repository evicts that file from it, and from
-///      then on it is in neither set. ⛔ Nothing adversarial causes the
-///      eviction -- ordinary use does.
+///    stored sighting nor on the chain from the session's own repository
+///    root to its own working directory.** The stored sighting holds what
+///    the grant's walk found and what every compile since has seen, so
+///    such a file is one that appeared after the grant where no compile has
+///    looked since, or one the walk did not reach. [`swept`] says why the
+///    sweep is not a walk.
 /// 2. A background job that writes AFTER its call has returned is not seen
 ///    by that call's sweep. The next acting call of the session catches it;
 ///    a clean session that opens before then does not.

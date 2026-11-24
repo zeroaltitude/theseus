@@ -758,12 +758,13 @@ async fn a_caller_that_is_not_the_owner_in_person_cannot_grant_a_repositorys_tru
     assert_eq!(grants[1]["granted"], false);
 }
 
-/// §8's "After a grant", live: the first compile after a grant stores what
-/// it saw and says nothing; an edit to the repository's own file after that
-/// is carried, NAMED in block 3, and one `project.changed` row. This is the
-/// half of §8 a grant otherwise leaves silent — the text of a file edited
-/// after the grant enters every request with an instruction's authority, and
-/// without this nothing anywhere says it is not the text the owner read.
+/// §8's "After a grant", live: the first compile after a grant matches what
+/// the grant stored and says nothing; an edit to the repository's own file
+/// after that is carried, NAMED in block 3, and one `project.changed` row.
+/// This is the half of §8 a grant otherwise leaves silent — the text of a
+/// file edited after the grant enters every request with an instruction's
+/// authority, and without this nothing anywhere says it is not the text the
+/// owner read.
 #[tokio::test]
 async fn a_change_after_a_grant_is_named_in_the_block_and_ledgered() {
     let r = rig();
@@ -772,7 +773,7 @@ async fn a_change_after_a_grant_is_named_in_the_block_and_ledgered() {
         .project_trust(&repo, "cli")
         .expect("the owner trusts it");
 
-    // The first compile has nothing to differ from: it stores the sighting.
+    // The first compile matches what the grant stored.
     submit(&r.core, &here).await;
     let first = session_block(&r.fake.requests().pop().unwrap());
     assert!(first.contains(IN_TEXT), "the grant is in force:\n{first}");
@@ -1439,22 +1440,18 @@ fn sibling_dir(repo: &Path) -> PathBuf {
 }
 
 // ---------------------------------------------------------------------------
-// THE RESIDUAL (finding A1), in three cases, pinned rather than claimed
-// closed.
+// What the writer key's sweep reaches, in three cases.
 //
-// The residual is NOT "a brand-new file in a directory no compile has
-// discovered". That is one case of it. The rule is: **any instruction file
-// that is neither in a granted repository's currently-stored sighting nor on
-// the chain from the session's own repository root to its own working
-// directory** -- whether it was created or merely changed, and whether or not
-// its directory has ever been compiled in. `change::swept` computes exactly
-// those two sets, and a file in neither is in no sweep.
+// The sweep compares, for every granted repository, the files its stored
+// sighting names and, for the session's own repository, the chain from its
+// root to its working directory (`change::swept`); a file in neither is in no
+// sweep. The grant stores a sighting of every instruction file under the
+// root, and each compile adds what it saw, so a file the grant or a compile
+// has seen stays in it.
 //
-// The three tests below are the three cases found so far. Each asserts the
-// behaviour in the direction the code actually goes, so the branch head is
-// green and the hole is impossible to miss. They share the `the_residual_`
-// prefix so that one grep finds the whole set rather than one instance of it.
-// None of them claims to be the set.
+// Each test asserts the behaviour in the direction the code actually goes.
+// Case 1 is not held, and keeps the `the_residual_` prefix so that one grep
+// finds it; cases 2 and 3 are held.
 // ---------------------------------------------------------------------------
 
 /// **The residual, case 1: a file CREATED in a directory no compile has
@@ -1463,17 +1460,9 @@ fn sibling_dir(repo: &Path) -> PathBuf {
 /// directory that no compile has ever discovered. A clean session then opens
 /// in that sibling and **does read the new text**.
 ///
-/// This is the case rounds 1 and 2 found, and for a while the tree called it
-/// *the* residual; it is one of three. The other two are below, and they are
-/// the ones that wording excluded: case 2 needs no creation and no
-/// undiscovered directory at all, and case 3's file has been read by the
-/// owner in a directory a compile HAS discovered.
-///
-/// Nothing closes any of them without either walking a granted root on every
-/// acting call, or accumulating a repository's discovered paths rather than
-/// replacing them and then asking -- when a compile discovers a file that is
-/// NEW -- whether a labelled session acted in that repository since the owner
-/// last read it. Neither is built.
+/// Cases 2 and 3 below are held: the grant's sighting and a sighting that
+/// accumulates keep their files in the swept set. This file appeared after
+/// the grant, where no compile had looked, so it is in neither set.
 ///
 /// **When someone closes it, this test fails, and that is the point.** Flip
 /// it to the containment then; do not delete it.
