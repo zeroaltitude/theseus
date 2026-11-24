@@ -58,15 +58,17 @@ pub fn of_record(r: &Record) -> Kept {
         return Kept::Whole(item);
     }
     match r.decode::<Older>() {
-        Ok(o) if !o.removed.is_empty() && o.removed.iter().all(older_removal) => Kept::Older(ItemLabels {
-            node: o.node,
-            kind: o.kind,
-            source: o.source,
-            entered_ms: o.entered_ms,
-            asked: o.asked,
-            raised: o.raised,
-            removed: Vec::new(),
-        }),
+        Ok(o) if !o.removed.is_empty() && o.removed.iter().all(older_removal) => {
+            Kept::Older(ItemLabels {
+                node: o.node,
+                kind: o.kind,
+                source: o.source,
+                entered_ms: o.entered_ms,
+                asked: o.asked,
+                raised: o.raised,
+                removed: Vec::new(),
+            })
+        }
         _ => Kept::Unread,
     }
 }

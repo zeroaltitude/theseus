@@ -1202,7 +1202,8 @@ fn item_removing(node: &str, removed: Value) -> Value {
 /// Removals that are not the older shape, where every removal has no `session` key at all: one whose
 /// `session` is null, and a list of one with a session and one without.
 fn removals_not_older(sid: &str) -> [Value; 2] {
-    let removal = json!({"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2, "note": PAYLOAD});
+    let removal =
+        json!({"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2, "note": PAYLOAD});
     let mut null = removal.clone();
     null["session"] = Value::Null;
     let mut named = removal.clone();
@@ -1223,7 +1224,9 @@ async fn a_rebuild_passes_over_an_items_record_whose_removals_are_neither_shape(
         let node = input_node(c, &t);
         let removed = removals_not_older(&t.session_id)[i].clone();
         let key = crate::item_labels::key(&node);
-        c.store.put_meta(&key, &item_removing(&node, removed)).unwrap();
+        c.store
+            .put_meta(&key, &item_removing(&node, removed))
+            .unwrap();
         let run = call(c, owner_cli(), "exchange.rebuild", json!({})).await;
         assert!(run.error.is_none(), "{:?}", run.error);
         let run = run.result.unwrap();

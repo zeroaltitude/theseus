@@ -1987,7 +1987,8 @@ async fn a_fork_is_refused_when_an_item_it_holds_has_removals_of_neither_shape()
     use crate::content::Flag;
     let r = rig();
     let (sid, nodes) = three_turns(&r).await;
-    let removal = json!({"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2, "note": UNREAD});
+    let removal =
+        json!({"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2, "note": UNREAD});
     let mut null = removal.clone();
     null["session"] = Value::Null;
     let mut named = removal.clone();
