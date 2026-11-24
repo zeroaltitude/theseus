@@ -135,6 +135,10 @@ FILTER = (
     ' | test(=rendering_costs_little_per_hundred_lines))"'
 )
 
+# These fixtures test the gate's wiring, not a daemon: like the cargo and
+# bench-script stand-ins, the new phase needs its two test modules present.
+REAL_DAEMON_TEST = "import unittest\nclass RealDaemon(unittest.TestCase):\n    def test_runs(self): pass\n"
+
 COMMITTED = {
     ".config/nextest.toml": NEXTEST,
     ".gitignore": "target\ncockpit/node_modules\ncrates/theseusd/cockpit/dist\n",
@@ -158,6 +162,8 @@ COMMITTED = {
     "scripts/recall-tests.sh": PASSES,
     "scripts/size-step.sh": PASSES,
     "scripts/prompt-step.sh": PASSES,
+    "scripts/tests/test_view_kit.py": REAL_DAEMON_TEST,
+    "scripts/tests/test_view_proof.py": REAL_DAEMON_TEST,
 }
 # The real scripts the gate runs here. line-pressure.py is real rather than a stand-in because the whole point of
 # its phase is that it cannot fail a gate, and the interesting case is the one this repository IS: a tree with
