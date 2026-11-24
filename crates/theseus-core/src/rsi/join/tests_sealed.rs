@@ -313,7 +313,10 @@ async fn main_is_scored_on_its_own_build_only() {
     assert!(scorer.asked().is_empty());
     let stop = &s.r.rows("self.join.stopped")[0];
     assert!(
-        stop["why"].as_str().unwrap().contains("installed build is 0123456789ab"),
+        stop["why"]
+            .as_str()
+            .unwrap()
+            .contains("installed build is 0123456789ab"),
         "{stop}"
     );
 }

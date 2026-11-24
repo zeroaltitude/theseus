@@ -44,7 +44,11 @@ impl Run<'_> {
                      build is {said}: it waits for main's install",
                     short(&m.base)
                 );
-                self.stop("sealed", &why, json!({"main": m.base, "installed": installed}));
+                self.stop(
+                    "sealed",
+                    &why,
+                    json!({"main": m.base, "installed": installed}),
+                );
                 false
             }
             Err(e) => {
