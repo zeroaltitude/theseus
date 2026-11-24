@@ -568,3 +568,71 @@ fn a_band_or_slot_this_build_does_not_know_is_refused() {
         assert!(key.is_err(), "{slot} as a tally's key: {key:?}");
     }
 }
+
+/// A record this build writes with the names who am I talking to added (band `people_recent`, reason
+/// `present`, the speaker's line and a person's entry as `facts`) is kept and read back as it was written,
+/// with its counts; and every older record this file holds still decodes, its counts too. (A build older than
+/// these names does not know them: its forgiving readers skip such a record, as they skip any they cannot
+/// read.)
+#[test]
+fn a_record_naming_the_people_bands_round_trips_and_older_records_still_read() {
+    use theseus_store::{kinds, NewRecord};
+    let (_d, store) = store();
+    let mut v = view(1_000);
+    let mut line = piece(
+        "discord:channel:9",
+        "r1",
+        Band::PeopleRecent,
+        &[Reason::Present],
+    );
+    line.form = Form::Line;
+    let facts = |thing: &str, band: Band| {
+        let mut p = piece("theseus:filing", "person:9", band, &[Reason::Fixed]);
+        p.range = range(
+            Space::Facts {
+                thing: thing.into(),
+            },
+            "person:9",
+        );
+        p
+    };
+    let added = [
+        line,
+        facts("person:9#speaking", Band::PeopleRecent),
+        facts("person:9", Band::WhoAndWhere),
+    ];
+    v.shown.extend(added.into_iter().map(shown));
+    v.tokens = v.shown.iter().map(|s| s.tokens).sum();
+    keep(&store, "t-new", "c-new", &v).unwrap();
+    let rec = read(&store, "c-new").unwrap().expect("it decodes");
+    assert_eq!(rec.shown, v.shown);
+    assert_eq!((&rec.pov, rec.tokens), (&v.pov, v.tokens));
+    let bytes = serde_json::to_string(&rec).unwrap();
+    for name in [
+        r#""band":"people_recent""#,
+        r#""reasons":["present"]"#,
+        r#""slot":"who_and_where""#,
+    ] {
+        assert!(bytes.contains(name), "{name}: {bytes}");
+    }
+    let t = tally(&store, "c-new").unwrap().expect("its counts decode");
+    assert_eq!(t.reasons.get(&Reason::Present).map(|c| c.pieces), Some(1));
+    assert_eq!(t.slots.get(&Slot::WhoAndWhere).map(|c| c.pieces), Some(3));
+
+    store
+        .append(&[
+            NewRecord::bytes(
+                kinds::META,
+                Some("view.c-old"),
+                OLD_VIEW.as_bytes().to_vec(),
+            ),
+            NewRecord::bytes(
+                kinds::META,
+                Some("view_tally.c-old"),
+                OLD_TALLY.as_bytes().to_vec(),
+            ),
+        ])
+        .unwrap();
+    assert!(read(&store, "c-old").unwrap().is_some());
+    assert!(tally(&store, "c-old").unwrap().is_some());
+}
