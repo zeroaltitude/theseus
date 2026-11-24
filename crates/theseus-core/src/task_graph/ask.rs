@@ -11,6 +11,9 @@
 //!   planned in the kernel with its worst case reserved (the spend limit, the day ceiling and a `/stop` are
 //!   the kernel's), so a call past them is refused before anything is sent; made through the providers the
 //!   turn's calls go through, which mask the vault's values at the exit (`exits`); settled at its price.
+//!   The reservation has one owner that cannot be lost ([`crate::owed_call::Owed`]): a stop or a deadline
+//!   that drops the call before its send settles it at zero, and one that drops it after settles it as
+//!   unknown, its whole reservation held, as the kernel holds every unknown cost.
 //! - **Outside text, always, once the task is found.** The answer is a model's testimony, never the owner's
 //!   word: its result is marked External, as a fetched page is, so every act gate and the injection freeze
 //!   read it as one (`judged::outside_admitted` keeps the card of a change made after it in the same
@@ -39,6 +42,7 @@ use theseus_tools::{
 };
 
 use super::TaskRecord;
+use crate::owed_call::Owed;
 use crate::provider::{ModelResponse, Provider, ProviderError, ProviderRequest};
 use crate::session::SessionRecord;
 use crate::toolrun::TurnCtx;
@@ -245,6 +249,8 @@ struct Planned {
     loop_index: Option<u32>,
     /// The turn's asks with this one.
     asked: u32,
+    /// The reservation's owner: what settles it, however the call ends.
+    owed: Owed,
 }
 
 /// The task `id` names, for a turn that may ask one; or the words of why not.
@@ -326,6 +332,12 @@ fn begin(
             |_| Ok(Vec::new()),
         )
         .map_err(|e| not_planned(core, tc.session_id, &e))?;
+    let owed = Owed::new(
+        core.kernel.clone(),
+        &action,
+        format!("provider:{}", target.provider),
+        json!({"purpose": PURPOSE, "task": task.id, "version": task.version}),
+    );
     Ok(Planned {
         action,
         request,
@@ -337,6 +349,7 @@ fn begin(
         turn: tc.turn_id.to_string(),
         loop_index: tc.loop_index,
         asked,
+        owed,
     })
 }
 
@@ -409,11 +422,14 @@ async fn finish(core: Arc<Core>, p: Planned) -> Result<ToolOutput, ToolFailure> 
         correlation_id: Some(p.action.correlation_id.clone()),
     };
     let mut quiet = |_: crate::provider::Delta<'_>| {};
+    // From here a drop (a stop, the runtime's deadline) may cut a call the provider has begun.
+    p.owed.sending();
     let made = crate::exits::for_call(call, || p.provider.stream_message(&p.request, &mut quiet));
-    match tokio::time::timeout(TIME_LIMIT, made).await {
+    let answered = tokio::time::timeout(TIME_LIMIT, made).await;
+    match answered {
         Ok(Ok(resp)) => Ok(settled(&core, &p, &resp, started_ms)),
-        Ok(Err(e)) => Err(failed(&core, &p, Some(&e), started_ms)),
-        Err(_) => Err(failed(&core, &p, None, started_ms)),
+        Ok(Err(e)) => Err(failed(&p, Some(&e), started_ms)),
+        Err(_) => Err(failed(&p, None, started_ms)),
     }
 }
 
@@ -444,7 +460,7 @@ fn settled(core: &Core, p: &Planned, resp: &ModelResponse, started_ms: u64) -> T
             json!({"served_model": resp.model, "message_id": resp.message_id}),
         )),
     };
-    if let Err(e) = core.kernel.accept_completion_with(&c, Vec::new()) {
+    if let Err(e) = p.owed.settle(&c, Vec::new()) {
         tracing::warn!(correlation_id = %p.action.correlation_id, error = %format!("{e:#}"),
             "an asked task's call was not settled; the reconcile settles it at its deadline");
     }
@@ -491,7 +507,7 @@ fn words(p: &Planned, resp: &ModelResponse, cost: theseus_kernel::Micros) -> Str
 /// A call that failed, settled as failed (or unknown, when the provider may have done the work): the
 /// harness's words for it, and the provider's quoted inside an outside fence. `e` is none when the call
 /// ran out of its time.
-fn failed(core: &Core, p: &Planned, e: Option<&anyhow::Error>, started_ms: u64) -> ToolFailure {
+fn failed(p: &Planned, e: Option<&anyhow::Error>, started_ms: u64) -> ToolFailure {
     let pe = e.and_then(|e| e.downcast_ref::<ProviderError>());
     let (class, unknown) = match (e, pe) {
         (None, _) => ("timeout", true),
@@ -513,7 +529,7 @@ fn failed(core: &Core, p: &Planned, e: Option<&anyhow::Error>, started_ms: u64) 
         cost_micros: if unknown { None } else { Some(0) },
         detail: Some(detail(p, json!({"class": class}))),
     };
-    if let Err(s) = core.kernel.accept_completion_with(&c, Vec::new()) {
+    if let Err(s) = p.owed.settle(&c, Vec::new()) {
         tracing::warn!(correlation_id = %p.action.correlation_id, error = %format!("{s:#}"),
             "an asked task's failure was not settled; the reconcile settles it at its deadline");
     }
@@ -548,3 +564,7 @@ fn failed(core: &Core, p: &Planned, e: Option<&anyhow::Error>, started_ms: u64) 
 #[cfg(test)]
 #[path = "tests_ask.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests_ask_owed.rs"]
+mod tests_owed;
