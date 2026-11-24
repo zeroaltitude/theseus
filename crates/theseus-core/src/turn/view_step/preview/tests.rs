@@ -181,9 +181,10 @@ async fn a_preview_lays_the_pieces_the_next_turn_records() {
     );
 }
 
-/// Each preview proves from the store as it stands (the reader's contract): a preview lists the place's fold,
-/// the exchange it stands for is ended and that write returns, and the next preview lists the fold nowhere.
-/// Each preview assembles and makes its own source; nothing the first proved is reused.
+/// A preview's result is not kept for the next: a preview lists the place's fold, the exchange it stands for
+/// is ended and that write returns, and the next preview lists the fold nowhere. The next preview's assembly
+/// already leaves the fold out (its exchange no longer resolves), so this does not reach the listing's
+/// source: that each preview's source proves its folds again is the test below.
 #[tokio::test]
 async fn each_preview_proves_from_the_store_as_it_stands() {
     let r = view_rig();
@@ -208,6 +209,36 @@ async fn each_preview_proves_from_the_store_as_it_stands() {
     let p = preview(&r.core, asked).await.unwrap();
     assert_eq!(folds(&p), 0, "its exchange is gone: {p:?}");
     assert_eq!(p.folds.get("1"), None, "{p:?}");
+}
+
+/// Two previews on a store that does not move, the place's fold laid in both: each preview's listing source
+/// proves the fold from the store itself (`source::proved`, which counts the listing's own proofs; the
+/// assembly's reads of the fold's exchanges are not among them), so nothing the first proved is reused.
+#[tokio::test]
+async fn each_preview_proves_its_fold_again_on_a_store_that_stands() {
+    let r = view_rig();
+    let c = &r.core;
+    let sid = session_in(c, None, &r.root);
+    turn(c, &sid, "first: the tide").await;
+    turn(c, &sid, "second: the moon").await;
+    let first = turns_of(c, &sid).remove(0);
+    fold_over(c, &first);
+    let at = exchange::exchange(&c.store, &first).unwrap().unwrap().place;
+    let asked = json!({"place": at, "message": "third: and now"});
+    let folds = |p: &ViewPreviewResult| -> usize {
+        let v = p.view.as_ref().expect("a view");
+        let shown = (v.slots.iter().flat_map(|s| &s.pieces)).filter(|x| x.kind == "folds");
+        shown.count() + v.dropped.iter().filter(|d| d.kind == "folds").count()
+    };
+    let position = c.store.last_position();
+    crate::view::record::source::proved(&c.runner);
+    for call in ["first", "second"] {
+        let p = preview(&r.core, asked.clone()).await.unwrap();
+        assert_eq!(folds(&p), 1, "{call}: {p:?}");
+        let (proved, _) = crate::view::record::source::proved(&c.runner);
+        assert_eq!(proved, 1, "{call}: the listing proved the fold");
+    }
+    assert_eq!(c.store.last_position(), position, "the store did not move");
 }
 
 /// A session whose earlier turn the ledger holds no exchange for is the view's all the same (that turn is
