@@ -477,8 +477,27 @@ class FakeDaemon(unittest.TestCase):
         r = json.loads((out / "yardstick.json").read_text())
         self.assertEqual([t["turn"] for t in r["turns"]], [tid(2), tid(3)])
         self.assertEqual(set(r["usage"]), {"input_tokens", "output_tokens"})
-        self.assertEqual(r["rules_basis"], ys.SAME_SESSION)
+        self.assertEqual(r["rules_basis"], ys.VIEW_RECORD)
         self.leaks(everything_written(out, buf.getvalue()))
+
+    def test_store_rule_is_the_turns_view_record(self):
+        """The rule on a store is what each turn's own record laid: laid whole is `both`, only inside a fold is
+        a cell of its own, not laid is `judge_only`; a turn with no record is not judged, and is counted."""
+        f = fixture(True)
+        f["ledger"] = [turn_row(i, tid(i), None, "none") for i in range(1, 6)]
+        f["nodes"] = [{"kind": "user_message", "turn_id": tid(i), "text": f"words {i}", "position": i}
+                      for i in range(1, 6)]
+        f["shows"] = {tid(5): record(tid(5), [(tid(4), tid(4))], folds=[(tid(1), tid(2))])}  # tid(2..4): none
+        self.fx(f)
+        with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+            probes, basis, unrecorded = ys.probes_from_store(d, PLACE, 5, 5)
+        self.assertEqual(basis, "view_record")
+        self.assertEqual(unrecorded, 3)
+        self.assertEqual([p["id"] for p in probes], [tid(5)])
+        r = ys.run(probes, lambda p, idx, user: ([ys.HELPS] * len(idx), {"input_tokens": 1, "output_tokens": 1},
+                                                 True), ys.Prices(ys.DEFAULT_MODEL, ys.API, None, None), 1.0)
+        self.assertEqual(r["total"], {"both": 1, "judge_only": 1, "rules_only": 0, "neither": 0,
+                                      "folded_helps": 2})
 
     def test_a_case_path_that_would_leave_the_output_is_refused_before_any_write(self):
         base = vc.load(SETS)["cases"][0]
