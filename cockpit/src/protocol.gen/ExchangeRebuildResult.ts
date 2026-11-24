@@ -20,8 +20,8 @@ place_proven: number, person_proven: number,
  */
 repaired: number, 
 /**
- * Records under the item labels' prefix (`labels.`) that are not an
- * item's labels and name no item: passed over, and left as they are.
+ * Records under the item labels' prefix (`labels.`) that could not be
+ * read as an item's labels: passed over, and left as they are.
  */
 labels_passed_over: number, 
 /**

@@ -1222,7 +1222,10 @@ async fn a_fork_reads_past_records_under_labels_that_do_not_read() {
     for f in [Flag::Personal, Flag::Confidential] {
         assert!(flags.has(f), "{f:?} is carried: {flags:?}");
     }
-    assert!(!flags.has(Flag::Secret), "nothing is read from it: {flags:?}");
+    assert!(
+        !flags.has(Flag::Secret),
+        "nothing is read from it: {flags:?}"
+    );
 }
 
 /// A tracing writer that keeps what is logged.

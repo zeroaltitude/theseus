@@ -477,7 +477,9 @@ mod tests {
             serde_json::json!({"sessions": 1, "labels_passed_over": 3}),
         ));
         assert!(
-            line.ends_with("; 3 records under labels. could not be read as item labels: left as they are"),
+            line.ends_with(
+                "; 3 records under labels. could not be read as item labels: left as they are"
+            ),
             "{line}"
         );
         let none = rebuild_lines(&of(serde_json::json!({"sessions": 1})));

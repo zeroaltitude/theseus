@@ -1903,7 +1903,12 @@ async fn a_fork_is_refused_when_an_item_it_holds_has_a_label_that_does_not_read(
     let earlier = label_of(&nodes[1].0, Flag::Confidential);
     (r.core.runner.judge).land_deterministic(&sid, vec![(earlier, 1)]);
     let key = crate::item_labels::key(&nodes[1].0);
-    let mut item: Value = r.core.store.get_meta(&key).unwrap().expect("the item's record");
+    let mut item: Value = r
+        .core
+        .store
+        .get_meta(&key)
+        .unwrap()
+        .expect("the item's record");
     let mut bad = label_on(&nodes[1].0, Flag::Injection);
     bad.as_object_mut().unwrap().remove("source");
     bad["note"] = json!(UNREAD);
@@ -1925,18 +1930,28 @@ async fn a_fork_reads_an_older_items_record_and_passes_over_records_naming_no_it
                        "raised": [label_on(&nodes[1].0, Flag::Confidential)],
                        "removed": [{"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2}]});
     let store = &r.core.store;
-    store.put_meta(&crate::item_labels::key(&nodes[1].0), &older).unwrap();
+    store
+        .put_meta(&crate::item_labels::key(&nodes[1].0), &older)
+        .unwrap();
     let other = new_session(&r.core, None);
     turn(&r.core, &other, "elsewhere").await;
     let elsewhere = crate::item_labels::key(&nodes_of(&r.core, &other)[0].0);
     let foreign = json!({"raised": [label_on(&nodes[0].0, Flag::Secret)], "note": UNREAD});
     store.put_meta("labels.no-such-node", &foreign).unwrap();
-    store.put_meta(&elsewhere, &json!({"note": UNREAD})).unwrap();
+    store
+        .put_meta(&elsewhere, &json!({"note": UNREAD}))
+        .unwrap();
     let f = fork(&r.core, &sid, &nodes[3].0);
     let rec: SessionRecord = store.get_session(&f.session_id).unwrap().unwrap();
     let flags = rec.data.as_deref().cloned().unwrap_or_default();
-    assert!(flags.has(Flag::Confidential), "the older record's: {flags:?}");
-    assert!(!flags.has(Flag::Secret), "nothing is read from one passed over: {flags:?}");
+    assert!(
+        flags.has(Flag::Confidential),
+        "the older record's: {flags:?}"
+    );
+    assert!(
+        !flags.has(Flag::Secret),
+        "nothing is read from one passed over: {flags:?}"
+    );
 }
 
 /// A record that does not read, whose key names an item the fork would hold but which has no `node` (an object

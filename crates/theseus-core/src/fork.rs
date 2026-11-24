@@ -279,7 +279,9 @@ pub(crate) fn labels_through(
                 let named = serde_json::from_slice::<serde_json::Value>(&record.payload)
                     .ok()
                     .and_then(|v| v.get("node")?.as_str().map(str::to_string));
-                let by_key = key.strip_prefix(crate::item_labels::PREFIX).map(str::to_string);
+                let by_key = key
+                    .strip_prefix(crate::item_labels::PREFIX)
+                    .map(str::to_string);
                 for node in by_key.into_iter().chain(named) {
                     if inside(&node)? {
                         return Err(UnreadLabels(key).into());
