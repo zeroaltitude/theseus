@@ -40,9 +40,31 @@ turn's cache reads and writes; the things in the message and in the reply before
 `fragment`, `mentions_other_conversation`, `wants_fresh_look`, `addressed_task` and `kind` as recorded for the
 message by then; the gap since the place's previous exchange; whether another session of the place was mid-turn;
 whether this message answered, within ten minutes, a turn no person opened; how the peer was classed.
-`theseus ledger exchanges` sums the rows, with the places bound now by kind (DMs, channels bound private, those
-of them people besides the owner can view, shared channels), read from the place rule as health is: a row at the
-binding's start would be a frame of its own there.
+When the previous exchange was missed, the row says why where it can (`prev_why`): `new`, the place's `/new` lay
+between the two (the view leaves out what came before it, on purpose), or `not_measured`, the first call was never
+measured. A key added in its free data, written only when set; an older row has none and still reads.
+
+`theseus ledger exchanges [--since <age|date>]` answers three questions first, counts and shares only, then sums
+every group of the rows, with the places bound now by kind (DMs, channels bound private, those of them people
+besides the owner can view, shared channels), read from the place rule as health is: a row at the binding's start
+would be a frame of its own there.
+
+- **Was the place's previous exchange in what the model was sent?** Over the turns his own message opened (the
+  exchange's person is the owner: never a wake, a report, a guest or an agent's process): shown, held after a
+  `/new`, first here, and missed, as a share of those whose first call was measured; the rest are counted as not
+  measured, never as a miss. A miss the row cannot explain is called a miss (held by a seal or a gate, or a real
+  miss): the report reads no seal and no gate. A row from before `prev_why` is checked against the place's latest
+  `/new` only, since only the latest is kept, so an older `/new` leaves its turns counted as missed.
+- **How often does he name something Theseus can recognise?** Over the same turns: those whose message named at
+  least one of the index's things, of those the index answered for in time, and for each kind the turns that
+  named it.
+- **What is the context made of?** Over the turns whose first call was measured: the mean of each part in tokens
+  (est.) and its share, the compiler's own estimate, and the cache read and written a turn.
+
+`--since` counts only rows written at or after it: rows from before the view became the only path measured the
+transcript. The report never holds a message's text, a name, a place, an exchange or a task: the judge's
+`addressed_task` is counted as `a_task` or `none`, a message's length by its band, and a field of the row the
+counter does not name is counted as present, never by its value.
 
 ## The rebuild
 
