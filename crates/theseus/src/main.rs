@@ -61,6 +61,7 @@ mod ontology;
 mod open;
 mod ops_cmd;
 mod own_bench;
+mod own_file_cmd;
 mod owner_proof_cmd;
 mod packs;
 mod pages;
@@ -862,6 +863,14 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<project::ProjectCmd>,
     },
+    /// Your own instruction file (the state directory's AGENTS.md): Theseus carries the version you last
+    /// accepted. `own-file` shows what is accepted, what is on disk and the change; `own-file accept` shows the
+    /// same and asks you, at your terminal, to accept what is on disk. Yours alone (refused inside a job).
+    #[command(name = theseus_protocol::own_file::COMMAND, hide = true)]
+    OwnFile {
+        #[command(subcommand)]
+        cmd: Option<own_file_cmd::OwnFileCmd>,
+    },
     /// The calls held for losing something nothing holds a copy of (`undo list`), and your word that
     /// the original was right (`undo allow ID`), which lets that call run as it was first proposed.
     /// Saying "run the original" in the conversation does the same thing. Yours alone (refused inside a job).
@@ -1472,7 +1481,8 @@ async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
         Cmd::Mode(a) => mode_cmd::run(c, json, a).await,
         Cmd::Owner { cmd } => owner_proof_cmd::run(c, json, cmd).await,
         Cmd::Vault { cmd } => vault_keep_cmd::run(c, json, cmd).await,
-        _ => unreachable!("only agenda, card, digest, mode, owner and vault come here"),
+        Cmd::OwnFile { cmd } => own_file_cmd::run(c, json, cmd).await,
+        _ => unreachable!("only agenda, card, digest, mode, owner, own-file and vault come here"),
     }
 }
 
@@ -1599,7 +1609,7 @@ async fn run(cli: Cli) -> Result<()> {
         | Cmd::Postmortem(_)
         | Cmd::Tui { .. }
         | Cmd::Chat { .. } => unreachable!("above"),
-        cmd @ (Cmd::Card { .. } | Cmd::Owner { .. } | Cmd::Vault { .. }) => {
+        cmd @ (Cmd::Card { .. } | Cmd::Owner { .. } | Cmd::Vault { .. } | Cmd::OwnFile { .. }) => {
             long_cmd(c, json, cmd).await
         }
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,

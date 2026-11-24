@@ -126,6 +126,10 @@ pub mod method {
         PROJECT_ITEM_ADD = "project.item.add", PROJECT_ITEM_CLOSE = "project.item.close", PROJECT_ITEM_LIST = "project.item.list",
         /// The end of a project (issue 37): its open items, its review and its reminders end with it.
         PROJECT_CLOSE = "project.close",
+        /// The owner's own instruction file (`own_file.rs`): what is accepted and what is on disk, with the change (a
+        /// read), and the accept of what is on disk, by the digest the owner was shown. The accept is the owner's, at
+        /// their own terminal alone.
+        OWN_FILE_SHOW = "own_file.show", OWN_FILE_ACCEPT = "own_file.accept",
         /// The last changes the owner approved to Theseus's own settings, as words (issue 22).
         CONFIG_HISTORY = "config.history",
         /// The whole text, before and after, of a change waiting for the owner's yes: a prompt file, or a setting too long for its card (issue 23).

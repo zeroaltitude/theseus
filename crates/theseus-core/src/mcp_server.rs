@@ -378,6 +378,9 @@ mod tests {
         method::PROJECT_TRUST,
         method::PROJECT_UNTRUST,
         method::PROJECT_TRUSTED,
+        // The owner's own instruction file: its accept is the owner's at their terminal.
+        method::OWN_FILE_SHOW,
+        method::OWN_FILE_ACCEPT,
         // The owner's override of a held call, and the read beside it
         // (theseus-p5kln): a route past a safety hold is `owner_in_person`'s,
         // which an MCP client never is.

@@ -386,6 +386,23 @@ impl Look {
         }
     }
 
+    /// The accepted version's text, as the reader carried it: empty for an
+    /// absence accepted, none when nothing is accepted or the store does not
+    /// answer for it.
+    pub fn accepted_text(
+        &self,
+        store: &crate::store::Store,
+        files: &ContextFiles,
+    ) -> Option<String> {
+        let Accepted::Some(n) = &self.accepted else {
+            return None;
+        };
+        match n.digest {
+            None => Some(String::new()),
+            Some(_) => accepted_text(store, files, &self.pid, n).map(|t| t.to_string()),
+        }
+    }
+
     /// Nothing carried, because the store did not answer for the accepted
     /// version; one line when there is a file to name.
     fn unreadable(&self, shown: &str) -> Carry {

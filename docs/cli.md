@@ -140,6 +140,11 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   before and after. `theseus config history`. A change, and the undo of one, are asked of Theseus in a conversation and
   answered on a card; this only reads (yours alone, refused inside a job). `theseus config show [ID]` prints the whole
   text, before and after, of a change waiting for your yes: a prompt file's, or a setting too long for its card.
+- **`own-file`**: your own instruction file, the state directory's `AGENTS.md`. Theseus carries the version you last
+  accepted; a different file on disk is named, not read. `theseus own-file` shows what is accepted, what is on disk, and
+  the change; `theseus own-file accept` shows the same and asks you, at your terminal, to accept what is on disk (yours
+  alone, refused inside a job; with no terminal it accepts nothing). The first start with no accepted version accepts
+  what is on disk, once, and says so; `theseusd check` says it beforehand.
 - **`ledger`**: recent ledger rows (every turn, loop, provider call, state change, error). `theseus ledger -n 20 -k provider.call`;
   `ledger verify`, `ledger head`; `ledger exchanges` sums the exchange ledger's rows of private turns (counts only),
   `ledger rebuild-exchanges [--dry-run]` writes the exchanges of older turns from their nodes; `ledger ladder <place> [--dry-run]
