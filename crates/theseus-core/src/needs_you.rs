@@ -48,7 +48,34 @@ pub use plain::{plain, rule_clause, Gloss};
 /// The outbox post's kind.
 pub const KIND: &str = "needs_you";
 
+// Only the copy used for plain words is masked; the call remains executable.
+fn mask_input(exits: &crate::exits::Exits, input: &mut serde_json::Value) {
+    match input {
+        serde_json::Value::String(s) => *s = exits.text(s).0.into_owned(),
+        serde_json::Value::Array(a) => a.iter_mut().for_each(|v| mask_input(exits, v)),
+        serde_json::Value::Object(o) => o.values_mut().for_each(|v| mask_input(exits, v)),
+        _ => {}
+    }
+}
+
 impl Core {
+    /// Display words only. Never replace the stored or executable request.
+    pub(crate) fn display_question(&self, req: &ConfirmRequest) -> ConfirmRequest {
+        let mut display = req.clone();
+        mask_input(&self.exits, &mut display.input);
+        display.reason = self.exits.text(&display.reason).0.into_owned();
+        display.resource = display
+            .resource
+            .as_ref()
+            .map(|s| self.exits.text(s).0.into_owned());
+        if let Some(c) = &mut display.change {
+            for s in [&mut c.title, &mut c.field, &mut c.before, &mut c.after] {
+                *s = self.exits.text(s).0.into_owned();
+            }
+        }
+        display
+    }
+
     /// The driver's tick for the questions that wait: escalate the ones that
     /// have waited long enough to the owner's DM, and remind those at half
     /// their life (the policy's rule 2). No timer, no read of history.
@@ -161,7 +188,7 @@ impl Core {
         let model_why = model_why.and_then(|id| {
             nodes.iter().find_map(|(_, n)| match &n.body {
                 Body::AssistantMessage { blocks, .. } if n.id == id => {
-                    plain::reason_line(&crate::provider::text_of(blocks))
+                    plain::reason_line(&self.exits.text(&crate::provider::text_of(blocks)).0)
                 }
                 _ => None,
             })
@@ -194,9 +221,26 @@ impl Core {
     /// post for the several, as before. With `loud` false (the pacer's window
     /// is closed) every post is silent, so none takes the window.
     fn post_needs_you(&self, asks: &[(Action, ConfirmRequest)], loud: bool) -> anyhow::Result<()> {
-        let named: Vec<(&Action, &ConfirmRequest, String)> = asks
+        let display: Vec<_> = asks
             .iter()
-            .map(|(a, req)| (a, req, self.asker_name(req)))
+            .map(|(a, req)| {
+                // Only this temporary display copy changes; never store or execute it.
+                let mut display = a.clone();
+                if let Some(p) = &mut display.proposal {
+                    mask_input(&self.exits, &mut p.args);
+                }
+                (display, self.display_question(req))
+            })
+            .collect();
+        let named: Vec<(&Action, &ConfirmRequest, String)> = display
+            .iter()
+            .map(|(a, req)| {
+                (
+                    a,
+                    req,
+                    self.exits.text(&self.asker_name(req)).0.into_owned(),
+                )
+            })
             .collect();
         let bodies = match (self.cfg.notify.dm_cards, named.as_slice()) {
             (true, [(a, req, who)]) => vec![card_body(a, req, who, None)],
@@ -458,4 +502,181 @@ pub fn batch_body_of(asks: &[(&Action, &ConfirmRequest, String)]) -> serde_json:
         "text": text,
         "questions": asks.iter().map(|(a, _, _)| a.correlation_id.clone()).collect::<Vec<_>>(),
     })
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use super::*;
+    #[tokio::test]
+    async fn needs_you_model_reason_masks_before_line_cut() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = crate::Config::example();
+        cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+        let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+        let core = Core::build(crate::rpc::Parts::for_tests(
+            cfg,
+            std::sync::Arc::new(crate::provider::FakeProvider::default()),
+            store,
+        ))
+        .unwrap();
+        let value = "vault token 4c8e1f7a92b3";
+        core.secrets
+            .hold("display_token", crate::secrets::Secret::new(value.into()));
+        let session =
+            crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+        core.store
+            .put_session(&session.session_id, &session)
+            .unwrap();
+        let action = core
+            .outbox
+            .to_operator(
+                Some(&session.session_id),
+                json!({"kind":"notice", "text":"test"}),
+            )
+            .unwrap();
+        let assistant = crate::node::Node::assistant(&session.session_id, "turn_exit", 0, serde_json::from_value(json!({"kind":"assistant_message", "blocks":[{"type":"text","text":format!("{}{}", "x".repeat(153), value)}], "model":"fake", "provider":"fake"})).unwrap());
+        let call = crate::node::Node::tool_call(
+            &session.session_id,
+            Some("turn_exit"),
+            Some(0),
+            crate::node::Body::ToolCall {
+                tool_use_id: "u_exit".into(),
+                tool: "proc.run".into(),
+                wire_name: "proc_run".into(),
+                input: json!({"argv":["echo"]}),
+                assistant_node: assistant.id.clone(),
+                correlation_id: Some(action.correlation_id.clone()),
+                gate: None,
+            },
+        );
+        let mut req = ConfirmRequest {
+            correlation_id: action.correlation_id.clone(),
+            session_id: session.session_id,
+            tool: "proc.run".into(),
+            input: json!({"argv":["echo"]}),
+            ..Default::default()
+        };
+        req.plain = core.plain_of(&req, &[(1, assistant), (2, call)]);
+        core.post_needs_you(&[(action, req)], true).unwrap();
+        let bodies: Vec<_> = core
+            .kernel
+            .outbox_actions()
+            .unwrap()
+            .iter()
+            .map(|a| crate::outbox::body_of(a).clone())
+            .filter(|b| b["kind"] == "needs_you")
+            .collect();
+        assert_eq!(bodies.len(), 1);
+        let text = bodies[0].to_string();
+        assert!(!text.contains("vault"), "{text}");
+        assert!(text.contains("[red"), "{text}");
+    }
+    #[tokio::test]
+    async fn needs_you_body_masks_input_before_plain_word_cut() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = crate::Config::example();
+        cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+        let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+        let core = Core::build(crate::rpc::Parts::for_tests(
+            cfg,
+            std::sync::Arc::new(crate::provider::FakeProvider::default()),
+            store,
+        ))
+        .unwrap();
+        let value = "vault token 4c8e1f7a92b3";
+        core.secrets
+            .hold("display_token", crate::secrets::Secret::new(value.into()));
+        let session =
+            crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+        core.store
+            .put_session(&session.session_id, &session)
+            .unwrap();
+        let action = core
+            .outbox
+            .to_operator(
+                Some(&session.session_id),
+                json!({"kind":"notice", "text":"test"}),
+            )
+            .unwrap();
+        let req = ConfirmRequest {
+            correlation_id: action.correlation_id.clone(),
+            session_id: session.session_id,
+            tool: "proc.run".into(),
+            input: json!({"argv":[format!("{}{}", "x".repeat(100), value)]}),
+            reason: value.into(),
+            resource: Some(value.into()),
+            ..Default::default()
+        };
+        let display = core.display_question(&req);
+        assert!(!display.reason.contains(value));
+        assert!(!display.resource.as_deref().unwrap().contains(value));
+        assert!(req.input.to_string().contains(value));
+        assert_eq!(req.reason, value);
+        assert_eq!(req.resource.as_deref(), Some(value));
+        core.post_needs_you(&[(action, req)], true).unwrap();
+        let bodies: Vec<_> = core
+            .kernel
+            .outbox_actions()
+            .unwrap()
+            .iter()
+            .map(|a| crate::outbox::body_of(a).clone())
+            .filter(|b| b["kind"] == "needs_you")
+            .collect();
+        assert_eq!(bodies.len(), 1);
+        let text = bodies[0].to_string();
+        assert!(!text.contains("vault"), "{text}");
+        assert!(text.contains("[red"), "{text}");
+    }
+    #[tokio::test]
+    async fn needs_you_batch_masks_action_question_before_cut() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = crate::Config::example();
+        cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+        cfg.notify.dm_cards = false;
+        let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+        let core = Core::build(crate::rpc::Parts::for_tests(
+            cfg,
+            std::sync::Arc::new(crate::provider::FakeProvider::default()),
+            store,
+        ))
+        .unwrap();
+        let value = "vault-token-4c8e1f7a92b3";
+        core.secrets
+            .hold("display_token", crate::secrets::Secret::new(value.into()));
+        let mut action = core
+            .outbox
+            .to_operator(None, json!({"kind":"notice", "text":"test"}))
+            .unwrap();
+        action.tool = "owner_ask".into();
+        let input = json!({"question":format!("{}{}", "x".repeat(115), value),"options":[{"label":"yes"},{"label":"no"}]});
+        action.proposal = Some(theseus_protocol::Proposal {
+            tool: action.tool.clone(),
+            args: input.clone(),
+            ..Default::default()
+        });
+        let req = ConfirmRequest {
+            correlation_id: action.correlation_id.clone(),
+            tool: action.tool.clone(),
+            input,
+            ..Default::default()
+        };
+        let raw = action.clone();
+        core.post_needs_you(
+            &[(action.clone(), req.clone()), (action.clone(), req)],
+            true,
+        )
+        .unwrap();
+        assert_eq!(action, raw);
+        let bodies: Vec<_> = core
+            .kernel
+            .outbox_actions()
+            .unwrap()
+            .iter()
+            .map(|a| crate::outbox::body_of(a).clone())
+            .filter(|b| b["kind"] == "needs_you")
+            .collect();
+        let text = bodies[0].to_string();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
+    }
 }
