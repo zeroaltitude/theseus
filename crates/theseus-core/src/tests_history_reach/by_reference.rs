@@ -278,16 +278,27 @@ async fn a_window_lays_no_words_of_an_erased_source() {
     assert!(!sent.contains(WORD), "{sent}");
 }
 
+/// A model that answers the line said with a call, so its exchange holds tool traffic and the window lays it
+/// whole (an exchange with none is laid spoken, and the line is laid only beside an exchange laid whole), and
+/// anything else with a word. The correction note quotes the line, so it is told apart by its own words.
+fn calls_on_the_line(req: &crate::provider::ProviderRequest) -> Scripted {
+    let said = last_user(req);
+    if answers_a_call(req) {
+        Scripted::text("Read.")
+    } else if said.contains(SAID) && !said.contains("Correction:") {
+        Scripted::tools("Reading.", &[("h1", "context_history", json!({}))])
+    } else {
+        Scripted::text("Noted.")
+    }
+}
+
 /// The retracted message itself, laid whole in its own conversation's window, carries the mark after its
 /// words.
 #[tokio::test]
 async fn a_retracted_message_in_the_window_carries_the_mark() {
-    let r = rig();
-    // Said with a call, so its exchange holds tool traffic and the window lays it whole. An exchange with
-    // none is laid spoken, and the line is laid only beside an exchange laid whole.
-    let asked = format!("{SAID} CALL {{}}");
+    let r = rig_scripted(|_| {}, calls_on_the_line);
     let sid = session(&r.core, None);
-    turn(&r.core, &sid, &asked).await;
+    turn(&r.core, &sid, SAID).await;
     let node = (r.core.store.session_nodes(&sid).unwrap().into_iter())
         .map(|(_, n)| n)
         .find(|n| matches!(&n.body, Body::UserMessage { text, .. } if text.contains(WORD)))
@@ -306,7 +317,7 @@ async fn a_retracted_message_in_the_window_carries_the_mark() {
     );
     let (_, stored) = r.core.store.get_node(&node).unwrap().unwrap();
     assert!(
-        matches!(&stored.body, Body::UserMessage { text, .. } if *text == asked),
+        matches!(&stored.body, Body::UserMessage { text, .. } if text == SAID),
         "the stored message is as said: {stored:?}"
     );
 }
