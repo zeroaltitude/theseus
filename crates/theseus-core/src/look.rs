@@ -352,12 +352,14 @@ impl Board {
                     Err(e) => return fail(e),
                 };
                 let (session, turn) = (tc.session_id.to_string(), tc.turn_id.to_string());
+                // One snapshot of the values the runtime's scrubber knows, for every cut of this call.
+                let cuts = tc.scrubber.cuts();
                 Box::pin(async move {
                     let who = work::Caller {
                         session: &session,
                         turn: &turn,
                     };
-                    work::words(&core, &who, &ask)
+                    work::words(&core, &who, &ask, &cuts)
                         .await
                         .map(|(said, shown)| {
                             // The messages it shows: its result's edges to them (`copies`).

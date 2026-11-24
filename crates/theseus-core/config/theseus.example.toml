@@ -130,7 +130,7 @@ thinking_display = "summarized"
 max_loops = 40
 refusal_fallbacks = true
 
-# The profiles that run the models Jev chooses among (route.v11): Haiku 5.5, Sonnet 5.5,
+# The profiles that run the models Jev chooses among (route.v12): Haiku 5.5, Sonnet 5.5,
 # Opus 5.5, Fable 5.2 and DeepSeek Flash. A profile is also a pin: `-P`, `theseus profile use`,
 # a place's profile, or a key such as [memory] synth_profile.
 [profiles.opus]
@@ -1409,24 +1409,20 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # dm_per_day = 3                          # the most live questions posted to your DM a day (0 to 10; 0: the CLI only)
 
 # ---------------------------------------------------------------- ontology
-# Jev files each message's session into the ontology (`onto.v1`, in the inbound batch
-# beside `classify.v4`): which topic, project, event, resource, capability
+# Jev files each message's session into the ontology (`onto.v2`, in the inbound batch
+# beside `classify.v5`): which topic, project, event, resource, capability
 # and expertise it is about, and whether a new one is called for. From `act` Theseus
 # writes the membership (origin `jev`) and mints a new category, and tells you in the
 # reply's footer (`filed: topic > theseus > ontology (new)`); a mint sends one card to
 # your DM with an undo button. From `confirm` it asks you in a card and writes nothing.
 # Below that the answer is only a record. `theseus ontology undo` takes a write back.
 # [ontology]
-# judge = true                            # the rollback: off, onto.v1 is not asked and nothing is written
+# judge = true                            # the rollback: off, onto.v2 is not asked and nothing is written
 # act = 0.80                              # at and above this, Jev's answer is written
 # confirm = 0.55                          # from this, you are asked
 # name_profile = "haiku"                  # a pin: names a new category when no mined name fits (once a session, kind and day); unset: Jev chooses (US options only)
-# request = "batch"                       # "own": onto.v1 in a request of its own, never waited on (if the batch slows)
+# request = "batch"                       # "own": onto.v2 in a request of its own, never waited on (if the batch slows)
 # recall_boost = 0.25                    # a note from a session sharing a category with this one gains up to this in recall's rank (0 off)
-# private_mark = false                    # on: a picture or message Jev judges to disclose a private matter, or to show
-#                                         # people or identifiers, at `act` marks its node private (undoable). Off until
-#                                         # you say on: the mark changes what later requests may send to models outside
-#                                         # the US allowlist (theseus-und4g).
 # sweep = true                            # nightly: a machine's membership unconfirmed for 30 days decays, and a duplicate category a machine wrote merges into its twin (each undoable; no model, no spend); false is the rollback
 # sweep_usd_per_day = 1.0                 # the sweep's model calls a local day (theseus-nzzz4): Jev judges two categories that look alike (same_thing.v1: merged at 0.85), a category of 12 sessions or more (two_things.v1: split in two at 0.85), a category whose name has gone stale (name_it.v1: renamed to a name mined from its sessions at 0.85), and names the `other` answers mined (same_kind.v1: joined into one kind; name_it.v1: the minted kind's name); a call that would pass what is left of the day's cap is not begun; 0 turns the model's part off and the deterministic sweep still runs
 # dream_guidance = true                   # nightly: a machine's category that 5 private sessions hold and that has no guidance gets its first, under [memory] synth_limit_usd_per_day; false is the rollback
@@ -1629,9 +1625,9 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # order of a recall in front of the model, and security.v3's notices (below). A judgment sends its state (your messages, the assistant's final
 # text, and its tool calls, trimmed and scrubbed of secrets) to TypeSafe. It
 # runs beside the turn and the turn never waits for it: a slow or failing Jev
-# changes no turn. Among the packs that judge: loop.v1, at each turn that ends
+# changes no turn. Among the packs that judge: loop.v2, at each turn that ends
 # with no tool calls (where does the work on the ask stand?); security.v3, at
-# each call that acts once the gate has decided (how risky is it?); classify.v4, at each message a person sends
+# each call that acts once the gate has decided (how risky is it?); classify.v5, at each message a person sends
 # (what kind of message is it?),
 # but not at a slash command, a wake's turn, a report's turn, or a task's first
 # turn; categorize.v1, at
@@ -1676,11 +1672,11 @@ replay_limit_usd = 0.5                  # what one `theseus judge replay` (or ba
 audit_limit_usd = 5.0                   # what one `theseus judge audit` may spend on its model; the run stops before it would pass it
 backfill_consent = false                # true is the owner's consent that `theseus judge backfill` sends recorded history to Jev; agents can't write it
 holdout_days = 14                       # the holdout's days before the report's midnight; the learning loop's split from 200 labeled in it
-stop_nudge = true                       # a private turn whose last message says more work follows (loop.v1, live) goes on once more; false keeps loop.v1 in shadow; `theseus nudge off` for one session
-reversibility = true                    # a tool call that would lose something is held (undo.v1, live) and the model re-plans it; one no reshaping could save waits for you; false keeps undo.v1 in shadow
+stop_nudge = true                       # a private turn whose last message says more work follows (loop.v2, live) goes on once more; false keeps loop.v2 in shadow; `theseus nudge off` for one session
+reversibility = true                    # a tool call that would lose something is held (undo.v2, live) and the model re-plans it; one no reshaping could save waits for you; false keeps undo.v2 in shadow
 # api_base = "https://api.typesafe.ai"  # Jev's endpoint (tests point it at a fake)
 # A pack's own lines, by its name. The config can lower a pack's mode, never raise it.
-# [judge.packs."loop.v1"]
+# [judge.packs."loop.v2"]
 # rung = "off"                          # off | shadow: "off" stops this pack alone
 # sample = 0.5                          # the share of its events judged in shadow (default the pack's own, 1.0)
 # [judge.packs."rerank.v1"]            # recall's +rerank arm, live (M6 32d): its own 600 ms deadline and breaker
@@ -1707,7 +1703,7 @@ max_errors = 40                         # the most the writer reads, newest firs
 margin = 0.02                           # at the minimum sample, precision and recall each up by this on every deciding question
 
 # ---------------------------------------------------------------- routing
-# Jev chooses the model (route.v11, theseus-h66v4). While [judge] is on, the route pack asks at
+# Jev chooses the model (route.v12, theseus-h66v4). While [judge] is on, the route pack asks at
 # each message you send which model it needs and the effort its reply needs, from one
 # table of the models on offer (price, origin, thinking, what each is for and not for), and the
 # turn runs on the configured profile that runs the model Jev picked: its provider's key settled,

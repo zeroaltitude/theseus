@@ -758,12 +758,13 @@ async fn a_caller_that_is_not_the_owner_in_person_cannot_grant_a_repositorys_tru
     assert_eq!(grants[1]["granted"], false);
 }
 
-/// §8's "After a grant", live: the first compile after a grant stores what
-/// it saw and says nothing; an edit to the repository's own file after that
-/// is carried, NAMED in block 3, and one `project.changed` row. This is the
-/// half of §8 a grant otherwise leaves silent — the text of a file edited
-/// after the grant enters every request with an instruction's authority, and
-/// without this nothing anywhere says it is not the text the owner read.
+/// §8's "After a grant", live: the first compile after a grant matches what
+/// the grant stored and says nothing; an edit to the repository's own file
+/// after that is carried, NAMED in block 3, and one `project.changed` row.
+/// This is the half of §8 a grant otherwise leaves silent — the text of a
+/// file edited after the grant enters every request with an instruction's
+/// authority, and without this nothing anywhere says it is not the text the
+/// owner read.
 #[tokio::test]
 async fn a_change_after_a_grant_is_named_in_the_block_and_ledgered() {
     let r = rig();
@@ -772,7 +773,7 @@ async fn a_change_after_a_grant_is_named_in_the_block_and_ledgered() {
         .project_trust(&repo, "cli")
         .expect("the owner trusts it");
 
-    // The first compile has nothing to differ from: it stores the sighting.
+    // The first compile matches what the grant stored.
     submit(&r.core, &here).await;
     let first = session_block(&r.fake.requests().pop().unwrap());
     assert!(first.contains(IN_TEXT), "the grant is in force:\n{first}");
@@ -1439,22 +1440,18 @@ fn sibling_dir(repo: &Path) -> PathBuf {
 }
 
 // ---------------------------------------------------------------------------
-// THE RESIDUAL (finding A1), in three cases, pinned rather than claimed
-// closed.
+// What the writer key's sweep reaches, in three cases.
 //
-// The residual is NOT "a brand-new file in a directory no compile has
-// discovered". That is one case of it. The rule is: **any instruction file
-// that is neither in a granted repository's currently-stored sighting nor on
-// the chain from the session's own repository root to its own working
-// directory** -- whether it was created or merely changed, and whether or not
-// its directory has ever been compiled in. `change::swept` computes exactly
-// those two sets, and a file in neither is in no sweep.
+// The sweep compares, for every granted repository, the files its stored
+// sighting names and, for the session's own repository, the chain from its
+// root to its working directory (`change::swept`); a file in neither is in no
+// sweep. The grant stores a sighting of every instruction file under the
+// root, and each compile adds what it saw, so a file the grant or a compile
+// has seen stays in it.
 //
-// The three tests below are the three cases found so far. Each asserts the
-// behaviour in the direction the code actually goes, so the branch head is
-// green and the hole is impossible to miss. They share the `the_residual_`
-// prefix so that one grep finds the whole set rather than one instance of it.
-// None of them claims to be the set.
+// Each test asserts the behaviour in the direction the code actually goes.
+// Case 1 is not held, and keeps the `the_residual_` prefix so that one grep
+// finds it; cases 2 and 3 are held.
 // ---------------------------------------------------------------------------
 
 /// **The residual, case 1: a file CREATED in a directory no compile has
@@ -1463,17 +1460,9 @@ fn sibling_dir(repo: &Path) -> PathBuf {
 /// directory that no compile has ever discovered. A clean session then opens
 /// in that sibling and **does read the new text**.
 ///
-/// This is the case rounds 1 and 2 found, and for a while the tree called it
-/// *the* residual; it is one of three. The other two are below, and they are
-/// the ones that wording excluded: case 2 needs no creation and no
-/// undiscovered directory at all, and case 3's file has been read by the
-/// owner in a directory a compile HAS discovered.
-///
-/// Nothing closes any of them without either walking a granted root on every
-/// acting call, or accumulating a repository's discovered paths rather than
-/// replacing them and then asking -- when a compile discovers a file that is
-/// NEW -- whether a labelled session acted in that repository since the owner
-/// last read it. Neither is built.
+/// Cases 2 and 3 below are held: the grant's sighting and a sighting that
+/// accumulates keep their files in the swept set. This file appeared after
+/// the grant, where no compile had looked, so it is in neither set.
 ///
 /// **When someone closes it, this test fails, and that is the point.** Flip
 /// it to the containment then; do not delete it.
@@ -1501,43 +1490,29 @@ async fn the_residual_a_new_file_in_a_directory_no_compile_has_discovered_is_not
     );
 }
 
-/// **The residual, case 2: a granted repository no session has ever been
-/// opened in.** The owner grants a second repository **by path, from
-/// somewhere else** -- which is how the CLI grants -- and never starts a
-/// session in it. A flagged session working in the FIRST repository then
-/// MODIFIES the second's own `AGENTS.md`, and a clean session opening there
-/// reads it.
+/// **Case 2, contained: a granted repository no session has ever been opened
+/// in.** The owner grants a second repository **by path, from somewhere
+/// else** -- which is how the CLI grants -- and never starts a session in
+/// it. A flagged session working in the FIRST repository then MODIFIES the
+/// second's own `AGENTS.md`, and a clean session opening there does not read
+/// it.
 ///
 /// `change::swept` is the stored sighting's paths plus, for the session's own
-/// repository, the chain from its root to its cwd. A granted repository
-/// nothing has compiled in has **no stored sighting at all** -- the grant
-/// stores none; `rpc::project_trust` only deletes `Seen` and `Held`, on
-/// untrust -- and it is not the session's own repository, so both halves are
-/// empty and `change::wrote` skips it.
+/// repository, the chain from its root to its cwd. The grant stores the
+/// repository's sighting (`rpc::project_trust`), so the second repository's
+/// own `AGENTS.md` is in the swept set although no compile has opened there,
+/// the sweep sees it move, and the hold names the change in the block.
 ///
-/// **Nothing was created and nothing is undiscovered here**, which is why
-/// case 1's wording excluded this and why it needs its own test: the file is
-/// the very one the grant was given for, and the repository was simply never
-/// opened. It is also **quieter** than case 1 -- there is no "changed" notice
-/// on the block at all, because a repository's first sighting is not a diff,
-/// where case 1 at least produces a row.
-///
-/// The difference from `probe_another_granted_repositorys_file_is_held_too`,
-/// which is GREEN, is one line: that probe compiles in the second repository
-/// once before the write, so the sighting exists and the sweep has something
-/// to compare. Finding A2 is closed for a repository the owner has opened.
-///
-/// **When someone closes it, this test fails, and that is the point.** Flip
-/// it to the containment then; do not delete it.
+/// `probe_another_granted_repositorys_file_is_held_too` is the same case with
+/// one compile in the second repository before the write.
 #[tokio::test]
-async fn the_residual_a_granted_repository_no_compile_has_opened_in_is_not_held() {
+async fn a_granted_repository_no_compile_has_opened_in_is_held() {
     let (r, _repo, here, session) =
         granted_and_flagged(crate::content::InjectionMode::Notify).await;
     let second = second_repo(&r.root);
     r.core.project_trust(&second, "cli").expect("both trusted");
-    // The whole of this case is the line that is NOT here: no `submit_in` in
-    // the second repository, so no session has ever been opened in it and the
-    // grant stored no sighting.
+    // No `submit_in` in the second repository: no session has ever been
+    // opened in it, and its sighting is the grant's.
 
     let file = second.join("AGENTS.md");
     moves_the_file(&r, &here, &session, By::Program, &file).await;
@@ -1552,46 +1527,31 @@ async fn the_residual_a_granted_repository_no_compile_has_opened_in_is_not_held(
     assert_ne!(clean, session, "a different session, carrying nothing");
     let block = session_block(&r.fake.requests().pop().unwrap());
     assert!(
-        block.contains(BY_THE_CALL),
-        "THE RESIDUAL, case 2: a granted repository no compile has opened in has \
-         no stored sighting and is not the session's own, so both halves of the \
-         swept set are empty and a clean session opening there DOES read what a \
-         flagged session's call put in it. If this assertion has started \
-         failing, the hole is closed -- invert it:\n{block}"
+        !block.contains(BY_THE_CALL),
+        "case 2: the grant stored the second repository's sighting, so the \
+         flagged session's change to its own AGENTS.md is held and a clean \
+         session opening there does not read it:\n{block}"
     );
     assert!(
-        !block.contains("changed since the owner last read them"),
-        "and it arrives with NO 'changed' notice at all, because this is the \
-         repository's first sighting and a first sighting is not a diff. That \
-         is quieter than case 1, which at least produces a row. If a notice has \
-         appeared, say so where the residual is described:\n{block}"
+        block.contains("changed since the owner last read them"),
+        "and the block names the change:\n{block}"
     );
 }
 
-/// **The residual, case 3: a file the owner HAS read, in a directory a
-/// compile HAS discovered.** A granted repository's sighting is stored per
-/// repository but taken from whichever directory the compiling session was
-/// in, and it REPLACES its predecessor. So an ordinary clean session opening
-/// in a second directory of the same repository evicts the first directory's
-/// file from the sighting; from then on that file is in neither swept set,
-/// and a flagged session's call may modify it unheld.
+/// **Case 3, contained: a file the owner HAS read, in a directory a compile
+/// HAS discovered.** A granted repository's sighting is stored per
+/// repository and taken from whichever directory the compiling session was
+/// in, and it accumulates: an ordinary clean session opening in a second
+/// directory of the same repository keeps the first directory's file in it.
+/// So the file stays in the swept set, and a flagged session's call that
+/// modifies it is held for every session.
 ///
-/// **Nothing adversarial causes the eviction -- ordinary use does.** The
-/// owner reads the sibling's file, then works in the nested directory, and
-/// his own earlier reading has been removed from the record the sweep
-/// consults. The file was not created, and its directory has been compiled
-/// in, so both of case 1's qualifiers are false here.
-///
-/// The eviction itself is a pre-existing defect, tracked as GitHub issue 16
-/// (per-chain sightings produce spurious change rows). What this test adds is
-/// that it is not only noise: it is a route to **exposure**, through the
-/// writer key's swept set. Accumulating a repository's discovered paths
-/// instead of replacing them closes both.
-///
-/// **When someone closes it, this test fails, and that is the point.** Flip
-/// it to the containment then; do not delete it.
+/// The owner reads the sibling's file, then works in the nested directory,
+/// and his earlier reading is still in the record the sweep consults. This
+/// is also what keeps a compile elsewhere from reporting the file as gone
+/// (GitHub issue 16).
 #[tokio::test]
-async fn the_residual_a_read_file_evicted_by_an_ordinary_compile_is_not_held() {
+async fn a_read_file_stays_held_after_an_ordinary_compile_elsewhere() {
     let (r, repo, here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
     let sib = sibling_dir(&repo);
     let file = sib.join("AGENTS.md");
@@ -1599,7 +1559,7 @@ async fn the_residual_a_read_file_evicted_by_an_ordinary_compile_is_not_held() {
     std::fs::write(&file, &owner_read).unwrap();
 
     // The owner READS the sibling: a clean session opens there, so the stored
-    // sighting is taken from ITS chain and names this file.
+    // sighting names this file.
     let read = submit_in(&r.core, &sib, None).await;
     assert_ne!(read, session, "the owner's own clean session");
     let seen = session_block(&r.fake.requests().pop().unwrap());
@@ -1609,9 +1569,8 @@ async fn the_residual_a_read_file_evicted_by_an_ordinary_compile_is_not_held() {
          sighting at this point:\n{seen}"
     );
 
-    // The eviction, by ordinary use: a clean session opens in the nested
-    // directory of the SAME repository. The sighting is replaced with that
-    // chain, and the sibling's file is no longer in it.
+    // Ordinary use: a clean session opens in the nested directory of the
+    // SAME repository. The sighting keeps the sibling's file.
     let elsewhere = submit_in(&r.core, &here, None).await;
     assert_ne!(
         elsewhere, read,
@@ -1630,13 +1589,14 @@ async fn the_residual_a_read_file_evicted_by_an_ordinary_compile_is_not_held() {
     assert_ne!(clean, session, "a different session, carrying nothing");
     let block = session_block(&r.fake.requests().pop().unwrap());
     assert!(
-        block.contains(BY_THE_CALL),
-        "THE RESIDUAL, case 3: an ordinary clean session opening elsewhere in \
-         the same repository evicted this file from the stored sighting, so it \
-         is in neither swept set and a clean session opening here DOES read \
-         what a flagged session's call put in it -- a file the owner had READ, \
-         in a directory a compile HAD discovered. If this assertion has started \
-         failing, the hole is closed -- invert it:\n{block}"
+        !block.contains(BY_THE_CALL),
+        "case 3: a compile elsewhere in the same repository kept this file in \
+         the stored sighting, so the flagged session's change to it is held \
+         and a clean session opening here does not read it:\n{block}"
+    );
+    assert!(
+        block.contains("injection"),
+        "case 3: and the block says why it is not there:\n{block}"
     );
 }
 
@@ -1752,5 +1712,342 @@ async fn probe_a_file_off_the_chain_is_reported_changed_and_not_gone() {
             && !r.data["new"].as_str().unwrap_or_default().is_empty()),
         "probe 4: a row says the file CHANGED, with the digest the call left, and \
          not that it went away: {mine:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// A grant pins what it grants: `Core::project_trust` stores the repository's
+// sighting, every instruction file under the root, in the grant's own frame.
+// ---------------------------------------------------------------------------
+
+/// The paths a repository's stored sighting names, in order.
+fn pinned(core: &Arc<Core>, repo: &Path) -> Vec<String> {
+    crate::project_context::change::Seen::read(&core.store, &crate::flow::spec::repo_id(repo))
+        .expect("the grant stores a sighting")
+        .files
+        .into_keys()
+        .collect()
+}
+
+/// The grant's sighting names every instruction file under the root -- the
+/// root's own, the nested one, and one in a directory no session's chain
+/// passes through -- by digest, and the first compile compares with it and
+/// finds nothing to say.
+#[tokio::test]
+async fn a_grant_pins_every_instruction_file_under_the_root() {
+    let r = rig();
+    let (repo, here) = hostile_repo(&r.root);
+    let aside = repo.join("aside");
+    std::fs::create_dir_all(&aside).unwrap();
+    std::fs::write(aside.join("AGENTS.md"), "The aside rules.\n").unwrap();
+    r.core.project_trust(&repo, "cli").expect("trusted");
+
+    let mut want = vec![
+        repo.join("AGENTS.md").display().to_string(),
+        aside.join("AGENTS.md").display().to_string(),
+        here.join("CLAUDE.md").display().to_string(),
+    ];
+    want.sort();
+    assert_eq!(pinned(&r.core, &repo), want);
+    let seen = crate::project_context::change::Seen::read(
+        &r.core.store,
+        &crate::flow::spec::repo_id(&repo),
+    )
+    .unwrap();
+    assert!(
+        seen.files.values().all(|d| d.len() == 16),
+        "digests, not text: {seen:?}"
+    );
+
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(block.contains(IN_TEXT), "the grant is in force:\n{block}");
+    assert!(
+        !block.contains("changed since the owner"),
+        "the first compile matches what the grant pinned:\n{block}"
+    );
+    assert!(
+        crate::test_support::ledger_rows_2k(&r.core, "project.changed").is_empty(),
+        "and ledgers nothing"
+    );
+}
+
+/// At `ask`, a file written after the grant and before any session has
+/// opened in the repository is a change from what the grant pinned: named,
+/// not read, and ledgered once; the unchanged file beside it is carried.
+#[tokio::test]
+async fn at_ask_a_file_written_between_the_grant_and_the_first_session_is_not_read() {
+    let r = rig_with(|cfg| cfg.project.on_change = Some(crate::config::OnChange::Ask));
+    let (repo, here) = hostile_repo(&r.root);
+    r.core.project_trust(&repo, "cli").expect("trusted");
+    std::fs::write(repo.join("AGENTS.md"), format!("{AFTER}\n")).unwrap();
+
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        !block.contains(AFTER),
+        "the file written after the grant is not read:\n{block}"
+    );
+    assert!(
+        block.contains("He asks to see a change before it is read"),
+        "the block says why:\n{block}"
+    );
+    assert!(
+        block.contains(STEER),
+        "and the unchanged nested file is carried:\n{block}"
+    );
+    let rows = crate::test_support::ledger_rows_2k(&r.core, "project.changed");
+    assert_eq!(rows.len(), 1, "one row: {rows:?}");
+    assert_eq!(rows[0].data["carried"], false, "{rows:?}");
+}
+
+/// The grant's walk does not follow a symlinked directory: a file reached
+/// only through one is not pinned.
+#[tokio::test]
+async fn a_grant_does_not_follow_a_symlinked_directory() {
+    let r = rig();
+    let (repo, _here) = hostile_repo(&r.root);
+    let outside = r.root.join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("AGENTS.md"), "The outside rules.\n").unwrap();
+    std::os::unix::fs::symlink(&outside, repo.join("linked")).unwrap();
+    r.core.project_trust(&repo, "cli").expect("trusted");
+
+    let pins = pinned(&r.core, &repo);
+    assert!(
+        pins.contains(&repo.join("AGENTS.md").display().to_string()),
+        "{pins:?}"
+    );
+    assert!(
+        !pins
+            .iter()
+            .any(|p| p.contains("linked") || p.contains("outside")),
+        "nothing through the link is pinned: {pins:?}"
+    );
+}
+
+/// The grant's walk reads no ignore file: a file under a directory the
+/// repository's `.gitignore` names is pinned like any other, so a session
+/// working there finds nothing new.
+#[tokio::test]
+async fn a_file_in_an_ignored_directory_is_pinned_by_the_grant() {
+    let r = rig();
+    let (repo, _here) = hostile_repo(&r.root);
+    std::fs::write(repo.join(".gitignore"), "build/\n").unwrap();
+    let build = repo.join("build");
+    std::fs::create_dir_all(&build).unwrap();
+    let file = build.join("AGENTS.md");
+    std::fs::write(&file, "The build directory's rules.\n").unwrap();
+    r.core.project_trust(&repo, "cli").expect("trusted");
+
+    let pins = pinned(&r.core, &repo);
+    let shown = file.display().to_string();
+    assert!(pins.contains(&shown), "{pins:?}");
+
+    submit(&r.core, &build).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        block.contains("The build directory's rules."),
+        "carried:\n{block}"
+    );
+    assert!(
+        !block.contains("changed since the owner"),
+        "and nothing is new:\n{block}"
+    );
+    assert!(
+        crate::test_support::ledger_rows_2k(&r.core, "project.changed").is_empty(),
+        "and ledgers nothing"
+    );
+}
+
+/// A FIFO named `.gitignore` in the repository does not stop a grant: the
+/// walk never opens it. The grant returns well within the bound and pins the
+/// root's file.
+#[tokio::test]
+async fn a_fifo_named_gitignore_does_not_stop_a_grant() {
+    let r = rig();
+    let (repo, _here) = hostile_repo(&r.root);
+    for fifo in [repo.join(".gitignore"), repo.join(".git/info/exclude")] {
+        std::fs::create_dir_all(fifo.parent().unwrap()).unwrap();
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap();
+        assert!(made.success(), "mkfifo {}", fifo.display());
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let core = r.core.clone();
+    let at = repo.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send(core.project_trust(&at, "cli").map(|_| ()));
+    });
+    rx.recv_timeout(Duration::from_secs(20))
+        .expect("the grant returns")
+        .expect("trusted");
+    assert!(
+        pinned(&r.core, &repo).contains(&repo.join("AGENTS.md").display().to_string()),
+        "the root's file is pinned"
+    );
+}
+
+/// `crowd/` under `repo`, holding a full walk allowance of empty files. It
+/// sorts before the nested directory, so the walk spends its allowance
+/// there before it reads the nested directory.
+fn crowd(repo: &Path) {
+    let crowd = repo.join("crowd");
+    std::fs::create_dir(&crowd).unwrap();
+    for n in 0..crate::project_context::WALK_ENTRIES {
+        std::fs::write(crowd.join(format!("f{n:05}")), "").unwrap();
+    }
+}
+
+/// A repository past the walk's entry cap is granted, and the sighting holds
+/// what the walk found before the cap: the root's own file, which it meets
+/// first. The nested file past the cap is new when a session works there.
+#[tokio::test]
+async fn a_grant_past_the_walks_cap_stores_what_it_found() {
+    let r = rig();
+    let (repo, here) = hostile_repo(&r.root);
+    crowd(&repo);
+    r.core
+        .project_trust(&repo, "cli")
+        .expect("granted past the cap");
+
+    assert_eq!(
+        pinned(&r.core, &repo),
+        vec![repo.join("AGENTS.md").display().to_string()],
+        "what the walk found before the cap"
+    );
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    let nested = here.join("CLAUDE.md").display().to_string();
+    assert!(
+        block.contains(&format!("{nested} (new)")),
+        "the file past the cap is new when a session works there:\n{block}"
+    );
+}
+
+/// What the block tells the owner to do to accept a held or not-yet-read
+/// file.
+const ACCEPT: &str =
+    "`theseus project untrust`, then `theseus project trust` naming this session's directory";
+
+/// At `ask`, a file past the walk's allowance is new and not read, and the
+/// block says how to accept it: a grant given again naming its directory
+/// pins it, and a session there then reads it with nothing new to say.
+#[tokio::test]
+async fn at_ask_a_file_past_the_walk_is_accepted_by_a_grant_naming_its_directory() {
+    let r = rig_with(|cfg| cfg.project.on_change = Some(crate::config::OnChange::Ask));
+    let (repo, here) = hostile_repo(&r.root);
+    crowd(&repo);
+    r.core.project_trust(&repo, "cli").expect("trusted");
+    let nested = here.join("CLAUDE.md").display().to_string();
+    assert!(!pinned(&r.core, &repo).contains(&nested));
+
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(!block.contains(STEER), "not read:\n{block}");
+    assert!(
+        block.contains(&format!("{nested} (new)")) && block.contains(ACCEPT),
+        "the block names it and says how to accept it:\n{block}"
+    );
+
+    r.core.project_untrust(&repo, "cli").expect("revoked");
+    r.core.project_trust(&here, "cli").expect("granted again");
+    assert!(pinned(&r.core, &repo).contains(&nested));
+    submit(&r.core, &here).await;
+    let after = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        after.contains(STEER),
+        "the owner's accept carries it:\n{after}"
+    );
+    assert!(
+        !after.contains("(new)") && !after.contains("changed since the owner"),
+        "and says nothing new:\n{after}"
+    );
+}
+
+/// The same route for a session carrying `injection`: it does not read a
+/// file past the walk's allowance, and after a grant naming that directory
+/// the same session reads it.
+#[tokio::test]
+async fn a_labelled_reader_reads_a_file_past_the_walk_after_a_grant_naming_its_directory() {
+    let r = rig();
+    let (repo, here) = hostile_repo(&r.root);
+    crowd(&repo);
+    let session = submit(&r.core, &here).await;
+    flag(&r.core, &session);
+    r.core.project_trust(&repo, "cli").expect("trusted");
+
+    submit_in(&r.core, &here, Some(&session)).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(!block.contains(STEER), "not read:\n{block}");
+    assert!(
+        block.contains("This session carries the `injection` label") && block.contains(ACCEPT),
+        "the block says why and how to accept it:\n{block}"
+    );
+
+    r.core.project_untrust(&repo, "cli").expect("revoked");
+    r.core.project_trust(&here, "cli").expect("granted again");
+    submit_in(&r.core, &here, Some(&session)).await;
+    let after = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        after.contains(STEER),
+        "the owner's accept carries it:\n{after}"
+    );
+    assert!(
+        !after.contains("(new)") && !after.contains("changed since the owner"),
+        "and says nothing new:\n{after}"
+    );
+}
+
+/// At `ask`, a grant naming a directory pins that directory's whole chain,
+/// however many files it holds. Here the chain alone holds more instruction
+/// files than the grant's digest allowance (two in each of 502 directories,
+/// built deep because the allowance is not one a test sets): the grant
+/// naming the root leaves the deepest ones new, and `untrust`, then `trust`
+/// naming the deepest directory, lets a session there read its file with
+/// nothing new to say.
+#[tokio::test]
+async fn at_ask_a_grant_naming_a_directory_pins_a_chain_longer_than_the_digest_allowance() {
+    let r = rig_with(|cfg| cfg.project.on_change = Some(crate::config::OnChange::Ask));
+    let repo = r.root.join("deep");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    let levels = crate::project_context::DIGEST_FILES / 2 + 2;
+    let mut here = repo.clone();
+    for n in 0..levels {
+        if n > 0 {
+            here = here.join("d");
+            std::fs::create_dir(&here).unwrap();
+        }
+        std::fs::write(here.join("AGENTS.md"), format!("rules {n}\n")).unwrap();
+        std::fs::write(here.join("CLAUDE.md"), format!("notes {n}\n")).unwrap();
+    }
+    std::fs::write(here.join("CLAUDE.md"), format!("{STEER}.\n")).unwrap();
+    let deepest = here.join("CLAUDE.md").display().to_string();
+
+    r.core.project_trust(&repo, "cli").expect("trusted");
+    assert!(!pinned(&r.core, &repo).contains(&deepest));
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(!block.contains(STEER), "not read");
+    assert!(
+        block.contains(&format!("{deepest} (new)")) && block.contains(ACCEPT),
+        "the block names it and says how to accept it"
+    );
+
+    r.core.project_untrust(&repo, "cli").expect("revoked");
+    r.core.project_trust(&here, "cli").expect("granted again");
+    submit(&r.core, &here).await;
+    let after = session_block(&r.fake.requests().pop().unwrap());
+    assert!(after.contains(STEER), "the owner's accept carries it");
+    assert!(
+        !after.contains("(new)") && !after.contains("changed since the owner"),
+        "and says nothing new"
+    );
+    assert_eq!(
+        pinned(&r.core, &repo).len(),
+        2 * levels,
+        "the whole chain is pinned"
     );
 }

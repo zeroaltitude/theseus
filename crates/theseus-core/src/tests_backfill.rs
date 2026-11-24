@@ -47,7 +47,7 @@ async fn backfills_states_equal_the_live_builders_byte_for_byte() {
     until_judged(&c.store, 2).await;
     turn(c, None, "Count the wrens.").await;
     let live = until_judged(&c.store, 3).await;
-    let pack = theseus_judge::pack::by_name("loop.v1").unwrap();
+    let pack = theseus_judge::pack::by_name("loop.v2").unwrap();
     let events = c.backfill_events(&pack, 0).unwrap();
     assert_eq!(events.len(), 3);
     for (_, row) in &live {
@@ -73,7 +73,7 @@ async fn backfills_states_equal_the_live_builders_byte_for_byte() {
     let out = c
         .judge_backfill(
             JudgeBackfillParams {
-                pack: "loop.v1".into(),
+                pack: "loop.v2".into(),
                 since,
             },
             "cli",
@@ -137,14 +137,14 @@ async fn a_backfill_judges_each_event_once_under_consent() {
     assert_eq!(
         mine.data["id"],
         json!(crate::learning::backfill::event_id(
-            "loop.v1",
+            "loop.v2",
             &a.session_id,
             &a.turn_id
         ))
     );
     // Its holdout time is the event's.
     let scope = crate::learning::read_scope(&c.store, "loop").unwrap();
-    let seen = &scope.judgments["loop.v1"];
+    let seen = &scope.judgments["loop.v2"];
     assert!(seen
         .iter()
         .all(|s| Some(s.at_ms) == s.judgment.context["event_at_ms"].as_u64()));
@@ -173,7 +173,7 @@ async fn a_backfill_needs_consent_and_a_rebuildable_pack() {
         since: since.clone(),
     };
     let e = c
-        .judge_backfill(p("loop.v1"), "cli")
+        .judge_backfill(p("loop.v2"), "cli")
         .await
         .unwrap_err()
         .to_string();
@@ -220,7 +220,7 @@ async fn a_backfill_needs_consent_and_a_rebuildable_pack() {
     };
     for refused in [
         r2.core
-            .judge_backfill(p("loop.v1"), stranger.clone())
+            .judge_backfill(p("loop.v2"), stranger.clone())
             .await
             .unwrap_err(),
         r2.core

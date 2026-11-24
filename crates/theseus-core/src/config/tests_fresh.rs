@@ -113,7 +113,7 @@ fn an_auto_judge_keeps_each_packs_own_mode() {
     for pack in ["route.v3", "rerank.v1"] {
         assert_eq!(j.mode_of(pack, live), live, "{pack}");
     }
-    assert_eq!(j.mode_of("loop.v1", PackMode::Shadow), PackMode::Shadow);
+    assert_eq!(j.mode_of("loop.v2", PackMode::Shadow), PackMode::Shadow);
     let off = parse(UNSET, "").unwrap().judge;
     assert_eq!(off.mode_of("route.v3", live), PackMode::Off);
 }

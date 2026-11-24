@@ -6,9 +6,10 @@
 //! - **price_period**: `peak` or `off_peak`, read from the clock by the daemon
 //!   (`catalog::price_period_at`). Jev is weak at times and arithmetic, so it
 //!   never works the hour out.
-//! - **restricted_models**: `allowed` or `not_allowed`, the data rule's voice in
-//!   the state. The daemon refuses a restricted pick anyway; the state says so
-//!   to save the ask.
+//! - **restricted_models**: no longer written (issue 46). It said whether a model of
+//!   restricted origin might be picked; since no model is kept off a session for its
+//!   origin it was always `allowed`, and route.v12 asks nothing about it. The field
+//!   stays on [`RouteFacts`], so a stored input and a case file that set it still read.
 //! - **last_reply_model**: the model that answered the previous turn.
 //! - **task_models**: every model that has written in the task (a checkpoint's).
 //! - **current_model**, **switch_cost** and **cheaper_model** (theseus-h66v4.1,
@@ -94,7 +95,8 @@ impl SwitchCost {
     }
 }
 
-/// Whether a model of restricted (China or unknown) origin may be picked.
+/// Whether a model of restricted (China or unknown) origin may be picked: read from a stored
+/// input or a case file, and written into no state since issue 46.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RestrictedModels {
@@ -186,7 +188,7 @@ pub struct PreviousTurn {
 /// case's state are both held to (`tests_route_state`). The slice has no live tasks and no current
 /// role; the previous human message and the last reply are dynamic and left out. `task_models` and
 /// `cheaper_model` are the two conditional keys, each added only where there is one to name.
-pub const ROUTE_STATE_KEYS: [&str; 9] = [
+pub const ROUTE_STATE_KEYS: [&str; 8] = [
     "author",
     "current_model",
     "est_tokens",
@@ -194,7 +196,6 @@ pub const ROUTE_STATE_KEYS: [&str; 9] = [
     "message",
     "place_kind",
     "price_period",
-    "restricted_models",
     "switch_cost",
 ];
 
@@ -233,7 +234,6 @@ pub(super) fn state(b: &mut StateBuilder, c: &Clipper, i: &InboundInput) {
         return;
     };
     b.scalar("price_period", f.price_period.as_str());
-    b.scalar("restricted_models", f.restricted_models.as_str());
     if let Some(n) = f.est_tokens {
         b.scalar("est_tokens", n);
     }

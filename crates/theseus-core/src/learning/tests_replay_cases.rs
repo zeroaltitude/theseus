@@ -22,7 +22,7 @@ fn cases_rig(jev: &FakeJev) -> Rig {
     rig(texts(0), jev, limited)
 }
 
-/// The model run: `route.v11` over its own file (`route.v10.cases.toml`, re-pointed in issue 46), the
+/// The model run: `route.v12` over its own file (`route.v10.cases.toml`, re-pointed in issue 46), the
 /// default candidate.
 fn params() -> JudgeReplayParams {
     JudgeReplayParams {
@@ -78,10 +78,10 @@ async fn a_jev_that_answers_every_label_meets_the_bar() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     let c = &r.core;
-    script(&jev, "route.v11", V10, "model", &nothing);
+    script(&jev, "route.v12", V10, "model", &nothing);
     let out: JudgeReplayResult = c.judge_replay(params(), "cli").await.unwrap();
     // No candidate was named: the file's own pack was asked.
-    assert_eq!(out.candidate, "route.v11");
+    assert_eq!(out.candidate, "route.v12");
     assert_eq!(
         (out.set.as_str(), out.judgments, out.called),
         ("cases", 62, 62)
@@ -89,10 +89,18 @@ async fn a_jev_that_answers_every_label_meets_the_bar() {
     let cases = out.cases.expect("a cases replay's numbers");
     assert_eq!(cases.cases.len(), 62);
     assert_eq!(cases.asked, ["model"], "the model pack grades the model");
-    assert_eq!((cases.answered, cases.model_ok), (62, 62));
+    // W14 is W11's message with `restricted_models = not_allowed`, labelled Sonnet where W11 is Flash.
+    // The state no longer carries that fact (issue 46), so the two are one state with two labels: a Jev
+    // that answers every state as its label answers W14 as W11, and W14, a `must` case, is the one miss.
+    assert_eq!((cases.answered, cases.model_ok), (62, 61));
+    let missed: Vec<&str> = (cases.cases.iter())
+        .filter(|c| !c.model.agrees)
+        .map(|c| c.id.as_str())
+        .collect();
+    assert_eq!(missed, ["W14"]);
     assert_eq!(
         (cases.must_total, cases.must_ok, cases.must_under_confirm),
-        (13, 13, 0)
+        (13, 12, 0)
     );
     // Two bars, each a ratio of its own set: 50 of 62, and 11 of the 13 replayed musts.
     let bars: Vec<(&str, u32, u32, u32, bool)> = cases
@@ -102,7 +110,7 @@ async fn a_jev_that_answers_every_label_meets_the_bar() {
         .collect();
     assert_eq!(
         bars,
-        [("model", 62, 62, 50, true), ("must", 13, 13, 11, true)]
+        [("model", 61, 62, 50, true), ("must", 12, 13, 11, true)]
     );
     assert_eq!(cases.bar, Some(true));
     assert!(out.left_out.is_empty());
@@ -175,7 +183,7 @@ async fn a_wrong_must_case_is_shown_with_jevs_option_and_confidence_and_the_must
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     // W26 (CVE triage, `must`) goes to Fable at 0.71; W27 (biology) is under the confirm bar.
-    script(&jev, "route.v11", V10, "model", &|id| match id {
+    script(&jev, "route.v12", V10, "model", &|id| match id {
         "W26" => Some(("fable", 0.71)),
         "W27" => Some(("sonnet", 0.55)),
         _ => None,
@@ -192,11 +200,12 @@ async fn a_wrong_must_case_is_shown_with_jevs_option_and_confidence_and_the_must
         ),
         ("sonnet", "fable", 0.71)
     );
+    // W14 is the other miss, as in `a_jev_that_answers_every_label_meets_the_bar`.
     assert_eq!(
         (cases.model_ok, cases.must_ok, cases.must_total),
-        (61, 12, 13)
+        (60, 11, 13)
     );
-    // 12 of 13 musts is over the 11 the bar needs: one wrong must case does not fail the run.
+    // 11 of 13 musts is the 11 the bar needs: two wrong must cases do not fail the run.
     assert_eq!(cases.bar, Some(true));
     // W27 is right, but not sure enough to act; W27 is no `must` case.
     let w27 = cases.cases.iter().find(|c| c.id == "W27").unwrap();
@@ -218,7 +227,7 @@ async fn a_wrong_must_case_is_shown_with_jevs_option_and_confidence_and_the_must
 async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
-    script(&jev, "route.v11", V10, "model", &|id| match id {
+    script(&jev, "route.v12", V10, "model", &|id| match id {
         // W18 wants opus: a right opus under the bar runs `parent`, the model the
         // turn is already on, so it is a miss.
         "W18" => Some(("opus", 0.35)),
@@ -256,7 +265,7 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
     );
     // The graded answer is the pack's declared default, not a value that merely agrees with it.
     assert_eq!(
-        declared("route.v11", "model").as_deref(),
+        declared("route.v12", "model").as_deref(),
         Some(w18.model.got.as_str())
     );
     assert!(!w18.model.agrees && w18.model.raw_agrees);
@@ -264,14 +273,15 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
     let l2 = get("L2");
     assert!(!l2.model.sub_confirm && l2.model.agrees);
     // The model run: one lost (W18), one under the bar; the raw picks lose none.
+    // W14 is the other miss, as in `a_jev_that_answers_every_label_meets_the_bar`.
     assert_eq!(
         (cases.model_ok, cases.raw_model_ok, cases.under_model),
-        (61, 62, 1)
+        (60, 61, 1)
     );
     // W18 is a `must` case: its model fell, so a must case is wrong and under the bar.
     assert_eq!(
         (cases.must_ok, cases.must_total, cases.must_under_confirm),
-        (12, 13, 1)
+        (11, 13, 1)
     );
     // The effort run, from the same file by the pack that asks it.
     let out = r
@@ -347,11 +357,11 @@ async fn the_refusals_send_nothing() {
             "{e}"
         );
     }
-    // The file is written for route.v11 (and so route.v10), not loop.v1.
+    // The file is written for route.v12 (and so route.v10), not loop.v2.
     let e = c
         .judge_replay(
             JudgeReplayParams {
-                candidate: Some("loop.v1".into()),
+                candidate: Some("loop.v2".into()),
                 ..params()
             },
             "cli",
@@ -359,7 +369,7 @@ async fn the_refusals_send_nothing() {
         .await
         .unwrap_err()
         .to_string();
-    assert!(e.contains("wired") || e.contains("route.v11"), "{e}");
+    assert!(e.contains("wired") || e.contains("route.v12"), "{e}");
     // A broken file is refused with the loader's words.
     let e = c
         .judge_replay(
@@ -398,12 +408,12 @@ async fn an_embedded_pack_is_replayed_by_its_cases_and_counted() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     let c = &r.core;
-    script(&jev, "route.v11", V10, "model", &nothing);
+    script(&jev, "route.v12", V10, "model", &nothing);
     let out = c.judge_replay(params(), "cli").await.unwrap();
     // The positive counts, not only an Ok: a run that graded nothing is no pass.
     assert_eq!(
         (out.candidate.as_str(), out.judgments, out.called),
-        ("route.v11", 62, 62)
+        ("route.v12", 62, 62)
     );
     let cases = out.cases.expect("a cases replay's numbers");
     assert_eq!((cases.cases.len(), cases.answered), (62, 62));
@@ -455,9 +465,9 @@ async fn a_text_that_takes_an_embedded_versions_name_is_refused_with_cases_wired
     let c = &r.core;
     let (_, embedded) = theseus_judge::pack::EMBEDDED
         .iter()
-        .find(|(n, _)| *n == "route.v11")
-        .expect("route.v11 is embedded");
-    let posing = format!("{embedded}\n# an edited text under route.v11's name\n");
+        .find(|(n, _)| *n == "route.v12")
+        .expect("route.v12 is embedded");
+    let posing = format!("{embedded}\n# an edited text under route.v12's name\n");
     let e = c
         .judge_replay(
             JudgeReplayParams {
@@ -470,7 +480,7 @@ async fn a_text_that_takes_an_embedded_versions_name_is_refused_with_cases_wired
         .unwrap_err()
         .to_string();
     assert!(
-        e.contains("route.v11") && e.contains("under another text"),
+        e.contains("route.v12") && e.contains("under another text"),
         "{e}"
     );
     assert!(jev.seen().is_empty(), "a refused run sent a call");
@@ -488,11 +498,11 @@ async fn the_embedded_text_as_a_pack_file_is_replayed_by_its_cases() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     let c = &r.core;
-    script(&jev, "route.v11", V10, "model", &nothing);
+    script(&jev, "route.v12", V10, "model", &nothing);
     let (_, embedded) = theseus_judge::pack::EMBEDDED
         .iter()
-        .find(|(n, _)| *n == "route.v11")
-        .expect("route.v11 is embedded");
+        .find(|(n, _)| *n == "route.v12")
+        .expect("route.v12 is embedded");
     let out = c
         .judge_replay(
             JudgeReplayParams {

@@ -327,7 +327,7 @@ mod tests {
     /// The operator's forms, checked against the pack.
     #[test]
     fn an_operators_label_is_checked_against_its_pack() {
-        let lp = theseus_judge::pack::by_name("loop.v1").unwrap();
+        let lp = theseus_judge::pack::by_name("loop.v2").unwrap();
         let ok = |q: Option<&str>, l: Value| check(&lp, q, &l);
         assert_eq!(
             ok(Some("work_state"), json!("progressing")),

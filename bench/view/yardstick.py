@@ -5,7 +5,7 @@ owner's idea): on past turns, a judge is asked about EVERY earlier exchange
 are set beside a rule's selection, to show what the rule misses.
 
     # what it would cost: no model is called
-    python3 bench/view/yardstick.py --cases bench/view/cases/synthetic.v1.json --dry-run --cap-usd 1
+    python3 bench/view/yardstick.py --cases bench/view/cases/synthetic.v2.json --dry-run --cap-usd 1
     # on a COPY of a store: the place's last 20 turns, each against up to 96 exchanges before it
     python3 bench/view/yardstick.py --store /tmp/state-copy --bin-dir target/release \\
         --place 'local:/path/of/the/place' --turns 20 --back 96 --out /tmp/yard-plan --dry-run --cap-usd 1
@@ -36,11 +36,24 @@ this build (the history does not carry it).
 
 **The rule it is compared with** (`rules_basis` in every output):
 
-- on a store, `same_session_heuristic`: every earlier exchange of the turn's
-  own session counts as held. It is NOT the transcript strategy's real
-  selection (compaction, summaries, recall and other sessions' place tails
-  are ignored), and only the chosen place's exchanges are judged, so it
-  cannot see what lies in another place;
+- on a store, `view_record`: what the turn's own view record laid (`theseus
+  view show TURN --tally`, its first RETURNED readable view: the reader
+  returns the readable ones among a turn's newest 32 views, read through
+  today's source checks,
+  so it is the record as it can be inspected now; `replay.py` reads it the
+  same way and says more). An earlier exchange an `exchanges` piece laid is
+  held; one that lies only inside a laid `folds` piece is counted in a cell
+  of its own (`folded_helps`, `folded_not`, by the judge's mark), since the
+  turn saw its fold, not its words. Today's reader lists no fold piece, so
+  zero `folded_*` is not evidence that no fold was laid. A laid range whose
+  ends no available order resolves (`unresolved_ranges`) leaves unknown
+  which lines it covers: on that turn a line the record did not lay whole is
+  neither a hit nor a miss, and is counted in `unknown_helps` or
+  `unknown_not`, even when a fold also covers it (that range could have
+  laid it whole). A turn with no record (one from before the cut) is not
+  judged, for there is no rule to compare with: it is counted under
+  `no_view_record`. Only the chosen place's exchanges are judged, so what
+  the view laid from another place is not scored here;
 - on the cases, `held_file:<strategy>` (a strategy's held file, which `cases.py
   build` writes), or `own_place_lines` (every earlier line of the message's
   own place) without one. A case `cases.py` cannot build (`not_built`) is
@@ -50,8 +63,12 @@ this build (the history does not carry it).
 (checked before anything is written): per turn and in sum, of the lines the
 judge answered for, those it marked helpful that the rule held (`both`), that
 the rule did not (`judge_only`: what the rule misses), that the rule held and
-the judge did not mark (`rules_only`), and `neither`. A line no window
-answered for is in no cell: it is counted under `coverage`. Each line's text
+the judge did not mark (`rules_only`), and `neither`; on a store, also the
+`folded_*` and `unknown_*` cells above. A line no window
+answered for is in no cell: it is counted under `coverage`, which gives the
+lines, those judged, and those of the judged that are unknown. The kit
+computes no share or score from the cells; one computed from them must
+count the unknown cells beside the hits and misses. Each line's text
 is held in memory for its call and written nowhere; a failed call is a fixed
 code (`E_JUDGE_…`), never the provider's answer. The judge reads only
 `ANTHROPIC_API_KEY` from the caller's environment. `--judge fake` (the tests')
@@ -76,6 +93,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "recall"))
 
 import cases as vc  # noqa: E402
+import replay  # noqa: E402
 from replay import ID  # noqa: E402
 from generate import PRICES  # noqa: E402
 
@@ -94,7 +112,7 @@ SYSTEM = ("You judge relevance. You are shown one MESSAGE a person sent and numb
           "exchange of the same conversation. For each line answer 2 if it holds something that helps answer "
           "the message, 1 if it might, 0 if it does not. Reply with JSON only: {\"scores\": [s1, s2, ...]}, one "
           "score per line, in order.")
-SAME_SESSION = "same_session_heuristic"
+VIEW_RECORD = "view_record"
 OWN_PLACE = "own_place_lines"
 
 
@@ -301,14 +319,15 @@ def probes_from_cases(cases: dict, held: dict | None) -> tuple[list[dict], str]:
     return out, basis
 
 
-def probes_from_store(d, place: str, turns: int, back: int) -> tuple[list[dict], str]:
+def probes_from_store(d, place: str, turns: int, back: int) -> tuple[list[dict], str, int]:
     """The place's last `turns` exchanges, each with up to `back` exchanges of the place before it; a line is
-    the person's words in that exchange (its `user_message` nodes), held in memory only. The rule: the
-    same-session heuristic (module text)."""
+    the person's words in that exchange (its `user_message` nodes), held in memory only. The rule: what each
+    turn's own view record laid (module text). Also how many turns had no record, and so no probe."""
     import scratch  # noqa: PLC0415
 
+    every = scratch.ledger_rows(d, "context.turn")
     # Only rows whose session and exchange are ids of the store's shape: nothing else is used or written.
-    rows = [r for r in scratch.ledger_rows(d, "context.turn")
+    rows = [r for r in every
             if isinstance(r.get("data"), dict) and r["data"].get("place") == place
             and is_id(r.get("session_id")) and is_id(r["data"].get("exchange"))]
     words: dict[str, str] = {}
@@ -316,16 +335,22 @@ def probes_from_store(d, place: str, turns: int, back: int) -> tuple[list[dict],
         for node in scratch.history_nodes(d, sid):
             if node.get("kind") == "user_message" and is_id(node.get("turn_id")):
                 words[node["turn_id"]] = (words.get(node["turn_id"], "") + " " + str(node.get("text", ""))).strip()
-    ex = [(r["data"]["exchange"], r.get("session_id")) for r in rows if r["data"].get("exchange") in words]
-    out = []
+    ex = [r["data"]["exchange"] for r in rows if r["data"].get("exchange") in words]
+    orders = replay.orders_of(every)
+    out, unrecorded = [], 0
     for k in range(max(len(ex) - turns, 0), len(ex)):
         before = ex[max(k - back, 0):k]
         if not before:
             continue
-        out.append({"id": ex[k][0], "class": "past_turn", "message": words[ex[k][0]],
-                    "ids": [e for e, _ in before], "texts": [words[e] for e, _ in before],
-                    "rules": {e for e, s in before if s == ex[k][1]}, "not_built": []})
-    return out, SAME_SESSION
+        side = replay.view_side(d.json("view", "show", ex[k], "--tally"), orders)
+        if side is None:
+            unrecorded += 1
+            continue
+        out.append({"id": ex[k], "class": "past_turn", "message": words[ex[k]],
+                    "ids": before, "texts": [words[e] for e in before],
+                    "rules": side["_held"] & set(before), "folded": side["_folded"] & set(before),
+                    "unresolved": side["_unresolved"], "not_built": []})
+    return out, VIEW_RECORD, unrecorded
 
 
 # ---- the run
@@ -338,14 +363,19 @@ def plan(probes: list[dict], prices: Prices, model: str) -> dict:
             calls += 1
             usd += prices.reserve(SYSTEM, prompt(p["message"], [p["texts"][i] for i in w]))
     return {"probes": len(probes), "lines": sum(len(p["ids"]) for p in probes), "calls": calls,
-            "worst_case_usd": usd, "model": model}
+            "worst_case_usd": usd, "model": model, "unresolved_ranges": unresolved(probes)}
+
+
+def unresolved(probes: list[dict]) -> int:
+    """How many laid ranges of the probes' records no available order resolves (module text)."""
+    return sum(p.get("unresolved", 0) for p in probes)
 
 
 def run(probes: list[dict], judge, prices: Prices, cap_usd: float, model: str = DEFAULT_MODEL) -> dict:
     spent, calls, unparsed, kept = 0.0, 0, 0, 0
     usage: Counter = Counter()
     stopped = None
-    per, total, coverage, fixture = [], Counter(), Counter(), {}
+    per, total, coverage, fixture = [], Counter(), Counter(lines=0, judged=0, unknown=0), {}
     for p in probes:
         best = [None] * len(p["ids"])
         for w in windows(len(p["ids"])):
@@ -377,16 +407,21 @@ def run(probes: list[dict], judge, prices: Prices, cap_usd: float, model: str = 
         for i, e in enumerate(p["ids"]):
             if best[i] is None:
                 c["unjudged"] += 1
-                continue
-            c[{(True, True): "both", (True, False): "judge_only", (False, True): "rules_only",
-               (False, False): "neither"}[(best[i] == HELPS, e in p["rules"])]] += 1
+            elif p.get("unresolved") and e not in p["rules"]:  # a range of unknown cover may lay it whole
+                c["unknown_helps" if best[i] == HELPS else "unknown_not"] += 1
+            elif e in p.get("folded", ()) and e not in p["rules"]:
+                c["folded_helps" if best[i] == HELPS else "folded_not"] += 1
+            else:
+                c[{(True, True): "both", (True, False): "judge_only", (False, True): "rules_only",
+                   (False, False): "neither"}[(best[i] == HELPS, e in p["rules"])]] += 1
         row = {"turn": p["id"], "class": p["class"], **c}
         if p["not_built"]:
             row["not_built"] = p["not_built"]
             fixture.setdefault(p["class"], Counter()).update(c)
         else:
             total.update(c)
-            coverage.update({"lines": len(p["ids"]), "judged": len(p["ids"]) - c["unjudged"]})
+            coverage.update({"lines": len(p["ids"]), "judged": len(p["ids"]) - c["unjudged"],
+                             "unknown": c["unknown_helps"] + c["unknown_not"]})
         per.append(row)
         if stopped:
             break
@@ -394,7 +429,10 @@ def run(probes: list[dict], judge, prices: Prices, cap_usd: float, model: str = 
     for r in per:
         if not r.get("not_built"):
             by_class.setdefault(r["class"], Counter()).update({k: v for k, v in r.items() if isinstance(v, int)})
-    return {"turns": per, "total": {k: total[k] for k in CELLS}, "coverage": dict(coverage),
+    folded = {k: v for k, v in sorted(total.items()) if k.startswith(("folded_", "unknown_"))}
+    judged = [p for p, r in zip(probes, per) if not r.get("not_built")]
+    return {"turns": per, "total": {**{k: total[k] for k in CELLS}, **folded}, "coverage": dict(coverage),
+            "unresolved_ranges": unresolved(judged),
             "by_class": {k: dict(v) for k, v in by_class.items()},
             "not_built_fixture_only": {k: dict(v) for k, v in fixture.items()},
             "calls": calls, "unparsed": unparsed, "reservations_kept": kept, "usage": dict(usage),
@@ -441,14 +479,15 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("yardstick: --store needs --place and --out")
     try:
         with scratch.Scratch(Path(a.bin_dir), out, store=store) as d:
-            probes, basis = probes_from_store(d, a.place, a.turns, a.back)
+            probes, basis, unrecorded = probes_from_store(d, a.place, a.turns, a.back)
     except scratch.Failed as e:
         raise SystemExit(f"yardstick: {e}") from None
-    return finish(a, out, probes, basis, prices, None)
+    return finish(a, out, probes, basis, prices, None, {"no_view_record": unrecorded})
 
 
-def finish(a, out: Path | None, probes: list[dict], basis: str, prices: Prices, fake) -> int:
-    p = plan(probes, prices, a.model)
+def finish(a, out: Path | None, probes: list[dict], basis: str, prices: Prices, fake, said: dict | None = None
+           ) -> int:
+    p = {**plan(probes, prices, a.model), **(said or {})}
     if a.dry_run:
         print(json.dumps({"dry_run": True, "rules_basis": basis, **p, "cap_usd": a.cap_usd,
                           "fits_the_cap": p["worst_case_usd"] <= a.cap_usd}, indent=2, sort_keys=True))

@@ -238,7 +238,14 @@ async fn a_forks_first_view_turn_shows_the_run_it_forked_from() {
 
 /// One ended exchange `turn` of `place` in `session` at `at_ms`, said by the owner, written straight to the
 /// store: its message, its reply, its exchange and its place's touch.
-fn put_exchange(store: &Store, session: &str, place: &str, turn: &str, at_ms: u64, words: &str) {
+pub(crate) fn put_exchange(
+    store: &Store,
+    session: &str,
+    place: &str,
+    turn: &str,
+    at_ms: u64,
+    words: &str,
+) {
     let ask = Node::user(session, Some(turn), "owner", words);
     let said = Node::assistant(
         session,

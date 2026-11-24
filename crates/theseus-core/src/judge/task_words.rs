@@ -3,7 +3,7 @@
 //! shape is `allow_said`'s: one `Ask`, the day's budget reserved and settled,
 //! the judgment scoped to this pack. When it is asked, and what is made of
 //! the answer, is `task_graph::judged`, which owns the decision; this is
-//! only the call, and the read of `classify.v4`'s `addressed_task` answer it
+//! only the call, and the read of the classify pack's `addressed_task` answer it
 //! is conditioned on.
 
 use theseus_judge::builders::{Input, TaskWordsInput};
@@ -87,13 +87,13 @@ impl JudgeService {
         Some((j, clipped))
     }
 
-    /// `classify.v4`'s `addressed_task` answer for the message `node`: from
+    /// The classify pack's `addressed_task` answer for the message `node`: from
     /// the judgments landed and not yet written, else from the ledger. None
     /// when neither holds one, which is the card.
     pub(crate) fn addressed_task(&self, session: &str, node: &str) -> Option<String> {
         let landed = self
             .queue
-            .find(|j| j.pack == super::inbound::CLASSIFY_PACK && j.context["node"] == node);
+            .find(|j| super::inbound::reads_as_classify(&j.pack) && j.context["node"] == node);
         match landed {
             Some(j) => crate::task_graph::joined::addressed_of(&j),
             None => crate::task_graph::joined::judged_task(&self.store, session, node),

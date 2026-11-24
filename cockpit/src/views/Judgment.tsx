@@ -34,7 +34,7 @@ import { PackLadder } from '@/components/PackLadder'
 import { PackVersions } from '@/components/PackVersions'
 import { packLine } from '@/lib/packs'
 import { localDay } from '@/lib/learning'
-import { ONTO_PACK, ontoLine, ontoStatsOf } from '@/lib/ontostats'
+import { ONTO_READS, ontoLine, ontoStatsOf } from '@/lib/ontostats'
 import { useHistoryRows } from '@/lib/history'
 import { noticeWords } from '@/lib/scores'
 
@@ -68,16 +68,21 @@ export default function Judgment() {
   const all = useMemo(() => (list?.judgments ?? []).map(judged), [list])
   const shown = useMemo(() => (world ? all.filter((j) => j.at <= world.t) : all), [all, world])
   const stats = useMemo(() => packStats(shown), [shown])
-  // The ontology pack's line (theseus-wzvxp): its judgments, acts, confirms and undos, counted over the ledger's own rows (the
-  // judgments read above are a window of 500), as of the moment under the time machine.
+  // The ontology pack's line (theseus-wzvxp): its judgments, acts and confirms, counted over the ledger's own rows (the
+  // judgments read above are a window of 500), as of the moment under the time machine; one line per version read
+  // (onto.v1 and onto.v2, issue 46), under that version's own row.
   const { rows: ledger } = useHistoryRows()
-  const onto = useMemo(() => ontoStatsOf(world ? ledger.filter((r) => r.at_unix_ms <= world.t) : ledger), [ledger, world])
+  const asOf = useMemo(() => (world ? ledger.filter((r) => r.at_unix_ms <= world.t) : ledger), [ledger, world])
+  const onto = useMemo(() => new Map(ONTO_READS.map((v) => [v, ontoStatsOf(asOf, { pack: v })] as const)), [asOf])
   const modes = useMemo(() => {
     const m = new Map<string, string>()
     for (const p of health?.judge?.packs ?? []) { const { pack, mode } = packLine(p); m.set(pack, mode) }
     return m
   }, [health])
-  const packs = useMemo(() => [...new Set([...modes.keys(), ...stats.map((s) => s.pack)])].sort(), [modes, stats])
+  const packs = useMemo(
+    () => [...new Set([...modes.keys(), ...stats.map((s) => s.pack), ...ONTO_READS.filter((v) => onto.get(v)?.judgments)])].sort(),
+    [modes, stats, onto],
+  )
   const h = health?.judge
 
   return (
@@ -116,7 +121,7 @@ export default function Judgment() {
                         {s?.classes.length ? s.classes.map((c) => `${c.cls} ${ms(c.p50)} / ${ms(c.p95)} (${c.calls})`).join(' · ') : '—'}
                       </td>
                     </tr>
-                    {p === ONTO_PACK && <tr><td colSpan={6} className="num px-3 pb-1.5 text-[11px] text-ink-faint">{ontoLine(onto)}</td></tr>}
+                    {onto.get(p) && <tr><td colSpan={6} className="num px-3 pb-1.5 text-[11px] text-ink-faint">{ontoLine(onto.get(p)!)}</td></tr>}
                     </Fragment>
                   )
                 })}

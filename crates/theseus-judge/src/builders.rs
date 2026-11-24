@@ -345,8 +345,9 @@ pub struct InboundInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub onto: Option<Box<OntoInput>>,
     /// What the daemon knows and Jev is not asked to work out (route.v10,
-    /// theseus-9f72b): the price period, whether a restricted model is
-    /// allowed, the model of the last reply, a task's models. Left out when
+    /// theseus-9f72b): the price period, the model of the last reply, a
+    /// task's models (`restricted_models` is read and no longer written
+    /// into a state, issue 46). Left out when
     /// none, so a state without them is byte for byte the one before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route: Option<RouteFacts>,
@@ -1361,7 +1362,7 @@ pub(crate) mod tests {
     }
 
     /// The `inbound` fixture with three live threads, which backs
-    /// classify.v4's golden request (theseus-98bz.9).
+    /// classify.v5's golden request (theseus-98bz.9; classify.v4's before issue 46).
     fn threads_fixture() -> String {
         std::fs::read_to_string(format!(
             "{}/fixtures/inputs/inbound.threads.json",
@@ -1371,7 +1372,7 @@ pub(crate) mod tests {
     }
 
     /// The `inbound` fixture with the ontology fields (theseus-xzxqv), which
-    /// backs onto.v1's golden request.
+    /// backs onto.v2's golden request (onto.v1's before issue 46).
     pub(crate) fn onto_fixture() -> String {
         std::fs::read_to_string(format!(
             "{}/fixtures/inputs/inbound.onto.json",
@@ -1384,12 +1385,13 @@ pub(crate) mod tests {
     fn each_builder_matches_its_golden_state() {
         for pack in [
             "probe.v1",
-            "loop.v1",
+            "loop.v2",
             "security.v1",
             "security.v3",
             "classify.v2",
             "classify.v3",
             "classify.v4",
+            "classify.v5",
             "route.v5",
             "continue.v1",
             "categorize.v1",
@@ -1430,9 +1432,9 @@ pub(crate) mod tests {
             // route.v6 to v8 ask about the operator's names, so their goldens have some.
             let (_, prepared) = match p.name().as_str() {
                 "route.v6" | "route.v7" | "route.v8" => prepared_from(p, &names_fixture()),
-                "onto.v1" => prepared_from(p, &onto_fixture()),
-                // classify.v4's `scope` is asked only with live threads.
-                "classify.v4" => prepared_from(p, &threads_fixture()),
+                "onto.v2" => prepared_from(p, &onto_fixture()),
+                // classify.v5 asks no `thread` or `scope`, even with live threads in its input.
+                "classify.v5" => prepared_from(p, &threads_fixture()),
                 name => prepared(name),
             };
             let questions = p
@@ -1498,7 +1500,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_loop_state_counts_for_jev() {
-        let (_, p) = prepared("loop.v1");
+        let (_, p) = prepared("loop.v2");
         let v = p.state.value();
         assert_eq!(v["tool_calls_this_turn"], 5);
         // The two identical fs.read calls.
@@ -1585,12 +1587,12 @@ pub(crate) mod tests {
 
     #[test]
     fn a_pack_refuses_another_builders_input() {
-        let p = by_name("loop.v1").unwrap();
+        let p = by_name("loop.v2").unwrap();
         let input = Input::parse(Builder::Probe, &fixture("probe")).unwrap();
         assert_eq!(
             prepare(&p, &input, &NoScrub).unwrap_err(),
             WrongInput {
-                pack: "loop.v1".into(),
+                pack: "loop.v2".into(),
                 wants: Builder::Loop,
                 got: Builder::Probe
             }
@@ -1647,7 +1649,7 @@ pub(crate) mod tests {
         assert_eq!(argv.last().unwrap(), &json!({"cut": "6 later left out"}));
         assert_eq!(s.truncated, vec!["argv"]);
         // Nothing cut, nothing listed.
-        let (_, lp) = prepared("loop.v1");
+        let (_, lp) = prepared("loop.v2");
         assert!(lp.state.truncated.is_empty());
     }
 
@@ -1711,7 +1713,7 @@ pub(crate) mod tests {
         };
         let inputs: Vec<(&str, Input)> = vec![
             (
-                "loop.v1",
+                "loop.v2",
                 Input::Loop(LoopInput {
                     session_kind: SessionKind::Conversation,
                     ask: big.clone(),
