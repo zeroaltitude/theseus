@@ -3,9 +3,14 @@
 context must hold for a message, frozen before any selector is compared, and
 the scorer that says held or missed per case for a strategy's context.
 
-    python3 bench/view/cases.py check bench/view/cases/synthetic.v1.json
-    python3 bench/view/cases.py score bench/view/cases/synthetic.v1.json held.json
-    python3 bench/view/cases.py build bench/view/cases/synthetic.v1.json --bin-dir target/debug --out /tmp/vc
+    python3 bench/view/cases.py check bench/view/cases/synthetic.v2.json
+    python3 bench/view/cases.py score bench/view/cases/synthetic.v2.json held.json
+    python3 bench/view/cases.py build bench/view/cases/synthetic.v2.json --bin-dir target/debug --out /tmp/vc
+
+**The sets**: `synthetic.v1` (24 cases, frozen) and `synthetic.v2`, the
+same less the four `forbidden_disclosure` cases: nothing is withheld since
+2026-11-22, so a sealed line a context must not hold is a rule that no
+longer exists. v2 is the set to measure the view with.
 
 **The format** (`view-cases.v1`, frozen: a change is a new format name):
 `{"format", "set", "cases": [...]}`, and each case
@@ -45,8 +50,10 @@ exchange each line made read from the measuring row (`context.turn`). Then
 two contexts per case: the TRANSCRIPT's (every earlier line of the message's
 own place: one session per place, too short to compact), and the VIEW's
 (`theseus view preview <place> --message <say> --json`: the exchange ranges
-its pieces lay, mapped back to history ids). Both are written as `held`
-files and scored. The cases are synthetic, so `--message` sends nothing
+its `exchanges` pieces lay, mapped back to history ids). Both are written as
+`held` files and scored. What the view's `folds` pieces lay (a fold's first
+and last are exchange ids) is reported apart, as `held_folded`: a fold is
+the line's summary, not its words, so it is not scored as held. The cases are synthetic, so `--message` sends nothing
 anyone wrote; the kit writes ids and counts only.
 
 Standard library only.
@@ -192,16 +199,17 @@ def transcript_held(case: dict) -> list[str]:
     return [h["id"] for h in case["history"] if h["place"] == case["message"]["place"]]
 
 
-def view_held(preview: dict, exchange_of: dict[str, str], order: dict[str, list[str]]) -> list[str]:
-    """The view's context: every history line whose exchange lies in a range a piece of kind `exchanges`
-    lays (`first` to `last`, in its place's order). `exchange_of` maps history id to exchange id; `order`
-    each place's exchange ids, oldest first."""
+def view_held(preview: dict, exchange_of: dict[str, str], order: dict[str, list[str]],
+              kind: str = "exchanges") -> list[str]:
+    """The view's context: every history line whose exchange lies in a range a piece of `kind` lays (`first`
+    to `last`, in its place's order): `exchanges`, what it holds; `folds`, what it holds only as a fold.
+    `exchange_of` maps history id to exchange id; `order` each place's exchange ids, oldest first."""
     step_of = {e: h for h, e in exchange_of.items()}
     held: set[str] = set()
     view = preview.get("view") or {}
     for slot in view.get("slots") or []:
         for p in slot.get("pieces") or []:
-            if p.get("kind") != "exchanges":
+            if p.get("kind") != kind:
                 continue
             first, last = p.get("first"), p.get("last")
             for ids in order.values():
@@ -264,7 +272,8 @@ def build_case(case: dict, bin_dir: Path, out: Path) -> dict:
     finally:
         model.close()
     return {"case": case["id"], "transcript": transcript_held(case),
-            "view": view_held(preview, exchange_of, order), "fallback": preview.get("fallback")}
+            "view": view_held(preview, exchange_of, order),
+            "view_folded": view_held(preview, exchange_of, order, "folds"), "fallback": preview.get("fallback")}
 
 
 def build(cases: dict, bin_dir: Path, out: Path) -> dict:
@@ -283,6 +292,7 @@ def build(cases: dict, bin_dir: Path, out: Path) -> dict:
     report = {"set": cases.get("set"), "scores": contexts,
               "not_built": {b["case"]: b["not_built"] for b in built if "not_built" in b},
               "view_not_built": sorted(b["case"] for b in built if "view_not_built" in b),
+              "held_folded": {b["case"]: b["view_folded"] for b in built if b.get("view_folded")},
               "view_fallback": dict(Counter(b.get("fallback") or "takes_the_view" for b in built if "view" in b))}
     (out / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return report

@@ -5,7 +5,7 @@ owner's idea): on past turns, a judge is asked about EVERY earlier exchange
 are set beside a rule's selection, to show what the rule misses.
 
     # what it would cost: no model is called
-    python3 bench/view/yardstick.py --cases bench/view/cases/synthetic.v1.json --dry-run --cap-usd 1
+    python3 bench/view/yardstick.py --cases bench/view/cases/synthetic.v2.json --dry-run --cap-usd 1
     # on a COPY of a store: the place's last 20 turns, each against up to 96 exchanges before it
     python3 bench/view/yardstick.py --store /tmp/state-copy --bin-dir target/release \\
         --place 'local:/path/of/the/place' --turns 20 --back 96 --out /tmp/yard-plan --dry-run --cap-usd 1

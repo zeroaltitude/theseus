@@ -12,6 +12,7 @@ with `tomllib`, so on a Python older than 3.11 the whole file says it skipped.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -39,6 +40,7 @@ if NEW_ENOUGH:
 MARKERS = ("ZEBRAMARKER7731", "QUOKKA-MARKER-0942", "OSPREY-MARKER-5518")
 SENTINEL_TOKEN = "sentinel-op-token-4417"
 SETS = VIEW / "cases" / "synthetic.v1.json"
+SETS_V2 = VIEW / "cases" / "synthetic.v2.json"
 
 
 def tid(n: int) -> str:
@@ -739,6 +741,23 @@ class Pieces(unittest.TestCase):
                                             {"kind": "facts", "first": "e3", "last": "e3"}]}]}}
         held = vc.view_held(p, {"h1": "e1", "h2": "e2", "h3": "e3"}, {"P2": ["e1", "e2"], "P1": ["e3"]})
         self.assertEqual(held, ["h1", "h2"])
+
+    def test_view_held_counts_a_fold_piece_apart(self):
+        p = {"view": {"slots": [{"pieces": [{"kind": "folds", "first": "e1", "last": "e2"},
+                                            {"kind": "exchanges", "first": "e3", "last": "e3"}]}]}}
+        ex, order = {"h1": "e1", "h2": "e2", "h3": "e3"}, {"P1": ["e1", "e2", "e3"]}
+        self.assertEqual(vc.view_held(p, ex, order), ["h3"])
+        self.assertEqual(vc.view_held(p, ex, order, "folds"), ["h1", "h2"])
+
+    def test_v2_holds_no_forbidden_class(self):
+        """v2 is v1 less its forbidden_disclosure cases, case for case; v1 stays as it was, byte for byte."""
+        v1, v2 = self.cases, vc.load(SETS_V2)
+        self.assertEqual(v2["set"], "synthetic.v2")
+        self.assertEqual({c["class"] for c in v2["cases"]}, set(vc.CLASSES) - {"forbidden_disclosure"})
+        self.assertFalse([c["id"] for c in v2["cases"] if c.get("forbidden") or "seal" in (c.get("needs") or [])])
+        self.assertEqual(v2["cases"], [c for c in v1["cases"] if c["class"] != "forbidden_disclosure"])
+        self.assertEqual(hashlib.sha256(SETS.read_bytes()).hexdigest(),
+                         "f63afb058be41d4ecb8159bcd3dcee529a6e77aff8e2a642ec16460f681a56ff")
 
     def test_every_line_is_judged_in_exactly_two_windows(self):
         for n in range(1, 80):
