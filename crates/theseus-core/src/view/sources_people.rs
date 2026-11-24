@@ -24,7 +24,7 @@ use crate::store::Store;
 
 /// The most bytes a person's name takes in the wrapper of their words, quoted and escaped as framing
 /// (`text::literal`): twice in each recent line, so a name of brackets cannot spend the lines' bound.
-pub const NAME_FRAMING_BYTES: usize = 120;
+pub const NAME_IN_WRAPPER_BYTES: usize = 120;
 
 /// How every person's entry in the front begins: one wording for all, whoever speaks.
 pub const PRESENT: &str = "In this conversation";
@@ -168,14 +168,14 @@ impl People for StorePeople<'_> {
 }
 
 /// A person's name as the wrapper of their words names its source: on one line, at most
-/// [`NAME_FRAMING_BYTES`] once quoted and escaped (`text::literal`), cut on a character's boundary.
+/// [`NAME_IN_WRAPPER_BYTES`] once quoted and escaped (`text::literal`), cut on a character's boundary.
 pub fn framing_name(name: &str) -> String {
     let name = cut(name, usize::MAX);
     let mut spent = 0;
     let mut end = name.len();
     for (at, c) in name.char_indices() {
         let quoted = super::text::literal::literal(c.encode_utf8(&mut [0; 4]), 1).len() - 2;
-        if spent + quoted > NAME_FRAMING_BYTES {
+        if spent + quoted > NAME_IN_WRAPPER_BYTES {
             end = at;
             break;
         }
@@ -288,7 +288,7 @@ mod tests {
         for c in ["[", "\u{200b}", "\"", "水"] {
             let n = framing_name(&c.repeat(400));
             let quoted = super::super::text::literal::literal(&n, usize::MAX);
-            assert!(quoted.len() - 2 <= NAME_FRAMING_BYTES, "{quoted}");
+            assert!(quoted.len() - 2 <= NAME_IN_WRAPPER_BYTES, "{quoted}");
             assert!(
                 !n.is_empty() && n.chars().all(|x| x.to_string() == c),
                 "{n}"
