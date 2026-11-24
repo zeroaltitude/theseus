@@ -5,20 +5,29 @@
 //! `theseus ledger ladder` (step 4): a place's `did` lines and fold nodes built
 //! from its history, with a dry run that counts and prices, and a cap.
 
+use std::collections::BTreeMap;
+
 use anyhow::Result;
+use theseus_client::render::time::fmt_day;
 use theseus_client::Conn;
 use theseus_protocol::exchange::{
-    ExchangeLadderParams, ExchangeLadderResult, ExchangeRebuildParams, ExchangeRebuildResult,
-    ExchangeReportParams, ExchangeReportResult,
+    ExchangeAnswers, ExchangeLadderParams, ExchangeLadderResult, ExchangeRebuildParams,
+    ExchangeRebuildResult, ExchangeReportParams, ExchangeReportResult,
 };
 use theseus_protocol::method;
 
 /// `theseus ledger exchanges`.
-pub async fn report(conn: &mut Conn, json: bool, n: Option<u64>) -> Result<()> {
-    let p = serde_json::to_value(ExchangeReportParams {
-        limit: n,
-        ..Default::default()
-    })?;
+pub async fn report(
+    conn: &mut Conn,
+    json: bool,
+    n: Option<u64>,
+    since: Option<&str>,
+) -> Result<()> {
+    let now = theseus_protocol::now_unix_ms();
+    let since_ms = since
+        .map(|s| theseus_client::render::task_history::since_ms(s, now))
+        .transpose()?;
+    let p = serde_json::to_value(ExchangeReportParams { limit: n, since_ms })?;
     let v = conn.request(method::EXCHANGE_REPORT, p).await?;
     match json {
         true => println!("{}", serde_json::to_string(&v)?),
@@ -66,27 +75,128 @@ fn share(n: u64, of: u64) -> String {
     }
 }
 
-/// The report, a group a line: each value's count and its share of the group.
+/// `pairs`, each as its label, its count and its share of `of`.
+fn shares(m: &BTreeMap<String, u64>, pairs: &[(&str, &str)], of: u64) -> String {
+    let parts: Vec<String> = (pairs.iter())
+        .map(|(k, label)| {
+            let n = m.get(*k).copied().unwrap_or(0);
+            format!("{label} {n} ({})", share(n, of))
+        })
+        .collect();
+    parts.join(", ")
+}
+
+/// The sent context's parts, by their names in the row, and as the report says them.
+const PARTS: [(&str, &str); 10] = [
+    ("header", "header"),
+    ("tools", "tools"),
+    ("files", "project files"),
+    ("replies", "replies"),
+    ("calls", "tool calls"),
+    ("words", "his words"),
+    ("results_whole", "tool results"),
+    ("results_cleared", "cleared results"),
+    ("recall", "recall"),
+    ("other", "other"),
+];
+
+/// The three answers, a line each, with the whole each share is of.
+fn answer_lines(a: &ExchangeAnswers, out: &mut Vec<String>) {
+    let get = |m: &BTreeMap<String, u64>, k: &str| m.get(k).copied().unwrap_or(0);
+    out.push(format!("  his own messages: {} turns", a.his_turns));
+    if a.unreadable > 0 {
+        out.push(format!(
+            "    whose exchange does not read: {}",
+            a.unreadable
+        ));
+    }
+    let not_measured = get(&a.previous, "not_measured");
+    let measured = a.his_turns.saturating_sub(not_measured);
+    let missed = get(&a.previous, "missed");
+    out.push(format!(
+        "  the previous exchange here, of his {measured} measured turns: {}, missed {missed} ({}; held \
+         by a seal or a gate, or a real miss), {}; not measured {not_measured}",
+        shares(&a.previous, &[("shown", "shown")], measured),
+        share(missed, measured),
+        shares(
+            &a.previous,
+            &[("after_new", "held after a /new"), ("first_here", "first here")],
+            measured
+        ),
+    ));
+    if missed > 0 {
+        let (same, other) = (
+            get(&a.missed_by_session, "same"),
+            get(&a.missed_by_session, "other"),
+        );
+        out.push(format!(
+            "    missed, where the previous ran: this session {same}, another session {other}"
+        ));
+    }
+    let (some, unknown) = (get(&a.named, "some"), get(&a.named, "unknown"));
+    let known = some + get(&a.named, "none");
+    out.push(format!(
+        "  he named something the index knows: {some} of {known} turns ({}); not known (index late) \
+         {unknown}",
+        share(some, known)
+    ));
+    if !a.named_kinds.is_empty() {
+        let kinds: Vec<String> = (a.named_kinds.iter())
+            .map(|(k, n)| format!("{k} {n}"))
+            .collect();
+        out.push(format!("    turns naming each kind: {}", kinds.join(", ")));
+    }
+    let n = a.context_turns;
+    if n == 0 {
+        out.push("  the context sent: no turn's first call was measured".into());
+        return;
+    }
+    let mean: BTreeMap<String, u64> = (a.context.iter())
+        .map(|(k, v)| (k.clone(), v / n))
+        .collect();
+    let all: u64 = PARTS.iter().map(|(k, _)| get(&mean, k)).sum();
+    let parts: Vec<(&str, &str)> = (PARTS.iter().copied())
+        .filter(|(k, _)| get(&mean, k) > 0)
+        .collect();
+    out.push(format!(
+        "  the context sent, mean a turn (est., {n} turns measured): {all} tokens: {}; the compiler's \
+         own estimate {}; cache read {}, written {} a turn",
+        shares(&mean, &parts, all),
+        get(&mean, "total"),
+        a.cache_read / n,
+        a.cache_write / n,
+    ));
+}
+
+/// The report: the three answers first, then every group a line, each value's count and its share of
+/// the group.
 pub fn report_lines(r: &ExchangeReportResult) -> String {
-    let mut out = vec![format!("{} turns in private places", r.rows)];
+    let mut head = format!("{} turns in private places", r.rows);
+    if let (Some(from), Some(to)) = (r.from_ms, r.to_ms) {
+        head.push_str(&format!(", {} to {}", fmt_day(from), fmt_day(to)));
+    }
+    if r.rows == 0 {
+        head.push_str(": nothing to report yet");
+    }
+    let mut out = vec![head];
+    match &r.answers {
+        Some(a) if r.rows > 0 => answer_lines(a, &mut out),
+        Some(_) => {}
+        None if r.rows > 0 => {
+            out.push("  this daemon does not report the answers; update it".into())
+        }
+        None => {}
+    }
+    if !r.counts.is_empty() {
+        out.push("  all groups:".into());
+    }
     for (group, values) in &r.counts {
         let all: u64 = values.values().sum();
         let parts: Vec<String> = values
             .iter()
             .map(|(v, n)| format!("{v} {n} ({})", share(*n, all)))
             .collect();
-        out.push(format!("  {group}: {}", parts.join(", ")));
-    }
-    if r.rows > 0 {
-        let parts: Vec<String> = r
-            .tokens
-            .iter()
-            .map(|(k, n)| format!("{k} {}", n / r.rows))
-            .collect();
-        out.push(format!(
-            "  sent, mean tokens a turn (est.): {}",
-            parts.join(", ")
-        ));
+        out.push(format!("    {group}: {}", parts.join(", ")));
     }
     if !r.places_bound.is_empty() {
         let parts: Vec<String> = r
@@ -139,4 +249,89 @@ pub fn ladder_lines(r: &ExchangeLadderResult) -> String {
         s.push_str("; finishing would pass it: run again with --cap-usd N --over-day-line");
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use theseus_protocol::exchange::{ExchangeAnswers, ExchangeReportResult};
+
+    use super::report_lines;
+
+    fn map(pairs: &[(&str, u64)]) -> BTreeMap<String, u64> {
+        pairs.iter().map(|(k, n)| (k.to_string(), *n)).collect()
+    }
+
+    #[test]
+    fn an_empty_report_says_there_is_nothing_yet() {
+        assert_eq!(
+            report_lines(&ExchangeReportResult::default()),
+            "0 turns in private places: nothing to report yet"
+        );
+    }
+
+    #[test]
+    fn the_three_answers_come_first_with_their_wholes() {
+        let r = ExchangeReportResult {
+            rows: 12,
+            counts: [("prev".to_string(), map(&[("missed", 3), ("transcript", 9)]))].into(),
+            tokens: map(&[("header", 1_000)]),
+            places_bound: map(&[("dm", 1)]),
+            answers: Some(ExchangeAnswers {
+                his_turns: 10,
+                unreadable: 0,
+                previous: map(&[
+                    ("shown", 5),
+                    ("missed", 2),
+                    ("after_new", 1),
+                    ("first_here", 1),
+                    ("not_measured", 1),
+                ]),
+                missed_by_session: map(&[("same", 1), ("other", 1)]),
+                named: map(&[("some", 3), ("none", 6), ("unknown", 1)]),
+                named_kinds: map(&[("path", 3), ("commit", 1)]),
+                context_turns: 10,
+                context: map(&[
+                    ("header", 1_200),
+                    ("tools", 1_500),
+                    ("words", 240),
+                    ("recall", 60),
+                    ("total", 3_100),
+                ]),
+                cache_read: 50_000,
+                cache_write: 7_000,
+            }),
+            ..ExchangeReportResult::default()
+        };
+        let want = [
+            "12 turns in private places",
+            "  his own messages: 10 turns",
+            "  the previous exchange here, of his 9 measured turns: shown 5 (56%), missed 2 (22%; held by \
+             a seal or a gate, or a real miss), held after a /new 1 (11%), first here 1 (11%); not \
+             measured 1",
+            "    missed, where the previous ran: this session 1, another session 1",
+            "  he named something the index knows: 3 of 9 turns (33%); not known (index late) 1",
+            "    turns naming each kind: commit 1, path 3",
+            "  the context sent, mean a turn (est., 10 turns measured): 300 tokens: header 120 (40%), \
+             tools 150 (50%), his words 24 (8%), recall 6 (2%); the compiler's own estimate 310; cache \
+             read 5000, written 700 a turn",
+            "  all groups:",
+            "    prev: missed 3 (25%), transcript 9 (75%)",
+            "  places bound: dm 1",
+        ];
+        assert_eq!(report_lines(&r), want.join("\n"));
+    }
+
+    #[test]
+    fn an_older_daemon_is_told_to_update() {
+        let r = ExchangeReportResult {
+            rows: 3,
+            ..ExchangeReportResult::default()
+        };
+        assert_eq!(
+            report_lines(&r).lines().nth(1),
+            Some("  this daemon does not report the answers; update it")
+        );
+    }
 }
