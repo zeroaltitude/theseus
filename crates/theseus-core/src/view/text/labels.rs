@@ -238,6 +238,7 @@ pub fn reason(r: Reason) -> &'static str {
         Reason::Task => "a task's card",
         Reason::Recalled => "recalled by search",
         Reason::Correction => "a correction of what is shown",
+        Reason::Present => "a recent exchange elsewhere of a person in this conversation",
         Reason::Fixed => "laid by Theseus",
     }
 }

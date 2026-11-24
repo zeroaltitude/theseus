@@ -11,6 +11,7 @@ mod beside;
 mod elsewhere;
 mod here;
 mod make;
+mod people;
 pub mod run;
 pub mod sources;
 #[cfg(test)]
@@ -20,6 +21,10 @@ pub use beside::{Beside, IN_PLAY_EXCHANGES};
 pub use elsewhere::{Elsewhere, LATELY_MS, PLACES_ALWAYS};
 pub use here::{Here, FLOOR_EXCHANGES};
 pub use make::UNSUMMARISED;
+pub use people::{
+    People, MOST_PEOPLE, PEOPLE_TOKENS, PERSON_TOKENS, RECENT_LINES, RECENT_LINE_TOKENS,
+    RECENT_TOKENS,
+};
 pub use run::{assemble, assemble_counted, table, Assembled, Fixed, Part};
 
 /// One band of the admission order; each has exactly one selector.
@@ -38,7 +43,7 @@ pub enum Band {
     ElsewhereWords,
     /// C.
     Waiting,
-    /// B.
+    /// B, in the front: who am I talking to, each person present by name, description and guidance.
     WhoAndWhere,
     /// G: the ladder, newest nodes first.
     Ladder,
@@ -56,6 +61,8 @@ pub enum Band {
     ElsewhereReplies,
     /// H: recall.
     Recall,
+    /// B, beside the message: each person present but the owner, their newest exchanges in other places.
+    PeopleRecent,
     /// A band no longer laid, as an old view record names it (slot E's `past7`, `past30`, `past_older`, removed
     /// 2026-11-24): those three names, and no other, read as this one; a name this build does not know is
     /// refused, as it always was. Only ever read from a stored record: no row of [`ADMISSION`] has it, so no view
@@ -113,6 +120,7 @@ pub const ADMISSION: &[Row] = &[
     row(Band::InPlay, Slot::InPlay, false),
     row(Band::ElsewhereReplies, Slot::Elsewhere, false),
     row(Band::Recall, Slot::Called, false),
+    row(Band::PeopleRecent, Slot::WhoAndWhere, false),
 ];
 
 /// A selection rule: `(point of view, snapshot) -> pieces`. It names the source it wants, why (each piece's

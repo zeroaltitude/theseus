@@ -107,7 +107,8 @@ pub trait Snapshot {
 pub enum Slot {
     /// A: tools, header, standing orders, persona, layers, the session block, the memory page.
     Frame,
-    /// B: accepted facts about the person; the place and who is present.
+    /// B: who am I talking to: the people present, by the owner's records (in the front), and each one's
+    /// newest exchanges elsewhere but the owner's (beside the message).
     WhoAndWhere,
     /// C: what is certainly waiting between them.
     Waiting,
@@ -146,6 +147,8 @@ pub enum Reason {
     Task,
     Recalled,
     Correction,
+    /// A person present's own recent exchange elsewhere (who am I talking to).
+    Present,
     /// Slots A and I: laid by code, not chosen.
     Fixed,
 }

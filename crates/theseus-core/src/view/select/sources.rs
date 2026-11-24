@@ -98,9 +98,15 @@ pub trait Recall {
     fn recall(&self, pov: &PointOfView, message: &str) -> anyhow::Result<Vec<Ref>>;
 }
 
-/// Accepted facts about the person (slot B).
+/// The owner's records of the people present (slot B, who am I talking to).
 pub trait People {
-    fn about(&self, person: &str) -> anyhow::Result<Vec<Ref>>;
+    /// The held person `person` is (as the ledger names whoever opened an exchange), by its record's id: one
+    /// id whatever handle they spoke by; none for a person no record holds (nothing is a person until the
+    /// owner accepts it).
+    fn held(&self, person: &str) -> anyhow::Result<Option<String>>;
+    /// What is laid about held person `id`: its name, its description and the owner's guidance for it, in
+    /// under `most` tokens; `speaking` for the turn's speaker.
+    fn about(&self, id: &str, speaking: bool, most: u64) -> anyhow::Result<Vec<Ref>>;
 }
 
 /// Every source a turn's selectors read, the gate, and the turn's own text.

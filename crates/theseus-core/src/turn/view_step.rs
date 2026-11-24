@@ -352,6 +352,7 @@ impl TurnRunner {
                 owner: self.cfg.places.owner.clone().unwrap_or_default(),
                 now_ms: pov.now_ms,
                 texts,
+                names: &read.names,
             },
         })
     }
@@ -919,6 +920,7 @@ fn labelled(
             last: at.clone(),
         },
         handle: Handle(at.id),
+        person: None,
     };
     let author = |s: &forms::Said| author_of(store, &s.node);
     let marked = parts::mark_parts(&forms::whole(&whole), &author, &seen, zone);

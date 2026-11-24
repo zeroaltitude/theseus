@@ -191,6 +191,7 @@ pub fn band(b: Band) -> &'static str {
         Band::InPlay => "what is in play",
         Band::ElsewhereReplies => "Theseus's replies elsewhere",
         Band::Recall => "what search recalled",
+        Band::PeopleRecent => "the recent exchanges elsewhere of the people here",
         Band::Retired => "a part of the view no longer laid",
     }
 }

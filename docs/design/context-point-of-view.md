@@ -100,8 +100,9 @@ is sent: never a partial view. No `context.view_fallback` row is written.
   ladder show what was said since, the source's later words included where they are in reach.
 
 **The sources the view has, read from the store.** **What waits** (slot C: the pending confirmations and the
-tasks waiting on him, an id and a line each), **facts about the person** (slot B: the held person's name and
-the owner's guidance for it, to the owner alone; the role line is not laid), and **named things and their cards** (slot D, and slot H's named things:
+tasks waiting on him, an id and a line each), **the people present** (slot B: for each, the held person's name,
+description and the owner's guidance for it; and for each but the owner, their newest exchanges elsewhere), and
+**named things and their cards** (slot D, and slot H's named things:
 the names table built once for the turn through its permit, the message's names and numbered items matched
 against it; `docs/design/names.md`, "The view's sources"). Slot H also holds recall, and a joined task's card
 when the judge's existing `addressed_task` answer names one task. Slots F and G (his words elsewhere lately,
@@ -138,7 +139,17 @@ place, with its own pager). The slices of his words by age go. **Built**: slot E
 message, first in the front, naming the profile the turn runs on, its model, the persona in play by its name
 (nothing of its card), and where to read more, under 300 tokens whatever the names. They are the same
 bytes from one turn to the next until the profile, its model or the persona changes, and the system part is
-unchanged. **Not built yet**: who am I talking to (the people present and their recent lines), the topic block,
+unchanged. And who am I talking to (slot B, `view/select/people.rs`): the people present are the speaker and the
+distinct persons who opened the exchanges the window lays, at most eight, each named once whatever handle they
+spoke by, and only people the owner's records hold. In the front, each one's name, description and the owner's
+guidance (in shared places too, by his word of the same day), about 100 tokens a person in company and 1,500 at
+most in all, cut by code where longer. Beside the message, for each person but the owner, their newest three
+exchanges in other places, on their own timeline, leaving out every exchange the window lays: one line each (the
+words and the `did` line, cut beyond 150 tokens with the handle), headed with the person's name and the place,
+600 tokens at most in all; real exchanges, never stored notes about a person. The owner gets none of his own: they
+are in the window and the look-backs. A turn no person opened (a wake, an agent's process) is told none of it,
+and a self-loop session's turn lays no recent line. The front's block still heads itself with the turn's time, as
+slot B did before, so it is not yet the same bytes from one turn to the next. **Not built yet**: the topic block,
 and the look-back over every place that replaces slot F, with the one walk over every place they share. The
 folded ladder stays above the 30 (his answer).
 
@@ -382,11 +393,11 @@ has its own allowance (§5.2).
 
 **In company** (a channel of any kind, whoever is in it today, or an agent's session at the terminal) the table
 is shorter: A, B, D, G, H and
-I, all from this place alone; C and F are absent.
+I, all from this place alone (but B's recent lines, from the people present's other places); C and F are absent.
 
 **As built**, the selectors of every slot exist and run in the admission order of rule 6, which is a table in the
-code. Slots B, C and D, and slot H's named things, lay nothing yet: their sources over the store answer nothing
-("What is built, and what is not", above). Slot H holds recall and a joined task's card. The ceiling and slot G's
+code. Slots C and D, and slot H's named things, lay nothing yet: their sources over the store answer nothing
+("What is built, and what is not", above). Slot B lays the people present (2026-11-24, above). Slot H holds recall and a joined task's card. The ceiling and slot G's
 allowance are constants, not settings.
 
 **How your memory works: a page for the model** (the owner's idea). The system part carries one fixed page of
@@ -424,12 +435,13 @@ joined task's card, say) is neither listed nor counted.
 
 1. A, the system part.
 2. Who am I: code's few lines naming the profile the turn runs on, its model and the persona in play (2026-11-24);
-   then B, who and where. Marked blocks.
+   then B, who am I talking to: the people present, by the owner's records. Marked blocks.
 3. G's ladder, oldest node first. Marked blocks.
 4. G's window, as real turns of the person and of Theseus, in the order they happened, with tool calls and
    results paired as the provider requires. Nothing else is sent as conversation.
 5. Beside the new message, in one marked block that is never stored: C (waiting), D (in play), F (elsewhere
-   in the last two days), H (called by this message). Then his message.
+   in the last two days), H (called by this message), and B's recent lines of the people present. Then his
+   message.
 
 Parts 1 to 4 are the same bytes from one turn to the next and change only at a fold (§5.2), when a fact about
 him changes, or when the profile, its model or the persona in play changes. Part 5 is chosen afresh every turn. The order also reads as a conversation

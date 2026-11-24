@@ -65,7 +65,7 @@ fn lay(w: &Who<'_>, most: usize) -> String {
 
 /// `s` on one line, without control characters, at most `most` bytes with its [`MORE`], cut on a character's
 /// boundary (a cut never splits a character).
-fn cut(s: &str, most: usize) -> String {
+pub(super) fn cut(s: &str, most: usize) -> String {
     let one: String = s
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })

@@ -53,6 +53,8 @@ struct Store {
     his_cards: bool,
     /// Cards by thing, overriding the default one.
     cards: Vec<(String, Ref)>,
+    /// The owner's records of people: a ledger name, and the id of the record that holds it.
+    people: Vec<(String, String)>,
 }
 
 impl Timeline for Store {
@@ -286,9 +288,18 @@ impl Recall for Store {
     }
 }
 
-impl People for Store {
-    fn about(&self, _: &str) -> anyhow::Result<Vec<Ref>> {
-        Ok(Vec::new())
+impl super::sources::People for Store {
+    fn held(&self, person: &str) -> anyhow::Result<Option<String>> {
+        Ok((self.people.iter())
+            .find(|(p, _)| p == person)
+            .map(|(_, id)| id.clone()))
+    }
+    /// One fact piece per person, its handle saying whether they are speaking and the bound asked for.
+    fn about(&self, id: &str, speaking: bool, most: u64) -> anyhow::Result<Vec<Ref>> {
+        let mut r = card(id);
+        r.range.space = Space::Facts { thing: id.into() };
+        r.handle = Handle(format!("{id} speaking={speaking} most={most}"));
+        Ok(vec![r])
     }
 }
 
@@ -778,4 +789,228 @@ fn the_view_has_no_band_by_age() {
             "{band}"
         );
     }
+}
+
+/// The people of one shared place, `chan`, as the selectors of slot B see them.
+fn company(people: &[(&str, &str)], ex_: Vec<Ex>) -> Store {
+    Store {
+        ex: ex_,
+        people: (people.iter())
+            .map(|(p, id)| (p.to_string(), id.to_string()))
+            .collect(),
+        ..Store::default()
+    }
+}
+
+fn by(person: &str, turn: &str, place: &str, hours_ago: u64) -> Ex {
+    Ex {
+        person: Some(person.into()),
+        ..ex(turn, place, hours_ago)
+    }
+}
+
+fn pov_of(person: &str, place: &str) -> PointOfView {
+    PointOfView {
+        anchor: Anchor::Place(place.into()),
+        person: Some(person.into()),
+        present: Present::Shared,
+        at_hand: None,
+        now_ms: NOW,
+    }
+}
+
+fn select_as(s: &Store, band: Band, pov: &PointOfView) -> Vec<Piece> {
+    let table = table(sources(s, ""), Vec::new(), Vec::new());
+    let sel = table
+        .iter()
+        .find(|t| t.band() == band)
+        .expect("a selector per band");
+    let mut out = sel.select(pov, s).expect("selects");
+    out.sort_by_key(|p| std::cmp::Reverse(p.range.last.clone()));
+    out
+}
+
+fn things(pieces: &[Piece]) -> Vec<String> {
+    let mut out: Vec<String> = (pieces.iter())
+        .map(|p| match &p.range.space {
+            Space::Facts { thing } => thing.clone(),
+            other => panic!("not a person's facts: {other:?}"),
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// KEY (the owner's word, 2026-11-24): the people present are the speaker and the distinct persons who opened
+/// the window's exchanges, each named once whatever handle they spoke by; a person no record holds is not
+/// named, nor one who spoke only elsewhere. Their facts are in the front (slot B), the speaker's said so.
+#[test]
+fn in_company_every_person_in_the_window_is_named_once() {
+    let s = company(
+        &[
+            ("owner", "person:owner"),
+            ("discord:bob", "person:bob"),
+            ("discord:carol", "person:carol"),
+            ("slack:carol", "person:carol"),
+            ("discord:frank", "person:frank"),
+        ],
+        vec![
+            by("owner", "o1", "chan", 6),
+            by("discord:bob", "b1", "chan", 5),
+            by("discord:carol", "c1", "chan", 4),
+            by("discord:bob", "b2", "chan", 3),
+            by("slack:carol", "c2", "chan", 2),
+            by("discord:eve", "e1", "chan", 1),
+            by("discord:frank", "f1", "other", 1),
+        ],
+    );
+    let laid = select_as(&s, Band::WhoAndWhere, &pov_of("discord:bob", "chan"));
+    assert_eq!(
+        things(&laid),
+        ["person:bob", "person:carol", "person:owner"]
+    );
+    for p in &laid {
+        assert_eq!((p.slot, p.form), (Slot::WhoAndWhere, Form::Whole));
+        assert_eq!(p.reasons, BTreeSet::from([Reason::Fixed]));
+        let speaking = p.range.last.id == "person:bob";
+        let asked = format!("speaking={speaking} most={PERSON_TOKENS}");
+        assert!(p.handle.0.ends_with(&asked), "{}", p.handle.0);
+    }
+    // Alone, the one person has the whole bound; a turn with no speaker is told nobody.
+    let alone = select_as(&s, Band::WhoAndWhere, &pov_of("owner", "elsewhere"));
+    assert_eq!(things(&alone), ["person:owner"]);
+    assert!(alone[0]
+        .handle
+        .0
+        .ends_with(&format!("speaking=true most={PEOPLE_TOKENS}")));
+    let nobody = PointOfView {
+        person: None,
+        ..pov_of("owner", "chan")
+    };
+    assert!(select_as(&s, Band::WhoAndWhere, &nobody).is_empty());
+    assert!(select_as(&s, Band::PeopleRecent, &nobody).is_empty());
+}
+
+/// KEY (the owner's word, 2026-11-24): a person's recent lines are their newest three exchanges in other
+/// places, on their own timeline, leaving out every exchange the window lays; one line each, with its place
+/// and the handle that opens it, beside the message.
+#[test]
+fn a_persons_recent_lines_leave_out_this_window() {
+    let s = company(
+        &[("owner", "person:owner"), ("discord:bob", "person:bob")],
+        vec![
+            by("owner", "o1", "chan", 9),
+            by("discord:bob", "b1", "chan", 4),
+            by("discord:bob", "b2", "chan", 1),
+            by("discord:bob", "bd1", "dm", 2),
+            by("discord:bob", "bg1", "general", 5),
+            by("discord:bob", "bg2", "general", 6),
+            by("discord:bob", "bg3", "general", 7),
+            by("owner", "o2", "dm-owner", 3),
+        ],
+    );
+    let lines = select_as(&s, Band::PeopleRecent, &pov_of("owner", "chan"));
+    assert_eq!(ids(&lines), ["bd1", "bg1", "bg2"]);
+    for p in &lines {
+        assert_eq!((p.slot, p.form), (Slot::WhoAndWhere, Form::Line));
+        assert_eq!(p.reasons, BTreeSet::from([Reason::Present]));
+        assert_ne!(p.marks.place.as_deref(), Some("chan"));
+        assert_eq!(p.handle.0, format!("x:{}", p.range.last.id));
+        assert!(p.sizes.line <= RECENT_LINE_TOKENS);
+    }
+}
+
+/// KEY (the owner's word, 2026-11-24): the owner gets no recent lines of his own: they are in this place's
+/// window and the look-backs, and his facts in the frame.
+#[test]
+fn alone_the_owner_gets_no_recent_lines_of_his_own() {
+    let s = company(
+        &[("owner", "person:owner")],
+        vec![
+            by("owner", "o1", "local", 3),
+            by("owner", "o2", "dm", 2),
+            by("owner", "o3", "general", 1),
+        ],
+    );
+    let me = pov_of("owner", "local");
+    assert!(select_as(&s, Band::PeopleRecent, &me).is_empty());
+    assert_eq!(
+        things(&select_as(&s, Band::WhoAndWhere, &me)),
+        ["person:owner"]
+    );
+}
+
+/// At most eight people are named: the speaker, then the window's people who spoke most recently.
+#[test]
+fn a_person_past_the_eighth_is_not_laid() {
+    let names: Vec<String> = (0..10).map(|i| format!("discord:p{i}")).collect();
+    let records: Vec<(&str, String)> = (names.iter())
+        .map(|n| (n.as_str(), format!("person:{}", &n[8..])))
+        .collect();
+    let people: Vec<(&str, &str)> = records.iter().map(|(p, id)| (*p, id.as_str())).collect();
+    // p0 spoke first and p9 last.
+    let window = (0..10u64)
+        .map(|i| by(&names[i as usize], &format!("t{i}"), "chan", 20 - i))
+        .collect();
+    let s = company(&people, window);
+    let laid = select_as(&s, Band::WhoAndWhere, &pov_of("discord:p0", "chan"));
+    assert_eq!(laid.len(), MOST_PEOPLE);
+    let named = things(&laid);
+    assert!(
+        named.contains(&"person:p0".to_string()),
+        "the speaker is always named: {named:?}"
+    );
+    for gone in ["person:p1", "person:p2"] {
+        assert!(!named.contains(&gone.to_string()), "{gone}: {named:?}");
+    }
+}
+
+/// Every person's recent lines together keep to their bound, headings counted; a self-loop session's turn,
+/// which lays its own place only, lays none.
+#[test]
+fn the_recent_lines_keep_to_their_bound_and_a_self_loop_lays_none() {
+    let mut ex_ = Vec::new();
+    let mut people = vec![("owner".to_string(), "person:owner".to_string())];
+    for i in 0..8u64 {
+        let p = format!("discord:q{i}");
+        ex_.push(by(&p, &format!("w{i}"), "local", 30 + i));
+        for k in 0..4u64 {
+            ex_.push(by(
+                &p,
+                &format!("e{i}-{k}"),
+                &format!("place{k}"),
+                1 + i + k,
+            ));
+        }
+        people.push((p, format!("person:q{i}")));
+    }
+    let s = Store {
+        ex: ex_,
+        people,
+        ..Store::default()
+    };
+    let lines = select(&s, Band::PeopleRecent, Present::OwnerAlone);
+    assert!(!lines.is_empty());
+    let spent: u64 = (lines.iter())
+        .map(|p| p.sizes.line + super::super::budget::HEADING_TOKENS)
+        .sum();
+    assert!(spent <= RECENT_TOKENS, "{spent}");
+    struct OwnOnly;
+    impl Gate for OwnOnly {
+        fn admit(&self, pov: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
+            AllowPrivate.admit(pov, piece)
+        }
+        fn own_place_only(&self) -> bool {
+            true
+        }
+    }
+    let band = |a: &Assembled| {
+        let v = a.view.as_ref().expect("fits");
+        v.shown
+            .iter()
+            .filter(|s| s.piece.band == Band::PeopleRecent)
+            .count()
+    };
+    assert!(band(&assembled(&s, &AllowPrivate, "hello")) > 0);
+    assert_eq!(band(&assembled(&s, &OwnOnly, "hello")), 0);
 }

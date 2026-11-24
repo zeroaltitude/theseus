@@ -38,9 +38,33 @@ fn read(src: &Sources<'_>, place: &str) -> anyhow::Result<(Vec<Window>, Vec<Fold
     Ok((window, read.nodes))
 }
 
-struct Window {
-    e: ExchangeRef,
-    f: super::sources::ExchangeFacts,
+pub(super) struct Window {
+    pub(super) e: ExchangeRef,
+    pub(super) f: super::sources::ExchangeFacts,
+}
+
+/// Whether the gate admits window exchange `w` (as the floor asks for it): only those are laid here, and every
+/// choice over the window (the floor's newest three, the people in it) is made over those.
+fn laid(src: &Sources<'_>, pov: &PointOfView, w: &Window) -> bool {
+    let p = make::exchange(
+        &w.e,
+        &w.f,
+        Band::Floor,
+        Reason::Floor,
+        Form::Spoken,
+        Cut::Window,
+    );
+    make::admits(src, pov, &p)
+}
+
+/// The window's exchanges the gate admits, oldest first: the exchanges this place's window lays (block 4).
+/// None for a point of view anchored to no place.
+pub(super) fn shown(src: &Sources<'_>, pov: &PointOfView) -> anyhow::Result<Vec<Window>> {
+    let Some(place) = anchor_place(pov) else {
+        return Ok(Vec::new());
+    };
+    let (window, _) = read(src, place)?;
+    Ok(window.into_iter().filter(|w| laid(src, pov, w)).collect())
 }
 
 /// One selector of slot G.
@@ -63,13 +87,7 @@ impl<'a> Here<'a> {
         let piece = |w: &Window, band, reason, form| {
             make::exchange(&w.e, &w.f, band, reason, form, Cut::Window)
         };
-        let admitted: Vec<&Window> = window
-            .iter()
-            .filter(|w| {
-                let p = piece(w, Band::Floor, Reason::Floor, Form::Spoken);
-                make::admits(&self.src, pov, &p)
-            })
-            .collect();
+        let admitted: Vec<&Window> = window.iter().filter(|w| laid(&self.src, pov, w)).collect();
         let floor_from = admitted.len().saturating_sub(FLOOR_EXCHANGES);
         admitted
             .into_iter()

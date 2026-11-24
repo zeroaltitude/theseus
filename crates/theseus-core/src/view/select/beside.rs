@@ -1,6 +1,6 @@
-//! The selectors of what moves every turn, beside the message (slots C, D, H) and slot B: each reads one
-//! source and asks for what it returns. Slot C is laid only where the owner is alone; nothing is laid for a
-//! point of view that may see nothing.
+//! The selectors of what moves every turn, beside the message (slots C, D, H): each reads one source and
+//! asks for what it returns (slot B is `super::people`'s). Slot C is laid only where the owner is alone;
+//! nothing is laid for a point of view that may see nothing.
 
 use std::collections::BTreeSet;
 
@@ -15,14 +15,14 @@ use super::{Band, Selector, Snapshot};
 /// What is in play: the things named in the newest this-many exchanges here, since the `/new` mark.
 pub const IN_PLAY_EXCHANGES: usize = 3;
 
-/// One selector of slots B, C, D or H.
+/// One selector of slots C, D or H.
 pub struct Beside<'a> {
     band: Band,
     src: Sources<'a>,
 }
 
 impl<'a> Beside<'a> {
-    /// `band` is one of `WhoAndWhere`, `Waiting`, `InPlay`, `Reached`, `TaskCard`, `Named`, `Recall`.
+    /// `band` is one of `Waiting`, `InPlay`, `Reached`, `TaskCard`, `Named`, `Recall`.
     pub fn new(band: Band, src: Sources<'a>) -> Self {
         Self { band, src }
     }
@@ -140,10 +140,6 @@ impl Selector for Beside<'_> {
             Band::Reached => return Ok(Vec::new()),
             Band::Waiting => match &pov.person {
                 Some(p) => (self.src.waiting.waiting(p)?, Reason::Waiting),
-                None => return Ok(Vec::new()),
-            },
-            Band::WhoAndWhere => match &pov.person {
-                Some(p) => (self.src.people.about(p)?, Reason::Fixed),
                 None => return Ok(Vec::new()),
             },
             Band::TaskCard => (self.src.tasks.joined(pov, self.src.message)?, Reason::Task),

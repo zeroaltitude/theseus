@@ -34,6 +34,9 @@ pub struct Sessions {
     /// (`super::sources_names`), a waiting record's line (`super::sources_waiting`), the facts about the
     /// person (`super::sources_people`). The renderer lays what the selectors read, once.
     pub texts: std::cell::RefCell<std::collections::BTreeMap<super::Space, String>>,
+    /// The name of each held person the turn's sources found, by the ledger's name for who opened an exchange
+    /// (`super::sources_people`): a person's recent line elsewhere is headed with it.
+    pub names: std::cell::RefCell<std::collections::BTreeMap<String, String>>,
     /// The sessions those texts were read from, as the gate admitted them: a seal of one before a later
     /// call of the turn revokes the view (`turn::view_step`).
     pub depends: std::cell::RefCell<std::collections::BTreeSet<String>>,
@@ -310,7 +313,10 @@ impl Recall for StoreSources<'_> {
 }
 
 impl People for StoreSources<'_> {
-    fn about(&self, _: &str) -> anyhow::Result<Vec<Ref>> {
+    fn held(&self, _: &str) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+    fn about(&self, _: &str, _: bool, _: u64) -> anyhow::Result<Vec<Ref>> {
         Ok(Vec::new())
     }
 }
