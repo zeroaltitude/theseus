@@ -44,8 +44,8 @@
   },
   "tools": []
 }
-tools: card_observed channel_post context_history extend_propose file_read fs_edit fs_glob fs_grep fs_list fs_patch fs_read fs_write git_diff git_log http_fetch job_read job_stop job_wait owner_ask plan_present plan_step proc_run project_attach routine_create task_claim task_close task_create task_fan_out task_split task_update task_wait term_close term_open term_read term_send text_diff wake_at wake_cancel wake_move watch web_search
-tools sha256: 46af03fc9398f3a276f0f844cafb163bb641df49d25fd29b6ebd7b8640a6575d
+tools: card_observed channel_post context_history extend_propose file_read fs_edit fs_glob fs_grep fs_list fs_patch fs_read fs_write git_diff git_log http_fetch job_read job_stop job_wait owner_ask plan_present plan_step proc_run project_attach routine_create task_ask task_claim task_close task_create task_fan_out task_split task_update task_wait term_close term_open term_read term_send text_diff wake_at wake_cancel wake_move watch web_search
+tools sha256: 341d4ea85d27caf4b6b22cc696501d99522cefe9e043fb33ac0126e4072aa7d4
 == call 1
 {
   "betas": [],
@@ -113,8 +113,8 @@ tools sha256: 46af03fc9398f3a276f0f844cafb163bb641df49d25fd29b6ebd7b8640a6575d
   },
   "tools": []
 }
-tools: card_observed channel_post context_history extend_propose file_read fs_edit fs_glob fs_grep fs_list fs_patch fs_read fs_write git_diff git_log http_fetch job_read job_stop job_wait owner_ask plan_present plan_step proc_run project_attach routine_create task_claim task_close task_create task_fan_out task_split task_update task_wait term_close term_open term_read term_send text_diff wake_at wake_cancel wake_move watch web_search
-tools sha256: 46af03fc9398f3a276f0f844cafb163bb641df49d25fd29b6ebd7b8640a6575d
+tools: card_observed channel_post context_history extend_propose file_read fs_edit fs_glob fs_grep fs_list fs_patch fs_read fs_write git_diff git_log http_fetch job_read job_stop job_wait owner_ask plan_present plan_step proc_run project_attach routine_create task_ask task_claim task_close task_create task_fan_out task_split task_update task_wait term_close term_open term_read term_send text_diff wake_at wake_cancel wake_move watch web_search
+tools sha256: 341d4ea85d27caf4b6b22cc696501d99522cefe9e043fb33ac0126e4072aa7d4
 == call 2
 {
   "betas": [],
@@ -238,8 +238,8 @@ tools sha256: 46af03fc9398f3a276f0f844cafb163bb641df49d25fd29b6ebd7b8640a6575d
   },
   "tools": []
 }
-tools: card_observed channel_post context_history extend_propose file_read fs_edit fs_glob fs_grep fs_list fs_patch fs_read fs_write git_diff git_log http_fetch job_read job_stop job_wait owner_ask plan_present plan_step proc_run project_attach routine_create task_claim task_close task_create task_fan_out task_split task_update task_wait term_close term_open term_read term_send text_diff wake_at wake_cancel wake_move watch web_search
-tools sha256: 46af03fc9398f3a276f0f844cafb163bb641df49d25fd29b6ebd7b8640a6575d
+tools: card_observed channel_post context_history extend_propose file_read fs_edit fs_glob fs_grep fs_list fs_patch fs_read fs_write git_diff git_log http_fetch job_read job_stop job_wait owner_ask plan_present plan_step proc_run project_attach routine_create task_ask task_claim task_close task_create task_fan_out task_split task_update task_wait term_close term_open term_read term_send text_diff wake_at wake_cancel wake_move watch web_search
+tools sha256: 341d4ea85d27caf4b6b22cc696501d99522cefe9e043fb33ac0126e4072aa7d4
 == call 3
 {
   "betas": [],
@@ -381,5 +381,5 @@ tools sha256: 46af03fc9398f3a276f0f844cafb163bb641df49d25fd29b6ebd7b8640a6575d
   },
   "tools": []
 }
-tools: card_observed channel_post context_history extend_propose file_read fs_edit fs_glob fs_grep fs_list fs_patch fs_read fs_write git_diff git_log http_fetch job_read job_stop job_wait owner_ask plan_present plan_step proc_run project_attach routine_create task_claim task_close task_create task_fan_out task_split task_update task_wait term_close term_open term_read term_send text_diff wake_at wake_cancel wake_move watch web_search
-tools sha256: 46af03fc9398f3a276f0f844cafb163bb641df49d25fd29b6ebd7b8640a6575d
+tools: card_observed channel_post context_history extend_propose file_read fs_edit fs_glob fs_grep fs_list fs_patch fs_read fs_write git_diff git_log http_fetch job_read job_stop job_wait owner_ask plan_present plan_step proc_run project_attach routine_create task_ask task_claim task_close task_create task_fan_out task_split task_update task_wait term_close term_open term_read term_send text_diff wake_at wake_cancel wake_move watch web_search
+tools sha256: 341d4ea85d27caf4b6b22cc696501d99522cefe9e043fb33ac0126e4072aa7d4
