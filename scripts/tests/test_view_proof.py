@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 VIEW = ROOT / "bench" / "view"
-sys.path[:0] = [str(VIEW), str(ROOT / "bench" / "recall")]
+sys.path[:0] = [str(VIEW), str(ROOT / "bench" / "recall"), str(ROOT)]
 NEW_ENOUGH = sys.version_info >= (3, 11)
 if NEW_ENOUGH:
     import proof  # noqa: E402
@@ -317,9 +317,9 @@ class ExtraCalls(unittest.TestCase):
         self.assertIn("view 16000 tokens ($0.040 at the 5-minute write, $0.064 at the 1-hour write; 2000 not shared", line)
 
 
-def built_bins() -> Path | None:
-    d = ROOT / "target" / "debug"
-    return d if all((d / b).is_file() for b in ("theseus", "theseusd")) else None
+def built_bins() -> Path:
+    from scripts.tests.built_bins import current_bins
+    return current_bins(ROOT)
 
 
 @unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
@@ -328,8 +328,6 @@ class RealDaemon(unittest.TestCase):
 
     def test_a_message_and_its_follow_up_in_both_modes(self):
         bins = built_bins()
-        if bins is None:
-            self.skipTest("target/debug has no theseus and theseusd")
         tmp = Path(tempfile.mkdtemp(prefix="view-proof-"))
         self.addCleanup(shutil.rmtree, tmp, True)
         buf = io.StringIO()
