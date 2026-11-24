@@ -1290,6 +1290,17 @@ fn warm_after_serving(core: &Arc<Core>) {
     core.login_env_after_serving();
 }
 
+/// The owner's own instruction file's first start (`Core::own_file_first_start`).
+/// When not even the record that the first start happened is written, the
+/// daemon says so in one line and serves on: nothing of the file is carried,
+/// and nothing in this run accepts it by itself.
+fn own_file_first_start(core: &Core) {
+    if let Err(e) = core.own_file_after_serving() {
+        tracing::error!(error = %e,
+            "your own instruction file: this first start could not be recorded, so none of it is carried and this run accepts nothing by itself; `theseus own-file accept` accepts a version");
+    }
+}
+
 /// What runs once the socket answers: the kernel's startup report and the
 /// start path's phases in the ledger (one frame), the kernel's counts in the
 /// log, the index tender (the socket daemon's, row 51), and the GitHub token
@@ -1316,14 +1327,8 @@ async fn after_serving(
     // A test's planted panic (a debug build's `THESEUS_TEST_PANIC`).
     theseus_core::crash::planted("after_serving");
     // The owner's own instruction file: at the first start of a store that
-    // has accepted no version, what is on disk is accepted, once. When not
-    // even the record that the first start happened is written, the daemon
-    // says so and serves on: nothing of the file is carried, and nothing
-    // in this run accepts it by itself.
-    if let Err(e) = core.own_file_after_serving() {
-        tracing::error!(error = %e,
-            "your own instruction file: this first start could not be recorded, so none of it is carried and this run accepts nothing by itself; `theseus own-file accept` accepts a version");
-    }
+    // has accepted no version, what is on disk is accepted, once.
+    own_file_first_start(&core);
     // What the store's open left unchecked, the WAL's history, is checked
     // now, in the background (theseus-8ni).
     core.check_store_history();
