@@ -769,6 +769,19 @@ class SSE(BaseHTTPRequestHandler):
 
 @unittest.skipUnless(NEW_ENOUGH, "the view kit reads TOML with tomllib: Python 3.11 or newer")
 class Pieces(unittest.TestCase):
+
+    def test_coverage_names_its_three_counts_when_nothing_was_judged(self):
+        """A run with no probe, and a run whose only probe is a case the builder cannot make, still say how
+        many lines, judged lines and unknown lines there were: none."""
+        prices = ys.Prices(ys.DEFAULT_MODEL, ys.API, None, None)
+        judge = lambda p, idx, user: ([0 for _ in idx], {"input_tokens": 1, "output_tokens": 1}, True)
+        none = {"lines": 0, "judged": 0, "unknown": 0}
+        self.assertEqual(ys.run([], judge, prices, 1.0)["coverage"], none)
+        only = {"id": "t1", "class": "task_update", "ids": ["a", "b"], "rules": set(), "folded": set(),
+                "unresolved": 0, "not_built": "no task driver", "texts": ["one", "two"], "message": "m"}
+        r = ys.run([only], judge, prices, 1.0)
+        self.assertEqual(r["coverage"], none)
+        self.assertEqual(set(r["not_built_fixture_only"]), {"task_update"})
     def setUp(self):
         self.cases = vc.load(SETS)
         self.prices = ys.Prices(ys.DEFAULT_MODEL, ys.API, None, None)

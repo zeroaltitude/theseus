@@ -375,7 +375,7 @@ def run(probes: list[dict], judge, prices: Prices, cap_usd: float, model: str = 
     spent, calls, unparsed, kept = 0.0, 0, 0, 0
     usage: Counter = Counter()
     stopped = None
-    per, total, coverage, fixture = [], Counter(), Counter(), {}
+    per, total, coverage, fixture = [], Counter(), Counter(lines=0, judged=0, unknown=0), {}
     for p in probes:
         best = [None] * len(p["ids"])
         for w in windows(len(p["ids"])):
