@@ -841,11 +841,14 @@ def cost_run(bin_dir: Path, out: Path, n: int, name: str = "cost",
     """A conversation in one place. Per turn: its first request's tokens and the prefix it shares with the
     previous turn's first request; the model calls the turn made; the calls made OFF the turn (a call that
     offers no tools, between this turn's start and the next's: the ladder's `did` lines and folds, a
-    compaction's summary), with their tokens; and the turn's compilations by strategy."""
+    compaction's summary), with their tokens; its follow-up requests (a tool turn's later steps); and the
+    turn's compilations by strategy. `all_calls` and `all_tokens` count EVERY request the stand-in was sent,
+    each once: a turn's span (`all_*` of its row), and any outside every turn's span (`outside_*`)."""
     lines, script = conversation(n)
     model = Model(script)
     root = out / name
     per: list[dict] = []
+    spans: set[int] = set()
     try:
         with Daemon(bin_dir, root, model, settings(root / "projects", extra)) as d:
             s = open_session(d, name, root / "projects" / name)
@@ -858,14 +861,19 @@ def cost_run(bin_dir: Path, out: Path, n: int, name: str = "cost",
                 writer_quiet(model)
                 with model.lock:
                     mine = model.seen[before:]
+                spans.update(range(before, before + len(mine)))
                 first = [x for x in mine if x["tools"] and x["round"] == 0 and line in turn_text(x["req"])]
                 off = [x for x in mine if not x["tools"]]
                 kinds = Counter(WRITER_KINDS.get(x.get("max_tokens"), "other") for x in off)
                 extra = extra_calls(mine, line, len(script.get(line) or [{}]))
+                odd = {id(x) for x in extra} | ({id(first[0])} if first else set())
+                follow = [x for x in mine if x["tools"] and id(x) not in odd]
                 per.append({"turn": i, "answered": answered(v), "req": first[0] if first else None,
                             "calls": sum(1 for x in mine if x["tools"]), "off_calls": len(off),
                             "off_tokens": sum(x["counted"] for x in off), "off_kinds": dict(kinds),
                             "extra_calls": len(extra), "extra_tokens": sum(x["counted"] for x in extra),
+                            "follow_calls": len(follow), "follow_tokens": sum(x["counted"] for x in follow),
+                            "all_calls": len(mine), "all_tokens": sum(x["counted"] for x in mine),
                             **({"extra": [call_probe(x) for x in extra]} if DEBUG and extra else {})})
             started = [r for r in rows(d, "turn.started") if r.get("session_id") == s]
             by_turn: dict = {}
@@ -874,6 +882,9 @@ def cost_run(bin_dir: Path, out: Path, n: int, name: str = "cost",
             seen = observe(d)
     finally:
         model.close()
+    with model.lock:
+        every = list(model.seen)
+    outside = [x for k, x in enumerate(every) if k not in spans]
     for p, r in zip(per, started):
         p["strategies"] = dict(by_turn.get(r.get("turn_id")) or {})
     table_rows, prev = [], None
@@ -897,17 +908,24 @@ def cost_run(bin_dir: Path, out: Path, n: int, name: str = "cost",
             "off_kinds": dict(sum((Counter(r["off_kinds"]) for r in table_rows), Counter())),
             "extra_calls": sum(r["extra_calls"] for r in table_rows),
             "extra_tokens": sum(r["extra_tokens"] for r in table_rows),
+            "follow_calls": sum(r["follow_calls"] for r in table_rows),
+            "follow_tokens": sum(r["follow_tokens"] for r in table_rows),
+            "outside_calls": len(outside), "outside_tokens": sum(x["counted"] for x in outside),
+            "all_calls": len(every), "all_tokens": sum(x["counted"] for x in every),
             "unanswered": sum(1 for r in table_rows if not r["answered"]),
             "strategies": seen["strategies"], "fallback": seen["fallback"]}
 
 
 def cost_table(r: dict) -> str:
-    lines = ["| turn | tokens | shared |", "|---|---|---|"]
+    """Per turn, its FIRST request's tokens and the prefix that request shares with the turn before's; then
+    every request of the run (`all_line`)."""
+    lines = ["| turn | first request | shared prefix |", "|---|---|---|"]
     for x in r["rows"]:
         lines.append(f"| {x['turn']} | {x['tokens'] if x['tokens'] is not None else '-'} | "
                      f"{x['shared_tokens'] if x['shared_tokens'] is not None else '-'} |")
     lines.append(f"| total | {r['total_tokens']} | {r['shared_tokens']} |")
     lines.append(f"| not shared | {r['unshared_tokens']} | |")
+    lines.append(all_line(r))
     lines.append(f"compilations {r['strategies']}, hand-backs {r['fallback'] or 0}")
     return "\n".join(lines)
 
@@ -930,10 +948,8 @@ def long_table(r: dict) -> str:
                  strat(x.get("strategies") or {})]
         lines.append(f"| {x['turn']} | " + " | ".join(cells) + " |")
     lines.append("")
-    lines.append(f"sent {r['total_tokens']}, not shared {r['unshared_tokens']}, off-turn "
-                 f"{r['off_calls']} calls {r['off_tokens']} tokens {r['off_kinds']}, extra "
-                 f"{r.get('extra_calls', 0)} calls {r.get('extra_tokens', 0)} tokens, all calls {all_tokens(r)} "
-                 f"tokens, unanswered {r['unanswered']}, compilations {r['strategies']}, hand-backs "
+    lines.append(f"first requests {r['total_tokens']} tokens, not shared {r['unshared_tokens']}")
+    lines.append(f"{all_line(r)}; unanswered {r['unanswered']}, compilations {r['strategies']}, hand-backs "
                  f"{r['fallback'] or 0}")
     if r["case"] in COLD:
         lines += ["", cold_line(r)]
@@ -941,8 +957,19 @@ def long_table(r: dict) -> str:
 
 
 def all_tokens(r: dict) -> int:
-    """Every token the run sent: the turns' first requests, the calls off the turns, and the extra calls."""
-    return r["total_tokens"] + r["off_tokens"] + r.get("extra_tokens", 0)
+    """Every token of every request the stand-in was sent in the run, each request counted once."""
+    return r.get("all_tokens", 0)
+
+
+def all_line(r: dict) -> str:
+    """Every request of the run, and its parts: each turn's first request, a tool turn's follow-ups, the calls
+    off the turns, the extra calls, and any outside every turn's span."""
+    firsts = sum(1 for x in r.get("rows") or [] if x.get("tokens") is not None)
+    return (f"all requests {r.get('all_calls', 0)} calls {all_tokens(r)} tokens: first {firsts} calls "
+            f"{r['total_tokens']} tokens, follow-up {r.get('follow_calls', 0)} calls {r.get('follow_tokens', 0)} "
+            f"tokens, off-turn {r.get('off_calls', 0)} calls {r.get('off_tokens', 0)} tokens "
+            f"{r.get('off_kinds', {})}, extra {r.get('extra_calls', 0)} calls {r.get('extra_tokens', 0)} tokens, "
+            f"outside a turn {r.get('outside_calls', 0)} calls {r.get('outside_tokens', 0)} tokens")
 
 
 # A cold start: the first turn after the provider's cache has gone is written whole. Sonnet 5.5's cache-write

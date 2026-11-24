@@ -253,8 +253,73 @@ class LongCost(unittest.TestCase):
                "unanswered": 0, "strategies": {"view": 1}, "fallback": {}}
         t = proof.long_table(run)
         self.assertIn("| 1 | 100 | 40 | 1 | 2 (did1 fold1) 50t | view |", t)
-        self.assertIn("sent 100, not shared 40, off-turn 2 calls 50 tokens", t)
+        self.assertIn("first requests 100 tokens, not shared 40", t)
+        self.assertIn("off-turn 2 calls 50 tokens", t)
         self.assertNotIn("ratio", t)
+
+
+@unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
+class AllRequests(unittest.TestCase):
+    """A cost run's `all requests` counts every request the stand-in was sent exactly once: each turn's first,
+    a tool turn's follow-up, the calls off the turn, the extra ones, and any outside a turn. The first request of
+    each turn and its shared prefix stay a measure of their own, named for what they are."""
+
+    def test_a_two_step_tool_turn_counts_both_of_its_requests_once(self):
+        plain, tool = "Turn 1: note the buoy.", "Turn 2: list the files."
+        script = {tool: [{"calls": [{"name": "fs_list", "input": {"path": "."}}]}, {"text": "Listed."}]}
+        models = []
+
+        class Fake:
+            def __init__(self, bin_dir, out, model, cfg):
+                self.model = model
+                models.append(model)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def writer(d, text):  # a call that offers no tools: the ladder's, or anything the daemon writes
+            d.model.answer({"max_tokens": 200, "messages": [user(text)]})
+
+        def opened(d, label, cwd):
+            writer(d, "written before any turn")
+            return "s"
+
+        def submit(d, line, **kw):
+            first = {"tools": TOOLS, "system": [{"type": "text", "text": "S"}], "messages": [user(line)]}
+            d.model.answer(first)
+            if line == tool:  # its second request carries the first's call and a long result: a different size
+                big = {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1",
+                                                   "content": "a long listing " * 200}]}
+                d.model.answer(dict(first, messages=[user(line), call_msg(), big]))
+            writer(d, f"say what was done in: {line}")
+            return {"output": "ok"}
+
+        started = [{"session_id": "s", "turn_id": f"t{i}"} for i in (1, 2)]
+        out = Path(tempfile.mkdtemp(prefix="view-proof-all-"))
+        self.addCleanup(shutil.rmtree, out, True)
+        with unittest.mock.patch.multiple(proof, Daemon=Fake, open_session=opened, submit=submit,
+                                          writer_quiet=lambda m, *a: None,
+                                          rows=lambda d, kind: started if kind == "turn.started" else [],
+                                          observe=lambda d: {"strategies": {"view": 2}, "fallback": {}}):
+            r = proof.cost_run(out, out, 2, "two", lambda n: ([plain, tool], script))
+        seen = models[0].seen
+        own = [x["counted"] for x in seen if x["tools"] and tool in proof.turn_text(x["req"])]
+        self.assertEqual(len(own), 2)
+        self.assertNotEqual(own[0], own[1])
+        self.assertEqual(proof.all_tokens(r), sum(x["counted"] for x in seen))
+        self.assertEqual(r["all_calls"], len(seen))
+        self.assertEqual((r["rows"][1]["follow_calls"], r["rows"][1]["follow_tokens"]), (1, own[1]))
+        self.assertEqual((r["outside_calls"], r["extra_calls"]), (1, 0))
+        # The first request of each turn is its own measure: the turn-2 follow-up is not in it.
+        firsts = [x["counted"] for x in seen if x["tools"] and x["round"] == 0]
+        self.assertEqual(r["total_tokens"], sum(firsts))
+        t = proof.long_table(r)
+        self.assertIn(f"first requests {sum(firsts)} tokens", t)
+        self.assertIn(f"all requests {len(seen)} calls {sum(x['counted'] for x in seen)} tokens", t)
+        self.assertNotIn("\nsent ", t)
 
 
 @unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")

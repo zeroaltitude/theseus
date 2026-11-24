@@ -190,14 +190,19 @@ There is one context, so each case runs once. The table is a row a case: `ok`, `
 compilations by strategy (`context.compiled`). Every row must read `ok [view N]`.
 
 The cost table is one place, 30 short messages, a tool call every seventh: per turn, the stand-in's count of the
-turn's first request (the compiler's rule, `bench/recall/tokens.py`) and the length of its byte-identical prefix
+turn's FIRST request (the compiler's rule, `bench/recall/tokens.py`) and the length of its byte-identical prefix
 with the previous turn's first request (tools, system, messages, in that order, cache marks taken out), which
-is what a provider cache could read; then the totals.
+is what a provider cache could read; then their totals. Those totals are of the first request of each turn
+only, not of everything sent. The `all requests` line under it counts every request the stand-in was sent in
+the run, each once, and its parts: the first requests, a tool turn's follow-ups, the calls off the turns, the
+extra calls, and any outside every turn's span (`all_calls`, `all_tokens` and the `*_calls`, `*_tokens` keys in
+`proof.json`).
 
 `--cost-long` adds two longer conversations: 120 short turns in one place (folds land from the 40th
 exchange on), and 20 turns of three 6,000-character tool results each. Per turn they add the turn's own model
 calls, the calls made OFF the turn (a call that offers no tools: the ladder's `did` lines and folds, a
-compaction's summary) with their tokens, and the turn's compilations by strategy. A `/new` break and a day
+compaction's summary) with their tokens, and the turn's compilations by strategy; their summary is the same two
+lines, `first requests` and `all requests`. A `/new` break and a day
 change are not driven: the terminal has no `/new`, and the daemon reads the machine's clock.
 
 The cold start (`cold_start_61`, part of `--cost-long`): 60 short turns, then the 61st, whose whole request is what

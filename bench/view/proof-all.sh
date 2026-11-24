@@ -37,7 +37,7 @@ echo
 echo "== summary"
 sed -n '/^| case | result/,/^| retired_keys/p' "$log/proof"
 echo
-grep -E "^compilations|^sent |^cold start|^### " "$log/proof"
+grep -E "^compilations|^first requests |^all requests |^cold start|^### " "$log/proof"
 sed -n '/^## The cut.s acceptance/,$p' "$log/proof"
 echo "== daemon test exit $daemon, suite and acceptance exit $proof"
 [ "$daemon" -eq 0 ] && [ "$proof" -eq 0 ]
