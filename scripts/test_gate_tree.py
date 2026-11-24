@@ -159,6 +159,9 @@ COMMITTED = {
     # The same for the `status page` phase, also HARD: a real run would need a status page, a workspace version and
     # release tags in this tree. Its logic is covered by scripts/tests/test_status_page.py.
     "scripts/status-page.py": PASSES_PY,
+    # The same for the `stats` phase, also HARD: this tree has no STATS.md. The real script is run by the test of its
+    # phase below; its logic is covered by scripts/tests/test_stats.py.
+    "scripts/stats.py": PASSES_PY,
     "scripts/build.sh": PASSES,
     "scripts/recall-tests.sh": PASSES,
     "scripts/size-step.sh": PASSES,
@@ -833,6 +836,41 @@ class GateTree(unittest.TestCase):
         rc, out, _ = self.gate()
         self.assertNotEqual(rc, 0, out)
         self.assertEqual("gate: FAILED in status page", self.verdict(out))
+
+    def test_the_stats_phase_is_wired_and_refuses_a_stale_count_on_main(self):
+        """Every route that lands on main recounts STATS.md (issue 45); a merge made by hand does not, so the gate
+        reads the count back against the tree, among the cheap file checks before clippy. On main a stale count fails
+        the gate under the phase's name with the script's one line; a fresh one passes; a branch, which never touches
+        STATS.md, stands the phase down and the verdict names it."""
+        names = re.findall(r'\nphase\s+(?:"([^"]+)"|(\S+))', (HERE / "gate.sh").read_text())
+        order = [a or b for a, b in names]
+        self.assertEqual(order.count("stats"), 1, order)
+        self.assertLess(order.index("fmt"), order.index("stats"), order)
+        self.assertLess(order.index("stats"), order.index("disk floor"), order)
+        self.put(self.root / "scripts" / "stats.py", (HERE / "stats.py").read_text())
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "the real counter, and no STATS.md")
+        rc, out, calls = self.gate()
+        self.assertNotEqual(rc, 0, out)
+        self.assertEqual("gate: FAILED in stats", self.verdict(out))
+        self.assertIn("STATS.md is stale", out)
+        self.assertFalse(any(c.startswith("clippy ") for c in calls), f"it stopped before the compiles: {calls}")
+        self.assertFalse((self.root / "STATS.md").exists(), "the gate writes nothing")
+        p = run(["python3", "scripts/stats.py"], self.root, self.git_env)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.git("add", "STATS.md")
+        self.git("commit", "-q", "-m", "count")
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("stats", self.verdict(out).partition("(skipped:")[2], self.verdict(out))
+        # A branch's tree, its code moved on and its STATS.md main's: the branch's landing recounts it.
+        self.git("checkout", "-q", "-b", "a-branch")
+        self.put(self.root / "scripts" / "more.py", "x = 1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "more code")
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("stats", self.verdict(out).partition("(skipped:")[2], self.verdict(out))
 
     def test_a_df_that_cannot_be_read_refuses_the_gate_and_says_so(self):
         # A gate that cannot show it has room is not told it has; the override is named, and df is not asked under it.

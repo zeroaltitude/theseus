@@ -6,6 +6,7 @@
     scripts/stats.py --prepare-landing [--sizes-from TARGET/PROFILE] [--root DIR]
     scripts/stats.py --sizes-from TARGET/PROFILE --record-sizes FILE [--root DIR]
     scripts/stats.py --count-head [--root DIR]
+    scripts/stats.py --check [--root DIR]
 
 `--range` writes nothing: it counts the trees of two commits from git's objects (no checkout) and prints one line, the
 change in lines a landing's note states (code, test code, comments; before -> after). A landing's range is its merge's
@@ -38,6 +39,11 @@ rewritten. A merge in progress is named by MERGE_HEAD and HEAD, the parents it w
 join's base: with HEAD a made merge (two parents, no merge in progress), it counts HEAD's tree from git's objects and
 writes STATS.md in the working tree, keeping both size parts, and stages nothing. The join checks that nothing else
 changed, stages it and folds it into its own unsigned merge.
+
+`--check` writes nothing: it is the gate's `stats` phase. On `main` it exits 0 when STATS.md's line counts are a fresh
+count of the tree's tracked files, and 1 with one line saying how to recount when they are not (a merge made by hand,
+with no recount). The sizes and the line naming the commit counted at are not judged. Off `main` it says it skipped:
+branches never touch STATS.md, and their landing recounts it.
 
 Nothing here reads a clock: the same tree and the same arguments give the same bytes.
 Python 3, standard library only.
@@ -485,6 +491,27 @@ def count_head(root):
     print(f"stats: counted HEAD; STATS.md {'unchanged' if text == old else 'written'}", file=sys.stderr)
 
 
+def lines_part(text):
+    """The `## Lines` part of a STATS.md: what a count of the tree alone decides."""
+    m = re.search(r"(?ms)^## Lines\n.*?(?=^## |\Z)", text)
+    return m.group(0) if m else None
+
+
+def check(root):
+    """`--check`: on main, refuse a STATS.md whose line counts are not this tree's; write nothing."""
+    if subprocess.run(["git", "-C", root, "symbolic-ref", "-q", "HEAD"], capture_output=True,
+                      text=True).stdout.strip() != "refs/heads/main":
+        print("stats: skipped: HEAD is not main; a branch never touches STATS.md, and its landing recounts it")
+        return
+    path = os.path.join(root, "STATS.md")
+    old = read(path) if os.path.isfile(path) else ""
+    fresh = render(root, count_tree(root), old, None, [], prepared=True, record=None)
+    if lines_part(old) != lines_part(fresh):
+        raise SystemExit("stats: STATS.md is stale: its line counts are not this tree's (a merge made without the "
+                         "landing tool); recount with `scripts/stats.py` and commit STATS.md")
+    print("stats: STATS.md's line counts are this tree's", file=sys.stderr)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", default=ROOT, help="the repository to count (default: this script's)")
@@ -497,7 +524,12 @@ def main(argv=None):
                     help="write the sizes of the build --sizes-from names to FILE, outside the tree; nothing else")
     ap.add_argument("--count-head", action="store_true",
                     help="count the made merge at HEAD and write STATS.md in the working tree, staging nothing")
+    ap.add_argument("--check", action="store_true",
+                    help="on main, fail when STATS.md's line counts are not this tree's; write nothing")
     args = ap.parse_args(argv)
+    if args.check:
+        check(args.root)
+        return
     if args.record_sizes:
         if not args.sizes_from:
             ap.error("--record-sizes takes --sizes-from")

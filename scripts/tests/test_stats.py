@@ -366,6 +366,60 @@ class StatsTest(unittest.TestCase):
                     stats.main(["--root", self.root, "--count-head"])
                 self.assertNotIn("STATS.md", self.git("status", "--porcelain", "--untracked-files=all"))
 
+    def check(self):
+        """`--check`'s exit status (0 when it returns) and what it said."""
+        try:
+            stats.main(["--root", self.root, "--check"])
+        except SystemExit as e:
+            return e.code, str(e)
+        return 0, ""
+
+    def stats_bytes(self):
+        path = os.path.join(self.root, "STATS.md")
+        return open(path, "rb").read() if os.path.exists(path) else None
+
+    def test_the_check_passes_a_committed_count_of_this_tree_and_writes_nothing(self):
+        self.git("checkout", "-q", "-B", "main")
+        self.run_stats()
+        self.git("add", "STATS.md")
+        self.git("commit", "-q", "-m", "count")
+        # STATS.md names the commit it was counted at, which is no longer HEAD: only the line counts are judged.
+        before = self.stats_bytes()
+        self.assertEqual(self.check(), (0, ""))
+        self.assertEqual(self.stats_bytes(), before)
+
+    def test_the_check_refuses_stale_line_counts_in_one_line_and_writes_nothing(self):
+        self.git("checkout", "-q", "-B", "main")
+        self.run_stats()
+        self.git("add", "STATS.md")
+        self.git("commit", "-q", "-m", "count")
+        self.side_branch("side")
+        # A merge made by hand, with no recount: STATS.md is main's, and the tree has the branch's new line.
+        self.git("checkout", "-q", "main")
+        self.git("merge", "-q", "--no-ff", "-m", "by hand", "side")
+        before = self.stats_bytes()
+        code, said = self.check()
+        self.assertNotEqual(code, 0)
+        self.assertEqual(len(said.splitlines()), 1, said)
+        self.assertIn("STATS.md is stale", said)
+        self.assertIn("scripts/stats.py", said, "it says how to recount")
+        self.assertEqual(self.stats_bytes(), before, "the check writes nothing")
+
+    def test_the_check_refuses_a_main_with_no_stats_md(self):
+        self.git("checkout", "-q", "-B", "main")
+        code, said = self.check()
+        self.assertNotEqual(code, 0)
+        self.assertIn("STATS.md is stale", said)
+        self.assertIsNone(self.stats_bytes(), "the check writes nothing")
+
+    def test_the_check_stands_down_on_a_branch_whose_landing_recounts(self):
+        # Branches never touch STATS.md (a landing recounts it), so a branch's own gate is not judged on it.
+        self.git("checkout", "-q", "-B", "main")
+        self.side_branch("side")
+        code, said = self.check()
+        self.assertEqual(code, 0, said)
+        self.assertIsNone(self.stats_bytes())
+
 
 if __name__ == "__main__":
     unittest.main()
