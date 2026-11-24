@@ -471,8 +471,11 @@ mod tests {
     /// were left as they are (issue 44); one that passed over none says nothing of them.
     #[test]
     fn a_rebuild_says_how_many_records_under_labels_it_passed_over() {
-        let of = |v: serde_json::Value| -> ExchangeRebuildResult { serde_json::from_value(v).unwrap() };
-        let line = rebuild_lines(&of(serde_json::json!({"sessions": 1, "labels_passed_over": 3})));
+        let of =
+            |v: serde_json::Value| -> ExchangeRebuildResult { serde_json::from_value(v).unwrap() };
+        let line = rebuild_lines(&of(
+            serde_json::json!({"sessions": 1, "labels_passed_over": 3}),
+        ));
         assert!(
             line.ends_with("; 3 records under labels. were not item labels: left as they are"),
             "{line}"

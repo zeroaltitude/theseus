@@ -51,9 +51,13 @@ pub fn of_record(r: &Record) -> Kept {
         "content: a record under labels. does not read as an item's labels: read as far as it reads, and left as it is"
     );
     let v: Value = serde_json::from_slice(&r.payload).unwrap_or_default();
-    let raised = (v.get("raised").and_then(Value::as_array).into_iter().flatten())
-        .filter_map(|l| serde_json::from_value(l.clone()).ok())
-        .collect();
+    let raised = (v
+        .get("raised")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten())
+    .filter_map(|l| serde_json::from_value(l.clone()).ok())
+    .collect();
     Kept::Part(Part {
         node: v.get("node").and_then(Value::as_str).map(str::to_string),
         kind: (v.get("kind").cloned()).and_then(|k| serde_json::from_value(k).ok()),

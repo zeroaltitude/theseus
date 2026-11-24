@@ -1014,7 +1014,9 @@ fn odd_records(c: &Core) -> [&'static str; 3] {
 /// Two turns in one session: the first's message carries `personal` on a record of today's shape, the
 /// second's `confidential` on an older one; beside them, [`odd_records`]. The two turns, the second's reply, and
 /// the older record's key.
-async fn labelled_with_odd_records(c: &Arc<Core>) -> (TurnSubmitResult, TurnSubmitResult, String, String) {
+async fn labelled_with_odd_records(
+    c: &Arc<Core>,
+) -> (TurnSubmitResult, TurnSubmitResult, String, String) {
     use crate::content::{Flag, ItemKind, Label};
     let first = turn(c, owner_cli(), None, "my diagnosis came back").await;
     let sid = first.session_id.clone();
@@ -1023,7 +1025,7 @@ async fn labelled_with_odd_records(c: &Arc<Core>) -> (TurnSubmitResult, TurnSubm
     let mut item = crate::item_labels::ItemLabels::new(&a, ItemKind::OperatorMessage, "cli", 1);
     item.raised.push(Label {
         flag: Flag::Personal,
-        node: Some(a.clone()),
+        node: Some(a),
         kind: ItemKind::OperatorMessage,
         source: "cli".into(),
         confidence: 0.97,
@@ -1033,7 +1035,9 @@ async fn labelled_with_odd_records(c: &Arc<Core>) -> (TurnSubmitResult, TurnSubm
     });
     c.store.append(&[item.record().unwrap()]).unwrap();
     let older = crate::item_labels::key(&b);
-    c.store.put_meta(&older, &older_item(&b, "confidential")).unwrap();
+    c.store
+        .put_meta(&older, &older_item(&b, "confidential"))
+        .unwrap();
     odd_records(c);
     let reply = (c.store.session_nodes(&sid).unwrap().into_iter().rev())
         .find(|(_, n)| matches!(n.body, crate::node::Body::AssistantMessage { .. }))
@@ -1053,7 +1057,14 @@ async fn a_rebuild_passes_over_records_under_labels_that_are_no_items() {
     let c = &r.core;
     let (first, second, _, older) = labelled_with_odd_records(c).await;
     let roots = [Flag::Personal, Flag::Confidential].map(crate::item_labels::touch_root);
-    let rebuild = |dry_run: bool| call(c, owner_cli(), "exchange.rebuild", json!({"dry_run": dry_run}));
+    let rebuild = |dry_run: bool| {
+        call(
+            c,
+            owner_cli(),
+            "exchange.rebuild",
+            json!({"dry_run": dry_run}),
+        )
+    };
     let dry = rebuild(true).await;
     assert!(dry.error.is_none(), "{:?}", dry.error);
     let dry = dry.result.unwrap();
@@ -1084,10 +1095,16 @@ async fn a_rebuild_passes_over_records_under_labels_that_are_no_items() {
     let mut left = vec![older];
     left.extend(["labels.odd-268", "labels.odd-empty", "labels.odd-text"].map(String::from));
     for key in &left {
-        let r = c.store.inner().latest_by_key(theseus_store::kinds::META, key);
+        let r = c
+            .store
+            .inner()
+            .latest_by_key(theseus_store::kinds::META, key);
         assert!(r.unwrap().is_some(), "{key} is left as it is");
     }
-    let ended = c.store.inner().latest_by_key(theseus_store::kinds::META, "labels.odd-ended");
+    let ended = c
+        .store
+        .inner()
+        .latest_by_key(theseus_store::kinds::META, "labels.odd-ended");
     assert!(ended.unwrap().is_none());
 }
 
@@ -1143,7 +1160,7 @@ async fn a_fork_reads_past_records_under_labels_that_do_not_read_and_carries_the
     let fork = c
         .session_fork(
             theseus_protocol::SessionForkParams {
-                session: second.session_id.clone(),
+                session: second.session_id,
                 at: reply,
                 ..Default::default()
             },
@@ -1197,7 +1214,12 @@ async fn a_record_under_labels_that_does_not_read_is_named_by_its_key_alone() {
     });
     assert!(read.is_ok(), "{read:?}");
     let text = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
-    for key in [older.as_str(), "labels.odd-268", "labels.odd-empty", "labels.odd-text"] {
+    for key in [
+        older.as_str(),
+        "labels.odd-268",
+        "labels.odd-empty",
+        "labels.odd-text",
+    ] {
         assert_eq!(text.matches(key).count(), 1, "{key} once: {text}");
     }
     assert!(!text.contains(PAYLOAD), "a payload was quoted: {text}");
