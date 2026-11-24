@@ -209,6 +209,10 @@ pub struct ContextFiles {
     cache: Mutex<HashMap<PathBuf, Entry>>,
     warned: Mutex<HashSet<PathBuf>>,
     reads: AtomicU64,
+    /// The texts of the accepted versions of the owner's own file, by their
+    /// record's key (`project_context::own_file`): a version record is never
+    /// rewritten, so each is read from the store once a daemon run.
+    accepted: Mutex<HashMap<String, Arc<str>>>,
 }
 
 impl ContextFiles {
@@ -266,6 +270,24 @@ impl ContextFiles {
         (files, unreadable)
     }
 
+    /// The text kept under `key`, read by `read` the first time it is asked
+    /// for; a `read` that finds none keeps nothing, and is asked again.
+    pub(crate) fn accepted(
+        &self,
+        key: &str,
+        read: impl FnOnce() -> Option<String>,
+    ) -> Option<Arc<str>> {
+        if let Some(t) = self.accepted.lock().unwrap().get(key) {
+            return Some(t.clone());
+        }
+        let text: Arc<str> = read()?.into();
+        self.accepted
+            .lock()
+            .unwrap()
+            .insert(key.to_string(), text.clone());
+        Some(text)
+    }
+
     /// Files read since the daemon started (a reused file is not read).
     pub fn reads(&self) -> u64 {
         self.reads.load(Ordering::Relaxed)
@@ -310,7 +332,7 @@ fn reason(e: &std::io::Error) -> String {
 /// A file's header names it and its level, so a reader of the block sees
 /// which files are every session's, which the persona's, which the owner's
 /// own, and which the repository's.
-fn header(shown: &str, level: &Level) -> String {
+pub(crate) fn header(shown: &str, level: &Level) -> String {
     match level {
         Level::System => format!("# Context file (system): {shown}"),
         Level::Persona(name) => format!("# Context file (persona {name}): {shown}"),
