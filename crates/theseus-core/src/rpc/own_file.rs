@@ -59,8 +59,11 @@ impl Core {
     }
 
     /// `v` accepted for the file `look` read: its records and its row, in
-    /// one frame. The version's number.
-    pub(super) fn own_file_keep(&self, look: &Look, v: &Version) -> Result<u64> {
+    /// one frame. The version's number. The pointer is read again under
+    /// one lock with the append, and an accept whose pointer moved since
+    /// `look` read it is refused ([`own_file::CHANGED`]), so a version's key
+    /// is never written twice.
+    pub(crate) fn own_file_keep(&self, look: &Look, v: &Version) -> Result<u64> {
         let seq = look.next_seq()?;
         let mut records = look.accept_records(v)?;
         let path = look.path.display().to_string();
@@ -75,7 +78,13 @@ impl Core {
         };
         let rec = self.rec(None);
         records.push(rec.row(&fact)?);
-        self.store.append(&records)?;
+        {
+            let _one = own_file::one_at_a_time();
+            if own_file::seq_after(&own_file::read_now(&self.store, &look.pid)) != Some(seq) {
+                bail!(own_file::CHANGED);
+            }
+            self.store.append(&records)?;
+        }
         rec.announce(&fact);
         Ok(seq)
     }

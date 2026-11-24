@@ -509,3 +509,41 @@ async fn a_missing_or_undecodable_version_record_is_not_readable() {
         .unwrap();
     says_not_readable(&r);
 }
+
+/// Two accepts that read the same pointer, one after the other: the first
+/// keeps its version under the next number, the second is refused and
+/// writes nothing, and what is carried after is the pointer's version.
+#[tokio::test]
+async fn two_accepts_from_one_pointer_never_write_one_version_twice() {
+    let r = rig();
+    r.write(&format!("{KEPT}\n"));
+    r.core.own_file_first_start().unwrap();
+    r.write(&format!("{LATER}\n"));
+    let first = look_of(&r.core);
+    r.write("Another change entirely. TANSYWHARF-3\n");
+    let second = look_of(&r.core);
+    let at = theseus_protocol::now_unix_ms();
+    let v1 = first
+        .disk
+        .version(&first.path, at, "t", "cli", own_file::HOW_ACCEPT);
+    let v2 = second
+        .disk
+        .version(&second.path, at, "t", "cli", own_file::HOW_ACCEPT);
+    assert_eq!(r.core.own_file_keep(&first, &v1).unwrap(), 2);
+    let refused = r.core.own_file_keep(&second, &v2).unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        "the accepted version changed while you looked; run it again"
+    );
+    let kept: own_file::Version = r
+        .core
+        .store
+        .get_meta(&own_file::version_key(&first.pid, 2))
+        .unwrap()
+        .unwrap();
+    assert_eq!(kept, v1);
+    assert_eq!(rows(&r.core, "own_file.accepted").len(), 2);
+    let block = block_3(&turn(&r.core, &r.fake, &r.work).await);
+    assert!(block.contains("BRINDLEWICK-9"), "{block}");
+    assert!(!block.contains("TANSYWHARF-3"), "{block}");
+}

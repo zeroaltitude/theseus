@@ -153,6 +153,26 @@ pub enum Accepted {
     Some(Now),
 }
 
+/// The number the version after `a` takes; none when the store cannot say.
+pub fn seq_after(a: &Accepted) -> Option<u64> {
+    match a {
+        Accepted::None => Some(1),
+        Accepted::Some(n) => Some(n.seq + 1),
+        Accepted::Unreadable => None,
+    }
+}
+
+/// One accept at a time in this daemon: an accept's second read of the
+/// pointer and its append run under it (`Core::own_file_keep`).
+pub fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    ONE.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Why an accept is refused when the pointer moved after it was read.
+pub const CHANGED: &str = "the accepted version changed while you looked; run it again";
+
 /// The pointer of `pid`, one keyed read.
 pub fn read_now(store: &crate::store::Store, pid: &str) -> Accepted {
     match store.get_meta::<Now>(&now_key(pid)) {
@@ -307,10 +327,9 @@ impl Look {
 
     /// The number the next accepted version takes.
     pub fn next_seq(&self) -> Result<u64> {
-        match &self.accepted {
-            Accepted::None => Ok(1),
-            Accepted::Some(n) => Ok(n.seq + 1),
-            Accepted::Unreadable => bail!(
+        match seq_after(&self.accepted) {
+            Some(seq) => Ok(seq),
+            None => bail!(
                 "the accepted version of {} cannot be read from the store",
                 self.path.display()
             ),
