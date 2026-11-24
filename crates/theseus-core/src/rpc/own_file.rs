@@ -137,7 +137,7 @@ impl Core {
         };
         let change = (state != OwnFileState::Unreadable)
             .then(|| {
-                let before = look.accepted_text(&self.store, files).unwrap_or_default();
+                let before = look.accepted_text().unwrap_or_default();
                 let after = look.disk.text.clone().unwrap_or_default();
                 crate::config_change::shown::diff(&before, &after)
             })

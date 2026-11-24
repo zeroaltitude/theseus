@@ -49,7 +49,13 @@ pub async fn run(c: &mut Conn, json: bool, cmd: Option<OwnFileCmd>) -> Result<()
         );
     }
     print!("{}", shown(&r, false));
-    if matches!(r.state, OwnFileState::Same | OwnFileState::Unreadable) {
+    if r.state == OwnFileState::Unreadable {
+        println!(
+            "Nothing can be accepted while its accepted version cannot be read from the store."
+        );
+        return Ok(());
+    }
+    if r.state == OwnFileState::Same {
         println!("Nothing to accept.");
         return Ok(());
     }

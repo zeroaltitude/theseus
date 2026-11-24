@@ -32,6 +32,7 @@
 //! read carries none either.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -87,6 +88,9 @@ pub struct Version {
     pub text: Option<String>,
     /// The reader's digest of it; none with no text.
     pub digest: Option<String>,
+    /// The SHA-256 of `text` exactly as stored (of nothing, for none): a
+    /// read checks it before the text is carried ([`Version::holds`]).
+    pub sum: String,
     pub bytes: u64,
     pub cut: bool,
     pub at_ms: u64,
@@ -94,6 +98,22 @@ pub struct Version {
     pub via: String,
     /// [`HOW_ACCEPT`] or [`HOW_FIRST_START`].
     pub how: String,
+}
+
+impl Version {
+    /// Whether this record is the version `n` names, whole: the pointer's
+    /// digest, text exactly when the digest says there is a file, and the
+    /// body its sum was taken of.
+    pub fn holds(&self, n: &Now) -> bool {
+        self.digest == n.digest
+            && self.text.is_some() == n.digest.is_some()
+            && self.sum == sum(self.text.as_deref())
+    }
+}
+
+/// [`Version::sum`] of `text`.
+pub fn sum(text: Option<&str>) -> String {
+    hex::encode(Sha256::digest(text.unwrap_or_default().as_bytes()))
 }
 
 /// The pointer: which version stands, its digest, and when it was accepted.
@@ -126,8 +146,9 @@ impl Noticed {
 pub enum Accepted {
     /// No pointer: no version was ever accepted.
     None,
-    /// The pointer could not be read. Nothing is carried, and nothing is
-    /// accepted by itself on top of it.
+    /// The pointer, or the version it names, could not be read: missing,
+    /// not decoding, or not holding the body its sum names. Nothing is
+    /// carried, and nothing is accepted by itself on top of it.
     Unreadable,
     Some(Now),
 }
@@ -193,6 +214,7 @@ impl Disk {
             path: path.display().to_string(),
             text: self.text.clone(),
             digest: self.digest.clone(),
+            sum: sum(self.text.as_deref()),
             bytes: self.bytes,
             cut: self.cut,
             at_ms,
@@ -209,6 +231,9 @@ pub struct Look {
     pub path: PathBuf,
     pub pid: String,
     pub accepted: Accepted,
+    /// The accepted version's text, read and checked with its pointer; none
+    /// for an absence accepted, and with nothing accepted.
+    pub text: Option<Arc<str>>,
     pub disk: Disk,
 }
 
@@ -240,8 +265,10 @@ impl Look {
         found: Option<Found>,
     ) -> Self {
         let pid = pid(&path);
+        let (accepted, text) = resolve(store, files, &pid);
         Self {
-            accepted: read_now(store, &pid),
+            accepted,
+            text,
             disk: Disk::read(files, found),
             path,
             pid,
@@ -323,7 +350,7 @@ impl Look {
     }
 
     /// What a compile carries of the file (see the module's doc).
-    pub fn carry(&self, store: &crate::store::Store, files: &ContextFiles, now_ms: u64) -> Carry {
+    pub fn carry(&self, store: &crate::store::Store, now_ms: u64) -> Carry {
         let shown = self.path.display().to_string();
         let size = || crate::narrative::thousands(self.disk.found.as_ref().map_or(0, |f| f.bytes));
         let accept = theseus_protocol::own_file::accept_command();
@@ -344,16 +371,12 @@ impl Look {
             Accepted::Unreadable => return self.unreadable(&shown),
             Accepted::Some(n) => n,
         };
-        let section = match &n.digest {
-            None => None,
-            Some(_) => match accepted_text(store, files, &self.pid, n) {
-                Some(text) => Some(format!(
-                    "{}\n\n{text}",
-                    crate::context_files::header(&shown, &Level::User)
-                )),
-                None => return self.unreadable(&shown),
-            },
-        };
+        let section = self.text.as_ref().map(|text| {
+            format!(
+                "{}\n\n{text}",
+                crate::context_files::header(&shown, &Level::User)
+            )
+        });
         if !self.differs() {
             return Carry {
                 section,
@@ -389,18 +412,11 @@ impl Look {
     /// The accepted version's text, as the reader carried it: empty for an
     /// absence accepted, none when nothing is accepted or the store does not
     /// answer for it.
-    pub fn accepted_text(
-        &self,
-        store: &crate::store::Store,
-        files: &ContextFiles,
-    ) -> Option<String> {
-        let Accepted::Some(n) = &self.accepted else {
+    pub fn accepted_text(&self) -> Option<String> {
+        let Accepted::Some(_) = &self.accepted else {
             return None;
         };
-        match n.digest {
-            None => Some(String::new()),
-            Some(_) => accepted_text(store, files, &self.pid, n).map(|t| t.to_string()),
-        }
+        Some(self.text.as_deref().unwrap_or_default().to_string())
     }
 
     /// The manifest's record of the accepted version a compile carries: the
@@ -408,15 +424,11 @@ impl Look {
     /// when no text is carried (none accepted, an absence accepted, or a
     /// version the store does not answer for). The text's cut note, when
     /// it has one, is part of the stored text, as it is of the block.
-    pub fn carried(
-        &self,
-        store: &crate::store::Store,
-        files: &ContextFiles,
-    ) -> Option<crate::compiler::ContextFileRef> {
+    pub fn carried(&self) -> Option<crate::compiler::ContextFileRef> {
         let Accepted::Some(n) = &self.accepted else {
             return None;
         };
-        let text = accepted_text(store, files, &self.pid, n)?;
+        let text = self.text.as_ref()?;
         Some(crate::compiler::ContextFileRef {
             path: self.path.display().to_string(),
             digest: n.digest.clone(),
@@ -431,40 +443,54 @@ impl Look {
     }
 
     /// Nothing carried, because the store did not answer for the accepted
-    /// version; one line when there is a file to name.
+    /// version; one line, with the file or without it.
     fn unreadable(&self, shown: &str) -> Carry {
+        let line = match &self.disk.found {
+            Some(f) => format!(
+                "The owner's own instruction file is at {shown} ({} B). Its accepted version \
+                 could not be read from the store, so its text is not here.",
+                crate::narrative::thousands(f.bytes)
+            ),
+            None => format!(
+                "The owner's own instruction file is not on disk at {shown}, and its accepted \
+                 version could not be read from the store, so its text is not here."
+            ),
+        };
         Carry {
             section: None,
-            line: self.disk.found.as_ref().map(|f| {
-                format!(
-                    "The owner's own instruction file is at {shown} ({} B). Its accepted \
-                     version could not be read from the store, so its text is not here.",
-                    crate::narrative::thousands(f.bytes)
-                )
-            }),
+            line: Some(line),
         }
     }
 }
 
-/// The accepted version's text, read from the store once a daemon run: a
-/// version record is never rewritten, so its key names one text for good.
-/// None when the record cannot be read, or does not carry the digest the
-/// pointer names.
-fn accepted_text(
+/// The pointer of `pid` and the version it names, read and checked as one
+/// state: [`Accepted::Some`] only when the version record is there, decodes
+/// and [`Version::holds`] what the pointer names, else
+/// [`Accepted::Unreadable`]; and the version's text, none for an absence.
+/// A checked version is kept for the daemon run under its key and the
+/// digest it was read for, so it is read from the store once.
+fn resolve(
     store: &crate::store::Store,
     files: &ContextFiles,
     pid: &str,
-    n: &Now,
-) -> Option<std::sync::Arc<str>> {
+) -> (Accepted, Option<Arc<str>>) {
+    let n = match read_now(store, pid) {
+        Accepted::Some(n) => n,
+        other => return (other, None),
+    };
     let key = version_key(pid, n.seq);
-    files.accepted(&key, || {
-        store
-            .get_meta::<Version>(&key)
-            .ok()
-            .flatten()
-            .filter(|v| v.digest == n.digest)
-            .and_then(|v| v.text)
-    })
+    let digest = n.digest.as_deref().unwrap_or("-");
+    let text = files.accepted(&format!("{key}.{digest}"), || {
+        let v = store.get_meta::<Version>(&key).ok().flatten()?;
+        v.holds(&n).then(|| v.text.unwrap_or_default())
+    });
+    match text {
+        Some(t) => {
+            let text = n.digest.is_some().then_some(t);
+            (Accepted::Some(n), text)
+        }
+        None => (Accepted::Unreadable, None),
+    }
 }
 
 /// Whether this store has ever accepted a version of an own file, under any
@@ -513,18 +539,24 @@ pub fn check_line(store_dir: &Path, path: &Path) -> String {
     let disk = Disk::read(&ContextFiles::default(), super::found(path, 0));
     let shown = path.display();
     let accept = theseus_protocol::own_file::accept_command();
-    let Ok((this, any)) = pointers_in_log(&store_dir.join("wal"), &pid(path)) else {
+    let Ok((this, any, version)) = pointers_in_log(&store_dir.join("wal"), &pid(path)) else {
         return "Your own instruction file: the store's log could not be read, so this check \
                 cannot say which version is accepted. A start accepts nothing by itself while \
                 the store cannot say."
             .to_string();
     };
     match (this, disk.found.as_ref()) {
+        (Some(n), _) if !version.is_some_and(|v| v.holds(&n)) => {
+            "Your own instruction file: its accepted version cannot be read from the store, so \
+             none of it is carried, and a start accepts nothing by itself."
+                .to_string()
+        }
         (Some(n), _) => {
             let look = Look {
                 path: path.to_path_buf(),
                 pid: pid(path),
                 accepted: Accepted::Some(n.clone()),
+                text: None,
                 disk: disk.clone(),
             };
             let on = crate::owner_note::day(n.at_ms);
@@ -556,23 +588,34 @@ pub fn check_line(store_dir: &Path, path: &Path) -> String {
     }
 }
 
-/// The pointer of `pid` in the log at `wal`, and whether the log holds a
-/// pointer for any path, read from the start of the log. No log: neither.
-/// A pointer that does not decode is an error, never "none".
-fn pointers_in_log(wal: &Path, pid: &str) -> Result<(Option<Now>, bool)> {
+/// The pointer of `pid` in the log at `wal`, whether the log holds a
+/// pointer for any path, and the version record the pointer names when it
+/// decodes, read from the start of the log. No log: none of them. A pointer
+/// that does not decode is an error, never "none".
+fn pointers_in_log(wal: &Path, pid: &str) -> Result<(Option<Now>, bool, Option<Version>)> {
     use theseus_follow::{Cursor, WalFollower};
     if !wal.is_dir() {
-        return Ok((None, false));
+        return Ok((None, false, None));
     }
     let key = now_key(pid);
     let (mut this, mut any) = (None, false);
+    let mut versions: std::collections::HashMap<String, Option<Version>> = Default::default();
     let mut f = WalFollower::open(wal, Cursor::start())?;
     loop {
         let b = f.read(8 << 20)?;
         if b.is_empty() {
-            return Ok((this, any));
+            let version = this
+                .as_ref()
+                .and_then(|n: &Now| versions.remove(&version_key(pid, n.seq)))
+                .flatten();
+            return Ok((this, any, version));
         }
         for r in b.records {
+            if let Some(k) = r.key.as_deref().filter(|k| k.starts_with(VERSION_PREFIX)) {
+                let v = (r.kind == kinds::META).then(|| r.decode::<Version>().ok());
+                versions.insert(k.to_string(), v.flatten());
+                continue;
+            }
             let Some(k) = r.key.as_deref().filter(|k| k.starts_with(NOW_PREFIX)) else {
                 continue;
             };

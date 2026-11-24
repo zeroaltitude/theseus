@@ -422,3 +422,90 @@ async fn explain_does_not_list_the_user_file_as_gone() {
         .collect();
     assert!(gone.iter().all(|p| p.name != shown), "{gone:?}");
 }
+
+/// The store's directory of a rig, for `theseusd check`'s line.
+fn store_dir(r: &Rig) -> PathBuf {
+    r.state.parent().unwrap().join("store")
+}
+
+/// Every surface of a version the store cannot answer for: nothing of the
+/// file is carried, and the block, health, the show and `theseusd check`
+/// each say in their fixed words that it cannot be read.
+fn says_not_readable(r: &Rig) {
+    assert_eq!(
+        own_file::check_line(&store_dir(r), &r.path()),
+        "Your own instruction file: its accepted version cannot be read from the store, so \
+         none of it is carried, and a start accepts nothing by itself."
+    );
+    let files = &r.core.runner.context_files;
+    let block = crate::project_context::block(&r.core.cfg, &r.core.store, files, &r.work, false)
+        .expect("the line");
+    assert_eq!(
+        block,
+        format!(
+            "The owner's own instruction file is at {} ({} B). Its accepted version could not \
+             be read from the store, so its text is not here.",
+            r.path().display(),
+            KEPT.len() + 1
+        )
+    );
+    assert_eq!(look_of(&r.core).accepted, Accepted::Unreadable);
+    assert_eq!(
+        r.core.health().own_file.as_deref(),
+        Some(
+            "Your own instruction file: its accepted version cannot be read from the store, so \
+             none of it is carried"
+        )
+    );
+    let show = r.core.own_file_show();
+    assert_eq!(
+        show.state,
+        theseus_protocol::own_file::OwnFileState::Unreadable
+    );
+    assert_eq!((show.accepted, show.change), (None, None));
+}
+
+/// A version record whose stored body is not the one its record names (the
+/// pointer's digest and the sum are the accepted file's, the body another
+/// text) is not readable, read cold: none of either text is carried.
+#[tokio::test]
+async fn a_version_whose_body_does_not_match_its_record_is_not_readable() {
+    let r = rig();
+    r.write(&format!("{KEPT}\n"));
+    let look = look_of(&r.core);
+    let mut v = look
+        .disk
+        .version(&look.path, 1, "t", "cli", own_file::HOW_ACCEPT);
+    v.text = Some(LATER.to_string());
+    r.core
+        .store
+        .append(&look.accept_records(&v).unwrap())
+        .unwrap();
+    says_not_readable(&r);
+}
+
+/// A pointer whose version record is missing, or does not decode, is not
+/// readable: nothing is carried and no surface says "the same".
+#[tokio::test]
+async fn a_missing_or_undecodable_version_record_is_not_readable() {
+    let r = rig();
+    r.write(&format!("{KEPT}\n"));
+    let look = look_of(&r.core);
+    let v = look
+        .disk
+        .version(&look.path, 1, "t", "cli", own_file::HOW_ACCEPT);
+    let mut records = look.accept_records(&v).unwrap();
+    records.remove(0);
+    r.core.store.append(&records).unwrap();
+    says_not_readable(&r);
+    r.core
+        .store
+        .append(&[theseus_store::NewRecord::json(
+            theseus_store::kinds::META,
+            Some(&own_file::version_key(&look.pid, 1)),
+            &"not a version",
+        )
+        .unwrap()])
+        .unwrap();
+    says_not_readable(&r);
+}

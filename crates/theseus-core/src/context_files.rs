@@ -209,9 +209,10 @@ pub struct ContextFiles {
     cache: Mutex<HashMap<PathBuf, Entry>>,
     warned: Mutex<HashSet<PathBuf>>,
     reads: AtomicU64,
-    /// The texts of the accepted versions of the owner's own file, by their
-    /// record's key (`project_context::own_file`): a version record is never
-    /// rewritten, so each is read from the store once a daemon run.
+    /// The texts of the accepted versions of the owner's own file, checked,
+    /// by their record's key and the digest they were read for
+    /// (`project_context::own_file`), so each is read from the store once a
+    /// daemon run.
     accepted: Mutex<HashMap<String, Arc<str>>>,
 }
 

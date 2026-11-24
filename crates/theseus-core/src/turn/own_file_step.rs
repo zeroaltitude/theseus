@@ -16,8 +16,7 @@ impl TurnRunner {
         if !self.tools.enabled() {
             return None;
         }
-        Look::of(&self.cfg, &self.store, &self.context_files)
-            .carried(&self.store, &self.context_files)
+        Look::of(&self.cfg, &self.store, &self.context_files).carried()
     }
 
     /// One `own_file.changed` row when the file on disk differs from the

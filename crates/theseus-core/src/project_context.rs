@@ -565,7 +565,7 @@ pub fn block(
         cfg.state_dir().join(USER_FILE),
         found.user.clone(),
     )
-    .carry(store, files, theseus_protocol::now_unix_ms());
+    .carry(store, theseus_protocol::now_unix_ms());
     parts.extend(own.section);
     if !found.project.is_empty() {
         if granted {
