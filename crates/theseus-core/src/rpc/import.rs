@@ -208,7 +208,8 @@ impl Core {
         let core = self.clone();
         let b = blocking(move || {
             let stopping = || core.outbox.stopping();
-            write::import_batch_gated(&core.store, &p, &by, stopping, &gate)
+            let cuts = core.tools.scrubber.cuts();
+            write::import_batch_gated(&core.store, &p, &by, stopping, (&gate, &cuts))
         })
         .await?;
         if b.stopped {

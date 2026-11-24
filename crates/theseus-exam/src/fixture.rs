@@ -266,7 +266,10 @@ fn build(exam: &Exam, owner: &str, s: &PastSession) -> Result<Built> {
             let mut n = Node::user(&sid, Some(&t), &author(&s.place, &p.who), &p.text);
             n.created_at_ms = at;
             if rec.title.is_none() {
-                rec.title = Some(theseus_core::session::title_from(&p.text));
+                rec.title = Some(theseus_core::session::title_from(
+                    &p.text,
+                    &theseus_core::scrub::Cuts::none(),
+                ));
             }
             let i = push_node(&mut records, &n)?;
             keyed.push((key, i, entry(&n, "user_message", p.who.clone(), p)));
@@ -649,7 +652,13 @@ mod tests {
             assert_eq!(rec.turns, e.turns);
             assert_eq!(
                 rec.title.as_deref(),
-                Some(theseus_core::session::title_from(&past.nodes[0].text).as_str())
+                Some(
+                    theseus_core::session::title_from(
+                        &past.nodes[0].text,
+                        &theseus_core::scrub::Cuts::none()
+                    )
+                    .as_str()
+                )
             );
             let nodes = store.session_nodes(&e.session_id).unwrap();
             assert_eq!(nodes.len(), e.nodes);

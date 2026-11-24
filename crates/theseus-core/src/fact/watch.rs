@@ -81,7 +81,7 @@ impl Fact for WatchEnded<'_> {
                     Ending::Expired => "gave up",
                     Ending::Failing => "is failing",
                 },
-                crate::session::title_from(self.text),
+                crate::session::title_from(self.text, &crate::scrub::Cuts::none()),
             ),
         );
     }

@@ -30,6 +30,7 @@ pub(in crate::push) fn seed(
     let mut w = WorkBoard {
         position: board.position,
         seeded_at: board.position,
+        scrubber: core.tools.scrubber.clone(),
         ..WorkBoard::default()
     };
     let mut d = Dirty::default();

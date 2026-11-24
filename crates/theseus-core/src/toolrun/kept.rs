@@ -20,6 +20,7 @@ use theseus_tools::REST_NARROWER;
 use super::{cap, ResultNode, ToolRuntime};
 use crate::narrative;
 use crate::payload::Marked;
+use crate::scrub::Cuts;
 
 /// What the cap made of a result's text: what the model sees, whether it was
 /// cut, the file its whole output was kept in, and the large payload it is
@@ -53,12 +54,13 @@ impl ToolRuntime {
     /// it is when that whole output passed `[tools] large_payload_chars`.
     pub(super) fn capped(&self, session_id: &str, r: &ResultNode<'_>, text: &str) -> Capped {
         let tool = self.tool(r.tool);
+        let cuts = self.scrubber.cuts();
         let rest = |left: &str| {
             tool.as_ref()
                 .map_or_else(|| REST_NARROWER.into(), |t| t.rest(left))
         };
         if let Some(max) = tool.as_ref().and_then(|t| t.result_max_chars()) {
-            let (content, truncated) = head(text, max, rest);
+            let (content, truncated) = head(text, max, rest, &cuts);
             return Capped {
                 content,
                 truncated,
@@ -73,7 +75,7 @@ impl ToolRuntime {
             })
         });
         let Some(source) = source.filter(|_| text.chars().count() > max && max >= 64) else {
-            let (content, truncated) = cap(text, max, rest);
+            let (content, truncated) = cap(text, max, rest, &cuts);
             return Capped {
                 content,
                 truncated,
@@ -83,11 +85,16 @@ impl ToolRuntime {
         let span = output_span(&r.text, &source);
         match self.keep(session_id, r.tool_use_id, &source, span.as_ref(), text) {
             Ok((path, before)) => {
-                let (content, truncated) = cap(text, max, |left| {
-                    // `left` is a part of `text`: where it starts.
-                    let at = left.as_ptr() as usize - text.as_ptr() as usize;
-                    words(&path, span.as_ref(), text, at, left, before)
-                });
+                let (content, truncated) = cap(
+                    text,
+                    max,
+                    |left| {
+                        // `left` is a part of `text`: where it starts.
+                        let at = left.as_ptr() as usize - text.as_ptr() as usize;
+                        words(&path, span.as_ref(), text, at, left, before)
+                    },
+                    &cuts,
+                );
                 let payload = self.large(r.tool, text, span.as_ref(), max, &path);
                 Capped {
                     content,
@@ -98,9 +105,12 @@ impl ToolRuntime {
             }
             Err(e) => {
                 tracing::warn!(error = %e, tool = r.tool, "a capped result's whole output was not kept");
-                let (content, truncated) = cap(text, max, |left| {
-                    format!("its whole output was not kept ({e}): {}", rest(left))
-                });
+                let (content, truncated) = cap(
+                    text,
+                    max,
+                    |left| format!("its whole output was not kept ({e}): {}", rest(left)),
+                    &cuts,
+                );
                 Capped {
                     content,
                     truncated,
@@ -201,9 +211,9 @@ fn words(
 }
 
 /// `text` cut to at most `max` characters as a contiguous head, at the last
-/// whole line that fits, with a line that says what is not shown and how to
-/// get it (`rest`).
-fn head(text: &str, max: usize, rest: impl FnOnce(&str) -> String) -> (String, bool) {
+/// whole line that fits and never inside a known value (`cuts`), with a line
+/// that says what is not shown and how to get it (`rest`).
+fn head(text: &str, max: usize, rest: impl FnOnce(&str) -> String, cuts: &Cuts) -> (String, bool) {
     let n = text.chars().count();
     if n <= max || max < 1024 {
         return (text.to_string(), false);
@@ -214,6 +224,7 @@ fn head(text: &str, max: usize, rest: impl FnOnce(&str) -> String) -> (String, b
     if let Some(i) = text[..h].rfind('\n') {
         h = i + 1;
     }
+    let h = cuts.before(text, h);
     let left = &text[h..];
     let size = format!(
         "{} ({})",
@@ -233,7 +244,12 @@ mod tests {
     #[test]
     fn a_head_is_cut_at_a_whole_line_and_says_what_follows() {
         let text: String = (1..=500).map(|i| format!("{i:>6}\trow {i}\n")).collect();
-        let (c, cut) = head(&text, 2_000, |left| format!("from {}", &left[..6]));
+        let (c, cut) = head(
+            &text,
+            2_000,
+            |left| format!("from {}", &left[..6]),
+            &Cuts::none(),
+        );
         assert!(cut);
         assert!(c.chars().count() <= 2_000, "{}", c.chars().count());
         let shown: Vec<&str> = c.lines().collect();
@@ -251,9 +267,22 @@ mod tests {
             "{c}"
         );
         assert_eq!(
-            head("short", 2_000, |_| unreachable!()),
+            head("short", 2_000, |_| unreachable!(), &Cuts::none()),
             ("short".into(), false)
         );
+    }
+
+    /// A head that would end inside a known value ends before it.
+    #[test]
+    fn a_head_stops_before_a_known_value() {
+        let v = "kqzv-0417-wjxp-9932-hmfb";
+        let cuts = crate::scrub::Scrubber::with_values(vec![(v.into(), "v".into())]).cuts();
+        let text = format!("{}{v}{}", "x".repeat(1480), "y".repeat(2000));
+        let (c, cut) = head(&text, 2_000, |_| String::new(), &cuts);
+        assert!(cut);
+        assert!(c.starts_with(&format!("{}…[", "x".repeat(1480))), "{c}");
+        let (raw, _) = head(&text, 2_000, |_| String::new(), &Cuts::none());
+        assert!(raw.contains("kqzv-041"), "{raw}");
     }
 
     #[test]

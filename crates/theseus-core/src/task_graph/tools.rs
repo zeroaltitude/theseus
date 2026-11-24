@@ -1186,7 +1186,8 @@ pub fn create_item<'a>(
                 .transcript(tc.session_id)
                 .map_err(|e| format!("{e:#}"))?;
             let holder = crate::task::holder_of(&nodes, correlation_id);
-            crate::arrangement::resolve(a, &nodes, holder.as_deref()).map_err(|r| r.message)?
+            crate::arrangement::resolve(a, &nodes, holder.as_deref(), &tc.scrubber.cuts())
+                .map_err(|r| r.message)?
         }
         None => vec![],
     };

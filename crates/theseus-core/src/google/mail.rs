@@ -502,10 +502,10 @@ impl Tool for SearchTool {
     fn retry(&self) -> Retry {
         Retry::SafeToRepeat
     }
-    fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
+    fn plan(&self, input: &Value, ctx: &ToolCtx) -> Result<Plan, String> {
         let a: SearchArgs = parse(input)?;
         Ok(Plan {
-            summary: format!("search Gmail: {}", a.q.chars().take(80).collect::<String>()),
+            summary: format!("search Gmail: {}", ctx.cut.get().head(&a.q, 80).0),
             class: Some(ToolClass::Read),
             ..Default::default()
         })

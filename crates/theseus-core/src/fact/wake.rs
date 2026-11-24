@@ -65,7 +65,7 @@ impl Fact for WakeFired<'_> {
             format!(
                 "Reminder {} fired{late}: \"{}\"; {to}. No turn, no model call.",
                 crate::task::short(&w.id),
-                crate::session::title_from(&w.note)
+                crate::session::title_from(&w.note, &crate::scrub::Cuts::none())
             ),
         );
     }

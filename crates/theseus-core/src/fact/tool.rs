@@ -907,7 +907,7 @@ impl Fact for WakeSet<'_> {
                 "Wake {} set{series} for {}: \"{}\"; {} of {} pending.",
                 self.short,
                 self.when,
-                crate::session::title_from(self.note),
+                crate::session::title_from(self.note, &crate::scrub::Cuts::none()),
                 self.pending,
                 theseus_kernel::MAX_PENDING
             ),
@@ -930,7 +930,7 @@ impl Fact for WakeCancelled<'_> {
             format!(
                 "Wake {} cancelled by the model: \"{}\" will not run; {} of {} pending.",
                 self.short,
-                crate::session::title_from(self.note),
+                crate::session::title_from(self.note, &crate::scrub::Cuts::none()),
                 self.pending,
                 theseus_kernel::MAX_PENDING
             ),

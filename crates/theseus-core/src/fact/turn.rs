@@ -469,7 +469,7 @@ impl Fact for WakeCameDue<'_> {
                     "Wake {} fired ({}); {next}: \"{}\" is this turn's input.",
                     crate::task::short(&f.wake.id),
                     how.join(", "),
-                    crate::session::title_from(&f.wake.note)
+                    crate::session::title_from(&f.wake.note, &crate::scrub::Cuts::none())
                 ),
             );
             return;
@@ -484,7 +484,7 @@ impl Fact for WakeCameDue<'_> {
                 } else {
                     String::new()
                 },
-                crate::session::title_from(&f.wake.note)
+                crate::session::title_from(&f.wake.note, &crate::scrub::Cuts::none())
             ),
         );
     }

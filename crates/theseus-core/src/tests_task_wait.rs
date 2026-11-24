@@ -744,3 +744,55 @@ mod quiet {
         assert!(meta.get("warm_reads").is_none(), "{meta}");
     }
 }
+
+/// A waited report cut to its share stops at a known value's edge: the
+/// relayed node holds each copy of the value whole or not at all. Its value
+/// is invented.
+#[tokio::test]
+async fn a_waited_reports_cut_holds_a_known_value_whole_or_not_at_all() {
+    const V: &str = "kqzv-0417-wjxp-9932-hmfb";
+    let r = crate::tests_tasks::rig_knowing(
+        |req| {
+            if first_user(req).contains("CHILD:") {
+                return Scripted::text(&V.repeat(400));
+            }
+            if answers_a_call(req) && called(req, "task_wait") {
+                return Scripted::text("The report is in.");
+            }
+            if answers_a_call(req) {
+                return Scripted::tools(
+                    "Waiting.",
+                    &[("w_1", "task_wait", json!({"report_chars": 2000}))],
+                );
+            }
+            match last_user(req).as_str() {
+                l if l.starts_with("START") => starts(&["CHILD: one"]),
+                _ => Scripted::text("Nothing more."),
+            }
+        },
+        |_| {},
+        vec![(V.into(), "cut_test".into())],
+    );
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let nodes = reports_in(&r.core, &parent);
+    assert_eq!(
+        nodes.len(),
+        1,
+        "the report, relayed in the turn that waited"
+    );
+    let text = text_of(&nodes[0]);
+    assert!(
+        text.contains(" cut;"),
+        "the report was cut to its share: {text}"
+    );
+    let rest = text.replace(V, "");
+    let chars: Vec<char> = V.chars().collect();
+    for w in chars.windows(4) {
+        let w: String = w.iter().collect();
+        assert!(
+            !rest.contains(&w),
+            "the relayed report holds {w:?} of the value"
+        );
+    }
+}

@@ -36,6 +36,7 @@ use theseus_protocol::WaitingOn;
 use super::views::line;
 use super::{ExecIn, Scope, WorkBoard};
 use crate::ledger::LedgerRow;
+use crate::scrub::Cuts;
 
 /// The skipped runs kept for a routine's 30-day count.
 const SKIPS_KEPT: usize = 64;
@@ -191,7 +192,7 @@ impl WorkBoard {
         let held = self.routines.get(&w.id);
         let spec = held.and_then(|r| r.spec.as_ref());
         if let Some(s) = spec {
-            v.title = line(&s.title);
+            v.title = line(&s.title, &Cuts::none());
         }
         let runs: Vec<&WorkView> = self
             .kids
@@ -277,7 +278,7 @@ impl WorkBoard {
             }
         });
         v.routine = Some(RoutineView {
-            schedule: spec.map_or_else(|| line(&w.note), |s| s.schedule.clone()),
+            schedule: spec.map_or_else(|| line(&w.note, &Cuts::none()), |s| s.schedule.clone()),
             last: last_view,
             runs_30d: counts,
             month: Month {
@@ -304,7 +305,7 @@ impl WorkBoard {
         v.doing = Some(Doing {
             what: DoingKind::Sleeping,
             label: match (&failing, &spec) {
-                (Some(f), _) => format!("failing: {}", line(f)),
+                (Some(f), _) => format!("failing: {}", line(f, &Cuts::none())),
                 (None, Some(s)) if matches!(s.check, crate::watch::spec::Check::Mail { .. }) => {
                     let day = s.follow_up.as_ref().map(|_| {
                         let d = crate::recall::stamp::day_in(
@@ -410,8 +411,11 @@ impl WorkBoard {
                         .routines
                         .get(&w.id)
                         .and_then(|r| r.spec.as_ref())
-                        .map_or_else(|| line(&w.note), |s| line(&s.title)),
-                    _ => line(&w.note),
+                        .map_or_else(
+                            || line(&w.note, &Cuts::none()),
+                            |s| line(&s.title, &Cuts::none()),
+                        ),
+                    _ => line(&w.note, &Cuts::none()),
                 };
                 let end_n = (w.purpose == Purpose::Routine)
                     .then(|| self.routines.get(&w.id).and_then(|r| r.spec.as_ref()))

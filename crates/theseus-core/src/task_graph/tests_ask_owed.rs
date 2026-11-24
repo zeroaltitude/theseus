@@ -167,6 +167,7 @@ async fn an_ask_dropped_before_its_send_holds_nothing() {
         },
         dir: None,
         commitments: &commitments,
+        scrubber: &r.core.tools.scrubber,
     };
     let earlier: Vec<String> = (provider_calls(&r.core).into_iter())
         .map(|a| a.correlation_id)

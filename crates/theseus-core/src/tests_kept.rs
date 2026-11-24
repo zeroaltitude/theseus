@@ -541,7 +541,8 @@ async fn a_task_reports_kept_copy_is_the_report_as_written() {
         ran_on: None,
         joined: 0,
     };
-    let (_, cut, kept) = crate::task_wait::fit(&r.core, &sid, &report, 200);
+    let (_, cut, kept) =
+        crate::task_wait::fit(&r.core, &sid, &report, 200, &crate::scrub::Cuts::none());
     assert!(cut);
     let whole = std::fs::read_to_string(kept.expect("kept")).unwrap();
     assert!(

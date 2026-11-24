@@ -76,7 +76,7 @@ async fn a_report_taken_by_name_is_a_relayed_harness_node_and_is_written_once() 
                     Some("trn_wait"),
                     Origin::Harness,
                     &format!("task:{}", rep.short),
-                    &rep.node_text(),
+                    &rep.node_text(&crate::scrub::Cuts::none()),
                 );
                 records.push(n.record()?);
             }

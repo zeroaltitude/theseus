@@ -217,6 +217,22 @@ pub(super) async fn rig_on(
     secrets: &[(&str, &str)],
     tweak: impl FnOnce(&mut crate::Config),
 ) -> Rig {
+    rig_in(own_turn, secrets, false, tweak).await
+}
+
+/// A task that has run one turn of its own, `secrets` the vault's values the exits know and the runtime's
+/// scrubber reads too, from the same board, as the daemon's does.
+pub(super) async fn rig_knowing(secrets: &[(&str, &str)]) -> Rig {
+    rig_in(true, secrets, true, |_| {}).await
+}
+
+/// [`rig_on`], the runtime's scrubber reading the vault's board when `knows`.
+async fn rig_in(
+    own_turn: bool,
+    secrets: &[(&str, &str)],
+    knows: bool,
+    tweak: impl FnOnce(&mut crate::Config),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = crate::Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
@@ -233,6 +249,9 @@ pub(super) async fn rig_on(
             .iter()
             .map(|(n, v)| (n.to_string(), Ok(Secret::new(v.to_string()))));
         b.publish(values.collect(), "test");
+        if knows {
+            parts.scrubber = Arc::new(crate::scrub::Scrubber::from_board(b.clone()));
+        }
         parts.secrets = b;
     }
     let core = crate::rpc::Core::build(parts).unwrap();
@@ -764,4 +783,26 @@ async fn three_asks_in_one_response_send_two() {
         .filter(|(s, c)| *s == ResultStatus::Error && c.contains("allowance of asks is used"))
         .count();
     assert_eq!(refused, 1);
+}
+
+/// An answer whose known value starts before the cap and ends after it: the stored result in the asking
+/// conversation stops at the value's edge, keeps no piece of it, and says it was cut.
+#[tokio::test]
+async fn an_answers_cap_stops_before_a_known_value() {
+    let r = rig_knowing(&[("db_password", VALUE)]).await;
+    let lead = "word ".repeat((ANSWER_MAX_CHARS - 10) / 5);
+    assert!(lead.len() < ANSWER_MAX_CHARS && lead.len() + VALUE.len() > ANSWER_MAX_CHARS);
+    let answer = format!("{lead}{VALUE} and the end");
+    *r.model.answer.lock().unwrap() = Some(Scripted::text(&answer));
+    r.calls(vec![vec![ask_of(&r.task)]]);
+    crate::test_support::turn(&r.core, &r.parent, "ask the task why").await;
+    let (status, content, outside) = only_answer(&r);
+    assert_eq!(status, ResultStatus::Ok, "{content}");
+    assert!(outside, "{content}");
+    for piece in [&VALUE[..8], &VALUE[VALUE.len() - 8..], "vault-v", "7b3d"] {
+        assert!(!content.contains(piece), "{piece} is kept: {content}");
+    }
+    assert!(!content.contains("and the end"), "{content}");
+    assert!(content.contains("[cut at about 1,500 tokens]"), "{content}");
+    fenced(&content, lead.trim_end());
 }

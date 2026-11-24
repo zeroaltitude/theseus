@@ -5,12 +5,12 @@ mod failed_detail;
 #[test]
 fn cap_keeps_head_and_tail_and_forbidden_env_names() {
     let s = "a".repeat(100) + &"b".repeat(100);
-    let (c, t) = cap(&s, 100, |_| String::new());
+    let (c, t) = cap(&s, 100, |_| String::new(), &Cuts::none());
     assert!(t);
     assert!(c.starts_with("aaaa") && c.ends_with("bbbb"), "{c}");
     assert!(c.contains("\n…[100 characters not shown]…\n"), "{c}");
     assert_eq!(
-        cap("short", 100, |_| unreachable!()),
+        cap("short", 100, |_| unreachable!(), &Cuts::none()),
         ("short".to_string(), false)
     );
     assert!(forbidden_env("OP_SERVICE_ACCOUNT_TOKEN"));
@@ -112,10 +112,15 @@ fn cap_cuts_on_line_edges_and_says_what_it_left_out_and_how_to_get_it() {
         .map(|i| format!("entry {i:02} of the roster\n"))
         .collect();
     let mut seen = String::new();
-    let (c, t) = cap(&text, 400, |left| {
-        seen = left.to_string();
-        "a narrower call returns them".into()
-    });
+    let (c, t) = cap(
+        &text,
+        400,
+        |left| {
+            seen = left.to_string();
+            "a narrower call returns them".into()
+        },
+        &Cuts::none(),
+    );
     assert!(t);
     let (head, rest) = c.split_once("\n…[").unwrap();
     let (marker, tail) = rest.split_once("]…\n").unwrap();
@@ -139,12 +144,12 @@ fn cap_cuts_on_line_edges_and_says_what_it_left_out_and_how_to_get_it() {
     assert!(!c.contains("stored"), "{c}");
     // Cuts that fall on edges already keep every line they can.
     let even: String = (0..100).map(|i| format!("line {i:04}\n")).collect();
-    let (c, _) = cap(&even, 200, |_| String::new());
+    let (c, _) = cap(&even, 200, |_| String::new(), &Cuts::none());
     assert!(
         c.contains("\nline 0011\n…[80 lines (800 characters) not shown]…\nline 0092\n"),
         "{c}"
     );
     // One line too long to cut on an edge: characters only.
-    let (c, _) = cap(&"x".repeat(5000), 400, |_| "R".into());
+    let (c, _) = cap(&"x".repeat(5000), 400, |_| "R".into(), &Cuts::none());
     assert!(c.contains("\n…[4,600 characters not shown: R]…\n"), "{c}");
 }

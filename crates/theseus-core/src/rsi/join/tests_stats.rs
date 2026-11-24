@@ -313,3 +313,75 @@ async fn a_fold_that_breaks_after_head_moved_is_undone() {
     assert_eq!(n["stats_skip"], "unfolded", "{n}");
     assert_eq!(n["uncounted"], Value::Null);
 }
+
+/// A rig whose vault's board holds `value` as `db_password`, and whose runtime scrubber reads that
+/// board, as the daemon's does.
+fn rig_knowing(value: &'static str) -> Rig {
+    super::tests::rig_parts(
+        SelfMode::Act,
+        |_| {},
+        |p| {
+            let b = crate::secrets::SecretBoard::new(
+                ["db_password".to_string()],
+                std::time::Instant::now(),
+            );
+            let values = [(
+                "db_password".to_string(),
+                Ok(crate::secrets::Secret::new(value.to_string())),
+            )];
+            b.publish(values.into_iter().collect(), "test");
+            p.scrubber = Arc::new(crate::scrub::Scrubber::from_board(b.clone()));
+            p.secrets = b;
+        },
+    )
+}
+
+/// A counter that fails on a last line whose known value starts before character 200 and ends
+/// after it: the row's stored `stats` says how it exited and stops before the value, keeping no
+/// piece of it. The runtime's scrubber reads the vault's board, as the daemon's does.
+#[tokio::test]
+async fn a_failed_counters_words_stop_before_a_known_value() {
+    const VALUE: &str = "vault-value-9d2f4e1a7c";
+    let r = rig_knowing(VALUE);
+    let lead = "word ".repeat(38);
+    assert!(lead.len() < 200 && lead.len() + VALUE.len() > 200);
+    let last = format!("{lead}{VALUE} and the end");
+    let main = counter(&format!("print({last:?}); sys.exit(1)"));
+    let (base, head, merge, j) = join(&r, &[("scripts/stats.py", &main)], PROVED, r.seams()).await;
+    assert_eq!(tree_of(&r, &merge), plain_tree(&r, &base, &head));
+    let said = j["numbers"]["stats"].as_str().unwrap();
+    assert!(said.starts_with("skipped: "), "{said}");
+    assert!(said.contains("exited 1: word word"), "{said}");
+    for piece in [
+        &VALUE[..8],
+        &VALUE[VALUE.len() - 8..],
+        "vault-v",
+        "and the end",
+    ] {
+        assert!(!said.contains(piece), "{piece} is kept: {said}");
+    }
+    assert_eq!(j["numbers"]["stats_skip"], "failed", "{}", j["numbers"]);
+}
+
+/// A counter that fails printing a known value that runs over a line break: its last line holds
+/// only the value's second half, so the row's stored `stats` says how it exited and keeps neither
+/// half.
+#[tokio::test]
+async fn a_failed_counters_words_keep_no_line_a_known_value_runs_into() {
+    const VALUE: &str = "kelp-one-0417\nferry-two-0417";
+    let r = rig_knowing(VALUE);
+    let out = format!("note: {VALUE} later");
+    let main = counter(&format!("print({out:?}); sys.exit(1)"));
+    let (base, head, merge, j) = join(&r, &[("scripts/stats.py", &main)], PROVED, r.seams()).await;
+    assert_eq!(tree_of(&r, &merge), plain_tree(&r, &base, &head));
+    let said = j["numbers"]["stats"].as_str().unwrap();
+    assert!(said.starts_with("skipped: "), "{said}");
+    assert!(
+        said.contains("main's counter (--count-head) exited 1"),
+        "{said}"
+    );
+    for piece in ["kelp-one", "ferry-two", "0417", "later"] {
+        assert!(!said.contains(piece), "{piece} is kept: {said}");
+    }
+    assert_eq!(j["numbers"]["stats_skip"], "failed", "{}", j["numbers"]);
+}

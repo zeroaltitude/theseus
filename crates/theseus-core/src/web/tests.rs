@@ -269,6 +269,7 @@ pub(crate) fn web(port: u16, cfg: WebToolsConfig, public: bool) -> Arc<Web> {
         dns,
         &format!("http://search.test:{port}/search"),
         Default::default(),
+        Default::default(),
     )
 }
 
@@ -520,6 +521,7 @@ async fn an_open_policy_reaches_private_addresses_unapproved() {
         dns,
         &format!("http://search.test:{p}/search"),
         super::net::PrivateAddresses::Open,
+        Default::default(),
     );
     let (out, _) = fetch(
         &w,
@@ -647,6 +649,7 @@ fn each_private_url_waits_for_approval_at_the_gate_and_a_public_one_does_not() {
         30_000,
         CpuPool::new(1),
         Default::default(),
+        Default::default(),
     );
     let policy = open_policy();
     let c = ctx(false);
@@ -709,6 +712,7 @@ fn a_private_address_in_a_shared_place_says_so_on_its_card() {
         &WebToolsConfig::default(),
         30_000,
         CpuPool::new(1),
+        Default::default(),
         Default::default(),
     ));
     let c = ctx(false);
@@ -890,4 +894,29 @@ async fn refused_redirects_keep_their_outside_attribution() {
         let failure = fetch(&web, json!({"url": url}), false).await.unwrap_err();
         assert_eq!(failure.meta["external"], url, "{}", failure.message);
     }
+}
+
+/// A page's text cut to what the model sees keeps its head, which stops
+/// before a known value that runs across the cut. The value is invented.
+#[test]
+fn a_pages_head_stops_before_a_known_value() {
+    const V: &str = "kqzv-0417-wjxp-9932-hmfb";
+    let w = Web::with_dns(
+        &WebToolsConfig::default(),
+        1_000,
+        CpuPool::new(1),
+        Dns::checked(),
+        "http://search.test:1/search",
+        Default::default(),
+        Arc::new(crate::scrub::Scrubber::with_values(vec![(
+            V.into(),
+            "cut_test".into(),
+        )])),
+    );
+    let fitted = w.fit(format!("{}{V}{}", "x".repeat(890), "y".repeat(500)));
+    assert!(
+        fitted.starts_with(&format!("{}\n[… ", "x".repeat(890))),
+        "{fitted}"
+    );
+    assert!(!fitted.contains("kqzv"), "{fitted}");
 }

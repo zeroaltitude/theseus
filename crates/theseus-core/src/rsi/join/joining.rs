@@ -348,6 +348,7 @@ impl Run<'_> {
             self.seams.stats_limit,
             self.seams.after_fold.clone(),
         );
+        let cuts = self.core.tools.scrubber.cuts();
         let merged = blocking(move || {
             git::fetch(&p, &r)?;
             let base = git::main_of(&p, &r)?;
@@ -360,7 +361,7 @@ impl Run<'_> {
             }
             let t = git::detached(&p, "join", &b, &base)?;
             let made = git::merge(&p, &t, &h, &m).and_then(|made| {
-                let c = stats::count(&p, &t, &base, &made, limit, after_fold.as_deref())?;
+                let c = stats::count(&p, &t, &base, &made, limit, &cuts, after_fold.as_deref())?;
                 Ok((c, made))
             });
             match made {

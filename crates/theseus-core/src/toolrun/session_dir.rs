@@ -62,6 +62,8 @@ impl ToolRuntime {
             0 => {}
             n => ctx.to_mut().default_read_lines = n,
         }
+        // A plan's summary is cut where no value the scrubber knows is split.
+        ctx.to_mut().cut = theseus_tools::Cutter::new(std::sync::Arc::new(self.scrubber.cuts()));
         ctx
     }
 

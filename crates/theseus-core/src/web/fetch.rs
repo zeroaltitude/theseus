@@ -374,18 +374,19 @@ impl Web {
     }
 
     /// The result, cut to what the model sees, its head kept: the tail of a
-    /// page is seldom what was asked for.
-    fn fit(&self, text: String) -> String {
+    /// page is seldom what was asked for. The head never ends inside a known
+    /// value.
+    pub(super) fn fit(&self, text: String) -> String {
         let room = self.text_max.saturating_sub(100);
         let n = text.chars().count();
         if n <= self.text_max {
             return text;
         }
-        let head: String = text.chars().take(room).collect();
+        let (head, _) = self.scrubber.cuts().head(&text, room);
         format!(
             "{}\n[… {} more characters of this page's text are not shown]",
             head.trim_end(),
-            n - room
+            n - head.chars().count()
         )
     }
 }

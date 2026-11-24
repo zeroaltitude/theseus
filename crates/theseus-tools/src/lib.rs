@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 
 pub mod busy;
 pub mod change;
+pub mod cut;
 pub mod docs;
 pub mod fit;
 pub mod fs;
@@ -57,6 +58,7 @@ mod tests_window;
 pub mod text;
 
 pub use busy::{bound_factor, busy_factor, Busy, BOUND_CAP};
+pub use cut::{Cut, Cutter};
 /// Read, write, or run: the protocol's type, since a call's plan carries its
 /// own (an `aws.call` is a read or a write by its operation).
 pub use theseus_protocol::ToolClass;
@@ -339,6 +341,10 @@ pub struct ToolCtx {
     /// For an `aws.*` tool, its call's binding (AWS design §3.9), set per
     /// call by the runtime. `None` for every other tool.
     pub aws: Option<Arc<AwsBinding>>,
+    /// Where the call's plan may cut text for its summary, set per call by
+    /// the runtime so a cut never falls inside a value it knows. Unset: the
+    /// cut falls where it is asked.
+    pub cut: Cutter,
 }
 
 impl ToolCtx {
@@ -359,6 +365,7 @@ impl ToolCtx {
             approved: false,
             umask: None,
             aws: None,
+            cut: Cutter::default(),
         }
     }
 
