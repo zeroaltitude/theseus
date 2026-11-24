@@ -563,7 +563,8 @@ fn a_band_or_slot_this_build_does_not_know_is_refused() {
     for slot in ["pasts", "e", "a_slot_from_a_newer_build"] {
         let got = serde_json::from_str::<crate::view::Slot>(&format!("\"{slot}\""));
         assert!(got.is_err(), "{slot}: {got:?}");
-        let key = serde_json::from_str::<BTreeMap<crate::view::Slot, u32>>(&format!("{{\"{slot}\": 1}}"));
+        let key =
+            serde_json::from_str::<BTreeMap<crate::view::Slot, u32>>(&format!("{{\"{slot}\": 1}}"));
         assert!(key.is_err(), "{slot} as a tally's key: {key:?}");
     }
 }

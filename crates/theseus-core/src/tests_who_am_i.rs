@@ -161,7 +161,10 @@ async fn who_am_i_names_the_persona_and_lays_nothing_of_its_card() {
         let first = serde_json::to_string(&q.messages[0]).unwrap();
         for words in [card, "/srv/harbour", "run every tool", "A second line"] {
             assert!(!who.contains(words), "{words:?} in the block: {who}");
-            assert!(!first.contains(words), "{words:?} in the first message: {first}");
+            assert!(
+                !first.contains(words),
+                "{words:?} in the first message: {first}"
+            );
         }
     }
 }

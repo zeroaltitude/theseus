@@ -163,8 +163,7 @@ fn the_parts_add_up_to_the_compiles_total() {
         assert!(c.tools_tokens > 0 && c.system_tokens > 0, "{place}");
         let who = who_alone(&r.core, &req);
         assert_eq!(
-            req.messages,
-            who.messages,
+            req.messages, who.messages,
             "{place}: a fresh session's one message is who am I"
         );
         assert_eq!(

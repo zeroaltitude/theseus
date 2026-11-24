@@ -128,8 +128,15 @@ mod tests {
         };
         let t = text(&w);
         assert!(tokens(&t) < MOST_TOKENS, "{} tokens: {t}", tokens(&t));
-        assert!(t.starts_with(HEAD) && t.contains("- persona: \u{1F30A}"), "{t}");
-        for long in ["x".repeat(10_000), "\u{e9}".repeat(10_000), "\u{1F30A}".repeat(10_000)] {
+        assert!(
+            t.starts_with(HEAD) && t.contains("- persona: \u{1F30A}"),
+            "{t}"
+        );
+        for long in [
+            "x".repeat(10_000),
+            "\u{e9}".repeat(10_000),
+            "\u{1F30A}".repeat(10_000),
+        ] {
             let w = Who {
                 profile: &long,
                 model: &long,
