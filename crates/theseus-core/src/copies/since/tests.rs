@@ -272,6 +272,124 @@ fn a_node_marked_wrong_is_laid_with_its_mark() {
     assert_eq!(blocks[1], was[1], "the call is as stored");
 }
 
+/// The store's node reads so far: each `get_node` that finds a node is one cache hit or one miss.
+fn node_reads(s: &Store) -> u64 {
+    let h = s.node_cache().health();
+    h.hits + h.misses
+}
+
+/// An exchange with no look back's result and no report costs no store read here: no node is read, no
+/// scope is read (every scope read fails while the fault is on, and the lay still answers), and an edge
+/// planted from each node to an erased source is never followed (followed, it would read that source and
+/// lay the erased line). Each node is the same bytes.
+#[test]
+fn an_exchange_with_no_look_back_and_no_report_reads_nothing() {
+    let (_d, s) = store();
+    let src = source(&s);
+    retracted(&s, &src);
+    let (_, was) = s.get_node(&src).unwrap().unwrap();
+    s.append(&[was.erased(AT_MS, "a test").record().unwrap()])
+        .unwrap();
+    let ask = Node::user("s", Some("t4"), "cli", "where does it nest?");
+    let mut answer = Node::user("s", Some("t4"), "cli", "x");
+    answer.body = Body::AssistantMessage {
+        blocks: vec![
+            json!({"type": "text", "text": "Reading."}),
+            json!({"type": "tool_use", "id": "c1", "name": "fs_read", "input": {"path": "a"}}),
+        ],
+        model: "m".into(),
+        provider: "anthropic".into(),
+        stop_reason: None,
+        usage: Default::default(),
+        cost_usd: None,
+        catalog_version: None,
+        request_id: None,
+        correlation_id: None,
+        compilation_id: None,
+        request_digest: None,
+        effort: None,
+    };
+    let note = Node::relayed("s", Some("t4"), Origin::Harness, "retract", "a note");
+    s.append(&[
+        ask.record().unwrap(),
+        answer.record().unwrap(),
+        note.record().unwrap(),
+    ])
+    .unwrap();
+    let other = shown_by(&s, "fs.read", crate::graph::VIA_HISTORY, &src);
+    let mut planted = Vec::new();
+    for n in [&ask, &answer, &note] {
+        for via in [
+            crate::graph::VIA_HISTORY,
+            crate::graph::VIA_LOOK,
+            VIA_REPORT,
+        ] {
+            planted.push(
+                Edge::new(EdgeKind::DerivedFrom, &n.id, &src, via)
+                    .record()
+                    .unwrap(),
+            );
+        }
+    }
+    s.append(&planted).unwrap();
+    // The label set holds the retracted source, so it is not empty; no laid node is in it.
+    let wrong = BTreeSet::from([src]);
+    let exchange = [ask, answer, note, other];
+    let reads = node_reads(&s);
+    s.fail_scope_reads(true);
+    let laid = Since::new(&s, &wrong)
+        .lay(
+            (exchange.iter())
+                .map(|n| (0, Stub::from(n.clone())))
+                .collect(),
+        )
+        .unwrap();
+    s.fail_scope_reads(false);
+    assert_eq!(node_reads(&s), reads, "no node was read");
+    for (n, (_, l)) in exchange.iter().zip(&laid) {
+        assert_eq!(
+            serde_json::to_vec(&**l).unwrap(),
+            serde_json::to_vec(n).unwrap()
+        );
+    }
+}
+
+/// A look back's result costs one node read per distinct source it names (one edge each, a second edge to
+/// the same source read once), and the retraction rows are read once a window, however many nodes need them.
+#[test]
+fn a_look_backs_result_reads_each_source_once() {
+    let (_d, s) = store();
+    let sources: Vec<String> = (0..3).map(|_| source(&s)).collect();
+    let a = shown_by(
+        &s,
+        crate::view::history::HISTORY_TOOL,
+        crate::graph::VIA_HISTORY,
+        &sources[0],
+    );
+    let mut more = Vec::new();
+    for src in [&sources[1], &sources[2], &sources[2]] {
+        more.push(
+            Edge::new(EdgeKind::DerivedFrom, &a.id, src, crate::graph::VIA_HISTORY)
+                .record()
+                .unwrap(),
+        );
+    }
+    s.append(&more).unwrap();
+    let since = Since::new(&s, &BTreeSet::new());
+    let reads = node_reads(&s);
+    since.lay(vec![(0, Stub::from(a.clone()))]).unwrap();
+    assert_eq!(node_reads(&s) - reads, 3, "one read per distinct source");
+    // Two labelled nodes in one window: the retraction scope is read once (the second read would fail).
+    retracted(&s, &sources[0]);
+    let wrong = BTreeSet::from([sources[0].clone()]);
+    let since = Since::new(&s, &wrong);
+    since.lay(vec![(0, Stub::from(a.clone()))]).unwrap();
+    s.fail_scope_reads(true);
+    let laid = since.lay(vec![(0, Stub::from(a.clone()))]);
+    s.fail_scope_reads(false);
+    assert!(content(&laid.unwrap()[0].1).contains("[Since this was read: "));
+}
+
 /// Two windows with nothing said between them lay the same bytes.
 #[test]
 fn two_lays_with_nothing_said_between_are_the_same_bytes() {
