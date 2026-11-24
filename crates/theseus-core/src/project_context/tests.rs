@@ -882,7 +882,7 @@ fn a_walk_past_its_cap_keeps_what_it_found() {
     assert_eq!(walk(&root).len(), 2);
     // The root's four entries (`.git`, `AGENTS.md`, `crowd`, `zz`), then
     // `crowd`'s thousand files, none an instruction file: that is the whole
-    // allowance, so `zz` is not read.
+    // allowance, so the walk does not open `zz`.
     assert_eq!(
         walk_within(&root, 4 + 1_000, WALK_TIME),
         vec![found(&root.join("AGENTS.md"), 0).unwrap()],
@@ -890,6 +890,44 @@ fn a_walk_past_its_cap_keeps_what_it_found() {
     );
     // One more entry is `zz`'s file.
     assert_eq!(walk_within(&root, 4 + 1_000 + 1, WALK_TIME).len(), 2);
+}
+
+/// The entry allowance is exact: at an allowance of N the walk reads N
+/// entries and opens no directory past them, and the one entry more it does
+/// not read is the one that would change the answer.
+#[test]
+fn a_walk_reads_no_entry_past_its_allowance() {
+    let repo = Repo::new();
+    repo.write("AGENTS.md", "rules\n");
+    for n in 0..1_000 {
+        repo.write(&format!("crowd/f{n:04}"), "");
+    }
+    repo.write("zz/AGENTS.md", "rules\n");
+    let root = repo.root();
+    let opened = std::cell::RefCell::new(Vec::new());
+    let returned = std::cell::Cell::new(0usize);
+    let counted = |entries| {
+        opened.borrow_mut().clear();
+        returned.set(0);
+        walk_by(&root, entries, WALK_TIME, |d: &Path| {
+            opened
+                .borrow_mut()
+                .push(d.strip_prefix(&root).unwrap().to_path_buf());
+            std::fs::read_dir(d).map(|l| l.inspect(|_| returned.set(returned.get() + 1)))
+        })
+    };
+    // The root's four entries, then `crowd`'s thousand.
+    let n = 4 + 1_000;
+    assert_eq!(counted(n), vec![found(&root.join("AGENTS.md"), 0).unwrap()]);
+    assert_eq!(returned.get(), n, "it reads its allowance and no more");
+    assert_eq!(
+        *opened.borrow(),
+        vec![PathBuf::new(), PathBuf::from("crowd")],
+        "and opens no directory once it is spent"
+    );
+    // The next entry is `zz`'s file.
+    assert_eq!(counted(n + 1).len(), 2);
+    assert_eq!(returned.get(), n + 1);
 }
 
 /// The walk is breadth-first: a file one directory below the root is found

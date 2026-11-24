@@ -320,18 +320,20 @@ the change is named in the block and ledgered.
 sighting: the digests of the `AGENTS.md` and `CLAUDE.md` files on the chain from the root
 down to the path the grant names, and of every one under the root that a walk finds.
 
-The chain is digested whole, before the walk and outside both of its allowances: it is
-at most two files a directory from the root down to the named path, so its cost is
-bounded by that path's depth and by nothing else. The walk is breadth-first, so the files
-nearest the root come first. It reads no ignore file, never enters `.git`, and does not
-follow a symlinked directory. It stops after 20,000 directory entries (every entry a
-listing yields, kept or not) or two seconds, whichever comes first. The walk's finds that
-are not on the chain are then digested within 1,000 files or two more seconds, and never
-replace a digest of the chain. These bound the entries read and the time between
-filesystem calls; one call that blocks, such as a read on a stalled network mount, is not
-interrupted. A change is a change from the sighting, in whatever directory a session
-first opens. A file the walk or its digests did not reach is new when a compile first
-finds it, and a grant given again naming that file's directory pins it.
+The chain is digested whole, before the walk, and neither the walk's allowances nor the
+digests' apply to it: it is at most two files a directory from the root down to the named
+path, so its cost is bounded by that path's depth and by nothing else. The walk is
+breadth-first, so the files nearest the root come first. It reads no ignore file, never
+enters `.git`, and does not follow a symlinked directory. Its entry allowance bounds the
+raw directory entries it reads: 20,000 in all, every entry a listing returns, an error
+included, kept or not. Its time allowance is two seconds. The walk's finds that are not
+on the chain are then digested within 1,000 files or two more seconds, and never replace
+a digest of the chain. The time allowances are checked between filesystem calls in the
+walk and between files in the digests: one filesystem call that blocks, such as a read on
+a stalled network mount, is not interrupted, and a file's digest, once begun, runs to its
+end. A change is a change from the sighting, in whatever directory a session first opens.
+A file the walk or its digests did not reach is new when a compile first finds it, and a
+grant given again naming that file's directory pins it.
 
 **A sighting accumulates.** A compile looks only along the chain from the root down to
 the session's directory, and it changes only what it looked for: a file stored from

@@ -176,11 +176,13 @@ fn chain(dirs: &[PathBuf]) -> Vec<Found> {
 }
 
 /// The most directory entries a grant's [`walk`] reads, counted as the
-/// directory listings yield them: every entry, kept or not.
+/// directory listings return them: every entry, an error included, kept or
+/// not.
 pub const WALK_ENTRIES: usize = 20_000;
 
-/// The longest a grant's [`walk`] runs, and then the longest its digests
-/// take.
+/// The time allowance of a grant's [`walk`], and then of its digests:
+/// checked between filesystem calls in the walk and between files in the
+/// digests, so one call that blocks is not interrupted.
 pub const WALK_TIME: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The most files a grant digests.
@@ -197,14 +199,18 @@ pub const DIGEST_FILES: usize = 1_000;
 /// it). Breadth-first, so the files nearest the root are found before a deep
 /// build or dependency tree spends the allowance.
 ///
-/// It is bounded: it reads at most [`WALK_ENTRIES`] directory entries in
-/// all, and it checks [`WALK_TIME`] before each directory and each entry.
-/// Past either it stops, and what it found by then is the answer. An error
-/// on a directory or an entry passes that one over. So a grant never fails
-/// because of the walk, and a file it did not reach is new to the sighting
-/// when a compile first finds it. The allowances bound the entries read
-/// and the time *between* filesystem calls: one call that blocks (a stalled
-/// network mount) is not interrupted.
+/// It is bounded. The entry allowance bounds the raw directory entries it
+/// reads: at most [`WALK_ENTRIES`] in all, every entry a listing returns,
+/// an error included, kept or not. The time allowance, [`WALK_TIME`], is
+/// checked between filesystem calls: before each directory is opened,
+/// before each entry is read and its type read, and before each instruction
+/// file is stat'ed. Past either it stops, and what it found by then is the
+/// answer; the entries of a directory already read when the entry
+/// allowance is spent are still used. An error on a directory or an entry
+/// passes that one over. So a grant never fails because of the walk, and a
+/// file it did not reach is new to the sighting when a compile first finds
+/// it. One filesystem call that blocks (a stalled network mount) is not
+/// interrupted.
 pub fn walk(root: &Path) -> Vec<Found> {
     walk_within(root, WALK_ENTRIES, WALK_TIME)
 }
@@ -213,26 +219,47 @@ pub fn walk(root: &Path) -> Vec<Found> {
 /// directory the entries read are sorted by name before they are used, so
 /// the answer is steady on a tree that fits.
 pub(crate) fn walk_within(root: &Path, entries: usize, time: std::time::Duration) -> Vec<Found> {
+    walk_by(root, entries, time, |d: &Path| std::fs::read_dir(d))
+}
+
+/// [`walk_within`], listing each directory through `open`, so a test can
+/// count what the walk reads.
+///
+/// Both allowances are checked before a directory is opened and before
+/// each entry is asked of its listing, and every entry the listing returns
+/// counts at once, an error included: the walk reads no entry past
+/// `entries`. The time is also checked before an entry's type is read and
+/// before each instruction file is stat'ed. When only the entry allowance
+/// is spent, the entries already read are still used.
+pub(crate) fn walk_by<L>(
+    root: &Path,
+    entries: usize,
+    time: std::time::Duration,
+    mut open: impl FnMut(&Path) -> std::io::Result<L>,
+) -> Vec<Found>
+where
+    L: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
+{
     let start = std::time::Instant::now();
+    let late = || start.elapsed() >= time;
     let mut read = 0;
     let mut out = Vec::new();
     let mut dirs = std::collections::VecDeque::from([(root.to_path_buf(), 0)]);
     while let Some((dir, depth)) = dirs.pop_front() {
-        if start.elapsed() >= time {
+        if read >= entries || late() {
             break;
         }
-        let Ok(listing) = std::fs::read_dir(&dir) else {
+        let Ok(mut listing) = open(&dir) else {
             continue;
         };
         let mut here = Vec::new();
-        let mut spent = false;
-        for entry in listing {
-            if read >= entries || start.elapsed() >= time {
-                spent = true;
-                break;
-            }
+        while read < entries && !late() {
+            let Some(entry) = listing.next() else { break };
             read += 1;
             let Ok(entry) = entry else { continue };
+            if late() {
+                break;
+            }
             let Ok(kind) = entry.file_type() else {
                 continue;
             };
@@ -245,11 +272,11 @@ pub(crate) fn walk_within(root: &Path, entries: usize, time: std::time::Duration
                     dirs.push_back((dir.join(name), depth + 1));
                 }
             } else if NAMES.iter().any(|n| name == *n) {
+                if late() {
+                    return out;
+                }
                 out.extend(found(&dir.join(name), depth));
             }
-        }
-        if spent {
-            break;
         }
     }
     out
