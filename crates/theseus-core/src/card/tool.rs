@@ -108,8 +108,8 @@ impl Args {
             .unwrap_or(TODAY)
     }
 
-    /// The span the call takes, read as a turn's words are: today when it
-    /// names none. Recall's reader of a span (`recall::when`), so it takes the words a turn does.
+    /// The span the call takes, read from its explicit `when` argument: today
+    /// when it names none. Read by recall's reader of an explicit span (`recall::when::read_local`).
     fn span(&self, now_ms: u64) -> Result<When, String> {
         let w = self.words();
         crate::recall::when::read_local(w, now_ms).ok_or_else(|| {

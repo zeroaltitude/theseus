@@ -2233,8 +2233,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `[native: context_history {"words":…} …]` line, after the cap (`native.rs`, `ResultNode.hint`). It says what
     that call is: a search of THIS place's history by those words, which a `place` turns to another's, and not the
     CLI's search. A search naming a session, a source filter, a date or a tag, or whose words name a time, gets no
-    line, nor does a session or span command, since the history tool can say none of them. The CLI still runs,
-    since running it may be the work. Tests: `tests_native_hint.rs`, `native::tests`. What is left of
+    line, since the line's call carries words alone (the tool pages a span only by its own `when` or `from`/`to`);
+    nor does a session or span command, since the tool opens no session by id and lists none by a span. The CLI
+    still runs, since running it may be the work. Tests: `tests_native_hint.rs`, `native::tests`. What is left of
     `memory_lookup.rs` and `memory_lookup/read.rs` is the MCP server's search below, and goes with it (D6 step 7).
   - **The MCP server's memory tools** (theseus-02i1h; `memory_lookup/mcp.rs`, `rpc/memory_read.rs`): `memory_search` and
     `memory_get` are one read-only method, `memory.lookup`, in `mcp_server::ALLOWED`, served by `memory_lookup`'s own
