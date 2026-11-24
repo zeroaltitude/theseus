@@ -28,9 +28,11 @@ The read is `names::topics::timeline(store, id, n)`: one bounded read of the tou
 ### History, filed once (`judge::onto::history`, `theseus ledger topics`, issue 46)
 
 Touches began with the build that added them, so a topic's timeline started there. `theseus ledger topics` files
-the exchanges from before, oldest first. It is the owner's act, in person: the people backfill's check (the owner,
-from a private place; the CLI refuses it inside a job), then the in-person rule (never an agent's process). Run
-`--dry-run` first: it counts the exchanges it would ask and prices their worst case, and asks nothing.
+the exchanges from before, oldest first. It is the owner's act, in person, at his own terminal: the terminal alone
+(the web UI, a chat, MCP and an unnamed connection are refused before any history is read), then the people
+backfill's check (the owner, from a private place; the CLI refuses it inside a job), then the in-person rule (never
+an agent's process). Each refusal is ledgered. Run `--dry-run` first: it counts the exchanges it would ask and
+prices their worst case, and asks nothing.
 
 - **Which**: an exchange that touches no category of a kind `onto.v1` asks, that this job did not ask before, that
   opens with a person's own typed message with words (not a task's, not Theseus's own, not a slash command), and

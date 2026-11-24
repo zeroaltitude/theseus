@@ -506,7 +506,7 @@ async fn an_agents_process_is_refused_and_asks_nothing() {
         }
     }
     let refused = of_kind(&r.core, LedgerKind::ApprovalRefused);
-    assert_eq!(refused.len(), 2, "the agent's two: {refused:?}");
+    assert_eq!(refused.len(), 4, "the agent's two and Discord's: {refused:?}");
     assert!(r.jev.seen().is_empty(), "no call");
     assert!(timeline(&r.core, "topic:ledger").is_empty());
     assert!(of_kind(&r.core, LedgerKind::JudgeCall).is_empty());
@@ -828,4 +828,55 @@ async fn the_days_line_warns_and_ten_times_it_stops() {
             }
         }
     }
+}
+
+/// KEY (his decision: his own terminal only): the owner's web UI, an agent's
+/// process at the terminal, Discord, MCP and an unnamed connection are each
+/// refused, a dry run and a run, in words; nothing is asked and nothing
+/// written. Each is ledgered but MCP's: the MCP server's own list refuses it
+/// before the method's dispatch (`mcp_server`), so it never reaches this.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_his_own_terminal_runs_it() {
+    use crate::approval::Client;
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_old", SAID, 5_000);
+    let callers = [
+        ("the owner's web UI", Client::new("ws#1", Surface::Web)),
+        (
+            "an agent at the terminal",
+            surface("sock#2", Surface::Cli).behind(Behind::Agent("claude".into())),
+        ),
+        ("discord", Client::new("discord", Surface::Discord)),
+        ("mcp", Client::new("mcp", Surface::Mcp)),
+        ("an unnamed connection", Client::new("conn#9", Surface::Unnamed)),
+    ];
+    for (who, client) in callers {
+        for dry_run in [true, false] {
+            let e = rpc_as(
+                &r.core,
+                client.clone(),
+                method::EXCHANGE_TOPICS,
+                json!({"dry_run": dry_run}),
+            )
+            .await
+            .expect_err(who);
+            assert_eq!(e.code, error_code::REFUSED, "{who}: {e:?}");
+            let said = match who {
+                "mcp" => "may not call exchange.topics",
+                _ => "Nothing was asked.",
+            };
+            assert!(e.message.ends_with(said), "{who}: {e:?}");
+        }
+    }
+    let refused = of_kind(&r.core, LedgerKind::ApprovalRefused);
+    assert_eq!(refused.len(), 8, "each refusal ledgered, MCP's apart: {refused:?}");
+    let web = format!("{:?}", refused[0].data);
+    assert!(web.contains("own terminal alone"), "{web}");
+    assert!(r.jev.seen().is_empty(), "no call");
+    assert!(of_kind(&r.core, LedgerKind::JudgeCall).is_empty());
+    assert!(timeline(&r.core, "topic:ledger").is_empty());
 }
