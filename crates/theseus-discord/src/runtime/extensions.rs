@@ -418,6 +418,7 @@ mod exit_tests_r4 {
         let (_dir, _core, fake, shared) = rig();
         let data = InteractionResponseData {
             content: Some(format!("Loaded {VALUE}")),
+            components: Some(serde_json::from_value(serde_json::json!([{ "type":1,"components":[{"type":2,"style":4,"label":format!("Revoke {VALUE}"),"custom_id":format!("revoke:{VALUE}")}]}])).unwrap()),
             ..Default::default()
         };
         shared
@@ -431,5 +432,10 @@ mod exit_tests_r4 {
         let text = replies[0].content.as_deref().unwrap();
         assert!(!text.contains(VALUE), "{text}");
         assert!(text.contains("[redacted:"), "{text}");
+        let m = fake.reply_message("1").unwrap();
+        assert_eq!(m.buttons.len(), 1);
+        assert!(m.buttons[0].label.contains("[redacted:"));
+        assert!(!m.buttons[0].label.contains(VALUE));
+        assert_eq!(m.buttons[0].custom_id, format!("revoke:{VALUE}"));
     }
 }
