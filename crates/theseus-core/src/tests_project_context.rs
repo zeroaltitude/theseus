@@ -1568,30 +1568,20 @@ async fn the_residual_a_granted_repository_no_compile_has_opened_in_is_not_held(
     );
 }
 
-/// **The residual, case 3: a file the owner HAS read, in a directory a
-/// compile HAS discovered.** A granted repository's sighting is stored per
-/// repository but taken from whichever directory the compiling session was
-/// in, and it REPLACES its predecessor. So an ordinary clean session opening
-/// in a second directory of the same repository evicts the first directory's
-/// file from the sighting; from then on that file is in neither swept set,
-/// and a flagged session's call may modify it unheld.
+/// **Case 3, contained: a file the owner HAS read, in a directory a compile
+/// HAS discovered.** A granted repository's sighting is stored per
+/// repository and taken from whichever directory the compiling session was
+/// in, and it accumulates: an ordinary clean session opening in a second
+/// directory of the same repository keeps the first directory's file in it.
+/// So the file stays in the swept set, and a flagged session's call that
+/// modifies it is held for every session.
 ///
-/// **Nothing adversarial causes the eviction -- ordinary use does.** The
-/// owner reads the sibling's file, then works in the nested directory, and
-/// his own earlier reading has been removed from the record the sweep
-/// consults. The file was not created, and its directory has been compiled
-/// in, so both of case 1's qualifiers are false here.
-///
-/// The eviction itself is a pre-existing defect, tracked as GitHub issue 16
-/// (per-chain sightings produce spurious change rows). What this test adds is
-/// that it is not only noise: it is a route to **exposure**, through the
-/// writer key's swept set. Accumulating a repository's discovered paths
-/// instead of replacing them closes both.
-///
-/// **When someone closes it, this test fails, and that is the point.** Flip
-/// it to the containment then; do not delete it.
+/// The owner reads the sibling's file, then works in the nested directory,
+/// and his earlier reading is still in the record the sweep consults. This
+/// is also what keeps a compile elsewhere from reporting the file as gone
+/// (GitHub issue 16).
 #[tokio::test]
-async fn the_residual_a_read_file_evicted_by_an_ordinary_compile_is_not_held() {
+async fn a_read_file_stays_held_after_an_ordinary_compile_elsewhere() {
     let (r, repo, here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
     let sib = sibling_dir(&repo);
     let file = sib.join("AGENTS.md");
@@ -1599,7 +1589,7 @@ async fn the_residual_a_read_file_evicted_by_an_ordinary_compile_is_not_held() {
     std::fs::write(&file, &owner_read).unwrap();
 
     // The owner READS the sibling: a clean session opens there, so the stored
-    // sighting is taken from ITS chain and names this file.
+    // sighting names this file.
     let read = submit_in(&r.core, &sib, None).await;
     assert_ne!(read, session, "the owner's own clean session");
     let seen = session_block(&r.fake.requests().pop().unwrap());
@@ -1609,9 +1599,8 @@ async fn the_residual_a_read_file_evicted_by_an_ordinary_compile_is_not_held() {
          sighting at this point:\n{seen}"
     );
 
-    // The eviction, by ordinary use: a clean session opens in the nested
-    // directory of the SAME repository. The sighting is replaced with that
-    // chain, and the sibling's file is no longer in it.
+    // Ordinary use: a clean session opens in the nested directory of the
+    // SAME repository. The sighting keeps the sibling's file.
     let elsewhere = submit_in(&r.core, &here, None).await;
     assert_ne!(
         elsewhere, read,
@@ -1630,13 +1619,14 @@ async fn the_residual_a_read_file_evicted_by_an_ordinary_compile_is_not_held() {
     assert_ne!(clean, session, "a different session, carrying nothing");
     let block = session_block(&r.fake.requests().pop().unwrap());
     assert!(
-        block.contains(BY_THE_CALL),
-        "THE RESIDUAL, case 3: an ordinary clean session opening elsewhere in \
-         the same repository evicted this file from the stored sighting, so it \
-         is in neither swept set and a clean session opening here DOES read \
-         what a flagged session's call put in it -- a file the owner had READ, \
-         in a directory a compile HAD discovered. If this assertion has started \
-         failing, the hole is closed -- invert it:\n{block}"
+        !block.contains(BY_THE_CALL),
+        "case 3: a compile elsewhere in the same repository kept this file in \
+         the stored sighting, so the flagged session's change to it is held \
+         and a clean session opening here does not read it:\n{block}"
+    );
+    assert!(
+        block.contains("injection"),
+        "case 3: and the block says why it is not there:\n{block}"
     );
 }
 
