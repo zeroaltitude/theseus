@@ -572,3 +572,71 @@ async fn a_replay_refuses_a_kept_recall_of_a_history_result_whose_source_was_era
         ("view", crate::own_bench::rebuild::VIEW_ERASED)
     );
 }
+
+/// **The line's two fields from the retraction, its gist and its why, leave through the provider's exit
+/// substituted**, as every string of a request does: the request the window laid, sent through the exit
+/// (`exits::Substituting`) as the daemon wraps every provider, carries the vault value's name in both.
+#[tokio::test]
+async fn a_vault_value_in_the_lines_gist_or_why_leaves_the_exit_substituted() {
+    use crate::provider::Provider as _;
+    const VALUE: &str = "heron-vault-value-5150";
+    let r = rig();
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, &format!("{VALUE} {SAID}")).await;
+    let node = (r.core.store.session_nodes(&sid).unwrap().into_iter())
+        .map(|(_, n)| n)
+        .find(|n| matches!(&n.body, Body::UserMessage { text, .. } if text.contains(VALUE)))
+        .expect("the person's message");
+    let reader = session(&r.core, Some("channel:lab"));
+    read_in(
+        &r.core,
+        &reader,
+        json!({ "open": node.turn_id.clone().unwrap() }),
+    )
+    .await;
+    r.core
+        .fact_retract(
+            &FactRetractParams {
+                node: node.id.clone(),
+                why: format!("{WHY}, by {VALUE}"),
+                session_id: None,
+            },
+            "cli",
+        )
+        .unwrap();
+    turn(&r.core, &reader, "and the weir?").await;
+    let laid = r.requests().pop().expect("a request");
+    let line = |wire: &str| -> String {
+        let at = wire.find("[Since this was read: ").expect(wire);
+        let end = at + wire[at..].find("as they were said.]").expect(wire);
+        wire[at..end].to_string()
+    };
+    let before = line(&serde_json::to_string(&laid.messages).unwrap());
+    assert_eq!(before.matches(VALUE).count(), 2, "gist and why: {before}");
+    let board =
+        crate::secrets::SecretBoard::new(["heron_key".to_string()], std::time::Instant::now());
+    board.publish(
+        std::collections::BTreeMap::from([(
+            "heron_key".to_string(),
+            Ok(crate::secrets::Secret::new(VALUE.into())),
+        )]),
+        "fake",
+    );
+    let fake = Arc::new(crate::provider::FakeProvider::default());
+    let exit = crate::exits::Substituting::new(
+        "fake",
+        fake.clone(),
+        crate::exits::Exits::new(board, true),
+        None,
+    );
+    let mut sink = |_: crate::provider::Delta<'_>| {};
+    exit.stream_message(&laid, &mut sink).await.unwrap();
+    let sent = serde_json::to_string(&fake.requests().pop().expect("sent").messages).unwrap();
+    let after = line(&sent);
+    assert!(!sent.contains(VALUE), "{sent}");
+    assert_eq!(
+        after.matches("[redacted:heron_key]").count(),
+        2,
+        "gist and why: {after}"
+    );
+}
