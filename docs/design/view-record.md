@@ -42,12 +42,12 @@ place binding is published after its record is written, so an answer proved in e
 position that no longer moves. The listing equals the stored tally's slots only while every source still reads;
 the tally is history.
 
-What a proof costs is counted in units: a fold's node and each exchange it stands
-for, and the task list once. These are not the store's own reads: a node is found through its handle's record,
-each session's place is read, and the task list reads every task. The owner's `view show` proves everything, on
-the blocking pool. The model's own look also reads on the blocking pool, and spends at most `look::view::PROOF`
-units (16,459: a settled ladder's rungs 1 and 2 whole, and the task list); a fold or a card past that is not
-listed, and the look says how many in one line.
+What a proof costs is counted in units: a fold's node and each exchange it stands for, and the task list once.
+These are not the store's own reads: a node is found through its handle's record, each session's place is read,
+and the task list reads every task. The owner's `view show` proves everything, on the blocking pool. The model's
+own look also reads on the blocking pool, and spends at most `look::view::PROOF` units (16,459: a settled
+ladder's rungs 1 and 2 whole, and the task list); a fold or a card past that is not listed, and the look says how
+many in one line.
 
 Since 2026-11-22, seals, veils, moves and the reader's presence withhold nothing. `session_marks` supplies no
 seal, and the source check asks whether the place reads, not whether it is private. Totals count shown pieces;
