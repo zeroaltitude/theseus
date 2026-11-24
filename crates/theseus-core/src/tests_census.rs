@@ -87,6 +87,41 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
         .unwrap()
 }
 
+/// `req` with one message, who am I as this test builds it for the request's spec (the live profile, the
+/// request's model, the persona in play: the book's default, the built-in one in this rig), its cache mark as the
+/// request carries it on a front that is the block alone (none).
+fn who_alone(core: &Core, req: &ProviderRequest) -> ProviderRequest {
+    let (live, _) = core.live_profile();
+    let persona = core.personas().persona_for(None, None).name;
+    let who = crate::view::who::text(&crate::view::who::Who {
+        profile: &live,
+        model: &req.model,
+        persona: &persona,
+    });
+    ProviderRequest {
+        messages: vec![json!({"role": "user", "content": [{"type": "text", "text": who}]})],
+        ..req.clone()
+    }
+}
+
+/// The tokens `req`'s messages add to its estimate: the request less the same request with no message.
+fn adds(req: &ProviderRequest) -> u64 {
+    let bare = ProviderRequest {
+        messages: vec![],
+        ..req.clone()
+    };
+    req.estimate_tokens() - bare.estimate_tokens()
+}
+
+/// What the fake provider (it counts by the estimate) answers for `req` as `exact` sends it: its server tools
+/// left out.
+fn counted(req: &ProviderRequest) -> u64 {
+    let mut req = req.clone();
+    req.tools
+        .retain(|t| t.get("type").is_none_or(|ty| ty == "custom"));
+    req.estimate_tokens()
+}
+
 fn json_len(v: &Value) -> u64 {
     serde_json::to_string(v).unwrap().len() as u64
 }
@@ -126,10 +161,16 @@ fn the_parts_add_up_to_the_compiles_total() {
         let tools: u64 = c.tools.iter().map(|t| t.tokens).sum();
         assert_eq!(tools, c.tools_tokens, "{place}");
         assert!(c.tools_tokens > 0 && c.system_tokens > 0, "{place}");
-        assert!(
-            c.messages_tokens > 0 && c.messages_tokens < crate::view::who::MOST_TOKENS,
-            "{place}: a fresh session's one message is who am I: {}",
-            c.messages_tokens
+        let who = who_alone(&r.core, &req);
+        assert_eq!(
+            req.messages,
+            who.messages,
+            "{place}: a fresh session's one message is who am I"
+        );
+        assert_eq!(
+            c.messages_tokens,
+            adds(&who),
+            "{place}: a fresh session's messages are who am I's tokens"
         );
     }
 }
@@ -309,13 +350,11 @@ async fn exact_asks_the_provider_to_count() {
         .await
         .unwrap();
     let e = c.exact.expect("the fake provider counts by the estimate");
-    // A fresh session has no message of the person's to count (theseus-7okz9): its total is its system, its tools
-    // and who am I (`view::who`), and the fake counts by the estimate, which the smallest form's own word rounds by
-    // a token.
-    assert!(
-        e.messages > 0 && e.messages < crate::view::who::MOST_TOKENS,
-        "{e:?}"
-    );
+    // A fresh session has no message of the person's to count (theseus-7okz9): its one message is who am I
+    // (`view::who`), so its total is the count of the request with that block alone, and the fake counts by the
+    // estimate, which the smallest form's own word rounds by a token.
+    let (_, req) = census(&r.core, None, None);
+    assert_eq!(e.total, counted(&who_alone(&r.core, &req)), "{e:?}");
     assert_eq!(e.total, e.system + e.tools + e.messages);
     assert!(
         e.total.abs_diff(c.total_tokens) <= 2,
@@ -339,6 +378,8 @@ async fn exact_asks_the_provider_to_count() {
 async fn exact_on_a_fresh_session_counts_with_no_message() {
     let r = rig(vec![]);
     for place in ["cli", "dm", "task", "harness"] {
+        let (_, req) = census(&r.core, None, Some(place));
+        let who = who_alone(&r.core, &req);
         let c = r
             .core
             .context_census_exact(ContextCensusParams {
@@ -348,22 +389,44 @@ async fn exact_on_a_fresh_session_counts_with_no_message() {
             })
             .await
             .unwrap();
-        assert!(
-            c.messages_tokens > 0 && c.messages_tokens < crate::view::who::MOST_TOKENS,
-            "{place}: a fresh session's one message is who am I: {}",
-            c.messages_tokens
+        assert_eq!(
+            req.messages, who.messages,
+            "{place}: a fresh session's one message is who am I"
+        );
+        assert_eq!(
+            c.messages_tokens,
+            adds(&who),
+            "{place}: a fresh session's messages are who am I's tokens"
         );
         assert!(c.exact_error.is_none(), "{place}: {:?}", c.exact_error);
         let e = c
             .exact
             .unwrap_or_else(|| panic!("{place}: no exact counts"));
         assert!(e.system > 0 && e.tools > 0, "{place}: {e:?}");
-        assert!(
-            e.messages > 0 && e.messages < crate::view::who::MOST_TOKENS,
-            "{place}: {e:?}"
+        assert_eq!(
+            e.messages,
+            counted(&who) - e.system - e.tools,
+            "{place}: the messages counted are who am I: {e:?}"
         );
         assert_eq!(e.total, e.system + e.tools + e.messages, "{place}: {e:?}");
     }
+}
+
+/// The counter refuses a request with no message (HTTP 400, as the API answers, theseus-7okz9). A session's
+/// request always carries who am I now, but `exact` keeps its path for a request with none, driven here
+/// directly: it counts the system and the tools over the smallest form, its messages none, and asks the counter
+/// nothing it would refuse.
+#[tokio::test]
+async fn exact_counts_a_request_with_no_message_without_a_refusal() {
+    let r = rig(vec![]);
+    let (_, mut req) = census(&r.core, None, Some("cli"));
+    req.messages.clear();
+    let e = crate::census::exact_counts(r.fake.as_ref(), &req)
+        .await
+        .unwrap();
+    assert!(e.system > 0 && e.tools > 0, "{e:?}");
+    assert_eq!(e.messages, 0, "{e:?}");
+    assert_eq!(e.total, e.system + e.tools, "{e:?}");
 }
 
 /// Once a session has a message the request is counted whole, the messages the rest of it.

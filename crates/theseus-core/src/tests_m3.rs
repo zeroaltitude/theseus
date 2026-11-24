@@ -6004,13 +6004,16 @@ mod parallel {
     use theseus_protocol::Span;
     use theseus_tools::{Plan, Retry, Tool, ToolClass, ToolCtx, ToolFailure, ToolOutput};
 
-    /// Messages less the harness's own blocks (`task_graph::view::is_view`): who am I heads a first message.
-    fn own_words(messages: &[Value]) -> Vec<Value> {
+    /// Messages less who am I (`view::who`, by its head): it heads a fresh conversation's first message.
+    /// Every other block, the harness's too, stays.
+    fn less_who(messages: &[Value]) -> Vec<Value> {
         (messages.iter())
             .map(|m| {
                 let mut m = m.clone();
                 if let Some(b) = m["content"].as_array_mut() {
-                    b.retain(|b| !crate::task_graph::view::is_view(b));
+                    b.retain(|b| {
+                        !(b["text"].as_str()).is_some_and(|t| t.starts_with(crate::view::who::HEAD))
+                    });
                 }
                 m
             })
@@ -6344,7 +6347,7 @@ mod parallel {
         // (issue 44), so the turn's own messages are the same, byte for byte, and so is everything else, but
         // who am I, which heads the first message, the turn's own in a fresh place and the earlier exchange's here.
         let own = &reqs[3].messages[reqs[3].messages.len() - reqs[1].messages.len()..];
-        assert_eq!(own_words(own), own_words(&reqs[1].messages));
+        assert_eq!(less_who(own), less_who(&reqs[1].messages));
         assert_eq!(reqs[3].system, reqs[1].system);
         let written = labels(&r.core, &again.session_id);
         let results: Vec<&String> = written.iter().filter(|l| l.starts_with("result")).collect();

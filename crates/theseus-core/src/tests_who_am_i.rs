@@ -92,10 +92,11 @@ async fn who_am_i_names_the_live_profile_model_and_persona() {
     );
 }
 
-/// Two turns on one profile: the block is the same bytes, and so is the system part; a turn on another
-/// profile names it, and the system part is the profile's own as ever.
+/// Two turns on one profile: the block is the same bytes, and so is the system part; a turn run on another
+/// profile (the turn's own target, as a session holding its own profile has it; the daemon's live profile is
+/// not switched) names that profile, and the system part is the profile's own as ever.
 #[tokio::test]
-async fn switching_the_live_profile_changes_who_am_i_at_the_next_turn() {
+async fn a_turn_run_on_another_profile_names_it_in_who_am_i() {
     let r = view_rig();
     let c = &r.core;
     let sid = session_in(c, None, &r.root);

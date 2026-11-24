@@ -634,7 +634,7 @@ pub fn census_parts(
 
 /// The provider's counts of the request, its system, its tools and its messages: the request, then the
 /// smallest form (one word) with each added alone, so each part is what it adds to the smallest.
-async fn exact_counts(
+pub(crate) async fn exact_counts(
     provider: &dyn crate::provider::Provider,
     request: &ProviderRequest,
 ) -> Result<CensusExact> {
