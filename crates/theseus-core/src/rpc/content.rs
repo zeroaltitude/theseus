@@ -105,6 +105,9 @@ impl Core {
     /// An `injection` label holds every granted repository first
     /// (`project_context::change::hold_all`, S31-1's act key), so a write the
     /// session made before its label landed is held as one made after it.
+    /// The judge's landing has already written those holds in the label's
+    /// own frame; a repository already held is left as it is, so this is a
+    /// second try and the hold does not depend on it.
     pub fn tell_label(&self, session_id: &str, l: &Label) -> Result<bool> {
         let rec = self
             .store

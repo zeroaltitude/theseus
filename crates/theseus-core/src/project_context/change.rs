@@ -526,8 +526,9 @@ fn carry(now: &mut Seen, old: &Seen, looked: &[PathBuf]) {
 /// Called after each acting call of a session carrying `injection`
 /// ([`crate::content::acts`] decides "acting", the same predicate the freeze
 /// reads, so the set of calls a label refuses and the set that hold cannot
-/// drift apart), and when that label lands on a session
-/// (`Core::tell_label`), so a label that lands after the write holds it too.
+/// drift apart), and when that label lands on a session, in the frame that
+/// writes the label (the judge's landing), so a label that lands after the
+/// write holds it too and no label is stored without its holds.
 ///
 /// It compares nothing, so it is the same for a write in any directory of
 /// any granted repository, for a repository no session has opened in, and

@@ -757,6 +757,7 @@ impl JudgeService {
             put_flags(rec, flags);
             rows.extend(items.records()?);
             rows.extend(touched);
+            rows.extend(holds(&self.store, session, fresh.iter().map(|(_, l)| *l)));
             Ok(rows)
         });
         match &written {
@@ -973,6 +974,7 @@ impl JudgeService {
                 put_flags(rec, flags);
                 rows.extend(items.records()?);
                 rows.extend(touched);
+                rows.extend(holds(&self.store, session, fresh.iter().copied()));
                 Ok(rows)
             })
         });
@@ -1061,6 +1063,25 @@ fn labelled(l: &Label) -> ContentLabelled<'_> {
         confidence: l.confidence,
         band: l.band,
     }
+}
+
+/// The holds an `injection` label among `landed` puts on every granted
+/// repository (`project_context::change::hold_all`), written in the label's
+/// own frame: the label and the holds are written together or not at all.
+/// When the grants cannot be read the label still lands, without them, and
+/// that is said: a lost label would lift the freeze.
+fn holds<'a>(
+    store: &crate::store::Store,
+    session: &str,
+    mut landed: impl Iterator<Item = &'a Label>,
+) -> Vec<theseus_store::NewRecord> {
+    if !landed.any(|l| l.flag == Flag::Injection) {
+        return vec![];
+    }
+    crate::project_context::change::hold_all(store, session).unwrap_or_else(|e| {
+        tracing::warn!(error = %format!("{e:#}"), "judge: the granted repositories were not held with the label");
+        vec![]
+    })
 }
 
 /// The record's content flags, taken out to be changed.
