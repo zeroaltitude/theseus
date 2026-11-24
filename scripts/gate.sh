@@ -1281,7 +1281,7 @@ real_daemon_tests() {
   if [ "$rc" -ne 0 ]; then
     phase_label="real daemon tests warned"
     warn "real daemon tests failed (rc $rc): $log"
-  elif grep -q "skipped '" "$log"; then
+  elif grep -qE "skipped ['\"]" "$log"; then
     phase_label="real daemon tests skipped"
     echo "real daemon tests: skipped (see reasons above)"
     skip
