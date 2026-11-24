@@ -26,7 +26,7 @@ use theseus_protocol::LedgerKind;
 use super::*;
 
 /// A pack wired live whose own rule rolls it back on one event.
-const PACK: &str = "loop.v1";
+const PACK: &str = "loop.v2";
 
 /// The event that rule counts: a nudged turn that did nothing new.
 fn nudge() -> CanaryEvent {
@@ -136,7 +136,7 @@ impl<T: Send + 'static> Beside<T> {
 }
 
 /// A writer that lands while a re-read is scanning is in the ladder after
-/// it. The nudge rolls `loop.v1` back at once: its row is appended to the
+/// it. The nudge rolls `loop.v2` back at once: its row is appended to the
 /// store and pushed to the loaded rows, inside the scan, after the scan read
 /// the pack's scope. A re-read that swaps in what it read without holding the
 /// lock drops the row (and the event) from the ladder, and the pack, rolled

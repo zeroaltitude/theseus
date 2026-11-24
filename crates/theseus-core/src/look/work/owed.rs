@@ -13,6 +13,7 @@ use theseus_protocol::card::ProposalState;
 
 use super::reader::Reader;
 use super::{clip, CARDS_MAX};
+use crate::scrub::Cuts;
 
 /// What waits, as lines, and how many of each were left out.
 #[derive(Default)]
@@ -29,7 +30,7 @@ impl Owed {
     }
 }
 
-fn card_line(p: &theseus_protocol::card::CardProposal) -> String {
+fn card_line(p: &theseus_protocol::card::CardProposal, cuts: &Cuts) -> String {
     let at = match p.posted_ms {
         Some(_) => "the owner's DM",
         None => "the card, not posted yet",
@@ -37,7 +38,7 @@ fn card_line(p: &theseus_protocol::card::CardProposal) -> String {
     format!(
         "- {} · card proposal · waits in {at} · {}\n",
         crate::task::short(&p.id),
-        clip(&p.question, 200)
+        clip(&p.question, 200, cuts)
     )
 }
 
@@ -58,7 +59,7 @@ pub(super) fn owed(r: &Reader<'_>, here: bool) -> Result<Owed, ()> {
         .iter()
         .take(CARDS_MAX)
         .copied()
-        .map(card_line)
+        .map(|p| card_line(p, r.cuts))
         .collect();
     out.standing = crate::standing_proposals::all(&r.core.store)
         .map_err(|_| ())?
@@ -69,7 +70,7 @@ pub(super) fn owed(r: &Reader<'_>, here: bool) -> Result<Owed, ()> {
 }
 
 /// The words for the standing count, or none.
-pub(super) fn standing_words(n: usize) -> String {
+pub(super) fn standing_words(n: usize, cuts: &Cuts) -> String {
     match n {
         0 => String::new(),
         n => clip(
@@ -78,6 +79,7 @@ pub(super) fn standing_words(n: usize) -> String {
                 if n == 1 { "" } else { "s" }
             ),
             200,
+            cuts,
         ) + "\n",
     }
 }

@@ -35,7 +35,7 @@ pub(crate) struct Rig {
 /// Every judge pack but the inbound point's off, so its one call is the
 /// only one; `route.v1` live, as the build gives it.
 fn routing_only(c: &mut Config) {
-    c.judge.packs.insert("loop.v1".into(), off());
+    c.judge.packs.insert("loop.v2".into(), off());
     c.judge
         .packs
         .insert(crate::judge::gate::SECURITY_PACK.into(), off());

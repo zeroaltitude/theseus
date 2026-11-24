@@ -669,7 +669,7 @@ mod tests {
     fn classify() -> (String, Pack) {
         let text = EMBEDDED
             .iter()
-            .find(|(n, _)| *n == "classify.v4")
+            .find(|(n, _)| *n == "classify.v5")
             .unwrap()
             .1;
         (text.to_string(), Pack::parse(text).unwrap())

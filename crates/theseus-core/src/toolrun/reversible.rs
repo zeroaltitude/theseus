@@ -448,7 +448,10 @@ pub(crate) fn words(summary: &str, means: Option<&str>) -> String {
 fn raised(d: Decision, tool: &str, summary: &str) -> Decision {
     d.at_least(
         Posture::Approve,
-        "undo.v1: nothing would bring back what this loses",
+        &format!(
+            "{}: nothing would bring back what this loses",
+            crate::judge::undo::PACK_NAME
+        ),
         "[judge] reversibility",
         tool,
         summary,

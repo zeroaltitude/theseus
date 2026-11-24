@@ -1,7 +1,9 @@
 //! The owner's grant of a repository's instruction files (theseus-wadu,
 //! phase 2; `docs/design/project-context.md` §7). A grant and its revoke are
 //! the owner's acts, and each is one frame: the META record
-//! (`project_context::trust::RECORD`) and its `project.trust` row.
+//! (`project_context::trust::RECORD`) and its `project.trust` row, with the
+//! repository's sighting (`project_context::change::Seen`) stored by the
+//! grant and dropped by the revoke.
 //!
 //! **Who may grant** (theseus-me9fc). Narrower than the place rule, because
 //! a grant lets a repository's own `AGENTS.md` and `CLAUDE.md` into the
@@ -115,6 +117,18 @@ impl Core {
 
     /// Trust the repository holding `path`: its `AGENTS.md` and `CLAUDE.md`
     /// join the system block from the session's next recompile.
+    ///
+    /// **A grant pins what it grants.** The same frame stores the
+    /// repository's sighting (`change::Seen`, from `change::grant`): the
+    /// instruction files on the chain from the root down to `path`, and every
+    /// one under the root that `project_context::walk` finds, by digest. So
+    /// the first compile in any directory of the repository compares with
+    /// what was there when the owner granted it, and a file changed or added
+    /// since is a change from that. The named path's chain is digested whole
+    /// (two files a directory, so bounded by its depth); the walk and the
+    /// digests of its other finds are bounded, and a file they did not reach
+    /// is new when a compile first finds it; a grant naming that file's
+    /// directory pins it.
     pub fn project_trust(&self, path: &Path, who: impl Into<Answerer>) -> Result<Trusted> {
         let who = who.into();
         self.judge_act(
@@ -147,8 +161,12 @@ impl Core {
             by: &grant.by,
             via: &grant.via,
         };
+        let seen = theseus_store::blocking(|| {
+            change::grant(&self.runner.context_files, &root, path, grant.at_ms)
+        });
         let rec = self.rec(None);
-        self.store.append(&[rec.row(&fact)?, grants.record()?])?;
+        self.store
+            .append(&[rec.row(&fact)?, grants.record()?, seen.record(&id)?])?;
         rec.announce(&fact);
         Ok(Trusted { id, grant })
     }

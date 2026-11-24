@@ -20,6 +20,9 @@
 //! **What a grant is not.** It names no file and no digest: it trusts the
 //! repository's instruction files as they change, the design's "notify
 //! rather than ask" (§8). The block's header records each file's digest.
+//! The grant's frame also stores the repository's sighting
+//! ([`super::change::Seen`]): the digests of what was there when the owner
+//! granted it, which a change after the grant is named against.
 
 use std::collections::BTreeMap;
 use std::path::Path;

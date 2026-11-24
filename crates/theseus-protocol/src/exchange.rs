@@ -102,6 +102,9 @@ pub struct ExchangeRebuildResult {
     /// Touches keyed off their exchange's start (an older build's reply
     /// touches), moved to it so that one exchange holds one touch of a root.
     pub repaired: u64,
+    /// Records under the item labels' prefix (`labels.`) that could not be
+    /// read as an item's labels: passed over, and left as they are.
+    pub labels_passed_over: u64,
     /// Why the things named in them were not looked for, if they were not.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

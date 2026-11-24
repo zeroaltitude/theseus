@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The paired replay (issue 44, §10 of the context design): for a place's last
-N exchanges, what context was RECORDED as sent for each turn, beside what the
-VIEW would have held, from a scratch daemon on a COPY of a store.
+N exchanges, what context was RECORDED as sent for each turn, beside what
+that turn's VIEW laid, from a scratch daemon on a COPY of a store.
 
     python3 bench/view/replay.py --bin-dir target/release --store /tmp/state-copy \\
         --place 'local:/path/of/the/place' --turns 50 --out /tmp/replay
@@ -14,24 +14,31 @@ The two sides:
 - **recorded**: the ledger's measuring row of each exchange (`context.turn`,
   read whole through `ledger.tail`): the parts of the context actually sent,
   in tokens (est.), and `prev`, whether the place's previous exchange was in
-  it. The row does not record which strategy built that context (the
-  transcript's, or a view place's turn), so the replay does not say:
-  `strategy` is `not_recorded` on every row.
-- **view**: `theseus view preview PLACE --turns N --json`, the view as of each
-  of those exchanges, assembled by the turn's own assembler: its tally by
-  slot, what the budget left out and why, the fallback a turn would have
-  taken, the window and the folds. It is assembled NOW from the store as it
-  stands, for an empty message (no message's words are sent to the daemon).
-  When the daemon's preview has no `--turns` form, the replay takes the one
-  preview it has (the place's NEXT turn) and pairs it with no exchange: each
-  exchange's view side is then `null`, with the reason in the summary. A
-  daemon with no preview at all (a build before it) gives the recorded side
-  alone, and says so.
+  it;
+- **view**: the turn's own view record, as `theseus view show TURN --tally
+  --json` reads it (never `--text`): its first RETURNED readable view
+  (`view_basis`), its counts by slot, what the budget left out and why, and
+  its pieces by kind. The reader reads a turn's newest `VIEWS_READ` (32)
+  views and returns the readable ones among them, in the order they were
+  built, leaving out one that cannot be read: so the first returned is the
+  turn's first view only when the turn had no more than 32 and its first
+  reads. Fewer than 32 returned does not prove that nothing was cut (some
+  of the newest 32 may not read). `returned_views` is how many it returned,
+  not how many the turn had; `at_the_read_limit` marks a turn that returned
+  32, which may have had more. A record is read through
+  today's source checks, so it is the record as it can be inspected now (a
+  retracted source, a piece today's reader does not list: a fold, a task),
+  not a reproduction of everything that was sent. Every turn since the cut
+  has its record; a turn with none (one from before) has no view side, and
+  is counted under `no_view_record`, never as absent from the view.
 
 Whether the view held the previous exchange (`prev_in_view`) is read from
-the exchange ranges its pieces lay, interiors included (resolved against the
-place's exchange order); a range whose ends are not both in that order makes
-the answer `null` (`unknown_range`), never `false`.
+the ranges its pieces lay, interiors included, resolved against each
+place's exchange order: `ids` when an `exchanges` piece lays it, `folded`
+when it lies only inside a `folds` piece (a fold's first and last are
+exchange ids too: `ladder/view.rs`, `shown`); a range whose ends are not
+both in one place's order makes the answer `null` (`unknown_range`), never
+`false`.
 
 Output (`--out`, checked before anything is written): `rows.jsonl`, one line
 per exchange, and `summary.json`; the summary is also printed. **Ids, kinds
@@ -60,23 +67,22 @@ import scratch  # noqa: E402
 
 TURN_KIND = "context.turn"
 OTHER = "other"
+# The most views of one turn the reader returns: its newest (theseus-core: view/record.rs, `VIEWS_READ`).
+VIEWS_READ = 32
+VIEW_BASIS = "first_returned_readable_view"
 # The store's ids (`<prefix>_<uuid v7, simple>`, theseus-kernel's `new_id`).
 ID = re.compile(r"[a-z]{1,16}_[0-9a-f]{32}")
-# The daemon's enums, by field (theseus-core: exchange/ledger.rs `Prev`, the fallback reasons of
-# turn/view_step.rs, view/mod.rs `Slot` and `Reason`, the budgeter's drops, view.rs's piece kinds).
+# The daemon's enums, by field (theseus-core: exchange/ledger.rs `Prev`, view/mod.rs `Slot`, `Reason` and
+# `Space`, the budgeter's `DropWhy`).
 PREV = {"none", "transcript", "place_tail", "missed"}
-FALLBACK = {"continuation", "route", "unledgered_history", "over_budget", "assembly_error"}
 SLOTS = {"frame", "who_and_where", "waiting", "in_play", "past", "elsewhere", "here", "called", "now"}
-DROP_WHY = {"merged", "over_budget", "unit_cut"}
+DROP_WHY = {"merged", "over_budget", "unit_cut", "in_window"}
 REASONS = {"floor", "window", "ladder", "elsewhere", "past", "waiting", "at_hand", "in_play", "named", "linked",
            "reached", "task", "recalled", "correction", "fixed"}
-LEVEL = re.compile(r"[0-9]{1,2}")
+KINDS = {"exchanges", "folds", "facts", "card", "task", "waiting", "recalled", "code"}
 # The measuring row's parts of the sent context (`exchange/ledger.rs`, `Sent`).
 SENT_PARTS = ("header", "tools", "files", "replies", "calls", "words", "results_whole", "results_cleared",
               "recall", "other", "total")
-NO_TURNS = "the daemon's view preview has no --turns form: only the next turn's view was assembled"
-NO_PREVIEW = "the daemon has no view preview: the recorded side alone"
-STRATEGY = "not_recorded"
 
 
 def one_of(v, allowed: set[str]) -> str | None:
@@ -101,12 +107,11 @@ def pc(c) -> dict:
         else {"pieces": 0, "tokens": 0}
 
 
-def merged(m, allowed: set[str] | None, shape: re.Pattern | None = None) -> dict[str, dict]:
+def merged(m, allowed: set[str]) -> dict[str, dict]:
     """A map of names to counts, the names checked; names that become OTHER add up."""
     out: dict[str, Counter] = {}
     for k, c in (m.items() if isinstance(m, dict) else []):
-        name = k if (allowed is not None and k in allowed) or (shape is not None and shape.fullmatch(str(k))) \
-            else OTHER
+        name = k if k in allowed else OTHER
         out.setdefault(name, Counter()).update(pc(c))
     return {k: dict(v) for k, v in out.items()}
 
@@ -117,7 +122,6 @@ def merged(m, allowed: set[str] | None, shape: re.Pattern | None = None) -> dict
 def recorded_side(data: dict) -> dict:
     sent = data.get("sent") if isinstance(data.get("sent"), dict) else {}
     return {
-        "strategy": STRATEGY,
         "tokens": {p: count(sent.get(p)) for p in SENT_PARTS},
         "prev": one_of(data.get("prev"), PREV),
         "cold": data.get("cold") is True,
@@ -133,113 +137,109 @@ def turn_rows(rows: list[dict], place: str) -> list[dict]:
 # ---- the view's side
 
 
-def held_exchanges(p: dict, order: list[str]) -> tuple[set[str], int]:
-    """The exchange ids the view's pieces lay, range interiors included, and how many ranges could not be
-    resolved against `order` (the place's exchange ids, oldest first)."""
-    at = {e: i for i, e in enumerate(order)}
+def orders_of(rows: list[dict]) -> dict[str, list[str]]:
+    """Each place's exchange ids, oldest first, from every measuring row."""
+    out: dict[str, list[str]] = {}
+    for r in rows:
+        d = r.get("data") if isinstance(r.get("data"), dict) else {}
+        e = an_id(d.get("exchange"))
+        if e not in (None, OTHER) and isinstance(d.get("place"), str):
+            out.setdefault(d["place"], []).append(e)
+    return out
+
+
+def laid(view: dict, orders: dict[str, list[str]], kind: str) -> tuple[set[str], int]:
+    """The exchange ids a view's pieces of `kind` (`exchanges` or `folds`) lay, range interiors included, and
+    how many of those ranges could not be resolved against one place's order."""
+    at = {e: (p, i) for p, ids in orders.items() for i, e in enumerate(ids)}
     held, unresolved = set(), 0
-    view = p.get("view") if isinstance(p.get("view"), dict) else {}
     for slot in view.get("slots") or []:
         for piece in (slot.get("pieces") or []) if isinstance(slot, dict) else []:
-            if not isinstance(piece, dict) or piece.get("kind") != "exchanges":
+            if not isinstance(piece, dict) or piece.get("kind") != kind:
                 continue
             first, last = an_id(piece.get("first")), an_id(piece.get("last"))
             if first in (None, OTHER) or last in (None, OTHER):
                 unresolved += 1
             elif first == last:
                 held.add(first)
-            elif first in at and last in at:
-                i, j = sorted((at[first], at[last]))
-                held.update(order[i:j + 1])
+            elif first in at and last in at and at[first][0] == at[last][0]:
+                ids = orders[at[first][0]]
+                i, j = sorted((at[first][1], at[last][1]))
+                held.update(ids[i:j + 1])
             else:
                 unresolved += 1
     return held, unresolved
 
 
-def view_side(p: dict, order: list[str]) -> dict:
-    """One preview, as counts: by slot, what was left out (by why and by reason), the fallback, the window,
-    the folds and the budget; and, apart (`_held`, `_unresolved`), what it lays of the place's exchanges."""
-    tally = p.get("tally") if isinstance(p.get("tally"), dict) else {}
-    budget = p.get("budget") if isinstance(p.get("budget"), dict) else {}
-    held, unresolved = held_exchanges(p, order)
-    folds = {}
-    for k, n in (p.get("folds") or {}).items() if isinstance(p.get("folds"), dict) else []:
-        name = k if LEVEL.fullmatch(str(k)) else OTHER
-        folds[name] = folds.get(name, 0) + count(n)
+def view_side(shown: dict, orders: dict[str, list[str]]) -> dict | None:
+    """A turn's record (`view.show`'s answer), as counts: its first RETURNED readable view (module text), by
+    slot, what was left out (by why and by reason) and its pieces by kind, with how many views were returned;
+    and, apart (`_held`, `_folded`, `_unresolved`), what it lays of the store's exchanges. None when the turn
+    has no view record."""
+    views = [v for v in shown.get("views") or [] if isinstance(v, dict)] if isinstance(shown, dict) else []
+    if not views:
+        return None
+    first = views[0]
+    tallies = [t for t in shown.get("tallies") or [] if isinstance(t, dict)]
+    tally = next((t for t in tallies if t.get("compilation") == first.get("compilation")), {})
+    kinds: Counter = Counter()
+    for slot in first.get("slots") or []:
+        for piece in (slot.get("pieces") or []) if isinstance(slot, dict) else []:
+            if isinstance(piece, dict):
+                kinds[one_of(piece.get("kind"), KINDS)] += 1
+    held, u1 = laid(first, orders, "exchanges")
+    folded, u2 = laid(first, orders, "folds")
+    totals = first.get("totals") if isinstance(first.get("totals"), dict) else {}
     return {
-        "tokens": count(tally.get("tokens")),
+        "returned_views": len(views),
+        "at_the_read_limit": len(views) >= VIEWS_READ,
+        "tokens": count(tally.get("tokens")) or count(totals.get("tokens")),
         "slots": merged(tally.get("slots"), SLOTS),
         "left_out": merged(tally.get("dropped"), DROP_WHY),
         "left_out_reasons": {k: c["pieces"] for k, c in merged(tally.get("dropped_reasons"), REASONS).items()},
-        "fallback": one_of(p.get("fallback"), FALLBACK),
-        "overflow": p.get("overflow") is not None,
-        "window": count(p.get("window")),
-        "folds": folds,
-        "budget": {k: count(budget.get(k)) for k in ("provider_window", "reserve", "ceiling", "here_allowance")},
+        "kinds": dict(kinds),
         "_held": held,
-        "_unresolved": unresolved,
+        "_folded": folded - held,
+        "_unresolved": u1 + u2,
     }
 
 
-def previews(d, place: str, n: int) -> tuple[list[dict], str | None]:
-    """The view as of each of the place's last `n` exchanges, oldest first, and a note when only the next
-    turn's could be had. Never `--text`, never `--message`."""
-    r = d.cli("--json", "view", "preview", place, "--turns", str(n))
-    if r.returncode == 0:
-        try:
-            v = json.loads(r.stdout)
-        except json.JSONDecodeError:
-            v = None
-        got = v.get("turns") if isinstance(v, dict) else v
-        if isinstance(got, list):
-            return [x for x in got if isinstance(x, dict)], None
-    try:
-        one = d.json("view", "preview", place)
-    except scratch.Failed:
-        return [], NO_PREVIEW
-    return ([one], NO_TURNS) if isinstance(one, dict) else ([], NO_PREVIEW)
-
-
-def as_of(p: dict) -> str | None:
-    """The exchange a preview was assembled as of, when the daemon says."""
-    for k in ("as_of", "exchange"):
-        v = an_id(p.get(k))
-        if v not in (None, OTHER):
-            return v
-    return None
+def records(d, rows: list[dict]) -> dict[str, dict]:
+    """Each row's turn's record, by exchange id: `view show <turn> --tally`, never `--text`."""
+    out = {}
+    for r in rows:
+        ex = an_id(r["data"].get("exchange"))
+        if ex not in (None, OTHER):
+            out[ex] = d.json("view", "show", ex, "--tally")
+    return out
 
 
 # ---- the pairing
 
 
-def pair(rows: list[dict], views: list[dict], note: str | None, order: list[str]) -> list[dict]:
-    """One row per exchange: its ids, the recorded side, the view's (or None) and whether the view held the
-    previous exchange: by the ranges it lays; unknown when a range cannot be resolved; else, with no
-    exchange piece and no fallback, by the window (it lays the newest exchanges of the place first)."""
-    by_id = {as_of(v): v for v in views if as_of(v)}
-    ordered = note is None and not by_id and len(views) == len(rows)
+def pair(rows: list[dict], shown: dict[str, dict], orders: dict[str, list[str]]) -> list[dict]:
+    """One row per exchange: its ids, the recorded side, its own view record's side (or None) and whether
+    that view held the previous exchange: laid whole (`ids`), only inside a fold (`folded`), unknown when a
+    range cannot be resolved, else not held."""
     out = []
-    for i, r in enumerate(rows):
+    for r in rows:
         data = r["data"]
         ex = an_id(data.get("exchange"))
         prev = an_id(data.get("prev_exchange"))
-        v = by_id.get(ex) or (views[i] if ordered else None)
-        side = view_side(v, order) if v is not None else None
-        held = basis = None
+        side = view_side(shown.get(ex) or {}, orders)
+        held, basis = None, "no_view_record"
         if side is not None:
-            ids, unresolved = side.pop("_held"), side.pop("_unresolved")
+            ids, folded, unresolved = side.pop("_held"), side.pop("_folded"), side.pop("_unresolved")
             if prev is None:
                 basis = "no_previous"
             elif prev in ids:
                 held, basis = True, "ids"
+            elif prev in folded:
+                held, basis = True, "folded"
             elif unresolved:
                 basis = "unknown_range"
-            elif ids:
-                held, basis = False, "ids"
-            elif side["fallback"] is None:
-                held, basis = side["window"] >= 1, "window"
             else:
-                held, basis = False, "fallback"
+                held, basis = False, "ids"
         out.append({
             "exchange": ex,
             "prev_exchange": prev,
@@ -251,15 +251,15 @@ def pair(rows: list[dict], views: list[dict], note: str | None, order: list[str]
     return out
 
 
-def summarize(place_rows: list[dict], note: str | None, now: dict | None, order: list[str]) -> dict:
+def summarize(place_rows: list[dict]) -> dict:
     r_tokens: Counter = Counter()
     v_tokens: Counter = Counter()
-    fallback: Counter = Counter()
     prev_r: Counter = Counter()
     prev_v: Counter = Counter()
     left: dict[str, Counter] = {}
     left_reasons: Counter = Counter()
-    with_view = 0
+    kinds: Counter = Counter()
+    with_view = at_limit = 0
     for r in place_rows:
         r_tokens.update(r["recorded"]["tokens"])
         prev_r[r["recorded"]["prev"] or "none"] += 1
@@ -267,48 +267,42 @@ def summarize(place_rows: list[dict], note: str | None, now: dict | None, order:
         if v is None:
             continue
         with_view += 1
+        at_limit += v["at_the_read_limit"]
         v_tokens["total"] += v["tokens"]
         for s, c in v["slots"].items():
             v_tokens[s] += c["tokens"]
-        fallback[v["fallback"] or "takes_the_view"] += 1
-        key = {True: "held", False: "not_held"}.get(r["prev_in_view"],
-                                                    "no_previous" if r["prev_in_view_basis"] == "no_previous"
-                                                    else "unknown")
+        key = {True: "held" if r["prev_in_view_basis"] == "ids" else "folded", False: "not_held"}.get(
+            r["prev_in_view"], "no_previous" if r["prev_in_view_basis"] == "no_previous" else "unknown")
         prev_v[key] += 1
         for why, c in v["left_out"].items():
             left.setdefault(why, Counter()).update(c)
         left_reasons.update(v["left_out_reasons"])
+        kinds.update(v["kinds"])
     n = len(place_rows)
-    s = {
+    return {
         "exchanges": n,
-        "with_a_view_row": with_view,
-        "recorded_strategy": STRATEGY,
+        "with_a_view_record": with_view,
+        "no_view_record": n - with_view,
+        "view_basis": VIEW_BASIS,
+        "returned_views_at_the_read_limit": at_limit,
         "tokens": {
             "recorded": {"sum": dict(r_tokens), "mean": {k: round(x / n) for k, x in r_tokens.items()} if n else {}},
             "view": {"sum": dict(v_tokens),
                      "mean": {k: round(x / with_view) for k, x in v_tokens.items()} if with_view else {}},
         },
-        "view_fallback": dict(fallback),
         "previous_exchange": {"recorded": dict(prev_r), "view": dict(prev_v)},
         "left_out_by_why": {k: dict(c) for k, c in left.items()},
         "left_out_by_reason": dict(left_reasons),
-        "notes": [note] if note else [],
+        "pieces_by_kind": dict(kinds),
     }
-    if now is not None:
-        side = view_side(now, order)
-        side.pop("_held")
-        side.pop("_unresolved")
-        s["next_turn_view"] = side
-    return s
 
 
 def replay(d, place: str, n: int) -> tuple[list[dict], dict]:
-    mine = turn_rows(scratch.ledger_rows(d, TURN_KIND), place)
-    order = [e for e in (an_id(r["data"].get("exchange")) for r in mine) if e not in (None, OTHER)]
+    every = scratch.ledger_rows(d, TURN_KIND)
+    mine = turn_rows(every, place)
     rows = mine[-n:] if n > 0 else mine
-    views, note = previews(d, place, n)
-    paired = pair(rows, views, note, order)
-    return paired, summarize(paired, note, views[0] if note == NO_TURNS and views else None, order)
+    paired = pair(rows, records(d, rows), orders_of(every))
+    return paired, summarize(paired)
 
 
 def main(argv: list[str] | None = None) -> int:

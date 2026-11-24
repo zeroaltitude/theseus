@@ -8,7 +8,7 @@ import type { LearningReport as Report, PackReport, QuestionReport } from '@prot
 import { call, useRpc } from '@/lib/rpc'
 import { cn, ms, usd } from '@/lib/format'
 import { useHistoryRows } from '@/lib/history'
-import { ONTO_PACK, ontoKindWords, ontoLine, ontoStatsOf } from '@/lib/ontostats'
+import { ontoKindWords, ontoLine, ontoStatsOf } from '@/lib/ontostats'
 import { Empty } from '@/components/ui'
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${Math.round(v * 100)}%`)
@@ -45,9 +45,10 @@ export function LearningReport({ date, pack, onDate }: { date: string; pack: str
 function PackBlock({ p, date }: { p: PackReport; date: string }) {
   const h = p.holdout
   // The ontology pack's line (theseus-0vhyn): its judgments, acts and confirms, counted from the ledger's rows for the
-  // report's day; and the undo rate per kind, the stored report's own (`pack.undo`, theseus-2tqqs), with its window.
+  // report's day and the version the block names (onto.v1's old reports keep theirs, issue 46); and the undo rate per
+  // kind, the stored report's own (`pack.undo`, theseus-2tqqs), with its window.
   const { rows } = useHistoryRows()
-  const onto = useMemo(() => (p.pack === ONTO_PACK ? ontoStatsOf(rows, { day: date }) : null), [p.pack, rows, date])
+  const onto = useMemo(() => ontoStatsOf(rows, { pack: p.pack, day: date }), [p.pack, rows, date])
   return (
     <div className="border-t border-line pt-2">
       <div className="num flex flex-wrap gap-x-3 text-ink">

@@ -59,7 +59,7 @@ struct Args {
     /// Run against an in-process fake Jev, with no key and no spend.
     #[arg(long)]
     fake: bool,
-    /// Run a pack's eval set (`security.v3`, `heard.v1`, `classify.v4`): one call per
+    /// Run a pack's eval set (`security.v3`, `heard.v1`): one call per
     /// case, each expectation printed as met or missed, then a tally. With
     /// `--fake` the fake is scripted to agree with every case (a dry run of
     /// the plumbing, not of Jev). `--only` runs the named cases.

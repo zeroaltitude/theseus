@@ -735,7 +735,7 @@ async fn a_judged_tool_loop_keeps_its_frame_budget_and_marks_its_trace() {
         frames[1]
     );
     let (trace, r, sid) = &traces[1];
-    // The gate's one mark; 23b's loop.v1 mark at the turn's end is a second.
+    // The gate's one mark; 23b's loop.v2 mark at the turn's end is a second.
     let marks = spans(trace, "mark")
         .into_iter()
         .filter(|s| s["name"] == "judge" && s["attrs"]["point"] == "gate")

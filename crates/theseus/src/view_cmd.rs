@@ -91,16 +91,39 @@ async fn preview(
 
 /// The result in plain lines.
 fn said(r: &ViewShowResult) -> String {
-    if r.views.is_empty() {
+    if r.views.is_empty() && r.unread.is_empty() {
         return format!(
             "turn {} has no view record: it was compiled as a transcript, or before views were kept\n",
             r.turn_id
         );
     }
     let mut out: String = r.views.iter().map(lines).collect();
+    out.extend((r.unread.iter()).map(|c| {
+        format!("view {c}: this build cannot read its record (a later build may have written it)\n")
+    }));
     out.extend(r.tallies.iter().map(tally_lines));
     if let Some(w) = &r.withheld {
         out.push_str(&format!("({w})\n"));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A view this build cannot read is said in a plain line, never as a turn with no view record.
+    #[test]
+    fn a_view_this_build_cannot_read_is_said_plainly() {
+        let r = ViewShowResult {
+            turn_id: "turn_1".into(),
+            unread: vec!["cmp_1".into()],
+            ..ViewShowResult::default()
+        };
+        let out = said(&r);
+        assert_eq!(
+            out,
+            "view cmp_1: this build cannot read its record (a later build may have written it)\n"
+        );
+    }
 }

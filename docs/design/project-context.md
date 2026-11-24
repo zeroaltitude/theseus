@@ -316,6 +316,30 @@ Each carried file's digest is already recorded in the manifest. When a trusted
 repository's instruction file changes, or a new one appears, the file is carried and
 the change is named in the block and ledgered.
 
+**A grant pins what it grants.** The grant's own frame stores the repository's
+sighting: the digests of the `AGENTS.md` and `CLAUDE.md` files on the chain from the root
+down to the path the grant names, and of every one under the root that a walk finds.
+
+The chain is digested whole, before the walk, and neither the walk's allowances nor the
+digests' apply to it: it is at most two files a directory from the root down to the named
+path, so its cost is bounded by that path's depth and by nothing else. The walk is
+breadth-first, so the files nearest the root come first. It reads no ignore file, never
+enters `.git`, and does not follow a symlinked directory. Its entry allowance bounds the
+raw directory entries it reads: 20,000 in all, every entry a listing returns, an error
+included, kept or not. Its time allowance is two seconds. The walk's finds that are not
+on the chain are then digested within 1,000 files or two more seconds, and never replace
+a digest of the chain. The time allowances are checked between filesystem calls in the
+walk and between files in the digests: one filesystem call that blocks, such as a read on
+a stalled network mount, is not interrupted, and a file's digest, once begun, runs to its
+end. A change is a change from the sighting, in whatever directory a session first opens.
+A file the walk or its digests did not reach is new when a compile first finds it, and a
+grant given again naming that file's directory pins it.
+
+**A sighting accumulates.** A compile looks only along the chain from the root down to
+the session's directory, and it changes only what it looked for: a file stored from
+elsewhere in the repository is kept as it was, and a compile that did not look for a file
+never reports it gone.
+
 The default is to notify rather than to ask, deliberately. Asking on every edit would
 fire a card many times a day in the repository being actively edited, and a card that
 fires constantly is a card that is clicked through, which is worse security than a
@@ -353,14 +377,10 @@ ledger row names the session whose call it moved under.
 **A repository's swept files are not all the files under its root.** They are the union
 of two sets: the files the owner's stored sighting of that repository already names, and
 — for the repository the session is actually working in — the chain from its root down
-to the session's own directory. **Together they are still not every file a grant covers
-that anything has ever looked at**, which is what this note claimed until the fourth round
-of review. A sighting is stored per repository but taken from whichever directory the
-compiling session was in, and it replaces its predecessor — so a file the owner has read
-falls out of it the next time an ordinary clean session opens elsewhere in the same
-repository. And a granted repository no session has ever been opened in has no stored
-sighting at all. The union is reached without walking the repository, which would make the
-cost of an acting call scale with the size of the tree rather than with the grant.
+to the session's own directory. The stored sighting holds what the grant's walk found and
+what every compile since has seen. The union is reached without walking the repository on
+each call, which would make the cost of an acting call scale with the size of the tree
+rather than with the grant.
 
 It errs the safe way where it is imprecise. A file that moved under such a call for an
 unrelated reason — a `git pull` in another terminal — is held too; the cost of that is
@@ -374,37 +394,11 @@ away.
 **What neither key closes**, listed in full because a design note that overstates a
 containment is worse than none:
 
-1. **Any instruction file that is neither in a granted repository's currently-stored
-   sighting nor on the chain from the session's own repository root to its own working
-   directory** — whether it was created or merely changed, and whether or not its
-   directory has ever been compiled in. It is in neither swept set, so no sweep sees it,
-   and the first clean session to open where it lives carries it. This is the one of the
-   three bypasses found in review that is still open, and it is open deliberately:
-   closing it means walking a granted root on every acting call.
-
-   **It is wider than "a brand-new file in a directory nobody has opened"**, which is how
-   this note stated it until the third round of review, and two of its cases are ones that
-   wording excluded. **A granted repository no session has ever been opened in:** the grant
-   stores no sighting, and the repository is not the session's own, so both halves of the
-   swept set are empty and the repository's own `AGENTS.md` — the very file the grant was
-   given for — is unswept. Nothing was created and nothing is undiscovered; the repository
-   was simply never opened. It arrives with **no "changed" notice at all**, because a
-   repository's first sighting is not a diff — which is quieter than the new-file case,
-   and that at least produces a row. **A file the owner has already read, in a directory he
-   has already worked in:** a sighting is stored per repository but taken from whichever
-   directory the compiling session was in, and it replaces its predecessor, so an ordinary
-   clean session opening elsewhere in the same repository evicts that file from it, and
-   from then on it is in neither set. Nothing adversarial causes the eviction — ordinary
-   use does.
-
-   Closing it cheaply instead — by letting a compile that discovers a *new* instruction
-   file ask whether a labelled session acted in that repository since the owner last read
-   it — is the shape to weigh, and it is not built here. That shape closes the evicted-file
-   case but **not** the never-opened-repository case: a repository with no stored sighting
-   produces no diff at all, so nothing in it is ever *new*, and "acted in that repository"
-   is the wrong key when the labelled session acted in a different granted one. The part to
-   build first is accumulating a repository's discovered paths rather than replacing them,
-   which closes the eviction and is also what makes *new* mean something.
+1. **Any instruction file that is neither in a granted repository's stored sighting nor
+   on the chain from the session's own repository root to its own working directory**:
+   one that appeared after the grant where no compile has looked since, or one the grant's
+   walk did not reach. It is in neither swept set, so no sweep sees it, and the first
+   clean session to open where it lives carries it.
 2. A **background job that writes after its own call has returned**. The next acting call
    of that session catches it; a clean session that opens before then does not.
 3. Text written by a session that was **never labelled at all**. What fits that is the
@@ -472,15 +466,19 @@ block, and the OS fact.
   named in the block (`Observed::line`, after the carried text) and is one `project.changed` row a
   file (`fact/project.rs`), written with the new sighting in the turn's next frame by
   `TurnRunner::observe_project`. Both halves come from one `change::observe` call on the same
-  inputs, so the block and the ledger cannot disagree. A first sighting stores the state and says
-  nothing: the notice is for a change *after* the owner looked. Digests, never text. No watcher --
-  the comparison rides a recompile the session already pays for.
+  inputs, so the block and the ledger cannot disagree. The grant stores the first sighting
+  (`project_context::change::grant`: the named path's chain, whole, and what
+  `project_context::walk` finds, within the digests' allowance, in the grant's own frame), and a compile keeps what it did not look for: the notice is for a change
+  *after* the owner looked. Digests, never text. No watcher -- the comparison rides a recompile
+  the session already pays for.
 - **The posture.** `[project] on_change`, `"notice"` (the default, and today's behaviour but for
   the saying of it) or `"ask"`. At `ask` the *changed* files are named and not read, the unchanged
   ones are carried as before, no sighting is stored -- so the file keeps waiting rather than
   arriving by itself on the next turn -- and the row says `carried: false`. The owner's accept is
   `untrust` then `trust`: `Core::project_untrust` drops the repository's sighting in the grant's own
-  frame, so the grant given again does not report a change he has just this moment read.
+  frame, so the grant given again does not report a change he has just this moment read. The block
+  says to name the session's directory in that `trust`, so the grant pins every file of that
+  directory's chain, whatever its walk or its digests reached.
   `notice` is the default because the design says why in as many words: a card that fires on every
   edit of a repository being actively edited is a card that is clicked through, which is worse
   security than a notice that is read. A notice also widens nothing, so it is not covered by the
@@ -512,13 +510,7 @@ to be asked to contain the write: a **swept** file of any granted repository tha
 acting call of a session already carrying `injection` is held out of **every** session's block
 until the owner says yes (S31-1, the writer key), and a changed file read by a labelled session is
 held for that session (the reader key). What is left is three writes: any instruction file that is
-neither in a granted repository's currently-stored sighting nor on the chain from the session's own
-repository root to its own working directory — created or merely changed, its directory compiled in
-or not, which includes a granted repository nobody has ever opened a session in and a file the owner
-has read that an ordinary compile elsewhere in the same repository evicted from the sighting; a
-background job whose write lands after its own call returned; and a write by a session that was
-never labelled. Closing the last would mean labelling block 3's project text, which is a different
-design; closing the first means either walking a granted root on every acting call, or accumulating
-a repository's discovered paths rather than replacing them and then asking — when a compile
-discovers a *new* instruction file — whether a labelled session acted in that repository since the
-owner last read it. Neither is built, and §8's item 1 states the two excluded cases in full.
+neither in a granted repository's stored sighting nor on the chain from the session's own
+repository root to its own working directory (§8's item 1); a background job whose write lands
+after its own call returned; and a write by a session that was never labelled. Closing the last
+would mean labelling block 3's project text, which is a different design.

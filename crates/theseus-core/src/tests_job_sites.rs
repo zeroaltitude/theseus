@@ -10,8 +10,9 @@
 //!   the job runs on the model it names;
 //! - **slow**: Jev holds its answer, and the job runs on `live` at about
 //!   `max_wait_ms`, not when Jev answers;
-//! - **no origin rule**: the owner's material is told `allowed`, and a pick of
-//!   Flash runs on Flash (the restricted-origin rule went on 2026-11-21).
+//! - **no origin rule**: nothing in the state the judge is shown restricts a
+//!   model's origin (no `restricted_models` since issue 46), and a pick of Flash
+//!   runs on Flash (the restricted-origin rule went on 2026-11-21).
 
 use std::time::{Duration, Instant};
 
@@ -49,6 +50,15 @@ async fn pinned(s: &Site) {
     assert_eq!(jev.connections(), 0, "a pin asks nothing");
 }
 
+/// Nothing in the state restricts a model's origin: no `restricted_models` and no
+/// "not allowed" (issue 46 stopped writing the fact, which always said `allowed`).
+fn no_floor(state: &str) {
+    assert!(
+        !state.contains("restricted_models") && !state.contains("not_allowed"),
+        "no floor for the owner's material: {state}"
+    );
+}
+
 async fn asks(s: &Site) {
     let jev = FakeJev::start().unwrap();
     pick(&jev, s.pick.0, 0.95);
@@ -62,10 +72,7 @@ async fn asks(s: &Site) {
         "the paragraph says `{}`: {state}",
         s.says
     );
-    assert!(
-        state.contains("\"allowed\""),
-        "no floor for the owner's material: {state}"
-    );
+    no_floor(&state);
 }
 
 async fn slow(s: &Site) {
@@ -93,9 +100,7 @@ async fn china(s: &Site) {
         "deepseek-flash",
         "Flash is picked and runs"
     );
-    assert!(jev.seen()[0].body["state"]
-        .to_string()
-        .contains("\"allowed\""));
+    no_floor(&jev.seen()[0].body["state"].to_string());
 }
 
 macro_rules! site {
@@ -169,7 +174,7 @@ site!(
             async {
                 let core = r.core.clone();
                 let rt = tokio::runtime::Handle::current();
-                tokio::task::spawn_blocking(move || core.writer_target(&rt, "classify.v4"))
+                tokio::task::spawn_blocking(move || core.writer_target(&rt, "classify.v5"))
                     .await
                     .unwrap()
                     .unwrap()
@@ -179,7 +184,7 @@ site!(
         },
         pin: ("fable", "claude-fable-5-2"),
         pick: ("haiku", "claude-haiku-5-5"),
-        says: "classify.v4",
+        says: "classify.v5",
     }
 );
 
@@ -253,10 +258,8 @@ async fn the_self_builder_asks_jev_and_runs_on_its_pick() {
     assert_eq!(t.model, "claude-fable-5-2");
     assert_eq!(jev.connections(), 1);
     let state = jev.seen()[0].body["state"].to_string();
-    assert!(
-        state.contains("job") && state.contains("\"allowed\""),
-        "{state}"
-    );
+    assert!(state.contains("job"), "{state}");
+    no_floor(&state);
 }
 
 /// A motif drawn from private sessions and a bench-born one may both be
@@ -272,18 +275,14 @@ async fn the_self_builder_may_pick_flash_for_any_motif() {
         .await
         .unwrap();
     assert_eq!(t.model, "deepseek-flash", "private: Flash runs");
-    assert!(jev.seen()[0].body["state"]
-        .to_string()
-        .contains("\"allowed\""));
+    no_floor(&jev.seen()[0].body["state"].to_string());
     let t = r
         .core
         .mint_writer_target(&writer_session(&r), &pending(false))
         .await
         .unwrap();
     assert_eq!(t.model, "deepseek-flash", "bench-born: nobody's material");
-    assert!(jev.seen()[1].body["state"]
-        .to_string()
-        .contains("\"allowed\""));
+    no_floor(&jev.seen()[1].body["state"].to_string());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

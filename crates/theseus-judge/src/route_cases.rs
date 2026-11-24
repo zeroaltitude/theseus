@@ -183,7 +183,7 @@ pub struct Case {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaseSet {
-    /// The pack the file is written for (`route.v11`).
+    /// The pack the file is written for (`route.v12`).
     pub pack: String,
     pub cases: Vec<Case>,
 }
@@ -430,12 +430,12 @@ pub fn declared_pack(text: &str) -> Result<String, String> {
 /// 2026-11-14: the labelled cases are read for v11 as they are for v10), as `directive.v1`'s labelled
 /// sentences are read for both directive names. `route.v10.cases.toml` declares `route.v11` since
 /// v10 was retired (issue 46), and is still read for v10's own file (`--pack-file`), as a file a
-/// build before that wrote for v10 is read for v11.
+/// build before that wrote for v10 is read for v11. `route.v12` is `route.v11` without the questions
+/// nothing read and two clauses of `model` (issue 46): the same `model` options, so the same set, and
+/// the file declares `route.v12` since; each of the three versions reads a file written for another.
 fn read_as(written: &str, pack: &str) -> bool {
-    matches!(
-        (written, pack),
-        ("route.v10", "route.v11") | ("route.v11", "route.v10")
-    )
+    const SET: [&str; 3] = ["route.v10", "route.v11", "route.v12"];
+    written != pack && SET.contains(&written) && SET.contains(&pack)
 }
 
 impl CaseSet {

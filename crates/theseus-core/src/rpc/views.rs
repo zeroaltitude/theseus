@@ -115,7 +115,7 @@ impl Core {
 
     /// A turn's views.
     fn view_show(&self, p: &ViewShowParams) -> anyhow::Result<ViewShowResult> {
-        let views = record::of_turn(&self.store, &p.turn_id)?;
+        let (views, unread) = record::of_turn_unread(&self.store, &p.turn_id)?;
         let text = StoreText(&self.store);
         let shown: Option<&dyn PieceText> = p.text.then_some(&text);
         let tallies = match p.tally {
@@ -130,6 +130,7 @@ impl Core {
             turn_id: p.turn_id.clone(),
             views: self.owners_all(&views, shown).0,
             tallies,
+            unread,
             withheld: (!p.text).then(|| NO_TEXT.into()),
         })
     }

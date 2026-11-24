@@ -1,4 +1,4 @@
-//! The judge in a real daemon (M5 23a): `loop.v1` in shadow, with the real
+//! The judge in a real daemon (M5 23a): `loop.v2` in shadow, with the real
 //! `theseusd`, a stand-in for the Messages API, and the fake Jev.
 //! - a start with the judge enabled and Jev out of reach answers health at
 //!   once, and builds nothing of the judge before a judgment;
@@ -63,18 +63,18 @@ impl Rig {
             j.insert("api_base".into(), base.into());
             j.insert("connect_secs".into(), 1.into());
             j.insert("total_secs".into(), 5.into());
-            // loop.v1 alone: the inbound point's packs (25a, 25e's route.v1)
+            // loop.v2 alone: the inbound point's packs (25a, 25e's route.v1)
             // are judged in theseus-core's tests_inbound and tests_route, and
             // content.v3 in its tests_content (theseus-9ymz0). These tests count
             // the calls Jev is made, so a pack that asks about every item
             // entering a session would be counting its own.
             let packs = table(j, "packs");
             for p in [
-                "classify.v4",
+                "classify.v5",
                 "split.v1",
-                "route.v11",
+                "route.v12",
                 "directive.v2",
-                "onto.v1",
+                "onto.v2",
                 "content.v4",
             ] {
                 let mut off = toml::Table::new();
@@ -151,13 +151,13 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
         j["packs"],
         json!([
             // Live at a turn's stop while `[judge] stop_nudge` is on (theseus-fh0u).
-            "loop.v1: live",
+            "loop.v2: live",
             "security.v3: live (owner: decision of 2026-10-04)",
-            "classify.v4: off",
+            "classify.v5: off",
             "split.v1: off",
-            "route.v11: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-11-14))",
+            "route.v12: off (the config's ceiling; on the ladder: live (owner: a new compiled version goes live on landing (docs/development.md); issue 46: the live packs lose the questions nothing reads))",
             "directive.v2: off",
-            "onto.v1: off",
+            "onto.v2: off",
             // The sweep's merge and split packs, live from their landing (theseus-nzzz4).
             "same_thing.v1: live",
             "two_things.v1: live",
@@ -178,7 +178,7 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "delay.v1: live",
             // Live from theseus-p5kln: `[judge] reversibility` is on by
             // default, the owner's own word of 2026-11-12.
-            "undo.v1: live"
+            "undo.v2: live"
         ])
     );
     assert_eq!(rig.rows("pack.mode").len(), 3, "one adoption row each");
@@ -245,7 +245,7 @@ fn a_turn_is_judged_after_it_and_asks_the_model_the_same_bytes() {
     });
     assert_eq!(rows.len(), 1);
     let d0 = &rows[0]["data"];
-    assert_eq!(d0["pack"], "loop.v1");
+    assert_eq!(d0["pack"], "loop.v2");
     assert_eq!(d0["outcome"]["outcome"], "answered", "{d0}");
     assert_eq!(rows[0]["session_id"], res["session_id"]);
     let cost = d0["cost_micros"].as_u64().unwrap();
@@ -331,7 +331,7 @@ fn the_ladder_moves_over_the_socket_and_max_mode_caps_it_after_a_restart() {
     let r = rig
         .call(
             "pack.promote",
-            json!({"pack": "loop.v1", "to": "canary", "share": 1.0}),
+            json!({"pack": "loop.v2", "to": "canary", "share": 1.0}),
         )
         .unwrap();
     assert_eq!(r["row"]["forced"], true, "{r}");
@@ -346,8 +346,8 @@ fn the_ladder_moves_over_the_socket_and_max_mode_caps_it_after_a_restart() {
             .to_string()
     };
     assert_eq!(
-        line(&rig, "loop.v1"),
-        "loop.v1: canary 1.0 (owner: forced by the owner)"
+        line(&rig, "loop.v2"),
+        "loop.v2: canary 1.0 (owner: forced by the owner)"
     );
     let card = rig
         .call("pack.promote", json!({"pack": "security.v3", "to": "live"}))

@@ -33,6 +33,10 @@ pub struct ViewShowResult {
     pub views: Vec<ViewShown>,
     /// Each view's counts, when asked for (`tally`), in the order of `views`.
     pub tallies: Vec<ViewTally>,
+    /// The compilations of the turn's views this build cannot read (a later build's names), in the order
+    /// built: not in `views`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unread: Vec<String>,
     /// Why some of it is not here: text not asked for.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

@@ -8,6 +8,10 @@
 //!   person's message lands, each category it chose at the act band touches
 //!   that message's exchange, so a topic has a timeline like any other thing.
 //!   The judge's own filing stays per session, as it was.
+//! - **Picture labels per exchange** ([`pictures`]): the same pack's answers
+//!   about the pictures a person's message carried, at the act band, touch
+//!   that message's exchange under `picture:<subject>` and, for a yes,
+//!   `picture:shows_screen_or_document`.
 //! - **Numbered items** ([`items`]): the index's extractor names "issue 33",
 //!   "#33" and "PR 12" (`index.items`); a bare number is scoped by the
 //!   project of the place it was said in when one is known, and is otherwise
@@ -25,5 +29,6 @@
 
 pub mod card;
 pub mod items;
+pub mod pictures;
 pub mod table;
 pub mod topics;

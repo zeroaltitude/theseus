@@ -27,6 +27,8 @@ use theseus_store::{kinds, NewRecord};
 use crate::content::{ContentFlags, Flag, ItemKind, Label, Removed};
 use crate::store::Store;
 
+pub mod kept;
+
 /// An item's record: `labels.<node id>`.
 pub const PREFIX: &str = "labels.";
 
