@@ -31,7 +31,8 @@
 //!    keel is held again with a new card. Nothing is remembered from the hold.
 //! 3. **The join**, one a pass, under the lock ([`lock`]): fetch, the dry
 //!    run on the remote's main (`merge-tree`), a plain `--no-ff` merge in a
-//!    tree, main's gate on it through the door with the benches, the
+//!    tree, main's count folded into it ([`stats`], issue 45; never a stop),
+//!    main's gate on it through the door with the benches, the
 //!    signature (no `user.signingkey` in `[self] repo`: the owner's card, and
 //!    nothing is pushed), the push of main, never forced; main moved before
 //!    the push redoes the dry run, the merge and the gate, at most
@@ -75,6 +76,7 @@ mod reviewing;
 pub mod root_install;
 pub mod scratch;
 mod sealing;
+mod stats;
 mod stopped_planted;
 mod tender;
 #[cfg(test)]
@@ -109,6 +111,8 @@ mod tests_scratch;
 mod tests_sealed;
 #[cfg(test)]
 mod tests_second_look;
+#[cfg(test)]
+mod tests_stats;
 #[cfg(test)]
 mod tests_unreviewable;
 mod unreviewable;
@@ -154,6 +158,8 @@ pub struct Seams {
     pub on_phase: Option<PhaseHook>,
     /// Called with the try's number before each push of main.
     pub before_push: Option<Arc<dyn Fn(u32) + Send + Sync>>,
+    /// How long main's counter may print nothing in a join's merge before it is stopped (issue 45).
+    pub stats_limit: Duration,
 }
 
 impl Default for Seams {
@@ -168,6 +174,7 @@ impl Default for Seams {
             lock_every: Duration::from_secs(30),
             on_phase: None,
             before_push: None,
+            stats_limit: Duration::from_secs(120),
         }
     }
 }

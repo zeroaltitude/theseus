@@ -5,6 +5,7 @@
     scripts/stats.py --range BEFORE..AFTER [--root DIR]
     scripts/stats.py --prepare-landing [--sizes-from TARGET/PROFILE] [--root DIR]
     scripts/stats.py --sizes-from TARGET/PROFILE --record-sizes FILE [--root DIR]
+    scripts/stats.py --count-head [--root DIR]
 
 `--range` writes nothing: it counts the trees of two commits from git's objects (no checkout) and prints one line, the
 change in lines a landing's note states (code, test code, comments; before -> after). A landing's range is its merge's
@@ -32,6 +33,11 @@ the working files), writes STATS.md and stages it, and nothing else. It refuses 
 is in progress, when the index holds unmerged paths, or when anything but STATS.md would change. The landing's own
 commit, signed by whoever lands, then holds the count, and every gate judges the tree that lands; no commit is ever
 rewritten. A merge in progress is named by MERGE_HEAD and HEAD, the parents it will have.
+
+`--count-head` is the self-join's step (`crates/theseus-core/src/rsi/join/stats.rs`), run from main's copy frozen at the
+join's base: with HEAD a made merge (two parents, no merge in progress), it counts HEAD's tree from git's objects and
+writes STATS.md in the working tree, keeping both size parts, and stages nothing. The join checks that nothing else
+changed, stages it and folds it into its own unsigned merge.
 
 Nothing here reads a clock: the same tree and the same arguments give the same bytes.
 Python 3, standard library only.
@@ -415,7 +421,8 @@ def render(root, rows, old, sizes_from, installed, prepared=False, record=None):
         dirty = "" if prepared else git(root, "diff", "--name-only", "--", ".", ":!STATS.md").strip()
     else:
         at = f"the merge of {parents[1]} into {parents[0]}" if len(parents) == 2 else f"commit {head}"
-        dirty = git(root, "status", "--porcelain", "--untracked-files=no", "--", ".", ":!STATS.md").strip()
+        dirty = "" if prepared else git(root, "status", "--porcelain", "--untracked-files=no", "--", ".",
+                                        ":!STATS.md").strip()
     out = ["# STATS", "", "The size of Theseus's code and of what it builds. Written by `scripts/stats.py`; "
            "do not edit it by hand.", "", f"Counted at {at}" + (" with uncommitted changes" if dirty else "")
            + ", over every file git tracks:", "", RULE, "## Lines", "",
@@ -460,6 +467,24 @@ def prepare_landing(root, sizes_from, installed):
     print(f"stats: counted the prepared landing; STATS.md {'staged' if changed else 'unchanged'}", file=sys.stderr)
 
 
+def count_head(root):
+    """`--count-head`: count the made merge at HEAD from its objects and write STATS.md in the working tree, alone,
+    staging nothing; refuse plainly when HEAD is not a made merge."""
+    if merge_head(root):
+        raise SystemExit("stats: not counted: a merge is in progress; --count-head counts a made merge")
+    if len(git(root, "rev-list", "--parents", "-n", "1", "HEAD").split()) != 3:
+        raise SystemExit("stats: not counted: HEAD is not a merge of two parents")
+    old = subprocess.run(["git", "-C", root, "cat-file", "blob", "HEAD:STATS.md"], capture_output=True,
+                         text=True).stdout
+    text = render(root, count_rev(root, "HEAD"), old, None, [], prepared=True)
+    path = os.path.join(root, "STATS.md")
+    if os.path.lexists(path):
+        os.unlink(path)  # never written through a link
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"stats: counted HEAD; STATS.md {'unchanged' if text == old else 'written'}", file=sys.stderr)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", default=ROOT, help="the repository to count (default: this script's)")
@@ -470,11 +495,16 @@ def main(argv=None):
                     help="count a prepared merge onto main from its index tree, and stage STATS.md alone")
     ap.add_argument("--record-sizes", metavar="FILE",
                     help="write the sizes of the build --sizes-from names to FILE, outside the tree; nothing else")
+    ap.add_argument("--count-head", action="store_true",
+                    help="count the made merge at HEAD and write STATS.md in the working tree, staging nothing")
     args = ap.parse_args(argv)
     if args.record_sizes:
         if not args.sizes_from:
             ap.error("--record-sizes takes --sizes-from")
         record_sizes(args.root, args.sizes_from, args.record_sizes)
+        return
+    if args.count_head:
+        count_head(args.root)
         return
     if args.prepare_landing:
         prepare_landing(args.root, args.sizes_from, args.installed)

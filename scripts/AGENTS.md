@@ -42,7 +42,9 @@ including in a commit message, because it is stale by the next departure.
   `stats.py --range <merge>^1..<merge>` prints a landing's change in lines (before -> after), for its note.
   `stats.py --prepare-landing` is a step of preparing a landing, called after `git merge --no-commit --no-ff` on `main`
   and before the landing's own signed commit, by the person's landing steps and by any landing script: it counts the
-  index's tree and stages STATS.md alone. No hook runs it, and no commit is ever rewritten for it.
+  index's tree and stages STATS.md alone. No hook runs it, and no commit is ever rewritten for it. The self-join folds
+  the count into its own unsigned merge before its gate, with main's copy frozen at its base (`--count-head`, in L1;
+  `rsi/join/stats.rs`).
 - `prompt-step.sh` (theseus-4vsrz, B7): the gate's `prompt` phase, which **never fails it**. It runs
   `theseus-sim bench prompt` on the debug binaries after the test build (like `recall-tests.sh`, and for the same
   reason: a stale daemon counts the previous head's prompt) and says `prompt: skipped: no <path>` when either

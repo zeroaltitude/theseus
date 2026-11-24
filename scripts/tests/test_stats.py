@@ -335,6 +335,36 @@ class StatsTest(unittest.TestCase):
         self.assertIn("not a clean build of one commit", str(refused.exception.code))
         self.assertFalse(os.path.exists(self.record), "no record of a build that is not of one commit")
 
+    def test_the_count_at_head_names_a_made_merge_and_stages_nothing(self):
+        self.git("checkout", "-q", "-B", "main")
+        self.main_with_sizes_of(self.git("rev-parse", "HEAD"))
+        main = self.git("rev-parse", "--short=8", "HEAD")
+        sizes = stats.kept(self.git("show", "HEAD:STATS.md"), stats.SIZES[0])
+        side = self.side_branch("side")
+        # The join's tree: a made merge, HEAD detached at it.
+        self.git("checkout", "-q", "--detach", "main")
+        self.git("merge", "-q", "--no-ff", "-m", "join", "side")
+        merge = self.git("rev-parse", "HEAD")
+        stats.main(["--root", self.root, "--count-head"])
+        with open(os.path.join(self.root, "STATS.md"), encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn(f"Counted at the merge of {side} into {main}, over", text)
+        code, test, comment = stats.totals(stats.count_rev(self.root, merge))
+        self.assertIn(f"| **Total** | **{code:,}** | **{test:,}** | **{comment:,}** |", text)
+        self.assertIn(sizes, text, "the sizes are kept")
+        self.assertEqual(self.git("rev-parse", "HEAD"), merge)
+        self.assertEqual(self.git("diff", "--cached", "--name-only"), "", "nothing staged")
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "M STATS.md")
+        # A HEAD that is not a made merge, and a merge still in progress, are refused, and nothing is written.
+        self.git("checkout", "-q", "--", "STATS.md")
+        for setup, why in ((("checkout", "-q", "--detach", "side"),), "not a merge"), (
+                (("checkout", "-q", "--detach", "main"), ("merge", "-q", "--no-ff", "--no-commit", "side")), "in progress"):
+            with self.subTest(why):
+                for cmd in setup:
+                    self.git(*cmd)
+                with self.assertRaises(SystemExit):
+                    stats.main(["--root", self.root, "--count-head"])
+                self.assertNotIn("STATS.md", self.git("status", "--porcelain", "--untracked-files=all"))
 
 
 if __name__ == "__main__":
