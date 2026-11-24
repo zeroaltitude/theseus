@@ -966,3 +966,360 @@ async fn the_rebuild_keeps_a_label_at_its_turns_time_and_moves_one_found_elsewhe
     assert_eq!(times("label:secret"), [at]);
     assert_eq!(times("topic:kelp"), [ex.start_ms]);
 }
+
+// ------------------------------------------------------------ records under `labels.` that do not read (issue 44)
+
+/// Words in the payloads of the records below: a log that quoted a payload would show them.
+const PAYLOAD: &str = "PAYLOAD-WORDS-q7";
+
+/// A label raised on `node`, as a stored item's `raised` holds it.
+fn label_json(node: &str, flag: &str) -> Value {
+    json!({"flag": flag, "node": node, "kind": "operator_message", "source": "cli",
+           "confidence": 0.97, "band": "confirm", "at_ms": 1})
+}
+
+/// An item's record as the builds from 7b89d3944 to ab786c5da wrote it: a removal kept on the item named no
+/// session, which the item's reader of today does not read.
+fn older_item(node: &str, flag: &str) -> Value {
+    json!({"node": node, "kind": "operator_message", "source": "cli", "entered_ms": 1,
+           "raised": [label_json(node, flag)],
+           "removed": [{"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2, "note": PAYLOAD}]})
+}
+
+/// An item's record of today's shape but for one raised label, `injection`, that does not read (it has no
+/// `source`): a damaged item's record, which is read for nothing.
+fn damaged_item(node: &str) -> Value {
+    let mut bad = label_json(node, "injection");
+    bad.as_object_mut().unwrap().remove("source");
+    bad["note"] = json!(PAYLOAD);
+    json!({"node": node, "kind": "operator_message", "source": "cli", "entered_ms": 1,
+           "raised": [label_json(node, "personal"), bad]})
+}
+
+/// An object of 268 bytes with no node: the shape of the record a rebuild failed on.
+fn object_268() -> Value {
+    let mut big = json!({"kind": "operator_message", "source": "cli", "entered_ms": 1, "note": PAYLOAD,
+                         "pad": ""});
+    let len = serde_json::to_vec(&big).unwrap().len();
+    big["pad"] = json!("x".repeat(268 - len));
+    assert_eq!(serde_json::to_vec(&big).unwrap().len(), 268);
+    big
+}
+
+/// What a store may hold under `labels.` that is no item's (a rebuild failed on one: "missing field `node`
+/// at line 1 column 268"): an object of 268 bytes with no node, an empty object, a string, and a key that
+/// was ended. Their keys, but the ended one's.
+fn odd_records(c: &Core) -> [&'static str; 3] {
+    let keys = ["labels.odd-268", "labels.odd-empty", "labels.odd-text"];
+    for (key, v) in keys.iter().zip([object_268(), json!({}), json!(PAYLOAD)]) {
+        c.store.put_meta(key, &v).unwrap();
+    }
+    c.store
+        .put_meta("labels.odd-ended", &json!({"note": PAYLOAD}))
+        .unwrap();
+    c.store.delete_meta("labels.odd-ended").unwrap();
+    keys
+}
+
+/// Two turns in one session: the first's message carries `personal` on a record of today's shape, the
+/// second's `confidential` on an older one; beside them, [`odd_records`]. The two turns, the second's reply, and
+/// the older record's key.
+async fn labelled_with_odd_records(
+    c: &Arc<Core>,
+) -> (TurnSubmitResult, TurnSubmitResult, String, String) {
+    use crate::content::{Flag, ItemKind, Label};
+    let first = turn(c, owner_cli(), None, "my diagnosis came back").await;
+    let sid = first.session_id.clone();
+    let second = turn(c, owner_cli(), Some(&sid), "and the kelp survey").await;
+    let (a, b) = (input_node(c, &first), input_node(c, &second));
+    let mut item = crate::item_labels::ItemLabels::new(&a, ItemKind::OperatorMessage, "cli", 1);
+    item.raised.push(Label {
+        flag: Flag::Personal,
+        node: Some(a),
+        kind: ItemKind::OperatorMessage,
+        source: "cli".into(),
+        confidence: 0.97,
+        band: theseus_judge::band::Band::Confirm,
+        at_ms: 1,
+        judgment: String::new(),
+    });
+    c.store.append(&[item.record().unwrap()]).unwrap();
+    let older = crate::item_labels::key(&b);
+    c.store
+        .put_meta(&older, &older_item(&b, "confidential"))
+        .unwrap();
+    odd_records(c);
+    let reply = (c.store.session_nodes(&sid).unwrap().into_iter().rev())
+        .find(|(_, n)| matches!(n.body, crate::node::Body::AssistantMessage { .. }))
+        .map(|(_, n)| n.id)
+        .expect("the second turn's reply");
+    (first, second, reply, older)
+}
+
+/// A rebuild over a store that holds records under `labels.` that are no item's reads past them (issue 44):
+/// through the real method, its dry run and its run each say how many it passed over, the dry run appends
+/// nothing, the run writes the label touches of today's record and of the older one (read in its older
+/// shape), and the older record and those passed over are left as they are, at their positions, byte for
+/// byte.
+#[tokio::test]
+async fn a_rebuild_passes_over_records_under_labels_that_are_no_items() {
+    use crate::content::Flag;
+    let r = rig(2, |_| {});
+    let c = &r.core;
+    let (first, second, _, older) = labelled_with_odd_records(c).await;
+    let roots = [Flag::Personal, Flag::Confidential].map(crate::item_labels::touch_root);
+    let mut left = vec![older];
+    left.extend(["labels.odd-268", "labels.odd-empty", "labels.odd-text"].map(String::from));
+    let held = || -> Vec<(u64, Vec<u8>)> {
+        (left.iter())
+            .map(|key| {
+                let r = (c.store.inner())
+                    .latest_by_key(theseus_store::kinds::META, key)
+                    .unwrap();
+                let r = r.unwrap_or_else(|| panic!("{key} is held"));
+                (r.position, r.payload)
+            })
+            .collect()
+    };
+    let before = held();
+    let end = c.store.last_position();
+    let rebuild = |dry_run: bool| {
+        call(
+            c,
+            owner_cli(),
+            "exchange.rebuild",
+            json!({"dry_run": dry_run}),
+        )
+    };
+    let dry = rebuild(true).await;
+    assert!(dry.error.is_none(), "{:?}", dry.error);
+    let dry = dry.result.unwrap();
+    assert_eq!(
+        (dry["labels_passed_over"].as_u64(), dry["touches"].as_u64()),
+        (Some(3), Some(2)),
+        "{dry}"
+    );
+    for root in &roots {
+        assert!(
+            newest(&c.store, Root::Thing(root), 8).unwrap().is_empty(),
+            "the dry run wrote {root}"
+        );
+    }
+    assert_eq!(c.store.last_position(), end, "the dry run appended");
+    assert_eq!(held(), before, "the dry run left each record as it is");
+    let run = rebuild(false).await;
+    assert!(run.error.is_none(), "{:?}", run.error);
+    let run = run.result.unwrap();
+    assert_eq!(
+        (run["labels_passed_over"].as_u64(), run["touches"].as_u64()),
+        (Some(3), Some(2)),
+        "{run}"
+    );
+    for (root, t) in roots.iter().zip([&first, &second]) {
+        let got = newest(&c.store, Root::Thing(root), 8).unwrap();
+        let turns: Vec<&str> = got.iter().map(|t| t.exchange.as_str()).collect();
+        assert_eq!(turns, [t.turn_id.as_str()], "{root}");
+    }
+    assert_eq!(held(), before, "the run left each record as it is");
+    let ended = c
+        .store
+        .inner()
+        .latest_by_key(theseus_store::kinds::META, "labels.odd-ended");
+    assert!(ended.unwrap().is_none());
+}
+
+/// The rebuild that failed with "missing field `node` at line 1 column 268" completes (issue 44): one item's
+/// labels and, under `labels.`, one object of 268 bytes with no node. Its label is touched, and the object is
+/// passed over and counted.
+#[tokio::test]
+async fn a_rebuild_over_an_object_of_268_bytes_with_no_node_completes() {
+    use crate::content::{Flag, ItemKind, Label};
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let t = turn(c, owner_cli(), None, "my diagnosis came back").await;
+    let node = input_node(c, &t);
+    let mut item = crate::item_labels::ItemLabels::new(&node, ItemKind::OperatorMessage, "cli", 1);
+    item.raised.push(Label {
+        flag: Flag::Personal,
+        node: Some(node.clone()),
+        kind: ItemKind::OperatorMessage,
+        source: "cli".into(),
+        confidence: 0.97,
+        band: theseus_judge::band::Band::Confirm,
+        at_ms: 1,
+        judgment: String::new(),
+    });
+    c.store.append(&[item.record().unwrap()]).unwrap();
+    c.store.put_meta("labels.odd-268", &object_268()).unwrap();
+    let run = call(c, owner_cli(), "exchange.rebuild", json!({})).await;
+    assert!(run.error.is_none(), "{:?}", run.error);
+    let run = run.result.unwrap();
+    assert_eq!(
+        (run["labels_passed_over"].as_u64(), run["touches"].as_u64()),
+        (Some(1), Some(1)),
+        "{run}"
+    );
+    let root = crate::item_labels::touch_root(Flag::Personal);
+    let got = newest(&c.store, Root::Thing(&root), 8).unwrap();
+    let turns: Vec<&str> = got.iter().map(|t| t.exchange.as_str()).collect();
+    assert_eq!(turns, [t.turn_id.as_str()]);
+}
+
+/// A damaged item's record under `labels.` (one raised label does not read) is passed over and counted by the
+/// rebuild, and none of its labels is touched, not even the one that reads by itself (issue 44).
+#[tokio::test]
+async fn a_rebuild_passes_over_a_damaged_items_record_and_touches_none_of_its_labels() {
+    use crate::content::Flag;
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let t = turn(c, owner_cli(), None, "my diagnosis came back").await;
+    let node = input_node(c, &t);
+    let key = crate::item_labels::key(&node);
+    c.store.put_meta(&key, &damaged_item(&node)).unwrap();
+    let run = call(c, owner_cli(), "exchange.rebuild", json!({})).await;
+    assert!(run.error.is_none(), "{:?}", run.error);
+    let run = run.result.unwrap();
+    assert_eq!(
+        (run["labels_passed_over"].as_u64(), run["touches"].as_u64()),
+        (Some(1), Some(0)),
+        "{run}"
+    );
+    for flag in [Flag::Personal, Flag::Injection] {
+        let root = crate::item_labels::touch_root(flag);
+        let got = newest(&c.store, Root::Thing(&root), 8).unwrap();
+        assert!(got.is_empty(), "{root} was touched");
+    }
+    let left = (c.store.inner()).latest_by_key(theseus_store::kinds::META, &key);
+    assert!(left.unwrap().is_some(), "{key} is left as it is");
+}
+
+/// An item's record of today's shape whose removals are `removed`, with `personal` raised on `node`.
+fn item_removing(node: &str, removed: Value) -> Value {
+    json!({"node": node, "kind": "operator_message", "source": "cli", "entered_ms": 1,
+           "raised": [label_json(node, "personal")], "removed": removed})
+}
+
+/// Removals that are not the older shape, where every removal has no `session` key at all: one whose
+/// `session` is null, and a list of one with a session and one without.
+fn removals_not_older(sid: &str) -> [Value; 2] {
+    let removal =
+        json!({"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2, "note": PAYLOAD});
+    let mut null_session = removal.clone();
+    null_session["session"] = Value::Null;
+    let mut named = removal.clone();
+    named["session"] = json!(sid);
+    [json!([null_session]), json!([named, removal])]
+}
+
+/// An item's record whose removals are neither today's nor the older shape (a removal's `session` is null, or
+/// only some removals have one) is passed over and counted by the rebuild, and none of its labels is touched
+/// (issue 44).
+#[tokio::test]
+async fn a_rebuild_passes_over_an_items_record_whose_removals_are_neither_shape() {
+    use crate::content::Flag;
+    for i in 0..2 {
+        let r = rig(1, |_| {});
+        let c = &r.core;
+        let t = turn(c, owner_cli(), None, "my diagnosis came back").await;
+        let node = input_node(c, &t);
+        let removed = removals_not_older(&t.session_id)[i].clone();
+        let key = crate::item_labels::key(&node);
+        c.store
+            .put_meta(&key, &item_removing(&node, removed))
+            .unwrap();
+        let run = call(c, owner_cli(), "exchange.rebuild", json!({})).await;
+        assert!(run.error.is_none(), "{:?}", run.error);
+        let run = run.result.unwrap();
+        assert_eq!(
+            (run["labels_passed_over"].as_u64(), run["touches"].as_u64()),
+            (Some(1), Some(0)),
+            "{i}: {run}"
+        );
+        let root = crate::item_labels::touch_root(Flag::Personal);
+        let got = newest(&c.store, Root::Thing(&root), 8).unwrap();
+        assert!(got.is_empty(), "{i}: {root} was touched");
+    }
+}
+
+/// A fork of a session over such a store completes (issue 44), and carries today's record's label and the
+/// older record's (its removal, which names no session, is not read: a label stands). A record that does not
+/// read, whose key and `node` name no item of the fork, is read for nothing: a label raised in it is not
+/// carried, though it names a node inside the fork.
+#[tokio::test]
+async fn a_fork_reads_past_records_under_labels_that_do_not_read() {
+    use crate::content::Flag;
+    let r = rig(2, |_| {});
+    let c = &r.core;
+    let (first, second, reply, _) = labelled_with_odd_records(c).await;
+    let a = input_node(c, &first);
+    let placed = json!({"raised": [label_json(&a, "secret")], "note": PAYLOAD});
+    c.store.put_meta("labels.odd-placed", &placed).unwrap();
+    let fork = c
+        .session_fork(
+            theseus_protocol::SessionForkParams {
+                session: second.session_id,
+                at: reply,
+                ..Default::default()
+            },
+            Surface::Cli,
+        )
+        .expect("the fork completes");
+    let rec: crate::session::SessionRecord =
+        c.store.get_session(&fork.session_id).unwrap().unwrap();
+    let flags = rec.data.map(|b| *b).unwrap_or_default();
+    for f in [Flag::Personal, Flag::Confidential] {
+        assert!(flags.has(f), "{f:?} is carried: {flags:?}");
+    }
+    assert!(
+        !flags.has(Flag::Secret),
+        "nothing is read from it: {flags:?}"
+    );
+}
+
+/// A tracing writer that keeps what is logged.
+#[derive(Clone, Default)]
+struct Log(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Log {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(b);
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Log {
+    type Writer = Log;
+    fn make_writer(&'a self) -> Log {
+        self.clone()
+    }
+}
+
+/// Each record under `labels.` that does not read is named once, by its key, in a warning that quotes
+/// nothing of its payload (issue 44); a record in the older shape reads, and is not named; an ended key is
+/// not read at all.
+#[tokio::test]
+async fn a_record_under_labels_that_does_not_read_is_named_by_its_key_alone() {
+    let r = rig(2, |_| {});
+    let c = &r.core;
+    let (first, _, _, older) = labelled_with_odd_records(c).await;
+    let log = Log::default();
+    let sub = tracing_subscriber::fmt()
+        .with_writer(log.clone())
+        .with_ansi(false)
+        .finish();
+    let mut flags = crate::content::ContentFlags::default();
+    let read = tracing::subscriber::with_default(sub, || {
+        crate::fork::item_data_through(&c.store, &first.session_id, u64::MAX, &mut flags)
+    });
+    assert!(read.is_ok(), "{read:?}");
+    let text = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
+    for key in ["labels.odd-268", "labels.odd-empty", "labels.odd-text"] {
+        assert_eq!(text.matches(key).count(), 1, "{key} once: {text}");
+    }
+    assert!(!text.contains(older.as_str()), "{text}");
+    assert!(!text.contains(PAYLOAD), "a payload was quoted: {text}");
+    assert!(!text.contains("labels.odd-ended"), "{text}");
+}
