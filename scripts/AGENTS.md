@@ -36,11 +36,19 @@ including in a commit message, because it is stale by the next departure.
   `THESEUS_SIZE_ACCEPT_GROWTH=1` accepts a growth. `size-breakdown.py` (an unstripped
   build in its own target directory) prints the top crates by bytes and the cockpit bundle's.
 - `stats.py`, `tests/test_stats.py` (issue 45): writes the root's `STATS.md` (lines of code, test code and comment per crate,
-  build sizes). Branches never touch STATS.md; a landing recounts it. Sizes only from `--sizes-from`/`--installed`.
+  build sizes). Branches never touch STATS.md; a landing recounts it. A release `build.sh` records its crate sizes outside
+  the tree (`--record-sizes`, `~/.cache/theseus/stats-sizes.md`; a build of edits records nothing), and a count with no
+  `--sizes-from` takes that record only when its build is of main and newer than the sizes there. `--installed` is explicit.
   `stats.py --range <merge>^1..<merge>` prints a landing's change in lines (before -> after), for its note.
   `stats.py --prepare-landing` is a step of preparing a landing, called after `git merge --no-commit --no-ff` on `main`
   and before the landing's own signed commit, by the person's landing steps and by any landing script: it counts the
-  index's tree and stages STATS.md alone. No hook runs it, and no commit is ever rewritten for it.
+  index's tree and stages STATS.md alone. No hook runs it, and no commit is ever rewritten for it. The self-join folds
+  the count into its own unsigned merge before its gate, with main's copy frozen at its base (`--count-head`, in L1;
+  `rsi/join/stats.rs`). In L1 the counter's one lasting write is the tree: its build directory is a throwaway one, and
+  the repository is a private writable copy that ends with the job. Only STATS.md may change, a plain UTF-8 file of at
+  most 64 KB; the count's checks read the tree from the file system and its fold reads no attributes from the tree, so
+  neither runs anything a `.gitattributes` selects. A failed count is undone and the join goes on uncounted; only a tree that cannot be shown put back
+  stops the join.
 - `prompt-step.sh` (theseus-4vsrz, B7): the gate's `prompt` phase, which **never fails it**. It runs
   `theseus-sim bench prompt` on the debug binaries after the test build (like `recall-tests.sh`, and for the same
   reason: a stale daemon counts the previous head's prompt) and says `prompt: skipped: no <path>` when either

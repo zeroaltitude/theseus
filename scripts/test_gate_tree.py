@@ -1523,6 +1523,36 @@ class BuildStamp(unittest.TestCase):
         stamp = (self.root / "target" / "release" / ".theseus-build-stamp").read_text()
         self.assertEqual(stamp, f"{head} clean 7\n")
 
+    def test_a_release_build_records_its_sizes_outside_the_tree_and_a_record_that_fails_fails_nothing(self):
+        (self.root / "scripts" / "stats.py").write_text((HERE / "stats.py").read_text())
+        (self.root / "crates").mkdir()
+        for args in (("add", "-A"), ("commit", "-q", "-m", "counter")):
+            self.assertEqual(run(["git", *args], self.root, self.env).returncode, 0)
+        head = run(["git", "rev-parse", "HEAD"], self.root, self.env).stdout.strip()
+        p = self.build()
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        record = self.home / ".cache" / "theseus" / "stats-sizes.md"
+        self.assertIn(f"From the `release` build of {head[:8]} ", record.read_text())
+        self.assertEqual(run(["git", "status", "--porcelain"], self.root, self.env).stdout, "", "nothing in the tree")
+        # A record that cannot be written (its directory is a file) fails nothing, and says so.
+        p = self.build(THESEUS_STATS_SIZES=str(self.root / "notes.txt" / "sizes.md"))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("build: the sizes were not recorded", p.stderr)
+
+    def test_a_record_that_fails_is_one_line_of_the_build(self):
+        (self.root / "scripts" / "stats.py").write_text((HERE / "stats.py").read_text())
+        (self.root / "crates").mkdir()
+        for args in (("add", "-A"), ("commit", "-q", "-m", "counter")):
+            self.assertEqual(run(["git", *args], self.root, self.env).returncode, 0)
+        ok = self.build()
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+        # The record's directory is a file: the record fails, and all the build says of it is one line.
+        p = self.build(THESEUS_STATS_SIZES=str(self.root / "notes.txt" / "sizes.md"))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        said = [line for line in (p.stdout + p.stderr).splitlines() if line not in (ok.stdout + ok.stderr).splitlines()]
+        self.assertEqual(len(said), 1, said)
+        self.assertTrue(said[0].startswith("build: the sizes were not recorded for STATS.md"), said)
+
 
 if __name__ == "__main__":
     unittest.main()
