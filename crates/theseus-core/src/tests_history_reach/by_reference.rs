@@ -524,3 +524,51 @@ async fn a_conversation_that_said_it_and_read_it_back_by_history_is_told_once() 
     turn(&r.core, &said.session, "and at dawn?").await;
     assert_eq!(notes_in(&r.core, &said.session), 1);
 }
+
+/// **A view kept before recall left copies out, which recalled a history result, is refused once the source
+/// that result showed is erased.** Its beside block holds the result's words and is read back as kept, and
+/// the reader's window never laid the exchange that read it. New recall no longer admits a copy, so the old
+/// record is written as stored data: the turn's kept view, its recalled nodes naming the result.
+#[tokio::test]
+async fn a_replay_refuses_a_kept_recall_of_a_history_result_whose_source_was_erased() {
+    use crate::tests_imports::{episode, import};
+    let r = rig();
+    let ids = import(
+        &r.core,
+        &[episode(7, "personal", "2026-03-03T18:00:00Z", SAID)],
+    );
+    let a = session(&r.core, None);
+    let (copy, text) = read_in(&r.core, &a, json!({ "open": ids[0] })).await;
+    assert!(text.contains(WORD), "{text}");
+    let b = session(&r.core, Some("channel:lab"));
+    let t = turn(&r.core, &b, "and the weir?").await.turn_id;
+    let cid = (r.core.store.session_nodes(&b).unwrap().into_iter())
+        .find_map(|(_, n)| match n.body {
+            Body::AssistantMessage {
+                compilation_id: Some(c),
+                ..
+            } if n.turn_id.as_deref() == Some(t.as_str()) => Some(c),
+            _ => None,
+        })
+        .expect("the turn's compilation");
+    let mut v = crate::view::record::read(&r.core.store, &cid)
+        .unwrap()
+        .expect("the turn's view");
+    let kept = v.kept.as_mut().expect("the view is kept");
+    kept.recalled.push(copy);
+    r.core
+        .store
+        .append(&[crate::view::record::view_record(&v).unwrap()])
+        .unwrap();
+    if let Err(e) = r.core.rebuild_first(&b, &t) {
+        panic!("the turn rebuilds before the erase: {e}");
+    }
+    crate::import::write::erase(&r.core.store, "kelp-2026", Some("a test"), "cli").unwrap();
+    let Err(e) = r.core.rebuild_first(&b, &t) else {
+        panic!("a kept recall of a result that showed erased words was rebuilt");
+    };
+    assert_eq!(
+        (e.part, e.why.as_str()),
+        ("view", crate::own_bench::rebuild::VIEW_ERASED)
+    );
+}

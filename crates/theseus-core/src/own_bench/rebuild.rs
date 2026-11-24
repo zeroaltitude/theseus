@@ -420,14 +420,18 @@ fn last_user_text(nodes: &Transcript) -> String {
 }
 
 /// Whether something a view laid was erased since: an exchange that no longer reads, a node its recall
-/// laid that is gone or erased (`Body::Erased`), or a look back's result or report in a laid exchange that
-/// showed words erased since (`copies::since::shows_erased`). Erased words are never sent again from a
-/// replay's copy.
+/// laid that is gone or erased (`Body::Erased`), or a look back's result or report, in a laid exchange or
+/// recalled (a view kept before recall left copies out did recall them), that showed words erased since
+/// (`copies::since::shows_erased`). Erased words are never sent again from a replay's copy; what cannot be
+/// read is treated as erased.
 fn erased_since(store: &crate::store::Store, exchanges: &[String], recalled: &[String]) -> bool {
     let gone =
         (exchanges.iter()).any(|id| !matches!(crate::exchange::exchange(store, id), Ok(Some(_))));
     gone || recalled.iter().any(|id| match store.get_node(id) {
-        Ok(Some((_, n))) => matches!(n.body, Body::Erased { .. }),
+        Ok(Some((_, n))) => {
+            matches!(n.body, Body::Erased { .. })
+                || crate::copies::since::shows_erased(store, &n).unwrap_or(true)
+        }
         Ok(None) | Err(_) => true,
     }) || exchanges.iter().any(|id| showed_erased(store, id))
 }
