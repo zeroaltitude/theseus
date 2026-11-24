@@ -111,12 +111,12 @@ if cmd == 'view' and a[1] == 'preview':
         fail(3)
     if fx.get('preview') == 'fail':
         fail(1)
-    if '--turns' in a:
-        if fx.get('turns') is None:
-            fail(2)
-        print(json.dumps({'turns': fx['turns']}))
-        sys.exit(0)
     print(json.dumps(fx['now']))
+    sys.exit(0)
+if cmd == 'view' and a[1] == 'show':
+    if '--text' in a or '--tally' not in a:
+        fail(3)
+    print(json.dumps((fx.get('shows') or {}).get(a[2]) or {'turn_id': a[2], 'views': [], 'tallies': []}))
     sys.exit(0)
 fail(1)
 """
@@ -154,17 +154,38 @@ def preview(as_of: str | None, ranges: list[tuple[str, str]], fallback: str | No
     return p
 
 
-def fixture(turns: bool) -> dict:
+def record(turn: str, ranges: list[tuple[str, str]], folds: list[tuple[str, str]] = (), views: int = 1) -> dict:
+    """What `view show TURN --tally --json` answers: the turn's views, oldest first, and their tallies."""
+    def piece(kind, f, l):
+        return {"handle": "x", "kind": kind, "first": f, "last": l, "band": "window", "form": "whole",
+                "tokens": 50, "reasons": [MARKERS[0]], "label": "here", "text": f"{MARKERS[1]} said something"}
+    pieces = [piece("exchanges", f, l) for f, l in ranges] + [piece("folds", f, l) for f, l in folds]
+    pieces.append(piece(MARKERS[2], "a", "b"))
+    shown = [{"compilation": f"cmp_{i}", "assembly": "view", "pov": {"anchor_kind": "place", "anchor": PLACE},
+              "slots": [{"slot": "here", "pieces": pieces if i == 0 else [], "tokens": 50 * len(pieces)}],
+              "dropped": [], "residue": [], "totals": {"shown": len(pieces), "tokens": 950}} for i in range(views)]
+    tallies = [{"compilation": f"cmp_{i}", "present": "owner_alone",
+                "slots": {"here": {"pieces": len(pieces), "tokens": 50 * len(pieces)},
+                          "frame": {"pieces": 1, "tokens": 900}, MARKERS[0]: {"pieces": 1, "tokens": 5}},
+                "reasons": {"window": {"pieces": 1, "tokens": 50}},
+                "dropped": {"over_budget": {"pieces": 2, "tokens": 300}},
+                "dropped_reasons": {MARKERS[0]: {"pieces": 2, "tokens": 300}, "window": {"pieces": 1, "tokens": 10}},
+                "tokens": 900 + 50 * len(pieces)} for i in range(views)]
+    return {"turn_id": turn, "views": shown, "tallies": tallies}
+
+
+def fixture(records: bool) -> dict:
     e = [tid(i) for i in range(1, 5)]
     ledger = [turn_row(1, e[0], None, "none"), turn_row(2, e[1], e[0], "transcript"),
               turn_row(3, e[2], e[1], MARKERS[0]), turn_row(4, e[3], e[2], "place_tail")]
     ledger.append({"position": 5, "at_unix_ms": 5, "kind": "context.turn", "session_id": "s2", "turn_id": "o1",
                    "data": {"exchange": "o1", "place": "local:/elsewhere", "prev": "none", "sent": {"total": 7}}})
     return {"ledger": ledger,
-            "turns": [preview(e[0], [], None), preview(e[1], [(e[0], e[0])], MARKERS[0]),
-                      preview(e[2], [(e[0], e[0])], "unledgered_history"),
+            "shows": {e[0]: record(e[0], []), e[1]: record(e[1], [(e[0], e[0])], views=2),
+                      # e[2]'s previous exchange (e[1]) lies only inside a fold over e[0]..e[1]
+                      e[2]: record(e[2], [], folds=[(e[0], e[1])]),
                       # e[3]'s previous exchange (e[2]) lies INSIDE a range e[1]..e[3]
-                      preview(e[3], [(e[1], e[3])], None)] if turns else None,
+                      e[3]: record(e[3], [(e[1], e[3])])} if records else {},
             "now": preview(None, [(e[3], e[3])], None),
             "cli_stderr": f"error: {MARKERS[1]} {MARKERS[2]}",
             "daemon_stderr": f"panic: {MARKERS[0]} {MARKERS[1]}"}
@@ -213,24 +234,26 @@ class FakeDaemon(unittest.TestCase):
                          "--turns", "4", "--out", str(out)])
         return out, buf.getvalue(), json.loads((out / "summary.json").read_text())
 
-    def test_the_replay_pairs_each_exchange_and_writes_no_word_of_it(self):
+    def test_replay_pairs_each_row_with_its_turns_view_record(self):
         out, printed, s = self.run_replay()
         rows = [json.loads(x) for x in (out / "rows.jsonl").read_text().splitlines()]
         self.assertEqual([r["exchange"] for r in rows], [tid(i) for i in range(1, 5)])
-        self.assertEqual({r["recorded"]["strategy"] for r in rows}, {"not_recorded"})
-        self.assertEqual(s["recorded_strategy"], "not_recorded")
-        self.assertEqual(s["with_a_view_row"], 4)
+        self.assertTrue(all(r["view"] is not None for r in rows))
+        self.assertEqual(s["with_a_view_record"], 4)
+        self.assertEqual(s["no_view_record"], 0)
         self.assertEqual(s["tokens"]["recorded"]["sum"]["total"], 4 * 4000 + 200 * 10)
         # A single-token free word in an enum's field is `other`, field by field.
-        self.assertEqual(s["view_fallback"], {"takes_the_view": 2, "other": 1, "unledgered_history": 1})
         self.assertEqual(s["previous_exchange"]["recorded"],
                          {"none": 1, "transcript": 1, "other": 1, "place_tail": 1})
         self.assertEqual(s["left_out_by_reason"], {"other": 8, "window": 4})
         self.assertIn("other", rows[0]["view"]["slots"])
-        self.assertEqual(rows[0]["view"]["folds"], {"1": 2, "other": 1})
-        # The previous exchange inside a range's interior is held.
-        self.assertEqual((rows[3]["prev_in_view"], rows[3]["prev_in_view_basis"]), (True, "ids"))
-        self.assertEqual(s["previous_exchange"]["view"], {"no_previous": 1, "held": 2, "not_held": 1})
+        self.assertEqual(rows[0]["view"]["kinds"], {"other": 1})
+        self.assertEqual(rows[1]["view"]["views"], 2)
+        # Read from the record: laid whole, only inside a fold, and inside a range's interior.
+        self.assertEqual([(r["prev_in_view"], r["prev_in_view_basis"]) for r in rows],
+                         [(None, "no_previous"), (True, "ids"), (True, "folded"), (True, "ids")])
+        self.assertEqual(s["previous_exchange"]["view"], {"no_previous": 1, "held": 2, "folded": 1})
+        self.assertEqual(s["pieces_by_kind"], {"other": 4, "exchanges": 2, "folds": 1})
         self.leaks(everything_written(out, printed))
         # The copy it was given is as it was; the daemon's copy and its process are gone.
         self.assertEqual((self.store / "store" / "wal" / "000000001.seg").read_bytes(), MARKERS[0].encode())
@@ -239,18 +262,23 @@ class FakeDaemon(unittest.TestCase):
 
     def test_a_range_the_order_cannot_resolve_is_unknown_not_absent(self):
         f = fixture(True)
-        f["turns"][3] = preview(tid(4), [(tid(1), tid(99))], None)
+        f["shows"][tid(4)] = record(tid(4), [(tid(1), tid(99))])
         self.fx(f)
         out, printed, s = self.run_replay()
         rows = [json.loads(x) for x in (out / "rows.jsonl").read_text().splitlines()]
         self.assertEqual((rows[3]["prev_in_view"], rows[3]["prev_in_view_basis"]), (None, "unknown_range"))
 
-    def test_without_the_preview_s_turns_form_no_exchange_gets_a_view_row(self):
-        self.fx(fixture(False))
+    def test_replay_counts_turns_without_a_record_apart(self):
+        f = fixture(True)
+        del f["shows"][tid(1)], f["shows"][tid(3)]  # turns from before the cut: no view record
+        self.fx(f)
         out, printed, s = self.run_replay()
-        self.assertEqual(s["with_a_view_row"], 0)
-        self.assertEqual(s["notes"], [replay.NO_TURNS])
-        self.assertEqual(s["next_turn_view"]["window"], 1)
+        rows = [json.loads(x) for x in (out / "rows.jsonl").read_text().splitlines()]
+        self.assertEqual(s["with_a_view_record"], 2)
+        self.assertEqual(s["no_view_record"], 2)
+        self.assertEqual([(r["view"] is None, r["prev_in_view"], r["prev_in_view_basis"]) for r in rows[::2]],
+                         [(True, None, "no_view_record")] * 2)
+        self.assertNotIn("not_held", s["previous_exchange"]["view"])
         self.leaks(everything_written(out, printed))
 
     def test_a_live_store_a_link_out_of_the_copy_or_a_directory_that_is_no_store_is_refused(self):
