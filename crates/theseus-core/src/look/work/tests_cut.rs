@@ -83,7 +83,7 @@ fn a_messages_line_stops_at_a_known_values_edge() {
     for n in messages(&format!("chart {BROKEN} reef")) {
         let (_, words, some) = history::line_of(&n, &cuts).unwrap();
         whole_or_absent("a message's line", &words, BROKEN);
-        assert_eq!(words, "chart …");
+        assert_eq!(words, "chart…");
         assert!(some);
     }
     for n in messages(&format!("{BROKEN} reef")) {
@@ -113,14 +113,20 @@ fn a_tasks_title_and_why_it_ended_stop_at_a_known_values_edge() {
     };
     let line = task_line(&t, &cuts);
     whole_or_absent("a task's line", &line, VALUE);
-    assert!(line.contains(&format!(" · {}… · ", "x".repeat(90))), "{line}");
-    assert!(line.ends_with(&format!(" · {}…\n", "y".repeat(110))), "{line}");
+    assert!(
+        line.contains(&format!(" · {}… · ", "x".repeat(90))),
+        "{line}"
+    );
+    assert!(
+        line.ends_with(&format!(" · {}…\n", "y".repeat(110))),
+        "{line}"
+    );
     t.title = Some(format!("chart {BROKEN} reef"));
     t.ended_reason = Some(format!("stopped at {BROKEN} here"));
     let line = task_line(&t, &cuts);
     whole_or_absent("a task's line", &line, BROKEN);
-    assert!(line.contains(" · chart … · "), "{line}");
-    assert!(line.ends_with(" · stopped at …\n"), "{line}");
+    assert!(line.contains(" · chart… · "), "{line}");
+    assert!(line.ends_with(" · stopped at…\n"), "{line}");
 }
 
 /// A part's cut at 8,000 characters and the answer's at 24,000 would each fall inside a known value: each
@@ -148,7 +154,10 @@ fn each_cut_of_the_answer_stops_at_a_known_values_edge() {
         &cuts,
     );
     assert!(said.contains("[cut at 8000 characters"), "the part is cut");
-    assert!(said.contains("[cut at 24000 characters"), "the answer is cut");
+    assert!(
+        said.contains("[cut at 24000 characters"),
+        "the answer is cut"
+    );
     whole_or_absent("the answer", &said, VALUE);
     assert!(
         said.starts_with(&format!("{}…\n[cut at 8000", "a".repeat(7_990))),
@@ -175,10 +184,7 @@ async fn a_played_looks_stored_result_holds_no_part_of_a_known_value() {
         |c| c.config_file = Some(file.clone()),
         |req| match answers_a_call(req) {
             true => Scripted::text("Done."),
-            false => Scripted::tools(
-                "",
-                &[("t_look", "look_work", json!({"what": ["history"]}))],
-            ),
+            false => Scripted::tools("", &[("t_look", "look_work", json!({"what": ["history"]}))]),
         },
     );
     let sid = session(&r.core, Some(&format!("dm:{OWNER}")));
@@ -192,7 +198,7 @@ async fn a_played_looks_stored_result_holds_no_part_of_a_known_value() {
     let sent: Vec<_> = r
         .requests()
         .into_iter()
-        .filter(|q| answers_a_call(q))
+        .filter(answers_a_call)
         .collect();
     assert!(!sent.is_empty(), "the result was sent");
     for q in &sent {

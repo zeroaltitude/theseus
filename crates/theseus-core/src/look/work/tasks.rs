@@ -11,11 +11,11 @@ use theseus_protocol::{ConfirmRequest, TaskInfo};
 
 use super::owed;
 use super::reader::{field, Reader};
-use crate::scrub::Cuts;
 use super::{
     clip, TASKS_ELSEWHERE_MAX, TASKS_HERE_MAX, TASKS_READ_MAX, WAITING_ELSEWHERE_MAX,
     WAITING_HERE_MAX,
 };
+use crate::scrub::Cuts;
 
 /// The line before another conversation's words: what they are, and how to read them.
 pub(super) const OTHERS: &str =
@@ -25,11 +25,7 @@ pub(super) const OTHERS: &str =
 fn state_of(t: &TaskInfo, cuts: &Cuts) -> String {
     match (t.starts_at_ms, &t.waiting_on) {
         (Some(at), _) => format!("scheduled for {}", crate::wake::local(at).full()),
-        (None, Some(w)) => format!(
-            "{} (waiting on {})",
-            field(&t.state, cuts),
-            field(w, cuts)
-        ),
+        (None, Some(w)) => format!("{} (waiting on {})", field(&t.state, cuts), field(w, cuts)),
         (None, None) => field(&t.state, cuts),
     }
 }

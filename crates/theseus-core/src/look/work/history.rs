@@ -41,8 +41,14 @@ pub(super) fn line_of(n: &Node, cuts: &Cuts) -> Option<(String, String, bool)> {
             (!text.trim().is_empty()).then(|| said(format!("Theseus ({model}): "), text.as_str()))
         }
         // Another profile's answer, a message of its own (`profile.ask`).
-        Body::ToolResult { meta, .. } => theseus_protocol::SubagentAnswer::from_meta(meta)
-            .map(|a| said(format!("{} (a subagent, {}): ", a.profile, a.model), a.text.as_str())),
+        Body::ToolResult { meta, .. } => {
+            theseus_protocol::SubagentAnswer::from_meta(meta).map(|a| {
+                said(
+                    format!("{} (a subagent, {}): ", a.profile, a.model),
+                    a.text.as_str(),
+                )
+            })
+        }
         _ => None,
     }
 }
