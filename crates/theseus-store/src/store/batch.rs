@@ -207,7 +207,10 @@ impl Inner {
     }
 
     /// Place a group without retaining any placement a failed roll cut.
-    pub(super) fn write_batch(&self, batch: &mut [Job]) -> (Vec<Result<Placed>>, chain_writer::ChainState) {
+    pub(super) fn write_batch(
+        &self,
+        batch: &mut [Job],
+    ) -> (Vec<Result<Placed>>, chain_writer::ChainState) {
         // Each frame, unsynced: a frame the log refuses fails alone. A frame's
         // ledger rows are chained first, on the head this batch's earlier
         // frames left; a frame that fails gives its links back, and the head
