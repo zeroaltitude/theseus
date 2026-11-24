@@ -317,11 +317,17 @@ repository's instruction file changes, or a new one appears, the file is carried
 the change is named in the block and ledgered.
 
 **A grant pins what it grants.** The grant's own frame stores the repository's
-sighting: the digest of every `AGENTS.md` and `CLAUDE.md` under the root, found by a walk
-that honours the repository's `.gitignore` files, never enters `.git`, does not follow a
-symlinked directory, and stops after 20,000 entries or two seconds, whichever comes
-first. A change is a change from that, in whatever directory a session first opens. A
-file the walk did not reach is new when a compile first finds it.
+sighting: the digests of the `AGENTS.md` and `CLAUDE.md` files on the chain from the root
+down to the path the grant names, and of every one under the root that a walk finds. The
+walk is breadth-first, so the files nearest the root come first. It reads no ignore file,
+never enters `.git`, and does not follow a symlinked directory. It stops after 20,000
+directory entries (every entry a listing yields, kept or not) or two seconds, whichever
+comes first, and the digests after it stop at 1,000 files or two more seconds. These
+bound the entries read and the time between filesystem calls; one call that blocks, such
+as a read on a stalled network mount, is not interrupted. A change is a change from the
+sighting, in whatever directory a session first opens. A file the walk did not reach is
+new when a compile first finds it, and a grant given again naming that file's directory
+pins it.
 
 **A sighting accumulates.** A compile looks only along the chain from the root down to
 the session's directory, and it changes only what it looked for: a file stored from
@@ -455,15 +461,18 @@ block, and the OS fact.
   file (`fact/project.rs`), written with the new sighting in the turn's next frame by
   `TurnRunner::observe_project`. Both halves come from one `change::observe` call on the same
   inputs, so the block and the ledger cannot disagree. The grant stores the first sighting
-  (`project_context::walk`, in the grant's own frame), and a compile keeps what it did not look
-  for: the notice is for a change *after* the owner looked. Digests, never text. No watcher --
-  the comparison rides a recompile the session already pays for.
+  (`project_context::change::grant`: the named path's chain and `project_context::walk`, in the
+  grant's own frame), and a compile keeps what it did not look for: the notice is for a change
+  *after* the owner looked. Digests, never text. No watcher -- the comparison rides a recompile
+  the session already pays for.
 - **The posture.** `[project] on_change`, `"notice"` (the default, and today's behaviour but for
   the saying of it) or `"ask"`. At `ask` the *changed* files are named and not read, the unchanged
   ones are carried as before, no sighting is stored -- so the file keeps waiting rather than
   arriving by itself on the next turn -- and the row says `carried: false`. The owner's accept is
   `untrust` then `trust`: `Core::project_untrust` drops the repository's sighting in the grant's own
-  frame, so the grant given again does not report a change he has just this moment read.
+  frame, so the grant given again does not report a change he has just this moment read. The block
+  says to name the session's directory in that `trust`, so the grant pins the files there even
+  where its walk did not reach them.
   `notice` is the default because the design says why in as many words: a card that fires on every
   edit of a repository being actively edited is a card that is clicked through, which is worse
   security than a notice that is read. A notice also widens nothing, so it is not covered by the

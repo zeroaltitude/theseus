@@ -18,11 +18,12 @@
 //! Digests, never text. No watcher: the comparison rides the compile a
 //! session's recompile already pays for.
 //!
-//! **The grant stores the first sighting.** `Core::project_trust` walks the
-//! root for every instruction file ([`super::walk`]) and stores their
-//! digests in the grant's own frame, so the first compile in any directory
-//! of the repository compares with what was there when the owner granted
-//! it. The notice is for a change *after* the owner looked. A granted
+//! **The grant stores the first sighting** ([`grant`]). `Core::project_trust`
+//! stores the digests of the instruction files on the chain down to the path
+//! it was given and of those a bounded walk of the root finds
+//! ([`super::walk`]) in the grant's own frame, so the first compile in any
+//! directory of the repository compares with what was there when the owner
+//! granted it. The notice is for a change *after* the owner looked. A granted
 //! repository with no stored sighting (one granted by an earlier build) has
 //! nothing to differ from: its first compile stores one and is quiet.
 //!
@@ -42,7 +43,9 @@
 //!   rather than arriving by itself on the next turn; only the digests
 //!   already asked about move ([`Seen::asked`]), so a change that waits for
 //!   days is one row and not one a turn. `project_untrust` drops the stored
-//!   sighting, which makes `untrust` then `trust` the owner's accept.
+//!   sighting, which makes `untrust` then `trust` the owner's accept; a
+//!   `trust` naming the session's directory pins its files even where the
+//!   walk did not reach them.
 //!
 //! **A session carrying `injection` holds the change whatever the posture
 //! says** (S31-1, the owner 2026-11-13: the warning follows the content).
