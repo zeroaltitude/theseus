@@ -346,6 +346,26 @@ class Case(unittest.TestCase):
 
 
 class Erosions(Case):
+    def test_a_slow_timeout_line_deleted(self):
+        self.assertCaught("ceiling-raised", ".config/nextest.toml", {".config/nextest.toml": sub(
+            NEXTEST, 'slow-timeout = { period = "60s", terminate-after = 2 }\n', "")})
+
+    def test_the_default_profile_deleted(self):
+        self.assertCaught("ceiling-raised", ".config/nextest.toml", {".config/nextest.toml": "# no profiles\n"})
+
+    def test_the_nextest_config_deleted(self):
+        self.assertCaught("ceiling-raised", ".config/nextest.toml", {".config/nextest.toml": None})
+
+    def test_terminate_after_dropped_from_a_surviving_table_is_reported_once(self):
+        self.head({".config/nextest.toml": sub(NEXTEST, ', terminate-after = 2', "")})
+        code, out = self.findings()
+        self.assertEqual(code, 1, out)
+        self.assertEqual(len(re.findall(r"\.config/nextest\.toml:\d+: ceiling-raised", out)), 1, out)
+
+    def test_git_confinement_requires_the_owner(self):
+        path = "crates/theseus-core/src/rsi/tree_git.rs"
+        self.assertCaught("keel-file", path, {path: "pub fn confined() {}\n"})
+
     """The eight the brief names, and the rest of the rules, each caught by name."""
 
     def test_a_deleted_test(self):
@@ -1865,6 +1885,43 @@ def gpg_key(home, name):
 
 @unittest.skipIf(shutil.which("gpg") is None, "no gpg: the signed acks are not tested here")
 class Acks(unittest.TestCase):
+    def test_a_ceiling_raised_again_after_the_ack_is_open(self):
+        self.repo.commit({}, self.ACK, sign=self.listed)
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3400")}, "raise it again")
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertRegex(out, r"  scripts/long-files.txt:\d+: ceiling-raised")
+
+    def test_an_uncommitted_raise_after_the_ack_is_open(self):
+        self.repo.commit({}, self.ACK, sign=self.listed)
+        self.repo.write({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3400")})
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+
+    def test_an_ack_followed_by_an_unrelated_commit_still_passes(self):
+        self.repo.commit({}, self.ACK, sign=self.listed)
+        self.repo.commit({"crates/demo/src/other.rs": "pub fn other() {}\n"}, "unrelated")
+        code, out = self.repo.guard()
+        self.assertEqual(code, 0, out)
+        self.assertIn("keel: acked: scripts/long-files.txt", out)
+
+    def test_a_mode_change_after_the_ack_is_open(self):
+        self.repo.commit({}, self.ACK, sign=self.listed)
+        self.repo.git("update-index", "--chmod=+x", "scripts/long-files.txt")
+        (self.repo.root / "scripts/long-files.txt").chmod(0o755)
+        self.repo.git("commit", "-q", "-m", "mode")
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+
+    def test_an_untracked_file_added_after_its_ack_is_open(self):
+        path = "crates/theseus-core/src/rsi/sealed/runner.rs"
+        self.repo.commit({path: "// the runner\n"}, "runner")
+        self.repo.commit({}, f"ack\n\nKeel: keel-file {path} — the runner\n" + self.ACK.split("\n\n", 1)[1],
+                         sign=self.listed)
+        self.repo.write({path: "// the runner, changed after the ack\n"})
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+
     """An ack passes only on a commit a key listed in the base's keel-signers signed."""
 
     @classmethod

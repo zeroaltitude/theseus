@@ -145,12 +145,14 @@ RULES = ("test-removed", "test-ignored", "assert-removed", "assert-weakened", "a
 # The rules a `routine` key in scripts/keel-signers may ack: an agent's key (the owner, 2026-11-14 12:15 MST, Discord
 # message 1571242156927221841, answering "only 'a test was removed or replaced'"). Every other rule is the owner's.
 ROUTINE = ("test-removed",)
-# The first three are the guard itself; the rest are the sealed scorer's code, its runner and relay, and the exam set,
-# which `sealed::KEEL_PATHS` lists too (a Rust test holds the two lists together: theseus-pw1q.21.2).
 KEEL_FILES = (
+    # The first three entries are the guard itself (GUARD_ITSELF).
     "scripts/keel-guard.py",
     "scripts/keel-signers",
     "scripts/test_keel_guard.py",
+    # Git subprocess confinement.
+    "crates/theseus-core/src/rsi/tree_git.rs",
+    # The sealed scorer, runner, relay and exam set; sealed::KEEL_PATHS holds this list too.
     "crates/theseus-core/src/rsi/sealed.rs",
     "crates/theseus-core/src/rsi/sealed/check.rs",
     "crates/theseus-core/src/rsi/sealed/filter.rs",
@@ -1739,6 +1741,12 @@ def nextest_rule(tree, path, out):
         return keyed
 
     a, b = model(old), model(new)
+    for name, ob in a.items():
+        ov = ob.get("terminate-after")
+        nb = b.get(name, {})
+        if ov is not None and ov[0] is not None and "terminate-after" not in nb:
+            out.append(Finding("ceiling-raised", path, ov[1],
+                               f"{name}: slow-timeout = {ov[2]}", "finite termination bound removed"))
     for name, nb in b.items():
         ob = a.get(name)
         if ob is None:
@@ -2087,8 +2095,18 @@ def acks(repo, base, head_commit, keys):
     return found, refused
 
 
-def acked(f, ack_list):
-    return any(rule == f.rule and any(fnmatch.fnmatchcase(f.path, p) for p in paths) for rule, paths, _ in ack_list)
+def acked(f, ack_list, tree):
+    for rule, paths, sha in ack_list:
+        if rule != f.rule or not any(fnmatch.fnmatchcase(f.path, p) for p in paths):
+            continue
+        # Include untracked working-tree additions, which git diff alone omits.
+        if tree.blob(f"{sha}:{f.path}") != tree.new(f.path):
+            continue
+        refs = [sha, tree.head] if tree.head else [sha]
+        if not git(tree.repo, "diff", "--raw", "--no-ext-diff", "--no-textconv",
+                   "--no-renames", *refs, "--", f.path).strip():
+            return True
+    return False
 
 
 def matched_summary(matched):
@@ -2117,13 +2135,13 @@ def main(argv=None):
             findings = judge(tree, paths)
             keys = signers(tree)
             ack_list, refused = acks(repo, base, head_commit, keys)
+            open_ = [f for f in findings if not acked(f, ack_list, tree)]
+            passed = [f for f in findings if acked(f, ack_list, tree)]
         finally:
             tree.close()
     except GuardError as e:
         print(f"keel: the guard could not run: {e}", file=sys.stderr)
         return 2
-    open_ = [f for f in findings if not acked(f, ack_list)]
-    passed = [f for f in findings if acked(f, ack_list)]
     took = time.monotonic() - began
     if not args.quiet:
         for _, m in MATCHED:
