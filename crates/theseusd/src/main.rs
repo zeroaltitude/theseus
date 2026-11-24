@@ -753,7 +753,13 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
         // start timeout.
         sd.notify.ready("serving on stdio");
         let served = tokio::select! {
-            r = conn => r,
+            r = conn => {
+                // Its client went away: the stop begins here, as at a signal,
+                // so a pass that takes the store afresh for each unit starts
+                // none that could outlive the runtime (issue 46).
+                theseus_core::startup::stop_began();
+                r
+            }
             () = &mut stop => {
                 tracing::info!("shutdown requested over protocol");
                 Ok(())
