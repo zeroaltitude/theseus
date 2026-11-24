@@ -375,7 +375,8 @@ fn a_look_backs_result_reads_each_source_once() {
         );
     }
     s.append(&more).unwrap();
-    let since = Since::new(&s, &BTreeSet::new());
+    let none = BTreeSet::new();
+    let since = Since::new(&s, &none);
     let reads = node_reads(&s);
     since.lay(vec![(0, Stub::from(a.clone()))]).unwrap();
     assert_eq!(node_reads(&s) - reads, 3, "one read per distinct source");
