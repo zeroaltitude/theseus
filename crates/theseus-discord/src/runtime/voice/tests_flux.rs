@@ -23,7 +23,8 @@ fn flux_cfg(section: &str) -> theseus_core::voice::VoiceConfig {
 }
 
 /// Flux streams a call, but the REST client (the fallback's recogniser) is
-/// asked for nova-3, and the socket for Flux with the knobs set.
+/// asked for nova-3, and the socket for Flux by its own defaults: knobs still
+/// set in a file are not sent (issue 46).
 #[test]
 fn the_rest_client_keeps_nova_3_and_the_socket_gets_flux() {
     let cfg = flux_cfg("eot_threshold = 0.8\neager_eot_threshold = 0.5\neot_timeout_ms = 6000");
@@ -34,10 +35,7 @@ fn the_rest_client_keeps_nova_3_and_the_socket_gets_flux() {
         url.starts_with("wss://api.deepgram.com/v2/listen?model=flux-general-en&"),
         "{url}"
     );
-    assert!(
-        url.ends_with("&eot_threshold=0.8&eager_eot_threshold=0.5&eot_timeout_ms=6000"),
-        "{url}"
-    );
+    assert!(!url.contains("eot_"), "{url}");
     assert!(!url.contains("dg-test-key"));
 }
 
@@ -46,7 +44,7 @@ fn the_rest_client_keeps_nova_3_and_the_socket_gets_flux() {
 /// listens through Flux English, and the REST client still asks for nova-3.
 #[test]
 fn a_config_with_no_voice_table_listens_through_flux() {
-    for section in ["", "[voice]\nenabled = true\nlead_in_ms = 600"] {
+    for section in ["", "[voice]\nenabled = true"] {
         let cfg = Config::parse(&format!("{}\n{section}\n", Config::EXAMPLE_TOML))
             .unwrap()
             .0
@@ -74,7 +72,10 @@ fn stt_model_nova_3_still_takes_the_pause_rules_path() {
     .0
     .voice;
     assert!(!cfg.uses_flux());
-    assert_eq!((cfg.pause_ms, cfg.merge_ms), (1_200, 1_500));
+    assert_eq!(
+        (theseus_core::voice::PAUSE_MS, theseus_core::voice::MERGE_MS),
+        (1_200, 1_500)
+    );
     assert_eq!(settings(&cfg).stt_model, "nova-3");
     assert_eq!(cfg.prerecorded_model(), "nova-3");
 }

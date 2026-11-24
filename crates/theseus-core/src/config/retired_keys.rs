@@ -62,6 +62,7 @@ const LOOK_BACK: &str =
     "the history tool, context.history, is the one way to look back (issue 46): it \
                          reads every place, by words, a thing or a place, so this tool is gone";
 const NARRATIVE: &str = "the narrative always runs and the web UI always shows its tab (issue 46)";
+const VOICE: &str = "a call's timings are the code's, and Flux ends a turn by its own defaults (issue 46)";
 const DIGEST: &str =
     "the place digest is gone (2026-11-22): no turn waits on Jev's scope answer, and \
                       no request carries a digest of the other threads";
@@ -126,6 +127,14 @@ pub const RETIRED: &[Retired] = &[
     r("threads", "route_wait_ms", DIGEST),
     // Settings nobody set, fixed at what they do today (issue 46).
     r("", "narrative", NARRATIVE),
+    r("voice", "judge_ms", VOICE),
+    r("voice", "pause_ms", VOICE),
+    r("voice", "lead_in_ms", VOICE),
+    r("voice", "gap_lead_in_ms", VOICE),
+    r("voice", "merge_ms", VOICE),
+    r("voice", "eot_threshold", VOICE),
+    r("voice", "eager_eot_threshold", VOICE),
+    r("voice", "eot_timeout_ms", VOICE),
 ];
 
 const fn r(section: &'static str, key: &'static str, why: &'static str) -> Retired {

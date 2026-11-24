@@ -59,6 +59,15 @@ const EVERY: &str = "[model]\n\
                      candidates = 16\n\
                      [server]\n\
                      store_engine = \"redb\"\n\
+                     [voice]\n\
+                     judge_ms = 400\n\
+                     pause_ms = 1400\n\
+                     lead_in_ms = 0\n\
+                     gap_lead_in_ms = 0\n\
+                     merge_ms = 0\n\
+                     eot_threshold = 0.8\n\
+                     eager_eot_threshold = 0.5\n\
+                     eot_timeout_ms = 6000\n\
                      [policy.tools]\n\
                      \"thread.read\" = \"open\"\n\
                      \"channel.read\" = \"notify\"\n\
@@ -285,4 +294,35 @@ fn the_narrative_key_is_retired_whatever_it_says() {
             "{v}: {warnings:?}"
         );
     }
+}
+
+/// The eight voice timings are the code's (issue 46): a `[voice]` that still sets them, to anything, loads, names
+/// each once, and reads as if they were unset.
+#[test]
+fn the_voice_timings_are_retired_and_read_as_unset() {
+    let text = "[voice]\njudge_ms = 2000\npause_ms = 3000\nlead_in_ms = 0\ngap_lead_in_ms = 0\n\
+                merge_ms = 0\neot_threshold = 0.9\neager_eot_threshold = 0.5\neot_timeout_ms = 6000\n";
+    let (cfg, warnings) = parse(text).unwrap();
+    assert_eq!(
+        names(&cfg),
+        [
+            "voice.judge_ms",
+            "voice.pause_ms",
+            "voice.lead_in_ms",
+            "voice.gap_lead_in_ms",
+            "voice.merge_ms",
+            "voice.eot_threshold",
+            "voice.eager_eot_threshold",
+            "voice.eot_timeout_ms"
+        ]
+    );
+    assert_eq!(
+        warnings
+            .iter()
+            .filter(|w| w.starts_with("voice.") && w.contains(" is retired: "))
+            .count(),
+        8,
+        "{warnings:?}"
+    );
+    assert_eq!(cfg.voice, crate::voice::VoiceConfig::default());
 }

@@ -23,7 +23,7 @@ use theseus_protocol::LedgerKind;
 
 mod flux;
 
-pub use flux::{is_flux, Threshold, FLUX_ENGLISH};
+pub use flux::{is_flux, FLUX_ENGLISH};
 
 use crate::catalog::speech_price;
 use crate::rpc::Core;
@@ -89,41 +89,22 @@ pub struct VoiceConfig {
     /// (theseus-s3dwj). `false` restores the rules alone.
     #[serde(default = "default_status")]
     pub judge_unclear: bool,
-    /// How long such a transcript waits for Jev, in milliseconds. Past it the
-    /// rules decide as they always did.
-    #[serde(default = "default_judge_ms")]
-    pub judge_ms: u64,
-    /// How long a quiet listener closes an utterance, in milliseconds. A
-    /// natural pause inside a sentence runs 0.7 to 1.2 s.
-    #[serde(default = "default_pause_ms")]
-    pub pause_ms: u64,
-    /// The silence sent before the first clip of a speaking spell, in
-    /// milliseconds, so the head of a greeting isn't eaten. 0 is off.
-    #[serde(default = "default_lead_in_ms")]
-    pub lead_in_ms: u64,
-    /// The silence sent before a later sentence of a reply that nothing kept
-    /// warm (the warm silence between sentences failed or was stopped), in
-    /// milliseconds. 0 is off.
-    #[serde(default = "default_gap_lead_in_ms")]
-    pub gap_lead_in_ms: u64,
-    /// How long an utterance whose transcript has no terminal punctuation
-    /// waits for the same speaker's next one, in milliseconds; the two are
-    /// one turn. 0 is off.
-    #[serde(default = "default_merge_ms")]
-    pub merge_ms: u64,
-    /// Deepgram Flux (`stt_model = "flux-general-en"`): how sure it must be
-    /// that your turn ended, 0.5 to 0.9. Unset: Flux's own (0.7).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub eot_threshold: Option<Threshold>,
-    /// Flux: start a reply on an early end of turn, 0.3 to 0.9, and take it
-    /// back if you go on. Unset: off.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub eager_eot_threshold: Option<Threshold>,
-    /// Flux: force a turn's end after this much silence, 500 to 10000 ms.
-    /// Unset: Flux's own (5000).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub eot_timeout_ms: Option<u32>,
 }
+
+// A call's timings are the code's (issue 46), in milliseconds. Flux ends a turn by its own defaults, with no early
+// end of turn.
+/// How long an unclear transcript waits for Jev; past it the rules decide.
+pub const JUDGE_MS: u64 = 250;
+/// How long a quiet listener closes an utterance (the pause rules). A natural pause inside a sentence runs 0.7 to
+/// 1.2 s.
+pub const PAUSE_MS: u64 = 1_200;
+/// The silence sent before the first clip of a speaking spell, so the head of a greeting isn't eaten.
+pub const LEAD_IN_MS: u64 = 600;
+/// The silence sent before a later sentence of a reply that nothing kept warm.
+pub const GAP_LEAD_IN_MS: u64 = 200;
+/// How long an utterance with no terminal punctuation waits for the same speaker's next one (the pause rules); the
+/// two are one turn.
+pub const MERGE_MS: u64 = 1_500;
 
 /// `[voice] greeting`'s default, with `{name}` for the persona's name.
 pub const DEFAULT_GREETING: &str = "{name} here. Go ahead.";
@@ -154,21 +135,6 @@ fn default_api_base() -> String {
 fn default_deaf_after_secs() -> u64 {
     10
 }
-fn default_judge_ms() -> u64 {
-    250
-}
-fn default_pause_ms() -> u64 {
-    1_200
-}
-fn default_lead_in_ms() -> u64 {
-    600
-}
-fn default_gap_lead_in_ms() -> u64 {
-    200
-}
-fn default_merge_ms() -> u64 {
-    1_500
-}
 
 impl Default for VoiceConfig {
     fn default() -> Self {
@@ -186,14 +152,6 @@ impl Default for VoiceConfig {
             join_guard: default_status(),
             echo_cancel: default_status(),
             judge_unclear: default_status(),
-            judge_ms: default_judge_ms(),
-            pause_ms: default_pause_ms(),
-            lead_in_ms: default_lead_in_ms(),
-            gap_lead_in_ms: default_gap_lead_in_ms(),
-            merge_ms: default_merge_ms(),
-            eot_threshold: None,
-            eager_eot_threshold: None,
-            eot_timeout_ms: None,
         }
     }
 }
@@ -221,42 +179,6 @@ impl crate::config::Config {
         }
         if v.deaf_after_secs == 0 {
             bail!("voice.deaf_after_secs = 0: a call needs time to hear (10 is the default)");
-        }
-        if !(1..=2_000).contains(&v.judge_ms) {
-            bail!(
-                "voice.judge_ms = {}: a judgment of an unclear transcript waits 1 to 2000 ms \
-                 (250 is the default); `judge_unclear = false` turns it off",
-                v.judge_ms
-            );
-        }
-        if !(300..=3_000).contains(&v.pause_ms) {
-            bail!(
-                "voice.pause_ms = {}: a quiet listener closes an utterance after 300 to 3000 ms \
-                 (1200 is the default); below 300 every breath is a turn, above 3 s a reply \
-                 waits too long",
-                v.pause_ms
-            );
-        }
-        if v.lead_in_ms > 1_000 {
-            bail!(
-                "voice.lead_in_ms = {}: the silence before a spell is 0 to 1000 ms \
-                 (600 is the default; 0 is off)",
-                v.lead_in_ms
-            );
-        }
-        if v.gap_lead_in_ms > 1_000 {
-            bail!(
-                "voice.gap_lead_in_ms = {}: the silence before a sentence after a cold gap is \
-                 0 to 1000 ms (200 is the default; 0 is off)",
-                v.gap_lead_in_ms
-            );
-        }
-        if v.merge_ms > 5_000 {
-            bail!(
-                "voice.merge_ms = {}: an unfinished sentence waits 0 to 5000 ms for its rest \
-                 (1500 is the default; 0 is off)",
-                v.merge_ms
-            );
         }
         if !(v.api_base.starts_with("https://") || v.api_base.starts_with("http://")) {
             bail!(
@@ -432,7 +354,7 @@ mod tests {
         ] {
             assert!(on, "{name} is on without a [voice] section");
         }
-        assert_eq!(none.judge_ms, 250);
+        assert_eq!(super::JUDGE_MS, 250);
         let (empty, _) = Config::parse(&format!("{}\n[voice]\n", Config::EXAMPLE_TOML)).unwrap();
         assert_eq!(empty.voice, none, "an empty section is the absent one");
     }
@@ -473,61 +395,24 @@ mod tests {
     }
 
     /// The judge of unclear transcripts is on at 250 ms by default, `judge_unclear
-    /// = false` is its rollback, and a wait outside 1 to 2000 ms is refused
-    /// with the switch named (theseus-s3dwj).
+    /// = false` is its rollback (theseus-s3dwj), and its wait is the code's
+    /// (issue 46): a file that still sets one loads with the key named retired.
     #[test]
-    fn the_judge_of_unclear_transcripts_is_on_by_default_and_bounded() {
+    fn the_judge_of_unclear_transcripts_is_on_by_default_and_its_wait_is_fixed() {
         let with = |section: &str| {
             Config::parse(&format!("{}\n{section}\n", Config::EXAMPLE_TOML)).map(|(c, _)| c)
         };
         let cfg = with("[voice]\nenabled = true").unwrap();
-        assert_eq!((cfg.voice.judge_unclear, cfg.voice.judge_ms), (true, 250));
+        assert_eq!((cfg.voice.judge_unclear, super::JUDGE_MS), (true, 250));
         let cfg = with("[voice]\njudge_unclear = false\njudge_ms = 400").unwrap();
-        assert_eq!((cfg.voice.judge_unclear, cfg.voice.judge_ms), (false, 400));
+        assert_eq!((cfg.voice.judge_unclear, cfg.ignored_keys.len()), (false, 1));
         for bad in ["0", "2001"] {
-            let e = with(&format!("[voice]\njudge_ms = {bad}")).unwrap_err();
-            let e = format!("{e:#}");
+            let cfg = with(&format!("[voice]\njudge_ms = {bad}")).unwrap();
             assert!(
-                e.contains("voice.judge_ms") && e.contains("judge_unclear = false"),
-                "{e}"
+                cfg.ignored_keys.iter().any(|i| i.name == "voice.judge_ms"),
+                "{bad}: {:?}",
+                cfg.ignored_keys
             );
-        }
-    }
-
-    /// The pause, the lead-in, the gap's lead-in and the merge default to 1200,
-    /// 600, 200 and 1500 ms, read back when set, and a value outside its range is
-    /// refused with the key named (theseus-bp0lp, theseus-9d9aq).
-    #[test]
-    fn the_pause_the_lead_in_and_the_merge_have_defaults_and_ranges() {
-        let with = |section: &str| {
-            Config::parse(&format!("{}\n{section}\n", Config::EXAMPLE_TOML)).map(|(c, _)| c)
-        };
-        let none = Config::example().voice;
-        assert_eq!(
-            (none.pause_ms, none.lead_in_ms, none.merge_ms),
-            (1_200, 600, 1_500)
-        );
-        assert_eq!(none.gap_lead_in_ms, 200);
-        let cfg = with("[voice]\nenabled = true").unwrap();
-        assert_eq!((cfg.voice.pause_ms, cfg.voice.lead_in_ms), (1_200, 600));
-        assert_eq!((cfg.voice.merge_ms, cfg.voice.gap_lead_in_ms), (1_500, 200));
-        let cfg = with("[voice]\npause_ms = 1400\nlead_in_ms = 0\nmerge_ms = 0").unwrap();
-        assert_eq!((cfg.voice.pause_ms, cfg.voice.lead_in_ms), (1_400, 0));
-        assert_eq!(cfg.voice.merge_ms, 0);
-        for gap in [0, 1_000] {
-            let cfg = with(&format!("[voice]\ngap_lead_in_ms = {gap}")).unwrap();
-            assert_eq!(cfg.voice.gap_lead_in_ms, gap);
-        }
-        for (key, bad) in [
-            ("pause_ms", "299"),
-            ("pause_ms", "3001"),
-            ("lead_in_ms", "1001"),
-            ("gap_lead_in_ms", "1001"),
-            ("merge_ms", "5001"),
-        ] {
-            let e = with(&format!("[voice]\n{key} = {bad}")).unwrap_err();
-            let e = format!("{e:#}");
-            assert!(e.contains(&format!("voice.{key} = {bad}")), "{e}");
         }
     }
 
