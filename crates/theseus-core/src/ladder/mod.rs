@@ -21,8 +21,10 @@
 //!   under its place and level, newest first, so a level's standing nodes are
 //!   the first keys of its prefix.
 //!
-//! The window keeps at least [`WINDOW_FLOOR`] exchanges whole: it holds
-//! [`WINDOW_FLOOR`] to [`WINDOW_FLOOR`] + [`FOLD_STEP`] - 1, and at
+//! No fold takes the window's newest [`WINDOW_FLOOR`] exchanges: a settled
+//! window holds [`WINDOW_FLOOR`] to [`WINDOW_FLOOR`] + [`FOLD_STEP`] - 1
+//! (fewer in a new place or one that grows into the floor, more while the
+//! fold job is behind), and at
 //! [`WINDOW_FLOOR`] + [`FOLD_STEP`] its oldest [`FOLD_STEP`] fold
 //! (`read::fold_step`); a level that reaches 2[`FOLD_STEP`] nodes folds its
 //! oldest [`FOLD_STEP`] into one node of the level above. Only what came after the
@@ -53,7 +55,8 @@ mod tests_job;
 #[cfg(test)]
 pub(crate) mod tests_moved;
 
-/// The window's floor: the newest exchanges it always keeps whole (30 since 2026-11-24; 20 before).
+/// The window's floor: the newest exchanges no fold takes (30 since 2026-11-24; 20 before). A place with fewer
+/// has them all; a request's budget can still shorten all but the newest three exchanges' words.
 pub const WINDOW_FLOOR: usize = 30;
 /// The fold step: a fold takes this many exchanges into one first-level node, or this many nodes of a level
 /// into one node above it. Every node, before and after the floor rose, holds this many.

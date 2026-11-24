@@ -132,9 +132,10 @@ the rest are fixed in the code. The sprint added no setting beyond `[context] le
 **The shape of a turn's context, 2026-11-24.** The owner ruled on its shape: who am I; who am I talking to; the
 topic; here (this place's last 30 exchanges, with a pager); and everywhere (every place's newest, each with its
 place, with its own pager). The slices of his words by age go. **Built**: slot E, his words by age, is removed
-(§5.3); the window keeps 30 exchanges whole and a fold still takes 20, so it holds 30 to 49 (§5.2); and who am
-I: a few lines laid by code at the head of the first user message, first in the front, naming the profile the
-turn runs on, its model, the persona in play with its card's one line, and where to read more. They are the same
+(§5.3); no fold takes the newest 30 exchanges and a fold still takes 20, so a settled place's window holds 30 to
+49 (§5.2 says when it holds fewer or more); and who am I: a few lines laid by code at the head of the first user
+message, first in the front, naming the profile the turn runs on, its model, the persona in play by its name
+(nothing of its card), and where to read more, under 300 tokens whatever the names. They are the same
 bytes from one turn to the next until the profile, its model or the persona changes, and the system part is
 unchanged. **Not built yet**: who am I talking to (the people present and their recent lines), the topic block,
 and the look-back over every place that replaces slot F, with the one walk over every place they share. The
@@ -156,7 +157,7 @@ folded ladder stays above the 30 (his answer).
    place where he was alone with Theseus and the words are proven his, for a long time: in his main conversation
    they are 2% of the bytes (measured). Theseus's replies thin to a line and a handle. Tool results thin
    fastest; they stay openable, and are read again when the present state matters.
-5. **Here, time is a ladder.** The last thirty to forty-nine exchanges of a place are kept in full. Older ones
+5. **Here, time is a ladder.** The last thirty to forty-nine exchanges of a place are kept in full (all of them in a new place). Older ones
    are folded, twenty at a time, into one node that keeps his words and an account of what was done; twenty
    such nodes fold again. Everything ever said in a place stays in view at some grain. Across places, his own words of
    the last two days are selected (no band by age since 2026-11-24). Nothing is silently absent: every node and every band opens.
@@ -186,7 +187,7 @@ folded ladder stays above the 30 (his answer).
 
 | His words | Where it is in this design |
 |---|---|
-| "immediately prior (and indeed a reasonable tail) of immediate conversational context should always be in context" | The window (§5.2): the last twenty to thirty-nine exchanges here in full, counted in exchanges and not by the clock; the words of the newest three can be removed by no budget, judge or router |
+| "immediately prior (and indeed a reasonable tail) of immediate conversational context should always be in context" | The window (§5.2): the last thirty to forty-nine exchanges here in full (all of them in a place with fewer), counted in exchanges and not by the clock; the words of the newest three can be removed by no budget, judge or router |
 | "if an event or issue is noted as a reference as of now unknown, it should be searched by name where possible" | Rung 1 of the reach (§6): a scoped name finds its thing, and the thing's own timeline finds the exchange |
 | "where there was no name, it should search an incrementally longer tail of conversation, allowing itself to go way back" | Rungs 2 and 3 (§6): a search of the last two days before the first word; then the model itself extends its history a hundred exchanges at a time, with no horizon, by a tool it is always offered |
 | "a jev classification of 'dangling references' … that would automatically trigger a certain degree of introspection" | Half of it is already asked: the judge answers `fragment` and `mentions_other_conversation` on every message a person sends today, and nothing reads them (checked in the code). His fuller idea is the typed question `leans_on`, added beside them (§6) |
@@ -521,8 +522,14 @@ certain and everything since a three-hour pause.
   chains whole; the ladder carries them. The whole chain so far fits in the last 10 exchanges 45% of the time,
   in 20 62%, in 30 69%. Twenty exchanges are about 15,400 tokens of both sides' words at the median (36,300 at
   the 90th percentile); thirty are 23,900 (53,600). (The daemon's own ledger, 302 exchanges, had suggested 10;
-  it was the wrong corpus.) Since 2026-11-24 the window keeps at least 30 exchanges whole (the owner's word),
-  and N, the fold step, stays 20, so the ladder does not grow.
+  it was the wrong corpus.) Since 2026-11-24 no fold takes the newest 30 exchanges (the owner's word), and N,
+  the fold step, stays 20, so the ladder does not grow.
+- **What the 30 is, and is not** (2026-11-24). It is the fold's rule, not a count every request carries. A place
+  with fewer than 30 exchanges has them all. A place laddered under the old rule, its window 20 to 39, keeps the
+  window it had and grows into 30; no node is unfolded. A fold job that stalls (its model fails, or the day's
+  line is spent) folds nothing until it catches up, so the window can hold more than 49 meanwhile. And budgets
+  can still shorten what a request carries of the window (§5.1, the budgeter's rules 6 to 8): only the newest
+  three exchanges' words are protected.
 - **Tool output cannot saturate the window.** It is about 90% of the bytes of his conversations: twenty
   exchanges carry about 156,000 tokens of it at the median and 700,000 at the 90th percentile (measured). The
   rule is the one the build already has, kept as it is: tool output in view may grow to a **high mark**; past

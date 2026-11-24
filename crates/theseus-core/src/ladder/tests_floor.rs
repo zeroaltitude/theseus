@@ -1,5 +1,5 @@
-//! The window's floor and the fold step (2026-11-24): the window keeps at least [`WINDOW_FLOOR`] exchanges
-//! whole, and once it holds [`WINDOW_FLOOR`] + [`FOLD_STEP`] its oldest [`FOLD_STEP`] fold. A place whose
+//! The window's floor and the fold step (2026-11-24): no fold takes the window's newest [`WINDOW_FLOOR`]
+//! exchanges, and once it holds [`WINDOW_FLOOR`] + [`FOLD_STEP`] its oldest [`FOLD_STEP`] fold. A place whose
 //! ladder was written while the window held 20 to 39 reads and goes on under the new rule: no exchange lost,
 //! none laid twice, no fold made early. Every name here is invented.
 

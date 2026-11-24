@@ -1,5 +1,5 @@
 //! The fold node and the ladder's read (design §5.2; trim items 6, 7, 8). A node is written once and never
-//! changes. A fold is by count: the window keeps at least [`WINDOW_FLOOR`] exchanges whole, and when it holds
+//! changes. A fold is by count: no fold takes the newest [`WINDOW_FLOOR`] exchanges of the window, and when it holds
 //! [`WINDOW_FLOOR`] + [`FOLD_STEP`] its oldest [`FOLD_STEP`] fold into one first-level node ([`fold_due`]);
 //! when a level holds 2 [`FOLD_STEP`] nodes its oldest [`FOLD_STEP`] fold into one node of the level above.
 //! A first-level node's account is a small model's, written off the turn's path from the original exchanges;

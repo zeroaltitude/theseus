@@ -174,8 +174,8 @@ turn's first request (the compiler's rule, `bench/recall/tokens.py`) and the len
 with the previous turn's first request (tools, system, messages, in that order, cache marks taken out), which
 is what a provider cache could read; then totals and the ratio of the two modes.
 
-`--cost-long` adds two longer conversations in each mode: 120 short turns in one place (folds land from the 40th
-exchange on), and 20 turns of three 6,000-character tool results each. Per turn they add the turn's own model
+`--cost-long` adds two longer conversations in each mode: 120 short turns in one place (folds land at the 50th
+exchange and every 20th after it, four in all), and 20 turns of three 6,000-character tool results each. Per turn they add the turn's own model
 calls, the calls made OFF the turn (a call that offers no tools: the ladder's `did` lines and folds, a
 compaction's summary) with their tokens, and the turn's compilations by strategy. A `/new` break and a day
 change are not driven: the terminal has no `/new`, and the daemon reads the machine's clock.
