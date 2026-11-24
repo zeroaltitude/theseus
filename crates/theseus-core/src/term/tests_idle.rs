@@ -426,7 +426,7 @@ async fn a_message_queued_behind_the_turn_ends_a_terminals_wait() {
     )
     .await;
     let steers = terms.steers.clone();
-    let turning = steers.open("s1", true);
+    let turning = steers.open("s1");
     let waiting = {
         let (terms, id, dir) = (terms.clone(), id.clone(), dir.clone());
         tokio::spawn(async move {

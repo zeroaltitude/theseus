@@ -154,13 +154,8 @@ impl Place {
         }
     }
 
-    /// After a turn: the messages queued behind it go as the next turn, then
-    /// a voice turn that waited, each on a session that is ready for it.
+    /// After a turn: a voice turn that waited, on a session that is ready for it.
     pub(super) async fn next_after_turn(&mut self) {
-        let batch = std::mem::take(&mut self.queued);
-        if !batch.is_empty() && self.ready().await {
-            self.submit(batch);
-        }
         if self.inflight || !self.voice_waits() || self.ready().await {
             self.voice_next();
         }

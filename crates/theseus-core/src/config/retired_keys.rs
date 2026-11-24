@@ -65,6 +65,8 @@ const NARRATIVE: &str = "the narrative always runs and the web UI always shows i
 const VOICE: &str = "a call's timings are the code's, and Flux ends a turn by its own defaults (issue 46)";
 const DISCORD: &str = "fixed at what it did by default: replies edited every 1.2 s, no embed per notified call, \
                        the status line and the bot's own emojis on (issue 46)";
+const STEER: &str =
+    "a message sent while a turn runs always joins that turn at its next loop (issue 46)";
 const DIGEST: &str =
     "the place digest is gone (2026-11-22): no turn waits on Jev's scope answer, and \
                       no request carries a digest of the other threads";
@@ -141,6 +143,7 @@ pub const RETIRED: &[Retired] = &[
     r("discord", "notice_embeds", DISCORD),
     r("discord", "status_line", DISCORD),
     r("discord", "app_emojis", DISCORD),
+    r("kernel", "steer_queued", STEER),
 ];
 
 const fn r(section: &'static str, key: &'static str, why: &'static str) -> Retired {

@@ -983,11 +983,6 @@ pub struct KernelSection {
     /// Routines and watches, declared for their rows: 50 and 20.
     #[serde(default = "wake_limits::default_max_watches")]
     pub max_watches: usize,
-    /// A person's message queued behind a running turn interrupts that turn's
-    /// waits and joins it at its next loop (theseus-qu1lc); off, it waits for
-    /// the turn to end and runs as the next one.
-    #[serde(default = "default_true")]
-    pub steer_queued: bool,
     /// How many levels of tasks may sit below a conversation: a task starts
     /// tasks until this depth (theseus-tecj5, the owner's "lets start with 10
     /// deep, and observe"). 1 to 32.
@@ -1049,7 +1044,6 @@ impl Default for KernelSection {
             max_wakes: wake_limits::default_max_wakes(),
             max_reminders: wake_limits::default_max_reminders(),
             max_watches: wake_limits::default_max_watches(),
-            steer_queued: true,
             task_depth: default_task_depth(),
         }
     }

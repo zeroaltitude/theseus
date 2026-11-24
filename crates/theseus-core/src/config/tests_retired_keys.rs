@@ -73,6 +73,8 @@ const EVERY: &str = "[model]\n\
                      notice_embeds = true\n\
                      status_line = false\n\
                      app_emojis = false\n\
+                     [kernel]\n\
+                     steer_queued = false\n\
                      [policy.tools]\n\
                      \"thread.read\" = \"open\"\n\
                      \"channel.read\" = \"notify\"\n\
@@ -360,4 +362,22 @@ fn the_cosmetic_discord_switches_are_retired_and_read_as_their_defaults() {
         (cfg.discord.edit_interval_ms, cfg.discord.app_emojis),
         (1200, true)
     );
+}
+
+/// A message sent while a turn runs always joins it (issue 46): a settings file that still says
+/// `[kernel] steer_queued`, either way, loads and names it once as retired.
+#[test]
+fn the_steer_switch_is_retired_whatever_it_says() {
+    for v in ["true", "false"] {
+        let (cfg, warnings) = parse(&format!("[kernel]\nsteer_queued = {v}\n")).unwrap();
+        assert_eq!(names(&cfg), ["kernel.steer_queued"], "{v}");
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|w| w.starts_with("kernel.steer_queued is retired: "))
+                .count(),
+            1,
+            "{v}: {warnings:?}"
+        );
+    }
 }

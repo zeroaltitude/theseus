@@ -1181,7 +1181,7 @@ impl TurnRunner {
             .tools
             .job_waits
             .steers
-            .open(&req.session.session_id, self.cfg.kernel.steer_queued);
+            .open(&req.session.session_id);
         self.note_owner_turn(&req, class);
         let f0 = frames_written_here();
         // A `/stop` that landed after this input arrived and before its turn

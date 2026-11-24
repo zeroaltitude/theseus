@@ -50,7 +50,7 @@ async fn a_message_sent_while_a_turn_runs_goes_to_the_daemon_at_once() {
     place
         .handle(PlaceMsg::Inbound(message("while you work: stop")))
         .await;
-    assert!(place.queued.is_empty(), "not held here");
+    assert_eq!(place.steering.out(), 1, "sent at once, held nowhere here");
     let done = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             if let Some(PlaceMsg::Steered(r, _)) = rx.recv().await {
@@ -72,18 +72,6 @@ async fn a_message_sent_while_a_turn_runs_goes_to_the_daemon_at_once() {
         })
         .collect();
     assert_eq!(said, ["while you work: stop"]);
-}
-
-/// With `[kernel] steer_queued` off the message waits for the turn to end.
-#[tokio::test]
-async fn with_the_switch_off_it_waits_here_for_the_turn_to_end() {
-    let d = tempfile::tempdir().unwrap();
-    let core = core_edited(d.path(), vec![], |c| c.kernel.steer_queued = false);
-    let sid = bound(&core);
-    let (mut place, _rx) = place_for_tests(&core, &sid);
-    place.inflight = true;
-    place.handle(PlaceMsg::Inbound(message("later"))).await;
-    assert_eq!(place.queued.len(), 1);
 }
 
 /// The text of each post with any waiting for the DM: a failed turn's own

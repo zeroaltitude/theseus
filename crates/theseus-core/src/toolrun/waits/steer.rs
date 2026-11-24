@@ -152,27 +152,24 @@ impl Steers {
         self.total.load(Ordering::Acquire) > 0
     }
 
-    /// A turn of `session` begins, taking messages offered to it while `on`
-    /// (`[kernel] steer_queued`).
-    pub fn open(self: &Arc<Self>, session: &str, on: bool) -> Turning {
-        let steer = on.then(|| {
-            let steer = Arc::new(Steer {
-                state: Mutex::default(),
-                count: AtomicUsize::new(0),
-                total: self.total.clone(),
-                raised: Notify::new(),
-                closed: Notify::new(),
-            });
-            self.open
-                .lock()
-                .unwrap()
-                .insert(session.to_string(), steer.clone());
-            steer
+    /// A turn of `session` begins, taking the messages offered to it: a
+    /// person's message sent while a turn runs always joins it (issue 46).
+    pub fn open(self: &Arc<Self>, session: &str) -> Turning {
+        let steer = Arc::new(Steer {
+            state: Mutex::default(),
+            count: AtomicUsize::new(0),
+            total: self.total.clone(),
+            raised: Notify::new(),
+            closed: Notify::new(),
         });
+        self.open
+            .lock()
+            .unwrap()
+            .insert(session.to_string(), steer.clone());
         Turning {
             steers: self.clone(),
             session: session.to_string(),
-            steer,
+            steer: Some(steer),
         }
     }
 
@@ -212,8 +209,8 @@ impl Steers {
     }
 
     /// Offer a message to `session`'s running turn. `None`: no turn takes
-    /// offers (none runs, it has ended, or the switch is off), and the
-    /// message queues as it always did.
+    /// offers (none runs, or it has ended), and the message queues as it
+    /// always did.
     pub fn offer(&self, session: &str, message: Steered) -> Option<Offer> {
         let steer = self.get(session)?;
         let (taken_tx, taken) = oneshot::channel();
@@ -245,8 +242,8 @@ impl Steers {
 }
 
 impl Turning {
-    /// The steer the turn reads at its loop boundaries; none when the switch
-    /// is off.
+    /// The steer the turn reads at its loop boundaries; none once the turn has
+    /// finished.
     pub fn steer(&self) -> Option<&Arc<Steer>> {
         self.steer.as_ref()
     }
@@ -450,7 +447,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn an_offer_raises_a_wait_and_is_taken_in_order() {
         let steers = Arc::new(Steers::default());
-        let turning = steers.open("ses_a", true);
+        let turning = steers.open("ses_a");
         let watch = steers.watch("ses_a");
         assert!(!watch.pending() && !steers.any());
         let waiting = tokio::spawn(async move {
@@ -488,7 +485,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_turn_that_ends_untaken_withdraws_its_offers() {
         let steers = Arc::new(Steers::default());
-        let turning = steers.open("ses_a", true);
+        let turning = steers.open("ses_a");
         let offer = steers.offer("ses_a", message("late")).unwrap();
         let settling = tokio::spawn(offer.settle());
         tokio::task::yield_now().await;
@@ -498,17 +495,18 @@ mod tests {
         assert!(steers.offer("ses_a", message("after")).is_none());
     }
 
-    /// An offerer that goes away takes its message with it, and the switch
-    /// off offers nothing.
+    /// An offerer that goes away takes its message with it, and every turn
+    /// takes offers: there is no switch to turn it off.
     #[tokio::test(start_paused = true)]
-    async fn a_dropped_offer_leaves_nothing_and_the_switch_off_takes_none() {
+    async fn a_dropped_offer_leaves_nothing_and_every_turn_takes_offers() {
         let steers = Arc::new(Steers::default());
-        let turning = steers.open("ses_a", true);
+        let turning = steers.open("ses_a");
         drop(steers.offer("ses_a", message("gone")).unwrap());
         assert!(!steers.any() && turning.steer().unwrap().take().is_empty());
         drop(turning);
-        let off = steers.open("ses_b", false);
-        assert!(off.steer().is_none() && steers.offer("ses_b", message("no")).is_none());
-        assert!(!steers.watch("ses_b").pending());
+        let other = steers.open("ses_b");
+        let offer = steers.offer("ses_b", message("yes"));
+        assert!(other.steer().is_some() && offer.is_some());
+        assert!(steers.watch("ses_b").pending());
     }
 }
