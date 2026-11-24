@@ -349,8 +349,9 @@ async fn a_memory_tool_maps_to_the_cores_lookup() {
 }
 
 /// `context_history` (issue 46) maps to the core's `history.read`: only the keys the tool names pass, with the
-/// client's name; a call the core refuses (no place to read) is an error result the client reads; its ledger
-/// row names its conversation when it passed one.
+/// client's name; a call the core refuses (a bare page with no place to read) is an error result the client
+/// reads; its ledger row names its conversation when it passed one. A call that still says `thing` (now
+/// `label`) is refused in words, and its `label` passes.
 #[tokio::test]
 async fn the_history_tool_maps_to_the_cores_history_read() {
     let core = Arc::new(FakeCore::default());
@@ -374,14 +375,35 @@ async fn the_history_tool_maps_to_the_cores_history_read() {
         json!({"open": "turn_a", "client": "theseus"})
     );
     let r = client
-        .call_tool("context_history", json!({"words": "ferry"}))
+        .call_tool("context_history", json!({}))
         .await
         .unwrap();
     assert!(r.is_error && r.text_for_model().contains("pass place or session_id"));
+    let r = client
+        .call_tool("context_history", json!({"thing": "topic:kelp"}))
+        .await
+        .unwrap();
+    assert!(r.is_error && r.text_for_model().contains("thing is now label"));
+    let got = tool(
+        &client,
+        "context_history",
+        json!({"label": "personal", "when": "last week"}),
+    )
+    .await;
+    assert_eq!(
+        got["params"],
+        json!({"label": "personal", "when": "last week", "client": "theseus"})
+    );
     let rows = core.calls();
     assert_eq!(
         rows.iter().map(|r| r.tool.as_str()).collect::<Vec<_>>(),
-        ["context_history", "context_history", "context_history"]
+        [
+            "context_history",
+            "context_history",
+            "context_history",
+            "context_history",
+            "context_history"
+        ]
     );
     assert_eq!(rows[0].session_id.as_deref(), Some("ses_1"));
     assert_eq!(rows[1].session_id, None);

@@ -11,7 +11,13 @@
 //! - **A description, not a permission.** Nothing withholds on it: an assembler may read it as data
 //!   ([`of_node`]); none does today.
 //!
-//! A new META family (`labels.`): no stored record gains a field, so no store-format step.
+//! - **A touch beside it** (issue 44): each raised label also writes the touch `label:<flag>` by its item's turn,
+//!   at that turn's time ([`touch_root`], [`landing`]), in the same frame, a reply's too, so "everything labelled
+//!   personal" is a timeline the history tool reads, as a topic's is, and one turn holds one key of a label
+//!   whatever path its frames took. Nothing that acts reads it.
+//!
+//! A new META family (`labels.`): no stored record gains a field, so no store-format step. The touch is the
+//! touch index's own `Touch`, under a root of a family it already holds.
 
 use serde::{Deserialize, Serialize};
 use theseus_judge::band::Band;
@@ -159,6 +165,84 @@ pub fn key(node: &str) -> String {
 /// `node`'s record, as last written.
 pub fn read(store: &Store, node: &str) -> anyhow::Result<Option<ItemLabels>> {
     store.get_meta(&key(node))
+}
+
+// ------------------------------------------------------------ the label's touch (issue 44)
+
+/// The touch index's root a raised label is kept under, beside its exchange: `label:<flag>`, so "everything
+/// labelled personal" is a timeline the history tool reads (`history_tool::page`), as a topic's is. A
+/// description beside the label: nothing that acts reads it.
+pub fn touch_root(flag: Flag) -> String {
+    format!("label:{}", flag.as_str())
+}
+
+/// Where `node`'s labels touch: its turn and session, **at its turn's own time** ([`at`]), so one turn holds one
+/// key of a label on every path: a label raised before its exchange opens (a configured name in the message),
+/// one raised after (the reply's), one whose frame the log kept through a failed append and indexed at the next
+/// open. A turn whose id carries no time (an old hand-written id) keeps the old rule: its exchange's start, or
+/// with no exchange on record the node's own time. None for a node that names no turn, or that cannot be read.
+pub fn landing(store: &Store, node: &str) -> Option<(String, String, u64)> {
+    let (_, n) = store.get_node(node).ok().flatten()?;
+    let turn = n.turn_id?;
+    if let Some(at) = at(&turn) {
+        return Some((turn, n.session_id, at));
+    }
+    match crate::exchange::exchange(store, &turn) {
+        Ok(Some(ex)) => Some((ex.turn_id, ex.session_id, ex.start_ms)),
+        Ok(None) => Some((turn, n.session_id, n.created_at_ms)),
+        Err(e) => {
+            tracing::warn!(node, error = %format!("{e:#}"), "content: an item's exchange was not read, so its labels touch nothing");
+            None
+        }
+    }
+}
+
+/// When turn `turn`'s labels are keyed: when the runner minted its id (`crate::id_ms`; a steered message shares
+/// it), before its message and its exchange were written. A line of a label's page still says when its exchange
+/// opened, which can be a little later (`history_tool::page`). None for an id of another shape.
+pub fn at(turn: &str) -> Option<u64> {
+    crate::id_ms(turn)
+}
+
+/// When the touch whose key starts `root` (`touch.thing:label:personal`) by turn `turn` belongs: [`at`] for a
+/// label's root, none for any other root. `exchange.rebuild` leaves a label there rather than move it to its
+/// exchange's start, so a later write of the label finds its one key.
+pub fn keyed_at(root: &str, turn: &str) -> Option<u64> {
+    let labels = format!(
+        "{}{}",
+        crate::exchange::TOUCH_PREFIX,
+        crate::exchange::Root::Thing("label:").key()
+    );
+    root.starts_with(&labels).then(|| at(turn)).flatten()
+}
+
+/// The touches of `flags`, raised on an item, at its `landing`: one a flag, the same key however often it is
+/// written.
+pub fn touches(
+    (turn, session, at): (&str, &str, u64),
+    flags: impl IntoIterator<Item = Flag>,
+) -> Vec<NewRecord> {
+    (flags.into_iter())
+        .filter_map(|f| {
+            let root = touch_root(f);
+            crate::exchange::touch(crate::exchange::Root::Thing(&root), turn, session, at)
+        })
+        .collect()
+}
+
+/// The touches of the labels raised on each node of `raised`, each at its node's [`landing`]. Read before a
+/// frame takes its session's lock, and written in that frame.
+pub fn touches_of<'a>(
+    store: &Store,
+    raised: impl IntoIterator<Item = (&'a str, Vec<Flag>)>,
+) -> Vec<NewRecord> {
+    let mut out = Vec::new();
+    for (node, flags) in raised.into_iter().filter(|(_, f)| !f.is_empty()) {
+        if let Some((turn, session, at)) = landing(store, node) {
+            out.extend(touches((&turn, &session, at), flags));
+        }
+    }
+    out
 }
 
 /// **The one rule both records are written by**: `label`, raised by an item that entered at `entered_ms`, goes

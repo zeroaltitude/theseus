@@ -109,7 +109,10 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 ## Inspecting a turn
 
 - **`history`**: a session's transcript: messages, tool calls with their gate decisions, results, anything waiting.
-  `theseus history [SESSION]`; a cited handle (`m:a1b2c3`) shows that message whole.
+  `theseus history [SESSION]`; a cited handle (`m:a1b2c3`) shows that message whole. With `--when`, `--from`, `--to`,
+  `--label`, `--words` or `--place` it searches instead, one line an exchange from every place unless `--place` names
+  one, the lines the model's history tool reads: `theseus history --when "last week" --label personal`. A page that
+  has more prints the command that reads on (`--before`).
 - **`why`**: what a turn's model was shown and why each piece was there: the model and why routing chose it, each
   block of the compiled context, each recalled note, what was left out, the gate's posture per tool.
   `theseus why [TURN]`.

@@ -112,9 +112,10 @@ impl Fact for MemoryUsed<'_> {
     }
 }
 
-/// One memory read by an MCP client (theseus-02i1h): who asked, with which
-/// tool, a digest of the words (never the words), and how many hits answered.
-/// Scoped `memory.read`; the principal is `mcp`.
+/// One memory read by an MCP client (theseus-02i1h), or by the owner's
+/// terminal through `history.read` (issue 44): who asked, with which tool, a
+/// digest of the words (never the words), and how many hits answered.
+/// Scoped `memory.read`; the principal is `mcp`, or `cli` for the terminal.
 pub struct MemoryRead<'a> {
     pub principal: &'a str,
     pub client: Option<&'a str>,

@@ -1,11 +1,12 @@
 //! `history.read` (issue 46): the history tool, `context.history`, read by an MCP client with no model call.
 //! It runs the tool's one read (`super::read`) with no turn (`Allowance::NoTurn`): each call is one page or one
 //! open, and nothing is counted across calls. Every read of the tool is the model's own: a span, an exchange or
-//! a session opened by id (an imported one included, each node by its newest record), a words search, a thing.
+//! a session opened by id (an imported one included, each node by its newest record), a words search, a label.
 //!
 //! - **Its anchor**: `place` (a place's key, as a line names it), else where `session_id`, the client's own
-//!   conversation, speaks (`super::anchor`). An `open` and a `thing`'s timeline need none; a page or a words
-//!   search with neither is refused in words ([`NO_ANCHOR`]). Nothing is in view with no turn, so a bare page
+//!   conversation, speaks (`super::anchor`). An `open`, a `label`'s timeline, and a page that narrows (a span, or
+//!   words) need none: with no place named, a page that narrows reads every place; a bare page with neither is
+//!   refused in words ([`NO_ANCHOR`]). Nothing is in view with no turn, so a bare page
 //!   starts at the newest exchange.
 //! - **A fork's cut**: a `session_id` that is a fork (an MCP client may fork its own conversation) carries
 //!   that fork's cut, as the model's own call in it does: its pages, its search and its opens hold nothing an
@@ -72,6 +73,7 @@ fn line(l: HistoryLine) -> HistoryReadLine {
         person,
         reply_begins,
         outside,
+        labels,
     } = l;
     let outside = outside || person.as_deref().is_some_and(|p| p != OWNER);
     HistoryReadLine {
@@ -84,6 +86,7 @@ fn line(l: HistoryLine) -> HistoryReadLine {
         did,
         reply_begins,
         outside,
+        labels,
     }
 }
 
@@ -144,6 +147,7 @@ pub(crate) fn substituted(core: &Core, r: HistoryReadResult) -> HistoryReadResul
                 did,
                 reply_begins,
                 outside,
+                labels,
             } = l;
             HistoryReadLine {
                 handle: sub(handle),
@@ -155,6 +159,7 @@ pub(crate) fn substituted(core: &Core, r: HistoryReadResult) -> HistoryReadResul
                 did: did.map(sub),
                 reply_begins: reply_begins.map(sub),
                 outside,
+                labels: labels.map(sub),
             }
         })
         .collect();
@@ -187,7 +192,7 @@ async fn read_history(
 ) -> Result<HistoryReadResult, String> {
     let a = HistoryArgs {
         place: p.place.clone(),
-        thing: p.thing.clone(),
+        label: p.label.clone(),
         words: p.words.clone(),
         before: p.before.as_ref().map(|c| Cursor {
             at_ms: c.at_ms,
@@ -204,15 +209,21 @@ async fn read_history(
         Some(sid) => place_of_session(core, sid)?,
         None => None,
     };
-    let needs_none = some(&p.open).is_some() || some(&p.thing).is_some();
+    // Only a bare page needs an anchor: one that narrows (a span, words) reads every place.
+    let narrows = [&p.words, &p.when, &p.from, &p.to]
+        .into_iter()
+        .any(|s| some(s).is_some());
+    let needs_none = some(&p.open).is_some() || some(&p.label).is_some() || narrows;
     let here = match (some(&p.place), session_place) {
         (Some(place), _) => place.to_string(),
         (None, Some(place)) => place,
         (None, None) if needs_none => String::new(),
         (None, None) => return Err(NO_ANCHOR.into()),
     };
-    let place = match (some(&p.thing), some(&p.open)) {
-        (None, None) => here.clone(),
+    // The place a page reads: a label's beside a named place keeps that place's exchanges.
+    let place = match (some(&p.label), some(&p.open), some(&p.place)) {
+        (None, None, _) => here.clone(),
+        (Some(_), None, Some(named)) => named.to_string(),
         _ => String::new(),
     };
     // An MCP client is not the self loop: no scope; but an anchoring session whose scope cannot be read fails
@@ -244,6 +255,11 @@ async fn read_history(
             // A call with no turn counts no opens.
             Read::OpensUsed { .. } => return Err("no exchange can be opened now".into()),
             Read::Page { walked, resume, .. } => {
+                // Every place's page names no one place.
+                let place = match walked.every {
+                    true => String::new(),
+                    false => place,
+                };
                 let pg = walked.page;
                 let (end, next) = match pg.end {
                     PageEnd::More | PageEnd::AllowanceUsed => ("more", pg.next),

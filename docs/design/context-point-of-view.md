@@ -745,11 +745,35 @@ The judge's `fragment`, `mentions_other_conversation` and
   narrowed to a thing's timeline or by words. A handle opens one exchange in spoken form, cut at about 3,000
   tokens. A turn has five pages and twelve opens, constants, and is told plainly when it has used them, apart
   from "history is exhausted".
+- **Narrowed with no place, it reads every place** (issue 44): a span (`when`, or `from` and `to`; a day, or a
+  day and a minute), words, or a label (`personal`, `secret`, `confidential`, `injection`, a topic or a thing)
+  reads every place's history as one timeline, newest first, each line naming its place; `place` keeps it to
+  one. A session the self loop opened keeps to its own place. It calls no model, but its disk and CPU work grow
+  with the number of places: one read a place to list them, eight touches a place to start a page, no cache,
+  and each line chosen compares every place's next touch. A store with thousands of `local:<dir>` places pays
+  that per page: for 5,000 places about 45,000 index reads before the first line, and about a million
+  comparisons for a page of 100 (some 200 touches chosen, each against every place's). Words are searched within a bound: the sessions of the newest
+  2,000 exchanges of the span (or, with no span, of every place), so a match beyond it is not found, with a
+  date too. History from before places were recorded is on these pages once `theseus ledger
+  rebuild-exchanges` has touched it under `unknown`; that root is then readable by any reader asked for it by
+  name, not only a date page.
+- **A timeline is read by its own keys.** A place's touch is written at its exchange's start; a label's is keyed
+  at its turn's time (when the runner minted the turn's id), so one turn holds one key of a label whatever path
+  its frames took. A span over a label's or a thing's timeline is matched on each touch's own time (where the
+  walk starts, where it stops, what it keeps); a line still says when its exchange opened, so a turn that ran
+  catch-up work before opening its exchange can show a time a little after its key. A page's cursor is the key
+  of the last touch it admitted, and a walk gives a turn once (an older store can hold two keys of one turn
+  under one root).
+- **The terminal reads it too**: `theseus history` with a search calls the same read. Any local process that can
+  reach the daemon's socket can, an agent's shell included, as it could already read a named session's
+  transcript; it is not proof the owner is at the terminal.
 - **Every line and every open passes the place rule and the seal check.** Another session's exchanges are read
   only when that session is proven neither sealed nor seal-pending, failing closed; the asking session's own
   exchanges are exempt from that check. An exchange holding a message moved into a thread not proven clear is held
   too, whichever session it is in. Paging and counts run over admitted exchanges only.
-- **It is offered everywhere**, a shared place included (where it reads that place alone), and **loads by
+- **It is offered everywhere**, a shared place included (a bare page reads that place; a date, words or a
+  label with no place read every place there too, so a guest's turn can get private places' lines when the tool
+  is offered and called), and **loads by
   surface**: in a direct conversation and a channel it is in the first request; at the terminal, in a task and in
   a headless run it is declared and deferred, one search away, and the self card names it.
 - **On a turn no message opened** (a wake, a task's report) it reads nothing in a private place: it does not

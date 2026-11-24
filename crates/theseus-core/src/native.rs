@@ -60,8 +60,8 @@ pub fn hint(input: &Value, now_ms: u64) -> Option<String> {
         .filter(|(_, w)| file_name(w) == "theseus")
         .find_map(|(i, _)| native_call(&words[i + 1..], now_ms))?;
     Some(format!(
-        "[native: {WIRE} {call} searches this place's history by those words, in-process and \
-         without a shell; give it a place to search another place's. It is not the CLI's search, \
+        "[native: {WIRE} {call} searches every place's history by those words, in-process and \
+         without a shell; give it a place to keep to one. It is not the CLI's search, \
          which reads the memory index: run the CLI when its results are what you need]"
     ))
 }
@@ -129,10 +129,13 @@ fn native_call(rest: &[String], now_ms: u64) -> Option<String> {
         _ => return None,
     };
     // A query in a shell variable (`$q`), or none, gives the call's shape. Words that name a time get no line:
-    // the call it names carries words alone, which would search the time as words.
+    // the call it names carries words alone, which would search the time as words. They are read as free text
+    // (`when::read`), not by the explicit argument's reader, which refuses a day beside a clock time
+    // ("yesterday at 14:00") that free text reads as the day.
     let query = query.trim();
     let shape = query.is_empty() || query.contains('$');
-    if !shape && crate::recall::when::read_local(query, now_ms).is_some() {
+    let offset = |ms| crate::wake::local(ms).offset_secs;
+    if !shape && crate::recall::when::read(query, now_ms, &offset).is_some() {
         return None;
     }
     let words = match shape {
@@ -238,22 +241,29 @@ mod tests {
         assert!(h.contains(r#"{"words":"tide parser"}"#), "{h}");
     }
 
-    /// The line says what the call is, and only that (review §4): a search of THIS place's history by the
-    /// words, which a place turns to another's; never the same search as the CLI's, never every place's.
+    /// The line says what the call is, and only that (review §4): a search of every place's history by the
+    /// words (words with no place read every place, issue 44), which a place keeps to one; never the same search
+    /// as the CLI's, never this place's alone.
     #[test]
     fn the_line_says_what_the_call_is_and_no_more() {
         let h = of(&["theseus", "memory", "search", "kelp"]).unwrap();
         assert!(
-            h.contains("searches this place's history by those words"),
+            h.contains("searches every place's history by those words"),
             "{h}"
         );
-        assert!(
-            h.contains("give it a place to search another place's"),
-            "{h}"
-        );
+        assert!(h.contains("give it a place to keep to one"), "{h}");
         assert!(h.contains("It is not the CLI's search"), "{h}");
-        for claim in ["does this", "every place", "same search"] {
+        for claim in ["does this", "this place's history", "same search"] {
             assert!(!h.contains(claim), "{claim:?}: {h}");
+        }
+    }
+
+    /// Free words that name a day and a clock time name a date the call's words cannot say: no line. They are
+    /// read as free text (`recall::when::read`), as before the explicit argument's reader took hours.
+    #[test]
+    fn free_words_with_a_day_and_a_clock_time_get_no_line() {
+        for q in ["yesterday at 14:00", "kelp notes March 2026 at 9:30"] {
+            assert_eq!(of(&["theseus", "memory", "search", q]), None, "{q}");
         }
     }
 

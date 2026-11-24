@@ -41,6 +41,7 @@ mod herdr_setup;
 mod herdr_slots;
 mod herdr_sync;
 mod herdr_up;
+mod history_search;
 mod import;
 mod import_sync;
 mod inspect_cmd;
@@ -213,7 +214,9 @@ enum Cmd {
     /// A session's transcript: messages, tool calls with their gate decisions, results, and
     /// anything waiting for your confirmation. SESSION defaults to the most recently active; it is
     /// an id, or a unique end of one (four characters at least). A handle a reply cited
-    /// (`m:a1b2c3`, the footnote's command) shows that message whole instead.
+    /// (`m:a1b2c3`, the footnote's command) shows that message whole instead. With --when, --from,
+    /// --to, --label, --words or --place it searches instead: one line an exchange, newest first,
+    /// from every place unless --place names one, the lines the model's history tool reads.
     #[command(display_order = 4)]
     History {
         session: Option<String>,
@@ -224,12 +227,32 @@ enum Cmd {
         /// position the page ends with.
         #[arg(long, value_name = "POSITION")]
         after: Option<u64>,
-        /// Only nodes before this position, the newest N of them: a page back.
+        /// Only nodes before this position, the newest N of them: a page back. In a search,
+        /// the cursor its page printed.
         #[arg(long, value_name = "POSITION")]
-        before: Option<u64>,
+        before: Option<String>,
         /// Print tool results and long messages in full (default: clipped).
         #[arg(long)]
         full: bool,
+        /// Search a day or a span: "yesterday", "2026-11-20", "last week".
+        #[arg(long)]
+        when: Option<String>,
+        /// Search from this day or month on (with --to, or alone).
+        #[arg(long)]
+        from: Option<String>,
+        /// Search to the end of this day or month.
+        #[arg(long)]
+        to: Option<String>,
+        /// Search a label: a topic or a thing by its id (topic:..., file:...), or personal,
+        /// secret, confidential, injection.
+        #[arg(long)]
+        label: Option<String>,
+        /// Search for these words.
+        #[arg(long)]
+        words: Option<String>,
+        /// Search one place, by its key as a line names it.
+        #[arg(long)]
+        place: Option<String>,
     },
     /// What a turn's model was shown, and why each piece was there: the model and profile it ran
     /// on and why routing put it there, each block of the compiled context with its tokens and
@@ -1520,13 +1543,7 @@ async fn run(cli: Cli) -> Result<()> {
     let result = match cli.cmd {
         Cmd::Ask(a) => cmd::ask(c, json, cli.no_stream, a, spawned).await,
         Cmd::Prompt(a) => prompt::run(c, json, cli.no_stream, a, spawned).await,
-        Cmd::History {
-            session,
-            n,
-            after,
-            before,
-            full,
-        } => cmd::history(c, json, session, (n, after, before), full).await,
+        cmd @ Cmd::History { .. } => history_search::cmd(c, json, cmd).await,
         Cmd::Why {
             turn,
             session,

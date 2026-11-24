@@ -172,6 +172,10 @@ pub struct Store {
     /// frames only.
     #[cfg(test)]
     plain_faults: Arc<Faults>,
+    /// A write outside any turn whose frame the log keeps while its append
+    /// fails (`retain_plain_frame`).
+    #[cfg(test)]
+    retained_faults: Arc<Faults>,
     /// Whether a ledger page read fails (`fail_ledger_pages`).
     #[cfg(test)]
     page_fault: Arc<std::sync::atomic::AtomicBool>,
@@ -710,6 +714,8 @@ impl Store {
             #[cfg(test)]
             plain_faults: Default::default(),
             #[cfg(test)]
+            retained_faults: Default::default(),
+            #[cfg(test)]
             page_fault: Default::default(),
             #[cfg(test)]
             page_window: Default::default(),
@@ -762,6 +768,15 @@ impl Store {
     #[cfg(test)]
     pub fn fail_plain_frame(&self, check: impl Fn(&[NewRecord]) -> bool + Send + 'static) {
         *self.plain_faults.0.lock().unwrap() = Some(Box::new(check));
+    }
+
+    /// Make the first write outside a turn whose records `check` matches keep
+    /// its frame in the log while its append fails, once: the index refuses
+    /// it past its retries (`WalStore::fail_next_index_writes`), the append
+    /// answers `RetainedFrame`, and the next open indexes the frame.
+    #[cfg(test)]
+    pub fn retain_plain_frame(&self, check: impl Fn(&[NewRecord]) -> bool + Send + 'static) {
+        *self.retained_faults.0.lock().unwrap() = Some(Box::new(check));
     }
 
     /// Whether `records` is the frame `fail_plain_frame` was set to fail (the
@@ -1021,6 +1036,11 @@ impl Store {
                 #[cfg(test)]
                 if self.plain_faults.hit(records) {
                     anyhow::bail!("an injected fault: this frame was not written");
+                }
+                // The index's retry bound, three: each try of this frame fails.
+                #[cfg(test)]
+                if self.retained_faults.hit(records) {
+                    self.inner.fail_next_index_writes(3);
                 }
                 // The rows waiting for a frame ride this one (theseus-ht8b).
                 let parked = self.pending.take();
@@ -1964,6 +1984,7 @@ pub(crate) mod tests {
             reads: Default::default(),
             faults: Default::default(),
             plain_faults: Default::default(),
+            retained_faults: Default::default(),
             page_fault: Default::default(),
             page_window: Default::default(),
             scope_fault: Default::default(),

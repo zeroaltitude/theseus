@@ -20,7 +20,10 @@ use crate::view::history::{HistoryArgs, HistoryPage, PageEnd, LOOKS_PER_TURN};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, Handle, PointOfView, Present};
 
+mod every;
 mod handles;
+mod keys;
+mod labels;
 
 const HERE: &str = "local";
 const DM: &str = "discord:dm:42";
@@ -330,7 +333,7 @@ fn words_filter_the_walk_and_a_thing_reads_its_own_timeline_through_the_same_rul
         ["turn_0007", "turn_0003"]
     );
     l.words = None;
-    let thing = args(json!({"thing": "issue:33"}));
+    let thing = args(json!({"label": "issue:33"}));
     // Every place's touch of the thing is read, wherever the reader is (anything goes).
     for here in [HERE, LOBBY] {
         assert_eq!(
@@ -338,8 +341,14 @@ fn words_filter_the_walk_and_a_thing_reads_its_own_timeline_through_the_same_rul
             ["turn_0022", "turn_0021", "turn_0020"]
         );
     }
-    let both = l.walk(&args(json!({"thing": "issue:33", "place": DM})), None, 0);
-    assert!(both.is_err(), "a place or a thing, not both");
+    // Beside a place, a thing narrows to that place's exchanges.
+    let both = walk(
+        &l,
+        &args(json!({"label": "issue:33", "place": DM})),
+        None,
+        0,
+    );
+    assert_eq!(turns(&both), ["turn_0021"]);
 }
 
 #[test]
@@ -369,7 +378,14 @@ fn a_line_cuts_his_words_at_300_and_the_replys_beginning_at_200_by_code() {
         "200 and the ellipsis"
     );
     assert_eq!(line.did, None);
-    let said = render(&p, (HERE, None), 0, None, &crate::scrub::Cuts::none());
+    let none = crate::scrub::Cuts::none();
+    let said = render(
+        &p,
+        (&super::page::history_of(HERE, None, &none), None),
+        0,
+        None,
+        &none,
+    );
     assert_eq!(
         said.lines().filter(|l| l.starts_with("- ")).count(),
         2,
@@ -2059,6 +2075,7 @@ fn a_pages_place_person_and_span_stop_before_a_known_value() {
             person: Some(format!("{}{v} person", "q".repeat(70))),
             reply_begins: None,
             outside: true,
+            labels: None,
         }],
         next: None,
         end: PageEnd::HistoryExhausted,
@@ -2095,4 +2112,37 @@ fn a_pages_place_person_and_span_stop_before_a_known_value() {
         "{imported}"
     );
     none_of("the import search's page", &imported);
+}
+
+/// A page's heading names the label asked, and a line its place: each is cut where no known value is split.
+/// A place never recorded still says so.
+#[test]
+fn a_label_heading_and_a_place_stop_before_a_known_value() {
+    let v = "kqzv-0417-wjxp-9932-hmfb";
+    let cuts = crate::scrub::Scrubber::with_values(vec![(v.into(), "v".into())]).cuts();
+    let none_of = |said: &str| {
+        let rest = said.replace(v, "");
+        let chars: Vec<char> = v.chars().collect();
+        for w in chars.windows(4) {
+            let w: String = w.iter().collect();
+            assert!(!rest.contains(&w), "holds {w:?} of the value: {said}");
+        }
+    };
+    let a = HistoryArgs {
+        label: Some(format!("{}{v} label", "l".repeat(70))),
+        ..Default::default()
+    };
+    let heading = super::heading_of(&a, HERE, false, &cuts);
+    assert_eq!(
+        heading,
+        format!("every place's history labelled {}\u{2026}", "l".repeat(70))
+    );
+    none_of(&heading);
+    let place = super::page::place_said(&format!("{}{v} place", "p".repeat(110)), &cuts);
+    assert_eq!(place, format!("{}\u{2026}", "p".repeat(110)));
+    none_of(&place);
+    assert_eq!(
+        super::page::place_said(crate::exchange::rebuild::UNKNOWN, &cuts),
+        "place not recorded"
+    );
 }
