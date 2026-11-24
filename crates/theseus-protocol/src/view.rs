@@ -116,6 +116,10 @@ pub struct ViewPiece {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub text: Option<String>,
+    /// A fold's rung: 1 over exchanges, 2 and up over folds. Absent for every other kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub level: Option<u8>,
 }
 
 /// One piece left out.
@@ -131,6 +135,10 @@ pub struct ViewDrop {
     pub tokens: u64,
     /// `merged`, `over_budget`, `unit_cut`.
     pub why: String,
+    /// A fold's rung, as [`ViewPiece::level`]. Absent for every other kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub level: Option<u8>,
 }
 
 /// What a band cut, counted: stated, not silent.
@@ -341,7 +349,7 @@ pub fn lines(v: &ViewShown) -> String {
                 out,
                 "    {} {} {} [{}] {} {} tokens, {}: {}",
                 x.handle,
-                x.kind,
+                kind_said(&x.kind, x.level),
                 range,
                 x.band,
                 x.form,
@@ -366,7 +374,7 @@ pub fn lines(v: &ViewShown) -> String {
                 out,
                 "    {} {} {} [{}] {} tokens, {}: {}",
                 d.handle,
-                d.kind,
+                kind_said(&d.kind, d.level),
                 d.slot,
                 d.band,
                 d.tokens,
@@ -395,6 +403,14 @@ pub fn lines(v: &ViewShown) -> String {
     out
 }
 
+/// A piece's kind as the plain lines say it: a fold with its rung (`folds@2`).
+fn kind_said(kind: &str, level: Option<u8>) -> String {
+    match level {
+        Some(l) => format!("{kind}@{l}"),
+        None => kind.to_string(),
+    }
+}
+
 /// A view's counts in plain lines.
 pub fn tally_lines(t: &ViewTally) -> String {
     use std::fmt::Write;
@@ -419,3 +435,6 @@ pub fn tally_lines(t: &ViewTally) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests;

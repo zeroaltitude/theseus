@@ -350,6 +350,32 @@ pub fn newest_before_exchange(
     own(store, root, Some(&from), limit)
 }
 
+/// Every place with a touch, in key order: the first key under the places'
+/// prefix names one, then a seek past that place's own keys (its name, then a
+/// byte above `SEP`) finds the next, so a place costs one record read whatever
+/// its history, and one whose name extends another's (`local:/a`,
+/// `local:/ab`) is found as its own.
+pub fn places(store: &Store) -> anyhow::Result<Vec<String>> {
+    let prefix = format!("{TOUCH_PREFIX}{}", Root::Place("").key());
+    let (mut from, mut out) = (prefix.clone(), Vec::new());
+    loop {
+        let got = store
+            .inner()
+            .first_with_prefix_from(kinds::META, &prefix, &from, 1)?;
+        let Some(key) = got.first().and_then(|r| r.key.as_deref()) else {
+            return Ok(out);
+        };
+        let rest = &key[prefix.len()..];
+        from = match rest.split_once(SEP) {
+            Some((place, _)) => {
+                out.push(place.to_string());
+                format!("{prefix}{place}\u{2}")
+            }
+            None => format!("{key}\u{0}"),
+        };
+    }
+}
+
 /// An exchange's record.
 pub fn exchange_record(e: &Exchange) -> anyhow::Result<NewRecord> {
     NewRecord::json(

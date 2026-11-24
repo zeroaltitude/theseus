@@ -618,3 +618,120 @@ async fn an_input_is_judged_while_a_reply_batch_is_out() {
     );
     jev.release();
 }
+
+// ------------------------------------------------------------ the label's touch (issue 44: a search by label)
+
+/// The touches of `flag`'s root, once `node`'s labels have landed (they ride the same frame).
+fn label_touches(c: &Core, flag: crate::content::Flag) -> Vec<exchange::Touch> {
+    let root = item_labels::touch_root(flag);
+    exchange::newest(&c.store, exchange::Root::Thing(&root), 8).unwrap()
+}
+
+/// The exchange `node` is part of.
+fn exchange_of(c: &Core, node: &str) -> Exchange {
+    let (_, n) = c.store.get_node(node).unwrap().unwrap();
+    exchange::exchange(&c.store, n.turn_id.as_deref().unwrap())
+        .unwrap()
+        .expect("its exchange")
+}
+
+/// A message the stand-in calls `personal` writes the label's touch by its exchange's turn, at that turn's time
+/// (`item_labels::at`), in the frame its labels land in: "everything labelled personal" is a timeline, as a
+/// topic's is.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_raised_input_label_writes_its_touch_at_its_turns_time() {
+    let jev = FakeJev::start().unwrap();
+    jev_says_personal(&jev);
+    let r = rig(&jev);
+    let c: &Arc<Core> = &r.core;
+    let sid = session(c);
+    crate::test_support::turn(c, &sid, &format!("FYI, {PRIVATE} today.")).await;
+    let (message, _) = message_and_reply(c, &sid);
+    assert_eq!(landed(c, &message).await.state, "labelled");
+    let ex = exchange_of(c, &message);
+    let t = label_touches(c, crate::content::Flag::Personal);
+    assert_eq!(t.len(), 1, "{t:?}");
+    let at = item_labels::at(&ex.turn_id).expect("a live turn's id is a UUIDv7");
+    assert_eq!(
+        (t[0].exchange.as_str(), t[0].session_id.as_str(), t[0].at_ms),
+        (ex.turn_id.as_str(), sid.as_str(), at)
+    );
+    assert!(
+        at <= ex.start_ms,
+        "the turn began before its exchange opened"
+    );
+    assert!(label_touches(c, crate::content::Flag::Secret).is_empty());
+}
+
+/// A reply the stand-in calls an injection writes the label's touch, and its session still carries no
+/// label and no `content.labelled` row: the freeze's input is unchanged.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_replys_label_writes_its_touch_and_still_not_the_sessions_label() {
+    let jev = FakeJev::start().unwrap();
+    jev_says_personal(&jev);
+    let yes = Jev::Choice {
+        option: "yes".into(),
+        confidence: 0.97,
+    };
+    jev.script_when("Done: answer", None, "injection", yes);
+    let r = rig(&jev);
+    let c: &Arc<Core> = &r.core;
+    let sid = session(c);
+    crate::test_support::turn(c, &sid, "What is the plan for today?").await;
+    let (_, reply) = message_and_reply(c, &sid);
+    assert_eq!(landed(c, &reply).await.state, "labelled");
+    let ex = exchange_of(c, &reply);
+    let t = label_touches(c, crate::content::Flag::Injection);
+    let turns: Vec<&str> = t.iter().map(|t| t.exchange.as_str()).collect();
+    assert_eq!(turns, [ex.turn_id.as_str()]);
+    assert!(
+        flags(c, &sid).labels.is_empty(),
+        "the session carries nothing"
+    );
+    assert!(
+        crate::tests_judge::kinds(&c.store, "content.labelled").is_empty(),
+        "no row says a session was labelled"
+    );
+}
+
+/// A label raised on something the turn read (a tool's result) is found on that turn's exchange: neither
+/// the message nor the reply holds it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tool_results_label_is_found_on_its_exchange() {
+    use crate::provider::Scripted;
+    let jev = FakeJev::start().unwrap();
+    jev_says_personal(&jev);
+    let echo = Scripted::tools(
+        "",
+        &[(
+            "t1",
+            "proc_run",
+            serde_json::json!({"argv": ["echo", PRIVATE]}),
+        )],
+    );
+    let r = rig_on(vec![echo, Scripted::text("Ran it.")], Some(&jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.judge.packs.remove(crate::judge::content::PACK);
+        c.tools.proc_sync_secs = 5;
+        c.tools.projects_dir = Some(std::env::temp_dir().to_string_lossy().into_owned());
+        c.policy
+            .tools
+            .insert("proc.run".into(), crate::policy::Posture::Open);
+    });
+    let c: &Arc<Core> = &r.core;
+    let first = crate::tests_route::try_turn_attached(c, None, "run it", None, vec![])
+        .await
+        .unwrap();
+    let nodes = c.store.transcript(&first.session_id).unwrap();
+    let result = nodes
+        .iter()
+        .find(|(_, n)| matches!(&n.body, Body::ToolResult { tool, .. } if tool == "proc.run"))
+        .map(|(_, n)| n.id.clone())
+        .expect("a proc.run result");
+    assert_eq!(landed(c, &result).await.state, "labelled");
+    let ex = exchange_of(c, &result);
+    let t = label_touches(c, crate::content::Flag::Personal);
+    let turns: Vec<&str> = t.iter().map(|t| t.exchange.as_str()).collect();
+    assert_eq!(turns, [ex.turn_id.as_str()]);
+}

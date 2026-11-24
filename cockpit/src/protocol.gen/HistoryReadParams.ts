@@ -5,15 +5,17 @@ import type { HistoryCursor } from "./HistoryCursor";
  * `history.read` (issue 46): the history tool, `context.history`, read by an MCP client, with no model call.
  * Its anchor is `place` (a place's key, as a line names it), else where `session_id` (the client's own
  * conversation) speaks, with that session's fork cut when it is a fork; `open` (an exchange's handle or a
- * `ses_…` id) and `thing` need none. `words`, `thing`, a span (`when`, or `from` / `to`) and `before` narrow and
- * page as the model's own calls do. Only the MCP server's connection calls it, and only while
- * `[mcp_server] memory` is on.
+ * `ses_…` id), `label` and a page that narrows need none: with no place named, a span, words or a label read
+ * every place. `words`, `label`, a span (`when`, or `from` / `to`) and `before` narrow and page as the model's
+ * own calls do. The MCP server's connection calls it while `[mcp_server] memory` is on, and the owner's
+ * terminal (`theseus history` with a search) whatever that switch says.
  */
 export type HistoryReadParams = { place?: string, session_id?: string, 
 /**
- * A thing's timeline, `type:value`.
+ * A label's timeline: a topic or a thing by its id (`topic:…`, `file:…`), or one of Jev's four content
+ * labels (`personal`, `secret`, `confidential`, `injection`).
  */
-thing?: string, words?: string, 
+label?: string, words?: string, 
 /**
  * The last page's `next`.
  */

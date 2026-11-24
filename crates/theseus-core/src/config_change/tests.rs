@@ -71,6 +71,8 @@ struct Model {
     /// next call, named `p1`, `p2`, ..., then the text.
     steps: Mutex<std::collections::VecDeque<(String, Value)>>,
     made: Mutex<usize>,
+    /// Run once, when the model first reads a result of a step's call (`Rig::after_the_first_step`).
+    after_a_step: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Run once, when the turn first asks the model: the turn has written its
     /// input by then, as the judge that reads it has had it written.
     first_request: Mutex<Option<Box<dyn FnOnce() + Send>>>,
@@ -211,6 +213,10 @@ impl Provider for Model {
             }
         }
         let answers_a_call = crate::tests_places::answers_a_call(req);
+        let after = answers_a_call.then(|| self.after_a_step.lock().unwrap().take());
+        if let Some(f) = after.flatten() {
+            f();
+        }
         if let Some((tool, input)) = self.steps.lock().unwrap().pop_front() {
             let id = format!("p{}", {
                 let mut n = self.made.lock().unwrap();
@@ -281,6 +287,7 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         calls: Mutex::default(),
         steps: Mutex::default(),
         made: Mutex::default(),
+        after_a_step: Mutex::default(),
         first_request: Mutex::default(),
         plain: Mutex::default(),
         asked: Mutex::default(),
@@ -468,6 +475,11 @@ impl Rig {
     /// Have `f` run when the next turn first asks the model.
     pub(super) fn when_the_turn_asks_the_model(&self, f: impl FnOnce() + Send + 'static) {
         *self.model.first_request.lock().unwrap() = Some(Box::new(f));
+    }
+
+    /// Have `f` run when the model has the first result of a turn's calls, before it makes the next.
+    pub(super) fn after_the_first_step(&self, f: impl FnOnce() + Send + 'static) {
+        *self.model.after_a_step.lock().unwrap() = Some(Box::new(f));
     }
 
     pub(super) async fn turn(&self, sid: &str, call: Value) {

@@ -484,3 +484,28 @@ async fn an_arrangements_piece_holds_a_known_value_whole_or_not_at_all() {
     );
     whole_or_absent("the piece's first line", &pieces[0].first_line, V);
 }
+
+/// A page asked for a place whose name holds a known value on two lines:
+/// the page has no exchange, and its heading, as kept, holds neither line.
+#[tokio::test]
+async fn a_history_pages_asked_place_stops_before_a_known_value_on_two_lines() {
+    const TWO: &str = "kelp-one-0417\nferry-two-0417";
+    let r = knowing_core(
+        TWO,
+        |_| {},
+        |req| {
+            if answers_a_call(req) {
+                return Scripted::text("Found it.");
+            }
+            let place = json!({"place": format!("place:{TWO}")});
+            Scripted::tools("Looking.", &[("h1", "context_history", place)])
+        },
+    );
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, "look back").await;
+    let kept = result_of(&r.core, &sid, "h1");
+    assert!(kept.contains("of place:\u{2026}'s history"), "{kept}");
+    for half in TWO.lines() {
+        assert!(!kept.contains(half), "the kept page holds {half:?}: {kept}");
+    }
+}
