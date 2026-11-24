@@ -208,7 +208,8 @@ is what a provider cache could read; then their totals. Those totals are of the 
 only, not of everything sent. The `all requests` line under it counts every request the stand-in was sent in
 the run, each once, and its parts: the first requests, a tool turn's follow-ups, the calls off the turns, the
 extra calls, and any outside every turn's span (`all_calls`, `all_tokens` and the `*_calls`, `*_tokens` keys in
-`proof.json`).
+`proof.json`). Each request is given one class in one pass over the turn's span, in whatever order its rounds
+arrive, so the parts add to the total; the run checks that in code and stops if they do not.
 
 `--cost-long` adds two longer conversations: 120 short turns in one place (folds land from the 40th
 exchange on), and 20 turns of three 6,000-character tool results each. Per turn they add the turn's own model

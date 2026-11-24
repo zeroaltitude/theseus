@@ -817,12 +817,57 @@ def writer_quiet(model: Model, timeout: float = WRITER_WAIT) -> None:
             return
 
 
+def classes(mine: list[dict], line: str, steps: int) -> list[str]:
+    """Each call of a turn's span, in order, and exactly one class each, from one pass: `off` (it offers no
+    tools), `extra` (its opening text is not this turn's), `first` (the turn's own earliest round-0 call), then
+    the turn's other own calls in arrival order: `follow` while the script has steps left for them (its `steps`,
+    one for a turn with no script, less the first), `extra` past them."""
+    first = next((k for k, x in enumerate(mine) if x["tools"] and x["round"] == 0 and line in turn_text(x["req"])),
+                 None)
+    left = steps - (first is not None)
+    out = []
+    for k, x in enumerate(mine):
+        if not x["tools"]:
+            out.append("off")
+        elif line not in turn_text(x["req"]):
+            out.append("extra")
+        elif k == first:
+            out.append("first")
+        elif left > 0:
+            out.append("follow")
+            left -= 1
+        else:
+            out.append("extra")
+    return out
+
+
 def extra_calls(mine: list[dict], line: str, steps: int) -> list[dict]:
-    """The tool-offering calls in a turn's span that the turn's script does not account for: any whose
-    opening text is not this turn's, and the turn's own beyond its `steps` (one for a turn with no script)."""
-    tools = [x for x in mine if x["tools"]]
-    own = [x for x in tools if line in turn_text(x["req"])]
-    return [x for x in tools if line not in turn_text(x["req"])] + own[steps:]
+    """The tool-offering calls in a turn's span that the turn's script does not account for (`classes`)."""
+    return [x for x, c in zip(mine, classes(mine, line, steps)) if c == "extra"]
+
+
+class PartsDisagree(AssertionError):
+    """A cost run's parts do not add to its total: a request in two classes, or in none."""
+
+
+PARTS = ("follow", "off", "extra")
+
+
+def check_parts(r: dict) -> None:
+    """Each turn's first, follow-up, off-turn and extra calls add to its span, and the turns' parts with the
+    calls outside every span add to the run's total, in calls and in tokens; else `PartsDisagree`."""
+    for x in r["rows"]:
+        calls = (x["tokens"] is not None) + sum(x[f"{p}_calls"] for p in PARTS)
+        tokens = (x["tokens"] or 0) + sum(x[f"{p}_tokens"] for p in PARTS)
+        if (calls, tokens) != (x["all_calls"], x["all_tokens"]):
+            raise PartsDisagree(f"turn {x.get('turn')}: parts {calls} calls {tokens} tokens, span "
+                                f"{x['all_calls']} calls {x['all_tokens']} tokens")
+    firsts = sum(1 for x in r["rows"] if x["tokens"] is not None)
+    calls = firsts + sum(r[f"{p}_calls"] for p in PARTS) + r["outside_calls"]
+    tokens = r["total_tokens"] + sum(r[f"{p}_tokens"] for p in PARTS) + r["outside_tokens"]
+    if (calls, tokens) != (r["all_calls"], r["all_tokens"]):
+        raise PartsDisagree(f"parts {calls} calls {tokens} tokens, all requests {r['all_calls']} calls "
+                            f"{r['all_tokens']} tokens")
 
 
 def call_probe(x: dict, chars: int = 200) -> dict:
@@ -843,7 +888,8 @@ def cost_run(bin_dir: Path, out: Path, n: int, name: str = "cost",
     offers no tools, between this turn's start and the next's: the ladder's `did` lines and folds, a
     compaction's summary), with their tokens; its follow-up requests (a tool turn's later steps); and the
     turn's compilations by strategy. `all_calls` and `all_tokens` count EVERY request the stand-in was sent,
-    each once: a turn's span (`all_*` of its row), and any outside every turn's span (`outside_*`)."""
+    each once: a turn's span (`all_*` of its row), and any outside every turn's span (`outside_*`). Each call
+    of a span has one class (`classes`), so the parts add to the total; `check_parts` holds the run to it."""
     lines, script = conversation(n)
     model = Model(script)
     root = out / name
@@ -862,12 +908,10 @@ def cost_run(bin_dir: Path, out: Path, n: int, name: str = "cost",
                 with model.lock:
                     mine = model.seen[before:]
                 spans.update(range(before, before + len(mine)))
-                first = [x for x in mine if x["tools"] and x["round"] == 0 and line in turn_text(x["req"])]
-                off = [x for x in mine if not x["tools"]]
+                cls = classes(mine, line, len(script.get(line) or [{}]))
+                first, off, extra, follow = ([x for x, c in zip(mine, cls) if c == want]
+                                             for want in ("first", "off", "extra", "follow"))
                 kinds = Counter(WRITER_KINDS.get(x.get("max_tokens"), "other") for x in off)
-                extra = extra_calls(mine, line, len(script.get(line) or [{}]))
-                odd = {id(x) for x in extra} | ({id(first[0])} if first else set())
-                follow = [x for x in mine if x["tools"] and id(x) not in odd]
                 per.append({"turn": i, "answered": answered(v), "req": first[0] if first else None,
                             "calls": sum(1 for x in mine if x["tools"]), "off_calls": len(off),
                             "off_tokens": sum(x["counted"] for x in off), "off_kinds": dict(kinds),
@@ -902,7 +946,7 @@ def cost_run(bin_dir: Path, out: Path, n: int, name: str = "cost",
         prev = b
     total = sum(r["tokens"] or 0 for r in table_rows)
     shared = sum(r["shared_tokens"] or 0 for r in table_rows)
-    return {"case": name, "rows": table_rows, "total_tokens": total, "shared_tokens": shared,
+    run = {"case": name, "rows": table_rows, "total_tokens": total, "shared_tokens": shared,
             "unshared_tokens": total - shared, "off_calls": sum(r["off_calls"] for r in table_rows),
             "off_tokens": sum(r["off_tokens"] for r in table_rows),
             "off_kinds": dict(sum((Counter(r["off_kinds"]) for r in table_rows), Counter())),
@@ -914,6 +958,8 @@ def cost_run(bin_dir: Path, out: Path, n: int, name: str = "cost",
             "all_calls": len(every), "all_tokens": sum(x["counted"] for x in every),
             "unanswered": sum(1 for r in table_rows if not r["answered"]),
             "strategies": seen["strategies"], "fallback": seen["fallback"]}
+    check_parts(run)
+    return run
 
 
 def cost_table(r: dict) -> str:

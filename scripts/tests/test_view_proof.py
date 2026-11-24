@@ -322,6 +322,159 @@ class AllRequests(unittest.TestCase):
         self.assertNotIn("\nsent ", t)
 
 
+def opening(line: str) -> dict:
+    """A turn's tool-offering request with no tool result yet: the stand-in counts it as round 0."""
+    return {"tools": TOOLS, "system": [{"type": "text", "text": "S"}], "messages": [user(line)]}
+
+
+def later(line: str, size: int) -> dict:
+    """A request of `line`'s turn that carries a tool result: the stand-in counts it as a later round. `size`
+    makes each one's tokens its own."""
+    res = {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "r " * size}]}
+    return dict(opening(line), messages=[user(line), call_msg(), res])
+
+
+@unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
+class Parts(unittest.TestCase):
+    """A cost run's parts (first, follow-up, off-turn, extra, outside a turn) give each captured request exactly
+    one class, so they add to the total, which is every request the stand-in was sent; in any order a turn's
+    requests arrive."""
+
+    def cost(self, lines, script, submit, before=(), after=()):
+        """`cost_run` on a fake daemon. `submit(model, line)` sends a turn's requests; `before` are calls with no
+        tools sent as the session opens, `after` ones sent as the run reads its rows back, after the last turn's
+        span. The run, and every request the stand-in was sent."""
+        models = []
+
+        class Fake:
+            def __init__(self, bin_dir, out, model, cfg):
+                self.model = model
+                models.append(model)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def writer(d, text):
+            d.model.answer({"max_tokens": 200, "messages": [user(text)]})
+
+        def opened(d, label, cwd):
+            for text in before:
+                writer(d, text)
+            return "s"
+
+        def observe(d):
+            for text in after:
+                writer(d, text)
+            return {"strategies": {"view": len(lines)}, "fallback": {}}
+
+        def sub(d, line, **kw):
+            submit(d.model, line)
+            return {"output": "ok"}
+
+        started = [{"session_id": "s", "turn_id": f"t{i}"} for i in range(1, len(lines) + 1)]
+        out = Path(tempfile.mkdtemp(prefix="view-proof-parts-"))
+        self.addCleanup(shutil.rmtree, out, True)
+        with unittest.mock.patch.multiple(proof, Daemon=Fake, open_session=opened, submit=sub,
+                                          writer_quiet=lambda m, *a: None, observe=observe,
+                                          rows=lambda d, kind: started if kind == "turn.started" else []):
+            r = proof.cost_run(out, out, len(lines), "parts", lambda n: (list(lines), script))
+        return r, models[0].seen
+
+    def add_up(self, r, seen):
+        """The parts add to the total, in calls and in tokens, per turn and for the run; the total is every
+        request the stand-in was sent."""
+        for x in r["rows"]:
+            self.assertEqual((x["tokens"] is not None) + x["follow_calls"] + x["off_calls"] + x["extra_calls"],
+                             x["all_calls"])
+            self.assertEqual((x["tokens"] or 0) + x["follow_tokens"] + x["off_tokens"] + x["extra_tokens"],
+                             x["all_tokens"])
+        firsts = sum(1 for x in r["rows"] if x["tokens"] is not None)
+        self.assertEqual(firsts + r["follow_calls"] + r["off_calls"] + r["extra_calls"] + r["outside_calls"],
+                         r["all_calls"])
+        self.assertEqual(r["total_tokens"] + r["follow_tokens"] + r["off_tokens"] + r["extra_tokens"]
+                         + r["outside_tokens"], r["all_tokens"])
+        self.assertEqual((r["all_calls"], r["all_tokens"]), (len(seen), sum(x["counted"] for x in seen)))
+
+    def test_a_turn_whose_round_zero_comes_last_gives_three_requests_three_classes(self):
+        """Rounds 1, 2, then 0, in a two-step turn: the round-0 request is the first, the earliest other is its
+        one follow-up, and the one past the script is extra. None is in two classes."""
+        line = "Turn 1: list the files."
+        script = {line: [{"calls": [{"name": "fs_list", "input": {"path": "."}}]}, {"text": "Listed."}]}
+
+        def submit(m, ln):
+            for req in (later(ln, 100), later(ln, 300), opening(ln)):
+                m.answer(req)
+
+        r, seen = self.cost([line], script, submit)
+        self.assertEqual([x["round"] for x in seen], [1, 2, 0])
+        self.assertEqual(len({x["counted"] for x in seen}), 3)
+        row = r["rows"][0]
+        self.assertEqual(row["tokens"], seen[2]["counted"])
+        self.assertEqual((row["follow_calls"], row["follow_tokens"]), (1, seen[0]["counted"]))
+        self.assertEqual((row["extra_calls"], row["extra_tokens"]), (1, seen[1]["counted"]))
+        self.add_up(r, seen)
+
+    def test_several_follow_ups_in_one_turn(self):
+        line = "Turn 1: read the logs."
+        call = {"calls": [{"name": "fs_list", "input": {"path": "."}}]}
+        script = {line: [call, call, call, {"text": "Read."}]}
+
+        def submit(m, ln):
+            for req in (opening(ln), later(ln, 100), later(ln, 200), later(ln, 300)):
+                m.answer(req)
+
+        r, seen = self.cost([line], script, submit)
+        self.assertEqual([x["round"] for x in seen], [0, 1, 2, 3])
+        row = r["rows"][0]
+        self.assertEqual((row["follow_calls"], row["extra_calls"]), (3, 0))
+        self.assertEqual(row["follow_tokens"], sum(x["counted"] for x in seen[1:]))
+        self.add_up(r, seen)
+
+    def test_a_request_after_the_last_turns_span_is_outside(self):
+        line = "Turn 1: note the buoy."
+        r, seen = self.cost([line], {}, lambda m, ln: m.answer(opening(ln)), after=("written after the turns",))
+        self.assertEqual((r["outside_calls"], r["outside_tokens"]), (1, seen[-1]["counted"]))
+        self.assertEqual(r["rows"][0]["all_calls"], 1)
+        self.add_up(r, seen)
+
+    def test_a_request_of_another_turn_inside_a_span_is_extra(self):
+        line = "Turn 1: note the buoy."
+
+        def submit(m, ln):
+            m.answer(opening(ln))
+            m.answer(opening("[a wake of its own]"))
+
+        r, seen = self.cost([line], {}, submit)
+        row = r["rows"][0]
+        self.assertEqual(row["tokens"], seen[0]["counted"])
+        self.assertEqual((row["extra_calls"], row["extra_tokens"], row["follow_calls"]), (1, seen[1]["counted"], 0))
+        self.add_up(r, seen)
+
+    def test_a_run_with_no_turn_has_every_request_outside(self):
+        r, seen = self.cost([], {}, None, before=("written as it opens",), after=("written after",))
+        self.assertEqual(r["rows"], [])
+        self.assertEqual((r["outside_calls"], r["all_calls"]), (2, 2))
+        self.add_up(r, seen)
+
+    def test_parts_that_do_not_add_to_the_total_stop_the_run(self):
+        """The run checks, in code, that its parts add to its total: a run whose parts count a request twice is
+        refused, not printed."""
+        good = {"rows": [{"tokens": 5, "follow_calls": 1, "follow_tokens": 3, "off_calls": 0, "off_tokens": 0,
+                          "extra_calls": 0, "extra_tokens": 0, "all_calls": 2, "all_tokens": 8}],
+                "total_tokens": 5, "follow_calls": 1, "follow_tokens": 3, "off_calls": 0, "off_tokens": 0,
+                "extra_calls": 0, "extra_tokens": 0, "outside_calls": 1, "outside_tokens": 2,
+                "all_calls": 3, "all_tokens": 10}
+        proof.check_parts(good)
+        twice = json.loads(json.dumps(good))
+        twice["rows"][0].update(extra_calls=1, extra_tokens=5)
+        twice.update(extra_calls=1, extra_tokens=5)
+        with self.assertRaises(proof.PartsDisagree):
+            proof.check_parts(twice)
+
+
 @unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
 class ExpectCut(unittest.TestCase):
     def res(self, case, ok=True, fallback=None, strategies=None, **kw):
