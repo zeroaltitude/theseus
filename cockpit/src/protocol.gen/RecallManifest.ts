@@ -115,13 +115,9 @@ retention?: string,
  */
 activation?: RecallActivation, 
 /**
- * The span of time the question named (theseus-w9qv), which kept the
- * candidates to the nodes inside it.
+ * The span of time a words search named (the history tool's, the MCP
+ * search's; theseus-w9qv), which kept the candidates to the nodes inside
+ * it. A turn's own recall names none (issue 46); an older build's turn
+ * row may hold one, and a `temporal` key, which this build ignores.
  */
-when?: RecallWhen, 
-/**
- * The kind of question about time the turn asked (`when`, `order`,
- * `duration`, `latest`, `earliest`; theseus-q1tbn), which ordered the
- * candidates by the time of their events.
- */
-temporal?: string, };
+when?: RecallWhen, };
