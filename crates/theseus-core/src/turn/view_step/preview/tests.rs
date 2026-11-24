@@ -154,47 +154,23 @@ async fn a_preview_lays_the_pieces_the_next_turn_records() {
     let rec = record::newest(&c.store, &last)
         .unwrap()
         .expect("the turn kept its view");
-    let source = GateSource {
-        runner: &c.runner,
-        pov: PointOfView {
-            anchor: at.clone(),
-            place: Place::Private,
-            present: Present::OwnerAlone,
-        },
-        asker: None,
+    let pov = PointOfView {
+        anchor: at.clone(),
+        place: Place::Private,
+        present: Present::OwnerAlone,
     };
-    let mut kept = Reader {
+    let source = GateSource::new(&c.runner, pov, None);
+    let kept = Reader {
         source: &source,
         text: None,
         restricted: false,
     }
     .show(&rec);
-    // The real turn's folds, as its assembly laid them (the listing's own reader proves none).
+    // The real turn's folds, as its assembly laid them: the listing's own reader proves them.
     let folds: Vec<_> = (rec.shown.iter())
         .filter(|s| matches!(s.piece.range.space, Space::Folds { .. }))
         .collect();
     assert_eq!(folds.len(), 1, "the real turn laid the fold");
-    for s in &folds {
-        let slot = theseus_protocol::view::ViewSlot {
-            slot: record::show::name(&s.piece.slot),
-            ..Default::default()
-        };
-        let piece = theseus_protocol::view::ViewPiece {
-            kind: "folds".into(),
-            first: s.piece.range.first.id.clone(),
-            last: s.piece.range.last.id.clone(),
-            form: record::show::name(&s.form),
-            tokens: s.tokens,
-            ..Default::default()
-        };
-        match kept.slots.iter_mut().find(|k| k.slot == slot.slot) {
-            Some(k) => k.pieces.push(piece),
-            None => kept.slots.push(theseus_protocol::view::ViewSlot {
-                pieces: vec![piece],
-                ..slot
-            }),
-        }
-    }
     assert!(!laid(&seen, &last).is_empty(), "{seen:?}");
     assert_eq!(laid(&seen, &last), laid(&kept, &last));
     assert_eq!(p.folds.get("1"), Some(&1), "{p:?}");

@@ -27,6 +27,8 @@ pub mod show;
 pub mod source;
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod tests_kinds;
 mod text;
 
 pub use text::StoreText;

@@ -20,8 +20,12 @@ compilation id holding the key's separator is refused.
 
 Every reader checks each piece's provenance again before showing its reference (`view::record::source`).
 An exchange range must resolve to readable sessions; a card or waiting line must carry readable session and
-exchange dependencies; recall checks its source session. Code and fact ranges are accepted directly. Unsupported
-ranges and unproven sources are not shown, and text is read only after that check.
+exchange dependencies; recall checks its source session. A fold is found again by its handle: today's node
+must be of the range's place, level and ends, and every exchange it stands for must resolve, be of that place
+and come from a readable session (the rule the model's own assembly holds a fold to). A task's card needs the
+task's record today and a readable home session. Code and fact ranges are accepted directly. Unsupported
+ranges and unproven sources are not shown, and text is read only after that check; a fold or a card has no
+text a reader is given. One source serves a whole `view.show` call, so a fold several views hold is proven once.
 
 Since 2026-11-22, seals, veils, moves and the reader's presence withhold nothing. `session_marks` supplies no
 seal, and the source check asks whether the place reads, not whether it is private. Totals count shown pieces;

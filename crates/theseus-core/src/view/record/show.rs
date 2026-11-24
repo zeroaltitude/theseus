@@ -17,7 +17,7 @@ use theseus_protocol::view::{
     ViewDrop, ViewPiece, ViewPov, ViewResidue, ViewShown, ViewSlot, ViewTotals,
 };
 
-use super::super::{Anchor, AtHand, Label, Marks, Piece, PointOfView, SourceRange, Space};
+use super::super::{Anchor, AtHand, Handle, Label, Marks, Piece, PointOfView, SourceRange, Space};
 use super::ViewRecord;
 
 /// What a restricted reader is told, whatever the record holds.
@@ -33,6 +33,11 @@ pub trait PieceText {
 pub trait Source {
     /// `marks` are the piece's stored marks (a dropped piece has none); a source that cannot be read is no.
     fn may_show(&self, range: &SourceRange, marks: Option<&Marks>) -> bool;
+    /// [`Self::may_show`] for a piece found by `handle`: a fold is proven by its node, which its range alone
+    /// does not name.
+    fn may_show_piece(&self, range: &SourceRange, _handle: &Handle, marks: Option<&Marks>) -> bool {
+        self.may_show(range, marks)
+    }
     /// Whether the record's at-hand reference may be shown.
     fn at_hand(&self, at_hand: &AtHand) -> bool;
 }
@@ -78,7 +83,8 @@ impl Reader<'_> {
         let mut shown: Vec<_> = rec.shown.iter().collect();
         shown.sort_by_key(|s| s.piece.slot);
         for s in shown {
-            if !self.source.may_show(&s.piece.range, Some(&s.piece.marks)) {
+            let (range, marks) = (&s.piece.range, Some(&s.piece.marks));
+            if !self.source.may_show_piece(range, &s.piece.handle, marks) {
                 continue;
             }
             let slot = name(&s.piece.slot);
@@ -103,7 +109,7 @@ impl Reader<'_> {
         let mut dropped = Vec::new();
         let mut held: Vec<&super::super::budget::Dropped> = Vec::new();
         for d in &rec.dropped {
-            if !self.source.may_show(&d.range, None) {
+            if !self.source.may_show_piece(&d.range, &d.handle, None) {
                 held.push(d);
                 continue;
             }

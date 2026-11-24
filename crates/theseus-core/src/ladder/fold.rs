@@ -189,6 +189,18 @@ pub fn open(store: &Store, n: &FoldNode) -> anyhow::Result<Vec<crate::exchange::
     Ok(out)
 }
 
+/// Every exchange `n` stands for, oldest first; none when any of them cannot be resolved today.
+pub fn whole(store: &Store, n: &FoldNode) -> Option<Vec<crate::exchange::Exchange>> {
+    let read = open(store, n).ok()?;
+    (!n.exchanges.is_empty() && read.len() == n.exchanges.len()).then_some(read)
+}
+
+/// Every exchange fold node `id` stands for ([`whole`]); none when the node does not read: the rule the
+/// model's assembly and every reader of a view record hold a fold to.
+pub fn constituents(store: &Store, id: &str) -> Option<Vec<crate::exchange::Exchange>> {
+    whole(store, &node(store, id).ok()??)
+}
+
 /// What a first-level node's writer reads: each exchange's message, its
 /// `did` line (or that it has none) and the start of its reply, cut by code.
 pub fn material(reads: &[(Read, did::Said)]) -> String {

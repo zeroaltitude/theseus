@@ -33,11 +33,7 @@ pub(crate) fn words(core: &Core, session: &str, turn: &str) -> String {
 
 /// `v` as the turn may read it today.
 fn shown(core: &Core, session: &str, verified: &Verified, v: &ViewRecord) -> String {
-    let source = GateSource {
-        runner: &core.runner,
-        pov: verified.pov().clone(),
-        asker: Some(session),
-    };
+    let source = GateSource::new(&core.runner, verified.pov().clone(), Some(session));
     let reader = Reader {
         source: &source,
         text: None,

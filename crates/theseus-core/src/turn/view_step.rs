@@ -472,7 +472,8 @@ impl crate::view::fold::Ladder for ResolvedLadder<'_> {
         let mut read = self.inner.read(place, n, since)?;
         let mut kept = Vec::new();
         for node in read.nodes {
-            let Some(exchanges) = fold_constituents(self.store, &node.handle.0) else {
+            let Some(exchanges) = crate::ladder::fold::constituents(self.store, &node.handle.0)
+            else {
                 continue;
             };
             for e in exchanges {
@@ -484,15 +485,6 @@ impl crate::view::fold::Ladder for ResolvedLadder<'_> {
         read.nodes = kept;
         Ok(read)
     }
-}
-
-/// Every exchange fold node `id` stands for; none when any cannot be resolved: the model's assembly's rule
-/// ([`ResolvedLadder`]) and a preview's listing of a fold.
-pub(super) fn fold_constituents(store: &Store, id: &str) -> Option<Vec<crate::exchange::Exchange>> {
-    let node = crate::ladder::fold::node(store, id).ok()??;
-    let read = crate::ladder::fold::open(store, &node).ok()?;
-    let whole = !node.exchanges.is_empty() && read.len() == node.exchanges.len();
-    whole.then_some(read)
 }
 
 /// `v` in order, each once.
