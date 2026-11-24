@@ -256,3 +256,61 @@ async fn no_sealed_set_skips_the_phase_and_says_so() {
         "{row}"
     );
 }
+
+/// Main's side of the check is the build of the try's main commit and no other: while the daemon's
+/// own build is not that commit (here a build that names no commit), nothing is scored, the join
+/// stops at `sealed` before main's gate runs, and it is tried again (not held), saying which commit
+/// it waits for.
+#[tokio::test]
+async fn main_is_scored_on_its_own_build_only() {
+    let s = rigged(SelfMode::Act, false, 2);
+    let (branch, _) = s.r.seed("trim-the-sails", &Sealed::files(true), SONNET);
+    let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 6, 3));
+    let phases = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = phases.clone();
+    let seams = Seams {
+        sealed: scorer.clone(),
+        on_phase: Some(Arc::new(move |p: &str| seen.lock().unwrap().push(p.into()))),
+        ..s.r.seams()
+    };
+    let pass = s.r.core.self_join_pass(&seams).await.unwrap();
+    assert_eq!(
+        pass.stopped,
+        [(branch.clone(), "sealed".to_string())],
+        "{pass:?}"
+    );
+    assert!(pass.joined.is_empty());
+    assert_eq!(s.upstream_main(), s.main, "main is untouched");
+    assert!(scorer.asked().is_empty(), "no build but main's is scored");
+    assert!(
+        !phases.lock().unwrap().iter().any(|p| p == "gate"),
+        "main's gate does not run for a join that waits: {:?}",
+        phases.lock().unwrap()
+    );
+    let stop = &s.r.rows("self.join.stopped")[0];
+    assert_eq!(stop["phase"], "sealed");
+    assert!(stop["numbers"].get("held").is_none(), "tried again: {stop}");
+    assert_eq!(stop["numbers"]["main"], s.main);
+    assert!(
+        stop["why"].as_str().unwrap().contains(&s.main[..12]),
+        "{stop}"
+    );
+    assert!(s.r.rows("self.sealed.checked").is_empty());
+}
+
+/// The check's row says what was compared: main's commit, and the commit of the build that was
+/// scored as main's.
+#[tokio::test]
+async fn the_checked_row_names_mains_commit_and_build() {
+    let s = rigged(SelfMode::Act, false, 2);
+    s.r.seed("trim-the-sails", &Sealed::files(true), SONNET);
+    let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 6, 3));
+    let pass = s.r.core.self_join_pass(&s.seams(&scorer)).await.unwrap();
+    assert_eq!(pass.joined.len(), 1, "{pass:?}");
+    let checked = &s.r.rows("self.sealed.checked")[0];
+    assert_eq!(
+        checked["main"],
+        json!({"commit": s.main, "build": s.main}),
+        "{checked}"
+    );
+}
