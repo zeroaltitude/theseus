@@ -1090,7 +1090,13 @@ fn recover_followup(chat: &mut super::state::Chat, mut h: Value) {
     };
     h["session"] =
         json!({"session_id": SID, "kind": "conversation", "created_at_unix_ms": T0, "turns": 1});
-    chat.answered(c.purpose, Ok(h));
+    let effects = chat.answered(c.purpose, Ok(h));
+    assert!(
+        !effects.iter().any(|effect| matches!(effect,
+            super::state::Effect::Call(call) if call.method == "turn.submit"
+        )),
+        "an uncertain submit must never be resent"
+    );
 }
 
 #[test]
@@ -1135,7 +1141,24 @@ fn recovery_followup_says_queued_messages_were_not_sent_on_leave() {
     assert!(chat
         .out
         .join("\n")
-        .contains("1 queued messages were not sent"));
+        .contains("1 queued message was not sent"));
+}
+
+#[test]
+fn leaving_names_multiple_queued_messages() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut chat = super::state::Chat::new(super::tests::cfg(dir.path().into()), T0);
+    chat.session = Some(SID.into());
+    for _ in 0..2 {
+        chat.editor.insert_str("waiting");
+        let taken = chat.editor.take();
+        chat.enqueue(taken);
+    }
+    chat.leave();
+    assert!(chat
+        .out
+        .join("\n")
+        .contains("2 queued messages were not sent"));
 }
 
 #[test]

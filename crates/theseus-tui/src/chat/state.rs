@@ -741,7 +741,11 @@ impl Chat {
         if !self.queued.is_empty() {
             self.say_plain(
                 Sty::Dim,
-                &format!("{} queued messages were not sent", self.queued.len()),
+                &if self.queued.len() == 1 {
+                    "1 queued message was not sent".into()
+                } else {
+                    format!("{} queued messages were not sent", self.queued.len())
+                },
             );
         }
         if let Some(sid) = self.main_session() {

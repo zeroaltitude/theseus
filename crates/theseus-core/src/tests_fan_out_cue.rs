@@ -49,7 +49,7 @@ fn rows(r: &crate::tests_route::Rig) -> Vec<Value> {
 }
 
 /// The key test: Jev's `splits_by_area` fires the cue and `one_area` does not, whatever words the ask
-/// uses; each is a row, and the line is the request's last block with the system and tools byte for
+/// uses; each is a row, and the line is a part of the harness block with the system and tools byte for
 /// byte as an ordinary turn's (it is no part of the cached prefix).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn jevs_label_fires_the_cue_not_the_words_and_moves_no_prefix_byte() {
