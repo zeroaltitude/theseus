@@ -986,17 +986,22 @@ fn older_item(node: &str, flag: &str) -> Value {
            "removed": [{"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2, "note": PAYLOAD}]})
 }
 
-/// What a store may hold under `labels.` that is no item's (a rebuild failed on one: "missing field `node`
-/// at line 1 column 268"): an object of 268 bytes with no node, an empty object, a string, and a key that
-/// was ended. Their keys, but the ended one's.
-fn odd_records(c: &Core) -> [&'static str; 3] {
+/// An object of 268 bytes with no node: the shape of the record a rebuild failed on.
+fn object_268() -> Value {
     let mut big = json!({"kind": "operator_message", "source": "cli", "entered_ms": 1, "note": PAYLOAD,
                          "pad": ""});
     let len = serde_json::to_vec(&big).unwrap().len();
     big["pad"] = json!("x".repeat(268 - len));
     assert_eq!(serde_json::to_vec(&big).unwrap().len(), 268);
+    big
+}
+
+/// What a store may hold under `labels.` that is no item's (a rebuild failed on one: "missing field `node`
+/// at line 1 column 268"): an object of 268 bytes with no node, an empty object, a string, and a key that
+/// was ended. Their keys, but the ended one's.
+fn odd_records(c: &Core) -> [&'static str; 3] {
     let keys = ["labels.odd-268", "labels.odd-empty", "labels.odd-text"];
-    for (key, v) in keys.iter().zip([big, json!({}), json!(PAYLOAD)]) {
+    for (key, v) in keys.iter().zip([object_268(), json!({}), json!(PAYLOAD)]) {
         c.store.put_meta(key, &v).unwrap();
     }
     c.store
@@ -1084,6 +1089,43 @@ async fn a_rebuild_passes_over_records_under_labels_that_are_no_items() {
     }
     let ended = c.store.inner().latest_by_key(theseus_store::kinds::META, "labels.odd-ended");
     assert!(ended.unwrap().is_none());
+}
+
+/// The rebuild that failed with "missing field `node` at line 1 column 268" completes (issue 44): one item's
+/// labels and, under `labels.`, one object of 268 bytes with no node. Its label is touched, and the object is
+/// passed over and counted.
+#[tokio::test]
+async fn a_rebuild_over_an_object_of_268_bytes_with_no_node_completes() {
+    use crate::content::{Flag, ItemKind, Label};
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let t = turn(c, owner_cli(), None, "my diagnosis came back").await;
+    let node = input_node(c, &t);
+    let mut item = crate::item_labels::ItemLabels::new(&node, ItemKind::OperatorMessage, "cli", 1);
+    item.raised.push(Label {
+        flag: Flag::Personal,
+        node: Some(node.clone()),
+        kind: ItemKind::OperatorMessage,
+        source: "cli".into(),
+        confidence: 0.97,
+        band: theseus_judge::band::Band::Confirm,
+        at_ms: 1,
+        judgment: String::new(),
+    });
+    c.store.append(&[item.record().unwrap()]).unwrap();
+    c.store.put_meta("labels.odd-268", &object_268()).unwrap();
+    let run = call(c, owner_cli(), "exchange.rebuild", json!({})).await;
+    assert!(run.error.is_none(), "{:?}", run.error);
+    let run = run.result.unwrap();
+    assert_eq!(
+        (run["labels_passed_over"].as_u64(), run["touches"].as_u64()),
+        (Some(1), Some(1)),
+        "{run}"
+    );
+    let root = crate::item_labels::touch_root(Flag::Personal);
+    let got = newest(&c.store, Root::Thing(&root), 8).unwrap();
+    let turns: Vec<&str> = got.iter().map(|t| t.exchange.as_str()).collect();
+    assert_eq!(turns, [t.turn_id.as_str()]);
 }
 
 /// A fork of a session over such a store completes, and carries every label that reads (issue 44): today's
