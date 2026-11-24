@@ -215,6 +215,40 @@ impl Rig {
             .collect()
     }
 
+    /// Why an execution has fewer jobs than its turn asked for: how each turn ended, the stand-in's
+    /// last requests, every action counted by execution (no filter), and each log line of a job.
+    fn why_fewer(&self, turns: &[Value]) -> String {
+        let ended: Vec<String> = turns
+            .iter()
+            .map(|t| {
+                format!(
+                    "  {} stop_reason {} loops {} output {:?}",
+                    t["execution_id"], t["stop_reason"], t["loops"], t["output"]
+                )
+            })
+            .collect();
+        let mut by_execution = std::collections::BTreeMap::<String, (usize, usize)>::new();
+        let all = self.call("action.list", json!({"n": 2000}));
+        for a in all
+            .iter()
+            .flat_map(|a| a["actions"].as_array().cloned().unwrap_or_default())
+        {
+            let n = by_execution
+                .entry(a["execution_id"].to_string())
+                .or_default();
+            n.0 += 1;
+            n.1 += usize::from(a["tool"] == "proc.run");
+        }
+        format!(
+            "the turns ended:\n{}\nevery action by execution (all, proc.run): {by_execution:?}{}\nthe stand-in's last requests:\n{}\nthe log's proc.run lines:\n{}\nthe log ends:\n{}",
+            ended.join("\n"),
+            all.err().map_or(String::new(), |e| format!(" (action.list failed: {e})")),
+            self._model.last_prompts(8).join("\n"),
+            matching(&self.log(), "proc.run"),
+            self.log_tail()
+        )
+    }
+
     fn log_tail(&self) -> String {
         let s = self.log();
         let lines: Vec<&str> = s.lines().collect();
@@ -264,18 +298,25 @@ fn two_hundred_jobs_leave_no_zombie_behind() {
     for s in 0..4 {
         r.asks(&format!("fifty jobs, batch {s}"), calls.clone());
     }
-    let executions: Vec<Value> = std::thread::scope(|sc| {
+    // Each turn's whole result is kept, so a failure can say how each turn ended.
+    let results: Vec<Value> = std::thread::scope(|sc| {
         let turns: Vec<_> = (0..4)
             .map(|s| {
                 let r = &r;
-                sc.spawn(move || r.turn(&format!("fifty jobs, batch {s}"))["execution_id"].clone())
+                sc.spawn(move || r.turn(&format!("fifty jobs, batch {s}")))
             })
             .collect();
         turns.into_iter().map(|t| t.join().unwrap()).collect()
     });
+    let executions: Vec<Value> = results.iter().map(|t| t["execution_id"].clone()).collect();
     for e in &executions {
         let states = r.job_states(e);
-        assert_eq!(states.len(), 50, "{e}: {states:?}");
+        assert_eq!(
+            states.len(),
+            50,
+            "{e}: {states:?}\n{}",
+            r.why_fewer(&results)
+        );
         assert!(
             states.iter().all(|s| s == "succeeded"),
             "{e}: {states:?}\n{}",

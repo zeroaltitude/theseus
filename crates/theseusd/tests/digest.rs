@@ -158,6 +158,15 @@ impl Rig {
         self.call("work.digest", json!({"since": since})).unwrap()
     }
 
+    /// The digests a failure names, each `shown` under its label, and the log's tail.
+    fn why(&self, ds: &[(&str, &Value)]) -> String {
+        let ds: Vec<String> = ds
+            .iter()
+            .map(|(what, d)| format!("{what}: {}", shown(d)))
+            .collect();
+        format!("{}\nthe log ends:\n{}", ds.join("\n"), self.log_tail())
+    }
+
     /// The lines of a digest as (kind, count).
     fn kinds(d: &Value) -> Vec<(String, u64)> {
         d["lines"]
@@ -213,6 +222,27 @@ impl Rig {
     }
 }
 
+/// A digest as a failure prints it: where it reads from and to, whether from the ledger, and each
+/// line's kind, work and words. A line in a later read whose work an earlier one already told was
+/// told twice; a line with new work happened later.
+fn shown(d: &Value) -> String {
+    let lines: Vec<String> = d["lines"]
+        .as_array()
+        .map(|l| {
+            l.iter()
+                .map(|l| format!("  {} {} {}", l["kind"], l["work"], l["words"]))
+                .collect()
+        })
+        .unwrap_or_default();
+    format!(
+        "from {} to {} from_ledger {}:\n{}",
+        d["from"],
+        d["to"],
+        d["from_ledger"],
+        lines.join("\n")
+    )
+}
+
 /// The same tasks are found later (theseus-ypnxt.1): by their report's words, among the ended,
 /// by the real CLI's list and by `task show`.
 fn found_later(r: &Rig) {
@@ -223,13 +253,21 @@ fn found_later(r: &Rig) {
         )
         .unwrap();
     assert_eq!(found["tasks"].as_array().unwrap().len(), 3, "{found}");
-    assert!(found["details"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|d| d["report_line"] == json!("Nothing to do.")));
+    assert!(
+        found["details"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|d| d["report_line"] == json!("Nothing to do.")),
+        "{found}"
+    );
     let stopped = r.call("task.list", json!({"ended": true})).unwrap();
-    assert_eq!(stopped["tasks"].as_array().unwrap().len(), 4, "{stopped}");
+    assert_eq!(
+        stopped["tasks"].as_array().unwrap().len(),
+        4,
+        "{stopped}\n{}",
+        r.why(&[])
+    );
     if let Some(out) = r.cli(&["tasks", "--ended", "--since", "10m", "nothing"]) {
         let text = String::from_utf8_lossy(&out.stdout).into_owned();
         assert_eq!(text.lines().count(), 3, "{text}");
@@ -259,7 +297,11 @@ fn what_happened_while_a_client_was_away_is_told_once_from_where_it_left() {
         .as_u64()
         .unwrap();
     let _ = r.call("work.unwatch", json!({}));
-    assert!(r.digest(left)["lines"].as_array().unwrap().is_empty());
+    assert!(
+        r.digest(left)["lines"].as_array().unwrap().is_empty(),
+        "{}",
+        r.why(&[("read again", &r.digest(left))])
+    );
 
     r.while_away();
 
@@ -271,11 +313,12 @@ fn what_happened_while_a_client_was_away_is_told_once_from_where_it_left() {
         (n("reported") == 3 && n("cancelled") == 1 && n("answered") == 1 && n("woke") >= 1)
             .then_some(d)
     });
-    assert_eq!(d["from"].as_u64(), Some(left));
+    assert_eq!(d["from"].as_u64(), Some(left), "{}", shown(&d));
     assert_eq!(
         d["from_ledger"],
         json!(false),
-        "the ring reaches back to the look"
+        "the ring reaches back to the look: {}",
+        r.why(&[("live", &d)])
     );
     let words: Vec<&str> = d["lines"]
         .as_array()
@@ -312,7 +355,8 @@ fn what_happened_while_a_client_was_away_is_told_once_from_where_it_left() {
     drop(d1);
     let _d2 = r.spawn();
     let from_ledger = r.digest(left);
-    assert_eq!(from_ledger["from_ledger"], json!(true), "{from_ledger}");
+    let ds = [("from the ledger", &from_ledger), ("live", &d)];
+    assert_eq!(from_ledger["from_ledger"], json!(true), "{}", r.why(&ds));
     let n = |d: &Value, kind: &str| -> u64 {
         Rig::kinds(d)
             .iter()
@@ -321,12 +365,13 @@ fn what_happened_while_a_client_was_away_is_told_once_from_where_it_left() {
             .sum()
     };
     for kind in ["reported", "cancelled", "answered"] {
-        assert_eq!(n(&from_ledger, kind), n(&d, kind), "{kind}");
+        assert_eq!(n(&from_ledger, kind), n(&d, kind), "{kind} {}", r.why(&ds));
     }
     assert_eq!(
         n(&from_ledger, "woke"),
         1,
-        "one timer, one line: {from_ledger}"
+        "one timer, one line: {}",
+        r.why(&ds)
     );
 
     // The real CLI says the same, and a second read from where the first ended tells nothing.
@@ -342,7 +387,11 @@ fn what_happened_while_a_client_was_away_is_told_once_from_where_it_left() {
         );
     }
     let to = d["to"].as_u64().unwrap();
-    assert!(r.digest(to)["lines"].as_array().unwrap().is_empty());
+    assert!(
+        r.digest(to)["lines"].as_array().unwrap().is_empty(),
+        "{}",
+        r.why(&[("read again from its end", &r.digest(to)), ds[0], ds[1]])
+    );
 
     if let Ok(path) = std::env::var("THESEUS_RECORD_DIGEST") {
         std::fs::write(path, serde_json::to_string_pretty(&d).unwrap()).unwrap();
@@ -381,27 +430,52 @@ fn a_stop_between_telling_and_the_next_arrival_tells_nothing_twice() {
             && count(&d, "woke") == 1)
             .then_some(d)
     });
-    assert_eq!(told["from_ledger"], json!(false));
+    assert_eq!(
+        told["from_ledger"],
+        json!(false),
+        "{}",
+        r.why(&[("live", &told)])
+    );
     let to = told["to"].as_u64().unwrap();
 
     // Killed: the next client finds a board seeded past its position.
     drop(d1);
     let d2 = r.spawn();
     let after = r.digest(to);
-    assert!(after["lines"].as_array().unwrap().is_empty(), "{after}");
+    assert!(
+        after["lines"].as_array().unwrap().is_empty(),
+        "{after}\n{}",
+        r.why(&[("read from its end", &after), ("live", &told)])
+    );
     let again = r.digest(left);
     assert_eq!(again["from_ledger"], json!(true), "{again}");
     for kind in ["reported", "cancelled", "answered", "woke"] {
-        assert_eq!(count(&again, kind), count(&told, kind), "{kind}: {again}");
+        let ds = [("from the ledger", &again), ("live", &told)];
+        assert_eq!(
+            count(&again, kind),
+            count(&told, kind),
+            "{kind}: {again}\n{}",
+            r.why(&ds)
+        );
     }
 
     // Stopped cleanly, and again.
     let _ = r.call("shutdown", Value::Null);
     drop(d2);
     let _d3 = r.spawn();
-    assert!(r.digest(to)["lines"].as_array().unwrap().is_empty());
+    assert!(
+        r.digest(to)["lines"].as_array().unwrap().is_empty(),
+        "{}",
+        r.why(&[("read again from its end", &r.digest(to)), ("live", &told)])
+    );
     let again = r.digest(left);
     for kind in ["reported", "cancelled", "answered", "woke"] {
-        assert_eq!(count(&again, kind), count(&told, kind), "{kind}: {again}");
+        let ds = [("from the ledger", &again), ("live", &told)];
+        assert_eq!(
+            count(&again, kind),
+            count(&told, kind),
+            "{kind}: {again}\n{}",
+            r.why(&ds)
+        );
     }
 }
