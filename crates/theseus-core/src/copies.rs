@@ -2,8 +2,8 @@
 //! messages' words names their nodes in its result's meta under [`KEY`]; the completion frame takes them out
 //! ([`copied`]) before the result node is built, so they are never stored, and writes one `derived_from` edge
 //! from the result to each ([`edges`]), by the tool's own route: `node.reach` of a message then finds every
-//! result that showed its words, and a retraction lists it ("a copy by history"), as a glide's borrowed node was
-//! found from each message it took. Only the tools [`COPIERS`] names are read, so no other tool's meta can write
+//! result that showed its words, and a retraction tells the conversation that read it, as a glide's borrowed
+//! node was found from each message it took. Only the tools [`COPIERS`] names are read, so no other tool's meta can write
 //! an edge.
 
 use anyhow::Result;

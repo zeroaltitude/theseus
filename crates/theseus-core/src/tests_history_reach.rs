@@ -16,6 +16,8 @@ use crate::provider::Scripted;
 use crate::tests_places::{answers_a_call, last_user, rig_scripted, session, turn, Rig};
 use crate::Core;
 
+mod by_reference;
+
 /// What the person says in the first place: its words are the ones each read copies.
 const SAID: &str = "the zircon heron nests by the north weir at dawn";
 const WORD: &str = "zircon";
@@ -185,10 +187,10 @@ async fn an_imported_message_opened_by_its_session_is_found_from_it() {
     finds(&reach(&r.core, &node), &copy, &other);
 }
 
-/// A retraction of the message finds the history result as a copy that was seen (`retract.rs`'s route for a
-/// copy no other kind names, glide's), labels the message wrong so recall never serves it, and leaves the copy
-/// where it lies: it is the reader's own result, as glide's borrowed node was. What that leaves is asserted as
-/// it is, so a change to it is seen: the copy is not labeled (a seen copy never was), so recall may still
+/// A retraction of the message finds the history result in the conversation that read it, and that
+/// conversation is told (a session's exposure: a correction note at its next turn); it labels the message
+/// wrong so recall never serves it, and leaves the copy where it lies: it is the reader's own result. What
+/// that leaves is asserted as it is, so a change to it is seen: the copy is not labeled, so recall may still
 /// serve its text, and the reader's next request still holds its own result.
 #[tokio::test]
 async fn a_retraction_of_the_message_lists_the_history_result() {
@@ -212,7 +214,7 @@ async fn a_retraction_of_the_message_lists_the_history_result() {
         .unwrap_or_else(|| panic!("the retraction does not list the history result: {out:#?}"));
     assert_eq!(
         (e.kind.as_str(), e.session_id.as_str()),
-        (kind::SEEN, other.as_str()),
+        (kind::SESSION, other.as_str()),
         "{e:?}"
     );
     assert!(e.what.contains("history"), "{e:?}");

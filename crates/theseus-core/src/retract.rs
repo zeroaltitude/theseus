@@ -18,6 +18,9 @@
 //!     ("re-run?"): one per retraction, never one per task;
 //!   - a **published copy** is listed with its place (and labeled `wrong`: it is
 //!     the node's text); it cannot be unpublished;
+//!   - a conversation that read the words by a look back (`context.history`,
+//!     `look.work`) is sorted as any session the walk reaches is: a live one
+//!     gets the note, a task's is named on the card, a retired one is seen;
 //!   - **seen, not used** is listed.
 //! - **Idempotent**: a node retracted before answers from the stored table
 //!   and writes nothing.
@@ -479,10 +482,21 @@ impl Core {
                     (kind::TASK, Some(true))
                 }
                 graph::VIA_REPORT if !s.task && !s.retired => (kind::SESSION, None),
+                // A look back's result showed the words to its conversation: sorted as a session the
+                // walk reaches any other way is, so a live one is told (a retired or imported one is seen).
+                graph::VIA_HISTORY | graph::VIA_LOOK if s.task => (kind::TASK, None),
+                graph::VIA_HISTORY | graph::VIA_LOOK if !s.retired && !s.imported => {
+                    (kind::SESSION, None)
+                }
                 _ => (kind::SEEN, None),
             };
             let detail = match (k, used) {
                 (kind::SEEN, None) => format!("a copy by {}", d.route),
+                (kind::SESSION | kind::TASK, None)
+                    if matches!(d.route.as_str(), graph::VIA_HISTORY | graph::VIA_LOOK) =>
+                {
+                    format!("it read the words by {}", d.route)
+                }
                 (kind::SESSION | kind::TASK, None) if d.route == graph::VIA_RECALL => {
                     "its use is not yet recorded: treated as used".to_string()
                 }
