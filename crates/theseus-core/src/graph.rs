@@ -1,6 +1,8 @@
 //! The content graph's vocabulary: the kinds of edge between nodes (§4.1,
-//! §6.1). A node's label is not here: it is a field of the node (`Node.label`,
-//! `theseus_protocol::label::Label`, with `Integrity` and `Readers`; M4 19a).
+//! §6.1). A node's labels are not here, and not in the node either: what is
+//! said about a node (a `memory.label` row, its item labels, a retraction) is
+//! a record of its own that points at it. The `label` an old node carries
+//! (M4 19a) reads, and is left unread (`node.rs`).
 //!
 //! Row 12 (12a) of the roadmap re-cut added the first edge, `derived_from`
 //! on the report route. A variant lands

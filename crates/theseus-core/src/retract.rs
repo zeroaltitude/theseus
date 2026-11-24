@@ -18,6 +18,11 @@
 //!     ("re-run?"): one per retraction, never one per task;
 //!   - a **published copy** is listed with its place (and labeled `wrong`: it is
 //!     the node's text); it cannot be unpublished;
+//!   - a conversation that read the words by a look back (`context.history`,
+//!     `look.work`) is sorted as any session the walk reaches is (a live one
+//!     gets the note, a task's is named on the card, a retired one is seen)
+//!     when the kept text of its result shows the node (`copies::shows`);
+//!     a result that does not, or cannot be read, is seen;
 //!   - **seen, not used** is listed.
 //! - **Idempotent**: a node retracted before answers from the stored table
 //!   and writes nothing.
@@ -193,15 +198,23 @@ struct Stored {
     // Serde ignores the retired `private` field in old audits. It has no reader.
 }
 
-/// The first words of a node, on one line.
-fn gist_of(n: &Node) -> String {
+/// The first words of a node, on one line, an ellipsis marking a cut. The cut never falls inside a known value
+/// (`cuts`), and a value the joining of whitespace would change is cut away first, on the raw text, as a
+/// page's line is (`history_tool::page`).
+fn gist_of(n: &Node, cuts: &crate::scrub::Cuts) -> String {
     let text = crate::recall::text_of(n);
-    let one: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if one.chars().count() <= GIST_CHARS {
-        return one;
+    let kept = cuts.unchanged(&text, char::is_whitespace);
+    let short = kept < text.len();
+    let one: String = text[..kept]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    match one.char_indices().nth(GIST_CHARS - 1) {
+        Some(_) if one.chars().count() <= GIST_CHARS && !short => one,
+        Some((at, _)) => format!("{}…", &one[..cuts.before(&one, at)]),
+        None if short => format!("{one}…"),
+        None => one,
     }
-    let cut: String = one.chars().take(GIST_CHARS - 1).collect();
-    format!("{cut}…")
 }
 
 /// `[m:a1b2c3]` or `m:a1b2c3` as the ending it carries; anything else as it
@@ -257,7 +270,7 @@ impl Core {
         let walk = reach::reach(&self.store, &node_id, Some(reach::MAX_GENERATIONS))?
             .with_context(|| format!("no node is named {node_id}"))?;
         let now = now_unix_ms();
-        let gist = gist_of(&node);
+        let gist = gist_of(&node, &self.tools.scrubber.cuts());
         let found = self.exposures_of(&walk)?;
         let private_origin = self.sess(&node.session_id)?.is_none_or(|s| s.private);
         let (who_s, via) = (who.who(), who.via());
@@ -397,6 +410,23 @@ impl Core {
         Ok(cache[id].clone())
     }
 
+    /// Whether the look back's result `d` showed its reader the node it copies (`d.from`): the stored, kept
+    /// text of the result names it (`copies::shows`; an imported message's line in a cut page only when the
+    /// result links no other node of its session, `copies::since::alone`). Either node unread, or that
+    /// question unanswered, is not shown.
+    fn showed(&self, d: &theseus_protocol::ReachDescendant) -> bool {
+        let read = |id: &str| match self.store.get_node(id) {
+            Ok(Some((_, n))) => Some(n),
+            _ => None,
+        };
+        match (read(&d.node_id), read(&d.from)) {
+            (Some(result), Some(source)) => crate::copies::shows(&result, &source, || {
+                crate::copies::since::alone(&self.store, &result, &source).unwrap_or(false)
+            }),
+            _ => false,
+        }
+    }
+
     /// Whether the turns of `session` used what they recalled of `copied`:
     /// `memory.used` rows say, any one that says so; none, unknown.
     fn used_of(&self, session: &str, copied: &str) -> Result<Option<bool>> {
@@ -463,6 +493,8 @@ impl Core {
             let Some(s) = self.cached(&mut sessions, &d.session_id)? else {
                 continue;
             };
+            let shown =
+                matches!(d.route.as_str(), graph::VIA_HISTORY | graph::VIA_LOOK) && self.showed(d);
             let (k, used) = match d.route.as_str() {
                 graph::VIA_SYNTHESIS => (kind::SYNTHESIS, None),
                 graph::VIA_PUBLISH => (kind::PUBLISHED, None),
@@ -479,10 +511,22 @@ impl Core {
                     (kind::TASK, Some(true))
                 }
                 graph::VIA_REPORT if !s.task && !s.retired => (kind::SESSION, None),
+                // A look back's result whose kept text showed the words to its conversation: sorted as a
+                // session the walk reaches any other way is, so a live one is told (a retired or imported
+                // one is seen). One that did not show them is seen, as its link may be to words cut out.
+                graph::VIA_HISTORY | graph::VIA_LOOK if shown && s.task => (kind::TASK, None),
+                graph::VIA_HISTORY | graph::VIA_LOOK if shown && !s.retired && !s.imported => {
+                    (kind::SESSION, None)
+                }
                 _ => (kind::SEEN, None),
             };
             let detail = match (k, used) {
                 (kind::SEEN, None) => format!("a copy by {}", d.route),
+                (kind::SESSION | kind::TASK, None)
+                    if matches!(d.route.as_str(), graph::VIA_HISTORY | graph::VIA_LOOK) =>
+                {
+                    format!("it read the words by {}", d.route)
+                }
                 (kind::SESSION | kind::TASK, None) if d.route == graph::VIA_RECALL => {
                     "its use is not yet recorded: treated as used".to_string()
                 }
