@@ -717,32 +717,6 @@ fn an_unknown_default_persona_is_refused_naming_the_known_ones() {
     );
 }
 
-/// `narrative` is a top-level key, off unless the config says true
-/// (theseus-5fy). The vault config (checked 2026-09-28) has no such key and
-/// loads unchanged; the template turns it on; written under a table it is
-/// that table's key and fails to load.
-#[test]
-fn narrative_is_off_unless_the_config_says_true() {
-    let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
-    let (cfg, warnings) = Config::parse(base).unwrap();
-    assert!(!cfg.narrative && warnings.is_empty(), "{warnings:?}");
-    for (value, want) in [("true", true), ("false", false)] {
-        let (cfg, _) = Config::parse(&format!("narrative = {value}\n\n{base}")).unwrap();
-        assert_eq!(cfg.narrative, want, "narrative = {value}");
-    }
-    let (cfg, warnings) = Config::parse(Config::EXAMPLE_TOML).unwrap();
-    assert!(cfg.narrative && warnings.is_empty(), "{warnings:?}");
-    let e = format!(
-        "{:#}",
-        Config::parse(&format!("{base}\n[web]\nnarrative = true\n")).unwrap_err()
-    );
-    assert!(e.contains("unknown field `narrative`"), "{e}");
-    assert!(Config::parse(&format!("narrative = \"yes\"\n{base}")).is_err());
-    // `theseusd config` prints it first, where it still means the top level.
-    let shown = toml::to_string_pretty(&cfg).unwrap();
-    assert!(shown.starts_with("narrative = true\n"), "{shown}");
-}
-
 /// There is no deny posture: `deny`, wherever a posture goes, fails to
 /// load, and the error names open, notify, and approve (theseus-8az).
 #[test]

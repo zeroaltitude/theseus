@@ -148,8 +148,8 @@ mod tests {
         let doc: toml::Table = whole.parse().unwrap();
         let cut: toml::Table = note.parse().unwrap();
         assert_eq!(cut["secrets"], doc["secrets"], "the references as they are");
-        // The template sets these apart from their defaults.
-        assert_eq!(cut["narrative"], toml::Value::Boolean(true));
+        // The template sets these apart from their defaults (and no longer names the narrative, which always runs).
+        assert_eq!(cut.get("narrative"), None);
         assert_eq!(cut["model"]["live"].as_str(), Some("sonnet"));
         assert!(cut["profiles"].get("glm").is_some());
         assert!(cut["providers"].get("zai").is_some());

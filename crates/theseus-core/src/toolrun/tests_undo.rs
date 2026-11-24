@@ -371,7 +371,7 @@ async fn a_model_that_keeps_re_planning_the_same_held_call_ends_the_turn() {
         RESHAPEABLE,
         0.96,
         false,
-        |c| c.narrative = true,
+        |_| {},
         script_replanning_the_same_call,
     );
     let sid = r.session();

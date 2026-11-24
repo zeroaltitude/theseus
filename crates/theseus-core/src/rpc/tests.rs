@@ -1869,11 +1869,12 @@ async fn narrative_watch_scoped_to_one_session_gets_only_that_sessions_lines() {
 
 /// `narrative.watch` returns the tail, then streams every line as
 /// `narrative.line` on the same connection until `narrative.unwatch`; a
-/// connection that arrives late gets the same lines as its tail. With
-/// narration off, both methods refuse with DISABLED and health says so.
+/// connection that arrives late gets the same lines as its tail. There is no
+/// switch: a config without the old `narrative` key narrates, and both
+/// methods answer.
 #[tokio::test]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
+async fn narrative_watch_streams_a_turn_and_needs_no_switch() {
     use theseus_protocol::{NarrativeLine, NarrativePart, NarrativeWatchResult};
     let core = test_core("hello there");
     assert!(core.health().narrative, "the template turns it on");
@@ -1971,19 +1972,19 @@ async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
     drop(lines);
     let _ = srv.await;
 
-    // Off: the methods refuse and health says so.
+    // No switch: a config that never names `narrative` narrates, and both methods answer.
     let dir = crate::scratch::dir("t");
     let store = Store::open(&dir.join("store")).unwrap();
-    let mut cfg = Config::example();
+    let without = Config::EXAMPLE_TOML.replace("narrative = true\n", "");
+    let (mut cfg, _) = Config::parse(&without).unwrap();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
-    cfg.narrative = false;
     let fake = FakeProvider {
         reply: "x".into(),
         ..Default::default()
     };
-    let off = Core::build(Parts::for_tests(cfg, Arc::new(fake), store)).unwrap();
+    let on = Core::build(Parts::for_tests(cfg, Arc::new(fake), store)).unwrap();
     let msgs = roundtrip(
-        off.clone(),
+        on.clone(),
         vec![
             Request::new(Id::Num(1), method::HEALTH, Value::Null),
             Request::new(Id::Num(2), method::NARRATIVE_WATCH, Value::Null),
@@ -1993,13 +1994,13 @@ async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
     .await;
     let rs = responses(&msgs);
     let by = |id| rs.iter().find(|r| r.id == Id::Num(id)).unwrap();
-    assert_eq!(by(1).result.as_ref().unwrap()["narrative"], false);
+    assert_eq!(by(1).result.as_ref().unwrap()["narrative"], true);
     for id in [2, 3] {
-        let e = by(id).error.as_ref().expect("refused");
-        assert_eq!(e.code, error_code::DISABLED);
-        assert!(e.message.contains("narrative = true"), "{}", e.message);
+        let r = by(id);
+        assert_eq!(r.error.as_ref().map(|e| e.code), None, "{:?}", r.error);
+        assert!(r.result.is_some(), "answered");
     }
-    assert!(off.narrator.tail().is_empty());
+    assert!(on.narrator.on());
 }
 
 // ---------------------------------------------------------------- telemetry (theseus-hee)

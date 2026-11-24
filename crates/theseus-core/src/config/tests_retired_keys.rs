@@ -81,10 +81,12 @@ fn names(cfg: &Config) -> Vec<&str> {
 /// the start's ignored list, and one warning line names it and why it went.
 #[test]
 fn a_settings_file_naming_every_retired_key_loads_and_names_each() {
-    let (cfg, warnings) = parse(EVERY).expect("an old settings file loads");
+    let (cfg, warnings) =
+        Config::parse(&format!("narrative = true\n{BASE}{EVERY}")).expect("an old settings file loads");
     let ignored = names(&cfg);
     for k in RETIRED {
         let name = match k.section {
+            "" => k.key.to_string(),
             "profiles.*" => format!("profiles.quick.{}", k.key),
             s => format!("{s}.{}", k.key),
         };
@@ -265,4 +267,22 @@ fn an_old_prefix_section_loads_and_a_key_it_never_had_still_fails() {
     );
     let e = parse("[prefix]\nenabled = false\nwarmth = 3\n").unwrap_err();
     assert!(format!("{e:#}").contains("warmth"), "{e:#}");
+}
+
+/// The Narrative tab is always shown (issue 46): a settings file that still says `narrative`, either way, loads
+/// and names it once as retired.
+#[test]
+fn the_narrative_key_is_retired_whatever_it_says() {
+    for v in ["true", "false"] {
+        let (cfg, warnings) = Config::parse(&format!("narrative = {v}\n\n{BASE}")).unwrap();
+        assert_eq!(names(&cfg), ["narrative"], "{v}");
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|w| w.starts_with("narrative is retired: "))
+                .count(),
+            1,
+            "{v}: {warnings:?}"
+        );
+    }
 }

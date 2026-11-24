@@ -35,7 +35,6 @@ fn said(core: &Arc<Core>, starts: &str) -> Vec<String> {
 /// A core on `dir`'s store, the narrative on, as a start builds one.
 fn core_on(dir: &std::path::Path, jev: &FakeJev) -> Arc<Core> {
     let mut cfg = config(dir, Some(jev));
-    cfg.narrative = true;
     cfg.judge.shadow_limit_usd_per_day = LIMIT;
     let store = Store::open(&dir.join("store")).unwrap();
     let mut p = Parts::for_tests(cfg, Arc::new(FakeProvider::scripted(texts(1))), store);
@@ -60,7 +59,6 @@ fn fill(svc: &super::JudgeService, day: &str) -> u32 {
 async fn a_days_limit_says_its_pause_once() {
     let jev = FakeJev::start().unwrap();
     let r = rig_with(vec![], Some(&jev), |c| {
-        c.narrative = true;
         c.judge.shadow_limit_usd_per_day = LIMIT;
     });
     let svc = &r.core.runner.judge;
@@ -143,7 +141,7 @@ async fn the_next_days_first_reservation_says_it_resumed_and_a_restart_does_not(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_blocks_unsettled_rest_is_booked_at_the_first_reservation_and_said() {
     let jev = FakeJev::start().unwrap();
-    let r = rig_with(vec![], Some(&jev), |c| c.narrative = true);
+    let r = rig_with(vec![], Some(&jev), |_| {});
     let day = "2026-10-01";
     let stored = Stored {
         day: day.into(),
@@ -204,7 +202,6 @@ fn made(svc: &super::JudgeService, day: &str, class: Class) -> u32 {
 async fn shadow_stops_at_seventy_percent_and_live_runs_on() {
     let jev = FakeJev::start().unwrap();
     let r = rig_with(vec![], Some(&jev), |c| {
-        c.narrative = true;
         c.judge.shadow_limit_usd_per_day = LIMIT;
     });
     let svc = &r.core.runner.judge;
@@ -278,7 +275,7 @@ async fn until(what: &str, ok: impl Fn() -> bool) {
 async fn a_breaker_that_opens_says_its_line_once() {
     let jev = FakeJev::start().unwrap();
     jev.set_mode(FakeMode::Down);
-    let r = rig_with(texts(8), Some(&jev), |c| c.narrative = true);
+    let r = rig_with(texts(8), Some(&jev), |_| {});
     for i in 0..8 {
         turn(&r.core, None, &format!("turn {i}")).await;
         if !kinds(&r.core.store, "judge.circuit").is_empty() {
@@ -311,7 +308,6 @@ async fn a_shed_report_says_its_line() {
     let jev = FakeJev::start().unwrap();
     jev.set_mode(FakeMode::Slow(Duration::from_secs(60)));
     let r = rig_with(texts(2), Some(&jev), |c| {
-        c.narrative = true;
         c.judge.max_in_flight = 1;
         // The slow call holds its permit for the whole test.
         c.judge.total_secs = 25;
@@ -342,7 +338,6 @@ async fn a_shed_report_says_its_line() {
 async fn past_its_line_a_class_is_told_at_each_multiple_and_skipped_only_past_ten() {
     let jev = FakeJev::start().unwrap();
     let r = rig_with(vec![], Some(&jev), |c| {
-        c.narrative = true;
         c.judge.shadow_limit_usd_per_day = LIMIT;
     });
     let svc = &r.core.runner.judge;

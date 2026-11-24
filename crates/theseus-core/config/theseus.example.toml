@@ -32,9 +32,6 @@
 # is fetched again. A config kept in the vault cannot start without vault
 # access; a config file can, and then only its op:// secrets fail.
 
-# The Narrative: a web UI tab narrating every session, turn, loop, and model call (default false: no tab, no lines).
-narrative = true
-
 # ---------------------------------------------------------------- model
 # The defaults every profile inherits: a profile that leaves a setting out takes
 # this section's (provider, max_output_tokens, system, effort, thinking_display,

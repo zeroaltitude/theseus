@@ -110,12 +110,6 @@ pub use mcp::{McpConfig, McpServerConfig};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// Narrate every step of the session/turn/loop/model-call structure into
-    /// the web UI's The Narrative tab. Absent or false: no line is made and
-    /// the tab never shows. First, because a TOML key after a table is that
-    /// table's.
-    #[serde(default)]
-    pub narrative: bool,
     #[serde(default)]
     pub model: ModelConfig,
     /// Named model profiles. The implicit `default` profile is built from `[model]`.

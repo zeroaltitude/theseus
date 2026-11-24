@@ -140,7 +140,7 @@ async fn a_judged_turn_keeps_its_frames_and_its_request_bytes() {
 async fn a_judgment_landing_says_its_sentence() {
     let jev = jev();
     jev.script("announced_unfinished", Jev::Noul(0.97));
-    let r = rig_with(texts(1), Some(&jev), |c| c.narrative = true);
+    let r = rig_with(texts(1), Some(&jev), |_| {});
     let res = turn(&r.core, None, "Say done.").await;
     let line = until_said(&r.core, |l| l.text.starts_with("Jev,")).await;
     assert_eq!(
