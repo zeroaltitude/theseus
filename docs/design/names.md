@@ -31,8 +31,9 @@ Touches began with the build that added them, so a topic's timeline started ther
 the exchanges from before, oldest first. It is the owner's act, in person, at his own terminal: the terminal alone
 (the web UI, a chat, MCP and an unnamed connection are refused before any history is read), then the people
 backfill's check (the owner, from a private place; the CLI refuses it inside a job), then the in-person rule (never
-an agent's process). Each refusal is ledgered. Run `--dry-run` first: it counts the exchanges it would ask and
-prices their worst case, and asks nothing.
+an agent's process). Each of these refusals is ledgered but two: MCP's (the MCP server's own list refuses the
+method before the daemon reads it) and the CLI's own refusal inside a job (it sends no request). Run `--dry-run`
+first: it counts the exchanges it would ask and prices their worst case, and asks nothing.
 
 - **Which**: an exchange that touches no category of a kind `onto.v1` asks, that the owner opened (its person is
   `owner`, as his mark or the rebuild proved it), that this job did not ask before, that opens with his own typed
