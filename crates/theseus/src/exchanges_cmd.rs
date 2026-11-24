@@ -15,7 +15,10 @@ use theseus_protocol::method;
 
 /// `theseus ledger exchanges`.
 pub async fn report(conn: &mut Conn, json: bool, n: Option<u64>) -> Result<()> {
-    let p = serde_json::to_value(ExchangeReportParams { limit: n })?;
+    let p = serde_json::to_value(ExchangeReportParams {
+        limit: n,
+        ..Default::default()
+    })?;
     let v = conn.request(method::EXCHANGE_REPORT, p).await?;
     match json {
         true => println!("{}", serde_json::to_string(&v)?),

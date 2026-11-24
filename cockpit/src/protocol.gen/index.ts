@@ -165,6 +165,7 @@ export type * from './EndNote';
 export type * from './EstimateSummary';
 export type * from './Eta';
 export type * from './EventsLost';
+export type * from './ExchangeAnswers';
 export type * from './ExchangeLadderParams';
 export type * from './ExchangeLadderResult';
 export type * from './ExchangeRebuildParams';

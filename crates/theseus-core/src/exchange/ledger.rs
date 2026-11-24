@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use theseus_protocol::exchange::{ExchangeReportParams, ExchangeReportResult};
+use theseus_protocol::exchange::{ExchangeAnswers, ExchangeReportParams, ExchangeReportResult};
 use theseus_protocol::LedgerKind;
 use theseus_store::pages::{ledger_kind, ledger_kind_session};
 use theseus_store::{kinds, Page, Store as _};
@@ -470,23 +470,46 @@ fn band(gap: u64) -> &'static str {
     }
 }
 
+/// A message's length's band, for the report.
+fn chars_band(n: u64) -> &'static str {
+    match n {
+        0..80 => "under_80",
+        80..400 => "under_400",
+        _ => "over_400",
+    }
+}
+
+/// The judge's answer to `question`, as the report counts it: a task's id
+/// only as whether there was one.
+fn judged_value(question: &str, answer: &str) -> String {
+    match (question, answer) {
+        ("addressed_task", "none") => "none".into(),
+        ("addressed_task", _) => "a_task".into(),
+        _ => answer.into(),
+    }
+}
+
 /// One row, added to the report by its own shape: each field a count of its
-/// value under its name (a gap by its band, a map by its keys, the judge's
-/// answers by question), each number summed, `sent`'s parts summed, and each
-/// other private place's exchange by whether it was in view. Ids are skipped.
-fn add(r: &mut ExchangeReportResult, row: &Row) {
-    let Ok(Value::Object(fields)) = serde_json::to_value(row) else {
+/// value under its name (a gap and a message's length by their bands, a map
+/// by its keys, the judge's answers by question), `sent`'s parts summed, and
+/// each other private place's exchange by whether it was in view. Ids are
+/// skipped; the cache's tokens are the answers'.
+pub(super) fn add(r: &mut ExchangeReportResult, row: &Value) {
+    let Value::Object(fields) = row else {
         return;
     };
     let mut sum =
         |k: &str, n: &Value| *r.tokens.entry(k.into()).or_insert(0) += n.as_u64().unwrap_or(0);
     let mut counts = Vec::new();
-    for (k, v) in &fields {
+    for (k, v) in fields {
         match (k.as_str(), v) {
-            ("exchange" | "place" | "prev_exchange", _) => {}
+            ("exchange" | "place" | "prev_exchange" | "cache_read" | "cache_write", _) => {}
             ("sent", Value::Object(parts)) => parts.iter().for_each(|(p, n)| sum(p, n)),
             ("gap_ms", Value::Number(n)) => {
                 counts.push((k.clone(), band(n.as_u64().unwrap_or(0)).into()))
+            }
+            ("ask_chars", Value::Number(n)) => {
+                counts.push((k.clone(), chars_band(n.as_u64().unwrap_or(0)).into()))
             }
             ("things" | "reply_things", Value::Null) => counts.push((k.clone(), "unknown".into())),
             ("elsewhere", Value::Array(xs)) => counts.extend(xs.iter().map(|e| {
@@ -499,7 +522,7 @@ fn add(r: &mut ExchangeReportResult, row: &Row) {
             })),
             (_, Value::Object(m)) if m.is_empty() => counts.push((k.clone(), "none".into())),
             (_, Value::Object(m)) => counts.extend(m.iter().map(|(q, a)| match a {
-                Value::String(a) => (format!("{k}.{q}"), a.clone()),
+                Value::String(a) => (format!("{k}.{q}"), judged_value(q, a)),
                 _ => (k.clone(), q.clone()),
             })),
             (_, n @ Value::Number(_)) => sum(k, n),
@@ -519,9 +542,90 @@ fn add(r: &mut ExchangeReportResult, row: &Row) {
     }
 }
 
-/// `exchange.report`: the newest rows, summed.
+/// The place's position of exchange `e`, as the view orders it.
+fn pos(e: &Exchange) -> crate::view::Pos {
+    crate::view::Pos {
+        at_ms: e.start_ms,
+        id: e.turn_id.clone(),
+    }
+}
+
+/// Whether the place's latest `/new` lies between `prev` and `ex`: the view
+/// leaves out what came before it, on purpose. Only a place's latest `/new`
+/// is kept, so an older one is not seen here.
+fn after_new(store: &Store, ex: &Exchange, prev: &Exchange) -> bool {
+    match crate::ladder::new_mark(store, &ex.place) {
+        Ok(Some(mark)) => pos(prev) <= mark && mark < pos(ex),
+        _ => false,
+    }
+}
+
+fn bump(m: &mut BTreeMap<String, u64>, k: &str) {
+    *m.entry(k.into()).or_insert(0) += 1;
+}
+
+/// One row, added to the three answers: the context it sent when its first
+/// call was measured; then, for a turn his own message opened, whether the
+/// place's previous exchange was in it, and whether he named a thing.
+fn answer(store: &Store, a: &mut ExchangeAnswers, row: &Row) {
+    let measured = row.sent.total > 0;
+    if measured {
+        a.context_turns += 1;
+        if let Ok(Value::Object(parts)) = serde_json::to_value(&row.sent) {
+            for (k, n) in parts {
+                *a.context.entry(k).or_insert(0) += n.as_u64().unwrap_or(0);
+            }
+        }
+        a.cache_read += row.cache_read;
+        a.cache_write += row.cache_write;
+    }
+    let Ok(Some(ex)) = exchange(store, &row.exchange) else {
+        a.unreadable += 1;
+        return;
+    };
+    if ex.opened_by != Opener::Message || ex.person.as_deref() != Some(OWNER) {
+        return;
+    }
+    a.his_turns += 1;
+    let previous = match row.prev {
+        Prev::None => "first_here",
+        _ if !measured => "not_measured",
+        Prev::Transcript | Prev::PlaceTail => "shown",
+        // The place's latest `/new`, best effort.
+        Prev::Missed
+            if (row.prev_exchange.as_deref())
+                .and_then(|p| exchange(store, p).ok().flatten())
+                .is_some_and(|p| after_new(store, &ex, &p)) =>
+        {
+            "after_new"
+        }
+        Prev::Missed => "missed",
+    };
+    bump(&mut a.previous, previous);
+    if previous == "missed" {
+        let session = match row.prev_same_session {
+            Some(true) => "same",
+            Some(false) => "other",
+            None => "unknown",
+        };
+        bump(&mut a.missed_by_session, session);
+    }
+    let named = match &row.things {
+        None => "unknown",
+        Some(m) if m.values().any(|n| *n > 0) => "some",
+        Some(_) => "none",
+    };
+    bump(&mut a.named, named);
+    for (kind, _) in row.things.iter().flatten().filter(|(_, n)| **n > 0) {
+        bump(&mut a.named_kinds, kind);
+    }
+}
+
+/// `exchange.report`: the newest rows, none older than `since_ms`, summed,
+/// and their answers.
 pub fn report(store: &Store, p: &ExchangeReportParams) -> anyhow::Result<ExchangeReportResult> {
     let mut r = ExchangeReportResult::default();
+    let mut a = ExchangeAnswers::default();
     let mut before = None;
     let limit = p.limit.unwrap_or(u64::MAX);
     'pages: loop {
@@ -542,19 +646,24 @@ pub fn report(store: &Store, p: &ExchangeReportParams) -> anyhow::Result<Exchang
             let Ok(lr) = rec.decode::<LedgerRow>() else {
                 continue;
             };
+            if p.since_ms.is_some_and(|since| lr.at_unix_ms < since) {
+                break 'pages;
+            }
             let Ok(row) = serde_json::from_value::<Row>(lr.data) else {
                 continue;
             };
             r.rows += 1;
             r.to_ms = r.to_ms.or(Some(lr.at_unix_ms));
             r.from_ms = Some(lr.at_unix_ms);
-            add(&mut r, &row);
+            add(&mut r, &serde_json::to_value(&row).unwrap_or(Value::Null));
+            answer(store, &mut a, &row);
         }
         match (got.more, got.first) {
             (true, Some(first)) => before = Some(first),
             _ => break,
         }
     }
+    r.answers = Some(a);
     Ok(r)
 }
 
