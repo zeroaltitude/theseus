@@ -23,7 +23,8 @@
 //!
 //! A main with no counter joins as before. Before the count, the same counter's `--range` gives
 //! the merge's change in lines for the notice (issue 45, line 2), checked by the same containment and
-//! kept only when its last line is the counter's own shape ([`range_line`]).
+//! kept only when its output was not cut and its last line is the counter's own shape
+//! ([`range_line`]).
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -36,7 +37,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use theseus_kernel::children::{self, Kind};
 
 use super::stats_tree::{self, Snapshot};
-use crate::rsi::jail::Job;
+use crate::rsi::jail::{Clocked, Job};
 use crate::rsi::tree::{Place, Tree};
 
 /// The counter, main's copy of which runs.
@@ -45,6 +46,9 @@ const COUNTER: &str = "scripts/stats.py";
 const STATS: &str = "STATS.md";
 /// The largest STATS.md a count may fold: the file is about 4.4 KB, and grows by a line a crate.
 pub(super) const STATS_MAX: u64 = 64 * 1024;
+/// The longest `--range` line read, in bytes: the counter's, with its 8-character ids and counts in the
+/// millions, is under 160; a longer one is refused, never cut.
+const RANGE_MAX: usize = 200;
 
 /// What the count did to a made merge.
 pub(super) struct Count {
@@ -163,10 +167,7 @@ pub(super) fn count(
     let scratch = Scratch::new(p, t);
     let until = Instant::now() + limit;
     let ran = scratch.and_then(|s| {
-        let range = format!("{base}..HEAD");
-        let lines = run(p, &s.job, &frozen, &["--range", &range], until, limit)
-            .ok()
-            .and_then(|log| range_line(&log));
+        let lines = range(p, &s.job, &frozen, base, until, limit);
         run(p, &s.job, &frozen, &["--count-head"], until, limit).map(|_| lines)
     });
     let lines = match ran.because(Skip::Failed) {
@@ -253,8 +254,26 @@ impl Drop for Scratch {
     }
 }
 
+/// The merge's change in lines, from main's counter `frozen` run as `--range <base>..HEAD` in L1 over `job`, stopped
+/// at `until` (of `limit`): what [`range_line`] reads in its log, and none when the run failed or a stream of its
+/// output was cut, since the log's last line then need not be the last the counter printed. None fails nothing.
+pub fn range(
+    p: &Place,
+    job: &Tree,
+    frozen: &Path,
+    base: &str,
+    until: Instant,
+    limit: Duration,
+) -> Option<String> {
+    let spec = format!("{base}..HEAD");
+    match run(p, job, frozen, &["--range", &spec], until, limit) {
+        Ok((log, false)) => range_line(&log),
+        _ => None,
+    }
+}
+
 /// `python3 -I <frozen> <args> --root <tree>` in L1, its output to a log of its own under the
-/// gates, stopped at `until`; the log when it exited 0.
+/// gates, stopped at `until`; the log when it exited 0, and whether its output was cut.
 fn run(
     p: &Place,
     job: &Tree,
@@ -262,7 +281,7 @@ fn run(
     args: &[&str],
     until: Instant,
     limit: Duration,
-) -> Result<PathBuf> {
+) -> Result<(PathBuf, bool)> {
     let what = args[0].trim_start_matches('-');
     let log = p.gates().join(format!("stats-{what}-{}.log", job.slug));
     std::fs::create_dir_all(p.gates())?;
@@ -277,7 +296,7 @@ fn run(
     let mut argv: Vec<OsString> = vec!["python3".into(), "-I".into(), frozen.into()];
     argv.extend(args.iter().map(OsString::from));
     argv.extend(["--root".into(), job.dir.clone().into()]);
-    let code = match p.jail()? {
+    let Clocked { code, cut } = match p.jail()? {
         Some(j) => j
             .run_clocked(
                 p,
@@ -292,8 +311,11 @@ fn run(
             )
             .with_context(|| format!("main's counter ({}) did not finish", args[0]))?,
         // Only a test's place has no jail (`Place::jail`): its stand-in counter runs at L0, as its
-        // stand-in gate does.
-        None => at_l0(p, job, &argv, &log, left)?,
+        // stand-in gate does, its whole output kept.
+        None => Clocked {
+            code: at_l0(p, job, &argv, &log, left)?,
+            cut: false,
+        },
     };
     if code != Some(0) {
         let said = std::fs::read_to_string(&log).unwrap_or_default();
@@ -309,7 +331,7 @@ fn run(
             last.chars().take(200).collect::<String>()
         );
     }
-    Ok(log)
+    Ok((log, cut))
 }
 
 /// A test's stand-in for L1: the command in the tree, with the build directory the view would give
@@ -358,11 +380,14 @@ fn at_l0(
 /// The change in lines the counter's `--range` printed, without its `lines <a>..<b>: ` ids (the
 /// merge it names is not yet the one that lands): only the log's last line that is not empty, and
 /// only when the whole of it is the counter's own shape, `lines <hex>..<hex>: code A -> B (±D); test
-/// code A -> B (±D); comments A -> B (±D)`, each number an integer grouped by commas. Anything else is
-/// no line at all.
+/// code A -> B (±D); comments A -> B (±D)`, each number an integer grouped by commas, and the whole line
+/// within [`RANGE_MAX`]. Anything else is no line at all.
 fn range_line(log: &Path) -> Option<String> {
     let said = std::fs::read_to_string(log).ok()?;
     let line = said.lines().rev().find(|l| !l.trim().is_empty())?;
+    if line.len() > RANGE_MAX {
+        return None;
+    }
     let rest = line.strip_prefix("lines ")?;
     let (ids, change) = rest.split_once(": ")?;
     let (a, b) = ids.split_once("..")?;

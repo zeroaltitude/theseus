@@ -133,6 +133,8 @@ use theseus_store::{kinds, Page};
 
 use self::planted::Tests;
 use self::review::Reviewer;
+/// The count's `--range` run, as a join runs it (issue 45): public for the real-jail test.
+pub use self::stats::range as count_range;
 use super::tree::Place;
 use super::Gate;
 use crate::fact::rsi_join::SelfJoinStopped;

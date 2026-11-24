@@ -58,3 +58,36 @@ fn an_earlier_line_followed_by_other_output_is_no_line() {
     assert_eq!(read(&format!("{WELL}\nstats: one more thing\n")), None);
     assert_eq!(read(""), None);
 }
+
+/// A line of the counter's shape exactly `len` bytes long, its first id lengthened to fit.
+fn of_length(len: usize) -> String {
+    let line = |a: &str, groups: usize| {
+        format!(
+            "lines {a}..89efcdab: code 1 -> 1{} (+1); test code 0 -> 0 (+0); comments 0 -> 0 (+0)",
+            ",000".repeat(groups)
+        )
+    };
+    let groups = (0..100)
+        .take_while(|g| line("0123abcd", *g).len() <= len)
+        .last()
+        .unwrap();
+    let short = line("0123abcd", groups).len();
+    let out = line(&format!("0123abcd{}", "e".repeat(len - short)), groups);
+    assert_eq!(out.len(), len);
+    out
+}
+
+/// The whole line is bounded ([`super::RANGE_MAX`] bytes): a line of the counter's shape exactly at the bound is
+/// read.
+#[test]
+fn a_range_line_at_its_bound_is_read() {
+    let at = of_length(super::RANGE_MAX);
+    assert!(read(&format!("{at}\n")).is_some(), "{at}");
+}
+
+/// The same a byte over the bound is refused, never cut.
+#[test]
+fn a_range_line_over_its_bound_is_no_line() {
+    let over = of_length(super::RANGE_MAX + 1);
+    assert_eq!(read(&format!("{over}\n")), None, "{over}");
+}

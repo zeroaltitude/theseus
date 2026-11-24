@@ -58,11 +58,20 @@ pub fn run_in(
     )];
     env.extend(std::env::var("HOME").ok().map(|h| ("HOME".to_string(), h)));
     env.extend(extra.iter().cloned());
-    run_with(l1, argv, (cwd, env), id, deadline_ms, max_bytes)
+    run_with(l1, argv, (cwd, env), id, deadline_ms, max_bytes).0
+}
+
+/// Which of a command's streams carried more than the bytes kept of it: known from what was read, never from what
+/// the command printed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Cut {
+    pub stdout: bool,
+    pub stderr: bool,
 }
 
 /// `run_in` with `env` as the command's whole environment (a self build's, whose view names its own `PATH` and
-/// `HOME`: issue 45's count, bounded by the clock where a build is bounded by its silence).
+/// `HOME`: issue 45's count, bounded by the clock where a build is bounded by its silence), and which of its streams
+/// were cut at `max_bytes`.
 pub fn run_with(
     l1: &L1,
     argv: &[String],
@@ -70,7 +79,7 @@ pub fn run_with(
     id: &str,
     deadline_ms: u64,
     max_bytes: usize,
-) -> ProbeRun {
+) -> (ProbeRun, Cut) {
     let args = WrapperArgs {
         spool_dir: PathBuf::new(),
         correlation_id: id.into(),
@@ -88,12 +97,13 @@ pub fn run_with(
     let (out, err) = match (pipe(), pipe()) {
         (Ok(o), Ok(e)) => (o, e),
         (Err(e), _) | (_, Err(e)) => {
-            return ProbeRun {
+            let run = ProbeRun {
                 code: None,
                 stdout: String::new(),
                 stderr: String::new(),
                 failed: Some(format!("could not open the command's output: {e}")),
-            }
+            };
+            return (run, Cut::default());
         }
     };
     // Each stream is read as it is written and only its head kept, so a
@@ -109,7 +119,7 @@ pub fn run_with(
         &mut patience,
         &mut detail,
     );
-    let [stdout, stderr] = readers.map(|h| h.join().unwrap_or_default());
+    let [(stdout, out_cut), (stderr, err_cut)] = readers.map(|h| h.join().unwrap_or_default());
     let code = detail["exit_code"].as_i64().map(|c| c as i32);
     let failed = match (&outcome, code) {
         // A non-zero exit is the command's answer, not a failure to run it.
@@ -118,12 +128,17 @@ pub fn run_with(
         }
         _ => Some(note),
     };
-    ProbeRun {
+    let run = ProbeRun {
         code,
         stdout,
         stderr,
         failed,
-    }
+    };
+    let cut = Cut {
+        stdout: out_cut,
+        stderr: err_cut,
+    };
+    (run, cut)
 }
 
 /// A pipe: the read end as a file, the write end for the child.
@@ -142,21 +157,23 @@ fn pipe() -> std::io::Result<(std::fs::File, OwnedFd)> {
     })
 }
 
-/// The first `max` bytes a stream carries, as text; the rest is read and
-/// dropped until the writer closes.
-fn head(mut f: std::fs::File, max: usize) -> String {
+/// The first `max` bytes a stream carries, as text, and whether it carried
+/// more; the rest is read and dropped until the writer closes.
+fn head(mut f: std::fs::File, max: usize) -> (String, bool) {
     let mut buf = Vec::new();
+    let mut cut = false;
     let mut chunk = [0u8; 8192];
     loop {
         match f.read(&mut chunk) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
                 let room = max.saturating_sub(buf.len());
+                cut |= n > room;
                 buf.extend_from_slice(&chunk[..n.min(room)]);
             }
         }
     }
-    String::from_utf8_lossy(&buf).into_owned()
+    (String::from_utf8_lossy(&buf).into_owned(), cut)
 }
 
 /// What a command run to a log did (`run_logged`).

@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::{check, Case};
-use theseus_core::rsi::jail::{Jail, Job};
+use theseus_core::rsi::jail::{Clocked, Jail, Job, CLOCKED_OUTPUT};
 use theseus_core::rsi::tree::{Place, Tree};
 
 fn main() -> ! {
@@ -50,6 +50,10 @@ fn main() -> ! {
             Case {
                 name: "a_clocked_job_that_keeps_printing_is_stopped_at_its_limit",
                 run: a_clocked_job_that_keeps_printing_is_stopped_at_its_limit,
+            },
+            Case {
+                name: "a_range_whose_output_was_cut_gives_no_lines",
+                run: a_range_whose_output_was_cut_gives_no_lines,
             },
         ],
         &[],
@@ -233,7 +237,8 @@ fn the_counter_runs_in_l1_with_python_and_git() -> Result<(), String> {
         };
         let code = jail
             .run_clocked(&place, &job)
-            .map_err(|e| format!("{e:#}"))?;
+            .map_err(|e| format!("{e:#}"))?
+            .code;
         let said = std::fs::read_to_string(log).unwrap_or_default();
         check(code == Some(0), format!("{args:?} exited {code:?}: {said}"))
     };
@@ -321,7 +326,7 @@ fn a_clocked_job_that_keeps_printing_is_stopped_at_its_limit() -> Result<(), Str
     let r = jail.run_clocked(&place, &job);
     let took = t0.elapsed();
     check(
-        !matches!(r, Ok(Some(0))),
+        !matches!(r, Ok(Clocked { code: Some(0), .. })),
         format!("a job stopped at its limit said it passed: {r:?}"),
     )?;
     check(
@@ -332,5 +337,59 @@ fn a_clocked_job_that_keeps_printing_is_stopped_at_its_limit() -> Result<(), Str
     check(
         said.contains("tick"),
         format!("its output was not kept: {said:?} ({r:?})"),
+    )
+}
+
+/// The count reads its `--range` line only from output it kept whole (issue 45): through the join's own range run,
+/// in L1 on the clock, a counter that prints a good line and blank lines up to the cap gives that line; one that then
+/// prints one line more, exiting 0 all the same, gives none, and its log says in this code's words that it was cut.
+fn a_range_whose_output_was_cut_gives_no_lines() -> Result<(), String> {
+    if refused_as_root()? {
+        return Ok(());
+    }
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).map_err(|e| format!("{e}"))?;
+    let (mut place, tree, jail) = jailed_rig(dir.path())?;
+    place.jail = Some(jail);
+    for d in [&tree.dir, &tree.target] {
+        std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+    }
+    let good =
+        "lines 0123abcd..89efcdab: code 1 -> 2 (+1); test code 0 -> 0 (+0); comments 0 -> 0 (+0)\n";
+    let full = format!("{good}{}", "\n".repeat(CLOCKED_OUTPUT - good.len()));
+    let frozen = dir.path().join("stats-frozen.py");
+    let range = |after: &str| -> Result<Option<String>, String> {
+        let printed = format!("{full}{after}");
+        let body = format!("import sys\nsys.stdout.write({printed:?})\nsys.exit(0)\n");
+        std::fs::write(&frozen, body).map_err(|e| format!("{e}"))?;
+        let limit = Duration::from_secs(60);
+        Ok(theseus_core::rsi::join::count_range(
+            &place,
+            &tree,
+            &frozen,
+            "0123abcd",
+            Instant::now() + limit,
+            limit,
+        ))
+    };
+    let whole = range("")?;
+    check(
+        whole.as_deref() == Some("code 1 -> 2 (+1); test code 0 -> 0 (+0); comments 0 -> 0 (+0)"),
+        format!("a good line in output kept whole, up to the cap, was not read: {whole:?}"),
+    )?;
+    let cut = range("stats: one more thing\n")?;
+    check(
+        cut.is_none(),
+        format!("a line from output cut before its end was read: {cut:?}"),
+    )?;
+    let log = place.gates().join(format!("stats-range-{}.log", tree.slug));
+    let said = std::fs::read_to_string(&log).map_err(|e| format!("{}: {e}", log.display()))?;
+    check(
+        said.ends_with(&format!(
+            "[the job's standard output was cut at {CLOCKED_OUTPUT} bytes]\n"
+        )),
+        format!(
+            "the log does not say it was cut: {:?}",
+            &said[said.len().saturating_sub(200)..]
+        ),
     )
 }
