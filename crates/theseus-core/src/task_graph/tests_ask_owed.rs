@@ -41,8 +41,7 @@ fn books(core: &Core, exec: &str) -> Books {
 
 /// The asking conversation's execution, once it has run a turn.
 fn exec_of(r: &Rig) -> String {
-    let rec: crate::session::SessionRecord =
-        r.core.store.get_session(&r.parent).unwrap().unwrap();
+    let rec: crate::session::SessionRecord = r.core.store.get_session(&r.parent).unwrap().unwrap();
     rec.execution_id.expect("the conversation's execution")
 }
 
@@ -94,11 +93,17 @@ fn keep_after_ask(r: &Rig, exec: &str) -> KeptBooks {
 }
 
 fn taken(k: &Kept) -> (Books, Action) {
-    k.lock().unwrap().clone().expect("the ask's request arrived")
+    k.lock()
+        .unwrap()
+        .clone()
+        .expect("the ask's request arrived")
 }
 
 fn taken_books(k: &KeptBooks) -> Books {
-    k.lock().unwrap().clone().expect("the turn asked again after the ask")
+    k.lock()
+        .unwrap()
+        .clone()
+        .expect("the turn asked again after the ask")
 }
 
 /// What the conversation's other calls hold: every open reservation but the ask's.
@@ -208,7 +213,11 @@ async fn an_ask_stopped_in_flight_is_held_as_unknown_and_left_dispatched_by_none
     let (at, _) = taken(&at);
     let now = books(&r.core, &exec);
     let (rid, res) = (a.reservation_id.clone().unwrap(), a.reserved_micros);
-    assert_eq!(at.reservations.get(&rid), Some(&res), "reserved as it was sent");
+    assert_eq!(
+        at.reservations.get(&rid),
+        Some(&res),
+        "reserved as it was sent"
+    );
     assert!(!now.reservations.contains_key(&rid), "no longer open");
     assert_eq!(now.unknown, at.unknown + res, "held as unknown, whole");
     assert_eq!(now.spent, at.spent, "not booked as spent");
@@ -246,7 +255,10 @@ async fn an_ask_cancelled_in_flight_is_held_once() {
     .await;
     let a = call(&r.core, &id);
     assert!(
-        matches!(a.state, ActionState::Cancelled | ActionState::OutcomeUnknown),
+        matches!(
+            a.state,
+            ActionState::Cancelled | ActionState::OutcomeUnknown
+        ),
         "{a:?}"
     );
     let (at, _) = taken(&at);
@@ -329,7 +341,10 @@ async fn a_second_or_late_completion_of_an_ask_is_refused() {
     crate::test_support::turn(&r.core, &r.parent, "ask the task why").await;
     let a = call(&r.core, &taken(&at).1.correlation_id);
     assert_eq!(a.state, ActionState::Succeeded, "{a:?}");
-    assert_eq!(a.completions_seen, 1, "settled once: its owner made no second");
+    assert_eq!(
+        a.completions_seen, 1,
+        "settled once: its owner made no second"
+    );
     let before = books(&r.core, &exec);
     for outcome in [Outcome::Succeeded, Outcome::Unknown] {
         let c = Completion {
@@ -344,9 +359,16 @@ async fn a_second_or_late_completion_of_an_ask_is_refused() {
             cost_micros: Some(a.reserved_micros * 3),
             detail: None,
         };
-        let got = r.core.kernel.accept_completion_with(&c, Vec::new()).unwrap();
+        let got = r
+            .core
+            .kernel
+            .accept_completion_with(&c, Vec::new())
+            .unwrap();
         assert!(matches!(got, Accepted::DuplicateNoop { .. }), "{got:?}");
     }
     assert_eq!(books(&r.core, &exec), before, "neither book moved");
-    assert_eq!(call(&r.core, &a.correlation_id).state, ActionState::Succeeded);
+    assert_eq!(
+        call(&r.core, &a.correlation_id).state,
+        ActionState::Succeeded
+    );
 }

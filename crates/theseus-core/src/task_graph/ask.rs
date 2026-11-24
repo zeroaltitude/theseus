@@ -188,7 +188,9 @@ impl Board {
     pub fn run(&self, tc: &TurnCtx<'_>, input: &Value) -> AsyncMediaRun {
         let fail = |f: ToolFailure| -> AsyncMediaRun { Box::pin(std::future::ready(Err(f))) };
         let Some(core) = self.core.get().and_then(Weak::upgrade) else {
-            return fail(ToolFailure::new("task.ask is not ready: the core is not built"));
+            return fail(ToolFailure::new(
+                "task.ask is not ready: the core is not built",
+            ));
         };
         let (task, question) =
             match input_of(input).and_then(|(id, q)| Ok((found(&core, tc, &id)?, q))) {
@@ -557,7 +559,8 @@ fn failed(p: &Planned, e: Option<&anyhow::Error>, started_ms: u64) -> ToolFailur
         "\n\n[{cost} Nothing of it was kept in the task. Ask {} of {ASKS_PER_TURN} this turn.]",
         p.asked
     ));
-    let meta = json!({"asked": p.asked, "of": ASKS_PER_TURN, "class": class, "cost_known": !unknown});
+    let meta =
+        json!({"asked": p.asked, "of": ASKS_PER_TURN, "class": class, "cost_known": !unknown});
     outside_failure(&p.task, message, meta)
 }
 
