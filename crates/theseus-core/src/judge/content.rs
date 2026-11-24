@@ -702,6 +702,15 @@ impl JudgeService {
         // The labels this write really added (`raise` is false for one already
         // on the session), as `(landing, label)`.
         let mut fresh: Vec<(usize, &Label)> = Vec::new();
+        // Each raised label's touch at its item's exchange (`item_labels::touches_of`), a reply's too: read
+        // before the session's lock, written in its frame, and read by no act.
+        let raised = (landings.iter()).map(|l| {
+            (
+                l.item.node.as_str(),
+                l.raised.iter().map(|x| x.flag).collect(),
+            )
+        });
+        let touched = item_labels::touches_of(&self.store, raised);
         let written = self.store.update_session(session, |rec| {
             let mut flags = take_flags(rec);
             let mut rows = Vec::new();
@@ -761,6 +770,7 @@ impl JudgeService {
             }
             put_flags(rec, flags);
             rows.extend(items.records()?);
+            rows.extend(touched);
             Ok(rows)
         });
         match &written {
@@ -951,6 +961,10 @@ impl JudgeService {
         }
         let mut fresh: Vec<&Label> = Vec::new();
         let written = theseus_store::blocking(|| {
+            // Each label's touch at its node's exchange, as a pack's label writes it (`land_content`).
+            let raised =
+                (labels.iter()).filter_map(|(l, _)| Some((l.node.as_deref()?, vec![l.flag])));
+            let touched = item_labels::touches_of(&self.store, raised);
             self.store.update_session(session, |rec| {
                 let mut flags = take_flags(rec);
                 let mut rows = Vec::new();
@@ -972,6 +986,7 @@ impl JudgeService {
                 }
                 put_flags(rec, flags);
                 rows.extend(items.records()?);
+                rows.extend(touched);
                 Ok(rows)
             })
         });

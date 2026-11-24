@@ -22,6 +22,7 @@ use crate::view::{Anchor, Handle, PointOfView, Present};
 
 mod every;
 mod handles;
+mod labels;
 
 const HERE: &str = "local";
 const DM: &str = "discord:dm:42";
@@ -318,7 +319,7 @@ fn words_filter_the_walk_and_a_thing_reads_its_own_timeline_through_the_same_rul
         ["turn_0007", "turn_0003"]
     );
     l.words = None;
-    let thing = args(json!({"thing": "issue:33"}));
+    let thing = args(json!({"label": "issue:33"}));
     // Every place's touch of the thing is read, wherever the reader is (anything goes).
     for here in [HERE, LOBBY] {
         assert_eq!(
@@ -326,8 +327,14 @@ fn words_filter_the_walk_and_a_thing_reads_its_own_timeline_through_the_same_rul
             ["turn_0022", "turn_0021", "turn_0020"]
         );
     }
-    let both = l.walk(&args(json!({"thing": "issue:33", "place": DM})), None, 0);
-    assert!(both.is_err(), "a place or a thing, not both");
+    // Beside a place, a thing narrows to that place's exchanges.
+    let both = walk(
+        &l,
+        &args(json!({"label": "issue:33", "place": DM})),
+        None,
+        0,
+    );
+    assert_eq!(turns(&both), ["turn_0021"]);
 }
 
 #[test]

@@ -7,9 +7,10 @@
 
 use std::collections::{HashSet, VecDeque};
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use theseus_store::{kinds, Store as _};
 
+use crate::content::Flag;
 use crate::exchange::{self, Exchange, Root, Touch, OWNER, SEP, TOUCH_PREFIX};
 use crate::node::{Body, Node};
 use crate::session::SessionRecord;
@@ -250,10 +251,11 @@ pub struct Walked {
 }
 
 impl Lens<'_> {
-    /// The timeline a call reads, and whether a bare call's start applies to it. Only a bare look-back stays
-    /// here: a span or words with no place read every place, except for a session the self loop opened, which
-    /// keeps to its own anchor.
-    pub fn root(&self, a: &HistoryArgs) -> Result<(Walks, bool)> {
+    /// The timeline a call reads, whether a bare call's start applies to it, and the one place it keeps (a
+    /// label beside a place: that place's exchanges of the label's timeline). Only a bare look-back stays here:
+    /// a span or words with no place read every place, except for a session the self loop opened, which keeps
+    /// to its own anchor.
+    pub fn root(&self, a: &HistoryArgs) -> Result<(Walks, bool, Option<String>)> {
         let some = |s: &Option<String>| {
             s.as_deref()
                 .map(str::trim)
@@ -261,16 +263,21 @@ impl Lens<'_> {
                 .map(str::to_string)
         };
         let narrows = self.span.is_some() || some(&a.words).is_some();
-        match (some(&a.place), some(&a.thing)) {
-            (Some(_), Some(_)) => bail!("narrow by a place or by a thing, not both"),
+        let label = |l: &str| Walks::One(TimelineRoot::Thing(label_root(l)));
+        Ok(match (some(&a.place), some(&a.label)) {
+            (Some(p), Some(l)) => (label(&l), false, Some(p)),
             (Some(p), None) => {
                 let bare = p == self.here;
-                Ok((Walks::One(TimelineRoot::Place(p)), bare))
+                (Walks::One(TimelineRoot::Place(p)), bare, None)
             }
-            (None, Some(t)) => Ok((Walks::One(TimelineRoot::Thing(t)), false)),
-            (None, None) if narrows && self.scope.is_none() => Ok((Walks::EveryPlace, false)),
-            (None, None) => Ok((Walks::One(TimelineRoot::Place(self.here.clone())), true)),
-        }
+            (None, Some(l)) => (label(&l), false, None),
+            (None, None) if narrows && self.scope.is_none() => (Walks::EveryPlace, false, None),
+            (None, None) => (
+                Walks::One(TimelineRoot::Place(self.here.clone())),
+                true,
+                None,
+            ),
+        })
     }
 
     /// Where a span's walk starts: its end, before every exchange of that millisecond.
@@ -347,10 +354,11 @@ impl Lens<'_> {
         Ok(false)
     }
 
-    /// The sessions of the exchanges `walks` reads, from the span's end (or the newest) back to its start,
-    /// within [`READ_MOST`] touches: what a words search is scoped to before it ranks anything.
-    pub fn scope(&self, walks: &Walks) -> Result<HashSet<String>> {
-        let mut feed = Feed::of(self.store, walks);
+    /// The sessions of the exchanges `a` reads ([`Lens::root`]), from the span's end (or the newest) back to
+    /// its start, within [`READ_MOST`] touches: what a words search is scoped to before it ranks anything.
+    pub fn scope(&self, a: &HistoryArgs) -> Result<HashSet<String>> {
+        let (walks, _, only) = self.root(a)?;
+        let mut feed = Feed::of(self.store, &walks);
         let (mut out, mut before, mut read) = (HashSet::new(), self.span_end(), 0);
         while read < READ_MOST {
             let refs = feed.newest(before.as_ref(), STEP)?;
@@ -363,7 +371,12 @@ impl Lens<'_> {
                 if self.span.as_ref().is_some_and(|s| !s.holds(r.at_ms)) {
                     continue;
                 }
-                if !out.contains(&r.session_id) && self.admitted(r)?.is_some() {
+                if out.contains(&r.session_id) {
+                    continue;
+                }
+                if (self.admitted(r)?)
+                    .is_some_and(|ex| only.as_ref().is_none_or(|p| &ex.place == p))
+                {
                     out.insert(r.session_id.clone());
                 }
             }
@@ -422,6 +435,7 @@ impl Lens<'_> {
             person: ex.person.clone(),
             reply_begins: reply.map(|r| volatile_marked(cut(&r, REPLY_CHARS), at(&answer))),
             outside,
+            labels: None,
         }
     }
 
@@ -439,7 +453,9 @@ impl Lens<'_> {
                 every: false,
             });
         }
-        let (walks, bare) = self.root(a)?;
+        let (walks, bare, only) = self.root(a)?;
+        // A content label's page says on each line what the label was on ([`label_said`]).
+        let flag = (a.label.as_deref()).and_then(content_flag);
         // A span's page starts at its end, whatever is in view: it holds exactly the span's exchanges.
         let mut at = match &self.span {
             Some(_) => before.or(self.span_end()),
@@ -468,14 +484,20 @@ impl Lens<'_> {
                     at = Some(r.cursor());
                     continue;
                 }
-                if let Some(ex) = self.admitted(&r)? {
-                    if lines.len() == PAGE_EXCHANGES {
-                        more = true;
-                        break 'walk;
+                match self.admitted(&r)? {
+                    // A label beside a place keeps that place's exchanges.
+                    Some(ex) if only.as_ref().is_some_and(|p| &ex.place != p) => {}
+                    Some(ex) => {
+                        if lines.len() == PAGE_EXCHANGES {
+                            more = true;
+                            break 'walk;
+                        }
+                        let mut line = self.line(&ex);
+                        line.labels = flag.map(|f| label_said(self.store, &ex, f));
+                        lines.push(line);
                     }
-                    lines.push(self.line(&ex));
-                } else if self.words.is_some() && !self.cut.is_empty() {
-                    held = true;
+                    None if self.words.is_some() && !self.cut.is_empty() => held = true,
+                    None => {}
                 }
                 at = Some(r.cursor());
             }
@@ -682,6 +704,46 @@ pub(super) fn when(ms: u64) -> String {
     )
 }
 
+/// The content label `label` names (`personal`, `Secret`, …), if it names one of Jev's four.
+fn content_flag(label: &str) -> Option<Flag> {
+    Flag::parse(&label.trim().to_ascii_lowercase())
+}
+
+/// The timeline a label reads: one of Jev's four content labels is the root its raised labels touch
+/// (`item_labels::touch_root`); anything else a topic's or a thing's own id.
+fn label_root(label: &str) -> String {
+    match content_flag(label) {
+        Some(f) => crate::item_labels::touch_root(f),
+        None => label.to_string(),
+    }
+}
+
+/// What a content label's line says: what `flag` was raised on in exchange `ex` (the message, the reply, or,
+/// when neither holds it, something the exchange read), and whether the owner removed it. Read from the records
+/// of the exchange's messages and its reply only.
+fn label_said(store: &Store, ex: &Exchange, flag: Flag) -> String {
+    let read = |n: &str| {
+        crate::item_labels::read(store, n)
+            .ok()
+            .flatten()
+            .filter(|i| i.raised.iter().any(|l| l.flag == flag))
+    };
+    let said: Vec<_> = ex.messages.iter().filter_map(|n| read(n)).collect();
+    let replied = ex.reply.as_deref().and_then(read);
+    let on = match (said.is_empty(), replied.is_some()) {
+        (false, true) => "the message and the reply",
+        (false, false) => "the message",
+        (true, true) => "the reply",
+        (true, false) => "something it read",
+    };
+    let removed = (said.iter().chain(&replied)).any(|i| i.removed.iter().any(|r| r.flag == flag));
+    let since = match removed {
+        true => ", since removed by the owner",
+        false => "",
+    };
+    format!("{}: on {on}{since}", flag.as_str())
+}
+
 /// What [`render`] names every place's history by.
 pub const EVERY_PLACE: &str = "every place";
 
@@ -764,6 +826,9 @@ pub fn render(
             l.his_words,
             flat(&l.handle.0)
         ));
+        if let Some(labels) = &l.labels {
+            out.push_str(&format!(" · {labels}"));
+        }
     }
     let oldest = p
         .lines

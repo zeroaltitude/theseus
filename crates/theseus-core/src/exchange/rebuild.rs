@@ -12,6 +12,9 @@
 //! - **A turn with an exchange** keeps it, and its mark, as written; only its
 //!   missing touches are written (a restart, or an index that was late or
 //!   down, can leave a thing's touch unwritten).
+//! - **A label raised before labels touched** (`item_labels::touch_root`): each flag an item's record holds
+//!   (`labels.<node>`), removed or not, gets its `label:<flag>` touch at its exchange's start, when the store
+//!   lacks it. It reads the records Jev's answers left; it calls no model.
 //! - **A touch keyed off its exchange's start** (an older build keyed a
 //!   reply's things at its end) is moved, not dropped: its own record is
 //!   written again at the start's key and the old key ended in the same
@@ -228,6 +231,42 @@ fn records(
     Ok(out)
 }
 
+/// The label touches the items' records call for and the store lacks: each flag raised on an item (removed or
+/// not: it is what Jev said), at its exchange's start, from `starts` (a planned exchange's turn, session and
+/// start, so one new in this run is touched where it begins) or else the exchange on record
+/// (`item_labels::landing`).
+fn label_touches(
+    store: &Store,
+    starts: &HashMap<&str, (&str, u64)>,
+) -> anyhow::Result<Vec<NewRecord>> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    let items = (store.inner()).latest_with_prefix(kinds::META, crate::item_labels::PREFIX)?;
+    for r in items {
+        let item: crate::item_labels::ItemLabels = r.decode()?;
+        if item.raised.is_empty() {
+            continue;
+        }
+        let turn = (store.get_node(&item.node)?).and_then(|(_, n)| n.turn_id);
+        let at = match turn.as_deref().and_then(|t| starts.get(t).map(|s| (t, s))) {
+            Some((t, &(sid, start))) => (t.to_string(), sid.to_string(), start),
+            None => match crate::item_labels::landing(store, &item.node) {
+                Some(at) => at,
+                None => continue,
+            },
+        };
+        let flags = item.raised.iter().map(|l| l.flag);
+        for t in crate::item_labels::touches((&at.0, &at.1, at.2), flags) {
+            let key = t.key.clone().unwrap_or_default();
+            if seen.insert(key.clone()) && store.inner().latest_by_key(kinds::META, &key)?.is_none()
+            {
+                out.push(t);
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// The touches keyed off their exchange's start, each moved: its record at
 /// the start's key, then the old key's end, a pair that is appended in one
 /// frame (`run` keeps the pairs whole), so an old key ends only with its
@@ -296,11 +335,20 @@ pub async fn run(
     }
     let reader = store.clone();
     let (recs, ended) = blocking(move || {
-        let recs = records(&reader, &planned, named.as_deref().ok())?;
+        let mut recs = records(&reader, &planned, named.as_deref().ok())?;
         let starts: HashMap<&str, u64> = planned
             .iter()
             .map(|p| (p.ex.turn_id.as_str(), p.ex.start_ms))
             .collect();
+        let at: HashMap<&str, (&str, u64)> = (planned.iter())
+            .map(|p| {
+                (
+                    p.ex.turn_id.as_str(),
+                    (p.ex.session_id.as_str(), p.ex.start_ms),
+                )
+            })
+            .collect();
+        recs.extend(label_touches(&reader, &at)?);
         Ok((recs, misplaced(&reader, &starts)?))
     })
     .await?;

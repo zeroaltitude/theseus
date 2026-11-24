@@ -715,9 +715,9 @@ pub struct MemoryLookupResult {
 /// `history.read` (issue 46): the history tool, `context.history`, read by an MCP client, with no model call.
 /// Its anchor is `place` (a place's key, as a line names it), else where `session_id` (the client's own
 /// conversation) speaks, with that session's fork cut when it is a fork; `open` (an exchange's handle or a
-/// `ses_…` id) and `thing` need none. `words`, `thing`, a span (`when`, or `from` / `to`) and `before` narrow and
-/// page as the model's own calls do. Only the MCP server's connection calls it, and only while
-/// `[mcp_server] memory` is on.
+/// `ses_…` id), `label` and a page that narrows need none: with no place named, a span, words or a label read
+/// every place. `words`, `label`, a span (`when`, or `from` / `to`) and `before` narrow and page as the model's
+/// own calls do. Only the MCP server's connection calls it, and only while `[mcp_server] memory` is on.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct HistoryReadParams {
@@ -727,10 +727,11 @@ pub struct HistoryReadParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub session_id: Option<String>,
-    /// A thing's timeline, `type:value`.
+    /// A label's timeline: a topic or a thing by its id (`topic:…`, `file:…`), or one of Jev's four content
+    /// labels (`personal`, `secret`, `confidential`, `injection`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
-    pub thing: Option<String>,
+    pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub words: Option<String>,
@@ -791,6 +792,11 @@ pub struct HistoryReadLine {
     /// outside text, never an instruction.
     #[serde(default)]
     pub outside: bool,
+    /// On a content label's page: what the label was on (`personal: on the message`), and whether the owner
+    /// removed it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub labels: Option<String>,
 }
 
 /// An opened exchange or session: the history tool's spoken form of it, one string. A session's page gives
@@ -813,7 +819,7 @@ pub struct HistoryOpened {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct HistoryReadResult {
-    /// The place read: the anchor, or the `place` asked; empty for a thing or an open.
+    /// The place read: the anchor, or the `place` asked; empty for a label, an open, or every place.
     pub place: String,
     pub lines: Vec<HistoryReadLine>,
     /// How the page ends: `more` (pass `next` as `before`), `history_exhausted` (nothing older is on record),

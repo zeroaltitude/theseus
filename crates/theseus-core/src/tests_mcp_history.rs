@@ -233,6 +233,7 @@ async fn every_string_of_a_reply_is_substituted_field_by_field() {
                 did: Some(s()),
                 reply_begins: Some(s()),
                 outside: true,
+                labels: Some(s()),
             }],
             end: s(),
             next: Some(cur()),
@@ -258,6 +259,7 @@ async fn every_string_of_a_reply_is_substituted_field_by_field() {
         ("line.words", &l["words"]),
         ("line.did", &l["did"]),
         ("line.reply_begins", &l["reply_begins"]),
+        ("line.labels", &l["labels"]),
         ("open.handle", &o["handle"]),
         ("open.text", &o["text"]),
         ("open.next.turn_id", &o["next"]["turn_id"]),
@@ -1159,13 +1161,13 @@ async fn a_native_page_marks_a_volatile_reply_and_dates_each_mark_by_its_source(
     );
 }
 
-/// The import place takes no `thing`, as the native page refuses a bad pair (D6 step 6, round 3).
+/// The import place takes no `label`, as the native page refuses a bad pair (D6 step 6, round 3).
 #[tokio::test]
-async fn an_import_place_takes_no_thing() {
+async fn an_import_place_takes_no_label() {
     let r = rig(true);
     let got = ask(
         &r.core,
-        json!({"place": "import", "words": "kelp", "thing": "topic:kelp"}),
+        json!({"place": "import", "words": "kelp", "label": "topic:kelp"}),
     )
     .await;
     assert!(got.is_err(), "{got:?}");

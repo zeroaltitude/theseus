@@ -9,13 +9,15 @@
 //! - **Open**: a handle gives the exchange in spoken form, cut at about 3,000 tokens (`open`); a session's id
 //!   (`ses_…`, this harness's or an imported one) gives a page of its messages the same way, `before` paging
 //!   back (`session`).
-//! - **Narrowing**: `place` (any other place), `thing` (its timeline in the touch index), `words` (the words
+//! - **Narrowing**: `place` (any other place), `label` (its timeline in the touch index: a topic or a thing by
+//!   its id, or one of Jev's four content labels, whose touches each raised label writes), `words` (the words
 //!   index, searched over the sessions on that timeline, then a filter on the walk), and a time span: `when`,
 //!   or `from` / `to` ([`span_of`]: an explicit argument's reader, `recall::when::read_local`, never recall's
 //!   reading of English in a person's message). A span's page holds exactly its exchanges, newest first,
-//!   paged by `before`; an empty span says so; beside `words`, `place` or `thing` it narrows them.
+//!   paged by `before`; an empty span says so; beside `words`, `place` or `label` it narrows them, and a
+//!   `place` beside a `label` keeps that place's exchanges of the label's timeline.
 //! - **Every place, when a call narrows and names none**: only a bare look-back stays here. A span or words
-//!   with no place and no thing read every place's timeline as one (`page::Walks::EveryPlace`), newest first,
+//!   with no place and no label read every place's timeline as one (`page::Walks::EveryPlace`), newest first,
 //!   each line naming its place (history whose place was never recorded says so); a session the self loop
 //!   opened keeps to its own place.
 //! - **Every place, for every reader** (anything goes, 2026-11-22): no presence, place class, seal or move
@@ -81,6 +83,11 @@ const TURNS_KEPT: usize = 256;
 const RESUME: &str = "resume:";
 
 fn parse(input: &Value) -> Result<HistoryArgs, String> {
+    if input.get("thing").is_some() {
+        return Err("thing is now label: call again with label (a topic or a thing by its id, or personal, \
+                    secret, confidential, injection)"
+            .into());
+    }
     serde_json::from_value(input.clone()).map_err(|e| format!("bad input: {e}"))
 }
 
@@ -134,7 +141,7 @@ impl Tool for HistoryTool {
         HISTORY_TOOL
     }
     fn description(&self) -> &'static str {
-        "This place's earlier history, 100 exchanges a page before those you see; before pages back; open reads one (or a ses_ session by its id); when (or from/to) a time span. place \"import\" (or \"import:<book>\") with words searches the imported conversations."
+        "Earlier history, 100 exchanges a page. Bare: this place, before what you see; before pages back. With when (or from/to), label or words and no place: every place, newest first; place narrows to one. label: a topic (topic:...), a thing (file:...), or personal, secret, confidential, injection. open reads a line whole, or a ses_ session by its id. place \"import\" (or \"import:<book>\") with words searches the imported conversations."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -143,7 +150,7 @@ impl Tool for HistoryTool {
                 "before": {"type": "object"},
                 "open": {"type": "string"},
                 "words": {"type": "string"},
-                "thing": {"type": "string"},
+                "label": {"type": "string"},
                 "place": {"type": "string"},
                 "when": {"type": "string"},
                 "from": {"type": "string"},
@@ -260,10 +267,10 @@ pub(crate) fn marker(o: &ToolOutput) -> Option<theseus_tools::External> {
         })
 }
 
-/// What a page read, as its marker names it: the place or the thing it was asked for, or here.
+/// What a page read, as its marker names it: the place or the label it was asked for, or here.
 fn read_of<'a>(a: &'a HistoryArgs, here: &'a str) -> &'a str {
     let some = |s: &'a Option<String>| s.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    some(&a.place).or(some(&a.thing)).unwrap_or(here)
+    some(&a.place).or(some(&a.label)).unwrap_or(here)
 }
 
 /// The `outside` of a result's meta: what it read, when it shows another person's words.
@@ -679,8 +686,7 @@ pub(crate) async fn read(
     }
     let mut stale = false;
     if let Some(w) = a.words.as_deref().map(str::trim).filter(|w| !w.is_empty()) {
-        let (walks, _) = lens.root(a).map_err(|e| format!("{e:#}"))?;
-        let scope = lens.scope(&walks).map_err(|e| format!("{e:#}"))?;
+        let scope = lens.scope(a).map_err(|e| format!("{e:#}"))?;
         let (turns, cut) = found(core, w, lens.span.clone(), scope).await?;
         lens.words = Some(turns);
         stale = cut;

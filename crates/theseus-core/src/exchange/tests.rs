@@ -872,3 +872,40 @@ fn a_timeline_page_keeps_every_exchange_at_its_boundary_time() {
         .unwrap()
         .is_empty());
 }
+
+/// The rebuild writes each missing label touch once (issue 44: labels raised before their touches were
+/// written): a raised flag on an item's record touches `label:<flag>` at its exchange's start, a removed
+/// one too (it is what Jev said), and a second run writes nothing. No model is called.
+#[tokio::test]
+async fn the_rebuild_writes_each_missing_label_touch_once() {
+    use crate::content::{Flag, ItemKind, Label};
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let t = turn(c, owner_cli(), None, "my diagnosis came back").await;
+    let node = input_node(c, &t);
+    let mut item = crate::item_labels::ItemLabels::new(&node, ItemKind::OperatorMessage, "cli", 1);
+    item.raised.push(Label {
+        flag: Flag::Personal,
+        node: Some(node.clone()),
+        kind: ItemKind::OperatorMessage,
+        source: "cli".into(),
+        confidence: 0.97,
+        band: theseus_judge::band::Band::Confirm,
+        at_ms: 1,
+        judgment: String::new(),
+    });
+    c.store.append(&[item.record().unwrap()]).unwrap();
+    let root = crate::item_labels::touch_root(Flag::Personal);
+    assert!(newest(&c.store, Root::Thing(&root), 8).unwrap().is_empty());
+    let first = rebuilt(c, None, false).await;
+    assert_eq!(first.touches, 1, "{first:?}");
+    let ex = exchange(&c.store, &t.turn_id).unwrap().unwrap();
+    let got = newest(&c.store, Root::Thing(&root), 8).unwrap();
+    assert_eq!(
+        got.iter()
+            .map(|t| (t.exchange.as_str(), t.at_ms))
+            .collect::<Vec<_>>(),
+        [(t.turn_id.as_str(), ex.start_ms)]
+    );
+    assert_eq!(rebuilt(c, None, false).await.touches, 0);
+}

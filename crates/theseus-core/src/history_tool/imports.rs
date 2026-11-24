@@ -75,8 +75,8 @@ pub(super) async fn read(
     if lens.scope.is_some() {
         return Err("no imported conversation can be searched here".into());
     }
-    if (a.thing.as_deref().map(str::trim)).is_some_and(|t| !t.is_empty()) {
-        return Err("an import place is searched by words and a span, not a thing: call again without thing".into());
+    if (a.label.as_deref().map(str::trim)).is_some_and(|t| !t.is_empty()) {
+        return Err("an import place is searched by words and a span, not a label: call again without label".into());
     }
     let words = (a.words.as_deref().map(str::trim))
         .filter(|w| !w.is_empty())
@@ -162,6 +162,7 @@ pub(super) fn project(
             person: None,
             reply_begins: None,
             outside,
+            labels: None,
         });
         sources.push(h.node_id);
     }

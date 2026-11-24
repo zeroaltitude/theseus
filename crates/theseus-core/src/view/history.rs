@@ -1,4 +1,4 @@
-//! The history tool's interface (design §6, rung 3; trim item 5: ONE look-back tool, with a place and a thing
+//! The history tool's interface (design §6, rung 3; trim item 5: ONE look-back tool, with a place and a label
 //! argument). A public tool (`places::public_tool`), so a shared place's class admits it too; a tool ceiling can
 //! still leave it out (a role without the `context` family), and where its family is not loaded by default it is
 //! deferred, found by the turn's tool search. Bare, it returns the [`PAGE_EXCHANGES`] exchanges before
@@ -25,9 +25,10 @@ pub struct HistoryArgs {
     /// Another place, any of the owner's; absent: here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<String>,
-    /// A thing's timeline, `type:value`.
+    /// A label's timeline: a topic or a thing by its id (`topic:…`, `file:…`), or one of Jev's four content
+    /// labels (`personal`, `secret`, `confidential`, `injection`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thing: Option<String>,
+    pub label: Option<String>,
     /// Words to search for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub words: Option<String>,
@@ -67,6 +68,9 @@ pub struct HistoryLine {
     /// result (its `did` line's mark, or its turn's own nodes), so the reply or its summary may quote it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub outside: bool,
+    /// On a content label's page: what the label was on, and whether the owner removed it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<String>,
 }
 
 /// How a page ends: told apart, so the model knows whether it may ask or should offer to go on.
