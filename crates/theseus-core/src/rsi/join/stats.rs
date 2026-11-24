@@ -286,8 +286,9 @@ pub fn range(
 
 /// `python3 -I <frozen> <args> --root <tree>` in L1, its output to a log of its own under the
 /// gates, stopped at `until`; the log when it exited 0, and whether its output was cut. When it
-/// exited otherwise, the error says how, with its log's last line cut where `cuts` says, or no line
-/// when there are none (a caller that keeps no words of it).
+/// exited otherwise, the error says how, with its log's last line cut where `cuts` says; no line
+/// when a known value runs over that line's start or end in the log, or when there are no `cuts`
+/// (a caller that keeps no words of it).
 fn run(
     p: &Place,
     job: &Tree,
@@ -338,15 +339,21 @@ fn run(
             bail!("main's counter ({}) exited {exited}", args[0]);
         };
         let said = std::fs::read_to_string(&log).unwrap_or_default();
-        let last = said
-            .lines()
-            .rev()
-            .find(|l| !l.trim().is_empty())
-            .unwrap_or("");
+        let last = said.lines().rev().find(|l| !l.trim().is_empty());
+        // The line is kept only when its start and its end, placed in the whole log, are outside
+        // every known value's span: a value that runs over a line break is then wholly in the
+        // line or wholly out of it.
+        if let Some(line) = last {
+            let start = line.as_ptr() as usize - said.as_ptr() as usize;
+            let end = start + line.len();
+            if cuts.around(&said, end, start) != (end, start) {
+                bail!("main's counter ({}) exited {exited}", args[0]);
+            }
+        }
         bail!(
             "main's counter ({}) exited {exited}: {}",
             args[0],
-            cuts.head(last, 200).0
+            cuts.head(last.unwrap_or(""), 200).0
         );
     }
     Ok((log, cut))
