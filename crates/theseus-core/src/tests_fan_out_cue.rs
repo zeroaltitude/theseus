@@ -73,7 +73,10 @@ async fn jevs_label_fires_the_cue_not_the_words_and_moves_no_prefix_byte() {
     );
     assert_eq!(a.tools, b.tools, "the tools of the first request");
     let part = crate::turn::now_step::part(b, LINE);
-    assert!(part.is_some_and(|p| p.starts_with(LINE)), "beside the message");
+    assert!(
+        part.is_some_and(|p| p.starts_with(LINE)),
+        "beside the message"
+    );
     let got = rows(r);
     assert_eq!(
         got.len(),
