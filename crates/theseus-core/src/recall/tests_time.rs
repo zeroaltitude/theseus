@@ -22,7 +22,7 @@ fn an_evening_note_is_dated_in_the_owners_zone() {
     let at = 1_773_801_600_000;
     let mut n = Node::user("ses_weir", None, "cli", "The ferry rota is settled.");
     n.created_at_ms = at;
-    let header = header_in(&n, 42, "#harbor", "The ferry rota is settled.", &phoenix);
+    let header = header_in(&n, 42, "#harbor", &phoenix);
     assert_eq!(
         header,
         "a message from cli in #harbor, said Tue 2026-03-17 19:40 MST (as of @42)"
@@ -37,7 +37,7 @@ fn a_frozen_header_renders_its_stored_bytes() {
     let mut n = Node::user("ses_weir", None, "cli", "We moved the rota yesterday.");
     n.id = "msg_rota".into();
     n.created_at_ms = 1_773_801_600_000;
-    let stored = header_in(&n, 7, "#harbor", "We moved the rota yesterday.", &phoenix);
+    let stored = header_in(&n, 7, "#harbor", &phoenix);
     let item = RecalledRef {
         node_id: "msg_rota".into(),
         session_id: "ses_weir".into(),
