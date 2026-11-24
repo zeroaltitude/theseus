@@ -249,6 +249,43 @@ impl Rig {
         )
     }
 
+    /// Why a turn's jobs failed: each `action.failed` row of its execution, with the class and the
+    /// words the daemon recorded, and the text of that call's tool result in the turn's session, as
+    /// the model read it. A job failed under load says its own reason, not only the log's tail.
+    fn why_failed(&self, turn: &Value) -> String {
+        let rows = self.call("ledger.tail", json!({"kind": "action.failed", "n": 1000}));
+        let nodes = self.call("session.history", json!({"session_id": turn["session_id"]}));
+        let mut out = Vec::new();
+        for row in rows
+            .iter()
+            .flat_map(|t| t["rows"].as_array().cloned().unwrap_or_default())
+            .filter(|row| row["data"]["execution_id"] == turn["execution_id"])
+        {
+            let d = &row["data"];
+            out.push(format!(
+                "  action.failed {} failure {} error {} duration_ms {}",
+                d["correlation_id"], d["failure"], d["detail"]["error"], d["duration_ms"]
+            ));
+            for n in nodes
+                .iter()
+                .flat_map(|h| h["nodes"].as_array().cloned().unwrap_or_default())
+                .filter(|n| {
+                    n["kind"] == "tool_result"
+                        && n["detail"]["correlation_id"] == d["correlation_id"]
+                })
+            {
+                out.push(format!("    its tool result: {:?}", n["text"]));
+            }
+        }
+        format!(
+            "the failed jobs of {}:\n{}{}{}",
+            turn["execution_id"],
+            out.join("\n"),
+            rows.err().map_or(String::new(), |e| format!("\n(ledger.tail failed: {e})")),
+            nodes.err().map_or(String::new(), |e| format!("\n(session.history failed: {e})"))
+        )
+    }
+
     fn log_tail(&self) -> String {
         let s = self.log();
         let lines: Vec<&str> = s.lines().collect();
@@ -309,7 +346,7 @@ fn two_hundred_jobs_leave_no_zombie_behind() {
         turns.into_iter().map(|t| t.join().unwrap()).collect()
     });
     let executions: Vec<Value> = results.iter().map(|t| t["execution_id"].clone()).collect();
-    for e in &executions {
+    for (t, e) in results.iter().zip(&executions) {
         let states = r.job_states(e);
         assert_eq!(
             states.len(),
@@ -319,7 +356,8 @@ fn two_hundred_jobs_leave_no_zombie_behind() {
         );
         assert!(
             states.iter().all(|s| s == "succeeded"),
-            "{e}: {states:?}\n{}",
+            "{e}: {states:?}\n{}\nthe log ends:\n{}",
+            r.why_failed(t),
             r.log_tail()
         );
     }
