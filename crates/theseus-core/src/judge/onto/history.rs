@@ -355,10 +355,10 @@ impl Core {
         self: &Arc<Self>,
         p: &ExchangeTopicsParams,
     ) -> anyhow::Result<ExchangeTopicsResult> {
-        let cap_usd = p.cap_usd.unwrap_or(CAP_USD);
-        if !(cap_usd.is_finite() && cap_usd > 0.0) {
-            anyhow::bail!("--cap-usd is a positive number of dollars, not {cap_usd}");
-        }
+        let cap_usd = match p.cap_usd {
+            None => CAP_USD,
+            Some(usd) => theseus_protocol::exchange::topics_cap(usd).map_err(anyhow::Error::msg)?,
+        };
         // One run at a time: a second would plan the same exchanges, and
         // spend a second cap on them.
         let Ok(_one) = self.runner.judge.history.try_lock() else {

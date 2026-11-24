@@ -880,3 +880,41 @@ async fn only_his_own_terminal_runs_it() {
     assert!(of_kind(&r.core, LedgerKind::JudgeCall).is_empty());
     assert!(timeline(&r.core, "topic:ledger").is_empty());
 }
+
+/// KEY: the daemon refuses a cap that is no money as the CLI does (zero, a
+/// negative number, a sum too small to round to a micro-dollar), before any
+/// history is read; none is $10; a large one is the owner's and is said back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_daemon_refuses_a_cap_that_is_no_money() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_old", SAID, 5_000);
+    for (dry_run, cap) in [(true, 0.0), (false, 0.0), (false, -1.0), (false, 4e-7)] {
+        let e = rpc_as(
+            &r.core,
+            surface("sock#1", Surface::Cli),
+            method::EXCHANGE_TOPICS,
+            json!({"dry_run": dry_run, "cap_usd": cap}),
+        )
+        .await
+        .expect_err("no money is no cap");
+        assert_eq!(e.code, error_code::INVALID_PARAMS, "{cap}: {e:?}");
+        assert!(e.message.starts_with("--cap-usd is a number of dollars"), "{e:?}");
+    }
+    assert!(r.jev.seen().is_empty(), "no call");
+    for (cap, said_back) in [(json!(null), 10.0), (json!(1e12), 1e12)] {
+        let v = rpc_as(
+            &r.core,
+            surface("sock#1", Surface::Cli),
+            method::EXCHANGE_TOPICS,
+            json!({"dry_run": true, "cap_usd": cap}),
+        )
+        .await
+        .unwrap();
+        let out: ExchangeTopicsResult = serde_json::from_value(v).unwrap();
+        assert_eq!(out.cap_usd, said_back, "{out:?}");
+    }
+}

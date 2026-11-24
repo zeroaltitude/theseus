@@ -130,9 +130,24 @@ pub struct ExchangeTopicsParams {
     /// Count and price what it would ask, and ask nothing.
     pub dry_run: bool,
     /// The most this run may spend, in dollars (none: the default, $10).
+    /// [`topics_cap`] holds what it may be, at the CLI and at the daemon.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub cap_usd: Option<f64>,
+}
+
+/// A run's cap of `exchange.topics` (issue 46), as the CLI reads it before
+/// it builds a request and the daemon again: a finite number of dollars
+/// that is at least one micro-dollar once rounded, as budgets count in
+/// them. NaN, an infinity, zero, a negative number and a sum too small to
+/// round to any money are refused; a large one is the owner's to name.
+pub fn topics_cap(usd: f64) -> Result<f64, String> {
+    match usd.is_finite() && (usd * 1_000_000.0).round() >= 1.0 {
+        true => Ok(usd),
+        false => Err(format!(
+            "--cap-usd is a number of dollars of at least $0.000001, not {usd}"
+        )),
+    }
 }
 
 /// What a filing of the history found, would do or did: counts and dollars,

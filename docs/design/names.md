@@ -54,13 +54,15 @@ prices their worst case, and asks nothing.
   answer's row is written by the sink before the next exchange is asked and before the run returns, so the next
   run's plan reads every answer, one that touched nothing included. What cannot be promised: a daemon crash after
   the provider took a request and before its answer was stored may pay for that one exchange again.
-- **Money**: the run's cap (`--cap-usd`, default $10) is checked before each call against the call's worst case,
-  and the run stops before the exchange that would pass it. Each call reserves on the judge's day budget, which
-  holds on the daemon's day ceiling, and settles at its price. Its calls are shadow's, and shadow's lines are
-  `judge/spend.rs`'s, unchanged: its line is 70% of `[judge] shadow_limit_usd_per_day`, and a call past it is still
-  made, with a `judge.over_line` row and a word to the owner at the line and at each multiple of it; the run stops
-  at ten times the line (seven times the day's limit), or sooner at the daemon's day ceiling or the run's cap. Paced by the machine's quiet; the daemon's stop
-  ends it between two exchanges, and a rerun goes on.
+- **Money**: the run's cap (`--cap-usd`, default $10; a number of dollars of at least $0.000001, so NaN, an infinity,
+  zero, a negative number and a sum too small to round to money are refused by the CLI before it builds the request
+  and by the daemon again; the output's first line says the cap in use) is checked before each call against the
+  call's worst case, and the run stops before the exchange that would pass it. Each call reserves on the judge's day
+  budget, which holds on the daemon's day ceiling, and settles at its price. Its calls are shadow's, and shadow's
+  lines are `judge/spend.rs`'s, unchanged: its line is 70% of `[judge] shadow_limit_usd_per_day`, and a call past it
+  is still made, with a `judge.over_line` row and a word to the owner at the line and at each multiple of it; the run
+  stops at ten times the line (seven times the day's limit), or sooner at the daemon's day ceiling or the run's cap.
+  Paced by the machine's quiet; the daemon's stop ends it between two exchanges, and a rerun goes on.
 
 ## Numbered items (`names::items`, the index's `entity::item`)
 

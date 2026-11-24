@@ -54,13 +54,22 @@ pub async fn topics(
     dry_run: bool,
     cap_usd: Option<f64>,
 ) -> Result<()> {
-    let p = serde_json::to_value(ExchangeTopicsParams { dry_run, cap_usd })?;
+    let p = topics_params(dry_run, cap_usd)?;
     let v = conn.request(method::EXCHANGE_TOPICS, p).await?;
     match json {
         true => println!("{}", serde_json::to_string(&v)?),
         false => println!("{}", topics_lines(&serde_json::from_value(v)?)),
     }
     Ok(())
+}
+
+/// The request of `theseus ledger topics`: a cap is checked before it is
+/// built (JSON has no NaN or infinity, and would send one as no cap at all).
+pub fn topics_params(dry_run: bool, cap_usd: Option<f64>) -> Result<serde_json::Value> {
+    if let Some(usd) = cap_usd {
+        theseus_protocol::exchange::topics_cap(usd).map_err(anyhow::Error::msg)?;
+    }
+    Ok(serde_json::to_value(ExchangeTopicsParams { dry_run, cap_usd })?)
 }
 
 /// `theseus ledger rebuild-exchanges`.
@@ -159,11 +168,15 @@ pub fn ladder_lines(r: &ExchangeLadderResult) -> String {
 /// A filing of the history in two lines: what the ledger holds, and what the
 /// run would ask or did. Counts and dollars, never a message's words.
 pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
-    let mut s = format!(
+    let mut s = match r.dry_run {
+        true => format!("a dry run for a cap of ${:.2} a run: nothing is asked\n", r.cap_usd),
+        false => format!("a run with a cap of ${:.2}\n", r.cap_usd),
+    };
+    s.push_str(&format!(
         "{} exchanges: {} already touch a topic, {} were asked before, {} open with no person's \
          message, {} are in places the ontology's judge does not act on now",
         r.exchanges, r.touched_before, r.asked_before, r.no_message, r.not_acting
-    );
+    ));
     match r.dry_run {
         true => s.push_str(&format!(
             "\nwould ask {n}: ${:.4} at worst for all {n} of them (it may be more than the cap); a run \
@@ -206,10 +219,10 @@ mod tests {
         };
         assert_eq!(
             topics_lines(&dry),
-            "9 exchanges: 2 already touch a topic, 1 were asked before, 3 open with no person's \
-             message, 0 are in places the ontology's judge does not act on now\nwould ask 3: \
-             $0.0012 at worst for all 3 of them (it may be more than the cap); a run stops at its \
-             cap of $10.00"
+            "a dry run for a cap of $10.00 a run: nothing is asked\n9 exchanges: 2 already touch \
+             a topic, 1 were asked before, 3 open with no person's message, 0 are in places the \
+             ontology's judge does not act on now\nwould ask 3: $0.0012 at worst for all 3 of \
+             them (it may be more than the cap); a run stops at its cap of $10.00"
         );
         let run = ExchangeTopicsResult {
             dry_run: false,
@@ -223,6 +236,7 @@ mod tests {
             ..dry
         };
         let lines = topics_lines(&run);
+        assert!(lines.starts_with("a run with a cap of $10.00\n"), "{lines}");
         assert!(
             lines.ends_with(
                 "\nasked 1 of 3 (1 answered): 1 exchanges filed with 2 touches; spent $0.0003 of \
@@ -230,5 +244,48 @@ mod tests {
             ),
             "{lines}"
         );
+    }
+
+    /// The cap is read before a request is built: NaN, the infinities, zero,
+    /// a negative number and a sum too small to round to any money are
+    /// refused by the parser, and by the request's builder; a cap that holds
+    /// goes on the wire as it was typed, and none goes as none (the daemon's
+    /// $10).
+    #[test]
+    fn a_cap_that_is_no_money_never_reaches_the_wire() {
+        use clap::Parser;
+        use serde_json::json;
+        #[derive(Parser, Debug)]
+        struct T {
+            #[command(subcommand)]
+            cmd: crate::ledger_verify::LedgerCmd,
+        }
+        let parse = |cap: Option<&str>| {
+            let mut argv = vec!["t".to_string(), "topics".to_string()];
+            argv.extend(cap.map(|c| format!("--cap-usd={c}")));
+            T::try_parse_from(argv)
+        };
+        for bad in [
+            "NaN", "nan", "inf", "-inf", "infinity", "0", "-0", "-1", "0.0000004", "ten",
+        ] {
+            assert!(parse(Some(bad)).is_err(), "{bad} was parsed");
+        }
+        let bad = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 0.0, -1.0, 4e-7];
+        for usd in bad {
+            assert!(topics_params(false, Some(usd)).is_err(), "{usd} was built");
+        }
+        let good = [
+            (None, json!({"dry_run": false})),
+            (Some("2.5"), json!({"dry_run": false, "cap_usd": 2.5})),
+            (Some("0.000001"), json!({"dry_run": false, "cap_usd": 0.000001})),
+            (Some("1e9"), json!({"dry_run": false, "cap_usd": 1e9})),
+        ];
+        for (cap, wire) in good {
+            let T { cmd } = parse(cap).unwrap();
+            let crate::ledger_verify::LedgerCmd::Topics { dry_run, cap_usd } = cmd else {
+                panic!("not topics: {cmd:?}");
+            };
+            assert_eq!(topics_params(dry_run, cap_usd).unwrap(), wire, "{cap:?}");
+        }
     }
 }

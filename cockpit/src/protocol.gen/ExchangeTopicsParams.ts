@@ -12,5 +12,6 @@ export type ExchangeTopicsParams = {
 dry_run: boolean, 
 /**
  * The most this run may spend, in dollars (none: the default, $10).
+ * [`topics_cap`] holds what it may be, at the CLI and at the daemon.
  */
 cap_usd?: number, };

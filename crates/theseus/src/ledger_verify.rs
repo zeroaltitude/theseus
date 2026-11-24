@@ -69,9 +69,17 @@ pub enum LedgerCmd {
         dry_run: bool,
         /// The most this run may spend, in dollars (default 10). It stops before the exchange
         /// that would pass it; a rerun goes on from there.
-        #[arg(long)]
+        #[arg(long, value_parser = cap_usd, allow_negative_numbers = true)]
         cap_usd: Option<f64>,
     },
+}
+
+/// `--cap-usd` of `theseus ledger topics`, read before any request is built:
+/// a number, and one [`theseus_protocol::exchange::topics_cap`] holds.
+fn cap_usd(s: &str) -> Result<f64, String> {
+    let usd: f64 = (s.trim().parse())
+        .map_err(|_| format!("--cap-usd is a number of dollars, not {s:?}"))?;
+    theseus_protocol::exchange::topics_cap(usd)
 }
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
