@@ -465,7 +465,7 @@ impl Shared {
     /// An ephemeral line for the presser.
     pub(super) async fn reply_ephemeral(&self, i: &Interaction, text: String) {
         let data = InteractionResponseData {
-            content: Some(crate::render::clip(&text, 1_900)),
+            content: Some(crate::render::clip(&self.core.exits.text(&text).0, 1_900)),
             flags: Some(MessageFlags::EPHEMERAL),
             allowed_mentions: Some(AllowedMentions::default()),
             ..Default::default()
@@ -526,7 +526,7 @@ impl Shared {
         };
         let head = format!(
             "🔁 **{}** · <t:{started}:f> · run {} · {took} · {}",
-            crate::render::clip(&spec.title, 80),
+            crate::render::clip(&self.core.exits.text(&spec.title).0, 80),
             mark.run,
             theseus_protocol::usd(body["spent_usd"].as_f64().unwrap_or(0.0)),
         );
@@ -697,5 +697,45 @@ mod tests {
         assert_eq!(parse_post("hz:pause:ses_1"), None);
         assert_eq!(parse_post("wake:done:wak_1"), None);
         assert!(buttons("wak_1", &[]).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn routine_report_masks_title_before_cut() {
+        let (_dir, core, _fake, shared) = rig();
+        let spec = serde_json::json!({"session_id":"routine_exit", "execution_id":"exe_exit", "wake_id":"wake_exit", "title":format!("{}{}", "x".repeat(75), VALUE), "schedule":"daily", "brief":"test", "run_micros":1, "month_micros":1, "deliver_to":"dm", "period_ms":1000, "created_ms":1, "created_by":"owner", "month":"2026-11", "month_told":false});
+        core.store.put_meta("routine:routine_exit", &spec).unwrap();
+        core.store
+            .put_meta(
+                "routine.run:run_exit",
+                &serde_json::json!({"routine":"routine_exit", "run":1,"speak":"always"}),
+            )
+            .unwrap();
+        let text = shared
+            .routine_report(
+                &serde_json::json!({"task":"run_exit","outcome":"complete"}),
+                None,
+            )
+            .unwrap();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod reply_exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn horizon_reply_masks_before_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        shared
+            .reply_ephemeral(&interaction(), format!("{}{}", "x".repeat(1895), VALUE))
+            .await;
+        let replies = fake.replies();
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains("vau"), "{text}");
     }
 }
