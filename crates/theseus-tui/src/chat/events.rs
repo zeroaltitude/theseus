@@ -30,6 +30,7 @@ impl Chat {
             return effects;
         }
         if let Purpose::Submit(sid) = &purpose {
+            self.uncertain_submits.remove(sid);
             if !self.ours(sid) {
                 self.submitted_away(sid, result);
                 return Vec::new();
