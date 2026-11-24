@@ -2,7 +2,7 @@
 
 The size of Theseus's code and of what it builds. Written by `scripts/stats.py`; do not edit it by hand.
 
-Counted at the merge of 1ecfc396 into 105cd9e3, over every file git tracks:
+Counted at commit 2819f918, over every file git tracks:
 
 - **Code**: a line that is not blank and not only comment (code with a comment after it is code). **Test code**: a file in a directory, or with a name (before its first dot), that is `test`, `tests`, `fixtures`, `benches`, `test_…`, `tests_…`, `…_test` or `…_tests`; files named `*.test.*`; and Rust's `#[cfg(test)] mod … { … }` blocks.
 - **Comments**: `//`, `///`, `//!` and `/* … */` (nested, in Rust) in Rust, TypeScript, JavaScript, C and CSS; in Python, comment tokens and triple-quoted strings that begin a statement (read with Python's own tokenizer); in shell, a `#` that begins a word outside quotes. A marker inside a string literal is not a comment.
@@ -13,13 +13,13 @@ Counted at the merge of 1ecfc396 into 105cd9e3, over every file git tracks:
 | Where | Code | Test code | Comments |
 |---|---:|---:|---:|
 | bench/ | 68,903 | 58,755 | 16,545 |
-| cockpit/ | 46,951 | 14,832 | 20,824 |
+| cockpit/ | 46,972 | 14,832 | 20,884 |
 | crates/ (in no crate) | 93 | 62 | 159 |
-| crates/theseus | 35,035 | 28,672 | 7,285 |
+| crates/theseus | 35,164 | 28,796 | 7,306 |
 | crates/theseus-aws | 3,179 | 2,303 | 549 |
 | crates/theseus-aws-catalog | 5,996 | 1,394 | 644 |
 | crates/theseus-aws-guard | 2,861 | 1,522 | 323 |
-| crates/theseus-core | 263,263 | 287,542 | 92,294 |
+| crates/theseus-core | 263,551 | 288,109 | 92,367 |
 | crates/theseus-discord | 32,813 | 42,819 | 10,558 |
 | crates/theseus-exam | 5,442 | 3,242 | 1,256 |
 | crates/theseus-files | 2,377 | 682 | 297 |
@@ -32,7 +32,7 @@ Counted at the merge of 1ecfc396 into 105cd9e3, over every file git tracks:
 | crates/theseus-mcp | 4,331 | 1,677 | 675 |
 | crates/theseus-memory | 721 | 754 | 367 |
 | crates/theseus-ontology | 3,618 | 4,160 | 960 |
-| crates/theseus-protocol | 20,896 | 7,906 | 8,323 |
+| crates/theseus-protocol | 20,966 | 7,906 | 8,351 |
 | crates/theseus-root-install | 696 | 440 | 122 |
 | crates/theseus-sandbox | 2,891 | 3,616 | 1,642 |
 | crates/theseus-sim | 18,163 | 3,672 | 3,924 |
@@ -42,8 +42,8 @@ Counted at the merge of 1ecfc396 into 105cd9e3, over every file git tracks:
 | crates/theseus-voice | 6,144 | 6,651 | 2,023 |
 | crates/theseusd | 5,316 | 32,372 | 5,535 |
 | infra/ | 554 | 1,432 | 193 |
-| scripts/ | 10,045 | 7,320 | 3,447 |
-| **Total** | **610,328** | **568,754** | **199,148** |
+| scripts/ | 10,045 | 7,353 | 3,447 |
+| **Total** | **610,836** | **569,478** | **199,330** |
 | vendor/ (third-party, not in the total) | 12,719 | 1,166 | 3,154 |
 
 ## Build sizes
