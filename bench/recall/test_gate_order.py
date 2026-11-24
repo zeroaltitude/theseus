@@ -50,7 +50,7 @@ class GateOrder(unittest.TestCase):
 
     def test_real_daemon_phase_keeps_skip_and_warning_in_its_callers_shell(self):
         body = re.search(r"^real_daemon_tests\(\) \{.*?^\}", GATE.read_text(), re.M | re.S).group()
-        for case in ("pass", "skip", "fail"):
+        for case in ("pass", "skip", "skip_quoted", "fail"):
             with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
                 script = """
 set -eu
@@ -65,6 +65,7 @@ python3() {
   case "$mode" in
     pass) echo 'Ran 2 tests'; echo OK ;;
     skip) echo "test_example ... skipped 'missing current binaries'" ;;
+    skip_quoted) echo 'test_example ... skipped "cannot verify binaries"' ;;
     fail) echo FAILED; return 1 ;;
   esac
 }
@@ -77,6 +78,7 @@ printf 'RESULT label=%s skip=%s warn=%s\n' "$phase_label" "$skipped" "$warned"
                 expected = {
                     "pass": "RESULT label= skip= warn=",
                     "skip": "RESULT label=real daemon tests skipped skip=yes warn=",
+                    "skip_quoted": "RESULT label=real daemon tests skipped skip=yes warn=",
                     "fail": "RESULT label=real daemon tests warned skip= warn=yes",
                 }[case]
                 self.assertIn(expected, result.stdout)
