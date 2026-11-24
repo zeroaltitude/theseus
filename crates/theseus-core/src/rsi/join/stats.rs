@@ -171,7 +171,16 @@ pub(super) fn count(
     let until = Instant::now() + limit;
     let ran = scratch.and_then(|s| {
         let lines = range(p, &s.job, &frozen, base, until, limit);
-        run(p, &s.job, &frozen, &["--count-head"], until, limit, Some(cuts)).map(|_| lines)
+        run(
+            p,
+            &s.job,
+            &frozen,
+            &["--count-head"],
+            until,
+            limit,
+            Some(cuts),
+        )
+        .map(|_| lines)
     });
     let lines = match ran.because(Skip::Failed) {
         Ok(lines) => lines,

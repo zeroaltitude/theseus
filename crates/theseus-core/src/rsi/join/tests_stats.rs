@@ -345,7 +345,12 @@ async fn a_failed_counters_words_stop_before_a_known_value() {
     let said = j["numbers"]["stats"].as_str().unwrap();
     assert!(said.starts_with("skipped: "), "{said}");
     assert!(said.contains("exited 1: word word"), "{said}");
-    for piece in [&VALUE[..8], &VALUE[VALUE.len() - 8..], "vault-v", "and the end"] {
+    for piece in [
+        &VALUE[..8],
+        &VALUE[VALUE.len() - 8..],
+        "vault-v",
+        "and the end",
+    ] {
         assert!(!said.contains(piece), "{piece} is kept: {said}");
     }
     assert_eq!(j["numbers"]["stats_skip"], "failed", "{}", j["numbers"]);
