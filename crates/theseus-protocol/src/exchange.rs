@@ -119,3 +119,53 @@ pub struct ExchangeLadderResult {
     #[cfg_attr(test, ts(optional))]
     pub stopped: Option<String>,
 }
+
+/// `exchange.topics` (issue 46): the exchanges from before topics were filed
+/// per exchange, each one's opening message asked of the ontology's judge
+/// once, and touches written for the topics it names. The owner's, in person.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ExchangeTopicsParams {
+    /// Count and price what it would ask, and ask nothing.
+    pub dry_run: bool,
+    /// The most this run may spend, in dollars (none: the default, $10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cap_usd: Option<f64>,
+}
+
+/// What a filing of the history found, would do or did: counts and dollars,
+/// never a message's text.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ExchangeTopicsResult {
+    pub dry_run: bool,
+    pub cap_usd: f64,
+    /// Every exchange in the ledger.
+    pub exchanges: u64,
+    /// Those that already touch a topic, and those this job asked before.
+    pub touched_before: u64,
+    pub asked_before: u64,
+    /// Those opened by no person's message that can be read.
+    pub no_message: u64,
+    /// Those the ontology's judge would not act on now (off, or in shadow).
+    pub not_acting: u64,
+    /// Those left to ask, and their worst case together.
+    pub to_ask: u64,
+    pub worst_usd: f64,
+    /// Asked this run, of them answered, and the exchanges and touches the
+    /// answers came to.
+    pub asked: u64,
+    pub answered: u64,
+    pub filed: u64,
+    pub touches: u64,
+    pub spent_usd: f64,
+    /// Exchanges still to ask when the run stopped.
+    pub left: u64,
+    /// Why it stopped before it was done.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub stopped: Option<String>,
+}
