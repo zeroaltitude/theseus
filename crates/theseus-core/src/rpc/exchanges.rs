@@ -1,13 +1,15 @@
 //! The exchange ledger at the RPC layer (issue 44, step 1; `crate::exchange`):
 //! the owner's mark of a submitted message, made where the live proof is, and
 //! `exchange.report` and `exchange.rebuild`, which are read and asked from the
-//! terminal or the web UI alone.
+//! terminal or the web UI alone; and `exchange.ladder` and `exchange.gists`
+//! (step 4), the owner's in person.
 
 use std::sync::Arc;
 
 use serde_json::Value;
 use theseus_protocol::exchange::{
-    ExchangeLadderParams, ExchangeLadderResult, ExchangeRebuildParams, ExchangeReportParams,
+    ExchangeGistsParams, ExchangeLadderParams, ExchangeLadderResult, ExchangeRebuildParams,
+    ExchangeReportParams,
 };
 use theseus_protocol::{error_code, method, TurnSubmitParams};
 
@@ -21,6 +23,7 @@ pub(super) const OWN: &[&str] = &[
     method::EXCHANGE_REPORT,
     method::EXCHANGE_REBUILD,
     method::EXCHANGE_LADDER,
+    method::EXCHANGE_GISTS,
 ];
 
 impl Core {
@@ -78,8 +81,9 @@ impl Core {
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
         // Kept on 2026-11-22 for the two that act (`exchange.rebuild` writes
-        // records, `exchange.ladder` spends on model calls): the surface rule
-        // is their input. The report is a read, and every surface reads it.
+        // records, `exchange.ladder` spends on model calls), and the reading
+        // sheet, the owner's alone: the surface rule is their input. The
+        // report is a read, and every surface reads it.
         if name != method::EXCHANGE_REPORT && !conn.surface.reads_private() {
             return Err(RpcFailure::new(
                 error_code::REFUSED,
@@ -152,6 +156,7 @@ impl Core {
                     stopped: b.stopped,
                 })
             }
+            method::EXCHANGE_GISTS => return self.exchange_gists(params, conn).await,
             other => {
                 return Err(RpcFailure::new(
                     error_code::METHOD_NOT_FOUND,
@@ -160,5 +165,41 @@ impl Core {
             }
         };
         out.map_err(|e| RpcFailure::invalid(e.into()))
+    }
+
+    /// `exchange.gists`: the reading sheet. The owner reads these, and an
+    /// agent's process does not: his verdicts are the measure of the
+    /// summaries (design §10). It stores nothing and calls no model.
+    async fn exchange_gists(
+        self: Arc<Self>,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        let p: ExchangeGistsParams = match params.is_null() {
+            true => ExchangeGistsParams::default(),
+            false => parse(params)?,
+        };
+        let who = conn.answerer(None, None);
+        if let Err(why) = crate::places::owner_in_person_of(
+            &who,
+            &self.runner.place_rule,
+            &self.cfg,
+            "the summaries' reading sheet is the owner's to read",
+            "",
+        ) {
+            return Err(RpcFailure::new(
+                error_code::REFUSED,
+                format!("not shown: {why}"),
+            ));
+        }
+        if let Some(why) = crate::ladder::gists::too_many(&p) {
+            return Err(RpcFailure::new(error_code::INVALID_PARAMS, why));
+        }
+        let core = self.clone();
+        let r = super::import::blocking(move || {
+            crate::ladder::gists::sheet(&core.store, &core.tools.scrubber, &p)
+        })
+        .await?;
+        serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()))
     }
 }

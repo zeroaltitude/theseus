@@ -140,7 +140,12 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 - **`ledger`**: recent ledger rows (every turn, loop, provider call, state change, error). `theseus ledger -n 20 -k provider.call`;
   `ledger verify`, `ledger head`; `ledger exchanges` sums the exchange ledger's rows of private turns (counts only),
   `ledger rebuild-exchanges [--dry-run]` writes the exchanges of older turns from their nodes; `ledger ladder <place> [--dry-run]
-  [--cap-usd N]` builds a place's one-line summaries and fold nodes from its history (a dry run counts and prices).
+  [--cap-usd N]` builds a place's one-line summaries and fold nodes from its history (a dry run counts and prices);
+  `ledger gists [PLACE] [--lines 50] [--nodes 10] [--seed N]` prints those summaries and first-level fold nodes beside
+  their writer's material rebuilt today (not a copy of what it was given; an item from an older writer, or with
+  sources gone, says so), a sheet for you to mark (yours alone; it stores nothing and calls no model; at most 500
+  summaries and 100 nodes). A sample is drawn from the summaries and nodes that exist, from every place when none is
+  named: it can include exchanges opened by a guest or by an agent's process, and lines from before a `/new`.
 - **`postmortem`**: an incident's timeline from the ledger, as markdown. `theseus postmortem --since 6h`.
 - **`mode`**: a conversation's mode, as Shift+Tab sets it: `ask`, `edits`, `plan` or `auto`; with no MODE, say the
   current one. `theseus mode plan`.

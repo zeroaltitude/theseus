@@ -583,7 +583,7 @@ per turn today, so step 1 adds it). A new session does not start a new place or 
   first level keeps the line.
 - **A source is summarised only when it is proven neither sealed nor veiled**, checked again just before the model
   call; a window that is held out folds by code, marked sealed and veiled. The ladder's spend has a daily line of
-  its own ($2), reserved before each call. `theseus exchanges ladder <place>` builds a place's ladder from its
+  its own ($2), reserved before each call. `theseus ledger ladder <place>` builds a place's ladder from its
   history; only the owner in person may run it.
 - **`/new`** is the chat's `/new`; the terminal has none. The terminal and the web page are one place,
   `local:<dir>`.
@@ -989,7 +989,7 @@ naming either still loads, with a warning.) Step by step:
   session listings and a narrowing steer's already-sent text are not behind it yet.
 - **3**: not built as planned. His words in his other private places reach a model only in a place set to the
   view, as slot F; the per-turn block of a transcript place does not carry them. 3b is not built.
-- **4**: built, without the `gists` view and without his reading of 50 lines and 10 nodes.
+- **4**: built, with the `gists` view (`theseus ledger gists`), and without his reading of 50 lines and 10 nodes.
 - **5**: the recognition half built, not run in shadow and not read by the view. The search before the first word
   is recall, each note naming the handle that opens its exchange; rung 2's own search is not built and `leans_on`
   is dropped with issue 43's line, both by the owner's decision of 2026-11-23 (§6).

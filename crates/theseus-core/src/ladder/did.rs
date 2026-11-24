@@ -123,6 +123,21 @@ pub fn outside(n: &Node) -> bool {
 
 /// Exchange `turn` read from the store; none when no exchange was written.
 pub fn read(store: &Store, turn: &str) -> anyhow::Result<Option<Read>> {
+    read_with(store, turn, |ex| {
+        Ok(store
+            .session_nodes(&ex.session_id)?
+            .iter()
+            .any(|(_, n)| n.turn_id.as_deref() == Some(turn) && outside(n)))
+    })
+}
+
+/// [`read`], whether the exchange read outside text told by `read_outside` (a reader of many
+/// exchanges scans each session once).
+pub fn read_with(
+    store: &Store,
+    turn: &str,
+    read_outside: impl FnOnce(&Exchange) -> anyhow::Result<bool>,
+) -> anyhow::Result<Option<Read>> {
     let Some(ex) = exchange::exchange(store, turn)? else {
         return Ok(None);
     };
@@ -134,10 +149,7 @@ pub fn read(store: &Store, turn: &str) -> anyhow::Result<Option<Read>> {
     };
     let (ask, reply) = (text(&ex.ask)?, text(&ex.reply)?);
     let mut marks = super::marks_of(&ex);
-    marks.outside = store
-        .session_nodes(&ex.session_id)?
-        .iter()
-        .any(|(_, n)| n.turn_id.as_deref() == Some(turn) && outside(n));
+    marks.outside = read_outside(&ex)?;
     let author = match &ex.ask {
         Some(id) => crate::view::sources_store::author_of(store, id),
         None => crate::view::Author::Unknown,
