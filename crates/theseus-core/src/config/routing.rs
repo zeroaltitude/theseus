@@ -4,7 +4,7 @@
 //! for the verdict, the exchanges a `short` context carries, the cache's one
 //! hysteresis (`cold_switch_tokens`), the owner's corrections and a task's
 //! checkpoint triggers. It acts only while `[judge]` is on, and `rung = "shadow"`
-//! (or `[judge.packs."route.v11"] rung = "shadow"`) records the verdict and
+//! (or `[judge.packs."route.v12"] rung = "shadow"`) records the verdict and
 //! routes nothing. Every key has a default, so a sparse note holds only what
 //! differs.
 //!

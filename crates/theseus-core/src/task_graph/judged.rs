@@ -3,7 +3,7 @@
 //! from the judge or from records, never from the acting model:
 //!
 //! 1. **The typed judgment** (`task_words.v1`): asked at the gate of a
-//!    `task.update` that names his message, only when `classify.v4`'s
+//!    `task.update` that names his message, only when the classify pack's
 //!    `addressed_task` names exactly one task for that message and the
 //!    message carries the owner's mark, in person. The judge reads his
 //!    message alone and the task as it stands; nothing of the proposal. The

@@ -54,14 +54,18 @@ fn pack() -> std::sync::Arc<Pack> {
         .as_ref()
         .expect("the embedded packs parse")
         .iter()
-        .find(|p| p.name() == "undo.v1")
-        .expect("undo.v1 is embedded")
+        .find(|p| p.name() == super::PACK_NAME)
+        .expect("the undo pack is embedded")
         .clone()
 }
 
 /// A judgment carrying one Choice answer per question, each at `confidence`.
 fn judged(answers: &[(&str, &str, f64)], mode: Mode) -> Judgment {
-    let p = pack();
+    judged_on(&pack(), answers, mode)
+}
+
+/// [`judged`], of the pack `p`.
+fn judged_on(p: &Pack, answers: &[(&str, &str, f64)], mode: Mode) -> Judgment {
     let records = answers
         .iter()
         .map(|(def, choice, c)| {
@@ -426,4 +430,74 @@ fn a_read_that_names_nothing_is_not_worth_asking_and_one_that_does_is() {
     c.url = None;
     c.class = "write".into();
     assert!(c.worth_asking(), "and every call that is not a read");
+}
+
+/// `undo.v2` (issue 46) changes only the advice its shapes give. Every decision the gate makes from a
+/// judgment is undo.v1's: for each verdict, each shape, at, under and over each bar, live and in shadow, with
+/// the floor and without, the verdict, the shape read, whether it holds and whether it raises are equal. Only
+/// the `write_then_rename` sentence the hold shows differs.
+#[test]
+fn every_decision_the_gate_makes_is_the_same_on_undo_v2() {
+    let v1 = theseus_judge::pack::by_name("undo.v1")
+        .or_else(|| theseus_judge::pack::retired("undo.v1"))
+        .unwrap();
+    let v2 = theseus_judge::pack::by_name("undo.v2").expect("undo.v2 is embedded");
+    let verdicts = [
+        "reversible",
+        "irreversible_reshapeable",
+        "irreversible_final",
+    ];
+    let shapes = [
+        "move_aside",
+        "write_then_rename",
+        "copy_first",
+        "new_name",
+        "service_keeps_a_copy",
+        "narrow_the_target",
+        "none",
+    ];
+    let mut compared = 0;
+    for mode in [Mode::Live, Mode::Canary, Mode::Shadow] {
+        for verdict in verdicts {
+            for shape in shapes {
+                for c in [0.30, 0.49, 0.50, 0.59, 0.60, 0.89, 0.90, 0.99] {
+                    let answers = [(VERDICT, verdict, c), (SHAPE, shape, c)];
+                    let (a, b) = (
+                        judged_on(&v1, &answers, mode),
+                        judged_on(&v2, &answers, mode),
+                    );
+                    for floor in [false, true] {
+                        let x = UndoVerdict::with_floor(&v1, &a, floor);
+                        let y = UndoVerdict::with_floor(&v2, &b, floor);
+                        let read = |v: &Option<UndoVerdict>| {
+                            v.as_ref().map(|v| {
+                                (
+                                    v.says,
+                                    v.shape.clone(),
+                                    v.p,
+                                    v.floored,
+                                    v.holds(),
+                                    v.raises(),
+                                )
+                            })
+                        };
+                        assert_eq!(
+                            read(&x),
+                            read(&y),
+                            "{mode:?} {verdict} {shape} {c} floor {floor}"
+                        );
+                        compared += 1;
+                        if let (Some(x), Some(y)) = (&x, &y) {
+                            let (mx, my) = (x.shape_means(&v1), y.shape_means(&v2));
+                            match x.shape.as_deref() {
+                                Some("write_then_rename") => assert_ne!(mx, my),
+                                _ => assert_eq!(mx, my),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(compared, 3 * 3 * 7 * 8 * 2);
 }

@@ -104,7 +104,7 @@ fn script(fake: &FakeJev, cases: &[LabelledCase], wrong: &[(&str, &str, &str)]) 
             fake.script_when(
                 &marker,
                 None,
-                &format!("onto.v1/{kind}"),
+                &format!("onto.v2/{kind}"),
                 Scripted::Choice {
                     option: option_for(c, kind, category),
                     confidence: 0.9,
@@ -142,10 +142,10 @@ async fn a_model_that_answers_the_labels_scores_one() {
     let fake = FakeJev::start().unwrap();
     let cs = cases();
     script(&fake, &cs, &[]);
-    let pack = by_name("onto.v1").unwrap();
+    let pack = by_name("onto.v2").unwrap();
     let scored = replay_onto(&judge_for(&fake), pack, &cs).await.unwrap();
     assert_eq!(scored.len(), 3);
-    let report = onto_report("onto.v1", cs.len(), &scored);
+    let report = onto_report("onto.v2", cs.len(), &scored);
     assert_eq!(report.unanswered, 0);
     for rows in [&report.at_act, &report.at_confirm] {
         assert_eq!(rows.len(), 2);
@@ -166,7 +166,7 @@ async fn a_wrong_answer_lowers_exactly_that_kinds_precision() {
     let fake = FakeJev::start().unwrap();
     let cs = cases();
     script(&fake, &cs, &[("s2", "project", "east")]);
-    let pack = by_name("onto.v1").unwrap();
+    let pack = by_name("onto.v2").unwrap();
     let scored = replay_onto(&judge_for(&fake), pack, &cs).await.unwrap();
     let rows = score_onto(&scored, Floor::Act);
     let topic = by_kind(&rows, "topic");
@@ -196,7 +196,7 @@ async fn the_labels_are_hidden_from_the_request() {
         .iter()
         .all(|k| !k.pool[0].session));
     script(&fake, &cs, &[]);
-    let pack = by_name("onto.v1").unwrap();
+    let pack = by_name("onto.v2").unwrap();
     replay_onto(&judge_for(&fake), pack, &cs).await.unwrap();
     for seen in fake.seen() {
         let state = seen.body.to_string();
@@ -280,7 +280,7 @@ fn the_markdown_names_each_kind_and_prints_n_a_for_no_number() {
         &[("topic", Pick::Nothing, Band::Act)],
         &[("topic", &["t:a"])],
     );
-    let md = onto_markdown(&onto_report("onto.v1", 2, &[s]));
+    let md = onto_markdown(&onto_report("onto.v2", 2, &[s]));
     assert!(md.contains("1 unanswered (left out)"), "{md}");
     assert!(
         md.contains("| topic | 1 | 1 | 0 | 0 | 0 | 1 | 0 | n/a | 0.000 |"),

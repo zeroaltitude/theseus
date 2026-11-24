@@ -158,7 +158,7 @@ fn classify_v3_is_classify_v2_and_an_offer_question() {
 fn classify_v4_is_classify_v3_with_a_scope_question() {
     let (v3, v4) = (
         crate::pack::retired("classify.v3").unwrap(),
-        by_name("classify.v4").unwrap(),
+        crate::pack::retired("classify.v4").unwrap(),
     );
     assert_eq!((v4.id.as_str(), v4.version), ("classify", 4));
     assert_eq!(
@@ -224,4 +224,42 @@ fn classify_v4_is_classify_v3_with_a_scope_question() {
             "one sentence: {added}"
         );
     }
+}
+
+/// `classify.v5` is `classify.v4` without `thread` and `scope` (issue 46): no turn offers live threads, so
+/// neither could be asked. With `thread` go the "wrong thread" rule, which nothing writes the label for, and
+/// the `thread_route` action, which nothing reads (the loader takes `none`). Every question it keeps is v4's,
+/// field for field, and with live threads in the input it still asks neither.
+#[test]
+fn classify_v5_is_classify_v4_without_thread_and_scope() {
+    use crate::pack::Action;
+    let v4 = by_name("classify.v4")
+        .or_else(|| crate::pack::retired("classify.v4"))
+        .unwrap();
+    let v5 = by_name("classify.v5").expect("classify.v5 is embedded");
+    assert_eq!((v4.version, v5.version), (4, 5));
+    assert_eq!((v4.action, v5.action), (Action::ThreadRoute, Action::None));
+    let mut planted = (*v4).clone();
+    planted.version = 5;
+    planted.sha256 = v5.sha256.clone();
+    planted.action = Action::None;
+    planted.description =
+        "CLASSIFY: a new ask, a follow-up, a correction, a control word, a message for a \
+                           live task, or small talk; and whether it should become a task."
+            .to_string();
+    planted
+        .questions
+        .retain(|q| q.id != "thread" && q.id != "scope");
+    assert_eq!(v4.rollback.len(), 1, "v4's one rule, `wrong thread`");
+    planted.rollback.clear();
+    assert_eq!(planted, *v5);
+    let mut i = input();
+    i.live_threads = vec![thread("t1", "Moon"), thread("t2", "Tides")];
+    i.in_thread = true;
+    let p = prepare(&v5, &Input::Inbound(i), &NoScrub).unwrap();
+    let asked: Vec<String> = v5.ask(&p.dynamic).into_iter().map(|a| a.id).collect();
+    assert!(
+        !asked.iter().any(|a| a == "thread" || a == "scope"),
+        "{asked:?}"
+    );
 }

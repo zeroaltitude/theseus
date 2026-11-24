@@ -289,7 +289,7 @@ fn texts(n: usize) -> Vec<Scripted> {
 }
 
 /// A core with the judge on (against `jev`), every other wired pack off
-/// (`loop.v1`, and the gate's, inbound's and compile's points) so each
+/// (`loop.v2`, and the gate's, inbound's and compile's points) so each
 /// judgment Jev sees is categorize's, the owner named, the owner's DM and a
 /// shared channel bound, and the topics `harbor` and `garden` declared.
 pub(crate) fn rig(jev: Option<&FakeJev>, turns: usize, tweak: impl FnOnce(&mut Config)) -> Rig {

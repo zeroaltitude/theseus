@@ -7,7 +7,7 @@ use super::*;
 
 fn row(mode: &str, at: u64, position: u64) -> PackModeRow {
     PackModeRow {
-        pack: "loop.v1".into(),
+        pack: "loop.v2".into(),
         mode: mode.into(),
         who: "owner".into(),
         why: "because".into(),
@@ -74,20 +74,20 @@ fn arms_are_sticky_and_monotone() {
     let canary = |share: f64| -> Vec<&String> {
         sessions
             .iter()
-            .filter(|s| given_of(PackMode::Canary, Some(share), "loop.v1", s).arm == ArmOf::Canary)
+            .filter(|s| given_of(PackMode::Canary, Some(share), "loop.v2", s).arm == ArmOf::Canary)
             .collect()
     };
     let (small, large) = (canary(0.2), canary(0.6));
     assert!((60..140).contains(&small.len()), "{}", small.len());
     assert!(small.iter().all(|s| large.contains(s)), "monotone");
     assert_eq!(canary(0.2), small, "sticky");
-    let g = given_of(PackMode::Canary, Some(0.2), "loop.v1", small[0]);
+    let g = given_of(PackMode::Canary, Some(0.2), "loop.v2", small[0]);
     assert_eq!(
         (g.mode, g.judge_mode()),
         (PackMode::Live, theseus_judge::Mode::Canary)
     );
     let control = sessions.iter().find(|s| !small.contains(s)).unwrap();
-    let g = given_of(PackMode::Canary, Some(0.2), "loop.v1", control);
+    let g = given_of(PackMode::Canary, Some(0.2), "loop.v2", control);
     assert_eq!(
         (g.mode, g.arm, g.judge_mode()),
         (

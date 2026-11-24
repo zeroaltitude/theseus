@@ -120,7 +120,7 @@ async fn an_unset_key_asks_jev_through_the_job_builder() {
     assert!(state.contains("job"), "the place: {state}");
     assert!(state.contains("7 clusters"), "the paragraph: {state}");
     assert!(
-        state.contains("\"allowed\""),
+        !state.contains("restricted_models") && !state.contains("not_allowed"),
         "no floor since 2026-11-21: {state}"
     );
     assert!(state.contains("price_period"), "the facts: {state}");
@@ -223,7 +223,11 @@ async fn any_job_may_name_a_china_origin_model() {
     let (choice, how) = r.core.runner.job_choice("sonnet", owner_site(None)).await;
     assert!(matches!(how, How::Jev { .. }), "{how:?}");
     assert_eq!(model_of(&choice), "deepseek-flash");
-    assert!(state_seen(&jev).contains("\"allowed\""));
+    let state = state_seen(&jev);
+    assert!(
+        !state.contains("restricted_models") && !state.contains("not_allowed"),
+        "no floor: {state}"
+    );
 }
 
 /// A pick whose provider is not configured runs on `live`

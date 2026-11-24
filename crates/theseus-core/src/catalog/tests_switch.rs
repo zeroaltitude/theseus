@@ -237,7 +237,7 @@ fn the_band_is_plus_or_minus_twenty_percent_inclusive() {
 /// catalog, so the file is held to the function here.
 #[test]
 fn every_cases_switch_cost_is_what_the_daemons_rule_says() {
-    let pack = theseus_judge::pack::by_name("route.v11").unwrap();
+    let pack = theseus_judge::pack::by_name("route.v12").unwrap();
     let set =
         theseus_judge::route_cases::CaseSet::parse(theseus_judge::route_cases::V10, &pack).unwrap();
     let catalog = Catalog::builtin();

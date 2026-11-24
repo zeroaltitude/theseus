@@ -664,7 +664,7 @@ fn row_11_a_task_past_its_forecast_informs_once() {
             Urgency::Inform,
             Why::PastForecast,
             "⏱ migrate fixtures is past its forecast: $1.62 (p90 $1.50), 16 min (p90 14 min) \
-             · still progressing (loop.v1 0.91)"
+             · still progressing (loop 0.91)"
         )
     );
     let n = n.unwrap();
