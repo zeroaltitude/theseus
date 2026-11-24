@@ -135,10 +135,22 @@ pub(super) fn field(s: &str, cuts: &Cuts) -> String {
 }
 
 /// A place's name as a person reads it: the CLI or the web UI with the end of the session's id, else
-/// the bound name; clipped.
+/// the bound name; clipped. Either is cut at a known value's edge.
 pub(super) fn place_words(name: &str, cuts: &Cuts) -> String {
     match name.strip_suffix(" on the CLI or the web UI") {
-        Some(id) => format!("the CLI or the web UI (…{})", crate::task::short(id)),
+        Some(id) => format!(
+            "the CLI or the web UI (…{})",
+            id_tail(name, id.len(), cuts)
+        ),
         None => field(name, cuts),
     }
+}
+
+/// The end of the id held by `name`'s first `end` bytes, as `crate::task::short` takes it (its last six
+/// characters), its edges settled on the whole name: it starts after any known value its start would fall
+/// inside, and ends before any that runs over its end. Empty when nothing is left between them.
+fn id_tail<'n>(name: &'n str, end: usize, cuts: &Cuts) -> &'n str {
+    let start = name[..end].char_indices().rev().nth(5).map_or(0, |(i, _)| i);
+    let (to, from) = cuts.around(name, end, start);
+    name.get(from..to).unwrap_or("")
 }

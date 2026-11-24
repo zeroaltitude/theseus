@@ -1,5 +1,6 @@
-//! The look's cuts stop at a known value's edge: a message's line, a task's title and why it ended, each
-//! part and the whole answer, and a played turn's stored result and the request that carries it. "No part of
+//! The look's cuts stop at a known value's edge: a message's line, a task's title and why it ended, the end
+//! of an id in a place's name, each part and the whole answer, and a played turn's stored result and the
+//! request that carries it. "No part of
 //! it" means no four characters in a row of the value outside a whole copy (`tests_cut_sites`). All values
 //! invented.
 
@@ -215,4 +216,99 @@ fn a_copied_span_ends_where_the_cut_fell() {
     let (said, shown) = assemble(vec![(part, spans)], &cuts);
     whole_or_absent("the answer", &said, VALUE);
     assert_eq!(shown, [("msg_a".to_string(), 7_000, 7_990)]);
+}
+
+/// What a place's name ends in when it is the CLI's: the session's id, then these words.
+const CLI: &str = " on the CLI or the web UI";
+
+/// A place's name that ends as the CLI's does: the end of the id it shows starts after a known value its start
+/// would fall inside, and ends before one that runs over where those words were taken off, both found on the
+/// whole name; when nothing is left the brackets hold an ellipsis alone. A name with no known value reads as it
+/// did, and a session's own id shows its last six characters.
+#[test]
+fn a_place_names_tail_stops_at_a_known_values_edge() {
+    use super::reader::place_words;
+    let cuts = knowing(&[VALUE]);
+    let words = place_words(&format!("#{VALUE}{CLI}"), &cuts);
+    whole_or_absent("a place's name", &words, VALUE);
+    assert_eq!(words, "the CLI or the web UI (…)");
+    // The tail would start inside the value: it starts at the value's end.
+    assert_eq!(
+        place_words(&format!("#{VALUE}xyz{CLI}"), &cuts),
+        "the CLI or the web UI (…xyz)"
+    );
+    // A value that runs on into those words: the tail ends where the value starts.
+    let across = knowing(&["kq81 on the CLI"]);
+    assert_eq!(
+        place_words(&format!("ses_0123456789abkq81{CLI}"), &across),
+        "the CLI or the web UI (…ab)"
+    );
+    // No known value in the name: as it reads with no value known.
+    for name in [
+        format!("ses_0123456789abcdef{CLI}"),
+        format!("#harbour{CLI}"),
+        format!("ab{CLI}"),
+        "#harbour".to_string(),
+    ] {
+        let none = crate::scrub::Cuts::none();
+        assert_eq!(place_words(&name, &cuts), place_words(&name, &none), "{name}");
+    }
+    assert_eq!(
+        place_words(&format!("ses_0123456789abcdef{CLI}"), &cuts),
+        "the CLI or the web UI (…abcdef)"
+    );
+    // A session's own id, as a session no place runs on is named.
+    let sid = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None)
+        .session_id;
+    assert_eq!(
+        place_words(&crate::recall::render::unplaced(&sid), &cuts),
+        format!("the CLI or the web UI (…{})", crate::task::short(&sid))
+    );
+}
+
+/// Through played turns: a conversation in a place whose bound name is a known value and then the CLI's words
+/// sets a reminder; the owner's look at what is coming says where it was set, and the result stored for that
+/// call holds no part of the value.
+#[tokio::test]
+async fn a_played_looks_stored_place_holds_no_part_of_a_known_value() {
+    use crate::provider::Scripted;
+    use crate::tests_cut_sites::{knowing_core, V};
+    use crate::tests_places::{answers_a_call, last_user, result_of, session, turn, LAB, OWNER};
+    let dir = crate::scratch::tempdir();
+    let file = dir.path().join("theseus.toml");
+    std::fs::write(&file, "").unwrap();
+    let r = knowing_core(
+        V,
+        |c| c.config_file = Some(file.clone()),
+        |req| match (answers_a_call(req), last_user(req).contains("remind me")) {
+            (true, _) => Scripted::text("Done."),
+            (false, true) => Scripted::tools(
+                "",
+                &[(
+                    "t_wake",
+                    "wake_at",
+                    json!({"after": "2h", "note": "water the ferns", "for": "owner", "say_only": true}),
+                )],
+            ),
+            (false, false) => {
+                Scripted::tools("", &[("t_look", "look_work", json!({"what": ["coming"]}))])
+            }
+        },
+    );
+    r.core.bind_places(vec![crate::places::BoundPlace {
+        target: format!("discord:channel:{LAB}"),
+        name: format!("#{V}{CLI}"),
+        private: true,
+        ..Default::default()
+    }]);
+    let there = session(&r.core, Some(&format!("channel:{LAB}")));
+    turn(&r.core, &there, "remind me to water the ferns").await;
+    let here = session(&r.core, Some(&format!("dm:{OWNER}")));
+    turn(&r.core, &here, "what is coming").await;
+    let stored = result_of(&r.core, &here, "t_look");
+    assert!(
+        stored.contains(" · in the CLI or the web UI (…) · water the ferns\n"),
+        "{stored}"
+    );
+    whole_or_absent("the stored result", &stored, V);
 }
