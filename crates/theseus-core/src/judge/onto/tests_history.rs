@@ -786,3 +786,46 @@ async fn a_recorded_answer_is_not_touched_after_a_rollback_or_a_stop() {
         }
     }
 }
+
+/// The day's budget as `judge/spend.rs` has it, for this job's shadow
+/// calls: shadow's line is 70% of `[judge] shadow_limit_usd_per_day`, a call
+/// past it is still made and the owner told (`judge.over_line`), and the
+/// stop is ten times the line (`HARD_MULTIPLE`). A limit of one call's worst
+/// case puts the call past the line and under the stop: it is made, with
+/// the warning. A tenth of it puts the stop under the call: none is made.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_days_line_warns_and_ten_times_it_stops() {
+    let worst = {
+        let jev = FakeJev::start().unwrap();
+        let r = rig(jev);
+        ledger_topic(&r.core);
+        let sid = bound(&r.core);
+        said(&r.core, &sid, "turn_old", SAID, 5_000);
+        r.core.topics_history(&params(true, None)).await.unwrap().worst_usd
+    };
+    assert!(worst > 0.0);
+    for (case, limit_usd, asked) in [("warning", worst, 1), ("stop", worst / 10.0, 0)] {
+        let jev = FakeJev::start().unwrap();
+        jev.script_onto("topic", "c1", 0.9);
+        let r = rig_with(jev, Vec::new(), |c| {
+            c.judge.shadow_limit_usd_per_day = limit_usd
+        });
+        ledger_topic(&r.core);
+        let sid = bound(&r.core);
+        said(&r.core, &sid, "turn_old", SAID, 5_000);
+        let out = r.core.topics_history(&params(false, None)).await.unwrap();
+        assert_eq!((out.asked, r.jev.seen().len()), (asked, asked as usize), "{case}: {out:?}");
+        let over = of_kind(&r.core, LedgerKind::JudgeOverLine);
+        match case {
+            "warning" => {
+                assert_eq!(out.stopped, None, "{case}: {out:?}");
+                assert_eq!(over.len(), 1, "{case}: told at the line: {over:?}");
+            }
+            _ => {
+                let why = out.stopped.as_deref().unwrap_or_default();
+                assert!(why.contains("budget for today"), "{case}: {why}");
+                assert!(over.is_empty(), "{case}: {over:?}");
+            }
+        }
+    }
+}
