@@ -22,6 +22,7 @@ use crate::view::{Anchor, Handle, PointOfView, Present};
 
 mod every;
 mod handles;
+mod keys;
 mod labels;
 
 const HERE: &str = "local";
@@ -364,7 +365,7 @@ fn a_line_cuts_his_words_at_300_and_the_replys_beginning_at_200_by_code() {
         "200 and the ellipsis"
     );
     assert_eq!(line.did, None);
-    let said = render(&p, (HERE, None), 0, None);
+    let said = render(&p, (&super::page::history_of(HERE, None), None), 0, None);
     assert_eq!(
         said.lines().filter(|l| l.starts_with("- ")).count(),
         2,

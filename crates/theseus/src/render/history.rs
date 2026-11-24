@@ -31,21 +31,23 @@ pub fn page_lines(h: &SessionHistoryResult) -> Vec<Line> {
     out
 }
 
-/// A search's page (`history.read`, issue 44): a heading, one line an exchange (when · place · whose words:
-/// the words → what was done · what a content label was on · handle: the handle is a line's last field), and how
-/// the page ends, with the command that reads on (`again`, the search's own flags) when there is more.
-pub fn read_lines(r: &HistoryReadResult, again: &str) -> Vec<Line> {
+/// A search's page (`history.read`, issue 44): a heading naming what was asked (the place, or every place, and
+/// the `label` asked), one line an exchange (when · place · whose words: the words → what was done · what a
+/// content label was on · handle: the handle is a line's last field), and how the page ends, with the command
+/// that reads on (`again`, the search's own flags) when there is more.
+pub fn read_lines(r: &HistoryReadResult, again: &str, label: Option<&str>) -> Vec<Line> {
     let mut out = Vec::new();
     let of = match r.place.as_str() {
         "" => "every place",
         p => place_said(p),
     };
+    let label = label.map_or_else(String::new, |l| format!(" labelled {l}"));
     let n = r.lines.len();
     let s = if n == 1 { "" } else { "s" };
     push(
         &mut out,
         Tag::Dim,
-        &format!("── {n} exchange{s} of {of}'s history, newest first"),
+        &format!("── {n} exchange{s} of {of}'s history{label}, newest first"),
     );
     for l in &r.lines {
         let did = match (&l.did, &l.reply_begins) {

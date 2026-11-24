@@ -187,6 +187,29 @@ async fn a_label_line_says_what_it_was_on_and_a_removal() {
             ..ex(3, HERE, &me)
         },
     );
+    // Raised on the message and on the reply; the owner removed the message's only.
+    let (ask, reply) = put(
+        &r.core.store,
+        &Ex {
+            at: day + 3_000,
+            things: PERSONAL,
+            ..ex(4, HERE, &me)
+        },
+    );
+    labelled(
+        &r.core.store,
+        &ask.id,
+        ItemKind::OperatorMessage,
+        Flag::Personal,
+        true,
+    );
+    labelled(
+        &r.core.store,
+        &reply.id,
+        ItemKind::Reply,
+        Flag::Personal,
+        false,
+    );
     let page = call(&r.core, &me, json!({"label": "personal"}))
         .await
         .unwrap();
@@ -205,10 +228,58 @@ async fn a_label_line_says_what_it_was_on_and_a_removal() {
         line("turn_0002").ends_with("· personal: on the reply · turn_0002"),
         "{page}"
     );
+    // Neither the message nor the reply holds it: another item of the exchange does (a tool's result, a reply
+    // before the last), whose removal this read cannot see, so none is claimed.
     assert!(
-        line("turn_0003").ends_with("· personal: on something it read · turn_0003"),
+        line("turn_0003").ends_with("· personal: on another item of the exchange · turn_0003"),
         "{page}"
     );
+    assert!(
+        line("turn_0004").ends_with(
+            "· personal: on the message and the reply, since removed by the owner from the message · turn_0004"
+        ),
+        "{page}"
+    );
+}
+
+/// A page is headed by what was asked (issue 44): a place named, or every place for a label with none, and the
+/// label by name; never the place the turn is in when the page is another's.
+#[tokio::test]
+async fn a_page_is_headed_by_what_was_asked() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let (me, other) = (session(&r.core, None), session(&r.core, None));
+    days(&r.core, &me, &other);
+    put(
+        &r.core.store,
+        &Ex {
+            things: &["topic:kelp"],
+            ..ex(5, DM, &other)
+        },
+    );
+    for (v, heading) in [
+        (
+            json!({"label": "personal"}),
+            "of every place's history labelled personal, newest first",
+        ),
+        (
+            json!({"label": "personal", "place": DM}),
+            "of discord:dm:42's history labelled personal, newest first",
+        ),
+        (
+            json!({"place": DM}),
+            "of discord:dm:42's history, newest first",
+        ),
+        (
+            json!({"label": "topic:kelp"}),
+            "of every place's history labelled topic:kelp, newest first",
+        ),
+        (json!({}), "of local's history, newest first"),
+    ] {
+        let page = call(&r.core, &me, v.clone()).await.unwrap();
+        let head = page.lines().next().unwrap();
+        assert!(head.contains(heading), "{v}: {head}");
+    }
 }
 
 /// A line's handle is its last field, by rule (a reader of a page takes the handle as the field after a line's

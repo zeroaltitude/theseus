@@ -111,7 +111,7 @@ async fn search(
     output(json, v, |r: HistoryReadResult| {
         print::lines(
             &mut io::stdout().lock(),
-            &render::history::read_lines(&r, &again),
+            &render::history::read_lines(&r, &again, s.label.as_deref()),
         )?;
         Ok(())
     })

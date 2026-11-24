@@ -268,6 +268,26 @@ pub(crate) fn marker(o: &ToolOutput) -> Option<theseus_tools::External> {
 }
 
 /// What a page read, as its marker names it: the place or the label it was asked for, or here.
+/// What a page's heading names (`page::history_of`): what was asked, never the place the turn is in when the
+/// page is another's. The place named; every place for a label with none, or for a page that reads every place;
+/// else the place the turn is in. And the label, by name.
+fn heading_of(a: &HistoryArgs, here: &str, every: bool) -> String {
+    let some = |s: &Option<String>| {
+        s.as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    let (place, label) = (some(&a.place), some(&a.label));
+    let read = match (&place, &label) {
+        (Some(p), _) => p.as_str(),
+        (None, Some(_)) => page::EVERY_PLACE,
+        (None, None) if every => page::EVERY_PLACE,
+        (None, None) => here,
+    };
+    page::history_of(read, label.as_deref())
+}
+
 fn read_of<'a>(a: &'a HistoryArgs, here: &'a str) -> &'a str {
     let some = |s: &'a Option<String>| s.as_deref().map(str::trim).filter(|s| !s.is_empty());
     some(&a.place).or(some(&a.label)).unwrap_or(here)
@@ -519,10 +539,11 @@ pub(crate) async fn answer(
             resume,
             imported,
         } => {
-            // A page of every place is named so, and its marker says what it read.
-            let (heading, of) = match walked.every {
-                true => (page::EVERY_PLACE, page::EVERY_PLACE),
-                false => (here.as_str(), read_of(a, here)),
+            // A page is headed by what was asked, and its marker says what it read.
+            let heading = heading_of(a, here, walked.every);
+            let of = match walked.every {
+                true => page::EVERY_PLACE,
+                false => read_of(a, here),
             };
             let p = walked.page;
             // An import search's page holds its own size of hits.
@@ -542,7 +563,7 @@ pub(crate) async fn answer(
                     f.nodes,
                 ),
                 None => (
-                    page::render(&p, (heading, span.as_ref()), looks, resume.as_ref()),
+                    page::render(&p, (&heading, span.as_ref()), looks, resume.as_ref()),
                     page_sources(core, &p)?,
                 ),
             };
