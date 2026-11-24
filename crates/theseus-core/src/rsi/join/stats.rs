@@ -39,6 +39,7 @@ use theseus_kernel::children::{self, Kind};
 use super::stats_tree::{self, Snapshot};
 use crate::rsi::jail::{Clocked, Job};
 use crate::rsi::tree::{Place, Tree};
+use crate::scrub::Cuts;
 
 /// The counter, main's copy of which runs.
 const COUNTER: &str = "scripts/stats.py";
@@ -134,14 +135,16 @@ impl<T> Because<T> for Result<T> {
 }
 
 /// Count the made merge `merge` (on `base`) in its tree `t`, and fold the count into it, within
-/// `limit` for both of the counter's runs. `after_fold` is a test's way in once the fold has moved HEAD
-/// and the index. An error only when the tree could not be shown put back after a count that failed.
+/// `limit` for both of the counter's runs. A failed count's words hold the counter's last line cut
+/// where `cuts` says. `after_fold` is a test's way in once the fold has moved HEAD and the index. An
+/// error only when the tree could not be shown put back after a count that failed.
 pub(super) fn count(
     p: &Place,
     t: &Tree,
     base: &str,
     merge: &str,
     limit: Duration,
+    cuts: &Cuts,
     after_fold: Option<&(dyn Fn(&Path) + Send + Sync)>,
 ) -> Result<Count> {
     let kept = |skip: Skip, why: String| Count {
@@ -168,7 +171,7 @@ pub(super) fn count(
     let until = Instant::now() + limit;
     let ran = scratch.and_then(|s| {
         let lines = range(p, &s.job, &frozen, base, until, limit);
-        run(p, &s.job, &frozen, &["--count-head"], until, limit).map(|_| lines)
+        run(p, &s.job, &frozen, &["--count-head"], until, limit, Some(cuts)).map(|_| lines)
     });
     let lines = match ran.because(Skip::Failed) {
         Ok(lines) => lines,
@@ -266,14 +269,16 @@ pub fn range(
     limit: Duration,
 ) -> Option<String> {
     let spec = format!("{base}..HEAD");
-    match run(p, job, frozen, &["--range", &spec], until, limit) {
+    match run(p, job, frozen, &["--range", &spec], until, limit, None) {
         Ok((log, false)) => range_line(&log),
         _ => None,
     }
 }
 
 /// `python3 -I <frozen> <args> --root <tree>` in L1, its output to a log of its own under the
-/// gates, stopped at `until`; the log when it exited 0, and whether its output was cut.
+/// gates, stopped at `until`; the log when it exited 0, and whether its output was cut. When it
+/// exited otherwise, the error says how, with its log's last line cut where `cuts` says, or no line
+/// when there are none (a caller that keeps no words of it).
 fn run(
     p: &Place,
     job: &Tree,
@@ -281,6 +286,7 @@ fn run(
     args: &[&str],
     until: Instant,
     limit: Duration,
+    cuts: Option<&Cuts>,
 ) -> Result<(PathBuf, bool)> {
     let what = args[0].trim_start_matches('-');
     let log = p.gates().join(format!("stats-{what}-{}.log", job.slug));
@@ -318,6 +324,10 @@ fn run(
         },
     };
     if code != Some(0) {
+        let exited = code.map_or_else(|| "on a signal".to_string(), |c| c.to_string());
+        let Some(cuts) = cuts else {
+            bail!("main's counter ({}) exited {exited}", args[0]);
+        };
         let said = std::fs::read_to_string(&log).unwrap_or_default();
         let last = said
             .lines()
@@ -325,10 +335,9 @@ fn run(
             .find(|l| !l.trim().is_empty())
             .unwrap_or("");
         bail!(
-            "main's counter ({}) exited {}: {}",
+            "main's counter ({}) exited {exited}: {}",
             args[0],
-            code.map_or_else(|| "on a signal".to_string(), |c| c.to_string()),
-            last.chars().take(200).collect::<String>()
+            cuts.head(last, 200).0
         );
     }
     Ok((log, cut))
