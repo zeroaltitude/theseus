@@ -55,7 +55,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   cut one); the session's target stays. A `provider.fallback` row per switch and a `provider.routed_back` row per return, and
   the result's `fallback`, whose `line` every surface shows. Tests: `tests_fallback.rs`.
   **The stop nudge** (theseus-fh0u, the owner's D8; `turn/nudge_step.rs`, `judge/stop.rs`): a loop the baseline ends
-  with no tool calls asks `loop.v1` at the stop, live (it is wired live while `[judge] stop_nudge`, on by default, is
+  with no tool calls asks `loop.v2` at the stop, live (it is wired live while `[judge] stop_nudge`, on by default, is
   on; off, the switch holds it in shadow), and waits at most `judge::stop::WAIT` (1 s, the pack's own on-path bar).
   When `announced_unfinished` acts true, one harness node (`harness:stop_nudge`, the model reads it as the user's) and
   its `turn.nudged` row ride one frame, and the turn calls the model once more; at most once a turn, and the nudged
@@ -63,7 +63,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`session.nudge`, META `stop_nudge.<session>`), while a job of the turn runs, at a strict loop cap, or with Jev
   unreachable. A stop judged live is marked with point `stop` and not judged again after the turn; every judgment
   after a turn is recorded in shadow. The result's `nudged` (with `acted`) is on `turn.ended`'s row, which the prove
-  counts. Tests: `tests_stop_nudge.rs`, theseusd's `tests/stop_nudge.rs`; the judge's other tests run loop.v1 in
+  counts. Tests: `tests_stop_nudge.rs`, theseusd's `tests/stop_nudge.rs`; the judge's other tests run loop.v2 in
   shadow (`tests_judge::judge_config` turns the switch off).
   **A harness nudge's reply is not the owner's** (theseus-emqbm; `content::harness_nudge`,
   `content::HARNESS_NUDGE_AUTHORS`, `turn::Turn::relayed`, `turn/reply_step.rs::posted_loops`): a loop whose request

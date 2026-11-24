@@ -173,3 +173,13 @@ fn a_settings_table_for_onto_v1_loads_and_is_named_retired() {
     assert!(lines[0].contains("judge.packs.\"onto.v1\""), "{}", lines[0]);
     assert_eq!(cfg.judge.retired(), ["judge.packs.\"onto.v1\""]);
 }
+
+/// The same for loop.v1, retired by loop.v2 (issue 46).
+#[test]
+fn a_settings_table_for_loop_v1_loads_and_is_named_retired() {
+    let (cfg, warnings) = parse("[judge.packs.\"loop.v1\"]\nrung = \"off\"\n").unwrap();
+    let lines = trimmed(&warnings);
+    assert_eq!(lines.len(), 1, "{warnings:?}");
+    assert!(lines[0].contains("judge.packs.\"loop.v1\""), "{}", lines[0]);
+    assert_eq!(cfg.judge.retired(), ["judge.packs.\"loop.v1\""]);
+}

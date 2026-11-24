@@ -96,7 +96,7 @@ async fn before_the_warm_read_a_judged_turn_reads_and_writes_nothing_of_the_ladd
     assert_eq!(res.tool_calls, 1, "{res:?}");
     // Every point judged: the inbound batch's two, the gate's one, and
     // the loop's end.
-    let want = ["classify.v5", "route.v12", "security.v3", "loop.v1"];
+    let want = ["classify.v5", "route.v12", "security.v3", "loop.v2"];
     let judged = || -> Vec<String> {
         crate::tests_judge::kinds(&c.store, "judge.call")
             .iter()

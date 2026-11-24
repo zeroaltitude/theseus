@@ -1,4 +1,4 @@
-//! The judge's wire-in (M5 23a; design §3, "23a"): `loop.v1` in shadow at a
+//! The judge's wire-in (M5 23a; design §3, "23a"): `loop.v2` in shadow at a
 //! turn's end, against the fake Jev. Every judgment is recorded (keyed,
 //! scoped, its state in a blob), priced from the judge's own budget, and
 //! nothing a turn sends or returns changes with it: not when Jev is down,
@@ -52,7 +52,7 @@ pub(crate) fn off() -> crate::config::JudgePackConfig {
     }
 }
 
-/// The config these tests run: with a Jev, the judge on, and `loop.v1`
+/// The config these tests run: with a Jev, the judge on, and `loop.v2`
 /// judging alone (the inbound point's packs off: `tests_inbound` judges
 /// them).
 pub(crate) fn config(state: &Path, jev: Option<&FakeJev>) -> Config {
@@ -86,7 +86,7 @@ pub(crate) fn judge_config(state: &Path, jev: Option<&FakeJev>) -> Config {
         cfg.judge.connect_secs = 1;
         cfg.judge.total_secs = 10;
     }
-    // loop.v1 in shadow, judged after the turn: the judge's own machinery
+    // loop.v2 in shadow, judged after the turn: the judge's own machinery
     // (the sink, the budget, the ladder, the learning loop) is tested on it
     // here. Its live use at a turn's stop, the default, is
     // `tests_stop_nudge`'s (theseus-fh0u).
@@ -207,7 +207,7 @@ pub(crate) fn judged_nodes(store: &Store) -> Vec<String> {
         .collect()
 }
 
-/// A turn the baseline ends with no tool calls is judged once by `loop.v1`
+/// A turn the baseline ends with no tool calls is judged once by `loop.v2`
 /// in shadow: its row is keyed by the judgment's id and scoped
 /// `judge:loop`, its state is in a blob written before it, and its cost is
 /// the judge's, not the session's.
@@ -234,7 +234,7 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
     assert_eq!(row.turn_id.as_deref(), Some(res.turn_id.as_str()));
     assert_eq!(
         (d["pack"].as_str(), d["version"].as_u64()),
-        (Some("loop.v1"), Some(1))
+        (Some("loop.v2"), Some(2))
     );
     assert_eq!(
         (d["mode"].as_str(), d["budget"].as_str()),
@@ -272,7 +272,7 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
     assert_eq!(
         h.packs,
         [
-            "loop.v1: shadow",
+            "loop.v2: shadow",
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v5: off",
             "split.v1: off",
@@ -474,7 +474,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
     let off = rig_with(texts(1), None, |c| c.judge.api_base = jev.base());
     turn(&off.core, None, "Say done.").await;
     let pack_off = rig_with(texts(1), Some(&jev), |c| {
-        c.judge.packs.insert("loop.v1".into(), self::off());
+        c.judge.packs.insert("loop.v2".into(), self::off());
     });
     turn(&pack_off.core, None, "Say done.").await;
     let capped = rig_with(texts(1), Some(&jev), |c| c.judge.max_mode = PackMode::Off);
@@ -487,7 +487,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
     assert_eq!(
         pack_off.core.health().judge.unwrap().packs,
         [
-            "loop.v1: off",
+            "loop.v2: off",
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v5: off",
             "split.v1: off",

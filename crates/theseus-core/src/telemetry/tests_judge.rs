@@ -72,7 +72,7 @@ async fn the_judges_metrics_carry_their_names_and_attributes() {
     let judge = |k: &str| format!("theseus.judge.{k}");
     let calls: Vec<String> = ["band", "class", "mode", "pack"].map(judge).into();
     assert_eq!(keys_of(&m, "theseus.judge.calls"), [calls.clone(), calls]);
-    let pack = ("theseus.judge.pack", "loop.v1");
+    let pack = ("theseus.judge.pack", "loop.v2");
     let answered = [
         pack,
         ("theseus.judge.mode", "shadow"),
@@ -118,7 +118,7 @@ async fn the_judges_metrics_carry_their_names_and_attributes() {
     assert_eq!(
         attrs_of(spend),
         BTreeMap::from([
-            ("theseus.judge.pack".to_string(), "loop.v1".to_string()),
+            ("theseus.judge.pack".to_string(), "loop.v2".to_string()),
             ("theseus.spend".to_string(), "judge".to_string()),
         ])
     );

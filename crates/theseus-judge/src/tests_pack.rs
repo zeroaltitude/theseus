@@ -686,6 +686,15 @@ fn the_six_packs_ask_what_the_design_says() {
             ],
         ),
         (
+            "loop.v2",
+            &[
+                "LoopEnd Loop UntilNoToolCalls NudgeTask",
+                "announced_unfinished Noul decides",
+                "work_state Choice decides [complete progressing blocked_needs_human thrashing off_task other]",
+                "rollback [nudge_loop]",
+            ],
+        ),
+        (
             "security.v1",
             &[
                 "Gate Security Posture Notice",
@@ -1063,7 +1072,7 @@ fn the_loaders_rules_hold_on_all_the_packs() {
     assert_eq!(
         six.len(),
         27,
-        "loop.v1, security.v3, classify.v5, categorize.v1, rerank.v1, route.v12, \
+        "loop.v2, security.v3, classify.v5, categorize.v1, rerank.v1, route.v12, \
          effort.v1, work.v1, citation.v1, people.v1, people_seen.v1, compare.v1, heard.v1, directive.v2, \
          onto.v2, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, families.v1, \
          content.v4, split.v1, undo.v1, delay.v1, precedence.v1, allow_said.v1 and task_words.v1 (the \

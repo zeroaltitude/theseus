@@ -64,6 +64,8 @@ mod tests_content_v4;
 #[cfg(test)]
 mod tests_job_sites;
 #[cfg(test)]
+mod tests_loop_v2;
+#[cfg(test)]
 mod tests_onto;
 #[cfg(test)]
 mod tests_pack;

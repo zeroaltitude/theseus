@@ -42,7 +42,7 @@ use crate::learn::RollbackRule;
 /// Older versions (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
-    ("loop.v1", include_str!("../packs/loop.v1.toml")),
+    ("loop.v2", include_str!("../packs/loop.v2.toml")),
     ("security.v3", include_str!("../packs/security.v3.toml")),
     ("classify.v5", include_str!("../packs/classify.v5.toml")),
     ("directive.v2", include_str!("../packs/directive.v2.toml")),
@@ -108,6 +108,8 @@ pub const RETIRED: &[&str] = &[
     "attribution.v1",
     // The ontology pack's questions for the restricted-provider rule went with onto.v2 (issue 46).
     "onto.v1",
+    // Four questions nothing read and three rules nothing fed went with loop.v2 (issue 46).
+    "loop.v1",
 ];
 
 /// Each retired version's rollback rules, as its file declares them (the
@@ -266,6 +268,25 @@ count = 2
     ("memory.v1", r#""#),
     ("attribution.v1", r#""#),
     ("onto.v1", r#""#),
+    (
+        "loop.v1",
+        r#"[[rollback]]
+rule = "nudge_loop"
+
+[[rollback]]
+rule = "spend_ratio"
+ratio = 2.0
+min_tasks = 10
+
+[[rollback]]
+rule = "operator_stop_within_nudge"
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 1000
+min_samples = 20
+"#,
+    ),
 ];
 
 /// A retired version's own rollback rules; `None` for a name this build did
@@ -383,6 +404,7 @@ pub fn retired(name: &str) -> Option<Arc<Pack>> {
             include_str!("../packs/retired/attribution.v1.toml"),
         ),
         ("onto.v1", include_str!("../packs/retired/onto.v1.toml")),
+        ("loop.v1", include_str!("../packs/retired/loop.v1.toml")),
     ];
     static PARSED: OnceLock<Vec<Arc<Pack>>> = OnceLock::new();
     let parsed = PARSED.get_or_init(|| {

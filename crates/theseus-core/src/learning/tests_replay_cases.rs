@@ -357,11 +357,11 @@ async fn the_refusals_send_nothing() {
             "{e}"
         );
     }
-    // The file is written for route.v12 (and so route.v10), not loop.v1.
+    // The file is written for route.v12 (and so route.v10), not loop.v2.
     let e = c
         .judge_replay(
             JudgeReplayParams {
-                candidate: Some("loop.v1".into()),
+                candidate: Some("loop.v2".into()),
                 ..params()
             },
             "cli",

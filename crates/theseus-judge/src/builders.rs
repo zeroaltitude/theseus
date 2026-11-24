@@ -1385,7 +1385,7 @@ pub(crate) mod tests {
     fn each_builder_matches_its_golden_state() {
         for pack in [
             "probe.v1",
-            "loop.v1",
+            "loop.v2",
             "security.v1",
             "security.v3",
             "classify.v2",
@@ -1500,7 +1500,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_loop_state_counts_for_jev() {
-        let (_, p) = prepared("loop.v1");
+        let (_, p) = prepared("loop.v2");
         let v = p.state.value();
         assert_eq!(v["tool_calls_this_turn"], 5);
         // The two identical fs.read calls.
@@ -1587,12 +1587,12 @@ pub(crate) mod tests {
 
     #[test]
     fn a_pack_refuses_another_builders_input() {
-        let p = by_name("loop.v1").unwrap();
+        let p = by_name("loop.v2").unwrap();
         let input = Input::parse(Builder::Probe, &fixture("probe")).unwrap();
         assert_eq!(
             prepare(&p, &input, &NoScrub).unwrap_err(),
             WrongInput {
-                pack: "loop.v1".into(),
+                pack: "loop.v2".into(),
                 wants: Builder::Loop,
                 got: Builder::Probe
             }
@@ -1649,7 +1649,7 @@ pub(crate) mod tests {
         assert_eq!(argv.last().unwrap(), &json!({"cut": "6 later left out"}));
         assert_eq!(s.truncated, vec!["argv"]);
         // Nothing cut, nothing listed.
-        let (_, lp) = prepared("loop.v1");
+        let (_, lp) = prepared("loop.v2");
         assert!(lp.state.truncated.is_empty());
     }
 
@@ -1713,7 +1713,7 @@ pub(crate) mod tests {
         };
         let inputs: Vec<(&str, Input)> = vec![
             (
-                "loop.v1",
+                "loop.v2",
                 Input::Loop(LoopInput {
                     session_kind: SessionKind::Conversation,
                     ask: big.clone(),

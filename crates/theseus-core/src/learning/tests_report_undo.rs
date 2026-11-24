@@ -60,7 +60,7 @@ async fn the_learning_report_carries_the_onto_undo_line() {
     let now = now_unix_ms();
     let calls = [
         judgment("jdg_a", ONTO, vec![], json!({}), 10),
-        judgment("jdg_l", "loop.v1", vec![], json!({}), 10),
+        judgment("jdg_l", "loop.v2", vec![], json!({}), 10),
     ];
     let rows: Vec<_> = calls.iter().map(|j| call_row(j, now - 1_000)).collect();
     c.store.append(&rows).unwrap();
@@ -81,7 +81,7 @@ async fn the_learning_report_carries_the_onto_undo_line() {
         }]
     );
     assert_eq!(pack(ONTO).undo_days, 7, "the window rides the report");
-    let other = pack("loop.v1");
+    let other = pack("loop.v2");
     assert!(other.undo.is_empty());
     assert!(serde_json::to_value(other).unwrap().get("undo").is_none());
 }

@@ -60,7 +60,7 @@ fn marks(trace: &Option<Span>) -> Vec<Value> {
         .collect()
 }
 
-/// `loop.v1`, the gate's packs (step 24), `categorize.v1` (28b) and `rerank.v1` (32c) off, so the inbound point's
+/// `loop.v2`, the gate's packs (step 24), `categorize.v1` (28b) and `rerank.v1` (32c) off, so the inbound point's
 /// call is the only one; and `route.v1` (25e) off, so this is 25a's pack
 /// alone (`tests_route` asks the route pack too).
 pub(crate) fn inbound_only(c: &mut crate::Config) {
@@ -69,7 +69,7 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
     c.judge
         .packs
         .insert(crate::judge::inbound::ROUTE_PACK.into(), off());
-    c.judge.packs.insert("loop.v1".into(), off());
+    c.judge.packs.insert("loop.v2".into(), off());
     c.judge
         .packs
         .insert(crate::judge::gate::SECURITY_PACK.into(), off());
@@ -105,7 +105,7 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
 /// three packs the owner put live stand as his adoption, under the
 /// config's ceiling (26a).
 const INBOUND_ALONE: [&str; 21] = [
-    "loop.v1: off",
+    "loop.v2: off",
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "classify.v5: live",
     "split.v1: shadow",
@@ -359,7 +359,7 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     let r = rig_on(texts(2), Some(&jev), |_| {});
     let first = turn(&r.core, None, "warm up").await;
     until_inbound(&r.core.store, 1).await;
-    // The first turn's loop.v1 judgment, and the sink's frame after it.
+    // The first turn's loop.v2 judgment, and the sink's frame after it.
     let t0 = Instant::now();
     while scoped(&r.core.store, "judge:loop").is_empty() {
         assert!(t0.elapsed() < Duration::from_secs(20));
@@ -372,7 +372,7 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     assert_eq!(
         marks(&res.trace).len(),
         6,
-        "judged: the inbound point's five marks (classify and route.v12's four packs, 25e), and loop.v1's at the turn's end (23b)"
+        "judged: the inbound point's five marks (classify and route.v12's four packs, 25e), and loop.v2's at the turn's end (23b)"
     );
     let own = res.trace.as_ref().unwrap().attrs["frames"].as_u64();
     assert_eq!(own, Some(4), "the turn's own frames");

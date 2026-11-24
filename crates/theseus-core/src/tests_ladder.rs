@@ -97,9 +97,9 @@ async fn the_config_lowers_the_ladders_mode_and_never_raises_it() {
     // The stop nudge's switch on (theseus-fh0u): off, it is a ceiling too.
     let c = core_at(dir.path(), None, |cfg| cfg.judge.stop_nudge = true);
     let j = &c.runner.judge;
-    c.pack_promote(&promote("loop.v1", "live", None), "cli")
+    c.pack_promote(&promote("loop.v2", "live", None), "cli")
         .unwrap();
-    assert_eq!(j.mode_for("loop.v1", "ses_a").mode, PackMode::Live);
+    assert_eq!(j.mode_for("loop.v2", "ses_a").mode, PackMode::Live);
     drop(c);
     for (line, want) in [
         ("max_mode = \"shadow\"", PackMode::Shadow),
@@ -108,15 +108,15 @@ async fn the_config_lowers_the_ladders_mode_and_never_raises_it() {
     ] {
         let c = core_at(dir.path(), None, |cfg| match line {
             "pack shadow" => {
-                cfg.judge.packs.entry("loop.v1".into()).or_default().mode = Some(PackMode::Shadow)
+                cfg.judge.packs.entry("loop.v2".into()).or_default().mode = Some(PackMode::Shadow)
             }
             "pack off" => {
-                cfg.judge.packs.entry("loop.v1".into()).or_default().mode = Some(PackMode::Off)
+                cfg.judge.packs.entry("loop.v2".into()).or_default().mode = Some(PackMode::Off)
             }
             _ => cfg.judge.max_mode = PackMode::Shadow,
         });
         assert_eq!(
-            c.runner.judge.mode_for("loop.v1", "ses_a").mode,
+            c.runner.judge.mode_for("loop.v2", "ses_a").mode,
             want,
             "{line}"
         );
@@ -142,21 +142,21 @@ async fn short_of_the_bar_the_system_is_refused_and_the_owner_forces() {
     let dir = tempfile::tempdir().unwrap();
     let c = core_at(dir.path(), None, |_| {});
     let e = c
-        .promote_automatic(&promote("loop.v1", "canary", Some(0.2)))
+        .promote_automatic(&promote("loop.v2", "canary", Some(0.2)))
         .unwrap_err();
     assert!(
         e.to_string()
-            .contains("short of the bar: no learning report of loop.v1"),
+            .contains("short of the bar: no learning report of loop.v2"),
         "{e}"
     );
-    assert!(rows(&c, "loop.v1").is_empty(), "nothing written");
+    assert!(rows(&c, "loop.v2").is_empty(), "nothing written");
     let e = c
-        .pack_promote(&promote("loop.v1", "canary", Some(0.2)), stranger())
+        .pack_promote(&promote("loop.v2", "canary", Some(0.2)), stranger())
         .unwrap_err();
     assert!(refusal(&e), "{e:#}");
-    assert!(rows(&c, "loop.v1").is_empty(), "nothing written");
+    assert!(rows(&c, "loop.v2").is_empty(), "nothing written");
     let out = c
-        .pack_promote(&promote("loop.v1", "canary", Some(0.2)), "cli")
+        .pack_promote(&promote("loop.v2", "canary", Some(0.2)), "cli")
         .unwrap();
     let row = out.row.unwrap();
     assert!(row.forced);
@@ -167,7 +167,7 @@ async fn short_of_the_bar_the_system_is_refused_and_the_owner_forces() {
             row.share,
             row.who.as_str()
         ),
-        // From loop.v1's wired line: live since the stop nudge (theseus-fh0u).
+        // From loop.v2's wired line: live since the stop nudge (theseus-fh0u).
         ("canary", "live", Some(0.2), "owner")
     );
     assert!(row
@@ -175,15 +175,15 @@ async fn short_of_the_bar_the_system_is_refused_and_the_owner_forces() {
         .as_deref()
         .unwrap()
         .contains("no learning report"));
-    assert_eq!(rows(&c, "loop.v1").len(), 1);
+    assert_eq!(rows(&c, "loop.v2").len(), 1);
     assert_eq!(
-        c.runner.judge.ladder().standing("loop.v1").rung,
+        c.runner.judge.ladder().standing("loop.v2").rung,
         Rung::Canary
     );
     let e = c
         .pack_rollback(
             &PackRollbackParams {
-                pack: "loop.v1".into(),
+                pack: "loop.v2".into(),
                 why: None,
                 off: false,
             },
@@ -194,7 +194,7 @@ async fn short_of_the_bar_the_system_is_refused_and_the_owner_forces() {
     let back = c
         .pack_rollback(
             &PackRollbackParams {
-                pack: "loop.v1".into(),
+                pack: "loop.v2".into(),
                 why: Some("too eager".into()),
                 off: false,
             },
@@ -208,10 +208,10 @@ async fn short_of_the_bar_the_system_is_refused_and_the_owner_forces() {
     assert_eq!(back.until_ms, None, "the owner's stands until a promotion");
     // Bad asks are invalid, not written.
     for bad in [
-        promote("loop.v1", "canary", None),
-        promote("loop.v1", "canary", Some(1.5)),
-        promote("loop.v1", "live", Some(0.5)),
-        promote("loop.v1", "sideways", None),
+        promote("loop.v2", "canary", None),
+        promote("loop.v2", "canary", Some(1.5)),
+        promote("loop.v2", "live", Some(0.5)),
+        promote("loop.v2", "sideways", None),
         promote("nope.v9", "live", None),
     ] {
         assert!(c.pack_promote(&bad, "cli").is_err(), "{bad:?}");
@@ -227,7 +227,7 @@ async fn a_promotion_cites_its_report_and_its_holdouts_bounds() {
     let dir = tempfile::tempdir().unwrap();
     let c = core_at(dir.path(), None, |_| {});
     let report = PackReport {
-        pack: "loop.v1".into(),
+        pack: "loop.v2".into(),
         holdout: Holdout {
             start_ms: 1_000,
             end_ms: 2_000,
@@ -240,7 +240,7 @@ async fn a_promotion_cites_its_report_and_its_holdouts_bounds() {
         },
         ..PackReport::default()
     };
-    let key = "rpt_2026-10-01_loop.v1";
+    let key = "rpt_2026-10-01_loop.v2";
     let row = LedgerRow::new(
         LedgerKind::JudgeReport,
         None,
@@ -250,7 +250,7 @@ async fn a_promotion_cites_its_report_and_its_holdouts_bounds() {
     let mut rec = NewRecord::json(kinds::LEDGER, None, &row).unwrap();
     rec.key = Some(key.into());
     c.store.append(&[rec.scoped("judge:loop")]).unwrap();
-    let mut p = promote("loop.v1", "live", None);
+    let mut p = promote("loop.v2", "live", None);
     p.report = Some(key.into());
     let e = c.promote_automatic(&p).unwrap_err();
     assert!(
@@ -380,16 +380,16 @@ async fn a_rules_trigger_rolls_a_pack_back() {
     };
     // Wired live since the stop nudge (theseus-fh0u): its file's rule fires
     // on the first nudge loop, before any row of its own.
-    j.land("loop.v1", nudge());
+    j.land("loop.v2", nudge());
     assert_eq!(
-        rows(&c, "loop.v1").pop().map(|r| r.mode),
+        rows(&c, "loop.v2").pop().map(|r| r.mode),
         Some("rolled_back".to_string()),
         "live: its rule rolls it back"
     );
-    c.pack_promote(&promote("loop.v1", "canary", Some(0.5)), "cli")
+    c.pack_promote(&promote("loop.v2", "canary", Some(0.5)), "cli")
         .unwrap();
-    j.land("loop.v1", nudge());
-    let back = rows(&c, "loop.v1").pop().unwrap();
+    j.land("loop.v2", nudge());
+    let back = rows(&c, "loop.v2").pop().unwrap();
     assert_eq!(
         (back.mode.as_str(), back.who.as_str(), back.rule.as_deref()),
         ("rolled_back", "system", Some("nudge_loop"))
@@ -399,19 +399,19 @@ async fn a_rules_trigger_rolls_a_pack_back() {
         back.until_ms, None,
         "a file's rule stands until a promotion"
     );
-    assert_eq!(j.mode_for("loop.v1", "ses_any").mode, PackMode::Shadow);
+    assert_eq!(j.mode_for("loop.v2", "ses_any").mode, PackMode::Shadow);
     let line = j
         .health()
         .packs
         .into_iter()
-        .find(|l| l.starts_with("loop.v1"))
+        .find(|l| l.starts_with("loop.v2"))
         .unwrap();
-    assert_eq!(line, "loop.v1: rolled back (nudge_loop)");
+    assert_eq!(line, "loop.v2: rolled back (nudge_loop)");
     // A promotion starts the count again: the old event fires nothing.
-    c.pack_promote(&promote("loop.v1", "canary", Some(0.5)), "cli")
+    c.pack_promote(&promote("loop.v2", "canary", Some(0.5)), "cli")
         .unwrap();
-    j.land("loop.v1", CanaryEvent::OnPath { ms: 10 });
-    assert_eq!(j.ladder().standing("loop.v1").rung, Rung::Canary);
+    j.land("loop.v2", CanaryEvent::OnPath { ms: 10 });
+    assert_eq!(j.ladder().standing("loop.v2").rung, Rung::Canary);
 }
 
 /// A finished task's spend, by arm, as the spend rule counts it.
@@ -429,10 +429,15 @@ fn held(core: &Core) -> Vec<Value> {
     crate::test_support::rows_100k(core, "judge.spend.suppressed")
 }
 
+/// The loop version that declares `spend_ratio` (loop.v2 dropped it, issue 46,
+/// since no code feeds its events): retired, and a stored row of it is checked by
+/// its own rules, so the rule's machinery is held here on it.
+const SPEND_PACK: &str = "loop.v1";
+
 /// What a suppressed spend decision's row carries.
 fn held_row(reason: &str, canary: (u64, Value), control: u64) -> Value {
     json!({
-        "pack": "loop.v1",
+        "pack": SPEND_PACK,
         "rule": "spend_ratio",
         "reason": reason,
         "canary_tasks": canary.0,
@@ -453,14 +458,15 @@ async fn a_spend_rule_short_of_tasks_leaves_a_row_saying_so() {
     let dir = tempfile::tempdir().unwrap();
     let c = core_at(dir.path(), None, |_| {});
     let j = &c.runner.judge;
+    j.ladder().wire(SPEND_PACK, PackMode::Live);
     assert!(held(&c).is_empty(), "nothing is asked before a spend lands");
-    j.land("loop.v1", spend("k0", Arm::Canary, 5_000));
+    j.land(SPEND_PACK, spend("k0", Arm::Canary, 5_000));
     assert_eq!(
         held(&c),
         vec![held_row("too_few_tasks", (1, json!(5_000.0)), 0)],
         "one canary task and no control: the first decision, declined"
     );
-    j.land("loop.v1", spend("c0", Arm::Control, 1_000));
+    j.land(SPEND_PACK, spend("c0", Arm::Control, 1_000));
     let got = held(&c);
     assert_eq!(got.len(), 2, "each declined decision is a row");
     assert_eq!(
@@ -468,7 +474,7 @@ async fn a_spend_rule_short_of_tasks_leaves_a_row_saying_so() {
         held_row("too_few_tasks", (1, json!(5_000.0)), 1),
         "with the numbers it read then"
     );
-    j.land("loop.v1", CanaryEvent::OnPath { ms: 10 });
+    j.land(SPEND_PACK, CanaryEvent::OnPath { ms: 10 });
     assert_eq!(
         held(&c).len(),
         2,
@@ -479,7 +485,7 @@ async fn a_spend_rule_short_of_tasks_leaves_a_row_saying_so() {
     assert_eq!(got.len(), 3, "the nightly check asks it again");
     assert_eq!(got[2], got[1], "of the same numbers");
     assert!(
-        rows(&c, "loop.v1").iter().all(|r| r.mode != "rolled_back"),
+        rows(&c, SPEND_PACK).iter().all(|r| r.mode != "rolled_back"),
         "declining is not a rollback"
     );
 }
@@ -492,11 +498,12 @@ async fn a_canary_under_the_floor_leaves_a_row_saying_so() {
     let dir = tempfile::tempdir().unwrap();
     let c = core_at(dir.path(), None, |_| {});
     let j = &c.runner.judge;
+    j.ladder().wire(SPEND_PACK, PackMode::Live);
     for i in 0..10 {
-        j.land("loop.v1", spend(&format!("c{i}"), Arm::Control, 1_000));
+        j.land(SPEND_PACK, spend(&format!("c{i}"), Arm::Control, 1_000));
     }
     for i in 0..10 {
-        j.land("loop.v1", spend(&format!("k{i}"), Arm::Canary, 50));
+        j.land(SPEND_PACK, spend(&format!("k{i}"), Arm::Canary, 50));
     }
     let got = held(&c);
     assert_eq!(got.len(), 20, "each of the twenty decisions was declined");
@@ -511,7 +518,7 @@ async fn a_canary_under_the_floor_leaves_a_row_saying_so() {
         "ten and ten: a canary median of 50 micro-dollars, under the 100 floor"
     );
     assert!(
-        rows(&c, "loop.v1").iter().all(|r| r.mode != "rolled_back"),
+        rows(&c, SPEND_PACK).iter().all(|r| r.mode != "rolled_back"),
         "declining is not a rollback"
     );
 }
@@ -524,17 +531,18 @@ async fn a_spend_rule_that_fires_leaves_no_suppressed_row() {
     let dir = tempfile::tempdir().unwrap();
     let c = core_at(dir.path(), None, |_| {});
     let j = &c.runner.judge;
+    j.ladder().wire(SPEND_PACK, PackMode::Live);
     for i in 0..10 {
-        j.land("loop.v1", spend(&format!("c{i}"), Arm::Control, 1_000));
+        j.land(SPEND_PACK, spend(&format!("c{i}"), Arm::Control, 1_000));
     }
     for i in 0..9 {
-        j.land("loop.v1", spend(&format!("k{i}"), Arm::Canary, 5_000));
+        j.land(SPEND_PACK, spend(&format!("k{i}"), Arm::Canary, 5_000));
     }
     assert_eq!(held(&c).len(), 19, "nineteen decisions declined");
-    assert!(rows(&c, "loop.v1").iter().all(|r| r.mode != "rolled_back"));
-    j.land("loop.v1", spend("k9", Arm::Canary, 5_000));
+    assert!(rows(&c, SPEND_PACK).iter().all(|r| r.mode != "rolled_back"));
+    j.land(SPEND_PACK, spend("k9", Arm::Canary, 5_000));
     assert_eq!(held(&c).len(), 19, "the tenth decided: no row of its own");
-    let back = rows(&c, "loop.v1").pop().expect("the rollback");
+    let back = rows(&c, SPEND_PACK).pop().expect("the rollback");
     assert_eq!(
         (back.mode.as_str(), back.rule.as_deref()),
         ("rolled_back", Some("spend_ratio")),
@@ -798,7 +806,7 @@ async fn a_brake_lapses_at_midnight() {
 async fn max_mode_shadow_caps_every_pack_after_a_restart() {
     let dir = tempfile::tempdir().unwrap();
     let c = core_at(dir.path(), None, |_| {});
-    c.pack_promote(&promote("loop.v1", "canary", Some(1.0)), "cli")
+    c.pack_promote(&promote("loop.v2", "canary", Some(1.0)), "cli")
         .unwrap();
     c.pack_promote(&promote("classify.v5", "live", None), "cli")
         .unwrap();
@@ -820,7 +828,7 @@ async fn max_mode_shadow_caps_every_pack_after_a_restart() {
     let lines = j.health().packs;
     assert!(lines.iter().all(|l| l.contains(": shadow")), "{lines:#?}");
     assert!(lines.contains(&
-        "loop.v1: shadow (the config's ceiling; on the ladder: canary 1.0 (owner: forced by the owner))".to_string()),
+        "loop.v2: shadow (the config's ceiling; on the ladder: canary 1.0 (owner: forced by the owner))".to_string()),
         "{lines:#?}"
     );
 }
@@ -845,7 +853,7 @@ async fn a_canary_judgment_records_its_arm() {
             cfg.judge.packs.insert(p.into(), crate::tests_judge::off());
         }
     });
-    c.pack_promote(&promote("loop.v1", "canary", Some(1.0)), "cli")
+    c.pack_promote(&promote("loop.v2", "canary", Some(1.0)), "cli")
         .unwrap();
     let res = turn(&c, None, "Say done.").await;
     let judged = until_judged(&c.store, 1).await;
@@ -987,8 +995,8 @@ async fn the_notices_brake_is_read_by_its_key_and_lapses_at_midnight() {
     assert_eq!(rows(&c, "security.v3").len(), written, "nothing written");
 }
 
-/// A promotion of loop.v1 while a learned version stands in its place
-/// (theseus-nwa5): every point asks `placed` first, so loop.v1's canary
+/// A promotion of loop.v2 while a learned version stands in its place
+/// (theseus-nwa5): every point asks `placed` first, so loop.v2's canary
 /// judges in no session while loop.v101 stands in shadow or live, and only
 /// in loop.v101's control arm while it is a canary. The answer says so, with
 /// the way out; the move is written all the same. With loop.v101 not placed
@@ -1001,7 +1009,7 @@ async fn a_promotion_names_the_learned_version_standing_in_its_place() {
     let l = c.runner.judge.ladder();
     let said = |c: &Core| {
         let r = c
-            .pack_promote(&promote("loop.v1", "canary", Some(0.5)), "cli")
+            .pack_promote(&promote("loop.v2", "canary", Some(0.5)), "cli")
             .unwrap();
         assert_eq!(
             r.row.as_ref().unwrap().mode,
@@ -1020,7 +1028,7 @@ async fn a_promotion_names_the_learned_version_standing_in_its_place() {
         declined,
         ..PackModeRow::default()
     };
-    let plain = "loop.v1 is canary 0.5, forced short of the bar (";
+    let plain = "loop.v2 is canary 0.5, forced short of the bar (";
     // No row: loop.v101 stands nowhere.
     let s = said(&c);
     assert!(s.starts_with(plain) && !s.contains("stands in"), "{s}");
@@ -1033,7 +1041,7 @@ async fn a_promotion_names_the_learned_version_standing_in_its_place() {
     let s = said(&c);
     assert!(
         s.ends_with(
-            ". loop.v101 stands in loop.v1's place in shadow, so loop.v1's canary 0.5 judges in \
+            ". loop.v101 stands in loop.v2's place in shadow, so loop.v2's canary 0.5 judges in \
              no session until loop.v101 moves (`theseus packs rollback loop.v101`)."
         ),
         "{s}"
@@ -1043,7 +1051,7 @@ async fn a_promotion_names_the_learned_version_standing_in_its_place() {
     let s = said(&c);
     assert!(
         s.ends_with(
-            ". loop.v101 stands in loop.v1's place as canary 0.3, so loop.v1's canary 0.5 judges \
+            ". loop.v101 stands in loop.v2's place as canary 0.3, so loop.v2's canary 0.5 judges \
              only in loop.v101's control arm until loop.v101 moves (`theseus packs rollback \
              loop.v101`)."
         ),
@@ -1052,17 +1060,17 @@ async fn a_promotion_names_the_learned_version_standing_in_its_place() {
     // Live: nowhere, and a move to live says the same.
     l.write(placed("live", None, false)).unwrap();
     let s = c
-        .pack_promote(&promote("loop.v1", "live", None), "cli")
+        .pack_promote(&promote("loop.v2", "live", None), "cli")
         .unwrap()
         .said;
     assert!(
         s.ends_with(
-            ". loop.v101 stands in loop.v1's place live, so loop.v1 live judges in no session \
+            ". loop.v101 stands in loop.v2's place live, so loop.v2 live judges in no session \
              until loop.v101 moves (`theseus packs rollback loop.v101`)."
         ),
         "{s}"
     );
-    // Rolled back: the place is loop.v1's again.
+    // Rolled back: the place is loop.v2's again.
     c.pack_rollback(
         &PackRollbackParams {
             pack: "loop.v101".into(),

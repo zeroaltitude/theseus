@@ -40,7 +40,7 @@ fn row(
 /// that pack reads.
 fn judgments(core: &Core, n: usize, days: u64, now: u64) {
     const PACKS: [&str; 5] = [
-        "loop.v1",
+        "loop.v2",
         "security.v1",
         "security.v3",
         "classify.v1",
@@ -123,7 +123,7 @@ async fn judge_list_pages_from_the_newest_and_answers_as_the_scan_did() {
         ("version", with(&|p| p.pack = Some("security.v3".into()))),
         (
             "a pack nothing has",
-            with(&|p| p.pack = Some("loop.v2".into())),
+            with(&|p| p.pack = Some("loop.v3".into())),
         ),
         ("a gone pack", with(&|p| p.pack = Some("gone".into()))),
         (
@@ -136,7 +136,7 @@ async fn judge_list_pages_from_the_newest_and_answers_as_the_scan_did() {
         (
             "together",
             with(&|p| {
-                p.pack = Some("loop.v1".into());
+                p.pack = Some("loop.v2".into());
                 p.session_id = Some("ses_wren".into());
                 p.since = Some(now - 10 * DAY);
                 p.limit = Some(20);

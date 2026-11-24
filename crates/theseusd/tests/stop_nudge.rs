@@ -31,7 +31,7 @@ fn calls(prompt: &str) -> Vec<(&'static str, Value)> {
 }
 
 /// The safe template on the stand-in model, every secret from `KEY_VAR`,
-/// the judge on at `jev` with `loop.v1` judging alone, and `stop_nudge`.
+/// the judge on at `jev` with `loop.v2` judging alone, and `stop_nudge`.
 fn rig(model: &FakeModel, jev: &FakeJev, stop_nudge: bool) -> tempfile::TempDir {
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
     let dir = tempfile::tempdir().unwrap();

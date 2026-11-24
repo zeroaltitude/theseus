@@ -103,3 +103,10 @@ alias carries it to the new name, so rename it.
   yet, `image_subject` and `shows_screen_or_document`, are still asked: whether they become written labels or
   go is the owner's decision. `judge replay --onto` with no candidate replays the wired onto pack by its
   constant, and the cockpit counts the onto pack's judgments under the wired name.
+- **`loop.v2`** is `loop.v1` without `stopping_point_defined`, `same_action_repeating`, `cost_out_of_proportion`
+  and `wants_human_input` (no code read their answers) and without the `spend_ratio`,
+  `operator_stop_within_nudge` and `on_path_p95` rules (no code builds their events, so none could fire);
+  `nudge_loop` stays. `work_state` and `announced_unfinished`, which decide the stop nudge, are v1's.
+  `[judge] stop_nudge` lowers the wired loop pack by the judge's own constant (`config::STOP_PACK` is
+  `judge::LOOP_PACK`). The work forecast's line names the loop pack by its id (`loop 0.91`), not a version.
+  The loop state keeps `most_repeated_call`, which only `same_action_repeating` read; the builder is unchanged.
