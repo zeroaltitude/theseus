@@ -20,8 +20,8 @@
 //!
 //! **The grant stores the first sighting** ([`grant`]). `Core::project_trust`
 //! stores the digests of the instruction files on the chain down to the path
-//! it was given and of those a bounded walk of the root finds
-//! ([`super::walk`]) in the grant's own frame, so the first compile in any
+//! it was given (all of them) and of those a bounded walk of the root finds
+//! ([`super::walk`], within an allowance) in the grant's own frame, so the first compile in any
 //! directory of the repository compares with what was there when the owner
 //! granted it. The notice is for a change *after* the owner looked. A granted
 //! repository with no stored sighting (one granted by an earlier build) has
@@ -342,29 +342,49 @@ fn names(changes: &[Change]) -> String {
 /// down to `path` (the files a compile there finds), then what
 /// [`super::walk`] found under the root.
 ///
-/// So a file the walk did not reach is pinned by a grant that names its
-/// directory. The digests are bounded too: at most
-/// [`super::DIGEST_FILES`] files, within [`super::WALK_TIME`] of the first,
-/// the chain's first. A file found and not digested is not in the sighting,
-/// so it is new when a compile first finds it.
+/// The chain is digested whole, outside the digests' allowance: a grant
+/// that names a directory pins every file a compile there finds, so a file
+/// the walk did not reach is pinned by a grant that names its directory.
+/// Its cost is bounded by the depth of the named path (two names a
+/// directory), not by an allowance. The walk's other finds are digested
+/// within [`super::DIGEST_FILES`] files and [`super::WALK_TIME`], and never
+/// replace a digest of the chain. A file found and not digested is not in
+/// the sighting, so it is new when a compile first finds it.
 pub fn grant(files: &ContextFiles, root: &Path, path: &Path, at_ms: u64) -> Seen {
+    let (most, time) = (super::DIGEST_FILES, super::WALK_TIME);
+    grant_within(files, root, path, at_ms, most, time)
+}
+
+/// [`grant`], with the walk's finds digested within `most` files and
+/// `time`.
+pub(crate) fn grant_within(
+    files: &ContextFiles,
+    root: &Path,
+    path: &Path,
+    at_ms: u64,
+    most: usize,
+    time: std::time::Duration,
+) -> Seen {
     let dir = if path.is_dir() {
         path
     } else {
         path.parent().unwrap_or(root)
     };
-    let mut found = super::discover_in(Some(root), dir, None).project;
-    for f in super::walk(root) {
-        if !found.iter().any(|g| g.shown == f.shown) {
-            found.push(f);
-        }
+    let chain = super::discover_in(Some(root), dir, None).project;
+    let mut seen = sighting(files, &chain, at_ms);
+    let rest: Vec<Found> = super::walk(root)
+        .into_iter()
+        .filter(|f| !seen.files.contains_key(&f.shown))
+        .collect();
+    for (shown, digest) in sighting_within(files, &rest, at_ms, most, time).files {
+        seen.files.entry(shown).or_insert(digest);
     }
-    sighting_within(files, &found, at_ms, super::DIGEST_FILES, super::WALK_TIME)
+    seen
 }
 
 /// [`sighting`] of the first of `found` it reaches within `most` files and
-/// `time`, checked before each file: one read that blocks is not
-/// interrupted.
+/// `time`. The time is checked between files, not between the calls that
+/// read one file: one read that blocks is not interrupted.
 pub(crate) fn sighting_within(
     files: &ContextFiles,
     found: &[Found],

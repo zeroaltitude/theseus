@@ -124,9 +124,11 @@ impl Core {
     /// one under the root that `project_context::walk` finds, by digest. So
     /// the first compile in any directory of the repository compares with
     /// what was there when the owner granted it, and a file changed or added
-    /// since is a change from that. The walk and the digests are bounded, and
-    /// a file they did not reach is new when a compile first finds it; a
-    /// grant naming that file's directory pins it.
+    /// since is a change from that. The named path's chain is digested whole
+    /// (two files a directory, so bounded by its depth); the walk and the
+    /// digests of its other finds are bounded, and a file they did not reach
+    /// is new when a compile first finds it; a grant naming that file's
+    /// directory pins it.
     pub fn project_trust(&self, path: &Path, who: impl Into<Answerer>) -> Result<Trusted> {
         let who = who.into();
         self.judge_act(

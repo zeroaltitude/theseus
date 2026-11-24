@@ -2000,3 +2000,54 @@ async fn a_labelled_reader_reads_a_file_past_the_walk_after_a_grant_naming_its_d
         "and says nothing new:\n{after}"
     );
 }
+
+/// At `ask`, a grant naming a directory pins that directory's whole chain,
+/// however many files it holds. Here the chain alone holds more instruction
+/// files than the grant's digest allowance (two in each of 502 directories,
+/// built deep because the allowance is not one a test sets): the grant
+/// naming the root leaves the deepest ones new, and `untrust`, then `trust`
+/// naming the deepest directory, lets a session there read its file with
+/// nothing new to say.
+#[tokio::test]
+async fn at_ask_a_grant_naming_a_directory_pins_a_chain_longer_than_the_digest_allowance() {
+    let r = rig_with(|cfg| cfg.project.on_change = Some(crate::config::OnChange::Ask));
+    let repo = r.root.join("deep");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    let levels = crate::project_context::DIGEST_FILES / 2 + 2;
+    let mut here = repo.clone();
+    for n in 0..levels {
+        if n > 0 {
+            here = here.join("d");
+            std::fs::create_dir(&here).unwrap();
+        }
+        std::fs::write(here.join("AGENTS.md"), format!("rules {n}\n")).unwrap();
+        std::fs::write(here.join("CLAUDE.md"), format!("notes {n}\n")).unwrap();
+    }
+    std::fs::write(here.join("CLAUDE.md"), format!("{STEER}.\n")).unwrap();
+    let deepest = here.join("CLAUDE.md").display().to_string();
+
+    r.core.project_trust(&repo, "cli").expect("trusted");
+    assert!(!pinned(&r.core, &repo).contains(&deepest));
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(!block.contains(STEER), "not read");
+    assert!(
+        block.contains(&format!("{deepest} (new)")) && block.contains(ACCEPT),
+        "the block names it and says how to accept it"
+    );
+
+    r.core.project_untrust(&repo, "cli").expect("revoked");
+    r.core.project_trust(&here, "cli").expect("granted again");
+    submit(&r.core, &here).await;
+    let after = session_block(&r.fake.requests().pop().unwrap());
+    assert!(after.contains(STEER), "the owner's accept carries it");
+    assert!(
+        !after.contains("(new)") && !after.contains("changed since the owner"),
+        "and says nothing new"
+    );
+    assert_eq!(
+        pinned(&r.core, &repo).len(),
+        2 * levels,
+        "the whole chain is pinned"
+    );
+}

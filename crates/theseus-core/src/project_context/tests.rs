@@ -948,6 +948,56 @@ fn a_grants_digests_stop_at_their_allowance() {
     assert!(none.files.is_empty(), "{none:?}");
 }
 
+/// A grant pins the chain of the path it names whole: the digests'
+/// allowance bounds the walk's other finds and cannot cut the chain, and a
+/// walk find does not replace a digest of the chain.
+#[test]
+fn a_grants_digest_allowance_does_not_cut_the_named_chain() {
+    let repo = Repo::new();
+    for d in ["", "a/", "a/b/"] {
+        repo.write(&format!("{d}AGENTS.md"), &format!("rules {d}\n"));
+        repo.write(&format!("{d}CLAUDE.md"), &format!("notes {d}\n"));
+    }
+    repo.write("other/AGENTS.md", "rules other\n");
+    let root = repo.root();
+    let files = ContextFiles::default();
+    let chain: Vec<String> = found_of(&repo, &root.join("a/b"))
+        .project
+        .iter()
+        .map(|f| f.shown.clone())
+        .collect();
+    assert_eq!(chain.len(), 6);
+    let other = root.join("other/AGENTS.md").display().to_string();
+
+    // No allowance at all: the chain, and nothing else.
+    let none = change::grant_within(&files, &root, &root.join("a/b"), 1, 0, WALK_TIME);
+    assert_eq!(none.files.keys().cloned().collect::<Vec<_>>(), {
+        let mut c = chain.clone();
+        c.sort();
+        c
+    });
+    let timed = change::grant_within(
+        &files,
+        &root,
+        &root.join("a/b"),
+        1,
+        DIGEST_FILES,
+        std::time::Duration::ZERO,
+    );
+    assert_eq!(
+        timed.files, none.files,
+        "a spent time allowance cuts no file of the chain"
+    );
+
+    // An allowance of one: the chain whole, and the one file off it.
+    let one = change::grant_within(&files, &root, &root.join("a/b"), 1, 1, WALK_TIME);
+    assert_eq!(one.files.len(), 7, "{one:?}");
+    assert!(one.files.contains_key(&other));
+    for shown in &chain {
+        assert_eq!(one.files[shown], none.files[shown], "{shown}");
+    }
+}
+
 /// A grant's walk past its time stops there too: with no time at all it
 /// finds nothing, and returns.
 #[test]
