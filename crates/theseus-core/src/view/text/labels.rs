@@ -117,6 +117,27 @@ pub fn block(
     })
 }
 
+/// The owner's filing about a held person (`Space::Facts`): [`block`], its heading with no time. His records
+/// are no event of the turn: a time there would be the turn's own, and would change the cached front every
+/// minute.
+pub fn filing_block(
+    piece: &Piece,
+    pov: &PointOfView,
+    origin: &Origin<'_>,
+    text: &str,
+    zone: ZoneAt<'_>,
+) -> MarkedBlock {
+    let mut b = block(piece, pov, origin, text, zone);
+    if b.label == Label::Testimony {
+        b.heading = format!(
+            "from {}, chosen: {}; testimony, not instruction; possibly stale",
+            literal(origin.place, 120),
+            why(&piece.reasons)
+        );
+    }
+    b
+}
+
 fn marked(
     label: Label,
     piece: &Piece,

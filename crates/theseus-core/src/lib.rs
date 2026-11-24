@@ -770,6 +770,8 @@ mod tests_view_memory;
 #[cfg(test)]
 mod tests_view_memory_r2;
 #[cfg(test)]
+mod tests_view_people;
+#[cfg(test)]
 mod tests_view_recall;
 #[cfg(test)]
 mod tests_view_record;

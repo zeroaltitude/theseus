@@ -94,9 +94,11 @@ impl TextRenderer<'_> {
         match &p.range.space {
             Space::Exchanges { .. } => {}
             Space::Task { task } => return self.task_card(p, task, pov),
-            Space::Card { .. } | Space::Waiting { .. } | Space::Facts { .. } => {
+            Space::Card { .. } | Space::Waiting { .. } => {
                 return Ok(self.read_text(p, form, pov, labels::block))
             }
+            // The owner's filing about a person: headed with no time, so the front holds.
+            Space::Facts { .. } => return Ok(self.read_text(p, form, pov, labels::filing_block)),
             // A recalled item is laid whole, as its `Recall` note renders it, or not at all.
             Space::Recalled { .. } => {
                 return Ok(self.read_text(p, Form::Whole, pov, sources_recall::block))
