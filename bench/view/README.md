@@ -152,7 +152,9 @@ For each of the place's last `--turns` exchanges, the judge (`--model`, Haiku 5.
 request starting 12 lines after the last, so every line is judged twice; its higher score is kept. Of the lines
 the judge answered for, the comparison counts, per turn and in sum, those it marked helpful that the rule held
 (`both`), that it did not (`judge_only`: what the rule misses), and the reverse. A line no window answered for is
-in no cell; `coverage` counts the lines and those judged.
+in no cell; `coverage` counts the lines, those judged, and those of the judged that are unknown (below). The
+kit computes no share or score from the cells; any computed from them must count the `unknown_*` cells beside
+the hits and misses, never drop them from the whole.
 
 **The rule is what each turn's view laid.** On a store it is `view_record`: the turn's own view record (its
 first returned readable view, as the replay reads it, with the same limits). An earlier exchange an `exchanges`
@@ -160,8 +162,10 @@ piece laid counts as held; one that lies only inside a laid fold has a cell of i
 `folded_not`, by the judge's mark), for the turn saw its fold and not its words. Zero `folded_*` is not evidence
 of zero folds while `view show` lists no fold piece (below). A laid range whose ends no available order resolves
 (an exchange with no measuring row, such as adopted history) leaves unknown which lines it covers: on that turn
-a line the record did not lay whole is neither a hit nor a miss, and goes to `unknown_helps` or `unknown_not`;
-`unresolved_ranges` counts those ranges, in the plan and in the result. A turn with no record (before the cut)
+a line the record did not lay whole is neither a hit nor a miss, and goes to `unknown_helps` or `unknown_not`,
+even when a resolved fold also covers it, for the unresolved range could have laid it whole;
+`unresolved_ranges` counts those ranges, in the plan and in the result. Fewer misses (`judge_only`) with more
+unknowns means less knowledge, not better recall. A turn with no record (before the cut)
 is not judged and is counted (`no_view_record`). Only the chosen place's exchanges are judged. On the cases it is a strategy's `--held` file,
 or `own_place_lines` without one. Every output says which (`rules_basis`). The cases the builder cannot make are
 judged as fixtures only (`not_built_fixture_only`), never in the totals. The `did` line the design puts beside
@@ -249,7 +253,8 @@ Output saved before the one-context kit reads differently, and a script that rea
   `returned_views_at_the_read_limit` and `pieces_by_kind`, and no `with_a_view_row`, `recorded_strategy`,
   `view_fallback`, `notes` or `next_turn_view`.
 - `yardstick.py`: on a store `rules_basis` is `view_record` (it was `same_session_heuristic`); the output adds
-  `no_view_record`, `unresolved_ranges`, and the `folded_*` and `unknown_*` cells when they are not zero.
+  `no_view_record`, `unresolved_ranges`, `coverage.unknown` (always), and the `folded_*` and `unknown_*` cells
+  when they are not zero.
 
 ## What none of it can tell
 

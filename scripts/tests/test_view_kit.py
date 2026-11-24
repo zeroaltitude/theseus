@@ -556,6 +556,30 @@ class FakeDaemon(unittest.TestCase):
         self.assertEqual(ys.plan(probes, prices, ys.DEFAULT_MODEL)["unresolved_ranges"], 1)
         self.assertEqual(r["calls"], ys.plan(probes, prices, ys.DEFAULT_MODEL)["calls"])
 
+    def test_an_unresolved_range_makes_a_folded_line_unknown_unless_it_is_laid_whole(self):
+        """Unknown comes before folded: on a turn with a range no order resolves, a judged line a resolved fold
+        covers is unknown too (the broken range could have laid it whole), helpful or not; a line laid whole
+        stays held. The coverage says how many judged lines are unknown, beside how many were judged."""
+        f = fixture(True)
+        f["ledger"] = [turn_row(i, tid(i), None, "none") for i in range(1, 6)]
+        f["nodes"] = [{"kind": "user_message", "turn_id": tid(i), "text": f"words {i}", "position": i}
+                      for i in range(1, 6)]
+        f["shows"] = {tid(5): record(tid(5), [(tid(4), tid(4)), (tid(3), tid(99))], folds=[(tid(1), tid(2))])}
+        self.fx(f)
+        with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+            probes, _, _ = ys.probes_from_store(d, PLACE, 5, 5)
+        self.assertEqual([p["id"] for p in probes], [tid(5)])
+        p = probes[0]
+        self.assertEqual(p["ids"], [tid(1), tid(2), tid(3), tid(4)])
+        self.assertEqual((p["rules"], p["folded"], p["unresolved"]), ({tid(4)}, {tid(1), tid(2)}, 1))
+        marks = {tid(1): ys.HELPS, tid(2): 0, tid(3): ys.HELPS, tid(4): ys.HELPS}
+        r = ys.run(probes, lambda p, idx, user: ([marks[p["ids"][i]] for i in idx],
+                                                 {"input_tokens": 1, "output_tokens": 1}, True),
+                   ys.Prices(ys.DEFAULT_MODEL, ys.API, None, None), 1.0)
+        self.assertEqual(r["total"], {"both": 1, "judge_only": 0, "rules_only": 0, "neither": 0,
+                                      "unknown_helps": 2, "unknown_not": 1})
+        self.assertEqual(r["coverage"], {"lines": 4, "judged": 4, "unknown": 3})
+
     def test_a_case_path_that_would_leave_the_output_is_refused_before_any_write(self):
         base = vc.load(SETS)["cases"][0]
         bad_place = dict(base, history=[dict(base["history"][0], place=str(self.live / "new-dir"))])

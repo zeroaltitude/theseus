@@ -48,7 +48,8 @@ this build (the history does not carry it).
   ends no available order resolves (`unresolved_ranges`) leaves unknown
   which lines it covers: on that turn a line the record did not lay whole is
   neither a hit nor a miss, and is counted in `unknown_helps` or
-  `unknown_not`. A turn with no record (one from before the cut) is not
+  `unknown_not`, even when a fold also covers it (that range could have
+  laid it whole). A turn with no record (one from before the cut) is not
   judged, for there is no rule to compare with: it is counted under
   `no_view_record`. Only the chosen place's exchanges are judged, so what
   the view laid from another place is not scored here;
@@ -63,7 +64,10 @@ judge answered for, those it marked helpful that the rule held (`both`), that
 the rule did not (`judge_only`: what the rule misses), that the rule held and
 the judge did not mark (`rules_only`), and `neither`; on a store, also the
 `folded_*` and `unknown_*` cells above. A line no window
-answered for is in no cell: it is counted under `coverage`. Each line's text
+answered for is in no cell: it is counted under `coverage`, which gives the
+lines, those judged, and those of the judged that are unknown. The kit
+computes no share or score from the cells; one computed from them must
+count the unknown cells beside the hits and misses. Each line's text
 is held in memory for its call and written nowhere; a failed call is a fixed
 code (`E_JUDGE_…`), never the provider's answer. The judge reads only
 `ANTHROPIC_API_KEY` from the caller's environment. `--judge fake` (the tests')
@@ -402,10 +406,10 @@ def run(probes: list[dict], judge, prices: Prices, cap_usd: float, model: str = 
         for i, e in enumerate(p["ids"]):
             if best[i] is None:
                 c["unjudged"] += 1
+            elif p.get("unresolved") and e not in p["rules"]:  # a range of unknown cover may lay it whole
+                c["unknown_helps" if best[i] == HELPS else "unknown_not"] += 1
             elif e in p.get("folded", ()) and e not in p["rules"]:
                 c["folded_helps" if best[i] == HELPS else "folded_not"] += 1
-            elif p.get("unresolved") and e not in p["rules"]:  # a range of unknown cover may hold it
-                c["unknown_helps" if best[i] == HELPS else "unknown_not"] += 1
             else:
                 c[{(True, True): "both", (True, False): "judge_only", (False, True): "rules_only",
                    (False, False): "neither"}[(best[i] == HELPS, e in p["rules"])]] += 1
@@ -415,7 +419,8 @@ def run(probes: list[dict], judge, prices: Prices, cap_usd: float, model: str = 
             fixture.setdefault(p["class"], Counter()).update(c)
         else:
             total.update(c)
-            coverage.update({"lines": len(p["ids"]), "judged": len(p["ids"]) - c["unjudged"]})
+            coverage.update({"lines": len(p["ids"]), "judged": len(p["ids"]) - c["unjudged"],
+                             "unknown": c["unknown_helps"] + c["unknown_not"]})
         per.append(row)
         if stopped:
             break
