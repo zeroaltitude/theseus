@@ -40,12 +40,32 @@ async fn a_child_that_exits_non_zero_says_its_code() {
     assert_eq!(ran.why().as_deref(), Some("it exited 3"));
 }
 
+/// The pids whose command line holds `marker`.
+fn with_marker(marker: &str) -> Vec<u32> {
+    std::fs::read_dir("/proc")
+        .unwrap()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|p| {
+            std::fs::read(format!("/proc/{p}/cmdline"))
+                .is_ok_and(|c| String::from_utf8_lossy(&c).contains(marker))
+        })
+        .collect()
+}
+
 /// KEY: a child that outlives its deadline is killed and reaped, and the run says it ran past.
 /// Without the kill the child would stand for thirty seconds.
 #[tokio::test]
 async fn a_child_past_its_deadline_is_killed_and_reaped() {
+    // `exec`: a `/bin/sh` that forks for a lone `-c` command (dash does) would leave the sleep as a
+    // grandchild the kill never reaches, standing on with this test's stderr. The marker finds it.
+    let marker = format!("30.{}", std::process::id());
     let started = Instant::now();
-    let ran = run_command(&mut sh("sleep 30"), Duration::from_millis(300)).await;
+    let ran = run_command(
+        &mut sh(&format!("exec sleep {marker}")),
+        Duration::from_millis(300),
+    )
+    .await;
     assert!(ran.timed_out, "{ran:?}");
     assert!(!ran.ok());
     assert!(
@@ -59,6 +79,8 @@ async fn a_child_past_its_deadline_is_killed_and_reaped() {
         started.elapsed()
     );
     assert!(ran.pid > 0 && !alive(ran.pid), "the child is gone: {ran:?}");
+    let left = with_marker(&format!("sleep\0{marker}"));
+    assert!(left.is_empty(), "nothing it started is left: {left:?}");
 }
 
 /// A command that cannot start is an error in words, not a panic, and has no pid.
