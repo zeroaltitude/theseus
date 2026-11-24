@@ -4,8 +4,8 @@ The context design (`docs/design/context-point-of-view.md`, §10) says nothing a
 before it is measured. These three tools answer three of §10's questions, and the end-to-end proof (below) a
 fourth. Each runs on a **copy** of a store, or on an empty store it fills by script, never on the live one, and writes **ids, kinds and counts only**: no message, no piece's text, no place's name,
 and no daemon diagnostics. `scripts/tests/test_view_kit.py` holds that on daemon answers, errors and stderr full
-of marker strings, and `scripts/tests/test_view_real.py` runs each tool on the real daemon and CLI, built from the
-same tree, on an empty store.
+of marker strings, and `scripts/tests/test_view_real.py` runs each tool on the real daemon and CLI, whose stamps
+name this checkout's commit (what that does not prove is below), on an empty store.
 
 There is one context, the view, since the cut: the tools set it beside what a turn recorded, beside a plain
 baseline (every earlier line of the message's own place), or beside a judge. None of them compares two builds.
@@ -239,6 +239,10 @@ on the daemon's stderr, which the kit discards: that case shows the daemon start
 - The replay reads a turn's record as today's reader returns it: its newest 32 readable views, through today's
   source checks. It says nothing of a turn from before the cut, which has no record. Adopted history has
   exchanges but no measuring rows.
+- The real-binary tests (`scripts/tests/test_view_real.py`) run only on binaries whose stamps name the commit a
+  clean checkout is at, and skip, saying why, on anything they cannot check. A stamp names a commit, not what was
+  compiled: a binary built from an edited tree that was then restored bears the same stamp and is admitted. It
+  identifies a build; it is not build provenance.
 - `view show` lists no `folds` piece today: its record's source check has no case for a fold, so it fails
   closed (`view/record/source.rs`, `may_show`), while `view preview` lays folds through a check of its own. On a
   real store the replay's `folded` and the yardstick's `folded_*` cells therefore read 0 until `view show`
