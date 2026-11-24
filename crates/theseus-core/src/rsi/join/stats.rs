@@ -13,7 +13,8 @@
 //!   working files, untracked and ignored files), that is checked, and the join goes on uncounted,
 //!   its row saying `skipped: <why>`. Only a tree that cannot be shown put back stops the join.
 //!
-//! A main with no counter joins as before.
+//! A main with no counter joins as before. Before the count, the same counter's `--range` gives
+//! the merge's change in lines for the notice (issue 45, line 2), checked by the same containment.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -39,6 +40,8 @@ pub(super) struct Count {
     pub(super) merge: String,
     /// What the join's row says: `counted`, `unchanged`, or `skipped: <why>`.
     pub(super) said: String,
+    /// The merge's change in lines, as the counter's `--range` says it without its ids.
+    pub(super) lines: Option<String>,
 }
 
 /// Count the made merge `merge` (on `base`) in its tree `t`, and fold the count into it. An error
@@ -53,18 +56,27 @@ pub(super) fn count(
     let kept = |said: String| Count {
         merge: merge.to_string(),
         said,
+        lines: None,
     };
     let frozen = match frozen(p, base) {
         Ok(Some(f)) => f,
         Ok(None) => return Ok(kept(format!("skipped: main has no {COUNTER}"))),
         Err(e) => return Ok(kept(format!("skipped: {e:#}"))),
     };
+    let range = format!("{base}..HEAD");
+    let lines = run(p, t, &frozen, &["--range", &range], limit)
+        .ok()
+        .and_then(|log| range_line(&log));
     match run(p, t, &frozen, &["--count-head"], limit).and_then(|_| fold(p, t, merge)) {
         Ok(Some(folded)) => Ok(Count {
             merge: folded,
             said: "counted".into(),
+            lines,
         }),
-        Ok(None) => Ok(kept("unchanged".into())),
+        Ok(None) => Ok(Count {
+            lines,
+            ..kept("unchanged".into())
+        }),
         Err(why) => {
             restore(p, t, merge)?;
             Ok(kept(format!("skipped: {why:#}")))
@@ -182,6 +194,15 @@ fn at_l0(
         );
     }
     Ok(status?.code())
+}
+
+/// The change in lines the counter's `--range` printed, without its `lines <a>..<b>: ` ids: the
+/// merge it names is not yet the one that lands.
+fn range_line(log: &Path) -> Option<String> {
+    let said = std::fs::read_to_string(log).ok()?;
+    let line = said.lines().rev().find(|l| l.starts_with("lines "))?;
+    let (_, change) = line.split_once(": ")?;
+    Some(change.chars().take(300).collect())
 }
 
 /// The count in the tree, checked and folded into `merge`: the folded merge, or none when the tree

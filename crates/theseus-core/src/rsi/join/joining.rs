@@ -29,6 +29,7 @@ pub(super) struct Merged {
     pub(super) merge: String,
     pub(super) uncounted: String,
     pub(super) stats: String,
+    pub(super) lines: Option<String>,
 }
 
 impl Run<'_> {
@@ -291,6 +292,9 @@ impl Run<'_> {
                 if m.uncounted != m.merge {
                     numbers["uncounted"] = json!(m.uncounted);
                 }
+                if let Some(lines) = &m.lines {
+                    numbers["lines"] = json!(lines);
+                }
                 self.core.rec(None).record(&SelfJoined {
                     item: self.b.item.clone(),
                     branch: self.b.branch.clone(),
@@ -358,6 +362,7 @@ impl Run<'_> {
                     merge: c.merge,
                     uncounted,
                     stats: c.said,
+                    lines: c.lines,
                 })),
                 Err(e) => {
                     let _ = tree::close(&p, &t);

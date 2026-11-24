@@ -7,7 +7,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use theseus_protocol::rsi::SelfMode;
 
 use super::tests::{git, rig, Rig, PROVED, SONNET};
@@ -136,6 +136,11 @@ async fn a_join_folds_the_count_into_its_unsigned_merge_before_the_gate() {
     );
     assert_eq!(tree_of(&r, uncounted), plain_tree(&r, &base, &head));
     assert_ne!(unsigned, uncounted);
+    // The note's change in lines (issue 45, line 2), from the same counter, without its ids.
+    assert_eq!(
+        n["lines"],
+        "code 1 -> 2 (+1); test code 0 -> 0 (+0); comments 0 -> 0 (+0)"
+    );
 }
 
 /// The counter is main's, pinned at the join's base: a branch that rewrites `scripts/stats.py` to
@@ -268,6 +273,23 @@ async fn a_main_with_no_counter_joins_as_before() {
     let n = &j["numbers"];
     assert_eq!(n["stats"], "skipped: main has no scripts/stats.py");
     assert_eq!(n["uncounted"], Value::Null);
+    assert_eq!(n["lines"], Value::Null);
     let listed = git(&r.f.upstream, &["ls-tree", &merge, "--", "STATS.md"]);
     assert_eq!(listed, "", "no STATS.md");
+}
+
+/// The "Theseus changed itself" notice states the change in lines when the row has it, and says
+/// nothing of lines when it has not.
+#[test]
+fn the_installed_notice_states_the_change_in_lines() {
+    let mut j = json!({"branch": "self/x", "item": "x", "what": "w", "why": "y", "gate": "green",
+                       "cost_usd": 0.0, "numbers": {"gate_secs": 1, "tries": 1,
+                       "lines": "code 1 -> 2 (+1); test code 0 -> 0 (+0); comments 0 -> 0 (+0)"}});
+    let said = super::install::notice(&j, None, "0123456789abcdef");
+    assert!(
+        said.contains("\nLines: code 1 -> 2 (+1); test code 0 -> 0 (+0); comments 0 -> 0 (+0)\n"),
+        "{said}"
+    );
+    j["numbers"]["lines"] = Value::Null;
+    assert!(!super::install::notice(&j, None, "0123456789abcdef").contains("Lines:"));
 }
