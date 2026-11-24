@@ -320,6 +320,7 @@ impl Shared {
             .session_of(tx)
             .map(|s| self.tasks.in_place(&s))
             .unwrap_or_default();
+        let views = crate::render::leaving::copy(&self.core.exits, &views).unwrap_or_default();
         self.autocomplete(i, snapshot::task_choices(&views, typed))
             .await;
     }
@@ -745,5 +746,48 @@ mod exit_tests {
         let name = &replies[0].choices[0].0;
         assert!(!name.contains("vault"), "{name}");
         assert!(name.contains("[redact"), "{name}");
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn task_choice_producer_masks_title_before_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        let mut v = view();
+        v.title = format!("{}{}", "x".repeat(55), VALUE);
+        let root = v.root.clone();
+        let mut parent = v.clone();
+        parent.id = root;
+        parent.kind = theseus_protocol::work::WorkKind::Conversation;
+        parent.session_id = Some("ses_exit".into());
+        let id = v.id.clone();
+        shared.tasks.snapshot(
+            1,
+            theseus_protocol::WorkWatchResult {
+                views: vec![parent, v],
+                position: 1,
+                total: 1,
+            },
+        );
+        let (tx, _rx) = mpsc::unbounded_channel();
+        shared
+            .routes
+            .lock()
+            .unwrap()
+            .by_session
+            .insert("ses_exit".into(), tx.clone());
+        shared.task_choices(&interaction(), &tx, "").await;
+        let replies = fake.replies();
+        let name = &replies[0]
+            .choices
+            .iter()
+            .find(|(_, value)| value == &id)
+            .unwrap()
+            .0;
+        assert!(!name.contains("vau"), "{name}");
+        assert!(name.contains("[red"), "{name}");
     }
 }
