@@ -6,10 +6,15 @@
 //! live point's question once about each one's opening message.
 //!
 //! - **Which exchanges**: those that touch no category of a kind `onto` asks,
-//!   were not asked by this job before, open with a person's own typed
-//!   message with words (never a task's, never Theseus's own, never a slash
-//!   command), and whose session `onto` acts on now (`[ontology] judge` on,
-//!   the pack live on the ladder): the live point writes touches only then.
+//!   were opened by the owner (the exchange's person is `owner`, as his mark
+//!   or the rebuild proved it: a guest's message in a shared place is never
+//!   sent, nor one whose person no record proves), were not asked by this
+//!   job before, open with his own typed message with words (never a task's,
+//!   never Theseus's own, never a slash command, never an imported or an
+//!   erased one), and whose session `onto` acts on now (`[ontology] judge`
+//!   on, the pack live on the ladder): the live point writes touches only
+//!   then. A message he retracted and did not erase is kept: a retraction
+//!   says a fact was wrong, and a touch says only what the exchange was about.
 //! - **Touches only.** The ask goes in shadow, so the sink writes its row
 //!   and nothing else: no membership, no category minted, no card, no
 //!   `still_*` answer acted on. The job writes the touches itself, with the
@@ -423,6 +428,8 @@ impl Core {
         for ex in all {
             if touched.contains(&ex.turn_id) {
                 p.r.touched_before += 1;
+            } else if ex.person.as_deref() != Some(crate::exchange::OWNER) {
+                p.r.not_owner += 1;
             } else if let Some(j) = before.remove(&ex.turn_id) {
                 p.r.asked_before += 1;
                 p.again.push(j);

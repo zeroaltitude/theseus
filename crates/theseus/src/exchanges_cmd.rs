@@ -173,9 +173,9 @@ pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
         false => format!("a run with a cap of ${:.2}\n", r.cap_usd),
     };
     s.push_str(&format!(
-        "{} exchanges: {} already touch a topic, {} were asked before, {} open with no person's \
-         message, {} are in places the ontology's judge does not act on now",
-        r.exchanges, r.touched_before, r.asked_before, r.no_message, r.not_acting
+        "{} exchanges: {} already touch a topic, {} are not yours, {} were asked before, {} open \
+         with no message of yours, {} are in places the ontology's judge does not act on now",
+        r.exchanges, r.touched_before, r.not_owner, r.asked_before, r.no_message, r.not_acting
     ));
     match r.dry_run {
         true => s.push_str(&format!(
@@ -210,8 +210,9 @@ mod tests {
             cap_usd: 10.0,
             exchanges: 9,
             touched_before: 2,
+            not_owner: 1,
             asked_before: 1,
-            no_message: 3,
+            no_message: 2,
             not_acting: 0,
             to_ask: 3,
             worst_usd: 0.0012,
@@ -220,9 +221,9 @@ mod tests {
         assert_eq!(
             topics_lines(&dry),
             "a dry run for a cap of $10.00 a run: nothing is asked\n9 exchanges: 2 already touch \
-             a topic, 1 were asked before, 3 open with no person's message, 0 are in places the \
-             ontology's judge does not act on now\nwould ask 3: $0.0012 at worst for all 3 of \
-             them (it may be more than the cap); a run stops at its cap of $10.00"
+             a topic, 1 are not yours, 1 were asked before, 2 open with no message of yours, 0 are \
+             in places the ontology's judge does not act on now\nwould ask 3: $0.0012 at worst \
+             for all 3 of them (it may be more than the cap); a run stops at its cap of $10.00"
         );
         let run = ExchangeTopicsResult {
             dry_run: false,

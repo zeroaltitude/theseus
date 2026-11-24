@@ -53,6 +53,17 @@ fn session(core: &Core) -> String {
 
 /// An old exchange of `sid`, opened by `node` (written first) at `start_ms`.
 fn old_exchange(core: &Core, sid: &str, turn: &str, node: &Node, start_ms: u64) {
+    exchange_of(core, (sid, turn), node, start_ms, Some(exchange::OWNER));
+}
+
+/// An old exchange whose person is `person`.
+fn exchange_of(
+    core: &Core,
+    (sid, turn): (&str, &str),
+    node: &Node,
+    start_ms: u64,
+    person: Option<&str>,
+) {
     core.store.append(&[node.record().unwrap()]).unwrap();
     let e = Exchange {
         turn_id: turn.into(),
@@ -60,7 +71,7 @@ fn old_exchange(core: &Core, sid: &str, turn: &str, node: &Node, start_ms: u64) 
         place: "discord:dm:42".into(),
         private: true,
         opened_by: Opener::Message,
-        person: Some(exchange::OWNER.into()),
+        person: person.map(str::to_string),
         start_ms,
         end_ms: Some(start_ms + 1_000),
         ask: Some(node.id.clone()),
@@ -917,4 +928,44 @@ async fn the_daemon_refuses_a_cap_that_is_no_money() {
         let out: ExchangeTopicsResult = serde_json::from_value(v).unwrap();
         assert_eq!(out.cap_usd, said_back, "{out:?}");
     }
+}
+
+/// KEY (his history, the conductor's ruling): only exchanges the owner
+/// opened are sent. A guest's typed message in a shared place and one whose
+/// person no record proves are counted apart and never asked; an imported
+/// message and an erased one stay out, as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_the_owners_own_exchanges_are_asked() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    let c = &r.core;
+    said(c, &sid, "turn_his", SAID, 1_000);
+    let guest = Node::user(&sid, Some("turn_guest"), "discord:77", "a Lantern Harbour guest");
+    exchange_of(c, (&sid, "turn_guest"), &guest, 2_000, Some("discord:77"));
+    let nobody = Node::user(&sid, Some("turn_nobody"), "test", "a Lantern Harbour unknown");
+    exchange_of(c, (&sid, "turn_nobody"), &nobody, 3_000, None);
+    let mut imported = Node::user(&sid, Some("turn_imported"), "test", "a Lantern Harbour import");
+    imported.origin = crate::node::Origin::Import;
+    old_exchange(c, &sid, "turn_imported", &imported, 4_000);
+    let erased = Node::user(&sid, Some("turn_erased"), "test", "a Lantern Harbour erasure");
+    old_exchange(c, &sid, "turn_erased", &erased, 5_000);
+    c.store
+        .append(&[erased.erased(6_000, "a test's erase").record().unwrap()])
+        .unwrap();
+    let out = run(c, params(false, None)).await;
+    let sent: String = r.jev.seen().iter().map(|s| s.body.to_string()).collect();
+    assert!(!sent.contains("Lantern Harbour"), "only his was sent");
+    assert_eq!(
+        (out.exchanges, out.to_ask, out.asked, out.not_owner, out.no_message),
+        (5, 1, 1, 2, 2),
+        "{out:?}"
+    );
+    let touched: Vec<String> = timeline(c, "topic:ledger")
+        .into_iter()
+        .map(|t| t.exchange)
+        .collect();
+    assert_eq!(touched, vec!["turn_his".to_string()]);
 }

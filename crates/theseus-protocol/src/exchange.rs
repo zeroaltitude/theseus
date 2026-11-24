@@ -163,6 +163,10 @@ pub struct ExchangeTopicsResult {
     /// Those that already touch a topic, and those this job asked before.
     pub touched_before: u64,
     pub asked_before: u64,
+    /// Those opened by someone other than the owner: a guest in a shared
+    /// place, or a person no record proves. His decision was about his own
+    /// history, so they are never sent.
+    pub not_owner: u64,
     /// Those opened by no person's message that can be read.
     pub no_message: u64,
     /// Those the ontology's judge would not act on now (off, or in shadow).

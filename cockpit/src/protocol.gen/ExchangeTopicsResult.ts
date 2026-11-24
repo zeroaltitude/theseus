@@ -14,6 +14,12 @@ exchanges: number,
  */
 touched_before: number, asked_before: number, 
 /**
+ * Those opened by someone other than the owner: a guest in a shared
+ * place, or a person no record proves. His decision was about his own
+ * history, so they are never sent.
+ */
+not_owner: number, 
+/**
  * Those opened by no person's message that can be read.
  */
 no_message: number, 

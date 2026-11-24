@@ -34,9 +34,13 @@ backfill's check (the owner, from a private place; the CLI refuses it inside a j
 an agent's process). Each refusal is ledgered. Run `--dry-run` first: it counts the exchanges it would ask and
 prices their worst case, and asks nothing.
 
-- **Which**: an exchange that touches no category of a kind `onto.v1` asks, that this job did not ask before, that
-  opens with a person's own typed message with words (not a task's, not Theseus's own, not a slash command), and
-  whose session the ontology's judge acts on now (`[ontology] judge` on, the pack live).
+- **Which**: an exchange that touches no category of a kind `onto.v1` asks, that the owner opened (its person is
+  `owner`, as his mark or the rebuild proved it), that this job did not ask before, that opens with his own typed
+  message with words (not a task's, not Theseus's own, not a slash command, not an imported or an erased one), and
+  whose session the ontology's judge acts on now (`[ontology] judge` on, the pack live). A guest's message in a shared
+  place, and one whose person no record proves, are counted apart and never sent: his decision was about his own
+  history. A message he retracted and did not erase is kept: history shows what was said, and a touch says what the
+  exchange was about.
 - **What it asks**: the live point's `onto` question, once, about the opening message alone (no message before it,
   no reply, no attachment), through the judge's one client and its scrubber.
 - **What it writes: touches only.** The ask goes in shadow, so the sink writes its row and files nothing: no
