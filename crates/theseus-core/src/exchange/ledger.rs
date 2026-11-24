@@ -736,7 +736,10 @@ fn answer(store: &Store, a: &mut ExchangeAnswers, row: &Row) {
 }
 
 /// `exchange.report`: the newest rows, none older than `since_ms`, summed,
-/// and their answers.
+/// and their answers. The store keeps rows in the order they were written,
+/// and a row's own time can go back, so an older row says nothing of the
+/// rows before it: every row is read, and `from_ms` and `to_ms` are the
+/// least and greatest time counted.
 pub fn report(store: &Store, p: &ExchangeReportParams) -> anyhow::Result<ExchangeReportResult> {
     let mut r = ExchangeReportResult::default();
     let mut a = ExchangeAnswers::default();
@@ -760,15 +763,16 @@ pub fn report(store: &Store, p: &ExchangeReportParams) -> anyhow::Result<Exchang
             let Ok(lr) = rec.decode::<LedgerRow>() else {
                 continue;
             };
-            if p.since_ms.is_some_and(|since| lr.at_unix_ms < since) {
-                break 'pages;
+            let at = lr.at_unix_ms;
+            if p.since_ms.is_some_and(|since| at < since) {
+                continue;
             }
             let Ok(row) = serde_json::from_value::<Row>(lr.data) else {
                 continue;
             };
             r.rows += 1;
-            r.to_ms = r.to_ms.or(Some(lr.at_unix_ms));
-            r.from_ms = Some(lr.at_unix_ms);
+            r.from_ms = Some(r.from_ms.map_or(at, |f| f.min(at)));
+            r.to_ms = Some(r.to_ms.map_or(at, |t| t.max(at)));
             add(&mut r, &serde_json::to_value(&row).unwrap_or(Value::Null));
             answer(store, &mut a, &row);
         }

@@ -3,7 +3,8 @@
 //! the context is averaged over measured turns and holds token parts only, `since` keeps the rows at or
 //! after it, the report holds no place, exchange or task id, an old row still reads, and a field the
 //! counter does not know is counted as present, never by its value. No stored string leaves it, by
-//! value or by key: a word its producer does not make counts as `unlisted`.
+//! value or by key: a word its producer does not make counts as `unlisted`. `since` reads every row,
+//! however their times are ordered.
 
 use std::collections::BTreeMap;
 
@@ -449,4 +450,62 @@ fn the_reports_words_are_the_words_their_producers_make() {
     for q in ledger::JUDGED {
         assert!(pack.question(q).is_some(), "{q} in the pack");
     }
+}
+
+/// Rows written in this order, at these times of their own.
+fn rows_at(store: &Store, times: &[u64]) {
+    for (i, at) in times.iter().enumerate() {
+        let ex = exchange_of(&format!("turn_{i}"), Opener::Message, Some(OWNER), *at);
+        put(store, &ex, &row_of(&ex, Prev::None), *at);
+    }
+}
+
+fn since(since_ms: Option<u64>, limit: Option<u64>) -> ExchangeReportParams {
+    ExchangeReportParams { limit, since_ms }
+}
+
+#[test]
+fn since_reads_every_row_however_their_times_are_ordered() {
+    let (_d, s) = store();
+    rows_at(&s, &[3_000, 1_000, 4_000]);
+    let r = ledger::report(&s, &since(Some(2_000), None)).unwrap();
+    assert_eq!((r.rows, r.from_ms, r.to_ms), (2, Some(3_000), Some(4_000)));
+    // Without `since`, the window is the least and the greatest time, not the first and last row.
+    let r = ledger::report(&s, &since(None, None)).unwrap();
+    assert_eq!((r.rows, r.from_ms, r.to_ms), (3, Some(1_000), Some(4_000)));
+}
+
+#[test]
+fn since_reads_past_a_clock_that_went_back() {
+    let (_d, s) = store();
+    rows_at(&s, &[5_000, 6_000, 2_000, 7_000]);
+    let r = ledger::report(&s, &since(Some(4_000), None)).unwrap();
+    assert_eq!((r.rows, r.from_ms, r.to_ms), (3, Some(5_000), Some(7_000)));
+}
+
+#[test]
+fn since_reads_past_a_page_of_older_rows() {
+    let (_d, s) = store();
+    // Ten new rows written first, then more than a page of older ones after them.
+    for i in 0..10u64 {
+        put_row(
+            &s,
+            &format!("turn_n{i}"),
+            json!({"prev": "none"}),
+            9_000 + i,
+        );
+    }
+    for i in 0..600u64 {
+        put_row(&s, &format!("turn_o{i}"), json!({"prev": "none"}), 1_000);
+    }
+    let r = ledger::report(&s, &since(Some(5_000), None)).unwrap();
+    assert_eq!((r.rows, r.from_ms, r.to_ms), (10, Some(9_000), Some(9_009)));
+}
+
+#[test]
+fn since_with_a_limit_keeps_the_newest_rows_that_qualify() {
+    let (_d, s) = store();
+    rows_at(&s, &[1_000, 5_000, 6_000, 2_000, 7_000]);
+    let r = ledger::report(&s, &since(Some(4_000), Some(2))).unwrap();
+    assert_eq!((r.rows, r.from_ms, r.to_ms), (2, Some(6_000), Some(7_000)));
 }
