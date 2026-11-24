@@ -226,11 +226,15 @@ fn newest_of(store: &Store, turn: &str, n: usize) -> anyhow::Result<Vec<String>>
         .collect()
 }
 
-/// The view, if it reads; one that cannot is left out with a warning (the error).
+/// The view, if it reads; one that cannot is left out with a warning that names it and quotes nothing of the
+/// record (the decode error does).
 fn readable(store: &Store, turn: &str, compilation: &str) -> Result<Option<ViewRecord>, ()> {
-    read(store, compilation).map_err(|e| {
-        tracing::warn!(turn, compilation, error = %format!("{e:#}"),
-            "a view record cannot be read; it is left out");
+    read(store, compilation).map_err(|_| {
+        tracing::warn!(
+            turn,
+            compilation,
+            "a view record cannot be read; it is left out"
+        );
     })
 }
 

@@ -617,11 +617,11 @@ pub(super) fn cut(text: &str, max: usize, cuts: &Cuts) -> String {
 /// begins with it; with nothing cut, the page begins before the compilation's first node (a fresh one: before
 /// it was made; none: before the session began). A view compilation whose record is absent (a later chain of
 /// a turn keeps none) is read by the transcript's rule. One whose record this build cannot read (a later build's
-/// names) is read as a window that laid nothing of `here`, with a warning: the page begins at the millisecond
-/// the view was made, that millisecond included (a window exchange can begin in it), so every exchange of the
-/// place begun by then is paged and none its window would have paged is hidden; some the model sees in full
-/// may be paged again. (The transcript's rule could begin before the window's
-/// start, and hide what lies between.)
+/// names) is read as a window that laid nothing of `here`, with a warning that names its compilation and
+/// quotes nothing of the record (the decode error does): the page begins at the millisecond the view was made,
+/// that millisecond included (a window exchange can begin in it), so every exchange of the place begun by then
+/// is paged and none its window would have paged is hidden; some the model sees in full may be paged again.
+/// (The transcript's rule could begin before the window's start, and hide what lies between.)
 pub fn in_view(store: &Store, session: &str, here: &str) -> Result<Option<Cursor>> {
     let from = |at_ms: u64| Cursor {
         at_ms,
@@ -644,8 +644,8 @@ pub fn in_view(store: &Store, session: &str, here: &str) -> Result<Option<Cursor
     if c.strategy == crate::compiler::view::STRATEGY {
         let start = match crate::view::record::read(store, &c.id) {
             Ok(v) => v.map(|v| window_start(&v, here, c.created_at_ms)),
-            Err(e) => {
-                tracing::warn!(compilation = %c.id, error = %format!("{e:#}"),
+            Err(_) => {
+                tracing::warn!(compilation = %c.id,
                     "a view record cannot be read: a bare history call begins where that view was made");
                 Some(from(c.created_at_ms))
             }

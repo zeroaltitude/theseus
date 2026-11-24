@@ -25,6 +25,12 @@ use crate::Core;
 /// What the warning says, once a call, when the history tool meets a view record it cannot read.
 const WARNED: &str = "a bare history call begins where that view was made";
 
+/// What the warning says when a listing of a turn's views leaves out one it cannot read.
+const LEFT_OUT: &str = "a view record cannot be read; it is left out";
+
+/// The names a later build wrote into the record: no log line quotes them.
+const PLANTED: [&str; 2] = ["a_band_of_a_later_build", "a_reason_of_a_later_build"];
+
 /// A model whose message `CALL {…}` calls `context_history` with those arguments.
 fn rig() -> Rig {
     rig_scripted(
@@ -140,6 +146,14 @@ impl Log {
             .map(String::from)
             .collect()
     }
+
+    /// No line quotes a name the later build wrote into the record.
+    fn quotes_nothing_planted(&self) {
+        for name in PLANTED {
+            let quoted = self.lines(name);
+            assert!(quoted.is_empty(), "the log quotes {name}: {quoted:?}");
+        }
+    }
 }
 
 /// The session's last view record holds a band and a reason this build does not know: the history tool still
@@ -169,6 +183,7 @@ async fn the_history_tool_answers_when_the_last_view_record_cannot_be_read() {
         warned[0].contains(&cid),
         "it names the compilation: {warned:?}"
     );
+    log.quotes_nothing_planted();
     // The pointer moved to the call's own turn, whose record this build wrote: a later build's is laid again.
     let cid = written_by_a_later_build(c, &sid);
     let dated = read_in(c, &sid, json!({ "from": "2020-01-01" })).await;
@@ -181,6 +196,7 @@ async fn the_history_tool_answers_when_the_last_view_record_cannot_be_read() {
     assert!(opened.contains("zircon heron"), "{opened}");
     assert!(opened.contains("Noted."), "{opened}");
     assert_eq!(log.lines(WARNED).len(), 3, "one warning a call");
+    log.quotes_nothing_planted();
 }
 
 /// A bare page read past a view record this build cannot read begins where that view was made: every exchange
@@ -296,7 +312,19 @@ async fn view_show_says_which_view_this_build_cannot_read() {
             serde_json::from_value::<ViewShowResult>(v).unwrap()
         }
     };
+    let log = Log::default();
+    let g = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_writer(log.clone())
+            .with_ansi(false)
+            .finish(),
+    );
     let unread = shown(&first).await;
+    drop(g);
+    let left_out = log.lines(LEFT_OUT);
+    assert_eq!(left_out.len(), 1, "one warning: {left_out:?}");
+    assert!(left_out[0].contains(&cid), "names it: {left_out:?}");
+    log.quotes_nothing_planted();
     assert!(
         !unread.views.iter().any(|v| v.compilation == cid),
         "{unread:?}"
