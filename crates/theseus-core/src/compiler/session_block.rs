@@ -87,9 +87,22 @@ impl TurnRunner {
     /// the store, and needs nothing of this session: a file that moved under
     /// a labelled session's acting call is held here for a session carrying
     /// nothing at all, which is the case the reader key cannot see.
-    pub fn session_block(&self, dir: Option<&str>, _place: PlaceView, flagged: bool) -> String {
+    pub fn session_block(&self, dir: Option<&str>, place: PlaceView, flagged: bool) -> String {
+        self.session_block_and_own(dir, place, flagged).0
+    }
+
+    /// [`Self::session_block`], and the record of the owner's own file's
+    /// accepted version it carries, read with it
+    /// (`project_context::block_and_own`): what the turn's compiled rows
+    /// name.
+    pub(crate) fn session_block_and_own(
+        &self,
+        dir: Option<&str>,
+        _place: PlaceView,
+        flagged: bool,
+    ) -> (String, Option<crate::compiler::ContextFileRef>) {
         if !self.tools.enabled() {
-            return String::new();
+            return (String::new(), None);
         }
         let cwd = self.tools.cwd_for(dir);
         let mut text = format!(
@@ -98,16 +111,17 @@ impl TurnRunner {
             crate::cpu::commands::Cpus::of_commands().fact(),
             crate::cpu::os::Os::of_machine().fact(),
         );
-        if let Some(part) = crate::project_context::block(
+        let (part, own) = crate::project_context::block_and_own(
             &self.cfg,
             &self.store,
             &self.context_files,
             &cwd,
             flagged,
-        ) {
+        );
+        if let Some(part) = part {
             text.push_str("\n\n");
             text.push_str(&part);
         }
-        text
+        (text, own)
     }
 }

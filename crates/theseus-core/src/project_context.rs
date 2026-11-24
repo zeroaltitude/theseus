@@ -553,19 +553,32 @@ pub fn block(
     cwd: &Path,
     flagged: bool,
 ) -> Option<String> {
+    block_and_own(cfg, store, files, cwd, flagged).0
+}
+
+/// [`block`], and the manifest's record of the owner's own file's accepted
+/// version that text carries (`own_file::Look::carried`), from the same
+/// read of the store.
+pub fn block_and_own(
+    cfg: &crate::config::Config,
+    store: &crate::store::Store,
+    files: &ContextFiles,
+    cwd: &Path,
+    flagged: bool,
+) -> (Option<String>, Option<crate::compiler::ContextFileRef>) {
     let found = discover(&cfg.state_dir(), cwd);
     let granted = found
         .root
         .as_deref()
         .is_some_and(|r| trust::granted(store, r));
     let mut parts: Vec<String> = Vec::new();
-    let own = own_file::Look::with(
+    let look = own_file::Look::with(
         store,
         files,
         cfg.state_dir().join(USER_FILE),
         found.user.clone(),
-    )
-    .carry(store, theseus_protocol::now_unix_ms());
+    );
+    let own = look.carry(store, theseus_protocol::now_unix_ms());
     parts.extend(own.section);
     if !found.project.is_empty() {
         if granted {
@@ -609,5 +622,6 @@ pub fn block(
         }
     }
     parts.extend(own.line);
-    (!parts.is_empty()).then(|| parts.join("\n\n"))
+    let text = (!parts.is_empty()).then(|| parts.join("\n\n"));
+    (text, look.carried())
 }

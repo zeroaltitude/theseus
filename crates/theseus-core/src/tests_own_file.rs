@@ -30,6 +30,11 @@ pub(crate) struct Rig {
 }
 
 pub(crate) fn rig() -> Rig {
+    rig_with(FakeProvider::scripted(vec![Scripted::text("Noted.")]))
+}
+
+/// [`rig`], with the model `fake`.
+pub(crate) fn rig_with(fake: FakeProvider) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
     let state = dir.path().join("state");
@@ -42,7 +47,7 @@ pub(crate) fn rig() -> Rig {
     cfg.tools.roots = vec![];
     cfg.policy.enforcement = Posture::Notify;
     let store = Store::open(&dir.path().join("store")).unwrap();
-    let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text("Noted.")]));
+    let fake = Arc::new(fake);
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
     Rig {
         core,
@@ -546,4 +551,53 @@ async fn two_accepts_from_one_pointer_never_write_one_version_twice() {
     let block = block_3(&turn(&r.core, &r.fake, &r.work).await);
     assert!(block.contains("BRINDLEWICK-9"), "{block}");
     assert!(!block.contains("TANSYWHARF-3"), "{block}");
+}
+
+/// An accept that lands while a turn is in flight, after the turn built its
+/// text: every compiled row of the turn names the version its block 3
+/// carried, read with that text, and not the one accepted since.
+#[tokio::test]
+async fn an_accept_during_a_turn_leaves_its_rows_naming_the_version_it_carried() {
+    let gate = crate::provider::RequestGate::at(0);
+    let r = rig_with(FakeProvider {
+        gate: Some(gate.clone()),
+        ..FakeProvider::scripted(vec![
+            Scripted::tools("", &[("r1", "fs_read", json!({"path": "note.txt"}))]),
+            Scripted::text("Noted."),
+        ])
+    });
+    std::fs::write(r.work.join("note.txt"), "a note\n").unwrap();
+    r.write(&format!("{KEPT}\n"));
+    r.core.own_file_first_start().unwrap();
+    let Accepted::Some(carried) = look_of(&r.core).accepted else {
+        panic!("accepted at the first start")
+    };
+    r.write(&format!("{LATER}\n"));
+    let (core, fake, work) = (r.core.clone(), r.fake.clone(), r.work.clone());
+    let running = tokio::spawn(async move { turn(&core, &fake, &work).await });
+    gate.reached().await;
+    let look = look_of(&r.core);
+    let v = look.disk.version(
+        &look.path,
+        theseus_protocol::now_unix_ms(),
+        "t",
+        "cli",
+        own_file::HOW_ACCEPT,
+    );
+    r.core.own_file_keep(&look, &v).unwrap();
+    gate.open();
+    let last = running.await.unwrap();
+    assert!(block_3(&last).contains(KEPT), "{}", block_3(&last));
+    let compiled = rows(&r.core, "context.compiled");
+    assert!(compiled.len() >= 2, "a row a loop: {compiled:?}");
+    for row in &compiled {
+        let own: Vec<&serde_json::Value> = row["context_files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|f| f["level"] == "user")
+            .collect();
+        assert_eq!(own.len(), 1, "{row}");
+        assert_eq!(own[0]["digest"], carried.digest.clone().unwrap(), "{row}");
+    }
 }
