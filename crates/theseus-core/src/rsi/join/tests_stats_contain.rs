@@ -4,7 +4,8 @@
 //! the gate's. The notice's `Lines:` is the counter's own shape or nothing, and a skipped count says
 //! so in the code's own words. And the cases of a tree the counter leaves wrong: STATS.md a
 //! directory, an executable, too large or not text; an ignored file; `stats.md` beside it; a fold
-//! that breaks after HEAD moved; a module of the branch's named like Python's own.
+//! that breaks after HEAD moved; a directory made read-only; a module of the branch's named like
+//! Python's own.
 
 use std::time::Duration;
 
@@ -373,6 +374,25 @@ async fn a_tree_the_counter_leaves_wrong_is_undone() {
         );
         assert_eq!(j["numbers"]["uncounted"], Value::Null);
     }
+}
+
+/// A directory the counter made read-only, holding a file it changed, is put back: the file is written again inside
+/// it, its bits are restored, and the join lands uncounted.
+#[tokio::test]
+async fn a_directory_the_counter_made_read_only_is_put_back() {
+    let r = rig(SelfMode::Act);
+    let c = counter(
+        "d = os.path.join(root, 'notes'); open(os.path.join(d, 'a.txt'), 'a').write('x'); os.chmod(d, 0o555)",
+    );
+    let main = [("scripts/stats.py", c.as_str()), ("notes/a.txt", "a\n")];
+    let (base, head, merge, j) = join(&r, &main, PROVED, r.seams()).await;
+    assert_eq!(tree_of(&r, &merge), plain_tree(&r, &base, &head));
+    let said = j["numbers"]["stats"].as_str().unwrap();
+    assert!(
+        said.starts_with("skipped: ") && said.contains("notes/a.txt"),
+        "{said}"
+    );
+    assert_eq!(j["numbers"]["uncounted"], Value::Null);
 }
 
 /// Main's real counter, run under `python3 -I`, imports nothing of the tree: a branch that adds

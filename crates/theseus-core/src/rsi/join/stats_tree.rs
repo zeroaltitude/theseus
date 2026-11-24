@@ -116,6 +116,16 @@ pub(super) fn put_back(
     content: impl Fn(&[u8]) -> Result<Option<Vec<u8>>>,
 ) -> Result<()> {
     let paths = changed(before, now);
+    // A directory that stays a directory, whose bits the counter changed (made read-only, say): its owner may write
+    // in it and pass through it while what it holds is put back, a parent before what it holds; its own bits are
+    // applied last, below.
+    for p in &paths {
+        if let (Some(Entry::Dir(_)), Some(Entry::Dir(mode))) = (before.get(p), now.get(p)) {
+            let at = root.join(OsStr::from_bytes(p));
+            std::fs::set_permissions(&at, std::fs::Permissions::from_mode(mode | 0o700))
+                .with_context(|| format!("opening {}", at.display()))?;
+        }
+    }
     // What stands where it should not: removed, a directory with all it holds (never through a link).
     let mut gone: Vec<&[u8]> = Vec::new();
     for p in &paths {
@@ -139,7 +149,7 @@ pub(super) fn put_back(
         gone.push(p);
     }
     // What should stand: written again, a directory before what it holds; a directory's bits last, so a directory
-    // the counter made read-only is written into first.
+    // that is to be read-only is written into first.
     let mut bits = Vec::new();
     for p in &paths {
         let Some(was) = before.get(p) else { continue };
