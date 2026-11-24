@@ -1,6 +1,7 @@
 //! Re-read turn state and transcript after a gap; never resend an uncertain submit.
 use super::live::{Live, Phase, TurnLive};
 use super::state::{call, Chat, Effect, Purpose};
+use super::style::Sty;
 use serde_json::{json, Value};
 use theseus_protocol::{method, Event, EventsLost, RpcError, SessionHistoryResult};
 
@@ -56,6 +57,27 @@ impl Chat {
             .collect()
     }
 
+    fn recovery_notices(&mut self, sid: &str, h: &SessionHistoryResult, shown: u64) {
+        if (h.older.is_some() || h.nodes.len() >= super::reopen::REPLAY_NODES)
+            && h.nodes.first().is_some_and(|n| n.position > shown)
+        {
+            self.say_plain(Sty::Dim, "earlier unseen messages · /history shows them");
+            self.earlier = h.older.or_else(|| h.nodes.first().map(|n| n.position));
+        }
+        if let Some((text, after)) = self.uncertain_submits.remove(sid) {
+            if !h
+                .nodes
+                .iter()
+                .any(|n| n.position > after && n.kind == "user_message" && n.text == text)
+            {
+                self.say_plain(
+                    Sty::Dim,
+                    "your last message may not have reached the daemon; it was not resent",
+                );
+            }
+        }
+    }
+
     pub(super) fn recovered(
         &mut self,
         sid: &str,
@@ -75,6 +97,12 @@ impl Chat {
         let h = result
             .ok()
             .and_then(|v| serde_json::from_value::<SessionHistoryResult>(v).ok());
+        if h.as_ref()
+            .is_some_and(|h| h.session.session_id == sid && h.turn_running.is_none())
+        {
+            self.flash("the daemon is older than this chat; restart it to send queued messages");
+            return vec![Effect::RecoverLater(sid.into())];
+        }
         let Some(h) = h.filter(|h| h.session.session_id == sid && h.turn_running.is_some()) else {
             self.flash(
                 "could not reconcile the conversation; retrying before sending queued messages",
@@ -105,6 +133,7 @@ impl Chat {
             let shown = self.shown_nodes.entry(sid.into()).or_default();
             *shown = (*shown).max(ended_at);
             let shown = *shown;
+            self.recovery_notices(sid, &h, shown);
             for n in h.nodes.iter().filter(|n| n.position > shown) {
                 self.node_line(n);
             }
