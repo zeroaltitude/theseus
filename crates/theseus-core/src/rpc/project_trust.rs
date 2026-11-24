@@ -185,7 +185,7 @@ impl Core {
     /// `[project] on_change = "ask"`, where a changed file is named and not
     /// read until he does it.
     ///
-    /// **The writer key's hold goes with it** (`change::Held`, S31-1), for
+    /// **The act key's hold goes with it** (`change::Held`, S31-1), for
     /// the same two reasons and in the same frame. It is also the whole
     /// release route for that hold: the card that built it was told not to
     /// invent a command surface, and the state already had a yes -- he reads

@@ -1054,10 +1054,17 @@ impl By {
 /// would. (The first half's helper, which this half needs for the same
 /// reason: a label is raised by the judge, and no test drives the judge.)
 fn flag(core: &Arc<Core>, session: &str) {
-    use crate::content::{ContentFlags, Flag, ItemKind, Label};
     let mut rec: crate::session::SessionRecord = core.store.get_session(session).unwrap().unwrap();
-    let mut flags = ContentFlags::default();
-    flags.raise(Label {
+    let mut flags = crate::content::ContentFlags::default();
+    flags.raise(injection());
+    rec.data = Some(Box::new(flags));
+    core.store.put_session(session, &rec).unwrap();
+}
+
+/// The `injection` label [`flag`] puts on a session.
+fn injection() -> crate::content::Label {
+    use crate::content::{Flag, ItemKind, Label};
+    Label {
         flag: Flag::Injection,
         node: Some("nod_fetched".into()),
         kind: ItemKind::FetchedPage,
@@ -1066,9 +1073,7 @@ fn flag(core: &Arc<Core>, session: &str) {
         band: theseus_judge::band::Band::Act,
         at_ms: 1,
         judgment: String::new(),
-    });
-    rec.data = Some(Box::new(flags));
-    core.store.put_session(session, &rec).unwrap();
+    }
 }
 
 /// A rig whose repository is granted, with one turn already compiled so the
@@ -1440,34 +1445,24 @@ fn sibling_dir(repo: &Path) -> PathBuf {
 }
 
 // ---------------------------------------------------------------------------
-// What the writer key's sweep reaches, in three cases.
+// What the act key holds, in five cases.
 //
-// The sweep compares, for every granted repository, the files its stored
-// sighting names and, for the session's own repository, the chain from its
-// root to its working directory (`change::swept`); a file in neither is in no
-// sweep. The grant stores a sighting of every instruction file under the
-// root, and each compile adds what it saw, so a file the grant or a compile
-// has seen stays in it.
-//
-// Each test asserts the behaviour in the direction the code actually goes.
-// Case 1 is not held, and keeps the `the_residual_` prefix so that one grep
-// finds it; cases 2 and 3 are held.
+// A labelled session's act holds every granted repository (`change::hold_all`)
+// and compares nothing; the next compile in any directory of any of them
+// names every change against the owner's sighting and does not read it. So
+// a file in a directory no compile has looked in, a repository no session
+// has opened in, a file the owner read, a background job's late write and a
+// write made before the label landed are each held.
 // ---------------------------------------------------------------------------
 
-/// **The residual, case 1: a file CREATED in a directory no compile has
-/// discovered.** The flagged session works in the repository's nested
-/// directory and its call creates an instruction file in a *sibling*
-/// directory that no compile has ever discovered. A clean session then opens
-/// in that sibling and **does read the new text**.
-///
-/// Cases 2 and 3 below are held: the grant's sighting and a sighting that
-/// accumulates keep their files in the swept set. This file appeared after
-/// the grant, where no compile had looked, so it is in neither set.
-///
-/// **When someone closes it, this test fails, and that is the point.** Flip
-/// it to the containment then; do not delete it.
+/// **Case 1: a file CREATED in a directory no compile has discovered.** The
+/// flagged session works in the repository's nested directory and its call
+/// creates an instruction file in a *sibling* directory that no compile has
+/// ever discovered and the grant's walk never saw. A clean session then
+/// opens in that sibling and does not read it: the act held the repository,
+/// and the file is new against the owner's sighting.
 #[tokio::test]
-async fn the_residual_a_new_file_in_a_directory_no_compile_has_discovered_is_not_held() {
+async fn a_new_file_in_a_directory_no_compile_has_discovered_is_held() {
     let (r, repo, here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
     let sib = sibling_dir(&repo);
     let file = sib.join("AGENTS.md");
@@ -1483,10 +1478,13 @@ async fn the_residual_a_new_file_in_a_directory_no_compile_has_discovered_is_not
     assert_ne!(clean, session, "a different session, carrying nothing");
     let block = session_block(&r.fake.requests().pop().unwrap());
     assert!(
-        block.contains(BY_THE_CALL),
-        "THE RESIDUAL, case 1: a file created where no compile has looked is in \
-         no swept set, so a clean session opening there DOES read it. If this \
-         assertion has started failing, the hole is closed -- invert it:\n{block}"
+        !block.contains(BY_THE_CALL),
+        "case 1: a file created where no compile has looked is held, and a clean \
+         session opening there does not read it:\n{block}"
+    );
+    assert!(
+        block.contains("(new)") && block.contains("injection"),
+        "case 1: and the block names it, and says why it is not there:\n{block}"
     );
 }
 
@@ -1497,11 +1495,10 @@ async fn the_residual_a_new_file_in_a_directory_no_compile_has_discovered_is_not
 /// second's own `AGENTS.md`, and a clean session opening there does not read
 /// it.
 ///
-/// `change::swept` is the stored sighting's paths plus, for the session's own
-/// repository, the chain from its root to its cwd. The grant stores the
-/// repository's sighting (`rpc::project_trust`), so the second repository's
-/// own `AGENTS.md` is in the swept set although no compile has opened there,
-/// the sweep sees it move, and the hold names the change in the block.
+/// The act holds every granted repository, the second one included, and
+/// the grant stored the second repository's sighting (`rpc::project_trust`),
+/// so its own `AGENTS.md` is a change from that although no compile has
+/// opened there, and the hold names the change in the block.
 ///
 /// `probe_another_granted_repositorys_file_is_held_too` is the same case with
 /// one compile in the second repository before the write.
@@ -1543,11 +1540,11 @@ async fn a_granted_repository_no_compile_has_opened_in_is_held() {
 /// repository and taken from whichever directory the compiling session was
 /// in, and it accumulates: an ordinary clean session opening in a second
 /// directory of the same repository keeps the first directory's file in it.
-/// So the file stays in the swept set, and a flagged session's call that
+/// So the file stays in the sighting, and a flagged session's call that
 /// modifies it is held for every session.
 ///
 /// The owner reads the sibling's file, then works in the nested directory,
-/// and his earlier reading is still in the record the sweep consults. This
+/// and his earlier reading is still in the record the hold compares with. This
 /// is also what keeps a compile elsewhere from reporting the file as gone
 /// (GitHub issue 16).
 #[tokio::test]
@@ -1690,12 +1687,14 @@ async fn probe_an_edit_split_across_two_calls_is_held() {
 /// the owner reads to decide whether to re-grant, so it has to be true.
 #[tokio::test]
 async fn probe_a_file_off_the_chain_is_reported_changed_and_not_gone() {
-    let (r, repo, _here, session) =
-        granted_and_flagged(crate::content::InjectionMode::Notify).await;
+    let (r, repo, here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
     let nested = repo.join(IN_DIR).join("CLAUDE.md");
     // The flagged session works at the ROOT, not in the nested directory the
     // owner's sighting was taken from.
     moves_the_file(&r, &repo, &session, By::FileTool, &nested).await;
+    // The row is written where the change is found: at the next compile in
+    // the nested directory.
+    submit_in(&r.core, &here, None).await;
 
     let rows = crate::test_support::ledger_rows_2k(&r.core, "project.changed");
     let nested_shown = nested.display().to_string();
@@ -1712,6 +1711,93 @@ async fn probe_a_file_off_the_chain_is_reported_changed_and_not_gone() {
             && !r.data["new"].as_str().unwrap_or_default().is_empty()),
         "probe 4: a row says the file CHANGED, with the digest the call left, and \
          not that it went away: {mine:?}"
+    );
+}
+
+/// **Case 4: a background job's write that lands after its call returned.**
+/// The flagged session starts a job that waits, then writes the
+/// repository's `AGENTS.md`; the call returns a handle at once, before the
+/// file moves. The act held the repository when the call returned, so the
+/// clean session that opens after the write does not read it.
+#[tokio::test]
+async fn a_background_jobs_late_write_is_held_for_every_session() {
+    let (r, repo, here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
+    let file = repo.join("AGENTS.md");
+    let at = file.display().to_string();
+    r.fake.script.lock().unwrap().push_front(Scripted::tools(
+        "Updating the project's rules in a moment.",
+        &[(
+            "tu_later",
+            "proc_run",
+            json!({
+                "argv": ["sh", "-c", format!("sleep 2; echo '{BY_THE_CALL}' > '{at}'")],
+                "background": true,
+            }),
+        )],
+    ));
+    submit_in(&r.core, &here, Some(&session)).await;
+    let until = std::time::Instant::now() + Duration::from_secs(60);
+    while !std::fs::read_to_string(&file)
+        .unwrap()
+        .contains(BY_THE_CALL)
+    {
+        assert!(
+            std::time::Instant::now() < until,
+            "case 4: the job wrote the file"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let clean = submit_in(&r.core, &here, None).await;
+    assert_ne!(clean, session, "a different session, carrying nothing");
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        !block.contains(BY_THE_CALL),
+        "case 4: a write that landed after its call returned is held, and a \
+         clean session does not read it:\n{block}"
+    );
+    assert!(
+        block.contains("injection"),
+        "case 4: and the block says why it is not there:\n{block}"
+    );
+}
+
+/// **Case 5: the label lands after the write.** An unlabelled session's
+/// call writes the repository's `AGENTS.md`; then the judge's answer lands
+/// and the label is told, as the judge's landing tells it
+/// (`Core::tell_label`). No compile came between, so the clean session that
+/// opens next does not read the text.
+#[tokio::test]
+async fn an_injection_label_landing_after_the_write_holds_it() {
+    let r = rig_with(|cfg| {
+        cfg.project.on_change = Some(crate::config::OnChange::Notice);
+        cfg.content_based_security.injection = crate::content::InjectionMode::Notify;
+    });
+    let (repo, here) = hostile_repo(&r.root);
+    r.core.project_trust(&repo, "cli").expect("trusted");
+    let session = submit_in(&r.core, &here, None).await;
+    let file = repo.join("AGENTS.md");
+    moves_the_file(&r, &here, &session, By::FileTool, &file).await;
+    assert!(
+        std::fs::read_to_string(&file)
+            .unwrap()
+            .contains(BY_THE_CALL),
+        "case 5: the session carried nothing yet, so its call ran"
+    );
+
+    flag(&r.core, &session);
+    r.core.tell_label(&session, &injection()).expect("told");
+
+    let clean = submit_in(&r.core, &here, None).await;
+    assert_ne!(clean, session, "a different session, carrying nothing");
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        !block.contains(BY_THE_CALL),
+        "case 5: the label landed after the write, and the write is held:\n{block}"
+    );
+    assert!(
+        block.contains("injection"),
+        "case 5: and the block says why it is not there:\n{block}"
     );
 }
 

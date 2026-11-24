@@ -101,11 +101,26 @@ impl Core {
     /// other surface. The caller is whatever raised the label,
     /// and calls this only when `ContentFlags::raise` returned true, so a
     /// second raise of a flag says nothing.
+    ///
+    /// An `injection` label holds every granted repository first
+    /// (`project_context::change::hold_all`, S31-1's act key), so a write the
+    /// session made before its label landed is held as one made after it.
     pub fn tell_label(&self, session_id: &str, l: &Label) -> Result<bool> {
         let rec = self
             .store
             .get_session::<SessionRecord>(session_id)?
             .ok_or_else(|| anyhow!("no session is named {session_id}"))?;
+        if l.flag == Flag::Injection {
+            let held = crate::project_context::change::hold_all(&self.store, session_id);
+            let stored = match held {
+                Ok(r) if r.is_empty() => Ok(()),
+                Ok(r) => self.store.append(&r).map(drop),
+                Err(e) => Err(e),
+            };
+            if let Err(e) = stored {
+                tracing::warn!(error = %format!("{e:#}"), "the granted repositories were not held");
+            }
+        }
         self.bus.publish(
             session_id,
             &Message::from(Event::SessionLabelled(LabelRaised {

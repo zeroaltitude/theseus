@@ -26,10 +26,10 @@
 //! A granted repository's file that has *changed* since the owner last read
 //! it is named here too (§8, "After a grant"), and it is named and not read
 //! at `[project] on_change = "ask"`, or when the compiling session carries
-//! `injection`, or when the file moved under the acting call of a session
-//! that carried it -- the last of which holds the new text for **every**
-//! session, this one included, whether or not it carries anything (S31-1's
-//! two keys, `project_context::change`). Each holds whatever that setting
+//! `injection`, or when a session that carried it has acted since the owner
+//! last read the repository -- the last of which holds the new text for
+//! **every** session, this one included, whether or not it carries anything
+//! (S31-1's two keys, `project_context::change`). Each holds whatever that setting
 //! says. `turn/project_step.rs` is the same notice's ledger half.
 //!
 //! This block takes **no** breakpoint (`layers::cache_layout` leaves it
@@ -82,11 +82,11 @@ impl TurnRunner {
     /// the same answer here and to `observe_project`, so the block and the
     /// ledger cannot disagree about what was carried.
     ///
-    /// It is **not** the only thing that holds a change. The writer key's
+    /// It is **not** the only thing that holds a change. The act key's
     /// stored hold is read inside `project_context::change::observe`, from
-    /// the store, and needs nothing of this session: a file that moved under
-    /// a labelled session's acting call is held here for a session carrying
-    /// nothing at all, which is the case the reader key cannot see.
+    /// the store, and needs nothing of this session: once a labelled session
+    /// has acted, a change is held here for a session carrying nothing at
+    /// all, which is the case the reader key cannot see.
     pub fn session_block(&self, dir: Option<&str>, _place: PlaceView, flagged: bool) -> String {
         if !self.tools.enabled() {
             return String::new();

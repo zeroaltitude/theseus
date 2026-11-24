@@ -1043,8 +1043,8 @@ impl ToolRuntime {
             return Ok((self.ask(tc, a, call, tool.name(), g)?, judged));
         }
         let (posture, class) = (g.decision.posture, g.class);
-        // `execute` sweeps for the writer key itself, on every one of its
-        // call sites rather than on this one.
+        // `execute` holds for the act key itself, on every one of its call
+        // sites rather than on this one.
         let outcome = self
             .execute(
                 tc,
@@ -1058,35 +1058,25 @@ impl ToolRuntime {
         Ok((outcome, judged))
     }
 
-    /// **The writer key** (S31-1): after an ACTING call of a session carrying
-    /// `injection`, whether any granted repository's instruction file moved
-    /// under it. If one did, its new text is held out of **every** session's
-    /// instruction block until the owner grants that repository again, and
-    /// the row says whose call it moved under.
-    ///
-    /// This is where it has to be: a later comparison of stored digests
-    /// cannot say who wrote, but the daemon is present at the moment of
-    /// every acting call. Three gates, cheapest first, and the common path
-    /// stops at the second: the call must act ([`crate::content::acts`], the
-    /// same predicate the freeze reads), the session must carry the label,
-    /// and the owner must have granted something. Only then are any digests
-    /// taken, and nothing is recorded when nothing moved -- the answer
-    /// almost every time. [`crate::project_context::change::wrote`] carries
-    /// the sweep's whole argument, including what it still does not reach.
+    /// **The act key** (S31-1, the owner 2026-11-24): after an ACTING call
+    /// of a session carrying `injection`, every granted repository is held
+    /// for every session until the owner grants it again
+    /// ([`crate::project_context::change::hold_all`], which says why it
+    /// compares nothing here). Three gates, cheapest first: the call must act
+    /// ([`crate::content::acts`], the same predicate the freeze reads), the
+    /// session must carry the label, and the owner must have granted
+    /// something. A repository already held is left as it is.
     ///
     /// **Called from [`Self::execute`], which all three of its call sites go
     /// through** -- the gate's `start`, and `resume.rs`'s `run_confirmed`
-    /// and `run_authorized`. Round 1 swept after `start` alone, so a call
-    /// reaching `Posture::Approve` ran from `resume.rs`, moved the file and
-    /// stored no hold: `undo.v1`'s `irreversible_final` raises the gate to
-    /// `approve`, and an operator who put `proc_run` or `fs.write` there --
-    /// the CAUTIOUS setting -- had the writer key off for that tool. What he
-    /// confirms on that path is a shell command, not the instruction text.
+    /// and `run_authorized`. A call that reaches `Posture::Approve` runs
+    /// from `resume.rs`, and what the operator confirms there is a shell
+    /// command, not the instruction text, so it holds as any other does.
     ///
     /// The class is the tool's own, not `g.plan.class`'s override, which
     /// cannot change the answer: `acts` consults the class only for a tool
     /// on the `local_read` allow-list, and no tool there sets a plan class.
-    fn wrote_project(&self, tc: &TurnCtx<'_>, tool: &str, class: ToolClass) {
+    fn hold_projects(&self, tc: &TurnCtx<'_>, tool: &str, class: ToolClass) {
         if !crate::content::acts(class, tool) {
             return;
         }
@@ -1094,39 +1084,16 @@ impl ToolRuntime {
         if !core.runner.session_flagged(tc.session_id) {
             return;
         }
-        let cwd = self.cwd_for(tc.dir);
-        for w in crate::project_context::change::wrote(
-            &core.cfg,
-            tc.store,
-            &core.runner.context_files,
-            &cwd,
-            tc.session_id,
-        ) {
-            for c in &w.observed.fresh {
-                tc.record(&crate::fact::project::ProjectChanged {
-                    id: &w.observed.id,
-                    root: &w.observed.root,
-                    path: &c.path,
-                    old: &c.old,
-                    new: &c.new,
-                    carried: false,
-                    wrote: Some(tc.session_id),
-                });
+        let records = match crate::project_context::change::hold_all(tc.store, tc.session_id) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(error = %e, "the granted repositories were not held");
+                return;
             }
-            // The hold, and the sighting that goes with it: what the owner
-            // read does not move (so the file keeps waiting), and what has
-            // been said about does (so one change is one row and not one a
-            // call).
-            let mut records = vec![w.held.record(&w.observed.id)];
-            if let Some(seen) = &w.observed.write {
-                records.push(seen.record(&w.observed.id));
-            }
-            for r in records {
-                match r.and_then(|r| tc.store.defer(r)) {
-                    Ok(()) => {}
-                    Err(e) => tracing::warn!(repo = %w.observed.id, error = %e,
-                        "a granted repository's hold was not stored"),
-                }
+        };
+        for r in records {
+            if let Err(e) = tc.store.defer(r) {
+                tracing::warn!(error = %e, "a granted repository's hold was not stored");
             }
         }
     }
@@ -1632,7 +1599,7 @@ impl ToolRuntime {
     }
 
     /// Run a dispatched action to a result (or a background placeholder),
-    /// and sweep for the writer key after it.
+    /// and hold for the act key after it.
     ///
     /// Dispatch is already durable: `plan_and_dispatch`, or `dispatch` for a
     /// call that was confirmed or authorized before a restart.
@@ -1640,8 +1607,8 @@ impl ToolRuntime {
     /// the operator approved. The broker gives it no secret whose posture is
     /// stricter (theseus-dcy).
     ///
-    /// **The writer key's sweep is here, and not at a call site, by
-    /// construction** ([`Self::wrote_project`], which carries the argument).
+    /// **The act key's hold is here, and not at a call site, by
+    /// construction** ([`Self::hold_projects`], which carries the argument).
     async fn execute(
         &self,
         tc: &TurnCtx<'_>,
@@ -1652,7 +1619,7 @@ impl ToolRuntime {
         class: sandbox::Bound,
     ) -> Result<CallOutcome> {
         // Taken before the dispatch below moves the tool, not after: the
-        // writer key asks what the call WAS, and the call is over by then.
+        // act key asks what the call WAS, and the call is over by then.
         let acted = (tool.name().to_string(), tool.class());
         let outcome = self
             .dispatch_to_backend(
@@ -1666,7 +1633,7 @@ impl ToolRuntime {
             .await;
         // After the call whatever became of it: one that failed may still
         // have moved the file before it failed.
-        self.wrote_project(tc, &acted.0, acted.1);
+        self.hold_projects(tc, &acted.0, acted.1);
         outcome
     }
 

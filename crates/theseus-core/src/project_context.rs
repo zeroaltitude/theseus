@@ -537,9 +537,9 @@ fn cut_to(s: &mut String, kept: usize) {
 /// does.
 ///
 /// A change can also be held for a session that carries nothing, by the
-/// writer key: `change::observe` reads the stored hold a file's move under a
-/// labelled session's acting call left. That needs no argument here, because
-/// it is a fact about the repository and not about the session reading it.
+/// act key: `change::observe` reads the stored hold a labelled session's act
+/// left (`change::hold_all`). That needs no argument here, because it is a
+/// fact about the repository and not about the session reading it.
 pub fn block(
     cfg: &crate::config::Config,
     store: &crate::store::Store,

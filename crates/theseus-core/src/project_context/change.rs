@@ -67,42 +67,27 @@
 //! - The **reader key** is the paragraph above: `flagged`, passed in by the
 //!   compiling turn. It holds a change from the session that is *reading*
 //!   it.
-//! - The **writer key** is [`Held`] and [`wrote`]: a **swept** file of a
-//!   granted repository that moved while a flagged session's ACTING call ran
-//!   is held **for every session**, clean ones included, until the owner
-//!   says yes.
+//! - The **act key** is [`Held`] and [`hold_all`]: once a session carrying
+//!   `injection` makes an acting call, or that label lands on a session,
+//!   **every** granted repository is held **for every session**, clean ones
+//!   and the owner's own edits included, until he grants it again (the
+//!   owner, 2026-11-24).
 //!
-//! The reader key alone leaves the case the owner's ruling actually names.
-//! A flagged session EDITS the file; the next CLEAN session to open in that
-//! repository carries the new text, because *it* is not flagged and at
-//! `notice` nothing holds it. The reason the first half keyed on the reader
-//! was true of its mechanism -- a change is found by comparing a stored
-//! sighting later, and a later comparison cannot say who wrote -- but the
-//! daemon is present at the moment of every acting call, and at that moment
-//! it can compare. It is writer-keyed **without knowing who wrote**: a file
-//! that moved while a flagged session's acting call ran is treated as that
-//! call's. That covers a shell write as surely as a file tool's, and a call
-//! the operator confirmed as surely as one that ran straight off the gate
-//! (the sweep is inside `ToolRuntime::execute`, which every path that runs a
-//! call goes through). It errs the safe way on the rest -- a file that moved
-//! under such a call for an unrelated reason (a `git pull` in another
-//! terminal) is held too, and a held file is read again the moment the owner
-//! grants the repository.
+//! The reader key alone leaves the case the owner's ruling actually names:
+//! a labelled session EDITS the file, and the next CLEAN session to open in
+//! that repository would carry the new text. The act key compares nothing
+//! at the act. It stores the hold, and the hold is read where a change is
+//! found, at the next compile in any directory of any granted repository
+//! ([`observe`]): every change against the owner's sighting is named there
+//! and not read. So it does not matter which directory the write was in,
+//! which repository, or when it lands -- a background job that writes after
+//! its call returned is held as surely as the call's own write.
 //!
-//! **"Swept" is the load-bearing word, and it is narrower than "a file".**
-//! [`swept`] is the union of the files the owner's stored sighting of a
-//! granted repository already names and, for the repository the session is
-//! working in, the chain from its root down to the session's own directory;
-//! and [`wrote`] does that for EVERY granted repository, not only the
-//! session's own. A file in neither set is not swept; [`wrote`]'s own doc,
-//! where the sweep is, says which files those are.
-//!
-//! The writer key's hold is a **stored record**, not a daemon's memory: a
-//! restart between the write and the next session's open is not the owner's
-//! yes and must not launder it. It is dropped where the sighting is dropped,
-//! by `project_untrust`, which is what makes `untrust` then `trust` release
-//! it -- the same yes, and no new command surface for a state that already
-//! had one.
+//! The hold is a **stored record**, not a daemon's memory: a restart between
+//! the act and the next session's open is not the owner's yes. It is dropped
+//! where the sighting is dropped, by `project_untrust`, and replaced with a
+//! fresh sighting by a `project_trust`, which is the owner's yes: he reads
+//! the files and grants the repository again.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -123,8 +108,8 @@ pub fn seen_key(id: &str) -> String {
     format!("{SEEN_PREFIX}{id}")
 }
 
-/// The META key prefix of a repository whose instruction file moved under a
-/// flagged session's acting call, by `flow::spec::repo_id`.
+/// The META key prefix of a granted repository held by a labelled act, by
+/// `flow::spec::repo_id`.
 pub const HELD_PREFIX: &str = "project.held.";
 
 /// The META key of one repository's hold.
@@ -132,27 +117,25 @@ pub fn held_key(id: &str) -> String {
     format!("{HELD_PREFIX}{id}")
 }
 
-/// **The writer key's hold** (S31-1): a granted repository whose instruction
-/// file moved while a session carrying `injection` was making an acting
-/// call. Its presence holds that repository's changes out of **every**
-/// session's instruction block, whatever `[project] on_change` says and
-/// whatever `[content_based_security] injection` is set to, until the owner
-/// grants the repository again.
+/// **The act key's hold** (S31-1): a granted repository held because a
+/// session carrying `injection` made an acting call, or was labelled, while
+/// it was granted ([`hold_all`]). Its presence holds that repository's
+/// changes out of **every** session's instruction block, whatever
+/// `[project] on_change` says and whatever `[content_based_security]
+/// injection` is set to, until the owner grants the repository again.
 ///
-/// **The hold is the repository's, not a digest's.** A held file the owner
-/// then edits HIMSELF is still held: nothing here can tell his hand from
-/// another write, and the repository is what he re-reads when he re-grants.
-/// [`files`](Self::files) is therefore what the row and the block SAY, not
-/// what they test; the hold is `is_some`.
+/// **The hold is the repository's, not a digest's.** A file the owner then
+/// edits HIMSELF is held too: nothing here can tell his hand from another
+/// write, and the repository is what he re-reads when he re-grants. The
+/// hold is `is_some`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Held {
-    /// The files that moved, by the path the block shows, to the digest the
-    /// call left. A file the call DELETED is not here: there is no new text
-    /// to hold, and `withheld` has never withheld an absence.
+    /// Written empty, and read by nothing: a hold is not a list of files.
+    /// Kept so that a hold stored by an earlier build, which named the
+    /// files that moved under the call, still decodes.
     pub files: BTreeMap<String, String>,
-    /// The session whose acting call the files moved under. Not "who wrote":
-    /// this is the call it moved under, which is the honest claim and the
-    /// one the ledger row makes.
+    /// The labelled session whose act stored the hold. Not "who wrote":
+    /// the claim is that it acted, which is the one the ledger row makes.
     pub by: String,
     pub at_ms: u64,
 }
@@ -249,7 +232,7 @@ pub struct Observed {
     pub write: Option<Seen>,
     /// Whether this compile holds a change back: `ask` posture, **or** a
     /// session carrying `injection`, **or** a stored [`Held`] from the
-    /// writer key, each of which holds whatever the others say (S31-1). It
+    /// act key, each of which holds whatever the others say (S31-1). It
     /// is the decision rather than the setting, so every reader below acts
     /// on one answer and cannot disagree about which input produced it.
     pub ask: bool,
@@ -257,9 +240,9 @@ pub struct Observed {
     /// posture. It changes only what the block's line *says*: the hold
     /// itself is the same hold, and `ask` above is what performs it.
     pub flagged: bool,
-    /// The writer key's stored hold, when there is one: a file of this
-    /// repository moved under a flagged session's acting call, and is held
-    /// for every session until the owner's yes. It outranks the other two in
+    /// The act key's stored hold, when there is one: a session carrying
+    /// `injection` has acted since the owner last read this repository, and
+    /// its changes are held for every session until his yes. It outranks the other two in
     /// the line, because it is the only one that says something about a
     /// session OTHER than the one reading.
     pub held: Option<Held>,
@@ -295,8 +278,8 @@ impl Observed {
         Some(if let Some(h) = &self.held {
             format!(
                 "Project instructions changed since the owner last read them: {what}. \
-                 They moved during a call of a session that carries the `injection` \
-                 label ({}), so their new text is not here for any session: he grants \
+                 A session that carries the `injection` label ({}) has acted since he \
+                 last read them, so their new text is not here for any session: he grants \
                  the repository again (`theseus project untrust`, then `theseus project \
                  trust` naming this session's directory) once he has read it.",
                 h.by
@@ -467,7 +450,9 @@ pub fn observe(
     let ask = cfg.project.on_change() == OnChange::Ask || flagged || held.is_some();
     let at_ms = theseus_protocol::now_unix_ms();
     let mut now = sighting(files, found, at_ms);
-    let old = Seen::read(store, &id);
+    // A hold on a repository with no sighting (one granted by an earlier
+    // build) compares with an empty one: every file is new, and held.
+    let old = Seen::read(store, &id).or_else(|| held.as_ref().map(|_| Seen::default()));
     if let Some(o) = &old {
         carry(&mut now, o, looked);
     }
@@ -533,186 +518,39 @@ fn carry(now: &mut Seen, old: &Seen, looked: &[PathBuf]) {
     }
 }
 
-/// What a flagged session's acting call did to a granted repository's
-/// instruction files, when it moved any.
-#[derive(Debug, Clone)]
-pub struct Wrote {
-    /// The same observation the compile makes, taken at the moment of the
-    /// call: the rows to write (`fresh`) and the sighting to store
-    /// (`write`), which is `ask`'s -- what the owner read does NOT move, so
-    /// the file keeps waiting, and only what has been said about moves, so
-    /// one change is one row and not one a call.
-    pub observed: Observed,
-    /// The hold to store, which is what makes the next CLEAN session wait
-    /// too.
-    pub held: Held,
-}
-
-/// The files of `root` this sweep compares: the union of **what the owner's
-/// stored sighting of that repository already names** and, when the session
-/// is working inside this repository, **the chain from its root down to the
-/// session's own directory**.
+/// **The act key** (S31-1, the owner 2026-11-24): the records that put a
+/// [`Held`] naming `by` on every granted repository that has none. A
+/// repository already held keeps the hold it has.
 ///
-/// Two sets, because neither alone is the answer. The chain alone is what
-/// round 1 swept, and it misses every directory of the repository that is
-/// not an ancestor of the cwd. The stored sighting alone misses the files
-/// the session is working beside right now, which may never have been
-/// compiled.
+/// Called after each acting call of a session carrying `injection`
+/// ([`crate::content::acts`] decides "acting", the same predicate the freeze
+/// reads, so the set of calls a label refuses and the set that hold cannot
+/// drift apart), and when that label lands on a session
+/// (`Core::tell_label`), so a label that lands after the write holds it too.
 ///
-/// The stored sighting is what the grant's walk found plus what every
-/// compile since has seen: a compile keeps what it did not look for
-/// ([`observe`]), so an ordinary compile elsewhere in the repository does
-/// not drop a file from it.
-///
-/// **It is deliberately not a directory walk.** A walk of a granted root per
-/// acting call is a cost that scales with the repository rather than with
-/// the grant, and the sweep runs inside the tool path. What that choice
-/// leaves open is written down in [`wrote`]'s doc.
-///
-/// A stored path that no longer resolves to a regular file is simply left
-/// out, which is exactly right: its directory is among the directories this
-/// returns beside the files, the ones it looked in, so [`observe`] does not
-/// carry it, and a file that was there and is not now comes back as a
-/// change with an empty new digest -- gone, named in the row, held in
-/// nothing.
-fn swept(
+/// It compares nothing, so it is the same for a write in any directory of
+/// any granted repository, for a repository no session has opened in, and
+/// for a write that lands after the call returned. [`observe`] reads the
+/// hold at the next compile and names every change against the owner's
+/// sighting there, without reading it. One keyed read of the grants and one
+/// of each granted repository's hold; no file is read.
+pub fn hold_all(
     store: &crate::store::Store,
-    root: &Path,
-    here: &super::Discovered,
-) -> (Vec<Found>, Vec<PathBuf>) {
-    let mut by_path: BTreeMap<String, Found> = BTreeMap::new();
-    let mut looked: Vec<PathBuf> = Vec::new();
-    if here.root.as_deref() == Some(root) {
-        for f in &here.project {
-            by_path.insert(f.shown.clone(), f.clone());
-        }
-        looked.extend(here.dirs.iter().cloned());
-    }
-    let Some(seen) = Seen::read(store, &crate::flow::spec::repo_id(root)) else {
-        return (by_path.into_values().collect(), looked);
-    };
-    for shown in seen.files.keys() {
-        let path = Path::new(shown);
-        if let Some(d) = path.parent() {
-            looked.push(d.to_path_buf());
-        }
-        if by_path.contains_key(shown) {
-            continue;
-        }
-        // The depth the block orders by, recovered from the path itself; a
-        // stored path is always under the root that stored it.
-        let depth = path
-            .parent()
-            .and_then(|d| d.strip_prefix(root).ok())
-            .map_or(0, |rel| rel.components().count());
-        if let Some(f) = super::found(path, depth) {
-            by_path.insert(shown.clone(), f);
-        }
-    }
-    (by_path.into_values().collect(), looked)
-}
-
-/// **The writer key** (S31-1). What a session carrying `injection` did to
-/// the granted repositories' instruction files with the acting call that has
-/// just run in `cwd` -- one [`Wrote`] per repository whose files moved, and
-/// the empty vector when none did, which is the overwhelmingly common answer
-/// and the only one that costs anything less than a few digests.
-///
-/// Called after each acting call of a flagged session and nowhere else
-/// ([`crate::content::acts`] decides "acting", the same predicate the
-/// freeze reads, so the set of calls a label refuses and the set it watches
-/// cannot drift apart).
-///
-/// **Every granted repository is swept, not only the session's own** (round
-/// 2). A call makes no promise to stay inside the directory its session
-/// started in: it can write one directory sideways, and it can write into a
-/// different repository the owner happens to have granted. Round 1 asked
-/// [`super::discover`] for the cwd's repository and swept `chain(root, cwd)`
-/// inside it, and poisoned text went past it both ways. [`super::trust::Grants::read`]
-/// returns every granted repository in ONE keyed read, so the whole set
-/// costs one read more than one repository did; what each root contributes
-/// is [`swept`]'s union.
-///
-/// It asks [`observe`] with `flagged` true rather than building a second
-/// comparison, so the row this writes and the row a compile writes are the
-/// same row from the same code on the same inputs. What it adds is the
-/// [`Held`] record: the compile's hold ends with the session that carries
-/// the label, and this one does not.
-///
-/// **Edges, decided here rather than left implicit:**
-///
-/// - A file that moved under the call for some other reason (a `git pull` in
-///   another terminal) is held. That errs the safe way, and the cost of
-///   erring is one re-grant.
-/// - A file the call CREATED is held **where it is swept**: a `CLAUDE.md`
-///   where there was none is the same channel as an edit, and `diff` already
-///   reports it as a change with an empty old digest.
-/// - A file the call DELETED is named in the row and held in nothing: there
-///   is no new text to withhold. Its absence is what every session gets,
-///   which is not a channel into anybody's instruction block.
-/// - A granted repository whose root is not a directory right now (an
-///   unmounted disk, a tree that was moved) is skipped rather than reported
-///   as a repository whose every file went away. Holding a repository the
-///   machine cannot see would be a hold nobody could clear by reading
-///   anything.
-///
-/// **What this does NOT reach, stated because a comment that overstates a
-/// containment is worse than no comment:**
-///
-/// 1. **Any instruction file that is neither in a granted repository's
-///    stored sighting nor on the chain from the session's own repository
-///    root to its own working directory.** The stored sighting holds what
-///    the grant's walk found and what every compile since has seen, so
-///    such a file is one that appeared after the grant where no compile has
-///    looked since, or one the walk did not reach. [`swept`] says why the
-///    sweep is not a walk.
-/// 2. A background job that writes AFTER its call has returned is not seen
-///    by that call's sweep. The next acting call of the session catches it;
-///    a clean session that opens before then does not.
-/// 3. Text written by a session that was never labelled at all. Neither key
-///    reaches it; it is the tool floor's case, and an open owner question.
-pub fn wrote(
-    cfg: &crate::config::Config,
-    store: &crate::store::Store,
-    files: &ContextFiles,
-    cwd: &Path,
-    session: &str,
-) -> Vec<Wrote> {
-    let Ok(grants) = super::trust::Grants::read(store) else {
-        return Vec::new();
-    };
-    if grants.repos.is_empty() {
-        return Vec::new();
-    }
-    let here = super::discover(&cfg.state_dir(), cwd);
+    by: &str,
+) -> anyhow::Result<Vec<theseus_store::NewRecord>> {
+    let grants = super::trust::Grants::read(store)?;
     let at_ms = theseus_protocol::now_unix_ms();
     grants
         .repos
-        .values()
-        .filter_map(|g| {
-            let root = Path::new(&g.root);
-            if !root.is_dir() {
-                return None;
-            }
-            let (found, looked) = swept(store, root, &here);
-            if found.is_empty() {
-                return None;
-            }
-            let observed = observe(cfg, store, files, root, &found, &looked, true);
-            if observed.changes.is_empty() {
-                return None;
-            }
-            let held = Held {
-                files: observed
-                    .changes
-                    .iter()
-                    .filter(|c| !c.is_gone())
-                    .map(|c| (c.path.clone(), c.new.clone()))
-                    .collect(),
-                by: session.to_string(),
+        .keys()
+        .filter(|id| Held::read(store, id).is_none())
+        .map(|id| {
+            Held {
+                files: BTreeMap::new(),
+                by: by.to_string(),
                 at_ms,
-            };
-            Some(Wrote { observed, held })
+            }
+            .record(id)
         })
         .collect()
 }

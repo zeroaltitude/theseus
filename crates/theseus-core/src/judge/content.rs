@@ -165,20 +165,15 @@ impl ContentItem {
     ///      a granted repository's instruction file that has CHANGED since
     ///      the owner last read it -- the new text is named and held until
     ///      he says yes, whatever `[project] on_change` is set to;
-    ///    - the **writer** key: a SWEPT file of a granted repository that
-    ///      moved while a labelled session's ACTING call ran is held for
-    ///      **every** session, clean ones included, until he says yes. It
-    ///      does not know who wrote, and does not need to: the daemon is
-    ///      present at the moment of the call, so the file is treated as
-    ///      that call's. It covers a shell write as surely as a file tool's,
-    ///      and a call the operator confirmed as surely as one that ran
-    ///      straight off the gate; every granted repository is swept, not
-    ///      only the one the session is working in; and the hold is stored,
-    ///      so a restart is not a release. **Swept** is the load-bearing
-    ///      word: it is the files of the owner's stored sighting of each
-    ///      granted repository, plus the chain from the session's own
-    ///      repository root down to its own directory -- not a walk of a
-    ///      granted root (`project_context::change::swept`).
+    ///    - the **act** key: once a labelled session makes an ACTING call,
+    ///      or the label lands on it, every granted repository is held for
+    ///      **every** session, clean ones and the owner's own edits
+    ///      included, until he says yes (`project_context::change::hold_all`).
+    ///      It does not know who wrote, and does not need to: every change
+    ///      against the owner's sighting is named and not read at the next
+    ///      compile, in whichever directory of whichever granted repository
+    ///      it is and whenever it lands; and the hold is stored, so a
+    ///      restart is not a release.
     ///
     ///    The reader key alone would have left the case the ruling actually
     ///    names -- a labelled session edits the file and a CLEAN session
@@ -188,16 +183,12 @@ impl ContentItem {
     ///    glossed:** a brief is written by Theseus itself, a repository by
     ///    whoever wrote it; the grant is given to a canonical root once and
     ///    covers its files as they change (`project_context::trust`,
-    ///    "notify rather than ask"); and three writes reach no key at all --
-    ///    any instruction file that is in NEITHER swept set, meaning neither
-    ///    in a granted repository's currently-stored sighting nor on the
-    ///    chain from the session's own root to its own directory, whether it
-    ///    was created or merely changed and whether or not its directory has
-    ///    ever been compiled in (`project_context::change::wrote`, item 1,
-    ///    says which files those are), a background job's write that lands
-    ///    after its own call returned, and text written by a session that
-    ///    was never labelled at all. Asking the injection question here
-    ///    would not close that remainder either -- it would answer yes on
+    ///    "notify rather than ask"); and text written while no session that
+    ///    has acted carries the label -- by a session that was never
+    ///    labelled, or one accepted by a clean compile before its writer's
+    ///    label landed -- reaches no key at all (`[project] on_change = "ask"`
+    ///    holds it). Asking the injection question here would not close that
+    ///    remainder either -- it would answer yes on
     ///    the honest files too. What fits it is the tool floor, which is an
     ///    open owner question on theseus-3i6d1's `theseus.toml` line and is
     ///    **not** settled here.
