@@ -53,6 +53,8 @@ struct Rig {
     daemon: Daemon,
     script: Script,
     _model: FakeModel,
+    /// The session of the last `turn`, for a failure to print.
+    last_session: Mutex<Value>,
 }
 
 /// What a job reports, one `key=value` a line: `$1` is the daemon's socket,
@@ -193,6 +195,7 @@ impl Rig {
             daemon,
             script,
             _model: model,
+            last_session: Mutex::new(Value::Null),
         };
         r.until("the secrets", |h| h["secrets"]["state"] == "ready");
         r
@@ -248,6 +251,7 @@ impl Rig {
         self.asks(prompt, calls);
         let s = self.call("session.open", json!({"label": prompt})).unwrap();
         let sid = s["session_id"].clone();
+        *self.last_session.lock().unwrap() = sid.clone();
         let res = self
             .call(
                 "turn.submit",
@@ -265,6 +269,40 @@ impl Rig {
             .filter(|n| n["kind"] == "tool_result")
             .map(|n| n["text"].as_str().unwrap_or_default().to_string())
             .collect()
+    }
+
+    /// Why the last `turn` gave what it gave, for its failure: the stand-in's last requests (what it
+    /// read as the prompt, and what it answered), that session's history, the jobs started, the log.
+    fn last_turn(&self) -> String {
+        let sid = self.last_session.lock().unwrap().clone();
+        let history = self.call("session.history", json!({"session_id": sid}));
+        let nodes: Vec<String> = match &history {
+            Ok(h) => h["nodes"].as_array().cloned().unwrap_or_default(),
+            Err(e) => vec![json!({"kind": "(no history)", "text": e.to_string()})],
+        }
+        .iter()
+        .map(|n| {
+            let text = n["text"]
+                .as_str()
+                .map_or_else(|| n.to_string(), str::to_string);
+            format!(
+                "  {}: {}",
+                n["kind"],
+                text.chars().take(80).collect::<String>()
+            )
+        })
+        .collect();
+        let started = self.call("ledger.tail", json!({"n": 2000})).map(|t| {
+            let rows = t["rows"].as_array().cloned().unwrap_or_default();
+            let rows = rows.into_iter().filter(|r| r["kind"] == "tool.job_started");
+            rows.map(|r| r["data"].clone()).collect::<Vec<_>>()
+        });
+        format!(
+            "the stand-in's last requests:\n{}\nsession {sid}'s history:\n{}\ntool.job_started: {started:?}\nthe log ends:\n{}",
+            self._model.last_prompts(6).join("\n"),
+            nodes.join("\n"),
+            self.log()
+        )
     }
 
     fn ledger(&self, kind: &str) -> Vec<Value> {
@@ -582,7 +620,7 @@ fn a_backgrounded_l1_job_stays_listed_until_it_ends() {
         }
         call["sandbox"] = json!(true);
         let out = r.turn(&format!("background {i}"), vec![("proc_run", call)]);
-        assert_eq!(out.len(), 1, "{what}: {out:?}");
+        assert_eq!(out.len(), 1, "{what}: {out:?}\n{}", r.last_turn());
         let jobs = listed(&r);
         assert_eq!(jobs.len(), 1, "{what}: its call returned: {jobs:?}");
         assert_eq!(jobs[0]["tool"], "proc.run", "{what}");
