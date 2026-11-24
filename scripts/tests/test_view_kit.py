@@ -84,6 +84,13 @@ def fail(code=1):
     sys.exit(code)
 if cmd == 'health':
     sys.exit(1 if fx.get('health') == 'never' else 0)
+if cmd == 'tty':  # whether this process has a controlling terminal, and what came on its input
+    try:
+        os.close(os.open('/dev/tty', os.O_RDWR))
+        print('tty', sys.stdin.read())
+    except OSError:
+        print('none', sys.stdin.read())
+    sys.exit(0)
 if cmd == 'shutdown':
     if fx.get('shutdown') == 'hang':
         import time
@@ -441,6 +448,11 @@ class FakeDaemon(unittest.TestCase):
         self.assertFalse(scratch.drive.processes_naming(self.tmp / "o" / "daemon"))
         self.assertEqual(signal.getsignal(signal.SIGTERM), before)
 
+    def test_a_cli_call_with_a_terminal_has_one_and_keeps_its_pipes(self):
+        with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+            r = d.cli("tty", input="the line", terminal=True)
+        self.assertEqual(r.stdout.split(), ["tty", "the", "line"])
+
     def test_a_cli_timeout_is_a_fixed_code_without_its_command_line(self):
         f = fixture(True)
         f["history"] = "slow"
@@ -703,6 +715,13 @@ class Pieces(unittest.TestCase):
         self.assertFalse(t["index"]["enabled"] or t["web"]["enabled"] or t["discord"]["enabled"])
         with self.assertRaises(ValueError):
             scratch.config({}, api_base="https://api.example.invalid")
+
+    def test_scratch_config_names_no_agent_processes(self):
+        """A scratch daemon's own settings name no agent host, whatever the profile says: the kit's lines are
+        the owner's (scratch.py's module text)."""
+        t = scratch.config({"policy": {"agent_processes": ["claude", "openclaw"]}})
+        self.assertEqual(t["policy"]["agent_processes"], [])
+        self.assertEqual(scratch.config({})["policy"]["agent_processes"], [])
 
     def test_the_synthetic_set_is_valid_covers_every_class_and_names_no_real_city(self):
         self.assertTrue(20 <= len(self.cases["cases"]) <= 30)

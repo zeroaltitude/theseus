@@ -250,7 +250,8 @@ def build_case(case: dict, bin_dir: Path, out: Path) -> dict:
                                json.dumps({"label": f"case-{h['place']}", "dir": str(cwd.resolve())}))
                     v = v.get("result", v)
                     sessions[h["place"]] = v.get("session_id") or v["id"]
-                r = d.cli("--json", "ask", "-s", sessions[h["place"]], "-", input=h["say"], cwd=cwd)
+                # From a terminal of the kit's own: the line is marked the owner's (scratch.py's module text).
+                r = d.cli("--json", "ask", "-s", sessions[h["place"]], "-", input=h["say"], cwd=cwd, terminal=True)
                 if r.returncode != 0:
                     raise scratch.Failed(f"E_ASK {case['id']} {h['id']} exit {r.returncode}")
                 row = scratch.ledger_rows(d, "context.turn")[-1]["data"]
