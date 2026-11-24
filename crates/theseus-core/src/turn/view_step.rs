@@ -257,7 +257,9 @@ impl TurnRunner {
         let store_ladder = fork.ladder(store);
         let resolved = ResolvedLadder::new(&store_ladder, store);
         let ladder = OnceLadder::new(&resolved);
-        let moving = self.moving(store, (&permit, &pov), &items, &read)?;
+        // The known values as they stand for this assembly: where a stored text it lays may be cut.
+        let cuts = self.tools.scrubber.cuts();
+        let moving = self.moving(store, (&permit, &pov), &items, (&read, &cuts))?;
         let cards = StoreCards {
             store,
             kernel: &self.kernel,
@@ -325,7 +327,7 @@ impl TurnRunner {
         store: &'a Store,
         (permit, pov): (&'a Permit, &'a PointOfView),
         items: &[String],
-        read: &'a Sessions,
+        (read, cuts): (&'a Sessions, &'a crate::scrub::Cuts),
     ) -> anyhow::Result<Moving<'a>> {
         let (texts, depends) = (&read.texts, &read.depends);
         let called = match self.threads.core() {
@@ -354,6 +356,7 @@ impl TurnRunner {
                 now_ms: pov.now_ms,
                 store,
                 sessions: read,
+                cuts,
             },
         })
     }

@@ -13,13 +13,15 @@ use theseus_ontology::{handles_of, Category, CategoryId, Ontology};
 use super::select::sources::{Held, People, Ref};
 use super::sources_names::FILING;
 use super::sources_store::Sessions;
+use super::text::literal::{literal, rewritten};
 use super::text::tokens;
-use super::who::{cut, NAME_BYTES};
+use super::who::NAME_BYTES;
 use super::wire_text::TextRenderer;
 use super::{
     Audience, Author, Form, Handle, Marks, Piece, PointOfView, Pos, Sizes, SourceRange, Space,
 };
 use crate::exchange::OWNER;
+use crate::scrub::Cuts;
 use crate::store::Store;
 
 /// The most bytes a person's name takes in the wrapper of their words, quoted and escaped as framing
@@ -42,6 +44,8 @@ pub struct StorePeople<'a> {
     /// The assembly's reads: each text read, by its space (the renderer lays it, `wire_text`), and each held
     /// person's name by the ledger's name for them.
     pub sessions: &'a Sessions,
+    /// The turn's snapshot of the known values: where a stored name, description or guidance may be cut.
+    pub cuts: &'a Cuts,
 }
 
 impl StorePeople<'_> {
@@ -114,7 +118,8 @@ impl People for StorePeople<'_> {
         if !all.iter().any(|h| h == person) {
             all.push(person.to_string());
         }
-        (self.sessions.names.borrow_mut()).insert(person.to_string(), framing_name(&c.name));
+        let name = framing_name(&c.name, self.cuts);
+        (self.sessions.names.borrow_mut()).insert(person.to_string(), name);
         Ok(Some(Held {
             id: c.id.to_string(),
             owner: self.owner(person) || self.owners().contains(&c.id),
@@ -138,6 +143,7 @@ impl People for StorePeople<'_> {
                 guidance,
             },
             most,
+            self.cuts,
         );
         let space = Space::Facts {
             thing: c.id.to_string(),
@@ -152,7 +158,7 @@ impl People for StorePeople<'_> {
         let space = Space::Facts {
             thing: format!("{}#speaking", c.id),
         };
-        let text = format!("{SPEAKING}: {}", cut(&c.name, NAME_BYTES));
+        let text = format!("{SPEAKING}: {}", one_line(&c.name, NAME_BYTES, self.cuts));
         Ok(vec![self.filed(c, space, text)])
     }
 
@@ -167,21 +173,49 @@ impl People for StorePeople<'_> {
     }
 }
 
-/// A person's name as the wrapper of their words names its source: on one line, at most
-/// [`NAME_IN_WRAPPER_BYTES`] once quoted and escaped (`text::literal`), cut on a character's boundary.
-pub fn framing_name(name: &str) -> String {
-    let name = cut(name, usize::MAX);
+/// The end of a text that was cut.
+const MORE: &str = "...";
+
+/// `s` on one line, at most `most` bytes with its [`MORE`] when cut. A cut falls on a character's boundary and
+/// never inside a known value (`cuts`); and it falls before any known value the one-line rewrite would change
+/// (one holding a line break or another control character), so every value kept is whole and as written.
+pub fn one_line(s: &str, most: usize, cuts: &Cuts) -> String {
+    let s = s.trim();
+    let flat = |t: &str| -> String {
+        t.chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect()
+    };
+    let keep = cuts.unchanged(s, char::is_control);
+    if keep == s.len() && s.len() <= most {
+        return flat(s).trim().to_string();
+    }
+    let mut at = most.saturating_sub(MORE.len()).min(keep);
+    while !s.is_char_boundary(at) {
+        at -= 1;
+    }
+    format!("{}{MORE}", flat(&s[..cuts.before(s, at)]).trim_end())
+}
+
+/// A person's name as the wrapper of their words names its source: on one line ([`one_line`]), at most
+/// [`NAME_IN_WRAPPER_BYTES`] once quoted and escaped (`text::literal`). The cut falls where `cuts` says, and before
+/// any known value the escaping would change, so the name reaches both of its places in the wrapper already cut.
+pub fn framing_name(name: &str, cuts: &Cuts) -> String {
+    let name = one_line(name, usize::MAX, cuts);
+    let keep = cuts.unchanged(&name, rewritten);
     let mut spent = 0;
     let mut end = name.len();
     for (at, c) in name.char_indices() {
-        let quoted = super::text::literal::literal(c.encode_utf8(&mut [0; 4]), 1).len() - 2;
+        let quoted = literal(c.encode_utf8(&mut [0; 4]), 1).len() - 2;
         if spent + quoted > NAME_IN_WRAPPER_BYTES {
             end = at;
             break;
         }
         spent += quoted;
     }
-    name[..end].trim_end().to_string()
+    name[..cuts.before(&name, end.min(keep))]
+        .trim_end()
+        .to_string()
 }
 
 /// What one person's entry names.
@@ -193,11 +227,12 @@ pub struct Person<'a> {
 }
 
 /// One person's entry, under `most` tokens by today's estimate ([`tokens`]): a line with the name, the same
-/// wording for every person ([`PRESENT`]), then the description and the guidance when there are any. As it
-/// is when it fits; else each of the three is put on one line and cut (`who::cut`), every one a quarter
+/// wording for every person ([`PRESENT`]), then the description and the guidance when there are any. The name
+/// is always on its one line, so the entry's first line is a whole one. The rest as it is when it fits; else
+/// each of the three is put on one line and cut ([`one_line`], where `cuts` lets it), every one a quarter
 /// shorter while the whole is still over, down to the wording alone.
-pub fn entry(p: &Person<'_>, most: u64) -> String {
-    let whole = lay(p, None);
+pub fn entry(p: &Person<'_>, most: u64, cuts: &Cuts) -> String {
+    let whole = lay(p, None, cuts);
     if tokens(&whole) < most {
         return whole;
     }
@@ -207,7 +242,7 @@ pub fn entry(p: &Person<'_>, most: u64) -> String {
         .max()
         .unwrap_or(0);
     loop {
-        let block = lay(p, Some(bytes));
+        let block = lay(p, Some(bytes), cuts);
         if tokens(&block) < most || bytes == 0 {
             return block;
         }
@@ -215,13 +250,15 @@ pub fn entry(p: &Person<'_>, most: u64) -> String {
     }
 }
 
-/// The entry's lines, each text whole (trimmed) or, with `most`, on one line in at most `most` bytes.
-fn lay(p: &Person<'_>, most: Option<usize>) -> String {
+/// The entry's lines: the name on one line; the others whole (trimmed) or, with `most`, each on one line in at
+/// most `most` bytes.
+fn lay(p: &Person<'_>, most: Option<usize>, cuts: &Cuts) -> String {
     let text = |s: &str| match most {
-        Some(m) => cut(s, m),
+        Some(m) => one_line(s, m, cuts),
         None => s.trim().to_string(),
     };
-    let mut lines = vec![format!("{PRESENT}: {}", text(p.name))];
+    let name = one_line(p.name, most.unwrap_or(usize::MAX), cuts);
+    let mut lines = vec![format!("{PRESENT}: {name}")];
     if !p.description.trim().is_empty() {
         lines.push(format!("- Description: {}", text(p.description)));
     }
@@ -234,6 +271,9 @@ fn lay(p: &Person<'_>, most: Option<usize>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scrub::Scrubber;
+    use crate::tests_cut_sites::{whole_or_absent, V};
+    use crate::view::text::labels::{outside_heading, wrap_outside};
 
     fn ada() -> Person<'static> {
         Person {
@@ -249,14 +289,17 @@ mod tests {
     fn an_entry_lays_the_description_and_the_guidance_as_they_are() {
         let whole = "In this conversation: Ada\n- Description: keeps the harbour's books\n\
                      - Guidance: Answer in short lines.\nNo jokes.";
-        assert_eq!(entry(&ada(), 1_500), whole);
-        assert_eq!(entry(&ada(), 100), whole);
+        assert_eq!(entry(&ada(), 1_500, &Cuts::none()), whole);
+        assert_eq!(entry(&ada(), 100, &Cuts::none()), whole);
         let bare = Person {
             description: " ",
             guidance: "",
             ..ada()
         };
-        assert_eq!(entry(&bare, 100), "In this conversation: Ada");
+        assert_eq!(
+            entry(&bare, 100, &Cuts::none()),
+            "In this conversation: Ada"
+        );
     }
 
     /// Long texts are cut to the bound, every cut on a character's boundary and marked, the name first.
@@ -270,7 +313,7 @@ mod tests {
                 guidance: &long,
             };
             for most in [100, 1_500] {
-                let e = entry(&p, most);
+                let e = entry(&p, most, &Cuts::none());
                 assert!(tokens(&e) < most, "{} tokens: {e}", tokens(&e));
                 assert!(e.starts_with(&format!("{PRESENT}: {c}")), "{e}");
                 assert!(e.contains("...\n- Description: "), "{e}");
@@ -283,16 +326,52 @@ mod tests {
     /// characters cut where its escaped form would pass the bound, never inside a character.
     #[test]
     fn a_name_in_framing_is_bounded_after_escaping() {
-        assert_eq!(framing_name("Wren Hallam"), "Wren Hallam");
-        assert_eq!(framing_name(" Wren\nHallam "), "Wren Hallam");
+        let none = Cuts::none();
+        assert_eq!(framing_name("Wren Hallam", &none), "Wren Hallam");
+        assert_eq!(framing_name(" Wren\nHallam ", &none), "Wren Hallam");
         for c in ["[", "\u{200b}", "\"", "水"] {
-            let n = framing_name(&c.repeat(400));
+            let n = framing_name(&c.repeat(400), &none);
             let quoted = super::super::text::literal::literal(&n, usize::MAX);
             assert!(quoted.len() - 2 <= NAME_IN_WRAPPER_BYTES, "{quoted}");
             assert!(
                 !n.is_empty() && n.chars().all(|x| x.to_string() == c),
                 "{n}"
             );
+        }
+    }
+
+    /// KEY: a known value a cut would fall in, in a person's name, description or guidance (one holding a line
+    /// break among them), is laid whole or not at all: in the entry and its first line, in the speaker's line,
+    /// and in the name the wrapper of their words gives twice.
+    #[test]
+    fn a_known_value_in_a_persons_texts_is_laid_whole_or_not_at_all() {
+        for v in [V, "kqzv-0417-wjxp\n9932-hmfb-ylno"] {
+            let cuts = Scrubber::with_values(vec![(v.into(), "v".into())]).cuts();
+            for before in [0, 60, 100, 110, 300, 310] {
+                let text = format!("{}{v} and more", "x".repeat(before));
+                let long = format!("{text} {}", "y ".repeat(2_000));
+                for field in 0..3 {
+                    let pick = |f: usize| if f == field { long.as_str() } else { "Ada" };
+                    let p = Person {
+                        name: pick(0),
+                        description: pick(1),
+                        guidance: pick(2),
+                    };
+                    for most in [100, 1_500, 100_000] {
+                        let e = entry(&p, most, &cuts);
+                        whole_or_absent("the entry", &e, v);
+                        whole_or_absent("its first line", e.lines().next().unwrap(), v);
+                    }
+                }
+                whole_or_absent("the speaker's line", &one_line(&text, NAME_BYTES, &cuts), v);
+                let n = framing_name(&text, &cuts);
+                let laid = format!(
+                    "{}\n{}",
+                    outside_heading(Some(&n)),
+                    wrap_outside(Some(&n), "Morning.")
+                );
+                whole_or_absent("the wrapper's name", &laid, v);
+            }
         }
     }
 }

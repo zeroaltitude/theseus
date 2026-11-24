@@ -29,6 +29,12 @@ pub fn literal(s: &str, max: usize) -> String {
     out
 }
 
+/// Whether [`literal`] shows `c` otherwise than as itself (escaped, or as `\u{…}`): a cut before such a
+/// rewrite stops before any known value holding it (`scrub::Cuts::unchanged`).
+pub fn rewritten(c: char) -> bool {
+    matches!(c, '"' | '\\' | '\n') || hidden(c) || look_alike(c)
+}
+
 /// A tool's name as framing: as it is when it is a plain name (letters, digits, `_`, `.`, `-`; at most 64),
 /// else as a [`literal`].
 pub fn name(n: &str) -> String {
