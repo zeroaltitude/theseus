@@ -177,7 +177,7 @@ pub fn prepare(
             if a.pieces.is_empty() {
                 vec![]
             } else {
-                arr::resolve(a, nodes, holder).map_err(&refuse)?
+                arr::resolve(a, nodes, holder, &tc.scrubber.cuts()).map_err(&refuse)?
             }
         }
         None => vec![],
@@ -298,9 +298,12 @@ fn claimed(
         .ok()
         .flatten()
         .map_or(e.updated_at_ms, |(_, n)| n.created_at_ms);
-    let (capped, _) = crate::toolrun::cap(&text, arr::PIECE_CHARS, |_| {
-        format!("the whole report stays in task {short}'s session")
-    });
+    let (capped, _) = crate::toolrun::cap(
+        &text,
+        arr::PIECE_CHARS,
+        |_| format!("the whole report stays in task {short}'s session"),
+        &tc.scrubber.cuts(),
+    );
     let claim = Claim {
         task: e.session_id.clone(),
         short,

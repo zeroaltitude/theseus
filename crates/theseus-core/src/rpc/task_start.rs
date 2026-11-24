@@ -42,6 +42,7 @@ use super::Core;
 use crate::approval::{Answerer, Refusal};
 use crate::arrangement::{Piece, Role, MAX_PIECES, PIECE_CHARS};
 use crate::node::{Node, Origin};
+use crate::scrub::Cuts;
 use crate::session::{title_from, SessionRecord, TargetRef, TaskOf};
 use crate::task::{short, DEFAULT_SHARE, MAX_BRIEF_CHARS};
 
@@ -98,7 +99,8 @@ impl Core {
         let who: Answerer = who.into();
         // Quotes an outside hand wrote: an agent's, or the start said so (a mail, someone else's message).
         let outside = who.agent.is_some() || p.outside_quotes;
-        let what = format!("starting a task ({})", title_from(&p.brief));
+        let cuts = self.tools.scrubber.cuts();
+        let what = format!("starting a task ({})", title_from(&p.brief, &cuts));
         self.judge_act(&who, Act::Task { what: &what })
             .map_err(failure)?;
         let brief = checked(p)?;
@@ -113,7 +115,7 @@ impl Core {
         let target = self.target_of(p, &parent_rec)?;
         let report_to = p.report_to.unwrap_or_default();
         let reports_to = self.reports_to_of(report_to, &home_session, home_target);
-        let title = title_of(p, brief);
+        let title = title_of(p, brief, &cuts);
         let correlation_id = theseus_kernel::new_id("act");
         let (_, task_session) = task_ids(&correlation_id);
         let (brief_node, arrangement) = nodes_of(
@@ -123,6 +125,7 @@ impl Core {
             &quotes,
             &who.label,
             now,
+            &cuts,
         );
         let graph = self.graph_of(&task_session, &title, brief, &home_session, &home_exec);
         let created = crate::fact::task_graph::Change {
@@ -430,10 +433,10 @@ impl Core {
 }
 
 /// The task's title: the one given, else the brief's first line.
-fn title_of(p: &TaskStartParams, brief: &str) -> String {
+fn title_of(p: &TaskStartParams, brief: &str, cuts: &Cuts) -> String {
     match p.title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
         Some(t) => t.to_string(),
-        None => title_from(brief),
+        None => title_from(brief, cuts),
     }
 }
 
@@ -446,6 +449,7 @@ fn nodes_of(
     quotes: &[String],
     author_label: &str,
     now: u64,
+    cuts: &Cuts,
 ) -> (Node, Option<Node>) {
     let author = format!("session:{home_session}");
     let text = brief_text(task_session, home_session, brief);
@@ -453,7 +457,7 @@ fn nodes_of(
     let arrangement = (!quotes.is_empty()).then(|| {
         let pieces = quotes
             .iter()
-            .map(|q| piece_of(q, &brief_node.id, task_session, author_label, now))
+            .map(|q| piece_of(q, &brief_node.id, task_session, author_label, now, cuts))
             .collect();
         Node::arrangement(task_session, &author, pieces, false)
     });
@@ -620,7 +624,14 @@ fn quotes_of(quotes: &[String]) -> Result<Vec<String>, RpcFailure> {
 }
 
 /// A quote as the arrangement keeps it: context, said by the owner.
-fn piece_of(quote: &str, node: &str, session: &str, author: &str, at_ms: u64) -> Piece {
+fn piece_of(
+    quote: &str,
+    node: &str,
+    session: &str,
+    author: &str,
+    at_ms: u64,
+    cuts: &Cuts,
+) -> Piece {
     Piece {
         role: Role::Context,
         node: node.into(),
@@ -629,7 +640,7 @@ fn piece_of(quote: &str, node: &str, session: &str, author: &str, at_ms: u64) ->
         author: Some(author.into()),
         at_ms,
         text: Some(quote.into()),
-        first_line: title_from(quote),
+        first_line: title_from(quote, cuts),
         trusted: false,
         superseded_by: None,
     }

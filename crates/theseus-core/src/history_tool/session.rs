@@ -66,7 +66,7 @@ pub fn open(lens: &Lens<'_>, id: &str, before: Option<&Cursor>) -> Result<Opened
     }
     let before = match before {
         Some(c) if c.turn_id != id => {
-            return Err(format!("that before is not a position in {}", flat(id)))
+            return Err(format!("that before is not a position in {}", flat(id)));
         }
         Some(c) => Some(c.at_ms),
         None => None,
@@ -185,7 +185,8 @@ fn read_back(
             if used + cost > budget {
                 if lines.is_empty() {
                     // One message larger than the allowance: cut in words, never shown past it.
-                    line.text = fitted(&line.text, budget, crate::view::text::tokens(&line.text));
+                    let had = crate::view::text::tokens(&line.text);
+                    line.text = fitted(&line.text, budget, had, &lens.cuts);
                     next = Some(r.position);
                     lines.push(line);
                 } else {
@@ -221,13 +222,14 @@ fn newest(lens: &Lens<'_>, position: u64, n: Node) -> anyhow::Result<Option<Node
     })
 }
 
-/// `text` cut to about `max` tokens, with what was cut said.
-fn fitted(text: &str, max: u64, had: u64) -> String {
+/// `text` cut to about `max` tokens, never inside a known value (`cuts`), with what was cut said.
+fn fitted(text: &str, max: u64, had: u64, cuts: &crate::scrub::Cuts) -> String {
     let keep = (max as f64 * crate::catalog::TokenRates::CLAUDE.text) as usize;
     let mut cut: String = text.chars().take(keep).collect();
     while cut.len() > keep {
         cut.pop();
     }
+    let cut = &text[..cuts.before(text, cut.len())];
     format!(
         "{cut}\n[cut here: this message is about {} tokens, over the {} this open shows; the rest is not shown]",
         crate::narrative::thousands(had),
@@ -479,4 +481,24 @@ enum Who {
     Agent,
     Other,
     Unknown,
+}
+
+#[cfg(test)]
+mod tests_fitted {
+    use super::*;
+
+    /// A message cut to its allowance stops before a known value.
+    #[test]
+    fn a_fitted_message_stops_before_a_known_value() {
+        let v = "kqzv-0417-wjxp-9932-hmfb";
+        let cuts = crate::scrub::Scrubber::with_values(vec![(v.into(), "v".into())]).cuts();
+        let keep = (100.0 * crate::catalog::TokenRates::CLAUDE.text) as usize;
+        let text = format!("{}{v}{}", "x".repeat(keep - 5), "y".repeat(keep));
+        let cut = fitted(&text, 100, 900, &cuts);
+        assert!(
+            cut.starts_with(&format!("{}\n[cut here", "x".repeat(keep - 5))),
+            "{cut}"
+        );
+        assert!(fitted(&text, 100, 900, &crate::scrub::Cuts::none()).contains("kqzv"));
+    }
 }

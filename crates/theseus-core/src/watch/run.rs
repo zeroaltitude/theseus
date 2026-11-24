@@ -104,6 +104,7 @@ impl Core {
                     t.result_max_chars,
                     crate::cpu::CpuPool::new(1),
                     self.cfg.policy.private_addresses,
+                    self.tools.scrubber.clone(),
                 ),
                 run: hook.unwrap_or_else(|| {
                     Arc::new(move |argv: &[String]| {
@@ -428,7 +429,10 @@ pub fn shown_value(kernel: &theseus_kernel::Kernel, w: &PendingWake) -> Option<S
     Some(match kernel.watch_state(&w.id).ok().flatten() {
         Some(s) if s.last.is_some() => format!(
             "{} at {}",
-            crate::session::title_from(s.last.as_deref().unwrap_or("")),
+            crate::session::title_from(
+                s.last.as_deref().unwrap_or(""),
+                &crate::scrub::Cuts::none()
+            ),
             crate::wake::local(s.checked_ms).hm()
         ),
         _ => "not checked yet".into(),

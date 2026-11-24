@@ -31,7 +31,7 @@ use crate::node::{Body, Node, ResultStatus};
 use crate::policy::{Decision, Posture, ToolPolicy};
 use crate::provider::ToolUse;
 use crate::sandbox::{self, Sandbox};
-use crate::scrub::Scrubber;
+use crate::scrub::{Cuts, Scrubber};
 
 mod guarded;
 pub(crate) mod prompt_floor;
@@ -448,7 +448,13 @@ fn job_env(names: &[String]) -> Vec<(String, String)> {
 /// as `rest` says from what was left out (theseus-46v; empty: only how
 /// much). A job's or a terminal's whole output is kept, and `kept.rs`'s
 /// `rest` names the file (theseus-v73m); a tool's own `rest` names a call.
-pub fn cap(text: &str, max: usize, rest: impl FnOnce(&str) -> String) -> (String, bool) {
+/// Neither the head nor the tail ends inside a known value (`cuts`).
+pub fn cap(
+    text: &str,
+    max: usize,
+    rest: impl FnOnce(&str) -> String,
+    cuts: &Cuts,
+) -> (String, bool) {
     let n = text.chars().count();
     if n <= max || max < 64 {
         return (text.to_string(), false);
@@ -462,17 +468,21 @@ pub fn cap(text: &str, max: usize, rest: impl FnOnce(&str) -> String) -> (String
     let (mut h, mut t) = (at(head), at(n - (max - head)));
     // A line's edge, when the head keeps at least half of what it would, and
     // so does the tail.
-    let mut whole = 0;
     if let Some(i) = text[..h].rfind('\n').filter(|i| i + 1 >= h / 2) {
         h = i + 1;
-        whole += 1;
     }
-    if text[..t].ends_with('\n') {
-        whole += 1;
-    } else if let Some(i) = text[t..].find('\n').filter(|i| *i < (text.len() - t) / 2) {
+    let mid_line = !text[..t].ends_with('\n');
+    if let Some(i) = text[t..]
+        .find('\n')
+        .filter(|i| mid_line && *i < (text.len() - t) / 2)
+    {
         t += i + 1;
-        whole += 1;
     }
+    let (h, t) = cuts.around(text, h, t);
+    let whole = [h, t]
+        .iter()
+        .filter(|at| text[..**at].ends_with('\n'))
+        .count();
     let left = &text[h..t];
     let chars = narrative::count(left.chars().count() as u64, "character", "characters");
     let size = match whole {
@@ -2001,7 +2011,13 @@ pub fn build_runtime(
         crate::sandbox::offer(&mut r, theseus_sandbox::refused_here());
         // The web tools wait on the network, as async tools (DD5).
         let private = cfg.policy.private_addresses;
-        let web = crate::web::Web::new(&t.web, t.result_max_chars, cpu.clone(), private);
+        let web = crate::web::Web::new(
+            &t.web,
+            t.result_max_chars,
+            cpu.clone(),
+            private,
+            scrubber.clone(),
+        );
         for tool in web.tools_with(not_offered.is_empty()) {
             r.register(tool);
         }

@@ -54,6 +54,8 @@ pub(crate) mod tests_append;
 #[cfg(test)]
 mod tests_catalog;
 #[cfg(test)]
+mod tests_cut;
+#[cfg(test)]
 mod tests_harness;
 #[cfg(test)]
 mod tests_notes;

@@ -99,7 +99,7 @@ pub(super) async fn read(
         Some(_) => {
             return Err(
                 "that before is not a position of this search: call again without it".into(),
-            )
+            );
         }
     };
     let (mut hits, more, incomplete) = crate::memory_lookup::imported(
@@ -112,7 +112,7 @@ pub(super) async fn read(
     .await?;
     let found = hits.len();
     hits.retain(|h| !lens.cut.names(&h.session_id) && lens.in_scope_session(&h.session_id));
-    let (lines, nodes, _) = project(&core.store, hits);
+    let (lines, nodes, _) = project(&core.store, hits, &lens.cuts);
     // Every hit the ranking gave that is not a line: a cut's, or one whose node could not be read now.
     let dropped = found - lines.len();
     let incomplete = incomplete.or_else(|| {
@@ -138,6 +138,7 @@ pub(super) async fn read(
 pub(super) fn project(
     store: &crate::store::Store,
     hits: Vec<crate::memory_lookup::ImportHit>,
+    cuts: &crate::scrub::Cuts,
 ) -> (Vec<HistoryLine>, Vec<String>, usize) {
     let (mut lines, mut sources, mut dropped) = (Vec::new(), Vec::new(), 0);
     for h in hits {
@@ -152,7 +153,7 @@ pub(super) fn project(
         };
         let outside = super::session::imported_outside(store, &node);
         // A volatile value is read with the time it was true at, never as a bare fact (M6 §2.11).
-        let his_words = volatile_marked(cut(&h.text, WORDS_CHARS), h.at_ms);
+        let his_words = volatile_marked(cut(&h.text, WORDS_CHARS, cuts), h.at_ms);
         lines.push(HistoryLine {
             handle: Handle(h.session_id),
             place: place_of(h.book.as_deref()),
@@ -174,10 +175,11 @@ pub(super) fn render(
     a: &HistoryArgs,
     span: Option<&When>,
     why: Option<&str>,
+    cuts: &crate::scrub::Cuts,
 ) -> String {
     let words = flat(a.words.as_deref().unwrap_or_default());
     let place = flat(a.place.as_deref().unwrap_or(PLACE).trim());
-    let within = span.map_or_else(String::new, |s| format!(" in {}", cut(&s.said, 80)));
+    let within = span.map_or_else(String::new, |s| format!(" in {}", cut(&s.said, 80, cuts)));
     let mut out = format!(
         "context.history: {} imported item{} for \u{ab}{words}\u{bb} in {place}{within}, best first. Each: when \
          · book · the words · its session (open=<session> reads it whole). Lines marked outside text are another \

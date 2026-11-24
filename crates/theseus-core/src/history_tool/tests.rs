@@ -139,6 +139,7 @@ fn lens<'a>(store: &'a Store, here: &str) -> Lens<'a> {
         span: None,
         cut: Default::default(),
         scope: None,
+        cuts: crate::scrub::Cuts::none(),
     }
 }
 
@@ -198,7 +199,7 @@ fn a_bare_page_is_the_hundred_before_what_is_in_view_and_pages_on_with_no_horizo
         (second.end, second.next.as_ref()),
         (PageEnd::HistoryExhausted, None)
     );
-    let said = render(&second, (HERE, None), 1, None);
+    let said = render(&second, (HERE, None), 1, None, &crate::scrub::Cuts::none());
     assert!(
         said.contains("History is exhausted") && said.contains("you may ask the person"),
         "{said}"
@@ -240,7 +241,13 @@ fn five_looks_a_turn_then_the_allowance_is_told_apart_from_the_end_of_history() 
         (fifth.lines.len(), fifth.end),
         (100, PageEnd::AllowanceUsed)
     );
-    let said = render(&fifth, (HERE, None), LOOKS_PER_TURN - 1, None);
+    let said = render(
+        &fifth,
+        (HERE, None),
+        LOOKS_PER_TURN - 1,
+        None,
+        &crate::scrub::Cuts::none(),
+    );
     assert!(
         said.contains("allowance is used") && said.contains("offer to look further"),
         "{said}"
@@ -273,7 +280,13 @@ fn a_walk_stopped_by_its_bound_shows_no_hidden_position() {
         at_ms: 0,
         turn_id: "resume:0".into(),
     };
-    let said = render(&w.page, (HERE, None), 0, Some(&token));
+    let said = render(
+        &w.page,
+        (HERE, None),
+        0,
+        Some(&token),
+        &crate::scrub::Cuts::none(),
+    );
     assert!(
         said.contains("limit of the tool, not the end of history"),
         "{said}"
@@ -356,7 +369,7 @@ fn a_line_cuts_his_words_at_300_and_the_replys_beginning_at_200_by_code() {
         "200 and the ellipsis"
     );
     assert_eq!(line.did, None);
-    let said = render(&p, (HERE, None), 0, None);
+    let said = render(&p, (HERE, None), 0, None, &crate::scrub::Cuts::none());
     assert_eq!(
         said.lines().filter(|l| l.starts_with("- ")).count(),
         2,
@@ -1316,13 +1329,20 @@ fn an_empty_span_page_keeps_a_scan_limit_and_an_allowance_ending() {
         (HERE, Some(&span)),
         0,
         Some(&token),
+        &crate::scrub::Cuts::none(),
     );
     assert!(
         scan.contains("reading limit") && scan.contains("\"at_ms\":7"),
         "{scan}"
     );
     assert!(!scan.contains("nothing was said"), "{scan}");
-    let used = render(&empty(PageEnd::AllowanceUsed), (HERE, Some(&span)), 4, None);
+    let used = render(
+        &empty(PageEnd::AllowanceUsed),
+        (HERE, Some(&span)),
+        4,
+        None,
+        &crate::scrub::Cuts::none(),
+    );
     assert!(used.contains("allowance is used"), "{used}");
     assert!(!used.contains("nothing was said"), "{used}");
     let gone = render(
@@ -1330,6 +1350,7 @@ fn an_empty_span_page_keeps_a_scan_limit_and_an_allowance_ending() {
         (HERE, Some(&span)),
         0,
         None,
+        &crate::scrub::Cuts::none(),
     );
     assert!(
         gone.contains("nothing was said there in that span"),
@@ -1990,8 +2011,88 @@ async fn an_import_hit_whose_node_is_gone_or_erased_shows_no_words() {
             hit("imp_none_such", "WORDS OF NO NODE"),
             hit(&node.id, "WORDS NOW ERASED"),
         ],
+        &crate::scrub::Cuts::none(),
     );
     assert!(lines.is_empty(), "{lines:?}");
     assert!(sources.is_empty(), "{sources:?}");
     assert_eq!(dropped, 2);
+}
+
+/// A history line's words stop before a known value, and a value the line's
+/// rewrite would change is cut away before the rewrite.
+#[test]
+fn a_history_line_cut_stops_before_a_known_value() {
+    use super::page::cut;
+    let (v, w) = ("kqzv-0417-wjxp-9932-hmfb", "ylno[0417]wjxp-9932");
+    let cuts =
+        crate::scrub::Scrubber::with_values(vec![(v.into(), "v".into()), (w.into(), "w".into())])
+            .cuts();
+    let text = format!("{}{v} more", "x".repeat(50));
+    assert_eq!(cut(&text, 60, &cuts), format!("{}\u{2026}", "x".repeat(50)));
+    assert_eq!(cut(&format!("said {w} later"), 200, &cuts), "said\u{2026}");
+    // Knowing no value, the cut falls where it is asked and the rewrite changes the value.
+    assert!(cut(&text, 60, &crate::scrub::Cuts::none()).contains("kqzv"));
+    assert!(
+        cut(&format!("said {w} later"), 200, &crate::scrub::Cuts::none()).contains("ylno(0417)")
+    );
+}
+
+/// A page's place, a known person's name and the span's words are cut where
+/// no known value is split, on the page the model reads and on an import
+/// search's page.
+#[test]
+fn a_pages_place_person_and_span_stop_before_a_known_value() {
+    let v = "kqzv-0417-wjxp-9932-hmfb";
+    let cuts = crate::scrub::Scrubber::with_values(vec![(v.into(), "v".into())]).cuts();
+    let span = crate::recall::when::When {
+        said: format!("{}{v} ago", "s".repeat(70)),
+        from_ms: Some(1),
+        to_ms: Some(2),
+    };
+    let page = HistoryPage {
+        lines: vec![crate::view::history::HistoryLine {
+            handle: Handle("h1".into()),
+            place: format!("{}{v} place", "p".repeat(110)),
+            at_ms: 1_790_000_000_000,
+            his_words: "hello".into(),
+            did: None,
+            person: Some(format!("{}{v} person", "q".repeat(70))),
+            reply_begins: None,
+            outside: true,
+        }],
+        next: None,
+        end: PageEnd::HistoryExhausted,
+    };
+    // Whole or absent: no four characters of the value outside a whole copy.
+    let none_of = |what: &str, said: &str| {
+        let rest = said.replace(v, "");
+        let chars: Vec<char> = v.chars().collect();
+        for w in chars.windows(4) {
+            let w: String = w.iter().collect();
+            assert!(
+                !rest.contains(&w),
+                "{what} holds {w:?} of the value: {said}"
+            );
+        }
+    };
+    let said = render(&page, (HERE, Some(&span)), 0, None, &cuts);
+    assert!(
+        said.contains(&format!("{}\u{2026}", "p".repeat(110))),
+        "{said}"
+    );
+    assert!(
+        said.contains(&format!("{}\u{2026}", "q".repeat(70))),
+        "{said}"
+    );
+    assert!(
+        said.contains(&format!("{}\u{2026}", "s".repeat(70))),
+        "{said}"
+    );
+    none_of("the page", &said);
+    let imported = super::imports::render(&page, &HistoryArgs::default(), Some(&span), None, &cuts);
+    assert!(
+        imported.contains(&format!("{}\u{2026}", "s".repeat(70))),
+        "{imported}"
+    );
+    none_of("the import search's page", &imported);
 }

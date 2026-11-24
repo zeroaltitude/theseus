@@ -317,7 +317,7 @@ type FaultCheck = Box<dyn Fn(&[NewRecord]) -> bool + Send>;
 
 #[cfg(test)]
 #[derive(Default)]
-struct Faults(Mutex<Option<FaultCheck>>);
+struct Faults(Mutex<Option<FaultCheck>>, Mutex<Option<String>>);
 
 #[cfg(test)]
 impl Faults {
@@ -487,7 +487,11 @@ impl TurnState {
     ) -> Result<Vec<u64>> {
         #[cfg(test)]
         if self.faults.hit(records) {
-            anyhow::bail!("an injected fault: this frame was not written");
+            let said = self.faults.1.lock().unwrap().take();
+            anyhow::bail!(
+                "{}",
+                said.unwrap_or_else(|| "an injected fault: this frame was not written".into())
+            );
         }
         let parked = pending.take();
         let rows = std::mem::take(&mut *self.waiting.lock().unwrap());
@@ -739,6 +743,17 @@ impl Store {
     #[cfg(test)]
     pub fn fail_turn_frame(&self, check: impl Fn(&[NewRecord]) -> bool + Send + 'static) {
         *self.faults.0.lock().unwrap() = Some(Box::new(check));
+    }
+
+    /// [`Store::fail_turn_frame`], its error saying `said`.
+    #[cfg(test)]
+    pub fn fail_turn_frame_saying(
+        &self,
+        said: String,
+        check: impl Fn(&[NewRecord]) -> bool + Send + 'static,
+    ) {
+        *self.faults.1.lock().unwrap() = Some(said);
+        self.fail_turn_frame(check);
     }
 
     /// Make the first write outside a turn whose records `check` matches fail,

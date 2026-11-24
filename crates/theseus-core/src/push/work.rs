@@ -227,6 +227,8 @@ pub type TaskLinks = std::sync::Arc<dyn Fn(&str) -> Option<String> + Send + Sync
 pub(super) struct WorkBoard {
     /// See [`TaskLinks`].
     pub(super) task_links: Option<TaskLinks>,
+    /// The core's scrubber: where a view's title may be cut.
+    pub(super) scrubber: std::sync::Arc<crate::scrub::Scrubber>,
     execs: HashMap<String, ExecIn>,
     by_session: HashMap<String, String>,
     acts: HashMap<String, ActIn>,
@@ -1154,6 +1156,8 @@ mod seed;
 mod settle;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_cut;
 #[cfg(test)]
 mod tests_ended_job;
 #[cfg(test)]

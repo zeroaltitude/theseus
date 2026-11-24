@@ -50,6 +50,7 @@ use super::{
 };
 use crate::fact;
 use crate::node::{Body, Node};
+use crate::scrub::Cuts;
 use crate::session::SessionRecord;
 use crate::store::Store;
 
@@ -143,21 +144,30 @@ pub fn import_batch_unless(
     by: &str,
     stopping: impl Fn() -> bool,
 ) -> Result<Batch> {
-    import_batch_cut(store, p, by, stopping, FRAME_RECORDS, &notes::Gate::off())
+    let none = Cuts::none();
+    import_batch_cut(
+        store,
+        p,
+        by,
+        stopping,
+        FRAME_RECORDS,
+        (&notes::Gate::off(), &none),
+    )
 }
 
 /// [`import_batch_unless`] with the owner's `[import.notes]` switches: the
 /// one call the daemon makes (`rpc/import.rs`). Every other call site gets
 /// [`notes::Gate::off`], so a caller that names no config writes no agent
-/// note (`b4-theseus-holds-its-own-notes`).
+/// note (`b4-theseus-holds-its-own-notes`). A session's title is cut where
+/// `cuts` says.
 pub fn import_batch_gated(
     store: &Store,
     p: &ImportEpisodesParams,
     by: &str,
     stopping: impl Fn() -> bool,
-    gate: &notes::Gate,
+    (gate, cuts): (&notes::Gate, &Cuts),
 ) -> Result<Batch> {
-    import_batch_cut(store, p, by, stopping, FRAME_RECORDS, gate)
+    import_batch_cut(store, p, by, stopping, FRAME_RECORDS, (gate, cuts))
 }
 
 /// [`import_batch_unless`], its frames cut past `cap` records: a test's
@@ -170,7 +180,8 @@ pub(super) fn import_batch_in(
     stopping: impl Fn() -> bool,
     cap: usize,
 ) -> Result<Batch> {
-    import_batch_cut(store, p, by, stopping, cap, &notes::Gate::off())
+    let none = Cuts::none();
+    import_batch_cut(store, p, by, stopping, cap, (&notes::Gate::off(), &none))
 }
 
 fn import_batch_cut(
@@ -179,7 +190,7 @@ fn import_batch_cut(
     by: &str,
     stopping: impl Fn() -> bool,
     cap: usize,
-    gate: &notes::Gate,
+    (gate, cuts): (&notes::Gate, &Cuts),
 ) -> Result<Batch> {
     let _one = ONE
         .lock()
@@ -221,7 +232,13 @@ fn import_batch_cut(
             file: &p.file,
             line: l.line,
         };
-        match take(store, e, &at, (&mut frame, &mut counts, &mut seen), gate)? {
+        match take(
+            store,
+            e,
+            &at,
+            (&mut frame, &mut counts, &mut seen),
+            (gate, cuts),
+        )? {
             Took::Skipped => {
                 out.skipped += 1;
                 continue;
@@ -306,7 +323,7 @@ fn take(
     e: Episode,
     at: &Place<'_>,
     (frame, counts, seen): (&mut Frame, &mut Counts<'_>, &mut BTreeMap<String, String>),
-    gate: &notes::Gate,
+    (gate, cuts): (&notes::Gate, &Cuts),
 ) -> Result<Took> {
     // The agent-notes gate is asked FIRST, before any read: a note the
     // switch or the durable-versus-run-state rule holds back costs one pure
@@ -348,7 +365,7 @@ fn take(
     let Some(mut rec) = stored else {
         seen.insert(e.episode_id.clone(), e.hash.clone());
         let tag = e.import_tag.clone();
-        let nodes = records_of(&e, at.file, at.line, frame)?;
+        let nodes = records_of(&e, at.file, at.line, frame, cuts)?;
         count(counts.get(&tag)?, &e, nodes);
         return Ok(Took::Wrote {
             tag,
@@ -400,7 +417,7 @@ fn count(c: &mut TagCounts, e: &Episode, n: u64) {
 
 /// An episode's records, its nodes then its session, added to `frame`:
 /// how many nodes.
-fn records_of(e: &Episode, file: &str, line: u64, frame: &mut Frame) -> Result<u64> {
+fn records_of(e: &Episode, file: &str, line: u64, frame: &mut Frame, cuts: &Cuts) -> Result<u64> {
     let sid = session_id_of(&e.episode_id);
     let mut nodes = 0;
     let mut ids: BTreeMap<u32, String> = BTreeMap::new();
@@ -443,10 +460,13 @@ fn records_of(e: &Episode, file: &str, line: u64, frame: &mut Frame) -> Result<u
     let mut r = SessionRecord::with_id(sid, SessionKind::Conversation, Some("imported".into()));
     r.created_at_unix_ms = e.as_of.start_ms;
     r.last_active_ms = e.as_of.end_ms;
-    r.title = Some(crate::session::title_from(summary.map_or_else(
-        || e.messages.first().map_or("", |m| m.text.as_str()),
-        |s| s.text.as_str(),
-    )));
+    r.title = Some(crate::session::title_from(
+        summary.map_or_else(
+            || e.messages.first().map_or("", |m| m.text.as_str()),
+            |s| s.text.as_str(),
+        ),
+        cuts,
+    ));
     r.imported = Some(Box::new(ImportedFrom {
         tag: e.import_tag.clone(),
         episode_id: e.episode_id.clone(),

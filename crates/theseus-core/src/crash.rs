@@ -9,7 +9,9 @@
 //! `crashes/`, where every crash is kept, says so in the log and in a
 //! `server.crashed` row, and health reports it (`last`). The message stays in
 //! the file, as it is in the log: a panic's message can quote any text the
-//! daemon held, so neither the row nor health carries it.
+//! daemon held, so neither the row nor health carries it. A long message is
+//! cut between words (`kept_message`), so a word of it is whole in the file
+//! or not there at all.
 
 use std::path::{Path, PathBuf};
 
@@ -23,7 +25,7 @@ pub const DIR: &str = "crashes";
 pub fn file(state_dir: &Path, mode: &str) -> PathBuf {
     state_dir.join(format!("crash-{mode}.json"))
 }
-/// A message longer than this is cut in the file.
+/// A message longer than this many bytes is cut in the file.
 const MESSAGE_MAX: usize = 4096;
 
 /// What panicked.
@@ -95,8 +97,39 @@ impl Crash {
                 || "unknown".into(),
                 |l| format!("{}:{}:{}", l.file(), l.line(), l.column()),
             ),
-            message: crate::toolrun::cap(&message, MESSAGE_MAX, |_| String::new()).0,
+            message: kept_message(&message, MESSAGE_MAX),
         }
+    }
+}
+
+/// `message` as the crash file keeps it: whole when it has at most `max`
+/// bytes. Else its head, ended at the last whitespace that starts at or
+/// before byte `max`, so no run of characters without whitespace is cut
+/// short: such a run (a word, a path, a value) is whole in the file or not
+/// there at all, and nothing about any value need be known. A line made
+/// here, never out of the message, follows and says its length in bytes.
+/// When no whitespace comes that early, only that line is kept. It runs in
+/// the panic hook: one walk of at most `max` bytes, one `String`, and only
+/// iterators and `get`, so nothing in it can panic.
+fn kept_message(message: &str, max: usize) -> String {
+    if message.len() <= max {
+        return message.to_string();
+    }
+    let mut end = None;
+    for (i, c) in message.char_indices() {
+        if i > max {
+            break;
+        }
+        if c.is_whitespace() {
+            end = Some(i);
+        }
+    }
+    let head = end.and_then(|e| message.get(..e)).map_or("", str::trim_end);
+    let n = message.len();
+    if head.is_empty() {
+        format!("[a panic message of {n} bytes, not kept]")
+    } else {
+        format!("{head} …[a panic message of {n} bytes, cut between words]")
     }
 }
 
@@ -181,6 +214,9 @@ pub fn planted(at: &str) {
     #[cfg(not(debug_assertions))]
     let _ = at;
 }
+
+#[cfg(test)]
+mod tests_cut;
 
 #[cfg(test)]
 mod tests {
@@ -314,5 +350,53 @@ mod tests {
         );
         assert!(path.ends_with("crash-2000-42.json"));
         assert!(last(state, "stdio").is_none());
+    }
+
+    /// A message within the cap is kept as it is, at the cap too.
+    #[test]
+    fn a_short_message_is_kept_as_it_is() {
+        let m = "byte index 5 is not a char boundary";
+        assert_eq!(kept_message(m, MESSAGE_MAX), m);
+        assert_eq!(kept_message(m, m.len()), m);
+        assert_eq!(kept_message("", 0), "");
+    }
+
+    /// Every cap over text of one-, two-, three- and four-byte characters,
+    /// with whitespace of one and of three bytes: what is kept is a head
+    /// of the message of at most the cap, ended where whitespace follows,
+    /// or only the line, and no cap panics.
+    #[test]
+    fn a_cut_among_multibyte_characters_keeps_whole_words() {
+        let m = "é λx\u{3000}😀é kqzv\u{3000}λλ é😀 x".repeat(3);
+        for max in 0..=m.len() + 2 {
+            let kept = kept_message(&m, max);
+            if m.len() <= max {
+                assert_eq!(kept, m, "max {max}");
+                continue;
+            }
+            let n = m.len();
+            if kept == format!("[a panic message of {n} bytes, not kept]") {
+                // No word ends before whitespace that starts by the cap.
+                assert!(
+                    m.char_indices()
+                        .take_while(|(i, _)| *i <= max)
+                        .all(|(i, c)| !c.is_whitespace() || m[..i].trim().is_empty()),
+                    "max {max}: a word could have been kept"
+                );
+                continue;
+            }
+            let head = kept
+                .strip_suffix(&format!(
+                    " …[a panic message of {n} bytes, cut between words]"
+                ))
+                .unwrap_or_else(|| panic!("max {max}: {kept:?}"));
+            assert!(head.len() <= max, "max {max}: {head:?}");
+            assert!(m.starts_with(head), "max {max}: {head:?}");
+            assert!(
+                !head.ends_with(char::is_whitespace)
+                    && m[head.len()..].starts_with(char::is_whitespace),
+                "max {max}: the head ends inside a word: {head:?}"
+            );
+        }
     }
 }

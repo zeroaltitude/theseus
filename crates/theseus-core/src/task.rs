@@ -388,7 +388,7 @@ impl Tool for TaskCreate {
         Retry::NonRepeatable
     }
 
-    fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
+    fn plan(&self, input: &Value, ctx: &ToolCtx) -> Result<Plan, String> {
         let i = input_of(input)?;
         let Some(brief) = &i.brief else {
             let title = i.title.as_deref().unwrap_or_default().trim().to_string();
@@ -422,7 +422,9 @@ impl Tool for TaskCreate {
         Ok(Plan {
             summary: format!(
                 "{how}: {}",
-                i.title.as_deref().unwrap_or(&title_from(brief))
+                i.title
+                    .as_deref()
+                    .unwrap_or(&crate::session::title_cut(brief, ctx.cut.get()))
             ),
             ..Default::default()
         })
@@ -635,7 +637,10 @@ pub fn create<'a>(
         ),
     };
     let (target, home) = tc.outbox.report_target(tc.outbox.target(tc.session_id));
-    let title = i.title.clone().unwrap_or_else(|| title_from(brief));
+    let title = i
+        .title
+        .clone()
+        .unwrap_or_else(|| title_from(brief, &tc.scrubber.cuts()));
     let (_, task_session) = task_ids(open_id);
     let text = brief_text_in(&task_session, tc.session_id, brief, Some(&lineage));
     // Its record (39a), written with its session: its objective and
@@ -1033,7 +1038,7 @@ fn arranged(
             message,
         })
     })?;
-    let pieces = arr::resolve(a, nodes, holder).map_err(refuse)?;
+    let pieces = arr::resolve(a, nodes, holder, &tc.scrubber.cuts()).map_err(refuse)?;
     let humans = arr::human_messages_since_last_task(nodes);
     let brief = i.brief.as_deref().unwrap_or_default();
     arr::fidelity(brief, humans, &pieces, i.fidelity_ack).map_err(refuse)?;
@@ -1255,7 +1260,7 @@ impl Report {
     }
 
     /// The node the parent's next turn reads.
-    pub fn node_text(&self) -> String {
+    pub fn node_text(&self, cuts: &crate::scrub::Cuts) -> String {
         let title = self
             .title
             .as_deref()
@@ -1287,9 +1292,12 @@ impl Report {
             out.push_str(c);
         }
         if let Some(t) = &self.text {
-            let (t, _) = crate::toolrun::cap(t, REPORT_NODE_CHARS, |_| {
-                format!("the whole message stays in task {}'s session", self.short)
-            });
+            let (t, _) = crate::toolrun::cap(
+                t,
+                REPORT_NODE_CHARS,
+                |_| format!("the whole message stays in task {}'s session", self.short),
+                cuts,
+            );
             out.push_str("\n\n");
             out.push_str(&t);
         }

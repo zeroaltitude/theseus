@@ -71,7 +71,11 @@ pub(crate) fn copy<T: Serialize + DeserializeOwned>(exits: &Exits, value: &T) ->
 pub(crate) fn wake_titles(wakes: &mut [theseus_protocol::WakeInfo]) {
     for w in wakes {
         if w.title.is_some() {
-            w.title = Some(theseus_core::session::title_from(&w.note)).filter(|t| !t.is_empty());
+            w.title = Some(theseus_core::session::title_from(
+                &w.note,
+                &theseus_core::scrub::Cuts::none(),
+            ))
+            .filter(|t| !t.is_empty());
         }
     }
 }

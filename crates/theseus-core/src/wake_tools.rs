@@ -263,7 +263,7 @@ pub fn cancel(tc: &TurnCtx<'_>, input: &Value) -> Result<(String, Value), String
             "Cancelled wake {short}, due {}: \"{}\" will not run{}. {} of {max} wakes \
              are pending.",
             when_of(&w, now),
-            crate::session::title_from(&w.note),
+            crate::session::title_from(&w.note, &tc.scrubber.cuts()),
             if series {
                 ", and its series is ended"
             } else {

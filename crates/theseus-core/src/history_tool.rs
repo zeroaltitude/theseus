@@ -522,11 +522,17 @@ pub(crate) async fn answer(
             // An import search's page shows imported messages, which no exchange holds: its own sources.
             let (text, sources) = match imported {
                 Some(f) => (
-                    imports::render(&p, a, span.as_ref(), f.why.as_deref()),
+                    imports::render(&p, a, span.as_ref(), f.why.as_deref(), &core.tools.scrubber.cuts()),
                     f.nodes,
                 ),
                 None => (
-                    page::render(&p, (here, span.as_ref()), looks, resume.as_ref()),
+                    page::render(
+                        &p,
+                        (here, span.as_ref()),
+                        looks,
+                        resume.as_ref(),
+                        &core.tools.scrubber.cuts(),
+                    ),
                     page_sources(core, &p)?,
                 ),
             };
@@ -585,6 +591,7 @@ pub(crate) fn lens_for<'a>(
         span,
         cut,
         scope,
+        cuts: core.tools.scrubber.cuts(),
     })
 }
 
@@ -603,6 +610,7 @@ pub(crate) fn open_lens<'a>(
         span: None,
         cut: crate::fork::cut::Cut::of(&runner.store, session).map_err(|e| format!("{e:#}"))?,
         scope: self_scope(runner, session)?,
+        cuts: runner.tools.scrubber.cuts(),
     })
 }
 

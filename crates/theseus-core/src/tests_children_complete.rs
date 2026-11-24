@@ -97,6 +97,11 @@ const BARE: &[(&str, &str)] = &[
          binary to see a panic write its crash file",
     ),
     (
+        "theseus-core/src/crash/tests_cut.rs",
+        "test-only: runs the test binary to see a long panic message cut in \
+         its crash file",
+    ),
+    (
         "theseus-core/src/rsi/join/install.rs",
         "test-only: both sites are in the file's own `#[cfg(test)] mod tests`, \
          which runs `scripts/build.sh` and the generated install script",

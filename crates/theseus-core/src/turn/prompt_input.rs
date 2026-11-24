@@ -29,7 +29,7 @@ impl TurnRunner {
                 Node::prompt_message(sid, Some(turn_id), &prompt.author, &m.text, files)
             })
             .collect();
-        let title = match title_from(&prompt.text()) {
+        let title = match title_from(&prompt.text(), &self.tools.scrubber.cuts()) {
             t if t.is_empty() => prompt.author,
             t => t,
         };

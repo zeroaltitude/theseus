@@ -1370,6 +1370,7 @@ async fn a_forks_history_tool_holds_nothing_past_its_point() {
         span: None,
         cut,
         scope: None,
+        cuts: crate::scrub::Cuts::none(),
     };
     let args = crate::view::history::HistoryArgs::default();
     let page = |l: &Lens<'_>| -> Vec<String> {
@@ -1618,6 +1619,7 @@ async fn a_forks_words_search_crowded_past_its_point_says_it_may_be_incomplete()
         span: None,
         cut,
         scope: None,
+        cuts: crate::scrub::Cuts::none(),
     };
     let args = crate::view::history::HistoryArgs::default();
     let cut = crate::fork::cut::Cut::of(&r.core.store, &f.session_id).unwrap();
@@ -1630,7 +1632,13 @@ async fn a_forks_words_search_crowded_past_its_point_says_it_may_be_incomplete()
         "nothing past the point: {crowded:?}"
     );
     assert_eq!(crowded.end, PageEnd::SearchCut);
-    let said = render(&crowded, (&place, None), 0, None);
+    let said = render(
+        &crowded,
+        (&place, None),
+        0,
+        None,
+        &crate::scrub::Cuts::none(),
+    );
     assert!(said.contains("may be incomplete"), "{said}");
     assert!(!said.contains("exhausted"), "{said}");
     let source = lens(Default::default(), later)
