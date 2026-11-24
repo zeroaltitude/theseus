@@ -155,10 +155,14 @@ the judge answered for, the comparison counts, per turn and in sum, those it mar
 in no cell; `coverage` counts the lines and those judged.
 
 **The rule is what each turn's view laid.** On a store it is `view_record`: the turn's own view record (its
-first view, as the replay reads it). An earlier exchange an `exchanges` piece laid counts as held; one that lies
-only inside a laid fold has a cell of its own (`folded_helps`, `folded_not`, by the judge's mark), for the turn
-saw its fold and not its words. A turn with no record (before the cut) is not judged and is counted
-(`no_view_record`). Only the chosen place's exchanges are judged. On the cases it is a strategy's `--held` file,
+first returned readable view, as the replay reads it, with the same limits). An earlier exchange an `exchanges`
+piece laid counts as held; one that lies only inside a laid fold has a cell of its own (`folded_helps`,
+`folded_not`, by the judge's mark), for the turn saw its fold and not its words. Zero `folded_*` is not evidence
+of zero folds while `view show` lists no fold piece (below). A laid range whose ends no available order resolves
+(an exchange with no measuring row, such as adopted history) leaves unknown which lines it covers: on that turn
+a line the record did not lay whole is neither a hit nor a miss, and goes to `unknown_helps` or `unknown_not`;
+`unresolved_ranges` counts those ranges, in the plan and in the result. A turn with no record (before the cut)
+is not judged and is counted (`no_view_record`). Only the chosen place's exchanges are judged. On the cases it is a strategy's `--held` file,
 or `own_place_lines` without one. Every output says which (`rules_basis`). The cases the builder cannot make are
 judged as fixtures only (`not_built_fixture_only`), never in the totals. The `did` line the design puts beside
 each judged line is not sent: whether a reply's summary goes to the judge is the owner's to say.

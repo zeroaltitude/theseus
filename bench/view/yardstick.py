@@ -37,12 +37,19 @@ this build (the history does not carry it).
 **The rule it is compared with** (`rules_basis` in every output):
 
 - on a store, `view_record`: what the turn's own view record laid (`theseus
-  view show TURN --tally`, its first view; `replay.py` reads it the same
-  way). An earlier exchange an `exchanges` piece laid is held; one that lies
-  only inside a laid `folds` piece is counted in a cell of its own
-  (`folded_helps`, `folded_not`, by the judge's mark), since the turn saw
-  its fold, not its words. A turn with no record (one from before the cut)
-  is not judged, for there is no rule to compare with: it is counted under
+  view show TURN --tally`, its first RETURNED readable view: the reader
+  returns a turn's newest 32, and reads them through today's source checks,
+  so it is the record as it can be inspected now; `replay.py` reads it the
+  same way and says more). An earlier exchange an `exchanges` piece laid is
+  held; one that lies only inside a laid `folds` piece is counted in a cell
+  of its own (`folded_helps`, `folded_not`, by the judge's mark), since the
+  turn saw its fold, not its words. Today's reader lists no fold piece, so
+  zero `folded_*` is not evidence that no fold was laid. A laid range whose
+  ends no available order resolves (`unresolved_ranges`) leaves unknown
+  which lines it covers: on that turn a line the record did not lay whole is
+  neither a hit nor a miss, and is counted in `unknown_helps` or
+  `unknown_not`. A turn with no record (one from before the cut) is not
+  judged, for there is no rule to compare with: it is counted under
   `no_view_record`. Only the chosen place's exchanges are judged, so what
   the view laid from another place is not scored here;
 - on the cases, `held_file:<strategy>` (a strategy's held file, which `cases.py
@@ -55,7 +62,7 @@ this build (the history does not carry it).
 judge answered for, those it marked helpful that the rule held (`both`), that
 the rule did not (`judge_only`: what the rule misses), that the rule held and
 the judge did not mark (`rules_only`), and `neither`; on a store, also the
-`folded_*` cells above. A line no window
+`folded_*` and `unknown_*` cells above. A line no window
 answered for is in no cell: it is counted under `coverage`. Each line's text
 is held in memory for its call and written nowhere; a failed call is a fixed
 code (`E_JUDGE_…`), never the provider's answer. The judge reads only
@@ -337,7 +344,7 @@ def probes_from_store(d, place: str, turns: int, back: int) -> tuple[list[dict],
         out.append({"id": ex[k], "class": "past_turn", "message": words[ex[k]],
                     "ids": before, "texts": [words[e] for e in before],
                     "rules": side["_held"] & set(before), "folded": side["_folded"] & set(before),
-                    "not_built": []})
+                    "unresolved": side["_unresolved"], "not_built": []})
     return out, VIEW_RECORD, unrecorded
 
 
@@ -351,7 +358,12 @@ def plan(probes: list[dict], prices: Prices, model: str) -> dict:
             calls += 1
             usd += prices.reserve(SYSTEM, prompt(p["message"], [p["texts"][i] for i in w]))
     return {"probes": len(probes), "lines": sum(len(p["ids"]) for p in probes), "calls": calls,
-            "worst_case_usd": usd, "model": model}
+            "worst_case_usd": usd, "model": model, "unresolved_ranges": unresolved(probes)}
+
+
+def unresolved(probes: list[dict]) -> int:
+    """How many laid ranges of the probes' records no available order resolves (module text)."""
+    return sum(p.get("unresolved", 0) for p in probes)
 
 
 def run(probes: list[dict], judge, prices: Prices, cap_usd: float, model: str = DEFAULT_MODEL) -> dict:
@@ -392,6 +404,8 @@ def run(probes: list[dict], judge, prices: Prices, cap_usd: float, model: str = 
                 c["unjudged"] += 1
             elif e in p.get("folded", ()) and e not in p["rules"]:
                 c["folded_helps" if best[i] == HELPS else "folded_not"] += 1
+            elif p.get("unresolved") and e not in p["rules"]:  # a range of unknown cover may hold it
+                c["unknown_helps" if best[i] == HELPS else "unknown_not"] += 1
             else:
                 c[{(True, True): "both", (True, False): "judge_only", (False, True): "rules_only",
                    (False, False): "neither"}[(best[i] == HELPS, e in p["rules"])]] += 1
@@ -409,8 +423,10 @@ def run(probes: list[dict], judge, prices: Prices, cap_usd: float, model: str = 
     for r in per:
         if not r.get("not_built"):
             by_class.setdefault(r["class"], Counter()).update({k: v for k, v in r.items() if isinstance(v, int)})
-    folded = {k: v for k, v in sorted(total.items()) if k.startswith("folded_")}
+    folded = {k: v for k, v in sorted(total.items()) if k.startswith(("folded_", "unknown_"))}
+    judged = [p for p, r in zip(probes, per) if not r.get("not_built")]
     return {"turns": per, "total": {**{k: total[k] for k in CELLS}, **folded}, "coverage": dict(coverage),
+            "unresolved_ranges": unresolved(judged),
             "by_class": {k: dict(v) for k, v in by_class.items()},
             "not_built_fixture_only": {k: dict(v) for k, v in fixture.items()},
             "calls": calls, "unparsed": unparsed, "reservations_kept": kept, "usage": dict(usage),

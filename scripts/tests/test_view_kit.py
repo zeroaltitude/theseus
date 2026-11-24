@@ -533,6 +533,29 @@ class FakeDaemon(unittest.TestCase):
         self.assertEqual(r["total"], {"both": 1, "judge_only": 1, "rules_only": 0, "neither": 0,
                                       "folded_helps": 2})
 
+    def test_a_range_the_order_cannot_resolve_keeps_its_lines_out_of_hit_and_miss(self):
+        """A laid range whose end is in no available order (a row the ledger lacks, an adopted history): which
+        earlier lines it covers is unknown, so a judged line it may cover is neither a hit nor a miss. Those
+        comparisons are counted apart (`unknown_*`), and so are the ranges; the calls are the same."""
+        f = fixture(True)
+        f["ledger"] = [turn_row(i, tid(i), None, "none") for i in range(1, 6)]
+        f["nodes"] = [{"kind": "user_message", "turn_id": tid(i), "text": f"words {i}", "position": i}
+                      for i in range(1, 6)]
+        f["shows"] = {tid(5): record(tid(5), [(tid(4), tid(4)), (tid(2), tid(99))])}  # tid(99): in no order
+        self.fx(f)
+        with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+            probes, basis, unrecorded = ys.probes_from_store(d, PLACE, 5, 5)
+        self.assertEqual([p["id"] for p in probes], [tid(5)])
+        prices = ys.Prices(ys.DEFAULT_MODEL, ys.API, None, None)
+        r = ys.run(probes, lambda p, idx, user: ([ys.HELPS] * len(idx), {"input_tokens": 1, "output_tokens": 1},
+                                                 True), prices, 1.0)
+        self.assertEqual(r["total"]["judge_only"], 0)
+        self.assertEqual(r["total"], {"both": 1, "judge_only": 0, "rules_only": 0, "neither": 0,
+                                      "unknown_helps": 3})
+        self.assertEqual(r["unresolved_ranges"], 1)
+        self.assertEqual(ys.plan(probes, prices, ys.DEFAULT_MODEL)["unresolved_ranges"], 1)
+        self.assertEqual(r["calls"], ys.plan(probes, prices, ys.DEFAULT_MODEL)["calls"])
+
     def test_a_case_path_that_would_leave_the_output_is_refused_before_any_write(self):
         base = vc.load(SETS)["cases"][0]
         bad_place = dict(base, history=[dict(base["history"][0], place=str(self.live / "new-dir"))])
