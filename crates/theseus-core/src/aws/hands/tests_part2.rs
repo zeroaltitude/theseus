@@ -1562,7 +1562,11 @@ async fn settling_or_forgiving_an_unknown_hand_closes_its_group() {
             state_of(&r.core, &rec.group).is_settled()
         })
         .await;
-        assert_eq!(state_of(&r.core, &rec.group), ActionState::Failed, "{usd:?}");
+        assert_eq!(
+            state_of(&r.core, &rec.group),
+            ActionState::Failed,
+            "{usd:?}"
+        );
         assert_eq!(
             record(&r.core, &rec.group).settled.as_deref(),
             Some("not_met")

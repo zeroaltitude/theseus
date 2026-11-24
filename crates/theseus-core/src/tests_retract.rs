@@ -759,7 +759,9 @@ async fn a_reason_over_500_characters_is_refused_when_given() {
         why,
         session_id: None,
     };
-    let e = c.fact_retract(&ask("\u{e9}".repeat(501)), "cli").unwrap_err();
+    let e = c
+        .fact_retract(&ask("\u{e9}".repeat(501)), "cli")
+        .unwrap_err();
     let said = format!("{e:#}");
     assert!(said.contains("500 characters"), "{said}");
     assert!(said.contains("501"), "{said}");

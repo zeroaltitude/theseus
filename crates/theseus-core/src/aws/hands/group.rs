@@ -171,7 +171,11 @@ pub fn owner_settled_usd(a: &Action) -> Option<f64> {
     if a.state != ActionState::OutcomeUnknown {
         return None;
     }
-    a.detail.as_ref()?.get("settled_by_owner")?.get("cost_usd")?.as_f64()
+    a.detail
+        .as_ref()?
+        .get("settled_by_owner")?
+        .get("cost_usd")?
+        .as_f64()
 }
 
 pub fn tally(store: &Store, rec: &GroupRecord, actions: &[Action]) -> Tally {
