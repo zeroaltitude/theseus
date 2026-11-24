@@ -544,7 +544,11 @@ mod tests_fitted {
             let cuts = sample::cuts(&known);
             let had = crate::view::text::tokens(&text);
             let (shown, kept) = fitted_kept(&text, max, had, &cuts);
-            assert_eq!(shown, fitted_as_it_was(&text, max, had, &cuts), "case {case}");
+            assert_eq!(
+                shown,
+                fitted_as_it_was(&text, max, had, &cuts),
+                "case {case}"
+            );
             assert_eq!(fitted(&text, max, had, &cuts), shown);
             assert_eq!(kept.start, 0);
             sample::whole(&text, &kept, &known);
@@ -553,7 +557,11 @@ mod tests_fitted {
                 crate::narrative::thousands(had),
                 crate::narrative::thousands(max)
             );
-            assert_eq!(format!("{}{note}", &text[kept.clone()]), shown, "case {case}: {text:?}");
+            assert_eq!(
+                format!("{}{note}", &text[kept.clone()]),
+                shown,
+                "case {case}: {text:?}"
+            );
         }
     }
 }

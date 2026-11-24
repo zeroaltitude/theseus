@@ -54,7 +54,11 @@ fn cut_reports_the_bytes_it_kept() {
         };
         assert_eq!(flat(&text), flat_as_it_was(&text), "{text:?}");
         let (shown, kept) = cut_kept(&text, max, &cuts);
-        assert_eq!(shown, cut_as_it_was(&text, max, &cuts), "case {case}: {text:?}");
+        assert_eq!(
+            shown,
+            cut_as_it_was(&text, max, &cuts),
+            "case {case}: {text:?}"
+        );
         assert_eq!(cut(&text, max, &cuts), shown);
         sample::whole(&text, &kept, &known);
         let left = text[kept.end..]
