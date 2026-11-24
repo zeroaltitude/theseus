@@ -1,7 +1,8 @@
 //! The stand-in model's own reading (issue 46): which text of a request it takes as the turn's input, in
 //! the shapes the view lays. The window comes first in the last user message (another session's message,
 //! labelled; a late result whose turn has not answered yet), then the turn's block beside the message,
-//! then the turn's own nodes. A test's `starts_with` on the prompt is only as good as this reading.
+//! then the turn's own nodes. A task's opening heads its window and is read on its first turn, a deferred
+//! one's too. A test's `starts_with` on the prompt is only as good as this reading.
 
 mod common;
 
@@ -155,4 +156,75 @@ fn a_sessions_own_message_is_read_after_the_other_sessions_of_its_place() {
         text("[Terminal · Tue 2026-11-24 08:27 -07:00] fifty jobs, batch 3"),
     ]}]));
     assert_eq!(prompt(&req), "fifty jobs, batch 3");
+}
+
+/// A task's brief, as `task.create` writes it (its header shortened).
+const BRIEF: &str =
+    "[Task 8fafd9: a background task started by session …07fa30. Work on the brief below on \
+                     your own.]\n\nTally the harbour boats and report.";
+
+/// The task's arrangement, after its brief (shortened).
+const ARRANGEMENT: &str = "[Arrangement: the conversation that started you quoted 1 message that define this \
+                           work.]\n\n--- Piece 1 of 1 (objective): from the owner in session …07fa30 ---\n\
+                           Defer the tally as a task";
+
+/// A deferred task's start note, as its first turn writes it.
+const DEFERRED: &str =
+    "Deferred task, set Tue 10:04 for Tue 10:04; started Tue 10:04:33. Start the work in your \
+                        brief now.";
+
+/// A deferred task's first request: its opening heads the window (the window's end, its cache mark, on
+/// the arrangement), then the block beside the message, then the start note the turn wrote. The brief
+/// the note tells it to start is read, and so are the arrangement and the note.
+#[test]
+fn a_deferred_tasks_first_turn_reads_its_brief_its_arrangement_and_its_start_note() {
+    let req = request(json!([{"role": "user", "content": [
+        text(BRIEF),
+        marked(ARRANGEMENT),
+        text(BESIDE),
+        text(DEFERRED),
+    ]}]));
+    assert_eq!(prompt(&req), format!("{BRIEF}\n{ARRANGEMENT}\n{DEFERRED}"));
+}
+
+/// A task's first request when nothing was written for its turn: the opening, then the block beside the
+/// message last. The opening is read.
+#[test]
+fn a_tasks_first_turn_reads_its_opening_before_the_block_beside_the_message() {
+    let req = request(json!([{"role": "user", "content": [
+        text(BRIEF),
+        marked(ARRANGEMENT),
+        text(BESIDE),
+    ]}]));
+    assert_eq!(prompt(&req), format!("{BRIEF}\n{ARRANGEMENT}"));
+}
+
+/// A task's later turn: its opening still heads the window, in the request's first message, then its
+/// earlier exchanges (its first turn's call, result and answer, the window's mark on the answer), then
+/// the block beside the message and the turn's own input. The opening is before an answer, so it is not
+/// in the last message, and only the new input is read: a wake's line, a person's message sent to the
+/// task, a late result.
+#[test]
+fn a_tasks_later_turn_reads_its_new_input_not_its_opening() {
+    let later = |last: Value| {
+        request(json!([
+            {"role": "user", "content": [text(BRIEF), text(ARRANGEMENT)]},
+            {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "toolu_test_0", "name": "wake_at", "input": {}},
+            ]},
+            {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_test_0", "content": "Set."},
+            ]},
+            {"role": "assistant", "content": [marked("Done.")]},
+            {"role": "user", "content": last},
+        ]))
+    };
+    let wake = "⏰ wake (set 10:04): Look at the boats once more, then report.";
+    assert_eq!(prompt(&later(json!([text(BESIDE), text(wake)]))), wake);
+    let said = later(json!([
+        text(BESIDE),
+        text("[Terminal · Tue 2026-11-24 10:05 -07:00] count the small ones too"),
+    ]));
+    assert_eq!(prompt(&said), "count the small ones too");
+    assert_eq!(prompt(&later(json!([text(BESIDE_LATE), text(LATE)]))), LATE);
 }

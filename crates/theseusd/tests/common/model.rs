@@ -354,10 +354,32 @@ fn carries_tool_result(req: &Value) -> bool {
 /// so no exchange of the window carries one. So the text after the last harness block that some text
 /// follows is the turn's own, and what comes before it is the window's. A message with no harness
 /// block is read whole, as before.
+///
+/// But a task's window opens with the task's opening (`turn::view_step::task::window_head`): its brief
+/// and its arrangement, written before its first turn and laid on every turn at the window's head,
+/// before any exchange. It holds no answer, so it shares the last message only when no answer comes
+/// before that message, as on a task's first turn; on a later turn it heads the request's first
+/// message, before the earlier exchanges' answers, and is not read (as before). A deferred task's
+/// first turn lays its start note (`turn::deferred_step`) after the block beside the message, so the
+/// cut above would drop the brief the note tells it to start. The opening is told from another
+/// session's unanswered exchange by what follows the block, not by its own text: a person's own message
+/// carries the surface's tag (`surface::lead`; what the harness or a task's parent wrote carries none),
+/// and a task's first turn is opened by its brief and, when deferred, the harness's note. So when no
+/// answer comes before the last message and nothing after the block is tagged, the whole message is
+/// read, its harness blocks left out as before.
+///
+/// What this does not establish: with no block beside the message, the whole message is read, history
+/// included. A head is told by its text (`is_head`), not by where it came from, and a person's message
+/// by its tag (`surface::strip_tag`), so a message from a surface with no tag counts as the harness's.
+/// Notes written between turns (`compiler::view::between`) follow the block and are read. In a request
+/// with no answer before its last message, a turn the harness opened (a wake, a late result, a deferred
+/// start) also reads whatever the window laid before the block (another session's unanswered message,
+/// as the old reading did); a task whose first turn a person's message opened reads that message alone.
 pub fn prompt(req: &Value) -> String {
-    let Some(m) = req["messages"].as_array().and_then(|m| m.last()) else {
+    let Some((m, before)) = req["messages"].as_array().and_then(|m| m.split_last()) else {
         return String::new();
     };
+    let answered = before.iter().any(|m| m["role"] == "assistant");
     match &m["content"] {
         Value::String(s) => s.clone(),
         Value::Array(blocks) => {
@@ -370,6 +392,10 @@ pub fn prompt(req: &Value) -> String {
                     .rposition(|t| is_head(t))
                     .map_or(0, |at| at + 1)
             });
+            // A task's opening, in the message no answer comes before (see above).
+            let tagged = |t: &&str| theseus_core::surface::strip_tag(t) != *t;
+            let opening = !answered && !texts[own..].iter().any(tagged);
+            let own = if opening { 0 } else { own };
             texts[own..]
                 .iter()
                 .copied()
