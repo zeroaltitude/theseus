@@ -791,14 +791,25 @@ impl Shared {
                     .place_session(i)
                     .map(|session| self.tasks.going_in(&session))
                     .unwrap_or_default();
+                let mut watches = s.watches.clone();
+                for w in &mut watches {
+                    w.title = self.core.exits.text(&w.title).0.into_owned();
+                    w.until = self.core.exits.text(&w.until).0.into_owned();
+                    w.value = w
+                        .value
+                        .as_ref()
+                        .map(|v| self.core.exits.text(v).0.into_owned());
+                }
                 let t = agenda_text(
                     span,
                     theseus_protocol::now_unix_ms(),
-                    &s.lines,
-                    &s.routines,
-                    &s.watches,
-                    &s.projects,
-                    &going,
+                    &crate::render::leaving::copy(&self.core.exits, &s.lines).unwrap_or_default(),
+                    &crate::render::leaving::copy(&self.core.exits, &s.routines)
+                        .unwrap_or_default(),
+                    &watches,
+                    &crate::render::leaving::copy(&self.core.exits, &s.projects)
+                        .unwrap_or_default(),
+                    &crate::render::leaving::copy(&self.core.exits, &going).unwrap_or_default(),
                 );
                 self.reply_ephemeral(i, t).await;
             }
@@ -1351,5 +1362,42 @@ mod exit_tests_r4 {
         let text = replies[0].content.as_deref().unwrap();
         assert!(!text.contains("vau"), "{text}");
         assert!(text.contains("[red"), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r5 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    fn routine(n: usize) -> theseus_protocol::routines::RoutineInfo {
+        serde_json::from_value(serde_json::json!({"id":VALUE, "short":"routine", "title":format!("{}{}", "x".repeat(n), VALUE), "schedule":"", "series":"", "brief":"", "paused":false, "run_usd":1.0, "month_usd":10.0, "month_spent_usd":0.0, "deliver_to":"dm", "catch_up":"skip", "speak":"always", "carry":"none", "runs":0})).unwrap()
+    }
+    fn keep_snapshot() -> std::sync::Arc<crate::rpc_client::Hold> {
+        let hold = crate::rpc_client::slow_once(method::ROUTINE_LIST, "", serde_json::json!({}));
+        hold.release.notify_one();
+        hold
+    }
+    #[tokio::test]
+    async fn agenda_masks_before_cuts_r5() {
+        let (_dir, _core, fake, shared) = rig();
+        let watch = serde_json::from_value(serde_json::json!({"wake_id":"wake_exit", "short":"exit", "session_id":"ses_exit", "execution_id":"exe_exit", "title":format!("{}{}", "x".repeat(45), VALUE), "kind":"file", "target":"file", "until":format!("{}{}", "x".repeat(25), VALUE), "every":"1h", "then":"tell", "set_at_ms":1,"expires_at_ms":2,"value":format!("{}{}", "x".repeat(25), VALUE), "checks":1})).unwrap();
+        shared
+            .tasks
+            .future
+            .seed_for_test(super::super::horizon::Snapshot {
+                routines: vec![routine(45)],
+                watches: vec![watch],
+                ..Default::default()
+            });
+        let _hold = keep_snapshot();
+        let c = serde_json::from_value(serde_json::json!({"id":"3", "name":"agenda", "type":1,"options":[{"name":"when","type":3,"value":"all"}]})).unwrap();
+        shared.horizon_command(&interaction(), &c, "keeper").await;
+        let text = fake.replies()[0].content.clone().unwrap();
+        assert!(
+            text.contains("Routines") && text.contains("last:"),
+            "{text}"
+        );
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.matches("[red").count() >= 4, "{text}");
     }
 }
