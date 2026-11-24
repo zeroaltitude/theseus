@@ -11,9 +11,14 @@
 //!   planned in the kernel with its worst case reserved (the spend limit, the day ceiling and a `/stop` are
 //!   the kernel's), so a call past them is refused before anything is sent; made through the providers the
 //!   turn's calls go through, which mask the vault's values at the exit (`exits`); settled at its price.
-//! - **Outside text, always.** The answer is a model's testimony, never the owner's word: its result is
-//!   marked External, as a fetched page is, so every act gate and the injection freeze read it as one
-//!   (`judged::outside_admitted` keeps the card of a change made after it in the same exchange).
+//! - **Outside text, always, once the task is found.** The answer is a model's testimony, never the owner's
+//!   word: its result is marked External, as a fetched page is, so every act gate and the injection freeze
+//!   read it as one (`judged::outside_admitted` keeps the card of a change made after it in the same
+//!   exchange). So is every failure from then on (a provider's error, a timeout, a refusal of the call):
+//!   it rides the failure's `external` meta, which the runtime reads as it reads a result's mark. Each says
+//!   in the harness's own words whether an answer came, and lays the answer, or the provider's words, inside
+//!   the same content-derived fence a later view draws (`view::text::labels::wrap_outside`). Only a refusal
+//!   before the task is known (no such task, a malformed call, a task asking) is the harness's alone.
 //! - **Nothing is written into the task**: no node in its session, no exchange at its place, no touch, no
 //!   new version of its record. The call and its answer are the asking conversation's alone.
 //! - **Bounded**: [`ASKS_PER_TURN`] asks a turn, each told plainly when used. A task does not ask a task.
@@ -38,6 +43,7 @@ use crate::provider::{ModelResponse, Provider, ProviderError, ProviderRequest};
 use crate::session::SessionRecord;
 use crate::toolrun::TurnCtx;
 use crate::turn::Target;
+use crate::view::text::labels::wrap_outside;
 use crate::Core;
 
 pub const ASK: &str = "task.ask";
@@ -176,23 +182,54 @@ impl Board {
 
     /// The call, in its own task: planned here, in the turn's, and made and settled in the tool's.
     pub fn run(&self, tc: &TurnCtx<'_>, input: &Value) -> AsyncMediaRun {
-        let fail = |why: String| -> AsyncMediaRun {
-            Box::pin(std::future::ready(Err(ToolFailure::new(why))))
-        };
+        let fail = |f: ToolFailure| -> AsyncMediaRun { Box::pin(std::future::ready(Err(f))) };
         let Some(core) = self.core.get().and_then(Weak::upgrade) else {
-            return fail("task.ask is not ready: the core is not built".into());
+            return fail(ToolFailure::new("task.ask is not ready: the core is not built"));
         };
-        match input_of(input).and_then(|(id, q)| begin(self, &core, tc, &id, &q)) {
-            Err(why) => fail(why),
+        let (task, question) =
+            match input_of(input).and_then(|(id, q)| Ok((found(&core, tc, &id)?, q))) {
+                Ok(found) => found,
+                Err(why) => return fail(ToolFailure::new(why)),
+            };
+        match begin(self, &core, tc, task.clone(), &question) {
+            Err(why) => fail(not_asked(&task, &why)),
             Ok(p) => Box::pin(async move {
                 let external = theseus_tools::External {
-                    url: format!("task:{}", p.task.id),
+                    url: source(&p.task),
                 };
-                let output = finish(core, p).await.map_err(ToolFailure::new)?;
+                let output = finish(core, p).await?;
                 Ok((output, Some(external), None))
             }),
         }
     }
+}
+
+/// What the task's words are marked as coming from: the result's External url, and the fence's source.
+fn source(t: &TaskRecord) -> String {
+    format!("task:{}", t.id)
+}
+
+/// The start of every result once the task is found: which task, and which version of it.
+fn head(t: &TaskRecord) -> String {
+    format!("[Task {} \"{}\", v{}", t.id, t.title, t.version)
+}
+
+/// A failure once the task is found: outside text, as an answer is (`meta["external"]`, which the runtime
+/// reads as a result's mark), with `meta`'s keys beside it.
+fn outside_failure(t: &TaskRecord, message: String, mut meta: Value) -> ToolFailure {
+    meta["external"] = json!(source(t));
+    meta["task"] = json!(t.id);
+    meta["version"] = json!(t.version);
+    ToolFailure { message, meta }
+}
+
+/// The task found, and nothing sent: why not, in the harness's words.
+fn not_asked(t: &TaskRecord, why: &str) -> ToolFailure {
+    let message = format!(
+        "{}: not asked; {why}]\n\n[Nothing was sent, and nothing was spent.]",
+        head(t)
+    );
+    outside_failure(t, message, json!({}))
 }
 
 /// What a planned call carries to its making.
@@ -210,14 +247,8 @@ struct Planned {
     asked: u32,
 }
 
-/// Find the task, build its next request for the question, and plan the call; or the words of why not.
-fn begin(
-    board: &Board,
-    core: &Core,
-    tc: &TurnCtx<'_>,
-    id: &str,
-    question: &str,
-) -> Result<Planned, String> {
+/// The task `id` names, for a turn that may ask one; or the words of why not.
+fn found(core: &Core, tc: &TurnCtx<'_>, id: &str) -> Result<TaskRecord, String> {
     if tc.task.is_some() {
         return Err(
             "task.ask is not for a task's session: a task does not ask a task; report what is needed".into(),
@@ -225,7 +256,17 @@ fn begin(
     }
     let tasks =
         super::all(&core.store).map_err(|e| format!("the tasks could not be read: {e:#}"))?;
-    let task = super::resolve(&tasks, id)?.clone();
+    Ok(super::resolve(&tasks, id)?.clone())
+}
+
+/// Build the task's next request for the question, and plan the call; or the words of why not.
+fn begin(
+    board: &Board,
+    core: &Core,
+    tc: &TurnCtx<'_>,
+    task: TaskRecord,
+    question: &str,
+) -> Result<Planned, String> {
     let Some(sid) = task.session.clone() else {
         return Err(format!(
             "{} has not started: it has no session to ask, and its card says all its records hold",
@@ -358,7 +399,7 @@ fn not_planned(core: &Core, session: &str, e: &anyhow::Error) -> String {
 }
 
 /// Make the call and settle it: the task's words, headed as its testimony, or why there are none.
-async fn finish(core: Arc<Core>, p: Planned) -> Result<ToolOutput, String> {
+async fn finish(core: Arc<Core>, p: Planned) -> Result<ToolOutput, ToolFailure> {
     let started_ms = theseus_protocol::now_unix_ms();
     let call = crate::exits::Call {
         op: Some(PURPOSE),
@@ -369,16 +410,10 @@ async fn finish(core: Arc<Core>, p: Planned) -> Result<ToolOutput, String> {
     };
     let mut quiet = |_: crate::provider::Delta<'_>| {};
     let made = crate::exits::for_call(call, || p.provider.stream_message(&p.request, &mut quiet));
-    let answered = match tokio::time::timeout(TIME_LIMIT, made).await {
-        Ok(r) => r,
-        Err(_) => Err(anyhow::anyhow!(
-            "the task did not answer within {} seconds",
-            TIME_LIMIT.as_secs()
-        )),
-    };
-    match answered {
-        Ok(resp) => Ok(settled(&core, &p, &resp, started_ms)),
-        Err(e) => Err(failed(&core, &p, &e, started_ms)),
+    match tokio::time::timeout(TIME_LIMIT, made).await {
+        Ok(Ok(resp)) => Ok(settled(&core, &p, &resp, started_ms)),
+        Ok(Err(e)) => Err(failed(&core, &p, Some(&e), started_ms)),
+        Err(_) => Err(failed(&core, &p, None, started_ms)),
     }
 }
 
@@ -420,21 +455,23 @@ fn settled(core: &Core, p: &Planned, resp: &ModelResponse, started_ms: u64) -> T
     }
 }
 
-/// The result: the head that says whose words these are, the answer (cut by code), and what it cost.
+/// The result: the head that says whose words these are, the answer (cut by code) inside its outside fence,
+/// and what it cost.
 fn words(p: &Planned, resp: &ModelResponse, cost: theseus_kernel::Micros) -> String {
-    let t = &p.task;
     let mut out = format!(
-        "[Task {} \"{}\", v{}: its own answer, from its own view; not a record, and not the owner's word]\n\n",
-        t.id, t.title, t.version
+        "{}: its own answer, from its own view; not a record, and not the owner's word]\n\n",
+        head(&p.task)
     );
     let text = resp.text.trim();
-    match text.chars().count() > ANSWER_MAX_CHARS {
-        true => {
-            out.extend(text.chars().take(ANSWER_MAX_CHARS));
-            out.push_str("\n\n[cut at about 1,500 tokens]");
+    match text.is_empty() {
+        true => out.push_str("[no words: it answered with nothing to show]"),
+        false => {
+            let kept: String = text.chars().take(ANSWER_MAX_CHARS).collect();
+            out.push_str(&wrap_outside(Some(&source(&p.task)), &kept));
         }
-        false if text.is_empty() => out.push_str("[no words: it answered with nothing to show]"),
-        false => out.push_str(text),
+    }
+    if text.chars().count() > ANSWER_MAX_CHARS {
+        out.push_str("\n\n[cut at about 1,500 tokens]");
     }
     if crate::provider::hit_cap(resp.stop_reason.as_deref()) {
         out.push_str(&format!(
@@ -451,11 +488,16 @@ fn words(p: &Planned, resp: &ModelResponse, cost: theseus_kernel::Micros) -> Str
     out
 }
 
-/// A call that failed, settled as failed (or unknown, when the provider may have done the work); the
-/// provider layer's own words.
-fn failed(core: &Core, p: &Planned, e: &anyhow::Error, started_ms: u64) -> String {
-    let pe = e.downcast_ref::<ProviderError>();
-    let (class, unknown) = pe.map_or(("unknown", true), |p| (p.class(), p.usage_unknown()));
+/// A call that failed, settled as failed (or unknown, when the provider may have done the work): the
+/// harness's words for it, and the provider's quoted inside an outside fence. `e` is none when the call
+/// ran out of its time.
+fn failed(core: &Core, p: &Planned, e: Option<&anyhow::Error>, started_ms: u64) -> ToolFailure {
+    let pe = e.and_then(|e| e.downcast_ref::<ProviderError>());
+    let (class, unknown) = match (e, pe) {
+        (None, _) => ("timeout", true),
+        (Some(_), Some(pe)) => (pe.class(), pe.usage_unknown()),
+        (Some(_), None) => ("unknown", true),
+    };
     let c = Completion {
         correlation_id: p.action.correlation_id.clone(),
         outcome: match unknown {
@@ -475,7 +517,32 @@ fn failed(core: &Core, p: &Planned, e: &anyhow::Error, started_ms: u64) -> Strin
         tracing::warn!(correlation_id = %p.action.correlation_id, error = %format!("{s:#}"),
             "an asked task's failure was not settled; the reconcile settles it at its deadline");
     }
-    format!("the task {} could not answer ({class}): {e}", p.task.id)
+    let mut message = match e {
+        None => format!(
+            "{}: no answer came; it did not answer within {} seconds]",
+            head(&p.task),
+            TIME_LIMIT.as_secs()
+        ),
+        Some(e) => format!(
+            "{}: no answer came; the call failed ({class}). What the provider said:]\n\n{}",
+            head(&p.task),
+            wrap_outside(Some("the provider's error"), &e.to_string())
+        ),
+    };
+    let cost = match unknown {
+        true => format!(
+            "Its cost is not known: the call may have reached the provider, so its whole reservation of {} \
+             stays held on this conversation, and the day counts it at that, until it is reconciled.",
+            crate::narrative::dollars(p.reserve)
+        ),
+        false => "The call cost nothing.".to_string(),
+    };
+    message.push_str(&format!(
+        "\n\n[{cost} Nothing of it was kept in the task. Ask {} of {ASKS_PER_TURN} this turn.]",
+        p.asked
+    ));
+    let meta = json!({"asked": p.asked, "of": ASKS_PER_TURN, "class": class, "cost_known": !unknown});
+    outside_failure(&p.task, message, meta)
 }
 
 #[cfg(test)]
