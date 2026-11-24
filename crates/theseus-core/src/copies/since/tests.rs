@@ -101,7 +101,7 @@ fn a_look_backs_result_is_laid_with_what_was_said_since_and_its_mark_unchanged()
         &src,
     );
     let at = s.last_position();
-    let wrong = BTreeSet::from([src.clone()]);
+    let wrong = BTreeSet::from([src]);
     let laid = lay_one(&s, &wrong, &n);
     assert_eq!(
         content(&laid),
@@ -386,7 +386,7 @@ fn a_look_backs_result_reads_each_source_once() {
     let since = Since::new(&s, &wrong);
     since.lay(vec![(0, Stub::from(a.clone()))]).unwrap();
     s.fail_scope_reads(true);
-    let laid = since.lay(vec![(0, Stub::from(a.clone()))]);
+    let laid = since.lay(vec![(0, Stub::from(a))]);
     s.fail_scope_reads(false);
     let laid = laid.unwrap();
     assert!(content(&laid[0].1).contains("[Since this was read: "));
