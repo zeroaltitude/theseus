@@ -48,6 +48,8 @@ mod tests_authors;
 #[cfg(test)]
 mod tests_gists;
 #[cfg(test)]
+mod tests_gists_fidelity;
+#[cfg(test)]
 mod tests_job;
 #[cfg(test)]
 pub(crate) mod tests_moved;

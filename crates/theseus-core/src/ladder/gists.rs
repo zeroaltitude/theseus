@@ -1,8 +1,10 @@
 //! The reading sheet (`exchange.gists`, issue 44, step 4; design §10): a
 //! sample of `did` lines and of first-level fold nodes, each beside what its
-//! writer read, so the owner can say whether each is true. A line is shown
-//! as the view shows it ([`did::shown_line`]), and a node as the view's fold
-//! block, so a wrong verdict is the writer's error, not the reader's. The
+//! writer read, so the owner can say whether each is true. The material is
+//! the writer's own, passed through the writer's own text preparation
+//! (`writer::prepared`: every value the daemon knows substituted), so it is
+//! what the writer's request holds. A line is shown as the view shows it
+//! ([`did::shown_line`]), and a node as the view's fold block. The
 //! draw is by a seed, so the same seed over the same records draws the same
 //! items. It only reads: nothing is stored and no model is called.
 
@@ -11,10 +13,17 @@ use theseus_store::{kinds, Store as _};
 
 use super::did::{self, DidLine, Said, DID_PREFIX};
 use super::fold::{self, FoldNode, FOLD_PREFIX};
+use super::writer::prepared;
+use crate::scrub::Scrubber;
 use crate::store::Store;
 
-/// The sheet for `p`: its seed, or one chosen now and returned.
-pub fn sheet(store: &Store, p: &ExchangeGistsParams) -> anyhow::Result<ExchangeGistsResult> {
+/// The sheet for `p`: its seed, or one chosen now and returned. `scrubber`
+/// is the summaries' writer's.
+pub fn sheet(
+    store: &Store,
+    scrubber: &Scrubber,
+    p: &ExchangeGistsParams,
+) -> anyhow::Result<ExchangeGistsResult> {
     let seed = p
         .seed
         .unwrap_or_else(|| theseus_protocol::now_unix_ms() % 1_000_000);
@@ -42,14 +51,14 @@ pub fn sheet(store: &Store, p: &ExchangeGistsParams) -> anyhow::Result<ExchangeG
     let (lines_total, nodes_total) = (lines.len() as u64, nodes.len() as u64);
     let mut lines = draw(lines, p.lines as usize, seed)
         .iter()
-        .map(|d| line(store, d))
+        .map(|d| line(store, scrubber, d))
         .collect::<anyhow::Result<Vec<_>>>()?;
     lines.sort_by(|a, b| (a.at_ms, &a.turn_id).cmp(&(b.at_ms, &b.turn_id)));
     // A second stream of the seed, so a change in how many lines are asked
     // never changes which nodes are drawn.
     let mut nodes = draw(nodes, p.nodes as usize, seed ^ NODES)
         .iter()
-        .map(|n| node(store, n))
+        .map(|n| node(store, scrubber, n))
         .collect::<anyhow::Result<Vec<_>>>()?;
     nodes.sort_by(|a, b| (a.first_ms, &a.id).cmp(&(b.first_ms, &b.id)));
     Ok(ExchangeGistsResult {
@@ -84,7 +93,7 @@ fn draw<T>(mut all: Vec<T>, k: usize, seed: u64) -> Vec<T> {
 }
 
 /// A line beside what its writer reads for its exchange.
-fn line(store: &Store, d: &DidLine) -> anyhow::Result<GistLine> {
+fn line(store: &Store, scrubber: &Scrubber, d: &DidLine) -> anyhow::Result<GistLine> {
     let r = did::read(store, &d.turn_id)?;
     Ok(GistLine {
         turn_id: d.turn_id.clone(),
@@ -92,7 +101,7 @@ fn line(store: &Store, d: &DidLine) -> anyhow::Result<GistLine> {
         at_ms: r.as_ref().map_or(d.at_ms, |r| r.ex.start_ms),
         model: d.model.clone(),
         writer: d.writer,
-        read: r.as_ref().map(did::material),
+        read: r.as_ref().map(|r| prepared(scrubber, &did::material(r))),
         line: did::shown_line(store, d),
     })
 }
@@ -100,7 +109,7 @@ fn line(store: &Store, d: &DidLine) -> anyhow::Result<GistLine> {
 /// A node beside what its writer read: each exchange still readable, with
 /// the `did` line it had when the node was written (a line written after it
 /// was not read), and the node as the view's fold block shows it.
-fn node(store: &Store, n: &FoldNode) -> anyhow::Result<GistNode> {
+fn node(store: &Store, scrubber: &Scrubber, n: &FoldNode) -> anyhow::Result<GistNode> {
     let mut reads = Vec::new();
     for t in &n.exchanges {
         let Some(r) = did::read(store, t)? else {
@@ -140,7 +149,7 @@ fn node(store: &Store, n: &FoldNode) -> anyhow::Result<GistNode> {
         readable: reads.len() as u32,
         model: n.model.clone(),
         writer: n.writer,
-        read: fold::material(&reads),
+        read: prepared(scrubber, &fold::material(&reads)),
         shown,
     })
 }

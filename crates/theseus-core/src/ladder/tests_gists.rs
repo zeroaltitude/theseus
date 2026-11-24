@@ -11,6 +11,7 @@ use super::read::{self, Step};
 use super::tests::{exchange_at, store, Fake};
 use super::{DayPurse, N};
 use crate::exchange;
+use crate::scrub::Scrubber;
 use crate::store::Store;
 
 const PLACE: &str = "discord:channel:4242";
@@ -92,7 +93,7 @@ async fn gists_shows_each_line_beside_what_its_writer_read() {
     did::write(&s, &w, &elsewhere, &purse).await.unwrap();
     let before = s.last_position();
 
-    let r = sheet(&s, &asked(Some(PLACE), 50, 10, 7)).unwrap();
+    let r = sheet(&s, &Scrubber::default(), &asked(Some(PLACE), 50, 10, 7)).unwrap();
     assert_eq!((r.lines_total, r.lines.len()), (3, 3), "{r:?}");
     let asks = w.asks.lock().unwrap().clone();
     for (i, (item, t)) in r.lines.iter().zip(&turns).enumerate() {
@@ -120,7 +121,7 @@ async fn gists_shows_each_line_beside_what_its_writer_read() {
             ("fake-small-1", at as u64)
         );
     }
-    let all = sheet(&s, &asked(None, 50, 10, 7)).unwrap();
+    let all = sheet(&s, &Scrubber::default(), &asked(None, 50, 10, 7)).unwrap();
     assert_eq!(all.lines_total, 4, "every place when none is named");
     assert_eq!(s.last_position(), before, "the sheet stores nothing");
 }
@@ -144,7 +145,7 @@ async fn gists_shows_a_level_one_node_with_its_exchanges() {
     let fold_read = w.asks.lock().unwrap().last().unwrap().text.clone();
     let before = s.last_position();
 
-    let r = sheet(&s, &asked(Some(PLACE), 0, 10, 7)).unwrap();
+    let r = sheet(&s, &Scrubber::default(), &asked(Some(PLACE), 0, 10, 7)).unwrap();
     assert_eq!((r.nodes_total, r.nodes.len()), (1, 1), "{r:?}");
     let g = &r.nodes[0];
     assert_eq!(
@@ -193,7 +194,7 @@ fn gists_reads_a_node_without_a_line_written_after_it() {
         super::writer::WRITER_VERSION,
         5_000,
     );
-    let r = sheet(&s, &asked(Some(PLACE), 0, 10, 7)).unwrap();
+    let r = sheet(&s, &Scrubber::default(), &asked(Some(PLACE), 0, 10, 7)).unwrap();
     let g = &r.nodes[0];
     assert_eq!((g.exchanges, g.readable), (2, 2));
     assert!(
@@ -219,7 +220,7 @@ fn gists_shows_an_unauthored_line_as_the_view_does() {
     let t = exchange_at(&s, "ses_a", PLACE, 1_000, false);
     let old = line_for(&s, &t, 1, 1_500);
     node_over(&s, "fld_old", std::slice::from_ref(&t), 1, 1_600);
-    let r = sheet(&s, &asked(Some(PLACE), 50, 10, 7)).unwrap();
+    let r = sheet(&s, &Scrubber::default(), &asked(Some(PLACE), 50, 10, 7)).unwrap();
     assert_eq!(r.lines[0].line, did::UNAUTHORED_LINE);
     assert_eq!(r.lines[0].line, did::shown_line(&s, &old));
     let g = &r.nodes[0];
@@ -254,7 +255,7 @@ fn gists_sample_repeats_by_seed() {
         line_for(&s, &t, super::writer::WRITER_VERSION, 2_000 + i);
     }
     let turns = |seed| -> Vec<String> {
-        let r = sheet(&s, &asked(Some(PLACE), 10, 10, seed)).unwrap();
+        let r = sheet(&s, &Scrubber::default(), &asked(Some(PLACE), 10, 10, seed)).unwrap();
         assert_eq!((r.seed, r.lines_total, r.lines.len()), (seed, 30, 10));
         r.lines.into_iter().map(|l| l.turn_id).collect()
     };
@@ -263,6 +264,7 @@ fn gists_sample_repeats_by_seed() {
     // A sheet asked with no seed says the one it drew with, and that seed draws it again.
     let chosen = sheet(
         &s,
+        &Scrubber::default(),
         &ExchangeGistsParams {
             seed: None,
             lines: 10,
@@ -270,7 +272,12 @@ fn gists_sample_repeats_by_seed() {
         },
     )
     .unwrap();
-    let again = sheet(&s, &asked(Some(PLACE), 10, 10, chosen.seed)).unwrap();
+    let again = sheet(
+        &s,
+        &Scrubber::default(),
+        &asked(Some(PLACE), 10, 10, chosen.seed),
+    )
+    .unwrap();
     assert_eq!(chosen, again);
 }
 
@@ -289,9 +296,9 @@ fn gists_says_how_many_nodes_exist_when_fewer_than_asked() {
         5_000,
     );
     node_over(&s, "fld_there", &[c], super::writer::WRITER_VERSION, 5_000);
-    let here = sheet(&s, &asked(Some(PLACE), 50, 10, 7)).unwrap();
+    let here = sheet(&s, &Scrubber::default(), &asked(Some(PLACE), 50, 10, 7)).unwrap();
     assert_eq!((here.nodes_total, here.nodes.len()), (1, 1), "{here:?}");
     assert_eq!((here.lines_total, here.lines.len()), (1, 1));
-    let all = sheet(&s, &asked(None, 50, 10, 7)).unwrap();
+    let all = sheet(&s, &Scrubber::default(), &asked(None, 50, 10, 7)).unwrap();
     assert_eq!((all.nodes_total, all.nodes.len()), (2, 2), "{all:?}");
 }

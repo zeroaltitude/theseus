@@ -193,8 +193,10 @@ impl Core {
             ));
         }
         let core = self.clone();
-        let r =
-            super::import::blocking(move || crate::ladder::gists::sheet(&core.store, &p)).await?;
+        let r = super::import::blocking(move || {
+            crate::ladder::gists::sheet(&core.store, &core.tools.scrubber, &p)
+        })
+        .await?;
         serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()))
     }
 }
