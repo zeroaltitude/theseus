@@ -1648,6 +1648,10 @@ phase "context ceiling" python3 scripts/context-ceiling.py --quiet
 # print. HARD: the page shipped two releases stale inside a tagged release because nothing read it, and one release
 # was tagged on the version before it. A clone with no release tags checks the version alone and says it skipped.
 phase "status page" ran_or_skipped python3 scripts/status-page.py
+# STATS.md's line counts, read back against the tree on main (issue 45). HARD: every route that lands recounts it (the
+# landing tool, the self loop's join), and a merge made by hand did not. A branch never touches STATS.md, so off main
+# the script says it skipped and the verdict names it.
+phase stats ran_or_skipped python3 scripts/stats.py --check
 # The two warning phases, between the file ceiling above and clippy's function ceiling below, and before the
 # compiles so that a branch which reddens clippy's `too_many_lines` already has the near-ceiling list above the
 # failure. Neither can fail the gate (their own comments say why).
