@@ -2,9 +2,9 @@
 
 The pure parts are tested here: the stand-in's script (rounds, a marker that opens a turn once, a refusal for
 size, a writer's call), the shared-prefix measure (cache marks taken out, a provider cache's order), the case
-settings (the mode's assembly, the kit's own rules last), the suite's case list against the addendum's, and the
-table's words. One test runs a case in both modes on the real binaries (target/debug) when they are built, and
-skips otherwise. The suite reads TOML with `tomllib`, so on a Python older than 3.11 the whole file skips.
+settings (the kit's own rules last), the suite's case list against the addendum's, and the table's words: one
+context, so one column. One test runs a case on the real binaries (target/debug) when they are built, and skips
+otherwise. The suite reads TOML with `tomllib`, so on a Python older than 3.11 the whole file skips.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -147,20 +148,24 @@ class StandIn(unittest.TestCase):
 
 @unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
 class Settings(unittest.TestCase):
-    def test_the_view_mode_sets_the_view_and_the_default_mode_nothing(self):
+    def test_proof_runs_one_context(self):
+        """The view is the one context: no setting names an assembly, the suite has no `--assembly`, and its
+        tables have one column of results."""
         p = Path("/tmp/projects-of-a-case")
-        self.assertEqual(proof.settings("view", p)["context"]["assembly"], "view")
-        self.assertNotIn("assembly", proof.settings("default", p).get("context") or {})
-        self.assertEqual(proof.settings("default", p)["tools"]["projects_dir"], str(p))
+        self.assertNotIn("assembly", proof.settings(p).get("context") or {})
+        self.assertEqual(proof.settings(p)["tools"]["projects_dir"], str(p))
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            proof.main(["--out", "/tmp/never-made", "--assembly", "view"])
+        t = proof.table([{"case": "wake", "ok": True, "fallback": {}, "strategies": {"view": 1}}])
+        self.assertEqual(t.splitlines()[:3], ["| case | result |", "|---|---|", "| wake | ok [view 1] |"])
 
     def test_the_kits_rules_win_over_a_cases_settings(self):
         extra = {"model": {"api_base": "https://example.invalid"}, "kernel": {"spend_limit_usd": 999.0},
                  "discord": {"enabled": True}}
-        cfg = scratch.config(proof.settings("view", Path("/tmp/p"), extra), "http://127.0.0.1:5")
+        cfg = scratch.config(proof.settings(Path("/tmp/p"), extra), "http://127.0.0.1:5")
         self.assertEqual(cfg["model"]["api_base"], "http://127.0.0.1:5")
         self.assertEqual(cfg["kernel"]["spend_limit_usd"], scratch.STAND_IN_LIMIT)
         self.assertFalse(cfg["discord"]["enabled"])
-        self.assertEqual(cfg["context"]["assembly"], "view")
 
     def test_health_is_read_for_values_never_for_field_names(self):
         health = {"keep_warm_hours": 3, "warnings": ["[cache] keep_warm_hours is retired"], "n": {"x": ["stub"]}}
@@ -203,17 +208,16 @@ class Words(unittest.TestCase):
         self.assertEqual(proof.cell({"ok": False, "not_driven": True}), "not driven")
 
     def test_the_table_and_the_cost_table(self):
-        rs = [{"case": "wake", "mode": m, "ok": True, "fallback": {}, "strategies": {m: 1}} for m in proof.MODES]
-        t = proof.table(rs, proof.MODES)
-        self.assertIn("| wake | ok [view 1] | ok [default 1] |", t)
+        t = proof.table([{"case": "wake", "ok": True, "fallback": {}, "strategies": {"view": 1}}])
+        self.assertIn("| wake | ok [view 1] |", t)
         rows = [{"turn": 1, "tokens": 100, "shared_tokens": 0}, {"turn": 2, "tokens": 120, "shared_tokens": 90}]
-        runs = [{"mode": "view", "rows": rows, "total_tokens": 220, "shared_tokens": 90, "unshared_tokens": 130,
-                 "strategies": {"view": 2}, "fallback": {}},
-                {"mode": "default", "rows": rows, "total_tokens": 220, "shared_tokens": 110,
-                 "unshared_tokens": 110, "strategies": {"transcript": 2}, "fallback": {}}]
-        c = proof.cost_table(runs)
-        self.assertIn("| 2 | 120 | 90 | 120 | 90 |", c)
-        self.assertIn("ratio view/default: total 1.00, not shared 1.18", c)
+        run = {"rows": rows, "total_tokens": 220, "shared_tokens": 90, "unshared_tokens": 130,
+               "strategies": {"view": 2}, "fallback": {}}
+        c = proof.cost_table(run)
+        self.assertIn("| 2 | 120 | 90 |", c)
+        self.assertIn("| total | 220 | 90 |", c)
+        self.assertIn("compilations {'view': 2}, hand-backs 0", c)
+        self.assertNotIn("ratio", c)
 
 
 @unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
@@ -244,50 +248,265 @@ class LongCost(unittest.TestCase):
     def test_the_long_table(self):
         row = {"turn": 1, "tokens": 100, "shared_tokens": 60, "calls": 1, "off_calls": 2, "off_tokens": 50,
                "off_kinds": {"did": 1, "fold": 1}, "strategies": {"view": 1}}
-        runs = [{"mode": m, "case": "long_120", "rows": [row], "total_tokens": 100, "shared_tokens": 60,
-                 "unshared_tokens": 40, "off_calls": 2, "off_tokens": 50, "off_kinds": {"did": 1, "fold": 1},
-                 "unanswered": 0, "strategies": {"view": 1}, "fallback": {}} for m in proof.MODES]
-        t = proof.long_table(runs)
+        run = {"case": "long_120", "rows": [row], "total_tokens": 100, "shared_tokens": 60,
+               "unshared_tokens": 40, "off_calls": 2, "off_tokens": 50, "off_kinds": {"did": 1, "fold": 1},
+               "unanswered": 0, "strategies": {"view": 1}, "fallback": {}}
+        t = proof.long_table(run)
         self.assertIn("| 1 | 100 | 40 | 1 | 2 (did1 fold1) 50t | view |", t)
-        self.assertIn("ratio view/default: sent 1.00, not shared 1.00, sent + off-turn 1.00", t)
+        self.assertIn("first requests 100 tokens, not shared 40", t)
+        self.assertIn("off-turn 2 calls 50 tokens", t)
+        self.assertNotIn("ratio", t)
+
+
+@unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
+class AllRequests(unittest.TestCase):
+    """A cost run's `all requests` counts every request the stand-in was sent exactly once: each turn's first,
+    a tool turn's follow-up, the calls off the turn, the extra ones, and any outside a turn. The first request of
+    each turn and its shared prefix stay a measure of their own, named for what they are."""
+
+    def test_a_two_step_tool_turn_counts_both_of_its_requests_once(self):
+        plain, tool = "Turn 1: note the buoy.", "Turn 2: list the files."
+        script = {tool: [{"calls": [{"name": "fs_list", "input": {"path": "."}}]}, {"text": "Listed."}]}
+        models = []
+
+        class Fake:
+            def __init__(self, bin_dir, out, model, cfg):
+                self.model = model
+                models.append(model)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def writer(d, text):  # a call that offers no tools: the ladder's, or anything the daemon writes
+            d.model.answer({"max_tokens": 200, "messages": [user(text)]})
+
+        def opened(d, label, cwd):
+            writer(d, "written before any turn")
+            return "s"
+
+        def submit(d, line, **kw):
+            first = {"tools": TOOLS, "system": [{"type": "text", "text": "S"}], "messages": [user(line)]}
+            d.model.answer(first)
+            if line == tool:  # its second request carries the first's call and a long result: a different size
+                big = {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1",
+                                                   "content": "a long listing " * 200}]}
+                d.model.answer(dict(first, messages=[user(line), call_msg(), big]))
+            writer(d, f"say what was done in: {line}")
+            return {"output": "ok"}
+
+        started = [{"session_id": "s", "turn_id": f"t{i}"} for i in (1, 2)]
+        out = Path(tempfile.mkdtemp(prefix="view-proof-all-"))
+        self.addCleanup(shutil.rmtree, out, True)
+        with unittest.mock.patch.multiple(proof, Daemon=Fake, open_session=opened, submit=submit,
+                                          writer_quiet=lambda m, *a: None,
+                                          rows=lambda d, kind: started if kind == "turn.started" else [],
+                                          observe=lambda d: {"strategies": {"view": 2}, "fallback": {}}):
+            r = proof.cost_run(out, out, 2, "two", lambda n: ([plain, tool], script))
+        seen = models[0].seen
+        own = [x["counted"] for x in seen if x["tools"] and tool in proof.turn_text(x["req"])]
+        self.assertEqual(len(own), 2)
+        self.assertNotEqual(own[0], own[1])
+        self.assertEqual(proof.all_tokens(r), sum(x["counted"] for x in seen))
+        self.assertEqual(r["all_calls"], len(seen))
+        self.assertEqual((r["rows"][1]["follow_calls"], r["rows"][1]["follow_tokens"]), (1, own[1]))
+        self.assertEqual((r["outside_calls"], r["extra_calls"]), (1, 0))
+        # The first request of each turn is its own measure: the turn-2 follow-up is not in it.
+        firsts = [x["counted"] for x in seen if x["tools"] and x["round"] == 0]
+        self.assertEqual(r["total_tokens"], sum(firsts))
+        t = proof.long_table(r)
+        self.assertIn(f"first requests {sum(firsts)} tokens", t)
+        self.assertIn(f"all requests {len(seen)} calls {sum(x['counted'] for x in seen)} tokens", t)
+        self.assertNotIn("\nsent ", t)
+
+
+def opening(line: str) -> dict:
+    """A turn's tool-offering request with no tool result yet: the stand-in counts it as round 0."""
+    return {"tools": TOOLS, "system": [{"type": "text", "text": "S"}], "messages": [user(line)]}
+
+
+def later(line: str, size: int) -> dict:
+    """A request of `line`'s turn that carries a tool result: the stand-in counts it as a later round. `size`
+    makes each one's tokens its own."""
+    res = {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "r " * size}]}
+    return dict(opening(line), messages=[user(line), call_msg(), res])
+
+
+@unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
+class Parts(unittest.TestCase):
+    """A cost run's parts (first, follow-up, off-turn, extra, outside a turn) give each captured request exactly
+    one class, so they add to the total, which is every request the stand-in was sent; in any order a turn's
+    requests arrive."""
+
+    def cost(self, lines, script, submit, before=(), after=()):
+        """`cost_run` on a fake daemon. `submit(model, line)` sends a turn's requests; `before` are calls with no
+        tools sent as the session opens, `after` ones sent as the run reads its rows back, after the last turn's
+        span. The run, and every request the stand-in was sent."""
+        models = []
+
+        class Fake:
+            def __init__(self, bin_dir, out, model, cfg):
+                self.model = model
+                models.append(model)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def writer(d, text):
+            d.model.answer({"max_tokens": 200, "messages": [user(text)]})
+
+        def opened(d, label, cwd):
+            for text in before:
+                writer(d, text)
+            return "s"
+
+        def observe(d):
+            for text in after:
+                writer(d, text)
+            return {"strategies": {"view": len(lines)}, "fallback": {}}
+
+        def sub(d, line, **kw):
+            submit(d.model, line)
+            return {"output": "ok"}
+
+        started = [{"session_id": "s", "turn_id": f"t{i}"} for i in range(1, len(lines) + 1)]
+        out = Path(tempfile.mkdtemp(prefix="view-proof-parts-"))
+        self.addCleanup(shutil.rmtree, out, True)
+        with unittest.mock.patch.multiple(proof, Daemon=Fake, open_session=opened, submit=sub,
+                                          writer_quiet=lambda m, *a: None, observe=observe,
+                                          rows=lambda d, kind: started if kind == "turn.started" else []):
+            r = proof.cost_run(out, out, len(lines), "parts", lambda n: (list(lines), script))
+        return r, models[0].seen
+
+    def add_up(self, r, seen):
+        """The parts add to the total, in calls and in tokens, per turn and for the run; the total is every
+        request the stand-in was sent."""
+        for x in r["rows"]:
+            self.assertEqual((x["tokens"] is not None) + x["follow_calls"] + x["off_calls"] + x["extra_calls"],
+                             x["all_calls"])
+            self.assertEqual((x["tokens"] or 0) + x["follow_tokens"] + x["off_tokens"] + x["extra_tokens"],
+                             x["all_tokens"])
+        firsts = sum(1 for x in r["rows"] if x["tokens"] is not None)
+        self.assertEqual(firsts + r["follow_calls"] + r["off_calls"] + r["extra_calls"] + r["outside_calls"],
+                         r["all_calls"])
+        self.assertEqual(r["total_tokens"] + r["follow_tokens"] + r["off_tokens"] + r["extra_tokens"]
+                         + r["outside_tokens"], r["all_tokens"])
+        self.assertEqual((r["all_calls"], r["all_tokens"]), (len(seen), sum(x["counted"] for x in seen)))
+
+    def test_a_turn_whose_round_zero_comes_last_gives_three_requests_three_classes(self):
+        """Rounds 1, 2, then 0, in a two-step turn: the round-0 request is the first, the earliest other is its
+        one follow-up, and the one past the script is extra. None is in two classes."""
+        line = "Turn 1: list the files."
+        script = {line: [{"calls": [{"name": "fs_list", "input": {"path": "."}}]}, {"text": "Listed."}]}
+
+        def submit(m, ln):
+            for req in (later(ln, 100), later(ln, 300), opening(ln)):
+                m.answer(req)
+
+        r, seen = self.cost([line], script, submit)
+        self.assertEqual([x["round"] for x in seen], [1, 2, 0])
+        self.assertEqual(len({x["counted"] for x in seen}), 3)
+        row = r["rows"][0]
+        self.assertEqual(row["tokens"], seen[2]["counted"])
+        self.assertEqual((row["follow_calls"], row["follow_tokens"]), (1, seen[0]["counted"]))
+        self.assertEqual((row["extra_calls"], row["extra_tokens"]), (1, seen[1]["counted"]))
+        self.add_up(r, seen)
+
+    def test_several_follow_ups_in_one_turn(self):
+        line = "Turn 1: read the logs."
+        call = {"calls": [{"name": "fs_list", "input": {"path": "."}}]}
+        script = {line: [call, call, call, {"text": "Read."}]}
+
+        def submit(m, ln):
+            for req in (opening(ln), later(ln, 100), later(ln, 200), later(ln, 300)):
+                m.answer(req)
+
+        r, seen = self.cost([line], script, submit)
+        self.assertEqual([x["round"] for x in seen], [0, 1, 2, 3])
+        row = r["rows"][0]
+        self.assertEqual((row["follow_calls"], row["extra_calls"]), (3, 0))
+        self.assertEqual(row["follow_tokens"], sum(x["counted"] for x in seen[1:]))
+        self.add_up(r, seen)
+
+    def test_a_request_after_the_last_turns_span_is_outside(self):
+        line = "Turn 1: note the buoy."
+        r, seen = self.cost([line], {}, lambda m, ln: m.answer(opening(ln)), after=("written after the turns",))
+        self.assertEqual((r["outside_calls"], r["outside_tokens"]), (1, seen[-1]["counted"]))
+        self.assertEqual(r["rows"][0]["all_calls"], 1)
+        self.add_up(r, seen)
+
+    def test_a_request_of_another_turn_inside_a_span_is_extra(self):
+        line = "Turn 1: note the buoy."
+
+        def submit(m, ln):
+            m.answer(opening(ln))
+            m.answer(opening("[a wake of its own]"))
+
+        r, seen = self.cost([line], {}, submit)
+        row = r["rows"][0]
+        self.assertEqual(row["tokens"], seen[0]["counted"])
+        self.assertEqual((row["extra_calls"], row["extra_tokens"], row["follow_calls"]), (1, seen[1]["counted"], 0))
+        self.add_up(r, seen)
+
+    def test_a_run_with_no_turn_has_every_request_outside(self):
+        r, seen = self.cost([], {}, None, before=("written as it opens",), after=("written after",))
+        self.assertEqual(r["rows"], [])
+        self.assertEqual((r["outside_calls"], r["all_calls"]), (2, 2))
+        self.add_up(r, seen)
+
+    def test_parts_that_do_not_add_to_the_total_stop_the_run(self):
+        """The run checks, in code, that its parts add to its total: a run whose parts count a request twice is
+        refused, not printed."""
+        good = {"rows": [{"tokens": 5, "follow_calls": 1, "follow_tokens": 3, "off_calls": 0, "off_tokens": 0,
+                          "extra_calls": 0, "extra_tokens": 0, "all_calls": 2, "all_tokens": 8}],
+                "total_tokens": 5, "follow_calls": 1, "follow_tokens": 3, "off_calls": 0, "off_tokens": 0,
+                "extra_calls": 0, "extra_tokens": 0, "outside_calls": 1, "outside_tokens": 2,
+                "all_calls": 3, "all_tokens": 10}
+        proof.check_parts(good)
+        twice = json.loads(json.dumps(good))
+        twice["rows"][0].update(extra_calls=1, extra_tokens=5)
+        twice.update(extra_calls=1, extra_tokens=5)
+        with self.assertRaises(proof.PartsDisagree):
+            proof.check_parts(twice)
 
 
 @unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
 class ExpectCut(unittest.TestCase):
-    def res(self, case, mode, ok=True, fallback=None, strategies=None, **kw):
-        return {"case": case, "mode": mode, "ok": ok, "why": "" if ok else "no answer",
+    def res(self, case, ok=True, fallback=None, strategies=None, **kw):
+        return {"case": case, "ok": ok, "why": "" if ok else "no answer",
                 "fallback": fallback or {}, "strategies": strategies or {"view": 2}, **kw}
 
-    def test_both_modes_all_view_is_accepted(self):
-        rs = [self.res("wake", m) for m in proof.MODES]
-        rs += [{"case": "new_mark", "mode": m, "ok": False, "not_driven": True} for m in proof.MODES]
-        costs = [{"case": "cost", "mode": m, "strategies": {"view": 34}, "fallback": {}} for m in proof.MODES]
-        self.assertEqual(proof.expect_cut(rs, costs, proof.MODES), [])
+    def test_all_view_is_accepted(self):
+        rs = [self.res("wake"), {"case": "new_mark", "ok": False, "not_driven": True}]
+        costs = [{"case": "cost", "strategies": {"view": 34}, "fallback": {}}]
+        self.assertEqual(proof.expect_cut(rs, costs), [])
 
     def test_every_offending_cell_is_named(self):
-        rs = [self.res("wake", "view"), self.res("wake", "default", strategies={"transcript": 2}),
-              self.res("task", "view", fallback={"continuation": 1}), self.res("fork", "default", ok=False)]
-        costs = [{"case": "long_120", "mode": "default", "strategies": {"ring": 1, "view": 3}, "fallback": {}}]
-        bad = proof.expect_cut(rs, costs, proof.MODES)
-        self.assertEqual(bad, ["wake [default]: compilations {'transcript': 2}",
-                               "task [view]: hand-back {'continuation': 1}",
-                               "fork [default]: FAILED no answer",
-                               "cost long_120 [default]: compilations {'ring': 1, 'view': 3}"])
-
-    def test_one_mode_alone_is_not_the_cut(self):
-        self.assertEqual(proof.expect_cut([self.res("wake", "view")], [], ("view",)), ["mode default: not run"])
+        rs = [self.res("wake"), self.res("check", strategies={"transcript": 2}),
+              self.res("task", fallback={"continuation": 1}), self.res("fork", ok=False)]
+        costs = [{"case": "long_120", "strategies": {"ring": 1, "view": 3}, "fallback": {}}]
+        bad = proof.expect_cut(rs, costs)
+        self.assertEqual(bad, ["check: compilations {'transcript': 2}",
+                               "task: hand-back {'continuation': 1}",
+                               "fork: FAILED no answer",
+                               "cost long_120: compilations {'ring': 1, 'view': 3}"])
 
     def test_the_flag_exits_nonzero_on_an_offence_without_a_daemon(self):
-        """`--expect-cut` with no case and no cost run, in one mode: the other mode was not run, exit 2."""
+        """`--expect-cut` with no daemon: an offending result read back is exit 2, and is written."""
         out = Path(tempfile.mkdtemp(prefix="view-proof-flag-")) / "out"
         self.addCleanup(shutil.rmtree, out.parent, True)
         buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            code = proof.main(["--out", str(out), "--assembly", "view", "--cases", "none", "--cost-turns", "0",
-                               "--expect-cut"])
+        bad = self.res("fork", ok=False)
+        with contextlib.redirect_stdout(buf), unittest.mock.patch.object(proof, "run_case", lambda *a: bad):
+            code = proof.main(["--out", str(out), "--cases", "fork", "--cost-turns", "0", "--expect-cut"])
         self.assertEqual(code, 2)
-        self.assertIn("- mode default: not run", buf.getvalue())
-        self.assertEqual(json.loads((out / "proof.json").read_text())["expect_cut"], ["mode default: not run"])
+        self.assertIn("- fork: FAILED no answer", buf.getvalue())
+        self.assertEqual(json.loads((out / "proof.json").read_text())["expect_cut"], ["fork: FAILED no answer"])
 
 
 @unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
@@ -312,9 +531,9 @@ class ExtraCalls(unittest.TestCase):
 
     def test_the_cold_start_line_prices_the_whole_last_request(self):
         rows = [{"turn": 61, "tokens": 16000, "shared_tokens": 14000}]
-        line = proof.cold_line([{"mode": "view", "rows": rows}, {"mode": "default", "rows": rows}])
+        line = proof.cold_line({"rows": rows})
         self.assertIn("turn 61 after a lapse", line)
-        self.assertIn("view 16000 tokens ($0.040 at the 5-minute write, $0.064 at the 1-hour write; 2000 not shared", line)
+        self.assertIn("16000 tokens ($0.040 at the 5-minute write, $0.064 at the 1-hour write; 2000 not shared", line)
 
 
 def built_bins() -> Path:
@@ -324,7 +543,7 @@ def built_bins() -> Path:
 
 @unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
 class RealDaemon(unittest.TestCase):
-    """A message and its follow-up, in both modes, on the real binaries when they are built: both answered."""
+    """A message and its follow-up, in the one context, on the real binaries when they are built: both answered."""
 
     def test_a_message_and_its_follow_up_in_both_modes(self):
         bins = built_bins()
@@ -335,10 +554,9 @@ class RealDaemon(unittest.TestCase):
             code = proof.main(["--bin-dir", str(bins), "--out", str(tmp / "out"),
                                "--cases", "message_and_follow_up", "--cost-turns", "2"])
         self.assertEqual(code, 0, buf.getvalue())
-        self.assertIn("[view] case message_and_follow_up: ok", buf.getvalue())
-        self.assertIn("[default] case message_and_follow_up: ok", buf.getvalue())
+        self.assertIn("case message_and_follow_up: ok", buf.getvalue())
         r = json.loads((tmp / "out" / "proof.json").read_text())
-        self.assertEqual([len(c["rows"]) for c in r["cost"]], [2, 2])
+        self.assertEqual(len(r["cost"]["rows"]), 2)
 
 
 if __name__ == "__main__":

@@ -26,6 +26,15 @@ How it is kept apart from the owner's daemon:
   (`DEAD_API`), the spend limit and the day's ceiling at a cent with the
   ceiling's mode `stop`; Discord, the web UI, the MCP server and the index
   off;
+- **its own words are the owner's**: the daemon decides whose a CLI message
+  is by the process that sent it (`peer_proc`): an agent's when an agent
+  host is above it, or when it has no controlling terminal. The kit's
+  scratch daemon names no agent host (`[policy] agent_processes = []`), and
+  the case builder sends each line from a terminal of the kit's own
+  (`cli(..., terminal=True)`), so a synthetic line is marked the owner's
+  wherever the kit runs: under an agent, a service or a cron. Without it
+  his words elsewhere (slot F) hold nothing, and every `callback_elsewhere`
+  case is missed for that reason alone. The daemon's rule is not changed;
 - **no words in diagnostics**: the daemon's stderr is discarded, and every
   failure the kit raises is a fixed code (`Failed`), never a response, a
   row or an event;
@@ -186,6 +195,7 @@ def config(base: dict, api_base: str = DEAD_API, model: str | None = None) -> di
     if "mcp_server" in t:
         t["mcp_server"]["enabled"] = False
     t.setdefault("index", {})["enabled"] = False
+    t.setdefault("policy", {})["agent_processes"] = []  # see the module text: its own words are the owner's
     return t
 
 
@@ -198,6 +208,13 @@ def child_env(home: Path, environ: dict | None = None) -> dict:
                 "XDG_CACHE_HOME": str(home / "cache"), "XDG_DATA_HOME": str(home / "data"),
                 "XDG_RUNTIME_DIR": str(home), "ANTHROPIC_API_KEY": NO_KEY})
     return env
+
+
+# A controlling terminal for one CLI call: a new session, the pty's far end opened and made its terminal, then
+# the CLI itself in its place (the same process, so the daemon reads its terminal). No `preexec_fn`: the kit
+# runs threads (the stand-in model's server).
+TERMINAL = ("import fcntl, os, sys, termios; os.setsid(); fd = os.open(sys.argv[1], os.O_RDWR); "
+            "fcntl.ioctl(fd, termios.TIOCSCTTY, 0); os.close(fd); os.execv(sys.argv[2], sys.argv[2:])")
 
 
 def remove(path: Path) -> bool:
@@ -256,13 +273,22 @@ class Scratch:
             raise
 
     def cli(self, *args: str, input: str | None = None, timeout: float = 120.0,
-            cwd: Path | None = None) -> subprocess.CompletedProcess:
-        """The CLI; a timeout is `Failed("E_CLI_TIMEOUT <verb>")`, never the command line it ran."""
+            cwd: Path | None = None, terminal: bool = False) -> subprocess.CompletedProcess:
+        """The CLI; a timeout is `Failed("E_CLI_TIMEOUT <verb>")`, never the command line it ran. `terminal`:
+        run it with a controlling terminal of the kit's own, as the owner's own terminal runs it (module
+        text); its input and output are still the pipes."""
+        argv = [str(self.theseus), "--socket", str(self.sock), *args]
+        pty = os.openpty() if terminal else None
+        if pty is not None:
+            argv = [sys.executable, "-I", "-c", TERMINAL, os.ttyname(pty[1]), *argv]
         try:
-            return subprocess.run([str(self.theseus), "--socket", str(self.sock), *args], input=input,
-                                  capture_output=True, text=True, timeout=timeout, cwd=cwd, env=self.env)
+            return subprocess.run(argv, input=input, capture_output=True, text=True, timeout=timeout, cwd=cwd,
+                                  env=self.env)
         except subprocess.TimeoutExpired:
             pass  # raised below, outside this block, so no exception holds the command line as its context
+        finally:
+            for fd in pty or ():
+                os.close(fd)
         raise Failed(f"E_CLI_TIMEOUT {verb(args)}")
 
     def json(self, *args: str, **kw):
