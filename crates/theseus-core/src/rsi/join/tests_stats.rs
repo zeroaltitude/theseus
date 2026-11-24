@@ -42,7 +42,7 @@ fn counter(what: &str) -> String {
 }
 
 /// Main moves to hold `files`, and the repo has fetched it.
-fn on_main(r: &Rig, files: &[(&str, &str)]) {
+pub(super) fn on_main(r: &Rig, files: &[(&str, &str)]) {
     let root = r.f.place.state.parent().unwrap().to_path_buf();
     let w = root.join(format!("main-edit-{}", files.len()));
     let up = r.f.upstream.to_str().unwrap();
@@ -60,20 +60,20 @@ fn on_main(r: &Rig, files: &[(&str, &str)]) {
 }
 
 /// The tree a plain merge of `head` into `base` has (what the join made before any count).
-fn plain_tree(r: &Rig, base: &str, head: &str) -> String {
+pub(super) fn plain_tree(r: &Rig, base: &str, head: &str) -> String {
     let out = git(&r.f.place.repo, &["merge-tree", "--write-tree", base, head]);
     out.lines().next().unwrap().to_string()
 }
 
 /// A commit's tree, read in the repo (which holds the join's unsigned merges too).
-fn tree_of(r: &Rig, commit: &str) -> String {
+pub(super) fn tree_of(r: &Rig, commit: &str) -> String {
     git(
         &r.f.place.repo,
         &["rev-parse", &format!("{commit}^{{tree}}")],
     )
 }
 
-fn joined(r: &Rig) -> Value {
+pub(super) fn joined(r: &Rig) -> Value {
     let rows = r.rows("self.joined");
     assert_eq!(rows.len(), 1, "one join: {rows:?}");
     rows[0].clone()

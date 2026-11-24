@@ -77,6 +77,7 @@ pub mod root_install;
 pub mod scratch;
 mod sealing;
 mod stats;
+mod stats_tree;
 mod stopped_planted;
 mod tender;
 #[cfg(test)]
@@ -113,6 +114,8 @@ mod tests_sealed;
 mod tests_second_look;
 #[cfg(test)]
 mod tests_stats;
+#[cfg(test)]
+mod tests_stats_contain;
 #[cfg(test)]
 mod tests_unreviewable;
 mod unreviewable;
