@@ -376,7 +376,10 @@ async fn a_failed_counters_words_keep_no_line_a_known_value_runs_into() {
     assert_eq!(tree_of(&r, &merge), plain_tree(&r, &base, &head));
     let said = j["numbers"]["stats"].as_str().unwrap();
     assert!(said.starts_with("skipped: "), "{said}");
-    assert!(said.contains("main's counter (--count-head) exited 1"), "{said}");
+    assert!(
+        said.contains("main's counter (--count-head) exited 1"),
+        "{said}"
+    );
     for piece in ["kelp-one", "ferry-two", "0417", "later"] {
         assert!(!said.contains(piece), "{piece} is kept: {said}");
     }
