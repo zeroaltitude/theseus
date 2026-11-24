@@ -118,8 +118,16 @@ impl People for StorePeople<'_> {
         if !all.iter().any(|h| h == person) {
             all.push(person.to_string());
         }
+        // The name under the handle met and every handle that names this same record, so a line found under
+        // another of theirs carries it; a handle that names another record keeps that record's.
         let name = framing_name(&c.name, &self.cuts);
-        (self.sessions.names.borrow_mut()).insert(person.to_string(), name);
+        let mut names = self.sessions.names.borrow_mut();
+        for h in &all {
+            if h == person || self.record(h).is_some_and(|r| r.id == c.id) {
+                names.insert(h.clone(), name.clone());
+            }
+        }
+        drop(names);
         Ok(Some(Held {
             id: c.id.to_string(),
             owner: self.owner(person) || self.owners().contains(&c.id),

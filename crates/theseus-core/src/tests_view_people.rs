@@ -25,7 +25,13 @@ fn guest() -> String {
 
 /// Hold a person as the owner's records would: `local` (`person:<local>`) named `name`.
 fn hold(c: &crate::Core, local: &str, name: &str) {
-    let held = Category::new(CategoryId::new("person", local).unwrap(), name, "test");
+    hold_by(c, local, name, &[]);
+}
+
+/// [`hold`], the record holding `handles` too.
+fn hold_by(c: &crate::Core, local: &str, name: &str, handles: &[&str]) {
+    let mut held = Category::new(CategoryId::new("person", local).unwrap(), name, "test");
+    held.handles = handles.iter().map(|h| h.to_string()).collect();
     (c.runner.ontology)
         .write(
             &c.store,
@@ -302,4 +308,63 @@ async fn the_recent_lines_keep_their_bound_as_the_request_lays_them() {
             }
         }
     }
+}
+
+/// KEY: a line found under another handle of a held person's record, one they never spoke by here, carries
+/// their name as the request lays it beside the message; words by a handle no record holds are still
+/// "another person"'s.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_line_under_another_handle_of_theirs_carries_their_name() {
+    const ALIAS: &str = "slack:U4401";
+    let r = view_rig();
+    let c = &r.core;
+    hold_by(c, GUEST, "Wren Hallam", &[ALIAS]);
+    let desk = session_in(c, None, &r.root);
+    let first = turn_as(c, &desk, "desk: who else?", true).await;
+    let here = (exchange::exchange(&c.store, &first.turn_id).unwrap())
+        .unwrap()
+        .place;
+    let now = theseus_protocol::now_unix_ms();
+    let in_desk = (desk.as_str(), here.as_str(), true);
+    said_by(&c.store, in_desk, &guest(), now - 120_000, "Morning, all.");
+    said_by(
+        &c.store,
+        in_desk,
+        "discord:zed",
+        now - 90_000,
+        "Tide turning now.",
+    );
+    let far = far_session(&c.store);
+    let t = said_by(
+        &c.store,
+        (&far, "discord:channel:509", false),
+        ALIAS,
+        now - 60_000,
+        "Ferry at four?",
+    );
+    turn_as(c, &desk, "desk: and now?", true).await;
+    let q = asked(&r, "desk: and now?").pop().unwrap();
+    let b = beside(&q);
+    let end = (b.find(&format!("(open {t})"))).unwrap_or_else(|| panic!("{t} is not laid: {b}"));
+    let start = (b[..end].rfind("\n\noutside text from "))
+        .unwrap_or_else(|| panic!("{t}'s line is not headed with its words: {b}"))
+        + 2;
+    let line = &b[start..end];
+    assert!(
+        line.starts_with("outside text from \"Wren Hallam\""),
+        "{line}"
+    );
+    assert!(!line.contains("another person"), "{line}");
+
+    let all: Vec<String> = (q.messages.iter())
+        .flat_map(|m| {
+            (m["content"].as_array().into_iter().flatten())
+                .filter_map(|b| b["text"].as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let all = all.join("\n");
+    let at = (all.find("\nTide turning now.\n")).unwrap_or_else(|| panic!("{}", texts(&q)));
+    let wrapper = &all[all[..at].rfind("[outside text from ").unwrap()..at];
+    assert!(wrapper.contains("\"another person\""), "{wrapper}");
 }
