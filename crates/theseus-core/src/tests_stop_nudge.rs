@@ -1,6 +1,6 @@
 //! The stop nudge (theseus-fh0u; the owner's D8), through a whole core
 //! against the fake Jev: a turn whose last answer announced work still to
-//! come (`loop.v1`'s `announced_unfinished` act-true, live) goes on once,
+//! come (`loop.v2`'s `announced_unfinished` act-true, live) goes on once,
 //! after one line in the harness's voice; a second stop ends it. No nudge
 //! for a verdict to ask or below the act band, in a shared place, with the
 //! switch off (the daemon's or the session's), past the wait, or while a job
@@ -40,7 +40,7 @@ struct Rig {
     _dir: tempfile::TempDir,
 }
 
-/// A core with the judge on against `jev`, `loop.v1` judging alone, the
+/// A core with the judge on against `jev`, `loop.v2` judging alone, the
 /// stop nudge on (the default), and `proc.run` in process with a notice;
 /// then `tweak`.
 fn rig(script: Vec<Scripted>, jev: &FakeJev, tweak: impl FnOnce(&mut Config)) -> Rig {
@@ -368,7 +368,7 @@ async fn a_shared_place_is_never_nudged_and_the_owners_dm_is() {
 }
 
 /// The switch off: the daemon's (`[judge] stop_nudge = false`, which holds
-/// loop.v1 in shadow), or the session's own (`session.nudge`), and back on.
+/// loop.v2 in shadow), or the session's own (`session.nudge`), and back on.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_switch_off_nudges_nothing_the_daemons_or_the_sessions() {
     let jev = unfinished(0.97);

@@ -159,7 +159,7 @@ mod tests {
 
     fn report(labeled: u32, progressing: u32, precision: Option<f64>) -> PackReport {
         PackReport {
-            pack: "loop.v1".into(),
+            pack: "loop.v2".into(),
             holdout: Holdout {
                 labeled_per_question: [
                     ("work_state".to_string(), labeled),
@@ -187,12 +187,12 @@ mod tests {
     /// the full bar clears.
     #[test]
     fn the_bar_says_what_is_short_in_numbers() {
-        let short = short_of("loop.v1", &report(199, 30, Some(0.9))).unwrap();
+        let short = short_of("loop.v2", &report(199, 30, Some(0.9))).unwrap();
         assert!(short.contains("labeled 199 of 200"), "{short}");
-        let short = short_of("loop.v1", &report(200, 29, Some(0.9))).unwrap();
+        let short = short_of("loop.v2", &report(200, 29, Some(0.9))).unwrap();
         assert_eq!(short, "progressing: labeled 29 of 30");
-        let short = short_of("loop.v1", &report(200, 30, Some(0.5))).unwrap();
+        let short = short_of("loop.v2", &report(200, 30, Some(0.5))).unwrap();
         assert!(short.contains("does not beat the baseline"), "{short}");
-        assert_eq!(short_of("loop.v1", &report(200, 30, Some(0.51))), None);
+        assert_eq!(short_of("loop.v2", &report(200, 30, Some(0.51))), None);
     }
 }

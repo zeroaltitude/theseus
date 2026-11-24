@@ -455,9 +455,18 @@ pub fn cap(
     rest: impl FnOnce(&str) -> String,
     cuts: &Cuts,
 ) -> (String, bool) {
+    match cut_points(text, max, cuts) {
+        None => (text.to_string(), false),
+        Some((h, t)) => (capped(text, h, t, rest), true),
+    }
+}
+
+/// Where [`cap`] cuts `text`, or none when it keeps it whole: the head is `text[..h]`, shown without one line
+/// break it ends with, and the tail `text[t..]`, both as they are; neither ends inside a known value.
+pub fn cut_points(text: &str, max: usize, cuts: &Cuts) -> Option<(usize, usize)> {
     let n = text.chars().count();
     if n <= max || max < 64 {
-        return (text.to_string(), false);
+        return None;
     }
     let at = |chars: usize| {
         text.char_indices()
@@ -478,7 +487,12 @@ pub fn cap(
     {
         t += i + 1;
     }
-    let (h, t) = cuts.around(text, h, t);
+    Some(cuts.around(text, h, t))
+}
+
+/// `text` cut at [`cut_points`] `h` and `t`: its head, the line that says what is not shown (and how to get
+/// it, as `rest` says), and its tail.
+fn capped(text: &str, h: usize, t: usize, rest: impl FnOnce(&str) -> String) -> String {
     let whole = [h, t]
         .iter()
         .filter(|at| text[..**at].ends_with('\n'))
@@ -497,10 +511,7 @@ pub fn cap(
         r => format!(": {r}"),
     };
     let head = text[..h].strip_suffix('\n').unwrap_or(&text[..h]);
-    (
-        format!("{head}\n…[{size} not shown{how}]…\n{}", &text[t..]),
-        true,
-    )
+    format!("{head}\n…[{size} not shown{how}]…\n{}", &text[t..])
 }
 
 impl ToolRuntime {

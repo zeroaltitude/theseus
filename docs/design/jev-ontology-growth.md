@@ -189,8 +189,9 @@ Questions, all in one request:
 | `kind_of_thing` | Choice | the table's kinds, `other` | kind proposals (sweep) |
 | `personal` | Score | none / mentions / discloses / sensitive | the private mark; theseus-gasov's warning |
 | `elicits` | Noul | | theseus-gasov: a reach for the owner's details |
-| `image_subject` | Choice | code, chart, photo, screenshot, document, meme, other | filing; which questions apply |
-| `shows_people`, `shows_screen_or_document`, `shows_identifiers` | Noul | | the private mark |
+| `image_subject` | Choice | code, chart, photo, screenshot, document, meme, other | the exchange's picture label, `picture:<subject>` (`names::pictures`) |
+| `shows_screen_or_document` | Noul | | the exchange's picture label for a yes, `picture:shows_screen_or_document` (`names::pictures`) |
+| `shows_people`, `shows_identifiers` | Noul | | the private mark |
 
 About twenty questions. `project` is asked only when the thread has no project; `thread` stays `classify.v3`'s.
 Questions whose evidence is absent are left out, so a text-only message's state is byte for byte today's plus the

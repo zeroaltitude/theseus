@@ -79,7 +79,7 @@ impl WorkForecast {
     }
 
     /// What the judge last read, as the notice says it: `still progressing
-    /// (loop.v1 0.91)`. None when the judge has not run on the task.
+    /// (loop 0.91)`, the loop pack by its id, whatever its version. None when the judge has not run on the task.
     pub fn read_words(&self) -> Option<String> {
         let (read, p) = (self.read.as_deref()?, self.read_p?);
         let says = match read {
@@ -90,7 +90,7 @@ impl WorkForecast {
             "complete" => "looks complete",
             _ => "unclear",
         };
-        Some(format!("{says} (loop.v1 {p:.2})"))
+        Some(format!("{says} (loop {p:.2})"))
     }
 }
 
@@ -226,7 +226,7 @@ mod tests {
         f.read_p = Some(0.91);
         assert_eq!(
             f.read_words().as_deref(),
-            Some("still progressing (loop.v1 0.91)")
+            Some("still progressing (loop 0.91)")
         );
         f.read = Some("thrashing".into());
         assert!(f

@@ -182,3 +182,39 @@ fn every_head_and_tail_helper_stops_at_a_known_value() {
     let tail = &text[cuts.after(&text, text.len() - 160)..];
     assert_eq!(tail, "z".repeat(150));
 }
+
+/// A retraction's gist, which its notes and a window's line said since quote, stops before a known value: one
+/// crossing its 160 characters, and one holding a line break the joining of its words would change.
+#[tokio::test]
+async fn a_retractions_gist_stops_before_a_known_value() {
+    let broken = "kqzv-0417-wjxp\n9932-hmfb-ylno";
+    let cases = [
+        (
+            V,
+            format!("{}{V} and more", "x".repeat(150)),
+            format!("{}…", "x".repeat(150)),
+        ),
+        (broken, format!("note {broken} after"), "note…".to_string()),
+    ];
+    for (value, said, want) in cases {
+        let r = knowing_core(value, |_| {}, |_| Scripted::text("Noted."));
+        let sid = session(&r.core, None);
+        turn(&r.core, &sid, &said).await;
+        let node = (r.core.store.session_nodes(&sid).unwrap().into_iter())
+            .map(|(_, n)| n)
+            .find(|n| {
+                matches!(&n.body, crate::node::Body::UserMessage { text, .. } if text.contains(value))
+            })
+            .expect("the message")
+            .id;
+        let p = theseus_protocol::retract::FactRetractParams {
+            node,
+            why: "a test".into(),
+            session_id: None,
+        };
+        let out = r.core.fact_retract(&p, "cli").unwrap();
+        let gist = out.gist.expect("a gist");
+        assert_eq!(gist, want);
+        whole_or_absent("the gist", &gist, value);
+    }
+}

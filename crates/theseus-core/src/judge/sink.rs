@@ -324,6 +324,12 @@ impl JudgeService {
     pub(crate) fn settle(&self, j: &Judgment) {
         self.queue.push(j.clone());
     }
+
+    /// The first judgment settled and not yet written that `f` picks.
+    #[cfg(test)]
+    pub(crate) fn unwritten_one(&self, f: impl Fn(&Judgment) -> bool) -> Option<Judgment> {
+        self.queue.find(f)
+    }
 }
 
 impl JudgeService {
@@ -384,6 +390,8 @@ impl JudgeService {
         // And the topics it chose touch the message's exchange (issue 44).
         if let Some(c) = core.as_deref() {
             records.extend(crate::names::topics::of_batch(c, batch, filing.as_ref()));
+            // And its picture answers label the exchange the same way (issue 46).
+            records.extend(crate::names::pictures::of_batch(c, batch));
         }
         let marks = self.unwritten_marks(batch);
         for (key, mark) in &marks {

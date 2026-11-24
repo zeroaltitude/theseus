@@ -76,7 +76,7 @@ fn minted(plans: &[Plan], judgment: &str, kind: &str) -> Option<CategoryId> {
 /// or, when the sink writes beside a turn whose exchange is not in the store
 /// yet, the judgment's turn and session at its message's time. None for a
 /// judgment that names no turn, or whose message is not in the store.
-fn landing(store: &Store, j: &Judgment) -> Option<(String, String, u64)> {
+pub(super) fn landing(store: &Store, j: &Judgment) -> Option<(String, String, u64)> {
     let s = |k: &str| j.context[k].as_str().filter(|v| !v.is_empty());
     let turn = s("turn")?;
     match exchange::exchange(store, turn) {

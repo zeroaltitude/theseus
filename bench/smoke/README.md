@@ -41,7 +41,7 @@ and names any trial that errored before its agent ran as the host's failure, not
 other Rust sources than the candidate's.
 
 **Route on a live pack.** `judge replay --cases` replays a pack the build dispatches (theseus-8ouns): the run reads no
-recorded judgment and names its own pack. So once a release makes route.v10 (or route.v11, whose cases are v10's) live, the route part reaches its bar
+recorded judgment and names its own pack. So once a release makes route.v10 (or route.v11 or route.v12, whose cases are v10's) live, the route part reaches its bar
 instead of an error; before that it reads "n/a until the flip". A cases file with no cases is refused, never a pass.
 
 **The DM part drives the CLI, not Discord**: the test channel needs the owner's own hand. It never uses one of the

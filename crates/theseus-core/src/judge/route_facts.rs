@@ -4,8 +4,8 @@
 //!
 //! `restricted_models` is always `allowed`: no model is kept off a session
 //! for its origin since 2026-11-21, and the switch's price reads every
-//! candidate. The key stays in the state until a route pack version drops it,
-//! so the live pack's state keeps its shape.
+//! candidate. Since route.v12 (issue 46) the builder writes it into no state;
+//! the field stays on the facts, so a stored input still reads.
 //!
 //! Nothing here asks Jev to compute: the hour is read from the instant given,
 //! so a test passes the instant and no clock is mocked.

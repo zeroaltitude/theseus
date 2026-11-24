@@ -1,9 +1,9 @@
 # A route pack that asks the `model` question, for the tests of the background
 # sites (theseus-ej6bj). A test installs this one in the acting route pack's place
-# (`JudgeService::job_pack_with`), so it carries the acting pack's version, route.v11.
-# It is route.v11's `model` question with short blocks, and nothing else.
+# (`JudgeService::job_pack_with`), so it carries the acting pack's version, route.v12.
+# It is route.v12's `model` question with short blocks, and nothing else.
 id = "route"
-version = 11
+version = 12
 jev_model = "jev-1.13.0"
 point = "inbound"
 state = "inbound"
@@ -16,7 +16,7 @@ description = "ROUTE: which model answers, for a test."
 [questions.model]
 type = "choice"
 decides = true
-instructions = "Sonnet is the usual answer; choose another model only for a reason its description gives, and never a model the state lists as not allowed. Which model should do the work?"
+instructions = "Sonnet is the usual answer; choose another model only for a reason its description gives. Which model should do the work?"
 act = 0.90
 confirm = 0.60
 no_match = "sonnet"

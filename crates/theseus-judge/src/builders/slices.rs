@@ -5,10 +5,9 @@
 //!
 //! - **route** (`route.v10`, the model): the message, who sent it and where, the previous human
 //!   message and the last reply, and the daemon's facts (`current_model`, `switch_cost`,
-//!   `restricted_models`, `price_period`, with `est_tokens`, `last_reply_model` and a task's
-//!   `task_models` that the carried model blocks read). The persona and thread fields ride it
-//!   too, because the pack still asks `persona`, `seal` and `personal` (they were never one of the
-//!   owner's three calls, and moving them is not this row's).
+//!   `price_period`, with `est_tokens`, `last_reply_model` and a task's `task_models` that the
+//!   carried model blocks read). The persona and thread fields ride it too, because the pack
+//!   still asks `persona` (route.v12 no longer asks `seal` or `personal`, issue 46).
 //! - **effort** (`effort.v1`): the message, the previous human message and the last reply, and,
 //!   when the session's previous turn is known, how it ran (`previous_turn`: its effort and whether
 //!   it failed: the owner's "tell the small model", 2026-11-14 13:54); nothing else.

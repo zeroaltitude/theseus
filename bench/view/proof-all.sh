@@ -1,7 +1,7 @@
 #!/bin/sh
 # The view's whole proof in one command (issue 44), on a machine that builds: the daemon and the CLI built,
 # the daemon test of /new and of a shared place with a second person (the stand-in Discord), then every case of
-# bench/view/proof.py in both modes with the 30-turn and the long cost runs, under the cut's acceptance
+# bench/view/proof.py (one context, the view) with the 30-turn and the long cost runs, under the cut's acceptance
 # (--expect-cut). It ends with the case table, the cost summaries and the acceptance, and exits nonzero when
 # the build, the daemon test or the acceptance fails.
 #
@@ -35,9 +35,9 @@ proof=$?
 
 echo
 echo "== summary"
-sed -n '/^| case | view/,/^| retired_keys/p' "$log/proof"
+sed -n '/^| case | result/,/^| retired_keys/p' "$log/proof"
 echo
-grep -E "^ratio|^view:|^default:|^cold start|^### " "$log/proof"
+grep -E "^compilations|^first requests |^all requests |^cold start|^### " "$log/proof"
 sed -n '/^## The cut.s acceptance/,$p' "$log/proof"
 echo "== daemon test exit $daemon, suite and acceptance exit $proof"
 [ "$daemon" -eq 0 ] && [ "$proof" -eq 0 ]
