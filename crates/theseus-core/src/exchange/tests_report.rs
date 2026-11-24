@@ -1,7 +1,8 @@
 //! The measuring rows' report (issue 44, step 1): its three answers count his own messages' turns, a turn
 //! whose first call was never measured is no miss, a turn naming two kinds is one turn that named something,
 //! the context is averaged over measured turns and holds token parts only, `since` keeps the rows at or
-//! after it, the report holds no place, exchange or task id, and an old row still reads.
+//! after it, the report holds no place, exchange or task id, an old row still reads, and a field the
+//! counter does not know is counted as present, never by its value.
 
 use std::collections::BTreeMap;
 
@@ -257,4 +258,23 @@ fn an_old_row_without_the_new_key_still_reads_and_counts() {
     let (r, a) = answers(&s, &ExchangeReportParams::default());
     assert_eq!((r.rows, r.counts["prev"]["missed"]), (1, 1));
     assert_eq!(a.previous, map(&[("missed", 1)]));
+}
+
+#[test]
+fn a_field_the_counter_does_not_know_is_counted_present_never_by_value() {
+    let mut fields = serde_json::to_value(Row {
+        prev: Prev::Transcript,
+        ..Row::default()
+    })
+    .unwrap();
+    fields["later_name"] = json!("Zephyrine-Q-4471");
+    fields["later_list"] = json!(["Zephyrine-Q-4472"]);
+    fields["later_map"] = json!({"Zephyrine-Q-4473": "Zephyrine-Q-4474"});
+    let mut r = ExchangeReportResult::default();
+    ledger::add(&mut r, &fields);
+    let text = serde_json::to_string(&r).unwrap();
+    assert!(!text.contains("Zephyrine"), "{text}");
+    assert_eq!(r.counts["later_name"], map(&[("present", 1)]));
+    // The fields it knows keep their values.
+    assert_eq!(r.counts["prev"], map(&[("transcript", 1)]));
 }

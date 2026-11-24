@@ -37,6 +37,22 @@ const OPEN_FOR_MS: u64 = 6 * 3_600_000;
 /// never measured. Any other miss says nothing: a seal, a gate, or a real miss.
 pub const WHY_NEW: &str = "new";
 pub const WHY_NOT_MEASURED: &str = "not_measured";
+/// The row's fields `add` counts by their value: kinds, classes and flags,
+/// never a name or an id. A field a later build adds is counted as present
+/// until it is named here.
+const BY_VALUE: [&str; 11] = [
+    "opened_by",
+    "peer",
+    "person",
+    "prev",
+    "prev_why",
+    "prev_same_session",
+    "overlap",
+    "answered",
+    "situation",
+    "trigger",
+    "cold",
+];
 /// The judge's four answers nothing reads, and its `kind`, by question id.
 const JUDGED: [&str; 5] = [
     "fragment",
@@ -508,7 +524,8 @@ fn judged_value(question: &str, answer: &str) -> String {
 /// value under its name (a gap and a message's length by their bands, a map
 /// by its keys, the judge's answers by question), `sent`'s parts summed, and
 /// each other private place's exchange by whether it was in view. Ids are
-/// skipped; the cache's tokens are the answers'.
+/// skipped; the cache's tokens are the answers'. A field not named here or in
+/// [`BY_VALUE`] is counted as present, never by its value.
 pub(super) fn add(r: &mut ExchangeReportResult, row: &Value) {
     let Value::Object(fields) = row else {
         return;
@@ -535,21 +552,26 @@ pub(super) fn add(r: &mut ExchangeReportResult, row: &Value) {
                 };
                 (k.clone(), seen.into())
             })),
-            (_, Value::Object(m)) if m.is_empty() => counts.push((k.clone(), "none".into())),
-            (_, Value::Object(m)) => counts.extend(m.iter().map(|(q, a)| match a {
-                Value::String(a) => (format!("{k}.{q}"), judged_value(q, a)),
-                _ => (k.clone(), q.clone()),
+            ("things" | "reply_things" | "judge", Value::Object(m)) if m.is_empty() => {
+                counts.push((k.clone(), "none".into()))
+            }
+            ("things" | "reply_things", Value::Object(m)) => {
+                counts.extend(m.keys().map(|kind| (k.clone(), kind.clone())))
+            }
+            ("judge", Value::Object(m)) => counts.extend(m.iter().map(|(q, a)| match a {
+                Value::String(a) if JUDGED.contains(&q.as_str()) => {
+                    (format!("{k}.{q}"), judged_value(q, a))
+                }
+                _ => (k.clone(), "present".into()),
             })),
-            (_, n @ Value::Number(_)) => sum(k, n),
-            (_, Value::String(x)) => counts.push((k.clone(), x.clone())),
-            (_, x) => counts.push((
-                k.clone(),
-                if x.is_null() {
-                    "none".into()
-                } else {
-                    x.to_string()
-                },
-            )),
+            (_, Value::Null) => counts.push((k.clone(), "none".into())),
+            (_, Value::String(x)) if BY_VALUE.contains(&k.as_str()) => {
+                counts.push((k.clone(), x.clone()))
+            }
+            (_, Value::Bool(b)) if BY_VALUE.contains(&k.as_str()) => {
+                counts.push((k.clone(), b.to_string()))
+            }
+            _ => counts.push((k.clone(), "present".into())),
         }
     }
     for (group, value) in counts {
