@@ -1,6 +1,6 @@
 //! The reading sheet's material as the writer's request holds it (each value the writer substitutes
-//! substituted), and its warning on an older writer's item and on sources no longer in the store. Every
-//! name and value here is invented.
+//! substituted), its warning on an older writer's item and on sources no longer in the store, the most
+//! one sheet holds, and each session read once. Every name and value here is invented.
 
 use theseus_protocol::exchange::ExchangeGistsParams;
 
@@ -241,4 +241,41 @@ fn gists_says_when_sources_are_missing() {
         "{:?}",
         g.notes
     );
+}
+
+/// One sheet holds at most 500 lines and 100 nodes: more is refused in words, before anything is read.
+#[test]
+fn gists_refuses_more_than_a_sheet_holds() {
+    let (_d, s) = store();
+    assert!(sheet(&s, &none(), &asked(500, 100)).is_ok());
+    for (lines, nodes) in [(501, 10), (50, 101)] {
+        let why = sheet(&s, &none(), &asked(lines, nodes))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            why.contains("at most 500 summaries and 100 first-level fold nodes"),
+            "{why}"
+        );
+    }
+}
+
+/// Many lines of one session read its transcript once for their outside marks, not once each.
+#[test]
+fn gists_reads_each_session_once() {
+    let (_d, s) = store();
+    for i in 0..20u64 {
+        let t = exchange_at(&s, "ses_a", PLACE, 1_000 + i, i == 5);
+        line_for(&s, &t, WRITER_VERSION);
+    }
+    let before = s.transcript_reads();
+    let r = sheet(&s, &none(), &asked(50, 0)).unwrap();
+    assert_eq!(r.lines.len(), 20);
+    assert_eq!(s.transcript_reads() - before, 1, "one read of ses_a");
+    // The outside mark is still each exchange's own.
+    let wrapped = r
+        .lines
+        .iter()
+        .filter(|l| l.read.as_deref().unwrap().contains("[outside text from "))
+        .count();
+    assert_eq!(wrapped, 1);
 }

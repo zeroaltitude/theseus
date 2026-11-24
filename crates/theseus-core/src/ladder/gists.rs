@@ -10,6 +10,8 @@
 //! block. The draw is by a seed, so the same seed over the same records draws
 //! the same items. It only reads: nothing is stored and no model is called.
 
+use std::collections::{HashMap, HashSet};
+
 use theseus_protocol::exchange::{ExchangeGistsParams, ExchangeGistsResult, GistLine, GistNode};
 use theseus_store::{kinds, Store as _};
 
@@ -19,6 +21,21 @@ use super::writer::{prepared, WRITER_VERSION};
 use crate::scrub::Scrubber;
 use crate::store::Store;
 
+/// The most lines, and nodes, one sheet holds.
+pub const MOST_LINES: u32 = 500;
+pub const MOST_NODES: u32 = 100;
+
+/// Why `p` asks for more than one sheet holds; none when it does not.
+pub fn too_many(p: &ExchangeGistsParams) -> Option<String> {
+    (p.lines > MOST_LINES || p.nodes > MOST_NODES).then(|| {
+        format!(
+            "a reading sheet holds at most {MOST_LINES} summaries and {MOST_NODES} first-level fold \
+             nodes; {} and {} were asked",
+            p.lines, p.nodes
+        )
+    })
+}
+
 /// The sheet for `p`: its seed, or one chosen now and returned. `scrubber`
 /// is the summaries' writer's.
 pub fn sheet(
@@ -26,6 +43,9 @@ pub fn sheet(
     scrubber: &Scrubber,
     p: &ExchangeGistsParams,
 ) -> anyhow::Result<ExchangeGistsResult> {
+    if let Some(why) = too_many(p) {
+        anyhow::bail!(why);
+    }
     let seed = p
         .seed
         .unwrap_or_else(|| theseus_protocol::now_unix_ms() % 1_000_000);
@@ -51,16 +71,17 @@ pub fn sheet(
         }
     }
     let (lines_total, nodes_total) = (lines.len() as u64, nodes.len() as u64);
+    let mut seen = Outside::new();
     let mut lines = draw(lines, p.lines as usize, seed)
         .iter()
-        .map(|d| line(store, scrubber, d))
+        .map(|d| line(store, scrubber, &mut seen, d))
         .collect::<anyhow::Result<Vec<_>>>()?;
     lines.sort_by(|a, b| (a.at_ms, &a.turn_id).cmp(&(b.at_ms, &b.turn_id)));
     // A second stream of the seed, so a change in how many lines are asked
     // never changes which nodes are drawn.
     let mut nodes = draw(nodes, p.nodes as usize, seed ^ NODES)
         .iter()
-        .map(|n| node(store, scrubber, n))
+        .map(|n| node(store, scrubber, &mut seen, n))
         .collect::<anyhow::Result<Vec<_>>>()?;
     nodes.sort_by(|a, b| (a.first_ms, &a.id).cmp(&(b.first_ms, &b.id)));
     Ok(ExchangeGistsResult {
@@ -111,9 +132,34 @@ fn lost(r: &did::Read) -> (bool, bool) {
     )
 }
 
+/// Each session a sheet has read, and its turns that read outside text: a
+/// session is scanned once a sheet, not once an item.
+type Outside = HashMap<String, HashSet<String>>;
+
+/// [`did::read`], `turn`'s session scanned once a sheet.
+fn read(store: &Store, seen: &mut Outside, turn: &str) -> anyhow::Result<Option<did::Read>> {
+    did::read_with(store, turn, |ex| {
+        if !seen.contains_key(&ex.session_id) {
+            let turns = store
+                .session_nodes(&ex.session_id)?
+                .into_iter()
+                .filter(|(_, n)| did::outside(n))
+                .filter_map(|(_, n)| n.turn_id)
+                .collect();
+            seen.insert(ex.session_id.clone(), turns);
+        }
+        Ok(seen[&ex.session_id].contains(turn))
+    })
+}
+
 /// A line beside its writer's material for its exchange.
-fn line(store: &Store, scrubber: &Scrubber, d: &DidLine) -> anyhow::Result<GistLine> {
-    let r = did::read(store, &d.turn_id)?;
+fn line(
+    store: &Store,
+    scrubber: &Scrubber,
+    seen: &mut Outside,
+    d: &DidLine,
+) -> anyhow::Result<GistLine> {
+    let r = read(store, seen, &d.turn_id)?;
     let mut notes = Vec::new();
     if d.writer < WRITER_VERSION {
         notes.push(older(d.writer));
@@ -151,10 +197,15 @@ fn line(store: &Store, scrubber: &Scrubber, d: &DidLine) -> anyhow::Result<GistL
 /// A node beside its writer's material: each exchange still readable,
 /// with the `did` line it had when the node was written (a line written
 /// after it was not read), and the node as the view's fold block shows it.
-fn node(store: &Store, scrubber: &Scrubber, n: &FoldNode) -> anyhow::Result<GistNode> {
+fn node(
+    store: &Store,
+    scrubber: &Scrubber,
+    seen: &mut Outside,
+    n: &FoldNode,
+) -> anyhow::Result<GistNode> {
     let mut reads = Vec::new();
     for t in &n.exchanges {
-        let Some(r) = did::read(store, t)? else {
+        let Some(r) = read(store, seen, t)? else {
             continue;
         };
         let said = match did::said(store, t)? {

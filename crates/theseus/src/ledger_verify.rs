@@ -66,7 +66,7 @@ pub enum LedgerCmd {
     /// so. A sample holds summaries and nodes that exist, from every place when none is named: it can
     /// include exchanges opened by a guest or by an agent's process, and lines from before a /new.
     /// Yours alone, at your own terminal; it stores nothing and calls no model. `--seed` draws the
-    /// same items again.
+    /// same items again. At most 500 summaries and 100 nodes.
     Gists {
         /// One place, as the exchange ledger names it; default: every place.
         place: Option<String>,

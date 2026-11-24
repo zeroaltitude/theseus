@@ -88,8 +88,10 @@ and says so when fewer exist than were asked.
 
 A sample is drawn from the `did` lines and first-level nodes that EXIST (an exchange with no summary is not in it),
 from every place when none is named, with no filter by who opened an exchange: it can include exchanges opened by a
-guest or by an agent's process, and lines from before a `/new`. It prints its seed: the same seed over the same
-records draws the same items.
+guest or by an agent's process, and lines from before a `/new`. One sheet holds at most 500 lines and 100 nodes. It
+prints its seed: the same seed over the same records draws the same items. A seed above 2^53 does not survive the
+cockpit's generated TypeScript `number` exactly, so give such a seed from the terminal; the seeds the sheet chooses
+are far below it.
 
 It is the owner's in person (the check `exchange.ladder` uses): an agent's process, a job and a chat surface are
 refused. It stores nothing, no verdict and no sample, and calls no model; the owner keeps his own counts.

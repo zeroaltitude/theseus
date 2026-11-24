@@ -192,6 +192,9 @@ impl Core {
                 format!("not shown: {why}"),
             ));
         }
+        if let Some(why) = crate::ladder::gists::too_many(&p) {
+            return Err(RpcFailure::new(error_code::INVALID_PARAMS, why));
+        }
         let core = self.clone();
         let r = super::import::blocking(move || {
             crate::ladder::gists::sheet(&core.store, &core.tools.scrubber, &p)
