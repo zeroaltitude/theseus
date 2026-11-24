@@ -1282,7 +1282,9 @@ real_daemon_tests() {
     phase_label="real daemon tests warned"
     warn "real daemon tests failed (rc $rc): $log"
   elif grep -q "skipped '" "$log"; then
+    phase_label="real daemon tests skipped"
     echo "real daemon tests: skipped (see reasons above)"
+    skip
   fi
   return 0
 }
@@ -1669,7 +1671,7 @@ phase "test build" test_build
 # lane tested the previous head's binaries (on 2026-11-03 a renamed config key left the stale daemon failing its
 # TOML parse). test_gate_order.py holds this order.
 phase "recall tests" ran_or_skipped scripts/recall-tests.sh
-phase "real daemon tests" ran_or_skipped real_daemon_tests
+phase "real daemon tests" real_daemon_tests
 # The prompt census, for the record (theseus-4vsrz, B7): a fresh session's first request per place, the session's
 # own context within it, and that context's share of `[routing] cold_switch_tokens` -- the quantity the cliff
 # assertion deleted on 2026-11-08 used to watch, which nothing watched after it went. AFTER the test build, like
