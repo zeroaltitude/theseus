@@ -123,8 +123,8 @@ impl Core {
     /// the root, by digest, from `project_context::walk`. So the first
     /// compile in any directory of the repository compares with what was
     /// there when the owner granted it, and a file changed or added since is
-    /// a change from that. The walk is bounded, and a file it did not reach
-    /// is new when a compile first finds it.
+    /// a change from that. The walk and the digests are bounded, and a file
+    /// they did not reach is new when a compile first finds it.
     pub fn project_trust(&self, path: &Path, who: impl Into<Answerer>) -> Result<Trusted> {
         let who = who.into();
         self.judge_act(
@@ -159,7 +159,13 @@ impl Core {
         };
         let seen = theseus_store::blocking(|| {
             let found = crate::project_context::walk(&root);
-            change::sighting(&self.runner.context_files, &found, grant.at_ms)
+            change::sighting_within(
+                &self.runner.context_files,
+                &found,
+                grant.at_ms,
+                crate::project_context::DIGEST_FILES,
+                crate::project_context::WALK_TIME,
+            )
         });
         let rec = self.rec(None);
         self.store

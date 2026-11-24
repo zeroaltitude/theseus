@@ -34,9 +34,9 @@
 //! repository root down to the session's directory, and the reading is the
 //! context-file reader's, with its stat-based cache. A session at the root
 //! of a repository with no nested files pays two stats a compile. A grant
-//! reads more, once: [`walk`] finds every instruction file under the root
-//! for the sighting the grant stores (§8, "After a grant"), bounded in
-//! entries and in time.
+//! reads more, once: [`walk`] finds the instruction files under the root,
+//! nearest the root first, for the sighting the grant stores (§8, "After a
+//! grant"), bounded in directory entries and in time.
 
 use std::path::{Path, PathBuf};
 
@@ -175,52 +175,82 @@ fn chain(dirs: &[PathBuf]) -> Vec<Found> {
         .collect()
 }
 
-/// The most entries, files and directories together, a grant's [`walk`]
-/// visits.
+/// The most directory entries a grant's [`walk`] reads, counted as the
+/// directory listings yield them: every entry, kept or not.
 pub const WALK_ENTRIES: usize = 20_000;
 
-/// The longest a grant's [`walk`] runs.
+/// The longest a grant's [`walk`] runs, and then the longest its digests
+/// take.
 pub const WALK_TIME: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// The most files a grant digests.
+pub const DIGEST_FILES: usize = 1_000;
+
 /// Every instruction file under `root`, for the sighting a grant stores
-/// (§8, "After a grant"). It honours the repository's `.gitignore` files and
-/// `.git/info/exclude`, never enters `.git`, and does not follow a
-/// symlinked directory. It is bounded: it stops after [`WALK_ENTRIES`]
-/// entries or [`WALK_TIME`], whichever comes first, and an entry it cannot
-/// read is passed over. What it found by then is the answer, so a grant
-/// never fails or waits long because of it, and a file it did not reach is
-/// new to the sighting when a compile first finds it.
+/// (§8, "After a grant"), nearest the root first.
+///
+/// It is a plain breadth-first walk over the directory listings. It reads
+/// no ignore file of any kind, never enters `.git`, and does not follow a
+/// symlinked directory. The only things it opens are directories, and the
+/// only files it stats are the two names ([`found`], so a symlinked
+/// `AGENTS.md` that resolves to a regular file is taken, as a compile takes
+/// it). Breadth-first, so the files nearest the root are found before a deep
+/// build or dependency tree spends the allowance.
+///
+/// It is bounded: it reads at most [`WALK_ENTRIES`] directory entries in
+/// all, and it checks [`WALK_TIME`] before each directory and each entry.
+/// Past either it stops, and what it found by then is the answer. An error
+/// on a directory or an entry passes that one over. So a grant never fails
+/// because of the walk, and a file it did not reach is new to the sighting
+/// when a compile first finds it. The allowances bound the entries read
+/// and the time *between* filesystem calls: one call that blocks (a stalled
+/// network mount) is not interrupted.
 pub fn walk(root: &Path) -> Vec<Found> {
     walk_within(root, WALK_ENTRIES, WALK_TIME)
 }
 
-/// [`walk`] within `entries` entries and `time`.
+/// [`walk`] within `entries` directory entries and `time`. Within one
+/// directory the entries read are sorted by name before they are used, so
+/// the answer is steady on a tree that fits.
 pub(crate) fn walk_within(root: &Path, entries: usize, time: std::time::Duration) -> Vec<Found> {
     let start = std::time::Instant::now();
-    let walker = ignore::WalkBuilder::new(root)
-        .standard_filters(false)
-        .git_ignore(true)
-        .git_exclude(true)
-        .require_git(false)
-        .follow_links(false)
-        .sort_by_file_name(|a, b| a.cmp(b))
-        .filter_entry(|e| e.file_name() != ".git")
-        .build();
+    let mut read = 0;
     let mut out = Vec::new();
-    for (n, entry) in walker.enumerate() {
-        if n >= entries || start.elapsed() >= time {
+    let mut dirs = std::collections::VecDeque::from([(root.to_path_buf(), 0)]);
+    while let Some((dir, depth)) = dirs.pop_front() {
+        if start.elapsed() >= time {
             break;
         }
-        let Ok(entry) = entry else { continue };
-        if !NAMES.iter().any(|name| entry.file_name() == *name) {
+        let Ok(listing) = std::fs::read_dir(&dir) else {
             continue;
+        };
+        let mut here = Vec::new();
+        let mut spent = false;
+        for entry in listing {
+            if read >= entries || start.elapsed() >= time {
+                spent = true;
+                break;
+            }
+            read += 1;
+            let Ok(entry) = entry else { continue };
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            here.push((entry.file_name(), kind));
         }
-        let path = entry.path();
-        let depth = path
-            .parent()
-            .and_then(|d| d.strip_prefix(root).ok())
-            .map_or(0, |rel| rel.components().count());
-        out.extend(found(path, depth));
+        here.sort_by(|a, b| a.0.cmp(&b.0));
+        for (name, kind) in here {
+            if kind.is_dir() {
+                if name != ".git" {
+                    dirs.push_back((dir.join(name), depth + 1));
+                }
+            } else if NAMES.iter().any(|n| name == *n) {
+                out.extend(found(&dir.join(name), depth));
+            }
+        }
+        if spent {
+            break;
+        }
     }
     out
 }

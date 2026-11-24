@@ -1826,11 +1826,11 @@ async fn a_grant_does_not_follow_a_symlinked_directory() {
     );
 }
 
-/// A file under a directory the repository's `.gitignore` names is not
-/// pinned, and is new to the sighting when a session works there: at
-/// `notice` it is carried, and the block and the ledger say it is new.
+/// The grant's walk reads no ignore file: a file under a directory the
+/// repository's `.gitignore` names is pinned like any other, so a session
+/// working there finds nothing new.
 #[tokio::test]
-async fn an_ignored_directorys_file_is_not_pinned_and_is_new_when_a_session_works_there() {
+async fn a_file_in_an_ignored_directory_is_pinned_by_the_grant() {
     let r = rig();
     let (repo, _here) = hostile_repo(&r.root);
     std::fs::write(repo.join(".gitignore"), "build/\n").unwrap();
@@ -1842,26 +1842,63 @@ async fn an_ignored_directorys_file_is_not_pinned_and_is_new_when_a_session_work
 
     let pins = pinned(&r.core, &repo);
     let shown = file.display().to_string();
-    assert!(!pins.contains(&shown), "{pins:?}");
-    assert!(
-        pins.contains(&repo.join("AGENTS.md").display().to_string()),
-        "{pins:?}"
-    );
+    assert!(pins.contains(&shown), "{pins:?}");
 
     submit(&r.core, &build).await;
     let block = session_block(&r.fake.requests().pop().unwrap());
     assert!(
         block.contains("The build directory's rules."),
-        "carried at notice:\n{block}"
+        "carried:\n{block}"
     );
     assert!(
-        block.contains(&format!("{shown} (new)")),
-        "and named as new:\n{block}"
+        !block.contains("changed since the owner"),
+        "and nothing is new:\n{block}"
     );
-    let rows = crate::test_support::ledger_rows_2k(&r.core, "project.changed");
-    assert_eq!(rows.len(), 1, "one row: {rows:?}");
-    assert_eq!(rows[0].data["path"], shown.as_str());
-    assert_eq!(rows[0].data["old"], "", "new: {rows:?}");
+    assert!(
+        crate::test_support::ledger_rows_2k(&r.core, "project.changed").is_empty(),
+        "and ledgers nothing"
+    );
+}
+
+/// A FIFO named `.gitignore` in the repository does not stop a grant: the
+/// walk never opens it. The grant returns well within the bound and pins the
+/// root's file.
+#[tokio::test]
+async fn a_fifo_named_gitignore_does_not_stop_a_grant() {
+    let r = rig();
+    let (repo, _here) = hostile_repo(&r.root);
+    for fifo in [repo.join(".gitignore"), repo.join(".git/info/exclude")] {
+        std::fs::create_dir_all(fifo.parent().unwrap()).unwrap();
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap();
+        assert!(made.success(), "mkfifo {}", fifo.display());
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let core = r.core.clone();
+    let at = repo.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send(core.project_trust(&at, "cli").map(|_| ()));
+    });
+    rx.recv_timeout(Duration::from_secs(20))
+        .expect("the grant returns")
+        .expect("trusted");
+    assert!(
+        pinned(&r.core, &repo).contains(&repo.join("AGENTS.md").display().to_string()),
+        "the root's file is pinned"
+    );
+}
+
+/// `crowd/` under `repo`, holding a full walk allowance of empty files. It
+/// sorts before the nested directory, so the walk spends its allowance
+/// there before it reads the nested directory.
+fn crowd(repo: &Path) {
+    let crowd = repo.join("crowd");
+    std::fs::create_dir(&crowd).unwrap();
+    for n in 0..crate::project_context::WALK_ENTRIES {
+        std::fs::write(crowd.join(format!("f{n:05}")), "").unwrap();
+    }
 }
 
 /// A repository past the walk's entry cap is granted, and the sighting holds
@@ -1871,11 +1908,7 @@ async fn an_ignored_directorys_file_is_not_pinned_and_is_new_when_a_session_work
 async fn a_grant_past_the_walks_cap_stores_what_it_found() {
     let r = rig();
     let (repo, here) = hostile_repo(&r.root);
-    // Directories sorted between the root's file and the nested directory,
-    // enough to reach the cap before the nested directory.
-    for n in 0..crate::project_context::WALK_ENTRIES {
-        std::fs::create_dir(repo.join(format!("d{n:05}"))).unwrap();
-    }
+    crowd(&repo);
     r.core
         .project_trust(&repo, "cli")
         .expect("granted past the cap");
@@ -1893,3 +1926,4 @@ async fn a_grant_past_the_walks_cap_stores_what_it_found() {
         "the file past the cap is new when a session works there:\n{block}"
     );
 }
+

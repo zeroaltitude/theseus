@@ -867,20 +867,85 @@ fn a_sighting_drops_a_path_only_where_this_compile_looked() {
     );
 }
 
-/// A grant's walk past its entry cap stops there and keeps what it found:
-/// the files it met first, in the order it meets them, and no error.
+/// A grant's walk past its entry allowance stops there and keeps what it
+/// found, and the allowance counts every entry a directory listing yields,
+/// not only the ones the walk keeps.
 #[test]
 fn a_walk_past_its_cap_keeps_what_it_found() {
     let repo = Repo::new();
-    for d in ["a", "b", "c", "d"] {
+    repo.write("AGENTS.md", "rules\n");
+    for n in 0..1_000 {
+        repo.write(&format!("crowd/f{n:04}"), "");
+    }
+    repo.write("zz/AGENTS.md", "rules\n");
+    let root = repo.root();
+    assert_eq!(walk(&root).len(), 2);
+    // The root's four entries (`.git`, `AGENTS.md`, `crowd`, `zz`), then
+    // `crowd`'s thousand files, none an instruction file: that is the whole
+    // allowance, so `zz` is not read.
+    assert_eq!(
+        walk_within(&root, 4 + 1_000, WALK_TIME),
+        vec![found(&root.join("AGENTS.md"), 0).unwrap()],
+        "what it found before the allowance"
+    );
+    // One more entry is `zz`'s file.
+    assert_eq!(walk_within(&root, 4 + 1_000 + 1, WALK_TIME).len(), 2);
+}
+
+/// The walk is breadth-first: a file one directory below the root is found
+/// when a deeper tree beside it would spend the allowance first.
+#[test]
+fn a_walk_finds_the_files_nearest_the_root_first() {
+    let repo = Repo::new();
+    repo.write("a/AGENTS.md", "rules\n");
+    for n in 0..200 {
+        repo.write(&format!("z/deps/f{n:03}"), "");
+    }
+    let root = repo.root();
+    assert_eq!(
+        walk_within(&root, 50, WALK_TIME),
+        vec![found(&root.join("a/AGENTS.md"), 1).unwrap()]
+    );
+}
+
+/// The walk does not follow a symlinked directory, and takes a symlinked
+/// instruction file that resolves to a regular file, as a compile does.
+#[test]
+fn a_walk_takes_a_linked_file_and_not_a_linked_directory() {
+    let repo = Repo::new();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("AGENTS.md"), "outside\n").unwrap();
+    std::fs::write(outside.path().join("rules.md"), "linked\n").unwrap();
+    let root = repo.root();
+    std::os::unix::fs::symlink(outside.path(), root.join("linked")).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("rules.md"), root.join("AGENTS.md")).unwrap();
+    let all = walk(&root);
+    assert_eq!(
+        all.iter().map(|f| f.shown.clone()).collect::<Vec<_>>(),
+        vec![root.join("AGENTS.md").display().to_string()],
+        "{all:?}"
+    );
+}
+
+/// A grant's digests stop at their allowance, in files and in time, and keep
+/// the first ones.
+#[test]
+fn a_grants_digests_stop_at_their_allowance() {
+    let repo = Repo::new();
+    for d in ["a", "b", "c"] {
         repo.write(&format!("{d}/AGENTS.md"), "rules\n");
     }
     let root = repo.root();
+    let files = ContextFiles::default();
     let all = walk(&root);
-    assert_eq!(all.len(), 4, "{all:?}");
-    // The root, `a`, `a/AGENTS.md`, `b`: the cap is met before `b`'s file.
-    let some = walk_within(&root, 4, WALK_TIME);
-    assert_eq!(some, all[..1].to_vec(), "what it met before the cap");
+    assert_eq!(all.len(), 3);
+    let two = change::sighting_within(&files, &all, 1, 2, WALK_TIME);
+    assert_eq!(
+        two.files.into_keys().collect::<Vec<_>>(),
+        vec![all[0].shown.clone(), all[1].shown.clone()]
+    );
+    let none = change::sighting_within(&files, &all, 1, DIGEST_FILES, std::time::Duration::ZERO);
+    assert!(none.files.is_empty(), "{none:?}");
 }
 
 /// A grant's walk past its time stops there too: with no time at all it

@@ -332,6 +332,28 @@ fn names(changes: &[Change]) -> String {
     changes.iter().map(one).collect::<Vec<_>>().join(", ")
 }
 
+/// [`sighting`] of the first of `found` it reaches within `most` files and
+/// `time`, checked before each file: one read that blocks is not
+/// interrupted.
+pub(crate) fn sighting_within(
+    files: &ContextFiles,
+    found: &[Found],
+    at_ms: u64,
+    most: usize,
+    time: std::time::Duration,
+) -> Seen {
+    let start = std::time::Instant::now();
+    let mut seen = sighting(files, &[], at_ms);
+    for f in found.iter().take(most) {
+        if start.elapsed() >= time {
+            break;
+        }
+        seen.files
+            .extend(sighting(files, std::slice::from_ref(f), at_ms).files);
+    }
+    seen
+}
+
 /// This compile's sighting of `found`, from the reader's own digests. The
 /// reader's stat-based cache answers it, so a compile that goes on to
 /// assemble the same files pays for reading them once.
