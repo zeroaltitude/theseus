@@ -9,11 +9,17 @@ export type GistNode = { id: string, place: string, first_ms: number, last_ms: n
  */
 exchanges: number, readable: number, model?: string, writer: number, 
 /**
- * What its writer reads for those still readable, at its own cuts, each
- * with the `did` line it had when the node was written.
+ * Its writer's material for those still readable, rebuilt now at its own
+ * cuts, each with the `did` line it had when the node was written, with
+ * the values the writer substitutes substituted.
  */
 read: string, 
 /**
  * The node as the view shows it: its heading, then its text.
  */
-shown: string, };
+shown: string, 
+/**
+ * Why the material may not be what its writer was given: an older
+ * writer, sources no longer in the store. Read before judging.
+ */
+notes: Array<string>, };

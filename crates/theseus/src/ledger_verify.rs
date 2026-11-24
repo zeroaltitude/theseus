@@ -60,9 +60,13 @@ pub enum LedgerCmd {
         #[arg(long)]
         over_day_line: bool,
     },
-    /// A reading sheet of the one-line summaries and first-level fold nodes, each beside what its
-    /// writer read and as the view shows it, for you to mark each one right or wrong. Yours alone,
-    /// at your own terminal; it stores nothing and calls no model. `--seed` draws the same items again.
+    /// A reading sheet of the one-line summaries and first-level fold nodes, each beside its writer's
+    /// material rebuilt today (not a copy of what the writer was given) and as the view shows it, for
+    /// you to mark each one right or wrong; an item that may not show what its writer was given says
+    /// so. A sample holds summaries and nodes that exist, from every place when none is named: it can
+    /// include exchanges opened by a guest or by an agent's process, and lines from before a /new.
+    /// Yours alone, at your own terminal; it stores nothing and calls no model. `--seed` draws the
+    /// same items again.
     Gists {
         /// One place, as the exchange ledger names it; default: every place.
         place: Option<String>,

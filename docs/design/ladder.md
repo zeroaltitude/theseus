@@ -72,10 +72,24 @@ lines and the folds, prices them at their worst case, and writes nothing.
 
 `theseus ledger gists [PLACE] [--lines 50] [--nodes 10] [--seed N]` (`exchange.gists`, `ladder::gists`) prints a
 reading sheet: a draw of `did` lines and of first-level fold nodes, from one place or every place. Each item shows
-what its writer read (`did::material` for a line; `fold::material` for a node, each exchange with the `did` line it
-had when the node was written), then the line or node as the view shows it (`did::shown_line`; the view's fold
-block), then a blank verdict: wrong number, name or choice; other error; or ok. So a wrong verdict is the writer's
-error, never a cut the reader did not see. The sheet says how many lines and first-level nodes exist, and says so
-when fewer exist than were asked. It prints its seed: the same seed over the same records draws the same items.
+its writer's material (`did::material` for a line; `fold::material` for a node, each exchange with the `did` line it
+had when the node was written), passed through the writer's own text preparation (`writer::prepared`: every secret
+value the daemon knows today substituted, as in the writer's request), then the line or node as the view shows it
+(`did::shown_line`; the view's fold block), then a blank verdict: wrong number, name or choice; other error; or ok.
+
+The material is RECONSTRUCTED: rebuilt today, at the writer's cuts, from what the store holds now. It is not an
+archived prompt; no copy of what a writer was given is kept. For an item written by today's writer over sources that
+are all still there, it is what that writer's request held, but today's substitutions cannot prove an earlier day's.
+An item written by an older writer version (a line or a node) carries a warning: today's material (its author
+labels, which lines a node is fed) may not match what that writer was given, so the owner skips it or judges it
+knowing that, not as an ordinary verdict. An item whose exchange, message or reply is no longer in the store says
+so, since its material then lacks what the writer read. The sheet says how many lines and first-level nodes exist,
+and says so when fewer exist than were asked.
+
+A sample is drawn from the `did` lines and first-level nodes that EXIST (an exchange with no summary is not in it),
+from every place when none is named, with no filter by who opened an exchange: it can include exchanges opened by a
+guest or by an agent's process, and lines from before a `/new`. It prints its seed: the same seed over the same
+records draws the same items.
+
 It is the owner's in person (the check `exchange.ladder` uses): an agent's process, a job and a chat surface are
 refused. It stores nothing, no verdict and no sample, and calls no model; the owner keeps his own counts.

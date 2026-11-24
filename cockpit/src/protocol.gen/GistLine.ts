@@ -9,12 +9,18 @@ export type GistLine = { turn_id: string, place: string,
  */
 at_ms: number, model: string, writer: number, 
 /**
- * What the line's writer reads for its exchange: the message and the
- * final reply at its own cuts, each author as it is told; none when the
- * exchange cannot be read.
+ * The line's writer's material for its exchange, rebuilt now: the
+ * message and the final reply at its own cuts, each author as it is
+ * told, with the values the writer substitutes substituted; none when the
+ * exchange cannot be read. Not a kept copy of what it was given.
  */
 read?: string, 
 /**
  * The line as the view shows it.
  */
-line: string, };
+line: string, 
+/**
+ * Why the material may not be what its writer was given: an older
+ * writer, sources no longer in the store. Read before judging.
+ */
+notes: Array<string>, };

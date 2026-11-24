@@ -179,14 +179,18 @@ pub struct GistLine {
     pub at_ms: u64,
     pub model: String,
     pub writer: u32,
-    /// What the line's writer reads for its exchange: the message and the
-    /// final reply at its own cuts, each author as it is told; none when the
-    /// exchange cannot be read.
+    /// The line's writer's material for its exchange, rebuilt now: the
+    /// message and the final reply at its own cuts, each author as it is
+    /// told, with the values the writer substitutes substituted; none when the
+    /// exchange cannot be read. Not a kept copy of what it was given.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub read: Option<String>,
     /// The line as the view shows it.
     pub line: String,
+    /// Why the material may not be what its writer was given: an older
+    /// writer, sources no longer in the store. Read before judging.
+    pub notes: Vec<String>,
 }
 
 /// A first-level fold node beside its exchanges.
@@ -205,9 +209,13 @@ pub struct GistNode {
     #[cfg_attr(test, ts(optional))]
     pub model: Option<String>,
     pub writer: u32,
-    /// What its writer reads for those still readable, at its own cuts, each
-    /// with the `did` line it had when the node was written.
+    /// Its writer's material for those still readable, rebuilt now at its own
+    /// cuts, each with the `did` line it had when the node was written, with
+    /// the values the writer substitutes substituted.
     pub read: String,
     /// The node as the view shows it: its heading, then its text.
     pub shown: String,
+    /// Why the material may not be what its writer was given: an older
+    /// writer, sources no longer in the store. Read before judging.
+    pub notes: Vec<String>,
 }

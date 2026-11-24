@@ -1,19 +1,21 @@
 //! The reading sheet (`exchange.gists`, issue 44, step 4; design §10): a
-//! sample of `did` lines and of first-level fold nodes, each beside what its
-//! writer read, so the owner can say whether each is true. The material is
-//! the writer's own, passed through the writer's own text preparation
-//! (`writer::prepared`: every value the daemon knows substituted), so it is
-//! what the writer's request holds. A line is shown as the view shows it
-//! ([`did::shown_line`]), and a node as the view's fold block. The
-//! draw is by a seed, so the same seed over the same records draws the same
-//! items. It only reads: nothing is stored and no model is called.
+//! sample of `did` lines and of first-level fold nodes, each beside its
+//! writer's material, so the owner can say whether each is true. The
+//! material is rebuilt now, at the writer's cuts and with the values the
+//! writer substitutes substituted (`writer::prepared`), from what the store
+//! holds now: no copy of what a writer was given is kept. An item whose
+//! material may differ from what its writer was given (an older writer,
+//! sources no longer in the store) says so in its notes. A line is shown as
+//! the view shows it ([`did::shown_line`]), and a node as the view's fold
+//! block. The draw is by a seed, so the same seed over the same records draws
+//! the same items. It only reads: nothing is stored and no model is called.
 
 use theseus_protocol::exchange::{ExchangeGistsParams, ExchangeGistsResult, GistLine, GistNode};
 use theseus_store::{kinds, Store as _};
 
 use super::did::{self, DidLine, Said, DID_PREFIX};
 use super::fold::{self, FoldNode, FOLD_PREFIX};
-use super::writer::prepared;
+use super::writer::{prepared, WRITER_VERSION};
 use crate::scrub::Scrubber;
 use crate::store::Store;
 
@@ -92,9 +94,48 @@ fn draw<T>(mut all: Vec<T>, k: usize, seed: u64) -> Vec<T> {
     all
 }
 
-/// A line beside what its writer reads for its exchange.
+/// An older writer's item: its material is today's, which it may not have been given.
+fn older(writer: u32) -> String {
+    format!(
+        "Written by an older writer (version {writer}; today's is {WRITER_VERSION}): the material \
+         below is rebuilt today and may not match what that writer was given. Skip it, or judge it \
+         knowing that; do not count it as an ordinary verdict."
+    )
+}
+
+/// What of an exchange's words is no longer in the store.
+fn lost(r: &did::Read) -> (bool, bool) {
+    (
+        r.ex.ask.is_some() && r.ask.is_none(),
+        r.ex.reply.is_some() && r.reply.is_none(),
+    )
+}
+
+/// A line beside its writer's material for its exchange.
 fn line(store: &Store, scrubber: &Scrubber, d: &DidLine) -> anyhow::Result<GistLine> {
     let r = did::read(store, &d.turn_id)?;
+    let mut notes = Vec::new();
+    if d.writer < WRITER_VERSION {
+        notes.push(older(d.writer));
+    }
+    match r.as_ref().map(lost) {
+        None => notes.push(
+            "Its exchange is no longer in the store: its writer's material cannot be shown.".into(),
+        ),
+        Some((ask, reply)) => {
+            if ask {
+                notes.push(
+                    "Its message is no longer in the store: the material below lacks it.".into(),
+                );
+            }
+            if reply {
+                notes.push(
+                    "Its final reply is no longer in the store: the material below lacks it."
+                        .into(),
+                );
+            }
+        }
+    }
     Ok(GistLine {
         turn_id: d.turn_id.clone(),
         place: d.marks.place.clone().unwrap_or_default(),
@@ -103,12 +144,13 @@ fn line(store: &Store, scrubber: &Scrubber, d: &DidLine) -> anyhow::Result<GistL
         writer: d.writer,
         read: r.as_ref().map(|r| prepared(scrubber, &did::material(r))),
         line: did::shown_line(store, d),
+        notes,
     })
 }
 
-/// A node beside what its writer read: each exchange still readable, with
-/// the `did` line it had when the node was written (a line written after it
-/// was not read), and the node as the view's fold block shows it.
+/// A node beside its writer's material: each exchange still readable,
+/// with the `did` line it had when the node was written (a line written
+/// after it was not read), and the node as the view's fold block shows it.
 fn node(store: &Store, scrubber: &Scrubber, n: &FoldNode) -> anyhow::Result<GistNode> {
     let mut reads = Vec::new();
     for t in &n.exchanges {
@@ -120,6 +162,30 @@ fn node(store: &Store, scrubber: &Scrubber, n: &FoldNode) -> anyhow::Result<Gist
             said => said,
         };
         reads.push((r, said));
+    }
+    let mut notes = Vec::new();
+    if n.writer < WRITER_VERSION {
+        notes.push(older(n.writer));
+    }
+    let gone = n.exchanges.len() - reads.len();
+    if gone > 0 {
+        notes.push(format!(
+            "{gone} of its {} exchanges {} no longer in the store: the material below lacks \
+             them.",
+            n.exchanges.len(),
+            if gone == 1 { "is" } else { "are" }
+        ));
+    }
+    let partial = reads
+        .iter()
+        .filter(|(r, _)| lost(r) != (false, false))
+        .count();
+    if partial > 0 {
+        notes.push(format!(
+            "{partial} of the exchanges shown {} lost its message or reply: the material below \
+             lacks those words.",
+            if partial == 1 { "has" } else { "have" }
+        ));
     }
     let renderer = crate::view::wire_text::TextRenderer {
         store,
@@ -151,5 +217,6 @@ fn node(store: &Store, scrubber: &Scrubber, n: &FoldNode) -> anyhow::Result<Gist
         writer: n.writer,
         read: prepared(scrubber, &fold::material(&reads)),
         shown,
+        notes,
     })
 }
