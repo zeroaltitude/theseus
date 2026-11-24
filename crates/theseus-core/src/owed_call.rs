@@ -9,21 +9,38 @@
 //!   left, so the call is settled as failed at zero, and its reservation released.
 //! - **Dropped once the send may have begun**: settled as unknown at once. The kernel holds the
 //!   whole reservation, as it holds every unknown cost: money that may have been spent is never
-//!   freed here. A call a cancel was told to stop is left to the cancel, which holds it the same way.
+//!   freed here. A call already settled or held, or one a cancel was told to stop, is left as it
+//!   is: the cancel's own step holds it the same way.
 //! - **Settled** ([`Owed::settle`]): by the call's own completion, once; the drop then does nothing.
+//!   An unknown one is left to a cancel that was told to stop the call and has not yet settled it.
+//!
+//! Each settlement is one step (`land`): in one frame on the call's execution, the call is read,
+//! the decision taken, and the completion accepted through that frame's view. A cancel marks the
+//! call under the same lock, so it marks it either before the read, and the owner leaves it to the
+//! cancel, or after the write, and finds it no longer open. The day never counts it twice.
+//!
+//! A drop settles on a thread of its own, which holds no execution's lock: a drop inside a frame
+//! cannot take a lock inside a lock (the kernel's panic for that, in a destructor, could abort the
+//! process). Nothing in the drop panics; what it cannot settle it logs, and the reconcile settles.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
+use std::time::Duration;
 
 use anyhow::Result;
 use serde_json::{json, Value};
-use theseus_kernel::{Action, Completion, Kernel, Outcome};
+use theseus_kernel::{Action, ActionState, Completion, Kernel, Outcome};
 use theseus_store::NewRecord;
+
+/// How long a drop waits for its settlement's thread. It lands far sooner; a drop on a thread that
+/// holds the call's own execution's lock waits this long, and the settlement lands as it is let go.
+const DROP_WAIT: Duration = Duration::from_secs(10);
 
 /// The owner of one reserved provider call: it settles the call once, by its completion or on drop.
 pub struct Owed {
     kernel: Arc<Kernel>,
     correlation_id: String,
+    execution_id: String,
     producer: String,
     detail: Value,
     sent: AtomicBool,
@@ -37,6 +54,7 @@ impl Owed {
         Self {
             kernel,
             correlation_id: action.correlation_id.clone(),
+            execution_id: action.execution_id.clone(),
             producer,
             detail,
             sent: AtomicBool::new(false),
@@ -55,19 +73,11 @@ impl Owed {
         if self.settled.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
-        self.kernel.accept_completion_with(c, extra).map(|_| ())
+        land(&self.kernel, &self.execution_id, c, extra, by_its_own).map(|_| ())
     }
-}
 
-impl Drop for Owed {
-    fn drop(&mut self) {
-        if *self.settled.get_mut() {
-            return;
-        }
-        let sent = *self.sent.get_mut();
-        if sent && self.cancelled() {
-            return;
-        }
+    /// The completion a drop settles with: at zero before the send, unknown after it.
+    fn dropped(&self, sent: bool) -> Completion {
         let now = self.kernel.now_ms();
         let (outcome, cost, dropped) = match sent {
             false => (Outcome::Failed, Some(0), "before_send"),
@@ -77,7 +87,7 @@ impl Drop for Owed {
         if let Value::Object(d) = &mut detail {
             d.insert("dropped".into(), json!(dropped));
         }
-        let c = Completion {
+        Completion {
             correlation_id: self.correlation_id.clone(),
             outcome,
             result_ref: None,
@@ -88,17 +98,73 @@ impl Drop for Owed {
             signature: None,
             cost_micros: cost,
             detail: Some(detail),
-        };
-        if let Err(e) = self.kernel.accept_completion_with(&c, Vec::new()) {
-            tracing::warn!(correlation_id = %self.correlation_id, error = %format!("{e:#}"),
-                "a dropped provider call was not settled; the reconcile settles it at its deadline");
         }
     }
 }
 
-impl Owed {
-    /// A cancel was told to stop the call (its own step holds an unknown cost), or settled it.
-    fn cancelled(&self) -> bool {
-        matches!(self.kernel.action(&self.correlation_id), Ok(Some(a)) if a.cancel.is_some())
+impl Drop for Owed {
+    fn drop(&mut self) {
+        if *self.settled.get_mut() {
+            return;
+        }
+        let sent = *self.sent.get_mut();
+        let c = self.dropped(sent);
+        let (kernel, execution) = (self.kernel.clone(), self.execution_id.clone());
+        let (tx, rx) = mpsc::channel();
+        let spawned = std::thread::Builder::new()
+            .name("owed-call".into())
+            .spawn(move || {
+                let _ = tx.send(land(&kernel, &execution, &c, Vec::new(), by_a_drop));
+            });
+        let why = match spawned {
+            Err(e) => format!("no thread to settle it on: {e}"),
+            Ok(_) => match theseus_store::blocking(|| rx.recv_timeout(DROP_WAIT)) {
+                Ok(Ok(_)) => return,
+                Ok(Err(e)) => format!("{e:#}"),
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    "not settled yet; it settles when its execution is free".into()
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => "its settlement stopped".into(),
+            },
+        };
+        tracing::warn!(correlation_id = %self.correlation_id, why = %why,
+            "a dropped provider call was not settled here; what is left, the reconcile settles");
     }
 }
+
+/// Settle the call by `c` in one step: in one frame on its execution, read the call, ask `lands`,
+/// and accept `c` through the frame's view. `Ok(false)`: it did not land, and nothing is written.
+fn land(
+    kernel: &Kernel,
+    execution_id: &str,
+    c: &Completion,
+    extra: Vec<NewRecord>,
+    lands: fn(&Action, &Completion) -> bool,
+) -> Result<bool> {
+    kernel.frame(&[execution_id], |k| match k.action(&c.correlation_id)? {
+        Some(a) if lands(&a, c) => k.accept_completion_with(c, extra).map(|_| true),
+        _ => Ok(false),
+    })
+}
+
+/// A cancel was told to stop `a` and its own step has not settled it: that step holds an unknown
+/// cost, so an unknown landing first would have the day count the reservation twice.
+fn the_cancels(a: &Action) -> bool {
+    a.state == ActionState::Dispatched && a.cancel.is_some()
+}
+
+/// The call's own completion lands, but an unknown one on a call [`the_cancels`]. A known cost
+/// lands even then: the call is settled by it, and the cancel's step leaves a settled call alone.
+fn by_its_own(a: &Action, c: &Completion) -> bool {
+    c.outcome != Outcome::Unknown || !the_cancels(a)
+}
+
+/// A drop's zero (never sent) lands as the kernel takes any known cost. Its unknown lands only on
+/// a call still open that no cancel was told to stop: one settled, held or marked is left as it is.
+fn by_a_drop(a: &Action, c: &Completion) -> bool {
+    c.outcome != Outcome::Unknown || (a.state == ActionState::Dispatched && a.cancel.is_none())
+}
+
+#[cfg(test)]
+#[path = "tests_owed_call.rs"]
+mod tests;
