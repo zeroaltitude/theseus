@@ -1,6 +1,6 @@
 //! The look's cuts stop at a known value's edge: a message's line, a task's title and why it ended, the end
 //! of an id in a place's name, each part and the whole answer, and a played turn's stored result and the
-//! request that carries it. "No part of
+//! request that carries it; and where they fall while a value is still loading. "No part of
 //! it" means no four characters in a row of the value outside a whole copy (`tests_cut_sites`). All values
 //! invented.
 
@@ -311,4 +311,34 @@ async fn a_played_looks_stored_place_holds_no_part_of_a_known_value() {
         "{stored}"
     );
     whole_or_absent("the stored result", &stored, V);
+}
+
+/// While a value is still loading, the look's cuts fall at a blank, as every cut of a snapshot then does, in
+/// text that holds no known value too: a message's line of one word over the cap is an ellipsis alone and no
+/// copy, and one with blanks stops at the last blank before the cap; the end of a session's id is an ellipsis
+/// alone; a line under the cap is whole.
+#[test]
+fn while_a_value_loads_the_looks_cuts_fall_at_a_blank() {
+    use super::reader::place_words;
+    let board = crate::secrets::SecretBoard::new(["late".to_string()], std::time::Instant::now());
+    let cuts = crate::scrub::Scrubber::from_board(board).cuts();
+    for n in messages(&"x".repeat(601)) {
+        let (_, words, some) = history::line_of(&n, &cuts).unwrap();
+        assert_eq!(words, "…");
+        assert!(!some, "none of its words is shown");
+    }
+    for n in messages(&"abcdef ".repeat(100)) {
+        let (_, words, some) = history::line_of(&n, &cuts).unwrap();
+        assert_eq!(words, format!("{}…", "abcdef ".repeat(85)));
+        assert!(some);
+    }
+    for n in messages("the  tide\nturns") {
+        let (_, words, some) = history::line_of(&n, &cuts).unwrap();
+        assert_eq!(words, "the tide turns");
+        assert!(some);
+    }
+    assert_eq!(
+        place_words(&format!("ses_0123456789abcdef{CLI}"), &cuts),
+        "the CLI or the web UI (…)"
+    );
 }

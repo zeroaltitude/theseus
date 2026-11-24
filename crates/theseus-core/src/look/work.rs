@@ -26,7 +26,10 @@
 //! of at most 8,000 characters, and 24,000 in all (a deferred tool: the result is paid only when it is
 //! called). **Never** an answer: it lists what waits, and the owner answers it. Every cut, of a line, a part
 //! or the answer, stops at a known value's edge (the call's `Cuts`), so the answer holds each value the
-//! scrubber knows whole or not at all.
+//! scrubber knows whole or not at all. When the snapshot is settled (no value still loading) and neither a
+//! text nor its one-line form holds a known value, the cut falls where it fell before, byte for byte. While a
+//! value is still loading every cut falls at a blank, or leaves the ellipsis alone when there is none before
+//! it, in text that holds no known value too, as every cut of a snapshot then does.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
