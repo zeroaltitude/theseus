@@ -271,6 +271,10 @@ pub struct JudgeService {
     /// A test's shorter bounds for the sink's waits.
     #[cfg(test)]
     pub(crate) sink_timing: OnceLock<crate::memory_pass::Timing>,
+    /// A test's client that cannot be built (`built` fails as a failed
+    /// build fails).
+    #[cfg(test)]
+    pub(crate) unbuilt: std::sync::atomic::AtomicBool,
 }
 
 impl JudgeService {
@@ -344,6 +348,8 @@ impl JudgeService {
             history: tokio::sync::Mutex::new(()),
             #[cfg(test)]
             sink_timing: OnceLock::new(),
+            #[cfg(test)]
+            unbuilt: Default::default(),
         })
     }
 
@@ -496,6 +502,10 @@ impl JudgeService {
     }
 
     fn built(&self) -> anyhow::Result<Arc<Built>> {
+        #[cfg(test)]
+        if self.unbuilt.load(std::sync::atomic::Ordering::SeqCst) {
+            anyhow::bail!("a test's client that is not built");
+        }
         if let Some(b) = self.built.get() {
             return Ok(b.clone());
         }

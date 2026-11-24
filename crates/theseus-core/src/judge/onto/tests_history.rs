@@ -634,3 +634,40 @@ async fn a_rerun_at_once_asks_nothing_of_an_answer_that_touched_nothing() {
         "{again:?}"
     );
 }
+
+/// KEY: a dry run that cannot price an exchange says so and fails, through
+/// the RPC: an unpriced model, and a client that cannot be built. Never a
+/// worst case of $0; nothing asked, nothing written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dry_run_that_cannot_price_says_so_and_fails() {
+    for case in ["unpriced", "unbuilt"] {
+        let jev = FakeJev::start().unwrap();
+        jev.script_onto("topic", "c1", 0.9);
+        let r = rig(jev);
+        ledger_topic(&r.core);
+        let sid = bound(&r.core);
+        said(&r.core, &sid, "turn_old", SAID, 5_000);
+        let judge = &r.core.runner.judge;
+        match case {
+            "unpriced" => {
+                let onto = crate::judge::onto::ONTO_PACK;
+                let mut pack = (*judge.pack(onto).unwrap()).clone();
+                pack.jev_model = "jev-0.0.0-unpriced".into();
+                judge.stand_in(onto, pack);
+            }
+            _ => judge
+                .unbuilt
+                .store(true, std::sync::atomic::Ordering::SeqCst),
+        }
+        let e = command(&r.core, true)
+            .await
+            .expect_err("no estimate is no answer");
+        let why = match case {
+            "unpriced" => "no estimate: the judge's model has no price",
+            _ => "no estimate: the judge's client could not be built",
+        };
+        assert!(e.message.contains(why), "{case}: {e:?}");
+        assert!(r.jev.seen().is_empty(), "{case}: no call");
+        assert!(of_kind(&r.core, LedgerKind::JudgeCall).is_empty(), "{case}");
+    }
+}

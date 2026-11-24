@@ -166,8 +166,11 @@ pub fn topics_lines(r: &ExchangeTopicsResult) -> String {
     );
     match r.dry_run {
         true => s.push_str(&format!(
-            "\nwould ask {}: worst case ${:.4}, under a cap of ${:.2}",
-            r.to_ask, r.worst_usd, r.cap_usd
+            "\nwould ask {n}: ${:.4} at worst for all {n} of them (it may be more than the cap); a run \
+             stops at its cap of ${:.2}",
+            r.worst_usd,
+            r.cap_usd,
+            n = r.to_ask
         )),
         false => s.push_str(&format!(
             "\nasked {} of {} ({} answered): {} exchanges filed with {} touches; spent ${:.4} of a \
@@ -205,7 +208,8 @@ mod tests {
             topics_lines(&dry),
             "9 exchanges: 2 already touch a topic, 1 were asked before, 3 open with no person's \
              message, 0 are in places the ontology's judge does not act on now\nwould ask 3: \
-             worst case $0.0012, under a cap of $10.00"
+             $0.0012 at worst for all 3 of them (it may be more than the cap); a run stops at its \
+             cap of $10.00"
         );
         let run = ExchangeTopicsResult {
             dry_run: false,

@@ -41,7 +41,10 @@
 //!   whose worst case would pass its cap (`cap_usd`, default $10); each call
 //!   settles at its price. Paced by the machine's quiet between exchanges;
 //!   the daemon's stop is looked for there. A dry run reads and prices, and
-//!   asks nothing.
+//!   asks nothing: its figure is the worst case of every exchange it would
+//!   ask, which a run's cap may stop short of; and where it cannot price one
+//!   (the judge's model has no price, its client is not built) it says so
+//!   and fails, never a figure of zero.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -445,12 +448,16 @@ impl Core {
     }
 
     /// The dry run's worst case: every ask's reservation, summed. No call.
+    /// An ask it cannot price fails it: an estimate that failed is no zero.
     fn topics_worst(&self, todo: &[Old]) -> anyhow::Result<Micros> {
         let o = self.onto_now()?;
         let mut worst: Micros = 0;
         for old in todo {
             if let Some(ask) = self.topics_ask(&o, old)? {
-                worst += self.runner.judge.history_worst(&ask).unwrap_or(0);
+                match self.runner.judge.history_worst(&ask) {
+                    Ok(need) => worst += need,
+                    Err(stop) => anyhow::bail!("{}", no_estimate(&stop)),
+                }
             }
         }
         Ok(worst)
@@ -518,6 +525,15 @@ impl Core {
         }
         Ok(())
     }
+}
+
+/// The words of a dry run that could not price an exchange.
+fn no_estimate(stop: &Stop) -> String {
+    let why = match stop {
+        Stop::Unpriced => "the judge's model has no price",
+        _ => "the judge's client could not be built",
+    };
+    format!("no estimate: {why}, so a run would ask nothing. Nothing was asked")
 }
 
 /// The words of a stop before an exchange, and how to go on.
