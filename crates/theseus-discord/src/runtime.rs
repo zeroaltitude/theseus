@@ -2249,7 +2249,10 @@ impl Place {
                     )
                     .await
                 {
-                    Ok(l) => crate::render::wakes(&l.wakes),
+                    Ok(l) => crate::render::wakes(
+                        &crate::render::leaving::copy(&self.shared.core.exits, &l.wakes)
+                            .unwrap_or_default(),
+                    ),
                     Err(e) => format!("⚠️ Could not list the wakes: {e}."),
                 }
             }
