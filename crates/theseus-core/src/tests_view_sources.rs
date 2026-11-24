@@ -373,8 +373,8 @@ async fn a_cards_thing_shows_no_standing_facts_or_preferences() {
 }
 
 /// KEY: the owner alone is told who is speaking (his held person's name) and his own guidance for it; the
-/// role line written outside the people pack (here by the operator) is not laid, since no reader clears it;
-/// an agent's process at the terminal, which is no person and never the owner alone, is told none of it.
+/// role line, here written by the operator, is laid with them (the owner's word of 2026-11-24); an agent's
+/// process at the terminal, which is no person and never the owner alone, is told none of it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_facts_about_the_person_reach_the_owner_alone() {
     use theseus_ontology::{Category, CategoryId, Guidance, Origin, Record};
@@ -402,7 +402,7 @@ async fn the_facts_about_the_person_reach_the_owner_alone() {
     let q = asked(&r, "desk: good morning").pop().unwrap();
     assert!(texts(&q).contains("Who is speaking: Ada"), "{}", texts(&q));
     assert!(texts(&q).contains(GUIDED), "{}", texts(&q));
-    assert!(!texts(&q).contains(ROLE), "{}", texts(&q));
+    assert!(texts(&q).contains(ROLE), "{}", texts(&q));
 
     let agent = session_in(c, None, &r.root);
     turn_as(c, &agent, "agent: good morning", false).await;
