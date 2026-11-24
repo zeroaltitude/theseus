@@ -195,11 +195,7 @@ async fn a_played_looks_stored_result_holds_no_part_of_a_known_value() {
         "{stored}"
     );
     whole_or_absent("the stored result", &stored, V);
-    let sent: Vec<_> = r
-        .requests()
-        .into_iter()
-        .filter(answers_a_call)
-        .collect();
+    let sent: Vec<_> = r.requests().into_iter().filter(answers_a_call).collect();
     assert!(!sent.is_empty(), "the result was sent");
     for q in &sent {
         for t in tool_results(q) {
