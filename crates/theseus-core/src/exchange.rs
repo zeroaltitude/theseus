@@ -446,3 +446,5 @@ pub const THINGS_TEXT: usize = 64 * 1024;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_report;

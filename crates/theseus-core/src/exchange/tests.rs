@@ -218,6 +218,35 @@ async fn a_terminal_turn_writes_its_mark_exchange_touches_and_row() {
     assert_eq!(report.counts["peer"]["person"], 2);
 }
 
+/// A turn after the place's `/new`: the view leaves the exchange before it out on purpose, and the row says so,
+/// so the report counts it apart from a miss.
+#[tokio::test]
+async fn a_turn_after_new_says_its_previous_was_held_by_new() {
+    let r = rig(2, |_| {});
+    let c = &r.core;
+    let first = turn(c, owner_cli(), None, "where is the tide table").await;
+    let ex = exchange(&c.store, &first.turn_id).unwrap().unwrap();
+    let at = crate::view::Pos {
+        at_ms: ex.start_ms,
+        id: ex.turn_id.clone(),
+    };
+    let mark = crate::ladder::new_mark_record(&ex.place, &at).unwrap();
+    c.store.append(&[mark]).unwrap();
+    let second = turn(c, owner_cli(), Some(&first.session_id), "and tomorrow?").await;
+    let rows = rows(c);
+    let last = rows.last().unwrap();
+    assert_eq!(last.exchange, second.turn_id);
+    assert_eq!(
+        (last.prev, last.prev_why.as_deref()),
+        (Prev::Missed, Some("new")),
+        "{last:?}"
+    );
+    let report = ledger::report(&c.store, &ExchangeReportParams::default()).unwrap();
+    let a = report.answers.expect("the answers");
+    assert_eq!(a.previous.get("after_new"), Some(&1), "{a:?}");
+    assert_eq!(a.previous.get("missed"), None, "{a:?}");
+}
+
 #[tokio::test]
 async fn an_agents_process_on_the_terminal_is_never_the_owner_in_person() {
     let r = rig(3, |_| {});

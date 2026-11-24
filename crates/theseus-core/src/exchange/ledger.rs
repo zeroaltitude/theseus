@@ -7,11 +7,11 @@
 //! extractor named, the judge's unread answers, gaps, overlaps, and how the
 //! terminal's peer was classed. `report` sums the rows.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use theseus_protocol::exchange::{ExchangeReportParams, ExchangeReportResult};
+use theseus_protocol::exchange::{ExchangeAnswers, ExchangeReportParams, ExchangeReportResult};
 use theseus_protocol::LedgerKind;
 use theseus_store::pages::{ledger_kind, ledger_kind_session};
 use theseus_store::{kinds, Page, Store as _};
@@ -32,13 +32,77 @@ pub const ANSWERED_WITHIN_MS: u64 = 10 * 60_000;
 /// An exchange still open after this long is a turn that never closed, not a
 /// turn in progress.
 const OPEN_FOR_MS: u64 = 6 * 3_600_000;
+/// Why a row's previous exchange was missed, when the row can tell
+/// (`prev_why`): the place's `/new` lay between them, or the first call was
+/// never measured. Any other miss says nothing: a seal, a gate, or a real miss.
+pub const WHY_NEW: &str = "new";
+pub const WHY_NOT_MEASURED: &str = "not_measured";
+/// The row's fields `add` counts by their value: kinds, classes and flags,
+/// never a name or an id, each string through [`listed`]. A field a later
+/// build adds is counted as present until it is named here.
+const BY_VALUE: [&str; 11] = [
+    "opened_by",
+    "peer",
+    "person",
+    "prev",
+    "prev_why",
+    "prev_same_session",
+    "overlap",
+    "answered",
+    "situation",
+    "trigger",
+    "cold",
+];
 /// The judge's four answers nothing reads, and its `kind`, by question id.
-const JUDGED: [&str; 5] = [
+pub(super) const JUDGED: [&str; 5] = [
     "fragment",
     "mentions_other_conversation",
     "wants_fresh_look",
     "addressed_task",
     "kind",
+];
+/// The one word the report counts a stored string by when it is not a word its field's producer
+/// makes: the value still counts, its spelling never leaves.
+pub const UNLISTED: &str = "unlisted";
+/// The kinds of thing the index's extractor names (`theseus-index`'s `entity::entities`, as its
+/// `kind:value` terms): the keys of `things` and `reply_things`.
+pub const THING_KINDS: [&str; 7] = [
+    "beads", "commit", "crate", "file", "host", "mention", "path",
+];
+/// A situation's kinds, as the row's writer records them (`Situation::kind`, in theseus-protocol).
+pub(super) const SITUATIONS: [&str; 7] = [
+    "conversation_start",
+    "task_start",
+    "continuation",
+    "recompile",
+    "resume",
+    "detour",
+    "unknown",
+];
+/// A compile's triggers: the view's (`compiler::view::TRIGGER`), the only one made now, and the old
+/// transcript compiler's, which an older row may hold, alone or joined by `+` (`narrative`'s
+/// `trigger_phrase` still names them).
+pub(super) const TRIGGERS: [&str; 10] = [
+    "view_turn",
+    "new_session",
+    "model_changed",
+    "system_changed",
+    "tools_changed",
+    "overflow",
+    "manual_fresh",
+    "manual_transcript",
+    "audience",
+    "moved",
+];
+/// The classify pack's fixed choices for its `kind` question (`judge::inbound::CLASSIFY_PACK`).
+pub(super) const JUDGE_KINDS: [&str; 7] = [
+    "new_ask",
+    "follow_up",
+    "correction",
+    "control",
+    "addressed_to_task",
+    "social",
+    "other",
 ];
 
 /// The sent context of a turn's first call, in tokens (est.), after
@@ -212,6 +276,11 @@ pub struct Row {
     pub ask_chars: Option<u64>,
     pub prev: Prev,
     pub prev_exchange: Option<String>,
+    /// Why a `missed` previous exchange was missed, when the row can tell
+    /// ([`WHY_NEW`], [`WHY_NOT_MEASURED`]); written only when set, and absent
+    /// from the rows of a build before it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prev_why: Option<String>,
     pub prev_same_session: Option<bool>,
     pub gap_ms: Option<u64>,
     /// Another session of the place was mid-turn when this one began.
@@ -409,6 +478,11 @@ pub fn row(store: &Store, g: Given<'_>) -> Row {
             true => Prev::Transcript,
             false => Prev::Missed,
         };
+        row.prev_why = match (held, g.seen) {
+            (true, _) => None,
+            (false, None) => Some(WHY_NOT_MEASURED.into()),
+            (false, Some(_)) => after_new(store, ex, p).then(|| WHY_NEW.into()),
+        };
         row.prev_exchange = Some(p.turn_id.clone());
         row.prev_same_session = Some(!other);
         let gap = ex.start_ms.saturating_sub(p.end_ms.unwrap_or(p.start_ms));
@@ -470,23 +544,73 @@ fn band(gap: u64) -> &'static str {
     }
 }
 
+/// A message's length's band, for the report.
+fn chars_band(n: u64) -> &'static str {
+    match n {
+        0..80 => "under_80",
+        80..400 => "under_400",
+        _ => "over_400",
+    }
+}
+
+/// The judge's answer to `question`, as the report counts it: a task's id
+/// only as whether there was one, a kind by the pack's own choices, and
+/// anything else (a Noul records no choice) as [`UNLISTED`].
+fn judged_value(question: &str, answer: &str) -> String {
+    match (question, answer) {
+        ("addressed_task", "none") => "none".into(),
+        ("addressed_task", _) => "a_task".into(),
+        ("kind", k) if JUDGE_KINDS.contains(&k) => k.into(),
+        _ => UNLISTED.into(),
+    }
+}
+
+fn reads<T: serde::de::DeserializeOwned>(value: &str) -> bool {
+    serde_json::from_value::<T>(Value::String(value.into())).is_ok()
+}
+
+/// `value`, a string of the row's `field`, as the report counts it: a word
+/// that field's producer makes (a typed class's by the type itself), or
+/// [`UNLISTED`].
+fn listed(field: &str, value: &str) -> String {
+    let known = match field {
+        "opened_by" | "answered" => reads::<Opener>(value),
+        "peer" => reads::<Peer>(value),
+        "prev" => reads::<Prev>(value),
+        "prev_why" => [WHY_NEW, WHY_NOT_MEASURED].contains(&value),
+        "situation" => SITUATIONS.contains(&value),
+        "trigger" => value.split('+').all(|t| TRIGGERS.contains(&t)),
+        "things" | "reply_things" => THING_KINDS.contains(&value),
+        _ => false,
+    };
+    match known {
+        true => value.into(),
+        false => UNLISTED.into(),
+    }
+}
+
 /// One row, added to the report by its own shape: each field a count of its
-/// value under its name (a gap by its band, a map by its keys, the judge's
-/// answers by question), each number summed, `sent`'s parts summed, and each
-/// other private place's exchange by whether it was in view. Ids are skipped.
-fn add(r: &mut ExchangeReportResult, row: &Row) {
-    let Ok(Value::Object(fields)) = serde_json::to_value(row) else {
+/// value under its name (a gap and a message's length by their bands, a map
+/// by its keys' kinds, the judge's answers by question), `sent`'s parts summed, and
+/// each other private place's exchange by whether it was in view. Ids are
+/// skipped; the cache's tokens are the answers'. A field not named here or in
+/// [`BY_VALUE`] is counted as present, never by its value.
+pub(super) fn add(r: &mut ExchangeReportResult, row: &Value) {
+    let Value::Object(fields) = row else {
         return;
     };
     let mut sum =
         |k: &str, n: &Value| *r.tokens.entry(k.into()).or_insert(0) += n.as_u64().unwrap_or(0);
     let mut counts = Vec::new();
-    for (k, v) in &fields {
+    for (k, v) in fields {
         match (k.as_str(), v) {
-            ("exchange" | "place" | "prev_exchange", _) => {}
+            ("exchange" | "place" | "prev_exchange" | "cache_read" | "cache_write", _) => {}
             ("sent", Value::Object(parts)) => parts.iter().for_each(|(p, n)| sum(p, n)),
             ("gap_ms", Value::Number(n)) => {
                 counts.push((k.clone(), band(n.as_u64().unwrap_or(0)).into()))
+            }
+            ("ask_chars", Value::Number(n)) => {
+                counts.push((k.clone(), chars_band(n.as_u64().unwrap_or(0)).into()))
             }
             ("things" | "reply_things", Value::Null) => counts.push((k.clone(), "unknown".into())),
             ("elsewhere", Value::Array(xs)) => counts.extend(xs.iter().map(|e| {
@@ -497,21 +621,27 @@ fn add(r: &mut ExchangeReportResult, row: &Row) {
                 };
                 (k.clone(), seen.into())
             })),
-            (_, Value::Object(m)) if m.is_empty() => counts.push((k.clone(), "none".into())),
-            (_, Value::Object(m)) => counts.extend(m.iter().map(|(q, a)| match a {
-                Value::String(a) => (format!("{k}.{q}"), a.clone()),
-                _ => (k.clone(), q.clone()),
+            ("things" | "reply_things" | "judge", Value::Object(m)) if m.is_empty() => {
+                counts.push((k.clone(), "none".into()))
+            }
+            ("things" | "reply_things", Value::Object(m)) => {
+                let kinds: BTreeSet<String> = m.keys().map(|kind| listed(k, kind)).collect();
+                counts.extend(kinds.into_iter().map(|kind| (k.clone(), kind)))
+            }
+            ("judge", Value::Object(m)) => counts.extend(m.iter().map(|(q, a)| match a {
+                Value::String(a) if JUDGED.contains(&q.as_str()) => {
+                    (format!("{k}.{q}"), judged_value(q, a))
+                }
+                _ => (k.clone(), "present".into()),
             })),
-            (_, n @ Value::Number(_)) => sum(k, n),
-            (_, Value::String(x)) => counts.push((k.clone(), x.clone())),
-            (_, x) => counts.push((
-                k.clone(),
-                if x.is_null() {
-                    "none".into()
-                } else {
-                    x.to_string()
-                },
-            )),
+            (_, Value::Null) => counts.push((k.clone(), "none".into())),
+            (_, Value::String(x)) if BY_VALUE.contains(&k.as_str()) => {
+                counts.push((k.clone(), listed(k, x)))
+            }
+            (_, Value::Bool(b)) if BY_VALUE.contains(&k.as_str()) => {
+                counts.push((k.clone(), b.to_string()))
+            }
+            _ => counts.push((k.clone(), "present".into())),
         }
     }
     for (group, value) in counts {
@@ -519,9 +649,101 @@ fn add(r: &mut ExchangeReportResult, row: &Row) {
     }
 }
 
-/// `exchange.report`: the newest rows, summed.
+/// The place's position of exchange `e`, as the view orders it.
+fn pos(e: &Exchange) -> crate::view::Pos {
+    crate::view::Pos {
+        at_ms: e.start_ms,
+        id: e.turn_id.clone(),
+    }
+}
+
+/// Whether the place's latest `/new` lies between `prev` and `ex`: the view
+/// leaves out what came before it, on purpose. Only a place's latest `/new`
+/// is kept, so an older one is not seen here.
+fn after_new(store: &Store, ex: &Exchange, prev: &Exchange) -> bool {
+    match crate::ladder::new_mark(store, &ex.place) {
+        Ok(Some(mark)) => pos(prev) <= mark && mark < pos(ex),
+        _ => false,
+    }
+}
+
+fn bump(m: &mut BTreeMap<String, u64>, k: &str) {
+    *m.entry(k.into()).or_insert(0) += 1;
+}
+
+/// One row, added to the three answers: the context it sent when its first
+/// call was measured; then, for a turn his own message opened, whether the
+/// place's previous exchange was in it, and whether he named a thing.
+fn answer(store: &Store, a: &mut ExchangeAnswers, row: &Row) {
+    let measured = row.sent.total > 0;
+    if measured {
+        a.context_turns += 1;
+        if let Ok(Value::Object(parts)) = serde_json::to_value(&row.sent) {
+            for (k, n) in parts {
+                *a.context.entry(k).or_insert(0) += n.as_u64().unwrap_or(0);
+            }
+        }
+        a.cache_read += row.cache_read;
+        a.cache_write += row.cache_write;
+    }
+    let Ok(Some(ex)) = exchange(store, &row.exchange) else {
+        a.unreadable += 1;
+        return;
+    };
+    if ex.opened_by != Opener::Message || ex.person.as_deref() != Some(OWNER) {
+        return;
+    }
+    a.his_turns += 1;
+    let previous = match row.prev {
+        // Its first call not measured, it is no measured turn, first here or not.
+        _ if !measured => "not_measured",
+        Prev::None => "first_here",
+        Prev::Transcript | Prev::PlaceTail => "shown",
+        Prev::Missed => match row.prev_why.as_deref() {
+            Some(WHY_NEW) => "after_new",
+            Some(WHY_NOT_MEASURED) => "not_measured",
+            // A row from before `prev_why`: the place's latest `/new`, best effort.
+            None if (row.prev_exchange.as_deref())
+                .and_then(|p| exchange(store, p).ok().flatten())
+                .is_some_and(|p| after_new(store, &ex, &p)) =>
+            {
+                "after_new"
+            }
+            _ => "missed",
+        },
+    };
+    bump(&mut a.previous, previous);
+    if previous == "missed" {
+        let session = match row.prev_same_session {
+            Some(true) => "same",
+            Some(false) => "other",
+            None => "unknown",
+        };
+        bump(&mut a.missed_by_session, session);
+    }
+    let named = match &row.things {
+        None => "unknown",
+        Some(m) if m.values().any(|n| *n > 0) => "some",
+        Some(_) => "none",
+    };
+    bump(&mut a.named, named);
+    let kinds: BTreeSet<String> = (row.things.iter().flatten())
+        .filter(|(_, n)| **n > 0)
+        .map(|(kind, _)| listed("things", kind))
+        .collect();
+    for kind in kinds {
+        bump(&mut a.named_kinds, &kind);
+    }
+}
+
+/// `exchange.report`: the newest rows, none older than `since_ms`, summed,
+/// and their answers. The store keeps rows in the order they were written,
+/// and a row's own time can go back, so an older row says nothing of the
+/// rows before it: every row is read, and `from_ms` and `to_ms` are the
+/// least and greatest time counted.
 pub fn report(store: &Store, p: &ExchangeReportParams) -> anyhow::Result<ExchangeReportResult> {
     let mut r = ExchangeReportResult::default();
+    let mut a = ExchangeAnswers::default();
     let mut before = None;
     let limit = p.limit.unwrap_or(u64::MAX);
     'pages: loop {
@@ -542,19 +764,25 @@ pub fn report(store: &Store, p: &ExchangeReportParams) -> anyhow::Result<Exchang
             let Ok(lr) = rec.decode::<LedgerRow>() else {
                 continue;
             };
+            let at = lr.at_unix_ms;
+            if p.since_ms.is_some_and(|since| at < since) {
+                continue;
+            }
             let Ok(row) = serde_json::from_value::<Row>(lr.data) else {
                 continue;
             };
             r.rows += 1;
-            r.to_ms = r.to_ms.or(Some(lr.at_unix_ms));
-            r.from_ms = Some(lr.at_unix_ms);
-            add(&mut r, &row);
+            r.from_ms = Some(r.from_ms.map_or(at, |f| f.min(at)));
+            r.to_ms = Some(r.to_ms.map_or(at, |t| t.max(at)));
+            add(&mut r, &serde_json::to_value(&row).unwrap_or(Value::Null));
+            answer(store, &mut a, &row);
         }
         match (got.more, got.first) {
             (true, Some(first)) => before = Some(first),
             _ => break,
         }
     }
+    r.answers = Some(a);
     Ok(r)
 }
 
