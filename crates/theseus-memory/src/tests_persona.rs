@@ -25,6 +25,7 @@ fn cand(node: &str, session: &str, fused: f64) -> Candidate {
         time_ms: 0,
         entities: Vec::new(),
         matched: Vec::new(),
+        copy: false,
     }
 }
 

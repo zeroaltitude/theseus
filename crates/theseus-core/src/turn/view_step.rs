@@ -293,7 +293,10 @@ impl TurnRunner {
             // (`room`), a preview reports it.
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
-        let (window, mut sessions) = window_of((store, &read, sid), &a, &pov, turn, renderer.zone)?;
+        let wrong = self.memory.labeled(store)?;
+        let said = crate::copies::since::Since::new(store, &wrong);
+        let (window, mut sessions) =
+            window_of((store, &read, sid), &a, &pov, (turn, &said), renderer.zone)?;
         sessions.extend(resolved.sessions.borrow().iter().cloned());
         let exchanges = laid_exchanges(&window, turn, &resolved.exchanges.borrow(), &a);
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
@@ -685,13 +688,14 @@ fn message_of(store: &Store, sid: &str, turn: &str) -> anyhow::Result<(Option<St
 /// The window as the view shows it: the nodes of each exchange the budgeter kept in slot G, oldest first,
 /// from every session that ran them (this turn's own is its tail; a recall note is the transcript's), each
 /// part labelled by its own provenance (`labelled`), the results of those kept spoken as their receipts,
-/// made now from the window alone (`compiler::view::receipted`); and every session the view lays, those a
+/// made now from the window alone (`compiler::view::receipted`); an exchange laid whole with what has been
+/// said about its nodes since (`copies::since`, in memory); and every session the view lays, those a
 /// card, a waiting line or a fact was read from (`Sessions::depends`) among them, for source tracking.
 fn window_of(
     (store, read, sid): (&Store, &Sessions, &str),
     a: &Assembled,
     pov: &PointOfView,
-    turn: &str,
+    (turn, said): (&str, &crate::copies::since::Since<'_>),
     zone: crate::recall::stamp::ZoneAt<'_>,
 ) -> anyhow::Result<(Transcript, Vec<String>)> {
     let here: HashMap<&str, Form> = (a.view.shown.iter())
@@ -723,7 +727,7 @@ fn window_of(
         let nodes = labelled(store, nodes, pov, at, zone);
         let handle = Handle(e.turn_id.clone());
         window.extend(match form {
-            Form::Whole => nodes,
+            Form::Whole => said.lay(nodes)?,
             Form::Spoken => bounded(nodes, &handle),
             Form::Line => as_line((store, read), nodes, &handle)?,
         });

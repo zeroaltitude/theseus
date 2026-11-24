@@ -127,7 +127,11 @@ pub(crate) fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
                 origin: "operator".into(),
                 author: None,
                 place: None,
-                tool: None,
+                // A result's tool, as the index's extractor names it.
+                tool: match &n.body {
+                    crate::node::Body::ToolResult { tool, .. } => Some(tool.clone()),
+                    _ => None,
+                },
                 time_ms: 0,
                 external: false,
                 entities_matched: vec![],

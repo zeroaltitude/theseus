@@ -118,6 +118,10 @@ pub struct Candidate {
     pub entities: Vec<String>,
     /// The question's entities this chunk holds.
     pub matched: Vec<String>,
+    /// A look back's result (`context.history`, `look.work`): its words are other nodes', copied, so recall
+    /// never serves them as its own (each original is indexed under its own id, with its own label). Read
+    /// from the hit's tool when the candidate is made; never stored.
+    pub copy: bool,
 }
 
 impl Candidate {
@@ -339,7 +343,7 @@ fn filter(
     if asker.labeled.contains(&c.node_id) {
         return Some(Reason::LabeledWrong);
     }
-    if c.origin == "harness" || c.kind == "recall" {
+    if c.origin == "harness" || c.kind == "recall" || c.copy {
         return Some(Reason::Recursion);
     }
     if c.kind == "synthesis" {
@@ -506,6 +510,7 @@ mod tests {
             time_ms: 0,
             entities: Vec::new(),
             matched: Vec::new(),
+            copy: false,
         }
     }
 
@@ -546,6 +551,21 @@ mod tests {
             .iter()
             .find(|d| d.candidate.node_id == node)
             .map(|d| d.reason)
+    }
+
+    /// A look back's result is never served: its words are copies, dropped as recursion as a recall
+    /// note's are, however well it scores.
+    #[test]
+    fn a_copy_is_dropped_as_recursion() {
+        let mut copy = cand("copy", "ses_b", Place::Private, 0.95);
+        copy.copy = true;
+        let cands = vec![copy, cand("ok", "ses_b", Place::Private, 0.9)];
+        let pack = run(&[], cands, &Params::default());
+        let admitted: Vec<_> = (pack.admitted.iter())
+            .map(|a| a.candidate.node_id.as_str())
+            .collect();
+        assert_eq!(admitted, ["ok"]);
+        assert_eq!(reason_of(&pack, "copy"), Some(Reason::Recursion));
     }
 
     /// Each filter's reason (§3.2's 30a tests), one candidate each, and one

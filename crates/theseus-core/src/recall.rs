@@ -899,6 +899,7 @@ fn candidate(h: theseus_protocol::index::IndexHit, index_rank: usize, place: Pla
         time_ms: h.time_ms,
         entities: h.entities,
         matched: h.entities_matched,
+        copy: h.tool.as_deref().is_some_and(crate::copies::copier),
     }
 }
 
