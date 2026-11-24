@@ -6004,6 +6004,19 @@ mod parallel {
     use theseus_protocol::Span;
     use theseus_tools::{Plan, Retry, Tool, ToolClass, ToolCtx, ToolFailure, ToolOutput};
 
+    /// Messages less the harness's own blocks (`task_graph::view::is_view`): who am I heads a first message.
+    fn own_words(messages: &[Value]) -> Vec<Value> {
+        (messages.iter())
+            .map(|m| {
+                let mut m = m.clone();
+                if let Some(b) = m["content"].as_array_mut() {
+                    b.retain(|b| !crate::task_graph::view::is_view(b));
+                }
+                m
+            })
+            .collect()
+    }
+
     /// How long each run of a slowed toollet sleeps first, by its tool and
     /// input, and when each run started and ended.
     #[derive(Default)]
@@ -6330,17 +6343,6 @@ mod parallel {
         // A new session at the same place: the view lays the place's earlier exchange before the turn's own
         // (issue 44), so the turn's own messages are the same, byte for byte, and so is everything else, but
         // who am I, which heads the first message, the turn's own in a fresh place and the earlier exchange's here.
-        let own_words = |m: &[Value]| -> Vec<Value> {
-            (m.iter())
-                .map(|m| {
-                    let mut m = m.clone();
-                    if let Some(b) = m["content"].as_array_mut() {
-                        b.retain(|b| !crate::task_graph::view::is_view(b));
-                    }
-                    m
-                })
-                .collect()
-        };
         let own = &reqs[3].messages[reqs[3].messages.len() - reqs[1].messages.len()..];
         assert_eq!(own_words(own), own_words(&reqs[1].messages));
         assert_eq!(reqs[3].system, reqs[1].system);
