@@ -79,9 +79,43 @@ impl Core {
     }
 }
 
+impl Core {
+    /// The owner settled or forgave `hand`, whose outcome is unknown: its group takes its step now,
+    /// which closes it when that hand was the last it waited on, and the poller reads its open groups
+    /// again. Without a runtime, the poller's step at the next start does it.
+    pub fn step_after_owner_settled(&self, hand: &theseus_kernel::Action) {
+        let Some(g) = (hand.tool == HAND)
+            .then_some(hand.resource.as_deref())
+            .flatten()
+            .and_then(|r| r.strip_prefix(group::PREFIX))
+        else {
+            return;
+        };
+        let (Some(aws), Ok(rt)) = (
+            self.tools.aws.clone(),
+            tokio::runtime::Handle::try_current(),
+        ) else {
+            return;
+        };
+        let (kernel, store, g) = (self.kernel.clone(), self.store.clone(), g.to_string());
+        rt.spawn(async move {
+            let ctx = group::Ctx {
+                kernel: &kernel,
+                store: &store,
+                aws: &aws,
+            };
+            if let Err(e) = group::step(&ctx, &g).await {
+                tracing::warn!(group = %g, error = %format!("{e:#}"), "hands: a step after a settle");
+            }
+            aws.hands.wake.notify_one();
+        });
+    }
+}
+
 /// The open groups: each whose `aws.hands.run` call, or one of whose hands,
 /// is dispatched and not settled (a hand still running after its group is
-/// done comes home too), by its record.
+/// done comes home too; an unknown one the owner settled or forgave does
+/// not), by its record.
 pub fn open_groups(core: &Core) -> Result<Vec<GroupRecord>> {
     let mut open = core
         .kernel
@@ -93,6 +127,7 @@ pub fn open_groups(core: &Core) -> Result<Vec<GroupRecord>> {
         .iter()
         .filter_map(|a| match a.tool.as_str() {
             RUN => Some(a.correlation_id.as_str()),
+            HAND if group::owner_settled_usd(a).is_some() => None,
             HAND => a.resource.as_deref()?.strip_prefix(group::PREFIX),
             _ => None,
         })

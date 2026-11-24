@@ -98,6 +98,7 @@ impl Core {
             .kernel
             .settle_held_spend(&p.correlation_id, cost, &who.who())?;
         self.admission.notify_waiters();
+        self.step_after_owner_settled(&a);
         Ok(ActionSettleResult {
             correlation_id: a.correlation_id,
             execution_id: a.execution_id,
