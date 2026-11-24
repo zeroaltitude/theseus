@@ -1978,3 +1978,25 @@ async fn a_fork_is_refused_when_a_record_that_does_not_read_names_an_item_it_hol
     }
     fork(&r.core, &sid, &nodes[3].0);
 }
+
+/// The earlier item's record of today's shape but for its removals, which are not the older shape, where every
+/// removal has no `session` key at all: one whose `session` is null, then a list of one with a session and one
+/// without. The fork would hold that item, so it is refused, and nothing of a fork is written (issue 44).
+#[tokio::test]
+async fn a_fork_is_refused_when_an_item_it_holds_has_removals_of_neither_shape() {
+    use crate::content::Flag;
+    let r = rig();
+    let (sid, nodes) = three_turns(&r).await;
+    let removal = json!({"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2, "note": UNREAD});
+    let mut null = removal.clone();
+    null["session"] = Value::Null;
+    let mut named = removal.clone();
+    named["session"] = json!(sid);
+    let key = crate::item_labels::key(&nodes[1].0);
+    for removed in [json!([null]), json!([named, removal])] {
+        let item = json!({"node": nodes[1].0, "kind": "tool_result", "source": "fixture", "entered_ms": 1,
+                          "raised": [label_on(&nodes[1].0, Flag::Confidential)], "removed": removed});
+        r.core.store.put_meta(&key, &item).unwrap();
+        refused_for(&r, &sid, &nodes[3].0, &key);
+    }
+}

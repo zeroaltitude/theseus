@@ -1193,6 +1193,51 @@ async fn a_rebuild_passes_over_a_damaged_items_record_and_touches_none_of_its_la
     assert!(left.unwrap().is_some(), "{key} is left as it is");
 }
 
+/// An item's record of today's shape whose removals are `removed`, with `personal` raised on `node`.
+fn item_removing(node: &str, removed: Value) -> Value {
+    json!({"node": node, "kind": "operator_message", "source": "cli", "entered_ms": 1,
+           "raised": [label_json(node, "personal")], "removed": removed})
+}
+
+/// Removals that are not the older shape, where every removal has no `session` key at all: one whose
+/// `session` is null, and a list of one with a session and one without.
+fn removals_not_older(sid: &str) -> [Value; 2] {
+    let removal = json!({"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2, "note": PAYLOAD});
+    let mut null = removal.clone();
+    null["session"] = Value::Null;
+    let mut named = removal.clone();
+    named["session"] = json!(sid);
+    [json!([null]), json!([named, removal])]
+}
+
+/// An item's record whose removals are neither today's nor the older shape (a removal's `session` is null, or
+/// only some removals have one) is passed over and counted by the rebuild, and none of its labels is touched
+/// (issue 44).
+#[tokio::test]
+async fn a_rebuild_passes_over_an_items_record_whose_removals_are_neither_shape() {
+    use crate::content::Flag;
+    for i in 0..2 {
+        let r = rig(1, |_| {});
+        let c = &r.core;
+        let t = turn(c, owner_cli(), None, "my diagnosis came back").await;
+        let node = input_node(c, &t);
+        let removed = removals_not_older(&t.session_id)[i].clone();
+        let key = crate::item_labels::key(&node);
+        c.store.put_meta(&key, &item_removing(&node, removed)).unwrap();
+        let run = call(c, owner_cli(), "exchange.rebuild", json!({})).await;
+        assert!(run.error.is_none(), "{:?}", run.error);
+        let run = run.result.unwrap();
+        assert_eq!(
+            (run["labels_passed_over"].as_u64(), run["touches"].as_u64()),
+            (Some(1), Some(0)),
+            "{i}: {run}"
+        );
+        let root = crate::item_labels::touch_root(Flag::Personal);
+        let got = newest(&c.store, Root::Thing(&root), 8).unwrap();
+        assert!(got.is_empty(), "{i}: {root} was touched");
+    }
+}
+
 /// A fork of a session over such a store completes (issue 44), and carries today's record's label and the
 /// older record's (its removal, which names no session, is not read: a label stands). A record that does not
 /// read, whose key and `node` name no item of the fork, is read for nothing: a label raised in it is not
