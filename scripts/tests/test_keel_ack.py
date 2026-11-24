@@ -186,6 +186,7 @@ class SshSigner(unittest.TestCase):
                     "KEEL_SSH_WINDOWS": str(bin_dir / "ssh-keygen.exe"), "KEEL_SSH_WINTMP": str(self.tmp / "wintmp"),
                     "FAKE_LOG": str(self.log), "FAKE_PRIV": str(self.key), "FAKE_FAIL": "0"}
         self.env.pop("SSH_AUTH_SOCK", None)
+        self.env.pop("THESEUS_KEEL_BASE", None)  # the gate sets it; this guard run judges the fixture repo
         self.data = self.tmp / "buffer"
         self.data.write_text("tree 0123\n\na commit to sign\n")
         (self.tmp / "key-tmp.pub").write_text(self.pub + "\n")

@@ -38,7 +38,10 @@ CALIBRATION = [
     # 93 until the function was shortened: it reads 55 now, and clippy reads 55 too (the diff of the whole workspace at
     # threshold 40, issue 14, agreed at store.rs:1864). The stale row, not a counting bug, was the "55 against 93" that
     # reddened this test on main and cost a round trip; the row is re-measured, not loosened.
-    ("crates/theseus-store/src/store.rs", "commit", 55),
+    # The function then changed in store.rs (its frame writing became `write_batch`, and it gained a check for a
+    # partly synced batch) and moved, unchanged, to store/batch.rs: the script reads 48 there now. Clippy was not
+    # re-run for this row, so re-measure it if it ever disagrees.
+    ("crates/theseus-store/src/store/batch.rs", "commit", 48),
     # 96 until issue 6 shortened it (it split `read_frames` out): the script reads 95 now, and a function the script reads
     # right on every other row is taken to be right here; clippy was not re-run for this row, so re-measure it if it ever disagrees.
     ("crates/theseus-follow/src/lib.rs", "read_into", 95),

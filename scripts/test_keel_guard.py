@@ -346,6 +346,26 @@ class Case(unittest.TestCase):
 
 
 class Erosions(Case):
+    def test_a_slow_timeout_line_deleted(self):
+        self.assertCaught("ceiling-raised", ".config/nextest.toml", {".config/nextest.toml": sub(
+            NEXTEST, 'slow-timeout = { period = "60s", terminate-after = 2 }\n', "")})
+
+    def test_the_default_profile_deleted(self):
+        self.assertCaught("ceiling-raised", ".config/nextest.toml", {".config/nextest.toml": "# no profiles\n"})
+
+    def test_the_nextest_config_deleted(self):
+        self.assertCaught("ceiling-raised", ".config/nextest.toml", {".config/nextest.toml": None})
+
+    def test_terminate_after_dropped_from_a_surviving_table_is_reported_once(self):
+        self.head({".config/nextest.toml": sub(NEXTEST, ', terminate-after = 2', "")})
+        code, out = self.findings()
+        self.assertEqual(code, 1, out)
+        self.assertEqual(len(re.findall(r"\.config/nextest\.toml:\d+: ceiling-raised", out)), 1, out)
+
+    def test_git_confinement_requires_the_owner(self):
+        path = "crates/theseus-core/src/rsi/tree_git.rs"
+        self.assertCaught("keel-file", path, {path: "pub fn confined() {}\n"})
+
     """The eight the brief names, and the rest of the rules, each caught by name."""
 
     def test_a_deleted_test(self):
@@ -1231,6 +1251,106 @@ class Ranges(Case):
 GATE = Path(__file__).resolve().parent / "gate.sh"
 
 
+class OddNames(Case):
+    """A changed file's name with a control character stops the guard (it exits 2), whatever else the branch holds:
+    a line break in a name would be read by the guard's `git cat-file --batch` as further requests, and every later
+    read would be answered with content the branch chose."""
+
+    RAISED = {"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3200")}
+
+    def odd(self, name, text="// an odd name\n"):
+        p = self.repo.root / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+
+    def assertRefused(self, *args):
+        code, out = self.repo.guard(*args)
+        self.assertEqual(code, 2, out)
+        self.assertNotIn("keel: ok", out)
+        self.assertRegex(out, "control character|not UTF-8")
+        return out
+
+    def injected(self):
+        """The planted case: five empty-blob ids on lines of their own inside a changed .rs file's name."""
+        self.repo.commit({"crates/demo/empty.txt": ""}, "an empty file")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.git("merge", "-q", "--ff-only", "lane")
+        self.repo.git("checkout", "-q", "lane")
+        empty = self.repo.git("hash-object", "crates/demo/empty.txt").strip()
+        self.odd("crates/demo/src/x\n" + "\n".join([empty] * 5) + "\nz.rs")
+
+    def test_line_breaks_in_a_name_cannot_blind_the_guard_on_a_branch(self):
+        self.injected()
+        self.repo.commit(dict(self.RAISED), "raise, beside an odd name")
+        out = self.assertRefused("--base", "main", "--head", "lane")
+        self.assertNotIn("\nz.rs", out, "the name is shown escaped, on one line")
+
+    def test_line_breaks_in_a_name_cannot_blind_the_guard_in_the_working_tree(self):
+        self.injected()
+        self.repo.write(dict(self.RAISED))
+        self.assertRefused()
+        self.repo.commit({}, "committed")
+        self.assertRefused()
+
+    def test_without_the_odd_name_the_same_change_is_a_finding(self):
+        self.repo.commit(dict(self.RAISED), "raise")
+        code, out = self.findings("--base", "main", "--head", "lane")
+        self.assertEqual(code, 1, out)
+        self.assertIn("ceiling-raised", out)
+
+    def test_a_carriage_return_a_tab_and_a_delete_are_refused_too(self):
+        for name in ("crates/demo/src/a\rb.rs", "crates/demo/src/a\tb.rs", "crates/demo/src/a\x7fb.rs"):
+            with self.subTest(name=name):
+                self.odd(name)
+                try:
+                    self.assertRefused()
+                finally:
+                    (self.repo.root / name).unlink()
+
+    def test_a_rename_to_an_odd_name_is_refused(self):
+        self.repo.git("mv", "crates/demo/src/lib.rs", "crates/demo/src/li\nb.rs")
+        self.repo.commit({}, "renamed")
+        self.assertRefused()
+
+    def test_no_ack_passes_an_odd_name(self):
+        self.odd("crates/demo/src/a\nb.rs")
+        self.repo.commit(dict(self.RAISED), "raise\n\nKeel: ceiling-raised scripts/long-files.txt \u2014 room")
+        self.assertRefused()
+
+    def test_spaces_and_letters_beyond_ascii_are_ordinary_names(self):
+        self.repo.commit({"crates/demo/src/two words.rs": "pub fn f() {}\n",
+                          "crates/demo/src/caf\u00e9.rs": "pub fn g() {}\n"}, "ordinary names")
+        code, out = self.findings()
+        self.assertEqual(code, 0, out)
+        self.assertIn("keel: ok", out)
+        self.repo.commit(dict(self.RAISED), "raise")
+        code, out = self.findings()
+        self.assertEqual(code, 1, out)
+        self.assertIn("ceiling-raised", out)
+
+    def test_a_name_that_is_not_utf8_is_refused(self):
+        name = os.fsencode(str(self.repo.root)) + b"/crates/demo/tests/t\xff.rs"
+        os.makedirs(os.path.dirname(name), exist_ok=True)
+        with open(name, "w") as f:
+            f.write("#[test]\nfn kept() {\n    assert_eq!(1 + 1, 2);\n}\n")
+        self.repo.git("add", "-A")
+        self.repo.git("commit", "-q", "-m", "a test under a name that is not UTF-8")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.git("merge", "-q", "--ff-only", "lane")
+        self.repo.git("checkout", "-q", "lane")
+        with open(name, "w") as f:
+            f.write("// the test is gone\n")
+        out = self.assertRefused()
+        self.assertIn("not UTF-8", out)
+        self.repo.commit({}, "the test emptied")
+        self.assertIn("not UTF-8", self.assertRefused("--base", "main", "--head", "lane"))
+
+    def test_a_commit_name_with_a_line_break_is_refused(self):
+        for flag in ("--base", "--head"):
+            with self.subTest(flag=flag):
+                self.assertRefused(flag, "main\nlane")
+
+
 class GateCase(Case):
     """The real scripts/gate.sh, run in a throwaway repository: its door and keel phases run, and its next phase (fmt)
     fails there, since the repository has no Cargo.toml; the door's and the keel's lines say what was judged."""
@@ -1765,6 +1885,43 @@ def gpg_key(home, name):
 
 @unittest.skipIf(shutil.which("gpg") is None, "no gpg: the signed acks are not tested here")
 class Acks(unittest.TestCase):
+    def test_a_ceiling_raised_again_after_the_ack_is_open(self):
+        self.repo.commit({}, self.ACK, sign=self.listed)
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3400")}, "raise it again")
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertRegex(out, r"  scripts/long-files.txt:\d+: ceiling-raised")
+
+    def test_an_uncommitted_raise_after_the_ack_is_open(self):
+        self.repo.commit({}, self.ACK, sign=self.listed)
+        self.repo.write({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3400")})
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+
+    def test_an_ack_followed_by_an_unrelated_commit_still_passes(self):
+        self.repo.commit({}, self.ACK, sign=self.listed)
+        self.repo.commit({"crates/demo/src/other.rs": "pub fn other() {}\n"}, "unrelated")
+        code, out = self.repo.guard()
+        self.assertEqual(code, 0, out)
+        self.assertIn("keel: acked: scripts/long-files.txt", out)
+
+    def test_a_mode_change_after_the_ack_is_open(self):
+        self.repo.commit({}, self.ACK, sign=self.listed)
+        self.repo.git("update-index", "--chmod=+x", "scripts/long-files.txt")
+        (self.repo.root / "scripts/long-files.txt").chmod(0o755)
+        self.repo.git("commit", "-q", "-m", "mode")
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+
+    def test_an_untracked_file_added_after_its_ack_is_open(self):
+        path = "crates/theseus-core/src/rsi/sealed/runner.rs"
+        self.repo.commit({path: "// the runner\n"}, "runner")
+        self.repo.commit({}, f"ack\n\nKeel: keel-file {path} — the runner\n" + self.ACK.split("\n\n", 1)[1],
+                         sign=self.listed)
+        self.repo.write({path: "// the runner, changed after the ack\n"})
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+
     """An ack passes only on a commit a key listed in the base's keel-signers signed."""
 
     @classmethod
@@ -1814,6 +1971,20 @@ class Acks(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn(f"keel: acked: {path}:1: keel-file", out)
         self.assertIn("keel: acked: crates/demo/src/peek.rs:1: sealed-reach", out)
+
+    def test_a_record_separator_in_a_trailer_borrows_no_signature(self):
+        # A signed commit on main, then an UNSIGNED one whose Keel: trailer holds 0x1e and `:/<regex>` naming it.
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({}, "a signed note", sign=self.listed)
+        self.repo.git("checkout", "-q", "lane")
+        self.repo.commit({}, "tidy\n\nceiling-raised scripts/long-files.txt \u2014 forged\n\n"
+                             "Keel: x\x1e:/^a signed[ ]note\n")
+        for args in ((), ("--base", "main~1", "--head", "lane")):
+            with self.subTest(args=args):
+                code, out = self.repo.guard(*args)
+                self.assertEqual(code, 1, out)
+                self.assertNotIn("keel: acked", out)
+                self.assertIn("ceiling-raised", out)
 
     def test_an_ack_signed_by_a_listed_key_passes(self):
         self.repo.commit({}, self.ACK, sign=self.listed)
