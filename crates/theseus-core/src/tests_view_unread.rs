@@ -209,6 +209,66 @@ async fn a_bare_page_past_an_unreadable_view_hides_nothing_its_window_would_have
     assert!(turns.iter().all(|t| unread.contains(t)), "{unread:?}");
 }
 
+/// A window exchange begun in the very millisecond its view was made, laid thinned, with nothing cleared: the
+/// readable record's bare page holds it, and so does the bare page past that record once this build cannot
+/// read it. (A page begun just before the view was made would hide it, and every page after.)
+#[tokio::test]
+async fn a_bare_page_past_an_unreadable_view_holds_an_exchange_of_the_views_own_millisecond() {
+    use crate::view::{Form, Pos, Slot, SourceRange, Space};
+    let r = rig();
+    let c = &r.core;
+    let sid = session(c, None);
+    turn(c, &sid, "note: the tide").await;
+    let tide = turn_of(c, &sid, "the tide");
+    let here = (crate::exchange::exchange(&c.store, &tide).unwrap())
+        .expect("its exchange")
+        .place;
+    let rec = (c.store.get_session::<SessionRecord>(&sid).unwrap()).expect("the session");
+    let cid = rec.compilation_id.expect("the session's last compilation");
+    let comp = (c.store.get_compilation(&cid).unwrap()).expect("its compilation");
+    assert!(
+        (comp.budget.iter())
+            .flat_map(|b| &b.dropped)
+            .all(|d| d.tier == "recall"),
+        "the compiler cleared nothing: {:?}",
+        comp.budget
+    );
+    let made = comp.created_at_ms;
+    let lamp = "turn_at_the_views_millisecond".to_string();
+    crate::tests_rebase_view::put_exchange(&c.store, &sid, &here, &lamp, made, "note: the lamp");
+    let mut view = (record::read(&c.store, &cid).unwrap()).expect("its view record");
+    let is_window = |s: &crate::view::budget::Shown| {
+        s.piece.slot == Slot::Here && matches!(s.piece.range.space, Space::Exchanges { .. })
+    };
+    let mut laid = (view.shown.iter().find(|s| is_window(s)))
+        .cloned()
+        .expect("a window piece");
+    let at = Pos {
+        at_ms: made,
+        id: lamp.clone(),
+    };
+    laid.piece.range = SourceRange {
+        space: Space::Exchanges {
+            place: here.clone(),
+        },
+        first: at.clone(),
+        last: at,
+    };
+    laid.form = Form::Spoken;
+    view.shown.retain(|s| !is_window(s));
+    view.shown.push(laid);
+    c.store.put_meta(&view.key(), &view).unwrap();
+    let read = bare_page(c, &sid, &here);
+    assert!(read.contains(&lamp), "{read:?}");
+    written_by_a_later_build(c, &sid);
+    let unread = bare_page(c, &sid, &here);
+    assert!(unread.contains(&lamp), "{unread:?}");
+    assert!(
+        read.iter().all(|t| unread.contains(t)),
+        "{read:?} {unread:?}"
+    );
+}
+
 /// The owner's `view show` of a turn whose view this build cannot read says so, by its compilation; another
 /// turn's view is still listed.
 #[tokio::test]

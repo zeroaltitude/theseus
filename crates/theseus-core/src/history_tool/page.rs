@@ -617,9 +617,10 @@ pub(super) fn cut(text: &str, max: usize, cuts: &Cuts) -> String {
 /// begins with it; with nothing cut, the page begins before the compilation's first node (a fresh one: before
 /// it was made; none: before the session began). A view compilation whose record is absent (a later chain of
 /// a turn keeps none) is read by the transcript's rule. One whose record this build cannot read (a later build's
-/// names) is read as a window that laid nothing of `here`, with a warning: the page begins just before the view
-/// was made, so every exchange of the place begun before it is paged and none its window held whole is hidden;
-/// some the model sees in full may be paged again. (The transcript's rule could begin before the window's
+/// names) is read as a window that laid nothing of `here`, with a warning: the page begins at the millisecond
+/// the view was made, that millisecond included (a window exchange can begin in it), so every exchange of the
+/// place begun by then is paged and none its window would have paged is hidden; some the model sees in full
+/// may be paged again. (The transcript's rule could begin before the window's
 /// start, and hide what lies between.)
 pub fn in_view(store: &Store, session: &str, here: &str) -> Result<Option<Cursor>> {
     let from = |at_ms: u64| Cursor {
@@ -646,7 +647,7 @@ pub fn in_view(store: &Store, session: &str, here: &str) -> Result<Option<Cursor
             Err(e) => {
                 tracing::warn!(compilation = %c.id, error = %format!("{e:#}"),
                     "a view record cannot be read: a bare history call begins where that view was made");
-                older(c.created_at_ms)
+                Some(from(c.created_at_ms))
             }
         };
         if let Some(start) = start {
