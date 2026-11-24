@@ -32,10 +32,11 @@ const LEVELS: usize = 2;
 
 /// Where each value appears in `text` once its escapes are decoded, once or
 /// twice, and where a needle of its base64 appears in a decoded run that an
-/// escape broke, as byte ranges of the text, each with the value's name. The
-/// verbatim pass has already taken every match with no escape in it. An
-/// output with no backslash costs one scan for it, and a second decode runs
-/// only when the first leaves a backslash.
+/// escape broke, as byte ranges of the text, each with the value's name,
+/// overlapping matches included. A match with no escape of its own level in
+/// it is the level before's (the verbatim pass's, at the first), and is left
+/// to it. An output with no backslash costs one scan for it, and a second
+/// decode runs only when the first leaves a backslash.
 pub(super) fn spans<'a>(
     text: &str,
     values: &[(&str, &'a str)],
@@ -52,7 +53,10 @@ pub(super) fn spans<'a>(
         // Every value in every level: one holding a literal `\n` matches in
         // the first only.
         for (v, name) in values {
-            for (at, _) in decoded.match_indices(v) {
+            for at in super::every(decoded, v) {
+                if !escape_inside(escapes, at, at + v.len()) {
+                    continue;
+                }
                 let (a, b) = back(at, at + v.len());
                 out.push((a, b, *name));
             }
@@ -74,6 +78,17 @@ pub(super) fn spans<'a>(
         }
     }
     out
+}
+
+/// Whether an escape is inside `at..end` of its level's decoded text: one
+/// whose character is there, or a line break that decodes to nothing between
+/// two of its characters.
+fn escape_inside(escapes: &[Escape], at: usize, end: usize) -> bool {
+    let k = escapes.partition_point(|e| e.dec < at);
+    escapes[k..]
+        .iter()
+        .take_while(|e| e.dec < end)
+        .any(|e| e.dec < e.dec_end || e.dec > at)
 }
 
 /// Each level's decoded text and its escapes, which map it back to the level

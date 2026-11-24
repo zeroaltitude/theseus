@@ -13,8 +13,10 @@
 //! known here the moment it resolves (theseus-qa0). A turn waits for the
 //! board's first round to settle before any tool output passes through here.
 //!
-//! One pass does the work for every caller: [`Substitution`], the verbatim
-//! values and then their encodings, with the name of every span it replaced.
+//! One pass does the work for every caller: [`Substitution`], every reading
+//! of every value, verbatim and encoded, found on the same text (overlapping
+//! readings included) and merged where they overlap, with the name of every
+//! span it replaced.
 //! `Scrubber` (Jev's state, the push line, the display sites) and the exits
 //! (the provider request, the courier: `exits.rs`) both run it, so what leaves
 //! the machine is held to the same standard whichever door it goes by.
@@ -35,6 +37,8 @@ mod tests_escaped;
 mod tests_fold;
 #[cfg(test)]
 mod tests_nested;
+#[cfg(test)]
+mod tests_overlap;
 
 #[derive(Default)]
 pub struct Scrubber {
@@ -118,42 +122,79 @@ impl<'a> Substitution<'a> {
     /// encoded one does not contain it.
     pub(crate) fn apply<'t>(&self, text: &'t str) -> (Cow<'t, str>, BTreeMap<String, u32>) {
         let mut counts: BTreeMap<String, u32> = BTreeMap::new();
-        let mut out = Cow::Borrowed(text);
+        let Some((out, names)) = splice(text, self.spans(text)) else {
+            return (Cow::Borrowed(text), counts);
+        };
+        for name in names {
+            *counts.entry(name.to_string()).or_default() += 1;
+        }
+        (Cow::Owned(out), counts)
+    }
+
+    /// Every reading of every value in `text`, verbatim and encoded, as byte
+    /// ranges with the value's name: overlapping readings each, all found on
+    /// the text as given.
+    fn spans(&self, text: &str) -> Vec<Span<'a>> {
+        let mut spans = Vec::new();
         for (v, name) in &self.values {
-            let n = out.matches(v).count();
-            if n > 0 {
-                *counts.entry((*name).to_string()).or_default() += n as u32;
-                out = Cow::Owned(out.replace(v, &format!("[redacted:{name}]")));
-            }
+            spans.extend(every(text, v).map(|at| (at, at + v.len(), *name)));
         }
-        let spans = encoded(&out, &self.values, &self.needles);
-        if let Some((spliced, names)) = splice(&out, spans) {
-            for name in names {
-                *counts.entry(name.to_string()).or_default() += 1;
-            }
-            out = Cow::Owned(spliced);
-        }
-        (out, counts)
+        spans.extend(encoded(text, &self.values, &self.needles));
+        spans
     }
 }
 
-/// `text` with each span replaced by its stand-in, in one pass from the end,
-/// and the name of each span kept. A span that overlaps an earlier one, or
-/// that does not fall on character boundaries, is left alone. `None` when no
-/// span was kept.
-fn splice<'a>(text: &str, mut spans: Vec<Span<'a>>) -> Option<(String, Vec<&'a str>)> {
+/// Where `needle` starts in `hay`, overlapping matches included: after a
+/// match the search goes on from its second character.
+fn every<'h>(hay: &'h str, needle: &'h str) -> impl Iterator<Item = usize> + 'h {
+    let step = needle.chars().next().map_or(1, char::len_utf8);
+    let mut from = 0;
+    std::iter::from_fn(move || {
+        if needle.is_empty() {
+            return None;
+        }
+        let at = from + hay.get(from..)?.find(needle)?;
+        from = at + step;
+        Some(at)
+    })
+}
+
+/// The spans `splice` replaces: those on character boundaries, sorted, with
+/// overlapping ones merged into one. Spans that only touch stay apart. Each
+/// merged span keeps the name of its first span. The names returned are one
+/// for each span kept and one for each span that made a kept one longer.
+fn merged<'a>(text: &str, mut spans: Vec<Span<'a>>) -> (Vec<Span<'a>>, Vec<&'a str>) {
     spans.sort_by_key(|s| (s.0, std::cmp::Reverse(s.1), s.2));
     let mut kept: Vec<Span> = Vec::new();
+    let mut names = Vec::new();
     for s in spans {
-        let clear = kept.last().is_none_or(|k| s.0 >= k.1);
-        if clear && s.0 < s.1 && text.is_char_boundary(s.0) && text.is_char_boundary(s.1) {
-            kept.push(s);
+        if s.0 >= s.1 || !text.is_char_boundary(s.0) || !text.is_char_boundary(s.1) {
+            continue;
+        }
+        match kept.last_mut() {
+            Some(k) if s.0 < k.1 => {
+                if s.1 > k.1 {
+                    k.1 = s.1;
+                    names.push(s.2);
+                }
+            }
+            _ => {
+                kept.push(s);
+                names.push(s.2);
+            }
         }
     }
+    (kept, names)
+}
+
+/// `text` with each span replaced by its stand-in, in one pass from the end,
+/// overlapping spans merged first (`merged`), and the names counted. `None`
+/// when no span was kept.
+fn splice<'a>(text: &str, spans: Vec<Span<'a>>) -> Option<(String, Vec<&'a str>)> {
+    let (kept, names) = merged(text, spans);
     if kept.is_empty() {
         return None;
     }
-    let names = kept.iter().map(|k| k.2).collect();
     let mut out = text.to_string();
     for (a, b, name) in kept.into_iter().rev() {
         out.replace_range(a..b, &format!("[redacted:{name}]"));
@@ -216,7 +257,7 @@ fn base64_spans<'a>(
         };
         let line_of = |at: usize| &lines[starts.partition_point(|s| *s <= at) - 1];
         for (needle, name) in needles {
-            for (at, _) in run.match_indices(needle.as_str()) {
+            for at in every(run, needle) {
                 let (first, last) = (line_of(at), line_of(at + needle.len() - 1));
                 spans.push((first.start, last.end, *name));
             }
@@ -383,10 +424,9 @@ fn percent_spans(t: &[u8], v: &[u8]) -> Vec<(usize, usize)> {
             .max()
         {
             spans.push((i, end));
-            i = end;
-        } else {
-            i += 1;
         }
+        // A reading that starts inside this one is tried as well.
+        i += 1;
     }
     spans
 }
@@ -665,7 +705,7 @@ mod tests {
                 .max()
             {
                 spans.push((i, end));
-                i = end;
+                i += 1;
             } else {
                 i += 1;
             }
@@ -731,7 +771,7 @@ mod tests {
 
     // Enumerate decodings, not matcher transitions: never prune by the wanted byte,
     // never deduplicate frontiers, and never skip a start after finding a match.
-    fn percent_oracle(text: &[u8], value: &[u8]) -> Vec<(usize, usize)> {
+    pub(super) fn percent_oracle(text: &[u8], value: &[u8]) -> Vec<(usize, usize)> {
         let mut spans = Vec::new();
         if value.is_empty() {
             return spans;
@@ -768,7 +808,7 @@ mod tests {
         spans
     }
 
-    fn small_words(alphabet: &[u8], max_len: usize) -> Vec<Vec<u8>> {
+    pub(super) fn small_words(alphabet: &[u8], max_len: usize) -> Vec<Vec<u8>> {
         let mut words = vec![Vec::new()];
         let mut layer = vec![Vec::new()];
         for _ in 0..max_len {
