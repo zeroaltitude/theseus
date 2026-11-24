@@ -99,10 +99,12 @@ alias carries it to the new name, so rename it.
   `shows_identifiers`, the questions that existed for the restricted-provider rule. Their one reader, the private
   mark (`judge::onto::mark`), went with them: it decided what later requests could send to models outside an
   allowlist, ran only under `[ontology] private_mark` (off by default), and even on wrote one trace line.
-  `[ontology] private_mark` loads, is ignored, and is named at startup. The two picture questions nothing reads
-  yet, `image_subject` and `shows_screen_or_document`, are still asked: whether they become written labels or
-  go is the owner's decision. `judge replay --onto` with no candidate replays the wired onto pack by its
-  constant, and the cockpit counts the onto pack's judgments under the wired name.
+  `[ontology] private_mark` loads, is ignored, and is named at startup. The two picture questions, `image_subject`
+  and `shows_screen_or_document`, are still asked, and the owner kept them (2026-11-24): their answers at the act
+  band are written as labels of the message's exchange (`picture:<subject>`, and
+  `picture:shows_screen_or_document` for a yes; `names::pictures`). `judge replay --onto` with no candidate
+  replays the wired onto pack by its constant, and the cockpit counts the onto pack's judgments under the wired
+  name.
 - **`loop.v2`** is `loop.v1` without `stopping_point_defined`, `same_action_repeating`, `cost_out_of_proportion`
   and `wants_human_input` (no code read their answers) and without the `spend_ratio`,
   `operator_stop_within_nudge` and `on_path_p95` rules (no code builds their events, so none could fire);

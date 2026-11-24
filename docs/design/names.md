@@ -25,6 +25,20 @@ kind is a type of the index's extractor, so the id is the term.
 
 The read is `names::topics::timeline(store, id, n)`: one bounded read of the touch index, newest first.
 
+## Picture labels per exchange (`names::pictures`)
+
+The same pack asks two questions of the pictures a person's message carries: what the picture is mostly of
+(`image_subject`, the first picture's when there are several) and whether a picture shows a screen or a document
+someone could read (`shows_screen_or_document`). The owner kept both (2026-11-24), and in the same frame each answer
+at `[ontology] act` touches the message's exchange: `picture:<subject>` (the pack's option id, `picture:document`)
+and, for a yes, `picture:shows_screen_or_document`. A no writes nothing; the answer stays in the judgment's row.
+
+- The labels describe the message's pictures, not each one. A picture has no record of its own.
+- The same judgments topics read, and no others: never a learned or a shadow version's.
+- The sweep mints no kind named `picture` (`judge::onto::mint`), so no category shares these roots.
+- Nothing that decides an act reads them; a reader asks for one by name, as for any thing's timeline.
+- Pictures sent before this was built have no labels; nothing fills them in.
+
 ## Numbered items (`names::items`, the index's `entity::item`)
 
 The index's extractor gains an `item` kind: `issue 33` and `issue #33` are `item:issue-33`, `PR 12` and
