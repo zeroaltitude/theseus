@@ -55,7 +55,7 @@ never grows. A task with nothing to do is a record on disk, so thousands can wai
 
 ## 2. A thread for each line of work (historical)
 
-Retired on 2026-11-22: messages now run in their place's conversation. Only read-only thread list/show remain;
+Retired on 2026-11-22: messages now run in their place's conversation. No thread command remains;
 the pitch and status below record the 2026-11-14 design, not current controls.
 
 **The pitch.** The owner called this the feature that moved him over: separate lines of work that do not bleed into

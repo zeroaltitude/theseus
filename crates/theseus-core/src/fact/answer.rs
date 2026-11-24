@@ -212,8 +212,7 @@ impl ActRefused<'_> {
             | Act::Routine { .. }
             | Act::Watch { .. }
             | Act::UndoAllow { .. }
-            | Act::Settings { .. }
-            | Act::Thread { .. } => None,
+            | Act::Settings { .. } => None,
         }
     }
 }
@@ -255,8 +254,7 @@ impl Fact for ActRefused<'_> {
             | Act::Routine { what, .. }
             | Act::Watch { what, .. }
             | Act::UndoAllow { what }
-            | Act::Settings { what }
-            | Act::Thread { what, .. } => {
+            | Act::Settings { what } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
@@ -333,10 +331,6 @@ impl Fact for ActRefused<'_> {
             Act::Retract { what } => format!(
                 "{what}, from {who} through {via}, did not count: {why}. Nothing was labeled \
                  or written, and no session was told."
-            ),
-            Act::Thread { what, .. } => format!(
-                "{what}, from {} through {}, did not count: {}. The threads are as they were.",
-                who, via, why
             ),
             Act::Routine { what, .. } => format!(
                 "{what}, from {who} through {via}, did not count: {why}. The routines are as \

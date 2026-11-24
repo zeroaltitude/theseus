@@ -30,7 +30,7 @@ fn commands(text: &str) -> Vec<(String, String)> {
 }
 
 /// Every top-level command with its one-line purpose, as `theseus help all` lists them: the everyday screen
-/// (`theseus --help`) shows 19 of them (theseus-rwpbg.10).
+/// (`theseus --help`) shows 18 of them (theseus-rwpbg.10).
 fn top() -> Vec<(String, String)> {
     let out = Command::new(THESEUS)
         .args(["help", "all"])

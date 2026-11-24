@@ -1,45 +1,19 @@
-//! `thread.list` and `thread.show` after threads were retired (2026-11-22, issue 44): they read
-//! the stored records, and they are still the owner's alone (`judge_act(Act::Thread)`), so a
-//! person in a shared place is refused them. The shared-place case keeps the act-gate half of the
-//! deleted `tests_threads.rs::a_shared_place_can_neither_address_list_nor_bind_a_thread`.
+//! The thread records an older store holds, after the read-only `thread.list` and `thread.show` were
+//! removed (issue 44; threads were retired 2026-11-22): every `thread.*` method is refused, the records
+//! stay as they were, and the board the daemon still reads them into holds each one whole.
 
 use std::sync::Arc;
 
-use theseus_protocol::threads::{ThreadListParams, ThreadState};
+use theseus_protocol::threads::ThreadState;
 
 use super::tests::test_core;
 use super::Core;
-use crate::approval::{Answerer, Surface};
 use crate::places::{BoundPlace, PlaceClass};
 
 const LAB: u64 = 314_159_265_358_979_323;
-const STRANGER: u64 = 777;
 
 fn core() -> Arc<Core> {
     test_core("the tide is out")
-}
-
-fn cli() -> Answerer {
-    Answerer {
-        label: "the CLI".into(),
-        surface: Surface::Cli,
-        discord: None,
-        agent: None,
-    }
-}
-
-/// A person in a shared channel of the binding's.
-fn stranger() -> Answerer {
-    Answerer {
-        label: format!("discord:{STRANGER}"),
-        surface: Surface::Discord,
-        discord: Some(theseus_protocol::DiscordOrigin {
-            user_id: STRANGER.to_string(),
-            channel_id: LAB.to_string(),
-            guild_id: Some("7".into()),
-        }),
-        agent: None,
-    }
 }
 
 /// A stored thread record, as an old store holds it.
@@ -48,32 +22,38 @@ fn stored(core: &Core, slug: &str) {
     crate::tests_old_threads::thread(core, slug, &title, serde_json::json!({}));
 }
 
-#[test]
-fn list_and_show_read_the_stored_records() {
-    let c = core();
-    stored(&c, "tides");
-    stored(&c, "kelp");
-    let listed = c.thread_list(&ThreadListParams::default(), cli()).unwrap();
-    assert_eq!(listed.total, 2);
-    let slugs: Vec<&str> = listed
-        .threads
-        .iter()
-        .map(|r| r.thread.slug.as_str())
-        .collect();
-    assert!(
-        slugs.contains(&"tides") && slugs.contains(&"kelp"),
-        "{slugs:?}"
-    );
-    let shown = c.thread_show("tides", cli()).unwrap();
-    assert_eq!(shown.thread.title, "Title of tides");
-    assert_eq!(shown.thread.state, ThreadState::Active);
-    let missing = c.thread_show("nothing-here", cli()).unwrap_err();
-    assert_eq!(
-        missing.code,
-        theseus_protocol::error_code::NOT_FOUND,
-        "{}",
-        missing.message
-    );
+/// `thread.list` and `thread.show` are gone (issue 44): over the wire each is refused, saying threads were
+/// retired, as every other `thread.*` method is.
+#[tokio::test]
+async fn thread_list_and_show_are_refused_over_the_wire() {
+    let core = core();
+    stored(&core, "tides");
+    for m in ["thread.list", "thread.show"] {
+        let req = theseus_protocol::Request::new(
+            theseus_protocol::Id::Num(1),
+            m,
+            serde_json::json!({"slug": "tides"}),
+        );
+        let got = super::tests::roundtrip(core.clone(), vec![req]).await;
+        let answer = got
+            .into_iter()
+            .find_map(|msg| match msg {
+                theseus_protocol::Message::Response(r) => Some(serde_json::to_value(r).unwrap()),
+                _ => None,
+            })
+            .expect("an answer");
+        assert_eq!(
+            answer["error"]["code"],
+            theseus_protocol::error_code::REFUSED,
+            "{m}: {answer}"
+        );
+        assert!(
+            answer["error"]["message"]
+                .as_str()
+                .is_some_and(|w| w.contains("threads were retired")),
+            "{m}: {answer}"
+        );
+    }
 }
 
 #[test]
@@ -88,17 +68,14 @@ fn a_shared_place_can_neither_list_nor_show_a_thread() {
     }]);
     stored(&c, "tides");
     let refused = |e: super::server::RpcFailure| assert_eq!(e.code, REFUSED, "{}", e.message);
-    refused(
-        c.thread_list(&ThreadListParams::default(), stranger())
-            .unwrap_err(),
-    );
-    refused(c.thread_show("tides", stranger()).unwrap_err());
+    refused(Core::rpc_threads("thread.list").unwrap_err());
+    refused(Core::rpc_threads("thread.show").unwrap_err());
     assert!(
         c.outbox.place_session("thread:tides").unwrap().is_none(),
         "no place was bound"
     );
     assert_eq!(c.threads().get("tides").unwrap().state, ThreadState::Active);
-    // The owner's own DM, bound private, may.
+    // A thread's places are private always.
     let class = |t: &str| c.runner.place_rule.class(&c.cfg, Some(t));
     assert_eq!(class("thread:tides"), PlaceClass::Private);
     assert_eq!(class("discord:thread:tides"), PlaceClass::Private);
@@ -206,32 +183,12 @@ fn write_old_store(core: &Core, sid: &str) {
         .unwrap();
 }
 
-/// What `thread.list` (default and done) and `thread.show` return over the old store `write_old_store`
-/// planted: every record, with every field it was written with.
-fn assert_listed(core: &Core, sid: &str) {
-    let listed = core
-        .thread_list(&ThreadListParams::default(), cli())
-        .unwrap();
-    assert_eq!(listed.total, 6);
-    let slug = |r: &theseus_protocol::threads::ThreadRow| r.thread.slug.clone();
-    let mut shown: Vec<String> = listed.threads.iter().map(slug).collect();
-    shown.sort();
-    assert_eq!(
-        shown,
-        ["disk", "embargo", "maybe", "moons", "tides"],
-        "default: all but done"
-    );
-    let done = core
-        .thread_list(
-            &ThreadListParams {
-                state: Some(ThreadState::Done),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
-    assert_eq!(done.threads.iter().map(slug).collect::<Vec<_>>(), ["old"]);
-    let show = |s: &str| core.thread_show(s, cli()).unwrap().thread;
+/// What the daemon reads of the old store `write_old_store` planted: the board holds every record, with
+/// every field it was written with.
+fn assert_read(core: &Core, sid: &str) {
+    let board = core.threads();
+    assert_eq!(board.len(), 6, "every record reads");
+    let show = |s: &str| board.get(s).cloned().unwrap();
     let t = show("tides");
     assert_eq!(
         (t.title.as_str(), t.goal.as_str()),
@@ -245,12 +202,7 @@ fn assert_listed(core: &Core, sid: &str) {
     assert_eq!(t.session_id.as_deref(), Some(sid));
     assert_eq!(t.topics, ["topic:tides"]);
     assert_eq!(t.created_at_ms, 1_780_000_000_000);
-    // Shown as the later of the record's and its session's activity (the row's, not the store's).
-    assert!(
-        t.last_active_ms >= 1_790_000_000_000,
-        "{}",
-        t.last_active_ms
-    );
+    assert_eq!(t.last_active_ms, 1_790_000_000_000);
     let seal = show("embargo").sealed.unwrap();
     assert_eq!(
         (seal.by.as_str(), seal.at_ms, seal.reason.as_str()),
@@ -278,10 +230,10 @@ fn assert_listed(core: &Core, sid: &str) {
 /// The owner's store as an older build left it (issue 44, threads retired 2026-11-22): thread records written
 /// as RAW stored JSON (not by today's constructors), one of each shape an older build wrote (sealed, a pending
 /// seal, paused, done, split from, merged into, a parent, linked, a working set, a Discord surface, with and
-/// without a session), and one thread whose session holds an earlier exchange. After a restart, `thread.list`
-/// (default and done) and `thread.show` return every one with its fields; no stored thread record or binding
-/// changes by a byte; and the session that was a thread's runs an ordinary turn by its session id, with its
-/// earlier exchange in the request.
+/// without a session), and one thread whose session holds an earlier exchange. After a restart, the board
+/// holds every one with its fields and `thread.list` and `thread.show` are refused; no stored thread record or
+/// binding changes by a byte; and the session that was a thread's runs an ordinary turn by its session id, with
+/// its earlier exchange in the request.
 #[tokio::test]
 async fn an_old_stores_threads_read_unchanged_and_a_threads_session_runs_as_any_other() {
     use crate::provider::Scripted;
@@ -311,7 +263,7 @@ async fn an_old_stores_threads_read_unchanged_and_a_threads_session_runs_as_any_
         "the restart wrote nothing to the thread records or their bindings"
     );
 
-    assert_listed(&core, &sid);
+    assert_read(&core, &sid);
     assert_eq!(
         raw_threads(&core),
         before,

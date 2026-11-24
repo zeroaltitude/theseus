@@ -827,12 +827,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<watch_cmd::WatchesCmd>,
     },
-    /// Threads, read-only: they were retired on 2026-11-22, and `thread` lists the stored
-    /// records and `thread show SLUG` reads one.
-    #[command(display_order = 16)]
+    /// Threads were retired on 2026-11-22: no command reads their stored records, which are kept.
+    /// `thread import --vestige PATH` is the old spelling of `import vestige PATH`.
+    #[command(hide = true, display_order = 16)]
     Thread {
         #[command(subcommand)]
-        cmd: Option<thread::ThreadCmd>,
+        cmd: thread::ThreadCmd,
     },
     /// Routines: recurring work, each run a fresh task with its own budget, from a
     /// month of its own. `routine` lists them; `routine add SCHEDULE BRIEF`, `runs`, `pause`,
@@ -1615,7 +1615,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Persona { cmd } => persona_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::WatchFor { cmd } => watch_cmd::go(c, json, cmd).await,
-        Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Thread { cmd } => thread::run(c, json, cmd).await,
         cmd @ (Cmd::Undo { .. } | Cmd::Config { .. }) => owner_cmd(c, json, cmd).await,
         cmd @ (Cmd::Routine { .. } | Cmd::Project { .. }) => plans_cmd(c, json, cmd).await,
         Cmd::Model { cmd } => own_bench::run(c, json, cmd).await,

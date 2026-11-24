@@ -7,7 +7,7 @@ Key modules: `names.rs` (the `method` and `notify` tables), `lib.rs` (the `error
 
 > **Anything goes, since 2026-11-22.** Nothing is withheld from a model request because of who is present,
 > where it is, a seal, a veil or a move, and threads are not containers: no message is sent to a thread's
-> own session, and `thread list` / `thread show` are the only thread commands. Where a paragraph below
+> own session, and no thread command is left. Where a paragraph below
 > describes the gate's presence rules, seals, moves, the release card or thread commands as living, it is
 > the record of what was; old records still decode. Authority (whose words a piece is) and the act gates
 > (approvals, a place's tool ceiling, publishing into a shared place) are unchanged.
@@ -206,8 +206,7 @@ Key modules: `names.rs` (the `method` and `notify` tables), `lib.rs` (the `error
   `start_at_ms`, `start_after_ms` or `start_when`, `quotes`, `report_to`), `TaskStartResult` and `ReportTo`. The method is the
   owner's, judged by `Act::Task`.
 - `threads.rs` (theseus-nhew): threads on virtual places `thread:<slug>`: `ThreadInfo` (the seam the context, recall and
-  routing rows read: extend it only by adding), `WorkingSet`, `Seal`, `ThreadState`, `ThreadRow` (a thread with its
-  session's context tokens and today's dollars), the eight `thread.*` methods' params, and `slug_ok`/`place_of`/
+  routing rows read: extend it only by adding), `WorkingSet`, `Seal`, `ThreadState`, and `slug_ok`/`place_of`/
   `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`.
 - `diff.rs` and `term/words.rs` (theseus-z6au): a tool call in words and an edit's diff, for every surface.
   `term::words::summarize(tool, input)` is the line a person reads (`Run `cargo test``, `Edit tides.py`, `Search for

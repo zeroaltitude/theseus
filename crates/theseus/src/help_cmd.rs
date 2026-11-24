@@ -10,9 +10,9 @@ use crate::Cli;
 
 /// The commands `theseus help` shows, in the order it shows them (the `display_order` of each in `main.rs`).
 #[cfg(test)]
-pub const EVERYDAY: [&str; 19] = [
+pub const EVERYDAY: [&str; 18] = [
     "ask", "chat", "tui", "history", "watch", "status", "tasks", "answer", "stop", "agenda",
-    "digest", "remind", "routine", "wake", "project", "thread", "places", "profile", "health",
+    "digest", "remind", "routine", "wake", "project", "places", "profile", "health",
 ];
 
 /// What one line of `help all` says of a command: its about's first sentence, without its parentheses, cut at a

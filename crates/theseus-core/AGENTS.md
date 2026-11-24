@@ -7,7 +7,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 
 > **Anything goes, since 2026-11-22.** Nothing is withheld from a model request because of who is present,
 > where it is, a seal, a veil or a move, and threads are not containers: no message is sent to a thread's
-> own session, and `thread list` / `thread show` are the only thread commands. Where a paragraph below
+> own session, and no thread command is left. Where a paragraph below
 > describes the gate's presence rules, seals, moves, the release card or thread commands as living, it is
 > the record of what was; old records still decode. Authority (whose words a piece is) and the act gates
 > (approvals, a place's tool ceiling, publishing into a shared place) are unchanged.
@@ -622,7 +622,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   immutable snapshot read once (two META scans, `Core::warm_threads` after serving, or the first reader) and swapped on
   a write: `Core::threads()` gives it, `Board::of_session` the thread a session serves and `Board::live(PlaceClass)` the
   active ones for the router (none for a shared place). A thread is private always: `places::PlaceRule::class` classes
-  `thread:*` and `discord:thread:*` private, every method is `judge_act(Act::Thread)` (the owner, from a private place),
+  `thread:*` and `discord:thread:*` private, every `thread.*` method is refused (`rpc/threads.rs`),
   and the outbox gives a virtual place's session no target (`outbox::virtual_place`), so it posts nowhere, as a CLI
   session's. `turn.submit { thread }` runs in `Core::thread_session`: the place's session, or one opened and bound on
   first use and after the session was retired (the owner's `/new` is a retire), under the board's lock so two first
@@ -696,7 +696,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   place_digest`, `compiler::place_digest`, `turn/digest_step.rs`) is still wired: `classify.v4`'s `scope` answered
   `place` gives that turn's request a digest of the place's other live threads. Tests: `rpc/tests_place_digest.rs`.
   The model tool `thread.read` is gone (issue 46): the model looks back with `context.history`, and an old thread's
-  records stay readable (`thread list`, `thread show`). Tests: `rpc/tests_thread_recall.rs`.
+  records are kept (no command reads them). Tests: `rpc/tests_thread_recall.rs`.
 
 - **The thread router, moves, working-set growth and the bench's clock: removed 2026-11-22** (threads are not
   containers). There is no thread-based routing: no message is sent to a thread's session by its address (an old

@@ -1,8 +1,8 @@
 # Threads: the router's rules and the lane's decisions
 
 > **Superseded on 2026-11-22: threads are not containers.** No message is sent to a thread's own session, and
-> every thread command but the read-only `theseus thread list` and `thread show` is gone; a seal, a move or a
-> merge no longer holds anything back. Old thread records still decode and are what `list` and `show` read.
+> every thread command is gone (the read-only `theseus thread list` and `thread show` too); a seal, a move or a
+> merge no longer holds anything back. Old thread records still decode, and are kept.
 > What follows is the record of the threads lane as it was built.
 
 What the threads lane (theseus-98bz and its follow-ups) decided, in one place, beside the code that holds it. Since

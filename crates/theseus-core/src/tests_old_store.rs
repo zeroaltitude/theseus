@@ -116,8 +116,8 @@ fn an_old_move_record_still_decodes() {
 }
 
 /// A thread's record as the threads wrote one: sealed, with a seal proposed, merged into another, done. Each
-/// decodes whole; `thread list` and `thread show` read these records
-/// (`rpc::tests_thread_list::list_and_show_read_the_stored_records`).
+/// decodes whole; the daemon's board reads these records
+/// (`rpc::tests_thread_list::an_old_stores_threads_read_unchanged_and_a_threads_session_runs_as_any_other`).
 #[test]
 fn an_old_thread_record_with_its_seal_or_its_merge_still_decodes() {
     use theseus_protocol::threads::{ThreadInfo, ThreadState};
