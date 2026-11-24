@@ -343,22 +343,42 @@ fn carries_tool_result(req: &Value) -> bool {
         .is_some_and(|b| b["type"] == "tool_result")
 }
 
-/// The last user message's text.
-fn prompt(req: &Value) -> String {
+/// The turn's own input: the text of the last user message from its last harness block on (issue 46).
+///
+/// The view lays that message as the front and the window first (the place's newest exchanges, from
+/// every session that ran them: another session's message, labelled, or a late result whose turn has
+/// not answered yet), then the turn's one block beside the message, then the turn's own nodes: the
+/// notes written since its previous turn and its message, or, in a turn no message opened, its late
+/// result (`compiler::view::laid`; consecutive user blocks merge into one message). The block beside
+/// the message is the harness's and opens with a head `is_head` knows, and it lives in the turn alone,
+/// so no exchange of the window carries one. So the text after the last harness block that some text
+/// follows is the turn's own, and what comes before it is the window's. A message with no harness
+/// block is read whole, as before.
+pub fn prompt(req: &Value) -> String {
     let Some(m) = req["messages"].as_array().and_then(|m| m.last()) else {
         return String::new();
     };
     match &m["content"] {
         Value::String(s) => s.clone(),
-        Value::Array(blocks) => blocks
-            .iter()
-            .filter_map(|b| b["text"].as_str())
-            // The task graph's view (39a) is the harness's, not the prompt.
-            .filter(|t| !theseus_core::task_graph::view::is_head(t))
-            // So is the surface tag at its head (theseus-slvl.3).
-            .map(theseus_core::surface::strip_tag)
-            .collect::<Vec<_>>()
-            .join("\n"),
+        Value::Array(blocks) => {
+            // The task graph's view (39a) and the other tail blocks are the harness's, not the prompt.
+            let is_head = theseus_core::task_graph::view::is_head;
+            let texts: Vec<&str> = blocks.iter().filter_map(|b| b["text"].as_str()).collect();
+            let own = texts.iter().rposition(|t| !is_head(t)).map_or(0, |last| {
+                texts[..last]
+                    .iter()
+                    .rposition(|t| is_head(t))
+                    .map_or(0, |at| at + 1)
+            });
+            texts[own..]
+                .iter()
+                .copied()
+                .filter(|t| !is_head(t))
+                // So is the surface tag at its head (theseus-slvl.3).
+                .map(theseus_core::surface::strip_tag)
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
         _ => String::new(),
     }
 }
