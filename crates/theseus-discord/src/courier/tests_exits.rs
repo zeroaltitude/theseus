@@ -688,3 +688,105 @@ async fn replayed_card_masks_pending_closed_note_before_its_cut() {
     assert!(last(&fake).contains("Closed"), "{}", last(&fake));
     assert!(!last(&fake).contains("vault"), "{}", last(&fake));
 }
+
+#[tokio::test]
+async fn lane_card_entry_masks_input_before_its_cut() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    let core = lane.shared.core.clone();
+    let session = theseus_core::session::SessionRecord::new(
+        theseus_protocol::SessionKind::Conversation,
+        None,
+    );
+    core.store
+        .put_session(&session.session_id, &session)
+        .unwrap();
+    let mut question = core
+        .outbox
+        .to_operator(
+            Some(&session.session_id),
+            json!({"kind":"notice", "text":"test"}),
+        )
+        .unwrap();
+    question.tool = "owner_ask".into();
+    question.state = ActionState::Cancelled;
+    let node = theseus_core::node::Node::tool_call(
+        &session.session_id,
+        Some("turn_card"),
+        Some(0),
+        theseus_core::node::Body::ToolCall {
+            tool_use_id: "u1".into(),
+            tool: "owner_ask".into(),
+            wire_name: "proc_run".into(),
+            input: json!({"question":format!("{}{}", "x".repeat(75), VALUE), "options":[{"label":"yes"}, {"label":"no"}]}),
+            assistant_node: "msg_1".into(),
+            correlation_id: Some(question.correlation_id.clone()),
+            gate: None,
+        },
+    );
+    core.store
+        .append(&[
+            node.record().unwrap(),
+            theseus_store::NewRecord::json(
+                theseus_store::kinds::ACTION,
+                Some(&question.correlation_id),
+                &question,
+            )
+            .unwrap(),
+        ])
+        .unwrap();
+    let a = core
+        .outbox
+        .post(
+            "",
+            "",
+            &lane.target,
+            json!({"kind":"card", "question":question.correlation_id, "node":node.id}),
+        )
+        .unwrap();
+    let plan = lane.plan(&a).await.unwrap();
+    assert!(!plan.writes.is_empty());
+    for w in plan.writes {
+        lane.write(&w).await.unwrap();
+    }
+    assert!(!last(&fake).is_empty());
+    assert!(!last(&fake).contains("vau"), "{}", last(&fake));
+}
+
+#[tokio::test]
+async fn catchup_masks_notice_before_fold_cut_r4() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let core = crate::runtime::tests::core_with(d.path(), SecretBoard::empty(), |c| {
+        c.discord.rest_proxy = Some(fake.addr.clone());
+        c.discord.silent = vec![theseus_core::config::discord::Category::Notices];
+    });
+    core.secrets
+        .hold("display_token", Secret::new(VALUE.into()));
+    let mut lane = Lane::new(
+        crate::runtime::shared_for_tests(&core),
+        format!("discord:channel:{CHANNEL}"),
+        "channel",
+        "reef".into(),
+        Some(CHANNEL),
+        None,
+    );
+    lane.catchup.begin(0);
+    for n in 0..3 {
+        lane.shared
+            .core
+            .outbox
+            .post(
+                "",
+                &format!("fold_{n}"),
+                &lane.target,
+                json!({"kind":"notice", "text":format!("{}{}", "x".repeat(115), VALUE)}),
+            )
+            .unwrap();
+    }
+    lane.catch_up().await.unwrap();
+    let text = last(&fake);
+    assert!(!text.contains("vau"), "{text}");
+    assert!(text.contains("[red"), "{text}");
+}

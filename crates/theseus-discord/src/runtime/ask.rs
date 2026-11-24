@@ -406,3 +406,34 @@ mod option_exit_tests {
         assert!(text.contains("[redacted:"), "{text}");
     }
 }
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn details_entry_masks_before_reason_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        let req = theseus_protocol::ConfirmRequest {
+            correlation_id: "act_exit_details".into(),
+            reason: format!("{}{}", "x".repeat(395), VALUE),
+            ..Default::default()
+        };
+        let hold = crate::rpc_client::slow_once(
+            theseus_protocol::method::CONFIRM_LIST,
+            "details-exit",
+            serde_json::json!({"confirms":[req]}),
+        );
+        hold.release.notify_one();
+        let origin = serde_json::from_value(
+            serde_json::json!({"user_id":"details-exit", "channel_id":"42"}),
+        )
+        .unwrap();
+        shared
+            .ask_details(&interaction(), "act_exit_details", Some(origin))
+            .await;
+        let replies = fake.replies();
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
+    }
+}
