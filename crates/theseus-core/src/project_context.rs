@@ -586,10 +586,14 @@ pub fn block(
                 &found.dirs,
                 flagged,
             );
+            // The owner's own file is carried by its accepted version alone:
+            // a repository file that resolves to it is not read here.
+            let own_real = std::fs::canonicalize(cfg.state_dir().join(USER_FILE)).ok();
             let carry: Vec<Found> = found
                 .project
                 .iter()
                 .filter(|f| !seen.withholds(&f.shown))
+                .filter(|f| own_real.is_none() || std::fs::canonicalize(&f.path).ok() != own_real)
                 .cloned()
                 .collect();
             let a = assemble(files, &carry, budget);
