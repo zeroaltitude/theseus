@@ -354,9 +354,14 @@ fn day_mark<T: serde::de::DeserializeOwned>(
 fn judge_spent(store: &Store, day: &str, since_ms: u64) -> anyhow::Result<Micros> {
     use anyhow::Context;
     Ok(
-        day_mark::<crate::judge::spend::Stored>(store, crate::judge::spend::META_KEY, day, since_ms)
-            .context("today's judge spending cannot be read")?
-            .map_or(0, |j| j.spent_micros),
+        day_mark::<crate::judge::spend::Stored>(
+            store,
+            crate::judge::spend::META_KEY,
+            day,
+            since_ms,
+        )
+        .context("today's judge spending cannot be read")?
+        .map_or(0, |j| j.spent_micros),
     )
 }
 
