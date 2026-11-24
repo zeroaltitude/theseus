@@ -33,7 +33,7 @@ fn books(core: &Core, exec: &str) -> Books {
         spent: e.budget.spent_micros,
         reserved: e.budget.reserved_micros,
         unknown: e.budget.held_unknown_micros,
-        reservations: e.budget.reservations.clone(),
+        reservations: e.budget.reservations,
         day_spent: day.spent,
         day_held: day.held,
     }
