@@ -294,8 +294,11 @@ async fn a_trust_is_a_record_a_row_and_is_revoked_by_an_untrust() {
     assert_eq!(t.id, crate::flow::spec::repo_id(&repo));
     assert_eq!(t.grant.root, repo.display().to_string());
     assert_eq!(r.core.project_trusted().unwrap(), vec![t.clone()]);
-    // Idempotent: a second trust writes nothing new and returns the first.
-    assert_eq!(r.core.project_trust(&repo, "cli").unwrap(), t);
+    // A second trust accepts what is there now: the same repository, granted
+    // again, with a row of its own.
+    let again = r.core.project_trust(&repo, "cli").unwrap();
+    assert_eq!((&again.id, &again.grant.root), (&t.id, &t.grant.root));
+    assert_eq!(r.core.project_trusted().unwrap(), vec![again]);
 
     submit(&r.core, &here).await;
     let block = session_block(&r.fake.requests().pop().unwrap());
@@ -303,7 +306,7 @@ async fn a_trust_is_a_record_a_row_and_is_revoked_by_an_untrust() {
     assert!(block.contains(IN_TEXT), "carried once trusted:\n{block}");
 
     let rows = crate::test_support::ledger_rows_2k(&r.core, "project.trust");
-    assert_eq!(rows.len(), 1, "one row, for the one grant: {rows:?}");
+    assert_eq!(rows.len(), 2, "one row a grant, the second included: {rows:?}");
 
     r.core.project_untrust(&here, "cli").expect("revoked");
     assert!(r.core.project_trusted().unwrap().is_empty());
@@ -1798,6 +1801,42 @@ async fn an_injection_label_landing_after_the_write_holds_it() {
     assert!(
         block.contains("injection"),
         "case 5: and the block says why it is not there:\n{block}"
+    );
+}
+
+/// **A second trust is the owner's yes** (the owner, 2026-11-24): a trust of
+/// a repository already trusted accepts what is there now. A held change is
+/// read by the next session after it, with nothing said of a hold or a
+/// change.
+#[tokio::test]
+async fn a_second_trust_accepts_a_held_change() {
+    let (r, repo, here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
+    let file = repo.join("AGENTS.md");
+    moves_the_file(&r, &here, &session, By::FileTool, &file).await;
+    submit_in(&r.core, &here, None).await;
+    let held = session_block(&r.fake.requests().pop().unwrap());
+    assert!(!held.contains(BY_THE_CALL), "held before his yes:\n{held}");
+
+    r.core
+        .project_trust(&repo, "cli")
+        .expect("trusted again");
+    assert!(
+        crate::project_context::change::Held::read(
+            &r.core.store,
+            &crate::flow::spec::repo_id(&repo)
+        )
+        .is_none(),
+        "his yes drops the hold"
+    );
+    submit_in(&r.core, &here, None).await;
+    let after = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        after.contains(BY_THE_CALL),
+        "after his yes it is read:\n{after}"
+    );
+    assert!(
+        !after.contains("injection") && !after.contains("changed since the owner last read them"),
+        "and nothing is said of a hold or a change he has just accepted:\n{after}"
     );
 }
 

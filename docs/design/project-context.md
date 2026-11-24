@@ -458,7 +458,8 @@ block, and the OS fact.
   `project.trusted`. Trust and untrust each write one frame (the record and its
   `project.trust` ledger row, `fact/project.rs`) and are judged `Act::Standing`, which
   falls to `places::owner_in_private`. A path outside every repository is refused; a
-  second trust writes nothing; an untrust of an untrusted repository is an error.
+  second trust accepts what is there now (its row, a fresh sighting, and the repository's
+  hold dropped); an untrust of an untrusted repository is an error.
 - **The manifest.** `ContextFileRef.level`, shipped at store format 58 (no bump needed).
 - **After a grant.** `project_context/change.rs`: each compile of a granted repository builds a
   sighting of its instruction files' digests (`sighting`, from the reader's own digests and its

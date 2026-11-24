@@ -43,7 +43,8 @@
 //!   rather than arriving by itself on the next turn; only the digests
 //!   already asked about move ([`Seen::asked`]), so a change that waits for
 //!   days is one row and not one a turn. `project_untrust` drops the stored
-//!   sighting, which makes `untrust` then `trust` the owner's accept; a
+//!   sighting, which makes `untrust` then `trust` the owner's accept, and a
+//!   `trust` of a repository already trusted is the same accept; a
 //!   `trust` naming the session's directory pins its files even where the
 //!   walk did not reach them.
 //!
