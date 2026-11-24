@@ -978,3 +978,23 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod retained_record_tests {
+    use super::*;
+
+    #[test]
+    fn retained_record_does_not_mean_the_task_is_over() {
+        let error = RpcError {
+            code: error_code::PROVIDER,
+            message: "saved record".into(),
+            data: serde_json::json!({"class": "retained_record"}),
+        };
+        assert!(!task_is_over(&error));
+        let ended = RpcError {
+            data: serde_json::json!({"class": "execution_complete"}),
+            ..error
+        };
+        assert!(task_is_over(&ended));
+    }
+}

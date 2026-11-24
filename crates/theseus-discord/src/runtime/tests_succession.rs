@@ -179,3 +179,53 @@ async fn a_retired_bound_session_is_succeeded_by_the_places_next_message() {
         RetiredReason::ByHand
     );
 }
+
+#[tokio::test]
+async fn retained_record_warns_without_replacing_the_places_session() {
+    use crate::rpc_client::RpcClient;
+    use theseus_core::approval::{Client, Surface};
+    use theseus_core::provider::Scripted;
+    use theseus_protocol::{method, TurnSubmitParams, TurnSubmitResult};
+
+    let d = tempfile::tempdir().unwrap();
+    let core = core_scripted(d.path(), vec![Scripted::text("first")]);
+    let sid = bound(&core);
+    let (rpc, _notes) = RpcClient::connect(core.clone(), Client::new("test", Surface::Cli));
+    let params = || TurnSubmitParams {
+        session_id: Some(sid.clone()),
+        input: "hello".into(),
+        ..Default::default()
+    };
+    let first: TurnSubmitResult = rpc.call(method::TURN_SUBMIT, params()).await.unwrap();
+    let id = first.execution_id.unwrap();
+    core.kernel.wake_input(&id).unwrap();
+    core.store.inner().fail_next_index_writes(3);
+    assert!(core.kernel.admit_queued(&id).is_err());
+    let error = rpc
+        .call::<_, TurnSubmitResult>(method::TURN_SUBMIT, params())
+        .await
+        .unwrap_err();
+    let sentence = "this execution has a saved record that is not yet readable; restart the daemon before trying it again";
+    assert_eq!(error.message, sentence);
+    let (mut place, _rx) = place_for_tests(&core, &sid);
+    place.inflight = true;
+    place.handle(PlaceMsg::SubmitDone(Err(error))).await;
+    assert!(
+        !place.fresh,
+        "a readable record after restart can resume this session"
+    );
+    assert!(place.ready().await);
+    assert_eq!(place.session_id, sid);
+    assert_eq!(sessions(&core), 1);
+    let notices: Vec<_> = core
+        .outbox
+        .open_for("discord:dm:42")
+        .iter()
+        .map(theseus_core::outbox::body_of)
+        .filter_map(|body| body["text"].as_str().map(str::to_string))
+        .collect();
+    assert!(notices.contains(&format!("⚠️ {sentence}")), "{notices:?}");
+    assert!(!notices
+        .iter()
+        .any(|s| s.contains("can't take turns any more")));
+}

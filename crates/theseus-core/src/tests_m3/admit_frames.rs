@@ -398,3 +398,88 @@ async fn a_new_conversations_input_runs_during_another_executions_index_gap() {
         1
     );
 }
+
+const RETAINED_REASON: &str = "this execution has a saved record that is not yet readable; restart the daemon before trying it again";
+
+fn retain_running(core: &Core, id: &str) {
+    core.kernel.wake_input(id).unwrap();
+    core.store.inner().fail_next_index_writes(3);
+    assert!(core
+        .kernel
+        .admit_queued(id)
+        .unwrap_err()
+        .is::<theseus_store::store::RetainedFrame>());
+}
+
+fn assert_retained(error: anyhow::Error) {
+    let turn = error
+        .downcast_ref::<crate::turn::TurnError>()
+        .expect("named turn error");
+    assert_eq!(turn.class, "retained_record", "{error:#}");
+    assert!(format!("{error:#}").contains(RETAINED_REASON), "{error:#}");
+}
+
+#[tokio::test]
+async fn retained_record_refuses_an_input_by_name() {
+    let r = rig(vec![Scripted::text("first")]);
+    let first = turn(&r.core, None, "warm up").await;
+    retain_running(&r.core, first.execution_id.as_ref().unwrap());
+    use crate::approval::{Client, Surface};
+    use theseus_protocol::{method, Id, Message, Request};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (ours, theirs) = tokio::io::duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(theirs);
+    let server = tokio::spawn(r.core.clone().serve_connection(
+        sr,
+        sw,
+        Client::new("test", Surface::Cli),
+    ));
+    let (cr, mut cw) = tokio::io::split(ours);
+    let request = Request::new(
+        Id::Num(1),
+        method::TURN_SUBMIT,
+        json!({"session_id": first.session_id, "input": "retry"}),
+    );
+    cw.write_all(format!("{}\n", serde_json::to_string(&request).unwrap()).as_bytes())
+        .await
+        .unwrap();
+    let mut lines = BufReader::new(cr).lines();
+    let error = loop {
+        let line = lines.next_line().await.unwrap().unwrap();
+        if let Message::Response(response) = serde_json::from_str(&line).unwrap() {
+            break response.error.expect("refused input");
+        }
+    };
+    cw.shutdown().await.unwrap();
+    drop(lines);
+    server.await.unwrap().unwrap();
+    assert_eq!(error.data["class"], "retained_record");
+    assert_eq!(error.message, RETAINED_REASON);
+    assert_eq!(r.fake.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn retained_record_refuses_a_continuation_by_name() {
+    let r = rig(vec![Scripted::text("first")]);
+    let first = turn(&r.core, None, "warm up").await;
+    let id = first.execution_id.as_ref().unwrap();
+    retain_running(&r.core, id);
+    assert_retained(r.core.continue_execution(id).await.unwrap_err());
+    assert_eq!(r.fake.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn retained_record_refuses_a_held_input_by_name() {
+    let r = rig(vec![Scripted::text("first")]);
+    let (res, _, _) = held_with(&r, |core, id| {
+        core.store.inner().fail_next_index_writes(3);
+        assert!(core
+            .kernel
+            .wake_input(id)
+            .unwrap_err()
+            .is::<theseus_store::store::RetainedFrame>());
+    })
+    .await;
+    assert_retained(res.unwrap_err());
+    assert_eq!(r.fake.requests().len(), 1);
+}

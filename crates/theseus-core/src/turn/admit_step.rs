@@ -94,14 +94,26 @@ impl TurnRunner {
         wrote
     }
 
-    /// The turn `t` holds could not be admitted, because the execution ended
-    /// since the hold (a cancel): the turn fails as an input refused at its
-    /// admission does, its input unwritten. Any other error is the caller's.
+    /// The held turn's execution ended or its record was retained since the
+    /// hold: fail by name, as an input refused at admission does, with its
+    /// input unwritten. Any other error is the caller's.
     pub(super) fn not_admitted(
         t: &mut Turn<'_>,
         author: &str,
         e: anyhow::Error,
     ) -> Result<Failure> {
+        if matches!(
+            e.downcast_ref::<KernelError>(),
+            Some(KernelError::ExecutionRetained { .. })
+        ) {
+            return Ok(Failure {
+                class: "retained_record".into(),
+                transient: false,
+                usage_unknown: false,
+                reason: e.to_string(),
+                source: e,
+            });
+        }
         let Some(KernelError::NotRunnable { state, .. }) = e.downcast_ref::<KernelError>() else {
             return Err(e);
         };

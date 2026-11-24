@@ -1120,7 +1120,7 @@ impl TurnRunner {
                     }) => {}
                     Some(KernelError::ExecutionRetained { .. }) => {
                         return Err(turn_error(
-                            "execution_retained",
+                            "retained_record",
                             &req.session.session_id,
                             "",
                             0,

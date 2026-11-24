@@ -1042,7 +1042,7 @@ impl TurnRunner {
                 }) => return Ok(None),
                 Some(KernelError::ExecutionRetained { .. }) => {
                     return Err(turn_error(
-                        "execution_retained",
+                        "retained_record",
                         "",
                         "",
                         arrived.elapsed().as_millis() as u64,
