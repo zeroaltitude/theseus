@@ -462,7 +462,8 @@ pub fn pack(turn: &Turn, rec: &Record, index: &mut dyn Index, sources: &[&str]) 
             time_ms: h["time_ms"].as_u64().unwrap_or(0),
             entities: strings(&h["entities"]),
             matched: strings(&h["entities_matched"]),
-            copy: false,
+            // A look back's result is dropped here as the core's recall drops it.
+            copy: h["tool"].as_str().is_some_and(theseus_core::copies::copier),
         });
     }
     let in_context: BTreeSet<String> = rec
