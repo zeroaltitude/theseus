@@ -32,6 +32,11 @@ pub const ANSWERED_WITHIN_MS: u64 = 10 * 60_000;
 /// An exchange still open after this long is a turn that never closed, not a
 /// turn in progress.
 const OPEN_FOR_MS: u64 = 6 * 3_600_000;
+/// Why a row's previous exchange was missed, when the row can tell
+/// (`prev_why`): the place's `/new` lay between them, or the first call was
+/// never measured. Any other miss says nothing: a seal, a gate, or a real miss.
+pub const WHY_NEW: &str = "new";
+pub const WHY_NOT_MEASURED: &str = "not_measured";
 /// The judge's four answers nothing reads, and its `kind`, by question id.
 const JUDGED: [&str; 5] = [
     "fragment",
@@ -212,6 +217,11 @@ pub struct Row {
     pub ask_chars: Option<u64>,
     pub prev: Prev,
     pub prev_exchange: Option<String>,
+    /// Why a `missed` previous exchange was missed, when the row can tell
+    /// ([`WHY_NEW`], [`WHY_NOT_MEASURED`]); written only when set, and absent
+    /// from the rows of a build before it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prev_why: Option<String>,
     pub prev_same_session: Option<bool>,
     pub gap_ms: Option<u64>,
     /// Another session of the place was mid-turn when this one began.
@@ -409,6 +419,11 @@ pub fn row(store: &Store, g: Given<'_>) -> Row {
             true => Prev::Transcript,
             false => Prev::Missed,
         };
+        row.prev_why = match (held, g.seen) {
+            (true, _) => None,
+            (false, None) => Some(WHY_NOT_MEASURED.into()),
+            (false, Some(_)) => after_new(store, ex, p).then(|| WHY_NEW.into()),
+        };
         row.prev_exchange = Some(p.turn_id.clone());
         row.prev_same_session = Some(!other);
         let gap = ex.start_ms.saturating_sub(p.end_ms.unwrap_or(p.start_ms));
@@ -591,15 +606,18 @@ fn answer(store: &Store, a: &mut ExchangeAnswers, row: &Row) {
         Prev::None => "first_here",
         _ if !measured => "not_measured",
         Prev::Transcript | Prev::PlaceTail => "shown",
-        // The place's latest `/new`, best effort.
-        Prev::Missed
-            if (row.prev_exchange.as_deref())
+        Prev::Missed => match row.prev_why.as_deref() {
+            Some(WHY_NEW) => "after_new",
+            Some(WHY_NOT_MEASURED) => "not_measured",
+            // A row from before `prev_why`: the place's latest `/new`, best effort.
+            None if (row.prev_exchange.as_deref())
                 .and_then(|p| exchange(store, p).ok().flatten())
                 .is_some_and(|p| after_new(store, &ex, &p)) =>
-        {
-            "after_new"
-        }
-        Prev::Missed => "missed",
+            {
+                "after_new"
+            }
+            _ => "missed",
+        },
     };
     bump(&mut a.previous, previous);
     if previous == "missed" {

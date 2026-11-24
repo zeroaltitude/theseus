@@ -1,11 +1,11 @@
 //! The measuring rows' report (issue 44, step 1): its three answers count his own messages' turns, a turn
 //! whose first call was never measured is no miss, a turn naming two kinds is one turn that named something,
 //! the context is averaged over measured turns and holds token parts only, `since` keeps the rows at or
-//! after it, and the report holds no place, exchange or task id.
+//! after it, the report holds no place, exchange or task id, and an old row still reads.
 
 use std::collections::BTreeMap;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use theseus_protocol::exchange::{ExchangeAnswers, ExchangeReportParams, ExchangeReportResult};
 
 use super::ledger::{self, Elsewhere, Prev, Row, Sent};
@@ -230,4 +230,31 @@ fn the_report_holds_no_place_no_exchange_id_and_no_task_id() {
     assert_eq!(r.counts["judge.addressed_task"], map(&[("a_task", 1)]));
     assert_eq!(r.counts["judge.kind"], map(&[("follow_up", 1)]));
     assert_eq!(r.answers.unwrap().missed_by_session, map(&[("other", 1)]));
+}
+
+#[test]
+fn an_old_row_without_the_new_key_still_reads_and_counts() {
+    // A row as the build before `prev_why` wrote it, word for word in shape.
+    let old = json!({
+        "exchange": "turn_1", "place": "local", "opened_by": "message", "peer": "person", "person": true,
+        "ask_chars": 12, "prev": "missed", "prev_exchange": "turn_0", "prev_same_session": true,
+        "gap_ms": 5000, "overlap": false, "answered": null, "elsewhere": [],
+        "sent": {"header": 50, "tools": 0, "files": 0, "replies": 0, "calls": 0, "words": 10,
+                 "results_whole": 0, "results_cleared": 0, "recall": 0, "other": 0, "total": 60},
+        "situation": null, "trigger": "view", "cold": false, "cache_read": 0, "cache_write": 0,
+        "things": {}, "reply_things": null, "judge": {}
+    });
+    let row: Row = serde_json::from_value(old.clone()).expect("an old row decodes");
+    assert_eq!((row.prev, row.prev_why.as_deref()), (Prev::Missed, None));
+    // A key a newer build adds is ignored by this one, as this build's key is by an older one.
+    let mut newer = old.clone();
+    newer["a_later_key"] = json!("x");
+    assert_eq!(serde_json::from_value::<Row>(newer).unwrap(), row);
+    let (_d, s) = store();
+    let ex = exchange_of("turn_1", Opener::Message, Some(OWNER), 2_000);
+    s.append(&[exchange_record(&ex).unwrap()]).unwrap();
+    put_row(&s, "turn_1", old, 2_001);
+    let (r, a) = answers(&s, &ExchangeReportParams::default());
+    assert_eq!((r.rows, r.counts["prev"]["missed"]), (1, 1));
+    assert_eq!(a.previous, map(&[("missed", 1)]));
 }
