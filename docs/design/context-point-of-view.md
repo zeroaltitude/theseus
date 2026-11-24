@@ -829,16 +829,20 @@ step 8, after the card.
   task's own model with no tool (the window's calls and results laid as text). It is one provider call of the
   asking turn's: its worst case is reserved in the kernel before anything is sent, under the conversation's spend
   limit and the same day-ceiling policy as the turn's own calls (in the default notify mode the day's ceiling
-  warns and does not refuse; only its stop mode refuses the call before it leaves), and it goes through the
-  providers that mask the vault's values at the exit. A call that answers, or fails in a way the provider names,
-  is settled at its known price (zero for the failure); one whose cost cannot be known (a timeout, a cut stream,
-  a stop or a deadline that drops it once its send may have begun) keeps its whole reservation held as unknown,
-  never released, and its result says so. One dropped before its send costs nothing. Its answer is headed `[Task
+  warns and does not refuse, and the separate runaway line still refuses; its stop mode refuses the call at the
+  ceiling, before it leaves), and it goes through the providers that mask the vault's values at the exit. A call
+  that answers, or meets a provider failure classified as costing nothing, is settled at its known price (zero
+  for that failure); one whose cost cannot be known (a timeout, a cut stream, a stop or a deadline that drops it
+  once its send may have begun) keeps its whole reservation held as unknown, never released. When the tool
+  writes the result (a timeout, a cut stream), the result says so. When the runtime stops the tool (a `/stop`,
+  the outer deadline), its usual stopped or timeout line is shown, and that line does not yet say that the
+  call's cost is held. One dropped before its send costs nothing. Its answer is headed `[Task
   <id> "<title>", v<version>: its own answer, from its own view; not a record, and not the owner's word]`, laid
   inside the content-derived outside fence a later view draws, and **marked as outside text**, as a fetched page
   is: every act gate and the injection freeze read it so, and a narrowing after it in the same exchange keeps its
-  card. Every failure once the task is found (a provider's error, a timeout, a refusal of the call) is marked so
-  too, headed in the harness's words as no answer, the provider's words quoted inside a fence. Nothing is written
+  card. Every failure result the tool writes once the task is found (a provider's error, a timeout, a refusal of
+  the call) is marked so too, headed in the harness's words as no answer, the provider's words quoted inside a
+  fence. Nothing is written
   into the task (no node in its session, no exchange at its place, no new version of its record). Two asks a
   turn; a task's own session may not ask. **Whose tasks, from where**: any task, by its id, from any
   conversation that is not itself a task, whatever place or person started it. That is the reach the task card
