@@ -14,7 +14,7 @@
 //!   undoes itself sends nothing (`Pacer`, a pure state machine on explicit
 //!   instants).
 //! - **A fresh gateway session forgets it.** After READY the status is sent
-//!   again; `[discord] status_line = false` never starts the task.
+//!   again. It always runs (issue 46).
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -120,9 +120,6 @@ impl Pacer {
 /// The gateway is ready: start the status task the first time, and have it
 /// send the status again every time.
 pub(super) fn on_ready(shared: &Arc<Shared>, shard: &Shard) {
-    if !shared.core.cfg.discord.status_line {
-        return;
-    }
     shared.tasks.resend();
     if shared.tasks.presence_started.swap(true, Ordering::Relaxed) {
         return;

@@ -454,8 +454,8 @@ pub struct Renderer {
     /// Tool → who tightened it ("should have asked", theseus-sgh), as the
     /// core announced.
     tightened: BTreeMap<String, String>,
-    /// `[discord] notice_embeds`: a notified call posts its own card. Off, its
-    /// tool line alone carries the notice.
+    /// A notified call posts its own card (a test's renderer). Off, as the
+    /// binding builds every renderer, its tool line alone carries the notice.
     notice_embeds: bool,
     /// The held turns were read back from the session's nodes once, as an
     /// event for a turn this renderer never saw start asked (`refold.rs`).

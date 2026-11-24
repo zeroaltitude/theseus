@@ -916,8 +916,6 @@ run = "notify"                          # a call that starts code: a task, a fun
 enabled = true
 token_secret = "discord_bot_token"      # name of the [secrets] entry holding the bot token
 bindings_file = "bindings.toml"         # the guild, channel, and who may drive it; relative = in the state dir
-edit_interval_ms = 1200                 # how often a streaming reply is edited (Discord rate-limits edits)
-notice_embeds = false                   # an embed per notified call; off, its line in the tool message says 🔔 notified
 silent = []                             # categories of message that post without a ping; today's pings by default,
                                         # and silence is per category, per place (a [[channel]] or [[dm]] in the
                                         # bindings file may give its own list). Any of "cards", "failures" (a
@@ -935,8 +933,6 @@ task_channels = true                    # a private text channel for each task o
 task_channel_after_minutes = 10         # a task still working this long after it began gets its channel
 task_channel_cap = 25                   # at most this many task channels open at once; past it a task goes on as before
 task_channel_keep_days = 14             # a finished task's channel moves to `⚙️ Theseus tasks · done`, read-only, and is deleted this many days after it ended
-status_line = true                      # the bot's status reads counts only, `🔴 1 needs you · ⚙️ 3 running`, and is cleared when nothing works or waits; everyone who can see the bot sees it
-app_emojis = true                       # task states drawn with the bot's own animated emojis (uploaded once to the application); false, or while Discord refuses them, the plain ones
 digest_at = ["08:00", "18:00"]          # local times a digest of what happened is posted to your DM, only when something did, and not within [notify] unprompted_pace_secs of another unprompted post; [] is none
 # A turn's reply, a confirm card and how it closed, and the notices you must see
 # are posts in the outbox, written when they happen and sent once when Discord

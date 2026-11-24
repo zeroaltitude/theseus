@@ -68,6 +68,11 @@ const EVERY: &str = "[model]\n\
                      eot_threshold = 0.8\n\
                      eager_eot_threshold = 0.5\n\
                      eot_timeout_ms = 6000\n\
+                     [discord]\n\
+                     edit_interval_ms = 250\n\
+                     notice_embeds = true\n\
+                     status_line = false\n\
+                     app_emojis = false\n\
                      [policy.tools]\n\
                      \"thread.read\" = \"open\"\n\
                      \"channel.read\" = \"notify\"\n\
@@ -325,4 +330,34 @@ fn the_voice_timings_are_retired_and_read_as_unset() {
         "{warnings:?}"
     );
     assert_eq!(cfg.voice, crate::voice::VoiceConfig::default());
+}
+
+/// The four cosmetic Discord switches are fixed (issue 46): a `[discord]` that still sets them loads, names each
+/// once, and reads as today's defaults.
+#[test]
+fn the_cosmetic_discord_switches_are_retired_and_read_as_their_defaults() {
+    let text = "[discord]\nedit_interval_ms = 250\nnotice_embeds = true\nstatus_line = false\n\
+                app_emojis = false\n";
+    let (cfg, warnings) = parse(text).unwrap();
+    assert_eq!(
+        names(&cfg),
+        [
+            "discord.edit_interval_ms",
+            "discord.notice_embeds",
+            "discord.status_line",
+            "discord.app_emojis"
+        ]
+    );
+    assert_eq!(
+        warnings
+            .iter()
+            .filter(|w| w.starts_with("discord.") && w.contains(" is retired: "))
+            .count(),
+        4,
+        "{warnings:?}"
+    );
+    assert_eq!(
+        (cfg.discord.edit_interval_ms, cfg.discord.app_emojis),
+        (1200, true)
+    );
 }

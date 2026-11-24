@@ -549,24 +549,25 @@ fn the_vault_config_loads_with_the_default_spend_limit() {
 }
 
 /// The owner's vault config (its [discord] keys checked 2026-09-29, by name
-/// only) has no `notice_embeds` (theseus-w4f). It loads unchanged, with no
-/// warning and the embeds off; the key parses either way, and the
-/// template leaves it off.
+/// only) has no `notice_embeds` (theseus-w4f) and sets `edit_interval_ms`. It
+/// loads, the interval named once as retired and still 1200 (issue 46); a
+/// `notice_embeds` of either value loads, named retired too, and the template
+/// names neither.
 #[test]
 fn the_vault_discord_section_loads_with_notice_embeds_off() {
     let text = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
                     [discord]\nenabled = true\ntoken_secret = \"discord_bot_token\"\n\
                     bindings_file = \"bindings.toml\"\nedit_interval_ms = 1200\n";
     let (cfg, warnings) = Config::parse(text).unwrap();
-    assert!(warnings.is_empty(), "{warnings:?}");
-    assert!(!cfg.discord.notice_embeds);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].starts_with("discord.edit_interval_ms is retired: "));
     assert_eq!(cfg.discord.edit_interval_ms, 1200);
-    assert!(!DiscordConfig::default().notice_embeds);
+    assert_eq!(DiscordConfig::default().edit_interval_ms, 1200);
     for on in [true, false] {
         let doc = text.replace("1200\n", &format!("1200\nnotice_embeds = {on}\n"));
-        assert_eq!(Config::parse(&doc).unwrap().0.discord.notice_embeds, on);
+        assert_eq!(Config::parse(&doc).unwrap().0.ignored_keys.len(), 2, "{on}");
     }
-    assert!(!Config::example().discord.notice_embeds);
+    assert!(Config::example().ignored_keys.is_empty());
 }
 
 /// Context files in two levels (theseus-c48): `[context] files`, which
@@ -836,7 +837,10 @@ fn a_retired_approval_section_fails_to_load() {
                      bindings_file = \"bindings.toml\"\nedit_interval_ms = 1200\n\n\
                      [web]\nenabled = true\nbind = \"127.0.0.1\"\nport = 7433\n";
     let (_, warnings) = Config::parse(vault).unwrap();
-    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(
+        warnings.len() == 1 && warnings[0].starts_with("discord.edit_interval_ms is retired: "),
+        "{warnings:?}"
+    );
     assert!(
         !Config::EXAMPLE_TOML.contains("[approval]"),
         "the template has no section"

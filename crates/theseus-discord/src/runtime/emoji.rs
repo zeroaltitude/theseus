@@ -15,8 +15,8 @@
 //!   The ids are kept in META `discord.app_emojis` and read back at the
 //!   next READY, so the glyphs are the animated ones from the first board
 //!   while the list is on its way; a list that fails clears the table, and
-//!   the Unicode ones draw until a READY that works. `[discord] app_emojis =
-//!   false` never starts it.
+//!   the Unicode ones draw until a READY that works. A test's config with
+//!   `app_emojis` off (no setting) never starts it.
 //! - **Labels stay Unicode.** A select option's label and a button's label are
 //!   plain text: Discord draws no custom emoji in them, so those sites keep
 //!   the Unicode glyphs.

@@ -85,7 +85,6 @@ impl Rig {
                 d.insert("enabled".into(), true.into());
                 d.insert("rest_proxy".into(), rest.into());
                 d.insert("gateway_proxy".into(), format!("ws://{gateway}").into());
-                d.insert("edit_interval_ms".into(), 250.into());
                 d.insert("ping_window_secs".into(), 0.into());
                 table(t, "places").insert("owner".into(), vec![format!("discord:{ANA}")].into());
                 table(t, "vault").insert("keep_by_discord".into(), keep_by_discord.into());

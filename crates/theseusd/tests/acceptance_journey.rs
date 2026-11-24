@@ -262,7 +262,6 @@ impl Rig {
                 d.insert("enabled".into(), true.into());
                 d.insert("rest_proxy".into(), rest.into());
                 d.insert("gateway_proxy".into(), format!("ws://{gateway}").into());
-                d.insert("edit_interval_ms".into(), 250.into());
                 d.insert("ping_window_secs".into(), 0.into());
                 d.insert("forum".into(), true.into());
                 d.insert("task_channels".into(), true.into());
