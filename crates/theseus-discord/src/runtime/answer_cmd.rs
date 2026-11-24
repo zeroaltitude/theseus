@@ -215,6 +215,7 @@ impl Shared {
                     );
                     c
                 })
+                .filter_map(|c| crate::render::leaving::copy(&self.core.exits, &c))
                 .collect(),
             Err(e) => {
                 self.board.error("confirm.list", None, e);
@@ -411,4 +412,37 @@ fn fields_of(m: &ModalInteractionData) -> (String, Vec<String>) {
         .iter()
         .for_each(|c| walk(c, &mut note, &mut files));
     (note, files)
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn answer_choice_masks_reason_before_cut_and_cache() {
+        let (_dir, _core, fake, shared) = rig();
+        let mut req = ConfirmRequest {
+            correlation_id: "act_exit_answer".into(),
+            reason: format!("{}{}", "x".repeat(30), VALUE),
+            may_answer: Some(true),
+            ..Default::default()
+        };
+        req.options = answer_options(&req.question(QuestionKind::Approval, true));
+        req.options[0].id = VALUE.into();
+        let hold = crate::rpc_client::slow_once(
+            theseus_protocol::method::CONFIRM_LIST,
+            "42",
+            serde_json::json!({"confirms":[req]}),
+        );
+        hold.release.notify_one();
+        shared.answer_choices(&interaction(), "").await;
+        let replies = fake.replies();
+        let name = &replies[0].choices[0].0;
+        assert!(!name.contains("vault"), "{name}");
+        assert!(name.contains("[redact"), "{name}");
+        assert_eq!(replies[0].choices[0].1, "act_exit_answer");
+        let cached = shared.answerable(&interaction()).await;
+        assert!(!cached[0].reason.contains(VALUE));
+        assert_eq!(cached[0].options[0].id, VALUE);
+    }
 }
