@@ -14,6 +14,7 @@
 //! its key, and a line near a span's end can show a time just past it.
 
 use std::collections::{HashSet, VecDeque};
+use std::ops::Range;
 
 use anyhow::Result;
 use theseus_store::{kinds, Store as _};
@@ -580,33 +581,55 @@ pub(super) fn spoken(n: &Node) -> String {
 /// `text` as one line of data: control characters and line breaks as spaces, runs of spaces as one, the
 /// page's own quote marks replaced, so it can open no line or quote of the tool's own.
 pub(super) fn flat(text: &str) -> String {
-    text.chars()
-        .map(|c| match c {
-            '\u{ab}' => '\u{2039}',
-            '\u{bb}' => '\u{203a}',
-            '[' => '(',
-            ']' => ')',
-            c if c.is_control() => ' ',
-            c => c,
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+    flat1(text).trim().to_string()
+}
+
+/// The form Flat1: `text` with each run of blanks (control characters and whitespace) one space, nothing
+/// trimmed, and the page's quote marks and brackets replaced ([`flat_char`]). [`flat`] is it, trimmed.
+/// Frozen once a stored reference names it: a change adds a new numbered form, never edits this one.
+pub(super) fn flat1(text: &str) -> String {
+    crate::view::text::kept::one_line(text, flat_char)
+}
+
+/// A character that is not blank as Flat1 writes it.
+fn flat_char(c: char) -> char {
+    match c {
+        '\u{ab}' => '\u{2039}',
+        '\u{bb}' => '\u{203a}',
+        '[' => '(',
+        ']' => ')',
+        c => c,
+    }
 }
 
 /// `text` as one line of data, cut to `max` characters by code, an ellipsis marking the cut. The cut never
 /// falls inside a known value (`cuts`), and a value [`flat`] would change is cut away before the rewrite.
 pub(super) fn cut(text: &str, max: usize, cuts: &Cuts) -> String {
+    cut_kept(text, max, cuts).0
+}
+
+/// [`cut`], and the bytes of `text` it kept: the line is [`flat1`] of them, then an ellipsis when anything
+/// of `text` but blanks is left out after them. They hold each known value whole or none of it.
+pub(super) fn cut_kept(text: &str, max: usize, cuts: &Cuts) -> (String, Range<usize>) {
     let kept = cuts.unchanged(text, |c| {
         matches!(c, '\u{ab}' | '\u{bb}' | '[' | ']') || c.is_control() || c.is_whitespace()
     });
     let short = kept < text.len();
-    let text = flat(&text[..kept]);
-    match text.char_indices().nth(max) {
-        Some((at, _)) => format!("{}\u{2026}", &text[..cuts.before(&text, at)]),
-        None if short => format!("{text}\u{2026}"),
-        None => text,
+    let head = &text[..kept];
+    let line = flat(head);
+    match line.char_indices().nth(max) {
+        Some((at, _)) => {
+            let p = cuts.before(&line, at);
+            let range = crate::view::text::kept::source(head, p, flat_char);
+            (format!("{}\u{2026}", &line[..p]), range)
+        }
+        None => {
+            let range = crate::view::text::kept::source(head, line.len(), flat_char);
+            match short {
+                true => (format!("{line}\u{2026}"), range),
+                false => (line, range),
+            }
+        }
     }
 }
 

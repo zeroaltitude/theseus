@@ -261,15 +261,30 @@ pub(super) struct Caller<'a> {
 
 /// `s` as one line of at most `max` characters: control characters and line breaks gone.
 fn clip(s: &str, max: usize) -> String {
-    let plain: String = s
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
-    let one: String = plain.split_whitespace().collect::<Vec<_>>().join(" ");
-    match one.chars().count() > max {
-        true => format!("{}…", one.chars().take(max).collect::<String>()),
-        false => one,
+    clip_kept(s, max).0
+}
+
+/// [`clip`], and the bytes of `s` it kept: the line is [`clip1`] of them, then `…` when it was cut.
+fn clip_kept(s: &str, max: usize) -> (String, std::ops::Range<usize>) {
+    let one = clip1(s);
+    let one = one.trim();
+    match one.char_indices().nth(max) {
+        Some((at, _)) => (
+            format!("{}…", &one[..at]),
+            crate::view::text::kept::source(s, at, |c| c),
+        ),
+        None => (
+            one.to_string(),
+            crate::view::text::kept::source(s, one.len(), |c| c),
+        ),
     }
+}
+
+/// The form Clip1: `s` with each run of blanks (control characters and whitespace) one space, nothing
+/// trimmed; every other character as it is. [`clip`]'s line is it, trimmed, then cut.
+/// Frozen once a stored reference names it: a change adds a new numbered form, never edits this one.
+fn clip1(s: &str) -> String {
+    crate::view::text::kept::one_line(s, |c| c)
 }
 
 /// `text` cut to `max` characters, with what was left out said.
