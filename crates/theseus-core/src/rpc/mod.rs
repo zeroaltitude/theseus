@@ -1077,6 +1077,7 @@ impl Core {
         core.tools.extend.attach_core(Arc::downgrade(&core));
         core.tools.self_pr.attach(&core);
         core.tools.history.attach(&core);
+        core.tools.task_ask.attach(&core);
         core.tools.look.attach(&core);
         core.tools.profile.attach(&core);
         core.tools.card_observed.attach(&core);

@@ -351,6 +351,8 @@ pub struct ToolRuntime {
     pub judge: std::sync::OnceLock<Arc<crate::judge::JudgeService>>,
     /// What `context.history` reads (issue 44): the core, once built, and each turn's looks.
     pub history: Arc<crate::history_tool::Board>,
+    /// What `task.ask` reads (issue 44, step 8): the core, once built, and each turn's asks.
+    pub task_ask: crate::task_graph::ask::Board,
     /// Routines (theseus-pvm5c): the records in memory and the defaults.
     pub routines: crate::routine::Book,
     /// `look.theseus`, `look.vault` and `look.work` (issues 26 and 28): the core, and the
@@ -559,6 +561,7 @@ impl ToolRuntime {
             lsp: None,
             judge: Default::default(),
             history: Default::default(),
+            task_ask: Default::default(),
             routines: Default::default(),
             look: Default::default(),
             profile: Default::default(),
@@ -2019,6 +2022,8 @@ pub fn build_runtime(
         r.register(Arc::new(crate::task_graph::tools::TaskSplit));
         r.register(Arc::new(crate::task_graph::tools::TaskClose));
         r.register(Arc::new(crate::task_graph::lease::TaskClaimTool));
+        // A question put to a task, answered from its own view (issue 44, step 8).
+        r.register(Arc::new(crate::task_graph::ask::TaskAsk));
         r.register(Arc::new(crate::wake::WakeAt));
         r.register(Arc::new(crate::wake_tools::WakeCancel));
         r.register(Arc::new(crate::wake_tools::WakeMove));
@@ -2191,6 +2196,7 @@ pub fn build_runtime(
         extend,
         judge: Default::default(),
         history: Default::default(),
+        task_ask: Default::default(),
         routines: crate::routine::Book::new(&cfg.routines),
         look: Default::default(),
         profile: Default::default(),
