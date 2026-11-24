@@ -321,10 +321,13 @@ fn scan_day(
 }
 
 /// Ignore a different day's mark before decoding its amount. A mark whose
-/// own day cannot be read (none, not a string, no JSON) stops the rest of
-/// the day the store wrote it in, and counts as zero once that day has
-/// passed: written before `since_ms` (local midnight), it holds none of
-/// today's spend (issue 46).
+/// own day cannot be read (none, not a string, no JSON) is dated by its
+/// record's write time, as the day's ledger rows are. On the day the mark
+/// was written nothing changes: it stops spending, as it always did. From
+/// the next local midnight (`since_ms`) it counts zero, by the owner's rule;
+/// that is the one case that allows more spending than before. A write time
+/// of zero is the clock's "unknown" and is never before today: such a mark
+/// stays closed (issue 46).
 fn day_mark<T: serde::de::DeserializeOwned>(
     store: &Store,
     key: &str,
@@ -342,12 +345,18 @@ fn day_mark<T: serde::de::DeserializeOwned>(
         .and_then(serde_json::Value::as_str)
     {
         Some(d) => d != day,
-        None => record.at_unix_ms < since_ms,
+        None => written_before(record.at_unix_ms, since_ms),
     };
     if other_day {
         return Ok(None);
     }
     Ok(Some(serde_json::from_value(raw?)?))
+}
+
+/// Whether a mark written at `written_ms` was written before `since_ms`
+/// (today's local midnight). Zero, the clock's "unknown", never is.
+pub(crate) fn written_before(written_ms: u64, since_ms: u64) -> bool {
+    written_ms != 0 && written_ms < since_ms
 }
 
 /// The judge's day budget keeps today's settled spend in one record.

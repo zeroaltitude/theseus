@@ -7,7 +7,7 @@
 use serde_json::json;
 use theseus_store::{records_read_here, NewRecord};
 
-use crate::day_ceiling::{read_today, read_today_total, spend_of, TOTAL_KEY};
+use crate::day_ceiling::{read_today, read_today_total, spend_of, written_before, TOTAL_KEY};
 use crate::store::Store;
 use crate::tests_day_ceiling::rig;
 
@@ -961,9 +961,7 @@ const UNDATED_MARKS: [&[u8]; 3] = [
 ];
 
 /// A mark that cannot be read never raises what may be spent: through the
-/// rest of the day it was written in, nothing is admitted, however small;
-/// and once that day has passed it adds nothing, while the new day's own
-/// spend still counts in full.
+/// rest of the day it was written in, nothing is admitted, however small.
 #[test]
 fn a_damaged_mark_never_raises_what_may_be_spent() {
     let _clock = crate::test_support::ClockPin;
@@ -991,6 +989,24 @@ fn a_damaged_mark_never_raises_what_may_be_spent() {
                     "a mark written in its day stops that day: {key}"
                 );
             }
+        }
+    }
+}
+
+/// Once the day a mark that cannot be read was written in has passed, it
+/// adds nothing, while the new day's own spend still counts in full.
+#[test]
+fn a_damaged_mark_adds_nothing_to_the_next_days_spend() {
+    let _clock = crate::test_support::ClockPin;
+    let now = 1_800_000_000_000;
+    for key in [
+        crate::judge::spend::META_KEY,
+        crate::consolidate::guidance::MARK,
+    ] {
+        for payload in UNDATED_MARKS {
+            let dir = tempfile::tempdir().unwrap();
+            let (core, _, midnight) = started_on_mark(dir.path(), key, payload, now);
+            let c = core.kernel.day_ceiling();
             let next = midnight + 10;
             theseus_protocol::time::move_clock_to(next);
             core.store
@@ -1041,4 +1057,36 @@ fn a_damaged_mark_counts_zero_the_day_after() {
             theseus_protocol::time::move_clock_to(now);
         }
     }
+}
+
+/// A mark that cannot be read, written one millisecond before local
+/// midnight, is closed at that millisecond and counts zero at midnight.
+#[test]
+fn a_damaged_mark_of_the_days_last_millisecond_counts_zero_at_midnight() {
+    let r = rig(vec![], |_| {});
+    let c = r.core.kernel.day_ceiling();
+    let midnight = c.day_of(1_800_000_000_000).2;
+    assert!(!written_before(midnight - 1, c.day_of(midnight - 1).1));
+    assert!(written_before(midnight - 1, c.day_of(midnight).1));
+}
+
+/// A mark that cannot be read, written at local midnight, is closed for all
+/// of that day.
+#[test]
+fn a_damaged_mark_written_at_midnight_stops_that_whole_day() {
+    let r = rig(vec![], |_| {});
+    let c = r.core.kernel.day_ceiling();
+    let midnight = c.day_of(1_800_000_000_000).2;
+    let end = c.day_of(midnight).2;
+    assert!(!written_before(midnight, c.day_of(midnight).1));
+    assert!(!written_before(midnight, c.day_of(end - 1).1));
+}
+
+/// A mark that cannot be read whose write time is zero, the clock's
+/// "unknown", is never before today: it stays closed.
+#[test]
+fn a_damaged_mark_written_at_time_zero_stays_closed() {
+    let r = rig(vec![], |_| {});
+    let c = r.core.kernel.day_ceiling();
+    assert!(!written_before(0, c.day_of(1_800_000_000_000).1));
 }
