@@ -16,8 +16,18 @@
 //!   that place and its session clear.
 //! - A task's card: the task's record read today, and its home session (`task_graph::home`) clear.
 //!
+//! This is not the assembly's whole scope check: a self-loop's permit (`view::permit`) and a fork's cut
+//! (`fork::window`) are kept by what the assembly lays, and are not applied again here.
+//!
 //! A fold's proof reads its node and every exchange it stands for, so each source keeps what it proved: one
-//! source serves every view of a call, and a node is read once however many views hold it.
+//! source serves every view of a call, and a node is proved once however many views hold it while the store
+//! stands still. Each answer is kept with the store's last position when it was proved
+//! (`Store::last_position`: every write, an end of a META key included, is a frame appended to the log, which
+//! moves it), and is proved again once the position has moved. What a proof costs is counted in units (a
+//! fold's node and each exchange it stands for, the task list once), not in the store's own reads: a node is
+//! found through its handle's record first, each session's place is read, and the task list reads every task.
+//! A source given a budget of units ([`GateSource::within`]) leaves a fold or a card it has no units left for
+//! unchecked: not shown, and counted ([`GateSource::unchecked`]).
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap};
@@ -42,19 +52,25 @@ pub struct GateSource<'a> {
     /// The reader's own session, which a seal of its own thread does not hold out; none for the owner's
     /// inspection, so no seal is lifted by inspecting.
     pub asker: Option<&'a str>,
+    /// The most units of proof this source spends; none for no bound.
+    budget: Option<u64>,
     memo: Memo,
 }
 
-/// What a source has proved, and the records it read to prove folds and task cards.
+/// An answer, with the store's last position when it was proved; `None` when it was left unchecked.
+type Kept = (u64, Option<bool>);
+
+/// What a source has proved, the units it spent proving folds and task cards, and what it left unchecked.
 #[derive(Default)]
 struct Memo {
     /// By the fold's handle and its range.
-    folds: RefCell<HashMap<(Handle, SourceRange), bool>>,
+    folds: RefCell<HashMap<(Handle, SourceRange), Kept>>,
     /// By task id.
-    tasks: RefCell<HashMap<String, bool>>,
-    /// Every task, read once; none when they cannot be read.
-    all: RefCell<Option<Option<Vec<crate::task_graph::TaskRecord>>>>,
+    tasks: RefCell<HashMap<String, Kept>>,
+    /// Every task, read once while the store's position stands; none when they cannot be read.
+    all: RefCell<Option<(u64, Option<Vec<crate::task_graph::TaskRecord>>)>>,
     reads: Cell<u64>,
+    unchecked: Cell<u64>,
 }
 
 impl<'a> GateSource<'a> {
@@ -63,18 +79,56 @@ impl<'a> GateSource<'a> {
             runner,
             pov,
             asker,
+            budget: None,
             memo: Memo::default(),
         }
     }
 
-    /// The records read so far to prove folds and task cards: a fold's node and each exchange it stands
-    /// for, and the task list once.
+    /// [`Self::new`], spending at most `budget` units of proof.
+    pub fn within(
+        runner: &'a TurnRunner,
+        pov: PointOfView,
+        asker: Option<&'a str>,
+        budget: u64,
+    ) -> Self {
+        Self {
+            budget: Some(budget),
+            ..Self::new(runner, pov, asker)
+        }
+    }
+
+    /// The units spent so far proving folds and task cards: a fold's node and each exchange it stands for,
+    /// and the task list once each time it is read. Units, not the store's own reads.
     pub fn reads(&self) -> u64 {
         self.memo.reads.get()
     }
 
-    fn read(&self, n: usize) {
-        self.memo.reads.set(self.memo.reads.get() + n as u64);
+    /// The pieces, folds and task cards, left unchecked because the budget was spent.
+    pub fn unchecked(&self) -> u64 {
+        self.memo.unchecked.get()
+    }
+
+    /// Spend `n` units, if the budget holds them.
+    fn spend(&self, n: usize) -> bool {
+        let after = self.memo.reads.get() + n as u64;
+        if self.budget.is_some_and(|b| after > b) {
+            return false;
+        }
+        self.memo.reads.set(after);
+        true
+    }
+
+    /// The store's last position: the stamp an answer is kept with.
+    fn at(&self) -> u64 {
+        self.runner.store.last_position()
+    }
+
+    /// An answer as shown: an unchecked one is no, and counted.
+    fn shown(&self, ok: Option<bool>) -> bool {
+        if ok.is_none() {
+            self.memo.unchecked.set(self.memo.unchecked.get() + 1);
+        }
+        ok == Some(true)
     }
 }
 
@@ -124,51 +178,82 @@ impl GateSource<'_> {
         Some(out)
     }
 
-    /// Whether fold `handle` over `range` of `place` at `level` is proven today, once per source.
+    /// Whether fold `handle` over `range` of `place` at `level` is proven today: once per source while the
+    /// store's position stands.
     fn fold(&self, (place, level): (&str, u8), range: &SourceRange, handle: &Handle) -> bool {
         let key = (handle.clone(), range.clone());
-        if let Some(ok) = self.memo.folds.borrow().get(&key) {
-            return *ok;
-        }
-        let ok = self.fold_read((place, level), range, handle);
-        self.memo.folds.borrow_mut().insert(key, ok);
-        ok
+        let at = self.at();
+        let ok = match self.memo.folds.borrow().get(&key) {
+            Some(&(then, ok)) if then == at => Some(ok),
+            _ => None,
+        };
+        let ok = ok.unwrap_or_else(|| {
+            let ok = self.fold_read((place, level), range, handle);
+            self.memo.folds.borrow_mut().insert(key, (at, ok));
+            ok
+        });
+        self.shown(ok)
     }
 
     /// Today's node by its handle: of the range's place, level and ends, every exchange it stands for
-    /// resolved and of that place, and each session clear.
-    fn fold_read(&self, (place, level): (&str, u8), range: &SourceRange, handle: &Handle) -> bool {
+    /// resolved and of that place, and each session clear; `None` when the budget does not hold its proof.
+    fn fold_read(
+        &self,
+        (place, level): (&str, u8),
+        range: &SourceRange,
+        handle: &Handle,
+    ) -> Option<bool> {
         let store = &self.runner.store;
-        self.read(1);
+        if !self.spend(1) {
+            return None;
+        }
         let Ok(Some(node)) = crate::ladder::fold::node(store, &handle.0) else {
-            return false;
+            return Some(false);
         };
         let ends = (node.exchanges.first(), node.exchanges.last());
         if node.place != place
             || node.level != level
             || ends != (Some(&range.first.id), Some(&range.last.id))
         {
-            return false;
+            return Some(false);
         }
-        self.read(node.exchanges.len());
+        if !self.spend(node.exchanges.len()) {
+            return None;
+        }
         let Some(all) = crate::ladder::fold::whole(store, &node) else {
-            return false;
+            return Some(false);
         };
         let sessions: BTreeSet<&str> = all.iter().map(|e| e.session_id.as_str()).collect();
-        all.iter().all(|e| e.place == place) && sessions.into_iter().all(|s| self.clear(s))
+        Some(all.iter().all(|e| e.place == place) && sessions.into_iter().all(|s| self.clear(s)))
     }
 
-    /// Whether task `id`'s card is proven today: its record reads and its home session is clear.
+    /// Whether task `id`'s card is proven today: its record reads and its home session is clear. Once per
+    /// source while the store's position stands.
     fn task(&self, id: &str) -> bool {
-        if let Some(ok) = self.memo.tasks.borrow().get(id) {
-            return *ok;
-        }
-        let mut all = self.memo.all.borrow_mut();
-        let all = all.get_or_insert_with(|| {
-            self.read(1);
-            crate::task_graph::all(&self.runner.store).ok()
+        let at = self.at();
+        let ok = match self.memo.tasks.borrow().get(id) {
+            Some(&(then, ok)) if then == at => Some(ok),
+            _ => None,
+        };
+        let ok = ok.unwrap_or_else(|| {
+            let ok = self.task_read(id, at);
+            self.memo.tasks.borrow_mut().insert(id.into(), (at, ok));
+            ok
         });
-        let ok = (all.as_deref())
+        self.shown(ok)
+    }
+
+    /// [`Self::task`]'s proof, with the task list read again when the store has moved since it was read.
+    fn task_read(&self, id: &str, at: u64) -> Option<bool> {
+        let mut all = self.memo.all.borrow_mut();
+        if all.as_ref().is_none_or(|(then, _)| *then != at) {
+            if !self.spend(1) {
+                return None;
+            }
+            *all = Some((at, crate::task_graph::all(&self.runner.store).ok()));
+        }
+        let tasks = all.as_ref().and_then(|(_, tasks)| tasks.as_deref());
+        let ok = tasks
             .and_then(|all| {
                 Some(crate::task_graph::home(
                     all,
@@ -176,8 +261,7 @@ impl GateSource<'_> {
                 ))
             })
             .is_some_and(|home| self.clear(&home));
-        self.memo.tasks.borrow_mut().insert(id.into(), ok);
-        ok
+        Some(ok)
     }
 }
 

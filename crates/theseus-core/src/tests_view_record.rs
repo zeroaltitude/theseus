@@ -30,7 +30,23 @@ fn rig() -> Rig {
 
 /// An exchange of `session` at `place`, as the ledger writes it.
 fn exchange_of(core: &Core, turn: &str, session: &str, place: &str) {
-    let e = Exchange {
+    core.store
+        .append(&[exchange::exchange_record(&an_exchange(turn, session, place)).unwrap()])
+        .unwrap();
+}
+
+/// [`exchange_of`] for each of `turns`, a hundred to a frame.
+fn exchanges_of(core: &Core, turns: &[String], session: &str, place: &str) {
+    let records: Vec<_> = (turns.iter())
+        .map(|t| exchange::exchange_record(&an_exchange(t, session, place)).unwrap())
+        .collect();
+    for frame in records.chunks(100) {
+        core.store.append(frame).unwrap();
+    }
+}
+
+fn an_exchange(turn: &str, session: &str, place: &str) -> Exchange {
+    Exchange {
         turn_id: turn.into(),
         session_id: session.into(),
         place: place.into(),
@@ -44,10 +60,7 @@ fn exchange_of(core: &Core, turn: &str, session: &str, place: &str) {
         messages: Vec::new(),
         stop: None,
         rebuilt: false,
-    };
-    core.store
-        .append(&[exchange::exchange_record(&e).unwrap()])
-        .unwrap();
+    }
 }
 
 fn piece(place: &str, turn: &str) -> Piece {
@@ -555,16 +568,9 @@ async fn the_models_look_lists_its_fold() {
     assert!(!said.contains("FOLD TITLE"), "{said}");
 }
 
-/// A fold is listed only when today's node, found by the record's handle, is of the range's place and reads
-/// whole, every exchange it stands for of that place and from a session whose place reads; a task's card only
-/// when the task reads today and its home session's place reads (a place reads unless the session's own
-/// record cannot be read: anything goes, 2026-11-22). Each other is left out of the listing and of
-/// every total, and a dropped one held is taken out of its band's residue as before; a dropped one proven
-/// stays in it.
-#[tokio::test]
-async fn a_fold_or_task_whose_source_is_gone_is_not_listed_or_counted() {
-    let (r, t) = a_task().await;
-    let c = &r.core;
+/// The guard's sources: two exchanges here and one elsewhere, a session whose place cannot be read and its
+/// exchange, a proven node and one damaged node of each kind, and a copy of task `t` homed in that session.
+fn damaged_sources(c: &Arc<Core>, t: &theseus_protocol::tasks::TaskRecord) {
     let desk = crate::tests_task_graph::session(c);
     for turn in ["t-a", "t-b"] {
         exchange_of(c, turn, &desk, "local");
@@ -586,13 +592,29 @@ async fn a_fold_or_task_whose_source_is_gone_is_not_listed_or_counted() {
     fold_node(c, "fold-mixed", "local", 1, &["t-a", "t-far"], 40);
     // A node of this place standing for an exchange of the session whose place does not read.
     fold_node(c, "fold-unread", "local", 1, &["t-a", "t-unread"], 50);
+    // A node of another place standing for this place's exchanges: only the node's own place is wrong.
+    fold_node(c, "fold-away", "discord:dm:7", 1, &["t-a", "t-b"], 60);
     // A task homed in the session whose place does not read: a copy of a real task under another id.
     let mut homeless = t.clone();
     homeless.id = "tsk_homeless".into();
-    homeless.origin.session = unread.clone();
+    homeless.origin.session = unread;
     c.store
         .append(&[crate::task_graph::record(&homeless).unwrap()])
         .unwrap();
+}
+
+/// A fold is listed only when today's node, found by the record's handle, is of the range's place, level and
+/// ends and reads whole, every exchange it stands for of that place and from a session whose place reads (the
+/// proven node's own handle, named at another level or over other ends, is not); a task's card only
+/// when the task reads today and its home session's place reads (a place reads unless the session's own
+/// record cannot be read: anything goes, 2026-11-22). Each other is left out of the listing and of
+/// every total, and a dropped one held is taken out of its band's residue as before; a dropped one proven
+/// stays in it.
+#[tokio::test]
+async fn a_fold_or_task_whose_source_is_gone_is_not_listed_or_counted() {
+    let (r, t) = a_task().await;
+    let c = &r.core;
+    damaged_sources(c, &t);
     let pieces = vec![
         fold_piece("local", 1, ("t-a", "t-b"), "fold-whole"),
         fold_piece("local", 1, ("t-a", "t-b"), "fold-none"),
@@ -600,11 +622,15 @@ async fn a_fold_or_task_whose_source_is_gone_is_not_listed_or_counted() {
         fold_piece("local", 1, ("t-far", "t-far"), "fold-there"),
         fold_piece("local", 1, ("t-a", "t-far"), "fold-mixed"),
         fold_piece("local", 1, ("t-a", "t-unread"), "fold-unread"),
+        fold_piece("local", 1, ("t-a", "t-b"), "fold-away"),
+        // The proven node's handle, at a level it is not, and over ends it does not have.
+        fold_piece("local", 2, ("t-a", "t-b"), "fold-whole"),
+        fold_piece("local", 1, ("t-a", "t-a"), "fold-whole"),
         task_piece(&t.id),
         task_piece("tsk_none"),
         task_piece("tsk_homeless"),
     ];
-    let proven = (pieces[0].tokens(), pieces[6].tokens());
+    let proven = (pieces[0].tokens(), pieces[9].tokens());
     let shown: Vec<Shown> = (pieces.into_iter())
         .map(|p| Shown {
             form: p.form,
@@ -699,4 +725,154 @@ async fn a_turns_views_prove_a_fold_and_a_card_once_per_call() {
     }
     // The node and its three exchanges, and the task list.
     assert_eq!(reads, 1 + 3 + 1);
+}
+
+/// The owner's source at `local`, as `view.show` makes it.
+fn owners_source(core: &Core) -> crate::view::record::source::GateSource<'_> {
+    let pov = theseus_memory::gate::PointOfView {
+        anchor: "local".into(),
+        place: theseus_memory::recall::Place::Private,
+        present: theseus_memory::gate::Present::OwnerAlone,
+    };
+    crate::view::record::source::GateSource::new(&core.runner, pov, None)
+}
+
+/// Whether `source` lists `p` today.
+fn lists(source: &dyn crate::view::record::show::Source, p: &Piece) -> bool {
+    source.may_show_piece(&p.range, &p.handle, Some(&p.marks))
+}
+
+/// One source, as one `view.show` call keeps it: a fold it proved, read again after one of its exchanges was
+/// ended (`Store::delete_meta`), is refused. What a source proved holds only while the store stands where it
+/// stood when it was proved.
+#[tokio::test]
+async fn a_fold_proved_once_is_refused_once_an_exchange_of_it_goes() {
+    let r = rig();
+    let c = &r.core;
+    let desk = session(c, None);
+    for turn in ["t-a", "t-b"] {
+        exchange_of(c, turn, &desk, "local");
+    }
+    fold_node(c, "fold-whole", "local", 1, &["t-a", "t-b"], 10);
+    let p = fold_piece("local", 1, ("t-a", "t-b"), "fold-whole");
+    let source = owners_source(c);
+    assert!(lists(&source, &p), "proven");
+    c.store
+        .delete_meta(&format!("{}t-b", exchange::EXCHANGE_PREFIX))
+        .unwrap();
+    assert!(!lists(&source, &p), "an exchange of it is gone");
+    assert!(!lists(&owners_source(c), &p), "a fresh source agrees");
+}
+
+/// The same for a task's card: proven, then its home session stops reading (a session with no binding, whose
+/// own record then does not decode: a bound session's place is its binding's); and, on another store, proven,
+/// then its record stops reading (a later record of it that does not decode: no writer ends a task's record).
+/// Each is refused through the source that proved it.
+#[tokio::test]
+async fn a_task_card_proved_once_is_refused_once_its_home_or_its_record_goes() {
+    let (r, t) = a_task().await;
+    let c = &r.core;
+    let home =
+        crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    c.store.put_session(&home.session_id, &home).unwrap();
+    let mut homed = t.clone();
+    homed.id = "tsk_homed".into();
+    homed.origin.session = home.session_id.clone();
+    c.store
+        .append(&[crate::task_graph::record(&homed).unwrap()])
+        .unwrap();
+    let p = task_piece(&homed.id);
+    let source = owners_source(c);
+    assert!(lists(&source, &p), "proven");
+    c.store
+        .put_session(&home.session_id, &json!({"not": "a session"}))
+        .unwrap();
+    assert!(!lists(&source, &p), "its home does not read");
+
+    let (r, t) = a_task().await;
+    let c = &r.core;
+    let p = task_piece(&t.id);
+    let source = owners_source(c);
+    assert!(lists(&source, &p), "proven");
+    let gone = theseus_store::NewRecord::json(
+        theseus_store::kinds::TASK,
+        Some(&t.id),
+        &json!({"not": "a task"}),
+    )
+    .unwrap();
+    c.store.append(&[gone]).unwrap();
+    assert!(!lists(&source, &p), "its record does not read");
+}
+
+/// The stamp a source keeps with each proof is the store's last position, so every writer of what a proof
+/// reads must move it: a fold's node and its handle, an exchange's record, a session's record (its place) and
+/// a task's record, each written and each ended.
+#[tokio::test]
+async fn every_write_a_proof_reads_moves_the_stores_position() {
+    let (r, t) = a_task().await;
+    let c = &r.core;
+    let desk = crate::tests_task_graph::session(c);
+    let moved = |what: &str, write: &dyn Fn()| {
+        let before = c.store.last_position();
+        write();
+        assert!(c.store.last_position() > before, "{what}");
+    };
+    moved("an exchange written", &|| {
+        exchange_of(c, "t-a", &desk, "local")
+    });
+    moved("a fold's node written", &|| {
+        fold_node(c, "fold-a", "local", 1, &["t-a"], 10)
+    });
+    moved("an exchange ended", &|| {
+        c.store
+            .delete_meta(&format!("{}t-a", exchange::EXCHANGE_PREFIX))
+            .unwrap()
+    });
+    moved("a fold's handle ended", &|| {
+        c.store
+            .delete_meta(&format!("{}fold-a", crate::ladder::fold::HANDLE_PREFIX))
+            .unwrap()
+    });
+    moved("a session's record written", &|| {
+        c.store
+            .put_session(&desk, &json!({"not": "a session"}))
+            .unwrap()
+    });
+    moved("a task's record written", &|| {
+        c.store
+            .append(&[crate::task_graph::record(&t).unwrap()])
+            .map(drop)
+            .unwrap()
+    });
+}
+
+/// What proving one rung-1 fold costs: the proof's own count (its node and its N exchanges: N + 1 units) and,
+/// beside it, the records the store actually read, counted by the store on this thread.
+#[tokio::test]
+async fn a_rung_one_folds_proof_counts_its_units_and_the_records_read() {
+    let r = rig();
+    let c = &r.core;
+    let desk = session(c, None);
+    let n = crate::ladder::N;
+    let turns: Vec<String> = (0..n).map(|i| format!("t-{i:02}")).collect();
+    exchanges_of(c, &turns, &desk, "local");
+    let ids: Vec<&str> = turns.iter().map(String::as_str).collect();
+    fold_node(c, "fold-one", "local", 1, &ids, 10);
+    let p = fold_piece("local", 1, (ids[0], ids[n - 1]), "fold-one");
+    let source = owners_source(c);
+    let (read, rows) = (
+        theseus_store::records_read_here(),
+        theseus_store::index_rows_here(),
+    );
+    assert!(lists(&source, &p));
+    let (read, rows) = (
+        theseus_store::records_read_here() - read,
+        theseus_store::index_rows_here() - rows,
+    );
+    eprintln!(
+        "a rung-1 fold: {} proof units, {read} records read, {rows} index rows",
+        source.reads()
+    );
+    assert_eq!(source.reads(), 1 + n as u64);
+    assert!(read > source.reads(), "{read}");
 }
