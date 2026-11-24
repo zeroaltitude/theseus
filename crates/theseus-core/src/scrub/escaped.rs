@@ -33,14 +33,15 @@ const LEVELS: usize = 2;
 /// Where each value appears in `text` once its escapes are decoded, once or
 /// twice, and where a needle of its base64 appears in a decoded run that an
 /// escape broke, as byte ranges of the text, each with the value's name,
-/// overlapping matches included. A match with no escape of its own level in
-/// it is the level before's (the verbatim pass's, at the first), and is left
-/// to it. An output with no backslash costs one scan for it, and a second
-/// decode runs only when the first leaves a backslash.
+/// overlapping matches included. With `own_level`, a match with no escape of
+/// its own level in it is the level before's (the verbatim pass's, at the
+/// first), and is left to it. An output with no backslash costs one scan for
+/// it, and a second decode runs only when the first leaves a backslash.
 pub(super) fn spans<'a>(
     text: &str,
     values: &[(&str, &'a str)],
     needles: &[(String, &'a str)],
+    own_level: bool,
 ) -> Vec<(usize, usize, &'a str)> {
     if values.is_empty() || !text.contains('\\') {
         return Vec::new();
@@ -54,7 +55,7 @@ pub(super) fn spans<'a>(
         // the first only.
         for (v, name) in values {
             for at in super::every(decoded, v) {
-                if !escape_inside(escapes, at, at + v.len()) {
+                if own_level && !escape_inside(escapes, at, at + v.len()) {
                     continue;
                 }
                 let (a, b) = back(at, at + v.len());

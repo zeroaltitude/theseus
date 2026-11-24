@@ -16,7 +16,10 @@
 //! One pass does the work for every caller: [`Substitution`], every reading
 //! of every value, verbatim and encoded, found on the same text (overlapping
 //! readings included) and merged where they overlap, with the name of every
-//! span it replaced.
+//! span it replaced. Beside it, when a value is there verbatim, the encodings
+//! are also read the way they were before that pass: on the text with each
+//! verbatim value already taken (`replay.rs`), and what that finds is mapped
+//! back and merged in too.
 //! `Scrubber` (Jev's state, the push line, the display sites) and the exits
 //! (the provider request, the courier: `exits.rs`) both run it, so what leaves
 //! the machine is held to the same standard whichever door it goes by.
@@ -34,6 +37,7 @@ pub use cut::Cuts;
 
 mod cut;
 mod escaped;
+mod replay;
 #[cfg(test)]
 mod tests_cut;
 #[cfg(test)]
@@ -42,6 +46,8 @@ mod tests_escaped;
 mod tests_fold;
 #[cfg(test)]
 mod tests_nested;
+#[cfg(test)]
+mod tests_order;
 #[cfg(test)]
 mod tests_overlap;
 
@@ -137,14 +143,22 @@ impl<'a> Substitution<'a> {
     }
 
     /// Every reading of every value in `text`, verbatim and encoded, as byte
-    /// ranges with the value's name: overlapping readings each, all found on
-    /// the text as given.
+    /// ranges with the value's name: overlapping readings each, found on the
+    /// text as given, and, when a value is there verbatim, those found on the
+    /// text with each verbatim value taken first (`replay::spans`), mapped
+    /// back to the text.
     fn spans(&self, text: &str) -> Vec<Span<'a>> {
         let mut spans = Vec::new();
         for (v, name) in &self.values {
             spans.extend(every(text, v).map(|at| (at, at + v.len(), *name)));
         }
-        spans.extend(encoded(text, &self.values, &self.needles));
+        if spans.is_empty() {
+            // Nothing to take first: the text is read as it is.
+            spans.extend(encoded(text, &self.values, &self.needles, false));
+            return spans;
+        }
+        spans.extend(encoded(text, &self.values, &self.needles, true));
+        spans.extend(replay::spans(text, &self.values, &self.needles));
         spans
     }
 }
@@ -192,29 +206,37 @@ fn merged<'a>(text: &str, mut spans: Vec<Span<'a>>) -> (Vec<Span<'a>>, Vec<&'a s
     (kept, names)
 }
 
-/// `text` with each span replaced by its stand-in, in one pass from the end,
-/// overlapping spans merged first (`merged`), and the names counted. `None`
-/// when no span was kept.
+/// `text` with each span replaced by its stand-in, overlapping spans merged
+/// first (`merged`), written in order into a new string, and the names
+/// counted. `None` when no span was kept.
 fn splice<'a>(text: &str, spans: Vec<Span<'a>>) -> Option<(String, Vec<&'a str>)> {
     let (kept, names) = merged(text, spans);
     if kept.is_empty() {
         return None;
     }
-    let mut out = text.to_string();
-    for (a, b, name) in kept.into_iter().rev() {
-        out.replace_range(a..b, &format!("[redacted:{name}]"));
+    let mut out = String::with_capacity(text.len());
+    let mut copied = 0;
+    for (a, b, name) in kept {
+        out.push_str(&text[copied..a]);
+        out.push_str("[redacted:");
+        out.push_str(name);
+        out.push(']');
+        copied = b;
     }
+    out.push_str(&text[copied..]);
     Some((out, names))
 }
 
 // ---------------------------------------------------------------- encoded values
 
 /// Where each value's base64, percent-encoded and JSON-escaped forms are in
-/// `out`.
+/// `out`. With `own_level`, an escaped match with no escape of its own level
+/// in it is left to the level before (`escaped::spans`).
 fn encoded<'a>(
     out: &str,
     values: &[(&str, &'a str)],
     needles: &[(String, &'a str)],
+    own_level: bool,
 ) -> Vec<Span<'a>> {
     let mut spans = base64_spans(out, needles, |_| true);
     if out.contains('%') {
@@ -224,7 +246,7 @@ fn encoded<'a>(
             }
         }
     }
-    spans.extend(escaped::spans(out, values, needles));
+    spans.extend(escaped::spans(out, values, needles, own_level));
     spans
 }
 
