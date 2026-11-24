@@ -22,7 +22,9 @@ pub(crate) fn json(exits: &Exits, value: &mut Value) {
             for (key, v) in items {
                 if matches!(
                     key.as_str(),
-                    "content"
+                    "header"
+                        | "excerpt"
+                        | "content"
                         | "text"
                         | "title"
                         | "label"
@@ -133,5 +135,31 @@ mod tests {
         assert_eq!(data["nonce"], value);
         assert_eq!(data["components"][0]["custom_id"], value);
         assert_eq!(data["components"][0]["options"][0]["value"], value);
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    const VALUE: &str = "vault-token-4c8e1f7a92b3";
+    #[tokio::test]
+    async fn citation_copy_masks_header_before_footnote_cut() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = crate::runtime::tests::core_with(
+            dir.path(),
+            theseus_core::secrets::SecretBoard::empty(),
+            |_| {},
+        );
+        core.secrets.hold(
+            "display_token",
+            theseus_core::secrets::Secret::new(VALUE.into()),
+        );
+        let cite = theseus_protocol::cite::Citation {
+            header: format!("{}{}", "x".repeat(195), VALUE),
+            ..Default::default()
+        };
+        let display = super::copy(&core.exits, &cite).unwrap();
+        let text = crate::render::cite::footnotes(&[&display]).unwrap();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
     }
 }

@@ -569,7 +569,10 @@ impl Shared {
         let Some(home) = self.task_posts.home.channel() else {
             return;
         };
-        let line = format!("🧵 <#{post}> · {}", super::threads::clip(title));
+        let line = format!(
+            "🧵 <#{post}> · {}",
+            super::threads::clip(&self.core.exits.text(title).0)
+        );
         self.say_to(&target_of(home), line, session);
     }
 
@@ -721,5 +724,23 @@ mod daemon {
     pub(crate) fn of(core: &Arc<Core>) -> Option<Arc<Shared>> {
         let key = Arc::as_ptr(core) as usize;
         map().lock().unwrap().get(&key)?.upgrade()
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn home_pointer_masks_title_before_cut() {
+        let (_dir, core, _fake, shared) = rig();
+        shared.task_posts.home.state.send_replace(Some(42));
+        shared.point_home_at("ses_parent", 43, &format!("{}{}", "x".repeat(115), VALUE));
+        let posts = core.kernel.outbox_actions().unwrap();
+        let text = posts
+            .iter()
+            .map(|a| theseus_core::outbox::body_of(a).to_string())
+            .collect::<String>();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
     }
 }

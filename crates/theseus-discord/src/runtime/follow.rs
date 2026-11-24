@@ -158,7 +158,19 @@ impl Mirror {
     /// posts with `create_message` and `update_message` directly, not through
     /// the courier, and what it holds is a tool's input and the model's words.
     pub(super) fn sendable(&self, exits: &Exits, v: &WorkView, end: Option<&str>) -> String {
-        exits.text(&self.text(v, end)).0.into_owned()
+        let mut v = v.clone();
+        v.title = exits.text(&v.title).0.into_owned();
+        let display = Mirror {
+            lines: self
+                .lines
+                .iter()
+                .map(|s| exits.text(s).0.into_owned())
+                .collect(),
+            stream: exits.text(&self.stream).0.into_owned(),
+            channel: self.channel,
+        };
+        let end = end.map(|s| exits.text(s).0.into_owned());
+        display.text(&v, end.as_deref())
     }
 
     pub(super) fn text(&self, v: &WorkView, end: Option<&str>) -> String {
@@ -280,7 +292,7 @@ impl Shared {
                 n = notes.recv() => {
                     let Some(n) = n else { break };
                     if let Ok(Some(e)) = Event::from_notification(&n.method, &n.params) {
-                        dirty |= absorb(&mut mirror, &e);
+                        dirty |= absorb_leaving(&self.core.exits, &mut mirror, &e);
                     }
                 }
                 _ = tick.tick() => {}
@@ -362,11 +374,34 @@ impl super::Place {
         };
         let to = Joined {
             session: v.session_id.clone().unwrap_or_default(),
-            title: clip(v.title.trim(), 80),
+            title: clip(&self.shared.core.exits.text(v.title.trim()).0, 80),
             task: v.id,
             parent_session: self.session_id.clone(),
         };
         self.join_task(m, to, "task_reply");
+    }
+}
+
+/// Known values require whole model messages, never independently masked deltas.
+fn absorb_leaving(exits: &Exits, m: &mut Mirror, e: &Event) -> bool {
+    match e {
+        Event::ToolProposed(t) => {
+            let mut input = t.input.clone();
+            crate::render::leaving::strings(exits, &mut input);
+            m.tool(format!(
+                "{} {}",
+                t.tool,
+                theseus_protocol::term::words::argument(&t.tool, &input)
+            ));
+            true
+        }
+        Event::ModelDelta(_) if exits.on() => false,
+        Event::ModelAnswered(d) => {
+            m.stream.clear();
+            m.said(&exits.text(&d.text).0);
+            true
+        }
+        _ => absorb(m, e),
     }
 }
 
@@ -570,5 +605,63 @@ mod exit_tests {
         assert_eq!(messages.len(), 1);
         let text = &messages[0].content;
         assert!(!text.contains("vault"), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn mirror_masks_title_and_tool_line_before_cuts() {
+        let (_dir, core, _fake, _shared) = rig();
+        let mut v = view();
+        v.title = format!("{}{}", "x".repeat(75), VALUE);
+        let mut m = Mirror::default();
+        m.lines.push_back(format!("{}{}", "x".repeat(95), VALUE));
+        let text = m.sendable(&core.exits, &v, None);
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod stream_exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn mirror_holds_partial_model_words_when_masking() {
+        let (_dir, core, _fake, _shared) = rig();
+        let mut m = Mirror::default();
+        let event = Event::ModelDelta(theseus_protocol::ModelDelta {
+            text: "vault-token".into(),
+            ..Default::default()
+        });
+        absorb_leaving(&core.exits, &mut m, &event);
+        assert!(m.stream.is_empty(), "{}", m.stream);
+    }
+    #[tokio::test]
+    async fn mirror_masks_whole_model_words_before_tail_cut() {
+        let (_dir, core, _fake, _shared) = rig();
+        let mut m = Mirror::default();
+        let event = Event::ModelAnswered(theseus_protocol::ModelDelta {
+            text: format!("{VALUE}{}", "x".repeat(STREAM_CHARS - 5)),
+            ..Default::default()
+        });
+        absorb_leaving(&core.exits, &mut m, &event);
+        assert!(!m.stream.contains("92b3"), "{}", m.stream);
+    }
+    #[tokio::test]
+    async fn mirror_masks_tool_input_before_summary_cut() {
+        let (_dir, core, _fake, _shared) = rig();
+        let mut m = Mirror::default();
+        let event = Event::ToolProposed(theseus_protocol::ToolProposed {
+            tool: "proc.run".into(),
+            input: serde_json::json!({"argv":[format!("{}{}", "x".repeat(75), VALUE)]}),
+            ..Default::default()
+        });
+        absorb_leaving(&core.exits, &mut m, &event);
+        let text = m.sendable(&core.exits, &view(), None);
+        assert!(!text.contains("vau"), "{text}");
     }
 }

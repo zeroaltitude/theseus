@@ -187,7 +187,16 @@ impl Tally {
     /// `SPOKEN_MAX` characters (a task set to start later is `1 scheduled for
     /// Fri 09:00`, not working): `3 tasks working; 1 needs you: Beta summary
     /// asks fs.write create projects/beta-summary.txt (40 B)`.
+    pub(super) fn spoken_leaving(&self, exits: &theseus_core::exits::Exits) -> String {
+        self.spoken_display(|s| exits.text(s).0.into_owned())
+    }
+
+    #[cfg(test)]
     pub(super) fn spoken(&self) -> String {
+        self.spoken_display(str::to_string)
+    }
+
+    fn spoken_display(&self, display: impl Fn(&str) -> String) -> String {
         let tasks = match self.tasks {
             0 => "no tasks working".to_string(),
             1 => "1 task working".to_string(),
@@ -221,10 +230,16 @@ impl Tally {
         let line = match (self.needs, oldest) {
             (0, _) | (_, None) => format!("{tasks}; nothing needs you"),
             (1, Some((_, who, prompt))) => {
-                format!("{tasks}; 1 needs you: {}", asks(who, prompt))
+                format!(
+                    "{tasks}; 1 needs you: {}",
+                    asks(&display(who), &display(prompt))
+                )
             }
             (n, Some((_, who, prompt))) => {
-                format!("{tasks}; {n} need you, the oldest: {}", asks(who, prompt))
+                format!(
+                    "{tasks}; {n} need you, the oldest: {}",
+                    asks(&display(who), &display(prompt))
+                )
             }
         };
         clip(&line, SPOKEN_MAX)
@@ -807,5 +822,30 @@ pub(super) mod tests {
         // A failed try waits a minute and keeps the state pending.
         p.tried(false, at(base, 202));
         assert_eq!(p.due(), Some(at(base, 262)));
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn spoken_board_masks_before_summary_cut() {
+        let (_dir, core, _fake, _shared) = rig();
+        let mut tally = Tally {
+            needs: 1,
+            ..Default::default()
+        };
+        tally.open.insert(
+            "act_exit".into(),
+            Open::Question {
+                who: "task".into(),
+                prompt: format!("{}{}", "x".repeat(150), VALUE),
+                at_ms: 1,
+            },
+        );
+        let text = tally.spoken_leaving(&core.exits);
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
     }
 }

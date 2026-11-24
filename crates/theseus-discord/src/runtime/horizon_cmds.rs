@@ -616,7 +616,16 @@ impl Shared {
                 Ok(r) => format!(
                     "⏹️ Cancelled: it will not run. It was due <t:{}:t>: {}",
                     r.wake.due_at_ms / 1000,
-                    clip(r.wake.note.lines().next().unwrap_or_default(), 200)
+                    clip(
+                        self.core
+                            .exits
+                            .text(&r.wake.note)
+                            .0
+                            .lines()
+                            .next()
+                            .unwrap_or_default(),
+                        200
+                    )
                 ),
                 Err(e) => format!("⚠️ Not cancelled: {}", e.message),
             }
@@ -869,12 +878,12 @@ impl Shared {
                     out.push(format!(
                         "👁 `{}` {} · until {} · {} checks{}",
                         w.short,
-                        clip(&w.title, 50),
-                        clip(&w.until, 30),
+                        clip(&self.core.exits.text(&w.title).0, 50),
+                        clip(&self.core.exits.text(&w.until).0, 30),
                         w.checks,
                         w.value
                             .as_deref()
-                            .map(|v| format!(" · last: {}", clip(v, 30)))
+                            .map(|v| format!(" · last: {}", clip(&self.core.exits.text(v).0, 30)))
                             .unwrap_or_default()
                     ));
                 }
@@ -1296,5 +1305,51 @@ mod exit_tests {
     #[tokio::test]
     async fn routine_autocomplete_masks_before_choice_cut() {
         choices(true).await;
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn cancel_select_masks_note_before_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        let wake = theseus_protocol::WakeInfo {
+            note: format!("{}{}", "x".repeat(195), VALUE),
+            ..Default::default()
+        };
+        let hold = crate::rpc_client::slow_once(
+            method::WAKE_CANCEL,
+            "exit_select",
+            serde_json::json!({"wake":wake}),
+        );
+        hold.release.notify_one();
+        assert!(
+            shared
+                .reminder_pick(&interaction(), "hq:cancel:exit_select", "keeper")
+                .await
+        );
+        let replies = fake.replies();
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn watch_list_masks_title_and_last_value_before_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        let watch = serde_json::json!({"wake_id":"wake_exit", "short":"exit", "session_id":"ses_exit", "execution_id":"exe_exit", "title":format!("{}{}", "x".repeat(45), VALUE), "kind":"file", "target":"file", "until":"tomorrow", "every":"1h", "then":"tell", "set_at_ms":1,"expires_at_ms":2,"value":format!("{}{}", "x".repeat(25), VALUE), "checks":1});
+        let hold = crate::rpc_client::slow_once(
+            method::WATCH_LIST,
+            "",
+            serde_json::json!({"watches":[watch]}),
+        );
+        hold.release.notify_one();
+        shared.watch_command(&interaction(), "list", &[]).await;
+        let replies = fake.replies();
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
     }
 }

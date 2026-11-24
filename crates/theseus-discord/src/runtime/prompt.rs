@@ -76,7 +76,16 @@ fn clip(s: &str, max: usize) -> String {
 /// The autocomplete's answer: the prompts whose name, title, or description
 /// holds what was typed (case aside), at most [`MAX_CHOICES`], each as
 /// `server/prompt` with its description beside it.
+#[cfg(test)]
 pub(super) fn choices(prompts: &[McpPromptInfo], typed: &str) -> Vec<CommandOptionChoice> {
+    choices_display(prompts, typed, str::to_string)
+}
+
+fn choices_display(
+    prompts: &[McpPromptInfo],
+    typed: &str,
+    display: impl Fn(&str) -> String,
+) -> Vec<CommandOptionChoice> {
     let typed = typed.trim().to_lowercase();
     prompts
         .iter()
@@ -92,11 +101,15 @@ pub(super) fn choices(prompts: &[McpPromptInfo], typed: &str) -> Vec<CommandOpti
         .map(|p| {
             let what = p.description.as_deref().or(p.title.as_deref());
             let shown = match what {
-                Some(w) => format!("{} · {}", p.name, w.lines().next().unwrap_or("")),
+                Some(w) => format!(
+                    "{} · {}",
+                    display(&p.name),
+                    display(w).lines().next().unwrap_or("")
+                ),
                 None => p.name.clone(),
             };
             CommandOptionChoice {
-                name: clip(&shown, 100),
+                name: clip(&display(&shown), 100),
                 name_localizations: None,
                 value: CommandOptionChoiceValue::String(p.name.clone()),
             }
@@ -136,15 +149,24 @@ pub(super) fn labelled(label: &str, description: Option<String>, inner: Componen
 /// The modal that asks for a prompt's arguments: a text input each, up to
 /// [`MAX_INPUTS`], with `*` on a required one; more than that is one `args`
 /// input of `name=value` lines.
+fn modal_leaving(exits: &theseus_core::exits::Exits, p: &McpPromptInfo) -> InteractionResponseData {
+    modal_display(p, |s| exits.text(s).0.into_owned())
+}
+
+#[cfg(test)]
 pub(super) fn modal(p: &McpPromptInfo) -> InteractionResponseData {
+    modal_display(p, str::to_string)
+}
+
+fn modal_display(p: &McpPromptInfo, display: impl Fn(&str) -> String) -> InteractionResponseData {
     let components: Vec<Component> = if p.arguments.len() <= MAX_INPUTS {
         p.arguments
             .iter()
             .map(|a| {
                 let mark = if a.required { " *" } else { "" };
                 labelled(
-                    &format!("{}{mark}", a.name),
-                    a.description.clone(),
+                    &format!("{}{mark}", display(&a.name)),
+                    a.description.as_deref().map(&display),
                     input(&a.name, TextInputStyle::Paragraph, a.required, None),
                 )
             })
@@ -155,9 +177,9 @@ pub(super) fn modal(p: &McpPromptInfo) -> InteractionResponseData {
             .iter()
             .map(|a| {
                 if a.required {
-                    format!("{}*", a.name)
+                    format!("{}*", display(&a.name))
                 } else {
-                    a.name.clone()
+                    display(&a.name)
                 }
             })
             .collect();
@@ -175,7 +197,7 @@ pub(super) fn modal(p: &McpPromptInfo) -> InteractionResponseData {
     };
     InteractionResponseData {
         custom_id: Some(format!("{MODAL_PREFIX}{}", p.name)),
-        title: Some(clip(&p.name, 45)),
+        title: Some(clip(&display(&p.name), 45)),
         components: Some(components),
         ..Default::default()
     }
@@ -312,6 +334,12 @@ impl Shared {
         kind: InteractionResponseType,
         data: Option<InteractionResponseData>,
     ) {
+        let data = data.map(|mut data| {
+            data.content = data
+                .content
+                .map(|s| super::command_reply::leaving(&self.core.exits, &s));
+            data
+        });
         let resp = InteractionResponse { kind, data };
         if let Err(e) = self
             .interact
@@ -371,7 +399,9 @@ impl Shared {
     async fn prompt_autocomplete(&self, i: &Interaction, c: &CommandData) {
         let list = self.prompt_infos(None).await.unwrap_or_default();
         let data = InteractionResponseData {
-            choices: Some(choices(&list, &Self::typed(c))),
+            choices: Some(choices_display(&list, &Self::typed(c), |s| {
+                self.core.exits.text(s).0.into_owned()
+            })),
             ..Default::default()
         };
         self.answer(
@@ -428,8 +458,12 @@ impl Shared {
             self.prompt_run(i, tx, who, r).await;
             return;
         }
-        self.answer(i, InteractionResponseType::Modal, Some(modal(info)))
-            .await;
+        self.answer(
+            i,
+            InteractionResponseType::Modal,
+            Some(modal_leaving(&self.core.exits, info)),
+        )
+        .await;
     }
 
     /// A submitted modal: its arguments parsed, then the run.
@@ -827,5 +861,54 @@ mod tests {
         assert_eq!(c.options[0].name, "name");
         assert_eq!(c.options[0].autocomplete, Some(true));
         assert_eq!(c.options[0].required, Some(true));
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn prompt_choice_masks_description_before_cut() {
+        let (_dir, _core, fake, shared) = rig();
+        let hold = crate::rpc_client::slow_once(
+            theseus_protocol::method::MCP_PROMPT_LIST,
+            "",
+            json!({"prompts":[{"server":"reef", "prompt":"summary", "name":"reef/summary", "digest":"abc", "description":format!("{}{}", "x".repeat(80), VALUE)}]}),
+        );
+        hold.release.notify_one();
+        let command: CommandData = serde_json::from_value(json!({"id":"3", "name":"prompt", "type":1, "options":[{"name":"name", "type":3,"value":"", "focused":true}]})).unwrap();
+        shared.prompt_autocomplete(&interaction(), &command).await;
+        let replies = fake.replies();
+        let name = &replies[0].choices[0].0;
+        assert!(!name.contains("vau"), "{name}");
+        assert_eq!(replies[0].choices[0].1, "reef/summary");
+    }
+}
+
+#[cfg(test)]
+mod modal_exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn prompt_modal_masks_labels_but_keeps_argument_ids() {
+        let (_dir, core, _fake, _shared) = rig();
+        let name = format!("{}{}", "x".repeat(40), VALUE);
+        let p: McpPromptInfo = serde_json::from_value(serde_json::json!({"name":name,"server":"reef","prompt":"summary","digest":"test","description":null,"arguments":[{"name":name,"description":format!("{}{}", "x".repeat(95), VALUE),"required":true}]})).unwrap();
+        let data = modal_leaving(&core.exits, &p);
+        assert!(!data.title.as_deref().unwrap().contains("vau"));
+        assert_eq!(
+            data.custom_id.as_deref(),
+            Some(format!("prompt:{name}").as_str())
+        );
+        let Component::Label(label) = &data.components.as_ref().unwrap()[0] else {
+            panic!("label")
+        };
+        assert!(!label.label.contains("vau"), "{}", label.label);
+        assert!(!label.description.as_deref().unwrap().contains("vau"));
+        let Component::TextInput(input) = &*label.component else {
+            panic!("input")
+        };
+        assert_eq!(input.custom_id, name);
     }
 }

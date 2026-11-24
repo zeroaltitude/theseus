@@ -179,6 +179,17 @@ fn question_of(custom_id: &str) -> Option<&str> {
 
 /// The form: a field for the value, labelled with the item's title and field, and, when the daemon
 /// says a code is needed, a field of its own for it. `keep` is the target the question recorded.
+fn modal_leaving(
+    exits: &theseus_core::exits::Exits,
+    question: &str,
+    keep: &Value,
+    code: bool,
+) -> Value {
+    let mut display = keep.clone();
+    crate::render::leaving::strings(exits, &mut display);
+    modal(question, &display, code)
+}
+
 pub(crate) fn modal(question: &str, keep: &Value, code_needed: bool) -> Value {
     let name = |k: &str| keep[k].as_str().unwrap_or("");
     let (vault, title, field) = (name("vault"), name("title"), name("field"));
@@ -287,8 +298,16 @@ impl Shared {
         }
         let code = req.needs_proof
             && (req.needs_fresh_proof || req.proof.as_ref().is_some_and(|p| p.code_needed));
-        self.respond_modal(i, &modal(&req.correlation_id, &req.input["keep"], code))
-            .await;
+        self.respond_modal(
+            i,
+            &modal_leaving(
+                &self.core.exits,
+                &req.correlation_id,
+                &req.input["keep"],
+                code,
+            ),
+        )
+        .await;
     }
 
     /// A submitted form: `vault.keep.answer` as the presser. The daemon judges the place, the setting,
@@ -368,3 +387,19 @@ impl Shared {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod modal_exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn keep_modal_masks_target_labels_before_cut() {
+        let (_dir, core, _fake, _shared) = rig();
+        let keep = json!({"title":format!("{}{}", "x".repeat(30), VALUE),"field":"password","vault":VALUE});
+        let data = modal_leaving(&core.exits, "act_keep", &keep, false);
+        let label = data["data"]["components"][0]["label"].as_str().unwrap();
+        assert!(!label.contains("vau"), "{label}");
+        assert_eq!(data["data"]["custom_id"], "kf:act_keep");
+        assert_eq!(keep["vault"], VALUE);
+    }
+}

@@ -172,7 +172,7 @@ impl Place {
             author: m.author_id,
             name: m.author.clone(),
             at_ms: theseus_protocol::now_unix_ms(),
-            text: clip(&m.text, TEXT_MAX),
+            text: clip(&s.core.exits.text(&m.text).0, TEXT_MAX),
             message: m.message.get(),
         });
         let over = kept.last.len().saturating_sub(KEPT);
@@ -189,9 +189,9 @@ impl Place {
             &format!("discord:channel:{}", made.parent),
             format!(
                 "-# 💬 {} on “{}”: {}{link}",
-                one_line(&m.author, 40),
-                one_line(title, 40),
-                one_line(&m.text, QUOTE),
+                one_line(&s.core.exits.text(&m.author).0, 40),
+                one_line(&s.core.exits.text(title).0, 40),
+                one_line(&s.core.exits.text(&m.text).0, QUOTE),
             ),
             &made.parent_session,
         );
@@ -316,5 +316,43 @@ impl Shared {
         } else {
             format!("✅ <@{user}> is out of <#{}>.{said}", made.thread)
         })
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn guest_notice_masks_before_quote_cut() {
+        let (_dir, core, _fake, _shared) = rig();
+        let (mut place, _rx) = crate::runtime::tests::place_for_tests(&core, "ses_parent");
+        let made: Made = serde_json::from_value(serde_json::json!({"task":"exe_exit", "session":"ses_exit", "thread":43, "parent":42, "parent_session":"ses_parent", "name":"reef", "guild":null, "private":true, "created_ms":1})).unwrap();
+        let mut m = Inbound {
+            author: "guest".into(),
+            author_id: 8,
+            text: format!("{}{}", "x".repeat(75), VALUE),
+            files: None,
+            message: Id::new(1),
+            channel: Id::new(43),
+            guild: None,
+            reply_turn: None,
+            reply_unheld: None,
+            task: None,
+        };
+        assert!(place.comment_on(&mut m, &made, "reef"));
+        let text = core
+            .kernel
+            .outbox_actions()
+            .unwrap()
+            .iter()
+            .map(|a| theseus_core::outbox::body_of(a).to_string())
+            .collect::<String>();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
+        m.text = format!("{}{}", "x".repeat(495), VALUE);
+        assert!(place.comment_on(&mut m, &made, "reef"));
+        let kept = place.shared.comments_of(&made.task);
+        assert!(!kept.last.last().unwrap().text.contains("vau"));
     }
 }

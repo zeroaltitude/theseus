@@ -877,7 +877,7 @@ impl Place {
             .as_ref()
             .filter(|s| s.board)?;
         let tally = &status.tally;
-        let line = tally.lock().unwrap().spoken();
+        let line = tally.lock().unwrap().spoken_leaving(&core.exits);
         Some(format!("[The board: {line}]"))
     }
 

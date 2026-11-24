@@ -934,11 +934,10 @@ impl Place {
         let Some(made) = self.shared.task_threads.made_in(m.channel.get()) else {
             return;
         };
-        let title = self
-            .shared
-            .tasks
-            .view(&made.task)
-            .map_or_else(|| made.name.clone(), |v| clip(&v.title));
+        let title = self.shared.tasks.view(&made.task).map_or_else(
+            || made.name.clone(),
+            |v| clip(&self.shared.core.exits.text(&v.title).0),
+        );
         if self.comment_on(&mut m, &made, &title) {
             return;
         }

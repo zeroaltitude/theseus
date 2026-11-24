@@ -365,6 +365,8 @@ impl Shared {
     /// 🛑: the board's own Stop question, as a message in the place; its Yes
     /// and No are the buttons the board's view has.
     async fn ask_stop(&self, channel: u64, message: u64, v: &WorkView) -> Result<bool, String> {
+        let v = crate::render::leaving::copy(&self.core.exits, v)
+            .ok_or("Could not display this task.")?;
         if v.state.ended() {
             return Err(format!(
                 "**{}** has ended already.",
@@ -372,7 +374,7 @@ impl Shared {
             ));
         }
         let body = json!({"flags": v2::IS_COMPONENTS_V2 | MessageFlags::SUPPRESS_NOTIFICATIONS.bits(),
-            "components": task_view::confirm_stop(v), "allowed_mentions": {"parse": []},
+            "components": task_view::confirm_stop(&v), "allowed_mentions": {"parse": []},
             "message_reference": {"message_id": message.to_string(), "fail_if_not_exists": false}});
         let req = Request::builder(&HttpRoute::CreateMessage {
             channel_id: channel,
@@ -553,5 +555,19 @@ mod exit_tests {
             "{}",
             messages[0].content
         );
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn stop_question_masks_title_before_cut() {
+        let (_dir, _core, _fake, shared) = rig();
+        let mut v = super::super::task_channels::work_view("exe_exit", "done");
+        v.title = format!("{}{}", "x".repeat(75), VALUE);
+        let text = shared.ask_stop(42, 1, &v).await.unwrap_err();
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
     }
 }

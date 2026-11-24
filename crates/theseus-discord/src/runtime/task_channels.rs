@@ -625,7 +625,7 @@ impl Shared {
             "-# ↩ from the DM".to_string()
         };
         let first = match why {
-            Why::Promoted => summary(&v, &origin),
+            Why::Promoted => summary(&self.core.exits, &v, &origin),
             Why::Steps | Why::Long => origin,
         };
         self.say_pointer(channel, first, &session);
@@ -801,7 +801,10 @@ fn gone(e: &twilight_http::Error) -> bool {
 
 /// What happened so far, for the first line of a channel a working task was
 /// moved to.
-fn summary(v: &WorkView, origin: &str) -> String {
+fn summary(exits: &theseus_core::exits::Exits, v: &WorkView, origin: &str) -> String {
+    let Some(v) = crate::render::leaving::copy(exits, v) else {
+        return String::new();
+    };
     let mut t = format!("{origin}\n**{}**", clip(&v.title));
     if let Some(d) = &v.doing {
         t.push_str(&format!("\n-# {}", d.label));
@@ -1241,5 +1244,19 @@ mod exit_tests {
         let c = channels.iter().find(|c| c.id == m.thread).unwrap();
         assert!(!c.name.contains("vault"), "{}", c.name);
         assert!(c.name.contains("redacted-display-token"), "{}", c.name);
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn channel_summary_masks_before_title_cut() {
+        let (_dir, core, _fake, _shared) = rig();
+        let mut v = view();
+        v.title = format!("{}{}", "x".repeat(115), VALUE);
+        let text = super::summary(&core.exits, &v, "origin");
+        assert!(!text.contains("vau"), "{text}");
+        assert!(text.contains("[red"), "{text}");
     }
 }
