@@ -1042,6 +1042,7 @@ fn every_live_call_fits_inside_its_reservation() {
     let judge = JevJudge::new(client, price::builtin(), BreakerConfig::default());
     let p = price::JevPrice::jev_1_13_0();
     let calls: [(&[&str], &str, u64, u64); 8] = [
+        // The live calls were loop.v1's: it is read from its retired file (issue 46).
         (&["loop.v1"], "loop", 1_435, 194),
         (&["security.v1"], "security", 1_258, 207),
         (&["classify.v2", "role.v1"], "inbound", 1_353, 297),

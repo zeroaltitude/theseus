@@ -20,6 +20,11 @@ place_proven: number, person_proven: number,
  */
 repaired: number, 
 /**
+ * Records under the item labels' prefix (`labels.`) that could not be
+ * read as an item's labels: passed over, and left as they are.
+ */
+labels_passed_over: number, 
+/**
  * Why the things named in them were not looked for, if they were not.
  */
 things_skipped?: string, };

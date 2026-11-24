@@ -1629,7 +1629,7 @@ impl Config {
         // something, the one line says what changes with it.
         let mut trimmed = cfg.judge.retired();
         trimmed.extend(cfg.routing.trimmed());
-        trimmed.extend(cfg.memory.trimmed());
+        trimmed.extend([cfg.memory.trimmed(), cfg.ontology.trimmed()].concat());
         if !trimmed.is_empty() {
             let mut changed = Vec::new();
             if cfg.routing.was_shadow() {

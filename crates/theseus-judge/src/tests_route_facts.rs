@@ -1,5 +1,6 @@
 //! route.v10's state facts and the job message builder (theseus-9f72b): the
-//! four facts in the inbound state, the 3,000-token cap with all of them at
+//! facts in the inbound state (three since issue 46, which stopped writing
+//! `restricted_models`), the 3,000-token cap with all of them at
 //! their worst, and a background job as the same ask every other site makes.
 
 use serde_json::Value;
@@ -40,7 +41,7 @@ fn the_four_facts_reach_the_state() {
     i.route = Some(facts());
     let (v, _, _) = state_of(i);
     assert_eq!(v["price_period"], "off_peak");
-    assert_eq!(v["restricted_models"], "allowed");
+    assert!(v.get("restricted_models").is_none(), "{v}");
     assert_eq!(v["last_reply_model"], "claude-sonnet-5-5");
     assert_eq!(
         v["task_models"],
@@ -78,7 +79,7 @@ fn the_last_reply_and_the_task_models_are_left_out_when_there_are_none() {
     });
     let (v, _, _) = state_of(i);
     assert_eq!(v["price_period"], "peak");
-    assert_eq!(v["restricted_models"], "not_allowed");
+    assert!(v.get("restricted_models").is_none(), "{v}");
     assert!(v.get("last_reply_model").is_none());
     assert!(v.get("task_models").is_none());
 }
@@ -131,7 +132,6 @@ fn the_state_stays_under_its_cap_with_every_fact_at_its_worst() {
     assert!(b.state.tokens <= 3000, "{} tokens", b.state.tokens);
     for k in [
         "price_period",
-        "restricted_models",
         "last_reply_model",
         "task_models",
         "current_model",

@@ -98,7 +98,7 @@ async fn categorizes_block_and_mark_wait_for_the_running_turn() {
     assert_eq!(frames(store), at + 1, "the row and its mark in one frame");
 }
 
-/// A turn that loop.v1 judges ends, and another begins at once: the day's
+/// A turn that loop.v2 judges ends, and another begins at once: the day's
 /// first block, which the judgment needs, is not written while the second
 /// runs, and Jev is not called; once it ends, the block lands, then the
 /// call, then the row.

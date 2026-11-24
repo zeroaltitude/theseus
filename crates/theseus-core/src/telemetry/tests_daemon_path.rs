@@ -71,7 +71,7 @@ async fn a_judgment_on_the_daemons_path_is_counted() {
     })
     .await;
     let answered = [
-        ("theseus.judge.pack", "loop.v1"),
+        ("theseus.judge.pack", "loop.v2"),
         ("theseus.judge.mode", "shadow"),
         ("theseus.judge.band", "act"),
         ("theseus.judge.class", "reply"),

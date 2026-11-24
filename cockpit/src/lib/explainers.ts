@@ -471,7 +471,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
   // ---- Judgment
   'judgment.main': e(
     'Show how Jev, the judge inside the loop, is doing, check by check.',
-    'One row per check (a named, versioned judgment such as loop.v1 or classify.v4): its level (shadow = Jev answers but nothing acts on it; live = Theseus acts on the answer) and version, its calls and cost, and the 50th and 95th-percentile time per class of work. Under the ontology check’s row, one line counts its judgments, the ones that acted (filed a category or attached a project), the ones that only asked, and the writes you took back, with the undo rate over the acts.',
+    'One row per check (a named, versioned judgment such as loop.v2 or classify.v5): its level (shadow = Jev answers but nothing acts on it; live = Theseus acts on the answer) and version, its calls and cost, and the 50th and 95th-percentile time per class of work. Under the ontology check’s row, one line counts its judgments, the ones that acted (filed a category or attached a project), the ones that only asked, and the writes you took back, with the undo rate over the acts.',
     'A check in shadow is being tested before it can act. Slow or costly judgments are paid for on every turn they run in.'),
   'judgment.log': e(
     'List the judgments Jev made, so you can find and read one.',
@@ -483,7 +483,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Your labels teach the learning loop which calls were right. A confident wrong answer is the most useful to mark.'),
   'judgment.ladder': e(
     'See how far each of Jev’s checks is trusted (watching only, or acting), and move it up or back.',
-    'One row per check (e.g. loop.v1 decides when to nudge an unfinished turn; classify.v4 sorts each message). Its badge says its level: shadow = Jev answers but nothing acts on it; live = Theseus acts on the answer. The rules under it are its safety limits (e.g. how many labels a day). Promote moves it one level up; Roll back moves it down at once.',
+    'One row per check (e.g. loop.v2 decides when to nudge an unfinished turn; classify.v5 sorts each message). Its badge says its level: shadow = Jev answers but nothing acts on it; live = Theseus acts on the answer. The rules under it are its safety limits (e.g. how many labels a day). Promote moves it one level up; Roll back moves it down at once.',
     'A check only starts steering Theseus once it has proved itself in shadow. If one starts making bad calls, roll it back immediately; its earlier level is restored.'),
   'judgment.versions': e(
     'Show the versions the learning loop wrote for each check.',

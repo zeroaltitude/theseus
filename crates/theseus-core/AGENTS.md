@@ -55,7 +55,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   cut one); the session's target stays. A `provider.fallback` row per switch and a `provider.routed_back` row per return, and
   the result's `fallback`, whose `line` every surface shows. Tests: `tests_fallback.rs`.
   **The stop nudge** (theseus-fh0u, the owner's D8; `turn/nudge_step.rs`, `judge/stop.rs`): a loop the baseline ends
-  with no tool calls asks `loop.v1` at the stop, live (it is wired live while `[judge] stop_nudge`, on by default, is
+  with no tool calls asks `loop.v2` at the stop, live (it is wired live while `[judge] stop_nudge`, on by default, is
   on; off, the switch holds it in shadow), and waits at most `judge::stop::WAIT` (1 s, the pack's own on-path bar).
   When `announced_unfinished` acts true, one harness node (`harness:stop_nudge`, the model reads it as the user's) and
   its `turn.nudged` row ride one frame, and the turn calls the model once more; at most once a turn, and the nudged
@@ -63,7 +63,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`session.nudge`, META `stop_nudge.<session>`), while a job of the turn runs, at a strict loop cap, or with Jev
   unreachable. A stop judged live is marked with point `stop` and not judged again after the turn; every judgment
   after a turn is recorded in shadow. The result's `nudged` (with `acted`) is on `turn.ended`'s row, which the prove
-  counts. Tests: `tests_stop_nudge.rs`, theseusd's `tests/stop_nudge.rs`; the judge's other tests run loop.v1 in
+  counts. Tests: `tests_stop_nudge.rs`, theseusd's `tests/stop_nudge.rs`; the judge's other tests run loop.v2 in
   shadow (`tests_judge::judge_config` turns the switch off).
   **A harness nudge's reply is not the owner's** (theseus-emqbm; `content::harness_nudge`,
   `content::HARNESS_NUDGE_AUTHORS`, `turn::Turn::relayed`, `turn/reply_step.rs::posted_loops`): a loop whose request
@@ -809,7 +809,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`web::net::PrivateAddresses`, `Web.private`).
   **Reversibility** (theseus-p5kln, row B6 `theseus-2yowd`; `toolrun/reversible.rs`, `judge/undo.rs`,
   `judge/undo/state.rs`; `[judge] reversibility`, on by default, the owner's word 2026-11-12; the design of the
-  consumption is `docs/design/undo-v1.md`): `undo.v1` is asked ONCE for a planned call, on the gate's own path
+  consumption is `docs/design/undo-v1.md`): `undo.v2` (undo.v1 until issue 46) is asked ONCE for a planned call, on the gate's own path
   (`judge_undo`, at most `undo::WAIT`, 300 ms, the pack's own `on_path_p95` bar), at **0d**, which sits AFTER every
   outright refusal (`ToolRuntime::refusals`) and BEFORE the order, so a call the gate was going to refuse never has
   its argv, its paths or the bytes it was about to write sent to a model. Its verdict is consumed TWICE, on opposite
@@ -1621,12 +1621,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `tests_categorize.rs`.
   - **Jev files the session into the ontology** (theseus-xzxqv; no store format change: two ledger kinds, `onto.filed` and
     `onto.named`, and a META key `onto.named.<session>.<kind>`; `judge/onto/`, `config/ontology.rs`, `rpc/ontology_kinds.rs`,
-    `rpc/judge_latency.rs`, `fact/onto.rs`; pack `onto.v1`): `onto.v1` is live (`WIRED`) and rides the inbound batch beside
+    `rpc/judge_latency.rs`, `fact/onto.rs`; pack `onto.v2`): `onto.v2` is live (`WIRED`) and rides the inbound batch beside
     `classify.v3` and `role.v1` (one state, one request, cost split by question count), in a private place, for a person's
     message, never a task's, while `[ontology] judge` is on (off: the batch is byte for byte what it was and nothing is written).
     Its state is the inbound state plus `thread`, `project`, `memberships` and `mined_names` (`theseus_judge::builders::onto`);
     `route.v6`, which the turn waits on, never carries them (`prepare_inbound` builds its state from the plain input), and
-    `request = "own"` moves `onto.v1` to a third request no turn waits on. The kinds asked are those whose row lists `jev` in
+    `request = "own"` moves `onto.v2` to a third request no turn waits on. The kinds asked are those whose row lists `jev` in
     `assigned_by` among the six the pack asks about (the seeded `project` is given by the harness, so it is not asked until a row
     lets Jev assign it); each kind's options are the picker's (at most 20: the session's, the thread's, a word match, the most
     recent), `new` and `none`, and a mined name's `<kind>_name`. **Three steps, none on the turn's path.** (1) Asked
@@ -1644,14 +1644,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     in the `onto.filed` row (`disagrees`), never a panic. **The naming call** (`onto/name.rs`): `new` at the act band and no mined
     name fits, one call to `[ontology] name_profile` for three names and a line, reserved on the day ceiling, an `onto.named` row
     (a spend, `day_ceiling::SPEND_KINDS`), at most once a session, kind and local day (the META marker); the session's next
-    `onto.v1` offers the names first. **Undo**: `ontology.undo` (`rpc/ontology_kinds.rs`; `theseus ontology undo <judgment>`,
+    `onto.v2` offers the names first. **Undo**: `ontology.undo` (`rpc/ontology_kinds.rs`; `theseus ontology undo <judgment>`,
     refused in a job) is `Core::ontology_undo`; `ontology.kind.add|retire` write the kinds table (`ontology.kind` rows).
     `judge.latency` (`theseus judge latency --since <date>`) reads the batch's p50 and p95 by local day from the `judge.call`
     rows. Known limits: a message the thread router judges early files the home session, not the thread's; the cards carry
     their undo as a command until the binding's button lands. Tests: `tests_onto.rs`, `judge/onto/decide.rs`' own,
     `rpc/judge_latency.rs`'s, theseus-judge's `tests_onto.rs`.
   - **The ontology reaches routing, context and recall** (theseus-jrf4c; no store format change; `category_recall.rs`,
-    `judge/onto/{decide,mod,stage}.rs`): (1) **the project answer attaches**: while a session has no project, `onto.v1`
+    `judge/onto/{decide,mod,stage}.rs`): (1) **the project answer attaches**: while a session has no project, `onto.v2`
     asks `project` over the open projects of the task graph (`project_kind`; id = the task id, `new` files nothing, a project
     is the owner's to make); at the act band the plan's `attach` sets `SessionRecord.project` once the judgment's frame is
     written (`stage::attach`, only while it is still none: Jev never moves one the owner or the model attached), so the
@@ -1971,8 +1971,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     request for a name, and no label keeps a session off a model (the restricted-origin rule is gone, 2026-11-21). At start the
     embedded packs' text is checked against the list (`Core::check_pack_text_after_serving`, a `privacy.packs` startup phase
     naming pack and count, never a name). Tests: `judge/tests_content.rs`.
-    **route.v11** is the acting route pack (route.v10 word for word but the `fable` option's words; route.v10 retired in
-    issue 46); route.v8's `data` question was asked and read by nothing since theseus-9ymz0 and is in neither.
+    **route.v12** is the acting route pack (route.v11 without `seal`, `personal` and the `model` question's "not allowed"
+    clauses; route.v10 and route.v11 retired in issue 46); route.v8's `data` question was asked and read by nothing since theseus-9ymz0 and is in neither.
   - **Content flags** (theseus-9ymz0, replacing the open view of theseus-a1wvq.3 to .17; `content.rs`, `content_wait.rs`,
     `config/content_based_security.rs`, `fact/data.rs`): every item that enters a session (an operator's message, a tool
     result, a brief, a report) is classified once, by itself, and what is found is a durable label on `SessionRecord.data`

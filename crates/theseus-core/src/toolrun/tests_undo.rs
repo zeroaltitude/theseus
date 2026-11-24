@@ -1672,3 +1672,61 @@ mod probe_in_self_tree;
 mod self_floor;
 #[path = "tests_undo/self_own.rs"]
 mod self_own;
+
+/// `undo.v2` (issue 46) holds, once the ladder has been read after a start, on a store and a settings file
+/// written for `undo.v1` (the warm-up before that read is as it was). A `[judge.packs."undo.v1"]` table that
+/// switched the old version off names a retired version and lowers nothing now: undo.v2 is asked, its judgment is
+/// live, and the call is held. A rollback of undo.v2 is written under its own name and leaves undo.v1's standing
+/// as it was, so an older build reading this store asks undo.v1 and holds as before; and the owner's rollback
+/// lowers undo.v2 exactly as it lowered undo.v1.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_undo_gate_holds_on_undo_v2_from_the_first_call_and_after_a_rollback() {
+    use crate::judge::undo::PACK_NAME;
+    let r = rig(RESHAPEABLE, 0.96, false, |c| {
+        c.judge.packs.insert("undo.v1".into(), off());
+    });
+    let sid = r.session();
+    r.turn(&sid).await;
+    assert_eq!(r.bytes(), WAS, "held on the first call");
+    let held = r.rows("tool.held");
+    assert_eq!(held.len(), 1, "{held:?}");
+    let seen = r.jev.seen();
+    assert_eq!(seen.len(), 1, "asked once");
+    let mut asked: Vec<String> = seen[0].body["questions"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    asked.sort();
+    assert_eq!(asked, ["undo.v2/reversible", "undo.v2/shape"]);
+    let j = &r.core.runner.judge;
+    assert_eq!(
+        j.mode_for(PACK_NAME, &sid).mode,
+        crate::config::PackMode::Live
+    );
+    // The owner rolls undo.v2 back: its row is its own, and undo.v1's standing is untouched.
+    let p = theseus_protocol::packs::PackRollbackParams {
+        pack: PACK_NAME.into(),
+        why: Some("held wrongly".into()),
+        off: false,
+    };
+    r.core.pack_rollback(&p, "cli").unwrap();
+    assert_eq!(
+        j.ladder().standing(PACK_NAME).rung,
+        crate::judge::ladder::Rung::RolledBack
+    );
+    assert!(
+        j.ladder().rows_of("undo.v1").is_empty(),
+        "nothing is written under undo.v1"
+    );
+    assert_ne!(
+        j.ladder().standing("undo.v1").rung,
+        crate::judge::ladder::Rung::RolledBack
+    );
+    // The owner's rollback acts as it did on undo.v1: the pack is held in shadow, holding nothing.
+    assert_eq!(
+        j.mode_for(PACK_NAME, &sid).mode,
+        crate::config::PackMode::Shadow
+    );
+}

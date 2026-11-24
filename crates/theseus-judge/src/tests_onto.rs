@@ -1,4 +1,4 @@
-//! `onto.v1` (theseus-xzxqv): its pack, its state and options, and a scripted
+//! The onto pack (`onto.v2`; `onto.v1`, theseus-xzxqv): its pack, its state and options, and a scripted
 //! judgment's three bands.
 
 use std::sync::Arc;
@@ -65,14 +65,14 @@ fn with_onto(kinds: Vec<OntoKind>) -> InboundInput {
 }
 
 fn onto_state(i: InboundInput) -> (Value, crate::builders::Prepared) {
-    let p = by_name("onto.v1").unwrap();
+    let p = by_name("onto.v2").unwrap();
     let prepared = prepare(&p, &Input::Inbound(i), &NoScrub).unwrap();
     (prepared.state.value(), prepared)
 }
 
 #[test]
 fn the_pack_loads_with_the_designs_bands_and_the_shared_state() {
-    let p = by_name("onto.v1").unwrap();
+    let p = by_name("onto.v2").unwrap();
     assert_eq!(p.jev_model, "jev-1.13.0");
     assert_eq!(
         p.state_cap_tokens,
@@ -101,10 +101,12 @@ fn the_pack_loads_with_the_designs_bands_and_the_shared_state() {
         "still_topic",
         "still_expertise",
         "kind_of_thing",
-        "personal",
-        "elicits",
     ] {
         assert!(ids.contains(&want), "{want}");
+    }
+    // The questions that fed the private mark went with onto.v2 (issue 46).
+    for gone in DROPPED {
+        assert!(!ids.contains(&gone), "{gone}");
     }
 }
 
@@ -146,7 +148,7 @@ fn a_kind_is_asked_when_it_is_listed_and_has_new_even_with_no_category() {
     i.message = "ok, then do that".into();
     i.onto.as_mut().unwrap().thread_title = None;
     let (_, prepared) = onto_state(i);
-    let p = by_name("onto.v1").unwrap();
+    let p = by_name("onto.v2").unwrap();
     let asked = p.ask(&prepared.dynamic);
     let names: Vec<&str> = asked.iter().map(|a| a.id.as_str()).collect();
     assert!(names.contains(&"topic"), "{names:?}");
@@ -187,7 +189,7 @@ fn the_picker_orders_the_pool_and_stops_at_twenty() {
     assert_eq!(order.len(), ONTO_CANDIDATES);
     assert_eq!(picked.members.len(), 1);
     let (_, prepared) = onto_state(with_onto(vec![k]));
-    let q = by_name("onto.v1").unwrap().ask(&prepared.dynamic);
+    let q = by_name("onto.v2").unwrap().ask(&prepared.dynamic);
     let topic = q.iter().find(|a| a.id == "topic").unwrap();
     let got = ids(&topic.question);
     assert_eq!(got.len(), ONTO_CANDIDATES + 2);
@@ -208,7 +210,7 @@ fn mined_names_are_options_and_a_membership_is_asked_about() {
         state["mined_names"],
         json!(["lantern-core", "github.com", "Lantern Ledger"])
     );
-    let asked = by_name("onto.v1").unwrap().ask(&prepared.dynamic);
+    let asked = by_name("onto.v2").unwrap().ask(&prepared.dynamic);
     let ids_asked: Vec<&str> = asked.iter().map(|a| a.id.as_str()).collect();
     assert!(ids_asked.contains(&"topic_name"));
     assert!(ids_asked.contains(&"still_topic.1"));
@@ -256,7 +258,7 @@ async fn a_scripted_judgment_parses_into_the_three_bands() {
         cands("project"),
         cands("event"),
     ]));
-    let pack = by_name("onto.v1").unwrap();
+    let pack = by_name("onto.v2").unwrap();
     let js = judge_for(&fake)
         .judge(DecisionPoint {
             asks: vec![Ask::new(
@@ -347,17 +349,13 @@ fn a_picture_is_referenced_once_and_its_questions_are_asked() {
         "each reference is billed again"
     );
     assert!(!prepared.state.json.contains("data_base64"));
-    let p = by_name("onto.v1").unwrap();
+    let p = by_name("onto.v2").unwrap();
     let ids = asked_ids(&p, &prepared.dynamic);
-    for q in [
-        "image_subject",
-        "shows_people",
-        "shows_screen_or_document",
-        "shows_identifiers",
-        "topic",
-        "personal",
-    ] {
+    for q in ["image_subject", "shows_screen_or_document", "topic"] {
         assert!(ids.contains(&q.to_string()), "{q}");
+    }
+    for gone in DROPPED {
+        assert!(!ids.contains(&gone.to_string()), "{gone}");
     }
 }
 
@@ -370,7 +368,7 @@ fn no_picture_no_image_questions() {
         assert!(state.get(f).is_none(), "{f}");
     }
     assert!(prepared.dynamic.assets.is_empty());
-    let p = by_name("onto.v1").unwrap();
+    let p = by_name("onto.v2").unwrap();
     let ids = asked_ids(&p, &prepared.dynamic);
     for q in [
         "image_subject",
@@ -397,7 +395,7 @@ fn a_skipped_picture_is_a_row_in_the_state() {
     );
     assert!(state.get("images").is_none());
     assert!(prepared.dynamic.assets.is_empty());
-    let p = by_name("onto.v1").unwrap();
+    let p = by_name("onto.v2").unwrap();
     assert!(!asked_ids(&p, &prepared.dynamic).contains(&"image_subject".to_string()));
 }
 
@@ -428,7 +426,7 @@ fn shared_and_private_places_get_identical_ontology_questions() {
     let (private_state, private) =
         onto_state(with_pictures(false, vec![picture("shot.png", 640, 480)]));
     assert_eq!(shared_state, private_state);
-    let p = by_name("onto.v1").unwrap();
+    let p = by_name("onto.v2").unwrap();
     assert_eq!(
         asked_ids(&p, &shared.dynamic),
         asked_ids(&p, &private.dynamic)
@@ -437,7 +435,7 @@ fn shared_and_private_places_get_identical_ontology_questions() {
 }
 
 fn request_for(prepared: &crate::builders::Prepared) -> crate::client::Request {
-    let p = by_name("onto.v1").unwrap();
+    let p = by_name("onto.v2").unwrap();
     let questions = p
         .ask(&prepared.dynamic)
         .into_iter()
@@ -454,7 +452,7 @@ fn request_for(prepared: &crate::builders::Prepared) -> crate::client::Request {
 async fn a_request_with_a_picture_sends_the_header_and_its_assets() {
     let fake = FakeJev::start().unwrap();
     let judge = judge_for(&fake);
-    let pack = by_name("onto.v1").unwrap();
+    let pack = by_name("onto.v2").unwrap();
     let (_, prepared) = onto_state(with_pictures(
         false,
         vec![picture("a.png", 640, 480), picture("tiny.png", 50, 40)],
@@ -517,7 +515,7 @@ async fn an_image_refused_with_a_400_is_retried_once_without_images() {
     fake.refuse_images(true);
     fake.script_onto("topic", "c1", 0.9);
     let judge = judge_for(&fake);
-    let pack = by_name("onto.v1").unwrap();
+    let pack = by_name("onto.v2").unwrap();
     let (_, prepared) = onto_state(with_pictures(false, vec![picture("a.png", 640, 480)]));
     let js = judge
         .judge(DecisionPoint {
@@ -541,7 +539,7 @@ async fn a_400_that_names_no_image_is_not_retried() {
     let fake = FakeJev::start().unwrap();
     fake.set_mode(crate::fake::FakeMode::Status(400));
     let judge = judge_for(&fake);
-    let pack = by_name("onto.v1").unwrap();
+    let pack = by_name("onto.v2").unwrap();
     let (_, prepared) = onto_state(with_pictures(false, vec![picture("a.png", 640, 480)]));
     let js = judge
         .judge(DecisionPoint {
@@ -592,4 +590,38 @@ fn retired_thread_metadata_cannot_change_ontology_questions() {
         legacy, plain,
         "retired metadata must not label a conversation"
     );
+}
+
+/// The questions `onto.v2` drops (issue 46): those that existed for the restricted-provider rule, read only by
+/// the private mark, which went with them.
+const DROPPED: [&str; 5] = [
+    "personal_applies",
+    "personal",
+    "elicits",
+    "shows_people",
+    "shows_identifiers",
+];
+
+/// `onto.v2` is `onto.v1` minus [`DROPPED`], and every question it keeps is v1's, field for field: the bands,
+/// the state, the action and the description too. The two picture questions nothing reads yet stay.
+#[test]
+fn onto_v2_is_onto_v1_without_the_provider_rules_questions() {
+    let v1 = by_name("onto.v1")
+        .or_else(|| crate::pack::retired("onto.v1"))
+        .unwrap();
+    let v2 = by_name("onto.v2").expect("onto.v2 is embedded");
+    assert_eq!((v1.version, v2.version), (1, 2));
+    for q in DROPPED {
+        assert!(v1.question(q).is_some(), "{q} in v1");
+    }
+    let mut planted = (*v1).clone();
+    planted.version = 2;
+    planted.sha256 = v2.sha256.clone();
+    planted
+        .questions
+        .retain(|q| !DROPPED.contains(&q.id.as_str()));
+    assert_eq!(planted, *v2);
+    for kept in ["image_subject", "shows_screen_or_document"] {
+        assert_eq!(v2.question(kept), v1.question(kept), "{kept}");
+    }
 }

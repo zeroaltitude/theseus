@@ -510,15 +510,15 @@ mod tests {
     use super::*;
     use crate::pack::by_name;
 
-    const LOOP: &str = include_str!("../packs/loop.v1.toml");
+    const LOOP: &str = include_str!("../packs/loop.v2.toml");
 
     fn candidate(edit: impl Fn(&str) -> String) -> Pack {
-        Pack::parse(&edit(LOOP).replace("version = 1", "version = 2")).unwrap()
+        Pack::parse(&edit(LOOP).replace("version = 2", "version = 3")).unwrap()
     }
 
     #[test]
     fn a_reworded_criterion_asks_and_a_threshold_alone_rebands() {
-        let inc = by_name("loop.v1").unwrap();
+        let inc = by_name("loop.v2").unwrap();
         let same = candidate(|t| t.to_string());
         assert_eq!(what_changes(&inc, &same), Change::ThresholdsOnly);
         let first_act = LOOP.find("act = ").unwrap();
@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn a_stored_state_goes_as_it_was_only_to_the_same_builder_and_cap() {
-        let inc = by_name("loop.v1").unwrap();
+        let inc = by_name("loop.v2").unwrap();
         let mut rec = StateRecord {
             sha256: hex::encode(Sha256::digest(b"{\"ask\":\"x\"}")),
             bytes: 11,
@@ -610,7 +610,7 @@ mod tests {
 
     #[test]
     fn rebanding_reads_the_candidates_thresholds() {
-        let inc = by_name("loop.v1").unwrap();
+        let inc = by_name("loop.v2").unwrap();
         let answer = Answer::Noul { noul: 0.7 };
         let def = inc.question("announced_unfinished").unwrap();
         let a = AnswerRecord {

@@ -193,15 +193,10 @@ impl ContentItem {
     ///    in a granted repository's currently-stored sighting nor on the
     ///    chain from the session's own root to its own directory, whether it
     ///    was created or merely changed and whether or not its directory has
-    ///    ever been compiled in (the one bypass found in review that is
-    ///    still open; it covers a granted repository nobody has opened a
-    ///    session in, whose own `AGENTS.md` is unswept and arrives with no
-    ///    "changed" notice at all, and a file the owner HAS read that an
-    ///    ordinary compile elsewhere in the same repository evicted from the
-    ///    sighting -- `project_context::change::wrote`, item 1, states both
-    ///    in full), a background job's write that lands after its own call
-    ///    returned, and text written by a session that was never labelled at
-    ///    all. Asking the injection question here
+    ///    ever been compiled in (`project_context::change::wrote`, item 1,
+    ///    says which files those are), a background job's write that lands
+    ///    after its own call returned, and text written by a session that
+    ///    was never labelled at all. Asking the injection question here
     ///    would not close that remainder either -- it would answer yes on
     ///    the honest files too. What fits it is the tool floor, which is an
     ///    open owner question on theseus-3i6d1's `theseus.toml` line and is

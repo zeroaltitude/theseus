@@ -11,6 +11,11 @@ export type ViewShowResult = { turn_id: string, views: Array<ViewShown>,
  */
 tallies: Array<ViewTally>, 
 /**
+ * The compilations of the turn's views this build cannot read (a later build's names), in the order
+ * built: not in `views`.
+ */
+unread: Array<string>, 
+/**
  * Why some of it is not here: text not asked for.
  */
 withheld?: string, };

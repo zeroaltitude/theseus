@@ -81,7 +81,7 @@ async fn under_route_v10_the_split_is_asked_with_the_route_pack_and_not_in_shado
     assert!(!split_req.is_empty());
     assert!(split_req
         .iter()
-        .all(|s| s.body["questions"].get("classify.v4/kind").is_none()));
+        .all(|s| s.body["questions"].get("classify.v5/kind").is_none()));
     // The effort and the task type are asked too, each with its own state.
     for q in ["effort.v1/effort", "work.v1/work"] {
         assert!(

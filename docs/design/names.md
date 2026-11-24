@@ -78,6 +78,32 @@ first: it counts the exchanges it would ask and prices their worst case, and ask
   stops at ten times the line (seven times the day's limit), or sooner at the daemon's day ceiling or the run's cap.
   Paced by the machine's quiet; the daemon's stop ends it between two exchanges, and a rerun goes on.
 
+## Picture labels per exchange (`names::pictures`)
+
+The same pack asks two questions of the pictures a person's message carries: what the picture is mostly of
+(`image_subject`, the first picture's when there are several) and whether a picture shows a screen or a document
+someone could read (`shows_screen_or_document`). The owner kept both (2026-11-24), and in the same frame each answer
+at `[ontology] act` touches the message's exchange: `picture:<subject>` (the pack's option id, `picture:document`)
+and, for a yes, `picture:shows_screen_or_document`. A no writes nothing; the answer stays in the judgment's row.
+
+- The labels describe the message's pictures, not each one. A picture has no record of its own.
+- The same judgments topics read, and no others: never a learned or a shadow version's.
+- The sweep mints no kind named `picture` (`judge::onto::mint`), so it never makes a category share these roots.
+  The owner's own `ontology.kind_add` still can: with a kind `picture` and a category such as `picture:document`,
+  a read of that category by its root (its timeline, the history tool's `thing`) would take the labels for its
+  own. The item view's topics (`item_labels::topics`) would not, in general: they ask for the exact key at the
+  exchange's start or its message's time, and a label is keyed at its turn's time. Recognition cards would not:
+  the names table admits only the six wired kinds (`names::table`), and `picture` is not one.
+- A label is keyed at its turn's time, when the turn's id was minted, not at its exchange's start. The start is a
+  clock read written in the turn's next frame, so a judgment can land before it; the turn's time is the same
+  whether the exchange can be read yet or not, for a retried frame the log kept and for a second pictured message
+  steered into the turn, so the turn holds one key of a label. It is at or before the exchange's start (by little
+  when the turn opens at once; by as long as the turn's catch-up ran when it had work to resume first), and
+  `exchange.rebuild` leaves it there. A reader that pages or spans a label's timeline goes by the label's own key,
+  not by the exchange's start.
+- Nothing that decides an act reads them; a reader asks for one by name, as for any thing's timeline.
+- Pictures sent before this was built have no labels; nothing fills them in.
+
 ## Numbered items (`names::items`, the index's `entity::item`)
 
 The index's extractor gains an `item` kind: `issue 33` and `issue #33` are `item:issue-33`, `PR 12` and
