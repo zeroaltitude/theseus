@@ -291,9 +291,9 @@ impl TurnRunner {
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
         let wrong = self.memory.labeled(store)?;
-        let since = crate::copies::since::Since::new(store, &wrong);
+        let said = crate::copies::since::Since::new(store, &wrong);
         let (window, mut sessions) =
-            window_of((store, &read, sid), &a, &pov, (turn, &since), renderer.zone)?;
+            window_of((store, &read, sid), &a, &pov, (turn, &said), renderer.zone)?;
         sessions.extend(resolved.sessions.borrow().iter().cloned());
         let exchanges = laid_exchanges(&window, turn, &resolved.exchanges.borrow(), &a);
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
@@ -672,7 +672,7 @@ fn window_of(
     (store, read, sid): (&Store, &Sessions, &str),
     a: &Assembled,
     pov: &PointOfView,
-    (turn, since): (&str, &crate::copies::since::Since<'_>),
+    (turn, said): (&str, &crate::copies::since::Since<'_>),
     zone: crate::recall::stamp::ZoneAt<'_>,
 ) -> anyhow::Result<(Transcript, Vec<String>)> {
     let here: HashMap<&str, Form> = (a.view.shown.iter())
@@ -704,7 +704,7 @@ fn window_of(
         let nodes = labelled(store, nodes, pov, at, zone);
         let handle = Handle(e.turn_id.clone());
         window.extend(match form {
-            Form::Whole => since.lay(nodes)?,
+            Form::Whole => said.lay(nodes)?,
             Form::Spoken => bounded(nodes, &handle),
             Form::Line => as_line((store, read), nodes, &handle)?,
         });
