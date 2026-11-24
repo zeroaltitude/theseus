@@ -174,7 +174,7 @@ site!(
             async {
                 let core = r.core.clone();
                 let rt = tokio::runtime::Handle::current();
-                tokio::task::spawn_blocking(move || core.writer_target(&rt, "classify.v4"))
+                tokio::task::spawn_blocking(move || core.writer_target(&rt, "classify.v5"))
                     .await
                     .unwrap()
                     .unwrap()
@@ -184,7 +184,7 @@ site!(
         },
         pin: ("fable", "claude-fable-5-2"),
         pick: ("haiku", "claude-haiku-5-5"),
-        says: "classify.v4",
+        says: "classify.v5",
     }
 );
 

@@ -149,3 +149,17 @@ fn a_settings_table_for_route_v11_loads_and_is_named_retired() {
     assert_eq!(cfg.judge.retired(), ["judge.packs.\"route.v11\""]);
     assert!(crate::judge::WIRED.iter().all(|(p, _)| *p != "route.v11"));
 }
+
+/// The same for classify.v4, retired by classify.v5 (issue 46).
+#[test]
+fn a_settings_table_for_classify_v4_loads_and_is_named_retired() {
+    let (cfg, warnings) = parse("[judge.packs.\"classify.v4\"]\nrung = \"shadow\"\n").unwrap();
+    let lines = trimmed(&warnings);
+    assert_eq!(lines.len(), 1, "{warnings:?}");
+    assert!(
+        lines[0].contains("judge.packs.\"classify.v4\""),
+        "{}",
+        lines[0]
+    );
+    assert_eq!(cfg.judge.retired(), ["judge.packs.\"classify.v4\""]);
+}

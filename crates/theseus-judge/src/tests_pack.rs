@@ -760,6 +760,20 @@ fn the_six_packs_ask_what_the_design_says() {
             ],
         ),
         (
+            "classify.v5",
+            &[
+                "Inbound Inbound Conversation None",
+                "addressed_task Choice from Tasks + [none] only_when Tasks",
+                "fragment Noul",
+                "kind Choice decides [new_ask follow_up correction control addressed_to_task social other]",
+                "mentions_other_conversation Noul",
+                "offer_task Noul",
+                "should_promote Noul decides",
+                "wants_fresh_look Noul",
+                "rollback []",
+            ],
+        ),
+        (
             "role.v1",
             &[
                 "Inbound Inbound CurrentRole RoleHint",
@@ -1049,7 +1063,7 @@ fn the_loaders_rules_hold_on_all_the_packs() {
     assert_eq!(
         six.len(),
         27,
-        "loop.v1, security.v3, classify.v4, categorize.v1, rerank.v1, route.v12, \
+        "loop.v1, security.v3, classify.v5, categorize.v1, rerank.v1, route.v12, \
          effort.v1, work.v1, citation.v1, people.v1, people_seen.v1, compare.v1, heard.v1, directive.v2, \
          onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, families.v1, \
          content.v4, split.v1, undo.v1, delay.v1, precedence.v1, allow_said.v1 and task_words.v1 (the \
@@ -1194,7 +1208,7 @@ fn split_v1_is_one_deciding_question_about_the_work() {
     }
     assert_eq!(
         p.builder,
-        by_name("classify.v4").unwrap().builder,
+        by_name("classify.v5").unwrap().builder,
         "it batches with classify"
     );
 }

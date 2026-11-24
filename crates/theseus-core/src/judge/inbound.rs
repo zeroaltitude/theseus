@@ -46,13 +46,24 @@ use crate::node::{Body, Node, Origin};
 use crate::places::PlaceClass;
 use crate::trace::Trace;
 
-/// CLASSIFY (§2.4), at `inbound`: `classify.v4` since theseus-98bz.9, v3's
-/// questions and the `scope` question (asked by the pack, read by nothing since
-/// the place digest went, 2026-11-22); v3
-/// added the `offer_task` question (theseus-bh3t.5), which finds work
-/// described for later, and v2 the `thread` question (theseus-rha2).
-/// `classify.v2` and `classify.v3` stay embedded for their history.
-pub const CLASSIFY_PACK: &str = "classify.v4";
+/// CLASSIFY (§2.4), at `inbound`: `classify.v5` since issue 46, `classify.v4`
+/// without the `thread` and `scope` questions, which no turn could ask once
+/// threads were narrowed to explicit addresses; v3 added the `offer_task`
+/// question (theseus-bh3t.5), which finds work described for later.
+/// `classify.v2` to `classify.v4` are retired (`pack::RETIRED`), their
+/// judgments still read.
+pub const CLASSIFY_PACK: &str = "classify.v5";
+/// The classify version [`CLASSIFY_PACK`] replaced (issue 46). A message judged
+/// by it just before the upgrade keeps its answers: [`reads_as_classify`].
+pub const CLASSIFY_BEFORE: &str = "classify.v4";
+
+/// Whether a judgment of `pack` is the classify judgment a reader takes a
+/// message's answers from: the wired version's, or the one it replaced, for a
+/// message judged just before the upgrade. Never a learned version's, as
+/// before.
+pub fn reads_as_classify(pack: &str) -> bool {
+    pack == CLASSIFY_PACK || pack == CLASSIFY_BEFORE
+}
 /// The question of `classify.v3` that finds work to offer as a task.
 pub const OFFER_QUESTION: &str = "offer_task";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
@@ -1045,7 +1056,7 @@ pub fn names_hit(names: &DataNames, text: &str) -> bool {
 /// Whether `classify.v3` found the message to be work for later, at the act
 /// bar, in a judgment that acts (a shadow one offers nothing).
 pub fn offer_answer(j: &theseus_judge::Judgment) -> bool {
-    j.pack == CLASSIFY_PACK
+    reads_as_classify(&j.pack)
         && j.actionable()
         && j.mode != theseus_judge::Mode::Shadow
         && j.answer(OFFER_QUESTION).is_some_and(|a| a.band.acts_true())

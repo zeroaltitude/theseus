@@ -1410,7 +1410,7 @@ resident_mb = 128                         # the index's memory at rest, the mode
 
 # ---------------------------------------------------------------- ontology
 # Jev files each message's session into the ontology (`onto.v1`, in the inbound batch
-# beside `classify.v4`): which topic, project, event, resource, capability
+# beside `classify.v5`): which topic, project, event, resource, capability
 # and expertise it is about, and whether a new one is called for. From `act` Theseus
 # writes the membership (origin `jev`) and mints a new category, and tells you in the
 # reply's footer (`filed: topic > theseus > ontology (new)`); a mint sends one card to
@@ -1631,7 +1631,7 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # runs beside the turn and the turn never waits for it: a slow or failing Jev
 # changes no turn. Among the packs that judge: loop.v1, at each turn that ends
 # with no tool calls (where does the work on the ask stand?); security.v3, at
-# each call that acts once the gate has decided (how risky is it?); classify.v4, at each message a person sends
+# each call that acts once the gate has decided (how risky is it?); classify.v5, at each message a person sends
 # (what kind of message is it?),
 # but not at a slash command, a wake's turn, a report's turn, or a task's first
 # turn; categorize.v1, at

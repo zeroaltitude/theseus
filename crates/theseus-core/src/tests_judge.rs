@@ -274,7 +274,7 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
         [
             "loop.v1: shadow",
             "security.v3: live (owner: decision of 2026-10-04)",
-            "classify.v4: off",
+            "classify.v5: off",
             "split.v1: off",
             "route.v12: off (the config's ceiling; on the ladder: live (owner: a new compiled version goes live on landing (docs/development.md); issue 46: the live packs lose the questions nothing reads))",
         "directive.v2: off",
@@ -489,7 +489,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
         [
             "loop.v1: off",
             "security.v3: live (owner: decision of 2026-10-04)",
-            "classify.v4: off",
+            "classify.v5: off",
             "split.v1: off",
             "route.v12: off (the config's ceiling; on the ladder: live (owner: a new compiled version goes live on landing (docs/development.md); issue 46: the live packs lose the questions nothing reads))",
         "directive.v2: off",

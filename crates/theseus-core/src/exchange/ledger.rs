@@ -316,7 +316,7 @@ fn around(store: &Store, ex: &Exchange) -> (Option<Exchange>, bool) {
 
 /// The judge's recorded answers to the message `node`, from the classify
 /// pack's rows of `sessions`.
-fn judged(store: &Store, sessions: &[&str], node: &str) -> BTreeMap<String, String> {
+pub(crate) fn judged(store: &Store, sessions: &[&str], node: &str) -> BTreeMap<String, String> {
     let page = Page {
         kind: kinds::LEDGER,
         tags: sessions
@@ -336,7 +336,7 @@ fn judged(store: &Store, sessions: &[&str], node: &str) -> BTreeMap<String, Stri
         let Ok(j) = serde_json::from_value::<theseus_judge::Judgment>(row.data) else {
             continue;
         };
-        if j.pack != crate::judge::inbound::CLASSIFY_PACK
+        if !crate::judge::inbound::reads_as_classify(&j.pack)
             || j.context["node"].as_str() != Some(node)
         {
             continue;

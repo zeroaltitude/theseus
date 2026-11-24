@@ -107,7 +107,7 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
 const INBOUND_ALONE: [&str; 21] = [
     "loop.v1: off",
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
-    "classify.v4: live",
+    "classify.v5: live",
     "split.v1: shadow",
     "route.v12: off (the config's ceiling; on the ladder: live (owner: a new compiled version goes live on landing (docs/development.md); issue 46: the live packs lose the questions nothing reads))",
     "directive.v2: live",
@@ -164,10 +164,10 @@ async fn a_persons_message_is_judged_in_one_request() {
     assert_eq!(seen.len(), 1);
     let q = &seen[0].body["questions"];
     let ids: Vec<&String> = q.as_object().unwrap().keys().collect();
-    assert!(ids.iter().any(|i| *i == "classify.v4/kind"), "{ids:?}");
+    assert!(ids.iter().any(|i| *i == "classify.v5/kind"), "{ids:?}");
     assert!(
-        ids.iter().all(|i| i.starts_with("classify.v4/")),
-        "classify.v4 alone: {ids:?}"
+        ids.iter().all(|i| i.starts_with("classify.v5/")),
+        "classify.v5 alone: {ids:?}"
     );
     // No live tasks: `addressed_task` is not asked.
     assert!(!ids.iter().any(|i| i.ends_with("/addressed_task")));
@@ -175,7 +175,7 @@ async fn a_persons_message_is_judged_in_one_request() {
     let c = &row.data;
     // classify.v4 acts at its bars (the thread question, theseus-rha2).
     assert_eq!(row.kind, "judge.call");
-    assert_eq!(c["pack"], "classify.v4");
+    assert_eq!(c["pack"], "classify.v5");
     assert_eq!(c["mode"], "live");
     assert_eq!(c["point"], "inbound");
     assert_eq!(c["outcome"]["outcome"], "answered", "{c}");
@@ -471,4 +471,28 @@ async fn the_inbound_packs_off_call_nothing() {
     assert!(marks(&res.trace).is_empty());
     assert_eq!(jev.connections(), 0);
     assert!(scoped(&r.core.store, "judge:classify").is_empty());
+}
+
+/// The inbound batch asks `classify.v5` (issue 46): its questions, under its own name, and neither `thread`
+/// nor `scope`; the row is v5's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_inbound_batch_asks_classify_v5() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig_on(texts(1), Some(&jev), inbound_only);
+    turn(&r.core, None, "Write a function that adds two numbers.").await;
+    let classify = until_inbound(&r.core.store, 1).await;
+    let seen = jev.seen();
+    let ids: Vec<&String> = seen[0].body["questions"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .collect();
+    assert!(ids.iter().any(|i| *i == "classify.v5/kind"), "{ids:?}");
+    assert!(ids.iter().all(|i| i.starts_with("classify.v5/")), "{ids:?}");
+    assert!(
+        !ids.iter()
+            .any(|i| i.ends_with("/thread") || i.ends_with("/scope")),
+        "{ids:?}"
+    );
+    assert_eq!(classify[0].data["pack"], "classify.v5");
 }

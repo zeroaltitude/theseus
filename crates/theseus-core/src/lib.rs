@@ -299,6 +299,8 @@ mod tests_children_complete;
 #[cfg(test)]
 mod tests_cite;
 #[cfg(test)]
+mod tests_classify_before;
+#[cfg(test)]
 mod tests_coding_hint;
 #[cfg(test)]
 mod tests_commitments;

@@ -138,7 +138,7 @@ async fn the_inbound_and_compile_judgments_carry_their_class_and_the_metrics_cou
     let jev = FakeJev::start().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = judge_config(dir.path(), Some(&jev));
-    let on = ["classify.v4"];
+    let on = ["classify.v5"];
     for (pack, _) in crate::judge::WIRED {
         let mode = if on.contains(pack) {
             PackMode::Shadow
@@ -194,7 +194,7 @@ async fn the_inbound_and_compile_judgments_carry_their_class_and_the_metrics_cou
             .map(|r| r.data["context"]["class"].clone())
             .collect()
     };
-    assert_eq!(class_of("classify.v4"), ["unknown", "unknown"]);
+    assert_eq!(class_of("classify.v5"), ["unknown", "unknown"]);
 
     let got = rx
         .until("the judge's metrics by class", |g| {
@@ -223,5 +223,5 @@ async fn the_inbound_and_compile_judgments_carry_their_class_and_the_metrics_cou
             .map(|p| p["asInt"].as_str().unwrap().parse::<u64>().unwrap())
             .sum()
     };
-    assert_eq!(count("classify.v4", "unknown"), 2);
+    assert_eq!(count("classify.v5", "unknown"), 2);
 }

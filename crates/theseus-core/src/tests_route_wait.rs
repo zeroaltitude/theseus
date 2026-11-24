@@ -86,7 +86,7 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
     assert_eq!(
         by_pack,
         BTreeMap::from([
-            ("classify.v4".to_string(), 1),
+            ("classify.v5".to_string(), 1),
             ("effort.v1".to_string(), 1),
             ("route.v12".to_string(), 1),
             ("split.v1".to_string(), 1),

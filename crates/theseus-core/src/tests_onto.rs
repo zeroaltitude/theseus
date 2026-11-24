@@ -327,7 +327,7 @@ fn batch_request(jev: &FakeJev) -> Value {
     jev.seen()
         .into_iter()
         .map(|s| s.body)
-        .find(|b| b["questions"].to_string().contains("classify.v4/"))
+        .find(|b| b["questions"].to_string().contains("classify.v5/"))
         .expect("the batch's request")
 }
 
@@ -424,7 +424,7 @@ async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
             .jev
             .seen()
             .iter()
-            .any(|s| s.body["questions"].to_string().contains("classify.v4/"))
+            .any(|s| s.body["questions"].to_string().contains("classify.v5/"))
         {
             assert!(
                 t0.elapsed() < Duration::from_secs(60),

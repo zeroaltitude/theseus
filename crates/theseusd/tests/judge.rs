@@ -70,7 +70,7 @@ impl Rig {
             // entering a session would be counting its own.
             let packs = table(j, "packs");
             for p in [
-                "classify.v4",
+                "classify.v5",
                 "split.v1",
                 "route.v12",
                 "directive.v2",
@@ -153,7 +153,7 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             // Live at a turn's stop while `[judge] stop_nudge` is on (theseus-fh0u).
             "loop.v1: live",
             "security.v3: live (owner: decision of 2026-10-04)",
-            "classify.v4: off",
+            "classify.v5: off",
             "split.v1: off",
             "route.v12: off (the config's ceiling; on the ladder: live (owner: a new compiled version goes live on landing (docs/development.md); issue 46: the live packs lose the questions nothing reads))",
             "directive.v2: off",

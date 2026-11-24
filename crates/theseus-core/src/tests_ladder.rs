@@ -800,7 +800,7 @@ async fn max_mode_shadow_caps_every_pack_after_a_restart() {
     let c = core_at(dir.path(), None, |_| {});
     c.pack_promote(&promote("loop.v1", "canary", Some(1.0)), "cli")
         .unwrap();
-    c.pack_promote(&promote("classify.v4", "live", None), "cli")
+    c.pack_promote(&promote("classify.v5", "live", None), "cli")
         .unwrap();
     drop(c);
     let c = core_at(dir.path(), None, |cfg| {

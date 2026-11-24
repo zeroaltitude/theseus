@@ -59,9 +59,9 @@ fn the_rollback_rules_no_production_code_can_feed_are_exactly_these() {
         .map(|(p, r)| ((*p).to_string(), *r))
         .collect();
     assert_eq!(
-        declared, 10,
-        "the embedded packs declare 10 rollback rules in all (15 left with the versions issue 44 retired, 3 with route.v10 in issue 46, \
-         and route.v12 declares two where route.v11 declared three)"
+        declared, 9,
+        "the embedded packs declare 9 rollback rules in all (15 left with the versions issue 44 retired, 3 with route.v10 in issue 46, \
+         route.v12 declares two where route.v11 declared three, and classify.v5 none where classify.v4 declared one)"
     );
     assert_eq!(
         dead, expected,

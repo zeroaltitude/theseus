@@ -55,7 +55,7 @@ pub(crate) mod words;
 
 pub use name::NAMES;
 
-/// `onto.v1` (theseus-xzxqv), at `inbound`, in the batch beside `classify.v4`
+/// `onto.v1` (theseus-xzxqv), at `inbound`, in the batch beside `classify.v5`
 /// and `role.v1`.
 pub const ONTO_PACK: &str = "onto.v1";
 

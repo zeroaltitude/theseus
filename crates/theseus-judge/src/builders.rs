@@ -1362,7 +1362,7 @@ pub(crate) mod tests {
     }
 
     /// The `inbound` fixture with three live threads, which backs
-    /// classify.v4's golden request (theseus-98bz.9).
+    /// classify.v5's golden request (theseus-98bz.9; classify.v4's before issue 46).
     fn threads_fixture() -> String {
         std::fs::read_to_string(format!(
             "{}/fixtures/inputs/inbound.threads.json",
@@ -1391,6 +1391,7 @@ pub(crate) mod tests {
             "classify.v2",
             "classify.v3",
             "classify.v4",
+            "classify.v5",
             "route.v5",
             "continue.v1",
             "categorize.v1",
@@ -1432,8 +1433,8 @@ pub(crate) mod tests {
             let (_, prepared) = match p.name().as_str() {
                 "route.v6" | "route.v7" | "route.v8" => prepared_from(p, &names_fixture()),
                 "onto.v1" => prepared_from(p, &onto_fixture()),
-                // classify.v4's `scope` is asked only with live threads.
-                "classify.v4" => prepared_from(p, &threads_fixture()),
+                // classify.v5 asks no `thread` or `scope`, even with live threads in its input.
+                "classify.v5" => prepared_from(p, &threads_fixture()),
                 name => prepared(name),
             };
             let questions = p

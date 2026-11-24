@@ -44,7 +44,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
     ("security.v3", include_str!("../packs/security.v3.toml")),
-    ("classify.v4", include_str!("../packs/classify.v4.toml")),
+    ("classify.v5", include_str!("../packs/classify.v5.toml")),
     ("directive.v2", include_str!("../packs/directive.v2.toml")),
     ("categorize.v1", include_str!("../packs/categorize.v1.toml")),
     ("rerank.v1", include_str!("../packs/rerank.v1.toml")),
@@ -87,6 +87,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
 pub const RETIRED: &[&str] = &[
     "classify.v2",
     "classify.v3",
+    "classify.v4",
     "route.v5",
     "route.v6",
     "route.v7",
@@ -123,6 +124,14 @@ count = 3
     ),
     (
         "classify.v3",
+        r#"[[rollback]]
+rule = "labels_per_day"
+label = "wrong thread"
+count = 3
+"#,
+    ),
+    (
+        "classify.v4",
         r#"[[rollback]]
 rule = "labels_per_day"
 label = "wrong thread"
@@ -325,6 +334,10 @@ pub fn retired(name: &str) -> Option<Arc<Pack>> {
         (
             "classify.v3",
             include_str!("../packs/retired/classify.v3.toml"),
+        ),
+        (
+            "classify.v4",
+            include_str!("../packs/retired/classify.v4.toml"),
         ),
         ("route.v5", include_str!("../packs/retired/route.v5.toml")),
         ("route.v6", include_str!("../packs/retired/route.v6.toml")),

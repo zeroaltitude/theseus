@@ -322,7 +322,7 @@ async fn a_correction_the_judge_named_is_kept_above_the_first_level() {
     let kinds = ["new_ask", "follow_up", "correction", "other"];
     let j = crate::tests_learning::judgment(
         "jdg_1",
-        "classify.v4",
+        "classify.v5",
         vec![crate::tests_learning::choice(
             "kind",
             "correction",

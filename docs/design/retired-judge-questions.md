@@ -88,3 +88,10 @@ alias carries it to the new name, so rename it.
   loop leaves the route pack alone by its constant (`lineage::LEFT_ALONE`), not by a literal name. The labelled
   cases file declares `route.v12` and is read for v10, v11 and v12 alike. A pinned turn with fewer than two
   personas asks the route pack nothing; its judgment is recorded as skipped for want of a question.
+- **`classify.v5`** is `classify.v4` without `thread` and `scope`: no turn offers live threads since a message
+  goes to a thread by its address only, so neither could be asked. With them go the "wrong thread" rollback rule
+  (no code writes that label) and the `thread_route` action (no code reads a pack's action): `action = "none"`.
+  The readers that look a message's classify answers up by name (the exchange row's judged answers, the task its
+  words addressed, the offer of a task) read the wired version or the one it replaced
+  (`inbound::reads_as_classify`), so a message judged by `classify.v4` just before the upgrade keeps its
+  answers; a learned version's are not read, as before. `classify.v4`'s labelled set stays its own frozen record.
