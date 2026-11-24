@@ -95,3 +95,11 @@ alias carries it to the new name, so rename it.
   words addressed, the offer of a task) read the wired version or the one it replaced
   (`inbound::reads_as_classify`), so a message judged by `classify.v4` just before the upgrade keeps its
   answers; a learned version's are not read, as before. `classify.v4`'s labelled set stays its own frozen record.
+- **`onto.v2`** is `onto.v1` without `personal_applies`, `personal`, `elicits`, `shows_people` and
+  `shows_identifiers`, the questions that existed for the restricted-provider rule. Their one reader, the private
+  mark (`judge::onto::mark`), went with them: it decided what later requests could send to models outside an
+  allowlist, ran only under `[ontology] private_mark` (off by default), and even on wrote one trace line.
+  `[ontology] private_mark` loads, is ignored, and is named at startup. The two picture questions nothing reads
+  yet, `image_subject` and `shows_screen_or_document`, are still asked: whether they become written labels or
+  go is the owner's decision. `judge replay --onto` with no candidate replays the wired onto pack by its
+  constant, and the cockpit counts the onto pack's judgments under the wired name.

@@ -74,7 +74,7 @@ impl Rig {
                 "split.v1",
                 "route.v12",
                 "directive.v2",
-                "onto.v1",
+                "onto.v2",
                 "content.v4",
             ] {
                 let mut off = toml::Table::new();
@@ -157,7 +157,7 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "split.v1: off",
             "route.v12: off (the config's ceiling; on the ladder: live (owner: a new compiled version goes live on landing (docs/development.md); issue 46: the live packs lose the questions nothing reads))",
             "directive.v2: off",
-            "onto.v1: off",
+            "onto.v2: off",
             // The sweep's merge and split packs, live from their landing (theseus-nzzz4).
             "same_thing.v1: live",
             "two_things.v1: live",

@@ -7,6 +7,9 @@ use theseus_ontology::{Category, CategoryId, MemberList, Membership, Origin, Rec
 use theseus_protocol::judge_runs::UndoRate;
 use theseus_protocol::now_unix_ms;
 
+/// The wired onto pack: its report carries the undo line.
+const ONTO: &str = crate::judge::onto::ONTO_PACK;
+
 use crate::tests_judge::{off, rig_on, texts};
 use crate::tests_learning::{call_row, judgment};
 use crate::Core;
@@ -38,7 +41,7 @@ fn jev_files(core: &Core, write: &str, topic: &str, session: &str) {
     .unwrap();
 }
 
-/// Two of Jev's writes, one undone: `onto.v1`'s report says topic 1 of 2
+/// Two of Jev's writes, one undone: the onto pack's report says topic 1 of 2
 /// (0.5), and a pack that is not the ontology's has no `undo`, nor the key in
 /// its JSON.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -56,7 +59,7 @@ async fn the_learning_report_carries_the_onto_undo_line() {
     let c = &r.core;
     let now = now_unix_ms();
     let calls = [
-        judgment("jdg_a", "onto.v1", vec![], json!({}), 10),
+        judgment("jdg_a", ONTO, vec![], json!({}), 10),
         judgment("jdg_l", "loop.v1", vec![], json!({}), 10),
     ];
     let rows: Vec<_> = calls.iter().map(|j| call_row(j, now - 1_000)).collect();
@@ -69,7 +72,7 @@ async fn the_learning_report_carries_the_onto_undo_line() {
         .unwrap();
     let pack = |name: &str| rep.packs.iter().find(|p| p.pack == name).unwrap();
     assert_eq!(
-        pack("onto.v1").undo,
+        pack(ONTO).undo,
         [UndoRate {
             kind: "topic".into(),
             writes: 2,
@@ -77,7 +80,7 @@ async fn the_learning_report_carries_the_onto_undo_line() {
             rate: Some(0.5),
         }]
     );
-    assert_eq!(pack("onto.v1").undo_days, 7, "the window rides the report");
+    assert_eq!(pack(ONTO).undo_days, 7, "the window rides the report");
     let other = pack("loop.v1");
     assert!(other.undo.is_empty());
     assert!(serde_json::to_value(other).unwrap().get("undo").is_none());
@@ -99,14 +102,14 @@ async fn a_failed_undo_read_leaves_the_rest_of_the_learning_report() {
     });
     let c = &r.core;
     let now = now_unix_ms();
-    let j = judgment("jdg_a", "onto.v1", vec![], json!({}), 10);
+    let j = judgment("jdg_a", ONTO, vec![], json!({}), 10);
     c.store.append(&[call_row(&j, now - 1_000)]).unwrap();
     jev_files(c, "jdg_a", "kelp", "ses_a");
     c.store.fail_ledger_pages();
     let rep = c
         .run_learning(now_unix_ms() + 1_000, "on_demand", |_| {})
         .unwrap();
-    let p = rep.packs.iter().find(|p| p.pack == "onto.v1").unwrap();
+    let p = rep.packs.iter().find(|p| p.pack == ONTO).unwrap();
     assert_eq!(p.calls, 1, "the pack's own numbers stand");
     assert!(p.undo.is_empty());
 }

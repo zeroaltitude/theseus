@@ -1621,12 +1621,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `tests_categorize.rs`.
   - **Jev files the session into the ontology** (theseus-xzxqv; no store format change: two ledger kinds, `onto.filed` and
     `onto.named`, and a META key `onto.named.<session>.<kind>`; `judge/onto/`, `config/ontology.rs`, `rpc/ontology_kinds.rs`,
-    `rpc/judge_latency.rs`, `fact/onto.rs`; pack `onto.v1`): `onto.v1` is live (`WIRED`) and rides the inbound batch beside
+    `rpc/judge_latency.rs`, `fact/onto.rs`; pack `onto.v2`): `onto.v2` is live (`WIRED`) and rides the inbound batch beside
     `classify.v3` and `role.v1` (one state, one request, cost split by question count), in a private place, for a person's
     message, never a task's, while `[ontology] judge` is on (off: the batch is byte for byte what it was and nothing is written).
     Its state is the inbound state plus `thread`, `project`, `memberships` and `mined_names` (`theseus_judge::builders::onto`);
     `route.v6`, which the turn waits on, never carries them (`prepare_inbound` builds its state from the plain input), and
-    `request = "own"` moves `onto.v1` to a third request no turn waits on. The kinds asked are those whose row lists `jev` in
+    `request = "own"` moves `onto.v2` to a third request no turn waits on. The kinds asked are those whose row lists `jev` in
     `assigned_by` among the six the pack asks about (the seeded `project` is given by the harness, so it is not asked until a row
     lets Jev assign it); each kind's options are the picker's (at most 20: the session's, the thread's, a word match, the most
     recent), `new` and `none`, and a mined name's `<kind>_name`. **Three steps, none on the turn's path.** (1) Asked
@@ -1644,14 +1644,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     in the `onto.filed` row (`disagrees`), never a panic. **The naming call** (`onto/name.rs`): `new` at the act band and no mined
     name fits, one call to `[ontology] name_profile` for three names and a line, reserved on the day ceiling, an `onto.named` row
     (a spend, `day_ceiling::SPEND_KINDS`), at most once a session, kind and local day (the META marker); the session's next
-    `onto.v1` offers the names first. **Undo**: `ontology.undo` (`rpc/ontology_kinds.rs`; `theseus ontology undo <judgment>`,
+    `onto.v2` offers the names first. **Undo**: `ontology.undo` (`rpc/ontology_kinds.rs`; `theseus ontology undo <judgment>`,
     refused in a job) is `Core::ontology_undo`; `ontology.kind.add|retire` write the kinds table (`ontology.kind` rows).
     `judge.latency` (`theseus judge latency --since <date>`) reads the batch's p50 and p95 by local day from the `judge.call`
     rows. Known limits: a message the thread router judges early files the home session, not the thread's; the cards carry
     their undo as a command until the binding's button lands. Tests: `tests_onto.rs`, `judge/onto/decide.rs`' own,
     `rpc/judge_latency.rs`'s, theseus-judge's `tests_onto.rs`.
   - **The ontology reaches routing, context and recall** (theseus-jrf4c; no store format change; `category_recall.rs`,
-    `judge/onto/{decide,mod,stage}.rs`): (1) **the project answer attaches**: while a session has no project, `onto.v1`
+    `judge/onto/{decide,mod,stage}.rs`): (1) **the project answer attaches**: while a session has no project, `onto.v2`
     asks `project` over the open projects of the task graph (`project_kind`; id = the task id, `new` files nothing, a project
     is the owner's to make); at the act band the plan's `attach` sets `SessionRecord.project` once the judgment's frame is
     written (`stage::attach`, only while it is still none: Jev never moves one the owner or the model attached), so the

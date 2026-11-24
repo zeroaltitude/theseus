@@ -1372,7 +1372,7 @@ pub(crate) mod tests {
     }
 
     /// The `inbound` fixture with the ontology fields (theseus-xzxqv), which
-    /// backs onto.v1's golden request.
+    /// backs onto.v2's golden request (onto.v1's before issue 46).
     pub(crate) fn onto_fixture() -> String {
         std::fs::read_to_string(format!(
             "{}/fixtures/inputs/inbound.onto.json",
@@ -1432,7 +1432,7 @@ pub(crate) mod tests {
             // route.v6 to v8 ask about the operator's names, so their goldens have some.
             let (_, prepared) = match p.name().as_str() {
                 "route.v6" | "route.v7" | "route.v8" => prepared_from(p, &names_fixture()),
-                "onto.v1" => prepared_from(p, &onto_fixture()),
+                "onto.v2" => prepared_from(p, &onto_fixture()),
                 // classify.v5 asks no `thread` or `scope`, even with live threads in its input.
                 "classify.v5" => prepared_from(p, &threads_fixture()),
                 name => prepared(name),

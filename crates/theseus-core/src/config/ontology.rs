@@ -1,5 +1,5 @@
 //! `[ontology]` (theseus-xzxqv): Jev files each message's session into the
-//! ontology. `onto.v1` rides the inbound request, and its answers act in
+//! ontology. `onto.v2` rides the inbound request, and its answers act in
 //! three bands: from `act` a membership is written (and a new category
 //! minted), from `confirm` the owner is asked, below it the answer is only a
 //! record. Every key has a default, so an owner's config names none unless it
@@ -17,9 +17,8 @@
 //! - `recall_boost`: how much a note from a session that shares a category
 //!   with the asking one gains in recall's rank (0.25; 0 is off), at most
 //!   this times the kind's weight, by reciprocal rank among the sharers.
-//! - `private_mark`: whether a judged-private picture or message marks its
-//!   node private (theseus-und4g). Off: the judgment is a record and nothing
-//!   is marked. A policy effect, so it ships off until the owner says on.
+//! - `private_mark`: retired with the private mark (issue 46). It loads, is
+//!   ignored, and is named at startup ([`OntologyConfig::trimmed`]).
 //! - `sweep`: the nightly sweep (theseus-63tfk): a machine's membership
 //!   unconfirmed for 30 days decays, and a duplicate category a machine wrote
 //!   merges into its twin, each an undoable write. No model, no spend; off
@@ -61,8 +60,10 @@ pub struct OntologyConfig {
     pub request: Request,
     #[serde(default = "default_recall_boost")]
     pub recall_boost: f64,
-    #[serde(default)]
-    pub private_mark: bool,
+    /// Retired with the private mark and the questions that fed it (issue 46):
+    /// read, warned of ([`Self::trimmed`]), ignored and never written back.
+    #[serde(default, skip_serializing)]
+    pub(crate) private_mark: Option<toml::Value>,
     #[serde(default = "default_sweep")]
     pub sweep: bool,
     #[serde(default = "default_sweep_usd_per_day")]
@@ -115,7 +116,7 @@ impl Default for OntologyConfig {
             name_profile: None,
             request: Request::default(),
             recall_boost: default_recall_boost(),
-            private_mark: false,
+            private_mark: None,
             sweep: default_sweep(),
             sweep_usd_per_day: default_sweep_usd_per_day(),
             dream_guidance: default_dream_guidance(),
@@ -127,6 +128,15 @@ impl Default for OntologyConfig {
 impl OntologyConfig {
     pub fn is_default(&self) -> bool {
         *self == Self::default()
+    }
+
+    /// The keys issue 46 retired that this section sets: what
+    /// [`crate::Config::parse`] warns of, once.
+    pub fn trimmed(&self) -> Vec<String> {
+        match self.private_mark.is_some() {
+            true => vec!["ontology.private_mark".to_string()],
+            false => Vec::new(),
+        }
     }
 
     pub(crate) fn validate(&self) -> Result<()> {

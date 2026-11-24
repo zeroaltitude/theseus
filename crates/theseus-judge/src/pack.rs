@@ -60,7 +60,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         "people_seen.v1",
         include_str!("../packs/people_seen.v1.toml"),
     ),
-    ("onto.v1", include_str!("../packs/onto.v1.toml")),
+    ("onto.v2", include_str!("../packs/onto.v2.toml")),
     ("same_thing.v1", include_str!("../packs/same_thing.v1.toml")),
     ("two_things.v1", include_str!("../packs/two_things.v1.toml")),
     ("same_kind.v1", include_str!("../packs/same_kind.v1.toml")),
@@ -106,6 +106,8 @@ pub const RETIRED: &[&str] = &[
     // The memory pass's shadow judgments (M6 31a): their answers were recorded and nothing applied them (D8a).
     "memory.v1",
     "attribution.v1",
+    // The ontology pack's questions for the restricted-provider rule went with onto.v2 (issue 46).
+    "onto.v1",
 ];
 
 /// Each retired version's rollback rules, as its file declares them (the
@@ -263,6 +265,7 @@ count = 2
     ("recall_cross.v1", r#""#),
     ("memory.v1", r#""#),
     ("attribution.v1", r#""#),
+    ("onto.v1", r#""#),
 ];
 
 /// A retired version's own rollback rules; `None` for a name this build did
@@ -379,6 +382,7 @@ pub fn retired(name: &str) -> Option<Arc<Pack>> {
             "attribution.v1",
             include_str!("../packs/retired/attribution.v1.toml"),
         ),
+        ("onto.v1", include_str!("../packs/retired/onto.v1.toml")),
     ];
     static PARSED: OnceLock<Vec<Arc<Pack>>> = OnceLock::new();
     let parsed = PARSED.get_or_init(|| {

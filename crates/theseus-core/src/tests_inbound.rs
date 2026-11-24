@@ -111,7 +111,7 @@ const INBOUND_ALONE: [&str; 21] = [
     "split.v1: shadow",
     "route.v12: off (the config's ceiling; on the ladder: live (owner: a new compiled version goes live on landing (docs/development.md); issue 46: the live packs lose the questions nothing reads))",
     "directive.v2: live",
-    "onto.v1: off",
+    "onto.v2: off",
     "same_thing.v1: live",
     "two_things.v1: live",
     "same_kind.v1: live",

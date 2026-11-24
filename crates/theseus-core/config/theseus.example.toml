@@ -1409,7 +1409,7 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # dm_per_day = 3                          # the most live questions posted to your DM a day (0 to 10; 0: the CLI only)
 
 # ---------------------------------------------------------------- ontology
-# Jev files each message's session into the ontology (`onto.v1`, in the inbound batch
+# Jev files each message's session into the ontology (`onto.v2`, in the inbound batch
 # beside `classify.v5`): which topic, project, event, resource, capability
 # and expertise it is about, and whether a new one is called for. From `act` Theseus
 # writes the membership (origin `jev`) and mints a new category, and tells you in the
@@ -1417,16 +1417,12 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # your DM with an undo button. From `confirm` it asks you in a card and writes nothing.
 # Below that the answer is only a record. `theseus ontology undo` takes a write back.
 # [ontology]
-# judge = true                            # the rollback: off, onto.v1 is not asked and nothing is written
+# judge = true                            # the rollback: off, onto.v2 is not asked and nothing is written
 # act = 0.80                              # at and above this, Jev's answer is written
 # confirm = 0.55                          # from this, you are asked
 # name_profile = "haiku"                  # a pin: names a new category when no mined name fits (once a session, kind and day); unset: Jev chooses (US options only)
-# request = "batch"                       # "own": onto.v1 in a request of its own, never waited on (if the batch slows)
+# request = "batch"                       # "own": onto.v2 in a request of its own, never waited on (if the batch slows)
 # recall_boost = 0.25                    # a note from a session sharing a category with this one gains up to this in recall's rank (0 off)
-# private_mark = false                    # on: a picture or message Jev judges to disclose a private matter, or to show
-#                                         # people or identifiers, at `act` marks its node private (undoable). Off until
-#                                         # you say on: the mark changes what later requests may send to models outside
-#                                         # the US allowlist (theseus-und4g).
 # sweep = true                            # nightly: a machine's membership unconfirmed for 30 days decays, and a duplicate category a machine wrote merges into its twin (each undoable; no model, no spend); false is the rollback
 # sweep_usd_per_day = 1.0                 # the sweep's model calls a local day (theseus-nzzz4): Jev judges two categories that look alike (same_thing.v1: merged at 0.85), a category of 12 sessions or more (two_things.v1: split in two at 0.85), a category whose name has gone stale (name_it.v1: renamed to a name mined from its sessions at 0.85), and names the `other` answers mined (same_kind.v1: joined into one kind; name_it.v1: the minted kind's name); a call that would pass what is left of the day's cap is not begun; 0 turns the model's part off and the deterministic sweep still runs
 # dream_guidance = true                   # nightly: a machine's category that 5 private sessions hold and that has no guidance gets its first, under [memory] synth_limit_usd_per_day; false is the rollback

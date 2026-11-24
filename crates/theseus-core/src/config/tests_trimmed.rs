@@ -163,3 +163,13 @@ fn a_settings_table_for_classify_v4_loads_and_is_named_retired() {
     );
     assert_eq!(cfg.judge.retired(), ["judge.packs.\"classify.v4\""]);
 }
+
+/// The same for onto.v1, retired by onto.v2 (issue 46).
+#[test]
+fn a_settings_table_for_onto_v1_loads_and_is_named_retired() {
+    let (cfg, warnings) = parse("[judge.packs.\"onto.v1\"]\nrung = \"shadow\"\n").unwrap();
+    let lines = trimmed(&warnings);
+    assert_eq!(lines.len(), 1, "{warnings:?}");
+    assert!(lines[0].contains("judge.packs.\"onto.v1\""), "{}", lines[0]);
+    assert_eq!(cfg.judge.retired(), ["judge.packs.\"onto.v1\""]);
+}

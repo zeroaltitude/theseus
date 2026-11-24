@@ -9,8 +9,8 @@
 import type { LedgerEntry, UndoRate } from '@protocol'
 import { localDay } from './learning.ts'
 
-/** The ontology pack's name in a `judge.call` row. */
-export const ONTO_PACK = 'onto.v1'
+/** The ontology pack's name in a `judge.call` row: the wired version (`onto.v2` since issue 46). */
+export const ONTO_PACK = 'onto.v2'
 
 export interface OntoStats {
   /** `onto.v1` judgments: every `judge.call` row of the pack, whatever its outcome. */

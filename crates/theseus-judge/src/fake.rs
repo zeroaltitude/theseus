@@ -658,12 +658,12 @@ fn answers(req: &Value, script: &Script, answer_as: Option<String>) -> Value {
 }
 
 impl FakeJev {
-    /// Scripts one of `onto.v1`'s Choices: the option gets `confidence`.
+    /// Scripts one of the onto pack's Choices (`onto.v2`): the option gets `confidence`.
     /// `question` is the pack's own id (`topic`, `topic_name`); an option is
     /// `none`, `new`, a candidate's `c<n>` or a mined name's `n<n>`.
     pub fn script_onto(&self, question: &str, option: &str, confidence: f64) {
         self.script(
-            &format!("onto.v1/{question}"),
+            &format!("onto.v2/{question}"),
             Scripted::Choice {
                 option: option.into(),
                 confidence,
