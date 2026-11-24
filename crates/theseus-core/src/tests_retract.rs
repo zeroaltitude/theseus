@@ -747,6 +747,33 @@ async fn a_retraction_needs_a_reason_and_a_node() {
     assert!(format!("{e:#}").contains("no node"), "{e:#}");
 }
 
+/// A reason over 500 characters (characters, not bytes) is refused when it is given, saying the limit and
+/// the length given, and nothing is written; one of 500 is taken whole.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reason_over_500_characters_is_refused_when_given() {
+    let r = rig();
+    let c = &r.core;
+    let (_, x) = plant(c);
+    let ask = |why: String| FactRetractParams {
+        node: x.clone(),
+        why,
+        session_id: None,
+    };
+    let e = c
+        .fact_retract(&ask("\u{e9}".repeat(501)), "cli")
+        .unwrap_err();
+    let said = format!("{e:#}");
+    assert!(said.contains("500 characters"), "{said}");
+    assert!(said.contains("501"), "{said}");
+    assert!(rows(c, LedgerKind::FactRetracted).is_empty());
+    assert!(!c.runner.memory.labeled(&c.store).unwrap().contains(&x));
+    // 500 characters is 1,000 bytes here: taken, and kept whole.
+    let most = "\u{e9}".repeat(500);
+    let out = c.fact_retract(&ask(most.clone()), "cli").unwrap();
+    assert_eq!(out.why, most);
+    assert_eq!(rows(c, LedgerKind::FactRetracted).len(), 1);
+}
+
 /// The note is the harness's own user-role node, never an operator's words.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_note_is_the_harnesss_own_node() {

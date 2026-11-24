@@ -1523,3 +1523,55 @@ async fn late_envelope_batches_reset_the_unknown_backoff() {
         "progress must drain late envelopes without a growing pause"
     );
 }
+
+/// A hand whose outcome is unknown, settled at a cost or forgiven by the owner, closes its group: its
+/// call settles (not met: the hand is counted failed), the group is no longer open, and the hand's
+/// outcome stays unknown.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn settling_or_forgiving_an_unknown_hand_closes_its_group() {
+    for usd in [Some(0.25), None] {
+        let r = rig(calls(json!({"argv": ["true"]})));
+        turn(&r.core, "run one").await;
+        let rec = record(&r.core, &group_of(&r.core));
+        let aws = r.core.tools.aws.clone().unwrap();
+        let ctx = super::group::Ctx {
+            kernel: &r.core.kernel,
+            store: &r.core.store,
+            aws: &aws,
+        };
+        super::overdue::pass(&ctx, &rec, u64::MAX).await.unwrap();
+        let corr = rec.hands[0].correlation_id.clone();
+        assert_eq!(state_of(&r.core, &corr), ActionState::OutcomeUnknown);
+        let open = |core: &crate::Core| {
+            super::poller::open_groups(core)
+                .unwrap()
+                .iter()
+                .any(|g| g.group == rec.group)
+        };
+        assert!(open(&r.core), "the unknown hand keeps its group open");
+        r.core
+            .action_settle(
+                &theseus_protocol::money::ActionSettleParams {
+                    correlation_id: corr.clone(),
+                    usd,
+                },
+                &crate::approval::Answerer::from("the CLI"),
+            )
+            .unwrap();
+        until("the group's call settled", || {
+            state_of(&r.core, &rec.group).is_settled()
+        })
+        .await;
+        assert_eq!(
+            state_of(&r.core, &rec.group),
+            ActionState::Failed,
+            "{usd:?}"
+        );
+        assert_eq!(
+            record(&r.core, &rec.group).settled.as_deref(),
+            Some("not_met")
+        );
+        assert!(!open(&r.core), "{usd:?}: the group is closed");
+        assert_eq!(state_of(&r.core, &corr), ActionState::OutcomeUnknown);
+    }
+}

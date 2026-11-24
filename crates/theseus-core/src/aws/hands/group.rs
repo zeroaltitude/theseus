@@ -164,9 +164,28 @@ pub fn completion(store: &Store, correlation_id: &str) -> Option<Completion> {
         .and_then(|r| r.decode().ok())
 }
 
+/// What the owner settled a hand whose outcome is unknown at (`action.settle`; nothing when it was
+/// forgiven): its money is counted and it waits on nothing, so its group reads it as failed and is not held
+/// open by it, though its outcome stays unknown. None for any other hand.
+pub fn owner_settled_usd(a: &Action) -> Option<f64> {
+    if a.state != ActionState::OutcomeUnknown {
+        return None;
+    }
+    a.detail
+        .as_ref()?
+        .get("settled_by_owner")?
+        .get("cost_usd")?
+        .as_f64()
+}
+
 pub fn tally(store: &Store, rec: &GroupRecord, actions: &[Action]) -> Tally {
     let mut t = Tally::default();
     for (h, a) in rec.hands.iter().zip(actions) {
+        if let Some(usd) = owner_settled_usd(a) {
+            t.failed += 1;
+            t.spent_usd += usd;
+            continue;
+        }
         match a.state {
             ActionState::Succeeded => t.succeeded += 1,
             ActionState::Planned | ActionState::Authorized => t.waiting.push(h.index),
