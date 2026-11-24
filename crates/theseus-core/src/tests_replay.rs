@@ -41,7 +41,7 @@ const WORK: [&str; 6] = [
     "other",
 ];
 
-const LOOP_V1: &str = include_str!("../../theseus-judge/packs/loop.v1.toml");
+const LOOP_V1: &str = include_str!("../../theseus-judge/packs/loop.v2.toml");
 /// A pack the build no longer embeds, kept as the file `--pack-file` replays.
 const SECURITY_V2: &str = include_str!("../fixtures/packs/security.v2.toml");
 
@@ -68,11 +68,11 @@ pub(crate) fn rig(
     })
 }
 
-/// `loop.v2`: loop.v1 with its `progressing` option reworded.
+/// `loop.v3`: loop.v2 with its `progressing` option reworded.
 pub(crate) fn reworded() -> String {
     let at = LOOP_V1.find("{ id = \"progressing\", means = \"").unwrap()
         + "{ id = \"progressing\", means = \"".len();
-    let mut s = LOOP_V1.replacen("version = 1", "version = 2", 1);
+    let mut s = LOOP_V1.replacen("version = 2", "version = 3", 1);
     s.insert_str(at, "Plainly, ");
     s
 }
@@ -109,9 +109,9 @@ fn noul(q: &str, p: f64) -> AnswerRecord {
     }
 }
 
-/// A `loop.v1` state for an ask, its blob written, and its record.
+/// A `loop.v2` state for an ask, its blob written, and its record.
 pub(crate) fn loop_state(c: &Core, ask: &str) -> (StateRecord, String) {
-    let pack = theseus_judge::pack::by_name("loop.v1").unwrap();
+    let pack = theseus_judge::pack::by_name("loop.v2").unwrap();
     let input = Input::Loop(LoopInput {
         session_kind: Kind::Conversation,
         ask: ask.into(),
@@ -176,11 +176,11 @@ pub(crate) fn call_row(j: &Judgment, at_ms: u64) -> NewRecord {
 pub(crate) fn label_row(id: &str, j: &str, question: &str, label: Value) -> NewRecord {
     row_at(
         LedgerKind::JudgeLabel,
-        json!({"id": id, "judgment": j, "pack": "loop.v1", "question": question, "label": label,
+        json!({"id": id, "judgment": j, "pack": "loop.v2", "question": question, "label": label,
             "source": "operator", "who": "test", "via": "cli", "weight": 1.0, "note": ""}),
         1,
         id,
-        "loop.v1",
+        "loop.v2",
     )
 }
 
@@ -194,7 +194,7 @@ pub(crate) fn rows(c: &Core, scope: &str, kind: LedgerKind) -> Vec<LedgerRow> {
         .collect()
 }
 
-/// Four `loop.v1` judgments in the holdout: heron (complete, labeled
+/// Four `loop.v2` judgments in the holdout: heron (complete, labeled
 /// progressing: wrong), wren (progressing, labeled so: right), gull
 /// (complete, labeled so: right), tern (unlabeled); and the report that
 /// freezes them. Returns the report's id.
@@ -220,7 +220,7 @@ fn seeded_with(c: &Arc<Core>, extra: &[(&str, &str, Value)]) -> String {
         let (state, blob) = loop_state(c, &format!("Count the {name}s on the pier."));
         let j = judgment(
             &format!("jdg_{name}"),
-            "loop.v1",
+            "loop.v2",
             &state,
             vec![choice(top, 0.8), noul("announced_unfinished", 0.2)],
             json!({"blob": blob, "session": "ses_x", "turn": format!("trn_{name}"),
@@ -250,7 +250,7 @@ fn seeded_with(c: &Arc<Core>, extra: &[(&str, &str, Value)]) -> String {
     }
     c.store.append(&records).unwrap();
     let rep = c.run_learning(now, "on_demand", |_| {}).unwrap();
-    format!("rpt_{}_loop.v1", rep.date)
+    format!("rpt_{}_loop.v2", rep.date)
 }
 
 /// The fake answers work_state per state: under the reworded criterion,
@@ -305,7 +305,7 @@ async fn a_replay_over_a_frozen_holdout() {
             out.incumbent.as_str(),
             out.change.as_str()
         ),
-        ("loop.v2", "loop.v1", "asks")
+        ("loop.v3", "loop.v2", "asks")
     );
     assert_eq!(
         (out.set.as_str(), out.labels.as_str(), out.judgments),
@@ -337,7 +337,7 @@ async fn a_replay_over_a_frozen_holdout() {
     assert!(calls.iter().all(|r| r.data["budget"] == "replay"
         && r.data["context"]["purpose"] == "replay"
         && r.data["context"]["run"] == json!(out.id)
-        && r.data["pack"] == "loop.v2"));
+        && r.data["pack"] == "loop.v3"));
     let runs = rows(c, "judge.replay:loop", LedgerKind::JudgeReplay);
     assert_eq!(runs.len(), 1);
     assert_eq!(
@@ -358,7 +358,7 @@ async fn a_replay_over_a_frozen_holdout() {
         .iter()
         .map(|p| (p.pack.as_str(), p.calls))
         .collect();
-    assert_eq!(packs, [("loop.v1", 4)], "the report never counts a replay");
+    assert_eq!(packs, [("loop.v2", 4)], "the report never counts a replay");
     // Only the incumbent's errors: heron alone.
     let errs = c
         .judge_replay(
@@ -437,7 +437,7 @@ async fn a_thresholds_only_candidate_makes_no_call() {
     let report = seeded(c);
     let lowered =
         LOOP_V1
-            .replacen("version = 1", "version = 2", 1)
+            .replacen("version = 2", "version = 3", 1)
             .replacen("act = 0.90", "act = 0.75", 1);
     let out = c
         .judge_replay(
@@ -488,7 +488,7 @@ async fn a_state_is_rebuilt_when_the_builder_changed_and_left_out_when_it_cant_b
     state.builder_version = 0;
     let j = judgment(
         "jdg_old_builder",
-        "loop.v1",
+        "loop.v2",
         &state,
         vec![choice("complete", 0.8)],
         json!({"session": res.session_id, "turn": res.turn_id, "class": "reply",
@@ -508,7 +508,7 @@ async fn a_state_is_rebuilt_when_the_builder_changed_and_left_out_when_it_cant_b
         .unwrap();
     assert!(out.left_out.is_empty(), "{:?}", out.left_out);
     assert_eq!((out.stored, out.rebuilt), (0, 1));
-    // The rebuilt state is what loop.v1's builder makes of the turn.
+    // The rebuilt state is what loop.v2's builder makes of the turn.
     let sent = jev.seen()[0].body["state"].to_string();
     assert!(
         sent.contains("Draft the release notes for the herons."),
@@ -643,12 +643,12 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
         async move { c.judge_replay(p, "cli").await.unwrap_err().to_string() }
     };
     let wired = refuse(JudgeReplayParams {
-        candidate: Some("loop.v1".into()),
+        candidate: Some("loop.v2".into()),
         report: Some(report.clone()),
         ..Default::default()
     })
     .await;
-    assert!(wired.contains("loop.v1 is wired"), "{wired}");
+    assert!(wired.contains("loop.v2 is wired"), "{wired}");
     let other = refuse(JudgeReplayParams {
         candidate: Some("citation.v1".into()),
         report: Some(report.clone()),
@@ -663,7 +663,7 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
         ..Default::default()
     })
     .await;
-    assert!(posing.contains("loop.v1 is wired"), "{posing}");
+    assert!(posing.contains("loop.v2 is wired"), "{posing}");
     c.judge_replay(params(&report), "cli").await.unwrap();
     let twin = reworded().replace("Plainly, ", "Simply, ");
     let twin = refuse(JudgeReplayParams {
@@ -673,7 +673,7 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
     })
     .await;
     assert!(
-        twin.contains("loop.v2 is already recorded under another text"),
+        twin.contains("loop.v3 is already recorded under another text"),
         "{twin}"
     );
 }

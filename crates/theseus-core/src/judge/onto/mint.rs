@@ -402,7 +402,13 @@ fn mint_class(
         examples,
         mined_from: Vec::new(),
     };
-    if kind.name != class || kind.check_row().is_err() || working.kind(&kind.name).is_some() {
+    // A kind named `picture` would share the picture labels' roots (issue 46).
+    let pictures = crate::names::pictures::PREFIX.strip_suffix(':') == Some(kind.name.as_str());
+    if kind.name != class
+        || kind.check_row().is_err()
+        || working.kind(&kind.name).is_some()
+        || pictures
+    {
         return None;
     }
     let mut trial = working.clone();

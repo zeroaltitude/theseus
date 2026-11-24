@@ -22,8 +22,9 @@
 //!   written again at the start's key and the old key ended in the same
 //!   frame, with no index asked, so one exchange holds one touch of a root and
 //!   no association is lost. The index only adds touches; it never ends one.
-//!   A label's place is its turn's time (`item_labels::keyed_at`), so one
-//!   there is left, and one elsewhere is moved there.
+//!   A label's place, an item's or a picture's, is its turn's time
+//!   (`item_labels::keyed_at`, `names::pictures::keyed_at`), so one there is
+//!   left, and one elsewhere is moved there.
 //!
 //! The dry run counts and writes nothing.
 
@@ -305,9 +306,14 @@ fn misplaced(store: &Store, starts: &HashMap<&str, u64>) -> anyhow::Result<Vec<[
             continue;
         };
         let at = time.parse::<u64>().ok().map(|t| u64::MAX - t);
-        // A label belongs at its turn's time, not its exchange's start.
+        // A label, an item's or a picture's, belongs at its turn's time, not
+        // its exchange's start.
         let Some(start) = (starts.get(turn).copied())
-            .map(|s| crate::item_labels::keyed_at(root, turn).unwrap_or(s))
+            .map(|s| {
+                (crate::item_labels::keyed_at(root, turn))
+                    .or_else(|| crate::names::pictures::keyed_at(root, turn))
+                    .unwrap_or(s)
+            })
             .filter(|s| Some(*s) != at)
         else {
             continue;

@@ -64,6 +64,8 @@ mod tests_content_v4;
 #[cfg(test)]
 mod tests_job_sites;
 #[cfg(test)]
+mod tests_loop_v2;
+#[cfg(test)]
 mod tests_onto;
 #[cfg(test)]
 mod tests_pack;
@@ -88,9 +90,13 @@ mod tests_route_v10;
 #[cfg(test)]
 mod tests_route_v11;
 #[cfg(test)]
+mod tests_route_v12;
+#[cfg(test)]
 mod tests_route_v5;
 #[cfg(test)]
 mod tests_threads;
+#[cfg(test)]
+mod tests_undo_v2;
 
 pub use band::{Band, Banded, Thresholds};
 pub use builders::{prepare, Input, Prepared};

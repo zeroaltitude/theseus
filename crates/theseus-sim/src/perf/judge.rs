@@ -312,7 +312,10 @@ pub(super) fn judged(t: &mut toml::Table, base: &str, arm: Arm) -> Result<()> {
     j.insert("total_secs".into(), 5.into());
     if arm == Arm::Loop {
         let packs = table(j, "packs")?;
-        for p in ["classify.v4", "directive.v2"] {
+        for p in [
+            theseus_core::judge::inbound::CLASSIFY_PACK,
+            theseus_core::judge::inbound::DIRECTIVE_PACK,
+        ] {
             let mut off = toml::Table::new();
             off.insert("rung".into(), "off".into());
             packs.insert(p.into(), off.into());
@@ -949,5 +952,29 @@ mod tests {
         }
         // One trailing frame and two blobs, at 2 ms: 5 syncs, 10 ms.
         assert_eq!(r.arms[1].fsync_added_ms(2.0), (10.0, 5.0));
+    }
+
+    /// The loop arm switches the inbound packs off by the names the daemon wires: every table it writes
+    /// names an embedded pack, so a new version of one cannot leave the arm switching off a retired name
+    /// while the daemon asks the new one (issue 46).
+    #[test]
+    fn the_loop_arm_switches_off_only_embedded_packs() {
+        let mut t = toml::Table::new();
+        judged(&mut t, "http://127.0.0.1:9", Arm::Loop).unwrap();
+        let packs = t["judge"]["packs"].as_table().unwrap();
+        assert_eq!(packs.len(), 2, "{packs:?}");
+        for (name, v) in packs {
+            assert!(
+                theseus_judge::pack::by_name(name).is_some(),
+                "{name} is no pack this build has"
+            );
+            assert_eq!(v["rung"].as_str(), Some("off"), "{name}");
+        }
+        for wired in [
+            theseus_core::judge::inbound::CLASSIFY_PACK,
+            theseus_core::judge::inbound::DIRECTIVE_PACK,
+        ] {
+            assert!(packs.contains_key(wired), "{wired} in {packs:?}");
+        }
     }
 }

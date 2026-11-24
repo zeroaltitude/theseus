@@ -12,6 +12,7 @@ with `tomllib`, so on a Python older than 3.11 the whole file says it skipped.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -39,6 +40,7 @@ if NEW_ENOUGH:
 MARKERS = ("ZEBRAMARKER7731", "QUOKKA-MARKER-0942", "OSPREY-MARKER-5518")
 SENTINEL_TOKEN = "sentinel-op-token-4417"
 SETS = VIEW / "cases" / "synthetic.v1.json"
+SETS_V2 = VIEW / "cases" / "synthetic.v2.json"
 
 
 def tid(n: int) -> str:
@@ -82,6 +84,13 @@ def fail(code=1):
     sys.exit(code)
 if cmd == 'health':
     sys.exit(1 if fx.get('health') == 'never' else 0)
+if cmd == 'tty':  # whether this process has a controlling terminal, and what came on its input
+    try:
+        os.close(os.open('/dev/tty', os.O_RDWR))
+        print('tty', sys.stdin.read())
+    except OSError:
+        print('none', sys.stdin.read())
+    sys.exit(0)
 if cmd == 'shutdown':
     if fx.get('shutdown') == 'hang':
         import time
@@ -111,12 +120,12 @@ if cmd == 'view' and a[1] == 'preview':
         fail(3)
     if fx.get('preview') == 'fail':
         fail(1)
-    if '--turns' in a:
-        if fx.get('turns') is None:
-            fail(2)
-        print(json.dumps({'turns': fx['turns']}))
-        sys.exit(0)
     print(json.dumps(fx['now']))
+    sys.exit(0)
+if cmd == 'view' and a[1] == 'show':
+    if '--text' in a or '--tally' not in a:
+        fail(3)
+    print(json.dumps((fx.get('shows') or {}).get(a[2]) or {'turn_id': a[2], 'views': [], 'tallies': []}))
     sys.exit(0)
 fail(1)
 """
@@ -154,17 +163,38 @@ def preview(as_of: str | None, ranges: list[tuple[str, str]], fallback: str | No
     return p
 
 
-def fixture(turns: bool) -> dict:
+def record(turn: str, ranges: list[tuple[str, str]], folds: list[tuple[str, str]] = (), views: int = 1) -> dict:
+    """What `view show TURN --tally --json` answers: the turn's views, oldest first, and their tallies."""
+    def piece(kind, f, l):
+        return {"handle": "x", "kind": kind, "first": f, "last": l, "band": "window", "form": "whole",
+                "tokens": 50, "reasons": [MARKERS[0]], "label": "here", "text": f"{MARKERS[1]} said something"}
+    pieces = [piece("exchanges", f, l) for f, l in ranges] + [piece("folds", f, l) for f, l in folds]
+    pieces.append(piece(MARKERS[2], "a", "b"))
+    shown = [{"compilation": f"cmp_{i}", "assembly": "view", "pov": {"anchor_kind": "place", "anchor": PLACE},
+              "slots": [{"slot": "here", "pieces": pieces if i == 0 else [], "tokens": 50 * len(pieces)}],
+              "dropped": [], "residue": [], "totals": {"shown": len(pieces), "tokens": 950}} for i in range(views)]
+    tallies = [{"compilation": f"cmp_{i}", "present": "owner_alone",
+                "slots": {"here": {"pieces": len(pieces), "tokens": 50 * len(pieces)},
+                          "frame": {"pieces": 1, "tokens": 900}, MARKERS[0]: {"pieces": 1, "tokens": 5}},
+                "reasons": {"window": {"pieces": 1, "tokens": 50}},
+                "dropped": {"over_budget": {"pieces": 2, "tokens": 300}},
+                "dropped_reasons": {MARKERS[0]: {"pieces": 2, "tokens": 300}, "window": {"pieces": 1, "tokens": 10}},
+                "tokens": 900 + 50 * len(pieces)} for i in range(views)]
+    return {"turn_id": turn, "views": shown, "tallies": tallies}
+
+
+def fixture(records: bool) -> dict:
     e = [tid(i) for i in range(1, 5)]
     ledger = [turn_row(1, e[0], None, "none"), turn_row(2, e[1], e[0], "transcript"),
               turn_row(3, e[2], e[1], MARKERS[0]), turn_row(4, e[3], e[2], "place_tail")]
     ledger.append({"position": 5, "at_unix_ms": 5, "kind": "context.turn", "session_id": "s2", "turn_id": "o1",
                    "data": {"exchange": "o1", "place": "local:/elsewhere", "prev": "none", "sent": {"total": 7}}})
     return {"ledger": ledger,
-            "turns": [preview(e[0], [], None), preview(e[1], [(e[0], e[0])], MARKERS[0]),
-                      preview(e[2], [(e[0], e[0])], "unledgered_history"),
+            "shows": {e[0]: record(e[0], []), e[1]: record(e[1], [(e[0], e[0])], views=2),
+                      # e[2]'s previous exchange (e[1]) lies only inside a fold over e[0]..e[1]
+                      e[2]: record(e[2], [], folds=[(e[0], e[1])]),
                       # e[3]'s previous exchange (e[2]) lies INSIDE a range e[1]..e[3]
-                      preview(e[3], [(e[1], e[3])], None)] if turns else None,
+                      e[3]: record(e[3], [(e[1], e[3])])} if records else {},
             "now": preview(None, [(e[3], e[3])], None),
             "cli_stderr": f"error: {MARKERS[1]} {MARKERS[2]}",
             "daemon_stderr": f"panic: {MARKERS[0]} {MARKERS[1]}"}
@@ -213,44 +243,71 @@ class FakeDaemon(unittest.TestCase):
                          "--turns", "4", "--out", str(out)])
         return out, buf.getvalue(), json.loads((out / "summary.json").read_text())
 
-    def test_the_replay_pairs_each_exchange_and_writes_no_word_of_it(self):
+    def test_replay_pairs_each_row_with_its_turns_view_record(self):
         out, printed, s = self.run_replay()
         rows = [json.loads(x) for x in (out / "rows.jsonl").read_text().splitlines()]
         self.assertEqual([r["exchange"] for r in rows], [tid(i) for i in range(1, 5)])
-        self.assertEqual({r["recorded"]["strategy"] for r in rows}, {"not_recorded"})
-        self.assertEqual(s["recorded_strategy"], "not_recorded")
-        self.assertEqual(s["with_a_view_row"], 4)
+        self.assertTrue(all(r["view"] is not None for r in rows))
+        self.assertEqual(s["with_a_view_record"], 4)
+        self.assertEqual(s["no_view_record"], 0)
         self.assertEqual(s["tokens"]["recorded"]["sum"]["total"], 4 * 4000 + 200 * 10)
         # A single-token free word in an enum's field is `other`, field by field.
-        self.assertEqual(s["view_fallback"], {"takes_the_view": 2, "other": 1, "unledgered_history": 1})
         self.assertEqual(s["previous_exchange"]["recorded"],
                          {"none": 1, "transcript": 1, "other": 1, "place_tail": 1})
         self.assertEqual(s["left_out_by_reason"], {"other": 8, "window": 4})
         self.assertIn("other", rows[0]["view"]["slots"])
-        self.assertEqual(rows[0]["view"]["folds"], {"1": 2, "other": 1})
-        # The previous exchange inside a range's interior is held.
-        self.assertEqual((rows[3]["prev_in_view"], rows[3]["prev_in_view_basis"]), (True, "ids"))
-        self.assertEqual(s["previous_exchange"]["view"], {"no_previous": 1, "held": 2, "not_held": 1})
+        self.assertEqual(rows[0]["view"]["kinds"], {"other": 1})
+        self.assertEqual(rows[1]["view"]["returned_views"], 2)
+        # Read from the record: laid whole, only inside a fold, and inside a range's interior.
+        self.assertEqual([(r["prev_in_view"], r["prev_in_view_basis"]) for r in rows],
+                         [(None, "no_previous"), (True, "ids"), (True, "folded"), (True, "ids")])
+        self.assertEqual(s["previous_exchange"]["view"], {"no_previous": 1, "held": 2, "folded": 1})
+        self.assertEqual(s["pieces_by_kind"], {"other": 4, "exchanges": 2, "folds": 1})
         self.leaks(everything_written(out, printed))
         # The copy it was given is as it was; the daemon's copy and its process are gone.
         self.assertEqual((self.store / "store" / "wal" / "000000001.seg").read_bytes(), MARKERS[0].encode())
         self.assertFalse((out / "daemon" / "state").exists())
         self.assertFalse(scratch.drive.processes_naming(out / "daemon"))
 
+    def test_a_series_at_the_readers_limit_is_the_first_returned_view_and_says_so(self):
+        """`view show` returns the readable ones among a turn's newest 32 views, in build order: a turn compiled
+        33 times answers its second view first. The replay names its side the first RETURNED readable view, counts the
+        views returned (not the views the turn had), and marks a series at the reader's limit."""
+        f = fixture(True)
+        cut = record(tid(2), [(tid(1), tid(1))], views=33)
+        cut["views"], cut["tallies"] = cut["views"][1:], cut["tallies"][1:]  # the oldest is not returned
+        cut["views"][0]["slots"] = record(tid(2), [(tid(1), tid(1))])["views"][0]["slots"]
+        f["shows"][tid(2)] = cut
+        self.fx(f)
+        out, printed, s = self.run_replay()
+        rows = [json.loads(x) for x in (out / "rows.jsonl").read_text().splitlines()]
+        self.assertEqual(s["view_basis"], "first_returned_readable_view")
+        self.assertEqual((rows[1]["view"]["returned_views"], rows[1]["view"]["at_the_read_limit"]), (32, True))
+        self.assertEqual((rows[2]["view"]["returned_views"], rows[2]["view"]["at_the_read_limit"]), (1, False))
+        self.assertNotIn("views", rows[1]["view"])
+        self.assertEqual(s["returned_views_at_the_read_limit"], 1)
+        self.assertEqual((rows[1]["prev_in_view"], rows[1]["prev_in_view_basis"]), (True, "ids"))
+        self.leaks(everything_written(out, printed))
+
     def test_a_range_the_order_cannot_resolve_is_unknown_not_absent(self):
         f = fixture(True)
-        f["turns"][3] = preview(tid(4), [(tid(1), tid(99))], None)
+        f["shows"][tid(4)] = record(tid(4), [(tid(1), tid(99))])
         self.fx(f)
         out, printed, s = self.run_replay()
         rows = [json.loads(x) for x in (out / "rows.jsonl").read_text().splitlines()]
         self.assertEqual((rows[3]["prev_in_view"], rows[3]["prev_in_view_basis"]), (None, "unknown_range"))
 
-    def test_without_the_preview_s_turns_form_no_exchange_gets_a_view_row(self):
-        self.fx(fixture(False))
+    def test_replay_counts_turns_without_a_record_apart(self):
+        f = fixture(True)
+        del f["shows"][tid(1)], f["shows"][tid(3)]  # turns from before the cut: no view record
+        self.fx(f)
         out, printed, s = self.run_replay()
-        self.assertEqual(s["with_a_view_row"], 0)
-        self.assertEqual(s["notes"], [replay.NO_TURNS])
-        self.assertEqual(s["next_turn_view"]["window"], 1)
+        rows = [json.loads(x) for x in (out / "rows.jsonl").read_text().splitlines()]
+        self.assertEqual(s["with_a_view_record"], 2)
+        self.assertEqual(s["no_view_record"], 2)
+        self.assertEqual([(r["view"] is None, r["prev_in_view"], r["prev_in_view_basis"]) for r in rows[::2]],
+                         [(True, None, "no_view_record")] * 2)
+        self.assertNotIn("not_held", s["previous_exchange"]["view"])
         self.leaks(everything_written(out, printed))
 
     def test_a_live_store_a_link_out_of_the_copy_or_a_directory_that_is_no_store_is_refused(self):
@@ -411,6 +468,11 @@ class FakeDaemon(unittest.TestCase):
         self.assertFalse(scratch.drive.processes_naming(self.tmp / "o" / "daemon"))
         self.assertEqual(signal.getsignal(signal.SIGTERM), before)
 
+    def test_a_cli_call_with_a_terminal_has_one_and_keeps_its_pipes(self):
+        with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+            r = d.cli("tty", input="the line", terminal=True)
+        self.assertEqual(r.stdout.split(), ["tty", "the", "line"])
+
     def test_a_cli_timeout_is_a_fixed_code_without_its_command_line(self):
         f = fixture(True)
         f["history"] = "slow"
@@ -449,8 +511,74 @@ class FakeDaemon(unittest.TestCase):
         r = json.loads((out / "yardstick.json").read_text())
         self.assertEqual([t["turn"] for t in r["turns"]], [tid(2), tid(3)])
         self.assertEqual(set(r["usage"]), {"input_tokens", "output_tokens"})
-        self.assertEqual(r["rules_basis"], ys.SAME_SESSION)
+        self.assertEqual(r["rules_basis"], ys.VIEW_RECORD)
         self.leaks(everything_written(out, buf.getvalue()))
+
+    def test_store_rule_is_the_turns_view_record(self):
+        """The rule on a store is what each turn's own record laid: laid whole is `both`, only inside a fold is
+        a cell of its own, not laid is `judge_only`; a turn with no record is not judged, and is counted."""
+        f = fixture(True)
+        f["ledger"] = [turn_row(i, tid(i), None, "none") for i in range(1, 6)]
+        f["nodes"] = [{"kind": "user_message", "turn_id": tid(i), "text": f"words {i}", "position": i}
+                      for i in range(1, 6)]
+        f["shows"] = {tid(5): record(tid(5), [(tid(4), tid(4))], folds=[(tid(1), tid(2))])}  # tid(2..4): none
+        self.fx(f)
+        with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+            probes, basis, unrecorded = ys.probes_from_store(d, PLACE, 5, 5)
+        self.assertEqual(basis, "view_record")
+        self.assertEqual(unrecorded, 3)
+        self.assertEqual([p["id"] for p in probes], [tid(5)])
+        r = ys.run(probes, lambda p, idx, user: ([ys.HELPS] * len(idx), {"input_tokens": 1, "output_tokens": 1},
+                                                 True), ys.Prices(ys.DEFAULT_MODEL, ys.API, None, None), 1.0)
+        self.assertEqual(r["total"], {"both": 1, "judge_only": 1, "rules_only": 0, "neither": 0,
+                                      "folded_helps": 2})
+
+    def test_a_range_the_order_cannot_resolve_keeps_its_lines_out_of_hit_and_miss(self):
+        """A laid range whose end is in no available order (a row the ledger lacks, an adopted history): which
+        earlier lines it covers is unknown, so a judged line it may cover is neither a hit nor a miss. Those
+        comparisons are counted apart (`unknown_*`), and so are the ranges; the calls are the same."""
+        f = fixture(True)
+        f["ledger"] = [turn_row(i, tid(i), None, "none") for i in range(1, 6)]
+        f["nodes"] = [{"kind": "user_message", "turn_id": tid(i), "text": f"words {i}", "position": i}
+                      for i in range(1, 6)]
+        f["shows"] = {tid(5): record(tid(5), [(tid(4), tid(4)), (tid(2), tid(99))])}  # tid(99): in no order
+        self.fx(f)
+        with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+            probes, basis, unrecorded = ys.probes_from_store(d, PLACE, 5, 5)
+        self.assertEqual([p["id"] for p in probes], [tid(5)])
+        prices = ys.Prices(ys.DEFAULT_MODEL, ys.API, None, None)
+        r = ys.run(probes, lambda p, idx, user: ([ys.HELPS] * len(idx), {"input_tokens": 1, "output_tokens": 1},
+                                                 True), prices, 1.0)
+        self.assertEqual(r["total"]["judge_only"], 0)
+        self.assertEqual(r["total"], {"both": 1, "judge_only": 0, "rules_only": 0, "neither": 0,
+                                      "unknown_helps": 3})
+        self.assertEqual(r["unresolved_ranges"], 1)
+        self.assertEqual(ys.plan(probes, prices, ys.DEFAULT_MODEL)["unresolved_ranges"], 1)
+        self.assertEqual(r["calls"], ys.plan(probes, prices, ys.DEFAULT_MODEL)["calls"])
+
+    def test_an_unresolved_range_makes_a_folded_line_unknown_unless_it_is_laid_whole(self):
+        """Unknown comes before folded: on a turn with a range no order resolves, a judged line a resolved fold
+        covers is unknown too (the broken range could have laid it whole), helpful or not; a line laid whole
+        stays held. The coverage says how many judged lines are unknown, beside how many were judged."""
+        f = fixture(True)
+        f["ledger"] = [turn_row(i, tid(i), None, "none") for i in range(1, 6)]
+        f["nodes"] = [{"kind": "user_message", "turn_id": tid(i), "text": f"words {i}", "position": i}
+                      for i in range(1, 6)]
+        f["shows"] = {tid(5): record(tid(5), [(tid(4), tid(4)), (tid(3), tid(99))], folds=[(tid(1), tid(2))])}
+        self.fx(f)
+        with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+            probes, _, _ = ys.probes_from_store(d, PLACE, 5, 5)
+        self.assertEqual([p["id"] for p in probes], [tid(5)])
+        p = probes[0]
+        self.assertEqual(p["ids"], [tid(1), tid(2), tid(3), tid(4)])
+        self.assertEqual((p["rules"], p["folded"], p["unresolved"]), ({tid(4)}, {tid(1), tid(2)}, 1))
+        marks = {tid(1): ys.HELPS, tid(2): 0, tid(3): ys.HELPS, tid(4): ys.HELPS}
+        r = ys.run(probes, lambda p, idx, user: ([marks[p["ids"][i]] for i in idx],
+                                                 {"input_tokens": 1, "output_tokens": 1}, True),
+                   ys.Prices(ys.DEFAULT_MODEL, ys.API, None, None), 1.0)
+        self.assertEqual(r["total"], {"both": 1, "judge_only": 0, "rules_only": 0, "neither": 0,
+                                      "unknown_helps": 2, "unknown_not": 1})
+        self.assertEqual(r["coverage"], {"lines": 4, "judged": 4, "unknown": 3})
 
     def test_a_case_path_that_would_leave_the_output_is_refused_before_any_write(self):
         base = vc.load(SETS)["cases"][0]
@@ -641,6 +769,19 @@ class SSE(BaseHTTPRequestHandler):
 
 @unittest.skipUnless(NEW_ENOUGH, "the view kit reads TOML with tomllib: Python 3.11 or newer")
 class Pieces(unittest.TestCase):
+
+    def test_coverage_names_its_three_counts_when_nothing_was_judged(self):
+        """A run with no probe, and a run whose only probe is a case the builder cannot make, still say how
+        many lines, judged lines and unknown lines there were: none."""
+        prices = ys.Prices(ys.DEFAULT_MODEL, ys.API, None, None)
+        judge = lambda p, idx, user: ([0 for _ in idx], {"input_tokens": 1, "output_tokens": 1}, True)
+        none = {"lines": 0, "judged": 0, "unknown": 0}
+        self.assertEqual(ys.run([], judge, prices, 1.0)["coverage"], none)
+        only = {"id": "t1", "class": "task_update", "ids": ["a", "b"], "rules": set(), "folded": set(),
+                "unresolved": 0, "not_built": "no task driver", "texts": ["one", "two"], "message": "m"}
+        r = ys.run([only], judge, prices, 1.0)
+        self.assertEqual(r["coverage"], none)
+        self.assertEqual(set(r["not_built_fixture_only"]), {"task_update"})
     def setUp(self):
         self.cases = vc.load(SETS)
         self.prices = ys.Prices(ys.DEFAULT_MODEL, ys.API, None, None)
@@ -654,6 +795,13 @@ class Pieces(unittest.TestCase):
         self.assertFalse(t["index"]["enabled"] or t["web"]["enabled"] or t["discord"]["enabled"])
         with self.assertRaises(ValueError):
             scratch.config({}, api_base="https://api.example.invalid")
+
+    def test_scratch_config_names_no_agent_processes(self):
+        """A scratch daemon's own settings name no agent host, whatever the profile says: the kit's lines are
+        the owner's (scratch.py's module text)."""
+        t = scratch.config({"policy": {"agent_processes": ["claude", "openclaw"]}})
+        self.assertEqual(t["policy"]["agent_processes"], [])
+        self.assertEqual(scratch.config({})["policy"]["agent_processes"], [])
 
     def test_the_synthetic_set_is_valid_covers_every_class_and_names_no_real_city(self):
         self.assertTrue(20 <= len(self.cases["cases"]) <= 30)
@@ -692,6 +840,23 @@ class Pieces(unittest.TestCase):
                                             {"kind": "facts", "first": "e3", "last": "e3"}]}]}}
         held = vc.view_held(p, {"h1": "e1", "h2": "e2", "h3": "e3"}, {"P2": ["e1", "e2"], "P1": ["e3"]})
         self.assertEqual(held, ["h1", "h2"])
+
+    def test_view_held_counts_a_fold_piece_apart(self):
+        p = {"view": {"slots": [{"pieces": [{"kind": "folds", "first": "e1", "last": "e2"},
+                                            {"kind": "exchanges", "first": "e3", "last": "e3"}]}]}}
+        ex, order = {"h1": "e1", "h2": "e2", "h3": "e3"}, {"P1": ["e1", "e2", "e3"]}
+        self.assertEqual(vc.view_held(p, ex, order), ["h3"])
+        self.assertEqual(vc.view_held(p, ex, order, "folds"), ["h1", "h2"])
+
+    def test_v2_holds_no_forbidden_class(self):
+        """v2 is v1 less its forbidden_disclosure cases, case for case; v1 stays as it was, byte for byte."""
+        v1, v2 = self.cases, vc.load(SETS_V2)
+        self.assertEqual(v2["set"], "synthetic.v2")
+        self.assertEqual({c["class"] for c in v2["cases"]}, set(vc.CLASSES) - {"forbidden_disclosure"})
+        self.assertFalse([c["id"] for c in v2["cases"] if c.get("forbidden") or "seal" in (c.get("needs") or [])])
+        self.assertEqual(v2["cases"], [c for c in v1["cases"] if c["class"] != "forbidden_disclosure"])
+        self.assertEqual(hashlib.sha256(SETS.read_bytes()).hexdigest(),
+                         "f63afb058be41d4ecb8159bcd3dcee529a6e77aff8e2a642ec16460f681a56ff")
 
     def test_every_line_is_judged_in_exactly_two_windows(self):
         for n in range(1, 80):

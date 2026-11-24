@@ -27,7 +27,7 @@ fn counts(set: &CaseSet, q: &str) -> BTreeMap<String, u32> {
 fn each_pack_grades_the_questions_it_decides() {
     let q = |p: &str| graded_questions(&by_name(p).or_else(|| crate::pack::retired(p)).unwrap());
     assert_eq!(q("route.v10"), ["model"]);
-    assert_eq!(q("route.v11"), ["model"]);
+    assert_eq!(q("route.v12"), ["model"]);
     assert_eq!(q("effort.v1"), ["effort"]);
     assert_eq!(q("work.v1"), ["work"]);
     assert_eq!(q("split.v1"), ["split"]);
@@ -50,7 +50,7 @@ fn the_model_file_grades_the_effort_too_and_no_other_pack_may_read_it() {
     let work = by_name("work.v1").unwrap();
     assert!(CaseSet::parse(V10, &work)
         .unwrap_err()
-        .contains("written for route.v11"));
+        .contains("written for route.v12"));
     // The effort bar over 62 within one rung needs 50: the ratio, not a number kept.
     assert_eq!(bar_need(effort.cases.len() as u32), 50);
 }

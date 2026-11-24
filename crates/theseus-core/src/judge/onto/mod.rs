@@ -1,5 +1,5 @@
 //! Jev files the session into the ontology (theseus-xzxqv; the design of
-//! `docs/design/jev-ontology-growth.md`, sections 3.1 and 4): `onto.v1` rides
+//! `docs/design/jev-ontology-growth.md`, sections 3.1 and 4): `onto.v2` rides
 //! the inbound batch, and its answers act at the act band.
 //!
 //! - **Asked** ([`JudgeService::onto_wanted`], `inbound.rs`): a person's
@@ -45,7 +45,6 @@ pub mod decide;
 pub mod digest;
 pub mod history;
 pub mod judged;
-pub mod mark;
 pub mod mint;
 pub(crate) mod name;
 pub mod renamed;
@@ -59,9 +58,9 @@ mod tests_history;
 
 pub use name::NAMES;
 
-/// `onto.v1` (theseus-xzxqv), at `inbound`, in the batch beside `classify.v4`
-/// and `role.v1`.
-pub const ONTO_PACK: &str = "onto.v1";
+/// `onto.v2` (issue 46; `onto.v1`, theseus-xzxqv, without the questions that
+/// fed the private mark), at `inbound`, in the batch beside `classify.v5`.
+pub const ONTO_PACK: &str = "onto.v2";
 
 /// What the footers and the naming calls hold: in memory, bounded.
 #[derive(Default)]
@@ -115,7 +114,7 @@ impl JudgeService {
         });
     }
 
-    /// `onto.v1`'s judgment, landed: the reply's footer, and the naming call
+    /// The onto pack's judgment, landed: the reply's footer, and the naming call
     /// where Jev said `new` and no mined name fit. Only a judgment that acts
     /// (live or canary, answered by the pinned model) does either.
     pub(super) fn onto_landed(&self, j: &Judgment, turn: &str, said: &str) {
@@ -126,16 +125,6 @@ impl JudgeService {
         let Some(o) = core.runner.ontology.held() else {
             return;
         };
-        let reasons = mark::decide(j, core.cfg.ontology.private_mark, &stage::bands(&core));
-        if !reasons.is_empty() {
-            // The mark's write and undo wait for the session-data state
-            // (theseus-a1wvq.5): until then the decision is a trace.
-            tracing::info!(
-                session = %j.id,
-                reasons = %reasons.iter().map(|r| r.word()).collect::<Vec<_>>().join(","),
-                "onto: the private mark would apply"
-            );
-        }
         let plan = decide::decide(j, &o, stage::bands(&core), theseus_protocol::now_unix_ms());
         if let Some(line) = plan.footer() {
             self.note_filed(turn, &line);

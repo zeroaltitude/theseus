@@ -10,6 +10,9 @@ stays embedded, byte for byte, its judgments under its own text. The core guide'
 
 ## The route pack is `route.v11`
 
+Since issue 46 the acting route pack is `route.v12`, and `route.v11` is retired: see
+[`retired-judge-questions.md`](retired-judge-questions.md), "Issue 46". What follows is v11's own record.
+
 `inbound::ROUTE_PACK` names `route.v11`: `route.v10` word for word, with the `fable` option's description saying Fable 5.2 at its
 catalog prices ($8 in, $40 out, $0.20 a cache read per million) where v10 said Fable 5.1. The owner chose it ("1 A; 2 A", 2026-11-14
 17:55 MST): a new version, live when it landed, v10 and its golden untouched. `judge::WIRED` takes the constant, and the ladder
