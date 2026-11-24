@@ -257,7 +257,7 @@ class FakeDaemon(unittest.TestCase):
         self.assertEqual(s["left_out_by_reason"], {"other": 8, "window": 4})
         self.assertIn("other", rows[0]["view"]["slots"])
         self.assertEqual(rows[0]["view"]["kinds"], {"other": 1})
-        self.assertEqual(rows[1]["view"]["views"], 2)
+        self.assertEqual(rows[1]["view"]["returned_views"], 2)
         # Read from the record: laid whole, only inside a fold, and inside a range's interior.
         self.assertEqual([(r["prev_in_view"], r["prev_in_view_basis"]) for r in rows],
                          [(None, "no_previous"), (True, "ids"), (True, "folded"), (True, "ids")])
@@ -268,6 +268,26 @@ class FakeDaemon(unittest.TestCase):
         self.assertEqual((self.store / "store" / "wal" / "000000001.seg").read_bytes(), MARKERS[0].encode())
         self.assertFalse((out / "daemon" / "state").exists())
         self.assertFalse(scratch.drive.processes_naming(out / "daemon"))
+
+    def test_a_series_at_the_readers_limit_is_the_first_returned_view_and_says_so(self):
+        """`view show` returns a turn's newest 32 readable views, in build order: a turn compiled 33 times
+        answers its second view first. The replay names its side the first RETURNED readable view, counts the
+        views returned (not the views the turn had), and marks a series at the reader's limit."""
+        f = fixture(True)
+        cut = record(tid(2), [(tid(1), tid(1))], views=33)
+        cut["views"], cut["tallies"] = cut["views"][1:], cut["tallies"][1:]  # the oldest is not returned
+        cut["views"][0]["slots"] = record(tid(2), [(tid(1), tid(1))])["views"][0]["slots"]
+        f["shows"][tid(2)] = cut
+        self.fx(f)
+        out, printed, s = self.run_replay()
+        rows = [json.loads(x) for x in (out / "rows.jsonl").read_text().splitlines()]
+        self.assertEqual(s["view_basis"], "first_returned_readable_view")
+        self.assertEqual((rows[1]["view"]["returned_views"], rows[1]["view"]["at_the_read_limit"]), (32, True))
+        self.assertEqual((rows[2]["view"]["returned_views"], rows[2]["view"]["at_the_read_limit"]), (1, False))
+        self.assertNotIn("views", rows[1]["view"])
+        self.assertEqual(s["returned_views_at_the_read_limit"], 1)
+        self.assertEqual((rows[1]["prev_in_view"], rows[1]["prev_in_view_basis"]), (True, "ids"))
+        self.leaks(everything_written(out, printed))
 
     def test_a_range_the_order_cannot_resolve_is_unknown_not_absent(self):
         f = fixture(True)

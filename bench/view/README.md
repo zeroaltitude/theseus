@@ -91,11 +91,19 @@ last N exchanges, `rows.jsonl` holds one line with two sides:
 - **the recorded side**, read from the measuring row the turn wrote (`context.turn`): the sent context's parts in
   tokens, and whether the previous exchange was in it;
 - **the view's side**, from the turn's own view record (`theseus view show <turn> --tally --json`, never
-  `--text`): the first view the turn was assembled with (`views` says how many it had: a turn that calls tools
-  again has more), its tokens by slot, what the budget left out and why, its pieces by kind, and whether it held
-  the previous exchange. That answer is read from the ranges its pieces lay, interiors included, against each
-  place's exchange order: `ids` when an `exchanges` piece lays it, `folded` when only a `folds` piece covers it (a
-  fold's first and last are exchange ids); a range no place's order resolves makes it unknown, not "absent".
+  `--text`): its first RETURNED readable view (`view_basis` in the summary), its tokens by slot, what the budget
+  left out and why, its pieces by kind, and whether it held the previous exchange. That answer is read from the
+  ranges its pieces lay, interiors included, against each place's exchange order: `ids` when an `exchanges` piece
+  lays it, `folded` when only a `folds` piece covers it (a fold's first and last are exchange ids); a range no
+  place's order resolves makes it unknown, not "absent".
+
+**Which view, and what a record is.** `view show` returns a turn's newest 32 readable views, in the order they
+were built, and leaves out one that cannot be read. So the first view returned is the turn's first only when it
+had fewer than 32 and every one reads: a turn compiled 33 times answers its second first. `returned_views` is
+how many came back, not how many the turn had; `at_the_read_limit` marks a turn that returned 32, and the summary
+counts them (`returned_views_at_the_read_limit`). A record is read through today's source checks, so the kit
+measures the record as it can be inspected now, not a reproduction of everything that was sent then: a piece
+whose source was retracted since, or that today's reader does not list (a fold, a task: below), is not in it.
 
 A turn with no view record (one from before the cut) has no view side; it is counted under `no_view_record`,
 never as left out. `summary.json` sums them. Every name it writes is checked against its field's closed set (the
@@ -224,8 +232,9 @@ on the daemon's stderr, which the kit discards: that case shows the daemon start
 
 ## What none of it can tell
 
-- The replay reads the view a turn recorded as it was assembled; it says nothing of a turn from before the cut,
-  which has no record. Adopted history has exchanges but no measuring rows.
+- The replay reads a turn's record as today's reader returns it: its newest 32 readable views, through today's
+  source checks. It says nothing of a turn from before the cut, which has no record. Adopted history has
+  exchanges but no measuring rows.
 - `view show` lists no `folds` piece today: its record's source check has no case for a fold, so it fails
   closed (`view/record/source.rs`, `may_show`), while `view preview` lays folds through a check of its own. On a
   real store the replay's `folded` and the yardstick's `folded_*` cells therefore read 0 until `view show`

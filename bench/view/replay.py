@@ -16,12 +16,19 @@ The two sides:
   in tokens (est.), and `prev`, whether the place's previous exchange was in
   it;
 - **view**: the turn's own view record, as `theseus view show TURN --tally
-  --json` reads it (never `--text`): the first view the turn was assembled
-  with (a turn that calls tools again has more; their number is `views`),
-  its counts by slot, what the budget left out and why, and its pieces by
-  kind. Every turn since the cut has its record; a turn with none (one from
-  before) has no view side, and is counted under `no_view_record`, never as
-  absent from the view.
+  --json` reads it (never `--text`): its first RETURNED readable view
+  (`view_basis`), its counts by slot, what the budget left out and why, and
+  its pieces by kind. The reader returns a turn's newest `VIEWS_READ` (32)
+  readable views in the order they were built, and leaves out one that
+  cannot be read: so the first returned is the turn's first view only when
+  the turn had fewer than 32 and every one reads. `returned_views` is how
+  many it returned, not how many the turn had; `at_the_read_limit` marks a
+  turn that returned 32, which may have had more. A record is read through
+  today's source checks, so it is the record as it can be inspected now (a
+  retracted source, a piece today's reader does not list: a fold, a task),
+  not a reproduction of everything that was sent. Every turn since the cut
+  has its record; a turn with none (one from before) has no view side, and
+  is counted under `no_view_record`, never as absent from the view.
 
 Whether the view held the previous exchange (`prev_in_view`) is read from
 the ranges its pieces lay, interiors included, resolved against each
@@ -58,6 +65,9 @@ import scratch  # noqa: E402
 
 TURN_KIND = "context.turn"
 OTHER = "other"
+# The most views of one turn the reader returns: its newest (theseus-core: view/record.rs, `VIEWS_READ`).
+VIEWS_READ = 32
+VIEW_BASIS = "first_returned_readable_view"
 # The store's ids (`<prefix>_<uuid v7, simple>`, theseus-kernel's `new_id`).
 ID = re.compile(r"[a-z]{1,16}_[0-9a-f]{32}")
 # The daemon's enums, by field (theseus-core: exchange/ledger.rs `Prev`, view/mod.rs `Slot`, `Reason` and
@@ -160,9 +170,10 @@ def laid(view: dict, orders: dict[str, list[str]], kind: str) -> tuple[set[str],
 
 
 def view_side(shown: dict, orders: dict[str, list[str]]) -> dict | None:
-    """A turn's record (`view.show`'s answer), as counts: its first view, by slot, what was left out (by why
-    and by reason) and its pieces by kind; and, apart (`_held`, `_folded`, `_unresolved`), what it lays of
-    the store's exchanges. None when the turn has no view record."""
+    """A turn's record (`view.show`'s answer), as counts: its first RETURNED readable view (module text), by
+    slot, what was left out (by why and by reason) and its pieces by kind, with how many views were returned;
+    and, apart (`_held`, `_folded`, `_unresolved`), what it lays of the store's exchanges. None when the turn
+    has no view record."""
     views = [v for v in shown.get("views") or [] if isinstance(v, dict)] if isinstance(shown, dict) else []
     if not views:
         return None
@@ -178,7 +189,8 @@ def view_side(shown: dict, orders: dict[str, list[str]]) -> dict | None:
     folded, u2 = laid(first, orders, "folds")
     totals = first.get("totals") if isinstance(first.get("totals"), dict) else {}
     return {
-        "views": len(views),
+        "returned_views": len(views),
+        "at_the_read_limit": len(views) >= VIEWS_READ,
         "tokens": count(tally.get("tokens")) or count(totals.get("tokens")),
         "slots": merged(tally.get("slots"), SLOTS),
         "left_out": merged(tally.get("dropped"), DROP_WHY),
@@ -245,7 +257,7 @@ def summarize(place_rows: list[dict]) -> dict:
     left: dict[str, Counter] = {}
     left_reasons: Counter = Counter()
     kinds: Counter = Counter()
-    with_view = 0
+    with_view = at_limit = 0
     for r in place_rows:
         r_tokens.update(r["recorded"]["tokens"])
         prev_r[r["recorded"]["prev"] or "none"] += 1
@@ -253,6 +265,7 @@ def summarize(place_rows: list[dict]) -> dict:
         if v is None:
             continue
         with_view += 1
+        at_limit += v["at_the_read_limit"]
         v_tokens["total"] += v["tokens"]
         for s, c in v["slots"].items():
             v_tokens[s] += c["tokens"]
@@ -268,6 +281,8 @@ def summarize(place_rows: list[dict]) -> dict:
         "exchanges": n,
         "with_a_view_record": with_view,
         "no_view_record": n - with_view,
+        "view_basis": VIEW_BASIS,
+        "returned_views_at_the_read_limit": at_limit,
         "tokens": {
             "recorded": {"sum": dict(r_tokens), "mean": {k: round(x / n) for k, x in r_tokens.items()} if n else {}},
             "view": {"sum": dict(v_tokens),
