@@ -234,6 +234,22 @@ Discord place's, and the kit keeps Discord off, so those two cases say `not driv
 on the daemon's stderr, which the kit discards: that case shows the daemon starts and answers, not the words.
 `proof.json` in `--out` holds every case's counts.
 
+## Saved output from an earlier kit
+
+Output saved before the one-context kit reads differently, and a script that reads it will notice:
+
+- `proof.py`: `proof.json`'s `cost` is one run's object (it was a list, a run per mode), and each
+  `cost_long` entry is one run (it was a list); results carry no `mode`; the output directories have no mode
+  level (`<out>/<case>`, not `<out>/<mode>/<case>`); a cost run adds `all_*`, `follow_*` and `outside_*`; the
+  printed summaries say `first requests` and `all requests` where they said `sent` and `all calls`.
+- `replay.py`: a row's view side comes from the turn's record, not a preview: it has `returned_views`,
+  `at_the_read_limit` and `kinds`, and no `fallback`, `overflow`, `window`, `folds` or `budget`; the recorded
+  side has no `strategy`. The summary has `with_a_view_record`, `no_view_record`, `view_basis`,
+  `returned_views_at_the_read_limit` and `pieces_by_kind`, and no `with_a_view_row`, `recorded_strategy`,
+  `view_fallback`, `notes` or `next_turn_view`.
+- `yardstick.py`: on a store `rules_basis` is `view_record` (it was `same_session_heuristic`); the output adds
+  `no_view_record`, `unresolved_ranges`, and the `folded_*` and `unknown_*` cells when they are not zero.
+
 ## What none of it can tell
 
 - The replay reads a turn's record as today's reader returns it: its newest 32 readable views, through today's
