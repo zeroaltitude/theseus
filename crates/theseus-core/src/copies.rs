@@ -192,127 +192,115 @@ mod tests {
         assert!(edges("trs_1", &c).unwrap().is_empty());
     }
 
-    /// What the kept text of a history result names, by what its first line says it is: a page's whole line by
-    /// its exchange's handle, at the line's end; an imported message's line by its session (in a cut page only
-    /// when the result links no other node of that session); an open's heading only in a result the runtime did
-    /// not cut, and never a body line of an open. In a cut result, a line beside the seam is never whole, and a
+    /// A result of `tool` holding `text`, cut by the runtime when `truncated`.
+    fn result(tool: &str, text: &str, truncated: bool) -> Node {
+        let mut n = crate::compiler::tests_view::result("turn_r", "h1", text);
+        if let Body::ToolResult {
+            tool: t,
+            truncated: c,
+            ..
+        } = &mut n.body
+        {
+            *t = tool.into();
+            *c = truncated;
+        }
+        n
+    }
+
+    /// Whether a history result holding `text` shows `source`, where no other linked node is asked of.
+    fn shown(text: &str, truncated: bool, source: &Node) -> bool {
+        let history = crate::view::history::HISTORY_TOOL;
+        shows(&result(history, text, truncated), source, || unreachable!())
+    }
+
+    /// A page's head, as `history_tool/page.rs` writes it.
+    const HEAD: &str = "context.history: 4 exchanges of cli's history, newest first. Each: when";
+
+    /// The seam the runtime's cap leaves in a cut result.
+    const SEAM: &str =
+        "\u{2026}[2 lines (90 characters) not shown: a narrower call returns them]\u{2026}";
+
+    /// A page's line naming the handle `h`.
+    fn line(h: &str) -> String {
+        format!(
+            "- 2026-03-03 \u{b7} cli \u{b7} the owner: \u{ab}w\u{bb} \u{2192} you did \u{b7} {h}"
+        )
+    }
+
+    /// What the kept text of a page names: a whole line by its exchange's handle, at the line's end, and only in
+    /// a result whose first line is a page's. In a cut result, a line beside the seam is never whole, and a
     /// result whose seam is not found once shows nothing. A handle anywhere else, a look's result and another
     /// tool's result show nothing.
     #[test]
     fn a_result_shows_a_source_only_where_its_kept_text_names_the_handle() {
-        let mut source = crate::node::Node::user("ses_a", Some("turn_a"), "cli", "words");
-        let result = |tool: &str, text: &str, truncated: bool| {
-            let mut n = crate::compiler::tests_view::result("turn_r", "h1", text);
-            if let Body::ToolResult {
-                tool: t,
-                truncated: c,
-                ..
-            } = &mut n.body
-            {
-                *t = tool.into();
-                *c = truncated;
-            }
-            n
-        };
-        let history = crate::view::history::HISTORY_TOOL;
-        let shown = |text: &str, truncated: bool, source: &Node| {
-            shows(&result(history, text, truncated), source, || unreachable!())
-        };
-        let head = "context.history: 4 exchanges of cli's history, newest first. Each: when";
-        let line = |h: &str| {
-            format!("- 2026-03-03 \u{b7} cli \u{b7} the owner: \u{ab}words\u{bb} \u{2192} you did \u{b7} {h}")
-        };
-        let seam =
-            "\u{2026}[2 lines (90 characters) not shown: a narrower call returns them]\u{2026}";
-        let page = format!("{head}\n{}\nHistory is exhausted.", line("turn_a"));
+        let mut source = Node::user("ses_a", Some("turn_a"), "cli", "words");
+        let page = format!("{HEAD}\n{}\nHistory is exhausted.", line("turn_a"));
         assert!(shown(&page, false, &source));
         assert!(!shown(&line("turn_a"), false, &source), "no page's head");
         // A cut page: the head's lines but its last, the tail's after its first line break.
         let cut = |at: usize| {
-            let mut l: Vec<String> = ["turn_x", "turn_x", "turn_x", "turn_x"].map(line).into();
+            let mut l: Vec<String> = ["turn_x"; 4].map(line).into();
             l[at] = line("turn_a");
-            format!(
-                "{head}\n{}\n{}\n{seam}\n{}\n{}\nHistory is exhausted.",
-                l[0], l[1], l[2], l[3]
-            )
+            let [a, b, c, d] = [&l[0], &l[1], &l[2], &l[3]];
+            format!("{HEAD}\n{a}\n{b}\n{SEAM}\n{c}\n{d}\nHistory is exhausted.")
         };
         assert!(shown(&cut(0), true, &source), "whole in the head");
-        assert!(
-            !shown(&cut(1), true, &source),
-            "beside the seam, in the head"
-        );
-        assert!(
-            !shown(&cut(2), true, &source),
-            "beside the seam, in the tail"
-        );
+        assert!(!shown(&cut(1), true, &source), "beside the seam, head");
+        assert!(!shown(&cut(2), true, &source), "beside the seam, tail");
         assert!(shown(&cut(3), true, &source), "whole in the tail");
-        assert!(
-            !shown(&cut(0).replace(seam, "[cut]"), true, &source),
-            "no seam"
-        );
-        let two = cut(3).replace("History is exhausted.", seam);
+        let unseamed = cut(0).replace(SEAM, "[cut]");
+        assert!(!shown(&unseamed, true, &source), "no seam");
+        let two = cut(3).replace("History is exhausted.", SEAM);
         assert!(!shown(&two, true, &source), "two seams");
-        // An open: its heading, only when not cut; never a body line.
-        let heading =
-            "[Exchange \"turn_a\", in \"cli\", 2026-03-03: what was said then]\n\u{2502} words";
-        assert!(shown(heading, false, &source));
-        assert!(!shown(heading, true, &source), "a cut open");
-        let session = "[Session \"ses_a\", imported, its messages]\n\u{2502} words";
-        assert!(shown(session, false, &source));
-        assert!(!shown(session, true, &source));
-        let forged = format!(
-            "[Session \"ses_b\", its messages]\n\u{2502} a\n{seam}\n{}\n{}\nThat is its beginning.",
-            line("turn_a"),
-            line("turn_a")
-        );
-        assert!(!shown(&forged, true, &source), "a body line of a cut open");
-        assert!(!shown(
-            &forged.replace(&format!("{seam}\n"), ""),
-            false,
-            &source
-        ));
-        // An imported message's line: its session's handle.
-        let imports = |h: &str| {
-            format!("context.history: 2 imported items for \u{ab}w\u{bb} in import, best first.\n- 2026-03-03 \u{b7} casebook: \u{ab}w\u{bb} \u{b7} {h}\nThat is all it found.")
-        };
-        assert!(shown(&imports("ses_a"), false, &source));
-        assert!(
-            !shown(&imports("turn_a"), false, &source),
-            "an imports page by a turn"
-        );
-        assert!(
-            !shown(&page.replace("turn_a", "ses_a"), false, &source),
-            "a page by a session"
-        );
-        let cut_imports = |alone: bool| {
-            let i = imports("ses_a");
-            let l: Vec<&str> = i.lines().collect();
-            let text = format!("{}\n{}\nfirst\n{seam}\nlast\n{}", l[0], l[1], l[2]);
-            shows(&result(history, &text, true), &source, || alone)
-        };
-        assert!(
-            cut_imports(true),
-            "the one node of its session the result links"
-        );
-        assert!(
-            !cut_imports(false),
-            "another linked node shares its session"
-        );
         // Elsewhere, and other tools.
-        let elsewhere =
-            "More before these: call again with before {\"turn_id\":\"turn_a\"} \u{b7} turn_a.";
-        assert!(!shown(elsewhere, false, &source));
-        assert!(!shows(
-            &result(crate::look::WORK, &page, false),
-            &source,
-            || true
-        ));
+        let elsewhere = format!("{HEAD}\nMore before these: before \u{b7} turn_a.");
+        assert!(!shown(&elsewhere, false, &source));
+        let look = result(crate::look::WORK, &page, false);
+        assert!(!shows(&look, &source, || true));
         assert!(!shows(&result("fs.read", &page, false), &source, || true));
         source.turn_id = Some("turn_b".into());
         assert!(!shown(&page, false, &source));
         let longer = page.replace("turn_a", "turn_ab");
         source.turn_id = Some("turn_a".into());
         assert!(!shown(&longer, false, &source));
+    }
+
+    /// An open shows its source by its heading, only in a result the runtime did not cut, and never by a body
+    /// line. An imported message's line names its session: in a cut page it shows the source only when the
+    /// result links no other node of that session; a page of imports is not read by a turn's handle, nor a page
+    /// of exchanges by a session's.
+    #[test]
+    fn an_open_shows_by_its_heading_and_an_import_line_by_its_session() {
+        let source = Node::user("ses_a", Some("turn_a"), "cli", "words");
+        let heading = "[Exchange \"turn_a\", in \"cli\", 2026-03-03: what was said]\n\u{2502} w";
+        assert!(shown(heading, false, &source));
+        assert!(!shown(heading, true, &source), "a cut open");
+        let session = "[Session \"ses_a\", imported, its messages]\n\u{2502} words";
+        assert!(shown(session, false, &source));
+        assert!(!shown(session, true, &source));
+        let (l, end) = (line("turn_a"), "That is its beginning.");
+        let forged =
+            format!("[Session \"ses_b\", its messages]\n\u{2502} a\n{SEAM}\n{l}\n{l}\n{end}");
+        assert!(!shown(&forged, true, &source), "a body line of a cut open");
+        let whole = forged.replace(&format!("{SEAM}\n"), "");
+        assert!(!shown(&whole, false, &source), "a body line of an open");
+        let head = "context.history: 2 imported items for \u{ab}w\u{bb} in import, best first.";
+        let imports = |h: &str| {
+            format!("{head}\n- 2026-03-03 \u{b7} casebook: \u{ab}w\u{bb} \u{b7} {h}\nThat is all it found.")
+        };
+        assert!(shown(&imports("ses_a"), false, &source));
+        assert!(!shown(&imports("turn_a"), false, &source), "by a turn");
+        let page = format!("{HEAD}\n{}\nHistory is exhausted.", line("ses_a"));
+        assert!(!shown(&page, false, &source), "a page by a session");
+        let cut_imports = |alone: bool| {
+            let i = imports("ses_a");
+            let l: Vec<&str> = i.lines().collect();
+            let text = format!("{}\n{}\nfirst\n{SEAM}\nlast\n{}", l[0], l[1], l[2]);
+            let history = crate::view::history::HISTORY_TOOL;
+            shows(&result(history, &text, true), &source, || alone)
+        };
+        assert!(cut_imports(true), "the one node of its session linked");
+        assert!(!cut_imports(false), "another linked node shares it");
     }
 
     /// A copier's sources are taken out of its meta, and each distinct one is one edge by its route.
