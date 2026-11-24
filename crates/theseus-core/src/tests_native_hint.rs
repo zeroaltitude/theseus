@@ -66,7 +66,7 @@ async fn a_proc_run_of_the_cli_in_the_owners_dm_ends_with_the_native_call() {
     );
     turn(&r.core, &dm, "the ferry timetable, from before?").await;
     assert!(offered(&r.requests()[0]).contains(&"context_history".to_string()));
-    let want = r#"[native: context_history {"words":"ferry timetable"} searches this place's history by those words"#;
+    let want = r#"[native: context_history {"words":"ferry timetable"} searches every place's history by those words"#;
     let got = result_of(&r.core, &dm, "s1");
     assert!(
         got.contains("searched: memory index search -k 20 --json ferry timetable"),
