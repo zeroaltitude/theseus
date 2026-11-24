@@ -862,7 +862,9 @@ async fn each_look_proves_from_the_store_as_it_stands() {
 }
 
 /// On a store that does not move, a second call reuses nothing the first proved: each proves the fold's node,
-/// its three exchanges and the task list itself.
+/// its three exchanges and the task list itself. The units a call returns are its sources' own count, which a
+/// kept source or a kept answer would return again, so the witness (`source::proved`) counts what each call
+/// itself read from the store: the fold's proof and the task list, once each, in the second call too.
 #[tokio::test]
 async fn a_second_call_proves_again_what_the_first_proved() {
     let (r, t) = a_task().await;
@@ -880,10 +882,13 @@ async fn a_second_call_proves_again_what_the_first_proved() {
     keep(c, "t-twice", "cmp_twice", "local", pieces);
     let views = record::of_turn(&c.store, "t-twice").unwrap();
     let at = c.store.last_position();
+    crate::view::record::source::proved(&c.runner);
     for call in ["first", "second"] {
         let (shown, reads) = c.owners_all(&views, None);
         assert_eq!(shown[0].totals.shown, 2, "{call}");
         assert_eq!(reads, 1 + 3 + 1, "{call}");
+        let proved = crate::view::record::source::proved(&c.runner);
+        assert_eq!(proved, (1, 1), "{call}: the fold proved and the tasks read");
     }
     assert_eq!(c.store.last_position(), at, "the store did not move");
 }

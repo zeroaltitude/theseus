@@ -227,6 +227,8 @@ impl GateSource<'_> {
         if !self.spend(1) {
             return None;
         }
+        #[cfg(test)]
+        self.witness(false);
         let Ok(Some(node)) = crate::ladder::fold::node(store, &handle.0) else {
             return Some(false);
         };
@@ -270,6 +272,8 @@ impl GateSource<'_> {
             if !self.spend(1) {
                 return None;
             }
+            #[cfg(test)]
+            self.witness(true);
             *all = Some((at, crate::task_graph::all(&self.runner.store).ok()));
         }
         let tasks = all.as_ref().and_then(|(_, tasks)| tasks.as_deref());
@@ -316,4 +320,34 @@ impl Source for GateSource<'_> {
     fn at_hand(&self, _at_hand: &AtHand) -> bool {
         true
     }
+}
+
+/// The proofs each runner's sources read from the store, by the runner's address: the fold proofs (a node
+/// read, `fold_read`) and the task-list loads (`task_read`). A test's witness that a call proves afresh.
+#[cfg(test)]
+static PROVED: std::sync::Mutex<std::collections::BTreeMap<usize, (u64, u64)>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+#[cfg(test)]
+impl GateSource<'_> {
+    /// One proof read from the store for this source's runner: a task-list load, else a fold's.
+    fn witness(&self, task: bool) {
+        let mut all = PROVED.lock().unwrap();
+        let n = all
+            .entry(std::ptr::from_ref(self.runner) as usize)
+            .or_default();
+        match task {
+            true => n.1 += 1,
+            false => n.0 += 1,
+        }
+    }
+}
+
+/// The fold proofs and the task-list loads every source of `runner` read from the store since the last ask,
+/// and from now none: what was proved, not what a source says it spent ([`GateSource::reads`], which a kept
+/// source would return again).
+#[cfg(test)]
+pub(crate) fn proved(runner: &TurnRunner) -> (u64, u64) {
+    let key = std::ptr::from_ref(runner) as usize;
+    PROVED.lock().unwrap().remove(&key).unwrap_or_default()
 }
