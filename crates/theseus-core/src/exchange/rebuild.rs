@@ -13,13 +13,16 @@
 //!   missing touches are written (a restart, or an index that was late or
 //!   down, can leave a thing's touch unwritten).
 //! - **A label raised before labels touched** (`item_labels::touch_root`): each flag an item's record holds
-//!   (`labels.<node>`), removed or not, gets its `label:<flag>` touch at its exchange's start, when the store
-//!   lacks it. It reads the records Jev's answers left; it calls no model.
+//!   (`labels.<node>`), removed or not, gets its `label:<flag>` touch at its turn's time (`item_labels::at`;
+//!   an id with no time, at its exchange's start), when the store lacks it. It reads the records Jev's answers
+//!   left; it calls no model.
 //! - **A touch keyed off its exchange's start** (an older build keyed a
 //!   reply's things at its end) is moved, not dropped: its own record is
 //!   written again at the start's key and the old key ended in the same
 //!   frame, with no index asked, so one exchange holds one touch of a root and
 //!   no association is lost. The index only adds touches; it never ends one.
+//!   A label's place is its turn's time (`item_labels::keyed_at`), so one
+//!   there is left, and one elsewhere is moved there.
 //!
 //! The dry run counts and writes nothing.
 
@@ -232,9 +235,9 @@ fn records(
 }
 
 /// The label touches the items' records call for and the store lacks: each flag raised on an item (removed or
-/// not: it is what Jev said), at its exchange's start, from `starts` (a planned exchange's turn, session and
-/// start, so one new in this run is touched where it begins) or else the exchange on record
-/// (`item_labels::landing`).
+/// not: it is what Jev said), at its turn's time (`item_labels::at`), as a live label is written; for an id
+/// with no time, at its exchange's start, from `starts` (a planned exchange's turn, session and start, so one
+/// new in this run is touched where it begins) or else the exchange on record (`item_labels::landing`).
 fn label_touches(
     store: &Store,
     starts: &HashMap<&str, (&str, u64)>,
@@ -249,7 +252,11 @@ fn label_touches(
         }
         let turn = (store.get_node(&item.node)?).and_then(|(_, n)| n.turn_id);
         let at = match turn.as_deref().and_then(|t| starts.get(t).map(|s| (t, s))) {
-            Some((t, &(sid, start))) => (t.to_string(), sid.to_string(), start),
+            Some((t, &(sid, start))) => (
+                t.to_string(),
+                sid.to_string(),
+                crate::item_labels::at(t).unwrap_or(start),
+            ),
             None => match crate::item_labels::landing(store, &item.node) {
                 Some(at) => at,
                 None => continue,
@@ -286,7 +293,11 @@ fn misplaced(store: &Store, starts: &HashMap<&str, u64>) -> anyhow::Result<Vec<[
             continue;
         };
         let at = time.parse::<u64>().ok().map(|t| u64::MAX - t);
-        let Some(start) = starts.get(turn).copied().filter(|s| Some(*s) != at) else {
+        // A label belongs at its turn's time, not its exchange's start.
+        let Some(start) = (starts.get(turn).copied())
+            .map(|s| crate::item_labels::keyed_at(root, turn).unwrap_or(s))
+            .filter(|s| Some(*s) != at)
+        else {
             continue;
         };
         let mut moved: super::Touch = r.decode()?;

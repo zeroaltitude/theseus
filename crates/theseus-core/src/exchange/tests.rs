@@ -874,38 +874,95 @@ fn a_timeline_page_keeps_every_exchange_at_its_boundary_time() {
 }
 
 /// The rebuild writes each missing label touch once (issue 44: labels raised before their touches were
-/// written): a raised flag on an item's record touches `label:<flag>` at its exchange's start, a removed
-/// one too (it is what Jev said), and a second run writes nothing. No model is called.
+/// written): each flag on an item's record touches `label:<flag>` at its turn's time (the time its id was
+/// minted, `crate::id_ms`), a removed one too (it is what Jev said: the record holds `personal` raised and
+/// `secret` raised then removed by the owner), and a second run writes nothing. No model is called.
 #[tokio::test]
 async fn the_rebuild_writes_each_missing_label_touch_once() {
-    use crate::content::{Flag, ItemKind, Label};
+    use crate::content::{Flag, ItemKind, Label, Removed};
     let r = rig(1, |_| {});
     let c = &r.core;
     let t = turn(c, owner_cli(), None, "my diagnosis came back").await;
     let node = input_node(c, &t);
     let mut item = crate::item_labels::ItemLabels::new(&node, ItemKind::OperatorMessage, "cli", 1);
-    item.raised.push(Label {
-        flag: Flag::Personal,
-        node: Some(node.clone()),
-        kind: ItemKind::OperatorMessage,
-        source: "cli".into(),
-        confidence: 0.97,
-        band: theseus_judge::band::Band::Confirm,
-        at_ms: 1,
-        judgment: String::new(),
-    });
+    for flag in [Flag::Personal, Flag::Secret] {
+        item.raised.push(Label {
+            flag,
+            node: Some(node.clone()),
+            kind: ItemKind::OperatorMessage,
+            source: "cli".into(),
+            confidence: 0.97,
+            band: theseus_judge::band::Band::Confirm,
+            at_ms: 1,
+            judgment: String::new(),
+        });
+    }
+    let removal = Removed {
+        flag: Flag::Secret,
+        by: "the owner".into(),
+        via: "cli".into(),
+        at_ms: 2,
+    };
+    crate::item_labels::removed(&mut item, &t.session_id, &removal);
     c.store.append(&[item.record().unwrap()]).unwrap();
-    let root = crate::item_labels::touch_root(Flag::Personal);
-    assert!(newest(&c.store, Root::Thing(&root), 8).unwrap().is_empty());
+    let roots = [Flag::Personal, Flag::Secret].map(crate::item_labels::touch_root);
+    for root in &roots {
+        assert!(newest(&c.store, Root::Thing(root), 8).unwrap().is_empty());
+    }
     let first = rebuilt(c, None, false).await;
-    assert_eq!(first.touches, 1, "{first:?}");
-    let ex = exchange(&c.store, &t.turn_id).unwrap().unwrap();
-    let got = newest(&c.store, Root::Thing(&root), 8).unwrap();
-    assert_eq!(
-        got.iter()
-            .map(|t| (t.exchange.as_str(), t.at_ms))
-            .collect::<Vec<_>>(),
-        [(t.turn_id.as_str(), ex.start_ms)]
-    );
+    assert_eq!(first.touches, 2, "{first:?}");
+    let at = crate::id_ms(&t.turn_id).expect("a live turn's id is a UUIDv7");
+    for root in &roots {
+        let got = newest(&c.store, Root::Thing(root), 8).unwrap();
+        assert_eq!(
+            got.iter()
+                .map(|t| (t.exchange.as_str(), t.at_ms))
+                .collect::<Vec<_>>(),
+            [(t.turn_id.as_str(), at)],
+            "{root}"
+        );
+    }
     assert_eq!(rebuilt(c, None, false).await.touches, 0);
+}
+
+/// The rebuild's repair keeps a label where its turn began and moves one found elsewhere there (issue 44: one
+/// key for one turn and one label); every other root is moved to its exchange's start, as before. The exchange's
+/// start is set well after the turn's time so the two differ. A second run changes nothing.
+#[tokio::test]
+async fn the_rebuild_keeps_a_label_at_its_turns_time_and_moves_one_found_elsewhere() {
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let t = turn(c, owner_cli(), None, "the kelp survey").await;
+    let at = crate::id_ms(&t.turn_id).expect("a live turn's id is a UUIDv7");
+    let mut ex = exchange(&c.store, &t.turn_id).unwrap().unwrap();
+    ex.start_ms = at + 5_000;
+    let (turn_id, sid) = (t.turn_id.as_str(), t.session_id.as_str());
+    let mut recs = vec![exchange_record(&ex).unwrap()];
+    // At the turn's time: kept. At the exchange's start: moved to the turn's time.
+    recs.extend(touch(Root::Thing("label:personal"), turn_id, sid, at));
+    recs.extend(touch(
+        Root::Thing("label:secret"),
+        turn_id,
+        sid,
+        ex.start_ms,
+    ));
+    // Any other root at the turn's time: moved to the exchange's start, as before.
+    recs.extend(touch(Root::Thing("topic:kelp"), turn_id, sid, at));
+    c.store.append(&recs).unwrap();
+    let first = rebuilt(c, None, false).await;
+    assert!(first.repaired > 0, "{first:?}");
+    let times = |root: &str| -> Vec<u64> {
+        (newest(&c.store, Root::Thing(root), 8).unwrap().iter())
+            .filter(|t| t.exchange == turn_id)
+            .map(|t| t.at_ms)
+            .collect()
+    };
+    assert_eq!(times("label:personal"), [at], "kept");
+    assert_eq!(times("label:secret"), [at], "moved to the turn's time");
+    assert_eq!(times("topic:kelp"), [ex.start_ms], "moved as before");
+    let again = rebuilt(c, None, false).await;
+    assert_eq!((again.touches, again.repaired), (0, 0), "{again:?}");
+    assert_eq!(times("label:personal"), [at]);
+    assert_eq!(times("label:secret"), [at]);
+    assert_eq!(times("topic:kelp"), [ex.start_ms]);
 }

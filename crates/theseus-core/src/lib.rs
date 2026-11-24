@@ -421,6 +421,8 @@ mod tests_judge_surfaces;
 #[cfg(test)]
 mod tests_kept;
 #[cfg(test)]
+mod tests_label_keys;
+#[cfg(test)]
 mod tests_ladder;
 #[cfg(test)]
 mod tests_ladder_route_v10;

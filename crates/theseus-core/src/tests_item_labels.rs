@@ -635,10 +635,11 @@ fn exchange_of(c: &Core, node: &str) -> Exchange {
         .expect("its exchange")
 }
 
-/// A message the stand-in calls `personal` writes the label's touch at its exchange's start, in the frame
-/// its labels land in: "everything labelled personal" is a timeline, as a topic's is.
+/// A message the stand-in calls `personal` writes the label's touch by its exchange's turn, at that turn's time
+/// (`item_labels::at`), in the frame its labels land in: "everything labelled personal" is a timeline, as a
+/// topic's is.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_raised_input_label_writes_its_touch_at_the_exchanges_start() {
+async fn a_raised_input_label_writes_its_touch_at_its_turns_time() {
     let jev = FakeJev::start().unwrap();
     jev_says_personal(&jev);
     let r = rig(&jev);
@@ -650,9 +651,14 @@ async fn a_raised_input_label_writes_its_touch_at_the_exchanges_start() {
     let ex = exchange_of(c, &message);
     let t = label_touches(c, crate::content::Flag::Personal);
     assert_eq!(t.len(), 1, "{t:?}");
+    let at = item_labels::at(&ex.turn_id).expect("a live turn's id is a UUIDv7");
     assert_eq!(
         (t[0].exchange.as_str(), t[0].session_id.as_str(), t[0].at_ms),
-        (ex.turn_id.as_str(), sid.as_str(), ex.start_ms)
+        (ex.turn_id.as_str(), sid.as_str(), at)
+    );
+    assert!(
+        at <= ex.start_ms,
+        "the turn began before its exchange opened"
     );
     assert!(label_touches(c, crate::content::Flag::Secret).is_empty());
 }

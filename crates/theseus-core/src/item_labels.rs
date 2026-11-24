@@ -11,9 +11,10 @@
 //! - **A description, not a permission.** Nothing withholds on it: an assembler may read it as data
 //!   ([`of_node`]); none does today.
 //!
-//! - **A touch beside it** (issue 44): each raised label also writes the touch `label:<flag>` at its item's
-//!   exchange's start ([`touch_root`]), in the same frame, a reply's too, so "everything labelled personal" is a
-//!   timeline the history tool reads, as a topic's is. Nothing that acts reads it.
+//! - **A touch beside it** (issue 44): each raised label also writes the touch `label:<flag>` by its item's turn,
+//!   at that turn's time ([`touch_root`], [`landing`]), in the same frame, a reply's too, so "everything labelled
+//!   personal" is a timeline the history tool reads, as a topic's is, and one turn holds one key of a label
+//!   whatever path its frames took. Nothing that acts reads it.
 //!
 //! A new META family (`labels.`): no stored record gains a field, so no store-format step. The touch is the
 //! touch index's own `Touch`, under a root of a family it already holds.
@@ -175,11 +176,17 @@ pub fn touch_root(flag: Flag) -> String {
     format!("label:{}", flag.as_str())
 }
 
-/// Where `node`'s labels touch: its exchange's turn, session and start; with no exchange on record, the node's
-/// own turn, session and time; none for a node that names no turn, or that cannot be read.
+/// Where `node`'s labels touch: its turn and session, **at its turn's own time** ([`at`]), so one turn holds one
+/// key of a label on every path: a label raised before its exchange opens (a configured name in the message),
+/// one raised after (the reply's), one whose frame the log kept through a failed append and indexed at the next
+/// open. A turn whose id carries no time (an old hand-written id) keeps the old rule: its exchange's start, or
+/// with no exchange on record the node's own time. None for a node that names no turn, or that cannot be read.
 pub fn landing(store: &Store, node: &str) -> Option<(String, String, u64)> {
     let (_, n) = store.get_node(node).ok().flatten()?;
     let turn = n.turn_id?;
+    if let Some(at) = at(&turn) {
+        return Some((turn, n.session_id, at));
+    }
     match crate::exchange::exchange(store, &turn) {
         Ok(Some(ex)) => Some((ex.turn_id, ex.session_id, ex.start_ms)),
         Ok(None) => Some((turn, n.session_id, n.created_at_ms)),
@@ -188,6 +195,25 @@ pub fn landing(store: &Store, node: &str) -> Option<(String, String, u64)> {
             None
         }
     }
+}
+
+/// When turn `turn`'s labels are keyed: when the runner minted its id (`crate::id_ms`; a steered message shares
+/// it), before its message and its exchange were written. A line of a label's page still says when its exchange
+/// opened, which can be a little later (`history_tool::page`). None for an id of another shape.
+pub fn at(turn: &str) -> Option<u64> {
+    crate::id_ms(turn)
+}
+
+/// When the touch whose key starts `root` (`touch.thing:label:personal`) by turn `turn` belongs: [`at`] for a
+/// label's root, none for any other root. `exchange.rebuild` leaves a label there rather than move it to its
+/// exchange's start, so a later write of the label finds its one key.
+pub fn keyed_at(root: &str, turn: &str) -> Option<u64> {
+    let labels = format!(
+        "{}{}",
+        crate::exchange::TOUCH_PREFIX,
+        crate::exchange::Root::Thing("label:").key()
+    );
+    root.starts_with(&labels).then(|| at(turn)).flatten()
 }
 
 /// The touches of `flags`, raised on an item, at its `landing`: one a flag, the same key however often it is
