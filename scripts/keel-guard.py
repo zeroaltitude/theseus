@@ -226,7 +226,23 @@ def git(repo, *args, check=True, data=None):
     return p.stdout.decode(errors="replace") if p.returncode == 0 else None
 
 
+def plain(what, name):
+    """A name the guard hands to git, or writes down its cat-file pipe one per line, holds no control character.
+
+    A newline in a changed file's name would be read by `git cat-file --batch` as further requests, and every read
+    after it would be answered out of step: with content the branch chose. So the guard refuses to run at all
+    (exit 2, which every caller treats as a refusal), and no `Keel:` ack can pass it: only renaming the file does."""
+    if any(ord(c) < 0x20 or ord(c) == 0x7f for c in name):
+        raise GuardError(f"{what} holds a control character: {name!r}. No ack passes this: fix the name")
+    # Bytes that are not UTF-8 are read back as U+FFFD, so the guard would ask git for another name than the changed
+    # one, find nothing on either side, and see no change at all (a test emptied in such a file was no finding).
+    if "\ufffd" in name:
+        raise GuardError(f"{what} is not UTF-8: {name!r}. No ack passes this: fix the name")
+    return name
+
+
 def rev(repo, name):
+    plain("the commit name", name)
     out = git(repo, "rev-parse", "--verify", "-q", name + "^{commit}", check=False)
     return out.strip() if out else None
 
@@ -279,18 +295,22 @@ class Tree:
     def changed(self):
         if self.head:
             out = git(self.repo, "diff", "--no-renames", "--name-only", "-z", self.base, self.head)
-            return sorted(set(filter(None, out.split("\0"))))
+            return sorted(plain("a changed file's name", n) for n in set(filter(None, out.split("\0"))))
         out = git(self.repo, "diff", "--no-renames", "--name-only", "-z", self.base)
         names = set(filter(None, out.split("\0")))
         untracked = git(self.repo, "ls-files", "--others", "--exclude-standard", "-z")
         names.update(filter(None, untracked.split("\0")))
-        return sorted(names)
+        return sorted(plain("a changed file's name", n) for n in names)
 
     def blob(self, spec):
+        # One request a line: whatever a rule asks for, a name with a line break never reaches the pipe.
+        plain("a file the guard reads", spec)
         self.proc.stdin.write(spec.encode() + b"\n")
         self.proc.stdin.flush()
-        header = self.proc.stdout.readline().decode().split()
-        if len(header) < 3 or header[1] == "missing":
+        header = self.proc.stdout.readline().decode(errors="replace").split()
+        # An object answers `<id> <type> <size>`. Anything else is `<the name asked for> missing` (or ambiguous),
+        # and the name may itself hold spaces, so the answer is told by its shape, not by its second word.
+        if not (len(header) == 3 and header[1] in ("blob", "tree", "commit", "tag") and header[2].isdigit()):
             return None
         size = int(header[2])
         data = self.proc.stdout.read(size)
@@ -2016,14 +2036,13 @@ def ack_fault(m):
 
 def acks(repo, base, head_commit, keys):
     """[(rule, [path globs], sha)] from the range's commits whose signature a listed key made."""
-    out = git(repo, "log", "--format=%H%x00%(trailers:key=Keel,valueonly,unfold)%x00%B%x1e", f"{base}..{head_commit}")
     found, refused = [], []
-    for rec in out.split("\x1e"):
-        rec = rec.strip("\n")
-        if not rec:
-            continue
-        sha, _, rest = rec.partition("\0")
-        trailers, _, body = rest.partition("\0")
+    # One commit at a time, by the ids rev-list prints: a message is the branch's text, and read as one stream cut at
+    # 0x1e, a 0x1e in a Keel: trailer began a record of its own whose "commit" was `:/<regex>`, which git resolves to
+    # any signed commit on main: the forging commit's whole message was then read as that commit's acks.
+    for sha in git(repo, "rev-list", f"{base}..{head_commit}").split():
+        rec = git(repo, "log", "-1", "--format=%(trailers:key=Keel,valueonly,unfold)%x00%B", sha)
+        trailers, _, body = rec.partition("\0")
         lines = [x for x in trailers.split("\n") if x.strip()]
         # A Keel: line above the message's last paragraph is no trailer: git never reads it (94eb8a7d's was one).
         for x in re.findall(r"(?m)^Keel:[ \t]*(\S.*?)\s*$", body):
