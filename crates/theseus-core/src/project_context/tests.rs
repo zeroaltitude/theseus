@@ -867,6 +867,33 @@ fn a_sighting_drops_a_path_only_where_this_compile_looked() {
     );
 }
 
+/// A grant's walk past its entry cap stops there and keeps what it found:
+/// the files it met first, in the order it meets them, and no error.
+#[test]
+fn a_walk_past_its_cap_keeps_what_it_found() {
+    let repo = Repo::new();
+    for d in ["a", "b", "c", "d"] {
+        repo.write(&format!("{d}/AGENTS.md"), "rules\n");
+    }
+    let root = repo.root();
+    let all = walk(&root);
+    assert_eq!(all.len(), 4, "{all:?}");
+    // The root, `a`, `a/AGENTS.md`, `b`: the cap is met before `b`'s file.
+    let some = walk_within(&root, 4, WALK_TIME);
+    assert_eq!(some, all[..1].to_vec(), "what it met before the cap");
+}
+
+/// A grant's walk past its time stops there too: with no time at all it
+/// finds nothing, and returns.
+#[test]
+fn a_walk_past_its_time_keeps_what_it_found() {
+    let repo = Repo::new();
+    repo.write("AGENTS.md", "rules\n");
+    let root = repo.root();
+    assert_eq!(walk(&root).len(), 1);
+    assert!(walk_within(&root, WALK_ENTRIES, std::time::Duration::ZERO).is_empty());
+}
+
 /// **S31-1, the writer key: what a flagged session's acting call leaves
 /// behind, and what the next CLEAN compile makes of it.** The posture is
 /// `notice`, written out, because that is the one that would otherwise carry

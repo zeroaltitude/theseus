@@ -1725,3 +1725,182 @@ async fn probe_a_file_off_the_chain_is_reported_changed_and_not_gone() {
          not that it went away: {mine:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// A grant pins what it grants: `Core::project_trust` stores the repository's
+// sighting, every instruction file under the root, in the grant's own frame.
+// ---------------------------------------------------------------------------
+
+/// The paths a repository's stored sighting names, in order.
+fn pinned(core: &Arc<Core>, repo: &Path) -> Vec<String> {
+    crate::project_context::change::Seen::read(&core.store, &crate::flow::spec::repo_id(repo))
+        .expect("the grant stores a sighting")
+        .files
+        .into_keys()
+        .collect()
+}
+
+/// The grant's sighting names every instruction file under the root -- the
+/// root's own, the nested one, and one in a directory no session's chain
+/// passes through -- by digest, and the first compile compares with it and
+/// finds nothing to say.
+#[tokio::test]
+async fn a_grant_pins_every_instruction_file_under_the_root() {
+    let r = rig();
+    let (repo, here) = hostile_repo(&r.root);
+    let aside = repo.join("aside");
+    std::fs::create_dir_all(&aside).unwrap();
+    std::fs::write(aside.join("AGENTS.md"), "The aside rules.\n").unwrap();
+    r.core.project_trust(&repo, "cli").expect("trusted");
+
+    let mut want = vec![
+        repo.join("AGENTS.md").display().to_string(),
+        aside.join("AGENTS.md").display().to_string(),
+        here.join("CLAUDE.md").display().to_string(),
+    ];
+    want.sort();
+    assert_eq!(pinned(&r.core, &repo), want);
+    let seen = crate::project_context::change::Seen::read(
+        &r.core.store,
+        &crate::flow::spec::repo_id(&repo),
+    )
+    .unwrap();
+    assert!(
+        seen.files.values().all(|d| d.len() == 16),
+        "digests, not text: {seen:?}"
+    );
+
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(block.contains(IN_TEXT), "the grant is in force:\n{block}");
+    assert!(
+        !block.contains("changed since the owner"),
+        "the first compile matches what the grant pinned:\n{block}"
+    );
+    assert!(
+        crate::test_support::ledger_rows_2k(&r.core, "project.changed").is_empty(),
+        "and ledgers nothing"
+    );
+}
+
+/// At `ask`, a file written after the grant and before any session has
+/// opened in the repository is a change from what the grant pinned: named,
+/// not read, and ledgered once; the unchanged file beside it is carried.
+#[tokio::test]
+async fn at_ask_a_file_written_between_the_grant_and_the_first_session_is_not_read() {
+    let r = rig_with(|cfg| cfg.project.on_change = Some(crate::config::OnChange::Ask));
+    let (repo, here) = hostile_repo(&r.root);
+    r.core.project_trust(&repo, "cli").expect("trusted");
+    std::fs::write(repo.join("AGENTS.md"), format!("{AFTER}\n")).unwrap();
+
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        !block.contains(AFTER),
+        "the file written after the grant is not read:\n{block}"
+    );
+    assert!(
+        block.contains("He asks to see a change before it is read"),
+        "the block says why:\n{block}"
+    );
+    assert!(
+        block.contains(STEER),
+        "and the unchanged nested file is carried:\n{block}"
+    );
+    let rows = crate::test_support::ledger_rows_2k(&r.core, "project.changed");
+    assert_eq!(rows.len(), 1, "one row: {rows:?}");
+    assert_eq!(rows[0].data["carried"], false, "{rows:?}");
+}
+
+/// The grant's walk does not follow a symlinked directory: a file reached
+/// only through one is not pinned.
+#[tokio::test]
+async fn a_grant_does_not_follow_a_symlinked_directory() {
+    let r = rig();
+    let (repo, _here) = hostile_repo(&r.root);
+    let outside = r.root.join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("AGENTS.md"), "The outside rules.\n").unwrap();
+    std::os::unix::fs::symlink(&outside, repo.join("linked")).unwrap();
+    r.core.project_trust(&repo, "cli").expect("trusted");
+
+    let pins = pinned(&r.core, &repo);
+    assert!(
+        pins.contains(&repo.join("AGENTS.md").display().to_string()),
+        "{pins:?}"
+    );
+    assert!(
+        !pins
+            .iter()
+            .any(|p| p.contains("linked") || p.contains("outside")),
+        "nothing through the link is pinned: {pins:?}"
+    );
+}
+
+/// A file under a directory the repository's `.gitignore` names is not
+/// pinned, and is new to the sighting when a session works there: at
+/// `notice` it is carried, and the block and the ledger say it is new.
+#[tokio::test]
+async fn an_ignored_directorys_file_is_not_pinned_and_is_new_when_a_session_works_there() {
+    let r = rig();
+    let (repo, _here) = hostile_repo(&r.root);
+    std::fs::write(repo.join(".gitignore"), "build/\n").unwrap();
+    let build = repo.join("build");
+    std::fs::create_dir_all(&build).unwrap();
+    let file = build.join("AGENTS.md");
+    std::fs::write(&file, "The build directory's rules.\n").unwrap();
+    r.core.project_trust(&repo, "cli").expect("trusted");
+
+    let pins = pinned(&r.core, &repo);
+    let shown = file.display().to_string();
+    assert!(!pins.contains(&shown), "{pins:?}");
+    assert!(
+        pins.contains(&repo.join("AGENTS.md").display().to_string()),
+        "{pins:?}"
+    );
+
+    submit(&r.core, &build).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        block.contains("The build directory's rules."),
+        "carried at notice:\n{block}"
+    );
+    assert!(
+        block.contains(&format!("{shown} (new)")),
+        "and named as new:\n{block}"
+    );
+    let rows = crate::test_support::ledger_rows_2k(&r.core, "project.changed");
+    assert_eq!(rows.len(), 1, "one row: {rows:?}");
+    assert_eq!(rows[0].data["path"], shown.as_str());
+    assert_eq!(rows[0].data["old"], "", "new: {rows:?}");
+}
+
+/// A repository past the walk's entry cap is granted, and the sighting holds
+/// what the walk found before the cap: the root's own file, which it meets
+/// first. The nested file past the cap is new when a session works there.
+#[tokio::test]
+async fn a_grant_past_the_walks_cap_stores_what_it_found() {
+    let r = rig();
+    let (repo, here) = hostile_repo(&r.root);
+    // Directories sorted between the root's file and the nested directory,
+    // enough to reach the cap before the nested directory.
+    for n in 0..crate::project_context::WALK_ENTRIES {
+        std::fs::create_dir(repo.join(format!("d{n:05}"))).unwrap();
+    }
+    r.core
+        .project_trust(&repo, "cli")
+        .expect("granted past the cap");
+
+    assert_eq!(
+        pinned(&r.core, &repo),
+        vec![repo.join("AGENTS.md").display().to_string()],
+        "what the walk found before the cap"
+    );
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    let nested = here.join("CLAUDE.md").display().to_string();
+    assert!(
+        block.contains(&format!("{nested} (new)")),
+        "the file past the cap is new when a session works there:\n{block}"
+    );
+}

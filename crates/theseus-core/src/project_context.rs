@@ -172,6 +172,56 @@ fn chain(dirs: &[PathBuf]) -> Vec<Found> {
         .collect()
 }
 
+/// The most entries, files and directories together, a grant's [`walk`]
+/// visits.
+pub const WALK_ENTRIES: usize = 20_000;
+
+/// The longest a grant's [`walk`] runs.
+pub const WALK_TIME: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Every instruction file under `root`, for the sighting a grant stores
+/// (§8, "After a grant"). It honours the repository's `.gitignore` files and
+/// `.git/info/exclude`, never enters `.git`, and does not follow a
+/// symlinked directory. It is bounded: it stops after [`WALK_ENTRIES`]
+/// entries or [`WALK_TIME`], whichever comes first, and an entry it cannot
+/// read is passed over. What it found by then is the answer, so a grant
+/// never fails or waits long because of it, and a file it did not reach is
+/// new to the sighting when a compile first finds it.
+pub fn walk(root: &Path) -> Vec<Found> {
+    walk_within(root, WALK_ENTRIES, WALK_TIME)
+}
+
+/// [`walk`] within `entries` entries and `time`.
+pub(crate) fn walk_within(root: &Path, entries: usize, time: std::time::Duration) -> Vec<Found> {
+    let start = std::time::Instant::now();
+    let walker = ignore::WalkBuilder::new(root)
+        .standard_filters(false)
+        .git_ignore(true)
+        .git_exclude(true)
+        .require_git(false)
+        .follow_links(false)
+        .sort_by_file_name(|a, b| a.cmp(b))
+        .filter_entry(|e| e.file_name() != ".git")
+        .build();
+    let mut out = Vec::new();
+    for (n, entry) in walker.enumerate() {
+        if n >= entries || start.elapsed() >= time {
+            break;
+        }
+        let Ok(entry) = entry else { continue };
+        if !NAMES.iter().any(|name| entry.file_name() == *name) {
+            continue;
+        }
+        let path = entry.path();
+        let depth = path
+            .parent()
+            .and_then(|d| d.strip_prefix(root).ok())
+            .map_or(0, |rel| rel.components().count());
+        out.extend(found(path, depth));
+    }
+    out
+}
+
 /// `path` as a `Found`, when it is a regular file that exists. An absent
 /// file is the ordinary case (§1) and gives nothing.
 fn found(path: &Path, depth: usize) -> Option<Found> {
