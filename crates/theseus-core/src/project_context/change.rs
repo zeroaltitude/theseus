@@ -295,7 +295,7 @@ impl Observed {
                  They moved during a call of a session that carries the `injection` \
                  label ({}), so their new text is not here for any session: he grants \
                  the repository again (`theseus project untrust`, then `theseus project \
-                 trust`) once he has read it.",
+                 trust` naming this session's directory) once he has read it.",
                 h.by
             )
         } else if self.flagged {
@@ -303,14 +303,16 @@ impl Observed {
                 "Project instructions changed since the owner last read them: {what}. \
                  This session carries the `injection` label, so their new text is not \
                  here: he grants the repository again (`theseus project untrust`, then \
-                 `theseus project trust`) once he has read it."
+                 `theseus project trust` naming this session's directory) once he has \
+                 read it."
             )
         } else if self.ask {
             format!(
                 "Project instructions changed since the owner last read them: {what}. \
                  He asks to see a change before it is read, so their new text is not \
                  here: he grants the repository again (`theseus project untrust`, then \
-                 `theseus project trust`) once he has read it."
+                 `theseus project trust` naming this session's directory) once he has \
+                 read it."
             )
         } else {
             format!(
@@ -330,6 +332,31 @@ fn names(changes: &[Change]) -> String {
         _ => c.path.clone(),
     };
     changes.iter().map(one).collect::<Vec<_>>().join(", ")
+}
+
+/// The sighting a grant of the repository at `root` stores, given by `path`
+/// (§8, "After a grant"): the instruction files on the chain from the root
+/// down to `path` (the files a compile there finds), then what
+/// [`super::walk`] found under the root.
+///
+/// So a file the walk did not reach is pinned by a grant that names its
+/// directory. The digests are bounded too: at most
+/// [`super::DIGEST_FILES`] files, within [`super::WALK_TIME`] of the first,
+/// the chain's first. A file found and not digested is not in the sighting,
+/// so it is new when a compile first finds it.
+pub fn grant(files: &ContextFiles, root: &Path, path: &Path, at_ms: u64) -> Seen {
+    let dir = if path.is_dir() {
+        path
+    } else {
+        path.parent().unwrap_or(root)
+    };
+    let mut found = super::discover_in(Some(root), dir, None).project;
+    for f in super::walk(root) {
+        if !found.iter().any(|g| g.shown == f.shown) {
+            found.push(f);
+        }
+    }
+    sighting_within(files, &found, at_ms, super::DIGEST_FILES, super::WALK_TIME)
 }
 
 /// [`sighting`] of the first of `found` it reaches within `most` files and

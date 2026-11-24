@@ -1927,3 +1927,76 @@ async fn a_grant_past_the_walks_cap_stores_what_it_found() {
     );
 }
 
+/// What the block tells the owner to do to accept a held or not-yet-read
+/// file.
+const ACCEPT: &str =
+    "`theseus project untrust`, then `theseus project trust` naming this session's directory";
+
+/// At `ask`, a file past the walk's allowance is new and not read, and the
+/// block says how to accept it: a grant given again naming its directory
+/// pins it, and a session there then reads it with nothing new to say.
+#[tokio::test]
+async fn at_ask_a_file_past_the_walk_is_accepted_by_a_grant_naming_its_directory() {
+    let r = rig_with(|cfg| cfg.project.on_change = Some(crate::config::OnChange::Ask));
+    let (repo, here) = hostile_repo(&r.root);
+    crowd(&repo);
+    r.core.project_trust(&repo, "cli").expect("trusted");
+    let nested = here.join("CLAUDE.md").display().to_string();
+    assert!(!pinned(&r.core, &repo).contains(&nested));
+
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(!block.contains(STEER), "not read:\n{block}");
+    assert!(
+        block.contains(&format!("{nested} (new)")) && block.contains(ACCEPT),
+        "the block names it and says how to accept it:\n{block}"
+    );
+
+    r.core.project_untrust(&repo, "cli").expect("revoked");
+    r.core.project_trust(&here, "cli").expect("granted again");
+    assert!(pinned(&r.core, &repo).contains(&nested));
+    submit(&r.core, &here).await;
+    let after = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        after.contains(STEER),
+        "the owner's accept carries it:\n{after}"
+    );
+    assert!(
+        !after.contains("(new)") && !after.contains("changed since the owner"),
+        "and says nothing new:\n{after}"
+    );
+}
+
+/// The same route for a session carrying `injection`: it does not read a
+/// file past the walk's allowance, and after a grant naming that directory
+/// the same session reads it.
+#[tokio::test]
+async fn a_labelled_reader_reads_a_file_past_the_walk_after_a_grant_naming_its_directory() {
+    let r = rig();
+    let (repo, here) = hostile_repo(&r.root);
+    crowd(&repo);
+    let session = submit(&r.core, &here).await;
+    flag(&r.core, &session);
+    r.core.project_trust(&repo, "cli").expect("trusted");
+
+    submit_in(&r.core, &here, Some(&session)).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(!block.contains(STEER), "not read:\n{block}");
+    assert!(
+        block.contains("This session carries the `injection` label") && block.contains(ACCEPT),
+        "the block says why and how to accept it:\n{block}"
+    );
+
+    r.core.project_untrust(&repo, "cli").expect("revoked");
+    r.core.project_trust(&here, "cli").expect("granted again");
+    submit_in(&r.core, &here, Some(&session)).await;
+    let after = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        after.contains(STEER),
+        "the owner's accept carries it:\n{after}"
+    );
+    assert!(
+        !after.contains("(new)") && !after.contains("changed since the owner"),
+        "and says nothing new:\n{after}"
+    );
+}

@@ -119,12 +119,14 @@ impl Core {
     /// join the system block from the session's next recompile.
     ///
     /// **A grant pins what it grants.** The same frame stores the
-    /// repository's sighting (`change::Seen`): every instruction file under
-    /// the root, by digest, from `project_context::walk`. So the first
-    /// compile in any directory of the repository compares with what was
-    /// there when the owner granted it, and a file changed or added since is
-    /// a change from that. The walk and the digests are bounded, and a file
-    /// they did not reach is new when a compile first finds it.
+    /// repository's sighting (`change::Seen`, from `change::grant`): the
+    /// instruction files on the chain from the root down to `path`, and every
+    /// one under the root that `project_context::walk` finds, by digest. So
+    /// the first compile in any directory of the repository compares with
+    /// what was there when the owner granted it, and a file changed or added
+    /// since is a change from that. The walk and the digests are bounded, and
+    /// a file they did not reach is new when a compile first finds it; a
+    /// grant naming that file's directory pins it.
     pub fn project_trust(&self, path: &Path, who: impl Into<Answerer>) -> Result<Trusted> {
         let who = who.into();
         self.judge_act(
@@ -158,14 +160,7 @@ impl Core {
             via: &grant.via,
         };
         let seen = theseus_store::blocking(|| {
-            let found = crate::project_context::walk(&root);
-            change::sighting_within(
-                &self.runner.context_files,
-                &found,
-                grant.at_ms,
-                crate::project_context::DIGEST_FILES,
-                crate::project_context::WALK_TIME,
-            )
+            change::grant(&self.runner.context_files, &root, path, grant.at_ms)
         });
         let rec = self.rec(None);
         self.store
