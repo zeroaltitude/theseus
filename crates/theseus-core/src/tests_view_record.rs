@@ -836,7 +836,10 @@ async fn each_view_show_call_proves_from_the_store_as_it_stands() {
         .unwrap();
     let second = shown_of(c, json!({"turn_id": "t-call"})).await;
     let said = theseus_protocol::view::lines(&second.views[0]);
-    assert!(handles(&second).is_empty(), "an exchange of it is gone: {said}");
+    assert!(
+        handles(&second).is_empty(),
+        "an exchange of it is gone: {said}"
+    );
     assert_eq!(second.views[0].totals.shown, 0, "{said}");
 }
 
