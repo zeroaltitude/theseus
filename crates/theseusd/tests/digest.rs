@@ -153,9 +153,15 @@ impl Rig {
 }
 
 impl Rig {
-    /// `work.digest` from `since`.
+    /// `work.digest` from `since`. A read that fails says so with the log's tail.
     fn digest(&self, since: u64) -> Value {
-        self.call("work.digest", json!({"since": since})).unwrap()
+        self.call("work.digest", json!({"since": since}))
+            .unwrap_or_else(|e| {
+                panic!(
+                    "work.digest from {since}: {e}\nthe log ends:\n{}",
+                    self.log_tail()
+                )
+            })
     }
 
     /// The digests a failure names, each `shown` under its label, and the log's tail.
@@ -297,10 +303,11 @@ fn what_happened_while_a_client_was_away_is_told_once_from_where_it_left() {
         .as_u64()
         .unwrap();
     let _ = r.call("work.unwatch", json!({}));
+    let again = r.digest(left);
     assert!(
-        r.digest(left)["lines"].as_array().unwrap().is_empty(),
+        again["lines"].as_array().unwrap().is_empty(),
         "{}",
-        r.why(&[("read again", &r.digest(left))])
+        r.why(&[("read again", &again)])
     );
 
     r.while_away();
@@ -387,10 +394,11 @@ fn what_happened_while_a_client_was_away_is_told_once_from_where_it_left() {
         );
     }
     let to = d["to"].as_u64().unwrap();
+    let after = r.digest(to);
     assert!(
-        r.digest(to)["lines"].as_array().unwrap().is_empty(),
+        after["lines"].as_array().unwrap().is_empty(),
         "{}",
-        r.why(&[("read again from its end", &r.digest(to)), ds[0], ds[1]])
+        r.why(&[("read again from its end", &after), ds[0], ds[1]])
     );
 
     if let Ok(path) = std::env::var("THESEUS_RECORD_DIGEST") {
@@ -463,10 +471,11 @@ fn a_stop_between_telling_and_the_next_arrival_tells_nothing_twice() {
     let _ = r.call("shutdown", Value::Null);
     drop(d2);
     let _d3 = r.spawn();
+    let after = r.digest(to);
     assert!(
-        r.digest(to)["lines"].as_array().unwrap().is_empty(),
+        after["lines"].as_array().unwrap().is_empty(),
         "{}",
-        r.why(&[("read again from its end", &r.digest(to)), ("live", &told)])
+        r.why(&[("read again from its end", &after), ("live", &told)])
     );
     let again = r.digest(left);
     for kind in ["reported", "cancelled", "answered", "woke"] {
