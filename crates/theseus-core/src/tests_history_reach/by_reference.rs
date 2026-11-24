@@ -528,8 +528,9 @@ async fn a_conversation_that_said_it_and_read_it_back_by_history_is_told_once() 
 }
 
 /// **A view kept before recall left copies out, which recalled a history result, is refused once the source
-/// that result showed is erased.** Its beside block holds the result's words and is read back as kept, and
-/// the reader's view never laid or folded the exchange that read it. New recall no longer admits a copy, so
+/// that result showed is erased.** The record's recalled nodes name the result, and the reader's view never
+/// laid or folded the exchange that read it. (Only that reference metadata is written as an older build held
+/// it; the saved beside blob is the one this build kept, not one holding the result's words.) New recall no longer admits a copy, so
 /// the old record is written as stored data: the turn's kept view, its recalled nodes naming the result, and
 /// the exchanges it laid or folded only its own (on this rig the view also folds the other conversation's
 /// exchange, which the exchange check alone would refuse; a view that did not fold it held only its own).
