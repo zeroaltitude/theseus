@@ -104,8 +104,8 @@ tasks waiting on him, an id and a line each), **facts about the person** (slot B
 the owner's guidance for it, to the owner alone; the role line is not laid), and **named things and their cards** (slot D, and slot H's named things:
 the names table built once for the turn through its permit, the message's names and numbered items matched
 against it; `docs/design/names.md`, "The view's sources"). Slot H also holds recall, and a joined task's card
-when the judge's existing `addressed_task` answer names one task. Slots E, F and G (his past, his words
-elsewhere lately, and here: the window and the ladder) are read from the store. What is in play is the things
+when the judge's existing `addressed_task` answer names one task. Slots F and G (his words elsewhere lately,
+and here: the window and the ladder) are read from the store. What is in play is the things
 his words named in the newest exchanges here; the things Theseus's replies named and old exchanges' numbered
 items are not read for it.
 
@@ -147,8 +147,8 @@ the rest are fixed in the code. The sprint added no setting beyond `[context] le
    fastest; they stay openable, and are read again when the present state matters.
 5. **Here, time is a ladder.** The last twenty to thirty-nine exchanges of a place are kept in full. Older ones
    are folded, twenty at a time, into one node that keeps his words and an account of what was done; twenty
-   such nodes fold again. Everything ever said in a place stays in view at some grain. Across places, his own words are
-   selected, fewer with age. Nothing is silently absent: every node and every band opens.
+   such nodes fold again. Everything ever said in a place stays in view at some grain. Across places, his own words of
+   the last two days are selected (no band by age since 2026-11-24). Nothing is silently absent: every node and every band opens.
 6. **A name calls its thing.** A recognised mention brings the thing's card, its current facts, its newest
    exchange and what he has said about it through time. Loose topics ("the retry storm") are things too: the
    judge already files every message under topics, and that filing is kept per exchange. **As built**: things
@@ -282,7 +282,7 @@ A point of view is computed once at the start of a turn, from one snapshot of th
   or a task's report takes the `present` of the turn that set it up. Unknown admits nothing.
 - **at hand**: the line of work or task last selected here, by address or by a sure typed answer. It changes
   only on such a selection; an unsure answer leaves it as it was. It ranks optional material. It never moves or hides a
-  message, and never removes anything from the window, the ladder or the person-wide slots (C, E, F).
+  message, and never removes anything from the window, the ladder or the person-wide slots (C, F).
 
 **The gate.** Every piece carries its source place, source audience, the owner's mark or its absence, origin,
 seal and derivation marks. Only content that has passed the permission check can be sent to a model, and the code
@@ -356,7 +356,7 @@ For a conversation where the owner is alone. Sizes are typical / cap, in tokens 
 | B | **Who and where** | accepted facts about the person; the place and who is present | facts by subject; the binding | 800 / 1,500 |
 | C | **Waiting** | what is certainly waiting between them, from any place: questions Theseus has parked for him, tasks waiting on him, a message of his still being answered elsewhere | records that exist today | 300 / 1,000 |
 | D | **In play** | the work at hand and the things named in the last three exchanges here: card, current facts, open tasks a line each | at hand; the touch index | 800 / 3,000 |
-| E | **Past** | his own words, in the three grades of §3, as dated lines, thinning with age (§5.3) | the person's timeline | 3,000 / 5,000 |
+| E | **Past**: removed (the owner's ruling, 2026-11-24; §5.3) | nothing | none | 0 |
 | F | **Lately, everywhere** | the last 48 hours in his other private places, merged by time: **his words verbatim**; per place the newest reply in full (over 1,500 tokens: its first 500 and last 1,000, since questions and conclusions sit at the ends), older replies as their `did` line with a handle. And always, whatever its age, his newest exchange in each other private place (five places at most) | the person's timeline, less this place | 2,500 / 12,000 |
 | G | **Here** | this place's window and ladder (§5.2) | the place's timeline | its own allowance (§5.2); in a long conversation 75,000 to 140,000 (est.: words 15,000 to 33,000; tool output 40,000 to 80,000; the ladder 20,000 to 30,000) |
 | H | **Called, this turn** | what this message calls in: named things not in view, a reached exchange, a joined task's card, recall | the name matcher, the reach, recall | 1,800 / 8,000 |
@@ -367,8 +367,8 @@ against about 360,000 in the main conversation today (measured); in a new or qui
 has its own allowance (§5.2).
 
 **In company** (a channel of any kind, whoever is in it today, or an agent's session at the terminal) the table
-is shorter: A, B, D, E, G, H and
-I, all from this place alone; slot E holds the words of the people present, said here; C and F are absent.
+is shorter: A, B, D, G, H and
+I, all from this place alone; C and F are absent.
 
 **As built**, the selectors of every slot exist and run in the admission order of rule 6, which is a table in the
 code. Slots B, C and D, and slot H's named things, lay nothing yet: their sources over the store answer nothing
@@ -409,16 +409,15 @@ joined task's card, say) is neither listed nor counted.
 **The order on the wire** (the owner's point: what is fixed goes first, what moves goes last):
 
 1. A, the system part.
-2. B, who and where; then E, his older words from everywhere (older than two days; laid again at most once a
-   day). Marked blocks.
+2. B, who and where. Marked blocks.
 3. G's ladder, oldest node first. Marked blocks.
 4. G's window, as real turns of the person and of Theseus, in the order they happened, with tool calls and
    results paired as the provider requires. Nothing else is sent as conversation.
 5. Beside the new message, in one marked block that is never stored: C (waiting), D (in play), F (elsewhere
    in the last two days), H (called by this message). Then his message.
 
-Parts 1 to 4 are the same bytes from one turn to the next and change only at a fold (§5.2), at a day's turn, or
-when a fact about him changes. Part 5 is chosen afresh every turn. The order also reads as a conversation
+Parts 1 to 4 are the same bytes from one turn to the next and change only at a fold (§5.2) or when a fact about
+him changes. Part 5 is chosen afresh every turn. The order also reads as a conversation
 should: who and what, then time running forward, with what is nearest in time nearest the message.
 
 **As built**, the order is this one. Parts 2 and 3 head the first user message as harness text; the window is read
@@ -445,10 +444,9 @@ is kept out of the window and out of the turn's own nodes. No turn is handed to 
 5. There is one budget: the smaller of the ceiling (plus slot G's own allowance, §5.2) and
    the provider's window, less room reserved for the reply and the turn's own tool calls. Everything is charged to it: the frame, every slot, headings, residue lines,
    and pages of history read later in the turn. Sizes are counted with the answering model's own token count.
-6. Admission order: A (fixed, counted first); I; the window's words, the floor first; F's own words; C; E to 7
-   days; B; the ladder, newest nodes first; the window's tool results; H's reached; H's task card; H's named;
-   D; F's replies; E to 30 days; E beyond 30 days; recall. Within one of these, newest first, then by id. What
-   he said always outranks what a tool returned.
+6. Admission order: A (fixed, counted first); I; the window's words, the floor first; F's own words; C; B; the
+   ladder, newest nodes first; the window's tool results; H's reached; H's task card; H's named; D; F's replies;
+   recall. Within one of these, newest first, then by id. What he said always outranks what a tool returned.
 7. Over the ceiling, cut from the end of that order. A piece steps down a form (whole, then spoken, then line)
    before it is dropped, and what is dropped is counted in its band's residue line.
 8. G's floor and I are never cut. A cut anywhere else is marked where it happens and carries a handle; a cut
@@ -556,7 +554,7 @@ certain and everything since a three-hour pause.
   exchanges) or a clearing (once every 40,000 tokens of new tool output). Part Two prices what that is worth.
 - **`/new`** puts a mark on this place's timeline. The window, the ladder and what is in play read only what
   came after it: the first message after `/new` sees nothing of this place's earlier conversation. What was said
-  before is still his past: his words in slot E, the rest by search and paging. Nothing is erased (decision 7).
+  before is still his past, reached by search and paging. Nothing is erased (decision 7).
 
 **What a place is, by surface.** A chat conversation is its binding. The web page is one place. The terminal is
 one place per project directory (the session block already holds the directory; the ledger does not record it
@@ -590,30 +588,10 @@ per turn today, so step 1 adds it). A new session does not start a new place or 
 
 ### 5.3 His words from everywhere: how they thin with age
 
-This is slot E and slot F: his words across every place. A place's own past is its ladder (§5.2); where the two
-overlap, a piece is shown once, in the ladder.
-
-His words are small. In the main conversation: about 490 tokens for the last 24 hours, 1,540 for seven days,
-2,900 for thirty, 4,850 for all seven weeks (est. from measured bytes). Across all his private places it is
-perhaps twice that (est. from turn counts). So they are not summarised; they are **selected from**.
-
-| Age | His words | Theseus's side |
-|---|---|---|
-| in this place's window | all, whole | all, whole |
-| the last 48 hours, anywhere | all, verbatim | newest reply per place in full; the rest as `did` lines |
-| to 7 days | all, verbatim, dated, with place | `did` lines for what he asked; nothing for harness and wake turns |
-| to 30 days | all, while the slot's cap holds; over it, the oldest days go first | nothing; a handle |
-| older | only lines that are a correction (the judge's existing answer about the kind of message), that made a standing record, or that are still waiting | nothing; a handle |
-
-His messages are short (about 40 tokens on average, measured), and many are pointers: "no, 41". So a line of
-his that the judge marked as a fragment or a correction is never shown bare: at every age it is shown with its
-exchange's `did` line, or it is counted in what was left out.
-
-Every band ends with a count of what was left out (how many of his lines, how many exchanges) and a handle that
-opens it. Nothing the gate admits is silently absent; what it denies is not counted (rule 2). The rules are deterministic; no model decides what an old line was.
-
-There are no separate month or year paragraphs. For a place, the ladder is the folding; for his words across
-places, the rules above are.
+**Removed, 2026-11-24** (the owner's ruling: the slices of his words by age go). Slot E, which laid his words
+older than two days in bands to 7 days, to 30 days and older, is gone, with its selector and its bands. His
+words from other places in the last two days are slot F's; anything older is reached by the history tool and
+by recall. A view record kept before it still reads: its pieces of those bands are listed as `retired`.
 
 ### 5.4 How a mention calls a thing in, and how it stays
 
@@ -1193,8 +1171,8 @@ conversation that has grown long.
    this so: what moves every turn sits beside the message and is never stored.
 2. **Frozen within a turn** (a correctness rule anyway): every call after the first reads the whole request
    from cache.
-3. **What breaks the front, and how often**: a fold (once every N exchanges); a clearing of tool results; a day's turn (his older words are
-   laid again); a change to a fact about him; a change of tools or system text; `/new`; a change of audience.
+3. **What breaks the front, and how often**: a fold (once every N exchanges); a clearing of tool results; a change
+   to a fact about him; a change of tools or system text; `/new`; a change of audience.
    The shadow rows count each.
 4. **Which cache lifetime to write at is a measurement.** For a context rebuilt whole every turn, the one-hour
    write cost 50% more and bought nothing (simulation). With a fixed front that may reverse: he often answers

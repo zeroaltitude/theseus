@@ -744,6 +744,7 @@ fn every_reason_and_band_has_plain_words() {
     for row in ADMISSION {
         assert!(!super::blocks::band(row.band).is_empty());
     }
+    assert!(!super::blocks::band(Band::Retired).is_empty());
 }
 
 fn node(place: &str, outside: bool) -> FoldNode {
@@ -853,13 +854,13 @@ fn a_band_ends_with_what_was_left_out_and_a_handle() {
     );
     assert_eq!(left_out(0, 0, &h), None);
     let r = Residue {
-        band: Band::Past7,
+        band: Band::ElsewhereWords,
         pieces: 3,
         tokens: 1_200,
     };
     assert_eq!(
         residue_line(&r, &h).unwrap(),
-        "[3 more of the owner's words up to 7 days, about 1,200 tokens, left out; open x.t]"
+        "[3 more of the owner's words elsewhere in the last two days, about 1,200 tokens, left out; open x.t]"
     );
     assert_eq!(residue_line(&Residue { pieces: 0, ..r }, &h), None);
 }

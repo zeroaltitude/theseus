@@ -99,7 +99,7 @@ pub trait Snapshot {
     fn at_hand(&self, anchor: &Anchor) -> Option<AtHand>;
 }
 
-/// The nine slots of the design, A to I.
+/// The slots of the design, A to I; E is retired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Slot {
@@ -111,8 +111,6 @@ pub enum Slot {
     Waiting,
     /// D: the work at hand and the things named in the last three exchanges here.
     InPlay,
-    /// E: his own words, thinning with age.
-    Past,
     /// F: the last 48 hours in his other private places.
     Elsewhere,
     /// G: this place's window and ladder, with its own allowance.
@@ -121,6 +119,10 @@ pub enum Slot {
     Called,
     /// I: the clock, the branch line, the task ticker, then his message.
     Now,
+    /// A slot no longer laid, as an old view record or tally names it (E, `past`, removed 2026-11-24). Only
+    /// ever read from a stored record: no row of the admission table has it.
+    #[serde(other)]
+    Retired,
 }
 
 /// Why a piece is here: the selectors that asked for it (design §5.4, "The reasons").

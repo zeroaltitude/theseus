@@ -10,24 +10,6 @@ use super::super::fold::{FoldNode, Ladder};
 use super::super::gate::Gate;
 use super::super::{AtHand, Form, Handle, Marks, PointOfView, Pos, Sizes, SourceRange};
 
-/// The judge's existing answer about a message of his (design §5.3); `Unknown` where none was given.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    Ask,
-    FollowUp,
-    /// A pointer-like line ("no, 41"): never shown bare.
-    Fragment,
-    Correction,
-    Unknown,
-}
-
-impl Kind {
-    /// A line of this kind is shown only with its exchange's `did` line (§5.3).
-    pub fn never_bare(self) -> bool {
-        matches!(self, Self::Fragment | Self::Correction)
-    }
-}
-
 /// One exchange as the selectors see it. Tokens are today's estimate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExchangeFacts {
@@ -38,11 +20,6 @@ pub struct ExchangeFacts {
     /// The person whose marked message opened it; `None` for a wake, a report, a continuation or an
     /// unmarked input.
     pub person: Option<String>,
-    pub kind: Kind,
-    /// It made a standing record.
-    pub standing: bool,
-    /// Something in it still waits on him.
-    pub waiting: bool,
     /// His words in it.
     pub his: u64,
     /// The reply's text.
@@ -58,12 +35,6 @@ pub struct ExchangeFacts {
 
 /// The ledger's exchanges.
 pub trait Exchanges {
-    /// Whether this source can classify any exchange as a correction, standing, or waiting.
-    /// False is a proof of an empty older band, not a page limit or a selection policy.
-    fn has_old_candidates(&self) -> bool {
-        true
-    }
-
     fn facts(&self, turn_id: &str) -> anyhow::Result<Option<ExchangeFacts>>;
 }
 

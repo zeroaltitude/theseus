@@ -25,7 +25,6 @@ struct Ex {
     at: u64,
     person: Option<String>,
     audience: Audience,
-    kind: Kind,
     tools: u64,
     sealed: bool,
 }
@@ -37,7 +36,6 @@ fn ex(turn: &str, place: &str, hours_ago: u64) -> Ex {
         at: NOW - hours_ago * H,
         person: Some("owner".into()),
         audience: Audience::Private,
-        kind: Kind::Ask,
         tools: 0,
         sealed: false,
     }
@@ -124,9 +122,6 @@ impl Exchanges for Store {
                     veiled: false,
                 },
                 person: e.person.clone(),
-                kind: e.kind,
-                standing: false,
-                waiting: false,
                 his: 10,
                 reply: 2_000,
                 tools: e.tools,
@@ -434,38 +429,6 @@ fn elsewhere_is_his_last_two_days_and_his_newest_in_five_places() {
 }
 
 #[test]
-fn the_past_thins_with_age_and_a_fragment_is_never_bare() {
-    let mut s = Store::default();
-    s.ex.push(ex("lately", "a", 10));
-    s.ex.push(ex("d3", "a", 72));
-    s.ex.push(ex("here-d3", "local", 72));
-    let mut frag = ex("d10", "a", 240);
-    frag.kind = Kind::Fragment;
-    s.ex.push(frag);
-    s.ex.push(ex("d20", "a", 480));
-    s.ex.push(ex("d60", "a", 1_440 - 1));
-    let mut fix = ex("d61", "a", 1_464 - 1);
-    fix.kind = Kind::Correction;
-    s.ex.push(fix);
-    let p7 = select(&s, Band::Past7, Present::OwnerAlone);
-    assert_eq!(ids(&p7), ["d3"], "this place's own past is its ladder's");
-    let did = super::make::UNSUMMARISED.len().div_ceil(3) as u64;
-    assert_eq!(p7[0].sizes.line, 10 + did);
-    let p30 = select(&s, Band::Past30, Present::OwnerAlone);
-    assert_eq!(ids(&p30), ["d10", "d20"]);
-    assert_eq!(
-        p30[0].sizes.line,
-        10 + did,
-        "a fragment carries its did line"
-    );
-    assert_eq!(p30[1].sizes.line, 10, "his words alone");
-    assert_eq!(
-        ids(&select(&s, Band::PastOlder, Present::OwnerAlone)),
-        ["d61"]
-    );
-}
-
-#[test]
 fn in_play_named_waiting_and_recall_ask_for_their_sources() {
     let mut s = Store::default();
     s.ex.push(ex("t1", "local", 1));
@@ -719,40 +682,17 @@ fn his_newest_word_in_a_place_is_found_past_many_other_exchanges() {
     assert_eq!(ids(&words), ["a-his"]);
 }
 
-#[test]
-fn his_words_here_before_a_recent_new_mark_are_his_past() {
-    let mut s = Store::default();
-    s.ex.push(ex("before", "local", 1));
-    s.ex.push(ex("long-before", "local", 3 * 24));
-    s.marks.push((
-        "local".into(),
-        Pos {
-            at_ms: NOW - H / 2,
-            id: String::new(),
-        },
-    ));
-    let p7 = select(&s, Band::Past7, Present::OwnerAlone);
-    assert_eq!(ids(&p7), ["before", "long-before"]);
-    let did = super::make::UNSUMMARISED.len().div_ceil(3) as u64;
-    assert_eq!(p7[0].sizes.line, 10 + did, "with its did line");
-    assert!(
-        select(&s, Band::Floor, Present::OwnerAlone).is_empty(),
-        "and not the window's"
-    );
-}
-
-/// One generated exchange: place, hours ago, kind, tools, whose, private.
+/// One generated exchange: place, hours ago, tools, whose, private.
 fn gen_ex(prefix: &'static str) -> impl Strategy<Value = Ex> {
     (
         0usize..5,
         0u64..2_000,
-        0u8..4,
         0u64..3_000,
         0u8..3,
         any::<bool>(),
         0u32..1_000_000,
     )
-        .prop_map(move |(place, hours, kind, tools, who, private, n)| Ex {
+        .prop_map(move |(place, hours, tools, who, private, n)| Ex {
             turn: format!("{prefix}{n}"),
             place: ["local", "a", "b", "c", "d"][place].into(),
             at: NOW - hours * H - u64::from(n % 997),
@@ -766,7 +706,6 @@ fn gen_ex(prefix: &'static str) -> impl Strategy<Value = Ex> {
             } else {
                 Audience::Shared
             },
-            kind: [Kind::Ask, Kind::FollowUp, Kind::Fragment, Kind::Correction][kind as usize],
             tools,
             sealed: false,
         })
@@ -826,46 +765,17 @@ proptest! {
     }
 }
 
+/// The owner's ruling of 2026-11-24: the slices of his words by age (slot E) are removed. No row of the table
+/// lays the past, by any band's or slot's name.
 #[test]
-fn a_source_without_old_candidates_does_not_walk_the_archive() {
-    struct NoArchive;
-    impl Timeline for NoArchive {
-        fn newest(
-            &self,
-            _: &TimelineRoot,
-            _: Option<&Cursor>,
-            _: usize,
-        ) -> anyhow::Result<Vec<ExchangeRef>> {
-            anyhow::bail!("old archive must not be scanned when the source has no eligible facts")
-        }
+fn the_view_has_no_band_by_age() {
+    for row in ADMISSION {
+        let band = serde_json::to_value(row.band).unwrap();
+        let slot = serde_json::to_value(row.slot).unwrap();
+        assert_ne!(slot, "past", "{band}");
+        assert!(
+            !band.as_str().unwrap_or_default().starts_with("past"),
+            "{band}"
+        );
     }
-    impl Snapshot for NoArchive {
-        fn now_ms(&self) -> u64 {
-            NOW
-        }
-        fn timeline(&self) -> &dyn Timeline {
-            self
-        }
-        fn at_hand(&self, _: &Anchor) -> Option<AtHand> {
-            None
-        }
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let real = crate::store::Store::open(&dir.path().join("store")).unwrap();
-    let sessions = super::super::sources_store::Sessions::default();
-    let real_sources = super::super::sources_store::StoreSources {
-        store: &real,
-        mark: None,
-        recalled: vec![],
-        sessions: &sessions,
-        own: None,
-    };
-    let fake = Store::default();
-    let mut src = sources(&fake, "");
-    src.exchanges = &real_sources;
-    let selected = past::Past::new(Band::PastOlder, src)
-        .select(&pov(Present::OwnerAlone), &NoArchive)
-        .unwrap();
-    assert!(selected.is_empty());
-    assert_eq!(sessions.reads.get(), 0);
 }

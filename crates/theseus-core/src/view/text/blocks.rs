@@ -182,7 +182,6 @@ pub fn band(b: Band) -> &'static str {
         Band::WindowWords => "this conversation's words",
         Band::ElsewhereWords => "the owner's words elsewhere in the last two days",
         Band::Waiting => "what is waiting",
-        Band::Past7 => "the owner's words up to 7 days",
         Band::WhoAndWhere => "who and where",
         Band::Ladder => "this conversation's earlier part",
         Band::WindowTools => "this conversation's tool results",
@@ -191,8 +190,7 @@ pub fn band(b: Band) -> &'static str {
         Band::Named => "the things this message named",
         Band::InPlay => "what is in play",
         Band::ElsewhereReplies => "Theseus's replies elsewhere",
-        Band::Past30 => "the owner's words from 7 to 30 days",
-        Band::PastOlder => "the owner's words older than 30 days",
         Band::Recall => "what search recalled",
+        Band::Retired => "a part of the view no longer laid",
     }
 }

@@ -14,7 +14,6 @@ use super::super::{
 use super::beside::Beside;
 use super::elsewhere::Elsewhere;
 use super::here::Here;
-use super::past::Past;
 use super::sources::Sources;
 use super::{Band, Selector, Snapshot, ADMISSION};
 
@@ -86,7 +85,8 @@ impl Selector for Fixed {
     }
 }
 
-/// One selector per row of [`ADMISSION`], in its order. `frame` and `now` are slots A and I's parts.
+/// One selector per row of [`ADMISSION`], in its order. `frame` and `now` are slots A and I's parts. A
+/// retired band has no row, so it has no selector.
 pub fn table<'a>(
     src: Sources<'a>,
     frame: Vec<Part>,
@@ -95,8 +95,8 @@ pub fn table<'a>(
     let (mut frame, mut now) = (Some(frame), Some(now));
     ADMISSION
         .iter()
-        .map(|row| -> Box<dyn Selector + 'a> {
-            match row.band {
+        .filter_map(|row| -> Option<Box<dyn Selector + 'a>> {
+            Some(match row.band {
                 Band::Frame => Box::new(Fixed::new(Band::Frame, frame.take().unwrap_or_default())),
                 Band::Now => Box::new(Fixed::new(Band::Now, now.take().unwrap_or_default())),
                 b @ (Band::Floor | Band::WindowWords | Band::WindowTools | Band::Ladder) => {
@@ -105,7 +105,6 @@ pub fn table<'a>(
                 b @ (Band::ElsewhereWords | Band::ElsewhereReplies) => {
                     Box::new(Elsewhere::new(b, src))
                 }
-                b @ (Band::Past7 | Band::Past30 | Band::PastOlder) => Box::new(Past::new(b, src)),
                 b @ (Band::Waiting
                 | Band::WhoAndWhere
                 | Band::Reached
@@ -113,7 +112,8 @@ pub fn table<'a>(
                 | Band::Named
                 | Band::InPlay
                 | Band::Recall) => Box::new(Beside::new(b, src)),
-            }
+                Band::Retired => return None,
+            })
         })
         .collect()
 }
@@ -159,11 +159,8 @@ pub fn assemble_counted(
     let mut faults = 0u32;
     for s in selectors {
         // A self-loop session's turn lays its own place only (a scope of the self loop, `Gate::own_place_only`):
-        // nothing waiting (C), no past (E), nothing elsewhere (F).
-        let scoped_out = matches!(
-            s.band().row().slot,
-            Slot::Waiting | Slot::Past | Slot::Elsewhere
-        );
+        // nothing waiting (C), nothing elsewhere (F).
+        let scoped_out = matches!(s.band().row().slot, Slot::Waiting | Slot::Elsewhere);
         if gate.own_place_only() && scoped_out {
             continue;
         }

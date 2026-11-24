@@ -100,8 +100,8 @@ pub(crate) fn view(now_ms: u64) -> View {
     ];
     let drop = |place: &str, id: &str| Dropped {
         range: range(exchanges(place), id),
-        slot: Slot::Past,
-        band: Band::Past30,
+        slot: Slot::Called,
+        band: Band::Recall,
         reasons: BTreeSet::from([Reason::Past]),
         handle: Handle(format!("x:{id}")),
         tokens: 70,
@@ -119,7 +119,7 @@ pub(crate) fn view(now_ms: u64) -> View {
         shown,
         dropped: vec![drop("local", "old"), drop("discord:dm:9", "far-old")],
         residue: vec![Residue {
-            band: Band::PastOlder,
+            band: Band::WindowTools,
             pieces: 3,
             tokens: 900,
         }],
@@ -427,4 +427,112 @@ fn two_chains_of_one_frozen_view_read_newest_as_the_later() {
         .map(|v| v.compilation)
         .collect();
     assert_eq!(order, [first, second], "listed in the order kept");
+}
+
+/// A turn's view record and its counts as `keep` wrote them before slot E (his words by age) was removed on
+/// 2026-11-24: its bytes are this file's rig (`view`, with one more piece shown, of band `past7`) as the
+/// writer of the commit before kept them, read back from the store. It names the bands `past7`, `past30` and
+/// `past_older`, the slot `past` and the reason `past`.
+const OLD_VIEW: &str = concat!(
+    r#"{"compilation":"c-old","assembly":"view","pov":{"anchor":{"place":"local"},"person":"owner","pre"#,
+    r#"sent":"owner_alone","at_hand":null,"now_ms":1000},"shown":[{"piece":{"range":{"space":{"code":{""#,
+    r#"part":"frame"}},"first":{"at_ms":1,"id":"frame"},"last":{"at_ms":1,"id":"frame"}},"band":"frame""#,
+    r#","slot":"frame","reasons":["fixed"],"form":"whole","marks":{"place":null,"audience":"private","a"#,
+    r#"uthor":{"his":{"may_authorise":true}},"outside":false,"sealed":false,"veiled":false},"sizes":{"w"#,
+    r#"hole":100,"spoken":40,"line":10},"handle":"x:frame","unit":null},"form":"whole","tokens":100},{""#,
+    r#"piece":{"range":{"space":{"exchanges":{"place":"local"}},"first":{"at_ms":1,"id":"t2"},"last":{""#,
+    r#"at_ms":1,"id":"t2"}},"band":"floor","slot":"here","reasons":["floor"],"form":"whole","marks":{"p"#,
+    r#"lace":"local","audience":"private","author":{"his":{"may_authorise":true}},"outside":false,"seal"#,
+    r#"ed":false,"veiled":false},"sizes":{"whole":100,"spoken":40,"line":10},"handle":"x:t2","unit":nul"#,
+    r#"l},"form":"whole","tokens":100},{"piece":{"range":{"space":{"exchanges":{"place":"local"}},"firs"#,
+    r#"t":{"at_ms":1,"id":"t1"},"last":{"at_ms":1,"id":"t1"}},"band":"window_words","slot":"here","reas"#,
+    r#"ons":["window","named"],"form":"whole","marks":{"place":"local","audience":"private","author":{""#,
+    r#"his":{"may_authorise":true}},"outside":false,"sealed":false,"veiled":false},"sizes":{"whole":100"#,
+    r#","spoken":40,"line":10},"handle":"x:t1","unit":null},"form":"whole","tokens":100},{"piece":{"ran"#,
+    r#"ge":{"space":{"exchanges":{"place":"discord:dm:9"}},"first":{"at_ms":1,"id":"far"},"last":{"at_m"#,
+    r#"s":1,"id":"far"}},"band":"elsewhere_words","slot":"elsewhere","reasons":["elsewhere"],"form":"wh"#,
+    r#"ole","marks":{"place":"discord:dm:9","audience":"private","author":{"his":{"may_authorise":true}"#,
+    r#"},"outside":false,"sealed":false,"veiled":false},"sizes":{"whole":100,"spoken":40,"line":10},"ha"#,
+    r#"ndle":"x:far","unit":null},"form":"whole","tokens":100},{"piece":{"range":{"space":{"exchanges":"#,
+    r#"{"place":"discord:dm:9"}},"first":{"at_ms":1,"id":"his-d3"},"last":{"at_ms":1,"id":"his-d3"}},"b"#,
+    r#"and":"past7","slot":"past","reasons":["past"],"form":"whole","marks":{"place":"discord:dm:9","au"#,
+    r#"dience":"private","author":{"his":{"may_authorise":true}},"outside":false,"sealed":false,"veiled"#,
+    r#"":false},"sizes":{"whole":100,"spoken":40,"line":10},"handle":"x:his-d3","unit":null},"form":"wh"#,
+    r#"ole","tokens":100}],"dropped":[{"range":{"space":{"exchanges":{"place":"local"}},"first":{"at_ms"#,
+    r#"":1,"id":"old"},"last":{"at_ms":1,"id":"old"}},"slot":"past","band":"past30","reasons":["past"],"#,
+    r#""handle":"x:old","tokens":70,"why":"over_budget"},{"range":{"space":{"exchanges":{"place":"disco"#,
+    r#"rd:dm:9"}},"first":{"at_ms":1,"id":"far-old"},"last":{"at_ms":1,"id":"far-old"}},"slot":"past",""#,
+    r#"band":"past30","reasons":["past"],"handle":"x:far-old","tokens":70,"why":"over_budget"}],"residu"#,
+    r#"e":[{"band":"past_older","pieces":3,"tokens":900}],"tokens":400}"#,
+);
+/// Its counts, as kept beside it (`view_tally.c-old`).
+const OLD_TALLY: &str = concat!(
+    r#"{"compilation":"c-old","present":"owner_alone","slots":{"frame":{"pieces":1,"tokens":100},"past""#,
+    r#":{"pieces":1,"tokens":100},"elsewhere":{"pieces":1,"tokens":100},"here":{"pieces":2,"tokens":200"#,
+    r#"}},"reasons":{"floor":{"pieces":1,"tokens":100},"window":{"pieces":1,"tokens":100},"elsewhere":{"#,
+    r#""pieces":1,"tokens":100},"past":{"pieces":1,"tokens":100},"named":{"pieces":1,"tokens":100},"fix"#,
+    r#"ed":{"pieces":1,"tokens":100}},"dropped":{"over_budget":{"pieces":2,"tokens":140}},"dropped_reas"#,
+    r#"ons":{"past":{"pieces":2,"tokens":140}},"tokens":400}"#,
+);
+
+/// A record that names a retired band still decodes, as it was written: `view show` lists each piece of a band
+/// or slot no longer laid as `retired`, everything else as before, and its counts read too. Nothing is
+/// rewritten.
+#[test]
+fn an_old_view_record_naming_a_retired_band_still_reads() {
+    use theseus_store::{kinds, NewRecord};
+    let (_d, store) = store();
+    store
+        .append(&[
+            NewRecord::bytes(kinds::META, Some("view.c-old"), OLD_VIEW.as_bytes().to_vec()),
+            NewRecord::bytes(
+                kinds::META,
+                Some("view_tally.c-old"),
+                OLD_TALLY.as_bytes().to_vec(),
+            ),
+        ])
+        .unwrap();
+    let rec = read(&store, "c-old").unwrap().expect("the old record decodes");
+    assert_eq!(rec.shown.len(), 5);
+    let v = owner(&All).show(&rec);
+    let slots: Vec<_> = v.slots.iter().map(|s| s.slot.as_str()).collect();
+    assert_eq!(
+        slots,
+        ["frame", "elsewhere", "here", "retired"],
+        "the retired slot's piece is listed, after the slots laid"
+    );
+    let retired = &v.slots[3].pieces[0];
+    assert_eq!(
+        (retired.first.as_str(), retired.band.as_str()),
+        ("his-d3", "retired")
+    );
+    assert_eq!(retired.reasons, ["past"], "a reason still laid keeps its name");
+    assert!(v
+        .dropped
+        .iter()
+        .all(|d| (d.slot.as_str(), d.band.as_str()) == ("retired", "retired")));
+    assert_eq!(v.dropped.len(), 2);
+    assert_eq!(
+        v.residue
+            .iter()
+            .map(|r| (r.band.as_str(), r.pieces))
+            .collect::<Vec<_>>(),
+        [("retired", 3)]
+    );
+    let said = lines(&v);
+    assert!(said.contains("x:t1 exchanges t1 [window_words] whole 100 tokens, here: window, named"));
+    assert!(said.contains("[retired]"), "{said}");
+    let t = tally(&store, "c-old").unwrap().expect("its counts decode");
+    let by_name = |m: &std::collections::BTreeMap<Slot, Count>| -> Vec<(String, u64)> {
+        m.iter().map(|(k, c)| (show::name(k), c.pieces)).collect()
+    };
+    assert!(by_name(&t.slots).contains(&("retired".to_string(), 1)), "{:?}", t.slots);
+    assert_eq!(t.tokens, 400);
+    assert_eq!(
+        t.dropped_reasons
+            .iter()
+            .map(|(k, c)| (show::name(k), c.pieces))
+            .collect::<Vec<_>>(),
+        [("past".to_string(), 2)]
+    );
 }

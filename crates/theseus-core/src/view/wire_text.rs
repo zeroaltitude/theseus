@@ -48,9 +48,10 @@ enum Part {
 
 fn part(slot: Slot) -> Part {
     match slot {
-        Slot::WhoAndWhere | Slot::Past => Part::Fixed,
+        Slot::WhoAndWhere => Part::Fixed,
         Slot::Waiting | Slot::InPlay | Slot::Elsewhere | Slot::Called => Part::Beside,
-        Slot::Frame | Slot::Here | Slot::Now => Part::Elsewhere,
+        // A retired slot is only read from an old record; no view lays it.
+        Slot::Frame | Slot::Here | Slot::Now | Slot::Retired => Part::Elsewhere,
     }
 }
 

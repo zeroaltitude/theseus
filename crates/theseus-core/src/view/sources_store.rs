@@ -8,8 +8,7 @@ use std::collections::BTreeSet;
 
 use super::fold::FoldNode;
 use super::select::sources::{
-    ExchangeFacts, Exchanges, Folds, Kind, Names, People, Places, Recall, Ref, TaskCards, Things,
-    Waiting,
+    ExchangeFacts, Exchanges, Folds, Names, People, Places, Recall, Ref, TaskCards, Things, Waiting,
 };
 use super::text::tokens;
 use super::{AtHand, Audience, Author, Handle, Marks, PointOfView, Pos, Sizes};
@@ -143,17 +142,7 @@ fn json_tokens(v: &serde_json::Value) -> u64 {
     tokens(&v.to_string())
 }
 
-// The facts emitted by this source, shared with its eligibility proof. When classifications
-// are wired to stored evidence this proof must become an indexed candidate reader.
-const EXCHANGE_KIND: Kind = Kind::Unknown;
-const EXCHANGE_STANDING: bool = false;
-const EXCHANGE_WAITING: bool = false;
-
 impl Exchanges for StoreSources<'_> {
-    fn has_old_candidates(&self) -> bool {
-        EXCHANGE_KIND == Kind::Correction || EXCHANGE_STANDING || EXCHANGE_WAITING
-    }
-
     fn facts(&self, turn_id: &str) -> anyhow::Result<Option<ExchangeFacts>> {
         if self.own == Some(turn_id) {
             return Ok(None);
@@ -233,9 +222,6 @@ impl StoreSources<'_> {
             },
             place: ex.place,
             person: ex.person,
-            kind: EXCHANGE_KIND,
-            standing: EXCHANGE_STANDING,
-            waiting: EXCHANGE_WAITING,
             his,
             reply,
             tools,
