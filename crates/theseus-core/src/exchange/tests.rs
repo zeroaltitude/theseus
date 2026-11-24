@@ -747,6 +747,38 @@ async fn a_rebuild_with_the_index_down_moves_a_reply_only_touch_and_loses_none()
     assert_eq!(rebuilt(c, None, false).await.repaired, 0);
 }
 
+/// A picture label belongs at its turn's time, not its exchange's start: the
+/// rebuild leaves one there and moves one elsewhere there, so a later write
+/// of the label finds the one key the turn holds.
+#[tokio::test]
+async fn a_rebuild_keeps_a_picture_label_at_its_turns_time() {
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let res = turn(c, owner_cli(), None, "a message with a picture").await;
+    let mut ex = exchange(&c.store, &res.turn_id).unwrap().unwrap();
+    let minted = crate::id_ms(&res.turn_id).expect("a turn's id holds its time");
+    ex.start_ms = minted + 5_000;
+    let (kept, moved) = (
+        Root::Thing("picture:document"),
+        Root::Thing("picture:photo"),
+    );
+    let (turn_id, sid) = (ex.turn_id.as_str(), ex.session_id.as_str());
+    c.store
+        .append(&[
+            exchange_record(&ex).unwrap(),
+            touch(kept, turn_id, sid, minted).unwrap(),
+            touch(moved, turn_id, sid, ex.start_ms).unwrap(),
+        ])
+        .unwrap();
+    rebuilt(c, None, false).await;
+    for root in [kept, moved] {
+        let got: Vec<(String, u64)> = (newest(&c.store, root, 8).unwrap().into_iter())
+            .map(|t| (t.exchange, t.at_ms))
+            .collect();
+        assert_eq!(got, [(res.turn_id.clone(), minted)], "{}", root.key());
+    }
+}
+
 /// A thing named past 16 KiB of a reply is named again by the rebuild: it
 /// reads as much of a text as a live turn does.
 #[tokio::test]

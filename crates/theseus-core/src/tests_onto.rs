@@ -858,7 +858,7 @@ async fn the_term_is_off_at_zero_and_the_persona_state_names_the_categories() {
 }
 
 /// A picture file as a message carries it.
-fn picture_file(name: &str, bytes: &[u8]) -> theseus_protocol::Attachment {
+pub(crate) fn picture_file(name: &str, bytes: &[u8]) -> theseus_protocol::Attachment {
     theseus_protocol::Attachment {
         name: name.into(),
         media_type: "image/png".into(),
