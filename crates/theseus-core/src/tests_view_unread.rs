@@ -234,7 +234,9 @@ async fn a_bare_page_past_an_unreadable_view_holds_an_exchange_of_the_views_own_
     let r = rig();
     let c = &r.core;
     let sid = session(c, None);
+    // Two turns: the second's view lays the first in its window.
     turn(c, &sid, "note: the tide").await;
+    turn(c, &sid, "note: the moon").await;
     let tide = turn_of(c, &sid, "the tide");
     let here = (crate::exchange::exchange(&c.store, &tide).unwrap())
         .expect("its exchange")
