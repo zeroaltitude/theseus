@@ -119,6 +119,36 @@ async fn command(core: &Arc<Core>, dry_run: bool) -> Result<Value, theseus_proto
     .await
 }
 
+/// Roll the ontology's pack back to shadow, as the ladder's rollback does:
+/// its judge no longer acts.
+fn rolled_back(core: &Core) {
+    let row = theseus_protocol::packs::PackModeRow {
+        pack: crate::judge::onto::ONTO_PACK.into(),
+        mode: crate::judge::ladder::Rung::Shadow.as_str().into(),
+        from: crate::judge::ladder::Rung::Live.as_str().into(),
+        who: "owner".into(),
+        by: "owner".into(),
+        via: "rollback".into(),
+        why: "a test's rollback".into(),
+        ..Default::default()
+    };
+    core.runner.judge.ladder().write(row).unwrap();
+}
+
+/// Take back the touch of exchange `turn`, as a stop between an answer's
+/// row and its touches would leave it.
+fn untouch(core: &Core, turn: &str) {
+    let key = (core.store.inner())
+        .latest_with_prefix(theseus_store::kinds::META, exchange::TOUCH_PREFIX)
+        .unwrap()
+        .into_iter()
+        .filter_map(|r| r.key)
+        .find(|k| k.ends_with(turn))
+        .unwrap();
+    let gone = theseus_store::NewRecord::delete_meta(&key);
+    core.store.append(&[gone]).unwrap();
+}
+
 fn timeline(core: &Core, category: &str) -> Vec<exchange::Touch> {
     crate::names::topics::timeline(&core.store, &id(category), 10).unwrap()
 }
@@ -669,5 +699,90 @@ async fn a_dry_run_that_cannot_price_says_so_and_fails() {
         assert!(e.message.contains(why), "{case}: {e:?}");
         assert!(r.jev.seen().is_empty(), "{case}: no call");
         assert!(of_kind(&r.core, LedgerKind::JudgeCall).is_empty(), "{case}");
+    }
+}
+
+/// KEY: a category is read as it stands when the touch is written: one
+/// retired while the call was out gets no touch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_category_retired_while_the_call_is_out_gets_no_touch() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    jev.set_mode(FakeMode::Held);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_old", SAID, 5_000);
+    let core = r.core.clone();
+    let running = tokio::spawn(async move { core.topics_history(&params(false, None)).await });
+    seen(&r.jev, 1).await;
+    let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    let retired = o.category(&id("topic:ledger")).unwrap().retired(9_000);
+    operator_writes(&r.core, vec![Record::Category(retired)]);
+    r.jev.set_mode(FakeMode::Up);
+    r.jev.release();
+    let out = running.await.unwrap().unwrap();
+    assert_eq!(
+        (out.asked, out.answered, out.touches),
+        (1, 1, 0),
+        "{out:?}"
+    );
+    assert!(timeline(&r.core, "topic:ledger").is_empty());
+}
+
+/// KEY: whether the ontology's judge acts is asked again before each call
+/// and before an answer's touches: a pack rolled back while a call is out
+/// gets that answer no touch, and the next exchange is not asked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pack_rolled_back_mid_run_asks_and_touches_no_more() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    jev.set_mode(FakeMode::Held);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_a", SAID, 5_000);
+    said(&r.core, &sid, "turn_b", "and the Lantern Ledger too", 6_000);
+    let core = r.core.clone();
+    let running = tokio::spawn(async move { core.topics_history(&params(false, None)).await });
+    seen(&r.jev, 1).await;
+    rolled_back(&r.core);
+    r.jev.set_mode(FakeMode::Up);
+    r.jev.release();
+    let out = running.await.unwrap().unwrap();
+    assert_eq!(r.jev.seen().len(), 1, "the second was not asked");
+    assert_eq!(
+        (out.to_ask, out.asked, out.not_acting, out.touches),
+        (2, 1, 1, 0),
+        "{out:?}"
+    );
+    assert!(timeline(&r.core, "topic:ledger").is_empty());
+}
+
+/// KEY: a recorded answer's missing touches are written again only where
+/// the judge acts now, and not once the daemon is stopping.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recorded_answer_is_not_touched_after_a_rollback_or_a_stop() {
+    for case in ["rolled back", "stopping"] {
+        let jev = FakeJev::start().unwrap();
+        jev.script_onto("topic", "c1", 0.9);
+        let r = rig(jev);
+        ledger_topic(&r.core);
+        let sid = bound(&r.core);
+        said(&r.core, &sid, "turn_old", SAID, 5_000);
+        run(&r.core, params(false, None)).await;
+        untouch(&r.core, "turn_old");
+        match case {
+            "rolled back" => rolled_back(&r.core),
+            _ => r.core.outbox.stop_sending(),
+        }
+        let again = r.core.topics_history(&params(false, None)).await.unwrap();
+        assert_eq!(r.jev.seen().len(), 1, "{case}: no call");
+        assert_eq!((again.asked_before, again.touches), (1, 0), "{case}: {again:?}");
+        assert!(timeline(&r.core, "topic:ledger").is_empty(), "{case}");
+        if case == "stopping" {
+            let why = again.stopped.as_deref().unwrap_or_default();
+            assert!(why.starts_with("the daemon is stopping"), "{why}");
+        }
     }
 }

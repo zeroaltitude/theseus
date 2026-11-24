@@ -15,6 +15,10 @@
 //!   `still_*` answer acted on. The job writes the touches itself, with the
 //!   live path's own writer (`names::topics::touches`) and no plan, so a
 //!   `new` answer names nothing; each touch takes its exchange's own time.
+//!   Its categories are read as the ontology stands when the touch is
+//!   written, under the ontology writers' lock (a category retired while the
+//!   call was out gets none), and whether `onto` acts on the session is
+//!   asked again before each call and before any answer's touches.
 //! - **The state** is the live point's (`inbound::input` and `onto_input`)
 //!   over the opening message alone: no message before it, no reply, no
 //!   attachment. Its text goes to Jev through the judge's one client and its
@@ -57,7 +61,7 @@ use theseus_judge::{
     Ask, DecisionPoint, Input, JevError, Judge, Judgment, JudgmentSink, Mode, Outcome, Urgency,
 };
 use theseus_kernel::{micros_to_usd, usd_to_micros};
-use theseus_ontology::Ontology;
+use theseus_ontology::{Ontology, Origin as OntoOrigin};
 use theseus_protocol::exchange::{ExchangeTopicsParams, ExchangeTopicsResult};
 use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, Store as _};
@@ -367,9 +371,16 @@ impl Core {
             r.worst_usd = micros_to_usd(self.topics_worst(&todo)?);
             return Ok(r);
         }
-        let o = self.onto_now()?;
-        for j in &again {
-            self.topics_write(&o, j, &mut r).await?;
+        for (i, j) in again.iter().enumerate() {
+            if self.outbox.stopping() {
+                let left = (again.len() - i + todo.len()) as u64;
+                (r.left, r.stopped) = (left, Some(stopping(left)));
+                return Ok(r);
+            }
+            let session = j.context["session"].as_str().unwrap_or_default();
+            if self.runner.judge.onto_acts(self, session) {
+                self.topics_write(j, &mut r).await?;
+            }
         }
         let cap = usd_to_micros(cap_usd);
         let mut spent: Micros = 0;
@@ -379,9 +390,7 @@ impl Core {
             }
             let left = (todo.len() - i) as u64;
             if self.outbox.stopping() {
-                (r.left, r.stopped) = (left, Some(format!(
-                    "the daemon is stopping: {left} exchanges left; run the same command again to go on"
-                )));
+                (r.left, r.stopped) = (left, Some(stopping(left)));
                 break;
             }
             if let Some(stop) = self.topics_one(old, (cap, &mut spent), &mut r).await? {
@@ -472,6 +481,12 @@ impl Core {
         (cap, spent): (Micros, &mut Micros),
         r: &mut ExchangeTopicsResult,
     ) -> anyhow::Result<Option<Stop>> {
+        // The pack may have been rolled back, or the setting turned off,
+        // since the plan: asked again before the money is spent.
+        if !self.runner.judge.onto_acts(self, &old.session) {
+            r.not_acting += 1;
+            return Ok(None);
+        }
         let o = self.onto_now()?;
         let Some(ask) = self.topics_ask(&o, old)? else {
             return Ok(None);
@@ -484,7 +499,9 @@ impl Core {
         (r.asked, *spent) = (r.asked + 1, *spent + cost);
         if j.actionable() {
             r.answered += 1;
-            self.topics_write(&o, &j, r).await?;
+            if self.runner.judge.onto_acts(self, &old.session) {
+                self.topics_write(&j, r).await?;
+            }
         }
         Ok((!self.history_written(&j.id).await).then_some(Stop::Unwritten))
     }
@@ -510,21 +527,37 @@ impl Core {
     }
 
     /// The touches `j`'s answers come to at the act band, with no plan (so a
-    /// `new` names nothing), in one frame between turns.
-    async fn topics_write(
-        &self,
-        o: &Ontology,
-        j: &Judgment,
-        r: &mut ExchangeTopicsResult,
-    ) -> anyhow::Result<()> {
+    /// `new` names nothing), in one frame between turns. They are made from
+    /// the ontology as it stands under its writers' lock, and written before
+    /// it is let go, so a category retired while the call was out, or before
+    /// a recorded answer is touched, gets no touch.
+    async fn topics_write(&self, j: &Judgment, r: &mut ExchangeTopicsResult) -> anyhow::Result<()> {
         let act = self.cfg.ontology.act;
-        let records = crate::names::topics::touches(&self.store, o, (&[j], act, &[]));
-        if !records.is_empty() {
-            self.people_write(&records).await?;
-            (r.filed, r.touches) = (r.filed + 1, r.touches + records.len() as u64);
+        let w = self.runner.pass.writing().await;
+        let written = theseus_store::blocking(|| -> anyhow::Result<u64> {
+            let board = &self.runner.ontology;
+            let staged = board.stage(&self.store, OntoOrigin::Jev, |o| {
+                let touches = crate::names::topics::touches(&self.store, o, (&[j], act, &[]));
+                Ok((Vec::new(), touches))
+            })?;
+            let Some(staged) = staged else {
+                return Ok(0);
+            };
+            self.store.append(staged.frame())?;
+            Ok(staged.frame().len() as u64)
+        });
+        drop(w);
+        let n = written?;
+        if n > 0 {
+            (r.filed, r.touches) = (r.filed + 1, r.touches + n);
         }
         Ok(())
     }
+}
+
+/// The words of a run the daemon's stop ended.
+fn stopping(left: u64) -> String {
+    format!("the daemon is stopping: {left} exchanges left; run the same command again to go on")
 }
 
 /// The words of a dry run that could not price an exchange.
