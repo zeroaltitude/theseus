@@ -117,6 +117,7 @@ mod tests {
             time_ms: 0,
             entities: s(entities),
             matched: s(matched),
+            copy: false,
         }
     }
 

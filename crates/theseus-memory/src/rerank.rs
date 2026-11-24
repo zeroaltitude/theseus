@@ -213,6 +213,7 @@ mod tests {
             place,
             entities: Vec::new(),
             matched: Vec::new(),
+            copy: false,
         }
     }
 

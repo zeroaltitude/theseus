@@ -355,3 +355,46 @@ async fn a_harness_line_it_shows_links_its_node() {
     );
     assert!(reaches(&r, &note.id, &copy), "the harness line is a copy");
 }
+
+/// **A conversation that said a message and read it back by its look is told of its retraction once** (issue
+/// 44). The look reads only this conversation, so the look's result is linked from the owner's message in
+/// the conversation that said it; the look names no handle, so its own row is seen, and the conversation's
+/// direct row is the one that acts: exactly one correction note, over two turns.
+#[tokio::test]
+async fn a_conversation_that_said_it_and_looked_back_is_told_once() {
+    let r = rig();
+    let sid = r.session();
+    r.turn_with("look_work", &sid, json!({"what": ["history"]}))
+        .await;
+    let nodes = r.core.store.session_nodes(&sid).unwrap();
+    let said = (nodes.iter())
+        .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))
+        .map(|(_, n)| n.id.clone())
+        .expect("the owner's message");
+    let (copy, shown) = look_result(&r, &sid);
+    assert!(shown.contains("- the owner: change a setting"), "{shown}");
+    assert!(reaches(&r, &said, &copy), "the look's result is linked");
+    let out = r
+        .core
+        .fact_retract(
+            &theseus_protocol::retract::FactRetractParams {
+                node: said,
+                why: "the setting was another".into(),
+                session_id: None,
+            },
+            "cli",
+        )
+        .unwrap();
+    let acting = (out.exposures.iter())
+        .filter(|e| {
+            e.session_id == sid && e.kind == theseus_protocol::retract::exposure_kind::SESSION
+        })
+        .count();
+    assert_eq!(acting, 1, "{out:#?}");
+    r.run_turn(&sid).await;
+    r.run_turn(&sid).await;
+    let notes = (r.core.store.session_nodes(&sid).unwrap().into_iter())
+        .filter(|(_, n)| n.author.as_deref() == Some(crate::retract::NOTE_AUTHOR))
+        .count();
+    assert_eq!(notes, 1);
+}
