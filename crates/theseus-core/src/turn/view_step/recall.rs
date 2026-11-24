@@ -135,8 +135,7 @@ impl TurnRunner {
         let store_ladder = fork.ladder(store);
         let resolved = super::ResolvedLadder::new(&store_ladder, store);
         let ladder = super::OnceLadder::new(&resolved);
-        let cuts = self.tools.scrubber.cuts();
-        let moving = self.moving(store, (&permit, &pov), &[], (&read, &cuts))?;
+        let moving = self.moving(store, (&permit, &pov), &[], &read)?;
         let cards = super::StoreCards {
             store,
             kernel: &self.kernel,

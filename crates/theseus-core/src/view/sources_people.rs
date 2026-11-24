@@ -44,8 +44,8 @@ pub struct StorePeople<'a> {
     /// The assembly's reads: each text read, by its space (the renderer lays it, `wire_text`), and each held
     /// person's name by the ledger's name for them.
     pub sessions: &'a Sessions,
-    /// The turn's snapshot of the known values: where a stored name, description or guidance may be cut.
-    pub cuts: &'a Cuts,
+    /// The assembly's snapshot of the known values: where a stored name, description or guidance may be cut.
+    pub cuts: Cuts,
 }
 
 impl StorePeople<'_> {
@@ -118,7 +118,7 @@ impl People for StorePeople<'_> {
         if !all.iter().any(|h| h == person) {
             all.push(person.to_string());
         }
-        let name = framing_name(&c.name, self.cuts);
+        let name = framing_name(&c.name, &self.cuts);
         (self.sessions.names.borrow_mut()).insert(person.to_string(), name);
         Ok(Some(Held {
             id: c.id.to_string(),
@@ -143,7 +143,7 @@ impl People for StorePeople<'_> {
                 guidance,
             },
             most,
-            self.cuts,
+            &self.cuts,
         );
         let space = Space::Facts {
             thing: c.id.to_string(),
@@ -158,7 +158,7 @@ impl People for StorePeople<'_> {
         let space = Space::Facts {
             thing: format!("{}#speaking", c.id),
         };
-        let text = format!("{SPEAKING}: {}", one_line(&c.name, NAME_BYTES, self.cuts));
+        let text = format!("{SPEAKING}: {}", one_line(&c.name, NAME_BYTES, &self.cuts));
         Ok(vec![self.filed(c, space, text)])
     }
 
