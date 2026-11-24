@@ -16,7 +16,12 @@ use theseus_protocol::exchange::{
 };
 use theseus_protocol::method;
 
-/// `theseus ledger exchanges`.
+/// What a daemon older than the answers gets instead of a report: its groups can carry a task's
+/// id, and it never read `--since`.
+const UPDATE: &str = "this daemon does not report the answers; update it";
+
+/// `theseus ledger exchanges`: a daemon that does not report the answers is told to update, in
+/// either mode, and none of its groups are printed.
 pub async fn report(
     conn: &mut Conn,
     json: bool,
@@ -29,6 +34,9 @@ pub async fn report(
         .transpose()?;
     let p = serde_json::to_value(ExchangeReportParams { limit: n, since_ms })?;
     let v = conn.request(method::EXCHANGE_REPORT, p).await?;
+    if v.get("answers").is_none_or(serde_json::Value::is_null) {
+        anyhow::bail!(UPDATE);
+    }
     match json {
         true => println!("{}", serde_json::to_string(&v)?),
         false => println!("{}", report_lines(&serde_json::from_value(v)?)),
