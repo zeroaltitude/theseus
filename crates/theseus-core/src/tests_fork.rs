@@ -1989,12 +1989,12 @@ async fn a_fork_is_refused_when_an_item_it_holds_has_removals_of_neither_shape()
     let (sid, nodes) = three_turns(&r).await;
     let removal =
         json!({"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2, "note": UNREAD});
-    let mut null = removal.clone();
-    null["session"] = Value::Null;
+    let mut null_session = removal.clone();
+    null_session["session"] = Value::Null;
     let mut named = removal.clone();
     named["session"] = json!(sid);
     let key = crate::item_labels::key(&nodes[1].0);
-    for removed in [json!([null]), json!([named, removal])] {
+    for removed in [json!([null_session]), json!([named, removal])] {
         let item = json!({"node": nodes[1].0, "kind": "tool_result", "source": "fixture", "entered_ms": 1,
                           "raised": [label_on(&nodes[1].0, Flag::Confidential)], "removed": removed});
         r.core.store.put_meta(&key, &item).unwrap();

@@ -1204,11 +1204,11 @@ fn item_removing(node: &str, removed: Value) -> Value {
 fn removals_not_older(sid: &str) -> [Value; 2] {
     let removal =
         json!({"flag": "secret", "by": "the owner", "via": "cli", "at_ms": 2, "note": PAYLOAD});
-    let mut null = removal.clone();
-    null["session"] = Value::Null;
+    let mut null_session = removal.clone();
+    null_session["session"] = Value::Null;
     let mut named = removal.clone();
     named["session"] = json!(sid);
-    [json!([null]), json!([named, removal])]
+    [json!([null_session]), json!([named, removal])]
 }
 
 /// An item's record whose removals are neither today's nor the older shape (a removal's `session` is null, or
