@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-/// `exchange.report`: the newest `limit` rows (default all).
+/// `exchange.report`: the newest `limit` rows (default all), none older than `since_ms`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
@@ -16,12 +16,46 @@ pub struct ExchangeReportParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub limit: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub since_ms: Option<u64>,
+}
+
+/// The rows' answers to the measuring questions (issue 44, step 1), counts only. The previous exchange and
+/// the things named are counted over the turns his own message opened; the context over the turns whose
+/// first call was measured.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ExchangeAnswers {
+    /// Rows whose exchange a message of the owner's opened, by the exchange's own person.
+    pub his_turns: u64,
+    /// Rows whose exchange does not read (erased, or never written).
+    pub unreadable: u64,
+    /// The place's previous exchange in the context sent: `shown`, `missed` (held by a seal or a gate, or
+    /// a real miss), `after_new` (before the place's `/new`, which the view leaves out), `first_here`,
+    /// `not_measured` (the first call was never measured).
+    pub previous: BTreeMap<String, u64>,
+    /// Of the `missed`, where the previous exchange ran: `same` session, `other`.
+    pub missed_by_session: BTreeMap<String, u64>,
+    /// Turns whose message named a thing the index recognises: `some`, `none`, `unknown` (the index was
+    /// late).
+    pub named: BTreeMap<String, u64>,
+    /// For each kind of thing, the turns that named it at least once.
+    pub named_kinds: BTreeMap<String, u64>,
+    /// Rows whose first call was measured, and each part of what it sent, summed (tokens, est.).
+    pub context_turns: u64,
+    pub context: BTreeMap<String, u64>,
+    /// The provider's cache, read and written, summed over the same rows (tokens).
+    pub cache_read: u64,
+    pub cache_write: u64,
 }
 
 /// The rows, summed. `counts` is a group's values and how many rows had
 /// each (`prev`: `transcript`, `place_tail`, `missed`, `none`; `peer`;
 /// `kind`; …); `tokens` is each part of the sent context, added up over the
-/// rows, est. at 3.6 bytes a token.
+/// rows, est. at 3.6 bytes a token. `answers` is none from a daemon that
+/// does not count them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
@@ -34,6 +68,9 @@ pub struct ExchangeReportResult {
     pub tokens: BTreeMap<String, u64>,
     /// The places bound now, by kind (`dm`, `channel_private`, …): counts.
     pub places_bound: BTreeMap<String, u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub answers: Option<ExchangeAnswers>,
 }
 
 /// `exchange.rebuild`.
@@ -114,6 +151,176 @@ pub struct ExchangeLadderResult {
     pub above: u64,
     pub estimated_usd: f64,
     pub spent_usd: f64,
+    /// Why it stopped before it was done.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub stopped: Option<String>,
+}
+
+/// `exchange.gists` (issue 44, step 4): a reading sheet of `did` lines and
+/// first-level fold nodes, each beside what its writer read, drawn by a
+/// seed so a reading can be repeated. A read for the owner in person; it
+/// stores nothing and calls no model.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ExchangeGistsParams {
+    /// One place, as the ledger names it; none: every place.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub place: Option<String>,
+    /// How many lines, and how many nodes, to draw.
+    pub lines: u32,
+    pub nodes: u32,
+    /// The draw's seed; none: one is chosen and returned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub seed: Option<u64>,
+}
+
+impl Default for ExchangeGistsParams {
+    fn default() -> Self {
+        ExchangeGistsParams {
+            place: None,
+            lines: 50,
+            nodes: 10,
+            seed: None,
+        }
+    }
+}
+
+/// A reading sheet: how many lines and first-level nodes exist where it
+/// looked, the seed it drew with, and what it drew, oldest first.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ExchangeGistsResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub place: Option<String>,
+    pub seed: u64,
+    pub lines_total: u64,
+    pub nodes_total: u64,
+    pub lines: Vec<GistLine>,
+    pub nodes: Vec<GistNode>,
+}
+
+/// A `did` line beside its exchange.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct GistLine {
+    pub turn_id: String,
+    pub place: String,
+    /// The exchange's start (the line's own time when it cannot be read).
+    pub at_ms: u64,
+    pub model: String,
+    pub writer: u32,
+    /// The line's writer's material for its exchange, rebuilt now: the
+    /// message and the final reply at its own cuts, each author as it is
+    /// told, with the values the writer substitutes substituted; none when the
+    /// exchange cannot be read. Not a kept copy of what it was given.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub read: Option<String>,
+    /// The line as the view shows it.
+    pub line: String,
+    /// Why the material may not be what its writer was given: an older
+    /// writer, sources no longer in the store. Read before judging.
+    pub notes: Vec<String>,
+}
+
+/// A first-level fold node beside its exchanges.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct GistNode {
+    pub id: String,
+    pub place: String,
+    pub first_ms: u64,
+    pub last_ms: u64,
+    /// The exchanges it stands for, and how many of them can still be read.
+    pub exchanges: u32,
+    pub readable: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub model: Option<String>,
+    pub writer: u32,
+    /// Its writer's material for those still readable, rebuilt now at its own
+    /// cuts, each with the `did` line it had when the node was written, with
+    /// the values the writer substitutes substituted.
+    pub read: String,
+    /// The node as the view shows it: its heading, then its text.
+    pub shown: String,
+    /// Why the material may not be what its writer was given: an older
+    /// writer, sources no longer in the store. Read before judging.
+    pub notes: Vec<String>,
+}
+
+/// `exchange.topics` (issue 46): the exchanges from before topics were filed
+/// per exchange, each one's opening message asked of the ontology's judge
+/// once, and touches written for the topics it names. The owner's, in person.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ExchangeTopicsParams {
+    /// Count and price what it would ask, and ask nothing.
+    pub dry_run: bool,
+    /// The most this run may spend, in dollars (none: the default, $10).
+    /// [`topics_cap`] holds what it may be, at the CLI and at the daemon.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cap_usd: Option<f64>,
+}
+
+/// A run's cap of `exchange.topics` (issue 46), as the CLI reads it before
+/// it builds a request and the daemon again: a finite number of dollars
+/// that is at least $0.000001 (one micro-dollar, as budgets count), the
+/// number itself, not as it rounds. NaN, an infinity, zero, a negative
+/// number and any sum under a micro-dollar are refused; a large one is the
+/// owner's to name.
+pub fn topics_cap(usd: f64) -> Result<f64, String> {
+    match usd.is_finite() && usd >= 0.000_001 {
+        true => Ok(usd),
+        false => Err(format!(
+            "--cap-usd is a number of dollars of at least $0.000001, not {usd}"
+        )),
+    }
+}
+
+/// What a filing of the history found, would do or did: counts and dollars,
+/// never a message's text.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ExchangeTopicsResult {
+    pub dry_run: bool,
+    pub cap_usd: f64,
+    /// Every exchange in the ledger.
+    pub exchanges: u64,
+    /// Those that already touch a topic, and those this job asked before.
+    pub touched_before: u64,
+    pub asked_before: u64,
+    /// Those opened by someone other than the owner: a guest in a shared
+    /// place, or a person no record proves. His decision was about his own
+    /// history, so they are never sent.
+    pub not_owner: u64,
+    /// Those opened by no person's message that can be read.
+    pub no_message: u64,
+    /// Those the ontology's judge would not act on now (off, or in shadow).
+    pub not_acting: u64,
+    /// Those left to ask, and their worst case together.
+    pub to_ask: u64,
+    pub worst_usd: f64,
+    /// Asked this run, of them answered, and the exchanges and touches the
+    /// answers came to.
+    pub asked: u64,
+    pub answered: u64,
+    pub filed: u64,
+    pub touches: u64,
+    pub spent_usd: f64,
+    /// Exchanges still to ask when the run stopped.
+    pub left: u64,
     /// Why it stopped before it was done.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

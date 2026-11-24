@@ -218,7 +218,7 @@ async fn read_history(
     // An MCP client is not the self loop: no scope; but an anchoring session whose scope cannot be read fails
     // the call, as it fails the model's.
     if let Some(sid) = session {
-        self_scope(core, sid)?;
+        self_scope(&core.runner, sid)?;
     }
     let lens = lens_for(
         core,

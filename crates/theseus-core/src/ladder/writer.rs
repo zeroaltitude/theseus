@@ -14,6 +14,7 @@ use theseus_kernel::micros_to_usd;
 
 use crate::provider::ProviderRequest;
 use crate::rpc::Core;
+use crate::scrub::Scrubber;
 
 /// What a call is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,28 +133,43 @@ pub trait Writer: Send + Sync {
 /// The daemon's writer.
 pub struct ModelWriter(pub Arc<Core>);
 
+/// The text the model reads for `material`: every value the scrubber knows substituted. The
+/// reading sheet shows the same (`gists`).
+pub fn prepared(scrubber: &Scrubber, material: &str) -> String {
+    scrubber.scrub(material).0
+}
+
+/// The call for `ask` on `model`: its instructions, and its material [`prepared`].
+pub(crate) fn request_of(
+    scrubber: &Scrubber,
+    thinking: Option<Value>,
+    model: &str,
+    ask: &Ask,
+) -> ProviderRequest {
+    let text = prepared(scrubber, &ask.text);
+    let mut instructions = ask.work.instructions().to_string();
+    if ask.text.contains("[outside text from ") {
+        instructions.push_str(OUTSIDE_NOTE);
+    }
+    ProviderRequest {
+        model: model.to_string(),
+        max_tokens: ask.work.max_tokens(),
+        system: vec![json!({"type": "text", "text": instructions})],
+        messages: vec![json!({"role": "user", "content": [{"type": "text", "text": text}]})],
+        tools: Vec::new(),
+        thinking,
+        output_config: None,
+        cache_control: None,
+        betas: Vec::new(),
+        extra: Default::default(),
+        image_tokens: 0,
+    }
+}
+
 impl ModelWriter {
     fn request(&self, model: &str, ask: &Ask) -> ProviderRequest {
-        let scrubber = self.0.tools.scrubber.clone();
         let how = self.0.runner.catalog.forcing(model);
-        let text = scrubber.scrub(&ask.text).0;
-        let mut instructions = ask.work.instructions().to_string();
-        if ask.text.contains("[outside text from ") {
-            instructions.push_str(OUTSIDE_NOTE);
-        }
-        ProviderRequest {
-            model: model.to_string(),
-            max_tokens: ask.work.max_tokens(),
-            system: vec![json!({"type": "text", "text": instructions})],
-            messages: vec![json!({"role": "user", "content": [{"type": "text", "text": text}]})],
-            tools: Vec::new(),
-            thinking: how.thinking,
-            output_config: None,
-            cache_control: None,
-            betas: Vec::new(),
-            extra: Default::default(),
-            image_tokens: 0,
-        }
+        request_of(&self.0.tools.scrubber, how.thinking, model, ask)
     }
 
     async fn target(&self, ask: &Ask) -> Result<crate::turn::Target, String> {

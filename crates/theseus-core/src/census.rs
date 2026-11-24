@@ -157,6 +157,18 @@ impl TurnRunner {
         place_kind: &str,
         live: &str,
     ) -> Result<NextRequest> {
+        self.next_request(rec, place_kind, live, "")
+    }
+
+    /// [`Self::census_request`] for `message`, assembled for and laid as the next turn's message, which no
+    /// store holds (`task.ask`'s question, `task_graph::ask`); empty, none.
+    pub(crate) fn next_request(
+        &self,
+        rec: Option<&SessionRecord>,
+        place_kind: &str,
+        live: &str,
+        message: &str,
+    ) -> Result<NextRequest> {
         let (kind, view, sid, mut notes) = self.census_place(rec, place_kind);
         let target = self.census_target(rec, place_kind, live)?;
         let mut spec = self.spec_of(&target, kind, view, self.peek_files(&target));
@@ -186,7 +198,12 @@ impl TurnRunner {
             Some(r) => self.store.transcript(&r.session_id)?,
             None => Vec::new(),
         };
-        let compiled = self.census_compile((&sid, rec), (place_kind, view.class), &spec, nodes)?;
+        let compiled = self.census_compile(
+            (&sid, rec),
+            (place_kind, view.class),
+            &spec,
+            (nodes, message),
+        )?;
         notes.push(match rec {
             Some(_) => VIEW_NOTE.to_string(),
             None => FRESH_NOTE.to_string(),
@@ -228,13 +245,14 @@ impl TurnRunner {
     }
 
     /// The census's compile of `sid`'s next request (`rec` none: a fresh session's of `kind`), as the view
-    /// builds it (`turn::view_step::preview::census`): `nodes` is the session's transcript, for the turn's own.
+    /// builds it (`turn::view_step::preview::census`): `nodes` is the session's transcript, for the turn's own,
+    /// and `message` the next turn's (empty: none).
     fn census_compile(
         &self,
         (sid, rec): (&str, Option<&SessionRecord>),
         kind: (&str, PlaceClass),
         spec: &RequestSpec,
-        nodes: crate::store::Transcript,
+        (nodes, message): (crate::store::Transcript, &str),
     ) -> Result<Compiled> {
         let hidden = rec.map(|r| r.not_shown.as_slice()).unwrap_or_default();
         let current = match rec.and_then(|r| r.compilation_id.as_deref()) {
@@ -261,7 +279,7 @@ impl TurnRunner {
             sources: &sources,
             situation: &situation,
         };
-        self.census_view_compile((sid, rec), kind, input)
+        self.census_view_compile((sid, rec), kind, input, message)
     }
 
     /// The kind of session, the place it speaks in and its id for a census: the session's own, or a fresh

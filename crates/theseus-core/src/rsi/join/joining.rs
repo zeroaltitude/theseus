@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use theseus_protocol::tasks::{TaskEvidence, TaskState};
 
 use super::install::Started;
-use super::{blocking, dependencies, git, keel, lock, lock_dir, moved, refused, Run, TRIES};
+use super::{blocking, dependencies, git, keel, lock, lock_dir, moved, refused, stats, Run, TRIES};
 use crate::fact::rsi_join::{SelfJoinAgain, SelfJoined};
 use crate::rsi::rerun;
 use crate::rsi::tree::{self, GateRun, Tree, Verdict};
@@ -21,11 +21,17 @@ enum Try {
     Stopped,
 }
 
-/// A merge made in its tree: the tree, the main it is on, its commit.
+/// A merge made in its tree: the tree, the main it is on, its commit (with the count folded in, issue 45),
+/// the commit before the count, and what the count did.
 pub(super) struct Merged {
     pub(super) t: Tree,
     pub(super) base: String,
     pub(super) merge: String,
+    pub(super) uncounted: String,
+    pub(super) stats: String,
+    pub(super) lines: Option<String>,
+    /// Why the count was skipped, in the code's own words (`stats::Skip`), when it was.
+    pub(super) skip: Option<stats::Skip>,
 }
 
 impl Run<'_> {
@@ -283,6 +289,17 @@ impl Run<'_> {
         close(self);
         match pushed {
             Ok(git::Pushed::Done) => {
+                let mut numbers = json!({"tries": attempt, "gate_secs": run.secs, "base": m.base,
+                                         "unsigned": m.merge, "reran": reran, "stats": m.stats});
+                if m.uncounted != m.merge {
+                    numbers["uncounted"] = json!(m.uncounted);
+                }
+                if let Some(lines) = &m.lines {
+                    numbers["lines"] = json!(lines);
+                }
+                if let Some(skip) = m.skip {
+                    numbers["stats_skip"] = json!(skip.key());
+                }
                 self.core.rec(None).record(&SelfJoined {
                     item: self.b.item.clone(),
                     branch: self.b.branch.clone(),
@@ -291,8 +308,7 @@ impl Run<'_> {
                     gate: gate_said(&run, &reran),
                     cost_usd: self.b.cost_usd,
                     why: self.b.why.clone(),
-                    numbers: json!({"tries": attempt, "gate_secs": run.secs, "base": m.base,
-                                    "unsigned": m.merge, "reran": reran}),
+                    numbers,
                 });
                 self.pass
                     .joined
@@ -320,15 +336,17 @@ impl Run<'_> {
         }
     }
 
-    /// The dry run on the remote's main, then the merge in its tree; none
-    /// (held) when the head is on main already or conflicts.
+    /// The dry run on the remote's main, then the merge in its tree with the count folded in
+    /// (`stats`, issue 45); none (held) when the head is on main already or conflicts.
     async fn merge(&mut self, remote: &str, message: &str) -> Result<Option<Merged>> {
-        let (p, r, h, b, m) = (
+        let (p, r, h, b, m, limit, after_fold) = (
             self.place.clone(),
             remote.to_string(),
             self.b.head.clone(),
             self.b.branch.clone(),
             message.to_string(),
+            self.seams.stats_limit,
+            self.seams.after_fold.clone(),
         );
         let merged = blocking(move || {
             git::fetch(&p, &r)?;
@@ -341,8 +359,20 @@ impl Run<'_> {
                 return Ok(Err(Refused::Conflict(why)));
             }
             let t = git::detached(&p, "join", &b, &base)?;
-            match git::merge(&p, &t, &h, &m) {
-                Ok(merge) => Ok(Ok(Merged { t, base, merge })),
+            let made = git::merge(&p, &t, &h, &m).and_then(|made| {
+                let c = stats::count(&p, &t, &base, &made, limit, after_fold.as_deref())?;
+                Ok((c, made))
+            });
+            match made {
+                Ok((c, uncounted)) => Ok(Ok(Merged {
+                    t,
+                    base,
+                    merge: c.merge,
+                    uncounted,
+                    stats: c.said,
+                    lines: c.lines,
+                    skip: c.skip,
+                })),
                 Err(e) => {
                     let _ = tree::close(&p, &t);
                     Err(e)

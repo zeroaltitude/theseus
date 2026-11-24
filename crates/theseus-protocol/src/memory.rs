@@ -159,17 +159,13 @@ pub struct RecallManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub activation: Option<RecallActivation>,
-    /// The span of time the question named (theseus-w9qv), which kept the
-    /// candidates to the nodes inside it.
+    /// The span of time a words search named (the history tool's, the MCP
+    /// search's; theseus-w9qv), which kept the candidates to the nodes inside
+    /// it. A turn's own recall names none (issue 46); an older build's turn
+    /// row may hold one, and a `temporal` key, which this build ignores.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub when: Option<RecallWhen>,
-    /// The kind of question about time the turn asked (`when`, `order`,
-    /// `duration`, `latest`, `earliest`; theseus-q1tbn), which ordered the
-    /// candidates by the time of their events.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub temporal: Option<String>,
 }
 
 /// What a recall's index answer held (theseus-y9a3).
@@ -529,12 +525,6 @@ pub struct RecallItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub text: Option<String>,
-    /// A current-value question (theseus-mo1vm): the day of the newer
-    /// statement this one's value was superseded by. Not stored: the turn's
-    /// `Recall` node freezes it into the header.
-    #[serde(skip)]
-    #[cfg_attr(test, ts(skip))]
-    pub superseded: Option<String>,
     /// Under `+retention` (32a): its node's retention as the rank read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

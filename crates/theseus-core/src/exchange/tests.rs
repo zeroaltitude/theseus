@@ -218,6 +218,35 @@ async fn a_terminal_turn_writes_its_mark_exchange_touches_and_row() {
     assert_eq!(report.counts["peer"]["person"], 2);
 }
 
+/// A turn after the place's `/new`: the view leaves the exchange before it out on purpose, and the row says so,
+/// so the report counts it apart from a miss.
+#[tokio::test]
+async fn a_turn_after_new_says_its_previous_was_held_by_new() {
+    let r = rig(2, |_| {});
+    let c = &r.core;
+    let first = turn(c, owner_cli(), None, "where is the tide table").await;
+    let ex = exchange(&c.store, &first.turn_id).unwrap().unwrap();
+    let at = crate::view::Pos {
+        at_ms: ex.start_ms,
+        id: ex.turn_id.clone(),
+    };
+    let mark = crate::ladder::new_mark_record(&ex.place, &at).unwrap();
+    c.store.append(&[mark]).unwrap();
+    let second = turn(c, owner_cli(), Some(&first.session_id), "and tomorrow?").await;
+    let rows = rows(c);
+    let last = rows.last().unwrap();
+    assert_eq!(last.exchange, second.turn_id);
+    assert_eq!(
+        (last.prev, last.prev_why.as_deref()),
+        (Prev::Missed, Some("new")),
+        "{last:?}"
+    );
+    let report = ledger::report(&c.store, &ExchangeReportParams::default()).unwrap();
+    let a = report.answers.expect("the answers");
+    assert_eq!(a.previous.get("after_new"), Some(&1), "{a:?}");
+    assert_eq!(a.previous.get("missed"), None, "{a:?}");
+}
+
 #[tokio::test]
 async fn an_agents_process_on_the_terminal_is_never_the_owner_in_person() {
     let r = rig(3, |_| {});
@@ -376,6 +405,50 @@ async fn the_exchange_methods_answer_the_terminal_and_refuse_a_transport() {
     let dc = Client::new("discord#1", Surface::Discord);
     let no = call(c, dc, "exchange.rebuild", json!({"dry_run": true})).await;
     assert!(no.error.is_some());
+}
+
+/// The reading sheet is the owner's to read in person (issue 44, step 4): his own terminal or the web UI
+/// answers it; an agent's process on either, a job's and a process with no terminal are refused, and so is
+/// a chat transport.
+#[tokio::test]
+async fn gists_is_refused_to_an_agents_process() {
+    let r = rig(0, |_| {});
+    let c = &r.core;
+    let asked = json!({"lines": 5, "nodes": 2, "seed": 7});
+    for owner in [
+        owner_cli(),
+        Client::new("ws#1", Surface::Web).behind(Behind::Owner),
+    ] {
+        let ok = call(c, owner, "exchange.gists", asked.clone()).await;
+        assert!(ok.error.is_none(), "{:?}", ok.error);
+        let sheet: theseus_protocol::exchange::ExchangeGistsResult =
+            serde_json::from_value(ok.result.unwrap()).unwrap();
+        assert_eq!(
+            (sheet.seed, sheet.lines_total, sheet.nodes_total),
+            (7, 0, 0)
+        );
+    }
+    let agents = [
+        ("claude", Surface::Cli),
+        (peer_proc::JOB, Surface::Cli),
+        (peer_proc::NO_TERMINAL, Surface::Cli),
+        ("claude", Surface::Web),
+    ];
+    for (name, surface) in agents {
+        let agent = Client::new("sock#9", surface).behind(Behind::Agent(name.into()));
+        let no = call(c, agent, "exchange.gists", asked.clone()).await;
+        let e = no.error.expect("an agent's process is refused");
+        assert_eq!(
+            e.code,
+            theseus_protocol::error_code::REFUSED,
+            "{name}: {e:?}"
+        );
+        assert!(e.message.contains("agent's process"), "{name}: {e:?}");
+    }
+    let dc = Client::new("discord#1", Surface::Discord);
+    let no = call(c, dc, "exchange.gists", asked).await;
+    let e = no.error.expect("a chat transport is refused");
+    assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{e:?}");
 }
 
 /// The bytes of the ledger's own records after two turns: each message's mark, each turn's exchange and

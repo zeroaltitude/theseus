@@ -335,7 +335,7 @@ pub fn newest_after_touch(
 }
 
 /// Page strictly after one touch in index order: descending time, ascending id.
-/// An empty id denotes the exclusive time boundary used by age bands.
+/// Unlike `newest_after_touch`, an empty id skips the entire timestamp for age bands.
 pub fn newest_before_exchange(
     store: &Store,
     root: Root<'_>,
@@ -446,3 +446,5 @@ pub const THINGS_TEXT: usize = 64 * 1024;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_report;

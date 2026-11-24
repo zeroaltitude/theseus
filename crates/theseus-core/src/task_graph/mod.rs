@@ -31,7 +31,12 @@
 //!   current exchange, would apply without a card. It needs an independent
 //!   judgment no pack gives yet, so every such change keeps its card today;
 //!   the words behind each change are kept by reference.
+//! - **Asking the task itself** (`ask.rs`, issue 44): one question put to a
+//!   task with a session, answered by its own model from its own view, with
+//!   no tool; the answer is outside text, and nothing is written into the
+//!   task.
 
+pub mod ask;
 pub mod joined;
 pub mod judged;
 pub mod lease;

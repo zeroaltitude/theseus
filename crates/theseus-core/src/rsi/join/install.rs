@@ -457,13 +457,23 @@ pub(crate) fn notice(j: &Value, review: Option<&Value>, merge: &str) -> String {
     );
     format!(
         "{head}\nWhat: {what}\nWhy: {why}\nReview: {reviewed}\nNumbers: main's gate \
-         on the merge {gate}, {secs} s; {tries} try(s)\nCost: ${cost:.4} (build ${build_usd:.4}, \
+         on the merge {gate}, {secs} s; {tries} try(s){lines}{skipped}\nCost: ${cost:.4} (build ${build_usd:.4}, \
          review ${review_usd:.4})\nRevert: `theseus self revert {merge}`",
         what = s(j, "what"),
         why = s(j, "why"),
         gate = s(j, "gate"),
         secs = j["numbers"]["gate_secs"].as_u64().unwrap_or(0),
         tries = j["numbers"]["tries"].as_u64().unwrap_or(1),
+        // The change in lines, from the counter STATS.md uses (issue 45), when the join had it.
+        lines = j["numbers"]["lines"]
+            .as_str()
+            .map(|l| format!("\nLines: {l}"))
+            .unwrap_or_default(),
+        // A count that was skipped says so, with one of the code's own reasons, never the counter's words.
+        skipped = j["numbers"]["stats_skip"]
+            .as_str()
+            .map(|k| format!("\nCount: skipped ({})", super::stats::Skip::said_for(k)))
+            .unwrap_or_default(),
         cost = build_usd + review_usd,
     )
 }

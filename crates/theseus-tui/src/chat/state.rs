@@ -215,6 +215,7 @@ pub struct Chat {
     pub queued: Vec<super::editor::Taken>,
     /// A queued message was sent and its turn has not begun.
     pub(super) released: bool,
+    pub(super) uncertain_submits: HashMap<String, (String, u64)>,
     pub offline: bool,
     pub(super) recovery_epoch: u64,
     pub(super) recovering: HashSet<String>,
@@ -314,6 +315,7 @@ impl Chat {
             execution: None,
             queued: Vec::new(),
             released: false,
+            uncertain_submits: HashMap::new(),
             offline: false,
             recovery_epoch: 0,
             recovering: HashSet::new(),
@@ -736,6 +738,16 @@ impl Chat {
 
     /// Leave, saying the conversation goes on.
     pub fn leave(&mut self) -> Vec<Effect> {
+        if !self.queued.is_empty() {
+            self.say_plain(
+                Sty::Dim,
+                &if self.queued.len() == 1 {
+                    "1 queued message was not sent".into()
+                } else {
+                    format!("{} queued messages were not sent", self.queued.len())
+                },
+            );
+        }
         if let Some(sid) = self.main_session() {
             let end: String = sid
                 .chars()
@@ -932,11 +944,18 @@ impl Chat {
     /// The one place a `turn.submit` of the conversation is built; `attachments`
     /// (images named by `@path`) ride as the protocol's `attachments`.
     pub(super) fn submit_call(
-        &self,
+        &mut self,
         sid: &str,
         text: String,
         attachments: &[theseus_protocol::Attachment],
     ) -> Effect {
+        self.uncertain_submits.insert(
+            sid.into(),
+            (
+                text.clone(),
+                self.shown_nodes.get(sid).copied().unwrap_or(0),
+            ),
+        );
         let mut params = json!({ "session_id": sid, "input": text, "author": AUTHOR });
         if !attachments.is_empty() {
             params["attachments"] = json!(attachments);

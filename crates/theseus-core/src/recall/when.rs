@@ -1,8 +1,10 @@
-//! The time a question names (theseus-w9qv, fix B): "March 2026", "last
-//! week", "2026-03-14", "from March to May", "since January", read from the
-//! turn's own words by a small deterministic parser, in the daemon's time
-//! zone (the owner's: `wake::local`), with no model call on the path. Recall
-//! keeps to the span when one is named (`Memory::begin_within`).
+//! The time a search names (theseus-w9qv, fix B): "March 2026", "last
+//! week", "2026-03-14", "from March to May", "since January", read from a
+//! tool's own `when` argument (the history tool's, the MCP search's, a
+//! card's) by a small deterministic parser, in the daemon's time zone (the
+//! owner's: `wake::local`), with no model call on the path. A words search
+//! keeps to the span when one is named (`Memory::begin_within`). A turn's
+//! message is never read for one (issue 46).
 //!
 //! - **What it reads**: ISO days and months (`2026-03-14`, `2026-03`); a
 //!   month by name, with a day and a year or without (`March 14, 2026`, `14
@@ -26,21 +28,6 @@ use crate::wake::{civil_from_days, days_from_civil};
 /// A span a question names: `[from_ms, to_ms)`, either end open, and the
 /// words that named it, as the question wrote them (the wire's own type).
 pub use theseus_protocol::memory::RecallWhen as When;
-
-/// The span the turn's own words name: its new messages' texts (`turn_id`'s
-/// user messages), never the reply joined to the query, which may name
-/// dates of its own.
-pub fn of_turn(nodes: &crate::store::Transcript, turn_id: &str, now_ms: u64) -> Option<When> {
-    let words: Vec<&str> = nodes
-        .iter()
-        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn_id))
-        .filter_map(|(_, n)| match &n.body {
-            crate::node::Body::UserMessage { text, .. } => Some(text.as_str()),
-            _ => None,
-        })
-        .collect();
-    read_local(&words.join("\n"), now_ms)
-}
 
 /// The index's answer kept to `when` (theseus-w9qv), said in the manifest:
 /// the span, and each hit outside it counted as a `when` drop. A tender of

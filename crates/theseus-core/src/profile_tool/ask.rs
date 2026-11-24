@@ -5,7 +5,9 @@
 //! [`begin`] runs in the turn's own task, where the turn's guard is: it resolves the profile,
 //! asks the data floor, prices the call and plans it in the kernel (the spend limit, the day
 //! ceiling and a `/stop` are the kernel's). [`finish`] makes the call in the tool's own task
-//! and settles it, so a failure settles as failed and an answer settles at its price.
+//! and settles it, so a failure settles as failed and an answer settles at its price. The
+//! reservation's owner ([`crate::owed_call::Owed`]) settles a call a stop or a deadline drops: at
+//! zero before its send, as unknown (held) after it.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,6 +22,7 @@ use theseus_protocol::SubagentAnswer;
 use theseus_tools::parse;
 
 use crate::fact::{self, ops::ProfileAsked};
+use crate::owed_call::Owed;
 use crate::provider::{ModelResponse, Provider, ProviderError, ProviderRequest};
 use crate::toolrun::TurnCtx;
 use crate::turn::Target;
@@ -74,6 +77,8 @@ pub(super) struct Planned {
     loop_index: Option<u32>,
     /// The profile of the turn that asked.
     asked_by: String,
+    /// The reservation's owner: what settles it, however the call ends.
+    owed: Owed,
 }
 
 /// Resolve `profile`, ask the data floor and the books, and plan the call; or the words of why not.
@@ -132,6 +137,12 @@ pub(super) fn begin(
             |_| Ok(Vec::new()),
         )
         .map_err(|e| not_planned(core, tc.session_id, &e))?;
+    let owed = Owed::new(
+        core.kernel.clone(),
+        &action,
+        format!("provider:{}", target.provider),
+        json!({"purpose": PURPOSE}),
+    );
     Ok(Planned {
         action,
         request,
@@ -142,6 +153,7 @@ pub(super) fn begin(
         turn: tc.turn_id.to_string(),
         loop_index: tc.loop_index,
         asked_by: tc.target.map(|t| t.profile.clone()).unwrap_or_default(),
+        owed,
     })
 }
 
@@ -196,6 +208,8 @@ pub(super) async fn finish(core: Arc<Core>, p: Planned) -> Result<(String, Value
         correlation_id: Some(p.action.correlation_id.clone()),
     };
     let mut quiet = |_: crate::provider::Delta<'_>| {};
+    // From here a drop (a stop, the runtime's deadline) may cut a call the provider has begun.
+    p.owed.sending();
     let made = crate::exits::for_call(call, || p.provider.stream_message(&p.request, &mut quiet));
     let answered = match tokio::time::timeout(TIME_LIMIT, made).await {
         Ok(r) => r,
@@ -293,7 +307,7 @@ fn settle(
         store: &core.store,
     };
     let row = rec.row(fact)?;
-    core.kernel.accept_completion_with(&completion, vec![row])?;
+    p.owed.settle(&completion, vec![row])?;
     rec.announce(fact);
     Ok(())
 }

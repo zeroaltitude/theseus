@@ -146,6 +146,10 @@ reply has word "4"
             .and_then(|r| r.title)
             .expect("the fixture's session has a title");
         assert!(title.starts_with("The plover dashboard"), "{title}");
+        // The daemon's zone, as the core dates a header (not UTC).
+        let zone = theseus_core::recall::stamp::system;
+        let at = theseus_core::recall::stamp::said_in(e.at_ms, &zone);
+        let said_at = format!("said {at}");
         assert_eq!(
             got,
             format!(
@@ -157,8 +161,7 @@ reply has word "4"
                  \"{}\"",
                 &e.node_id[e.node_id.len() - 6..],
                 e.session_id,
-                // The daemon's zone, as the core dates a header (not UTC).
-                theseus_core::recall::stamp::header_time(e.at_ms, said),
+                said_at,
                 e.position,
                 theseus_core::recall::evidence::short(&e.session_id),
                 theseus_core::recall::stamp::date(e.at_ms),

@@ -242,6 +242,8 @@ mod tests {
         method::EXCHANGE_REPORT,
         method::EXCHANGE_REBUILD,
         method::EXCHANGE_LADDER,
+        method::EXCHANGE_GISTS,
+        method::EXCHANGE_TOPICS,
         method::CONFIG_HISTORY,
         method::CONFIG_WHOLE,
         method::PROFILE_LIST,

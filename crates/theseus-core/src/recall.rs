@@ -27,7 +27,6 @@
 //! The operator's labels (`labels`) keep a node out as `labeled_wrong`.
 
 pub mod cite;
-pub mod current;
 pub mod evidence;
 pub mod labels;
 pub mod loading;
@@ -36,11 +35,8 @@ pub mod outcomes;
 pub mod relevance;
 pub mod render;
 pub mod stamp;
-pub mod temporal;
 pub mod when;
 
-#[cfg(test)]
-mod tests_current;
 #[cfg(test)]
 mod tests_time;
 
@@ -402,7 +398,6 @@ impl Memory {
         as_of: Option<u64>,
         arm: MemoryArm,
         deadline: Duration,
-        when: Option<when::When>,
     ) -> Begun {
         self.begin_with(
             query,
@@ -411,7 +406,7 @@ impl Memory {
                 k: K,
                 arm,
                 deadline,
-                when,
+                when: None,
                 sessions: Vec::new(),
                 fast: true,
             },
@@ -478,14 +473,12 @@ impl Memory {
         Begun {
             task,
             started,
-            said: query.clone(),
             query,
             as_of,
             deadline,
             new_node: None,
             words_only: None,
             when,
-            temporal: None,
             max_items: None,
         }
     }
@@ -621,19 +614,12 @@ pub struct Begun {
     task: tokio::task::JoinHandle<(Answer, Duration, Option<String>)>,
     pub started: Instant,
     pub query: String,
-    /// What the turn's message itself says (its text and attachment names),
-    /// without the previous reply `query` carries: the words a thread is named
-    /// by (theseus-n6mkd). The query's own words when nothing else is set.
-    pub said: String,
     pub as_of: Option<u64>,
     pub deadline: Duration,
     /// The turn's new node, which seeds a spread at 1.0 (32b).
     pub new_node: Option<String>,
-    /// The span of time the question named (theseus-w9qv).
+    /// The span of time a words search named (theseus-w9qv).
     pub when: Option<when::When>,
-    /// The kind of question about time it asked, which orders the pack by
-    /// the time of the events (theseus-q1tbn).
-    pub temporal: Option<temporal::Kind>,
     /// The most items the pack admits, when not `[memory] recall_max_items`:
     /// a words search's page (the history tool's, the MCP server's; theseus-w9qv).
     pub max_items: Option<usize>,
@@ -766,7 +752,6 @@ impl Memory {
             science: scene.science.id().to_string(),
             outcome: begun.outcome().into(),
             why: begun.words_only.clone(),
-            temporal: begun.temporal.map(|k| k.as_str().into()),
             session_id: scene.session_id.map(str::to_string),
             turn_id: scene.turn_id.map(str::to_string),
             place: place_words(&scene.place),
@@ -839,15 +824,10 @@ impl Memory {
         params.persona = scene.persona.as_ref().and_then(|p| p.boost(&candidates));
         params.category = scene.category.as_ref().and_then(|c| c.boost(&candidates));
         (params.floor, m.relevance) = relevance::of(&self.cfg, &r_weights, &m.sources, &candidates);
-        let sci = &*scene.science;
-        let pack = match begun.temporal {
-            Some(k) => temporal::pack(k, &begun.said, sci, &asker, &candidates, &params),
-            None => pipeline::recall(sci, &asker, candidates.clone(), &params),
-        };
+        let pack = pipeline::recall(&*scene.science, &asker, candidates.clone(), &params);
         let kept = ranks.clone();
         fill(&mut m, pack, &mut ranks, texts);
         neighbour::apply(&mut m.admitted, &neighbour::marks(&candidates));
-        current::mark(&mut m.admitted, begun, &links, &candidates);
         m.timings.pack_ms = ms(t0.elapsed());
         m.timings.total_ms = ms(begun.started.elapsed());
         (m, candidates, links, kept)
@@ -873,16 +853,11 @@ impl Memory {
         };
         let params = self.params_of(m, scene.max_items);
         let marks = neighbour::marks(&candidates);
-        // The superseded marks (a current-value question's) were set by the
-        // recall on the items it admitted; the refill rebuilds the items, so
-        // they are read now and set again, as the neighbour note is.
-        let superseded = current::marked(&m.admitted);
         let pack =
             theseus_memory::rerank::repack(&*scene.science, &asker, candidates, &params, order);
         m.drops.clear();
         fill(m, pack, &mut ranks, true);
         neighbour::apply(&mut m.admitted, &marks);
-        current::apply(&mut m.admitted, &superseded);
     }
 
     /// The pack's limits for a manifest's budget, at `max_items` when its
@@ -969,7 +944,6 @@ fn fill(m: &mut RecallManifest, pack: Pack, ranks: &mut Ranks, texts: bool) {
                 fused: a.candidate.fused,
                 tokens: a.tokens,
                 text: texts.then_some(a.excerpt),
-                superseded: None,
                 retention: None,
                 neighbour: None,
             }
@@ -1096,22 +1070,6 @@ pub fn query_of(nodes: &Transcript, turn_id: &str) -> Option<(RecallQuery, u64)>
         cut: true,
     };
     (!q.words.trim().is_empty()).then(|| (q, nodes[first].0))
-}
-
-/// What the turn's message says: its text and its attachments' names, with
-/// none of the previous reply that `query_of`'s words carry.
-pub fn said_of(nodes: &Transcript, turn_id: &str) -> String {
-    let mut said = Vec::new();
-    for (_, n) in nodes {
-        if n.turn_id.as_deref() != Some(turn_id) {
-            continue;
-        }
-        if let Body::UserMessage { text, attachments } = &n.body {
-            said.push(text.clone());
-            said.extend(attachments.iter().map(|a| a.name.clone()));
-        }
-    }
-    said.join("\n")
 }
 
 /// The end of `reply` a short turn embeds with: its last lines, whole, up to

@@ -1269,6 +1269,26 @@ script_tests() {
   return 0
 }
 
+# The measuring kit's RealDaemon cases need this HEAD's binaries: ahead of
+# test build they skip. Run them again after it, reported and not fatal like
+# script tests (theseus-4vsrz); a skip must be visible in the phase table.
+real_daemon_tests() {
+  resolve_target_dir
+  local log="$gate_tmp/real-daemon.log" rc=0
+  CARGO_TARGET_DIR="$target_dir" PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+    scripts.tests.test_view_kit.RealDaemon scripts.tests.test_view_proof.RealDaemon >"$log" 2>&1 || rc=$?
+  tail -n 20 "$log"
+  if [ "$rc" -ne 0 ]; then
+    phase_label="real daemon tests warned"
+    warn "real daemon tests failed (rc $rc): $log"
+  elif grep -qE "skipped ['\"]" "$log"; then
+    phase_label="real daemon tests skipped"
+    echo "real daemon tests: skipped (see reasons above)"
+    skip
+  fi
+  return 0
+}
+
 # One npm script of the cockpit, its output kept in `$gate_tmp/<app>-<script>.log` (theseus-o8nk). A failure prints
 # the log's last 40 lines, where the phase table alone said only "cockpit <- failed here". A passing `test` tees
 # node's own summary (`ℹ tests N`, `ℹ pass N`, ...) into the gate's own output, which `arm.sh tail` keeps even
@@ -1651,6 +1671,7 @@ phase "test build" test_build
 # lane tested the previous head's binaries (on 2026-11-03 a renamed config key left the stale daemon failing its
 # TOML parse). test_gate_order.py holds this order.
 phase "recall tests" ran_or_skipped scripts/recall-tests.sh
+phase "real daemon tests" real_daemon_tests
 # The prompt census, for the record (theseus-4vsrz, B7): a fresh session's first request per place, the session's
 # own context within it, and that context's share of `[routing] cold_switch_tokens` -- the quantity the cliff
 # assertion deleted on 2026-11-08 used to watch, which nothing watched after it went. AFTER the test build, like

@@ -98,6 +98,8 @@ impl ToolRuntime {
                 _ if tool.name() == crate::view::history::HISTORY_TOOL => {
                     self.history.run(tc, &input)
                 }
+                // A question put to a task (issue 44, step 8).
+                _ if tool.name() == crate::task_graph::ask::ASK => self.task_ask.run(tc, &input),
                 // Theseus and its vault, looked at by name (issue 26).
                 crate::look::FAMILY => self.look.run(tc, tool.name(), &input),
                 // A profile handed a piece of work, as a task (issue 28).

@@ -1943,6 +1943,7 @@ impl Config {
                 .into_iter()
                 .chain(crate::task::NAMES)
                 .chain(crate::task_graph::tools::NAMES)
+                .chain(crate::task_graph::ask::NAMES)
                 .chain(crate::wake::NAMES)
                 .chain(crate::routine_tool::NAMES)
                 .chain(crate::project_tool::NAMES)

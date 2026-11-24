@@ -105,24 +105,11 @@ impl TurnRunner {
                 return None;
             }
         };
-        let (mut query, as_of) = query_of(&nodes, t.tc.turn_id)?;
-        // A question about time searches on its event: the temporal words
-        // match every dated note (theseus-q1tbn).
-        let temporal = crate::recall::temporal::of_turn(&nodes, t.tc.turn_id);
-        if temporal.is_some() {
-            query.words = crate::recall::temporal::subject(&query.words);
-            query.vector = query.vector.map(|v| crate::recall::temporal::subject(&v));
-        }
+        // The message is searched as written: recall reads no English from it.
+        // A time is the model's to ask, through the history tool (issue 46).
+        let (query, as_of) = query_of(&nodes, t.tc.turn_id)?;
         let deadline = std::time::Duration::from_millis(self.memory.cfg().recall_deadline_ms);
-        // A span of time the turn's words name keeps recall inside it
-        // (theseus-w9qv): read here, in microseconds, with no call.
-        let now = theseus_protocol::now_unix_ms();
-        let when = crate::recall::when::of_turn(&nodes, t.tc.turn_id, now);
-        let mut begun = self
-            .memory
-            .begin_turn(query, Some(as_of), arm, deadline, when);
-        begun.temporal = temporal.map(|a| a.kind);
-        begun.said = crate::recall::said_of(&nodes, t.tc.turn_id);
+        let mut begun = self.memory.begin_turn(query, Some(as_of), arm, deadline);
         // The turn's new node seeds a spread (32b).
         begun.new_node = nodes
             .iter()
@@ -263,7 +250,6 @@ impl TurnRunner {
             // Where and by whom it was said: its place, never a thread's ranking (issue 46).
             let mut header = render::item_header(&source, item.position, &place, chunk);
             header = crate::recall::neighbour::with_note(header, item);
-            header = crate::recall::current::with_mark(header, item);
             if let Some(p) = persona.as_ref().filter(|p| p.is_own(&item.session_id)) {
                 header = format!(
                     "{} {header}",

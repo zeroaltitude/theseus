@@ -480,7 +480,7 @@ impl JudgeService {
 
     /// One round's judgments settled against its reservation: their ids and
     /// what they cost.
-    fn settle_round(
+    pub(in crate::judge) fn settle_round(
         &self,
         today: &str,
         need: Micros,

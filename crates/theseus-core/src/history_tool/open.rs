@@ -49,8 +49,8 @@ pub fn open_marked(lens: &Lens<'_>, h: &Handle) -> Result<Opened, String> {
         .map_err(|_| none())?
         .ok_or_else(none)?;
     // Nothing the asker's scope does not admit (`Lens::in_scope`), and for a fork nothing its cut holds
-    // (`Lens::forked`): either reads as no exchange here.
-    if !lens.in_scope(&ex) || lens.forked(&ex).map_err(|e| format!("{e:#}"))? {
+    // (`Lens::forked`): either reads as no exchange here (`Lens::opens`).
+    if !lens.opens(&ex).map_err(|e| format!("{e:#}"))? {
         return Err(none());
     }
     let nodes = nodes(lens, &ex).map_err(|e| format!("{e:#}"))?;

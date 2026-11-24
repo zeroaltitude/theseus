@@ -90,12 +90,7 @@ impl TurnRunner {
             k.stage(&records)?;
             Ok(())
         });
-        if wrote.is_err() {
-            // Not written: the rows wait for the turn's next frame.
-            for r in waiting {
-                t.tc.store.defer(r)?;
-            }
-        }
+        restore_unwritten(t.tc.store, waiting, &wrote)?;
         wrote
     }
 
@@ -152,5 +147,59 @@ fn before_admission(session_id: &str) {
     };
     if let Some(f) = hook {
         f();
+    }
+}
+
+/// Retained rows belong to the log, not to the next turn frame.
+fn restore_unwritten(
+    store: &crate::store::Store,
+    waiting: Vec<NewRecord>,
+    wrote: &Result<()>,
+) -> Result<()> {
+    if wrote
+        .as_ref()
+        .is_err_and(|e| !e.is::<theseus_store::store::RetainedFrame>())
+    {
+        for r in waiting {
+            store.defer(r)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod retained_tests {
+    use super::*;
+
+    #[test]
+    fn retained_admission_rows_are_not_restored_to_waiting() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let turn = store.for_turn("ses_retained");
+        let row = NewRecord::bytes(
+            theseus_store::kinds::META,
+            Some("admission-row"),
+            b"row".to_vec(),
+        );
+        store.inner().fail_next_index_writes(3);
+        let wrote =
+            theseus_store::Store::append(store.inner().as_ref(), std::slice::from_ref(&row))
+                .map(|_| ());
+        assert!(wrote
+            .as_ref()
+            .unwrap_err()
+            .is::<theseus_store::store::RetainedFrame>());
+        restore_unwritten(&turn, vec![row.clone()], &wrote).unwrap();
+        assert!(
+            turn.take_waiting().is_empty(),
+            "retained admission rows must not be queued again"
+        );
+        let unwritten = Err(anyhow::anyhow!("unwritten"));
+        restore_unwritten(&turn, vec![row], &unwritten).unwrap();
+        assert_eq!(
+            turn.take_waiting().len(),
+            1,
+            "an unwritten frame still restores its rows"
+        );
     }
 }

@@ -29,6 +29,18 @@ use super::tree::{phase_note, Place, Tree};
 use crate::sandbox::Sandbox;
 use crate::sandbox::{self_build_env, SelfBuild};
 
+/// The most of each stream `Jail::run_clocked` keeps.
+pub const CLOCKED_OUTPUT: usize = 64 * 1024;
+
+/// What a clocked job did (`Jail::run_clocked`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Clocked {
+    /// Its exit status; none when a signal ended it.
+    pub code: Option<i32>,
+    /// A stream of it was longer than [`CLOCKED_OUTPUT`], so its log is not the whole of what it printed.
+    pub cut: bool,
+}
+
 /// L1 for a daemon's self builds.
 #[derive(Clone)]
 pub struct Jail {
@@ -143,6 +155,52 @@ impl Jail {
             (Some(c), _) => Ok(Some(c)),
             (None, Some(why)) => bail!("{why}"),
             (None, None) => Ok(None),
+        }
+    }
+
+    /// `run_blocking` bounded by the clock instead of by silence: the whole job is stopped `j.limit` after it
+    /// starts, printing or not (the self-join's count, issue 45: a report, whose two runs share one limit). At
+    /// most [`CLOCKED_OUTPUT`] bytes of each stream are kept, written to `j.log`, the standard output first; a
+    /// stream cut there is followed in the log by a line of this code's saying so, and the result says it too
+    /// (`Clocked::cut`), which nothing the job prints can set.
+    pub fn run_clocked(&self, p: &Place, j: &Job<'_>) -> Result<Clocked> {
+        let (view, env, _packages) = self.prepare_held(p, j);
+        let argv: Vec<String> = j
+            .argv
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        let ms = u64::try_from(j.limit.as_millis()).unwrap_or(u64::MAX);
+        let (r, cut) = probe_run::run_with(
+            &view,
+            &argv,
+            (j.tree.dir.as_path(), env),
+            "self-build",
+            ms,
+            CLOCKED_OUTPUT,
+        );
+        let kept = |text: String, was_cut: bool, name: &str| {
+            if !was_cut {
+                return text;
+            }
+            let end = if text.is_empty() || text.ends_with('\n') {
+                ""
+            } else {
+                "\n"
+            };
+            format!("{text}{end}[the job's {name} was cut at {CLOCKED_OUTPUT} bytes]\n")
+        };
+        let log = [
+            kept(r.stdout, cut.stdout, "standard output"),
+            kept(r.stderr, cut.stderr, "standard error"),
+        ];
+        std::fs::write(j.log, log.concat()).context("writing the job's log")?;
+        match r.failed {
+            Some(why) => bail!("{why}"),
+            None => Ok(Clocked {
+                code: r.code,
+                cut: cut.stdout || cut.stderr,
+            }),
         }
     }
 

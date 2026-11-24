@@ -8,6 +8,7 @@ change of what STATS.md means, so update the comment on that file with the numbe
 """
 import importlib.util
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -91,6 +92,15 @@ class StatsTest(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root)
+        # Builds and the sizes record live outside the tree, here; never the machine's own record.
+        self.out = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.out)
+        self.record = os.path.join(self.out, "stats-sizes.md")
+        env = {"THESEUS_STATS_SIZES": self.record, "CARGO_TARGET_DIR": os.path.join(self.out, "target")}
+        self.addCleanup(os.environ.update, {k: os.environ[k] for k in env if k in os.environ})
+        for k in env:
+            self.addCleanup(os.environ.pop, k, None)
+        os.environ.update(env)
         for path, text in FILES.items():
             os.makedirs(os.path.join(self.root, os.path.dirname(path)), exist_ok=True)
             with open(os.path.join(self.root, path), "w", encoding="utf-8") as f:
@@ -242,6 +252,119 @@ class StatsTest(unittest.TestCase):
 
     def test_sizes_never_measured_say_so(self):
         self.assertEqual(self.run_stats().count("Not yet measured"), 2)
+
+    def build(self, commit, digest="clean", where=None):
+        """An optimised build's profile directory, stamped as a build of COMMIT, outside the tree."""
+        prof = where or os.path.join(self.out, f"build-{commit[:8]}-{digest}", "release")
+        os.makedirs(prof, exist_ok=True)
+        with open(os.path.join(prof, ".theseus-build-stamp"), "w") as f:
+            f.write(f"{commit} {digest} 1\n")
+        sized(os.path.join(prof, "deps", "libdemo-x.rlib"), 1_230_000)
+        sized(os.path.join(prof, "demo"), 3_000_000)
+        return prof
+
+    def commit_on(self, branch, name):
+        """One more commit on BRANCH (a file of one code line); its full id."""
+        self.git("checkout", "-q", branch)
+        with open(os.path.join(self.root, f"crates/demo/src/{name}.rs"), "w") as f:
+            f.write("fn y() {}\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", name)
+        return self.git("rev-parse", "HEAD")
+
+    def recorded(self, commit):
+        """The sizes record an install build of COMMIT leaves (what `--record-sizes` writes)."""
+        with open(self.record, "w", encoding="utf-8") as f:
+            f.write(stats.crate_sizes(self.root, self.build(commit)))
+
+    def main_with_sizes_of(self, commit):
+        """main, its STATS.md committed with the sizes of a build of COMMIT."""
+        self.git("checkout", "-q", "-B", "main")
+        self.run_stats("--sizes-from", self.build(commit))
+        self.git("add", "STATS.md")
+        self.git("commit", "-q", "-m", "stats")
+
+    def staged_sizes_at_a_landing(self):
+        """Land a fresh side branch on main with --prepare-landing; the commit its staged sizes name."""
+        self.landings = getattr(self, "landings", 0) + 1
+        side = self.side_branch(f"landing{self.landings}")
+        self.git("checkout", "-q", "main")
+        self.git("merge", "-q", "--no-ff", "--no-commit", side)
+        self.prepare()
+        staged = self.git("show", ":STATS.md")
+        self.git("merge", "--abort")
+        return re.search(r"From the `release` build of ([0-9a-f]{8}) ", staged).group(1)
+
+    def test_an_install_build_records_its_sizes_outside_the_tree(self):
+        head = self.git("rev-parse", "HEAD")
+        stats.main(["--root", self.root, "--sizes-from", self.build(head), "--record-sizes", self.record])
+        with open(self.record, encoding="utf-8") as f:
+            text = f.read()
+        self.assertTrue(text.startswith("### What each crate builds\n"), text)
+        self.assertIn(f"From the `release` build of {head[:8]} ", text)
+        self.assertIn("| crates/demo | 1.23 MB | demo 3.00 MB |", text)
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "", "nothing in the tree")
+
+    def test_a_landing_takes_the_newest_recorded_sizes_of_main(self):
+        a = self.git("rev-parse", "HEAD")
+        self.main_with_sizes_of(a)
+        b = self.commit_on("main", "later")
+        self.recorded(b)
+        self.assertEqual(self.staged_sizes_at_a_landing(), b[:8])
+
+    def test_a_landing_never_takes_older_or_foreign_sizes(self):
+        a = self.git("rev-parse", "HEAD")
+        self.git("checkout", "-q", "-B", "main")
+        b = self.commit_on("main", "later")
+        self.main_with_sizes_of(b)
+        self.git("checkout", "-q", "-b", "foreign", a)
+        foreign = self.commit_on("foreign", "foreign")
+        self.git("checkout", "-q", "main")
+        for older, why in ((a, "older than the sizes main has"), (foreign, "a build of a commit not on main")):
+            with self.subTest(why):
+                # Both a record and a stamped release build in the target directory, of that commit.
+                self.recorded(older)
+                self.build(older, where=os.path.join(os.environ["CARGO_TARGET_DIR"], "release"))
+                self.assertEqual(self.staged_sizes_at_a_landing(), b[:8], why)
+
+    def test_a_dirty_build_records_nothing(self):
+        head = self.git("rev-parse", "HEAD")
+        with self.assertRaises(SystemExit) as refused:
+            stats.main(["--root", self.root, "--sizes-from", self.build(head, digest="0123456789abcdef"),
+                        "--record-sizes", self.record])
+        self.assertIn("not a clean build of one commit", str(refused.exception.code))
+        self.assertFalse(os.path.exists(self.record), "no record of a build that is not of one commit")
+
+    def test_the_count_at_head_names_a_made_merge_and_stages_nothing(self):
+        self.git("checkout", "-q", "-B", "main")
+        self.main_with_sizes_of(self.git("rev-parse", "HEAD"))
+        main = self.git("rev-parse", "--short=8", "HEAD")
+        sizes = stats.kept(self.git("show", "HEAD:STATS.md"), stats.SIZES[0])
+        side = self.side_branch("side")
+        # The join's tree: a made merge, HEAD detached at it.
+        self.git("checkout", "-q", "--detach", "main")
+        self.git("merge", "-q", "--no-ff", "-m", "join", "side")
+        merge = self.git("rev-parse", "HEAD")
+        stats.main(["--root", self.root, "--count-head"])
+        with open(os.path.join(self.root, "STATS.md"), encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn(f"Counted at the merge of {side} into {main}, over", text)
+        code, test, comment = stats.totals(stats.count_rev(self.root, merge))
+        self.assertIn(f"| **Total** | **{code:,}** | **{test:,}** | **{comment:,}** |", text)
+        self.assertIn(sizes, text, "the sizes are kept")
+        self.assertEqual(self.git("rev-parse", "HEAD"), merge)
+        self.assertEqual(self.git("diff", "--cached", "--name-only"), "", "nothing staged")
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "M STATS.md")
+        # A HEAD that is not a made merge, and a merge still in progress, are refused, and nothing is written.
+        self.git("checkout", "-q", "--", "STATS.md")
+        for setup, why in ((("checkout", "-q", "--detach", "side"),), "not a merge"), (
+                (("checkout", "-q", "--detach", "main"), ("merge", "-q", "--no-ff", "--no-commit", "side")), "in progress"):
+            with self.subTest(why):
+                for cmd in setup:
+                    self.git(*cmd)
+                with self.assertRaises(SystemExit):
+                    stats.main(["--root", self.root, "--count-head"])
+                self.assertNotIn("STATS.md", self.git("status", "--porcelain", "--untracked-files=all"))
 
 
 if __name__ == "__main__":

@@ -135,6 +135,10 @@ FILTER = (
     ' | test(=rendering_costs_little_per_hundred_lines))"'
 )
 
+# These fixtures test the gate's wiring, not a daemon: like the cargo and
+# bench-script stand-ins, the new phase needs its two test modules present.
+REAL_DAEMON_TEST = "import unittest\nclass RealDaemon(unittest.TestCase):\n    def test_runs(self): pass\n"
+
 COMMITTED = {
     ".config/nextest.toml": NEXTEST,
     ".gitignore": "target\ncockpit/node_modules\ncrates/theseusd/cockpit/dist\n",
@@ -158,6 +162,8 @@ COMMITTED = {
     "scripts/recall-tests.sh": PASSES,
     "scripts/size-step.sh": PASSES,
     "scripts/prompt-step.sh": PASSES,
+    "scripts/tests/test_view_kit.py": REAL_DAEMON_TEST,
+    "scripts/tests/test_view_proof.py": REAL_DAEMON_TEST,
 }
 # The real scripts the gate runs here. line-pressure.py is real rather than a stand-in because the whole point of
 # its phase is that it cannot fail a gate, and the interesting case is the one this repository IS: a tree with
@@ -1310,6 +1316,7 @@ class SkipRegistry(unittest.TestCase):
             "keel_tests": 1,          # the guard and its suite are the base's
             "lifecycle_bench": 1,     # THESEUS_GATE_NO_BENCH=1
             "ran_or_skipped": 1,      # whatever the wrapped script said of itself
+            "real_daemon_tests": 1,   # no verified binaries for the measuring-kit cases
             "script_tests": 1,        # scripts/tests matched no test at all (a failure there is a `warn`, not a stand-down)
             "scrub_added": 3,         # the flag; no scrubber on the host; nothing added to scan
             "suite_applied": 1,       # nextest says it applied a default-filter
@@ -1515,6 +1522,36 @@ class BuildStamp(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         stamp = (self.root / "target" / "release" / ".theseus-build-stamp").read_text()
         self.assertEqual(stamp, f"{head} clean 7\n")
+
+    def test_a_release_build_records_its_sizes_outside_the_tree_and_a_record_that_fails_fails_nothing(self):
+        (self.root / "scripts" / "stats.py").write_text((HERE / "stats.py").read_text())
+        (self.root / "crates").mkdir()
+        for args in (("add", "-A"), ("commit", "-q", "-m", "counter")):
+            self.assertEqual(run(["git", *args], self.root, self.env).returncode, 0)
+        head = run(["git", "rev-parse", "HEAD"], self.root, self.env).stdout.strip()
+        p = self.build()
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        record = self.home / ".cache" / "theseus" / "stats-sizes.md"
+        self.assertIn(f"From the `release` build of {head[:8]} ", record.read_text())
+        self.assertEqual(run(["git", "status", "--porcelain"], self.root, self.env).stdout, "", "nothing in the tree")
+        # A record that cannot be written (its directory is a file) fails nothing, and says so.
+        p = self.build(THESEUS_STATS_SIZES=str(self.root / "notes.txt" / "sizes.md"))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("build: the sizes were not recorded", p.stderr)
+
+    def test_a_record_that_fails_is_one_line_of_the_build(self):
+        (self.root / "scripts" / "stats.py").write_text((HERE / "stats.py").read_text())
+        (self.root / "crates").mkdir()
+        for args in (("add", "-A"), ("commit", "-q", "-m", "counter")):
+            self.assertEqual(run(["git", *args], self.root, self.env).returncode, 0)
+        ok = self.build()
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+        # The record's directory is a file: the record fails, and all the build says of it is one line.
+        p = self.build(THESEUS_STATS_SIZES=str(self.root / "notes.txt" / "sizes.md"))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        said = [line for line in (p.stdout + p.stderr).splitlines() if line not in (ok.stdout + ok.stderr).splitlines()]
+        self.assertEqual(len(said), 1, said)
+        self.assertTrue(said[0].startswith("build: the sizes were not recorded for STATS.md"), said)
 
 
 if __name__ == "__main__":

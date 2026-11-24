@@ -29,13 +29,17 @@ pub enum LedgerCmd {
     /// The chain's current head: its digest, seq and WAL position, as the daemon's writer last
     /// committed it. Record it somewhere the ledger's editor can't reach.
     Head,
-    /// The exchange ledger's rows of private turns, summed: whether the place's last exchange was
-    /// in view, what the context sent was made of, cold starts, the things named, the judge's
-    /// unread answers, gaps and overlaps, and who typed at the terminal. Counts only.
+    /// The exchange ledger's rows of private turns, summed: first the three answers (was the
+    /// place's previous exchange in what the model was sent, how often his message named a thing
+    /// the index knows, what the context sent was made of), then every group: cold starts, the
+    /// judge's unread answers, gaps and overlaps, and who typed at the terminal. Counts only.
     Exchanges {
         /// Only the newest N rows.
         #[arg(short, long)]
         n: Option<u64>,
+        /// Only rows since this: an age (30m, 12h, 7d, 2w) or a date (2026-10-15).
+        #[arg(long)]
+        since: Option<String>,
     },
     /// Write the exchanges of turns from before the exchange ledger, from their nodes. A place
     /// and a person are filled only where a stored record proves them; the rest say unknown.
@@ -60,6 +64,49 @@ pub enum LedgerCmd {
         #[arg(long)]
         over_day_line: bool,
     },
+    /// A reading sheet of the one-line summaries and first-level fold nodes, each beside its writer's
+    /// material rebuilt today (not a copy of what the writer was given) and as the view shows it, for
+    /// you to mark each one right or wrong; an item that may not show what its writer was given says
+    /// so. A sample holds summaries and nodes that exist, from every place when none is named: it can
+    /// include exchanges opened by a guest or by an agent's process, and lines from before a /new.
+    /// Yours alone, at your own terminal; it stores nothing and calls no model. `--seed` draws the
+    /// same items again. At most 500 summaries and 100 nodes.
+    Gists {
+        /// One place, as the exchange ledger names it; default: every place.
+        place: Option<String>,
+        /// How many one-line summaries to draw.
+        #[arg(long, default_value_t = 50)]
+        lines: u32,
+        /// How many first-level fold nodes to draw.
+        #[arg(long, default_value_t = 10)]
+        nodes: u32,
+        /// The draw's seed, as a sheet printed it; default: a new one.
+        #[arg(long)]
+        seed: Option<u64>,
+    },
+    /// File your exchanges from before topics were filed per exchange: each one's opening message
+    /// is asked of the ontology's judge once, and touches its topics. No topic is made and no
+    /// session is filed. Yours to run, in person, at your own terminal. Run `--dry-run` first.
+    ///
+    /// A touch this writes means the old exchange fits that topic as judged today, with today's
+    /// topics; it is placed at the exchange's own date.
+    Topics {
+        /// Count the exchanges it would ask and their worst case, and ask nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// The most this run may spend, in dollars (default 10). It stops before the exchange
+        /// that would pass it; a rerun goes on from there.
+        #[arg(long, value_parser = cap_usd, allow_negative_numbers = true)]
+        cap_usd: Option<f64>,
+    },
+}
+
+/// `--cap-usd` of `theseus ledger topics`, read before any request is built:
+/// a number, and one [`theseus_protocol::exchange::topics_cap`] holds.
+fn cap_usd(s: &str) -> Result<f64, String> {
+    let usd: f64 =
+        (s.trim().parse()).map_err(|_| format!("--cap-usd is a number of dollars, not {s:?}"))?;
+    theseus_protocol::exchange::topics_cap(usd)
 }
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
@@ -72,7 +119,9 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
             },
             false,
         ),
-        LedgerCmd::Exchanges { n } => return crate::exchanges_cmd::report(conn, json, n).await,
+        LedgerCmd::Exchanges { n, since } => {
+            return crate::exchanges_cmd::report(conn, json, n, since.as_deref()).await
+        }
         LedgerCmd::RebuildExchanges { dry_run } => {
             return crate::exchanges_cmd::rebuild(conn, json, dry_run).await
         }
@@ -89,6 +138,23 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
                 (dry_run, cap_usd, over_day_line),
             )
             .await
+        }
+        LedgerCmd::Gists {
+            place,
+            lines,
+            nodes,
+            seed,
+        } => {
+            let p = theseus_protocol::exchange::ExchangeGistsParams {
+                place,
+                lines,
+                nodes,
+                seed,
+            };
+            return crate::exchanges_cmd::gists(conn, json, p).await;
+        }
+        LedgerCmd::Topics { dry_run, cap_usd } => {
+            return crate::exchanges_cmd::topics(conn, json, dry_run, cap_usd).await
         }
         LedgerCmd::Head => (
             LedgerVerifyParams {
@@ -301,5 +367,27 @@ mod tests {
         };
         assert!(text(lines(&r)).contains("no chain yet; 12 rows"));
         assert!(text(head_lines(&r)).contains("no chain yet"));
+    }
+
+    /// `theseus ledger topics --help` says what an old touch means: a
+    /// judgment made today, placed at the exchange's own date.
+    #[test]
+    fn the_topics_help_says_what_an_old_touch_means() {
+        use clap::{CommandFactory, Parser};
+        #[derive(Parser)]
+        struct T {
+            #[command(subcommand)]
+            cmd: LedgerCmd,
+        }
+        let mut t = T::command();
+        let help = t.find_subcommand_mut("topics").unwrap().render_long_help();
+        let flat = help
+            .to_string()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let said = "A touch this writes means the old exchange fits that topic as judged today, \
+                    with today's topics; it is placed at the exchange's own date.";
+        assert!(flat.contains(said), "{flat}");
     }
 }

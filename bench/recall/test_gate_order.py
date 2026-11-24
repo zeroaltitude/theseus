@@ -9,6 +9,8 @@ tests` phase must come after `test build`, and this holds it there.
 """
 
 import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -38,3 +40,45 @@ class GateOrder(unittest.TestCase):
             names.index("recall tests"), names.index("test build"),
             "gate.sh runs `recall tests` before `test build`, so bench/recall's driver tests either skip "
             f"(no binaries) or drive the previous head's: {names}")
+
+    def test_real_daemon_tests_run_after_build_and_recall(self):
+        names = phase_order()
+        self.assertIn("real daemon tests", names)
+        self.assertIn('phase "real daemon tests" real_daemon_tests', GATE.read_text())
+        self.assertGreater(names.index("real daemon tests"), names.index("test build"))
+        self.assertEqual(names.index("real daemon tests"), names.index("recall tests") + 1)
+
+    def test_real_daemon_phase_keeps_skip_and_warning_in_its_callers_shell(self):
+        body = re.search(r"^real_daemon_tests\(\) \{.*?^\}", GATE.read_text(), re.M | re.S).group()
+        for case in ("pass", "skip", "skip_quoted", "fail"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                script = """
+set -eu
+resolve_target_dir() { target_dir=/tmp/test-target; }
+phase_label=""; skipped=""; warned=""
+skip() { skipped=yes; }
+warn() { warned=yes; }
+python3() {
+  test "$CARGO_TARGET_DIR" = /tmp/test-target
+  test "$PYTHONDONTWRITEBYTECODE" = 1
+  case "$1" in -m) ;; *) return 9 ;; esac
+  case "$mode" in
+    pass) echo 'Ran 2 tests'; echo OK ;;
+    skip) echo "test_example ... skipped 'missing current binaries'" ;;
+    skip_quoted) echo 'test_example ... skipped "cannot verify binaries"' ;;
+    fail) echo FAILED; return 1 ;;
+  esac
+}
+""" + body + """
+real_daemon_tests
+printf 'RESULT label=%s skip=%s warn=%s\n' "$phase_label" "$skipped" "$warned"
+"""
+                result = subprocess.run(["bash", "-c", 'gate_tmp="$1"; mode="$2"; ' + script, "phase", tmp, case], text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                expected = {
+                    "pass": "RESULT label= skip= warn=",
+                    "skip": "RESULT label=real daemon tests skipped skip=yes warn=",
+                    "skip_quoted": "RESULT label=real daemon tests skipped skip=yes warn=",
+                    "fail": "RESULT label=real daemon tests warned skip= warn=yes",
+                }[case]
+                self.assertIn(expected, result.stdout)

@@ -121,9 +121,10 @@ view's reach, and the turn takes the view all the same. The rebuild erases nothi
 that was written as it happened or carries a mark, and only its unmarked older history is out of its reach. No mark
 is ever made backwards.
 
-**Not built**: the search before the first word (§6, rung 2) and the `leans_on` question; asking a task itself, and
+**Not built**:
 §7's own table for a task (a task's turns use a place's table at the task's own place: §7, "as built"); writing `did` lines and fold nodes again after a correction; the yardstick; the aside;
-step 10; and the `derived_from` edges of §3.
+step 10; and the `derived_from` edges of §3. The search before the first word is recall, and rung 2's own search
+is not built; the `leans_on` question is dropped with issue 43's line (both §6, "As built").
 
 **Numbers the plan calls settings are constants.** The window's floor (30), N, the fold step (20), the ceiling (60,000), slot G's allowance (150,000),
 the clearing's marks (80,000 and 40,000), the history tool's looks a turn (5), the floor (three exchanges) and
@@ -171,7 +172,8 @@ folded ladder stays above the 30 (his answer).
    of the ladder; by search over what was really said in the last two days; and by a tool the model is always
    offered, which hands it the next hundred exchanges back whenever *it* thinks it is missing something, with
    no horizon. One clear find is brought in; several are offered. **As built**: the tool is there; the search
-   of the last two days before the first word is not, and a name brings nothing into the view yet.
+   before the first word is recall, each note naming the handle that opens its exchange, and the search of the
+   last two days is not built, by the owner's decision of 2026-11-23 (§6); a name brings nothing into the view yet.
 9. **A task is a point of view too.** Its context is assembled around its objective, its jobs, its evidence and
    what the owner has said about it anywhere. Joining it gives its status at once from records. Its objective
    changes only through the owner's own gate, on his current words.
@@ -599,7 +601,7 @@ per turn today, so step 1 adds it). A new session does not start a new place or 
   first level keeps the line.
 - **A source is summarised only when it is proven neither sealed nor veiled**, checked again just before the model
   call; a window that is held out folds by code, marked sealed and veiled. The ladder's spend has a daily line of
-  its own ($2), reserved before each call. `theseus exchanges ladder <place>` builds a place's ladder from its
+  its own ($2), reserved before each call. `theseus ledger ladder <place>` builds a place's ladder from its
   history; only the owner in person may run it.
 - **`/new`** is the chat's `/new`; the terminal has none. The terminal and the web page are one place,
   `local:<dir>`.
@@ -629,6 +631,8 @@ by recall. A view record kept before it still reads: its pieces of those bands a
    is called in at once; and when the judge's answer for this message arrives in time, it calls its topic in as
    well (otherwise the topic is in play from the next turn). History is filed once, by the judge, exchange by
    exchange, under his consent to send history to it.
+   **As built** (issue 46; `docs/design/names.md`): `theseus ledger topics`, his act in person, under a cap he
+   names, after a dry run that prices it. It writes touches only: no topic is made and no session is filed.
 2. **Bring**, for each thing recognised and not already in view: its card (≤12 lines); its current facts; its
    open tasks; the owner's guidance for it; from its timeline the newest exchange in *spoken* form and the two
    before as lines; **and his own words about it through time**: the thing's timeline, his lines verbatim,
@@ -664,8 +668,10 @@ because a selector chose it this turn, and for no other reason.
   tasks, the owner's guidance, and the newest three exchanges of its timeline with the words that opened each),
   the whole card behind the gate. Facts are the owner's standing records scoped to the thing's own place or
   session; no stored record names a fact's subject yet, so a topic has no facts of its own.
-- **None of it reaches a model yet.** The name matcher is not wired into the view, so no name calls a thing in,
-  and nothing is in play.
+- **The matcher is wired into the view.** A view assembled inside the core reads its names through it
+  (`view::sources_names::Called`, built for each assembly in `turn/view_step.rs`): a message's names call their
+  things' cards into slot H, and the things named by the exchanges in play are in play. The joined task card's
+  own check (§7) does not read it yet.
 
 ## 6. A reference with nothing in view
 
@@ -709,8 +715,25 @@ The search reads replies as well as his words for a reason: "the second one" ref
 **If the judge is absent.** After three timeouts in a row the turn stops waiting until one answers. Rungs 0, 1
 and 3 need no judge.
 
-**As built**, only rungs 0 and 3 exist. Nothing is recognised into the view (rung 1), there is no search before
-the first word (rung 2), and `leans_on` is not asked. The judge's `fragment`, `mentions_other_conversation` and
+**As built**, rungs 0 and 3 exist, and the search before the first word is recall. Nothing is recognised into
+the view (rung 1).
+
+- **Rung 2 is recall, by the owner's decision of 2026-11-23.** Recall, as it runs before every first word, is the
+  search before the first word; rung 2's separate search is not built: no judge trigger, no two-day limit, no
+  small-model check of the top hits, no offer of candidates to ask which, no "unresolved" line. Why: recall
+  already searches before every first word, over his words, Theseus's replies and tool results in every place,
+  with the message and the reply before it as its query, and leaves out what is already in view; rung 2 would be
+  a second search beside it.
+- **What rung 2 brought into slot H is one open away.** Each recalled note ends with a line
+  `open: <handle> (context_history)`, the handle of its exchange, and the memory page (version 5 on) says so. A note
+  names a handle only where the history tool's `open` gives that exchange to the asking session, by the same
+  test (`Lens::opens`): an exchange on record, within a self-loop session's own place, not held by a fork's cut.
+  A node of no turn, a turn from before the ledger and an imported message name none. The line is rendered when
+  the view is assembled; nothing stored changes.
+- **`leans_on` is not asked.** It is the question of issue 43's dropped line (a message's dangling reference),
+  dropped with it by the owner's decision of the same day; its one reader would have been rung 2's trigger.
+
+The judge's `fragment`, `mentions_other_conversation` and
 `addressed_task` answers are recorded on the ledger's measuring row; of them only `addressed_task` is acted on
 (§7). The history tool, `context.history`:
 
@@ -795,11 +818,12 @@ step 8, after the card.
   place, `task:<task id>`, and its turns write exchanges there. Its window is its opening (the brief and the
   arrangement's pieces, which no turn's id carries) and its own earlier exchanges; on its first turn the brief is the
   message the turn answers, and its card is laid beside the message. It uses a place's table at its own place, not
-  a table of its own. Asking the task itself is not built.
+  a table of its own.
 - **The joined card is built**, from records alone (objective, state, spend, plan step n of m, the jobs in
   flight, the task's last message cut at 300 tokens, each "as of" its time), only where the owner is alone. It is
   called in when the judge's `addressed_task` names exactly one task; a match on the task's name does not call it
-  yet, because the name matcher is not wired into the view.
+  yet: the matcher is wired into the view (§5.4), but the card's check (`task_graph::joined::StoreCards`) is given
+  the store's sources, which name nothing.
 - **Decision 6 is built, and its judge runs in shadow.** The checks are written: an independent typed judgment
   of this exact message naming this task, this version and a narrowing; the kind `narrows`; not a task's own
   session; the whole id; the newest version, and his message not older than it; nothing the turn admitted from
@@ -818,6 +842,32 @@ step 8, after the card.
   narrowing apply without one. **Only narrowing can act**: a pause still goes to the card (the judge records
   `pauses`, but the durable cardless pause path is not built), and a resume keeps its card in every state: it
   starts work again.
+- **Asking the task itself is built** (`task_graph/ask.rs`, the tool `task.ask`). The conversation model puts one
+  question to a task with a session; the request is the task's next one, built by the census's path (the turn's
+  one assembler and the view's compile, at the task's own place) with the question as its message, sent to the
+  task's own model with no tool (the window's calls and results laid as text). It is one provider call of the
+  asking turn's: its worst case is reserved in the kernel before anything is sent, under the conversation's spend
+  limit and the same day-ceiling policy as the turn's own calls (in the default notify mode the day's ceiling
+  warns and does not refuse, and the separate runaway line still refuses; its stop mode refuses the call at the
+  ceiling, before it leaves), and it goes through the providers that mask the vault's values at the exit. A call
+  that answers, or meets a provider failure classified as costing nothing, is settled at its known price (zero
+  for that failure); one whose cost cannot be known (a timeout, a cut stream, a stop or a deadline that drops it
+  once its send may have begun) keeps its whole reservation held as unknown, never released. When the tool
+  writes the result (a timeout, a cut stream), the result says so. When the runtime stops the tool (a `/stop`,
+  the outer deadline), its usual stopped or timeout line is shown, and that line does not yet say that the
+  call's cost is held. One dropped before its send costs nothing. Its answer is headed `[Task
+  <id> "<title>", v<version>: its own answer, from its own view; not a record, and not the owner's word]`, laid
+  inside the content-derived outside fence a later view draws, and **marked as outside text**, as a fetched page
+  is: every act gate and the injection freeze read it so, and a narrowing after it in the same exchange keeps its
+  card. Every failure result the tool writes once the task is found (a provider's error, a timeout, a refusal of
+  the call) is marked so too, headed in the harness's words as no answer, the provider's words quoted inside a
+  fence. Nothing is written
+  into the task (no node in its session, no exchange at its place, no new version of its record). Two asks a
+  turn; a task's own session may not ask. **Whose tasks, from where**: any task, by its id, from any
+  conversation that is not itself a task, whatever place or person started it. That is the reach the task card
+  and the task edits already have; it is wider than `task.wait`'s, which waits only on the asking execution's own
+  tasks. It is offered wherever the other task tools are (anything goes, 2026-11-22), not only where the owner
+  is alone.
 - **A model-proposed pause was withdrawn.** `task.update` offers `narrows`, `widens` and `replaces` only, and has
   no pause field; a call that asks for a pause is refused. The pause as first built set a state on the record and held nothing that ran,
   and making it a real hold inside the kernel's frame was not a small change. The owner's own `task.pause` and
@@ -910,8 +960,8 @@ bar below has been checked. The view went live behind its setting without them.
 
 | Question | Measured by | What stops or changes it |
 |---|---|---|
-| Was the previous exchange in view? His last words elsewhere? | the ledger's row on every private turn (step 1), by ids; the fault itself replayed with the judge unplugged | any miss on the floor |
-| How often does he name something Theseus can recognise? | the same row: things found in each message and in the reply before it | under 1 in 5 messages: names and the `item` kind come before anything leans on them |
+| Was the previous exchange in view? His last words elsewhere? | the ledger's row on every private turn (step 1), by ids, answered over his own messages' turns by `theseus ledger exchanges --since <day>` (a miss the row cannot explain is held by a seal or a gate, or a real miss); the fault itself replayed with the judge unplugged | any miss on the floor |
+| How often does he name something Theseus can recognise? | the same row: things found in each message and in the reply before it; the same command's share of his turns that named at least one | under 1 in 5 messages: names and the `item` kind come before anything leans on them |
 | Does the shadow view hold what today's answer drew on? | the attribution judge (in shadow today for recall) reads the **live** reply, made from today's full context, and marks which earlier exchanges it drew on; then: of those, the share the **shadow** view held. This is *observed-support coverage*, a diagnostic, not completeness | under 95% overall, under 90% for what lay outside the last three exchanges |
 | Does it bring what is *needed*, including what today misses? | a frozen set of labelled cases, made before any selector is compared: for each, the evidence required, the right referent, the current fact, the forbidden fact. Classes: a callback here; a callback from another place; "the second option" days later; a corrected fact; a task update; a forbidden disclosure. Evidence recovery and answer correctness are scored separately, at equal budgets, per case | any class worse than today's build |
 | Does it answer as well? | past turns replayed in a scratch daemon both ways, from a snapshot as of the turn, with recorded tool results and with deliveries and changes suppressed; graded against a written rubric by a strong model, a sample read by the owner; reported by kind of turn (private, shared, task, long), with the count behind every share | the view loses more than 1 in 10 of the pairs that differ |
@@ -968,13 +1018,14 @@ naming either still loads, with a warning.) Step by step:
   session listings and a narrowing steer's already-sent text are not behind it yet.
 - **3**: not built as planned. His words in his other private places reach a model only in a place set to the
   view, as slot F; the per-turn block of a transcript place does not carry them. 3b is not built.
-- **4**: built, without the `gists` view and without his reading of 50 lines and 10 nodes.
-- **5**: the recognition half built, not run in shadow and not read by the view; the search and `leans_on` not
-  built.
+- **4**: built, with the `gists` view (`theseus ledger gists`), and without his reading of 50 lines and 10 nodes.
+- **5**: the recognition half built, not run in shadow and not read by the view. The search before the first word
+  is recall, each note naming the handle that opens its exchange; rung 2's own search is not built and `leans_on`
+  is dropped with issue 43's line, both by the owner's decision of 2026-11-23 (§6).
 - **6 and 7**: built as one, live behind `[context] assembly` with no shadow run, no labelled set, no replay, no
   benchmark arm and no yardstick. `theseus view show`, `theseus view preview` and the memory page came with it. Which place to try first is
   the owner's: the setting names it.
-- **8**: the card built; decision 6 built and off; the task's own view and asking the task not built (§7).
+- **8**: the card built; decision 6 built and off; the task's own view built; asking the task built (§7).
 - **9**: routing by a guess went everywhere, ahead of the benchmark (§9); a failed explicit address is refused;
   thread sessions are kept; the aside is not built.
 - **10 and 11**: not started, beyond the trims of the same day.
