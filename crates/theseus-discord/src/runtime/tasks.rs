@@ -229,6 +229,10 @@ impl Tasks {
             };
             std::mem::replace(old, c) != c
         });
+        // A task set for later has its card from the model alone
+        // (`waiting_to_start`): the scheduled cards' worker reads it now, not
+        // at its idle wake a minute on (issue 46).
+        self.future.sched.notify_one();
         sessions
     }
 
@@ -1094,6 +1098,30 @@ mod tests {
             seen.push(wait.as_secs());
         }
         assert_eq!(seen, [2, 4, 8, 16, 32, 60, 60, 60]);
+    }
+
+    /// The scheduled cards' worker is woken when the work model's answer is
+    /// applied (issue 46): a task set for later is a card only once the model
+    /// holds it, and nothing else woke the worker, which slept a minute.
+    #[tokio::test]
+    async fn the_card_worker_is_woken_when_the_work_model_first_answers() {
+        let t = Tasks::default();
+        let _ = tokio::time::timeout(Duration::ZERO, t.future.sched.notified()).await;
+        let mut later = crate::render::task_view::tests::deferred(1_790_003_600_000);
+        later.id = "exe_later".into();
+        later.root = "exe_chat".into();
+        t.snapshot(
+            1,
+            WorkWatchResult {
+                position: 1,
+                views: vec![later],
+                total: 1,
+            },
+        );
+        assert_eq!(t.waiting_to_start().len(), 1);
+        tokio::time::timeout(Duration::from_millis(100), t.future.sched.notified())
+            .await
+            .expect("the card worker was not woken");
     }
 
     #[test]
