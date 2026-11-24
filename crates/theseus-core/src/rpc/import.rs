@@ -140,7 +140,7 @@ impl Core {
             ));
         }
         if name.starts_with("thread.") {
-            return self.rpc_threads(name);
+            return Self::rpc_threads(name);
         }
         if super::peek::OWN.contains(&name) {
             return self.rpc_peek(name, params, conn);

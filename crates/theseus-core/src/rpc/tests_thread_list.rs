@@ -68,8 +68,8 @@ fn a_shared_place_can_neither_list_nor_show_a_thread() {
     }]);
     stored(&c, "tides");
     let refused = |e: super::server::RpcFailure| assert_eq!(e.code, REFUSED, "{}", e.message);
-    refused(c.rpc_threads("thread.list").unwrap_err());
-    refused(c.rpc_threads("thread.show").unwrap_err());
+    refused(Core::rpc_threads("thread.list").unwrap_err());
+    refused(Core::rpc_threads("thread.show").unwrap_err());
     assert!(
         c.outbox.place_session("thread:tides").unwrap().is_none(),
         "no place was bound"

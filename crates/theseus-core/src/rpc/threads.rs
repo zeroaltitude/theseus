@@ -11,7 +11,7 @@ use crate::threads::Board;
 impl Core {
     /// Every `thread.*` method: threads were retired on 2026-11-22 (issue 44), so each is refused,
     /// and a client that still sends one is told why.
-    pub(super) fn rpc_threads(&self, name: &str) -> Result<serde_json::Value, RpcFailure> {
+    pub(super) fn rpc_threads(name: &str) -> Result<serde_json::Value, RpcFailure> {
         Err(RpcFailure::new(
             error_code::REFUSED,
             format!(
