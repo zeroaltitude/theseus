@@ -746,3 +746,218 @@ async fn old_threads_neither_make_cards_nor_compete_with_current_names() {
         "the old record still reads"
     );
 }
+
+// ---------------------------------------------------- picture labels (issue 46)
+
+/// Every picture label's touch key the store holds.
+fn picture_keys(r: &Rig) -> Vec<String> {
+    use theseus_store::Store as _;
+    let prefix = format!(
+        "{}{}",
+        exchange::TOUCH_PREFIX,
+        Root::Thing(crate::names::pictures::PREFIX).key()
+    );
+    r.core
+        .store
+        .inner()
+        .latest_with_prefix(theseus_store::kinds::META, &prefix)
+        .unwrap()
+        .into_iter()
+        .filter_map(|x| x.key)
+        .collect()
+}
+
+/// The touches of picture label `root`.
+fn pictures(r: &Rig, root: &str) -> Vec<exchange::Touch> {
+    exchange::newest(&r.core.store, Root::Thing(root), 10).unwrap()
+}
+
+/// Scripts the onto pack's two picture questions.
+fn script_pictures(jev: &FakeJev, subject: (&str, f64), screen: f64) {
+    jev.script_onto("image_subject", subject.0, subject.1);
+    jev.script(
+        &format!("{}/shows_screen_or_document", crate::judge::onto::ONTO_PACK),
+        theseus_judge::fake::Scripted::Noul(screen),
+    );
+}
+
+/// Whether a request to the fake asked the onto pack's subject question.
+fn subject_asked(jev: &FakeJev) -> bool {
+    let q = format!("{}/image_subject", crate::judge::onto::ONTO_PACK);
+    let asked = |s: &theseus_judge::fake::Seen| s.body["questions"].get(&q).is_some();
+    jev.seen().iter().any(asked)
+}
+
+/// A turn in `sid` with one picture, then the sink's frame written: the
+/// turn's id.
+async fn pictured(r: &Rig, sid: &str) -> String {
+    let raw = theseus_judge::fake::gps_png(500, 500);
+    let done = crate::tests_route::turn_attached(
+        &r.core,
+        Some(sid),
+        "what is this?",
+        None,
+        vec![crate::tests_onto::picture_file("shot.png", &raw)],
+    )
+    .await;
+    let judge = r.core.runner.judge.clone();
+    tokio::task::spawn_blocking(move || judge.flush_sink())
+        .await
+        .unwrap();
+    done.turn_id
+}
+
+/// KEY: a picture of a document, at the act band, touches the exchange of the
+/// message that carried it under its subject and under the screen label, at
+/// the exchange's own time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_picture_of_a_document_touches_its_exchange_under_its_subject() {
+    let jev = FakeJev::start().unwrap();
+    script_pictures(&jev, ("document", 0.95), 0.9);
+    let r = rig(jev);
+    let sid = bound(&r.core);
+    let turn = pictured(&r, &sid).await;
+    let ex = exchange::exchange(&r.core.store, &turn)
+        .unwrap()
+        .expect("the turn's exchange");
+    for root in ["picture:document", "picture:shows_screen_or_document"] {
+        let [t] = pictures(&r, root).try_into().unwrap_or_else(|v| {
+            panic!("{root}: one touch: {v:?}");
+        });
+        assert_eq!(
+            (t.exchange.as_str(), t.session_id.as_str(), t.at_ms),
+            (turn.as_str(), ex.session_id.as_str(), ex.start_ms),
+            "{root}"
+        );
+    }
+    assert_eq!(picture_keys(&r).len(), 2, "{:?}", picture_keys(&r));
+}
+
+/// A photo that shows no screen has its subject's label alone: a no to the
+/// screen question writes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_photo_that_shows_no_screen_has_its_subject_alone() {
+    let jev = FakeJev::start().unwrap();
+    script_pictures(&jev, ("photo", 0.95), 0.1);
+    let r = rig(jev);
+    let sid = bound(&r.core);
+    let turn = pictured(&r, &sid).await;
+    let touched: Vec<String> = pictures(&r, "picture:photo")
+        .into_iter()
+        .map(|t| t.exchange)
+        .collect();
+    assert_eq!(touched, vec![turn]);
+    assert!(pictures(&r, "picture:shows_screen_or_document").is_empty());
+    assert_eq!(picture_keys(&r).len(), 1, "{:?}", picture_keys(&r));
+}
+
+/// Below the act band no picture is labelled, though both were asked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_picture_below_the_act_band_is_not_labelled() {
+    let jev = FakeJev::start().unwrap();
+    script_pictures(&jev, ("document", 0.7), 0.7);
+    let r = rig(jev);
+    let sid = bound(&r.core);
+    let turn = pictured(&r, &sid).await;
+    assert!(subject_asked(&r.jev), "the picture was asked about");
+    assert!(exchange::exchange(&r.core.store, &turn).unwrap().is_some());
+    assert!(picture_keys(&r).is_empty(), "{:?}", picture_keys(&r));
+}
+
+/// A message with no picture writes no picture label, and its topic is
+/// touched as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_without_a_picture_writes_no_picture_label() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    script_pictures(&jev, ("document", 0.95), 0.9);
+    let r = rig(jev);
+    ledger_category(&r);
+    let sid = bound(&r.core);
+    let turn = said(&r, &sid).await;
+    assert!(!subject_asked(&r.jev), "no picture, no picture question");
+    assert!(picture_keys(&r).is_empty(), "{:?}", picture_keys(&r));
+    let touched: Vec<String> = timeline(&r, "topic:ledger")
+        .into_iter()
+        .map(|t| t.exchange)
+        .collect();
+    assert_eq!(touched, vec![turn], "the topic is touched as before");
+}
+
+/// KEY: the onto pack in shadow labels no picture: the gate is the one
+/// topics use.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shadow_onto_judgment_labels_no_picture() {
+    let jev = FakeJev::start().unwrap();
+    script_pictures(&jev, ("document", 0.95), 0.9);
+    let r = crate::tests_onto::rig_with(jev, Vec::new(), |c| {
+        c.judge.packs.insert(
+            crate::judge::onto::ONTO_PACK.into(),
+            crate::config::JudgePackConfig {
+                mode: Some(crate::config::PackMode::Shadow),
+                sample: None,
+                notices: None,
+            },
+        );
+    });
+    let sid = bound(&r.core);
+    pictured(&r, &sid).await;
+    assert!(subject_asked(&r.jev), "the shadow pack was asked");
+    assert!(picture_keys(&r).is_empty(), "{:?}", picture_keys(&r));
+}
+
+/// KEY: the labels ride the judgment's own frame, so they and the answer
+/// they rest on are written together or not at all; a frame that failed is
+/// written again whole, and the labels land once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pictures_labels_ride_its_judgments_frame_and_land_once_after_a_retry() {
+    use std::sync::Mutex;
+    let jev = FakeJev::start().unwrap();
+    script_pictures(&jev, ("document", 0.95), 0.9);
+    let r = rig(jev);
+    let sid = bound(&r.core);
+    let prefix = format!(
+        "{}{}",
+        exchange::TOUCH_PREFIX,
+        Root::Thing(crate::names::pictures::PREFIX).key()
+    );
+    let failed: Arc<Mutex<Vec<(Option<String>, Option<String>)>>> = Arc::default();
+    let seen = failed.clone();
+    r.core.store.fail_plain_frame(move |rows| {
+        let hit = rows
+            .iter()
+            .any(|x| x.key.as_deref().is_some_and(|k| k.starts_with(&prefix)));
+        if hit {
+            *seen.lock().unwrap() = rows
+                .iter()
+                .map(|x| (x.scope.clone(), x.key.clone()))
+                .collect();
+        }
+        hit
+    });
+    let turn = pictured(&r, &sid).await;
+    let judge = r.core.runner.judge.clone();
+    tokio::task::spawn_blocking(move || judge.flush_sink())
+        .await
+        .unwrap();
+    let frame = failed.lock().unwrap().clone();
+    assert!(!frame.is_empty(), "a frame carried the picture labels");
+    let rows: Vec<&str> = frame
+        .iter()
+        .filter(|(scope, _)| scope.as_deref() == Some("judge:onto"))
+        .filter_map(|(_, key)| key.as_deref())
+        .collect();
+    assert!(
+        rows.iter().any(|k| k.starts_with("jdg_")),
+        "the onto judgment's row rode the same frame: {frame:?}"
+    );
+    assert_eq!(r.core.runner.judge.unwritten(), 0, "the retry wrote it");
+    assert_eq!(picture_keys(&r).len(), 2, "{:?}", picture_keys(&r));
+    for root in ["picture:document", "picture:shows_screen_or_document"] {
+        let touched: Vec<String> = pictures(&r, root)
+            .into_iter()
+            .map(|t| t.exchange)
+            .collect();
+        assert_eq!(touched, vec![turn.clone()], "{root}");
+    }
+}

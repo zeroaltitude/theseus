@@ -379,6 +379,8 @@ impl JudgeService {
         // And the topics it chose touch the message's exchange (issue 44).
         if let Some(c) = core.as_deref() {
             records.extend(crate::names::topics::of_batch(c, batch, filing.as_ref()));
+            // And its picture answers label the exchange the same way (issue 46).
+            records.extend(crate::names::pictures::of_batch(c, batch));
         }
         let marks = self.unwritten_marks(batch);
         for (key, mark) in &marks {
