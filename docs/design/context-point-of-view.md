@@ -121,7 +121,7 @@ view's reach, and the turn takes the view all the same. The rebuild erases nothi
 that was written as it happened or carries a mark, and only its unmarked older history is out of its reach. No mark
 is ever made backwards.
 
-**Not built**: asking a task itself, and
+**Not built**:
 §7's own table for a task (a task's turns use a place's table at the task's own place: §7, "as built"); writing `did` lines and fold nodes again after a correction; the yardstick; the aside;
 step 10; and the `derived_from` edges of §3. The search before the first word is recall, and rung 2's own search
 is not built; the `leans_on` question is dropped with issue 43's line (both §6, "As built").
@@ -668,8 +668,10 @@ because a selector chose it this turn, and for no other reason.
   tasks, the owner's guidance, and the newest three exchanges of its timeline with the words that opened each),
   the whole card behind the gate. Facts are the owner's standing records scoped to the thing's own place or
   session; no stored record names a fact's subject yet, so a topic has no facts of its own.
-- **None of it reaches a model yet.** The name matcher is not wired into the view, so no name calls a thing in,
-  and nothing is in play.
+- **The matcher is wired into the view.** A view assembled inside the core reads its names through it
+  (`view::sources_names::Called`, built for each assembly in `turn/view_step.rs`): a message's names call their
+  things' cards into slot H, and the things named by the exchanges in play are in play. The joined task card's
+  own check (§7) does not read it yet.
 
 ## 6. A reference with nothing in view
 
@@ -816,11 +818,12 @@ step 8, after the card.
   place, `task:<task id>`, and its turns write exchanges there. Its window is its opening (the brief and the
   arrangement's pieces, which no turn's id carries) and its own earlier exchanges; on its first turn the brief is the
   message the turn answers, and its card is laid beside the message. It uses a place's table at its own place, not
-  a table of its own. Asking the task itself is not built.
+  a table of its own.
 - **The joined card is built**, from records alone (objective, state, spend, plan step n of m, the jobs in
   flight, the task's last message cut at 300 tokens, each "as of" its time), only where the owner is alone. It is
   called in when the judge's `addressed_task` names exactly one task; a match on the task's name does not call it
-  yet, because the name matcher is not wired into the view.
+  yet: the matcher is wired into the view (§5.4), but the card's check (`task_graph::joined::StoreCards`) is given
+  the store's sources, which name nothing.
 - **Decision 6 is built, and its judge runs in shadow.** The checks are written: an independent typed judgment
   of this exact message naming this task, this version and a narrowing; the kind `narrows`; not a task's own
   session; the whole id; the newest version, and his message not older than it; nothing the turn admitted from
@@ -839,6 +842,32 @@ step 8, after the card.
   narrowing apply without one. **Only narrowing can act**: a pause still goes to the card (the judge records
   `pauses`, but the durable cardless pause path is not built), and a resume keeps its card in every state: it
   starts work again.
+- **Asking the task itself is built** (`task_graph/ask.rs`, the tool `task.ask`). The conversation model puts one
+  question to a task with a session; the request is the task's next one, built by the census's path (the turn's
+  one assembler and the view's compile, at the task's own place) with the question as its message, sent to the
+  task's own model with no tool (the window's calls and results laid as text). It is one provider call of the
+  asking turn's: its worst case is reserved in the kernel before anything is sent, under the conversation's spend
+  limit and the same day-ceiling policy as the turn's own calls (in the default notify mode the day's ceiling
+  warns and does not refuse, and the separate runaway line still refuses; its stop mode refuses the call at the
+  ceiling, before it leaves), and it goes through the providers that mask the vault's values at the exit. A call
+  that answers, or meets a provider failure classified as costing nothing, is settled at its known price (zero
+  for that failure); one whose cost cannot be known (a timeout, a cut stream, a stop or a deadline that drops it
+  once its send may have begun) keeps its whole reservation held as unknown, never released. When the tool
+  writes the result (a timeout, a cut stream), the result says so. When the runtime stops the tool (a `/stop`,
+  the outer deadline), its usual stopped or timeout line is shown, and that line does not yet say that the
+  call's cost is held. One dropped before its send costs nothing. Its answer is headed `[Task
+  <id> "<title>", v<version>: its own answer, from its own view; not a record, and not the owner's word]`, laid
+  inside the content-derived outside fence a later view draws, and **marked as outside text**, as a fetched page
+  is: every act gate and the injection freeze read it so, and a narrowing after it in the same exchange keeps its
+  card. Every failure result the tool writes once the task is found (a provider's error, a timeout, a refusal of
+  the call) is marked so too, headed in the harness's words as no answer, the provider's words quoted inside a
+  fence. Nothing is written
+  into the task (no node in its session, no exchange at its place, no new version of its record). Two asks a
+  turn; a task's own session may not ask. **Whose tasks, from where**: any task, by its id, from any
+  conversation that is not itself a task, whatever place or person started it. That is the reach the task card
+  and the task edits already have; it is wider than `task.wait`'s, which waits only on the asking execution's own
+  tasks. It is offered wherever the other task tools are (anything goes, 2026-11-22), not only where the owner
+  is alone.
 - **A model-proposed pause was withdrawn.** `task.update` offers `narrows`, `widens` and `replaces` only, and has
   no pause field; a call that asks for a pause is refused. The pause as first built set a state on the record and held nothing that ran,
   and making it a real hold inside the kernel's frame was not a small change. The owner's own `task.pause` and
@@ -996,7 +1025,7 @@ naming either still loads, with a warning.) Step by step:
 - **6 and 7**: built as one, live behind `[context] assembly` with no shadow run, no labelled set, no replay, no
   benchmark arm and no yardstick. `theseus view show`, `theseus view preview` and the memory page came with it. Which place to try first is
   the owner's: the setting names it.
-- **8**: the card built; decision 6 built and off; the task's own view and asking the task not built (§7).
+- **8**: the card built; decision 6 built and off; the task's own view built; asking the task built (§7).
 - **9**: routing by a guess went everywhere, ahead of the benchmark (§9); a failed explicit address is refused;
   thread sessions are kept; the aside is not built.
 - **10 and 11**: not started, beyond the trims of the same day.

@@ -7,6 +7,9 @@
 //! owner in person (`Verified::of_preview`); a task's at the task's own place, with the presence its turns get
 //! from the call that started it (`Verified::of_task`); a fresh session's at an empty place of the kind asked
 //! for, which holds nothing to read (`Verified::of_fresh`).
+//!
+//! A message given (`task.ask`'s question, `task_graph::ask`) is assembled for, and laid as the message of a
+//! turn that never runs: a node in memory alone, after the session's own, which no store holds.
 
 use anyhow::{anyhow, Result};
 use theseus_memory::recall::Place;
@@ -19,6 +22,8 @@ use crate::view_gate::{place_name, Verified};
 
 /// The turn id a census's view is assembled under: no turn has it.
 const CENSUS_TURN: &str = "census";
+/// Who a given message is from: another conversation, through `task.ask`.
+const ASKER: &str = "task.ask";
 
 impl TurnRunner {
     /// The place and the point of view `rec`'s next request is assembled at, or a fresh session's of
@@ -72,13 +77,14 @@ impl TurnRunner {
     }
 
     /// `sid`'s next request (`rec` none: a fresh session's first, of `place_kind`), as a view turn's first
-    /// call compiles it, for an empty message. A floor too large for the model's window fails in words, as a
-    /// turn would.
+    /// call compiles it, for `message` (empty: none is laid). A floor too large for the model's window fails
+    /// in words, as a turn would.
     pub(crate) fn census_view_compile(
         &self,
         (sid, rec): (&str, Option<&SessionRecord>),
         kind: (&str, PlaceClass),
         input: CompileInput<'_>,
+        message: &str,
     ) -> Result<Compiled> {
         let (_, verified) = self.census_pov(sid, rec, kind)?;
         let person = rec
@@ -92,7 +98,7 @@ impl TurnRunner {
                 person,
                 verified: Some(verified),
                 recalled: Vec::new(),
-                message: Some(String::new()),
+                message: Some(message.to_string()),
                 items: Vec::new(),
                 // A census measures the view a turn assembles; the harness's part is the turn's own.
                 harness: 0,
@@ -106,6 +112,24 @@ impl TurnRunner {
                  {tokens} tokens, and the window has room for {room}"
             );
         }
+        if message.is_empty() {
+            return Ok(crate::compiler::view::compile(input, &built.frozen));
+        }
+        // The message, as this turn's own: the compile lays it after the block beside it, as a turn's.
+        let asked = crate::node::Node::relayed(
+            sid,
+            Some(CENSUS_TURN),
+            crate::node::Origin::Agent,
+            ASKER,
+            message,
+        );
+        let nodes: Vec<_> = (input.nodes.iter().cloned())
+            .chain([(input.last_position + 1, asked.into())])
+            .collect();
+        let input = CompileInput {
+            nodes: &nodes,
+            ..input
+        };
         Ok(crate::compiler::view::compile(input, &built.frozen))
     }
 }

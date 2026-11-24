@@ -156,6 +156,7 @@ pub const ALWAYS_LOADED: &[(&str, &[&str], &str)] = &[
     ("task_close", &["channel"], "tasks: channel default"),
     ("task_claim", &["channel"], "tasks: channel default"),
     ("task_split", &["channel"], "tasks: channel default"),
+    ("task_ask", &["channel"], "tasks: channel default"),
     (
         "wake_at",
         &["dm", "channel"],

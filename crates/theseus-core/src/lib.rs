@@ -98,6 +98,7 @@ pub mod ontology;
 pub mod outbound;
 pub mod outbox;
 pub mod outputs;
+pub mod owed_call;
 pub mod own_bench;
 pub mod owner_note;
 pub mod owner_proof;
