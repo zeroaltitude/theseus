@@ -8,17 +8,22 @@
 //!   node (`external.rs`, `task_graph/judged.rs`), so they see exactly what they saw: only the laid copy's
 //!   words (`content`, `text`, a text block) gain the line; its tool, mark and meta are as stored.
 //! - **Its words.** The line quotes nothing of a source but the gist and the reason its retraction row holds
-//!   (`retract.rs`, as its correction note does), with the day. A source erased since lays one fixed line in
-//!   place of all the words that showed it ([`ERASED_RESULT`], [`ERASED_REPORT`]).
+//!   (`retract.rs`, as its correction note does), with the day, and only of a source the kept text showed
+//!   (`copies::shows`; a report shows the one message it relays): a copy's edges are a conservative superset
+//!   (a runtime cut keeps a link to words it cut), and the line must not bring the words of a message the
+//!   conversation never saw. A source erased since lays one fixed line in place of all the words that may
+//!   have shown it, whether or not they did ([`ERASED_RESULT`], [`ERASED_REPORT`]).
 //! - **Once, then still.** The line depends only on what has been said, so two turns with nothing said
 //!   between them lay the same bytes; a correction changes the bytes of the earlier exchange once.
+//! - **Fail closed.** A source that cannot be found is treated as erased, as recall treats a source it cannot
+//!   read (`recall/render.rs`, `source`). A node with more edges than are read ([`SOURCES_READ`]) is laid
+//!   as one fixed line too ([`UNCHECKED_RESULT`], [`UNCHECKED_REPORT`]): its sources were not all checked.
 //! - **Its cost.** One edge-prefix read for each laid look back's result or report, and one node read for
-//!   each source it names (whether it was erased); none for any other node, whose own label is in the label
-//!   set already held in memory. The retraction rows are read once a window, and only when something laid
-//!   is labelled.
+//!   each source it names (whether it was erased); none for any other unlabelled node. A node in the label
+//!   set (held in memory) costs the retraction rows' one read a window.
 
 use std::cell::OnceCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use anyhow::Result;
 use theseus_protocol::LedgerKind;
@@ -34,9 +39,16 @@ use crate::stub::{Kind, Stub};
 pub const ERASED_RESULT: &str = "[This result showed words that have since been erased.]";
 /// What a task's report is laid as when the message it relayed was erased since.
 pub const ERASED_REPORT: &str = "[This report showed words that have since been erased.]";
+/// What a look back's result is laid as when it has more edges than are read: its sources were not all
+/// checked.
+pub const UNCHECKED_RESULT: &str =
+    "[This result showed more messages than can be checked now; its words are not laid.]";
+/// The same for a task's report.
+pub const UNCHECKED_REPORT: &str =
+    "[This report showed more messages than can be checked now; its words are not laid.]";
 
-/// The most sources one node's edges are read for.
-const SOURCES_READ: usize = 1_000;
+/// The most edges one node's sources are read from; a node with more is laid as [`UNCHECKED_RESULT`].
+pub const SOURCES_READ: usize = 1_000;
 
 /// The author prefix of a task's report relayed into its parent (`task_wait.rs`, `turn/catch_up.rs`).
 const REPORT_AUTHOR: &str = "task:";
@@ -57,8 +69,10 @@ struct Retracted {
 
 /// What has been said about one node since.
 enum Said {
-    /// A source it showed was erased: none of its words are laid.
+    /// A source it showed was erased, or cannot be found: none of its words are laid.
     Erased,
+    /// It names more sources than are read: none of its words are laid.
+    Unchecked,
     /// One line each.
     Lines(Vec<String>),
 }
@@ -95,28 +109,34 @@ impl<'a> Since<'a> {
             return Ok(None);
         }
         let mut lines = Vec::new();
-        for source in self.sources(n)? {
-            if self.erased(&source)? {
+        let Some((via, sources)) = self.sources(n)? else {
+            return Ok(Some(Said::Unchecked));
+        };
+        for source in sources {
+            let Some(src) = self.readable(&source)? else {
                 return Ok(Some(Said::Erased));
-            }
-            if self.wrong.contains(&source) {
+            };
+            if self.wrong.contains(&source) && (via == VIA_REPORT || super::shows(n, &src)) {
                 lines.push(self.line(&source, false)?);
             }
         }
         if self.wrong.contains(&n.id) {
             lines.push(self.line(&n.id, true)?);
         }
-        lines.dedup();
+        // Each line once, in the order first said: two sources labelled with no row say the same line.
+        let mut seen = HashSet::new();
+        lines.retain(|l| seen.insert(l.clone()));
         Ok((!lines.is_empty()).then_some(Said::Lines(lines)))
     }
 
-    /// The nodes whose words `n` showed: a look back's result's, by its copy edges; a task's report's, by
-    /// its report edge. None for any other node, and nothing is read for it.
-    fn sources(&self, n: &Node) -> Result<Vec<String>> {
+    /// The nodes whose words `n` showed, and their route: a look back's result's, by its copy edges; a
+    /// task's report's, by its report edge. Empty for any other node, and nothing is read for it; none when
+    /// `n` has more edges than are read ([`SOURCES_READ`]), so they cannot all be checked.
+    fn sources(&self, n: &Node) -> Result<Option<(&'static str, Vec<String>)>> {
         let route = match &n.body {
             Body::ToolResult { tool, .. } => match super::route(tool) {
                 Some(via) => via,
-                None => return Ok(Vec::new()),
+                None => return Ok(Some(("", Vec::new()))),
             },
             Body::UserMessage { .. }
                 if n.origin == Origin::Harness
@@ -124,22 +144,32 @@ impl<'a> Since<'a> {
             {
                 VIA_REPORT
             }
-            _ => return Ok(Vec::new()),
+            _ => return Ok(Some(("", Vec::new()))),
         };
         let prefix = format!("{}|{}|", EdgeKind::DerivedFrom.as_str(), n.id);
+        // One more than the bound is asked for, so a node past it is told apart from one at it.
+        let read =
+            (self.store.inner()).first_with_prefix(kinds::EDGE, &prefix, SOURCES_READ + 1)?;
+        if read.len() > SOURCES_READ {
+            return Ok(None);
+        }
         let mut out = Vec::new();
-        for r in (self.store.inner()).first_with_prefix(kinds::EDGE, &prefix, SOURCES_READ)? {
+        for r in read {
             let e: Edge = r.decode()?;
             if e.via == route && !out.contains(&e.to) {
                 out.push(e.to);
             }
         }
-        Ok(out)
+        Ok(Some((route, out)))
     }
 
-    /// Whether `id` reads as erased now (its newest record a tombstone).
-    fn erased(&self, id: &str) -> Result<bool> {
-        Ok((self.store.get_node(id)?).is_some_and(|(_, n)| matches!(n.body, Body::Erased { .. })))
+    /// The node `id` as it reads now; none when it was erased (its newest record a tombstone) or cannot be
+    /// found: either way its words are not shown, as recall does not show a source it cannot read.
+    fn readable(&self, id: &str) -> Result<Option<Node>> {
+        Ok(match self.store.get_node(id)? {
+            Some((_, n)) if !matches!(n.body, Body::Erased { .. }) => Some(n),
+            _ => None,
+        })
     }
 
     /// The line for `id`, which is labelled: the node's own (`own`), or a source's.
@@ -188,13 +218,17 @@ impl<'a> Since<'a> {
     }
 }
 
-/// Whether `n` showed words of a node erased since (a look back's result by its copy edges, a report by
-/// its report edge): a replay of a request that laid it would send them again (`own_bench::rebuild`).
+/// Whether `n` showed words of a node erased since, or cannot be found (a look back's result by its copy
+/// edges, a report by its report edge), or names more than are read: a replay of a request that laid it
+/// would send them again (`own_bench::rebuild`).
 pub fn shows_erased(store: &Store, n: &Node) -> Result<bool> {
     let none = BTreeSet::new();
     let s = Since::new(store, &none);
-    for source in s.sources(n)? {
-        if s.erased(&source)? {
+    let Some((_, sources)) = s.sources(n)? else {
+        return Ok(true);
+    };
+    for source in sources {
+        if s.readable(&source)?.is_none() {
             return Ok(true);
         }
     }
@@ -207,6 +241,8 @@ fn laid(n: &Node, said: Said) -> Node {
     match (&mut node.body, said) {
         (Body::ToolResult { content, .. }, Said::Erased) => *content = ERASED_RESULT.into(),
         (Body::UserMessage { text, .. }, Said::Erased) => *text = ERASED_REPORT.into(),
+        (Body::ToolResult { content, .. }, Said::Unchecked) => *content = UNCHECKED_RESULT.into(),
+        (Body::UserMessage { text, .. }, Said::Unchecked) => *text = UNCHECKED_REPORT.into(),
         (
             Body::ToolResult { content: text, .. } | Body::UserMessage { text, .. },
             Said::Lines(l),

@@ -44,9 +44,13 @@ fn retracted(store: &Store, node: &str) {
     store.append(&[row.scoped(crate::retract::SCOPE)]).unwrap();
 }
 
-/// A result of `tool` that showed `of`, by `via`, stored with its edge; marked outside, with meta.
+/// A result of `tool` that showed `of`, by `via`, stored with its edge; marked outside, with meta. Its text is
+/// a page's line, which names the handle of [`source`]'s exchange (`t0`) at its end.
 fn shown_by(store: &Store, tool: &str, via: &str, of: &str) -> Node {
-    let mut n = result("t1", "h1", &format!("[1] the owner: {GIST}"));
+    let line = format!(
+        "- 2026-03-03 \u{b7} cli \u{b7} the owner: \u{ab}{GIST}\u{bb} \u{2192} you did \u{b7} t0"
+    );
+    let mut n = result("t1", "h1", &line);
     if let Body::ToolResult {
         tool: t,
         external,
@@ -142,18 +146,44 @@ fn a_look_backs_result_is_laid_with_what_was_said_since_and_its_mark_unchanged()
     );
 }
 
-/// The same for `look.work`'s result, by its own route.
+/// `look.work`'s result names no handle (`look/work/history.rs`), so its kept text never shows which message
+/// it holds: it is laid as stored when its source is retracted (the look reads only its own conversation,
+/// whose own message carries its mark where it is laid whole), and as the erased line when it is erased.
 #[test]
-fn a_looks_result_is_laid_with_what_was_said_since() {
+fn a_looks_result_names_no_handle_and_is_laid_without_the_line() {
     let (_d, s) = store();
     let src = source(&s);
     retracted(&s, &src);
     let n = shown_by(&s, crate::look::WORK, crate::graph::VIA_LOOK, &src);
-    let laid = lay_one(&s, &BTreeSet::from([src]), &n);
-    assert!(content(&laid).starts_with(content(&n)), "{laid:?}");
-    assert!(
-        content(&laid).contains("[Since this was read: "),
-        "{laid:?}"
+    let laid = lay_one(&s, &BTreeSet::from([src.clone()]), &n);
+    assert_eq!(
+        serde_json::to_vec(&laid).unwrap(),
+        serde_json::to_vec(&n).unwrap()
+    );
+    let (_, was) = s.get_node(&src).unwrap().unwrap();
+    s.append(&[was.erased(AT_MS, "a test").record().unwrap()])
+        .unwrap();
+    assert_eq!(content(&lay_one(&s, &BTreeSet::new(), &n)), ERASED_RESULT);
+}
+
+/// A history result whose kept text does not name its retracted source's handle (the runtime cut its line)
+/// is laid as stored: the line would bring the gist and the reason of a message the reader never saw.
+#[test]
+fn a_retracted_source_the_kept_text_does_not_show_lays_no_line() {
+    let (_d, s) = store();
+    let src = Node::user("s", Some("t_cut"), "cli", GIST);
+    s.append(&[src.record().unwrap()]).unwrap();
+    retracted(&s, &src.id);
+    let n = shown_by(
+        &s,
+        crate::view::history::HISTORY_TOOL,
+        crate::graph::VIA_HISTORY,
+        &src.id,
+    );
+    let laid = lay_one(&s, &BTreeSet::from([src.id.clone()]), &n);
+    assert_eq!(
+        serde_json::to_vec(&laid).unwrap(),
+        serde_json::to_vec(&n).unwrap()
     );
 }
 
@@ -408,4 +438,102 @@ fn two_lays_with_nothing_said_between_are_the_same_bytes() {
     let a = serde_json::to_vec(&lay_one(&s, &wrong, &n)).unwrap();
     let b = serde_json::to_vec(&lay_one(&s, &wrong, &n)).unwrap();
     assert_eq!(a, b);
+}
+
+/// A named source that cannot be found is not shown: the result is laid as the erased line, and a replay of
+/// it is refused, as recall does not show a source it cannot read.
+#[test]
+fn a_source_that_cannot_be_found_is_not_shown() {
+    let (_d, s) = store();
+    let n = shown_by(
+        &s,
+        crate::view::history::HISTORY_TOOL,
+        crate::graph::VIA_HISTORY,
+        "msg_never_written",
+    );
+    let laid = lay_one(&s, &BTreeSet::new(), &n);
+    assert_eq!(content(&laid), ERASED_RESULT);
+    assert!(shows_erased(&s, &n).unwrap());
+}
+
+/// A result with as many edges as are read is laid as it is when nothing was said of its sources; one edge
+/// more and its sources cannot all be checked: none of its words are laid, one fixed line is, and a replay
+/// of it is refused.
+#[test]
+fn a_result_past_the_edges_read_lays_none_of_its_words() {
+    let (_d, s) = store();
+    let first = source(&s);
+    let n = shown_by(
+        &s,
+        crate::view::history::HISTORY_TOOL,
+        crate::graph::VIA_HISTORY,
+        &first,
+    );
+    let more = |k: usize| -> Vec<theseus_store::NewRecord> {
+        let sources: Vec<Node> = (0..k)
+            .map(|_| Node::user("s", Some("t0"), "cli", "x"))
+            .collect();
+        let mut out: Vec<_> = sources.iter().map(|m| m.record().unwrap()).collect();
+        out.extend(sources.iter().map(|m| {
+            Edge::new(
+                EdgeKind::DerivedFrom,
+                &n.id,
+                &m.id,
+                crate::graph::VIA_HISTORY,
+            )
+            .record()
+            .unwrap()
+        }));
+        out
+    };
+    s.append(&more(SOURCES_READ - 1)).unwrap();
+    let laid = lay_one(&s, &BTreeSet::new(), &n);
+    assert_eq!(content(&laid), content(&n), "at the bound, as stored");
+    assert!(!shows_erased(&s, &n).unwrap());
+    s.append(&more(1)).unwrap();
+    let laid = lay_one(&s, &BTreeSet::new(), &n);
+    assert_eq!(
+        content(&laid),
+        "[This result showed more messages than can be checked now; its words are not laid.]"
+    );
+    assert!(shows_erased(&s, &n).unwrap());
+}
+
+/// Each line is laid once, in the order first said: two sources labelled with no retraction row say the
+/// same line, and a retracted source read between them does not make it said twice.
+#[test]
+fn each_line_is_laid_once_in_the_order_first_said() {
+    let (_d, s) = store();
+    let mut ids: Vec<String> = (0..3).map(|_| source(&s)).collect();
+    ids.sort();
+    // Read in key order (the edge's key ends with the source's id): bare, retracted, bare.
+    retracted(&s, &ids[1]);
+    let n = shown_by(
+        &s,
+        crate::view::history::HISTORY_TOOL,
+        crate::graph::VIA_HISTORY,
+        &ids[0],
+    );
+    let edges: Vec<_> = (ids[1..].iter())
+        .map(|src| {
+            Edge::new(EdgeKind::DerivedFrom, &n.id, src, crate::graph::VIA_HISTORY)
+                .record()
+                .unwrap()
+        })
+        .collect();
+    s.append(&edges).unwrap();
+    let wrong: BTreeSet<String> = ids.iter().cloned().collect();
+    let bare = "[Since this was read: a message it showed was labelled wrong or stale. The words above are as \
+                they were said.]";
+    let row = format!(
+        "[Since this was read: \u{201c}{GIST}\u{201d} was marked wrong on {}: {WHY}. The words above are as \
+         they were said.]",
+        day()
+    );
+    let laid = lay_one(&s, &wrong, &n);
+    assert_eq!(
+        content(&laid),
+        format!("{}\n{bare}\n{row}", content(&n)),
+        "{laid:?}"
+    );
 }
