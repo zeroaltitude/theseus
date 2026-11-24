@@ -433,6 +433,28 @@ fn table_text(rows: &[Vec<String>]) -> String {
 
 // ------------------------------------------------------------- PowerPoint
 
+/// Resolve a package relationship without ever leaving its archive root.
+fn package_target(part: &str, target: &str) -> Result<String, String> {
+    let mut components = if target.starts_with('/') {
+        Vec::new()
+    } else {
+        part.rsplit_once('/')
+            .map_or(Vec::new(), |(dir, _)| dir.split('/').collect())
+    };
+    for component in target.split('/') {
+        match component {
+            "" | "." => {}
+            ".." => {
+                components
+                    .pop()
+                    .ok_or("a relationship leaves the package")?;
+            }
+            other => components.push(other),
+        }
+    }
+    Ok(components.join("/"))
+}
+
 fn pptx(bytes: &[u8]) -> Result<Doc, String> {
     let mut z = open_zip(bytes)?;
     let mut slides: Vec<(usize, String)> = z
@@ -448,13 +470,51 @@ fn pptx(bytes: &[u8]) -> Result<Doc, String> {
         })
         .collect();
     slides.sort();
+    let presentation = member_text(&mut z, "ppt/presentation.xml")?;
+    let unordered = presentation.is_none();
+    let ordered = match presentation {
+        Some(presentation) => {
+            let relationships = member_text(&mut z, "ppt/_rels/presentation.xml.rels")?
+                .ok_or("the presentation has no slide relationships")?;
+            let relationships = rels(&relationships);
+            let mut ordered = Vec::new();
+            let mut parents = Vec::new();
+            for item in xml::items(&presentation) {
+                match item {
+                    Item::Open { name, attrs, empty } => {
+                        if Item::local(name) == "sldId" && parents == ["presentation", "sldIdLst"] {
+                            let id = xml::attr(&attrs, "r:id")
+                                .ok_or("a slide has no relationship id")?;
+                            let target = relationships
+                                .iter()
+                                .find(|(key, _)| key == id)
+                                .map(|(_, target)| target)
+                                .ok_or("a slide relationship is missing")?;
+                            ordered.push(package_target("ppt/presentation.xml", target)?);
+                        }
+                        if !empty {
+                            parents.push(Item::local(name));
+                        }
+                    }
+                    Item::Close { .. } => {
+                        parents.pop();
+                    }
+                    Item::Text(_) => {}
+                }
+            }
+            ordered
+        }
+        None => slides.into_iter().map(|(_, path)| path).collect(),
+    };
     let mut sections = Vec::new();
-    for (num, path) in slides {
-        let Some(x) = member_text(&mut z, &path)? else {
-            continue;
-        };
+    for (index, path) in ordered.into_iter().enumerate() {
+        let num = index + 1;
+        let x = member_text(&mut z, &path)?.ok_or("a referenced slide part is missing")?;
         let (title, body) = slide_text(&x);
-        let rels_path = format!("ppt/slides/_rels/slide{num}.xml.rels");
+        let (dir, name) = path
+            .rsplit_once('/')
+            .ok_or("a slide part has no directory")?;
+        let rels_path = format!("{dir}/_rels/{name}.rels");
         let notes_target = rels(&member_text(&mut z, &rels_path)?.unwrap_or_default())
             .into_iter()
             .find(|(_, t)| t.contains("notesSlide"))
@@ -481,7 +541,8 @@ fn pptx(bytes: &[u8]) -> Result<Doc, String> {
     }
     Ok(Doc {
         sections,
-        cut: None,
+        cut: unordered
+            .then(|| "The presentation order is absent; slides are listed by part name.".into()),
     })
 }
 
@@ -1157,6 +1218,100 @@ mod tests {
                     "Buoy | Depth\nB-3 |  | 14.75".into()
                 ),
                 ("sheet Fees".into(), "none | TRUE".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn presentation_targets_are_resolved_against_the_part() {
+        for target in [
+            "slides/slide2.xml",
+            "./slides/slide2.xml",
+            "../ppt/slides/slide2.xml",
+            "/ppt/slides/slide2.xml",
+        ] {
+            let rels = format!(
+                r#"<Relationships><Relationship Id="s" Target="{target}"/></Relationships>"#
+            );
+            let deck = sample_zip(&[
+                (
+                    "ppt/presentation.xml",
+                    r#"<p:presentation><p:sldIdLst><p:sldId id="256" r:id="s"/></p:sldIdLst></p:presentation>"#,
+                ),
+                ("ppt/_rels/presentation.xml.rels", &rels),
+                (
+                    "ppt/slides/slide2.xml",
+                    "<p:sld><a:p><a:t>two</a:t></a:p></p:sld>",
+                ),
+            ]);
+            assert_eq!(
+                texts(&read(&deck, Kind::Pptx).unwrap()),
+                vec![("slide 1".into(), "two".into())],
+                "{target}"
+            );
+        }
+    }
+
+    #[test]
+    fn slide_sections_do_not_change_the_presentation_order() {
+        let deck = sample_zip(&[
+            (
+                "ppt/presentation.xml",
+                r#"<p:presentation><p:sldIdLst><p:sldId id="256" r:id="s"/></p:sldIdLst><p:extLst><p:ext><p14:sectionLst><p14:section><p14:sldIdLst><p14:sldId id="256"/></p14:sldIdLst></p14:section></p14:sectionLst></p:ext></p:extLst></p:presentation>"#,
+            ),
+            (
+                "ppt/_rels/presentation.xml.rels",
+                r#"<Relationships><Relationship Id="s" Target="slides/slide1.xml"/></Relationships>"#,
+            ),
+            (
+                "ppt/slides/slide1.xml",
+                "<p:sld><a:p><a:t>one</a:t></a:p></p:sld>",
+            ),
+        ]);
+        assert_eq!(
+            texts(&read(&deck, Kind::Pptx).unwrap()),
+            vec![("slide 1".into(), "one".into())]
+        );
+    }
+
+    #[test]
+    fn slide_order_and_numbers_follow_the_presentation() {
+        let deck = sample_zip(&[
+            (
+                "ppt/presentation.xml",
+                r#"<p:presentation><p:sldIdLst><p:sldId id="256" r:id="second"/><p:sldId id="257" r:id="first"/></p:sldIdLst></p:presentation>"#,
+            ),
+            (
+                "ppt/_rels/presentation.xml.rels",
+                r#"<Relationships><Relationship Id="first" Target="slides/slide1.xml"/><Relationship Id="second" Target="slides/slide2.xml"/></Relationships>"#,
+            ),
+            (
+                "ppt/slides/slide1.xml",
+                "<p:sld><a:p><a:t>one</a:t></a:p></p:sld>",
+            ),
+            (
+                "ppt/slides/slide2.xml",
+                "<p:sld><a:p><a:t>two</a:t></a:p></p:sld>",
+            ),
+            (
+                "ppt/slides/slide3.xml",
+                "<p:sld><a:p><a:t>unused</a:t></a:p></p:sld>",
+            ),
+            (
+                "ppt/slides/_rels/slide2.xml.rels",
+                r#"<Relationships><Relationship Id="notes" Target="../notesSlides/notesSlide2.xml"/></Relationships>"#,
+            ),
+            (
+                "ppt/notesSlides/notesSlide2.xml",
+                "<p:notes><a:p><a:t>second part notes</a:t></a:p></p:notes>",
+            ),
+        ]);
+        let doc = read(&deck, Kind::Pptx).unwrap();
+        assert_eq!(
+            texts(&doc),
+            vec![
+                ("slide 1".into(), "two\n\nNotes: second part notes".into()),
+                ("slide 2".into(), "one".into()),
             ]
         );
     }

@@ -7,16 +7,10 @@
 //! blocking pool, however much the job prints; a line is scrubbed by the
 //! session's scrubber and cut to `LAST_LINE_CHARS`, and goes out only when it
 //! changed, so a job costs the board one push a second at most.
-//!
-//! Private places only: a job of a session that speaks in a shared place is
-//! never sampled (and a connection that reads no private text is given no
-//! `last_line`, `place.rs`).
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
-use theseus_memory::recall::Place;
 use theseus_protocol::job_follow::{cut_line, LAST_LINE_CHARS};
 
 use super::Push;
@@ -60,7 +54,6 @@ impl Core {
     pub fn sample_last_lines_after_serving(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
         let wake = self.push.sampler.clone();
-        let private: Arc<Mutex<HashMap<String, bool>>> = Arc::default();
         tokio::spawn(async move {
             loop {
                 let jobs = match weak.upgrade() {
@@ -71,10 +64,10 @@ impl Core {
                     wake.notified().await;
                     continue;
                 }
-                let (w, p) = (weak.clone(), private.clone());
+                let w = weak.clone();
                 let done = tokio::task::spawn_blocking(move || {
                     if let Some(c) = w.upgrade() {
-                        c.sample_last_lines(&jobs, &p);
+                        c.sample_last_lines(&jobs);
                     }
                 })
                 .await;
@@ -86,24 +79,12 @@ impl Core {
         });
     }
 
-    /// One pass: each job of a private place, its newest line.
-    pub fn sample_last_lines(
-        &self,
-        jobs: &[(String, String)],
-        private: &Mutex<HashMap<String, bool>>,
-    ) {
+    /// One pass: each running job's newest scrubbed line, in every place.
+    pub fn sample_last_lines(&self, jobs: &[(String, String)]) {
         let Some(spool) = self.tools.spool.as_ref() else {
             return;
         };
-        let mut known = private.lock().unwrap();
-        known.retain(|s, _| jobs.iter().any(|(_, js)| js == s));
-        for (id, session) in jobs {
-            let ok = *known
-                .entry(session.clone())
-                .or_insert_with(|| !matches!(self.runner.place_of(session), Place::Shared(_)));
-            if !ok {
-                continue;
-            }
+        for (id, _) in jobs {
             let line = crate::toolrun::last_line(&spool.result_path(id))
                 .map(|l| cut_line(&self.tools.scrubber.scrub(&l).0, LAST_LINE_CHARS));
             self.push.sample_job(self, id, line);

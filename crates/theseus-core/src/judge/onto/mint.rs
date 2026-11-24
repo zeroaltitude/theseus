@@ -17,8 +17,8 @@
 //! - **The kind's name** is its class (`class.rs`, issue 9), which only the
 //!   sweep's model part can give: with it off no kind is made, and what would
 //!   have been filed waits for a night when it is on (the `other` answers stay
-//!   in the ledger for [`WINDOW_MS`]). Jev's `name_it.v1` pick ([`Hints::named`])
-//!   is still asked and kept, but names nothing now.
+//!   in the ledger for [`WINDOW_MS`]). Historical name picks remain readable
+//!   but no longer cause a question or influence the plan.
 //! - **Undo** retires the kind with its category and drops the memberships
 //!   (`Ontology::undo`). A name a kind of the table already lists in
 //!   `examples` is not clustered again, an undone kind's included, so a
@@ -246,12 +246,6 @@ impl Cluster<'_> {
     pub fn spelled(&self, names: &Folds<'_>) -> Vec<String> {
         self.folds.iter().map(|f| names[f].0.clone()).collect()
     }
-
-    /// Whether `pick` is one of the cluster's names: a pick names only a
-    /// cluster that still holds it (theseus-7e7hc).
-    pub fn holds(&self, pick: &str) -> bool {
-        self.folds.contains(&fold(pick))
-    }
 }
 
 /// The kept yeses that still join names: a yes whose partner a kind of the
@@ -348,83 +342,20 @@ pub fn plan_with(
         let Some(cluster) = lead else {
             break;
         };
-        let spelled = cluster.spelled(&names);
-        if hints.class_asked {
-            // A kind is a class of things: named for the class, with each
-            // name of the cluster an entry under it.
-            let n = plan.minted.len() + plan.refused as usize;
-            let made = hints.class.get(&cluster.key).and_then(|class| {
-                mint_class(
-                    &mut working,
-                    class,
-                    (cluster, &names),
-                    now_ms,
-                    precedence,
-                    &write(n),
-                )
-            });
-            listed.extend(cluster.folds.iter().cloned());
-            match made {
-                Some(m) => {
-                    precedence = m.precedence;
-                    plan.minted.push(m);
-                }
-                None => plan.refused += 1,
-            }
-            continue;
-        }
-        let default = spelled[0].clone();
-        let picked = hints
-            .named
-            .get(&cluster.key)
-            .filter(|p| cluster.holds(p))
-            .cloned();
-        // The names that at least `CLUSTER` of its sessions share, then by how
-        // many share them.
-        let mut shared: Vec<(usize, &String)> = names
-            .iter()
-            .filter(|(f, _)| !listed.contains(*f) && !cluster.folds.contains(f))
-            .map(|(_, (spelled, with))| {
-                let n = with
-                    .keys()
-                    .filter(|s| cluster.sessions.contains_key(*s))
-                    .count();
-                (n, spelled)
-            })
-            .filter(|(n, _)| *n >= CLUSTER)
-            .collect();
-        shared.sort_by_key(|(n, spelled)| (Reverse(*n), spelled.to_ascii_lowercase()));
-        // The kind's name leads its examples, then the rest of the cluster's
-        // names, then the names its sessions share.
-        let examples_of = |lead: &str| {
-            let mut examples = vec![lead.to_string()];
-            let rest = spelled.iter().chain(shared.iter().map(|(_, s)| *s));
-            for e in rest {
-                if !examples.iter().any(|x| fold(x) == fold(e)) {
-                    examples.push(e.clone());
-                }
-            }
-            examples.truncate(EXAMPLES_MAX);
-            examples
-        };
+        // A kind is a class of things: named for the class, with each
+        // name of the cluster an entry under it.
         let n = plan.minted.len() + plan.refused as usize;
-        // Jev's pick first, then the most shared name when the pick makes no
-        // kind.
-        let mut attempts: Vec<(String, bool)> = picked.into_iter().map(|p| (p, true)).collect();
-        attempts.push((default.clone(), false));
-        let made = attempts.into_iter().find_map(|(name, named)| {
-            mint(
+        let made = hints.class.get(&cluster.key).and_then(|class| {
+            mint_class(
                 &mut working,
-                &examples_of(&name),
-                &cluster.sessions,
+                class,
+                (cluster, &names),
                 now_ms,
                 precedence,
                 &write(n),
-                named,
             )
         });
         listed.extend(cluster.folds.iter().cloned());
-        listed.extend(examples_of(&default).iter().map(|e| fold(e)));
         match made {
             Some(m) => {
                 precedence = m.precedence;
@@ -434,78 +365,6 @@ pub fn plan_with(
         }
     }
     plan
-}
-
-/// The kind, its one category and each session's membership, applied to
-/// `working` when every record checks as the sweep's.
-fn mint(
-    working: &mut Ontology,
-    examples: &[String],
-    sessions: &BTreeMap<&str, f64>,
-    now_ms: u64,
-    precedence: u32,
-    write: &str,
-    named: bool,
-) -> Option<Minted> {
-    let name = examples[0].as_str();
-    let by = format!("sweep:{write}");
-    let note = if named {
-        format!(" {NAMED_NOTE}")
-    } else {
-        String::new()
-    };
-    let kind = Kind {
-        name: kind_name(name),
-        basis: Basis::Interpreted,
-        assigned_by: vec![Origin::Operator, Origin::Jev, Origin::Sweep],
-        per_session: PerSession::AtMost(3),
-        parent: None,
-        precedence: (precedence / 10 + 1) * 10,
-        rule: Rule::Chain,
-        description: format!(
-            "A kind the sweep made from {} sessions whose messages were about none of the listed \
-             kinds: {}.{note}",
-            sessions.len(),
-            examples.join(", "),
-        ),
-        version: 1,
-        added_by: by.clone(),
-        retired_ms: None,
-        examples: examples.to_vec(),
-        mined_from: Vec::new(),
-    };
-    if kind.check_row().is_err() || working.kind(&kind.name).is_some() {
-        return None;
-    }
-    let mut trial = working.clone();
-    trial.put(Record::Kind(kind.clone()), Origin::Sweep).ok()?;
-    let id = trial.mint_id(&kind.name, name).ok()?;
-    let category = Category::new(id.clone(), name, by);
-    let mut records = vec![Record::Kind(kind.clone()), Record::Category(category)];
-    records.extend(sessions.iter().map(|(session, confidence)| {
-        Record::Members(MemberList {
-            session: (*session).to_string(),
-            kind: kind.name.clone(),
-            members: vec![Membership {
-                category: id.clone(),
-                origin: Origin::Sweep,
-                confidence: Some(*confidence as f32),
-                as_of_ms: now_ms,
-            }],
-        })
-    }));
-    for r in records.iter().skip(1) {
-        trial.put(r.clone(), Origin::Sweep).ok()?;
-    }
-    *working = trial;
-    Some(Minted {
-        write: write.to_string(),
-        precedence: kind.precedence,
-        kind: kind.name,
-        records,
-        sessions: sessions.len(),
-        named,
-    })
 }
 
 /// A kind named for its class (`class`: country), one category for each name

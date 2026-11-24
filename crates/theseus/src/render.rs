@@ -555,7 +555,7 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
             (None, false) => format!("{who} · route {}{effort}", ro.reason),
         }
     });
-    // A held turn made no model call (theseus-2rvwv).
+    // Old held records carry a model name even though no model ran.
     let who = if r.stop_reason == "held" {
         "held, no model ran".to_string()
     } else {
@@ -1054,6 +1054,12 @@ pub fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> St
     }
     if let Some(words) = s.vault_today_words() {
         line.push_str(&format!("\n  {words}"));
+    }
+    if !s.unprotected.is_empty() {
+        line.push_str(&format!(
+            "\n  warning: not redacted at exits (shorter than eight bytes): {}",
+            s.unprotected.join(", ")
+        ));
     }
     line
 }

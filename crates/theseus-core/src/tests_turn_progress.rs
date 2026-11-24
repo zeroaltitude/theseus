@@ -71,7 +71,7 @@ impl Rig {
         // The start `turn.submit` gives both the deadline and the request.
         let start = deadline.map(|(secs, ago)| {
             let start = Instant::now() - Duration::from_secs(ago);
-            set_deadline(&sid, start, Some(secs));
+            set_deadline(&sid, start, Some(secs)).unwrap();
             start
         });
         let res = self.run(rec, start).await;

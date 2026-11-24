@@ -25,10 +25,8 @@ your own DM counts on its own** — it is your surface, and the core checks that
 | `/digest` | What finished, failed or was answered here since you last looked (only you see it) |
 | `/trust` | Remove the injection label: this conversation's calls that change things run again |
 
-`/trust` is the Remove button's command. It clears the `injection` label of the session that **ran**,
-which is not always this place's own: a message routed into a thread runs in the thread's session, and
-that is the one the gate reads (F2b). Either route clears the same label through the same
-`content.unlabel` call, and the removal is recorded with who did it.
+`/trust` is the Remove button's command. It clears this conversation's `injection` label through
+`content.unlabel`, and the removal is recorded with who did it. Messages are no longer routed to activity threads.
 
 ## Work
 
@@ -52,20 +50,11 @@ that is the one the gate reads (F2b). Either route clears the same label through
 | `/routine add\|list\|pause\|resume\|run` | Routines: work that runs on a schedule by itself |
 | `/watch add\|list` | Watches: wait on the world with no model, and be told when it is true |
 
-## Threads
+## Historical activity threads
 
-| command | what it does |
-|---|---|
-| `/thread new\|list\|bind\|unbind\|merge\|seal` | Threads: lines of work, each with a session of its own |
-| `/move` | Move my last message to another thread, and answer it there |
-
-A thread Theseus should stop routing to is taken out of the router's candidate set with
-`theseus thread done <slug>` — an archive thread left `active` is still a candidate, which is how a
-fresh request landed in one at 137k of context (F6).
-
-When Theseus can only guess the thread and the one it would guess holds 100,000 tokens of conversation or more, the message
-runs in the place's own conversation instead, still marked a guess with the move offered; a message that names the thread
-still goes there.
+`/thread` and `/move` were removed on 2026-11-22. A message runs in this place's conversation, not in a routed
+activity thread. Stored thread records remain readable through `theseus thread list` and `theseus thread show`.
+Discord task threads are different: they still hold a task's posts and steers.
 
 ## Yours alone
 

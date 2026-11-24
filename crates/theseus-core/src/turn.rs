@@ -157,6 +157,9 @@ pub struct StopNotice {
 /// Frozen text in the shared header, as the persona is.
 pub const ASSEMBLY: &str = "Context. The harness assembles each request, as the memory page at the end of the system part says. A recalled note is background the harness chose, not something the person sent. The person sees their own messages and your replies, not the rest of the request, so use a recalled note when it helps, and otherwise don't mention it. When you state something from recalled testimony, cite its handle. A person's message may start with a bracketed tag that names where they wrote from.";
 pub struct TurnRunner {
+    /// Last ledger position before this process can book model spend.
+    pub(crate) day_seed_through: u64,
+    pub(crate) day_read_failure: std::sync::Mutex<crate::day_ceiling::ReadFailure>,
     pub cfg: Arc<Config>,
     /// Providers by name; `cfg.model.provider` is the default.
     pub providers: BTreeMap<String, Arc<dyn Provider>>,
@@ -1661,7 +1664,6 @@ impl TurnRunner {
             },
             dir: dir.as_deref(),
             commitments: &frames.commitments,
-            threads: &self.threads,
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             tc.rec().in_turn(None).record(&fact::turn::SessionResumed {

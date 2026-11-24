@@ -37,7 +37,7 @@ async fn turn_with_deadline(
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     let arrived = Instant::now();
-    crate::turn::clock_step::set_deadline(&rec.session_id, arrived, Some(secs));
+    crate::turn::clock_step::set_deadline(&rec.session_id, arrived, Some(secs)).unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
     let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);

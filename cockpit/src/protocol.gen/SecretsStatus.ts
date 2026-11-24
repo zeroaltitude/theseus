@@ -12,7 +12,11 @@ export type SecretsStatus = {
  * `resolving` until every secret has settled, then `ready`, or `failed`
  * with `failed` naming each one that did not resolve.
  */
-state: string, ready: Array<string>, resolving: Array<string>, failed: Array<SecretFailed>, 
+state: string, ready: Array<string>, 
+/**
+ * Ready values too short for exit substitution; names only, never values.
+ */
+unprotected?: Array<string>, resolving: Array<string>, failed: Array<SecretFailed>, 
 /**
  * How the vault was read: `inject` (one `op inject` for every reference),
  * `read` (one reference, one `op read`), or `inject, then read` after a

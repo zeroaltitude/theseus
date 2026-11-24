@@ -62,6 +62,13 @@ pub(super) struct Cache {
     tried: Option<(Instant, Option<Miss>)>,
     /// Status reads sent to the tender, for health's tests.
     reads: u64,
+    clock: Option<Instant>,
+}
+
+impl Cache {
+    fn now(&self) -> Instant {
+        self.clock.unwrap_or_else(Instant::now)
+    }
 }
 
 impl IndexTender {
@@ -113,7 +120,7 @@ impl IndexTender {
                 }
                 Err(e) => Some(Miss::Ended(e)),
             };
-            c.tried = Some((Instant::now(), failed.clone()));
+            c.tried = Some((c.now(), failed.clone()));
             failed
         });
         // The caller's deadline counts from its call, and its words name it.
@@ -129,9 +136,9 @@ impl IndexTender {
                 // Never over a read that landed in the meantime.
                 if c.tried
                     .as_ref()
-                    .is_none_or(|(at, _)| at.elapsed() >= self.status_every)
+                    .is_none_or(|(at, _)| c.now().duration_since(*at) >= self.status_every)
                 {
-                    c.tried = Some((Instant::now(), Some(late.clone())));
+                    c.tried = Some((c.now(), Some(late.clone())));
                 }
                 Some(late)
             }
@@ -144,7 +151,7 @@ impl IndexTender {
         let failed = {
             let c = self.cache();
             let (at, failed) = c.tried.as_ref()?;
-            if at.elapsed() >= self.status_every {
+            if c.now().duration_since(*at) >= self.status_every {
                 return None;
             }
             failed.clone()
@@ -188,6 +195,12 @@ impl IndexTender {
     /// The status reads sent to the tender since this supervisor was made.
     pub fn status_reads(&self) -> u64 {
         self.cache().reads
+    }
+
+    #[cfg(test)]
+    pub(crate) fn advance_status_clock(&self, by: Duration) {
+        let mut c = self.cache();
+        c.clock = Some(c.now() + by);
     }
 
     /// Make the last answer `ms` older, as if the tender had not answered

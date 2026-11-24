@@ -100,12 +100,16 @@ fn line_mode_wanted(plain: bool) -> bool {
 /// `theseus chat --plain [SESSION]`: SESSION's conversation, or a new one in
 /// this directory, followed by `watch --interactive`'s loop.
 pub async fn line_mode(cli: crate::Cli) -> Result<()> {
+    if matches!(&cli.cmd, crate::Cmd::Chat { resume: true, .. }) {
+        anyhow::bail!("chat -r needs a terminal picker; name a session or use -c in plain mode");
+    }
     let mut conn = crate::connect(&cli).await?;
     let conn = &mut conn;
     let crate::Cmd::Chat {
         session,
         task,
         inspect,
+        cont,
         ..
     } = cli.cmd
     else {
@@ -114,7 +118,15 @@ pub async fn line_mode(cli: crate::Cli) -> Result<()> {
     // A task is its own session: `--task` names it as `watch` does, and
     // `--inspect` only follows it, with no input line.
     let watch_input = !inspect;
-    let sid = match session.or(task) {
+    let recent = if cont {
+        last_conversation(conn).await?
+    } else {
+        None
+    };
+    if cont && recent.is_none() {
+        eprintln!("no conversation here yet · starting a new one");
+    }
+    let sid = match session.or(task).or(recent) {
         Some(s) => s,
         None => {
             let dir = std::env::current_dir()?;
@@ -129,6 +141,32 @@ pub async fn line_mode(cli: crate::Cli) -> Result<()> {
         }
     };
     crate::interactive::watch(conn, cli.json, Some(sid), false, watch_input, true).await
+}
+
+async fn last_conversation(conn: &mut theseus_client::Conn) -> Result<Option<String>> {
+    use theseus_protocol::{method, SessionKind, SessionListResult, SessionState};
+    let dir = std::env::current_dir()?;
+    let v = conn
+        .request(
+            method::SESSION_LIST,
+            serde_json::json!({
+                "dir": dir.to_string_lossy(), "n": 50
+            }),
+        )
+        .await?;
+    let sessions: SessionListResult = serde_json::from_value(v)?;
+    Ok(sessions
+        .sessions
+        .into_iter()
+        .filter(|s| {
+            s.kind == SessionKind::Conversation
+                && s.started_on.as_deref() != Some("discord")
+                && s.turns > 0
+                && s.dir.is_some()
+                && s.state != Some(SessionState::Retired)
+        })
+        .max_by_key(|s| s.last_active_ms)
+        .map(|s| s.session_id))
 }
 
 /// Exec `theseus-tui chat [SESSION] [-c | -r] [--task ID [--inspect]]` over `socket`.

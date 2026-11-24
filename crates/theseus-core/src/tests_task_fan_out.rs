@@ -189,6 +189,7 @@ async fn the_budget_splits_equally_and_the_floor_refuses_a_carve_that_cannot_aff
         |_| Scripted::text("ok"),
         |c| {
             c.kernel.spend_limit_usd = 8.0;
+            c.tools.helper_max_output_tokens = 6_000;
         },
     );
     let parent = parent_session(&r.core);
@@ -202,7 +203,10 @@ async fn the_budget_splits_equally_and_the_floor_refuses_a_carve_that_cannot_aff
     let r2 = fan_rig(
         call2,
         |_| Scripted::text("ok"),
-        |c| c.kernel.spend_limit_usd = 8.0,
+        |c| {
+            c.kernel.spend_limit_usd = 8.0;
+            c.tools.helper_max_output_tokens = 6_000;
+        },
     );
     let p2 = parent_session(&r2.core);
     turn(&r2.core, &p2, ASK).await;
@@ -623,6 +627,7 @@ async fn a_helper_is_told_once_at_three_quarters_and_ends_at_its_carve() {
         },
         |c| {
             c.tools.helper_floor_usd = 0.0001;
+            c.tools.helper_max_output_tokens = 6_000;
             // Under the default, a limit that notifies, a carve is a notice and
             // no call is refused at it: only a limit that asks is a line.
             c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
@@ -638,6 +643,7 @@ async fn a_helper_is_told_once_at_three_quarters_and_ends_at_its_carve() {
     let parent = parent_session(&r.core);
     turn(&r.core, &parent, ASK).await;
     let tasks = tasks_of(&r.core, &parent);
+    assert_eq!(tasks.len(), 2, "both helpers were admitted");
     until("both helpers end", || {
         tasks
             .iter()

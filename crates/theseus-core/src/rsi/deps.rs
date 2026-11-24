@@ -41,7 +41,9 @@ mod tests_fetch;
 #[cfg(test)]
 mod tests_live;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Instant;
 
 use sha2::{Digest, Sha256};
@@ -83,13 +85,51 @@ impl Provided {
 /// (a write lands in scratch and vanishes). It holds `cargo-home` (cargo's home,
 /// whose config sends crates.io to `cargo-home/vendor`, each crate unpacked) and
 /// `npm` (npm's cache, holding each tarball by its integrity).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Packages {
     pub dir: PathBuf,
     /// Whether cargo's packages are in it.
     pub cargo: bool,
     /// Whether npm's are.
     pub npm: bool,
+    _pin: Arc<Cache>,
+}
+
+impl PartialEq for Packages {
+    fn eq(&self, other: &Self) -> bool {
+        self.dir == other.dir && self.cargo == other.cargo && self.npm == other.npm
+    }
+}
+impl Eq for Packages {}
+
+/// The same handle owns construction and pins the cache for every reader. Pruning and
+/// admission share this registry, so no deletion can slip between admission and ready.json.
+#[derive(Debug, Default)]
+struct Cache {
+    fetching: tokio::sync::Mutex<()>,
+}
+static CACHES: Mutex<Option<HashMap<PathBuf, Weak<Cache>>>> = Mutex::new(None);
+
+fn cache_for(dir: &Path) -> Arc<Cache> {
+    let dir = theseus_tools::paths::canonical_best_effort(dir);
+    let mut caches = CACHES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let caches = caches.get_or_insert_with(HashMap::new);
+    caches.retain(|_, cache| cache.strong_count() > 0);
+    if let Some(cache) = caches.get(&dir).and_then(Weak::upgrade) {
+        return cache;
+    }
+    let cache = Arc::new(Cache::default());
+    caches.insert(dir, Arc::downgrade(&cache));
+    cache
+}
+
+struct Staging(PathBuf);
+impl Drop for Staging {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 impl Packages {
@@ -111,11 +151,17 @@ impl Packages {
     /// files is never found.
     pub fn of(p: &Place, tree: &Tree) -> Option<Self> {
         let dir = Self::dir_of(p, &key_of(&tree.dir)?);
+        let pin = cache_for(&dir);
         let ready: serde_json::Value =
             serde_json::from_slice(&std::fs::read(dir.join("ready.json")).ok()?).ok()?;
         let held = |k: &str| ready.get(k).and_then(serde_json::Value::as_bool) == Some(true);
         let (cargo, npm) = (held("cargo"), held("npm"));
-        (cargo || npm).then_some(Self { dir, cargo, npm })
+        (cargo || npm).then_some(Self {
+            dir,
+            cargo,
+            npm,
+            _pin: pin,
+        })
     }
 
     /// The variables the gate's commands are given for it, and no others:
@@ -216,7 +262,7 @@ pub async fn provide(p: &Place, tree: &Tree) -> Provided {
 /// [`provide`] for the builds that run on a blocking thread (the planted revert's tests, the
 /// install's build): the same fetch, waited for there. `Err` is the words the build is
 /// refused with.
-pub fn provide_blocking(p: &Place, tree: &Tree) -> anyhow::Result<()> {
+pub fn provide_blocking(p: &Place, tree: &Tree) -> anyhow::Result<Option<Packages>> {
     let run = provide(p, tree);
     let done = match tokio::runtime::Handle::try_current() {
         Ok(h) => h.block_on(run),
@@ -227,7 +273,8 @@ pub fn provide_blocking(p: &Place, tree: &Tree) -> anyhow::Result<()> {
     };
     match done {
         Provided::Refused { why, .. } => anyhow::bail!("{why}"),
-        Provided::Nothing | Provided::Ready(_) => Ok(()),
+        Provided::Nothing => Ok(Packages::of(p, tree)),
+        Provided::Ready(pk) => Ok(Some(pk)),
     }
 }
 
@@ -280,13 +327,60 @@ pub(crate) async fn provide_with(
     if !fetch {
         return Provided::Nothing;
     }
+    fetch_cache(
+        p,
+        tree,
+        ends,
+        home,
+        (cargo.is_some(), npm.is_some()),
+        parts,
+        main_key,
+    )
+    .await
+}
+
+async fn fetch_cache(
+    p: &Place,
+    tree: &Tree,
+    ends: &Endpoints,
+    home: &Path,
+    wanted: (bool, bool),
+    parts: Vec<lock::Lock>,
+    main_key: Option<String>,
+) -> Provided {
+    let (cargo, npm) = wanted;
     let t0 = Instant::now();
     let Some(key) = key_of(&tree.dir) else {
         return infra("the tree's lock files vanished while its packages were fetched".into());
     };
     let dir = Packages::dir_of(p, &key);
+    let pin = cache_for(&dir);
+    let _fetch = pin.fetching.lock().await;
     let held = Packages::of(p, tree);
-    let made = make(&dir, ends, home, cargo.is_some(), &parts).await;
+    let need_cargo = cargo && !held.as_ref().is_some_and(|pk| pk.cargo);
+    let need_npm = npm && !held.as_ref().is_some_and(|pk| pk.npm);
+    if !need_cargo && !need_npm {
+        return held.map_or_else(
+            || infra("the ready package cache disappeared".into()),
+            Provided::Ready,
+        );
+    }
+    // Fetch only absent parts into a private directory. Already-published parts are immutable:
+    // a reader of cargo must not lose its files while a later call adds npm (or vice versa).
+    let missing: Vec<_> = parts
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, part)| {
+            let is_cargo = cargo && i == 0;
+            ((is_cargo && need_cargo) || (!is_cargo && need_npm)).then_some(part)
+        })
+        .collect();
+    let stage = Staging(
+        p.packages()
+            .join(format!(".fetch-{}", crate::new_id("packages"))),
+    );
+    let _stage_pin = cache_for(&stage.0);
+    let made = make(&stage.0, &dir, ends, home, need_cargo, &missing).await;
     let stats = match made {
         Ok(s) => s,
         Err(Fail::Refused(why)) => {
@@ -303,12 +397,28 @@ pub(crate) async fn provide_with(
     // What an earlier call for these same lock files made stays held: a cache is the lock
     // files' own, and a call that needed one part must not forget the other.
     let ready = serde_json::json!({
-        "cargo": cargo.is_some() || held.as_ref().is_some_and(|k| k.cargo),
-        "npm": npm.is_some() || held.as_ref().is_some_and(|k| k.npm),
+        "cargo": cargo || held.as_ref().is_some_and(|k| k.cargo),
+        "npm": npm || held.as_ref().is_some_and(|k| k.npm),
     });
-    if let Err(e) = std::fs::write(dir.join("ready.json"), ready.to_string()) {
-        return infra(format!("the package cache could not be marked ready: {e}"));
+    let published = (|| -> std::io::Result<()> {
+        std::fs::create_dir_all(&dir)?;
+        for (needed, name) in [(need_cargo, "cargo-home"), (need_npm, "npm")] {
+            if !needed {
+                continue;
+            }
+            let to = dir.join(name);
+            // Only an unmarked part from an interrupted publication can be here.
+            if to.exists() {
+                std::fs::remove_dir_all(&to)?;
+            }
+            std::fs::rename(stage.0.join(name), to)?;
+        }
+        crate::config_change::write::atomic(&dir.join("ready.json"), &ready.to_string(), None)
+    })();
+    if let Err(e) = published {
+        return infra(format!("the package cache could not be published: {e}"));
     }
+    drop(stage);
     prune(p, &key, main_key.as_deref());
     tracing::info!(
         slug = %tree.slug,
@@ -330,6 +440,9 @@ const KEPT_CACHES: usize = 3;
 /// regenerable from the registries, and the disk they take is a crate set each. Nothing here is
 /// an error: a cache that will not go is tried at the next call.
 fn prune(p: &Place, key: &str, main_key: Option<&str>) {
+    let caches = CACHES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Ok(entries) = std::fs::read_dir(p.packages()) else {
         return;
     };
@@ -343,6 +456,14 @@ fn prune(p: &Place, key: &str, main_key: Option<&str>) {
         .collect();
     others.sort_by_key(|o| std::cmp::Reverse(o.0));
     for (_, path) in others.into_iter().skip(KEPT_CACHES) {
+        let key = theseus_tools::paths::canonical_best_effort(&path);
+        if caches
+            .as_ref()
+            .and_then(|c| c.get(&key))
+            .is_some_and(|pin| pin.strong_count() > 0)
+        {
+            continue;
+        }
         let _ = std::fs::remove_dir_all(path);
     }
 }
@@ -361,6 +482,7 @@ fn infra(why: String) -> Provided {
 /// first so an interrupted fetch is never read as a finished one.
 async fn make(
     dir: &Path,
+    final_dir: &Path,
     ends: &Endpoints,
     home: &Path,
     cargo: bool,
@@ -380,11 +502,12 @@ async fn make(
             .next()
             .ok_or_else(|| Fail::Infra("no cargo packages were read".into()))?;
         let s = fetcher.cargo(&dir.join(VENDOR), &lock.pkgs).await?;
-        write_cargo_home(dir, home).map_err(io)?;
+        write_cargo_home(dir, final_dir, home).map_err(io)?;
         total.fetched += s.fetched;
         total.kept += s.kept;
     }
     if let Some(lock) = rest.next() {
+        std::fs::create_dir_all(dir.join("npm")).map_err(io)?;
         let s = fetcher.npm(&dir.join("npm"), &lock.pkgs).await?;
         total.fetched += s.fetched;
         total.kept += s.kept;
@@ -396,12 +519,12 @@ async fn make(
 /// crates, and a link to the operator's advisory database (what `cargo deny`
 /// reads from `CARGO_HOME`; the view's `~/.cargo` overlay is where it
 /// resolves).
-fn write_cargo_home(dir: &Path, home: &Path) -> std::io::Result<()> {
+fn write_cargo_home(dir: &Path, final_dir: &Path, home: &Path) -> std::io::Result<()> {
     let ch = dir.join("cargo-home");
     std::fs::create_dir_all(&ch)?;
     let config = format!(
         "[source.crates-io]\nreplace-with = \"theseus-packages\"\n\n[source.theseus-packages]\ndirectory = \"{}\"\n",
-        dir.join(VENDOR).display()
+        final_dir.join(VENDOR).display()
     );
     std::fs::write(ch.join("config.toml"), config)?;
     let link = ch.join("advisory-dbs");

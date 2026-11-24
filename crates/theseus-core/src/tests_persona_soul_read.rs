@@ -195,3 +195,133 @@ async fn the_read_is_bounded_like_the_write() {
         );
     }
 }
+
+#[tokio::test]
+async fn every_persona_mutation_holds_one_transaction_lock() {
+    let r = rig();
+    r.core
+        .check_persona_serialization
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    add(&r.core, "scout", Some("The first soul."));
+    let old = read(&r.core, "scout", None).unwrap();
+    write(&r.core, "scout", "The second soul.", old.digest.clone()).unwrap();
+    assert!(write(&r.core, "scout", "The losing edit.", old.digest).is_err());
+    r.core
+        .persona_set(
+            &theseus_protocol::PersonaSetParams {
+                key: "scout".into(),
+                name: Some("Scout revised".into()),
+                ..Default::default()
+            },
+            &owner(),
+        )
+        .unwrap();
+    let now = read(&r.core, "scout", None).unwrap();
+    assert_eq!(
+        now.digest,
+        Some(crate::persona::digest(now.text.as_ref().unwrap()))
+    );
+    let card = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    assert_eq!(
+        card.category(&theseus_ontology::CategoryId::parse("persona:scout").unwrap())
+            .unwrap()
+            .persona
+            .as_ref()
+            .unwrap()
+            .soul_digest,
+        now.digest
+    );
+    r.core
+        .persona_default(
+            &theseus_protocol::PersonaKeyParams {
+                key: Some("scout".into()),
+                ..Default::default()
+            },
+            &owner(),
+        )
+        .unwrap();
+    r.core
+        .persona_retire(
+            &theseus_protocol::PersonaKeyParams {
+                key: Some("scout".into()),
+                ..Default::default()
+            },
+            &owner(),
+        )
+        .unwrap();
+    let held = r.core.persona_writes.lock().unwrap();
+    r.core
+        .persona_from_import(
+            "unused",
+            &theseus_protocol::PersonaImportResult::default(),
+            &held,
+        )
+        .unwrap();
+}
+
+#[tokio::test]
+async fn soul_replacement_never_reuses_an_existing_temporary_file() {
+    let r = rig();
+    let path = add(&r.core, "scout", Some("The first soul."));
+    let tmp = std::path::Path::new(&path).with_extension("md.new");
+    std::fs::write(&tmp, "another writer's staging file").unwrap();
+    write(&r.core, "scout", "The next soul.", None).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(tmp).unwrap(),
+        "another writer's staging file"
+    );
+}
+
+#[tokio::test]
+async fn concurrent_persona_saves_keep_the_winning_file_and_fields() {
+    for set_fields in [false, true] {
+        let r = rig();
+        r.core
+            .check_persona_serialization
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        add(&r.core, "scout", Some("The first soul."));
+        let old = read(&r.core, "scout", None).unwrap().digest.unwrap();
+        let barrier = std::sync::Barrier::new(3);
+        let (soul, other) = std::thread::scope(|scope| {
+            let a = scope.spawn(|| {
+                barrier.wait();
+                write(&r.core, "scout", "The chart keeper.", Some(old.clone()))
+            });
+            let b = scope.spawn(|| {
+                barrier.wait();
+                if set_fields {
+                    r.core
+                        .persona_set(
+                            &theseus_protocol::PersonaSetParams {
+                                key: "scout".into(),
+                                name: Some("Chart keeper".into()),
+                                ..Default::default()
+                            },
+                            &owner(),
+                        )
+                        .map(|_| ())
+                } else {
+                    write(&r.core, "scout", "The tide keeper.", Some(old.clone()))
+                }
+            });
+            barrier.wait();
+            (a.join().unwrap(), b.join().unwrap())
+        });
+        assert_eq!(
+            usize::from(soul.is_ok()) + usize::from(other.is_ok()),
+            if set_fields { 2 } else { 1 }
+        );
+        let now = read(&r.core, "scout", None).unwrap();
+        let snapshot = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+        let category = snapshot
+            .category(&theseus_ontology::CategoryId::parse("persona:scout").unwrap())
+            .unwrap();
+        assert_eq!(
+            category.persona.as_ref().unwrap().soul_digest,
+            Some(crate::persona::digest(now.text.as_ref().unwrap()))
+        );
+        if set_fields {
+            assert_eq!(category.name, "Chart keeper");
+        }
+    }
+}

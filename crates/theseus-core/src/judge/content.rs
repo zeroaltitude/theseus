@@ -780,8 +780,10 @@ impl JudgeService {
         }
         // What was raised is told after it is written, in the session's own words,
         // and to the operator's surfaces.
-        for (at, label) in &fresh {
-            self.label_forks(session, &landings[*at].item, label);
+        for landing in landings.iter().filter(|l| l.item.kind.on_session()) {
+            for label in &landing.raised {
+                self.label_forks(session, &landing.item, label);
+            }
         }
         for (_, label) in fresh {
             self.tell_label(session, label);
@@ -979,6 +981,12 @@ impl JudgeService {
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "judge: a deterministic label was not written");
                 return;
+            }
+        }
+        for (label, entered_ms) in labels.iter().filter(|(l, _)| l.kind.on_session()) {
+            if let Some(node) = label.node.as_deref() {
+                let item = ContentItem::new(node, label.kind, &label.source, "", *entered_ms);
+                self.label_forks(session, &item, label);
             }
         }
         for label in fresh {

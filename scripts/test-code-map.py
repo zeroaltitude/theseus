@@ -183,7 +183,7 @@ class Walk:
                 self.file(cand, gated)
                 return
 
-    def file(self, path, gated):
+    def file(self, path, gated, root=False):
         if path in self.seen:
             return
         self.seen.add(path)
@@ -191,7 +191,7 @@ class Walk:
         code = code_only(lines)
         if gated:
             self.regions.append((self.rel(path), 1, len(lines), "cfg(test) file module"))
-        base = module_dir(path)
+        base = os.path.dirname(path) if root else module_dir(path)
         stack = []  # (name, end_idx, is_test)
         i = 0
         while i < len(code):
@@ -265,7 +265,7 @@ class Walk:
             for found in re.finditer(r'path\s*=\s*"([^"]+\.rs)"', manifest):
                 path = os.path.join(cdir, found.group(1))
                 if os.path.isfile(path):
-                    self.file(path, True if "/tests/" in found.group(1) else False)
+                    self.file(path, found.group(1).startswith("tests/") or "/tests/" in found.group(1), root=True)
             if re.search(r'autotests\s*=\s*false', manifest):
                 continue
             tdir = os.path.join(cdir, "tests")
@@ -273,18 +273,12 @@ class Walk:
                 continue
             for entry in sorted(os.listdir(tdir)):
                 path = os.path.join(tdir, entry)
-                if entry.endswith(".rs") and os.path.isfile(path):
+                if os.path.isdir(path):
+                    path = os.path.join(path, "main.rs")
+                if path.endswith(".rs") and os.path.isfile(path):
+                    self.file(path, True, root=True)
                     self.regions.append(
                         (self.rel(path), 1, len(read(path)), "[[test]] target"))
-                    self.seen.add(path)
-                    self.file(path, False)
-                elif os.path.isdir(path):
-                    for sub in sorted(os.listdir(path)):
-                        spath = os.path.join(path, sub)
-                        if sub.endswith(".rs") and os.path.isfile(spath):
-                            kind = "[[test]] target" if sub == "main.rs" else "test helper"
-                            self.regions.append((self.rel(spath), 1, len(read(spath)), kind))
-                            self.seen.add(spath)
         shared = os.path.join(crates_dir, "complete.rs")
         if os.path.isfile(shared):
             self.regions.append(

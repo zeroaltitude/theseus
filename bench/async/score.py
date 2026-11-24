@@ -199,14 +199,18 @@ def duplicates(rec: list[dict[str, Any]]) -> int:
 # ---------------------------------------------------------------- the model's calls
 
 
-def calls(trial: Path) -> list[dict[str, Any]]:
+def calls(trial: Path) -> list[dict[str, Any]] | None:
     """Every model call of the trial, each with its wall time and tokens:
     Theseus's from its daemon's ledger (tasks' sessions included), else the
     ATIF trajectory's agent steps with metrics."""
-    rows = (_json(trial / "agent/theseus-calls.json") or {}).get("rows") or []
+    capture = _json(trial / "agent/theseus-calls.json")
+    rows = capture.get("rows") if isinstance(capture, dict) else None
+    if rows == [] and capture.get("total") == 0:
+        return []
+    rows = rows if isinstance(rows, list) else []
     out = []
     for r in rows:
-        if r.get("kind") != "provider.call":
+        if not isinstance(r, dict) or r.get("kind") != "provider.call" or not isinstance(r.get("at_unix_ms"), (int, float)):
             continue
         u = (r.get("data") or {}).get("usage") or {}
         out.append({"at": r["at_unix_ms"] / 1000,
@@ -221,12 +225,12 @@ def calls(trial: Path) -> list[dict[str, Any]]:
         at = _ts(s.get("timestamp"))
         if s.get("source") == "agent" and m and at is not None:
             out.append({"at": at, "tokens": (m.get("prompt_tokens") or 0) + (m.get("completion_tokens") or 0)})
-    return out
+    return out or None
 
 
-def wait_tax(family: str, rec: list[dict[str, Any]], model_calls: list[dict[str, Any]]) -> dict[str, Any] | None:
+def wait_tax(family: str, rec: list[dict[str, Any]], model_calls: list[dict[str, Any]] | None) -> dict[str, Any] | None:
     w = window(family, rec)
-    if w is None:
+    if w is None or model_calls is None:
         return None
     inside = [c for c in model_calls if w[0] <= c["at"] <= w[1]]
     return {"calls": len(inside), "tokens": sum(c["tokens"] for c in inside),
@@ -375,7 +379,7 @@ def score(trial: Path, arm: str | None = None) -> dict[str, Any]:
         "overlap": ov["overlap"] if ov else None,
         "slow_busy_s": ov["busy_s"] if ov else None,
         "slow_phase_s": ov["phase_s"] if ov else None,
-        "model_calls": len(model_calls) or None,
+        "model_calls": len(model_calls) if model_calls is not None else None,
         **batching(responses(trial)),
         "order_violations": len(l2.order_violations(family, rec)) if l2.base(family) in l2.DEPS else None,
         **kill_row(trial, family, rec, reward),

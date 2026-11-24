@@ -208,7 +208,12 @@ impl OpenAi {
             .and_then(|v| v.to_str().ok())
             .map(str::to_string);
         if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
+            let text = super::error_text(
+                resp.bytes_stream(),
+                tokio::time::Instant::from_std(deadline),
+                Duration::from_secs(self.timeouts.stream_idle_secs),
+            )
+            .await;
             return Err(ProviderError::from_status(status.as_u16(), &text, &headers).into());
         }
 
@@ -271,7 +276,8 @@ impl OpenAi {
             let chunk = match tokio::time::timeout(budget, stream.next()).await {
                 Ok(Some(Ok(c))) => c,
                 Ok(Some(Err(e))) => {
-                    return Err(ProviderError::Network {
+                    return Err(ProviderError::Stream {
+                        kind: "transport".into(),
                         message: format!("reading stream: {e}"),
                     }
                     .into())

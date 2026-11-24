@@ -337,6 +337,7 @@ async fn an_act_offered_at_a_second_settle_is_in_the_request_once() {
     // What `turn.submit` stages for a message of the owner's own (`hear_for_chat_acts`).
     r.core.runner.tools.chat_acts.heard.stage(
         &rec.session_id,
+        std::time::Instant::now(),
         crate::chat_acts::Said {
             text: ASK.into(),
             who: crate::approval::Answerer::from("owner"),

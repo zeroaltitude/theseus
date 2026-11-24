@@ -370,12 +370,12 @@ async fn said_again_is_counted_and_never_duplicated() {
     let r = rig_capture(&jev, 3);
     let one = ask(&r.core, None, "no tables with me").await;
     until("the record", || captured(&r.core).len() == 1).await;
-    ask(&r.core, Some(&one.session_id), "I said no tables with me").await;
+    ask(&r.core, Some(&one.session_id), "  no tables   with me  ").await;
     until("the repeat", || {
         !rows(&r.core, "standing.repeated").is_empty()
     })
     .await;
-    ask(&r.core, Some(&one.session_id), "no tables with me, again").await;
+    ask(&r.core, Some(&one.session_id), "no tables with me").await;
     until("the second repeat", || {
         rows(&r.core, "standing.repeated").len() == 2
     })

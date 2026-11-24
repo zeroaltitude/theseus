@@ -7,9 +7,8 @@
 //   table, the search) is made here from `redactEvent`'s answer, so redact mode masks them all at once: a sensitive
 //   calendar's title becomes a bar, and its place, call link and attendee count are dropped; the times and the
 //   calendar's colour stay.
-// - A verb on a sensitive calendar's event sends only the time and the calendar's label (`eventVerbPayload`): never its
-//   title, place, attendees or links. The daemon's own read of the event, with the calendar tool, is what marks the
-//   session sensitive.
+// - Verbs quote the event's title and time regardless of the calendar's label. The task or chat reads the rest
+//   with the calendar tool. Screen redaction does not change those payloads.
 // - Nothing here is stored or logged: the page holds an event in memory, and the address holds only its opaque key.
 import type { CalendarEvent, CalendarStatus, CalendarWindow, CalendarWindowResult } from '@protocol'
 
@@ -158,8 +157,8 @@ export function eventMatches(ev: CalendarEvent, cal: CalendarWindow, redact: boo
   return q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => text.includes(w))
 }
 
-/** The privacy rule a sensitive calendar's event shows in the Selected panel. */
-export const PRIVACY_NOTE = 'This calendar is sensitive. Its events never reach a shared place, and no ledger row names them. These verbs send its time and its calendar’s name, never its title, place, attendees or links: the task or chat reads it with the calendar tool.'
+/** How the sensitive label and screen redaction affect calendar actions. */
+export const PRIVACY_NOTE = 'This calendar is labelled sensitive. Reminders, prep tasks and chats name its events by title; while redact mode masks it, they name only the calendar and the time.'
 
 // ---------------------------------------------------------------- the verbs
 
@@ -178,18 +177,15 @@ export type Payload =
 /** How long before the start Remind me fires. */
 export const REMIND_BEFORE_MS = 10 * 60_000
 
-/** The words that name an event in a verb's payload: for a sensitive calendar the calendar and the time alone; for an
- *  open one its title and time (the design's quote). */
+/** The event's title and time, or the calendar and time for a busy-only or untitled source. */
 function named(ev: CalendarEvent, cal: CalendarWindow): string {
   const at = ev.all_day ? `on ${dayWords(ev.start_ms)}` : `at ${hm(ev.start_ms)} on ${dayWords(ev.start_ms)}`
-  if (cal.sensitive || ev.busy || !ev.title) return `the ${cal.label} event ${at}`
+  if (ev.busy || !ev.title) return `the ${cal.label} event ${at}`
   return `“${ev.title}” ${at}`
 }
 
-/** What `verb` sends for `ev`. A sensitive calendar's event sends no title, place, attendee or link into a wake's
- *  note, a task's brief or a chat; a link verb only opens Google's own link in a new tab. */
+/** What `verb` sends for `ev`: titles do not depend on labels; a link verb only opens a new tab. */
 export function eventVerbPayload(ev: CalendarEvent, cal: CalendarWindow, verb: EventVerb, now = Date.now()): Payload {
-  const sens = cal.sensitive
   const name = named(ev, cal)
   switch (verb) {
     case 'join': return ev.call ? { kind: 'link', href: ev.call } : { kind: 'none', why: 'this event has no call link' }
@@ -202,11 +198,11 @@ export function eventVerbPayload(ev: CalendarEvent, cal: CalendarWindow, verb: E
     }
     case 'prep': return {
       kind: 'sheet',
-      title: sens ? `Prep: the ${cal.label} event at ${hm(ev.start_ms)}` : `Prep: ${ev.title ?? `the ${cal.label} event`}`,
-      brief: `Prepare me for ${name}. Read it with the calendar tool (calendar ${cal.label}${sens ? '; it is sensitive' : ''}), then gather what I need for it and report back.`,
+      title: `Prep: ${ev.title ?? `the ${cal.label} event`}`,
+      brief: `Prepare me for ${name}. Read it with the calendar tool (calendar ${cal.label}${cal.sensitive ? '; it is sensitive' : ''}), then gather what I need for it and report back.`,
     }
     case 'ask': return {
-      kind: 'ask', label: sens ? `about the ${cal.label} event` : `about ${ev.title ?? 'an event'}`,
+      kind: 'ask', label: `about ${ev.title ?? 'an event'}`,
       input: `I'd like to talk about ${name} on my ${cal.label} calendar. Read it with the calendar tool first.`,
     }
   }

@@ -31,7 +31,7 @@ impl Timeline for StoreTimeline<'_> {
         };
         let touches = match before {
             None => exchange::newest(self.0, root, n)?,
-            Some(c) => exchange::newest_before(self.0, root, c.at_ms, n)?,
+            Some(c) => exchange::newest_before_exchange(self.0, root, c.at_ms, &c.turn_id, n)?,
         };
         Ok(touches
             .into_iter()
@@ -40,7 +40,6 @@ impl Timeline for StoreTimeline<'_> {
                 session_id: t.session_id,
                 at_ms: t.at_ms,
             })
-            .filter(|e| before.is_none_or(|c| e.cursor() < *c))
             .collect())
     }
 }

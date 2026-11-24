@@ -206,7 +206,7 @@ fn a_preference_is_kept_undone_and_counted_when_said_again() {
     // Said again, with it live: counted, never a second record.
     hears(&jev, "preference", 0.9);
     r.wait("a repeat is counted", || {
-        r.ask("I said no tables with me");
+        r.ask("no tables with me");
         (!r.rows("standing.repeated").is_empty()).then_some(())
     });
     assert_eq!(r.live().len(), 1, "no second record");
@@ -222,6 +222,90 @@ fn a_preference_is_kept_undone_and_counted_when_said_again() {
     let labels = r.rows("judge.label");
     assert_eq!(labels.len(), 1, "{labels:?}");
     assert_eq!(labels[0]["data"]["label"], "wrong capture");
+    r.stop(d);
+}
+
+/// A rephrase is kept with its own notice and undo, never silently counted as a repeat.
+#[test]
+fn a_rephrased_preference_is_kept_with_its_own_notice_not_counted_as_a_repeat() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+
+    let jev = FakeJev::start().unwrap();
+    hears(&jev, "preference", 0.93);
+    let r = Rig::new(Some(&jev.base()), true);
+    let d = r.spawn();
+    let first_turn = r.ask("no tables with me");
+    r.wait("the first capture", || {
+        (r.rows("standing.captured").len() == 1).then_some(())
+    });
+    let first = r.live();
+    assert_eq!(first.len(), 1);
+    let first_id = first[0]["id"].clone();
+
+    // Notices are live protocol events, not stored conversation messages.
+    // Subscribe and read the acknowledgement before the second capture can run.
+    let sock = UnixStream::connect(r.sock()).unwrap();
+    sock.set_read_timeout(Some(Duration::from_secs(40)))
+        .unwrap();
+    let watch = json!({"jsonrpc": "2.0", "id": 1, "method": "session.watch",
+        "params": {"session_id": first_turn["session_id"]}});
+    (&sock).write_all(format!("{watch}\n").as_bytes()).unwrap();
+    let mut reader = BufReader::new(&sock);
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let reply: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(reply["id"], 1, "{reply}");
+    assert!(reply.get("error").is_none(), "{reply}");
+
+    hears(&jev, "preference", 0.9);
+    let res = r
+        .call(
+            "turn.submit",
+            json!({"session_id": first_turn["session_id"], "input": "I said no tables with me",
+                "author": "test", "attachments": []}),
+        )
+        .unwrap();
+    assert_eq!(res["stop_reason"], "no_tool_calls", "{res}");
+    let live = r.wait("the rephrase's own record", || {
+        let l = r.live();
+        (l.len() == 2).then_some(l)
+    });
+    let rephrased = live
+        .iter()
+        .find(|record| record["text"] == "I said no tables with me")
+        .expect("the rephrase was kept, not dropped");
+    let id = rephrased["id"].clone();
+    assert_ne!(id, first_id);
+    assert_eq!(rephrased["kind"], "preference");
+    assert_eq!(rephrased["captured_by"], "capture");
+    let cap = r.rows("standing.captured");
+    assert_eq!(cap.len(), 2, "{cap:?}");
+    assert!(cap.iter().any(|row| row["data"]["record"] == id));
+    let notice = loop {
+        line.clear();
+        assert!(reader.read_line(&mut line).unwrap() > 0, "watch closed");
+        let event: Value = serde_json::from_str(&line).unwrap();
+        if event["method"] == "standing.noticed" && event["params"]["id"] == id {
+            break event["params"].clone();
+        }
+    };
+    assert_eq!(notice["session_id"], res["session_id"]);
+    assert_eq!(notice["what"], "kept");
+    assert_eq!(
+        notice["line"],
+        "📌 Kept as a standing preference everywhere (terminal): I said no tables with me"
+    );
+    assert!(r.rows("standing.repeated").is_empty());
+    assert!(live.iter().all(|record| record["repeats"] == 0));
+    assert!(r.standing()["asks"].as_array().unwrap().is_empty());
+
+    // Undo belongs to the new record; the first preference stays live.
+    let ended = r.call("standing.revoke", json!({"id": id})).unwrap();
+    assert_eq!(ended["ended"], id);
+    let remaining = r.live();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0]["id"], first_id);
     r.stop(d);
 }
 

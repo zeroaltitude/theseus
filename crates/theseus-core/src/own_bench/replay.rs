@@ -200,8 +200,14 @@ impl Core {
             whole: whole_done,
         };
         if p.compare.unwrap_or(true) {
-            self.compare_replay(p, (&original.ask, &original_said), &replay, &mut result)
-                .await;
+            self.compare_replay(
+                p,
+                (&original.ask, &original_said),
+                &replay,
+                &mut result,
+                (left.map(|l| l.saturating_sub(cost)), spent),
+            )
+            .await;
         }
         if result.whole.is_some() {
             self.label_whole(p, &target.profile, &mut result);
@@ -328,6 +334,7 @@ impl Core {
         (ask, original): (&str, &Said),
         replay: &Said,
         result: &mut TurnReplayResult,
+        (left, spent): (Option<u64>, &mut u64),
     ) {
         let input = CompareInput {
             request: ask.to_string(),
@@ -340,14 +347,16 @@ impl Core {
                 calls: replay.tool_calls.clone(),
             },
         };
-        match self
+        let mut charged = 0;
+        let compared = self
             .runner
             .judge
-            .compare_replies(&p.session, &p.turn, input)
-            .await
-        {
+            .compare_replies(&p.session, &p.turn, input, left, &mut charged)
+            .await;
+        *spent = spent.saturating_add(charged);
+        result.cost_usd += theseus_kernel::micros_to_usd(charged);
+        match compared {
             Ok(c) => {
-                result.cost_usd += c.cost_usd;
                 result.verdict = Some(ReplayVerdict {
                     verdict: c.verdict,
                     p: c.p,

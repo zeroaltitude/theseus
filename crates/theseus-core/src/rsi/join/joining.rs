@@ -379,6 +379,12 @@ impl Run<'_> {
             self.b.branch,
             &self.b.head[..self.b.head.len().min(12)]
         );
+        let _one = self
+            .core
+            .rsi
+            .backlog
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(mut task) = crate::task_graph::get(&self.core.store, &self.b.item)? {
             if task.state == TaskState::InProgress {
                 let now = theseus_protocol::now_unix_ms();
@@ -397,6 +403,7 @@ impl Run<'_> {
                     .append(&[crate::task_graph::record(&task)?])?;
             }
         }
+        drop(_one);
         let why = "its head is on main already, joined by hand, so it is closed as done";
         self.stop("merge", why, json!({"by_hand": true}));
         Ok(())
@@ -438,28 +445,36 @@ impl Run<'_> {
             (false, Some(_)) => moved::moved_card(&self.b.branch, &item, why),
             (false, None) => conflict_card(&self.b.branch, &item, why),
         };
-        if let Some(mut task) = crate::task_graph::get(&self.core.store, &item)? {
-            let now = theseus_protocol::now_unix_ms();
-            task.state = if dropped {
-                TaskState::Failed
-            } else {
-                TaskState::Proposed
-            };
-            task.session = None;
-            task.version += 1;
-            task.updated_at_ms = now;
-            task.evidence.push(TaskEvidence {
-                node: None,
-                identity,
-                note: Some(why.to_string()),
-                by: "self-join".into(),
-                at_ms: now,
-            });
-            task.evidence
-                .extend(brought.as_ref().map(|b| moved::main_merged(b, now)));
-            self.core
-                .store
-                .append(&[crate::task_graph::record(&task)?])?;
+        {
+            let _one = self
+                .core
+                .rsi
+                .backlog
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(mut task) = crate::task_graph::get(&self.core.store, &item)? {
+                let now = theseus_protocol::now_unix_ms();
+                task.state = if dropped {
+                    TaskState::Failed
+                } else {
+                    TaskState::Proposed
+                };
+                task.session = None;
+                task.version += 1;
+                task.updated_at_ms = now;
+                task.evidence.push(TaskEvidence {
+                    node: None,
+                    identity,
+                    note: Some(why.to_string()),
+                    by: "self-join".into(),
+                    at_ms: now,
+                });
+                task.evidence
+                    .extend(brought.as_ref().map(|b| moved::main_merged(b, now)));
+                self.core
+                    .store
+                    .append(&[crate::task_graph::record(&task)?])?;
+            }
         }
         let mut numbers = json!({"held": true, "conflict": true, "dropped": dropped,
                                  "main_merged": brought.is_some()});

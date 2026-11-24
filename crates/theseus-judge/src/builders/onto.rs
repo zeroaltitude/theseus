@@ -28,11 +28,7 @@
 //! - `attachments`: a text-like attachment's first [`EXCERPT_CHARS`]
 //!   characters, `{name, excerpt}`.
 //!
-//! A message in a **shared place** is reduced ([`OntoInput::shared`]): the
-//! session's interpreted memberships, the thread and project titles, the
-//! candidates and the mined names are all left out, and no kind is asked, so
-//! what Jev sees of the pictures is only `image_subject` and the privacy
-//! questions, with no candidate from any private session (the place rule).
+//! The same evidence and category questions are offered in every place.
 
 use std::collections::BTreeSet;
 
@@ -79,7 +75,7 @@ pub struct OntoItem {
     /// The session holds it now.
     #[serde(default)]
     pub session: bool,
-    /// Another session of the thread holds it.
+    /// Historical thread membership, decoded but ignored by live labeling.
     #[serde(default)]
     pub thread: bool,
     /// When a session last held it (ms), for the most recent first.
@@ -125,6 +121,7 @@ pub struct OntoText {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OntoInput {
+    /// Historical thread title, decoded but neither mined nor sent.
     #[serde(default)]
     pub thread_title: Option<String>,
     #[serde(default)]
@@ -151,8 +148,7 @@ pub struct OntoInput {
     /// Never serialized: a fact of this process, not of the state.
     #[serde(skip)]
     pub private_dirs: Vec<String>,
-    /// The message came from a shared place: only the pictures' own
-    /// questions are asked, with nothing of any session's.
+    /// Historical place metadata; it does not restrict descriptive labels.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub shared: bool,
 }
@@ -176,7 +172,7 @@ fn words(s: &str) -> BTreeSet<String> {
 
 impl OntoKind {
     /// At most [`CANDIDATES`] of the pool for `message`: the session's own,
-    /// the thread's, a word match (more shared words first), then the most
+    /// a word match (more shared words first), then the most
     /// recent, each group newest first and none twice.
     pub fn pick(&self, message: &str) -> Picked {
         let m = words(message);
@@ -187,8 +183,8 @@ impl OntoKind {
         };
         let mut rest: Vec<(&OntoItem, usize)> = self.pool.iter().map(|i| (i, hits(i))).collect();
         rest.sort_by(|(a, ha), (b, hb)| {
-            (!a.session, !a.thread, *ha == 0, std::cmp::Reverse(*ha))
-                .cmp(&(!b.session, !b.thread, *hb == 0, std::cmp::Reverse(*hb)))
+            (!a.session, *ha == 0, std::cmp::Reverse(*ha))
+                .cmp(&(!b.session, *hb == 0, std::cmp::Reverse(*hb)))
                 .then(b.used_ms.cmp(&a.used_ms))
                 .then(a.id.cmp(&b.id))
         });
@@ -237,9 +233,6 @@ impl OntoInput {
     /// The kinds asked about that the pack has questions for, in the pack's
     /// order.
     fn asked(&self) -> Vec<&OntoKind> {
-        if self.shared {
-            return Vec::new();
-        }
         KINDS
             .iter()
             .filter_map(|k| self.kinds.iter().find(|o| o.kind == *k))
@@ -254,9 +247,6 @@ impl OntoInput {
     /// The names mined from the message and its session, at most ten, from
     /// the sources the asked kinds name.
     pub fn names(&self, message: &str, previous: Option<&str>) -> Vec<String> {
-        if self.shared {
-            return Vec::new();
-        }
         let mut sources: Vec<Mined> = Vec::new();
         for k in self.asked() {
             for s in k.mined() {
@@ -269,7 +259,7 @@ impl OntoInput {
             &mine::Text {
                 message,
                 previous,
-                thread_title: self.thread_title.as_deref(),
+                thread_title: None,
                 project_title: self.project_title.as_deref(),
                 private: &self.private_dirs,
             },
@@ -302,12 +292,6 @@ fn sources(kind: &str) -> Option<(Source, Source)> {
 pub(super) fn state(b: &mut StateBuilder, c: &Clipper, cap: u64, i: &super::InboundInput) {
     let Some(o) = &i.onto else { return };
     media(b, c, o);
-    if o.shared {
-        return;
-    }
-    if let Some(t) = o.thread_title.as_deref().filter(|t| !t.trim().is_empty()) {
-        b.scalar("thread", c.clip(t, 80)).cut_if("thread", c.cut());
-    }
     if let Some(t) = o.project_title.as_deref().filter(|t| !t.trim().is_empty()) {
         b.scalar("project", c.clip(t, 80))
             .cut_if("project", c.cut());
@@ -396,9 +380,6 @@ pub(super) fn dynamic(
     }
     if !shown.is_empty() {
         dynamic.sources.insert(Source::Images, shown);
-    }
-    if o.shared {
-        return;
     }
     for (k, picked) in o.asked().into_iter().zip(o.pick(&i.message)) {
         let Some((candidates, members)) = sources(&k.kind) else {

@@ -90,6 +90,7 @@ impl Kernel {
         // A reservation of nothing holds nothing to release, as above.
 
         let held = a.reserved_micros;
+        let day = crate::day_ceiling::Effect::resolved(&a, Some(cost));
         let mut e = self
             .execution(&a.execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(a.execution_id.clone()))?;
@@ -108,18 +109,21 @@ impl Kernel {
             "settled_by_owner".into(),
             json!({"by": by, "cost_usd": micros_to_usd(cost), "held_usd": micros_to_usd(held)}),
         );
+        if a.tool == PROVIDER_TOOL {
+            // The day's cautious basis never decreases when the owner forgives a bill.
+            detail.insert("day_counted_micros".into(), held.max(cost).into());
+        }
         a.detail = Some(serde_json::Value::Object(detail));
         let mut frame = vec![exec_record(&e)?];
         self.carry_to_parent(&e, spent_before, &mut frame)?;
         frame.push(action_record(&a)?);
-        frame.push(self.ledger(
-            LedgerKind::ActionResolved,
-            Some(&a.session_id),
-            json!({"correlation_id": a.correlation_id, "execution_id": e.id, "outcome": "unknown",
+        let mut data = json!({"correlation_id": a.correlation_id, "execution_id": e.id, "outcome": "unknown",
                    "owner": true, "by": by, "cost_usd": micros_to_usd(cost),
-                   "held_usd": micros_to_usd(held), "forgiven": cost == 0}),
-        )?);
+                   "held_usd": micros_to_usd(held), "forgiven": cost == 0});
+        crate::day_ceiling::Effect::stamp(&mut data, &day);
+        frame.push(self.ledger(LedgerKind::ActionResolved, Some(&a.session_id), data)?);
         self.commit(&frame)?;
+        self.day_after(day);
         Ok((a, held))
     }
 }

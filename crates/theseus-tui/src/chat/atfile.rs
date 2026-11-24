@@ -191,6 +191,7 @@ fn query_of(word: &str) -> Option<&str> {
 #[derive(Debug, Default)]
 pub(super) struct Resolved {
     pub footer: String,
+    pub send_now: bool,
     pub attachments: Vec<theseus_protocol::Attachment>,
     /// Images still to read, `(name, absolute path)`: `at_resolve` reads none.
     pub images: Vec<(String, String)>,
@@ -313,7 +314,7 @@ impl Chat {
             Action::Up => self.at_move(false),
             Action::Down => self.at_move(true),
             Action::Tab => self.at_accept(),
-            Action::Submit if !self.at_whole() => self.at_accept(),
+            Action::Submit | Action::SendNow if !self.at_whole() => self.at_accept(),
             _ => return false,
         }
         true

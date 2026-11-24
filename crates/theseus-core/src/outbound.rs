@@ -7,12 +7,14 @@
 //!   it.
 //! - Past `BACKLOG_CAP` queued (a test's connection may set a lower cap), a notification is dropped and counted, with
 //!   its stream, and so is every later one until the writer has drained the
-//!   queue. Responses always go.
+//!   queue. Responses bypass that count cap, but every wire item counts
+//!   against a byte cap; exceeding it closes the connection.
 //! - Once drained, the writer sends one `events.lost { dropped, streams }`,
 //!   and notifications flow again: the client re-reads each stream named.
 //!
-//! A stuck client (a suspended `theseus watch`, a frozen tab) so costs the
-//! daemon at most the cap's worth of messages, and learns what it missed.
+//! Notifications have a count cap, and all queued wire data has a byte cap.
+//! A stuck client learns about dropped notifications or has its connection
+//! closed before its responses can build an unbounded backlog.
 
 use std::cell::OnceCell;
 use std::collections::BTreeSet;
@@ -25,14 +27,15 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 /// Messages a connection may have queued before its notifications are
 /// dropped (the design's constant; a setting only if a real client meets it).
 pub const BACKLOG_CAP: usize = 4096;
+/// Serialized bytes held by a wire queue, including its current write.
+const BYTE_CAP: usize = 16 * 1024 * 1024;
 
 /// A notification's NDJSON line, its newline included: serialized once and
 /// shared by every connection that queues it (theseus-celu.36).
 pub type Line = Arc<str>;
 
-/// What a connection's queue holds: a message its writer serializes (a
-/// response, or anything else that goes to it alone), or a notification's
-/// shared line, written as it is.
+/// An outbound item: wire responses and notifications are serialized lines;
+/// raw in-process readers retain messages. Notification lines are shared.
 pub enum Item {
     Message(Message),
     Line(Line),
@@ -75,6 +78,11 @@ impl<'a> Note<'a> {
 }
 
 struct Shared {
+    /// EOF forbids late subscriptions but lets accepted acts send answers.
+    watches_closed: AtomicBool,
+    closed: tokio::sync::watch::Sender<bool>,
+    bytes: AtomicUsize,
+    byte_cap: usize,
     /// Queued and not yet written.
     queued: AtomicUsize,
     /// From the first dropped notification until the writer has drained the
@@ -106,6 +114,7 @@ pub struct Outbound {
 
 /// The connection writer's side.
 pub struct Drain {
+    writing_bytes: usize,
     rx: UnboundedReceiver<Item>,
     shared: Arc<Shared>,
 }
@@ -120,6 +129,10 @@ pub fn channel(total: Arc<AtomicU64>) -> (Outbound, Drain) {
 pub fn channel_capped(total: Arc<AtomicU64>, cap: usize) -> (Outbound, Drain) {
     let (tx, rx) = unbounded_channel();
     let shared = Arc::new(Shared {
+        watches_closed: AtomicBool::new(false),
+        closed: tokio::sync::watch::channel(false).0,
+        bytes: AtomicUsize::new(0),
+        byte_cap: BYTE_CAP,
         queued: AtomicUsize::new(0),
         dropping: AtomicBool::new(false),
         lost: Mutex::default(),
@@ -131,7 +144,11 @@ pub fn channel_capped(total: Arc<AtomicU64>, cap: usize) -> (Outbound, Drain) {
             tx: Tx::Wire(tx),
             shared: shared.clone(),
         },
-        Drain { rx, shared },
+        Drain {
+            rx,
+            shared,
+            writing_bytes: 0,
+        },
     )
 }
 
@@ -143,6 +160,10 @@ impl From<UnboundedSender<Message>> for Outbound {
         Outbound {
             tx: Tx::Raw(tx),
             shared: Arc::new(Shared {
+                watches_closed: AtomicBool::new(false),
+                closed: tokio::sync::watch::channel(false).0,
+                bytes: AtomicUsize::new(0),
+                byte_cap: BYTE_CAP,
                 queued: AtomicUsize::new(0),
                 dropping: AtomicBool::new(false),
                 lost: Mutex::default(),
@@ -154,14 +175,44 @@ impl From<UnboundedSender<Message>> for Outbound {
 }
 
 impl Outbound {
-    /// A response, or anything else that must go: always queued. False once
-    /// the connection is gone.
+    /// Responses are never silently dropped: a queue past its byte limit
+    /// closes the connection. Accepted acts still finish independently.
     pub fn respond(&self, m: Message) -> bool {
-        self.queue(Item::Message(m))
+        let item = match self.tx {
+            Tx::Raw(_) => Item::Message(m),
+            Tx::Wire(_) => {
+                #[cfg(test)]
+                counts::serialized();
+                let Ok(mut line) = serde_json::to_string(&m) else {
+                    return false;
+                };
+                line.push('\n');
+                Item::Line(line.into())
+            }
+        };
+        self.queue(item)
     }
 
     /// Queue an item, counted until it is written.
     fn queue(&self, item: Item) -> bool {
+        if self.is_closed() {
+            return false;
+        }
+        let bytes = match &item {
+            Item::Line(l) => l.len(),
+            Item::Message(_) => 0,
+        };
+        if self
+            .shared
+            .bytes
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                n.checked_add(bytes).filter(|n| *n <= self.shared.byte_cap)
+            })
+            .is_err()
+        {
+            self.close();
+            return false;
+        }
         self.shared.queued.fetch_add(1, Ordering::AcqRel);
         let sent = match (&self.tx, item) {
             (Tx::Wire(tx), item) => tx.send(item).is_ok(),
@@ -170,6 +221,7 @@ impl Outbound {
             (Tx::Raw(_), Item::Line(_)) => false,
         };
         if !sent {
+            self.shared.bytes.fetch_sub(bytes, Ordering::AcqRel);
             self.shared.queued.fetch_sub(1, Ordering::AcqRel);
         }
         sent
@@ -225,6 +277,9 @@ impl Outbound {
             lost.1.insert(stream.to_string());
         }
         s.total.fetch_add(1, Ordering::Relaxed);
+        if s.queued.load(Ordering::Acquire) == 0 && matches!(self.tx, Tx::Wire(_)) {
+            return self.queue(Item::Line(Arc::from("")));
+        }
         true
     }
 
@@ -254,10 +309,33 @@ impl Outbound {
             lost.1.insert(stream.to_string());
         }
         s.total.fetch_add(1, Ordering::Relaxed);
+        if s.queued.load(Ordering::Acquire) == 0 && matches!(self.tx, Tx::Wire(_)) {
+            return self.queue(Item::Line(Arc::from("")));
+        }
         true
     }
 
+    /// Before registry cleanup, so a late handler cannot recreate a watch.
+    pub fn stop_watching(&self) {
+        self.shared.watches_closed.store(true, Ordering::Release);
+    }
+
+    pub fn watches_closed(&self) -> bool {
+        self.shared.watches_closed.load(Ordering::Acquire) || self.is_closed()
+    }
+
+    pub fn close(&self) {
+        self.shared.closed.send_replace(true);
+    }
+
+    pub fn closed_signal(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.shared.closed.subscribe()
+    }
+
     pub fn is_closed(&self) -> bool {
+        if *self.shared.closed.borrow() {
+            return true;
+        }
         match &self.tx {
             Tx::Wire(tx) => tx.is_closed(),
             Tx::Raw(tx) => tx.is_closed(),
@@ -265,26 +343,44 @@ impl Outbound {
     }
 }
 
+impl Drop for Drain {
+    fn drop(&mut self) {
+        self.shared.closed.send_replace(true);
+    }
+}
+
 impl Drain {
     /// The next item to write; None once every sender is gone.
     pub async fn recv(&mut self) -> Option<Item> {
-        self.rx.recv().await
+        let item = self.rx.recv().await?;
+        self.writing_bytes = match &item {
+            Item::Line(l) => l.len(),
+            Item::Message(_) => 0,
+        };
+        Some(item)
     }
 
     /// An item already queued, if any.
     pub fn try_recv(&mut self) -> Option<Item> {
-        self.rx.try_recv().ok()
+        let item = self.rx.try_recv().ok()?;
+        self.writing_bytes = match &item {
+            Item::Line(l) => l.len(),
+            Item::Message(_) => 0,
+        };
+        Some(item)
     }
 
     /// One item written. Once the queue has drained after dropping, what
     /// was lost, for the writer to send now, before anything queued later.
     pub fn written(&mut self) -> Option<EventsLost> {
         let s = &self.shared;
+        s.bytes
+            .fetch_sub(std::mem::take(&mut self.writing_bytes), Ordering::AcqRel);
+        let mut lost = s.lost.lock().unwrap();
         let left = s.queued.fetch_sub(1, Ordering::AcqRel).saturating_sub(1);
         if left > 0 || !s.dropping.load(Ordering::Acquire) {
             return None;
         }
-        let mut lost = s.lost.lock().unwrap();
         if s.queued.load(Ordering::Acquire) > 0 {
             return None;
         }
@@ -337,6 +433,35 @@ mod tests {
             dropped: i,
             streams: vec![],
         }))
+    }
+
+    #[tokio::test]
+    async fn response_bytes_close_a_nonreading_connection_at_the_cap() {
+        let (tx, mut rx) = channel(Arc::default());
+        let mut closed = tx.closed_signal();
+        let response = || Message::Response(Response::ok(Id::Num(1), "x".repeat(BYTE_CAP / 2)));
+        assert!(tx.respond(response()));
+        let item = rx.recv().await.unwrap();
+        assert!(
+            tx.shared.bytes.load(Ordering::Acquire) > BYTE_CAP / 2,
+            "the active write still counts"
+        );
+        assert!(!tx.respond(response()));
+        assert!(tx.is_closed());
+        assert!(closed.changed().await.is_ok());
+        assert!(*closed.borrow());
+        assert!(rx.try_recv().is_none(), "no overflow item queued");
+        drop(item);
+    }
+
+    #[test]
+    fn written_bytes_release_room_for_another_response() {
+        let (tx, mut rx) = channel(Arc::default());
+        assert!(tx.respond(Message::Response(Response::ok(Id::Num(1), "answer"))));
+        assert!(rx.try_recv().is_some());
+        let _ = rx.written();
+        assert_eq!(tx.shared.bytes.load(Ordering::Acquire), 0);
+        assert!(tx.respond(Message::Response(Response::ok(Id::Num(2), "next"))));
     }
 
     /// Past the cap a notification is dropped and counted, a response still
@@ -403,5 +528,18 @@ mod tests {
         assert!(!notify(&tx, note(0), "executions"));
         assert!(!tx.respond(note(0)));
         assert!(tx.is_closed());
+    }
+
+    #[test]
+    fn losing_after_the_last_drain_wakes_the_writer() {
+        let (tx, mut rx) = channel(Arc::new(AtomicU64::new(0)));
+        assert!(tx.lose("executions"));
+        assert!(rx.try_recv().is_some());
+        let lost = rx
+            .written()
+            .expect("the writer learns of the loss without another request");
+        assert_eq!(lost.dropped, 1);
+        assert_eq!(lost.streams, ["executions"]);
+        assert!(!tx.shared.dropping.load(Ordering::Acquire));
     }
 }

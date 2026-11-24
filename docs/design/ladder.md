@@ -1,8 +1,8 @@
 # The `did` lines and the ladder
 
 Step 4 of the context refactor (issue 44): a one-line summary of each exchange, and the fold nodes of a place's
-ladder. Records written beside the exchanges (`exchanges.md`), never in them. Nothing here is sent to a model that
-answers a turn: the renderer reads it. The code is `crates/theseus-core/src/ladder/`.
+ladder. Records written beside the exchanges (`exchanges.md`), never in them. The view renderer lays these summaries in the context sent to the model that
+answers a turn. The code is `crates/theseus-core/src/ladder/`.
 
 ## What is written
 
@@ -22,12 +22,11 @@ New META families only: no field on an existing record, no store-format step.
 - **A `did` line reads two things**: the person's message and the final reply, each cut by code at 4,000
   characters. Tool results are read only for the marks (outside text). An exchange with no line is shown as
   "reply not summarised" and its handle (`did::Said`).
-- **A source is summarised only when it is proven neither sealed nor veiled** (`ladder/seal.rs`): the thread a
-  session served is read from the board and from the session's own supersession links (a thread's earlier
-  sessions too) and its task parent; a sealed or seal-pending thread, one merged into such, one the board does
-  not hold, an unreadable board or session record, and an imported conversation are all held out. It is checked
-  again after the model is picked, just before the call. Held-out windows fold by code, marked sealed and veiled.
-- **Marks never widen an audience**: private wins over shared and open, unknown over all.
+- **Sources are summarised without seals or moves.** Since 2026-11-22, an old seal, veil or move
+  does not hold a source out of a `did` line or first-level fold. The writer still needs an ended exchange,
+  a reply and a laddered place, and keeps its spend reservations.
+- **Marks record provenance**, not an audience boundary around context. Authorship still determines how
+  quoted words are presented; it does not make another person's words the owner's instructions.
 - **Outside text is wrapped**: an exchange that read outside text is sent to the writer inside the outside-text
   wrapper, and the instructions say it is data, not instructions.
 - **Places are exact**: every exchange and node read is checked to be of the place (and level) asked; a place whose
@@ -58,14 +57,12 @@ lines and the folds, prices them at their worst case, and writes nothing.
 
 ## Where it is read
 
-- In a place set to the view (`[context] assembly`, `view-compile.md`), the window and the ladder are read from
+- Every turn uses the view (`view-compile.md`); the old `[context] assembly` and `ledger` keys are ignored
+  with a startup warning. The window and the ladder are read from
   these records: the fold nodes stand for the exchanges older than the window, and an exchange with no `did` line
-  reads "reply not summarised". A fold node is kept only when every exchange it stands for resolves to a session and
-  none of those is sealed, seal-pending or unreadable at the turn, and none holds a message moved into a thread not
-  proven clear for the reader. In a transcript place no request changes.
-- **Moved messages**: a `did` line or a first-level fold is never written by a model from an exchange with any
-  message or reply moved into any thread, whatever that thread's seal (`view_gate::moved_at_all`); it is folded by
-  code. The writers ask this again after their last await, just before the call.
+  reads "reply not summarised". A fold is kept only when every exchange it stands
+  for still resolves (`view_step::fold_constituents`); its sessions become the view's dependencies. Old seals, veils
+  and moved-message records do not withhold it or force a code-only summary.
 - **Authors**: each quoted excerpt is shown with its own author, read from the message's mark (the owner, another
   person, author unknown), and the writer is told each author. A node written before authorship was recorded
   (writer version 1) shows its excerpts but no title and no account, unless it is a first-level node whose every

@@ -521,6 +521,7 @@ fn on_one_daemon(
         .unwrap();
     let all: Vec<&theseus_exam::item::Item> = exam.file.items.iter().collect();
     let mut dp = drive::Plan {
+        identity: None,
         sockets: BTreeMap::from([("none".to_string(), d.socket.clone())]),
         notes: drive::oracle_notes(&plan.store, m, &all).unwrap(),
         profile: plan.profile.clone(),

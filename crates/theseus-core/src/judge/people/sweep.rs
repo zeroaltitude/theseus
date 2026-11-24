@@ -4,10 +4,10 @@
 //! missed day once, as soon as it may, never within 10 minutes of a start:
 //! the learning tender's `due` and `tend`), one pass (`run.rs`: the
 //! `[people] extract_profile` extraction, then `people.v1` on each kept
-//! candidate) for each private session, never a task's, that got human text
+//! candidate) for each conversation, never a task's, that got human text
 //! since the last sweep (the last day, the first time) that no extraction
 //! read: the gate shut there, or no due point came. Proposals only, never
-//! memberships; the place rule's private places only; the extraction's
+//! memberships, in every place; the extraction's
 //! `people.extracted` row has the purpose `sweep`.
 //!
 //! - **What it reads.** The session's human-facing lines (`lines`) written
@@ -48,7 +48,6 @@ use crate::learning::tender::{due, tend};
 use crate::ledger::LedgerRow;
 use crate::node::Node;
 use crate::pace::pace;
-use crate::places::PlaceClass;
 use crate::rpc::Core;
 use crate::session::SessionRecord;
 
@@ -174,7 +173,13 @@ impl Core {
             stopped: out.stopped.as_deref(),
         };
         let mark = SweepMark {
-            at_ms: now,
+            // Successful extractions have their own durable positions. Keep the
+            // window open until every due session was actually reached.
+            at_ms: if out.stopped.is_none() && out.done.len() as u64 == out.due {
+                now
+            } else {
+                from_ms
+            },
             day: today,
             spent_usd: swept_before + spent_usd,
         };
@@ -213,17 +218,6 @@ impl Core {
         out: &mut Swept,
     ) -> anyhow::Result<()> {
         out.due = plan.len() as u64;
-        let (target, _) = match self.people_priced_on() {
-            Ok(t) => t,
-            Err(why) => {
-                out.stopped = Some(why);
-                return Ok(());
-            }
-        };
-        let Some(price) = self.runner.catalog.get(&target.model).cloned() else {
-            out.stopped = Some(format!("no price for {}", target.model));
-            return Ok(());
-        };
         for (i, d) in plan.into_iter().enumerate() {
             let left = out.due - i as u64;
             if i > 0 {
@@ -239,6 +233,17 @@ impl Core {
                 ));
                 break;
             }
+            let (target, provider) = match self.people_extractor(d.lines.len() as u32).await {
+                Ok(t) => t,
+                Err(why) => {
+                    out.stopped = Some(why);
+                    break;
+                }
+            };
+            let Some(price) = self.runner.catalog.get(&target.model).cloned() else {
+                out.stopped = Some(format!("no price for {}", target.model));
+                break;
+            };
             let request = self.people_request(&target.model, &d.title, &d.lines);
             let est = crate::compiler::estimate(&request, price.bytes_per_token, None).tokens;
             let worst = price.reserve_micros(super::extract::MAX_TOKENS, est) + jev_projected();
@@ -281,23 +286,31 @@ impl Core {
             }
             let sid = d.sid.clone();
             let pass = self
-                .propose_people(Session {
-                    sid: &d.sid,
-                    title: &d.title,
-                    lines: d.lines,
-                    purpose,
-                    mark: d.mark,
-                    known: d.known,
-                })
+                .propose_people_on(
+                    Session {
+                        sid: &d.sid,
+                        title: &d.title,
+                        lines: d.lines,
+                        purpose,
+                        mark: d.mark,
+                        known: d.known,
+                    },
+                    (target, provider),
+                    Some(cap.saturating_sub(out.spent)),
+                )
                 .await;
             deciding.lock().unwrap().remove(&sid);
             match pass {
                 Ok(p) => {
                     out.swept += 1;
-                    out.done.push(sid);
                     out.spent += p.spent;
                     out.candidates += p.candidates;
                     out.judged += p.judged;
+                    if p.incomplete {
+                        out.stopped = Some(super::run::RUN_CAP.to_string());
+                        break;
+                    }
+                    out.done.push(sid);
                 }
                 Err(why) => {
                     out.stopped = Some(format!("{why}, {left} sessions left"));
@@ -308,7 +321,7 @@ impl Core {
         Ok(())
     }
 
-    /// The private sessions with human text since `from_ms` that no
+    /// The conversations in every place with human text since `from_ms` that no
     /// extraction read, the newest first, each with its lines, its moved
     /// mark and the names it was asked about: one scan of `judge:people`.
     fn sweep_plan(&self, from_ms: u64, now: u64) -> anyhow::Result<Vec<Due>> {
@@ -322,7 +335,7 @@ impl Core {
                 continue;
             };
             match row.kind.as_str() {
-                "people.extracted" => {
+                "people.extracted" if row.data["failed"].as_str() != Some(super::run::RUN_CAP) => {
                     let at = extracted.entry(sid).or_default();
                     *at = (*at).max(r.position);
                 }
@@ -335,11 +348,7 @@ impl Core {
             }
         }
         let mut sessions: Vec<SessionRecord> = self.store.live_sessions()?;
-        sessions.retain(|s| {
-            s.task.is_none()
-                && s.last_active_ms >= from_ms
-                && self.runner.class_of(&s.session_id) == PlaceClass::Private
-        });
+        sessions.retain(|s| s.task.is_none() && s.last_active_ms >= from_ms);
         sessions.sort_by_key(|s| std::cmp::Reverse(s.last_active_ms));
         let mut plan = Vec::new();
         for s in sessions {

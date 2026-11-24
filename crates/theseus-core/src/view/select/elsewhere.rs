@@ -1,6 +1,6 @@
-//! Slot F, elsewhere lately (design §5.1, §5.3): only where the owner is alone. His words in his other
-//! private places in the last 48 hours, verbatim with their `did` lines; per place the newest reply in full;
-//! and always, whatever its age, his newest exchange in each other private place, five places at most. Two
+//! Slot F, elsewhere lately (design §5.1, §5.3): his words in his other
+//! places in the last 48 hours, verbatim with their `did` lines; per place the newest reply in full;
+//! and always, whatever its age, his newest exchange in each other place, five places at most. Two
 //! bands: his words (a line each) and the replies (the newest exchange per place, spoken); the two ask for
 //! the same range, so rule 3 shows each exchange once and the cut takes a reply away before his words.
 
@@ -8,14 +8,14 @@ use std::collections::BTreeSet;
 
 use super::super::history::PAGE_EXCHANGES;
 use super::super::timeline::{Cursor, ExchangeRef, TimelineRoot};
-use super::super::{Anchor, Audience, Form, Piece, PointOfView, Reason};
+use super::super::{Anchor, Form, Piece, PointOfView, Reason};
 use super::make::{self, Cut};
 use super::sources::{ExchangeFacts, Sources};
 use super::{Band, Selector, Snapshot};
 
 /// How far back "lately" reaches.
 pub const LATELY_MS: u64 = 48 * 3_600_000;
-/// His newest exchange is laid for at most this many other private places.
+/// His newest exchange is laid for at most this many other places.
 pub const PLACES_ALWAYS: usize = 5;
 
 /// One exchange of his elsewhere.
@@ -42,14 +42,12 @@ impl Who<'_> {
     }
 
     fn keeps(&self, f: &ExchangeFacts) -> bool {
-        Some(f.place.as_str()) != self.here
-            && f.marks.audience == Audience::Private
-            && f.person.as_deref() == Some(self.person)
+        Some(f.place.as_str()) != self.here && f.person.as_deref() == Some(self.person)
     }
 }
 
 /// His exchanges elsewhere, in one pass over his own timeline, newest first, in bounded pages: every
-/// admitted one of the last 48 hours, and the first admitted one in each of his five newest other private
+/// admitted one of the last 48 hours, and the first admitted one in each of his five newest other
 /// places, whatever its age. The pass ends when both are found, or the timeline ends. Every choice is made
 /// over exchanges the gate admits.
 fn scan(pov: &PointOfView, snap: &dyn Snapshot, src: &Sources<'_>) -> anyhow::Result<Vec<Seen>> {

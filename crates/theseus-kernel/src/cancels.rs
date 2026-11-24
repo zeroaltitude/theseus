@@ -133,6 +133,7 @@ impl Kernel {
             a.verdict = verdict;
         }
         let mut frame = Vec::new();
+        let mut day = None;
         if settle {
             a.state = ActionState::Cancelled;
             a.settled_at_ms = Some(now);
@@ -142,7 +143,7 @@ impl Kernel {
                 if let Some(r) = &a.reservation_id {
                     let actual =
                         (st == CancelState::TerminationVerified).then(|| cost.unwrap_or(0));
-                    self.day_after(crate::day_ceiling::Effect::of(&a, actual));
+                    day = crate::day_ceiling::Effect::of(&a, actual);
                     if st == CancelState::TerminationVerified {
                         settle_reservation_in(&mut e.budget, r, Some(cost.unwrap_or(0)));
                     } else {
@@ -161,12 +162,11 @@ impl Kernel {
             }
         }
         frame.push(action_record(&a)?);
-        frame.push(self.ledger(
-            LedgerKind::ActionCancel,
-            Some(&a.session_id),
-            json!({"correlation_id": a.correlation_id, "cancel": st, "settled": settle}),
-        )?);
+        let mut data = json!({"correlation_id": a.correlation_id, "cancel": st, "settled": settle});
+        crate::day_ceiling::Effect::stamp(&mut data, &day);
+        frame.push(self.ledger(LedgerKind::ActionCancel, Some(&a.session_id), data)?);
         self.commit(&frame)?;
+        self.day_after(day);
         Ok(a)
     }
     /// A task id can arrive after a stop settled uncertain. Only backend

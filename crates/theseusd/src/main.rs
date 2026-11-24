@@ -311,6 +311,7 @@ fn run() -> Result<()> {
     // An init system set none of them for a start from a shell, and then
     // nothing below reports anything.
     let sd = systemd::Systemd::from_env()?;
+    let restart = sd.for_restart()?;
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -352,7 +353,7 @@ fn run() -> Result<()> {
     match exit {
         Exit::Done => Ok(()),
         // The same image, which serves the same pipes or socket.
-        Exit::Exec(var, value) => exec_self(var, &value),
+        Exit::Exec(var, value) => exec_self(var, &value, &restart),
     }
 }
 
@@ -949,13 +950,14 @@ fn private_dir(dir: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-fn exec_self(var: &str, value: &str) -> Result<()> {
+fn exec_self(var: &str, value: &str, restart: &systemd::Restart) -> Result<()> {
     use std::os::unix::process::CommandExt;
     let mut args = std::env::args_os();
     let arg0 = args.next().unwrap_or_else(|| "theseusd".into());
     tracing::info!(var, "exec /proc/self/exe with the same arguments");
     let mut cmd = std::process::Command::new("/proc/self/exe");
     cmd.arg0(arg0).args(args).env(var, value);
+    restart.prepare(&mut cmd);
     // The exec keeps this process's umask, 077 by now: the operator's rides
     // in the environment (theseus-wz2).
     if let Some(u) = theseus_kernel::umask::operator() {

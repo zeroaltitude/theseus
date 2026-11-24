@@ -50,11 +50,19 @@ impl Core {
                 _ => top.push(id.clone()),
             }
         }
+        let mut children: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for (parent, id) in tasks {
-            let row = rows.remove(&id).expect("listed above");
-            rows.get_mut(&parent).expect("open").tasks.push(row);
+            children.entry(parent).or_default().push(id);
         }
-        let executions: Vec<BudgetRow> = top.iter().filter_map(|id| rows.remove(id)).collect();
+        let mut executions: Vec<BudgetRow> = top
+            .iter()
+            .filter_map(|id| budget_tree(id, &mut rows, &children))
+            .collect();
+        // Keep rows unreachable from a root, including parent loops. Removing
+        // each row before descending also terminates a cycle.
+        for (_, id) in &order {
+            executions.extend(budget_tree(id, &mut rows, &children));
+        }
         let totals = totals(&open, &executions);
         let j = self.runner.judge.health();
         Ok(BudgetListResult {
@@ -201,6 +209,22 @@ impl Core {
     }
 }
 
+/// Attach descendants before moving their parent's row out of the map.
+fn budget_tree(
+    id: &str,
+    rows: &mut BTreeMap<String, BudgetRow>,
+    children: &BTreeMap<String, Vec<String>>,
+) -> Option<BudgetRow> {
+    let mut row = rows.remove(id)?;
+    if let Some(ids) = children.get(id) {
+        row.tasks = ids
+            .iter()
+            .filter_map(|id| budget_tree(id, rows, children))
+            .collect();
+    }
+    Some(row)
+}
+
 /// The totals: the money of the top-level rows (a task's spend is its
 /// parent's, and its carve its parent's reservation), each session's
 /// lifetime, and the questions waiting. Added in micro-dollars.
@@ -225,11 +249,13 @@ fn totals(open: &[Execution], top: &[BudgetRow]) -> BudgetTotals {
             held += b.held_unknown_micros;
             available += b.available();
         }
-        for r in std::iter::once(row).chain(&row.tasks) {
+        let mut pending = vec![row];
+        while let Some(r) = pending.pop() {
             lifetime += r.lifetime_usd;
             t.questions += u32::from(r.question.is_some());
+            t.tasks += r.tasks.len() as u32;
+            pending.extend(&r.tasks);
         }
-        t.tasks += row.tasks.len() as u32;
     }
     t.limit_usd = usd(limit);
     t.spent_usd = usd(spent);

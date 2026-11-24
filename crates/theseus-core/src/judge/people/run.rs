@@ -26,6 +26,10 @@ use crate::rpc::Core;
 const RETRY_PAUSE_SECS: u64 = 2;
 const RETRY_CAP_SECS: u64 = 10;
 
+pub(super) const RUN_CAP: &str = "the people run cap stopped candidate judging";
+
+pub(crate) type Extractor = (crate::turn::Target, Arc<dyn Provider>);
+
 /// One session to pass over.
 pub struct Session<'a> {
     pub sid: &'a str,
@@ -49,6 +53,8 @@ pub struct Pass {
     /// The extractor's cost and Jev's.
     pub spent: Micros,
     pub failed: bool,
+    /// Judging stopped at the run cap: keep this cursor open.
+    pub incomplete: bool,
     /// The names it asked Jev about, folded.
     pub asked: Vec<String>,
 }
@@ -206,11 +212,24 @@ impl Core {
     /// no price, the day's ceiling); a failed call is a pass that failed,
     /// its row written.
     pub(crate) async fn propose_people(&self, s: Session<'_>) -> Result<Pass, String> {
-        let (target, provider) = self.people_extractor(s.lines.len() as u32).await?;
+        let extractor = self.people_extractor(s.lines.len() as u32).await?;
+        self.propose_people_on(s, extractor, None).await
+    }
+
+    /// Execute exactly the extractor the run admitted, under its remaining cap.
+    pub(crate) async fn propose_people_on(
+        &self,
+        s: Session<'_>,
+        (target, provider): Extractor,
+        cap: Option<Micros>,
+    ) -> Result<Pass, String> {
         let request = self.people_request(&target.model, s.title, &s.lines);
         let need = self
             .audit_reserve(&request)
             .ok_or_else(|| format!("no price for {}", target.model))?;
+        if cap.is_some_and(|cap| need > cap) {
+            return Err("the people run cap cannot hold this extraction".into());
+        }
         let hold = self.runner.day_hold(need, "people")?;
         let started_ms = theseus_protocol::now_unix_ms();
         let mut quiet = |_: crate::provider::Delta<'_>| {};
@@ -255,11 +274,21 @@ impl Core {
             }
         }
         pass.excluded = excluded.len() as u64;
-        let (judgments, jev) = self
+        let (judgments, jev, incomplete) = self
             .runner
             .judge
-            .judge_people(s.sid, s.title, s.purpose, &id, kept, &o)
+            .judge_people(
+                s.sid,
+                s.title,
+                s.purpose,
+                (&id, cap.map(|cap| cap.saturating_sub(cost))),
+                kept,
+                &o,
+            )
             .await;
+        pass.incomplete = incomplete;
+        pass.failed |= incomplete;
+        let failed = failed.or_else(|| incomplete.then(|| RUN_CAP.to_string()));
         pass.judged = judgments.len() as u64;
         pass.spent += jev;
         let names: Vec<String> = found.iter().map(|(c, _)| c.name.clone()).collect();
@@ -280,7 +309,9 @@ impl Core {
         let mut row = crate::fact::row(&f, Some(s.sid), None).map_err(|e| e.to_string())?;
         row.key = Some(id.clone());
         records.push(row.scoped(SCOPE));
-        records.extend(s.mark);
+        if !incomplete {
+            records.extend(s.mark);
+        }
         self.people_write(&records)
             .await
             .map_err(|e| format!("the extraction's row was not written: {e:#}"))?;
@@ -308,22 +339,22 @@ impl JudgeService {
         sid: &str,
         title: &str,
         purpose: &str,
-        extraction: &str,
+        (extraction, cap): (&str, Option<Micros>),
         kept: Vec<(PersonCandidate, Vec<String>)>,
         o: &Ontology,
-    ) -> (Vec<String>, Micros) {
+    ) -> (Vec<String>, Micros, bool) {
         if kept.is_empty() || self.mode_for(PACK, sid).mode == PackMode::Off {
-            return (Vec::new(), 0);
+            return (Vec::new(), 0, false);
         }
         let Some(pack) = theseus_judge::pack::by_name(PACK) else {
-            return (Vec::new(), 0);
+            return (Vec::new(), 0, false);
         };
         let today = spend::local_day(theseus_protocol::now_unix_ms());
         let built = match self.built() {
             Ok(b) => b,
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "judge: the Jev client was not built; people not judged");
-                return (Vec::new(), 0);
+                return (Vec::new(), 0, false);
             }
         };
         let scrub = ScrubWith(self.scrubber.clone());
@@ -356,7 +387,7 @@ impl JudgeService {
             ask.id = Some(format!("jdg_{}", uuid::Uuid::now_v7().simple()));
             asks.push(ask);
         }
-        self.judge_asks(&built, &today, asks).await
+        self.judge_asks(&built, &today, asks, cap).await
     }
 
     /// The asks, judged in one decision point; a judgment that failed for a
@@ -373,10 +404,14 @@ impl JudgeService {
         built: &Built,
         today: &str,
         asks: Vec<Ask>,
-    ) -> (Vec<String>, Micros) {
+        cap: Option<Micros>,
+    ) -> (Vec<String>, Micros, bool) {
         let need = built.judge.inner().reserve_micros(&asks).unwrap_or(0);
+        if cap.is_some_and(|cap| need > cap) {
+            return (Vec::new(), 0, true);
+        }
         if asks.is_empty() || !self.reserve(today, need, spend::Class::of_asks(&asks)) {
-            return (Vec::new(), 0);
+            return (Vec::new(), 0, false);
         }
         let judgments = built
             .judge
@@ -401,7 +436,7 @@ impl JudgeService {
             })
             .collect();
         if failed.is_empty() {
-            return (ids, spent_all);
+            return (ids, spent_all, false);
         }
         let pause = failed.iter().map(|f| f.1).max().unwrap_or(0);
         let pause = Duration::from_secs(pause.clamp(RETRY_PAUSE_SECS, RETRY_CAP_SECS));
@@ -417,8 +452,11 @@ impl JudgeService {
             .collect();
         let need = built.judge.inner().reserve_micros(&again).unwrap_or(0);
         tokio::time::sleep(pause).await;
+        if cap.is_some_and(|cap| spent_all.saturating_add(need) > cap) {
+            return (ids, spent_all, true);
+        }
         if !self.reserve(today, need, spend::Class::of_asks(&again)) {
-            return (ids, spent_all);
+            return (ids, spent_all, false);
         }
         let retried = built
             .judge
@@ -437,7 +475,7 @@ impl JudgeService {
         for ((i, _, _), j) in failed.iter().zip(&retried) {
             ids[*i] = j.id.clone();
         }
-        (ids, spent_all)
+        (ids, spent_all, false)
     }
 
     /// One round's judgments settled against its reservation: their ids and
@@ -451,7 +489,8 @@ impl JudgeService {
         let mut spent_all = 0;
         let mut ids = Vec::new();
         let share = need / judgments.len().max(1) as u64;
-        for j in judgments {
+        for (i, j) in judgments.iter().enumerate() {
+            let share = share + u64::from(i == 0) * (need % judgments.len() as u64);
             let (called, failed, unknown) = match &j.outcome {
                 Outcome::Answered => (true, false, false),
                 Outcome::Failed { usage_unknown, .. } => (true, true, *usage_unknown),
@@ -480,4 +519,26 @@ fn retry_after(e: &JevError) -> u64 {
 /// A record of `kind` META, keyed.
 pub(crate) fn meta<T: serde::Serialize>(key: &str, value: &T) -> anyhow::Result<NewRecord> {
     NewRecord::json(kinds::META, Some(key), value)
+}
+
+#[cfg(test)]
+mod reservation_tests {
+    #[tokio::test]
+    async fn a_batch_releases_its_whole_reservation() {
+        use crate::judge::spend::{self, Class, BLOCK_MICROS};
+        let _clock = crate::test_support::pin_mid_period();
+        let r = crate::tests_judge::rig_with(vec![], None, |_| {});
+        let svc = &r.core.runner.judge;
+        let today = spend::local_day(theseus_protocol::now_unix_ms());
+        assert!(svc.reserve(&today, 5, Class::Live));
+        let mut judgments: Vec<_> = (0..3).map(crate::tests_sink_backlog::settled).collect();
+        for j in &mut judgments {
+            j.cost_micros = Some(0);
+        }
+        svc.settle_round(&today, 5, &judgments);
+        assert!(
+            !svc.budget.needs_frame(&today, BLOCK_MICROS, Class::Live),
+            "no fractional reservation remains in flight"
+        );
+    }
 }

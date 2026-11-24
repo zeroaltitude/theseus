@@ -15,6 +15,7 @@ impl ToolRuntime {
     /// lives here, beside the completion frame it follows, rather than in
     /// `toolrun.rs`, which is at its shape ceiling.
     pub(super) fn announce_end(tc: &TurnCtx<'_>, node: &Node) {
+        super::flow_result::written(node);
         tc.record(&fact::tool::ToolEnded {
             session_id: tc.session_id,
             turn_id: tc.turn_id,

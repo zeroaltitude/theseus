@@ -2336,34 +2336,14 @@ impl Place {
         trust_answer(&r)
     }
 
-    /// The session `/trust` clears: this place's own when it carries the
-    /// `injection` label, else a thread's that answers here and does
-    /// (`outbox::show_at`, the same index the task watch reads to adopt a
-    /// routed thread's tasks). The place's own comes first, and the threads
-    /// in slug order after it, so the pick is the same on every call.
+    /// The session `/trust` clears is this place's current conversation alone.
     async fn frozen_session(&self) -> Option<String> {
-        let mut threads: Vec<String> = self
+        let frozen = self
             .shared
-            .core
-            .outbox
-            .shown()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|(s, target)| target == &self.target && s != &self.session_id)
-            .map(|(s, _)| s)
-            .collect();
-        threads.sort();
-        for sid in std::iter::once(self.session_id.clone()).chain(threads) {
-            let frozen = self
-                .shared
-                .session_info(&sid)
-                .await
-                .is_some_and(|s| s.labels.iter().any(|l| l.flag == "injection"));
-            if frozen {
-                return Some(sid);
-            }
-        }
-        None
+            .session_info(&self.session_id)
+            .await
+            .is_some_and(|s| s.labels.iter().any(|l| l.flag == "injection"));
+        frozen.then(|| self.session_id.clone())
     }
 
     /// `/cancel <id>` for a task (DD7), once no wake had the name.

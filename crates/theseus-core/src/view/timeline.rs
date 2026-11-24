@@ -18,10 +18,24 @@ pub enum TimelineRoot {
 
 /// Where a page of a timeline stops: everything strictly older than this exchange. Ordered as the touch
 /// index is (time, then turn id).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Cursor {
     pub at_ms: u64,
     pub turn_id: String,
+}
+
+impl Ord for Cursor {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.at_ms
+            .cmp(&other.at_ms)
+            .then_with(|| other.turn_id.cmp(&self.turn_id))
+    }
+}
+
+impl PartialOrd for Cursor {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 /// One exchange on a timeline, by reference (the ledger's `Touch`, with the turn id as `turn_id`).

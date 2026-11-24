@@ -1,10 +1,12 @@
 //! Running one check (theseus-f2r2b): a file read, a fetch, a command in L1.
 //! None of them is on a turn's thread: the file and the command run on the
-//! blocking pool, the fetch on the runtime, each bounded (30 s, 64 KiB of
-//! output). A watch's value and rows are what the check read: the record is
+//! blocking pool, the fetch on the runtime. Commands and fetches are bounded
+//! to 30 s; regular-file reads are byte-bounded, not time-bounded. All output
+//! is capped at 64 KiB. A watch's value and rows are what the check read: the record is
 //! raw, and the courier that posts a message substitutes the vault's values.
 
 use std::io::Read;
+use std::os::unix::fs::OpenOptionsExt;
 use std::sync::Arc;
 
 use theseus_kernel::probe_run::ProbeRun;
@@ -79,11 +81,18 @@ async fn blocking<T: Send + 'static>(
 
 /// A file: missing is a value (`exists` is false), not a failure.
 fn file(path: &str) -> Result<Observed, String> {
-    let f = match std::fs::File::open(path) {
+    let f = match std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+    {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Observed::default()),
         Err(e) => return Err(format!("{path}: {e}")),
     };
+    if !f.metadata().map_err(|e| format!("{path}: {e}"))?.is_file() {
+        return Err(format!("{path}: a file watch requires a regular file"));
+    }
     let mut buf = Vec::new();
     f.take(OUTPUT_BYTES as u64)
         .read_to_end(&mut buf)
@@ -177,5 +186,10 @@ mod tests {
         assert!(of_run(&did_not_start, &exit0, None)
             .unwrap_err()
             .contains("L1"));
+    }
+
+    #[test]
+    fn a_file_watch_rejects_devices() {
+        assert!(file("/dev/null").is_err());
     }
 }

@@ -95,7 +95,7 @@ export default function Boundaries() {
       </div>
 
       <Panel help="bounds.gate" title={<>The gate · approvals and tightenings</>} icon={<ShieldCheck size={13} />} bodyClassName="p-2.5">
-        <Gate confirms={confirms} tight={tight} rows={mine} title={title} now={now} onOpen={(sid, cid) => nav(`/session/${sid}${cid ? `?call=${cid}` : ''}`)} />
+        <Gate disabled={world !== null} confirms={confirms} tight={tight} rows={mine} title={title} now={now} onOpen={(sid, cid) => nav(`/session/${sid}${cid ? `?call=${cid}` : ''}`)} />
       </Panel>
 
       <Panel help="bounds.sandbox" title={<>The sandbox · L1 jobs, live and finished</>} icon={<ShieldHalf size={13} />} bodyClassName="p-2.5"
@@ -140,9 +140,10 @@ function Seal({ icon, n, word, tone, hint }: { icon: ReactNode; n: number; word:
 }
 
 /** Confirmed first; true once the daemon has done it. */
-function useAct() {
+function useAct(disabled = false) {
   const qc = useQueryClient()
   return async (method: string, params: unknown, ask: string): Promise<boolean> => {
+    if (disabled) return false
     if (!window.confirm(ask)) return false
     try { await call(method, params); await qc.invalidateQueries(); return true } catch (e: any) { window.alert(e?.message ?? String(e)); return false }
   }
@@ -151,7 +152,7 @@ function useAct() {
 // ---------------------------------------------------------------- the gate
 
 function Gate({ confirms, tight, rows, title, now, onOpen, disabled }: { confirms: ConfirmRequest[]; tight: Health['tightenings']; rows: LedgerEntry[]; title: (s?: string | null) => string; now: number; onOpen: (sid: string, cid?: string) => void; disabled?: boolean }) {
-  const act = useAct()
+  const act = useAct(disabled)
   const log = rows.filter((r) => r.kind === 'policy.tightened' || r.kind === 'policy.untightened').slice(-6).reverse()
   return (
     <div className="flex flex-col gap-2">
@@ -166,10 +167,10 @@ function Gate({ confirms, tight, rows, title, now, onOpen, disabled }: { confirm
             </div>
             <div className={cn('mt-0.5 text-[12px] text-ink-dim', c.plain?.detail ? 'whitespace-pre-wrap break-words' : 'line-clamp-2')}>{c.plain?.detail || c.reason}</div>
           </div>
-          <div className="flex shrink-0 flex-col gap-1">
+          <fieldset disabled={disabled} className="flex shrink-0 flex-col gap-1">
             <Btn tone="ok" onClick={() => act('action.confirm', { correlation_id: c.correlation_id, approve: true }, `Approve ${c.tool}?\n\n${c.plain?.detail || c.reason}`)}><CircleCheck size={12} /> Approve</Btn>
             <Btn tone="fault" onClick={() => act('action.confirm', { correlation_id: c.correlation_id, approve: false }, `Decline ${c.tool}?`)}><OctagonX size={12} /> Decline</Btn>
-          </div>
+          </fieldset>
         </div>
       ))}
       <div className="ship-engraved mt-1 text-[9.5px]">Tightenings · “Make actions like this ask in the future”</div>

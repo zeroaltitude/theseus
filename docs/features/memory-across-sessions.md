@@ -1,6 +1,6 @@
 # It remembers everything, across sessions and tools
 
-*One page on memory. Numbers come from the data files beside each report they cite. Updated 2026-10-28.*
+*One page on memory. Numbers come from the data files beside each report they cite. Updated 2026-11-23.*
 
 ## What it is
 
@@ -16,16 +16,17 @@ day one.
   ([§4 The context graph](../spec/05-part1-s4.md#4-the-context-graph)), and recall is a query over it, not over a
   separate memory file.
 - **Recall's pipeline** (`crates/theseus-memory/src/recall.rs`, [§5.3](../spec/05-part1-s4.md#53-recall)): the
-  index finds candidates; filters drop each with its reason (another place the session may not read, a node you
-  labelled wrong or stale, the older side of a supersedes edge); the science ranks them; Jev's rerank orders them;
-  and the pack fits the budget. In a thread, other threads' notes stay out unless they are about the same subject.
+  index finds candidates; filters drop each with its reason (an unreadable source, a node you labelled wrong or stale,
+  the older side of a supersedes edge); the science ranks them; Jev's rerank orders them; and the pack fits the
+  budget. Place and category labels do not withhold notes from recall.
 - **The memory pass** (`crates/theseus-memory/src/activation.rs`, `consolidate.rs`): after a turn, notes are
   written with their kind, durability and what they are about, with retention modelled on spaced repetition
   (`fsrs.rs`), and a nightly consolidation writes syntheses whose citations are checked before they may be recalled.
 - **Imports** (`crates/theseus-core/src/import/`): `theseus import claude-code`, `codex` or `openclaw` reads another
   agent's history into the same graph as episodes with their times and sources, and `theseus persona import` brings
   a whole workspace over as a persona whose own past ranks a little higher while it speaks.
-- **Place-safe.** A note made in a private place is never recalled into a shared one.
+- **One memory in every trusted place.** Private conversations may be recalled in shared places too. Only
+  connect places whose participants you trust with that memory; tool ceilings and publish approval still apply.
 
 ## What you see on each surface
 
@@ -35,7 +36,7 @@ day one.
 - **In the conversation:** ask what it has learned about you lately and it names those same kept lines, each with
   the day and the conversation you said it in, and says plainly that none is on your card until you answer. What
   it kept today it carries with it, so it can answer the moment you ask; anything older it reads only when you
-  ask for it. Either way it is only where you are the one writing, and none of it reaches a shared place.
+  ask for it. Those card controls are not a boundary around memory: source messages can still be recalled in shared places.
 - **Discord:** up to three question cards a day in your DM (Add, Pattern, Stale) from the nightly pass, answered
   Keep, Edit, Not this or End it. Nothing becomes a record without your answer.
 
@@ -50,7 +51,7 @@ day one.
   2026-10-18 run, and about half of that rise is the bench's larger context window, not the build.
 - **Imports live:** the owner's earlier assistant history, 21,779 episodes, imported in 2 minutes 4 seconds with
   none rejected (the [memory design](../design/m6-memory.md) and its report).
-- **Tests:** `crates/theseus-memory/src/tests_threads.rs`, `tests_persona.rs`, `tests_category.rs`, and the
+- **Tests:** `crates/theseus-memory/src/gate.rs`, `tests_persona.rs`, `tests_category.rs`, and the
   core's recall tests.
 
 ## The limits today
@@ -70,7 +71,7 @@ day one.
 
 - **After 1.0.4:** the recall bench runs again on the 1.0.4 build, with Claude Code and Pi rerun only if a model
   or a harness changed.
-- A thread's recall across threads (`recall_cross.v1`) is live and not yet measured on the real model.
+- The single-memory recall path has not yet been measured by a new head-to-head run.
 
 Related: [Context compiled for each turn](compiled-context.md) (how recalled notes reach the model),
 [Many characters, one memory](personas-and-threads.md) (one memory under every persona).

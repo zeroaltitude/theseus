@@ -59,6 +59,13 @@ export function attachmentOf(file: { name: string; size: number }, bytes: Uint8A
   return { ...a, data: base64(bytes) }
 }
 
+/** Read only an admitted file; a failed read remains a visible, unsendable attachment. */
+export async function readAttachment(file: { name: string; size: number; arrayBuffer: () => Promise<ArrayBuffer> }): Promise<Attachment> {
+  if (file.size > MAX_ATTACH_BYTES) return attachmentOf(file, new Uint8Array())
+  try { return attachmentOf(file, new Uint8Array(await file.arrayBuffer())) }
+  catch (e) { return { name: file.name, size: file.size, media_type: '', not_read: `could not read: ${e instanceof Error ? e.message : String(e)}` } }
+}
+
 /** Why the message cannot go, in the chat's words, or null when every file was read. */
 export function attachRefusal(attachments: readonly Attachment[]): string | null {
   const bad = attachments.find((a) => a.not_read)

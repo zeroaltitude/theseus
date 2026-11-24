@@ -937,7 +937,7 @@ turn_step() {
 # growth of more than 1 MB over the last recorded size of that profile, and prints §9's 60 MB miss without failing on
 # it. A count, not a time: it runs in a lane's gate too.
 size_step() {
-  ran_or_skipped scripts/size-step.sh "$history" "$label"
+  THESEUS_SIZE_TARGET="$target_dir" ran_or_skipped scripts/size-step.sh "$history" "$label"
 }
 
 # The supply-chain check, offline (theseus-goa8; review 2's SC2). Licences, bans, and
@@ -1558,7 +1558,7 @@ fi
 # host, 2026-11-09: eight of those tests were refused by the first version, which stood at the head of the flow).
 disk_floor_status=73
 disk_floor() {
-  local dir=target kb where tenths free
+  local dir="${CARGO_TARGET_DIR:-target}" kb where tenths free
   if [ "$min_free_gb" -eq 0 ]; then
     echo "gate: disk floor: off (THESEUS_GATE_MIN_FREE_GB=0)"
     skip
@@ -1657,6 +1657,7 @@ phase "recall tests" ran_or_skipped scripts/recall-tests.sh
 # the recall tests: it runs the debug theseusd and theseus-sim and says it skipped when either is missing. It
 # NEVER fails the gate: a printed warning and a committed baseline, never a ceiling (scripts/prompt-step.sh's own
 # doc says why, and scripts/shape.sh owns the hard ones).
+export THESEUS_PROMPT_TARGET="$target_dir"
 phase prompt ran_or_skipped scripts/prompt-step.sh
 locked_checks
 phase deny deny_check

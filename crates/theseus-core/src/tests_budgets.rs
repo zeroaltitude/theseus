@@ -48,10 +48,13 @@ fn exec(core: &Core, id: &str) -> Execution {
 
 /// Every row, its tasks included.
 fn every(r: &BudgetListResult) -> Vec<&BudgetRow> {
-    r.executions
-        .iter()
-        .flat_map(|e| std::iter::once(e).chain(&e.tasks))
-        .collect()
+    let mut rows = Vec::new();
+    let mut pending: Vec<_> = r.executions.iter().collect();
+    while let Some(row) = pending.pop() {
+        rows.push(row);
+        pending.extend(&row.tasks);
+    }
+    rows
 }
 
 /// Each row agrees with its execution's record.
@@ -81,10 +84,7 @@ fn agrees(core: &Core, r: &BudgetListResult) {
     assert_eq!(r.totals.reserved_usd, sum(|x| x.reserved_usd));
     assert_eq!(r.totals.available_usd, sum(|x| x.available_usd));
     assert_eq!(r.totals.executions as usize, top.len());
-    assert_eq!(
-        r.totals.tasks as usize,
-        top.iter().map(|x| x.tasks.len()).sum::<usize>()
-    );
+    assert_eq!(r.totals.tasks as usize, every(r).len() - top.len());
 }
 
 /// A conversation with two tasks: each task under its parent, its limit
@@ -296,4 +296,81 @@ async fn the_last_reset_is_read_by_one_page_however_much_history_follows() {
         Some("discord:271828"),
         "{r:?}"
     );
+}
+
+#[tokio::test]
+async fn budget_list_keeps_grandchildren_and_counts_their_questions() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = core_at(dir.path(), 100.0);
+    let (_, root) = open(&core, "nested work");
+    core.kernel.wake_input(&root).unwrap();
+    let root_guard = core.kernel.admit(&root).unwrap();
+    let child = core
+        .kernel
+        .open_task(
+            &root_guard,
+            "act_child",
+            usd_to_micros(10.0),
+            None,
+            false,
+            |_| Ok(vec![]),
+        )
+        .unwrap()
+        .task;
+    let child_guard = core.kernel.admit(&child.id).unwrap();
+    let grandchild = core
+        .kernel
+        .open_task(
+            &child_guard,
+            "act_grandchild",
+            usd_to_micros(2.0),
+            None,
+            false,
+            |_| Ok(vec![]),
+        )
+        .unwrap()
+        .task;
+    let grandchild_guard = core.kernel.admit(&grandchild.id).unwrap();
+    core.kernel
+        .ask_budget(&grandchild_guard, usd_to_micros(3.0))
+        .unwrap();
+    // Force the old parent-before-child assembly order without a clock race.
+    for (id, created) in [(&child.id, 1), (&grandchild.id, 2)] {
+        core.kernel
+            .edit_task(id, |e| {
+                e.created_at_ms = created;
+                Ok(((), vec![]))
+            })
+            .unwrap();
+    }
+    let result = core.budget_list().unwrap();
+    assert_eq!(result.executions.len(), 1);
+    assert_eq!(result.executions[0].tasks[0].execution_id, child.id);
+    assert_eq!(
+        result.executions[0].tasks[0].tasks[0].execution_id,
+        grandchild.id
+    );
+    assert_eq!(result.totals.tasks, 2);
+    assert_eq!(result.totals.questions, 1);
+}
+
+#[test]
+fn budget_list_keeps_rows_in_a_parent_loop() {
+    use theseus_store::{kinds, NewRecord};
+    let dir = tempfile::tempdir().unwrap();
+    let core = core_at(dir.path(), 10.0);
+    let (_, first) = open(&core, "first");
+    let (_, second) = open(&core, "second");
+    for (id, parent) in [(&first, &second), (&second, &first)] {
+        let mut e = exec(&core, id);
+        e.parent = Some(parent.clone());
+        core.store
+            .append(&[NewRecord::json(kinds::EXECUTION, Some(id), &e).unwrap()])
+            .unwrap();
+    }
+    let result = core.budget_list().unwrap();
+    let rows = every(&result);
+    assert_eq!(rows.len(), 2, "a parent loop must not hide its rows");
+    assert_eq!(rows.iter().filter(|r| r.execution_id == first).count(), 1);
+    assert_eq!(rows.iter().filter(|r| r.execution_id == second).count(), 1);
 }

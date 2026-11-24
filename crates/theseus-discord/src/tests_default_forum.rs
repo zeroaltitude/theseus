@@ -71,6 +71,38 @@ struct Slow {
     go: PathBuf,
 }
 
+fn slow_request(req: &ProviderRequest, mark: &str) -> bool {
+    req.messages
+        .first()
+        .is_some_and(|m| match m["content"].as_array() {
+            Some(blocks) => blocks
+                .iter()
+                .filter(|b| !theseus_core::task_graph::view::is_view(b))
+                .any(|b| b.to_string().contains(mark)),
+            None => m.to_string().contains(mark),
+        })
+}
+
+#[test]
+fn the_forum_fixture_holds_only_the_tasks_own_brief() {
+    let mut req = ProviderRequest {
+        messages: vec![serde_json::json!({"role": "user", "content": [
+            {"type": "text", "text": "A new request"},
+            {"type": "text", "text": format!("{} {SKIFF}", theseus_core::task_graph::view::HEAD)}
+        ]})],
+        ..Default::default()
+    };
+    assert!(
+        !slow_request(&req, SKIFF),
+        "a quoted task in the view must not hold this request"
+    );
+    req.messages[0]["content"][0]["text"] = serde_json::json!(SKIFF);
+    assert!(
+        slow_request(&req, SKIFF),
+        "the task itself still waits for its place"
+    );
+}
+
 impl Provider for Slow {
     fn name(&self) -> &str {
         "fake"
@@ -80,10 +112,7 @@ impl Provider for Slow {
         req: &'a ProviderRequest,
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
-        let slow = req
-            .messages
-            .first()
-            .is_some_and(|m| m.to_string().contains(self.mark));
+        let slow = slow_request(req, self.mark);
         Box::pin(async move {
             while slow && !self.go.exists() {
                 tokio::time::sleep(Duration::from_millis(25)).await;

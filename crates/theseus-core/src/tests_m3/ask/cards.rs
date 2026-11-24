@@ -118,6 +118,16 @@ async fn dm_cards_off_is_todays_post() {
     let who = r.core.asker_name(&req);
     let posted = crate::outbox::body_of(&needs_you_posts(&r)[0]).clone();
     assert_eq!(posted, crate::needs_you::body_of(&a, &req, &who));
+    let short = &corr[corr.len() - 8..];
+    let text = posted["text"]
+        .as_str()
+        .unwrap()
+        .replace(r.root.to_str().unwrap(), "<work>")
+        .replace(short, "<id>");
+    assert_eq!(text, "● write out.txt needs you: create <work>/out.txt (9 bytes): fs.write — approve (enforcement = approve)\n-# answer with `theseus answer <id> approve` or `decline`, or open Theseus");
+    assert_eq!(posted["asked_by"], "write out.txt");
+    assert_eq!(posted["prompt"], req.reason);
+    assert_eq!(posted["choices"], json!([]));
     assert!(posted["card"].is_null(), "{posted}");
     assert!(
         posted["text"].as_str().unwrap().starts_with("● "),
@@ -152,7 +162,7 @@ async fn the_plain_post_says_whether_it_is_held_and_since_when() {
     assert_eq!(posted["requested_at_ms"], card["requested_at_ms"]);
 }
 
-/// A thread's session is asked by the thread's title, not by the first
+/// A former thread's session is asked by its session title, not by the old
 /// message it was given; a task's title still wins where a task asks
 /// (theseus-zcn80).
 #[tokio::test]
@@ -168,5 +178,5 @@ async fn a_thread_sessions_question_is_asked_by_the_thread() {
         session_id: sid,
         ..Default::default()
     };
-    assert_eq!(r.core.asker_name(&req), "Harbour log notes");
+    assert_eq!(r.core.asker_name(&req), "Say ok, nothing else.");
 }

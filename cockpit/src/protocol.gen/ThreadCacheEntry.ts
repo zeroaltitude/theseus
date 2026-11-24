@@ -6,6 +6,6 @@ import type { ThreadCacheStats } from "./ThreadCacheStats";
  */
 export type ThreadCacheEntry = { slug: string, stats: ThreadCacheStats, 
 /**
- * Whether the keep-warm holds its session now.
+ * Historical hold flag; current readers return false.
  */
 kept: boolean, };

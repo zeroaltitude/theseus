@@ -1,8 +1,8 @@
 //! What the cache did for threads today (theseus-ytt8, T9): read from the
 //! ledger's `provider.call` and `keep_warm` rows of the local day, by
 //! `stats_of`, which is pure (`ThreadCacheStats`: cold resumes, warm hits,
-//! keep-warm reads and what they saved). Health's `threads.cache` holds a
-//! minute's copy, so the health path never scans the ledger.
+//! keep-warm reads and what they saved). Explicit legacy inspections keep a
+//! minute's copy; ordinary health no longer reads or reports these numbers.
 //!
 //! Nothing is kept warm any more (issue 44): not between turns, and since
 //! 2026-11-22 not during a wait either. The day's `keep_warm` rows of an older
@@ -15,9 +15,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use theseus_protocol::thread_cache::{
-    ThreadCacheEntry, ThreadCacheStats, ThreadsCache, ThreadsHealth,
-};
+use theseus_protocol::thread_cache::{ThreadCacheEntry, ThreadCacheStats, ThreadsCache};
 use theseus_protocol::Usage;
 use theseus_store::{kinds, Page};
 
@@ -227,19 +225,6 @@ impl crate::rpc::Core {
                 (sid, existed)
             })
             .collect()
-    }
-
-    /// Health's `threads` section: the window, and the day's numbers from
-    /// the minute's copy. A thread-less daemon reads nothing and says nothing.
-    pub fn threads_health(&self) -> Option<ThreadsHealth> {
-        let board = self.runner.threads.held()?;
-        if board.is_empty() {
-            return None;
-        }
-        Some(ThreadsHealth {
-            keep_warm_hours: 0.0,
-            cache: Some(self.threads_cache()),
-        })
     }
 
     /// The day's numbers: the copy while it is a minute old or less, else

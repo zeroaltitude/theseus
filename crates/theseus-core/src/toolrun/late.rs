@@ -3,8 +3,6 @@
 //! execution's calls get (`answer_after_cancel`, `not_run_results`).
 //! Split from `toolrun.rs` (theseus-5gw9).
 
-use std::collections::HashSet;
-
 use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_kernel::{
@@ -17,6 +15,81 @@ use crate::egress;
 use crate::fact;
 use crate::node::{Body, Node, ResultStatus};
 use crate::store::Store;
+
+/// Action ids are durable; provider tool ids are only unique within one reply.
+/// Old results without an action id match only a known turn and loop.
+fn answers(result: &Node, correlation: &str, origin: &Node, wire: &str) -> bool {
+    let Body::ToolResult {
+        tool_use_id,
+        correlation_id,
+        ..
+    } = &result.body
+    else {
+        return false;
+    };
+    result_identity(
+        correlation,
+        correlation_id.as_deref(),
+        wire == tool_use_id,
+        (origin.turn_id.as_deref(), origin.loop_index),
+        (result.turn_id.as_deref(), result.loop_index),
+    )
+}
+
+fn result_identity(
+    wanted: &str,
+    actual: Option<&str>,
+    same_wire: bool,
+    origin: (Option<&str>, Option<u32>),
+    result: (Option<&str>, Option<u32>),
+) -> bool {
+    match actual {
+        Some(actual) => actual == wanted,
+        None => same_wire && origin.0.is_some() && origin.1.is_some() && origin == result,
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::result_identity;
+    #[test]
+    fn reused_wire_ids_do_not_answer_another_action_or_reply() {
+        let reply = (Some("turn_a"), Some(1));
+        assert!(
+            !result_identity("act_b", Some("act_a"), true, reply, reply),
+            "another action reused the wire id"
+        );
+        assert!(result_identity(
+            "act_b",
+            Some("act_b"),
+            true,
+            reply,
+            (Some("later"), Some(9))
+        ));
+        assert!(result_identity("act_b", None, true, reply, reply));
+        assert!(!result_identity(
+            "act_b",
+            None,
+            true,
+            reply,
+            (Some("turn_a"), Some(2))
+        ));
+        assert!(!result_identity(
+            "act_b",
+            None,
+            true,
+            reply,
+            (Some("turn_b"), Some(1))
+        ));
+        assert!(!result_identity(
+            "act_b",
+            None,
+            true,
+            (None, None),
+            (None, None)
+        ));
+    }
+}
 
 /// A background job's late result, as `absorb` wrote it: the turn traces it
 /// as its call's answer (theseus-8pei).
@@ -132,13 +205,16 @@ impl ToolRuntime {
                     correlation_id: Some(c),
                     late: false,
                     ..
-                } if c == &a.correlation_id => Some((i, tool_use_id.clone(), tool.clone())),
+                } if c == &a.correlation_id => Some((i, tool_use_id.clone(), tool.clone(), node)),
                 _ => None,
             });
-            let Some((at, tool_use_id, tool)) = placeholder else {
+            let Some((at, tool_use_id, tool, origin)) = placeholder else {
                 continue;
             };
-            let already = results(at + 1).any(|(_, node)| matches!(&node.body, Body::ToolResult { tool_use_id: t, late: true, .. } if *t == tool_use_id));
+            let already = results(at + 1).any(|(_, node)| {
+                matches!(&node.body, Body::ToolResult { late: true, .. })
+                    && answers(node, &a.correlation_id, origin, &tool_use_id)
+            });
             if already {
                 continue;
             }
@@ -314,17 +390,6 @@ impl ToolRuntime {
         // A job answered `background` and ended by the cancel, or settled
         // before it and never taken: the end a later turn writes as a late
         // result (theseus-kol), which a cancelled execution never takes.
-        let ended: HashSet<&str> = nodes
-            .iter()
-            .filter_map(|(_, n)| match &n.body {
-                Body::ToolResult {
-                    tool_use_id,
-                    late: true,
-                    ..
-                } => Some(tool_use_id.as_str()),
-                _ => None,
-            })
-            .collect();
         for (_, n) in &nodes {
             let Body::ToolResult {
                 tool_use_id,
@@ -337,7 +402,10 @@ impl ToolRuntime {
             else {
                 continue;
             };
-            if ended.contains(tool_use_id.as_str()) {
+            if nodes.iter().any(|(_, result)| {
+                matches!(&result.body, Body::ToolResult { late: true, .. })
+                    && answers(result, c, n, tool_use_id)
+            }) {
                 continue;
             }
             let Some(a) = kernel.action(c)? else {
@@ -529,13 +597,6 @@ pub(crate) fn not_run_results(
         return Ok(vec![]);
     }
     let nodes = store.session_nodes(session_id)?;
-    let answered: HashSet<&str> = nodes
-        .iter()
-        .filter_map(|(_, n)| match &n.body {
-            Body::ToolResult { tool_use_id, .. } => Some(tool_use_id.as_str()),
-            _ => None,
-        })
-        .collect();
     let mut out = Vec::new();
     for a in calls {
         let call = nodes.iter().find_map(|(_, n)| match &n.body {
@@ -550,7 +611,10 @@ pub(crate) fn not_run_results(
         let Some((call, tool_use_id, tool)) = call else {
             continue;
         };
-        if answered.contains(tool_use_id.as_str()) {
+        if nodes
+            .iter()
+            .any(|(_, result)| answers(result, &a.correlation_id, call, tool_use_id))
+        {
             continue;
         }
         let (status, text) = not_run_answer(a);

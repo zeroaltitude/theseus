@@ -21,9 +21,8 @@
 //!   - **seen, not used** is listed.
 //! - **Idempotent**: a node retracted before answers from the stored table
 //!   and writes nothing.
-//! - **The place rule**: the answer is shaped for the place the request is
-//!   run for. A shared place's never shows a private exposure's text (its
-//!   title, or the node's own words when the node's session is private).
+//! - **The audit**: every authorised caller receives the complete audit,
+//!   regardless of the place the request names.
 //! - **FAST**: an operator's act, off every turn. The walk is reach's: a scan
 //!   per session reached. A turn costs nothing unless a note is pending
 //!   (`Notes::waiting` is two atomic loads).
@@ -168,7 +167,7 @@ impl Notes {
 }
 
 /// An exposure as the row keeps it: the wire's, and whether its place is
-/// private (a shared place's answer leaves such a one's words out).
+/// private. The flag stays in the row but no longer shapes the answer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Found {
     #[serde(flatten)]
@@ -191,8 +190,7 @@ struct Stored {
     partial: bool,
     #[serde(default)]
     card: bool,
-    #[serde(default)]
-    private: bool,
+    // Serde ignores the retired `private` field in old audits. It has no reader.
 }
 
 /// The first words of a node, on one line.
@@ -241,20 +239,16 @@ impl Core {
         if why.is_empty() {
             bail!("a retraction says why: give the reason in a sentence");
         }
-        let may_read = match p.session_id.as_deref() {
-            Some(sid) => {
-                if self.store.get_session::<SessionRecord>(sid)?.is_none() {
-                    bail!("no session {sid}");
-                }
-                matches!(self.runner.place_of(sid), Place::Private)
+        if let Some(sid) = p.session_id.as_deref() {
+            if self.store.get_session::<SessionRecord>(sid)?.is_none() {
+                bail!("no session {sid}");
             }
-            None => true,
-        };
+        }
         let node_id = self.retract_target(&p.node)?;
         let what = format!("the retraction of {node_id}");
         self.judge_act(&who, Act::Retract { what: &what })?;
         if let Some(done) = self.retraction_of(&node_id)? {
-            return Ok(shown(done, true, may_read));
+            return Ok(shown(done, true));
         }
         let (_, node) = self
             .store
@@ -332,10 +326,8 @@ impl Core {
                 exposures: found,
                 partial: walk.partial,
                 card,
-                private: private_origin,
             },
             false,
-            may_read,
         ))
     }
 
@@ -738,24 +730,13 @@ pub(crate) fn card_text(gist: &str, why: &str, tasks: &[&Found]) -> String {
     t
 }
 
-/// A stored table as the place the request is run for may read it.
-fn shown(s: Stored, already: bool, may_read: bool) -> FactRetractResult {
-    let exposures = s
-        .exposures
-        .into_iter()
-        .map(|f| {
-            let mut e = f.e;
-            if f.private && !may_read {
-                e.place = "a private place".into();
-                e.hidden = true;
-            }
-            e
-        })
-        .collect();
+/// The complete stored audit for an authorised retraction request, wherever it was made.
+fn shown(s: Stored, already: bool) -> FactRetractResult {
+    let exposures = s.exposures.into_iter().map(|f| f.e).collect();
     FactRetractResult {
         node_id: s.node_id,
         session_id: s.session_id,
-        gist: (!s.gist.is_empty() && (may_read || !s.private)).then_some(s.gist),
+        gist: (!s.gist.is_empty()).then_some(s.gist),
         why: s.why,
         by: s.by,
         at_ms: s.at_ms,
@@ -778,4 +759,20 @@ pub fn note_node(session: &str, turn: &str, note: &Note) -> Node {
     debug_assert!(matches!(n.body, Body::UserMessage { .. }));
     n.author = Some(NOTE_AUTHOR.into());
     n
+}
+
+#[cfg(test)]
+mod retired_audit_tests {
+    use super::*;
+    #[test]
+    fn old_private_audit_metadata_still_decodes_without_shaping_the_answer() {
+        for private in [false, true] {
+            let old = serde_json::json!({
+                "node_id": "node_old", "session_id": "session_old", "gist": "old words",
+                "why": "correction", "by": "owner", "at_ms": 1, "exposures": [], "private": private
+            });
+            let stored: Stored = serde_json::from_value(old).unwrap();
+            assert_eq!(shown(stored, true).gist.as_deref(), Some("old words"));
+        }
+    }
 }

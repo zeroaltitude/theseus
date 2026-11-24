@@ -530,10 +530,9 @@ async fn last_line_goes_out_at_most_once_a_second_under_a_chatty_job() {
 }
 
 /// The owner's surface reads a job (and since 2026-11-22 every surface may).
-/// A guarded scope hands over no `last_line`, and a job of a shared place's
-/// session is never sampled.
+/// A guarded scope receives the scrubbed line without access to private tools.
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-async fn a_shared_place_reads_no_private_job_and_gets_no_last_line() {
+async fn a_shared_place_keeps_the_tool_ceiling_but_reads_last_lines() {
     use crate::places::BoundPlace;
     let r = rig_with("echo private work; sleep 20");
     let (job, _) = start_job(&r).await;
@@ -545,7 +544,7 @@ async fn a_shared_place_reads_no_private_job_and_gets_no_last_line() {
     assert!(p.error.is_some(), "{p:?}");
     assert_eq!(r.core.bus.followers(), 0, "nothing followed");
 
-    // A job a shared place's session is said to run is never sampled.
+    // Shared jobs are sampled too.
     r.core.bind_places(vec![BoundPlace {
         target: format!("discord:channel:{}", crate::tests_places::LAB),
         name: "#lab".into(),
@@ -557,17 +556,15 @@ async fn a_shared_place_reads_no_private_job_and_gets_no_last_line() {
         Some(&format!("channel:{}", crate::tests_places::LAB)),
     );
     r.core.push.ensure(&r.core).await.unwrap();
-    let cache = Default::default();
-    r.core
-        .sample_last_lines(&[(job.clone(), shared_sid)], &cache);
+    r.core.sample_last_lines(&[(job.clone(), shared_sid)]);
     let held = |core: &Core| -> Option<WorkView> {
         let (_, views, _) = core.push.work_snapshot(200, &WorkScope::default());
         views.into_iter().find(|v| v.id == job)
     };
     let said = held(&r.core).and_then(|v| v.doing?.last_line);
-    assert_eq!(said, None, "a shared place's job has no last line");
+    assert!(said.is_some(), "a shared place's job has a last line");
 
-    // The guarded scope drops it from a view that has one.
+    // The guarded scope keeps the scrubbed last line.
     let mut v: WorkView = serde_json::from_value(json!({
         "id": job, "kind": "job", "position": 5, "at_ms": 9, "root": "exe_1", "title": "x",
         "state": "running", "attention": {"level": "working", "label": "x", "since_ms": 1},
@@ -582,7 +579,15 @@ async fn a_shared_place_reads_no_private_job_and_gets_no_last_line() {
         roots: None,
         guarded: true,
     };
-    assert_eq!(guarded.show(&v, &scrubber).doing.unwrap().last_line, None);
+    assert_eq!(
+        guarded
+            .show(&v, &scrubber)
+            .doing
+            .unwrap()
+            .last_line
+            .as_deref(),
+        Some("leg 9")
+    );
     assert_eq!(
         WorkScope::default()
             .show(&v, &scrubber)

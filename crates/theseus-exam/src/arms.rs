@@ -247,6 +247,45 @@ fn prepare(
     Ok(out)
 }
 
+/// Bind cached snapshots and verdicts to the executable and all run inputs.
+fn identity(plan: &ArmsPlan, exam: &Exam, m: &Manifest) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    for bytes in [
+        std::fs::read(&plan.theseusd)?,
+        std::fs::read(std::env::current_exe()?)?,
+        serde_json::to_vec(&plan.base_config)?,
+        serde_json::to_vec(m)?,
+        serde_json::to_vec(&(
+            exam.digest.as_str(),
+            &plan.profile,
+            &plan.items,
+            plan.seed,
+            plan.timeout,
+            &plan.env,
+        ))?,
+    ] {
+        hash.update((bytes.len() as u64).to_le_bytes());
+        hash.update(bytes);
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+
+fn prepare_identity(plan: &ArmsPlan, exam: &Exam, m: &Manifest) -> Result<String> {
+    let identity = identity(plan, exam, m)?;
+    drive::validate_resume(&drive::read_records(&plan.out)?, Some(&identity))?;
+    let marker = plan.work.join("run-identity");
+    if plan.work.exists() && std::fs::read_dir(&plan.work)?.next().is_some() {
+        ensure!(
+            std::fs::read_to_string(&marker).ok().as_deref() == Some(identity.as_str()),
+            "snapshot identity is missing or differs; use a new work directory"
+        );
+    }
+    std::fs::create_dir_all(&plan.work)?;
+    std::fs::write(&marker, &identity)?;
+    Ok(identity)
+}
+
 /// The command: prepare, then each run on fresh daemons; see the module's
 /// note.
 pub fn run(
@@ -271,6 +310,7 @@ pub fn run(
             .map(|id| exam.item(id).with_context(|| format!("no item {id}")))
             .collect::<Result<_>>()?
     };
+    let identity = prepare_identity(plan, exam, m)?;
     let notes = drive::oracle_notes(&plan.store, m, &items)?;
     let daemons = daemons_for(&plan.arms);
     std::fs::create_dir_all(&plan.work)?;
@@ -286,6 +326,7 @@ pub fn run(
     };
     for run in 1..=plan.runs {
         let mut dp = Plan {
+            identity: Some(identity.clone()),
             sockets: BTreeMap::new(),
             notes: notes.clone(),
             profile: plan.profile.clone(),
@@ -350,7 +391,9 @@ pub fn run(
 /// The cells of `plan`'s run with no verdict in its output file yet.
 fn left_in_run(plan: &Plan, exam: &Exam) -> Result<usize> {
     let items: Vec<&Item> = plan.items.iter().filter_map(|id| exam.item(id)).collect();
-    let done: BTreeSet<(String, String, u32)> = drive::read_records(&plan.out)?
+    let records = drive::read_records(&plan.out)?;
+    drive::validate_resume(&records, plan.identity.as_deref())?;
+    let done: BTreeSet<(String, String, u32)> = records
         .into_iter()
         .filter(|r| r.pass.is_some() && r.digest == exam.digest)
         .map(|r| (r.item, r.arm, r.run))
@@ -367,6 +410,104 @@ fn left_in_run(plan: &Plan, exam: &Exam) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn both_skip_sites_require_matching_resume_identity() {
+        let d = tempfile::tempdir().unwrap();
+        let exam = Exam::parse(crate::item::EXAM_V2).unwrap();
+        let m = Manifest {
+            exam: exam.file.version.clone(),
+            digest: exam.digest.clone(),
+            utc_offset_min: 0,
+            sessions: vec![],
+            nodes: BTreeMap::new(),
+            last_position: 0,
+        };
+        let item = exam.file.items[0].id.clone();
+        let mut p = Plan {
+            identity: Some("current".into()),
+            sockets: BTreeMap::new(),
+            notes: BTreeMap::new(),
+            profile: "test".into(),
+            profile_model: "model-a".into(),
+            arms: vec![Arm::None],
+            runs: 1,
+            items: vec![item.clone()],
+            limit_usd: 0.0,
+            workers: 1,
+            seed: 0,
+            timeout: Duration::from_secs(1),
+            out: d.path().join("results.jsonl"),
+            only_run: Some(1),
+            cells: None,
+        };
+        let r = drive::Record {
+            identity: Some("current".into()),
+            digest: exam.digest.clone(),
+            item,
+            arm: "none".into(),
+            run: 1,
+            pass: Some(true),
+            ..Default::default()
+        };
+        std::fs::write(&p.out, serde_json::to_string(&r).unwrap() + "\n").unwrap();
+        assert_eq!(left_in_run(&p, &exam).unwrap(), 0);
+        assert_eq!(drive::run(&p, &exam, &m).unwrap().skipped, 1);
+        for identity in [None, Some("different".into())] {
+            p.identity = identity;
+            let why = left_in_run(&p, &exam).unwrap_err().to_string();
+            assert!(why.contains("resume identity"), "{why}");
+            let why = drive::run(&p, &exam, &m).err().unwrap().to_string();
+            assert!(why.contains("resume identity"), "{why}");
+        }
+    }
+
+    #[test]
+    fn resume_identity_changes_with_build_config_profile_and_fixture() {
+        let d = tempfile::tempdir().unwrap();
+        let binary = d.path().join("daemon");
+        std::fs::write(&binary, b"build one").unwrap();
+        let exam = Exam::parse(crate::item::EXAM_V2).unwrap();
+        let mut m = Manifest {
+            exam: exam.file.version.clone(),
+            digest: exam.digest.clone(),
+            utc_offset_min: 0,
+            sessions: vec![],
+            nodes: BTreeMap::new(),
+            last_position: 0,
+        };
+        let mut p = ArmsPlan {
+            theseusd: binary.clone(),
+            base_config: toml::Table::new(),
+            store: d.path().join("store"),
+            work: d.path().join("work"),
+            arms: vec![Arm::None],
+            runs: 1,
+            items: vec![],
+            limit_usd: 1.0,
+            workers: 1,
+            profile: "test".into(),
+            seed: 0,
+            timeout: Duration::from_secs(1),
+            out: d.path().join("results"),
+            settle: Duration::from_secs(1),
+            env: vec![],
+        };
+        let first = identity(&p, &exam, &m).unwrap();
+        assert_eq!(first, identity(&p, &exam, &m).unwrap());
+        std::fs::write(&binary, b"build two").unwrap();
+        assert_ne!(first, identity(&p, &exam, &m).unwrap());
+        std::fs::write(&binary, b"build one").unwrap();
+        p.profile = "other".into();
+        assert_ne!(first, identity(&p, &exam, &m).unwrap());
+        p.profile = "test".into();
+        p.base_config
+            .insert("setting".into(), toml::Value::Boolean(true));
+        assert_ne!(first, identity(&p, &exam, &m).unwrap());
+        p.base_config.clear();
+        m.last_position = 1;
+        assert_ne!(first, identity(&p, &exam, &m).unwrap());
+    }
 
     #[test]
     fn oracle_shares_nones_daemon_and_each_other_arm_has_its_own() {

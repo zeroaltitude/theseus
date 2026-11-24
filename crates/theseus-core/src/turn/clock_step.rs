@@ -77,25 +77,31 @@ impl Deadline {
 /// its own entry, never an earlier turn's.
 static DEADLINES: Mutex<Option<HashMap<(String, Instant), Deadline>>> = Mutex::new(None);
 
+/// Validate the requested duration without changing any staged deadline.
+pub fn validate_deadline(arrived: Instant, secs: Option<u64>) -> Result<Option<Instant>> {
+    secs.map(|s| {
+        arrived
+            .checked_add(Duration::from_secs(s))
+            .ok_or_else(|| anyhow::anyhow!("deadline_secs is too large"))
+    })
+    .transpose()
+}
+
 /// `session`'s turn that arrived at `arrived` has `secs` from then (none: no
 /// deadline). Deadlines already passed are dropped as a new one is set. No
 /// other arrival's entry is touched.
-pub fn set_deadline(session: &str, arrived: Instant, secs: Option<u64>) {
+pub fn set_deadline(session: &str, arrived: Instant, secs: Option<u64>) -> Result<()> {
+    let at = validate_deadline(arrived, secs)?;
     let mut map = DEADLINES.lock().unwrap_or_else(PoisonError::into_inner);
     let map = map.get_or_insert_with(HashMap::new);
     let now = Instant::now();
     map.retain(|_, d| d.at > now);
     let key = (session.to_string(), arrived);
-    match secs {
-        Some(s) => map.insert(
-            key,
-            Deadline {
-                from: arrived,
-                at: arrived + Duration::from_secs(s),
-            },
-        ),
+    match at {
+        Some(at) => map.insert(key, Deadline { from: arrived, at }),
         None => map.remove(&key),
     };
+    Ok(())
 }
 
 /// The deadline of `session`'s turn that arrived at `arrived`, when it has one
@@ -251,7 +257,7 @@ mod tests {
     #[test]
     fn a_deadline_is_kept_by_session_until_it_passes() {
         let now = Instant::now();
-        set_deadline("ses_clock_a", now, Some(600));
+        set_deadline("ses_clock_a", now, Some(600)).unwrap();
         assert_eq!(
             deadline_of("ses_clock_a", now).map(|d| d.minutes()),
             Some(10)
@@ -259,10 +265,10 @@ mod tests {
         assert_eq!(deadline_of("ses_clock_b", now), None);
         // A passed one is none.
         let old = now - Duration::from_secs(5);
-        set_deadline("ses_clock_b", old, Some(1));
+        set_deadline("ses_clock_b", old, Some(1)).unwrap();
         assert_eq!(deadline_of("ses_clock_b", old), None);
         // The same turn given none clears its own.
-        set_deadline("ses_clock_a", now, None);
+        set_deadline("ses_clock_a", now, None).unwrap();
         assert_eq!(deadline_of("ses_clock_a", now), None);
     }
 
@@ -270,7 +276,7 @@ mod tests {
     #[test]
     fn a_deadline_belongs_to_the_turn_that_arrived_with_it() {
         let now = Instant::now();
-        set_deadline("ses_clock_c", now, Some(600));
+        set_deadline("ses_clock_c", now, Some(600)).unwrap();
         let later = now + Duration::from_millis(5);
         assert_eq!(deadline_of("ses_clock_c", later), None, "another arrival");
         assert_eq!(take_deadline("ses_clock_c", later), None);
@@ -283,7 +289,7 @@ mod tests {
     #[test]
     fn a_turns_end_clears_the_deadline_in_force() {
         let now = Instant::now();
-        set_deadline("ses_clock_e", now, Some(600));
+        set_deadline("ses_clock_e", now, Some(600)).unwrap();
         assert!(take_deadline("ses_clock_e", now).is_some());
         assert!(left_in_force("ses_clock_e").is_some());
         turn_ended("ses_clock_e");
@@ -294,8 +300,8 @@ mod tests {
     fn a_second_submit_before_the_first_loop_keeps_the_first_turns_deadline() {
         let a1 = Instant::now();
         let a2 = a1 + Duration::from_millis(5);
-        set_deadline("ses_clock_d", a1, Some(600));
-        set_deadline("ses_clock_d", a2, Some(300));
+        set_deadline("ses_clock_d", a1, Some(600)).unwrap();
+        set_deadline("ses_clock_d", a2, Some(300)).unwrap();
         assert_eq!(
             take_deadline("ses_clock_d", a1).map(|d| d.minutes()),
             Some(10)
@@ -310,8 +316,27 @@ mod tests {
     fn a_steer_with_no_deadline_leaves_the_running_turns() {
         let a1 = Instant::now();
         let a2 = a1 + Duration::from_millis(5);
-        set_deadline("ses_clock_e", a1, Some(600));
-        set_deadline("ses_clock_e", a2, None);
+        set_deadline("ses_clock_e", a1, Some(600)).unwrap();
+        set_deadline("ses_clock_e", a2, None).unwrap();
         assert!(take_deadline("ses_clock_e", a1).is_some());
+    }
+}
+
+#[cfg(test)]
+mod overflow_tests {
+    use super::*;
+    #[test]
+    fn an_overflowing_deadline_does_not_panic_or_replace_a_valid_one() {
+        let arrived = Instant::now();
+        set_deadline("ses_overflow", arrived, Some(60)).unwrap();
+        let before = deadline_of("ses_overflow", arrived);
+        let result = std::panic::catch_unwind(|| {
+            assert!(set_deadline("ses_overflow", arrived, Some(u64::MAX)).is_err());
+        });
+        assert!(
+            result.is_ok(),
+            "deadline overflow must be refused, not panic"
+        );
+        assert_eq!(deadline_of("ses_overflow", arrived), before);
     }
 }

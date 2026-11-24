@@ -150,3 +150,249 @@ async fn a_position_asked_on_the_worker_waits_without_holding_it() {
         "the position after the write it waited for"
     );
 }
+
+#[test]
+fn a_failed_roll_never_answers_or_indexes_the_frames_it_cut() {
+    for ledger in [false, true] {
+        let kind = if ledger { kinds::LEDGER } else { kinds::META };
+        let dir = tempfile::tempdir().unwrap();
+        let s = small_segments(dir.path());
+        let held = s.inner.appending.write().unwrap();
+        let mut answers = Vec::new();
+        let jobs = (0..3)
+            .map(|i| {
+                let key = format!("roll_{i}");
+                let record = if ledger {
+                    NewRecord::json(
+                        kind,
+                        Some(&key),
+                        &serde_json::json!({"kind": "test.row", "data": i}),
+                    )
+                    .unwrap()
+                } else {
+                    NewRecord::bytes(kind, Some(&key), vec![7; 100])
+                };
+                let (answer, answered) = mpsc::sync_channel(1);
+                answers.push(answered);
+                Job {
+                    records: vec![record],
+                    projected: vec![(None, None)],
+                    tags: vec![vec![]],
+                    hidden: None,
+                    answer,
+                }
+            })
+            .collect();
+        s.inner.queued.fetch_add(3, Ordering::SeqCst);
+        s.inner.wal.fail_next_sync();
+        s.inner.commit(jobs);
+        drop(held);
+        for (i, answer) in answers.into_iter().enumerate() {
+            assert!(
+                answer.recv().unwrap().is_err(),
+                "cut or unattempted job {i} succeeded"
+            );
+            assert!(s
+                .latest_by_key(kind, &format!("roll_{i}"))
+                .unwrap()
+                .is_none());
+        }
+        assert_eq!(s.inner.wal.last_position(), 0);
+        s.append(&[NewRecord::json(
+            kinds::LEDGER,
+            None,
+            &serde_json::json!({"kind": "test.after"}),
+        )
+        .unwrap()])
+            .unwrap();
+        assert!(crate::chain_walk::verify(&s, None, None)
+            .unwrap()
+            .broken
+            .is_none());
+        s.append(&[NewRecord::bytes(kinds::META, Some("after"), vec![9; 100])])
+            .unwrap();
+        drop(s);
+        let s = small_segments(dir.path());
+        assert_eq!(
+            s.latest_by_key(kinds::META, "after")
+                .unwrap()
+                .unwrap()
+                .payload,
+            vec![9; 100]
+        );
+        for i in 0..3 {
+            assert!(s
+                .latest_by_key(kind, &format!("roll_{i}"))
+                .unwrap()
+                .is_none());
+        }
+    }
+}
+
+#[test]
+fn append_errors_distinguish_retained_frames_from_cut_frames() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = small_segments(dir.path());
+    let held = s.inner.appending.write().unwrap();
+    let mut answers = Vec::new();
+    let mut jobs: Vec<_> = ["retained", "cut"]
+        .into_iter()
+        .map(|key| {
+            let (answer, answered) = mpsc::sync_channel(1);
+            answers.push(answered);
+            Job {
+                records: vec![NewRecord::bytes(kinds::META, Some(key), vec![3; 100])],
+                projected: vec![(None, None)],
+                tags: vec![vec![]],
+                hidden: None,
+                answer,
+            }
+        })
+        .collect();
+    s.inner.queued.fetch_add(2, Ordering::SeqCst);
+    let (written, _) = s.inner.write_batch(&mut jobs);
+    assert!(written.iter().all(Result::is_ok));
+    s.inner.wal.fail_next_sync();
+    assert!(s.inner.sync_batch(true).is_err());
+    assert_eq!(
+        s.inner.wal.last_position(),
+        1,
+        "the roll saved only the first frame"
+    );
+    s.inner.answer_all(
+        jobs,
+        written,
+        &Err(anyhow::anyhow!("index unavailable")),
+        std::time::Instant::now(),
+    );
+    let mut answers = answers.into_iter();
+    assert!(answers
+        .next()
+        .unwrap()
+        .recv()
+        .unwrap()
+        .unwrap_err()
+        .is::<RetainedFrame>());
+    assert!(!answers
+        .next()
+        .unwrap()
+        .recv()
+        .unwrap()
+        .unwrap_err()
+        .is::<RetainedFrame>());
+    drop(held);
+    drop(s);
+    let s = small_segments(dir.path());
+    assert!(s.latest_by_key(kinds::META, "retained").unwrap().is_some());
+    assert!(s.latest_by_key(kinds::META, "cut").unwrap().is_none());
+}
+
+/// The first roll saves job zero; only the second segment is cut.
+#[test]
+fn a_later_failed_roll_keeps_the_first_job_and_its_chain() {
+    partial_batch(false);
+}
+
+/// Exercise the actual commit path, including its refusal latch.
+#[test]
+fn commit_latches_a_partly_retained_unindexed_batch() {
+    partial_batch(true);
+}
+
+fn partial_batch(index_fails: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let s = small_segments(dir.path());
+    let held = s.inner.appending.write().unwrap();
+    let count = if index_fails { 2 } else { 3 };
+    let mut answers = Vec::new();
+    let jobs = (0..count)
+        .map(|i| {
+            let (answer, answered) = mpsc::sync_channel(1);
+            answers.push(answered);
+            Job {
+                records: vec![NewRecord::json(
+                    kinds::LEDGER,
+                    Some(&format!("partial_{i}")),
+                    &serde_json::json!({"kind": "test.row", "data": i}),
+                )
+                .unwrap()],
+                projected: vec![(None, None)],
+                tags: vec![vec![]],
+                hidden: None,
+                answer,
+            }
+        })
+        .collect();
+    s.inner.queued.fetch_add(count, Ordering::SeqCst);
+    s.inner.wal.fail_sync_after(1);
+    if index_fails {
+        s.inner.index_fail.store(3, Ordering::SeqCst);
+    }
+    s.inner.commit(jobs);
+    drop(held);
+    for (i, answer) in answers.into_iter().enumerate() {
+        let result = answer.recv().unwrap();
+        if i == 0 && !index_fails {
+            assert!(result.is_ok(), "the first roll saved job zero");
+        } else {
+            let error = result.unwrap_err();
+            assert_eq!(error.is::<RetainedFrame>(), i == 0 && index_fails);
+        }
+    }
+    assert_eq!(
+        s.last_position(),
+        2,
+        "only job zero and its chain-start row survived"
+    );
+    let later = NewRecord::json(
+        kinds::LEDGER,
+        Some("later"),
+        &serde_json::json!({"kind": "test.after"}),
+    )
+    .unwrap();
+    if index_fails {
+        assert_eq!(s.inner.index_fail.load(Ordering::SeqCst), 0);
+        assert!(
+            s.append(std::slice::from_ref(&later)).is_err(),
+            "latched store accepted a frame"
+        );
+        assert!(
+            s.checkpoint().is_err(),
+            "latched store accepted a checkpoint"
+        );
+        assert_eq!(s.last_position(), 2);
+    } else {
+        s.append(std::slice::from_ref(&later)).unwrap();
+        assert!(crate::chain_walk::verify(&s, None, None)
+            .unwrap()
+            .broken
+            .is_none());
+    }
+    drop(s);
+    let s = small_segments(dir.path());
+    let rows = s.scan(0, None, 100).unwrap();
+    assert_eq!(
+        rows.iter()
+            .filter(|r| r.key.as_deref() == Some("partial_0"))
+            .count(),
+        1
+    );
+    for i in 1..count {
+        assert!(s
+            .latest_by_key(kinds::LEDGER, &format!("partial_{i}"))
+            .unwrap()
+            .is_none());
+    }
+    assert!(crate::chain_walk::verify(&s, None, None)
+        .unwrap()
+        .broken
+        .is_none());
+    if index_fails {
+        s.append(&[later]).unwrap();
+        s.checkpoint().unwrap();
+    }
+    assert!(crate::chain_walk::verify(&s, None, None)
+        .unwrap()
+        .broken
+        .is_none());
+}

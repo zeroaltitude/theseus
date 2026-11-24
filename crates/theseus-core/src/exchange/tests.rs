@@ -750,3 +750,33 @@ fn a_late_naming_of_an_older_reply_never_replaces_a_newer_ones_counts() {
         "taken already"
     );
 }
+
+#[test]
+fn a_timeline_page_keeps_every_exchange_at_its_boundary_time() {
+    use crate::view::timeline::{Timeline, TimelineRoot};
+    let dir = tempfile::tempdir().unwrap();
+    let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    let records: Vec<_> = (0..101)
+        .map(|i| touch(Root::Person("owner"), &format!("turn_{i:03}"), "ses_a", 123).unwrap())
+        .collect();
+    store.append(&records).unwrap();
+    let timeline = crate::view::wire::StoreTimeline(&store);
+    let root = TimelineRoot::Person("owner".into());
+    let first = timeline.newest(&root, None, 100).unwrap();
+    let second = timeline
+        .newest(&root, Some(&first.last().unwrap().cursor()), 100)
+        .unwrap();
+    assert_eq!(first.len(), 100);
+    assert_eq!(
+        second.len(),
+        1,
+        "same-time exchanges must survive pagination"
+    );
+    let ids: std::collections::BTreeSet<_> =
+        first.iter().chain(&second).map(|e| &e.turn_id).collect();
+    assert_eq!(ids.len(), 101);
+    assert!(timeline
+        .newest(&root, Some(&second[0].cursor()), 100)
+        .unwrap()
+        .is_empty());
+}

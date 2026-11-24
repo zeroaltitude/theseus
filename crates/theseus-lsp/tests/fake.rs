@@ -700,3 +700,28 @@ async fn a_dropped_client_kills_its_server() {
     .unwrap();
     assert!(!status.success(), "{status}");
 }
+
+#[tokio::test]
+async fn reopening_a_document_never_reuses_its_old_diagnostics_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = write(dir.path(), "a.fake", "ERROR old lifetime\n");
+    let (c, _events) = in_process(Config::default(), options(dir.path())).await;
+    let first = c.diagnostics(&a, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(first.errors().count(), 1);
+    c.close(&a).unwrap();
+    assert!(
+        c.pushed(&a).is_none(),
+        "close must discard the earlier lifetime's cache"
+    );
+    std::fs::write(&a, "fine in the new lifetime\n").unwrap();
+    let second_version = c.open(&a).await.unwrap();
+    assert!(
+        second_version > first.version,
+        "the old version must never name the new contents"
+    );
+    let second = c.diagnostics(&a, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(
+        (second.version, second.errors().count()),
+        (second_version, 0)
+    );
+}

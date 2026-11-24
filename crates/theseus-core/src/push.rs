@@ -204,6 +204,10 @@ pub struct Push {
     /// The work board (theseus-hkx30). Taken after `board`, never before.
     work: Mutex<WorkBoard>,
     seed: OnceCell<()>,
+    /// Retained if an initial snapshot fails or its caller is cancelled.
+    seed_rx: Mutex<Option<mpsc::UnboundedReceiver<Option<Frame>>>>,
+    #[cfg(test)]
+    fail_seed: std::sync::atomic::AtomicBool,
     /// The board's position after each frame it applies.
     feed: watch::Sender<u64>,
     seed_us: AtomicU64,
@@ -232,6 +236,9 @@ impl Default for Push {
             board: Mutex::default(),
             work: Mutex::default(),
             seed: OnceCell::new(),
+            seed_rx: Mutex::default(),
+            #[cfg(test)]
+            fail_seed: std::sync::atomic::AtomicBool::new(false),
             feed: watch::Sender::new(0),
             seed_us: AtomicU64::new(0),
             events: AtomicU64::new(0),
@@ -270,7 +277,7 @@ impl Drop for WaitSlot<'_> {
 impl Push {
     /// Seed the board, once; the first caller waits for it alone. The
     /// observer goes in first, so frames start to queue; then every
-    /// execution and every action is read, in that order, on a blocking
+    /// open action and then each hot execution is read on a blocking
     /// thread; then what queued meanwhile is applied, and a thread of the
     /// runtime's blocking pool applies the rest as they come. Not a task: a
     /// burst of requests whose handlers write the store holds every runtime
@@ -283,13 +290,18 @@ impl Push {
         self.seed
             .get_or_try_init(|| async {
                 let t = Instant::now();
-                let (tx, mut rx) = mpsc::unbounded_channel::<Option<Frame>>();
-                *self.applier.lock().unwrap() = Some(tx.clone());
-                // The kernel's frames, and what the core writes beside them
-                // (a turn's rows, a session's and a task's record).
-                let o = observer(tx);
-                if !core.kernel.observe(o.clone()) || !core.store.observe(o) {
-                    anyhow::bail!("the kernel's observer is installed already");
+                if self.applier.lock().unwrap().is_none() {
+                    let (tx, rx) = mpsc::unbounded_channel::<Option<Frame>>();
+                    let o = observer(tx.clone());
+                    if !core.kernel.observe(o.clone()) || !core.store.observe(o) {
+                        anyhow::bail!("the kernel's observer is installed already");
+                    }
+                    *self.applier.lock().unwrap() = Some(tx);
+                    *self.seed_rx.lock().unwrap() = Some(rx);
+                }
+                #[cfg(test)]
+                if self.fail_seed.swap(false, Ordering::SeqCst) {
+                    anyhow::bail!("seed read failed (test)");
                 }
                 let c = core.clone();
                 let (board, work) = tokio::task::spawn_blocking(move || {
@@ -302,6 +314,12 @@ impl Push {
                     anyhow::Ok((board, work))
                 })
                 .await??;
+                let mut rx = self
+                    .seed_rx
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .expect("observer installed");
                 *self.board.lock().unwrap() = board;
                 {
                     // The seed builds a fresh board: the runtime's registry

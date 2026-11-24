@@ -373,7 +373,7 @@ async fn three_failures_in_a_row_inform_once() {
     let p = posts(&l.core);
     assert_eq!(p.len(), 1, "{p:?}");
     assert!(
-        p[0].1.contains("keeps failing") && p[0].1.contains("Is a directory"),
+        p[0].1.contains("keeps failing") && p[0].1.contains("requires a regular file"),
         "{}",
         p[0].1
     );
@@ -555,4 +555,31 @@ async fn the_bounds_and_the_owners_act_are_enforced_on_the_wire() {
     assert_eq!(pending(&l.core), 0, "nothing was made");
     let ok = watch_file(&l.core, &file, "exists", json!({"every": "1m"})).await;
     assert_eq!(ok["watch"]["every"], "1m");
+}
+
+/// A durable frame whose index failed must not regenerate its notice.
+#[tokio::test(flavor = "multi_thread")]
+async fn retained_watch_news_is_not_posted_twice_after_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = life(dir.path(), false, |_| {});
+    dm_session(&l.core);
+    let file = dir.path().join("deploy");
+    std::fs::write(&file, "WAIT").unwrap();
+    let made = watch_file(&l.core, &file, "equals MERGED", json!({})).await;
+    let id = made["watch"]["wake_id"].as_str().unwrap().to_string();
+    look(&l.core, &id).await;
+    std::fs::write(&file, "MERGED").unwrap();
+    l.core.store.inner().fail_next_index_writes(3);
+    look(&l.core, &id).await;
+    // Drive the exact next check if the error wrongly restored the entry.
+    if l.core.watches.get(&id).is_some() {
+        look(&l.core, &id).await;
+    }
+    drop(l.stop().await);
+    let l = life(dir.path(), false, |_| {});
+    assert_eq!(rows(&l.core, "watch.met").len(), 1, "news written once");
+    assert_eq!(posts(&l.core).len(), 1, "one notice after replay");
+    assert_eq!(pending(&l.core), 0);
+    l.core.watch_load();
+    assert!(l.core.watches.get(&id).is_none());
 }

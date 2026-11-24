@@ -62,14 +62,10 @@
 //! a document has revisions is an API call, which the gate's path cannot make,
 //! and the decision for v1 is to leave it `unknown` (`p5kln-remote-keeps`).
 //!
-//! THE COST. `GitCli` runs up to three `git` invocations for the first target
-//! of a call and up to two for each one after it (the repository root is
-//! cached per probe). `undo_regen` adds a fourth, `check-ignore`, **only for
-//! a target its closed table has already recognised** — which is a build
-//! directory and nothing else — so the ordinary target's cost is what it was.
-//! That is all on the tool gate's synchronous path, so a caller holds one
-//! probe for the whole call and the pack's `on_path_p95` rollback rule
-//! (300 ms) is the number to watch once anything feeds it.
+//! Content comparisons read the index, committed blob ids and raw working bytes
+//! through gitoxide, without applying repository filters. Git subprocesses only
+//! answer root, index-diff, untracked-path and ignore queries; hooks and monitors
+//! are disabled. Large files and scans outside the bounded window read unknown.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -236,55 +232,10 @@ impl GitCli {
     /// are pinned here, on the command line, where the repository's own file
     /// cannot outrank them.
     ///
-    /// WHAT IS NOT CLOSED HERE: A CONTENT FILTER DRIVER. These two flags
-    /// close the monitor and the hooks, and nothing wider. A repository that
-    /// names a driver in its own tracked `.gitattributes` (`* filter=d`) and
-    /// gives that driver a command in its own config (`filter.d.clean`)
-    /// STILL gets that command run -- by `diff --quiet HEAD` and by
-    /// `status --porcelain`, which are the two invocations `input_of` makes
-    /// on EVERY call. To decide whether the working file differs from the
-    /// committed blob, git must hash the working file THROUGH the clean
-    /// filter; `--quiet` does not save it, because it short-circuits
-    /// textconv and `diff.external` but not the content hash. That was
-    /// measured through this probe, not reasoned about.
-    ///
-    /// There is no command-line close for it, which is why it is still open:
-    /// the driver NAME is the attacker's, and git has no "disable all
-    /// filters" switch to reach for. `-c core.attributesFile=/dev/null` and
-    /// `GIT_ATTR_NOSYSTEM=1` were both tried and both fail, because the
-    /// `.gitattributes` doing the naming is IN-TREE and neither of them
-    /// reaches an in-tree file. The structural answer is the one this
-    /// repository already uses elsewhere: `crates/theseus-tools/src/git.rs`
-    /// and `crates/theseus-tools/src/git_state.rs` read git with `gix` in
-    /// production, which takes config as DATA and spawns nothing. That is a
-    /// change with its own card and its own reviewer, not one to bolt on
-    /// here.
-    ///
-    /// THE ENVIRONMENT IS NOT ENOUGH, AND NEITHER IS `-C`. `GIT_CONFIG_GLOBAL`
-    /// and `GIT_CONFIG_SYSTEM` silence the MACHINE's files; they say nothing
-    /// about the repository's own, which is the only one an attacker
-    /// controls. And addressing the tree with `git -C <root>` or `--git-dir`
-    /// instead of changing directory into it does not help either: git reads
-    /// that repository's config whichever way it was pointed at it. Only `-c`
-    /// on the command line, which outranks every file, closes it.
-    /// `current_dir` stays because the probe does not know the root until
-    /// `rev-parse` answers from inside the tree.
-    ///
-    /// HOW A HOSTILE `.git/config` ARRIVES, AND IT IS NOT BY CLONING. `git
-    /// clone` builds a FRESH `.git/config` and does not inherit the remote's
-    /// `core.fsmonitor` or `filter.*` keys. The tracked `.gitattributes` IS
-    /// carried, but a driver with no `filter.<d>.*` entry of its own does
-    /// nothing. The deliveries that do work are an archive extracted with
-    /// its `.git` intact, a `.git/config` written by an earlier tool call in
-    /// the same session, and a repository already sitting on the operator's
-    /// disk. Agents extract archives constantly, so this is an ordinary
-    /// exposure rather than an exotic one.
-    ///
-    /// Neither flag can change an answer: a filesystem monitor is a cache in
-    /// front of the same facts, and none of these five invocations has a hook
-    /// it legitimately needs. `core.hooksPath` is defence in depth rather than
-    /// a hole observed open -- no invocation here was found to reach a hook --
-    /// and it costs nothing to deny it in advance.
+    /// Content comparison never uses Git's working-tree diff or status: those
+    /// commands can run repository-provided clean filters. `gix` reads the index
+    /// and committed blob ids, and raw file bytes are hashed without any filter.
+    /// The remaining subprocess queries read paths and index metadata only.
     fn git(dir: &Path) -> Command {
         let mut c = Command::new("git");
         c.env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -324,6 +275,112 @@ impl GitCli {
             .then(|| String::from_utf8_lossy(&o.stdout).trim().to_string())
     }
 
+    fn raw_tracked(repo: &gix::Repository, root: &Path, path: &Path) -> Option<Tracked> {
+        let rel = path.strip_prefix(root).ok()?;
+        if !rel
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
+        {
+            return None;
+        }
+        let index = repo.index_or_empty().ok()?;
+        let rel_text = rel.to_str()?;
+        if !index
+            .entries()
+            .iter()
+            .any(|e| e.path(&index) == rel_text.as_bytes())
+        {
+            return Some(Tracked::Untracked);
+        }
+        let tree = match repo.head_tree() {
+            Ok(t) => t,
+            Err(_) => return Some(Tracked::Dirty),
+        };
+        let Some(entry) = tree.lookup_entry_by_path(rel).ok()? else {
+            return Some(Tracked::Dirty);
+        };
+        // Git cannot restore a tracked file through a symlinked directory.
+        for parent in path.ancestors().skip(1).take_while(|p| *p != root) {
+            if parent.symlink_metadata().ok()?.file_type().is_symlink() {
+                return Some(Tracked::Dirty);
+            }
+        }
+        let md = match path.symlink_metadata() {
+            Ok(md) => md,
+            Err(_) => return Some(Tracked::Dirty),
+        };
+        if md.len() > 4 * 1024 * 1024 {
+            return None;
+        }
+        let bytes = if md.file_type().is_symlink() {
+            std::fs::read_link(path)
+                .ok()?
+                .as_os_str()
+                .as_encoded_bytes()
+                .to_vec()
+        } else if md.is_file() {
+            std::fs::read(path).ok()?
+        } else {
+            return None;
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = if md.file_type().is_symlink() {
+                0o120000
+            } else if md.permissions().mode() & 0o111 != 0 {
+                0o100755
+            } else {
+                0o100644
+            };
+            if u32::from(entry.mode().value()) != mode {
+                return Some(Tracked::Dirty);
+            }
+        }
+        let hash =
+            gix::objs::compute_hash(gix::hash::Kind::Sha1, gix::objs::Kind::Blob, &bytes).ok()?;
+        Some(if hash == entry.object_id() {
+            Tracked::Clean
+        } else {
+            Tracked::Dirty
+        })
+    }
+
+    fn raw_dirty(root: &Path) -> Option<bool> {
+        // Index-versus-HEAD never reads working bytes or invokes clean filters.
+        if !Self::ok(
+            root,
+            &[
+                "diff",
+                "--cached",
+                "--quiet",
+                "--no-ext-diff",
+                "--no-textconv",
+                "HEAD",
+            ],
+        )? {
+            return Some(true);
+        }
+        if !Self::out(root, &["ls-files", "--others", "--exclude-standard", "-z"])?.is_empty() {
+            return Some(true);
+        }
+        let repo = gix::discover(root).ok()?;
+        let index = repo.index_or_empty().ok()?;
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(200);
+        for (n, entry) in index.entries().iter().enumerate() {
+            if n >= 20_000 || std::time::Instant::now() >= end {
+                return None;
+            }
+            let rel = std::str::from_utf8(entry.path(&index)).ok()?;
+            match Self::raw_tracked(&repo, root, &root.join(rel))? {
+                Tracked::Clean => {}
+                Tracked::Dirty | Tracked::Untracked => return Some(true),
+                _ => return None,
+            }
+        }
+        Some(false)
+    }
+
     fn root_of(&mut self, dir: &Path) -> Option<PathBuf> {
         if let Some(r) = self.roots.get(dir) {
             return r.clone();
@@ -345,22 +402,13 @@ impl Probe for GitCli {
         let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) else {
             return Tracked::Unknown;
         };
-        if self.root_of(dir).is_none() {
+        let Some(root) = self.root_of(dir) else {
             return Tracked::NotARepo;
-        }
-        let p = path.to_string_lossy().to_string();
-        match Self::ok(dir, &["ls-files", "--error-unmatch", "--", &p]) {
-            None => Tracked::Unknown,
-            Some(false) => Tracked::Untracked,
-            // Tracked: `diff HEAD` covers both the index and the working
-            // tree, so a staged change reads dirty, which it is. A repository
-            // with no commit yet has no HEAD, `diff` fails, and the committed
-            // bytes it would restore do not exist: dirty is the true answer.
-            Some(true) => match Self::ok(dir, &["diff", "--quiet", "HEAD", "--", &p]) {
-                Some(true) => Tracked::Clean,
-                Some(false) | None => Tracked::Dirty,
-            },
-        }
+        };
+        let Ok(repo) = gix::discover(&root) else {
+            return Tracked::Unknown;
+        };
+        Self::raw_tracked(&repo, &root, path).unwrap_or(Tracked::Unknown)
     }
 
     /// `git check-ignore -q`, which CONSULTS THE INDEX by default: a tracked
@@ -393,7 +441,7 @@ impl Probe for GitCli {
         if let Some(d) = self.dirty.get(&root) {
             return (Some(root), *d);
         }
-        let d = Self::out(&root, &["status", "--porcelain"]).map(|s| !s.is_empty());
+        let d = Self::raw_dirty(&root);
         self.dirty.insert(root.clone(), d);
         (Some(root), d)
     }

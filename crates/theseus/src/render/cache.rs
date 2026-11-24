@@ -1,15 +1,11 @@
-//! Health's lines for the prompt cache (theseus-ezeg): each profile's TTL,
-//! and whether it inherited `[cache]`'s; then today's keep-warm reads, which a
-//! job wait makes (the reads between turns went with the transcript, issue
-//! 44). Apart from `render.rs`, whose length the shape budget caps
-//! (`scripts/long-files.txt`).
+//! Health's prompt-cache TTLs, including profiles that inherit `[cache]`.
 
 use theseus_protocol::PromptCacheHealth;
 
-use super::{plural, Tag};
+use super::Tag;
 
 /// `cache: default 1h, fable 1h (from [cache]), glm 5m (from [cache]), …`,
-/// then `  keep-warm: …` when a wait read today. Nothing from a daemon before it.
+/// Nothing from a daemon before prompt-cache health.
 pub fn cache_lines(c: Option<&PromptCacheHealth>) -> Vec<(Tag, String)> {
     let Some(c) = c else { return Vec::new() };
     let ttls: Vec<String> = c
@@ -20,18 +16,7 @@ pub fn cache_lines(c: Option<&PromptCacheHealth>) -> Vec<(Tag, String)> {
             format!("{} {}{from}", p.profile, p.ttl)
         })
         .collect();
-    let mut out = vec![(Tag::Plain, format!("cache: {}", ttls.join(", ")))];
-    if c.reads_today > 0 {
-        out.push((
-            Tag::Plain,
-            format!(
-                "  keep-warm: reads during job waits · {} today, ${:.2}",
-                plural(c.reads_today, "read", "reads"),
-                c.usd_today
-            ),
-        ));
-    }
-    out
+    vec![(Tag::Plain, format!("cache: {}", ttls.join(", ")))]
 }
 
 #[cfg(test)]
@@ -49,10 +34,9 @@ mod tests {
         }
     }
 
-    /// Each profile's TTL, said inherited where it is, and today's reads of
-    /// job waits; no keep-warm line on a day with none.
+    /// TTLs remain current; an older daemon's keep-warm counts are ignored.
     #[test]
-    fn health_lists_each_profiles_ttl_and_the_reads_of_waits() {
+    fn health_lists_ttls_without_retired_keep_warm_reads() {
         let c = PromptCacheHealth {
             profiles: vec![
                 ttl("default", "1h", false),
@@ -70,8 +54,9 @@ mod tests {
             "cache: default 1h, fable 1h (from [cache]), glm 5m, opus 1h"
         );
         assert_eq!(
-            lines[1].1,
-            "  keep-warm: reads during job waits · 14 reads today, $2.19"
+            lines.len(),
+            1,
+            "retired keep-warm reads are not current health"
         );
         let quiet = PromptCacheHealth {
             profiles: vec![ttl("glm", "5m", true)],

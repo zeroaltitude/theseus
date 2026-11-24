@@ -308,6 +308,10 @@ pub struct Core {
     /// `standing::Board` serialises the records' board with its own `writes`.
     /// Taken by `Core::card_frame` and nowhere else.
     pub(crate) card_writes: std::sync::Mutex<()>,
+    /// Serializes the complete persona read/check/file/metadata transaction.
+    pub(crate) persona_writes: std::sync::Mutex<()>,
+    #[cfg(test)]
+    pub(crate) check_persona_serialization: std::sync::atomic::AtomicBool,
     /// The owner's second proof (issue 22): the authenticator's file, the
     /// check of a code and its limit, and the windows a good code opens.
     pub(crate) proofs: crate::owner_proof::Proofs,
@@ -787,6 +791,8 @@ impl Core {
             kc.wakes.max_routines = cfg.routines.max_routines;
             kc
         }));
+        kernel.day_ceiling().require_seed();
+        let day_seed_through = store.last_position();
         let startup = kernel
             .startup(
                 Some(&spool),
@@ -911,6 +917,8 @@ impl Core {
             tools.scrubber.clone(),
         );
         let runner = TurnRunner {
+            day_seed_through,
+            day_read_failure: Default::default(),
             // Reads nothing and starts nothing until a turn ends (FAST).
             pass: crate::memory_pass::MemoryPass::new(
                 memory.clone(),
@@ -1038,6 +1046,9 @@ impl Core {
             conns: Arc::default(),
             last_sweep: Default::default(),
             card_writes: Default::default(),
+            persona_writes: Default::default(),
+            #[cfg(test)]
+            check_persona_serialization: Default::default(),
             proofs,
             push: crate::push::Push::default(),
             index,

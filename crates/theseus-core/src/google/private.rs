@@ -10,8 +10,8 @@
 //! switch (`[content_based_security] session_flags`) and the same chokepoint
 //! (`data_gate`) read it. Nothing here marks a session, follows a recalled node
 //! or a task's parent, or refuses a request. A calendar the config marks
-//! `sensitive` still never reaches a shared place or the ledger
-//! (`rpc/publish.rs`, `Google::call`'s row).
+//! `sensitive` still never reaches the ledger (`Google::call`'s row).
+//! Publishing into a shared place requires the owner's approval, not a label check.
 //!
 //! With no `[google]` no tool runs and nothing here is read.
 

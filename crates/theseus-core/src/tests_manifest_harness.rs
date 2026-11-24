@@ -1,7 +1,4 @@
-//! A session's thread and project in the compile's manifest (theseus-w0vyp): what the compile already reads (the
-//! thread's card and topics, the project's slice) is also named in the manifest's `memberships`, as the channel is,
-//! so "why did it know that?" has an answer. Nothing is stored, and no request byte changes: they add no section, no
-//! guidance and no skipped entry.
+//! Old thread records remain decodable but only the session project shapes the walk.
 
 use theseus_ontology::Origin;
 use theseus_protocol::OntologyCategoryAddParams;
@@ -28,7 +25,7 @@ async fn the_manifest_records_the_sessions_thread_and_project() {
         "the CLI",
     )
     .unwrap();
-    let none = serde_json::json!({});
+    let none = serde_json::json!({"topics": ["harbor"]});
     crate::tests_old_threads::thread(&core, "tide-gauges", "Tide gauges", none);
     let sid = crate::tests_old_threads::session(&core, "tide-gauges");
     let mut rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
@@ -51,10 +48,7 @@ async fn the_manifest_records_the_sessions_thread_and_project() {
         .collect();
     assert_eq!(
         named,
-        [
-            ("thread", "thread:tide-gauges", Origin::Transport),
-            ("project", "project:tsk_harborsurvey", Origin::Transport)
-        ],
+        [("project", "project:tsk_harborsurvey", Origin::Transport)],
         "{named:?}"
     );
     assert!(manifest.memberships.iter().all(|m| m.confidence.is_none()));
@@ -76,7 +70,7 @@ async fn the_manifest_records_the_sessions_thread_and_project() {
     assert_eq!(with.guidance, without.guidance);
     assert_eq!(with.skipped, without.skipped);
     assert!(with.skipped.is_empty());
-    assert_eq!(with.memberships.len(), without.memberships.len() + 2);
+    assert_eq!(with.memberships.len(), without.memberships.len() + 1);
 
     // An append composes what the manifest recorded: each once, no skip.
     let again = walk.compose(&recorded(&manifest.memberships));
@@ -87,7 +81,7 @@ async fn the_manifest_records_the_sessions_thread_and_project() {
             .iter()
             .filter(|m| m.kind == "thread" || m.kind == "project")
             .count(),
-        2
+        1
     );
     assert_eq!(again.render(), without.render());
 }

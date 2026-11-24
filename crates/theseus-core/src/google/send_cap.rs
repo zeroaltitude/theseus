@@ -21,7 +21,7 @@ struct Day {
 pub struct Sends {
     max: u32,
     state: Mutex<Day>,
-    store: OnceLock<Store>,
+    store: OnceLock<Result<Store, String>>,
 }
 
 fn today() -> String {
@@ -43,19 +43,30 @@ impl Sends {
     /// Keep the count in `store` from now on, starting from what it holds for
     /// today. After serving, never on the start path.
     pub fn attach(&self, store: Store) {
-        let held: Option<Value> = store.get_meta(KEY).ok().flatten();
-        if let Some(v) = held {
-            let day = v["day"].as_str().unwrap_or_default();
-            if day == today() {
-                let n = v["count"].as_u64().unwrap_or(0) as u32;
-                let mut s = self.state.lock().unwrap();
-                *s = Day {
-                    day: day.to_string(),
-                    count: s.count.max(n),
-                };
+        let loaded = (|| -> Result<Store, String> {
+            let held: Option<Value> = store
+                .get_meta(KEY)
+                .map_err(|e| format!("send count could not be read: {e:#}"))?;
+            if let Some(v) = held {
+                let day = v["day"].as_str().ok_or("send count has no day")?;
+                if day == today() {
+                    let n = v["count"]
+                        .as_u64()
+                        .and_then(|n| u32::try_from(n).ok())
+                        .ok_or("send count is invalid")?;
+                    let mut s = self.state.lock().unwrap();
+                    *s = Day {
+                        day: day.to_string(),
+                        count: s.count.max(n),
+                    };
+                }
             }
+            Ok(store)
+        })();
+        if let Err(why) = &loaded {
+            tracing::warn!(error = %why, "google: sends blocked because the day's count was not read");
         }
-        let _ = self.store.set(store);
+        let _ = self.store.set(loaded);
     }
 
     fn rolled<R>(&self, f: impl FnOnce(&mut Day) -> R) -> R {
@@ -69,12 +80,16 @@ impl Sends {
         f(&mut s)
     }
 
-    fn keep(&self, d: &Day) {
-        if let Some(store) = self.store.get() {
-            if let Err(e) = store.put_meta(KEY, &json!({"day": d.day, "count": d.count})) {
-                tracing::warn!(error = %format!("{e:#}"), "google: the day's send count was not kept");
-            }
-        }
+    fn keep(&self, d: &Day) -> Result<(), String> {
+        let store = self
+            .store
+            .get()
+            .ok_or("send count store is not attached")?
+            .as_ref()
+            .map_err(Clone::clone)?;
+        store
+            .put_meta(KEY, &json!({"day": d.day, "count": d.count}))
+            .map_err(|e| format!("send count could not be kept; send refused: {e:#}"))
     }
 
     /// Sends counted today.
@@ -102,6 +117,11 @@ impl Sends {
     /// Whether a send would be allowed now, counting nothing: a plan asks it,
     /// so a send that cannot go is invalid input and asks the owner nothing.
     pub fn allows(&self) -> Result<(), String> {
+        self.store
+            .get()
+            .ok_or("send count store is not attached")?
+            .as_ref()
+            .map_err(Clone::clone)?;
         self.rolled(|d| self.refusal(d.count)).map_or(Ok(()), Err)
     }
 
@@ -112,8 +132,7 @@ impl Sends {
                 return Err(why);
             }
             d.count += 1;
-            self.keep(d);
-            Ok(())
+            self.keep(d)
         })
     }
 
@@ -121,7 +140,57 @@ impl Sends {
     pub fn release(&self) {
         self.rolled(|d| {
             d.count = d.count.saturating_sub(1);
-            self.keep(d);
+            if let Err(why) = self.keep(d) {
+                tracing::warn!(error = %why, "google: the returned send reservation was not kept");
+            }
         });
     }
+}
+
+#[test]
+fn a_send_requires_a_durable_reservation() {
+    let _clock = crate::test_support::pin_mid_period();
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    let sends = Sends::new(25);
+    sends.attach(store.clone());
+    store.fail_plain_frame(|_| true);
+    assert!(sends.reserve().is_err());
+    assert_eq!(sends.used(), 1);
+}
+
+#[test]
+fn an_unreadable_send_count_does_not_reset_the_cap() {
+    let _clock = crate::test_support::pin_mid_period();
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    store
+        .put_meta(KEY, &json!({"day": today(), "count": "broken"}))
+        .unwrap();
+    let sends = Sends::new(25);
+    sends.attach(store);
+    assert!(sends.reserve().is_err());
+}
+
+#[test]
+fn an_unavailable_counter_refuses_before_approval() {
+    let _clock = crate::test_support::pin_mid_period();
+    let unattached = Sends::new(25);
+    assert!(unattached.allows().is_err());
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    store
+        .put_meta(KEY, &json!({"day": today(), "count": "broken"}))
+        .unwrap();
+    let corrupt = Sends::new(25);
+    corrupt.attach(store);
+    assert!(corrupt.allows().is_err());
+    assert_eq!(corrupt.used(), 0);
+    let unreadable = Sends::new(25);
+    assert!(unreadable
+        .store
+        .set(Err("send count could not be read".into()))
+        .is_ok());
+    assert!(unreadable.allows().is_err());
+    assert_eq!(unreadable.used(), 0);
 }

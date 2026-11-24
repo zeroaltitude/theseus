@@ -1,6 +1,6 @@
 # Privacy
 
-Updated: 2026-10-28
+Updated: 2026-11-23
 
 ## What Theseus is
 
@@ -25,11 +25,10 @@ on it. It sends it nowhere except as the next section says.
 Theseus reads every calendar the account can see (a calendar shared into the account appears with no config edit), or
 only those `[google] calendars` lists. A calendar of a workplace's domain (a Google Workspace domain, by the calendar's
 id or its owner) is `sensitive` with no config; `[google] sensitive_domains` names those domains instead, and a listed
-calendar can be marked `sensitive` too. Its events are never
-offered to a shared place such as a Discord channel others can read, and are written to no log or ledger row: the
-record of a read holds the calendar's label and a status, never an event's title, place, guests or call link.
-Reading one raises a `personal` label on the conversation (next section), which keeps it off models of China or
-unknown origin until the owner removes the label.
+calendar can be marked `sensitive` too. A read raises a `personal` label; its tool ledger row records the
+calendar's label and status rather than event details. That is not a memory boundary: the raw result stays in the
+store and may enter context in another trusted place. Explicit publication of a node from a session carrying a
+`personal` label to a shared place is refused; this does not withhold that session from recall.
 
 ## Who else sees it
 
@@ -42,43 +41,20 @@ Theseus sends data only to services the owner has configured, under those servic
 - the chat surfaces the owner connects (for example a Discord server), which show the replies posted there;
 - any other service the owner turns on, such as web search or speech.
 
-**Models of China origin.** Theseus knows the origin of each model it can call. Its built-in catalog marks the models
-of China origin; a model served from a China-origin host, or of a China-origin family, counts as China origin whatever
-the configuration says; and a model Theseus cannot place counts as of unknown origin. What such a model may be sent is
-decided by labels on the conversation, which the owner can see and remove.
+**Models and labels.** Configured models receive context through the same view, regardless of origin.
+There is no origin firewall, origin-specific recall filter or mandatory draft-and-review path. The former
+`[content_based_security] cn_models` and `wait_ms` keys still load with a startup warning, but are ignored;
+`cn_models = "never"` does not exclude any model. Configure only providers you trust with this memory.
 
-Every item that enters a conversation (what the owner writes, a tool's result, a page, a file) is classified once by
-Jev, the routing service, and a conversation carries a label when something in it showed the value of a credential
-(`secret`), an organisation's non-public matter (`confidential`) or a person's private information (`personal`).
-Two rules raise a label without a model: an item that holds a word the owner listed under `[privacy] sensitive_names`
-(organisations, clients, projects, people) raises `confidential`, and everything Google returns raises `confidential`
-(a sensitive calendar's, `personal`). While a conversation carries one of those three, a request for it to a model of
-China or unknown origin is refused before it is sent, and routing skips those models. The owner removes a label with
-one tap in Discord, the cockpit, or `theseus content remove`, and those models may then be used for that
-conversation: the removal is the owner's call, and nothing overrides it. The setting `[content_based_security]
-cn_models` is the one switch: `follow_flags` (the default) reads the labels, `never` uses such models for nothing and
-`always` ignores the labels. The check is one read of the conversation's record; Theseus does not search a request for
-a name. A turn bound for such a model waits a few seconds (`wait_ms`) for the checks still out for its conversation,
-then goes on the labels it has; an item whose check failed twice reaches such a model with no label, and the owner is
-told once. A task, a retry, a routine's run and a draft start with their parent's labels. A fourth label, `injection`,
-is not about origin: it says something tried to steer the assistant. At the shipped default
-(`[content_based_security] injection = "notify"`) the owner is told and nothing is refused; with
-`injection = "refuse"` every call except a local read of files and code is refused until he removes it.
+Jev labels content as `secret`, `confidential`, `personal` or `injection`. A word listed under `[privacy]
+sensitive_names` raises `confidential` without a model call, as does a Google result; a sensitive calendar raises
+`personal`. These labels describe content, not which provider may see it. The owner can inspect them with
+`theseus content SESSION` and remove them with `theseus content remove`.
 
-What the labels do not do: they are not a promise about every other origin. A model of EU origin is refused nothing
-today, because no label keeps it off; the built-in catalog lists no model of EU origin, so the owner would have to add one. The labels also do not rewrite anything:
-Theseus stores what happened as it happened (see "Secrets" below).
-
-Such a model only drafts code: in its own copy of an open repository, with no programs, and a Claude model reviews and
-fixes the draft before anything is applied.
-
-Google content is labelled as it arrives (above): a conversation that reads anything from Google carries
-`confidential`, and a sensitive calendar's events `personal`, and the labels keep that conversation, and a task, retry
-or routine it starts, off models of China or unknown origin until the owner removes them. A conversation that has not
-read anything from Google is not affected. A request to a model of China or unknown origin carries no recalled
-notes, and leaves out what other conversations wrote for others to see (a standing order, a milestone reminder).
-A sensitive calendar's events, and anything marked `personal`, are never published to a
-shared place.
+The `injection` label still affects actions: at the shipped default (`[content_based_security] injection = "notify"`)
+the owner is told and the label refuses nothing. With `injection = "refuse"`, every call except a local read of files
+and code is refused until the owner removes it. Approvals, place tool ceilings and publish approval still apply;
+none of these is a promise to keep private conversation out of shared-place context.
 
 **Secrets.** Theseus's store holds what happened as it happened: a tool's output, a file it read and the owner's own
 messages are not rewritten, and a key that appears in them is in the store, on the owner's machine. What leaves the
@@ -87,17 +63,13 @@ percent-encoded and JSON-escaped forms) is replaced by `[redacted:<name>]` in ea
 Discord message, the text sent to Jev and each push line. Anything
 that only looks like a key, and a key Theseus never read from the store, is not recognised and goes as written;
 a value of a secret the daemon does not hold at that moment (failed at its start, rotated, removed), or one cut in
-two by a size limit, is not recognised either; for a
-model of China or unknown origin the `secret` label is the guard. `theseus inspect` says which secret, by name, went
+two by a size limit, is not recognised either. A `secret` label does not stop a provider request. `theseus inspect` says which secret, by name, went
 in which request to which model. `[privacy] redact_outbound = false` turns the replacement off.
 
 **Personal details.** The owner's personal details may live in Theseus's context; that is what makes it a personal
-assistant. When the routing service is on, it is also asked whether each message tries to draw out the owner's
-personal details, or to open a conversation with other people in which they could come out. A confident yes sends the
-owner a warning in their own direct messages and is recorded. Where only the owner writes, it holds nothing back. In a
-shared place the reply is held: no model is called, the person who asked is told "I don't share that here.", and the
-owner's direct message says who asked, where, what they wrote and why it tripped. Since 2026-11-22 ("anything
-goes"), recall and the context are the same in every place: the owner puts Theseus only in places he trusts.
+assistant. Since 2026-11-22, a request for those details in a shared place runs like any other turn: there is no
+personal-details reply hold or automatic warning to the owner's DM. Recall and context come from the same memory
+in every place. The owner must put Theseus only in places whose participants they trust with that memory.
 
 ## Google API Services User Data Policy
 

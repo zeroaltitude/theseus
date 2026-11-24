@@ -75,8 +75,13 @@ impl Fact for CategorySet<'_> {
         say.line(
             Session,
             format!(
-                "Ontology: {} made the {} category {} ({}){}.",
+                "Ontology: {} {} the {} category {} ({}){}.",
                 self.who,
+                if c.retired_ms.is_some() {
+                    "retired"
+                } else {
+                    "set"
+                },
                 c.kind(),
                 c.name,
                 c.id,
@@ -306,5 +311,46 @@ impl Fact for KindSet<'_> {
                 k.description
             ),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_retirement_is_not_narrated_as_a_creation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let narrator = crate::narrative::Narrator::new(true);
+        let category = Category::new(
+            theseus_ontology::CategoryId::parse("topic:harbour").unwrap(),
+            "Harbour",
+            "operator",
+        )
+        .retired(10);
+        let fact = CategorySet {
+            category: &category,
+            origin: "operator",
+            who: "the operator",
+            via: "the CLI",
+            undo: None,
+        };
+        crate::fact::Rec {
+            narrator: &narrator,
+            session: None,
+            turn: None,
+            to: crate::fact::To::Nobody,
+            store: &store,
+        }
+        .announce(&fact);
+        let lines = narrator.tail();
+        assert_eq!(lines.len(), 1);
+        assert!(
+            lines[0].text.contains("retired the topic category"),
+            "{:?}",
+            lines[0]
+        );
+        assert!(!lines[0].text.contains("made"));
     }
 }

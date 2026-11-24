@@ -19,9 +19,7 @@ use crate::Core;
 pub const PIECES: usize = 60;
 
 /// What the look says when the turn has no view.
-const NONE: &str =
-    "this turn has no view record: its context was compiled as a transcript (`[context] \
-     assembly`), or its view is not written yet";
+const NONE: &str = "this turn has no view record: its view is not written yet";
 
 /// The look's words: this turn's newest view.
 pub(crate) fn words(core: &Core, session: &str, turn: &str) -> String {

@@ -2,7 +2,9 @@
 //! is atomic, so of two joiners exactly one makes it. Its `owner` file names
 //! the holder on its first line and, once released, ends with a `done:`
 //! line: the format the outer loop's join locks use, so `[self] join_lock`
-//! can name the outer loop's own lock and the two never join at once.
+//! can name the outer loop's own lock. In-process joins and reverts are
+//! serialized here; cross-process exclusion during reclaim still requires
+//! a shared protocol with the outer loop's scripts.
 //!
 //! A lock whose `owner` file ends with `done:` is free (a holder that died
 //! between its `done:` line and the removal), and so is a lock directory
@@ -16,6 +18,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 
+/// Serializes directory creation, stale reclaim, and release in this daemon.
+static DOOR: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// A lock directory with no `owner` file older than this is an orphan.
 pub const ORPHAN: Duration = Duration::from_secs(60);
 
@@ -24,6 +29,8 @@ pub const ORPHAN: Duration = Duration::from_secs(60);
 #[derive(Debug)]
 pub struct Held {
     pub dir: PathBuf,
+    holder: String,
+    pid: u32,
 }
 
 /// Why the lock was not taken.
@@ -56,6 +63,9 @@ fn stale(dir: &Path) -> bool {
 /// Take the lock now, or say who holds it. `holder` is the owner file's
 /// first line.
 pub fn try_take(dir: &Path, holder: &str) -> Result<Result<Held, Busy>> {
+    let _door = DOOR
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(parent) = dir.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("the join lock's parent {}", parent.display()))?;
@@ -72,7 +82,11 @@ pub fn try_take(dir: &Path, holder: &str) -> Result<Result<Held, Busy>> {
                     crate::arrangement::utc(theseus_protocol::now_unix_ms())
                 )?;
                 f.sync_all()?;
-                return Ok(Ok(Held { dir: dir.into() }));
+                return Ok(Ok(Held {
+                    dir: dir.into(),
+                    holder: holder.into(),
+                    pid: std::process::id(),
+                }));
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 if !stale(dir) {
@@ -129,6 +143,21 @@ pub async fn take(
 impl Held {
     /// Write the `done:` line, then remove the lock.
     pub fn release(self, done: &str) -> Result<()> {
+        self.release_with(done, || {})
+    }
+
+    fn release_with(self, done: &str, after_done: impl FnOnce()) -> Result<()> {
+        let _door = DOOR
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let text = std::fs::read_to_string(owner(&self.dir))?;
+        let pid = text.lines().find_map(|line| line.strip_prefix("pid: "));
+        if text.lines().next() != Some(self.holder.as_str())
+            || pid != Some(self.pid.to_string().as_str())
+        {
+            tracing::warn!("self-join: the lock belongs to another holder; leaving it untouched");
+            anyhow::bail!("the join lock belongs to another holder");
+        }
         let mut f = std::fs::OpenOptions::new()
             .append(true)
             .open(owner(&self.dir))?;
@@ -139,6 +168,7 @@ impl Held {
         )?;
         f.sync_all()?;
         drop(f);
+        after_done();
         std::fs::remove_file(owner(&self.dir))?;
         std::fs::remove_dir(&self.dir)?;
         Ok(())
@@ -178,5 +208,52 @@ mod tests {
         std::mem::forget(b);
         let c = try_take(&dir, "c").unwrap().unwrap();
         assert!(c.text().starts_with("c\n"));
+    }
+}
+
+#[cfg(test)]
+mod release_tests {
+    use super::*;
+
+    #[test]
+    fn a_release_keeps_the_door_until_its_directory_is_removed() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("join.lock");
+        let a = try_take(&dir, "a").unwrap().unwrap();
+        let paused = std::sync::Barrier::new(2);
+        let resume = std::sync::Barrier::new(2);
+        std::thread::scope(|s| {
+            let thread = s.spawn(|| {
+                a.release_with("joined", || {
+                    paused.wait();
+                    resume.wait();
+                })
+            });
+            paused.wait();
+            let held = DOOR.try_lock().is_err();
+            resume.wait();
+            thread.join().unwrap().unwrap();
+            assert!(
+                held,
+                "reclaim must wait until release finishes removing the old lock"
+            );
+            let b = try_take(&dir, "b").unwrap().unwrap();
+            assert_eq!(
+                try_take(&dir, "c").unwrap().unwrap_err(),
+                Busy::Held("b".into())
+            );
+            b.release("joined").unwrap();
+        });
+    }
+
+    #[test]
+    fn a_release_does_not_remove_a_different_holder() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("join.lock");
+        let a = try_take(&dir, "a").unwrap().unwrap();
+        let replacement = format!("b\npid: {}\n", std::process::id());
+        std::fs::write(owner(&dir), &replacement).unwrap();
+        assert!(a.release("joined").is_err());
+        assert_eq!(std::fs::read_to_string(owner(&dir)).unwrap(), replacement);
     }
 }

@@ -5,7 +5,8 @@
 //! of work this is, and so which profile runs it. A replay on the profile one
 //! rung down that Jev judged `same` or `better` at `[route_bench] whole_label_bar`,
 //! with the facts not against it (the same last test result when there was one,
-//! the same paths changed, no cap ending it), says the work could run there. The
+//! the same paths changed, no cap ending it, no stubbed calls, and no differing
+//! or unknown matched-command exit), says the work could run there. The
 //! label is the class whose profile list leads with that profile (the first of
 //! `CLASS_ORDER` that does; the class the pack gave when it is one of them),
 //! written on the turn's route judgment as a `judge.label` row of source
@@ -71,6 +72,15 @@ impl Core {
         }
         if let Some(c) = &w.capped {
             return none(&format!("the replay ended at its {c} cap"));
+        }
+        if w.calls.iter().any(|c| c.how == "stub") {
+            return none("stubbed evidence cannot teach routing");
+        }
+        if w.caveats
+            .iter()
+            .any(|c| c == super::compare::EXIT_CONTRADICTION)
+        {
+            return none(super::compare::EXIT_CONTRADICTION);
         }
         if w.same.tests == Some(false) {
             return none("the last test run differs from the original's");

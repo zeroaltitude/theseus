@@ -1,14 +1,14 @@
 # The exchange ledger, and the owner's mark
 
-Step 1 of the context refactor (issue 44): records written beside the conversation so that later steps have
-something true to read. It changes no prompt and calls no model; a test holds a private request byte for byte
-with the ledger off. The code is `crates/theseus-core/src/exchange.rs` and `turn/exchange_step.rs`.
+The exchange ledger began as step 1 of the context refactor (issue 44), recording beside an unchanged
+transcript prompt. That off-mode experiment is historical: every turn now uses the view and its required
+exchange ledger. The code is `crates/theseus-core/src/exchange.rs` and `turn/exchange_step.rs`.
 
 ## What is written
 
 | Record | Key | Written | Holds |
 |---|---|---|---|
-| The owner's mark | `said.<node>` | with the message's node, in the turn's next frame | whether `places::owner_in_person_of` held for it; on a chat transport, whether its author holds an owner handle; the process behind it (`Peer`: a person, an agent by name, a job, no terminal, untraced, a transport); the surface; the place it arrived in and that place's session, taken before thread routing; the session it ran in |
+| The owner's mark | `said.<node>` | with the message's node, in the turn's next frame | whether `places::owner_in_person_of` held for it; on a chat transport, whether its author holds an owner handle; the process behind it (`Peer`: a person, an agent by name, a job, no terminal, untraced, a transport); the surface; the place it arrived in and that place's session; the session it ran in |
 | An exchange | `exchange.<turn>` | its opening half once the input is written, its end in the turn's last frame (the same key again) | what opened it, the place, private or not, the person, its start and end, the ask and the final reply and every message of the person's in it, by node id |
 | A touch | `touch.<root>␁<u64::MAX - ms>␁<turn>` | with the exchange | that exchange touched the root (`place:`, `person:`, `thing:<type>:<value>`) |
 | The measuring row | ledger `context.turn` | the turn's last frame, private places only | ids, kinds and counts (below) |
@@ -60,7 +60,8 @@ and a read keeps only keys that are exactly its own root's.
 
 ## Settings and bounds
 
-`[context] ledger` (default on) writes none of it when false. The mark rides its own submission (its event sink,
+`[context] ledger` and `assembly` are retired: both are ignored with a startup warning. The ledger cannot be
+switched off; it is what the single view path reads. The mark rides its own submission (its event sink,
 and its steer when it joins a running turn) to the node it becomes, so no other submission can take it, and a
 refused submission takes it with it. In memory: one count of things per place for the next row (at most 256).
 

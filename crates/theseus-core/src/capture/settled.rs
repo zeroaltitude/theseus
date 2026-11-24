@@ -78,50 +78,43 @@ impl Core {
             rows.push(fact::row(&f, Some(session), None)?);
         }
         rows.push(next.row()?);
-        self.store.append(&rows)?;
-        held.set(next);
-        drop(held);
-        for old in &kept {
-            self.end_kept(session, old)?;
-        }
-        Ok(())
-    }
-
-    /// One record capture kept, ended by a record that ends it, as a revoke
-    /// does.
-    fn end_kept(&self, session: &str, old: &StandingRecord) -> Result<()> {
-        let now = theseus_protocol::now_unix_ms();
         let written = self.runner.standing.write(
             &self.store,
             |all| {
-                Ok(vec![StandingRecord {
-                    id: standing::mint(all),
-                    kind: old.kind,
-                    text: String::new(),
-                    scope: old.scope.clone(),
-                    since_ms: now,
-                    until_ms: None,
-                    source: VIA.into(),
-                    ends: Some(old.id.clone()),
-                }])
+                let mut known = all.to_vec();
+                let first = known.len();
+                for old in &kept {
+                    known.push(StandingRecord {
+                        id: standing::mint(&known),
+                        kind: old.kind,
+                        text: String::new(),
+                        scope: old.scope.clone(),
+                        since_ms: now,
+                        until_ms: None,
+                        source: VIA.into(),
+                        ends: Some(old.id.clone()),
+                    });
+                }
+                Ok(known.split_off(first))
             },
             |_, records| {
-                records
-                    .iter()
-                    .map(|r| {
-                        fact::row(
-                            &fact::standing::StandingRevoked {
-                                record: r,
-                                who: "theseus",
-                                via: VIA,
-                            },
-                            Some(session),
-                            None,
-                        )
-                    })
-                    .collect()
+                for r in records {
+                    rows.push(fact::row(
+                        &fact::standing::StandingRevoked {
+                            record: r,
+                            who: "theseus",
+                            via: VIA,
+                        },
+                        Some(session),
+                        None,
+                    )?);
+                }
+                Ok(rows)
             },
         )?;
+        // The recovery handles and every ending are durable in the same frame.
+        held.set(next);
+        drop(held);
         for r in &written {
             self.rec(Some(session))
                 .announce(&fact::standing::StandingRevoked {

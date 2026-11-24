@@ -5,7 +5,7 @@ import type { CalendarEvent, CalendarWindow } from '../src/protocol.gen/index.ts
 
 export const local = (y: number, mo: number, d: number, h = 0, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime()
 
-/** The secret parts of the work calendar's event: none may leave the page through a verb, or show under redact. */
+/** Invented sensitive event content: hidden on screen under redact, but its title stays in action payloads. */
 export const SECRET = {
   title: 'Quarzite merger huddle',
   location: 'Room Xylophone-9, Tidewater Annex',

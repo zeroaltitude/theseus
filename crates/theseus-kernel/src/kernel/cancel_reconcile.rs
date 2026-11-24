@@ -76,7 +76,7 @@ impl Kernel {
         e.updated_at_ms = now;
         let mut frame = Vec::new();
         let why = format!("the execution was cancelled by {by}");
-        let not_run = self.end_unsent(&mut e, by, &why, &mut frame)?;
+        let (not_run, day) = self.end_unsent(&mut e, by, &why, &mut frame)?;
         // Its wakes end with it (DD8); a `/stop` ends nothing and keeps them.
         self.drop_wakes(&mut e, by, "the execution was cancelled", &mut frame)?;
         frame.insert(0, exec_record(&e)?);
@@ -98,6 +98,7 @@ impl Kernel {
         )?);
         self.task_ended(&e, &mut frame)?;
         self.commit(&frame)?;
+        self.day_after(day);
         Ok(Some(Cancelled {
             execution: e,
             not_run,
@@ -119,11 +120,12 @@ impl Kernel {
         by: &str,
         why: &str,
         frame: &mut Vec<NewRecord>,
-    ) -> Result<Vec<Action>> {
+    ) -> Result<(Vec<Action>, Vec<Effect>)> {
         e.budget.question = None;
         e.budget.question_needs_micros = 0;
         let now = self.now_ms();
         let mut ended = Vec::new();
+        let mut day = Vec::new();
         for mut a in self
             .unsettled_actions(&e.id)?
             .into_iter()
@@ -134,7 +136,7 @@ impl Kernel {
             a.resolution = Some(why.to_string());
             if let Some(r) = &a.reservation_id {
                 settle_reservation_in(&mut e.budget, r, Some(0));
-                self.day_after(Effect::of(&a, Some(0)));
+                day.extend(Effect::of(&a, Some(0)));
             }
             frame.push(action_record(&a)?);
             frame.push(self.ledger(
@@ -144,7 +146,7 @@ impl Kernel {
             )?);
             ended.push(a);
         }
-        Ok(ended)
+        Ok((ended, day))
     }
 
     /// Settle a call a cancel had stopped, from the verdict its wrapper wrote: acknowledged, then

@@ -19,7 +19,33 @@ pub fn push_first(out: &mut Vec<Line>, d: Option<&DayCeilingBudget>) {
 /// inside its ceiling.
 pub fn push_head(out: &mut Vec<Line>, h: &theseus_protocol::HealthResult) {
     push_first(out, h.day_spend.as_ref());
+    if let Some(line) = read_error_line(&h.startup) {
+        push(out, Tag::Bad, line);
+    }
     super::features::push_health(out, h.features.as_ref());
+}
+
+fn read_error_line(phases: &[theseus_protocol::StartupPhase]) -> Option<&str> {
+    phases
+        .iter()
+        .find(|p| p.name == "day_ceiling")
+        .and_then(|p| p.detail.get("read_error"))
+        .and_then(serde_json::Value::as_str)
+}
+
+#[test]
+fn health_names_the_unread_day_figure_in_one_line() {
+    let line = "Today's judge spending cannot be read; the day-spend read has been failing for over a minute.";
+    let mut phases = vec![theseus_protocol::StartupPhase {
+        name: "day_ceiling".into(),
+        background: false,
+        start_us: 0,
+        end_us: Some(1),
+        detail: serde_json::json!({"read_error": line}),
+    }];
+    assert_eq!(read_error_line(&phases), Some(line));
+    phases[0].detail = serde_json::json!({"later": false});
+    assert_eq!(read_error_line(&phases), None);
 }
 
 /// `⚠ model spend today $412.50, 2.1× the $200.00 daily ceiling: work goes on; …`

@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Paperclip, SendHorizontal, X } from 'lucide-react'
-import type { Attachment, SessionHistoryResult, SessionInfo, SessionMode, SessionModeResult } from '@protocol'
+import type { Attachment, Health, SessionHistoryResult, SessionInfo, SessionMode, SessionModeResult } from '@protocol'
 import { useRpc, usePush } from '@/lib/rpc'
 import { turnRows } from '@/lib/derive'
 import { useHistoryRows } from '@/lib/history'
@@ -19,7 +19,7 @@ import { bytes } from '@/lib/figures'
 import { Transcript } from '@/components/Transcript'
 import { Empty } from '@/components/ui'
 import { composerHint, composerStep, submitOf, type ComposerState } from './composer'
-import { attachRefusal, attachmentOf, withoutSent } from './attach'
+import { attachRefusal, readAttachment, withoutSent } from './attach'
 import { liveOf } from './live'
 import { transcriptTail } from './sections'
 import { MODES, modeAsk } from './menus'
@@ -35,6 +35,8 @@ export function JoinPane({ sessionId, compact = false, session, focus = false, o
   useWatchedSession(sid)
   const { data: hist } = useRpc<SessionHistoryResult>('session.history', { session_id: sid, n: compact ? 12 : 60 }, 0, { enabled: !!sid })
   const { data: mode } = useRpc<SessionModeResult>('session.mode', { session_id: sid }, 0, { enabled: !!sid })
+  const { data: health } = useRpc<Health>('health', undefined, 5000)
+  const tightened = useMemo(() => new Map((health?.tightenings ?? []).map((t) => [t.tool, t])), [health])
   const events = usePush((s) => s.events)
   const last = events[events.length - 1]
   useEffect(() => {
@@ -59,7 +61,8 @@ export function JoinPane({ sessionId, compact = false, session, focus = false, o
   const take = async (chosen: FileList | File[] | null | undefined) => {
     const list = Array.from(chosen ?? [])
     if (list.length === 0) return
-    const read = await Promise.all(list.map(async (f) => attachmentOf(f, new Uint8Array(await f.arrayBuffer()))))
+    const read: Attachment[] = []
+    for (const file of list) read.push(await readAttachment(file))
     setError(attachRefusal(read))
     setFiles((was) => [...was, ...read])
   }
@@ -124,7 +127,7 @@ export function JoinPane({ sessionId, compact = false, session, focus = false, o
           ? (tail.length === 0 ? <div className="text-[12px] text-ink-faint">No messages yet.</div>
             : <ol className="space-y-1.5 text-[12px]">{tail.map((m) => <li key={m.id}><span className="text-ink-faint">{m.who === 'you' ? 'You' : 'Theseus'} · {ago(m.at)}</span><div className="line-clamp-3 whitespace-pre-wrap text-ink">{m.text}</div></li>)}</ol>)
           : !sid ? <Empty>Select a session or a task.</Empty>
-            : <Transcript nodes={nodes} turns={turns} live={live} drafts={drafts} deck={sid} />}
+            : <Transcript nodes={nodes} turns={turns} live={live} drafts={drafts} tightened={tightened} deck={sid} />}
         {compact && live?.text && <div className="mt-1 whitespace-pre-wrap text-[12px] text-live">{live.text.slice(-300)}</div>}
       </div>
       {error && <div className="mx-2 mb-1 rounded-md bg-fault/10 px-2.5 py-1 text-[12px] text-fault ring-1 ring-fault/30">{error}</div>}

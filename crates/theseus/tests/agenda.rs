@@ -72,6 +72,7 @@ fn run(args: &[&str]) -> (String, Vec<String>) {
     let dir = tempfile::tempdir().unwrap();
     let sock = dir.path().join("sock");
     let listener = UnixListener::bind(&sock).unwrap();
+    let watching = args.contains(&"--watch");
     let daemon = std::thread::spawn(move || {
         let (s, _) = listener.accept().unwrap();
         let mut reader = BufReader::new(&s);
@@ -91,6 +92,15 @@ fn run(args: &[&str]) -> (String, Vec<String>) {
             seen.push(m);
             let a = json!({"jsonrpc": "2.0", "id": req["id"], "result": result});
             (&s).write_all(format!("{a}\n").as_bytes()).unwrap();
+            if watching && req["method"] == "work.agenda" {
+                if seen.iter().filter(|m| *m == "work.agenda").count() == 2 {
+                    break;
+                }
+                let change = json!({"jsonrpc": "2.0", "method": "work.changed", "params": {
+                    "position": 11, "at_ms": NOW, "views": [], "gone": ["wak_a8cebb"]
+                }});
+                (&s).write_all(format!("{change}\n").as_bytes()).unwrap();
+            }
         }
         seen
     });
@@ -135,4 +145,16 @@ fn json_is_the_two_answers_as_they_came() {
     let v: Value = serde_json::from_str(out.trim()).unwrap();
     assert_eq!(v["board"]["views"].as_array().unwrap().len(), 3);
     assert_eq!(v["agenda"]["lines"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn json_agenda_watch_emits_a_replacement_after_a_change() {
+    let (out, _) = run(&["--json", "agenda", "--watch", "--now", &NOW.to_string()]);
+    let rows: Vec<Value> = out
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 2, "{out}");
+    assert_eq!(rows[1]["board"]["position"], 11);
+    assert_eq!(rows[1]["board"]["views"].as_array().unwrap().len(), 2);
 }

@@ -11,11 +11,13 @@ export function useJobOutput(job: string | null): JobOut | null {
   const [out, setOut] = useState<JobOut | null>(null)
   useEffect(() => {
     let dead = false
+    let generation = 0
     let state: Follow = { kind: 'off' }
     const exec = (fx: FollowEffect) => {
       if (fx.op === 'peek') {
+        const epoch = generation
         call<WorkPeekResult>('work.peek', { id: fx.job }).then((p) => {
-          if (dead) return
+          if (dead || epoch !== generation) return
           setOut(peekOut(p.lines, p.bytes))
           run({ kind: 'peeked', job: fx.job, bytes: p.bytes })
         }).catch(() => {})
@@ -23,13 +25,21 @@ export function useJobOutput(job: string | null): JobOut | null {
       else call('action.unfollow', { id: fx.job }).catch(() => {})
     }
     const run = (e: FollowEvent) => { const r = followOf(state, e); state = r.state; r.effects.forEach(exec) }
+    const restart = () => {
+      generation++
+      run({ kind: 'leave' })
+      setOut(null)
+      run({ kind: 'select', job })
+    }
+    const offOpen = client.onOpen(restart)
     const off = client.onNotify((m, p) => {
+      if (m === 'events.lost') { restart(); return }
       const q = p as { id?: string; offset?: number; text?: string }
       if (m === 'action.output.chunk' && state.kind === 'following' && q.id === state.job) setOut((o) => appendChunk(o ?? EMPTY_OUT, { offset: q.offset ?? 0, text: q.text ?? '' }))
     })
     setOut(null)
     run({ kind: 'select', job })
-    return () => { dead = true; off(); run({ kind: 'leave' }) }
+    return () => { dead = true; off(); offOpen(); run({ kind: 'leave' }) }
   }, [job])
   return out
 }

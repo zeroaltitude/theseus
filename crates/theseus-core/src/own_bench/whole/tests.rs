@@ -394,17 +394,23 @@ async fn a_stub_is_the_recorded_result_or_a_sentence() {
         vec![Recorded {
             tool: "wake.at".into(),
             content: "wake set for 09:00".into(),
+            input: json!({"at": "9:00"}),
+            ok: false,
         }],
         Arc::new(Sh::default()),
     );
+    let wrong = hands.call("wake_at", &json!({"at": "10:00"})).await;
+    assert!(wrong.is_error);
     let a = hands.call("wake_at", &json!({"at": "9:00"})).await;
+    assert!(a.is_error, "recorded failure remains a failure");
     assert_eq!(a.text, "wake set for 09:00");
     let b = hands.call("wake_at", &json!({"at": "9:00"})).await;
+    assert!(b.is_error);
     assert!(b.text.starts_with("Not run: wake.at"), "{}", b.text);
     let c = hands.call("no_such_tool", &json!({})).await;
     assert!(c.is_error && c.text.contains("no tool named"));
     let how: Vec<&str> = hands.calls.iter().map(|c| c.how.as_str()).collect();
-    assert_eq!(how, ["stub", "stub", "refused"]);
+    assert_eq!(how, ["stub", "stub", "stub", "refused"]);
     assert!(hands.changed.is_empty());
 }
 
@@ -628,6 +634,7 @@ async fn a_judged_match_becomes_a_machine_label_once() {
     assert_eq!(l[0].data["label"], "haiku");
     assert_eq!(l[0].data["weight"], crate::learning::REPLAY_WEIGHT);
     assert_eq!(l[0].data["pack"], "route.v11");
+    assert_unlabelable_evidence(&w, &p, &r);
     // The same turn again writes no second label.
     same(&w);
     let again = w.rig.core.turn_replay(p, "cli").await.unwrap();
@@ -657,8 +664,43 @@ async fn a_judged_match_becomes_a_machine_label_once() {
     *TEST_PROGRAMS.lock().unwrap() = None;
 }
 
-/// No label when the words say weaker, when the tests differ, or when the
-/// replay ended at a cap: each says why in the row.
+fn assert_unlabelable_evidence(w: &World, p: &TurnReplayParams, r: &TurnReplayResult) {
+    let mut stubbed = r.clone();
+    stubbed
+        .whole
+        .as_mut()
+        .unwrap()
+        .calls
+        .push(theseus_protocol::own_bench::WholeCall {
+            tool: "wake.at".into(),
+            how: "stub".into(),
+            exit: None,
+            why: None,
+        });
+    w.rig.core.label_whole(p, &p.profile, &mut stubbed);
+    assert!(stubbed
+        .whole
+        .unwrap()
+        .label
+        .unwrap()
+        .contains("stubbed evidence"));
+    let mut contradicted = r.clone();
+    contradicted
+        .whole
+        .as_mut()
+        .unwrap()
+        .caveats
+        .push(super::compare::EXIT_CONTRADICTION.into());
+    w.rig.core.label_whole(p, &p.profile, &mut contradicted);
+    assert!(contradicted
+        .whole
+        .unwrap()
+        .label
+        .unwrap()
+        .contains("matched command"));
+}
+
+/// No label when the words say weaker: the row says why.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_weak_or_contradicted_replay_writes_no_label() {
     let _g = SERIAL.lock().await;
@@ -697,6 +739,60 @@ async fn a_weak_or_contradicted_replay_writes_no_label() {
     *TEST_PROGRAMS.lock().unwrap() = None;
 }
 
+fn assert_label_veto(capped: Option<&str>, tests: bool, why: &str) {
+    use theseus_protocol::own_bench::{ReplayVerdict, WholeReplay, WholeSame};
+
+    let jev = FakeJev::start().unwrap();
+    let w = judged_world(&jev);
+    let p = params(&w, "turn_label_veto");
+    plant_route(&w, &p.turn, "opus");
+    let mut r = TurnReplayResult {
+        verdict: Some(ReplayVerdict {
+            same_or_better: 1.0,
+            ..Default::default()
+        }),
+        whole: Some(WholeReplay {
+            capped: capped.map(str::to_string),
+            same: WholeSame {
+                files: true,
+                tests: Some(tests),
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    w.rig.core.label_whole(&p, &p.profile, &mut r);
+    assert_eq!(r.whole.as_ref().unwrap().label.as_deref(), Some(why));
+    assert!(labels(&w).is_empty());
+    // With only the veto cleared, this same evidence really writes a label.
+    let whole = r.whole.as_mut().unwrap();
+    whole.capped = None;
+    whole.same.tests = Some(true);
+    w.rig.core.label_whole(&p, &p.profile, &mut r);
+    assert_eq!(labels(&w).len(), 1);
+}
+
+#[tokio::test]
+async fn differing_tests_veto_a_whole_replay_label() {
+    assert_label_veto(
+        None,
+        false,
+        "none: the last test run differs from the original's",
+    );
+}
+
+#[tokio::test]
+async fn a_cap_vetoes_a_whole_replay_label() {
+    for cap in ["loops", "seconds", "usd"] {
+        assert_label_veto(
+            Some(cap),
+            true,
+            &format!("none: the replay ended at its {cap} cap"),
+        );
+    }
+}
+
 /// Which option a rung is: the `model` option whose catalog model the rung's
 /// profile runs.
 #[test]
@@ -704,4 +800,72 @@ fn a_rung_is_labeled_with_the_option_that_names_its_model() {
     assert_eq!(super::label::option_for("claude-haiku-5-5"), Some("haiku"));
     assert_eq!(super::label::option_for("claude-opus-5-5"), Some("opus"));
     assert_eq!(super::label::option_for("glm-5.3-flash"), None);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_callers_allowance_is_spent_across_replay_loops() {
+    let _g = SERIAL.lock().await;
+    let w = world(|c| {
+        c.route_bench.whole_loops = 20;
+        c.route_bench.whole_usd = 1.0;
+        c.profiles.get_mut("haiku").unwrap().max_output_tokens = Some(1000);
+    });
+    let t = original(&w).await;
+    let before = w.rig.model.requests().len();
+    for i in 0..20 {
+        push(
+            &w.rig,
+            Scripted::BilledBy {
+                usage: |req| theseus_protocol::Usage {
+                    input_tokens: req.estimate_tokens(),
+                    output_tokens: u64::from(req.max_tokens),
+                    ..Default::default()
+                },
+                then: Box::new(Scripted::tools(
+                    "",
+                    &[(&format!("read{i}"), "fs_list", json!({"path": w.work}))],
+                )),
+            },
+        );
+    }
+    let allowance = 30_000;
+    let mut spent = 0;
+    let r = w
+        .rig
+        .core
+        .replay_turn_with(&params(&w, &t), "mint", Some(allowance), &mut spent, None)
+        .await
+        .unwrap();
+    assert!(
+        spent <= allowance,
+        "spent {spent} past caller allowance {allowance}"
+    );
+    let whole = r.result.whole.unwrap();
+    assert_eq!(whole.capped.as_deref(), Some("usd"));
+    assert!(whole.loops > 0 && whole.loops < 20);
+    assert_eq!(w.rig.model.requests().len() - before, whole.loops as usize);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn command_exit_evidence_uses_original_paths() {
+    let w = world(|_| {});
+    let copy = tempfile::tempdir().unwrap();
+    std::fs::write(copy.path().join("build.sh"), "exit 7\n").unwrap();
+    let rt = w.rig.core.runner.tools.clone();
+    let mut hands = Hands::new(
+        &rt,
+        (w.work.clone(), copy.path().to_path_buf()),
+        vec![],
+        Arc::new(Sh::default()),
+    );
+    let argv = vec![
+        "sh".to_string(),
+        w.work.join("build.sh").display().to_string(),
+    ];
+    hands
+        .call("proc_run", &json!({"argv": argv, "cwd": w.work}))
+        .await;
+    assert_eq!(hands.ran.len(), 1);
+    assert_eq!(hands.ran[0].argv, argv);
+    assert_eq!(hands.ran[0].exit, Some(7));
 }

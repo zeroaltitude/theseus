@@ -58,6 +58,12 @@ pub struct ExchangeFacts {
 
 /// The ledger's exchanges.
 pub trait Exchanges {
+    /// Whether this source can classify any exchange as a correction, standing, or waiting.
+    /// False is a proof of an empty older band, not a page limit or a selection policy.
+    fn has_old_candidates(&self) -> bool {
+        true
+    }
+
     fn facts(&self, turn_id: &str) -> anyhow::Result<Option<ExchangeFacts>>;
 }
 

@@ -1,11 +1,10 @@
-//! Scoped names: a table of the names and aliases of lines of work (thread
-//! records' titles and slugs), tasks (titles and ids) and topics (the
+//! Scoped names: a table of the names and aliases of tasks (titles and ids)
+//! and topics (the
 //! ontology's category names), built from the stores that hold them, and a
 //! matcher of a person's words against it. No word list and no pattern: a
 //! name is found only when its words are said.
 //!
-//! - **A qualified name wins**: the thing's own key (`thread:<slug>`,
-//!   `task:<id>`, a category's id such as `topic:ledger`) or a task's bare id.
+//! - **A qualified name wins**: the thing's own key (`task:<id>`, a category's id such as `topic:ledger`) or a task's bare id.
 //!   It names one thing, live or not.
 //! - **An unqualified alias** (a title, a slug, a category's name, matched as
 //!   whole words, case ignored) is accepted only when exactly one live thing
@@ -27,8 +26,6 @@ pub const ALIAS_CHARS: usize = 3;
 /// What a thing of the table is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
-    /// A line of work: a thread record.
-    Line,
     Task,
     /// A category of the ontology (a topic, an event, a resource, …).
     Topic,
@@ -40,12 +37,12 @@ pub enum Kind {
 /// One thing of the table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
-    /// Its key, as the touch index names it: `thread:<slug>`, `task:<id>`,
+    /// Its key, as the touch index names it: `task:<id>`,
     /// or a category's id.
     pub thing: String,
     pub kind: Kind,
     pub title: String,
-    /// Still in play: an active thread, an open task, a category not retired
+    /// Still in play: an open task, a category not retired
     /// or merged.
     pub live: bool,
 }
@@ -257,28 +254,13 @@ pub fn build(core: &crate::rpc::Core) -> anyhow::Result<Table> {
     build_for(core, &Whole)
 }
 
-/// The table of what the stores hold now and `gate` admits: the thread
-/// records (their board), the tasks, and the ontology's categories of the
+/// The table of what the stores hold now and `gate` admits: the
+/// tasks and the ontology's categories of the
 /// kinds `onto.v1` files under, a project apart (a project is a task). A
 /// thing the gate refuses is left out before any alias is resolved, so it is
 /// no match, no candidate, and makes no alias it shares ambiguous.
 pub fn build_for(core: &crate::rpc::Core, gate: &dyn Admits) -> anyhow::Result<Table> {
     let mut t = Table::default();
-    let board = core.runner.threads.all(&core.store)?;
-    for th in board.all().filter(|th| gate.thing(Source::Line(th))) {
-        let live =
-            th.state == theseus_protocol::threads::ThreadState::Active && th.merged_into.is_none();
-        t.add(
-            Entry {
-                thing: format!("thread:{}", th.slug),
-                kind: Kind::Line,
-                title: th.title.clone(),
-                live,
-            },
-            &[&th.title, &th.slug],
-            None,
-        );
-    }
     let tasks = crate::task_graph::all_shown(&core.store, &core.kernel)?;
     for task in tasks.iter().filter(|t| gate.thing(Source::Task(t))) {
         t.add(
@@ -328,7 +310,7 @@ mod tests {
     fn table() -> Table {
         let mut t = Table::default();
         t.add(
-            entry("thread:lantern", Kind::Line, "Lantern Ledger", true),
+            entry("topic:lantern", Kind::Topic, "Lantern Ledger", true),
             &["Lantern Ledger", "lantern"],
             None,
         );
@@ -404,7 +386,7 @@ mod tests {
     fn the_longer_name_said_wins_and_a_short_alias_is_none() {
         assert_eq!(
             found("ok, the Lantern Ledger"),
-            vec![("Lantern Ledger".into(), How::Unique, v(&["thread:lantern"]))]
+            vec![("Lantern Ledger".into(), How::Unique, v(&["topic:lantern"]))]
         );
     }
 

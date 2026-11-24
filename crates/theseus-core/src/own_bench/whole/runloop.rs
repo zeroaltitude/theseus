@@ -88,7 +88,7 @@ fn whole_row(
     (loops, capped): (u32, Option<String>),
     hands: &Hands<'_>,
     (original, scratch): (&Facts, &scratch::Scratch),
-    caveats: Vec<String>,
+    mut caveats: Vec<String>,
 ) -> WholeReplay {
     let replay = Facts {
         changed: hands.changed.clone(),
@@ -101,6 +101,9 @@ fn whole_row(
             })
             .collect(),
     };
+    if compare::contradicted(original, &replay) {
+        caveats.push(compare::EXIT_CONTRADICTION.into());
+    }
     WholeReplay {
         loops,
         capped,
@@ -197,6 +200,8 @@ impl Core {
                         out.recorded.push(Recorded {
                             tool: tool.clone(),
                             content,
+                            input: input.clone(),
+                            ok,
                         });
                         if tool == "proc.run" {
                             out.facts.runs.push(TestRun {
@@ -292,7 +297,7 @@ impl Core {
             };
             hands.seconds_left = remaining.as_secs().max(1);
             let room = usd_cap.saturating_sub(total);
-            let allowed = left.map_or(room, |l| l.min(room));
+            let allowed = left.map_or(room, |l| l.saturating_sub(total).min(room));
             let mut one = 0u64;
             let called = tokio::time::timeout(
                 remaining,

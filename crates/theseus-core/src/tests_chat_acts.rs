@@ -560,7 +560,7 @@ fn thread_session(core: &Arc<Core>, slug: &str, channel: Option<u64>) -> String 
         .unwrap();
     if let Some(c) = channel {
         core.outbox
-            .show_at(&rec.session_id, Some(&format!("discord:channel:{c}")))
+            .bind_place(&format!("channel:{c}"), &rec.session_id)
             .unwrap();
     }
     rec.session_id
@@ -818,20 +818,23 @@ async fn a_message_holding_an_old_trigger_phrase_does_nothing_unless_a_tool_is_c
 /// that lives in the catalog rather than in the turn.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
+    use crate::places::PlaceClass::{Private, Shared};
     let jev = jev_says(RESHAPEABLE, 0.95);
     let r = sync_rig(&jev);
     let sid = session(&r.core);
     let acts = &r.core.runner.tools.chat_acts;
     let offered = |turn: &str| -> Vec<String> {
+        let arrived = std::time::Instant::now();
         acts.heard.stage(
             &sid,
+            arrived,
             crate::chat_acts::Said {
                 text: "whatever he said".into(),
                 who: crate::approval::Answerer::from("owner"),
                 owner_input: true,
             },
         );
-        acts.offers(&sid, turn, crate::places::PlaceClass::Private, false)
+        acts.offers(&sid, turn, arrived, Private, false)
             .iter()
             .map(|d| d["name"].as_str().unwrap_or_default().to_string())
             .collect()
@@ -864,15 +867,17 @@ async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
     })
     .await;
     let acts = &r.core.runner.tools.chat_acts;
+    let arrived = std::time::Instant::now();
     acts.heard.stage(
         &sid,
+        arrived,
         crate::chat_acts::Said {
             text: "yes".into(),
             who: crate::approval::Answerer::from("owner"),
             owner_input: true,
         },
     );
-    let defs = acts.offers(&sid, "turn_q", crate::places::PlaceClass::Private, false);
+    let defs = acts.offers(&sid, "turn_q", arrived, Private, false);
     let names: Vec<&str> = defs.iter().filter_map(|d| d["name"].as_str()).collect();
     assert!(
         names.contains(&"chat_answer_question"),
@@ -891,19 +896,15 @@ async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
     // A continuation — a wake, a task's report — is offered none of them and
     // claims no message of his.
     assert!(acts
-        .offers(&sid, "turn_2", crate::places::PlaceClass::Private, true)
+        .offers(&sid, "turn_2", arrived, Private, true)
         .is_empty());
     // Nor is a shared place.
     assert!(acts
-        .offers(&sid, "turn_3", crate::places::PlaceClass::Shared, false)
+        .offers(&sid, "turn_3", arrived, Shared, false)
         .is_empty());
 
     // And none of the three is ever in a place's kept catalog.
-    let defs = r
-        .core
-        .runner
-        .tools
-        .definitions_for(crate::places::PlaceClass::Private.into());
+    let defs = r.core.runner.tools.definitions_for(Private.into());
     for n in crate::chat_acts::NAMES {
         let wire = theseus_tools::wire_name(n);
         assert!(
@@ -916,15 +917,7 @@ async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
 // ------------------------------- 5. the place scope, and what the turn is told
 
 /// A sibling session that answers where `sid` answers, as a task's own asks
-/// do: its parent's place, by `Outbox::show_at`.
-///
-/// ⛔ **`show_at`, not `bind_place`** — and that distinction is the whole
-/// reason this construction was thought unavailable. `bind_place` gives a
-/// place to ONE session and a second bind takes it from the first; `show_at`
-/// says where a session ANSWERS, and any number of sessions may answer at one
-/// place. The matchers' own cases used `show_at`, and the rule they proved
-/// (`chat_acts::run::waiting_here` / `held_here`, moved here whole) is
-/// unchanged, so the construction they used still works.
+/// do: an explicit task destination, independent of retired thread records.
 fn beside(core: &Arc<Core>, sid: &str) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
@@ -932,7 +925,10 @@ fn beside(core: &Arc<Core>, sid: &str) -> String {
         .outbox
         .target(sid)
         .expect("this session answers somewhere, or there is no place to share");
-    core.outbox.show_at(&rec.session_id, Some(&here)).unwrap();
+    core.store
+        .append(&[core.outbox.task_record(&rec.session_id, &here).unwrap()])
+        .unwrap();
+    core.outbox.task_bound(&rec.session_id, &here);
     assert_eq!(
         core.outbox.target(&rec.session_id),
         core.outbox.target(sid),
@@ -1274,18 +1270,26 @@ async fn answering_a_question_that_is_no_longer_waiting_refuses_and_answers_noth
 /// message of the owner's own.
 fn offered_in(r: &Rig, sid: &str, turn: &str) -> Vec<String> {
     let acts = &r.core.runner.tools.chat_acts;
+    let arrived = std::time::Instant::now();
     acts.heard.stage(
         sid,
+        arrived,
         crate::chat_acts::Said {
             text: "whatever he said".into(),
             who: crate::approval::Answerer::from("owner"),
             owner_input: true,
         },
     );
-    acts.offers(sid, turn, crate::places::PlaceClass::Private, false)
-        .iter()
-        .map(|d| d["name"].as_str().unwrap_or_default().to_string())
-        .collect()
+    acts.offers(
+        sid,
+        turn,
+        arrived,
+        crate::places::PlaceClass::Private,
+        false,
+    )
+    .iter()
+    .map(|d| d["name"].as_str().unwrap_or_default().to_string())
+    .collect()
 }
 
 /// The item tools, the list among them, are a private place's alone (issue 13, review round 2's B3, the model's
@@ -1316,15 +1320,17 @@ async fn the_item_tools_are_offered_in_a_private_place_alone() {
     .expect("project.attach");
     let acts = &r.core.runner.tools.chat_acts;
     let items_offered = |turn: &str, class: crate::places::PlaceClass, continuation: bool| {
+        let arrived = std::time::Instant::now();
         acts.heard.stage(
             &sid,
+            arrived,
             crate::chat_acts::Said {
                 text: "whatever he said".into(),
                 who: crate::approval::Answerer::from("owner"),
                 owner_input: true,
             },
         );
-        acts.offers(&sid, turn, class, continuation)
+        acts.offers(&sid, turn, arrived, class, continuation)
             .iter()
             .filter_map(|d| d["name"].as_str())
             .any(|n| n == "project_item_list")

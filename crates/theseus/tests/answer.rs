@@ -21,6 +21,17 @@ fn one_request(
     std::path::PathBuf,
     std::thread::JoinHandle<Value>,
 ) {
+    one_request_then(reply, None)
+}
+
+fn one_request_then(
+    reply: Value,
+    event: Option<Value>,
+) -> (
+    tempfile::TempDir,
+    std::path::PathBuf,
+    std::thread::JoinHandle<Value>,
+) {
     let dir = tempfile::tempdir().unwrap();
     let sock = dir.path().join("sock");
     let listener = UnixListener::bind(&sock).unwrap();
@@ -35,6 +46,9 @@ fn one_request(
             None => answer["result"] = reply,
         }
         (&s).write_all(format!("{answer}\n").as_bytes()).unwrap();
+        if let Some(event) = event {
+            (&s).write_all(format!("{event}\n").as_bytes()).unwrap();
+        }
         req
     });
     (dir, sock, daemon)
@@ -102,12 +116,28 @@ fn an_answer_that_resumes_work_says_which() {
 /// `confirm` had. The scenarios in `golden.rs` hold the output.
 #[test]
 fn an_answer_that_resumes_work_follows_it() {
-    let (dir, sock, daemon) = one_request(json!({
-        "question_id": "act_0c7e527d2a", "option": "approve",
-        "resumes": {"id": "exe_0c7e527d2a", "kind": "task", "session_id": "ses_0c7e527d2a", "title": ""}
-    }));
-    let out = theseus(&sock, dir.path(), &["answer", "act_0c7e527d2a", "approve"]);
+    let (dir, sock, daemon) = one_request_then(
+        json!({
+            "question_id": "act_0c7e527d2a", "option": "approve",
+            "resumes": {"id": "exe_0c7e527d2a", "kind": "task", "session_id": "ses_0c7e527d2a", "title": ""}
+        }),
+        Some(json!({"jsonrpc": "2.0", "method": "turn.ended", "params":
+            theseus_protocol::TurnSubmitResult {
+                session_id: "ses_0c7e527d2a".into(),
+                turn_id: "trn_finished".into(),
+                output: "approved work finished".into(),
+                ..Default::default()
+            }
+        })),
+    );
+    let out = theseus(
+        &sock,
+        dir.path(),
+        &["--json", "answer", "act_0c7e527d2a", "approve"],
+    );
     let req = daemon.join().unwrap();
+    assert!(out.status.success(), "{:?}", out);
+    assert!(String::from_utf8_lossy(&out.stdout).contains("approved work finished"));
     assert_eq!(req["params"]["watch"], true, "{req}");
     let said = String::from_utf8_lossy(&out.stderr);
     assert!(
@@ -200,4 +230,49 @@ fn the_old_snooze_options_and_a_stray_time_are_refused_before_anything_is_sent()
         assert!(said.contains(says), "{args:?}: {said}");
         assert_eq!(out.status.code(), Some(1), "{said}");
     }
+}
+
+#[test]
+fn following_a_resumed_turn_refuses_unknown_outcomes_on_disconnect() {
+    for json_mode in [false, true] {
+        let (dir, sock, daemon) = one_request(json!({
+            "question_id": "act_0c7e527d2a", "option": "approve",
+            "resumes": {"id": "exe_0c7e527d2a", "kind": "task", "session_id": "ses_0c7e527d2a", "title": ""}
+        }));
+        let mut args = vec!["answer", "act_0c7e527d2a", "approve"];
+        if json_mode {
+            args.push("--json");
+        }
+        let out = theseus(&sock, dir.path(), &args);
+        daemon.join().unwrap();
+        assert!(!out.status.success(), "EOF is not a finished turn");
+        assert!(String::from_utf8_lossy(&out.stderr).contains("outcome is unknown"));
+    }
+}
+
+#[test]
+fn json_alert_confirmation_refuses_unauthenticated_subscriptions() {
+    let (dir, sock, daemon) = one_request(json!({
+        "account": "fixture", "pending": false,
+        "topic": "topic", "subscription": "subscription", "authenticated": false
+    }));
+    let out = theseus(
+        &sock,
+        dir.path(),
+        &["--json", "aws", "confirm-alerts", "token"],
+    );
+    daemon.join().unwrap();
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["authenticated"], false);
+    assert!(!out.status.success(), "unauthenticated is not success");
+}
+
+#[test]
+fn plain_continue_looks_up_a_conversation_instead_of_opening_one() {
+    let (dir, sock, daemon) = one_request(json!({"code": -32603, "message": "fixture ends here"}));
+    let out = theseus(&sock, dir.path(), &["chat", "--plain", "-c"]);
+    assert!(!out.status.success());
+    let req = daemon.join().unwrap();
+    assert_eq!(req["method"], "session.list");
+    assert!(req["params"]["dir"].is_string());
 }

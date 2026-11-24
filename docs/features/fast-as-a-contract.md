@@ -1,6 +1,6 @@
 # Fast, as a contract
 
-*One page on speed. Numbers come from the data files beside each report they cite. Updated 2026-10-28.*
+*One page on speed. Numbers come from the data files beside each report they cite. Updated 2026-11-23.*
 
 ## What it is
 
@@ -21,8 +21,10 @@ written budget, and the commit gate fails any commit that breaks one.
   under its ceiling. Their history is kept across gates, so a slow creep is visible as well as a cliff.
 - **Why it is fast.** The store is a write-ahead log with a rebuildable index, so a start reads nothing it does not
   need. A request's first layers are the same bytes in every session, so the provider's cache holds across sessions
-  and personas. A job starts without a fork of the daemon. Nothing on the critical path waits on Jev. Job wrappers
-  exec `/proc/self/exe`, so running jobs survive a binary swap.
+  and personas. A job starts without a fork of the daemon. Jev starts alongside compilation; when routing waits
+  for its verdict, it waits at most `[routing] max_wait_ms` after compilation ends, then proceeds without that
+  turn's verdict. If Jev is already known unreachable, live routing skips the wait. Job wrappers exec
+  `/proc/self/exe`, so running jobs survive a binary swap.
 
 ## What you see on each surface
 

@@ -352,10 +352,8 @@ fn a_repository_cannot_run_its_own_monitor_or_hook_through_the_probe() {
     // `ls-files`: git asks the named command what changed, and a repository
     // sitting on disk has just run code of its own choosing in the daemon.
     //
-    // AND NO MORE THAN THAT CLASS. A content filter driver the tree names in
-    // its own `.gitattributes`, with a command in its own config, is STILL
-    // run by `diff` and `status`; `GitCli::git` says so and says why there is
-    // no command-line close for it. A pass here is not the class closed.
+    // Content filters have a separate regression below. This fixture keeps
+    // the monitor and hook checks independent of the raw-content probe.
     let (s, marker) = a_repo_that_runs_a_command("hostile-config");
     let kept = s.path().join("kept.txt");
 
@@ -418,4 +416,61 @@ fn a_repository_with_no_commit_yet_reads_dirty_not_clean() {
     let found = find(&mut p, &f.to_string_lossy(), "write", false);
     assert_eq!(found.tracked, Tracked::Dirty);
     assert_eq!(recovery_of(&found), Recovery::TrackedDirty);
+}
+
+#[test]
+#[cfg(unix)]
+fn content_probes_never_execute_repository_filter_commands() {
+    let s = a_repo("hostile-filter");
+    let marker = s.path().join("filter-ran");
+    write(
+        &s.path().join(".gitattributes"),
+        "kept.txt filter=fixture\n",
+    );
+    git(
+        s.path(),
+        &[
+            "config",
+            "filter.fixture.clean",
+            &format!("touch {}; cat", marker.display()),
+        ],
+    );
+    write(&s.path().join("kept.txt"), "changed bytes force hashing\n");
+    let mut p = GitCli::default();
+    assert_eq!(p.tracked(&s.path().join("kept.txt")), Tracked::Dirty);
+    assert!(
+        !marker.exists(),
+        "tracked probe ran a repository filter before approval"
+    );
+    assert_eq!(p.repo(s.path()).1, Some(true));
+    assert!(
+        !marker.exists(),
+        "repository probe ran a filter before approval"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn a_tracked_path_beyond_a_symlink_parent_is_dirty() {
+    let s = a_repo("symlink-parent");
+    let outside = Scratch::new("symlink-destination");
+    let parent = s.path().join("a");
+    std::fs::create_dir(&parent).unwrap();
+    let path = parent.join("f");
+    write(&path, "identical committed bytes\n");
+    git(s.path(), &["add", "a/f"]);
+    git(s.path(), &["commit", "-q", "-m", "track nested file"]);
+    let repo = gix::discover(s.path()).unwrap();
+    assert_eq!(
+        GitCli::raw_tracked(&repo, s.path(), &path),
+        Some(Tracked::Clean)
+    );
+    std::fs::rename(&path, outside.path().join("f")).unwrap();
+    std::fs::remove_dir(&parent).unwrap();
+    std::os::unix::fs::symlink(outside.path(), &parent).unwrap();
+    assert_eq!(
+        GitCli::raw_tracked(&repo, s.path(), &path),
+        Some(Tracked::Dirty),
+        "git cannot restore a tracked path beyond a symlink"
+    );
 }

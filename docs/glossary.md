@@ -4,9 +4,8 @@ The words Theseus uses, as the code and the docs use them today. Where one word 
 listed with where it is used. Paths are from the repository root; "spec" is [the Ship of Theseus](spec/README.md);
 [cli.md](cli.md) lists the commands.
 
-The owner's six nouns are *conversation*, *thread*, *plan*, *step*, *task* and *job*. Each entry opens with its one line,
-which every surface (the cockpit, the CLI, the terminal UI and these docs) says the same way. The entry then says
-where the code keeps it.
+The working nouns are *conversation*, *plan*, *step*, *task* and *job*. *Thread* also appears in stored history
+and in Discord task places; the entries distinguish those meanings. Each entry says where the code keeps it.
 
 **"Task" means only the running agent.** A record on the work board is a *plan* or a *step*, never a task. The
 names in the code and on the wire keep their old spelling and are not words a person reads: `task.record` (the store's
@@ -15,9 +14,8 @@ model's tools), `WorkKind::Step`, `PlanItem` and every command (`theseus tasks`,
 
 ## A
 
-**activity thread**: the Discord crate's name for a Theseus thread (see *thread*, first sense) when it makes a Discord
-thread for it: "one Discord thread per activity thread" (`crates/theseus-discord/src/runtime/guild_thread.rs`). The
-Discord thread is recorded in the Theseus thread's `surfaces` and run as a place of its own.
+**activity thread**: the retired Theseus line-of-work container and its Discord thread. New messages are no longer
+routed into it. Old records remain readable; this is not the still-live *task thread*.
 
 **ask**: Anything waiting on your answer: an approval, a question, a budget, a failure to look at, a change to a step's goal. The Needs-you list holds the asks.
 In the code it is a confirm request, a question, a budget question or a failed row; `theseus answer` answers one and
@@ -34,7 +32,7 @@ guilds, channels and DMs are places, which are `private`, and each place's ceili
 **card**: four things. (1) A *question card*: a notification with buttons posted to a place (a confirm card; the
 outbox delivers it; spec §3.16). (2) A *task card*: a task's post in its place, naming the task. (3) The *owner card*: facts
 proposed from imported history that you keep, edit or decline (`theseus card`, `[card]`; `crates/theseus-core/src/card/`).
-(4) A *thread's card*: a few lines of what a thread holds (`MAX_CARD` in `crates/theseus-protocol/src/threads.rs`).
+(4) A historical *thread's card*: a few lines of what a retired thread held (`MAX_CARD` in `crates/theseus-protocol/src/threads.rs`).
 
 **census**: `theseus census`, the next request counted part by part down to each tool, sent nowhere
 (`crates/theseus-core/src/census.rs`). `--place` takes `cli`, `dm`, `channel`, `task`, `headless` or `harness`
@@ -83,8 +81,8 @@ acts. `theseus judge log` lists them.
 
 **label** (a content label): one of four flags on a session, `injection`, `secret`, `confidential` or `personal`, with what
 raised it. Jev's content pack raises them, and so do two free rules: a `[privacy] sensitive_names` word and a Google
-result. `secret`, `confidential` and `personal` keep the session off a model of restricted origin (`cn_models` reads
-them); `injection` tells you something tried to steer the assistant, and by default (`[content_based_security] injection =
+result. `secret`, `confidential` and `personal` describe content; they do not restrict model origin or recall. The
+retired `cn_models` setting loads with a warning and is ignored; `injection` tells you something tried to steer the assistant, and by default (`[content_based_security] injection =
 "notify"`) the call runs and you are told — write `injection = "refuse"` and the session's calls that act are refused
 instead, until you remove the label. Only you remove one, and a removal sticks
 (`crates/theseus-core/src/content.rs`). `theseus content SESSION`. Not the learning ledger's *labels* (your right, wrong
@@ -101,8 +99,10 @@ and, last, during a long wait; nothing is sent again now. An older build's `keep
 **mode**: a conversation's mode: `ask`, `edits`, `plan`, `auto`. The word used to name more: a pack's *rung*
 (`[routing] rung`, `[judge.packs.*] rung`) and `on_max_loops` are the new names (a routing *task class*, once
 `[routing.classes.<name>]`, is gone: Jev chooses the model).
-That leaves `[memory] mode` (`off`, `shadow`, `canary`, `live`), `[self] mode` (`off` or `act`) and the spend-limit modes
-(`[kernel] spend_limit_mode`, `daily_spend_ceiling_mode`) to rename later.
+That leaves `[memory] mode` (`off` or `live`), `[self] mode` (`off` or `act`) and the spend-limit modes
+(`[kernel] spend_limit_mode`, `daily_spend_ceiling_mode`) to rename later. Legacy memory modes `shadow` and `canary`
+load with a warning and now mean `live`: they put recall in front of the model, not just in a record. This does not
+change the separate judge-pack rungs.
 
 **task class**: retired in 1.0.4 (route.v10, theseus-h66v4). The route pack used to decide which of eight classes a
 message needed (`trivial`, `quick`, `chat`, `sophisticated`, `deep_coding`, `routine_coding`, `review`, `other`), with
@@ -125,12 +125,12 @@ sessions) or `live` (acts everywhere). The ladder moves a pack between them; the
 **persona**: who Theseus speaks as: a name, voice and files, chosen by session, place or `[context] default_persona`
 (`crates/theseus-core/src/persona.rs`). `theseus persona`.
 
-**place**: where Theseus speaks: the CLI, the web UI, a DM, a guild channel, a task's session, or a virtual place
-`thread:<slug>`. See *place class* and *place kind*.
+**place**: where Theseus speaks: the CLI, the web UI, a DM, a guild channel or a task's session. Old records may name
+retired `thread:<slug>` places. See *place class* and *place kind*.
 
 **place class**: `private` or `shared` (`PlaceClass`, `crates/theseus-protocol/src/places.rs`). Private (the CLI, the
-web UI, a DM with the owner, a channel bound `private = true`) gets everything; shared gets its own conversation and
-the public tools only. `theseus places`.
+web UI, a DM with the owner, a channel bound `private = true`) and shared places draw on the same memory. Shared
+places get the public tools only; place class still matters to act gates, not to context withholding. `theseus places`.
 
 **place kind**: `cli`, `dm`, `channel`, `task` or `headless` (`PlaceKind`,
 `crates/theseus-core/src/tools_defer/family.rs`), the kind of place a loaded tool set is kept for. `cli` covers the
@@ -196,11 +196,10 @@ In the code it is a session of kind `task`: a child that works on its own and re
 **task thread**: in Discord, the thread (or private channel) a task's place lives in, so the task's posts and steers go
 there (`crates/theseus-discord/src/runtime/task_channels.rs`). It is a task's place. It is not a Theseus thread.
 
-**thread**: A named line of work with its own conversation. On the Graph it is a swimlane, and everything it started hangs in it.
-In the code, three things. (1) A *Theseus thread*: a durable line of work bound to a virtual place `thread:<slug>`, with a
-session of its own (`theseus thread`, `ask --thread SLUG`, `[threads]`;
-`crates/theseus-protocol/src/threads.rs`). (2) The Discord thread made for one: the Discord crate's *activity thread*.
-(3) A *task thread*: a task's Discord place (see above).
+**thread**: two meanings. (1) A retired Theseus line of work, formerly a virtual place `thread:<slug>` with its
+own session and sometimes a Discord activity thread. Since 2026-11-22 only `theseus thread list` and `thread show`
+read its stored records; creation, routing, seals and moves are gone. (2) A *task thread*: a task's live Discord
+place (see above). Conversations and tasks now draw on the same memory without activity-thread containers.
 
 **turn**: One run of the model in a conversation or a task, from a message to its reply. ("working" counts turns.)
 In the code it is one run of the loop for a session: it ends when the model has no more tool calls to make. A turn is

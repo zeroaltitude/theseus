@@ -337,30 +337,53 @@ fn percent_spans(t: &[u8], v: &[u8]) -> Vec<(usize, usize)> {
     let hex = |c: Option<&u8>| c.and_then(|c| (*c as char).to_digit(16));
     let mut spans = Vec::new();
     let mut i = 0;
-    'start: while i < t.len() {
-        let (mut j, mut encoded) = (i, false);
+    if v.is_empty() {
+        return spans;
+    }
+    // Reuse the two frontiers; most candidate starts fail on their first byte.
+    let mut states = Vec::new();
+    let mut next = Vec::new();
+    while i < t.len() {
+        if t[i] != v[0]
+            && !(t[i] == b'%'
+                && hex(t.get(i + 1))
+                    .zip(hex(t.get(i + 2)))
+                    .is_some_and(|(h, l)| h * 16 + l == u32::from(v[0])))
+        {
+            i += 1;
+            continue;
+        }
+        states.clear();
+        states.push((i, false));
         for &want in v {
-            match t.get(j) {
-                Some(&c) if c == want => j += 1,
-                Some(b'%') => match (hex(t.get(j + 1)), hex(t.get(j + 2))) {
-                    (Some(h), Some(l)) if h * 16 + l == u32::from(want) => {
-                        j += 3;
-                        encoded = true;
-                    }
-                    _ => {
-                        i += 1;
-                        continue 'start;
-                    }
-                },
-                _ => {
-                    i += 1;
-                    continue 'start;
+            next.clear();
+            for (j, encoded) in states.drain(..) {
+                if t.get(j) == Some(&want) {
+                    next.push((j + 1, encoded));
+                }
+                if t.get(j) == Some(&b'%')
+                    && hex(t.get(j + 1))
+                        .zip(hex(t.get(j + 2)))
+                        .is_some_and(|(h, l)| h * 16 + l == u32::from(want))
+                {
+                    next.push((j + 3, true));
                 }
             }
+            next.sort_unstable();
+            next.dedup();
+            std::mem::swap(&mut states, &mut next);
+            if states.is_empty() {
+                break;
+            }
         }
-        if encoded {
-            spans.push((i, j));
-            i = j;
+        if let Some(end) = states
+            .iter()
+            .filter(|(_, encoded)| *encoded)
+            .map(|(j, _)| *j)
+            .max()
+        {
+            spans.push((i, end));
+            i = end;
         } else {
             i += 1;
         }
@@ -563,5 +586,227 @@ mod tests {
             text.len()
         );
         assert!(took < std::time::Duration::from_secs(20), "took {took:?}");
+    }
+
+    #[test]
+    fn percent_values_accept_literal_and_encoded_percent() {
+        for (text, value) in [
+            ("abc%25defghi", "abc%defghi"),
+            ("abc%2525def%67hi", "abc%25defghi"),
+            ("abc%25def%67hi", "abc%25defghi"),
+        ] {
+            assert_eq!(
+                percent_spans(text.as_bytes(), value.as_bytes()),
+                vec![(0, text.len())]
+            );
+            let (out, counts) = Substitution::new(vec![(value, "demo")]).apply(text);
+            assert_eq!(out, "[redacted:demo]");
+            assert_eq!(counts.get("demo"), Some(&1));
+        }
+    }
+
+    #[test]
+    fn percent_dense_text_with_forty_values_is_measured() {
+        let line = "%61%62%63%2F%25%20%3D%26%3F%41%42%43%2f%25%20%3d\n";
+        let text = line.repeat((4 * 1024 * 1024) / line.len());
+        let values: Vec<_> = (0..40)
+            .map(|n| format!("abc/fixture-{n:02}-encoded-value-0123456789"))
+            .collect();
+        let start = std::time::Instant::now();
+        for value in &values {
+            assert!(percent_spans(text.as_bytes(), value.as_bytes()).is_empty());
+        }
+        println!(
+            "PERCENT_MEASUREMENT {} ms for {} bytes with 40 values",
+            start.elapsed().as_millis(),
+            text.len()
+        );
+    }
+
+    // The previous matcher, intentionally kept with fresh frontiers per start.
+    fn percent_spans_reference(t: &[u8], v: &[u8]) -> Vec<(usize, usize)> {
+        let hex = |c: Option<&u8>| c.and_then(|c| (*c as char).to_digit(16));
+        let mut spans = Vec::new();
+        let mut i = 0;
+        if v.is_empty() {
+            return spans;
+        }
+        while i < t.len() {
+            if t[i] != v[0] && t[i] != b'%' {
+                i += 1;
+                continue;
+            }
+            let mut states = vec![(i, false)];
+            for &want in v {
+                let mut next = Vec::new();
+                for (j, encoded) in states {
+                    if t.get(j) == Some(&want) {
+                        next.push((j + 1, encoded));
+                    }
+                    if t.get(j) == Some(&b'%')
+                        && hex(t.get(j + 1))
+                            .zip(hex(t.get(j + 2)))
+                            .is_some_and(|(h, l)| h * 16 + l == u32::from(want))
+                    {
+                        next.push((j + 3, true));
+                    }
+                }
+                next.sort_unstable();
+                next.dedup();
+                states = next;
+                if states.is_empty() {
+                    break;
+                }
+            }
+            if let Some(end) = states
+                .into_iter()
+                .filter(|(_, encoded)| *encoded)
+                .map(|(j, _)| j)
+                .max()
+            {
+                spans.push((i, end));
+                i = end;
+            } else {
+                i += 1;
+            }
+        }
+        spans
+    }
+
+    fn check_percent_reference(text: &[u8], value: &[u8]) {
+        assert_eq!(
+            percent_spans(text, value),
+            percent_spans_reference(text, value),
+            "text={:?}, value={:?}",
+            String::from_utf8_lossy(text),
+            String::from_utf8_lossy(value)
+        );
+    }
+
+    #[test]
+    fn percent_spans_match_the_reference_matcher() {
+        for (text, value, expected) in [
+            ("abc%25defghi", "abc%defghi", vec![(0, 12)]),
+            ("%25abcdefghi", "%abcdefghi", vec![(0, 12)]),
+            ("%abc%64efghi", "%abcdefghi", vec![(0, 12)]),
+            ("%41BCDEFGH1", "ABCDEFGH1", vec![(0, 11)]),
+            ("%61BCDEFGH1", "ABCDEFGH1", vec![]),
+            ("%2f%2F", "//", vec![(0, 6)]),
+            ("%61bc%61bc", "abc", vec![(0, 5), (5, 10)]),
+            ("%61bc%4", "abc", vec![(0, 5)]),
+            ("%4", "A", vec![]),
+            ("", "", vec![]),
+        ] {
+            check_percent_reference(text.as_bytes(), value.as_bytes());
+            assert_eq!(percent_spans(text.as_bytes(), value.as_bytes()), expected);
+        }
+        // Fixed xorshift seed: failures reproduce without a property-test dependency.
+        let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut draw = |bound: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed % bound as u64) as usize
+        };
+        let alphabet = b"aAb%2541fF/";
+        for case in 0..10_000 {
+            let len = 1 + draw(12);
+            let value: Vec<_> = (0..len).map(|_| alphabet[draw(alphabet.len())]).collect();
+            let mut text: Vec<u8> = (0..draw(8))
+                .map(|_| alphabet[draw(alphabet.len())])
+                .collect();
+            for _ in 0..1 + draw(3) {
+                for &byte in &value {
+                    match draw(3) {
+                        0 => text.push(byte),
+                        1 => text.extend(format!("%{byte:02X}").bytes()),
+                        _ => text.extend(format!("%{byte:02x}").bytes()),
+                    }
+                }
+            }
+            text.extend_from_slice([b"%".as_slice(), b"%4", b"%G1"][case % 3]);
+            check_percent_reference(&text, &value);
+        }
+    }
+
+    // Enumerate decodings, not matcher transitions: never prune by the wanted byte,
+    // never deduplicate frontiers, and never skip a start after finding a match.
+    fn percent_oracle(text: &[u8], value: &[u8]) -> Vec<(usize, usize)> {
+        let mut spans = Vec::new();
+        if value.is_empty() {
+            return spans;
+        }
+        for start in 0..text.len() {
+            let mut pending = vec![(start, Vec::new(), false)];
+            while let Some((end, decoded, encoded)) = pending.pop() {
+                if decoded.len() == value.len() {
+                    if encoded && decoded == value {
+                        spans.push((start, end));
+                    }
+                    continue;
+                }
+                if let Some(&byte) = text.get(end) {
+                    let mut literal = decoded.clone();
+                    literal.push(byte);
+                    pending.push((end + 1, literal, encoded));
+                }
+                if let Some([b'%', hi, lo]) = text.get(end..end + 3) {
+                    let digit = |b: u8| match b {
+                        b'0'..=b'9' => Some(b - b'0'),
+                        b'a'..=b'f' => Some(b - b'a' + 10),
+                        b'A'..=b'F' => Some(b - b'A' + 10),
+                        _ => None,
+                    };
+                    if let (Some(hi), Some(lo)) = (digit(*hi), digit(*lo)) {
+                        let mut escaped = decoded;
+                        escaped.push(16 * hi + lo);
+                        pending.push((end + 3, escaped, true));
+                    }
+                }
+            }
+        }
+        spans
+    }
+
+    fn small_words(alphabet: &[u8], max_len: usize) -> Vec<Vec<u8>> {
+        let mut words = vec![Vec::new()];
+        let mut layer = vec![Vec::new()];
+        for _ in 0..max_len {
+            layer = layer
+                .iter()
+                .flat_map(|word| {
+                    alphabet.iter().map(move |byte| {
+                        let mut next = word.clone();
+                        next.push(*byte);
+                        next
+                    })
+                })
+                .collect();
+            words.extend(layer.iter().cloned());
+        }
+        words
+    }
+
+    // Overlapping readings can leave a fragment of a value after masking.
+    // This tests that no complete encoded reading survives, not that every fragment is masked.
+    #[test]
+    fn percent_spans_leave_no_complete_encoded_copy() {
+        let values = small_words(b"%aA", 3);
+        for text in small_words(b"%25aA61", 5) {
+            for value in &values {
+                let actual = percent_spans(&text, value);
+                let mut masked = text.clone();
+                for &(start, end) in &actual {
+                    masked[start..end].fill(b'#');
+                }
+                let remaining = percent_oracle(&masked, value);
+                assert!(
+                    remaining.is_empty(),
+                    "text={:?}, value={:?}, remaining={remaining:?}, actual={actual:?}",
+                    String::from_utf8_lossy(&text),
+                    String::from_utf8_lossy(value)
+                );
+            }
+        }
     }
 }

@@ -1127,3 +1127,30 @@ fn a_floor_hold_is_drawn_with_the_daemons_words() {
     confirm_event(&mut out, &open);
     assert!(!said(out).iter().any(|l| l.contains("held:")));
 }
+
+#[test]
+fn short_secret_warning_is_the_last_health_line() {
+    use theseus_protocol::{SecretFailed, SecretsStatus};
+    let mut status = SecretsStatus {
+        state: "ready".into(),
+        ready: vec!["a".into(), "b".into(), "pin".into()],
+        unprotected: vec!["pin".into()],
+        method: Some("inject".into()),
+        settled_ms: Some(120),
+        ..Default::default()
+    };
+    let rendered = secrets_line(&status, &[]);
+    println!("HEALTH_RENDER_BEGIN\n{rendered}\nHEALTH_RENDER_END");
+    assert_eq!(rendered, "secrets: ready · 3 ready 120 ms after start (inject) [a, b, pin]\n  warning: not redacted at exits (shorter than eight bytes): pin");
+    assert_eq!(status.summary(), "ready");
+    status.state = "failed".into();
+    status.failed.push(SecretFailed {
+        name: "c".into(),
+        error: "not found".into(),
+    });
+    status.retry_in_ms = Some(4000);
+    assert_eq!(
+        secrets_line(&status, &[]).lines().last(),
+        Some("  warning: not redacted at exits (shorter than eight bytes): pin")
+    );
+}

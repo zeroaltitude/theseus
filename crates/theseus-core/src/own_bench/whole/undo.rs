@@ -90,6 +90,19 @@ pub fn collect<'a>(
                 else {
                     return Err(no("an fs.edit in the span records no path or text"));
                 };
+                if c.input.get("replace_all").and_then(Value::as_bool) == Some(true) {
+                    span.written.push(Written::Overwrote {
+                        path,
+                        diff: c
+                            .meta
+                            .get("diff")
+                            .filter(|d| d.get("truncated").and_then(Value::as_bool) != Some(true))
+                            .and_then(|d| d.get("unified"))
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    });
+                    continue;
+                }
                 span.written.push(Written::Edit {
                     path,
                     old,
@@ -206,4 +219,48 @@ pub fn undo(
         }
     }
     Ok(notes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn replace_all_undo_preserves_preexisting_destination_text() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("sample.txt");
+        let before = "alpha beta\n";
+        let after = "beta beta\n";
+        let input =
+            json!({"path": path, "old_string": "alpha", "new_string": "beta", "replace_all": true});
+        let diff = theseus_tools::change::file_diff("sample.txt", Some(before), after);
+        for meta in [
+            json!({"diff": {"unified": diff, "truncated": false}}),
+            json!({}),
+        ] {
+            std::fs::write(&path, after).unwrap();
+            let span = collect(
+                [Recorded {
+                    tool: "fs.edit",
+                    input: &input,
+                    ok: true,
+                    meta: &meta,
+                }],
+                |_| true,
+            )
+            .unwrap();
+            let result = undo(d.path(), d.path(), &span.written);
+            if meta.get("diff").is_some() {
+                result.unwrap();
+                assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+            } else {
+                assert!(
+                    result.is_err(),
+                    "missing evidence must refuse reconstruction"
+                );
+                assert_eq!(std::fs::read_to_string(&path).unwrap(), after);
+            }
+        }
+    }
 }

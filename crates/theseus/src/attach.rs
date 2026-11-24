@@ -3,6 +3,8 @@
 //! (theseus-vjzt, phase 2), with its 32 MiB cap.
 
 use anyhow::{anyhow, Context, Result};
+use std::io::Read;
+use std::os::unix::fs::OpenOptionsExt;
 
 /// The largest file `ask --attach` sends: the daemon's default
 /// `[tools] max_attachment_bytes` (theseus-c9l6), which it applies again; it
@@ -28,6 +30,18 @@ pub fn attachment_labeled(
     if meta.is_dir() {
         return Err(anyhow!("{label} {}: is a directory", path.display()));
     }
+    if !meta.is_file() {
+        return Err(anyhow!("{label} {}: not a regular file", path.display()));
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("{label} {}", path.display()))?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(anyhow!("{label} {}: not a regular file", path.display()));
+    }
     let mut a = theseus_protocol::Attachment {
         name: path
             .file_name()
@@ -40,7 +54,15 @@ pub fn attachment_labeled(
         a.not_read = Some(format!("over the 32 MiB limit for {label}"));
         return Ok(a);
     }
-    let bytes = std::fs::read(path).with_context(|| format!("{label} {}", path.display()))?;
+    let mut bytes = Vec::new();
+    file.take(MAX_ATTACH_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("{label} {}", path.display()))?;
+    a.size = bytes.len() as u64;
+    if a.size > MAX_ATTACH_BYTES {
+        a.not_read = Some(format!("over the 32 MiB limit for {label}"));
+        return Ok(a);
+    }
     // A notebook or an RTF file is text the daemon reads as a document: its
     // bytes, whole.
     let ext = path
@@ -71,6 +93,11 @@ pub fn attachment_labeled(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn special_files_are_not_attachments() {
+        assert!(attachment_for(std::path::Path::new("/dev/null")).is_err());
+    }
 
     #[test]
     fn attach_sends_a_text_files_text_and_lists_anything_else() {

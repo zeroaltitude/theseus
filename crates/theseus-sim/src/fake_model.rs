@@ -488,7 +488,7 @@ pub fn answered_turn(rules: &[Rule], prompt: &str) -> Vec<Value> {
 /// have the model cite what its recall gave it.
 pub fn ruled_turn(rules: &[Rule], text: &str) -> Vec<Value> {
     match rules.iter().find(|r| text.contains(&r.when)) {
-        Some(r) if !r.calls.is_empty() && r.repeat > 0 => ask_again(r),
+        Some(r) if !r.calls.is_empty() && r.repeat > 0 => ask_again(r, 0),
         Some(r) if !r.calls.is_empty() => calls_turn(&r.calls),
         Some(r) => {
             let handle = theseus_protocol::cite::handles_in(text).into_iter().next();
@@ -502,34 +502,38 @@ pub fn ruled_turn(rules: &[Rule], text: &str) -> Vec<Value> {
 /// A turn that carries a tool result, under rules: the first `repeat` rule
 /// whose `when` the request holds asks for its calls again, `{n}` its count,
 /// until it has asked `repeat` times, then answers its text; with none,
-/// the rule's `then` by the turn's prompt, else `Done.` (`answered_turn`). The count is the stand-in's, kept for its life (one run).
+/// the rule's `then` by the turn's prompt, else `Done.` (`answered_turn`). The count comes from this turn in the request, so retries and other servers cannot consume it.
 pub fn repeated_turn(rules: &[Rule], req: &Value) -> Vec<Value> {
-    let whole = req["messages"].to_string();
+    let whole = prompt_text(req);
     let Some(r) = rules
         .iter()
         .find(|r| r.repeat > 0 && !r.calls.is_empty() && whole.contains(&r.when))
     else {
         return answered_turn(rules, &prompt_text(req));
     };
-    ask_again(r)
+    let messages = req["messages"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let start = messages
+        .iter()
+        .rposition(|m| m["role"] == "user" && !last_user_text(&json!({"messages": [m]})).is_empty())
+        .unwrap_or(0);
+    let count = messages[start..]
+        .iter()
+        .filter(|m| {
+            m["role"] == "assistant"
+                && m["content"]
+                    .as_array()
+                    .is_some_and(|blocks| blocks.iter().any(|b| b["type"] == "tool_use"))
+        })
+        .count();
+    ask_again(r, count as u64)
 }
 
 /// A `repeat` rule's next answer: its calls, numbered by how many times it
 /// has asked, or its text once it has asked `repeat` times.
-fn ask_again(r: &Rule) -> Vec<Value> {
-    static ASKED: std::sync::Mutex<Vec<(String, u64)>> = std::sync::Mutex::new(Vec::new());
-    let n = {
-        let mut asked = ASKED.lock().unwrap_or_else(|e| e.into_inner());
-        let i = match asked.iter().position(|(w, _)| *w == r.when) {
-            Some(i) => i,
-            None => {
-                asked.push((r.when.clone(), 0));
-                asked.len() - 1
-            }
-        };
-        asked[i].1 += 1;
-        asked[i].1 - 1
-    };
+fn ask_again(r: &Rule, n: u64) -> Vec<Value> {
     if n >= r.repeat {
         return text_turn(r.text.as_deref().unwrap_or("Done."));
     }
@@ -703,9 +707,22 @@ mod tests {
         let first = ruled_turn(&rules, "read the keeper logs");
         assert_eq!(input(&first)["path"], "logs/keeper-000.txt");
         assert_eq!(
+            input(&ruled_turn(&rules, "read the keeper logs")),
+            input(&first),
+            "a fresh turn has independent repeat state"
+        );
+        assert_eq!(
             input(&repeated_turn(&rules, &req))["path"],
             "logs/keeper-001.txt"
         );
+        assert_eq!(
+            input(&repeated_turn(&rules, &req))["path"],
+            "logs/keeper-001.txt",
+            "retrying a request does not consume a step"
+        );
+        let mut req = req;
+        req["messages"].as_array_mut().unwrap().push(json!({"role": "assistant", "content": [{"type": "tool_use", "id": "t2", "name": "fs_read", "input": {}}]}));
+        req["messages"].as_array_mut().unwrap().push(json!({"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": "y"}]}));
         assert_eq!(repeated_turn(&rules, &req)[2]["delta"]["text"], "All read.");
         let other = json!({"messages": [{"role": "user", "content": "hello"}]});
         assert_eq!(repeated_turn(&rules, &other)[2]["delta"]["text"], "Done.");

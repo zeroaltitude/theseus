@@ -1,52 +1,44 @@
 # It trusts its environment and keeps a true record
 
-*One page on the principles. This is landing this week, in version 1.0.3; each piece below says whether it is in
-`main` yet. Updated 2026-10-28.*
+*One page on the principles. Updated 2026-11-23; the proof below records the 1.0.3 work.*
 
 ## What it is
 
 Theseus is built for a machine its owner set up and trusts. That decides how it treats safety: trust and provenance
 start high, the guards are light and sit at the exits, and performance, simplicity, speed, scale and power are what
-the design spends its complexity on. Four principles follow, and 1.0.3 is the release that makes the code say them.
+the design spends its complexity on. Four principles follow.
 
 - **Notify, don't block.** A self-started task, a long turn, a chain of tasks ten deep: it runs, and you hear about
   it. Hard stops exist only at the edges (a runaway burn, a day's ceiling, a limit you set), and turn length alone is
   never a defect. The owner's words: long work over stopped work.
 - **The session is the true record.** What is stored is raw and is never rewritten. Secrets are substituted only on
   the copies that leave the machine: the request to a model, a log line, a client's screen.
-- **A label you can remove, not a refusal you cannot.** A sensitive name, a Google result or a judged injection
-  raises a label on the item, and you can tap it away. A label that keeps a conversation off a model of restricted
-  origin does that from the moment it is raised; an `injection` label, at the shipped default, only tells you
-  (`[content_based_security] injection = "notify"`) — write `injection = "refuse"` and it gates what acts until you
-  clear it.
-- **Models of other origins see only what was judged open.** A request to a model of China or unknown origin
-  carries only what Jev cleared for that one request, and that floor has no off switch.
+- **Labels describe content.** A sensitive name, a Google result or a judged injection raises a label you can
+  remove. Labels do not keep context off particular models. At the shipped default, `injection` only tells you
+  (`[content_based_security] injection = "notify"`); `injection = "refuse"` gates calls that act until you clear it.
+- **One memory in trusted places.** Every configured model uses the same context path. Place and category labels
+  do not withhold memory; the owner must trust the providers and places they connect.
 
 ## How it works
 
-- **Content-based security** (`[content_based_security]` in the config; in `main`): one table says what each label
-  does and which models are allowed what. A config that would silently refuse every China-origin model refuses to
-  start and names both ways out.
-- **Replay** (in `main`): every content judgment the daemon ever made replays, so a classifier's new wording is
-  measured against your real traffic before it ships. `content.v3` (on the lane) was.
-- **Labels, not refusals** (on the lane): a hit on `[privacy] sensitive_names` raises a `confidential` label at the
-  item; a Google result raises a removable label; the China-origin chokepoint reads labels only, one record against
-  `cn_models`, instead of walking the transcript. `theseus content SESSION` lists a session's labels and
-  `theseus content remove` takes one away, and a removed label stays removed.
-- **The raw record** (on the lane): the store keeps what was said; the scrubber knows the vault's actual values and
+- **Content-based security** (`[content_based_security]`): `injection` controls the response to an injection label.
+  The former `cn_models` and `wait_ms` settings load with a warning and do nothing; there is no model-origin floor.
+- **Replay:** content judgments can be replayed to measure a classifier's new wording against recorded traffic.
+- **Labels, not provider filters:** `theseus content SESSION` lists a session's labels, `theseus content remove`
+  takes one away, and a removed label stays removed. Labels are still written even though origin restrictions are gone.
+- **The raw record**: the store keeps what was said; the scrubber knows the vault's actual values and
   substitutes exactly those, guessing no shapes, on every exit. `theseus inspect` tells you which secret, by name,
   went in which request to which model.
-- **Earned autonomy goes** (on the lane): the mechanism that counted repeated approvals and offered to stop asking,
+- **Earned autonomy was removed**: the mechanism that counted repeated approvals and offered to stop asking,
   and its scoped grants, were 6,593 lines that could never fire on the owner's config. In a trusted environment the
   default is to notify, so there is nothing to earn.
-- **The China-origin floor** ([docs/privacy.md](../privacy.md)): the built-in catalog marks each model's origin,
-  counted by the model's family, never its host, and a model it cannot place counts as unknown. Such a model drafts
-  code only, in its own copy of an open repository, and a Claude model reviews the draft before it is applied.
+- **Act gates remain** ([privacy](../privacy.md)): approvals, the floor, the shared-place tool ceiling and publish
+  approval are separate from context selection. There is no required draft-only sandbox or reviewer by model origin.
 
 ## What you see on each surface
 
 - **Discord:** a label is a chip on the message, with Remove; a self-started task posts its card and goes on.
-- **Terminal:** `theseus content`, `theseus content remove`, `theseus inspect` (landing), `theseus policy explain`.
+- **Terminal:** `theseus content`, `theseus content remove`, `theseus inspect`, `theseus policy explain`.
 - **Cockpit:** the Policy page.
 
 ## The proof
@@ -62,10 +54,8 @@ the design spends its complexity on. Four principles follow, and 1.0.3 is the re
 
 ## The limits today
 
-- Until the lane joins, `main` has the config table and the replay; the labels, the raw record and `theseus inspect`
-  are on the lane.
-- Jev's content verdict is a judgment: it has called open-source work private before, which is why a label can be
-  removed and why the floor underneath does not depend on it.
+- A label is not a data boundary. Jev can misclassify content, and removing a label does not change the raw record
+  or limit which model receives it. Vault-value substitution at exits is a separate mechanism.
 - **The four content packs' header comments (`crates/theseus-judge/packs/content.v1.toml` through `v4.toml`) say
   that raising `injection` "freezes a session until a person taps a button".** That describes one of the two
   settings and reads as though it described both: what the label costs a session is
@@ -75,9 +65,9 @@ the design spends its complexity on. Four principles follow, and 1.0.3 is the re
   are inert: nothing reads a pack's comments, and the rule itself lives in the core. The wording moves the next
   time one of those packs is bumped for a reason of its own.
 
-## What is coming
+## The 1.0.3 plan (historical)
 
-- **1.0.3 (this week):** the lane's last two rows, one gate of the merged lane, one merge, the install, and the tag.
+- **1.0.3:** the lane's last two rows, one gate of the merged lane, one merge, the install, and the tag.
 - **1.0.4:** the self-gates inventory applied across every stop rule ([It fixes itself](self-improvement.md)).
 
 Related: [Durable tasks](durable-tasks.md) (a task that notifies rather than asks),

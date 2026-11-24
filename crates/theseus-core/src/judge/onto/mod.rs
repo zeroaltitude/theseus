@@ -3,7 +3,7 @@
 //! the inbound batch, and its answers act at the act band.
 //!
 //! - **Asked** ([`JudgeService::onto_wanted`], `inbound.rs`): a person's
-//!   message in a private place, never a task's, while `[ontology] judge` is
+//!   message in any place, never a task's, while `[ontology] judge` is
 //!   on. The state is the inbound state plus the ontology's fields
 //!   ([`input`]); `route.v6`, which the turn waits on, never carries them.
 //! - **Landed** ([`JudgeService::onto_landed`]): when the batch comes back the
@@ -23,7 +23,7 @@
 //!   under its own daily cap); each an undoable write.
 //!
 //! Interpretations route context and never grant access: a membership takes
-//! effect at the next turn, and a shared place is never asked.
+//! effect at the next turn, regardless of place.
 
 use std::sync::Mutex;
 
@@ -65,20 +65,13 @@ pub struct Point {
     /// The `filed:` line of each turn, until its reply takes it; and the
     /// replies written before their judgment landed.
     filed: Mutex<Book>,
+    naming: Mutex<std::collections::HashSet<(String, String)>>,
 }
 
 impl JudgeService {
-    /// Whether `onto.v1` is asked about this message: a person's (never one
-    /// Theseus wrote to itself), not a task's, and the switch on, in a
-    /// private place; in a shared place
-    /// only when it carries a picture, and then only the picture's own
-    /// questions (`OntoInput.shared`), which file nothing.
+    /// Label a person's message in every place, never a task's or our own.
     pub(super) fn onto_wanted(&self, msg: &Inbound) -> bool {
-        let place = match msg.place_kind.ends_with("(private)") {
-            true => true,
-            false => has_picture(msg),
-        };
-        !msg.task && !msg.own && place && self.core().is_some_and(|c| c.cfg.ontology.judge)
+        !msg.task && !msg.own && self.core().is_some_and(|c| c.cfg.ontology.judge)
     }
 
     /// Whether `onto.v1` goes in a request of its own (`[ontology] request`).
@@ -125,11 +118,6 @@ impl JudgeService {
         if !(j.pack == ONTO_PACK && j.actionable() && j.mode != theseus_judge::Mode::Shadow) {
             return;
         }
-        // A shared place's picture was asked about for its own sake: no
-        // footer, no filing, no mark.
-        if j.context["onto"]["shared"].as_bool() == Some(true) {
-            return;
-        }
         let Some(core) = self.core() else { return };
         let Some(o) = core.runner.ontology.held() else {
             return;
@@ -155,8 +143,8 @@ impl JudgeService {
 }
 
 /// The ontology fields of `input`, for a message in `msg`'s session: the
-/// kinds Jev may assign, with every live category of each, the thread's and
-/// project's titles, and what the naming call suggested. False when the
+/// kinds Jev may assign, with every live category of each, the
+/// project's title, and what the naming call suggested. False when the
 /// ontology cannot be read: nothing is asked then.
 pub(super) fn fill(core: &Core, msg: &Inbound, input: &mut InboundInput) -> bool {
     let Ok(o) = core.runner.ontology.snapshot(&core.store) else {
@@ -167,23 +155,8 @@ pub(super) fn fill(core: &Core, msg: &Inbound, input: &mut InboundInput) -> bool
     onto.pictures = pictures;
     onto.texts = texts;
     onto.shared = !msg.place_kind.ends_with("(private)");
-    if onto.shared {
-        // Nothing of any session's goes with a shared place's picture.
-        onto = OntoInput {
-            pictures: onto.pictures,
-            shared: true,
-            ..OntoInput::default()
-        };
-    }
     input.onto = Some(Box::new(onto));
     true
-}
-
-/// Whether the message carries a picture.
-fn has_picture(msg: &Inbound) -> bool {
-    msg.attachments
-        .iter()
-        .any(|a| matches!(a.content, AttachmentContent::Image { .. }))
 }
 
 /// The message's pictures, prepared from the blobs' bytes (a picture whose
@@ -213,8 +186,6 @@ fn attached(core: &Core, msg: &Inbound) -> (Vec<Picture>, Vec<OntoText>) {
 /// The input: see [`fill`]. A category's last use is when a session last held it.
 pub(crate) fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput {
     let sid = &msg.session_id;
-    let threads = core.threads();
-    let thread = threads.of_session(sid);
     let project = core
         .store
         .get_session::<crate::session::SessionRecord>(sid)
@@ -258,8 +229,7 @@ pub(crate) fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput 
                     session: held
                         .as_ref()
                         .is_some_and(|l| l.members.iter().any(|m| m.category == c.id)),
-                    thread: k.name == "topic"
-                        && thread.is_some_and(|t| t.topics.iter().any(|x| *x == c.id.as_str())),
+                    thread: false,
                     used_ms: used.get(&c.id).copied().unwrap_or(0),
                 })
                 .collect();
@@ -291,7 +261,7 @@ pub(crate) fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput 
         })
         .collect();
     OntoInput {
-        thread_title: thread.map(|t| t.title.clone()),
+        thread_title: None,
         project_title,
         kinds,
         table,

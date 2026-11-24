@@ -29,6 +29,7 @@ fn refusing() -> (Store, tempfile::TempDir) {
         sessions: Arc::default(),
         watcher: Arc::default(),
         tasks: Arc::default(),
+        held_writes: Arc::default(),
         reads: Default::default(),
         faults: Default::default(),
         plain_faults: Default::default(),
@@ -86,4 +87,112 @@ async fn the_flusher_stops_after_its_tries_against_a_store_that_refuses() {
         store.pending.flushing.load(SeqCst),
         "and the next parked row arms a flusher again"
     );
+}
+
+/// The same deferred rows ride a flusher, a plain write, or a turn. An index
+/// failure after the WAL sync must never enqueue those rows a second time.
+#[test]
+fn retained_unindexed_rows_are_not_deferred_again() {
+    for path in ["flusher", "plain", "turn"] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let row = |key: &str| NewRecord::bytes(kinds::META, Some(key), key.as_bytes().to_vec());
+        store.pending.park(row("parked"));
+        store.inner.fail_next_index_writes(3);
+        let turn = store.for_turn("session");
+        match path {
+            "flusher" => store.flush_waiting(),
+            "plain" => assert!(store.append(&[row("direct")]).is_err()),
+            "turn" => {
+                turn.defer(row("waiting")).unwrap();
+                assert!(turn.append(&[row("direct")]).is_err());
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            !store.pending.any(),
+            "{path}: retained rows were queued again"
+        );
+        assert!(turn
+            .turn
+            .as_ref()
+            .unwrap()
+            .waiting
+            .lock()
+            .unwrap()
+            .is_empty());
+        turn.flush().unwrap();
+        store.append(&[row("next")]).unwrap();
+        drop(turn);
+        drop(store);
+        let store = Store::open(dir.path()).unwrap();
+        for key in if path == "turn" {
+            vec!["parked", "waiting"]
+        } else {
+            vec!["parked"]
+        } {
+            let rows = store.inner.scan(0, None, 100).unwrap();
+            assert_eq!(
+                rows.iter()
+                    .filter(|r| r.key.as_deref() == Some(key))
+                    .count(),
+                1,
+                "{path}: {key}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_turns_commit_callers_do_not_retry_their_own_retained_records() {
+    for path in ["append", "meta", "session", "ledger", "kernel"] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let turn = store.for_turn("session");
+        store.inner.fail_next_index_writes(3);
+        let row = NewRecord::json(
+            kinds::LEDGER,
+            None,
+            &serde_json::json!({"kind": "test.owned", "data": {"caller": path}}),
+        )
+        .unwrap();
+        let result = match path {
+            "append" => turn.append(&[row]).map(|_| ()),
+            "meta" => turn.put_meta("own", &7),
+            "session" => turn.put_session("own", &7),
+            "ledger" => turn
+                .append_ledger(&serde_json::json!({"kind": "test.owned"}))
+                .map(|_| ()),
+            "kernel" => turn.shared().append(&[row]).map(|_| ()),
+            _ => unreachable!(),
+        };
+        assert!(result
+            .unwrap_err()
+            .is::<theseus_store::store::RetainedFrame>());
+        turn.flush().unwrap();
+        drop(turn);
+        drop(store);
+        let reopened = Store::open(dir.path()).unwrap();
+        assert_eq!(
+            reopened
+                .inner
+                .scan(0, None, 100)
+                .unwrap()
+                .iter()
+                .filter(|r| {
+                    r.kind != kinds::LEDGER
+                        || r.decode::<serde_json::Value>().unwrap()["kind"]
+                            != "ledger.chain_started"
+                })
+                .count(),
+            1,
+            "{path} retried its own row"
+        );
+        assert!(
+            theseus_store::chain_walk::verify(reopened.inner.as_ref(), None, None)
+                .unwrap()
+                .broken
+                .is_none()
+        );
+    }
 }

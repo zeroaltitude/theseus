@@ -100,15 +100,20 @@ fn digest(files: &[FileEdit]) -> String {
 fn offset(text: &str, p: Position) -> usize {
     let mut start = 0;
     for _ in 0..p.line {
-        match text[start..].find('\n') {
-            Some(i) => start += i + 1,
-            None => return text.len(),
-        }
+        let Some(i) = text[start..].find(['\r', '\n']) else {
+            return text.len();
+        };
+        start += i;
+        start += if text[start..].starts_with("\r\n") {
+            2
+        } else {
+            1
+        };
     }
-    let end = text[start..].find('\n').map_or(text.len(), |i| start + i);
-    let row = text[start..end]
-        .strip_suffix('\r')
-        .unwrap_or(&text[start..end]);
+    let end = text[start..]
+        .find(['\r', '\n'])
+        .map_or(text.len(), |i| start + i);
+    let row = &text[start..end];
     start + theseus_lsp::position::byte_column(row, p.character).min(row.len())
 }
 
@@ -531,6 +536,19 @@ mod tests {
             },
             new_text: t.into(),
         }
+    }
+
+    #[test]
+    fn rename_handles_every_line_ending() {
+        for ending in ["\n", "\r\n", "\r"] {
+            let before = format!("first{ending}😀name{ending}");
+            let after = apply(&before, &[edit(1, 2, 1, 6, "renamed")]).unwrap();
+            assert_eq!(after, format!("first{ending}😀renamed{ending}"));
+        }
+        assert_eq!(
+            apply("first\rsecond\r\nname\n", &[edit(2, 0, 2, 4, "renamed")]).unwrap(),
+            "first\rsecond\r\nrenamed\n"
+        );
     }
 
     /// Edits at UTF-16 columns, in any order, become one text; overlapping

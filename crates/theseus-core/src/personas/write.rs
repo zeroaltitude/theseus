@@ -54,8 +54,8 @@ impl Core {
 
     /// The ontology's check of `c` as the frame will write it, run before
     /// the soul file is written, so a refusal leaves no file behind. The
-    /// frame checks again under the ontology's lock; a write between the two
-    /// (the owner's, one at a time) can still refuse it after the file.
+    /// frame checks again under the ontology's lock. The persona transaction
+    /// lock keeps another persona writer from changing it between checks.
     fn check_before_soul(&self, c: &Category) -> Result<()> {
         self.runner
             .ontology
@@ -127,6 +127,9 @@ impl Core {
     /// awaiting it (the owner is asked once, by `persona_soul_note`).
     pub fn persona_add(&self, p: &PersonaAddParams, who: &Answerer) -> Result<PersonaWriteResult> {
         self.judge_persona(method::PERSONA_ADD, &format!("persona {}", p.key), who)?;
+        let _write = theseus_store::blocking(|| self.persona_writes.lock().unwrap());
+        #[cfg(test)]
+        self.assert_persona_serialized();
         let key = p.key.trim();
         let id = id_of(key)?;
         if self.personas().exists(key) {
@@ -173,6 +176,9 @@ impl Core {
             &format!("the soul of persona {}", p.key),
             who,
         )?;
+        let _write = theseus_store::blocking(|| self.persona_writes.lock().unwrap());
+        #[cfg(test)]
+        self.assert_persona_serialized();
         let key = p.key.trim();
         let mut c = self.persona_category(key)?;
         if c.is_gone() {
@@ -202,6 +208,9 @@ impl Core {
             &format!("the fields of persona {}", p.key),
             who,
         )?;
+        let _write = theseus_store::blocking(|| self.persona_writes.lock().unwrap());
+        #[cfg(test)]
+        self.assert_persona_serialized();
         let mut c = self.persona_category(&p.key)?;
         if let Some(n) = p.name.as_deref() {
             c.name = match n {
@@ -244,6 +253,9 @@ impl Core {
             ),
             who,
         )?;
+        let _write = theseus_store::blocking(|| self.persona_writes.lock().unwrap());
+        #[cfg(test)]
+        self.assert_persona_serialized();
         let Some(key) = p.key.as_deref() else {
             bail!("name the persona to retire");
         };
@@ -262,6 +274,9 @@ impl Core {
         who: &Answerer,
     ) -> Result<PersonaWriteResult> {
         self.judge_persona(method::PERSONA_DEFAULT, "the default persona", who)?;
+        let _write = theseus_store::blocking(|| self.persona_writes.lock().unwrap());
+        #[cfg(test)]
+        self.assert_persona_serialized();
         let book = self.personas();
         let mut records = Vec::new();
         if let Some(old) = book.default_key().filter(|k| Some(*k) != p.key.as_deref()) {
@@ -295,7 +310,10 @@ impl Core {
         &self,
         key: &str,
         r: &theseus_protocol::PersonaImportResult,
+        _transaction: &std::sync::MutexGuard<'_, ()>,
     ) -> Result<()> {
+        #[cfg(test)]
+        self.assert_persona_serialized();
         let Some(soul) = r.context_paths.first() else {
             return Ok(());
         };
@@ -336,5 +354,20 @@ impl Core {
         )?;
         self.rec(None).announce(&set);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+impl Core {
+    fn assert_persona_serialized(&self) {
+        if self
+            .check_persona_serialization
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            assert!(
+                self.persona_writes.try_lock().is_err(),
+                "persona state is read outside its transaction lock"
+            );
+        }
     }
 }

@@ -298,3 +298,28 @@ async fn health_shows_each_places_guild_and_ceiling() {
     );
     assert_eq!(got[4], ("DM @owner".into(), None, None));
 }
+
+/// A retired route cannot deliver words, but must not grant private tools.
+#[tokio::test]
+async fn a_retired_shared_binding_keeps_its_class_and_ceiling_without_routing() {
+    let r = rig();
+    bind(&r.core, None, tools(&["web"]));
+    let sid = session(&r.core, None);
+    for target in [
+        format!("discord:channel:{PIER}"),
+        "discord:channel:unbound".into(),
+        "unknown:retired".into(),
+    ] {
+        r.core.runner.outbox.show_at(&sid, Some(&target)).unwrap();
+        assert_eq!(r.core.runner.outbox.try_target(&sid).unwrap(), None);
+        assert_eq!(r.core.runner.outbox.speaks_at(&sid).unwrap(), None);
+        let view = r.core.runner.view_of(&sid);
+        assert_eq!(view.class, PlaceClass::Shared, "retired place: {target}");
+        assert!(!view.offered("proc.run", &[]));
+        if target == format!("discord:channel:{PIER}") {
+            assert!(view.ceiling.is_some());
+            assert!(!view.offered("wake.at", &[]));
+            assert!(view.offered("web.search", &[]));
+        }
+    }
+}

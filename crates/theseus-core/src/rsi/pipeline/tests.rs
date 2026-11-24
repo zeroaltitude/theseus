@@ -612,3 +612,77 @@ async fn a_joined_items_tree_is_deleted() {
     assert_eq!(cleared.len(), 1, "{cleared:?}");
     assert_eq!(cleared[0]["reason"], "joined");
 }
+
+#[tokio::test]
+async fn a_deferred_halt_sweep_is_retried() {
+    let r = rig_with(1, 30.0);
+    assert_eq!(r.tick().await.started.len(), 1);
+    r.core
+        .self_halt(&SelfHaltParams::default(), &Answerer::from("the CLI"))
+        .unwrap();
+    r.core.store.shape_window(true);
+    assert!(r.tick().await.stopped.is_empty());
+    r.core.store.shape_window(false);
+    assert_eq!(r.tick().await.stopped.len(), 1);
+}
+
+#[tokio::test]
+async fn a_failed_halt_sweep_is_not_marked_complete() {
+    let r = rig_with(1, 30.0);
+    r.tick().await;
+    r.core
+        .self_halt(&SelfHaltParams::default(), &Answerer::from("the CLI"))
+        .unwrap();
+    r.core.store.fail_ledger_pages();
+    assert!(r.core.pipeline_tick(&r.seams()).await.is_err());
+    assert!(!r
+        .core
+        .rsi
+        .pipeline
+        .halt_swept
+        .load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn a_staged_ended_build_cannot_overwrite_the_owners_drop() {
+    let r = rig_with(1, 100.0);
+    let first = r.tick().await;
+    let item = &first.started[0];
+    let mut q = super::queues::Queues::default();
+    let old = crate::task_graph::get(&r.core.store, item)
+        .unwrap()
+        .unwrap();
+    q.tasks.push(old.clone());
+    q.ended.push(super::queues::Entry {
+        item: item.clone(),
+        ..Default::default()
+    });
+    let mut w = super::Write {
+        mark: super::Mark::read(&r.core.store).unwrap(),
+        frame: vec![],
+        expected: vec![],
+        said: vec![],
+        dirty: false,
+        told: vec![],
+    };
+    r.core.pipeline_ended(&r.f.place, &q, &mut w).await.unwrap();
+    r.core
+        .self_drop(
+            &SelfDropParams {
+                item: item.clone(),
+                ..Default::default()
+            },
+            &Answerer::from("the CLI"),
+        )
+        .unwrap();
+    let dropped = crate::task_graph::get(&r.core.store, item)
+        .unwrap()
+        .unwrap();
+    let _ = r.core.pipeline_write(&mut w);
+    assert_eq!(
+        crate::task_graph::get(&r.core.store, item)
+            .unwrap()
+            .unwrap(),
+        dropped
+    );
+}

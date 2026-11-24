@@ -1,11 +1,13 @@
-// The task verbs that need a choice, as sheets (theseus-jid7t.6): re-home (asks: it moves where the task's report goes
-// and whose budget it was carved from), and reschedule a deferred start (one call, with the toast's Undo).
+// The task verbs that need a choice, as sheets (theseus-jid7t.6): re-home (asks: it moves where the task's report goes;
+// its budget stays carved from its original parent, as the daemon's answer says), and reschedule a deferred start (one
+// call, with the toast's Undo).
 import { useState } from 'react'
 import type { SessionInfo, TaskRescheduleResult, TaskRehomeResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { clock, short } from '@/lib/format'
 import { useOpsAct } from './act'
 import { FIELD, Sheet } from './Sheet'
+import { budgetWords } from './rehome'
 import { useOpsUi } from './ui'
 
 export function RehomeSheet({ task, title, home, onClose }: { task: string; title: string; home?: string; onClose: () => void }) {
@@ -14,6 +16,7 @@ export function RehomeSheet({ task, title, home, onClose }: { task: string; titl
   const { data } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
   const [to, setTo] = useState('')
   const open = (data?.sessions ?? []).filter((s) => s.kind === 'conversation' && !s.retired && s.session_id !== home)
+  const parent = (data?.sessions ?? []).find((s) => s.session_id === home)
   const go = async () => {
     try {
       const r = await post<TaskRehomeResult>('rehome', 'task.rehome', { task, home: to })
@@ -21,7 +24,7 @@ export function RehomeSheet({ task, title, home, onClose }: { task: string; titl
     } catch (e: any) { say(e?.message ?? String(e)) }
   }
   return (
-    <Sheet title={`Re-home ${title}`} note="Its report goes to the new home, and the home's budget is the one it counts against from now on." verb="rehome" submit="Re-home it" busy={!!busy} disabled={!to} onClose={onClose} onSubmit={() => void go()}>
+    <Sheet title={`Re-home ${title}`} note={`Its report goes to the new home from now on. ${budgetWords(parent ? parent.title || parent.label || short(parent.session_id) : undefined)}`} verb="rehome" submit="Re-home it" busy={!!busy} disabled={!to} onClose={onClose} onSubmit={() => void go()}>
       <select autoFocus value={to} onChange={(e) => setTo(e.target.value)} aria-label="New home" className={FIELD}>
         <option value="">Choose a conversation</option>
         {open.map((s) => <option key={s.session_id} value={s.session_id}>{s.title || s.label || short(s.session_id)}</option>)}

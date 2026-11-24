@@ -18,23 +18,19 @@ compilation id holding the key's separator is refused.
 
 ## A record is a map, not a permission
 
-Every reader checks each piece's source again today before showing its reference (`view::record::source`):
-the source session's marks through `view_gate::session_marks` (its place, today's reading of it, its seal,
-fail-closed) against the reader's point of view through `view_gate::Gate::check`. A sealed, seal-pending or
-unreadable source is not shown. Only exchange ranges resolve to sessions today; fold nodes, facts, cards and
-tasks are not shown until their provenance can be read. Text is read only after that check.
+Every reader checks each piece's provenance again before showing its reference (`view::record::source`).
+An exchange range must resolve to readable sessions; a card or waiting line must carry readable session and
+exchange dependencies; recall checks its source session. Code and fact ranges are accepted directly. Unsupported
+ranges and unproven sources are not shown, and text is read only after that check.
 
-Nothing counts what is left out. Totals are of what is shown; a restricted reader (not the owner alone) gets
-no residue, no at-hand reference, and one fixed sentence, so two records that differ only in what it may not
-see read the same, byte for byte.
+Since 2026-11-22, seals, veils, moves and the reader's presence withhold nothing. `session_marks` supplies no
+seal, and the source check asks whether the place reads, not whether it is private. Totals count shown pieces;
+the reader type still supports a restricted form, but the live view readers use its unrestricted form.
 
 ## The readers
 
-- `view.show {turn_id, text, tally}` and `theseus view show TURN [--text] [--tally]`: the owner in person
-  alone (`places::owner_in_person_of`: the CLI or the web UI with no agent's process behind it; a job is one),
-  and no job's marker. Anyone else is refused, the record as well as its text. The owner's point of view at
-  the record's anchor, with no asker: inspecting lifts no seal. Its newest 32 views.
-- `look.theseus` with `what: ["view"]`: Theseus reads this turn's newest view. Who is present is the gate's
-  record of this turn (`view_gate::Verified`), for this turn alone; unknown is shown nothing. The turn's
-  point of view, narrowed by the record's (`view::permit::point_of_view`), is the source check's. At most 60
-  pieces, then how many more it may read. Never text.
+- `view.show {turn_id, text, tally}` and `theseus view show TURN [--text] [--tally]`: read the turn's newest
+  32 views, optionally with text. The current `rpc/views.rs` read path does not require an owner-in-person
+  check. This describes a read, not authority to approve, publish or change policy.
+- `look.theseus` with `what: ["view"]`: Theseus reads this turn's newest view from its widest point of view,
+  rechecking the sources. At most 60 pieces, then how many more readable pieces remain. Never text.

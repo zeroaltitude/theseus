@@ -1,6 +1,6 @@
 //! Document sync: full text, one version per document.
 //!
-//! A document is opened with its whole text (`didOpen`, version 1), and each
+//! A document is opened with its whole text (`didOpen`, the next version even after a close), and each
 //! change sends the whole text again with the next version (`didChange`).
 //! The client remembers each open file's modification time and size, and
 //! before every request about a document it checks them all
@@ -127,23 +127,35 @@ impl Client {
                 message: "no such file".into(),
             });
         };
+        let version = self
+            .shared()
+            .lock()
+            .closed_versions
+            .get(&uri)
+            .copied()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or_else(|| Error::File {
+                path: path.clone(),
+                message: "document version exhausted".into(),
+            })?;
         let params = json!({ "textDocument": {
-            "uri": uri, "languageId": language_id(&path), "version": 1, "text": text,
+            "uri": uri, "languageId": language_id(&path), "version": version, "text": text,
         }});
         let s = self.shared();
-        let sent = s.send(crate::jsonrpc::notification("textDocument/didOpen", params));
-        s.lock().docs.insert(
+        s.send_open(
             uri,
             Doc {
                 path,
-                version: 1,
+                version,
                 text,
                 stamp: Some(stamp),
-                sent_at: sent,
+                sent_at: 0,
                 saved: None,
             },
+            crate::jsonrpc::notification("textDocument/didOpen", params),
         );
-        Ok(1)
+        Ok(version)
     }
 
     fn version(&self, uri: &str) -> Option<i32> {
@@ -232,7 +244,18 @@ impl Client {
 
     fn close_uri(&self, uri: &str) {
         let s = self.shared();
-        let was_open = s.lock().docs.remove(uri).is_some();
+        let was_open = {
+            let mut st = s.lock();
+            st.pushed.remove(uri);
+            st.pulled.remove(uri);
+            match st.docs.remove(uri) {
+                Some(doc) => {
+                    st.closed_versions.insert(uri.to_string(), doc.version);
+                    true
+                }
+                None => false,
+            }
+        };
         if was_open {
             s.send(crate::jsonrpc::notification(
                 "textDocument/didClose",

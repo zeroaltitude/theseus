@@ -652,3 +652,67 @@ async fn a_place_with_no_sandbox_judges_and_fetches_nothing() {
         "no sandbox, no fetch"
     );
 }
+
+#[tokio::test]
+async fn a_ready_cache_is_not_rebuilt_under_its_consumer() {
+    let f = fixture();
+    let reg = Registry::start().await;
+    let h = home();
+    let (bytes, sum) = tide();
+    reg.serve("/crates/tide/tide-1.0.0.crate", Reply::Body(bytes));
+    let t = tree::open(&f.place, "ready-cache", NOW).unwrap();
+    write(&t, CARGO_LOCK, &tide_lock(&sum));
+    let Provided::Ready(pk) = provide_with(&f.place, &t, &reg.endpoints(), h.path(), true).await
+    else {
+        panic!("not ready")
+    };
+    let witness = pk.dir.join("cargo-home/vendor/consumer-witness");
+    std::fs::create_dir(&witness).unwrap();
+    let Provided::Ready(again) = provide_with(&f.place, &t, &reg.endpoints(), h.path(), true).await
+    else {
+        panic!("not ready again")
+    };
+    assert!(
+        witness.exists(),
+        "a complete cache must not be destructively fetched again"
+    );
+    assert_eq!(pk, again);
+    assert_eq!(reg.seen().len(), 1);
+}
+
+#[test]
+fn a_consumer_pins_its_cache_against_later_pruning() {
+    let f = fixture();
+    let t = tree::open(&f.place, "held-cache", NOW).unwrap();
+    write(&t, CARGO_LOCK, "# pinned lock\n");
+    let dir = Packages::dir_for(&f.place, &t).unwrap();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("ready.json"), r#"{"cargo":true,"npm":false}"#).unwrap();
+    std::fs::File::open(&dir)
+        .unwrap()
+        .set_times(
+            std::fs::FileTimes::new()
+                .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1)),
+        )
+        .unwrap();
+    let held = Packages::of(&f.place, &t).unwrap();
+    for n in 2..8 {
+        let p = f.place.packages().join(format!("{n:032x}"));
+        std::fs::create_dir_all(&p).unwrap();
+        std::fs::File::open(&p)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(n)),
+            )
+            .unwrap();
+    }
+    super::prune(&f.place, "current", None);
+    assert!(
+        dir.exists(),
+        "an active consumer still reads this old cache"
+    );
+    drop(held);
+    super::prune(&f.place, "current", None);
+    assert!(!dir.exists(), "an unused old cache is still pruned");
+}

@@ -366,3 +366,545 @@ fn the_retired_importers_spend_still_counts_after_an_upgrade() {
         );
     }
 }
+
+/// Guidance keeps its own day mark even when an answer fails or is refused.
+/// Reopening the store must not turn that settled spend back into headroom.
+#[test]
+fn guidance_spend_survives_restart_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    let store = Store::open(&path).unwrap();
+    store
+        .put_meta(
+            crate::consolidate::guidance::MARK,
+            &json!({"day": "2026-11-23", "spent_usd": 0.0625}),
+        )
+        .unwrap();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    for _ in 0..2 {
+        let total = read_today_total(&store, 0, "2026-11-23", LIMIT)
+            .unwrap()
+            .unwrap();
+        assert_eq!(total.seed.spent, 62_500);
+    }
+    assert_eq!(
+        read_today_total(&store, 0, "2026-11-24", LIMIT)
+            .unwrap()
+            .unwrap()
+            .seed
+            .spent,
+        0
+    );
+}
+
+#[test]
+fn unreadable_guidance_spend_restores_no_headroom() {
+    for mark in [
+        json!({"day": "2026-11-23"}),
+        json!({"day": "2026-11-23", "spent_usd": -1.0}),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store");
+        let store = Store::open(&path).unwrap();
+        store
+            .put_meta(crate::consolidate::guidance::MARK, &mark)
+            .unwrap();
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        assert!(
+            read_today_total(&store, 0, "2026-11-23", LIMIT).is_err(),
+            "a damaged guidance mark must leave startup admission closed"
+        );
+    }
+}
+
+/// Settlement rows must replay the same model-only amount after the store closes.
+#[test]
+fn uncertain_and_cancelled_model_spend_survives_restart() {
+    let _clock = crate::test_support::ClockPin;
+    theseus_protocol::time::move_clock_to(1_800_000_000_000);
+    for (kind, cost, expected) in [
+        ("unknown", None, 100),
+        ("cancel", None, 100),
+        ("verified", Some(70), 70),
+        ("late", Some(150), 150),
+        ("tool", None, 0),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store");
+        let now = 1_800_000_000_000;
+        {
+            let store = Store::open(&path).unwrap();
+            let kernel = theseus_kernel::Kernel::new(
+                store.shared(),
+                theseus_kernel::VirtualClock::new(now),
+                theseus_kernel::KernelConfig::default(),
+            );
+            kernel.startup(None, &theseus_kernel::NoEvidence).unwrap();
+            let a = day_action(
+                &kernel,
+                if kind == "tool" {
+                    "proc.run"
+                } else {
+                    theseus_kernel::PROVIDER_TOOL
+                },
+            );
+            match kind {
+                "cancel" | "tool" | "late" => {
+                    kernel
+                        .cancel_unsupported(&a.correlation_id, "cannot stop")
+                        .unwrap();
+                }
+                "verified" => {
+                    kernel
+                        .cancel_verified_costing(
+                            &a.correlation_id,
+                            &theseus_kernel::Verdict::uncertain(
+                                theseus_kernel::VerifiedBy::None,
+                                "fixture",
+                            ),
+                            cost.unwrap(),
+                        )
+                        .unwrap();
+                }
+                _ => {
+                    kernel
+                        .mark_unknown(&a.correlation_id, "connection lost")
+                        .unwrap();
+                }
+            }
+            if kind == "late" {
+                kernel
+                    .accept_completion(&day_completion(&a.correlation_id, cost))
+                    .unwrap();
+            }
+            let ceiling = kernel.day_ceiling();
+            assert_eq!(ceiling.today(now).spent, expected, "live {kind}");
+        }
+        let store = Store::open(&path).unwrap();
+        let first = read_today_total(&store, now - 1, "fixture-day", LIMIT)
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.seed.spent, expected, "restart {kind}");
+        assert_eq!(
+            read_today_total(&store, now - 1, "fixture-day", LIMIT)
+                .unwrap()
+                .unwrap()
+                .seed,
+            first.seed,
+            "read twice {kind}"
+        );
+    }
+}
+
+fn day_action(kernel: &theseus_kernel::Kernel, tool: &str) -> theseus_kernel::Action {
+    use theseus_kernel::{Authority, RetryClass};
+    let e = kernel
+        .open_execution(
+            "ses_day_fixture",
+            theseus_protocol::SessionKind::Conversation,
+            Authority {
+                principal: "owner".into(),
+                delegated_by: None,
+                ceilings: Default::default(),
+            },
+            Some(10_000),
+            None,
+        )
+        .unwrap();
+    kernel.wake_input(&e.id).unwrap();
+    let g = kernel.admit(&e.id).unwrap();
+    let proposal = theseus_kernel::gate::Proposal {
+        tool: tool.into(),
+        args: json!({}),
+        resource: None,
+        policy_context: json!({}),
+    };
+    let a = kernel
+        .plan_action(&g, &proposal, RetryClass::SafeToRepeat, None, 100)
+        .unwrap();
+    kernel
+        .authorize(&a.correlation_id, &proposal, None)
+        .unwrap();
+    kernel.dispatch(&a.correlation_id, None).unwrap()
+}
+
+fn day_completion(id: &str, cost: Option<u64>) -> theseus_kernel::Completion {
+    theseus_kernel::Completion {
+        correlation_id: id.into(),
+        outcome: theseus_kernel::Outcome::Succeeded,
+        result_ref: None,
+        external_op_id: None,
+        started_at_ms: 1_800_000_000_000,
+        finished_at_ms: 1_800_000_000_000,
+        producer: "provider:fixture".into(),
+        signature: None,
+        cost_micros: cost,
+        detail: None,
+    }
+}
+
+#[test]
+fn owner_settlement_counts_only_day_excess_across_restart() {
+    let _clock = crate::test_support::ClockPin;
+    theseus_protocol::time::move_clock_to(1_800_000_000_000);
+    for (settled, late, expected) in [(150, 170, 170), (50, 70, 100), (50, 170, 170)] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store");
+        let now = 1_800_000_000_000;
+        {
+            let store = Store::open(&path).unwrap();
+            let kernel = theseus_kernel::Kernel::new(
+                store.shared(),
+                theseus_kernel::VirtualClock::new(now),
+                theseus_kernel::KernelConfig::default(),
+            );
+            kernel.startup(None, &theseus_kernel::NoEvidence).unwrap();
+            let a = day_action(&kernel, theseus_kernel::PROVIDER_TOOL);
+            kernel
+                .mark_unknown(&a.correlation_id, "connection lost")
+                .unwrap();
+            kernel
+                .settle_held_spend(&a.correlation_id, settled, "owner")
+                .unwrap();
+            assert_eq!(
+                kernel.day_ceiling().today(now).spent,
+                settled.max(100),
+                "owner's bill"
+            );
+            kernel
+                .accept_completion(&day_completion(&a.correlation_id, Some(late)))
+                .unwrap();
+            assert_eq!(kernel.day_ceiling().today(now).spent, expected, "late bill");
+        }
+        let store = Store::open(&path).unwrap();
+        assert_eq!(
+            read_today_total(&store, now - 1, "fixture-day", LIMIT)
+                .unwrap()
+                .unwrap()
+                .seed
+                .spent,
+            expected,
+            "restart"
+        );
+    }
+}
+
+#[test]
+fn a_restart_seed_is_not_added_again_after_live_spend() {
+    let _clock = crate::test_support::ClockPin;
+    theseus_protocol::time::move_clock_to(1_800_000_000_000);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    let now = 1_800_000_000_000;
+    {
+        let store = Store::open(&path).unwrap();
+        store
+            .append(&[row_at(
+                "speech.synthesized",
+                now,
+                json!({"cost_usd": 0.0001}),
+            )])
+            .unwrap();
+    }
+    let store = Store::open(&path).unwrap();
+    let cutoff = store.last_position();
+    let k = theseus_kernel::Kernel::new(
+        store.shared(),
+        theseus_kernel::VirtualClock::new(now),
+        theseus_kernel::KernelConfig::default(),
+    );
+    let c = k.day_ceiling();
+    c.set_limit(LIMIT);
+    c.require_seed();
+    assert!(c.fits(now, 1).unwrap_err().pending);
+    assert!(c.hold(now, "blocked", 1).unwrap_err().pending);
+    // Startup reconciliation can settle earlier calls before the deferred seed lands.
+    c.book(now, 25);
+    store
+        .append(&[row_at(
+            "speech.synthesized",
+            now,
+            json!({"cost_usd": 0.000025}),
+        )])
+        .unwrap();
+    let seed = crate::day_ceiling::read_today_total_at(
+        &store,
+        now - 1,
+        "fixture-day",
+        LIMIT,
+        Some(cutoff),
+    )
+    .unwrap()
+    .unwrap()
+    .seed;
+    assert_eq!(
+        seed.spent, 100,
+        "the seed stops before this process's bookings"
+    );
+    c.seed(now, &seed);
+    assert!(
+        c.fits(now, 1).is_ok(),
+        "temporary seed refusal was not a sticky stop"
+    );
+    let full = read_today_total(&store, now - 1, "fixture-day", LIMIT)
+        .unwrap()
+        .unwrap()
+        .seed;
+    assert_eq!(full.spent, 125);
+    c.seed(now, &full);
+    assert_eq!(
+        c.today(now).spent,
+        125,
+        "one complete startup seed, never twice"
+    );
+}
+
+#[test]
+fn unreadable_judge_spend_is_not_zero_after_restart() {
+    let _clock = crate::test_support::ClockPin;
+    theseus_protocol::time::move_clock_to(1_800_000_000_000);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    {
+        let store = Store::open(&path).unwrap();
+        store
+            .put_meta(
+                crate::judge::spend::META_KEY,
+                &json!({"day": "fixture-day", "reserved_micros": 0, "spent_micros": "unreadable"}),
+            )
+            .unwrap();
+    }
+    let store = Store::open(&path).unwrap();
+    assert!(
+        read_today_total(&store, 0, "fixture-day", LIMIT).is_err(),
+        "unreadable day spend must not restore headroom"
+    );
+    let now = 1_800_000_000_000;
+    let k = theseus_kernel::Kernel::new(
+        store.shared(),
+        theseus_kernel::VirtualClock::new(now),
+        theseus_kernel::KernelConfig::default(),
+    );
+    let c = k.day_ceiling();
+    c.set_limit(LIMIT);
+    c.require_seed();
+    assert!(c.hold(now, "blocked", 1).unwrap_err().pending);
+    store
+        .put_meta(
+            crate::judge::spend::META_KEY,
+            &json!({"day": "fixture-day", "reserved_micros": 0, "spent_micros": 99}),
+        )
+        .unwrap();
+    let seed = read_today_total(&store, 0, "fixture-day", LIMIT)
+        .unwrap()
+        .unwrap()
+        .seed;
+    c.seed(now, &seed);
+    assert_eq!(c.today(now).spent, 99);
+    assert!(c.hold(now, "after-repair", 1).is_ok());
+}
+
+#[test]
+fn a_failed_restart_read_closes_core_admission_until_a_successful_retry() {
+    let _clock = crate::test_support::ClockPin;
+    theseus_protocol::time::move_clock_to(1_800_000_000_000);
+    use std::sync::Arc;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    let now = 1_800_000_000_000;
+    let clock = theseus_kernel::VirtualClock::new(now);
+    let mut cfg = crate::Config::example();
+    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    cfg.tools.roots = vec![];
+    let day;
+    {
+        let store = Store::open(&path).unwrap();
+        let k = theseus_kernel::Kernel::new(
+            store.shared(),
+            clock.clone(),
+            cfg.kernel.to_kernel_config(),
+        );
+        day = k.day_ceiling().day_of(now).0;
+        store
+            .put_meta(
+                crate::judge::spend::META_KEY,
+                &json!({"day": day, "spent_micros": "unreadable", "reserved_micros": 0}),
+            )
+            .unwrap();
+    }
+    let reopened = Store::open(&path).unwrap();
+    assert!(read_today_total(&reopened, 0, &day, LIMIT).is_err());
+    let parts = crate::rpc::Parts::for_tests(
+        cfg,
+        Arc::new(crate::provider::FakeProvider::scripted(vec![])),
+        reopened,
+    );
+    let core = crate::Core::build_with_clock(parts, clock).unwrap();
+    assert!(core.runner.seed_day_ceiling().later);
+    let c = core.kernel.day_ceiling();
+    assert!(!c.seed_applied());
+    assert!(c.hold(now, "model", 1).unwrap_err().pending);
+    assert!(core.runner.day_hold(1, "fixture background call").is_err());
+    assert!(
+        !c.take_notice(now),
+        "unreadiness is not a daily-limit notice"
+    );
+    core.store
+        .put_meta(
+            crate::judge::spend::META_KEY,
+            &json!({"day": day, "spent_micros": 99, "reserved_micros": 0}),
+        )
+        .unwrap();
+    assert!(!core.runner.seed_day_ceiling().later);
+    assert_eq!(c.today(now).spent, 99);
+    assert!(core.runner.day_hold(1, "fixture background call").is_ok());
+    core.runner.seed_day_ceiling();
+    assert_eq!(c.today(now).spent, 99);
+}
+
+#[test]
+fn damaged_day_marks_stop_today_but_not_tomorrow() {
+    let _clock = crate::test_support::ClockPin;
+    let now = 1_800_000_000_000;
+    theseus_protocol::time::move_clock_to(now);
+    for key in [
+        crate::judge::spend::META_KEY,
+        crate::consolidate::guidance::MARK,
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store");
+        let clock = theseus_kernel::VirtualClock::new(now);
+        let mut cfg = crate::Config::example();
+        cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+        cfg.tools.roots = vec![];
+        let midnight;
+        {
+            let store = Store::open(&path).unwrap();
+            let k = theseus_kernel::Kernel::new(
+                store.shared(),
+                clock.clone(),
+                cfg.kernel.to_kernel_config(),
+            );
+            let (today, _, end) = k.day_ceiling().day_of(now);
+            midnight = end;
+            store
+                .put_meta(
+                    key,
+                    &json!({"day": today, "spent_micros": "garbage", "spent_usd": "garbage"}),
+                )
+                .unwrap();
+        }
+        let parts = crate::rpc::Parts::for_tests(
+            cfg,
+            std::sync::Arc::new(crate::provider::FakeProvider::scripted(vec![])),
+            Store::open(&path).unwrap(),
+        );
+        let core = crate::Core::build_with_clock(parts, clock.clone()).unwrap();
+        assert!(core.runner.seed_day_ceiling().later);
+        assert!(core.runner.day_hold(1, "test").is_err());
+        clock.set(midnight + 1);
+        theseus_protocol::time::move_clock_to(midnight + 1);
+        let seeded = core.runner.seed_day_ceiling();
+        assert!(
+            !seeded.later,
+            "yesterday's damaged mark must not stop today: {key}"
+        );
+        assert_eq!(seeded.seed.spent, 0);
+        assert!(core.runner.day_hold(1, "test").is_ok());
+        theseus_protocol::time::move_clock_to(now);
+    }
+}
+
+#[test]
+fn pending_seed_without_a_bar_refuses_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let k = theseus_kernel::Kernel::new(
+        store.shared(),
+        theseus_kernel::VirtualClock::new(1_800_000_000_000),
+        theseus_kernel::KernelConfig::default(),
+    );
+    let c = k.day_ceiling();
+    c.set_limit(0);
+    c.require_seed();
+    assert!(!c.seed_applied());
+    assert!(c.fits(c.now(), 1).is_ok());
+    assert!(c.hold_call(c.now(), 1).is_ok());
+}
+
+#[test]
+fn day_read_failure_warns_on_change_or_minute_and_clears_on_success() {
+    let dir = tempfile::tempdir().unwrap();
+    let (core, _) = crate::tests_day_ceiling::build(dir.path(), vec![], |_| {});
+    let now = core.kernel.day_ceiling().now();
+    let mut failure = core.runner.day_read_failure.lock().unwrap();
+    let error = "today's judge spending cannot be read".to_string();
+    assert!(failure.failed(now - 60_001, error.clone()));
+    assert!(!failure.failed(now - 60_000, error.clone()));
+    assert!(failure.failed(now - 1, error));
+    drop(failure);
+    let h = core.health();
+    let phase = h.startup.iter().find(|p| p.name == "day_ceiling").unwrap();
+    assert!(phase.detail["read_error"]
+        .as_str()
+        .unwrap()
+        .contains("judge spending"));
+    let mut failure = core.runner.day_read_failure.lock().unwrap();
+    assert!(failure.failed(now, "today's guidance spending cannot be read".into()));
+    drop(failure);
+    assert!(!core.runner.seed_day_ceiling().later);
+    assert!(core
+        .runner
+        .day_read_failure
+        .lock()
+        .unwrap()
+        .health(now)
+        .is_none());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_failed_seed_retry_thread_releases_the_core_and_store_on_drop() {
+    fn retry_threads() -> Vec<std::path::PathBuf> {
+        std::fs::read_dir("/proc/self/task")
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                std::fs::read_to_string(p.join("comm")).is_ok_and(|n| n.trim() == "day-ceiling")
+            })
+            .collect()
+    }
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        store
+            .put_meta(crate::judge::spend::META_KEY, &json!({"day": null}))
+            .unwrap();
+    }
+    let (core, _) = crate::tests_day_ceiling::build(dir.path(), vec![], |_| {});
+    assert!(core.runner.seed_day_ceiling().later);
+    let weak_core = std::sync::Arc::downgrade(&core);
+    let weak_store = std::sync::Arc::downgrade(core.store.inner());
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while retry_threads().is_empty() {
+        assert!(
+            std::time::Instant::now() < until,
+            "retry thread never started"
+        );
+        std::thread::yield_now();
+    }
+    drop(core);
+    while !retry_threads().is_empty() || weak_store.upgrade().is_some() {
+        assert!(
+            std::time::Instant::now() < until,
+            "retry thread kept the store open"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(weak_core.upgrade().is_none());
+    assert!(weak_store.upgrade().is_none());
+    Store::open(&dir.path().join("store")).unwrap();
+}

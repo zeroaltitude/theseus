@@ -67,6 +67,15 @@ impl Jail {
     /// The view and the environment `j` runs in: the self-build view over
     /// this daemon's floor, and the whole of the command's environment.
     pub fn prepare(&self, p: &Place, j: &Job<'_>) -> (L1, Vec<(String, String)>) {
+        let (view, env, _pin) = self.prepare_held(p, j);
+        (view, env)
+    }
+
+    fn prepare_held(
+        &self,
+        p: &Place,
+        j: &Job<'_>,
+    ) -> (L1, Vec<(String, String)>, Option<Packages>) {
         let repo = theseus_tools::paths::canonical_best_effort(&p.repo);
         let home = crate::config::expand("~");
         // The packages the pipeline fetched for this tree's lock files, whichever
@@ -92,14 +101,14 @@ impl Jail {
         }));
         // Last, so nothing before it names another cache for cargo or npm.
         env.extend(packages.iter().flat_map(Packages::env));
-        (view, env)
+        (view, env, packages)
     }
 
     /// Run the command in L1 and wait, on the calling thread (which lives as
     /// long as the job: the init dies with the thread that spawned it). Its
     /// exit code; a deadline or a start that failed is an error.
     pub fn run_blocking(&self, p: &Place, j: &Job<'_>) -> Result<Option<i32>> {
-        let (view, env) = self.prepare(p, j);
+        let (view, env, _packages) = self.prepare_held(p, j);
         let argv: Vec<String> = j
             .argv
             .iter()

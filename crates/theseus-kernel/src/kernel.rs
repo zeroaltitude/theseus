@@ -1022,11 +1022,12 @@ impl Kernel {
         a.settled_at_ms = Some(now);
         a.resolution = Some(format!("declined by {by}: {reason}"));
         let mut frame = vec![action_record(&a)?];
+        let mut day = None;
         if let Some(mut e) = self.execution(&a.execution_id)? {
             let spent_before = e.budget.spent_micros;
             if let Some(r) = &a.reservation_id {
                 settle_reservation_in(&mut e.budget, r, Some(0));
-                self.day_after(Effect::of(&a, Some(0)));
+                day = Effect::of(&a, Some(0));
             }
             if e.budget.question.as_deref() == Some(correlation_id) {
                 e.budget.question = None;
@@ -1042,6 +1043,7 @@ impl Kernel {
             json!({"correlation_id": a.correlation_id, "tool": a.tool, "by": by, "reason": reason}),
         )?);
         self.commit(&frame)?;
+        self.day_after(day);
         Ok(a)
     }
 
@@ -1360,9 +1362,11 @@ impl Kernel {
         // terminates their backends (they stay in `outstanding` until verified).
         // What it planned and never sent closes with it, the budget question
         // among them (theseus-w98).
+        let mut day = Vec::new();
         if e.state.is_terminal() {
             let why = format!("the execution ended ({})", e.state.as_str());
-            self.end_unsent(&mut e, "the harness", &why, &mut frame)?;
+            let (_, effects) = self.end_unsent(&mut e, "the harness", &why, &mut frame)?;
+            day = effects;
             frame[0] = exec_record(&e)?;
             // Its wakes end with it (DD8).
             if !e.wakes.is_empty() {
@@ -1386,6 +1390,7 @@ impl Kernel {
             self.task_ended(&e, &mut frame)?;
         }
         self.commit(&frame)?;
+        self.day_after(day);
         self.release(guard);
         Ok(e)
     }

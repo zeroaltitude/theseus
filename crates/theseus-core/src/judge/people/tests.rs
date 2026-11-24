@@ -3,8 +3,8 @@
 //! name excluded before any call; the bands; a match to a held person; an
 //! evaluative role line dropped; the proposals listed and accepted in bulk
 //! (`--kind person`); the backfill's dry run, its stop at the cap and its
-//! resume from the tag's mark; and a shared place's exchange end gets
-//! nothing while a private one's proposes. Every name here is invented.
+//! resume from the tag's mark; and shared and private exchanges both
+//! propose people. Every name here is invented.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -248,7 +248,7 @@ pub(super) fn billed(then: Scripted) -> Scripted {
     Scripted::Billed {
         usage: Usage {
             input_tokens: 1000,
-            output_tokens: 1_000_000,
+            output_tokens: 39_000,
             ..Usage::default()
         },
         then: Box::new(then),
@@ -361,9 +361,11 @@ async fn a_backfill_proposes_people_under_its_cap_and_they_are_accepted_in_bulk(
     // A cap that holds one session's worst case but not two: the first
     // session is passed and the run stops before the second.
     script_extractions(&r.fake);
-    // The first costs $0.50 (billed so): past the cap's room for a second.
+    // The first costs just under $0.40, leaving room for its judgments
+    // but not a second extraction. The fixture must not overspend the cap.
     let first = propose(&r.core, false, 0.4).await;
     assert_eq!((first.read, first.left), (1, 2), "{first:?}");
+    assert!(first.spent_usd <= first.cap_usd, "{first:?}");
     assert!(
         first
             .stopped
@@ -527,47 +529,41 @@ fn proposals_are_listed_then_accepted_in_bulk(core: &Arc<Core>) {
         .is_empty());
 }
 
-/// A shared place's exchange end proposes nothing; a private one's, due,
-/// extracts and judges, on its own mark.
+/// Both shared and private exchanges receive people labels on their own marks.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_shared_place_gets_nothing_and_a_private_one_proposes() {
+async fn shared_and_private_places_propose_people() {
     let jev = FakeJev::start().unwrap();
     script(&jev);
-    // The owner's gate open: a person not held is involved (theseus-u5n8).
     jev.script("unlisted", Jev::Noul(0.9));
     let r = rig(Some(&jev), 2 * EVERY, people_on);
-    let shared = session(&r.core, Some("channel:314159265358979323"));
-    moorings(&r.core, &shared, EVERY).await;
-    // The shared session's decision has ended: the extractor looked and chose nothing.
-    until_not_deciding(&r.core).await;
-    assert!(rows(&r.core.store, "people.extracted").is_empty());
-    assert_eq!(
-        r.fake.requests().len(),
-        EVERY,
-        "no extraction for a shared place"
-    );
-
-    r.fake.when_tool(
-        super::extract::TOOL,
-        answer(json!([
-            {"name": "Wren Halloway", "handles": [], "role_line": "", "evidence": ["L1"]}
-        ])),
-    );
-    let private = session(&r.core, None);
-    moorings(&r.core, &private, EVERY).await;
-    let x = until_rows(&r.core.store, "people.extracted", 1).await;
-    assert_eq!(x[0].session_id.as_deref(), Some(private.as_str()));
-    assert_eq!(x[0].data["purpose"], "live");
-    // The judgment is settled before the extraction's row is written, and the sink writes it
-    // after a window and a quiet stretch; a flush writes it now (theseus-f4tg1).
+    for (i, place) in [Some("channel:314159265358979323"), None]
+        .into_iter()
+        .enumerate()
+    {
+        r.fake.when_tool(
+            super::extract::TOOL,
+            answer(json!([
+                {"name": "Wren Halloway", "handles": [], "role_line": "", "evidence": ["L1"]}
+            ])),
+        );
+        let sid = session(&r.core, place);
+        moorings(&r.core, &sid, EVERY).await;
+        let x = until_rows(&r.core.store, "people.extracted", i + 1).await;
+        let row = x
+            .iter()
+            .find(|row| row.session_id.as_deref() == Some(&sid))
+            .unwrap();
+        assert!(row.data["failed"].is_null(), "{row:?}");
+        assert_eq!(row.data["purpose"], "live");
+        let mark: Option<crate::judge::categorize::Mark> = r
+            .core
+            .store
+            .get_meta(&format!("{}{sid}", super::live::MARK_PREFIX))
+            .unwrap();
+        assert!(mark.is_some(), "the extraction advances its own mark");
+    }
     r.core.runner.judge.flush_sink();
     until_rows(&r.core.store, "judge.call", 1).await;
-    let mark: Option<crate::judge::categorize::Mark> = r
-        .core
-        .store
-        .get_meta(&format!("{}{private}", super::live::MARK_PREFIX))
-        .unwrap();
-    assert!(mark.is_some(), "the mark moves in the extraction's frame");
 }
 
 /// An extraction cut at its cap (theseus-opypg) says so in its row instead

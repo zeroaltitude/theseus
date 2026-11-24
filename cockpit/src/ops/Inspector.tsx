@@ -136,7 +136,7 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
       <div className="flex items-center gap-1.5">
         {f.paused ? <Pill tone="wait">{f.pill}</Pill> : <StatePill state={f.pill} />}
         <span className="num text-[10.5px] text-ink-faint">{r.kind} · {f.short}</span>
-        {r.data && r.data !== 'open' && <Pill tone="wait" title="the floor keeps this to models of US origin"><Lock size={10} /> {r.data}</Pill>}
+        {r.data && r.data !== 'open' && <Pill tone="wait" title="content label; it does not restrict model origin"><Lock size={10} /> {r.data}</Pill>}
         {f.links.map((l, i) => {
           const cls = cn('flex items-center gap-1 text-[11.5px] text-live hover:underline', i === 0 && 'ml-auto')
           const title = i === 0 ? `o: ${l.title}` : l.title
@@ -230,7 +230,7 @@ function Sections({ r, cx, now }: { r: OpsRow; cx: InspectorCx; now: number }) {
     <>
       <Section title="Live" hint={job ? `following ${job.title}` : undefined}><Live sessionId={r.sessionId} jobId={job?.id ?? null} /></Section>
       {facts.length > 0 && <Section title="Facts"><Facts lines={facts} /></Section>}
-      {r.sessionId && cx.joined !== r.sessionId && <Section title="Transcript" hint={<Link className="text-live" to={`/session/${r.sessionId}`}>open the deck for more</Link>}><JoinPane sessionId={r.sessionId} session={r.session} compact /></Section>}
+      {r.sessionId && cx.joined !== r.sessionId && <Section title="Transcript" hint={<Link className="text-live" to={`/session/${r.sessionId}`}>open the deck for more</Link>}><JoinPane key={r.sessionId} sessionId={r.sessionId} session={r.session} compact /></Section>}
       {rec && <Section title="Record"><RecordBlock f={rec} /></Section>}
       {r.sessionId && <Section title="Standing"><StandingBlock sessionId={r.sessionId} /></Section>}
     </>

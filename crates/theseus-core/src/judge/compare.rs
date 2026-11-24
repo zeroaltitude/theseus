@@ -68,7 +68,10 @@ impl JudgeService {
         session: &str,
         turn: &str,
         input: CompareInput,
+        left: Option<u64>,
+        charged: &mut u64,
     ) -> Result<Compared, String> {
+        *charged = 0;
         let given = self.mode_for(COMPARE_PACK, session);
         if given.mode == PackMode::Off {
             return Err("the judge or compare.v1 is off".into());
@@ -84,7 +87,7 @@ impl JudgeService {
         let prepared = tokio::task::spawn_blocking(move || {
             me.upgrade()
                 .ok_or_else(|| "the judge stopped".to_string())
-                .and_then(|svc| svc.prepare_compare(pack, input, context, &day))
+                .and_then(|svc| svc.prepare_compare(pack, input, context, &day, left))
         })
         .await
         .map_err(|e| format!("the comparison's state was not built: {e}"))??;
@@ -97,6 +100,10 @@ impl JudgeService {
                 urgency: Urgency::Shadow,
             })
             .await;
+        if judgments.is_empty() {
+            self.budget.settle(&today, need, need, true, true);
+            *charged = need;
+        }
         for j in &judgments {
             let (called, failed, unknown) = match &j.outcome {
                 Outcome::Answered => (true, false, false),
@@ -105,6 +112,7 @@ impl JudgeService {
             };
             let spent = j.cost_micros.unwrap_or(if unknown { need } else { 0 });
             self.budget.settle(&today, need, spent, called, failed);
+            *charged = charged.saturating_add(spent);
         }
         let j = judgments
             .into_iter()
@@ -116,7 +124,7 @@ impl JudgeService {
         let (verdict, p, same_or_better) =
             read(&j).ok_or_else(|| "Jev's answer held no verdict".to_string())?;
         Ok(Compared {
-            judgment: j.id.clone(),
+            judgment: j.id,
             mode: match mode {
                 theseus_judge::Mode::Live => "live",
                 _ => "shadow",
@@ -125,7 +133,7 @@ impl JudgeService {
             verdict,
             p,
             same_or_better,
-            cost_usd: j.cost_micros.map_or(0.0, theseus_kernel::micros_to_usd),
+            cost_usd: theseus_kernel::micros_to_usd(*charged),
         })
     }
 
@@ -136,6 +144,7 @@ impl JudgeService {
         input: CompareInput,
         mut context: Value,
         today: &str,
+        left: Option<u64>,
     ) -> Result<Prepared, String> {
         let scrub = ScrubWith(self.scrubber.clone());
         let state = theseus_judge::prepare(&pack, &Input::Compare(input), &scrub)
@@ -155,7 +164,10 @@ impl JudgeService {
             .judge
             .inner()
             .reserve_micros(std::slice::from_ref(&ask))
-            .unwrap_or(0);
+            .ok_or_else(|| "the comparison has no reservation price".to_string())?;
+        if left.is_some_and(|left| need > left) {
+            return Err("the comparison would exceed the replay allowance".into());
+        }
         if !self.reserve(today, need, spend::Class::of(ask.mode)) {
             return Err("the judge's day budget is spent".into());
         }

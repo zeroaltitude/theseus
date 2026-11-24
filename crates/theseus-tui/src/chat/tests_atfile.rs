@@ -581,3 +581,22 @@ fn a_failed_read_or_an_edited_line_sends_nothing_and_keeps_the_line() {
     assert!(late.is_empty(), "an edited line is not sent: {late:?}");
     assert_eq!(c.editor.typed_text(), "look at @shot.png please");
 }
+
+#[tokio::test(start_paused = true)]
+async fn send_now_carries_prepared_image_attachments() {
+    let p = project_with_shot();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("see @shot.png").await;
+    r.shows("@shot.png").await;
+    r.press(KeyCode::Esc).await;
+    r.key(crossterm::event::KeyEvent::new(
+        KeyCode::Enter,
+        crossterm::event::KeyModifiers::CONTROL,
+    ))
+    .await;
+    r.asked("turn.submit", 1).await;
+    assert_eq!(
+        r.daemon.asked("turn.submit")[0]["attachments"][0]["data"],
+        "iVBORw0KGgo="
+    );
+}

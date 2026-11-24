@@ -621,10 +621,10 @@ async fn the_walk_goes_past_the_first_generation() {
         .contains(&copy.id));
 }
 
-/// A retraction run from a shared place's session never shows a private
-/// exposure's words; the same run from a private place does.
+/// An authorised retraction naming a shared session returns the same complete
+/// audit, including private exposures, as one naming a private session.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_shared_places_run_hides_private_text() {
+async fn a_shared_places_run_keeps_the_complete_retraction_audit() {
     let r = rig();
     let c = &r.core;
     bind(c);
@@ -655,7 +655,7 @@ async fn a_shared_places_run_hides_private_text() {
     assert!(all.contains("zephyrine"), "{all}");
     assert!(all.contains("Kestrel"), "{all}");
 
-    // The shared place's run answers from it with the private words left out.
+    // An authorised shared-place request receives the same complete audit.
     let p = FactRetractParams {
         session_id: Some(pier),
         ..p
@@ -663,16 +663,24 @@ async fn a_shared_places_run_hides_private_text() {
     let shared = c.fact_retract(&p, "cli").unwrap();
     assert!(shared.already);
     let text = serde_json::to_string(&shared).unwrap();
-    assert!(!text.contains("zephyrine"), "{text}");
-    assert!(!text.contains("Kestrel"), "{text}");
-    assert_eq!(shared.gist, None);
+    assert!(text.contains("zephyrine"), "{text}");
+    assert!(text.contains("Kestrel"), "{text}");
+    assert_eq!(shared.gist, private.gist);
     let session_row = shared
         .exposures
         .iter()
         .find(|e| e.kind == kind::SESSION)
         .unwrap();
-    assert!(session_row.hidden);
-    assert_eq!(session_row.place, "a private place");
+    assert!(!session_row.hidden);
+    assert_eq!(
+        session_row.place,
+        private
+            .exposures
+            .iter()
+            .find(|e| e.kind == kind::SESSION)
+            .unwrap()
+            .place
+    );
     let published = shared
         .exposures
         .iter()

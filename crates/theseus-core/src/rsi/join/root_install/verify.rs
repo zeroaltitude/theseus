@@ -98,16 +98,17 @@ impl Core {
         let within = Duration::from_secs(HEALTHY_WITHIN_SECS);
         match watch_health(probe, within, LOOK_EVERY).await {
             Ok(took) => {
+                let board = &self.tools.root_install;
+                let signalled =
+                    crate::config_change::write::atomic(&board.signal(), &p.merge, None);
+                if let Err(e) = signalled {
+                    tracing::warn!(error = %e, "self-install: the confirmation could not be written");
+                    return;
+                }
                 p.stage = Stage::Confirmed;
                 p.took_ms = Some(took.as_millis() as u64);
                 if let Err(e) = self.root_save(&p) {
                     tracing::warn!(error = %format!("{e:#}"), "self-install: the marker could not be kept");
-                }
-                let board = &self.tools.root_install;
-                let signalled = std::fs::create_dir_all(board.dir())
-                    .and_then(|()| std::fs::write(board.signal(), &p.merge));
-                if let Err(e) = signalled {
-                    tracing::warn!(error = %e, "self-install: the confirmation could not be written");
                 }
                 self.root_row(
                     "verified",

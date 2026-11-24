@@ -33,6 +33,15 @@ pub(crate) struct Rig {
 }
 
 pub(crate) fn rig_with(jev: FakeJev, namer: Vec<Scripted>, more: impl FnOnce(&mut Config)) -> Rig {
+    rig_with_gate(jev, namer, more, None)
+}
+
+fn rig_with_gate(
+    jev: FakeJev,
+    namer: Vec<Scripted>,
+    more: impl FnOnce(&mut Config),
+    gate: Option<Arc<crate::provider::RequestGate>>,
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg: Config = judge_config(dir.path(), Some(&jev));
     inbound_only(&mut cfg);
@@ -48,7 +57,9 @@ pub(crate) fn rig_with(jev: FakeJev, namer: Vec<Scripted>, more: impl FnOnce(&mu
     let mut fake = FakeProvider::scripted(texts(8));
     fake.delay_ms = PROVIDER_MS;
     let mut p = Parts::for_tests(cfg, Arc::new(fake), store);
-    let namer = Arc::new(FakeProvider::scripted(namer));
+    let mut namer = FakeProvider::scripted(namer);
+    namer.gate = gate;
+    let namer = Arc::new(namer);
     p.providers.insert("zai".into(), namer.clone());
     p.secrets = crate::tests_judge::board();
     let core = Core::build(p).unwrap();
@@ -933,13 +944,11 @@ async fn a_gps_tagged_picture_reaches_jev_without_its_gps_and_with_the_header() 
     assert!(!state.contains("skipped_images\":["), "{state}");
 }
 
-/// KEY: a picture in a shared place is asked about for its own sake:
-/// the request carries it, but no title, membership, candidate or name of the
-/// owner's goes with it, and nothing is filed from the answer.
+/// Shared pictures and text receive the same category questions and filing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_shared_places_picture_is_asked_without_candidates_and_files_nothing() {
+async fn a_shared_places_picture_is_asked_with_categories() {
     let jev = FakeJev::start().unwrap();
-    jev.script_onto("topic", "new", 0.95);
+    jev.script_onto("topic", "c1", 0.95);
     let r = rig(jev);
     operator_writes(
         &r.core,
@@ -961,31 +970,35 @@ async fn a_shared_places_picture_is_asked_without_candidates_and_files_nothing()
     .await;
     let seen = with_assets(&r.jev);
     assert_eq!(seen.len(), 1, "the shared place's picture is asked about");
-    let state = seen[0].body["state"].to_string();
+    let state = seen[0].body.to_string();
     assert!(
-        !state.contains("Ledger"),
-        "no category of the owner's: {state}"
+        state.contains("Ledger"),
+        "category evidence is present: {state}"
     );
     let asked = onto_questions(&seen[0]);
     assert!(asked.contains(&"image_subject".to_string()), "{asked:?}");
     assert!(
-        !asked.contains(&"topic".to_string()),
-        "no filing question: {asked:?}"
+        asked.contains(&"topic".to_string()),
+        "filing question: {asked:?}"
     );
+    r.core.runner.judge.flush_sink();
     let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
-    assert!(o.member_list(&sid, "topic").is_none(), "nothing filed");
+    assert!(
+        o.member_list(&sid, "topic").is_some(),
+        "shared pictures file categories"
+    );
     assert!(cards(&r.core).is_empty(), "no card");
 }
 
-/// A shared place's text-only message asks `onto.v1` nothing, as before.
+/// Shared text is labeled too.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_shared_places_text_message_still_asks_onto_nothing() {
+async fn a_shared_places_text_message_asks_onto() {
     let jev = FakeJev::start().unwrap();
     let r = rig(jev);
     let sid = bound_to(&r.core, "dm:77");
     crate::tests_route::turn(&r.core, Some(&sid), SAID, None).await;
     let asked_onto = r.jev.seen().iter().any(|s| !onto_questions(s).is_empty());
-    assert!(!asked_onto, "no onto question left for a shared place");
+    assert!(asked_onto, "shared text receives ontology labels");
 }
 
 /// The naming call asks its own target model's forcing: on a Sonnet profile
@@ -1017,5 +1030,61 @@ fn the_naming_request_forces_its_tool_only_where_thinking_is_off() {
     crate::provider::one_tool::assert_both_shapes(
         |how| crate::judge::onto::name::request("m", how, "topic", "said", &|t| t.to_string()),
         crate::judge::onto::name::TOOL,
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn simultaneous_naming_calls_share_one_daily_slot() {
+    let _clock = crate::test_support::pin_mid_period();
+    let gate = crate::provider::RequestGate::at(0);
+    let named = Scripted::tools(
+        "",
+        &[(
+            "tu_1",
+            "name_category",
+            json!({"names": ["Ledger move"], "description": "Moving the ledger."}),
+        )],
+    );
+    let r = rig_with_gate(
+        FakeJev::start().unwrap(),
+        vec![named.clone(), named],
+        |_| {},
+        Some(gate.clone()),
+    );
+    let sid = bound(&r.core);
+    let (core, session) = (r.core.clone(), sid.clone());
+    let first = tokio::spawn(async move { core.onto_name(&session, "topic", SAID).await });
+    gate.reached().await;
+    let second = r.core.onto_name(&sid, "topic", SAID).await;
+    gate.open();
+    first.await.unwrap().unwrap();
+    assert!(
+        second.is_err(),
+        "a request already in flight owns the daily slot"
+    );
+    assert_eq!(r.namer.requests().len(), 1, "one paid naming request");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelling_a_naming_call_releases_its_inflight_claim() {
+    let _clock = crate::test_support::pin_mid_period();
+    let gate = crate::provider::RequestGate::at(0);
+    let r = rig_with_gate(
+        FakeJev::start().unwrap(),
+        vec![],
+        |_| {},
+        Some(gate.clone()),
+    );
+    let sid = bound(&r.core);
+    let (core, session) = (r.core.clone(), sid.clone());
+    let first = tokio::spawn(async move { core.onto_name(&session, "topic", SAID).await });
+    gate.reached().await;
+    first.abort();
+    assert!(first.await.unwrap_err().is_cancelled());
+    r.core.onto_name(&sid, "topic", SAID).await.unwrap();
+    assert_eq!(
+        r.namer.requests().len(),
+        2,
+        "cancellation does not consume the daily marker"
     );
 }

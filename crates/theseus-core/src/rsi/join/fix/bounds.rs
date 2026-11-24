@@ -28,6 +28,7 @@ pub const JUDGE: &[&str] = &[
     // The fixer's own confinement and roles, the jail its commands run in, how a red is read
     // (the second look, the machine's fault), and what a builder is told.
     "crates/theseus-core/src/rsi/own_tree.rs",
+    "crates/theseus-core/src/rsi/tree_git.rs",
     "crates/theseus-core/src/rsi/roles.rs",
     "crates/theseus-core/src/rsi/jail.rs",
     "crates/theseus-core/src/rsi/rerun.rs",

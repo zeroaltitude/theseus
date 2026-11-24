@@ -18,7 +18,13 @@ impl Chat {
     /// Whether a message typed now waits: a turn runs, or the last queued
     /// message has been sent and its turn has not begun.
     pub(super) fn must_queue(&self) -> bool {
-        self.live.turn.is_some() || self.released
+        self.live.turn.is_some()
+            || self.question.is_some()
+            || self.released
+            || self
+                .session
+                .as_ref()
+                .is_some_and(|s| self.recovering.contains(s))
     }
 
     /// Hold `text` for the turn's end.
@@ -40,12 +46,18 @@ impl Chat {
     /// Ctrl-Enter: the line (or the last queued message) goes first, and the
     /// turn that runs stops, so it goes now.
     pub(super) fn send_now(&mut self) -> Vec<Effect> {
-        let typed = self.editor.take();
-        if !typed.text.trim().is_empty() {
-            self.queued.insert(0, typed);
-        } else if let Some(last) = self.queued.pop() {
-            self.queued.insert(0, last);
+        if !self.editor.text().trim().is_empty() {
+            return self.submit_with_policy(true);
         }
+        if let Some(last) = self.queued.pop() {
+            return self.dispatch_now(last);
+        }
+        Vec::new()
+    }
+
+    /// Only prepared messages may bypass the ordinary end-of-turn queue.
+    pub(super) fn dispatch_now(&mut self, taken: Taken) -> Vec<Effect> {
+        self.queued.insert(0, taken);
         if self.queued.is_empty() {
             return Vec::new();
         }
@@ -57,7 +69,7 @@ impl Chat {
 
     /// The turn is over: the first queued message goes as a turn of its own.
     pub(super) fn release_queue(&mut self) -> Vec<Effect> {
-        if self.live.turn.is_some() || self.released || self.queued.is_empty() {
+        if self.must_queue() || self.queued.is_empty() {
             return Vec::new();
         }
         let Some(sid) = self.session.clone() else {

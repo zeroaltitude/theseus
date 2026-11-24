@@ -1444,3 +1444,30 @@ async fn the_waits_stop_check_reads_the_executions_stop() {
         .expect("a stop of the execution stops the wait");
     assert!(why.contains("the CLI"), "{why}");
 }
+
+#[tokio::test]
+async fn a_failed_keel_marker_write_still_refuses_another_attempt() {
+    let r = rig(SelfMode::Act, Some("origin"));
+    bind_the_owners_dm(&r);
+    let sid = r.session("self");
+    r.open_and_edit(&sid, "keel.txt").await;
+    let mark = r.f.place.trees().join("trim-the-sails.keel");
+    std::os::unix::fs::symlink(r.f.place.state.join("absent/hold"), &mark).unwrap();
+    assert!(!mark.exists());
+    let said = r.turn(&sid, WIRE, propose()).await;
+    assert!(said.contains("could not persist the keel hold"), "{said}");
+    let cards = crate::tests_day_ceiling::posts(&r.core, "self_keel");
+    assert_eq!(cards.len(), 1, "the owner must still be asked");
+    assert!(cards[0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("daemon restarts"));
+    let n = r.rows().len();
+    let said = r.turn(&sid, WIRE, propose()).await;
+    assert!(said.contains("waits for the owner"), "{said}");
+    assert_eq!(
+        r.rows().len(),
+        n,
+        "the failed marker is not permission to retry"
+    );
+}

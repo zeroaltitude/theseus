@@ -113,6 +113,7 @@ impl Kernel {
                     c.outcome, c.producer
                 ));
                 let mut frame = vec![completion_rec, action_record(&a)?];
+                let mut day = None;
                 // A reservation the cancel held as unknown (its backend could
                 // not be stopped) is reconciled by the cost this first late
                 // completion brings: booked as spent, and the hold released
@@ -129,18 +130,21 @@ impl Kernel {
                     if let Some(mut e) = self.execution(&a.execution_id)? {
                         let spent_before = e.budget.spent_micros;
                         crate::earlier::resolve_in(&mut e.budget, &a, c.cost_micros);
-                        self.day_after(Effect::resolved(&a, c.cost_micros));
+                        day = Effect::resolved(&a, c.cost_micros);
                         e.updated_at_ms = now;
                         frame.push(exec_record(&e)?);
                         self.carry_to_parent(&e, spent_before, &mut frame)?;
                     }
                 }
+                let mut data = json!({"correlation_id": a.correlation_id, "outcome": c.outcome, "producer": c.producer, "cost_usd": c.cost_micros.map(micros_to_usd)});
+                Effect::stamp(&mut data, &day);
                 frame.push(self.ledger(
                     LedgerKind::CompletionLateAfterCancel,
                     Some(&a.session_id),
-                    json!({"correlation_id": a.correlation_id, "outcome": c.outcome, "producer": c.producer, "cost_usd": c.cost_micros.map(micros_to_usd)}),
+                    data,
                 )?);
                 self.commit(&frame)?;
+                self.day_after(day);
                 return Ok(Accepted::LateAfterCancel {
                     correlation_id: a.correlation_id,
                 });
@@ -250,6 +254,7 @@ impl Kernel {
         if book {
             crate::earlier::booked_row(&mut data, &a);
         }
+        Effect::stamp(&mut data, &day);
         // How a job failed, for the nightly read (failure.rs).
         crate::failure::stamp(&mut data, c);
         frame.push(self.ledger(kind, Some(&a.session_id), data)?);
