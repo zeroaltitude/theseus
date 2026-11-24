@@ -527,8 +527,10 @@ async fn a_conversation_that_said_it_and_read_it_back_by_history_is_told_once() 
 
 /// **A view kept before recall left copies out, which recalled a history result, is refused once the source
 /// that result showed is erased.** Its beside block holds the result's words and is read back as kept, and
-/// the reader's window never laid the exchange that read it. New recall no longer admits a copy, so the old
-/// record is written as stored data: the turn's kept view, its recalled nodes naming the result.
+/// the reader's view never laid or folded the exchange that read it. New recall no longer admits a copy, so
+/// the old record is written as stored data: the turn's kept view, its recalled nodes naming the result, and
+/// the exchanges it laid or folded only its own (on this rig the view also folds the other conversation's
+/// exchange, which the exchange check alone would refuse; a view that did not fold it held only its own).
 #[tokio::test]
 async fn a_replay_refuses_a_kept_recall_of_a_history_result_whose_source_was_erased() {
     use crate::tests_imports::{episode, import};
@@ -555,6 +557,10 @@ async fn a_replay_refuses_a_kept_recall_of_a_history_result_whose_source_was_era
         .unwrap()
         .expect("the turn's view");
     let kept = v.kept.as_mut().expect("the view is kept");
+    let store = &r.core.store;
+    kept.exchanges.retain(
+        |x| matches!(crate::exchange::exchange(store, x), Ok(Some(e)) if e.session_id == b),
+    );
     kept.recalled.push(copy);
     r.core
         .store
