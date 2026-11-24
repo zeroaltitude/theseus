@@ -167,9 +167,9 @@ impl Tasks {
             return;
         }
         match (&v.question, ended) {
-            (Some(q), false) => self.ask(v, q),
+            (Some(q), false) => self.ask(&core.exits, v, q),
             _ => {
-                if let Some(text) = ending(v) {
+                if let Some(text) = ending(&core.exits, v) {
                     let _ = self.commands.send(Command::Report { text });
                 }
             }
@@ -246,8 +246,8 @@ impl Tasks {
     }
 
     /// Say a task's question, and wait for the answer to it.
-    fn ask(&mut self, v: &WorkView, q: &Question) {
-        let who = clean(&q.asked_by.title, 80);
+    fn ask(&mut self, exits: &theseus_core::exits::Exits, v: &WorkView, q: &Question) {
+        let who = clean(&exits.text(&q.asked_by.title).0, 80);
         let who = if who.is_empty() { "A task".into() } else { who };
         let (what, how) = match q.kind {
             QuestionKind::Approval => (
@@ -263,7 +263,7 @@ impl Tasks {
                 ("wants to load an extension".into(), "Say approve or deny.")
             }
             QuestionKind::Ask => (
-                sentences(&q.prompt, 1, SPOKEN_MAX),
+                sentences(&exits.text(&q.prompt).0, 1, SPOKEN_MAX),
                 "Say the option's number.",
             ),
         };
@@ -272,7 +272,12 @@ impl Tasks {
             false => q.options.clone(),
         };
         let listed = match q.kind {
-            QuestionKind::Ask => numbered(&q.choices),
+            QuestionKind::Ask => numbered(
+                &q.choices
+                    .iter()
+                    .map(|c| exits.text(c).0.into_owned())
+                    .collect::<Vec<_>>(),
+            ),
             _ => String::new(),
         };
         let text = format!("{who} needs you: {what}. {listed}{how}");
@@ -334,8 +339,8 @@ fn key_of(v: &WorkView) -> Option<String> {
 }
 
 /// `<title> is done: <its report's first sentences>`, or `failed:`.
-fn ending(v: &WorkView) -> Option<String> {
-    let title = clean(&v.title, 80);
+fn ending(exits: &theseus_core::exits::Exits, v: &WorkView) -> Option<String> {
+    let title = clean(&exits.text(&v.title).0, 80);
     let title = if title.is_empty() {
         "A task".into()
     } else {
@@ -346,11 +351,17 @@ fn ending(v: &WorkView) -> Option<String> {
     let line = report.first_line.as_deref().filter(|r| !r.is_empty());
     Some(match v.state {
         WorkState::Done => match line {
-            Some(l) => format!("{title} is done: {}", sentences(l, 2, SPOKEN_MAX)),
+            Some(l) => format!(
+                "{title} is done: {}",
+                sentences(&exits.text(l).0, 2, SPOKEN_MAX)
+            ),
             None => format!("{title} is done."),
         },
         WorkState::Failed => match reason.or(line) {
-            Some(r) => format!("{title} failed: {}", sentences(r, 2, SPOKEN_MAX)),
+            Some(r) => format!(
+                "{title} failed: {}",
+                sentences(&exits.text(r).0, 2, SPOKEN_MAX)
+            ),
             None => format!("{title} failed."),
         },
         WorkState::Cancelled => format!("{title} was stopped."),
@@ -766,4 +777,59 @@ fn why(e: &crate::rpc_client::CallError) -> String {
         .and_then(serde_json::Value::as_str)
         .unwrap_or(&e.message)
         .to_string()
+}
+
+#[cfg(test)]
+mod exit_tests_r5 {
+    use super::*;
+    use crate::runtime::tests_exits_r3::rig;
+    const SECRET: &str = "vault words across boundary";
+    #[tokio::test]
+    async fn spoken_task_title_masks_before_cut_r5() {
+        let (_dir, core, _fake, _shared) = rig();
+        core.secrets
+            .hold("spoken", theseus_core::secrets::Secret::new(SECRET.into()));
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut tasks = Tasks::new(tx, 42, 0);
+        let mut v = crate::runtime::tests_exits_r3::view();
+        v.title = format!("{}{}", "x ".repeat(30), SECRET);
+        v.state = WorkState::Done;
+        v.report = Some(
+            serde_json::from_value(serde_json::json!({"outcome":"done", "first_line":"Finished"}))
+                .unwrap(),
+        );
+        tasks.see(&core, &v);
+        let Command::Report { text } = rx.try_recv().unwrap() else {
+            panic!("report")
+        };
+        assert!(!text.contains("vault"), "{text}");
+        assert!(text.contains("[red"), "{text}");
+        assert!(v.title.contains(SECRET));
+    }
+    #[tokio::test]
+    async fn spoken_ask_masks_cuts_keeps_options_r5() {
+        let (_dir, core, _fake, _shared) = rig();
+        core.secrets
+            .hold("spoken", theseus_core::secrets::Secret::new(SECRET.into()));
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut tasks = Tasks::new(tx, 42, 0);
+        let mut v = crate::runtime::tests_exits_r3::view();
+        v.kind = WorkKind::Question;
+        v.state = WorkState::NeedsYou;
+        let q: Question = serde_json::from_value(serde_json::json!({"id":"q", "kind":"ask", "asked_by":{"id":"exe_ask", "kind":"task", "title":format!("{}{}", "x ".repeat(30), SECRET)}, "prompt":format!("{}{}", "x ".repeat(100), SECRET), "choices":[format!("{}{}", "x ".repeat(10), SECRET)], "options":[], "floor":false,"may_answer":true})).unwrap();
+        let options = answer_options(&q);
+        v.question = Some(q);
+        tasks.see(&core, &v);
+        let Command::Report { text } = rx.try_recv().unwrap() else {
+            panic!("report")
+        };
+        assert!(!text.contains("vault"), "{text}");
+        assert!(text.matches("[red").count() >= 3, "{text}");
+        assert_eq!(tasks.pending.as_ref().unwrap().options, options);
+        let (Said::Answer { option, .. }, _) = tasks.take("one", true, Instant::now()).unwrap()
+        else {
+            panic!("answer")
+        };
+        assert_eq!(option, options[0].id);
+    }
 }
