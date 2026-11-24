@@ -272,4 +272,3 @@ confirm = 0.55
 only_when = "images"
 when_true = "It shows a screen's or a page's contents that someone could read."
 when_false = "It shows no readable screen or page: it is a photo, a drawing or a plain chart."
-

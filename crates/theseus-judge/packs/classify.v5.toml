@@ -85,4 +85,3 @@ act = 0.90
 confirm = 0.60
 when_true = "The person says what should happen later or lists things to do (\"we should…\", \"later can you…\", \"next: a, b, c\"), and nothing in the message asks for that work to begin in this conversation."
 when_false = "The message asks for something now, is a question, is chat, or describes a single quick step."
-
