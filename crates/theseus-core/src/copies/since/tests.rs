@@ -1,0 +1,260 @@
+//! What a window lays beside a node: a look back's result and a task's report by their sources, a node by
+//! its own label; nothing else changes, the stored node least of all.
+
+use serde_json::json;
+
+use super::*;
+use crate::compiler::tests_view::result;
+
+/// The message a result showed, and the retraction's words.
+const GIST: &str = "the heron nests by the north weir";
+const WHY: &str = "it nests by the south weir";
+const AT_MS: u64 = 1_790_000_000_000;
+
+fn store() -> (tempfile::TempDir, Store) {
+    let dir = tempfile::tempdir().unwrap();
+    let s = Store::open(&dir.path().join("store")).unwrap();
+    (dir, s)
+}
+
+/// The source message, stored: its id.
+fn source(store: &Store) -> String {
+    let n = Node::user("s", Some("t0"), "cli", GIST);
+    store.append(&[n.record().unwrap()]).unwrap();
+    n.id
+}
+
+/// `node`'s retraction row, as `fact.retract` writes it.
+fn retracted(store: &Store, node: &str) {
+    let f = crate::fact::retract::Retracted {
+        node_id: node,
+        session_id: "s",
+        gist: GIST,
+        why: WHY,
+        who: "owner",
+        via: "cli",
+        at_ms: AT_MS,
+        exposures: &[],
+        partial: false,
+        card: false,
+        private: true,
+        labeled: &[],
+    };
+    let row = crate::fact::row(&f, Some("s"), None).unwrap();
+    store
+        .append(&[row.scoped(crate::retract::SCOPE)])
+        .unwrap();
+}
+
+/// A result of `tool` that showed `of`, by `via`, stored with its edge; marked outside, with meta.
+fn shown_by(store: &Store, tool: &str, via: &str, of: &str) -> Node {
+    let mut n = result("t1", "h1", &format!("[1] the owner: {GIST}"));
+    if let Body::ToolResult {
+        tool: t,
+        external,
+        meta,
+        ..
+    } = &mut n.body
+    {
+        *t = tool.into();
+        *external = Some(theseus_tools::External {
+            url: "history:s".into(),
+        });
+        *meta = json!({"look": "page", "lines": 1});
+    }
+    let e = Edge::new(EdgeKind::DerivedFrom, &n.id, of, via);
+    store
+        .append(&[n.record().unwrap(), e.record().unwrap()])
+        .unwrap();
+    n
+}
+
+fn lay_one(store: &Store, wrong: &BTreeSet<String>, n: &Node) -> Node {
+    let laid = Since::new(store, wrong)
+        .lay(vec![(0, Stub::from(n.clone()))])
+        .unwrap();
+    (*laid[0].1).clone()
+}
+
+fn content(n: &Node) -> &str {
+    match &n.body {
+        Body::ToolResult { content, .. } => content,
+        Body::UserMessage { text, .. } => text,
+        b => panic!("{b:?}"),
+    }
+}
+
+/// The day the line names.
+fn day() -> String {
+    crate::judge::spend::local_day(AT_MS)
+}
+
+/// A history result whose source was retracted is laid with the line, after its words as they were; its
+/// tool, its outside mark and its meta are as stored, and the stored node is not written.
+#[test]
+fn a_look_backs_result_is_laid_with_what_was_said_since_and_its_mark_unchanged() {
+    let (_d, s) = store();
+    let src = source(&s);
+    retracted(&s, &src);
+    let n = shown_by(&s, crate::view::history::HISTORY_TOOL, crate::graph::VIA_HISTORY, &src);
+    let at = s.last_position();
+    let wrong = BTreeSet::from([src.clone()]);
+    let laid = lay_one(&s, &wrong, &n);
+    assert_eq!(
+        content(&laid),
+        format!(
+            "{}\n[Since this was read: \u{201c}{GIST}\u{201d} was marked wrong on {}: {WHY}. The words \
+             above are as they were said.]",
+            content(&n),
+            day()
+        )
+    );
+    let (
+        Body::ToolResult {
+            tool: t0,
+            external: x0,
+            meta: m0,
+            tool_use_id: u0,
+            ..
+        },
+        Body::ToolResult {
+            tool: t1,
+            external: x1,
+            meta: m1,
+            tool_use_id: u1,
+            ..
+        },
+    ) = (&n.body, &laid.body)
+    else {
+        panic!("{laid:?}");
+    };
+    assert_eq!((t0, x0, m0, u0), (t1, x1, m1, u1));
+    assert!(x1.is_some(), "still marked outside");
+    assert_eq!(s.last_position(), at, "nothing is written");
+    let (_, stored) = s.get_node(&n.id).unwrap().unwrap();
+    assert_eq!(content(&stored), content(&n), "the stored node is as written");
+}
+
+/// The same for `look.work`'s result, by its own route.
+#[test]
+fn a_looks_result_is_laid_with_what_was_said_since() {
+    let (_d, s) = store();
+    let src = source(&s);
+    retracted(&s, &src);
+    let n = shown_by(&s, crate::look::WORK, crate::graph::VIA_LOOK, &src);
+    let laid = lay_one(&s, &BTreeSet::from([src]), &n);
+    assert!(content(&laid).starts_with(content(&n)), "{laid:?}");
+    assert!(content(&laid).contains("[Since this was read: "), "{laid:?}");
+}
+
+/// A result of another tool is laid byte for byte, even with an edge and a labelled node beside it; so is a
+/// look back's result whose sources nothing was said about.
+#[test]
+fn a_result_of_another_tool_is_laid_byte_for_byte() {
+    let (_d, s) = store();
+    let src = source(&s);
+    retracted(&s, &src);
+    let other = shown_by(&s, "fs.read", crate::graph::VIA_HISTORY, &src);
+    let wrong = BTreeSet::from([src.clone()]);
+    let laid = lay_one(&s, &wrong, &other);
+    assert_eq!(
+        serde_json::to_vec(&laid).unwrap(),
+        serde_json::to_vec(&other).unwrap()
+    );
+    let quiet = shown_by(&s, crate::view::history::HISTORY_TOOL, crate::graph::VIA_HISTORY, &src);
+    let laid = lay_one(&s, &BTreeSet::new(), &quiet);
+    assert_eq!(
+        serde_json::to_vec(&laid).unwrap(),
+        serde_json::to_vec(&quiet).unwrap()
+    );
+}
+
+/// A source erased since: one fixed line, and none of the result's words.
+#[test]
+fn an_erased_source_lays_one_line_and_none_of_its_words() {
+    let (_d, s) = store();
+    let src = source(&s);
+    let n = shown_by(&s, crate::view::history::HISTORY_TOOL, crate::graph::VIA_HISTORY, &src);
+    let (_, was) = s.get_node(&src).unwrap().unwrap();
+    s.append(&[was.erased(AT_MS, "a test").record().unwrap()])
+        .unwrap();
+    let laid = lay_one(&s, &BTreeSet::new(), &n);
+    assert_eq!(content(&laid), ERASED_RESULT);
+    assert!(!content(&laid).contains("heron"));
+}
+
+/// A task's report is laid with what was said of the message it relayed, by its report edge.
+#[test]
+fn a_report_is_laid_with_what_was_said_of_its_message() {
+    let (_d, s) = store();
+    let src = source(&s);
+    retracted(&s, &src);
+    let n = Node::relayed("s", Some("t2"), Origin::Harness, "task:abc123", GIST);
+    let e = Edge::new(EdgeKind::DerivedFrom, &n.id, &src, VIA_REPORT);
+    s.append(&[n.record().unwrap(), e.record().unwrap()])
+        .unwrap();
+    let laid = lay_one(&s, &BTreeSet::from([src]), &n);
+    assert!(content(&laid).starts_with(GIST), "{laid:?}");
+    assert!(content(&laid).contains("[Since this was read: "), "{laid:?}");
+}
+
+/// The node itself, marked wrong, carries the mark wherever it is laid: a message in its text, an answer in
+/// its last text block, its call untouched.
+#[test]
+fn a_node_marked_wrong_is_laid_with_its_mark() {
+    let (_d, s) = store();
+    let ask = Node::user("s", Some("t3"), "cli", GIST);
+    let mut answer = Node::user("s", Some("t3"), "cli", "x");
+    answer.body = Body::AssistantMessage {
+        blocks: vec![
+            json!({"type": "text", "text": "Noted."}),
+            json!({"type": "tool_use", "id": "c1", "name": "fs_read", "input": {"path": "a"}}),
+        ],
+        model: "m".into(),
+        provider: "anthropic".into(),
+        stop_reason: None,
+        usage: Default::default(),
+        cost_usd: None,
+        catalog_version: None,
+        request_id: None,
+        correlation_id: None,
+        compilation_id: None,
+        request_digest: None,
+        effort: None,
+    };
+    s.append(&[ask.record().unwrap(), answer.record().unwrap()])
+        .unwrap();
+    retracted(&s, &ask.id);
+    let wrong = BTreeSet::from([ask.id.clone(), answer.id.clone()]);
+    let line = format!(
+        "[Since this was said: it was marked wrong on {}: {WHY}. The words above are as they were said.]",
+        day()
+    );
+    assert_eq!(content(&lay_one(&s, &wrong, &ask)), format!("{GIST}\n{line}"));
+    let laid = lay_one(&s, &wrong, &answer);
+    let Body::AssistantMessage { blocks, .. } = &laid.body else {
+        panic!("{laid:?}");
+    };
+    assert_eq!(
+        blocks[0]["text"],
+        "Noted.\n\n[Since this was said: it was labelled wrong or stale. The words above are as they were \
+         said.]"
+    );
+    let Body::AssistantMessage { blocks: was, .. } = &answer.body else {
+        unreachable!()
+    };
+    assert_eq!(blocks[1], was[1], "the call is as stored");
+}
+
+/// Two windows with nothing said between them lay the same bytes.
+#[test]
+fn two_lays_with_nothing_said_between_are_the_same_bytes() {
+    let (_d, s) = store();
+    let src = source(&s);
+    retracted(&s, &src);
+    let n = shown_by(&s, crate::view::history::HISTORY_TOOL, crate::graph::VIA_HISTORY, &src);
+    let wrong = BTreeSet::from([src]);
+    let a = serde_json::to_vec(&lay_one(&s, &wrong, &n)).unwrap();
+    let b = serde_json::to_vec(&lay_one(&s, &wrong, &n)).unwrap();
+    assert_eq!(a, b);
+}

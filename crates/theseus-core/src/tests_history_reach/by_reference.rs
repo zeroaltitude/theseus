@@ -194,3 +194,124 @@ async fn an_erased_import_is_not_recalled_through_a_history_result() {
     };
     assert!(!m.admitted.iter().any(shown), "{m:?}");
 }
+
+/// The message of the request the model last got that holds the result of call `h1`, and that block.
+fn laid_result(r: &Rig) -> (Value, Value) {
+    let last = r.requests().pop().expect("a request");
+    for m in &last.messages {
+        let blocks = m["content"].as_array().cloned().unwrap_or_default();
+        if let Some(b) = blocks
+            .into_iter()
+            .find(|b| b["type"] == "tool_result" && b["tool_use_id"] == "h1")
+        {
+            return (m.clone(), b);
+        }
+    }
+    panic!("no result of h1 is laid: {:#?}", last.messages)
+}
+
+/// The next request of the conversation that read the line lays its history result with what was said
+/// since: its words as they were, and the line after them.
+#[tokio::test]
+async fn a_window_lays_a_history_result_with_the_correction_since() {
+    let r = rig();
+    let said = say(&r.core).await;
+    let other = session(&r.core, Some("channel:lab"));
+    read_in(&r.core, &other, json!({ "open": said.turn })).await;
+    turn(&r.core, &other, "and the tide?").await;
+    let (_, before) = laid_result(&r);
+    assert!(!before.to_string().contains("Since this was"), "{before}");
+    retract(&r.core, &said.node);
+    turn(&r.core, &other, "and the weir?").await;
+    let (_, after) = laid_result(&r);
+    let text = after.to_string();
+    assert!(text.contains(WORD), "{text}");
+    assert!(text.contains("[Since this was read: "), "{text}");
+    assert!(text.contains(WHY), "{text}");
+}
+
+/// Two turns with no correction between them lay the read exchange in the same bytes, the line included.
+#[tokio::test]
+async fn two_turns_with_nothing_said_between_lay_the_same_bytes() {
+    let r = rig();
+    let said = say(&r.core).await;
+    let other = session(&r.core, Some("channel:lab"));
+    read_in(&r.core, &other, json!({ "open": said.turn })).await;
+    retract(&r.core, &said.node);
+    turn(&r.core, &other, "and the weir?").await;
+    let first = laid_result(&r);
+    turn(&r.core, &other, "and at dawn?").await;
+    let second = laid_result(&r);
+    assert!(first.1.to_string().contains("[Since this was read: "));
+    assert_eq!(first, second);
+}
+
+/// An import erased after a history result showed it: the result is laid as one line, none of its words.
+#[tokio::test]
+async fn a_window_lays_no_words_of_an_erased_source() {
+    use crate::tests_imports::{episode, import};
+    let r = rig();
+    let ids = import(
+        &r.core,
+        &[episode(7, "personal", "2026-03-03T18:00:00Z", SAID)],
+    );
+    let other = session(&r.core, None);
+    read_in(&r.core, &other, json!({ "open": ids[0] })).await;
+    crate::import::write::erase(&r.core.store, "kelp-2026", Some("a test"), "cli").unwrap();
+    turn(&r.core, &other, "and the weir?").await;
+    let (_, laid) = laid_result(&r);
+    assert!(
+        laid.to_string()
+            .contains(crate::copies::since::ERASED_RESULT),
+        "{laid}"
+    );
+    let last = r.requests().pop().expect("a request");
+    let sent = serde_json::to_string(&last.messages).unwrap();
+    assert!(!sent.contains(WORD), "{sent}");
+}
+
+/// The retracted message itself, laid in its own conversation's window, carries the mark after its words.
+#[tokio::test]
+async fn a_retracted_message_in_the_window_carries_the_mark() {
+    let r = rig();
+    let said = say(&r.core).await;
+    retract(&r.core, &said.node);
+    turn(&r.core, &said.session, "and the weir?").await;
+    let last = r.requests().pop().expect("a request");
+    let ask = (last.messages.iter())
+        .map(|m| m.to_string())
+        .find(|m| m.contains(WORD) && !m.contains("Correction:"))
+        .unwrap_or_else(|| panic!("the message is laid: {:#?}", last.messages));
+    assert!(ask.contains("[Since this was said: it was marked wrong on "), "{ask}");
+    let (_, stored) = r.core.store.get_node(&said.node).unwrap().unwrap();
+    assert!(
+        matches!(&stored.body, Body::UserMessage { text, .. } if text == SAID),
+        "the stored message is as said: {stored:?}"
+    );
+}
+
+/// A replay of a turn whose window laid a history result is refused once a source the result showed is
+/// erased: the turn's kept copy would send the erased words again.
+#[tokio::test]
+async fn a_replay_refuses_a_window_that_showed_erased_words_by_history() {
+    use crate::tests_imports::{episode, import};
+    let r = rig();
+    let ids = import(
+        &r.core,
+        &[episode(7, "personal", "2026-03-03T18:00:00Z", SAID)],
+    );
+    let other = session(&r.core, None);
+    read_in(&r.core, &other, json!({ "open": ids[0] })).await;
+    let t = turn(&r.core, &other, "and the weir?").await.turn_id;
+    if let Err(e) = r.core.rebuild_first(&other, &t) {
+        panic!("the turn is kept and rebuilds before the erase: {e}");
+    }
+    crate::import::write::erase(&r.core.store, "kelp-2026", Some("a test"), "cli").unwrap();
+    let Err(e) = r.core.rebuild_first(&other, &t) else {
+        panic!("a turn whose window showed erased words was rebuilt");
+    };
+    assert_eq!(
+        (e.part, e.why.as_str()),
+        ("view", crate::own_bench::rebuild::VIEW_ERASED)
+    );
+}

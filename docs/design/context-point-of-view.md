@@ -121,6 +121,27 @@ view's reach, and the turn takes the view all the same. The rebuild erases nothi
 that was written as it happened or carries a mark, and only its unmarked older history is out of its reach. No mark
 is ever made backwards.
 
+**A node's words do not change; what is said of it since is shown beside them (2026-11-24).** Two rules hold for
+the graph. A node's words do not change once written. An erase is the one exception, and its tombstone keeps the
+id, so nothing that points at the node dangles. What is said about a node later (a retraction, a label) is a
+record of its own that points at it, and the node is shown with it. As built:
+
+- A conversation that read a node's words through a look back (`context.history`, `look.work`) is told of a
+  retraction once, as one that laid the node any other way is. A live one gets the correction note, and a task's
+  is named on the card.
+- Recall never serves a look back's result as its own words. Each original is indexed under its own id, with its
+  own label.
+- A window that lays an exchange whole adds one line, in the code's own words, saying what was said since. This
+  applies to a look back's result (by its copy edges), a task's report (by its report edge), and a node marked
+  wrong. A result whose source was erased since is laid as one fixed line instead of its words.
+- All of this happens in memory when the request is assembled. No stored node is written, and the act gates,
+  which read the stored node, see what they saw before. A replay of a turn whose window showed words that were
+  erased since is refused.
+
+Not yet: a stored result keeps its words as the record of what was shown (whether it should hold references only
+is the owner's decision). `did` lines and fold accounts, exact spans, a recall note's source, and an imported
+summary that is rewritten under its own id are also left.
+
 **Not built**: the search before the first word (§6, rung 2) and the `leans_on` question; asking a task itself, and
 §7's own table for a task (a task's turns use a place's table at the task's own place: §7, "as built"); writing `did` lines and fold nodes again after a correction; the yardstick; the aside;
 step 10; and the `derived_from` edges of §3.

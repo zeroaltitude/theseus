@@ -3,14 +3,17 @@
 //! ([`copied`]) before the result node is built, so they are never stored, and writes one `derived_from` edge
 //! from the result to each ([`edges`]), by the tool's own route: `node.reach` of a message then finds every
 //! result that showed its words, and a retraction tells the conversation that read it, as a glide's borrowed
-//! node was found from each message it took. Only the tools [`COPIERS`] names are read, so no other tool's meta can write
-//! an edge.
+//! node was found from each message it took. Only the tools [`COPIERS`] names are read, so no other tool's
+//! meta can write an edge. A window lays such a result with what has been said about its sources since
+//! ([`since`]).
 
 use anyhow::Result;
 use serde_json::Value;
 use theseus_store::NewRecord;
 
 use crate::graph::{Edge, EdgeKind, VIA_HISTORY, VIA_LOOK};
+
+pub mod since;
 
 /// The meta key the sources ride under, from the tool to its completion's frame.
 pub const KEY: &str = "copies";
@@ -23,7 +26,12 @@ const COPIERS: [(&str, &str); 2] = [
 
 /// Whether `tool`'s results copy stored words: recall never serves one as its own words.
 pub fn copier(tool: &str) -> bool {
-    COPIERS.iter().any(|(t, _)| *t == tool)
+    route(tool).is_some()
+}
+
+/// The route of `tool`'s copy edges; none for a tool whose results copy nothing.
+pub fn route(tool: &str) -> Option<&'static str> {
+    COPIERS.iter().find(|(t, _)| *t == tool).map(|(_, via)| *via)
 }
 
 /// What one result copies: its route, and the nodes whose words it shows.

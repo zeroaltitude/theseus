@@ -419,13 +419,29 @@ fn last_user_text(nodes: &Transcript) -> String {
         .unwrap_or_default()
 }
 
-/// Whether something a view laid was erased since: an exchange that no longer reads, or a node its recall
-/// laid that is gone or erased (`Body::Erased`). Erased words are never sent again from a replay's copy.
+/// Whether something a view laid was erased since: an exchange that no longer reads, a node its recall
+/// laid that is gone or erased (`Body::Erased`), or a look back's result or report in a laid exchange that
+/// showed words erased since (`copies::since::shows_erased`). Erased words are never sent again from a
+/// replay's copy.
 fn erased_since(store: &crate::store::Store, exchanges: &[String], recalled: &[String]) -> bool {
     let gone =
         (exchanges.iter()).any(|id| !matches!(crate::exchange::exchange(store, id), Ok(Some(_))));
     gone || recalled.iter().any(|id| match store.get_node(id) {
         Ok(Some((_, n))) => matches!(n.body, Body::Erased { .. }),
         Ok(None) | Err(_) => true,
-    })
+    }) || exchanges.iter().any(|id| showed_erased(store, id))
+}
+
+/// Whether a node of the exchange `turn` showed words erased since; one that cannot be read is treated so.
+fn showed_erased(store: &crate::store::Store, turn: &str) -> bool {
+    let Ok(Some(x)) = crate::exchange::exchange(store, turn) else {
+        return true;
+    };
+    let Ok(nodes) = store.transcript(&x.session_id) else {
+        return true;
+    };
+    (nodes.iter())
+        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
+        .filter(|(_, n)| matches!(n.kind, crate::stub::Kind::ToolResult | crate::stub::Kind::UserMessage))
+        .any(|(_, n)| crate::copies::since::shows_erased(store, n).unwrap_or(true))
 }
