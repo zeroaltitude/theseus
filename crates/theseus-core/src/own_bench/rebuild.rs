@@ -442,6 +442,11 @@ fn showed_erased(store: &crate::store::Store, turn: &str) -> bool {
     };
     (nodes.iter())
         .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
-        .filter(|(_, n)| matches!(n.kind, crate::stub::Kind::ToolResult | crate::stub::Kind::UserMessage))
+        .filter(|(_, n)| {
+            matches!(
+                n.kind,
+                crate::stub::Kind::ToolResult | crate::stub::Kind::UserMessage
+            )
+        })
         .any(|(_, n)| crate::copies::since::shows_erased(store, n).unwrap_or(true))
 }

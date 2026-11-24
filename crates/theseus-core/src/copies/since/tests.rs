@@ -41,9 +41,7 @@ fn retracted(store: &Store, node: &str) {
         labeled: &[],
     };
     let row = crate::fact::row(&f, Some("s"), None).unwrap();
-    store
-        .append(&[row.scoped(crate::retract::SCOPE)])
-        .unwrap();
+    store.append(&[row.scoped(crate::retract::SCOPE)]).unwrap();
 }
 
 /// A result of `tool` that showed `of`, by `via`, stored with its edge; marked outside, with meta.
@@ -96,7 +94,12 @@ fn a_look_backs_result_is_laid_with_what_was_said_since_and_its_mark_unchanged()
     let (_d, s) = store();
     let src = source(&s);
     retracted(&s, &src);
-    let n = shown_by(&s, crate::view::history::HISTORY_TOOL, crate::graph::VIA_HISTORY, &src);
+    let n = shown_by(
+        &s,
+        crate::view::history::HISTORY_TOOL,
+        crate::graph::VIA_HISTORY,
+        &src,
+    );
     let at = s.last_position();
     let wrong = BTreeSet::from([src.clone()]);
     let laid = lay_one(&s, &wrong, &n);
@@ -132,7 +135,11 @@ fn a_look_backs_result_is_laid_with_what_was_said_since_and_its_mark_unchanged()
     assert!(x1.is_some(), "still marked outside");
     assert_eq!(s.last_position(), at, "nothing is written");
     let (_, stored) = s.get_node(&n.id).unwrap().unwrap();
-    assert_eq!(content(&stored), content(&n), "the stored node is as written");
+    assert_eq!(
+        content(&stored),
+        content(&n),
+        "the stored node is as written"
+    );
 }
 
 /// The same for `look.work`'s result, by its own route.
@@ -144,7 +151,10 @@ fn a_looks_result_is_laid_with_what_was_said_since() {
     let n = shown_by(&s, crate::look::WORK, crate::graph::VIA_LOOK, &src);
     let laid = lay_one(&s, &BTreeSet::from([src]), &n);
     assert!(content(&laid).starts_with(content(&n)), "{laid:?}");
-    assert!(content(&laid).contains("[Since this was read: "), "{laid:?}");
+    assert!(
+        content(&laid).contains("[Since this was read: "),
+        "{laid:?}"
+    );
 }
 
 /// A result of another tool is laid byte for byte, even with an edge and a labelled node beside it; so is a
@@ -161,7 +171,12 @@ fn a_result_of_another_tool_is_laid_byte_for_byte() {
         serde_json::to_vec(&laid).unwrap(),
         serde_json::to_vec(&other).unwrap()
     );
-    let quiet = shown_by(&s, crate::view::history::HISTORY_TOOL, crate::graph::VIA_HISTORY, &src);
+    let quiet = shown_by(
+        &s,
+        crate::view::history::HISTORY_TOOL,
+        crate::graph::VIA_HISTORY,
+        &src,
+    );
     let laid = lay_one(&s, &BTreeSet::new(), &quiet);
     assert_eq!(
         serde_json::to_vec(&laid).unwrap(),
@@ -174,7 +189,12 @@ fn a_result_of_another_tool_is_laid_byte_for_byte() {
 fn an_erased_source_lays_one_line_and_none_of_its_words() {
     let (_d, s) = store();
     let src = source(&s);
-    let n = shown_by(&s, crate::view::history::HISTORY_TOOL, crate::graph::VIA_HISTORY, &src);
+    let n = shown_by(
+        &s,
+        crate::view::history::HISTORY_TOOL,
+        crate::graph::VIA_HISTORY,
+        &src,
+    );
     let (_, was) = s.get_node(&src).unwrap().unwrap();
     s.append(&[was.erased(AT_MS, "a test").record().unwrap()])
         .unwrap();
@@ -195,7 +215,10 @@ fn a_report_is_laid_with_what_was_said_of_its_message() {
         .unwrap();
     let laid = lay_one(&s, &BTreeSet::from([src]), &n);
     assert!(content(&laid).starts_with(GIST), "{laid:?}");
-    assert!(content(&laid).contains("[Since this was read: "), "{laid:?}");
+    assert!(
+        content(&laid).contains("[Since this was read: "),
+        "{laid:?}"
+    );
 }
 
 /// The node itself, marked wrong, carries the mark wherever it is laid: a message in its text, an answer in
@@ -230,7 +253,10 @@ fn a_node_marked_wrong_is_laid_with_its_mark() {
         "[Since this was said: it was marked wrong on {}: {WHY}. The words above are as they were said.]",
         day()
     );
-    assert_eq!(content(&lay_one(&s, &wrong, &ask)), format!("{GIST}\n{line}"));
+    assert_eq!(
+        content(&lay_one(&s, &wrong, &ask)),
+        format!("{GIST}\n{line}")
+    );
     let laid = lay_one(&s, &wrong, &answer);
     let Body::AssistantMessage { blocks, .. } = &laid.body else {
         panic!("{laid:?}");
@@ -252,7 +278,12 @@ fn two_lays_with_nothing_said_between_are_the_same_bytes() {
     let (_d, s) = store();
     let src = source(&s);
     retracted(&s, &src);
-    let n = shown_by(&s, crate::view::history::HISTORY_TOOL, crate::graph::VIA_HISTORY, &src);
+    let n = shown_by(
+        &s,
+        crate::view::history::HISTORY_TOOL,
+        crate::graph::VIA_HISTORY,
+        &src,
+    );
     let wrong = BTreeSet::from([src]);
     let a = serde_json::to_vec(&lay_one(&s, &wrong, &n)).unwrap();
     let b = serde_json::to_vec(&lay_one(&s, &wrong, &n)).unwrap();

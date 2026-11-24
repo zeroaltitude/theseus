@@ -207,7 +207,10 @@ fn laid(n: &Node, said: Said) -> Node {
     match (&mut node.body, said) {
         (Body::ToolResult { content, .. }, Said::Erased) => *content = ERASED_RESULT.into(),
         (Body::UserMessage { text, .. }, Said::Erased) => *text = ERASED_REPORT.into(),
-        (Body::ToolResult { content: text, .. } | Body::UserMessage { text, .. }, Said::Lines(l)) => {
+        (
+            Body::ToolResult { content: text, .. } | Body::UserMessage { text, .. },
+            Said::Lines(l),
+        ) => {
             text.push('\n');
             text.push_str(&l.join("\n"));
         }

@@ -31,7 +31,10 @@ pub fn copier(tool: &str) -> bool {
 
 /// The route of `tool`'s copy edges; none for a tool whose results copy nothing.
 pub fn route(tool: &str) -> Option<&'static str> {
-    COPIERS.iter().find(|(t, _)| *t == tool).map(|(_, via)| *via)
+    COPIERS
+        .iter()
+        .find(|(t, _)| *t == tool)
+        .map(|(_, via)| *via)
 }
 
 /// What one result copies: its route, and the nodes whose words it shows.

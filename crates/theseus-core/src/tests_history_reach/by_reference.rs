@@ -137,11 +137,17 @@ async fn a_task_that_read_it_by_history_is_named_on_the_card() {
         (kind::TASK, copy.as_str()),
         "{e:?}"
     );
-    assert!(!out.exposures.iter().any(|e| e.kind == kind::SEEN), "{out:#?}");
+    assert!(
+        !out.exposures.iter().any(|e| e.kind == kind::SEEN),
+        "{out:#?}"
+    );
 }
 
 /// What `memory.search` admits for the line, over `sessions`' nodes.
-async fn recalled(core: &Arc<Core>, sessions: Vec<String>) -> theseus_protocol::memory::RecallManifest {
+async fn recalled(
+    core: &Arc<Core>,
+    sessions: Vec<String>,
+) -> theseus_protocol::memory::RecallManifest {
     core.runner
         .memory
         .set_ask(crate::tests_recall::index_of(core, sessions));
@@ -282,7 +288,10 @@ async fn a_retracted_message_in_the_window_carries_the_mark() {
         .map(|m| m.to_string())
         .find(|m| m.contains(WORD) && !m.contains("Correction:"))
         .unwrap_or_else(|| panic!("the message is laid: {:#?}", last.messages));
-    assert!(ask.contains("[Since this was said: it was marked wrong on "), "{ask}");
+    assert!(
+        ask.contains("[Since this was said: it was marked wrong on "),
+        "{ask}"
+    );
     let (_, stored) = r.core.store.get_node(&said.node).unwrap().unwrap();
     assert!(
         matches!(&stored.body, Body::UserMessage { text, .. } if text == SAID),
