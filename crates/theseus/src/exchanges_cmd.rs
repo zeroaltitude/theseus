@@ -323,6 +323,46 @@ mod tests {
         assert_eq!(report_lines(&r), want.join("\n"));
     }
 
+    /// The groups and kinds `ledger::report` gives for rows whose stored strings it does not list, as
+    /// its own test asserts them: the words show as the one word, and nothing else.
+    #[test]
+    fn an_unlisted_word_shows_as_the_one_word() {
+        let r = ExchangeReportResult {
+            rows: 4,
+            counts: [
+                (
+                    "situation",
+                    map(&[("unlisted", 2), ("none", 1), ("continuation", 1)]),
+                ),
+                ("judge.kind", map(&[("unlisted", 2), ("follow_up", 1)])),
+                ("judge", map(&[("present", 2), ("none", 1)])),
+            ]
+            .into_iter()
+            .map(|(g, m)| (g.to_string(), m))
+            .collect(),
+            answers: Some(ExchangeAnswers {
+                his_turns: 4,
+                named: map(&[("some", 3), ("unknown", 1)]),
+                named_kinds: map(&[("unlisted", 2), ("path", 3), ("commit", 1)]),
+                ..ExchangeAnswers::default()
+            }),
+            ..ExchangeReportResult::default()
+        };
+        let text = report_lines(&r);
+        assert!(
+            text.contains("    turns naming each kind: commit 1, path 3, unlisted 2"),
+            "{text}"
+        );
+        assert!(
+            text.contains("    judge.kind: follow_up 1 (33%), unlisted 2 (67%)"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("PRIVATE") && !text.contains("task_"),
+            "{text}"
+        );
+    }
+
     #[test]
     fn an_older_daemon_is_told_to_update() {
         let r = ExchangeReportResult {

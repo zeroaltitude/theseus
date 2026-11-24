@@ -7,7 +7,7 @@
 //! extractor named, the judge's unread answers, gaps, overlaps, and how the
 //! terminal's peer was classed. `report` sums the rows.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -38,8 +38,8 @@ const OPEN_FOR_MS: u64 = 6 * 3_600_000;
 pub const WHY_NEW: &str = "new";
 pub const WHY_NOT_MEASURED: &str = "not_measured";
 /// The row's fields `add` counts by their value: kinds, classes and flags,
-/// never a name or an id. A field a later build adds is counted as present
-/// until it is named here.
+/// never a name or an id, each string through [`listed`]. A field a later
+/// build adds is counted as present until it is named here.
 const BY_VALUE: [&str; 11] = [
     "opened_by",
     "peer",
@@ -54,12 +54,55 @@ const BY_VALUE: [&str; 11] = [
     "cold",
 ];
 /// The judge's four answers nothing reads, and its `kind`, by question id.
-const JUDGED: [&str; 5] = [
+pub(super) const JUDGED: [&str; 5] = [
     "fragment",
     "mentions_other_conversation",
     "wants_fresh_look",
     "addressed_task",
     "kind",
+];
+/// The one word the report counts a stored string by when it is not a word its field's producer
+/// makes: the value still counts, its spelling never leaves.
+pub const UNLISTED: &str = "unlisted";
+/// The kinds of thing the index's extractor names (`theseus-index`'s `entity::entities`, as its
+/// `kind:value` terms): the keys of `things` and `reply_things`.
+pub const THING_KINDS: [&str; 7] = [
+    "beads", "commit", "crate", "file", "host", "mention", "path",
+];
+/// A situation's kinds, as the row's writer records them (`Situation::kind`, in theseus-protocol).
+pub(super) const SITUATIONS: [&str; 7] = [
+    "conversation_start",
+    "task_start",
+    "continuation",
+    "recompile",
+    "resume",
+    "detour",
+    "unknown",
+];
+/// A compile's triggers: the view's (`compiler::view::TRIGGER`), the only one made now, and the old
+/// transcript compiler's, which an older row may hold, alone or joined by `+` (`narrative`'s
+/// `trigger_phrase` still names them).
+pub(super) const TRIGGERS: [&str; 10] = [
+    "view_turn",
+    "new_session",
+    "model_changed",
+    "system_changed",
+    "tools_changed",
+    "overflow",
+    "manual_fresh",
+    "manual_transcript",
+    "audience",
+    "moved",
+];
+/// The classify pack's fixed choices for its `kind` question (`judge::inbound::CLASSIFY_PACK`).
+pub(super) const JUDGE_KINDS: [&str; 7] = [
+    "new_ask",
+    "follow_up",
+    "correction",
+    "control",
+    "addressed_to_task",
+    "social",
+    "other",
 ];
 
 /// The sent context of a turn's first call, in tokens (est.), after
@@ -511,18 +554,44 @@ fn chars_band(n: u64) -> &'static str {
 }
 
 /// The judge's answer to `question`, as the report counts it: a task's id
-/// only as whether there was one.
+/// only as whether there was one, a kind by the pack's own choices, and
+/// anything else (a Noul records no choice) as [`UNLISTED`].
 fn judged_value(question: &str, answer: &str) -> String {
     match (question, answer) {
         ("addressed_task", "none") => "none".into(),
         ("addressed_task", _) => "a_task".into(),
-        _ => answer.into(),
+        ("kind", k) if JUDGE_KINDS.contains(&k) => k.into(),
+        _ => UNLISTED.into(),
+    }
+}
+
+fn reads<T: serde::de::DeserializeOwned>(value: &str) -> bool {
+    serde_json::from_value::<T>(Value::String(value.into())).is_ok()
+}
+
+/// `value`, a string of the row's `field`, as the report counts it: a word
+/// that field's producer makes (a typed class's by the type itself), or
+/// [`UNLISTED`].
+fn listed(field: &str, value: &str) -> String {
+    let known = match field {
+        "opened_by" | "answered" => reads::<Opener>(value),
+        "peer" => reads::<Peer>(value),
+        "prev" => reads::<Prev>(value),
+        "prev_why" => [WHY_NEW, WHY_NOT_MEASURED].contains(&value),
+        "situation" => SITUATIONS.contains(&value),
+        "trigger" => value.split('+').all(|t| TRIGGERS.contains(&t)),
+        "things" | "reply_things" => THING_KINDS.contains(&value),
+        _ => false,
+    };
+    match known {
+        true => value.into(),
+        false => UNLISTED.into(),
     }
 }
 
 /// One row, added to the report by its own shape: each field a count of its
 /// value under its name (a gap and a message's length by their bands, a map
-/// by its keys, the judge's answers by question), `sent`'s parts summed, and
+/// by its keys' kinds, the judge's answers by question), `sent`'s parts summed, and
 /// each other private place's exchange by whether it was in view. Ids are
 /// skipped; the cache's tokens are the answers'. A field not named here or in
 /// [`BY_VALUE`] is counted as present, never by its value.
@@ -556,7 +625,8 @@ pub(super) fn add(r: &mut ExchangeReportResult, row: &Value) {
                 counts.push((k.clone(), "none".into()))
             }
             ("things" | "reply_things", Value::Object(m)) => {
-                counts.extend(m.keys().map(|kind| (k.clone(), kind.clone())))
+                let kinds: BTreeSet<String> = m.keys().map(|kind| listed(k, kind)).collect();
+                counts.extend(kinds.into_iter().map(|kind| (k.clone(), kind)))
             }
             ("judge", Value::Object(m)) => counts.extend(m.iter().map(|(q, a)| match a {
                 Value::String(a) if JUDGED.contains(&q.as_str()) => {
@@ -566,7 +636,7 @@ pub(super) fn add(r: &mut ExchangeReportResult, row: &Value) {
             })),
             (_, Value::Null) => counts.push((k.clone(), "none".into())),
             (_, Value::String(x)) if BY_VALUE.contains(&k.as_str()) => {
-                counts.push((k.clone(), x.clone()))
+                counts.push((k.clone(), listed(k, x)))
             }
             (_, Value::Bool(b)) if BY_VALUE.contains(&k.as_str()) => {
                 counts.push((k.clone(), b.to_string()))
@@ -656,8 +726,12 @@ fn answer(store: &Store, a: &mut ExchangeAnswers, row: &Row) {
         Some(_) => "none",
     };
     bump(&mut a.named, named);
-    for (kind, _) in row.things.iter().flatten().filter(|(_, n)| **n > 0) {
-        bump(&mut a.named_kinds, kind);
+    let kinds: BTreeSet<String> = (row.things.iter().flatten())
+        .filter(|(_, n)| **n > 0)
+        .map(|(kind, _)| listed("things", kind))
+        .collect();
+    for kind in kinds {
+        bump(&mut a.named_kinds, &kind);
     }
 }
 

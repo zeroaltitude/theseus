@@ -2,7 +2,8 @@
 //! whose first call was never measured is no miss, a turn naming two kinds is one turn that named something,
 //! the context is averaged over measured turns and holds token parts only, `since` keeps the rows at or
 //! after it, the report holds no place, exchange or task id, an old row still reads, and a field the
-//! counter does not know is counted as present, never by its value.
+//! counter does not know is counted as present, never by its value. No stored string leaves it, by
+//! value or by key: a word its producer does not make counts as `unlisted`.
 
 use std::collections::BTreeMap;
 
@@ -277,4 +278,175 @@ fn a_field_the_counter_does_not_know_is_counted_present_never_by_value() {
     assert_eq!(r.counts["later_name"], map(&[("present", 1)]));
     // The fields it knows keep their values.
     assert_eq!(r.counts["prev"], map(&[("transcript", 1)]));
+}
+
+/// Every stored string the row accepts, and every map key, holds a marker; none may leave.
+fn marked_row(ex: &Exchange, marker: &str) -> Row {
+    let mut row = row_of(ex, Prev::Missed);
+    row.place = format!("discord:channel:{marker}_PLACE");
+    row.prev_exchange = Some(format!("turn_{marker}_PREV"));
+    row.prev_why = Some(format!("{marker}_WHY"));
+    row.situation = Some(format!("{marker}_SITUATION"));
+    row.trigger = Some(format!("{marker}_TRIGGER"));
+    row.elsewhere = vec![Elsewhere {
+        place: format!("discord:dm:{marker}_ELSE"),
+        exchange: format!("turn_{marker}_ELSE"),
+        age_ms: 5,
+        in_view: true,
+    }];
+    let (name, name2) = (format!("{marker}_NAME"), format!("{marker}_NAME2"));
+    row.things = Some(map(&[(name.as_str(), 1), (name2.as_str(), 2), ("path", 1)]));
+    let reply = format!("turn_{marker}_REPLY");
+    row.reply_things = Some(map(&[(reply.as_str(), 1)]));
+    row.judge = [
+        ("kind".to_string(), format!("task_{marker}_KIND")),
+        ("addressed_task".into(), format!("task_{marker}_TASK")),
+        ("fragment".into(), format!("{marker}_FRAGMENT")),
+        (
+            "mentions_other_conversation".into(),
+            format!("{marker}_OTHER"),
+        ),
+        ("wants_fresh_look".into(), format!("{marker}_FRESH")),
+        (format!("{marker}_QUESTION"), format!("{marker}_ANSWER")),
+    ]
+    .into_iter()
+    .collect();
+    row
+}
+
+#[test]
+fn no_stored_string_leaves_the_report_by_value_or_by_key() {
+    let (_d, s) = store();
+    // A row with words, a row with numeric ids, a row of nulls, a row of known words.
+    let words = exchange_of("turn_PRIVATE_Q1", Opener::Message, Some(OWNER), 1_000);
+    put(&s, &words, &marked_row(&words, "PRIVATE_Q"), 1_001);
+    let ids = exchange_of("turn_2", Opener::Message, Some(OWNER), 2_000);
+    put(&s, &ids, &marked_row(&ids, "112233445566778899"), 2_001);
+    let nulls = exchange_of("turn_3", Opener::Message, Some(OWNER), 3_000);
+    let mut row = row_of(&nulls, Prev::None);
+    (row.things, row.reply_things) = (None, None);
+    put(&s, &nulls, &row, 3_001);
+    let known = exchange_of("turn_4", Opener::Message, Some(OWNER), 4_000);
+    let mut row = row_of(&known, Prev::Missed);
+    row.prev_why = Some(ledger::WHY_NEW.into());
+    (row.situation, row.trigger) = (Some("continuation".into()), Some("view_turn".into()));
+    row.things = Some(map(&[("path", 1), ("commit", 2)]));
+    row.reply_things = Some(map(&[("file", 1)]));
+    row.judge = [("kind", "follow_up"), ("addressed_task", "none")]
+        .into_iter()
+        .map(|(q, a)| (q.to_string(), a.to_string()))
+        .collect();
+    put(&s, &known, &row, 4_001);
+    // Rows the typed row does not read, as before: a word where a class goes, a number where a word goes.
+    let mut raw = serde_json::to_value(row_of(&known, Prev::None)).unwrap();
+    raw["peer"] = json!("PRIVATE_Q_PEER");
+    put_row(&s, "turn_4", raw.clone(), 4_002);
+    raw["peer"] = Value::Null;
+    raw["situation"] = json!(112_233_445_566_778_899u64);
+    put_row(&s, "turn_4", raw, 4_003);
+    let r = ledger::report(&s, &ExchangeReportParams::default()).unwrap();
+    let text = serde_json::to_string(&r).unwrap();
+    for marker in ["PRIVATE", "112233445566778899"] {
+        assert!(
+            !text.contains(marker),
+            "{marker} left in the report: {text}"
+        );
+    }
+    let u = ledger::UNLISTED;
+    assert_eq!(r.rows, 4);
+    assert_eq!(r.counts["prev_why"], map(&[(u, 2), ("new", 1)]));
+    assert_eq!(
+        r.counts["situation"],
+        map(&[(u, 2), ("none", 1), ("continuation", 1)])
+    );
+    assert_eq!(
+        r.counts["trigger"],
+        map(&[(u, 2), ("none", 1), ("view_turn", 1)])
+    );
+    // A row naming two kinds nobody listed counts once under the one word.
+    assert_eq!(
+        r.counts["things"],
+        map(&[(u, 2), ("path", 3), ("commit", 1), ("unknown", 1)])
+    );
+    assert_eq!(
+        r.counts["reply_things"],
+        map(&[(u, 2), ("file", 1), ("unknown", 1)])
+    );
+    assert_eq!(r.counts["judge.kind"], map(&[(u, 2), ("follow_up", 1)]));
+    assert_eq!(
+        r.counts["judge.addressed_task"],
+        map(&[("a_task", 2), ("none", 1)])
+    );
+    for q in [
+        "fragment",
+        "mentions_other_conversation",
+        "wants_fresh_look",
+    ] {
+        assert_eq!(r.counts[&format!("judge.{q}")], map(&[(u, 2)]), "{q}");
+    }
+    // An unknown question is counted present, never by its name or its answer.
+    assert_eq!(r.counts["judge"], map(&[("present", 2), ("none", 1)]));
+    assert_eq!(r.counts["elsewhere"], map(&[("in_view", 2)]));
+    let a = r.answers.unwrap();
+    assert_eq!(a.named_kinds, map(&[(u, 2), ("path", 3), ("commit", 1)]));
+    assert_eq!(a.named, map(&[("some", 3), ("unknown", 1)]));
+}
+
+/// One test per producer: when it makes a word the report does not list, this fails, so the two cannot
+/// drift apart without a test saying so. (The index's kinds are checked from `theseus-index`, which
+/// can see both.)
+#[test]
+fn the_reports_words_are_the_words_their_producers_make() {
+    use theseus_protocol::Situation;
+    // Every situation, by a match that stops compiling when one is added.
+    let every = [
+        Situation::ConversationStart,
+        Situation::TaskStart,
+        Situation::Continuation,
+        Situation::Recompile {
+            trigger: String::new(),
+        },
+        Situation::Resume,
+        Situation::Detour,
+        Situation::Unknown,
+    ];
+    for s in &every {
+        match s {
+            Situation::ConversationStart
+            | Situation::TaskStart
+            | Situation::Continuation
+            | Situation::Recompile { .. }
+            | Situation::Resume
+            | Situation::Detour
+            | Situation::Unknown => {}
+        }
+    }
+    let kinds: Vec<&str> = every.iter().map(Situation::kind).collect();
+    assert_eq!(kinds, ledger::SITUATIONS);
+    assert!(ledger::TRIGGERS.contains(&crate::compiler::view::TRIGGER));
+    let pack = theseus_judge::pack::by_name(crate::judge::inbound::CLASSIFY_PACK).unwrap();
+    let options = |q: &str| -> Vec<String> {
+        let def = pack
+            .question(q)
+            .unwrap_or_else(|| panic!("{q} in the pack"));
+        def.options.iter().map(|o| o.id.clone()).collect()
+    };
+    assert_eq!(options("kind"), ledger::JUDGE_KINDS);
+    // A task's id is the dynamic part, counted only as whether there was one.
+    assert_eq!(options("addressed_task"), ["none"]);
+    for q in [
+        "fragment",
+        "mentions_other_conversation",
+        "wants_fresh_look",
+    ] {
+        let def = pack.question(q).unwrap();
+        assert_eq!(
+            def.kind,
+            theseus_judge::client::Kind::Noul,
+            "{q} records no choice"
+        );
+    }
+    for q in ledger::JUDGED {
+        assert!(pack.question(q).is_some(), "{q} in the pack");
+    }
 }
