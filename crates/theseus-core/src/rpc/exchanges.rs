@@ -1,19 +1,21 @@
 //! The exchange ledger at the RPC layer (issue 44, step 1; `crate::exchange`):
 //! the owner's mark of a submitted message, made where the live proof is, and
 //! `exchange.report` and `exchange.rebuild`, which are read and asked from the
-//! terminal or the web UI alone.
+//! terminal or the web UI alone; and `exchange.topics` (issue 46), the owner's
+//! act in person (`topics_judged`).
 
 use std::sync::Arc;
 
 use serde_json::Value;
 use theseus_protocol::exchange::{
     ExchangeLadderParams, ExchangeLadderResult, ExchangeRebuildParams, ExchangeReportParams,
+    ExchangeTopicsParams,
 };
 use theseus_protocol::{error_code, method, TurnSubmitParams};
 
 use super::server::{parse, Conn, RpcFailure};
-use super::Core;
-use crate::approval::Surface;
+use super::{Act, Core};
+use crate::approval::{Refusal, Surface};
 use crate::exchange::{ledger, rebuild, OwnerMark, Peer};
 
 /// The methods `rpc_exchanges` answers.
@@ -21,6 +23,7 @@ pub(super) const OWN: &[&str] = &[
     method::EXCHANGE_REPORT,
     method::EXCHANGE_REBUILD,
     method::EXCHANGE_LADDER,
+    method::EXCHANGE_TOPICS,
 ];
 
 impl Core {
@@ -152,6 +155,12 @@ impl Core {
                     stopped: b.stopped,
                 })
             }
+            method::EXCHANGE_TOPICS => {
+                let p: ExchangeTopicsParams = parse(params)?;
+                self.topics_judged(conn)?;
+                let r = self.topics_history(&p).await.map_err(RpcFailure::invalid)?;
+                serde_json::to_value(r)
+            }
             other => {
                 return Err(RpcFailure::new(
                     error_code::METHOD_NOT_FOUND,
@@ -160,5 +169,44 @@ impl Core {
             }
         };
         out.map_err(|e| RpcFailure::invalid(e.into()))
+    }
+
+    /// `exchange.topics` is the owner's act in person: the people backfill's
+    /// own check (`import_judged`: the owner, from a private place), then the
+    /// narrower rule the ladder's spend takes (`places::owner_in_person_of`:
+    /// never an agent's process at the terminal). Either refusal is ledgered
+    /// and narrated, as any refused act is.
+    fn topics_judged(&self, conn: Conn<'_>) -> Result<(), RpcFailure> {
+        let what = "filing your history under topics";
+        self.import_judged(conn, method::EXCHANGE_TOPICS, what)?;
+        let who = conn.answerer(None, None);
+        let Err(why) = crate::places::owner_in_person_of(
+            &who,
+            &self.runner.place_rule,
+            &self.cfg,
+            "filing your history under topics sends your old messages to the judge and spends \
+             money",
+            "your history is filed under topics",
+        ) else {
+            return Ok(());
+        };
+        let r = Refusal {
+            who: who.who(),
+            via: who.via(),
+            why,
+        };
+        let act = Act::Import {
+            method: method::EXCHANGE_TOPICS,
+            what,
+        };
+        self.refused(act, &who, &r).map_err(RpcFailure::invalid)?;
+        Err(RpcFailure {
+            code: error_code::REFUSED,
+            message: format!(
+                "{what} from {} does not count: {}. Nothing was asked.",
+                r.who, r.why
+            ),
+            data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),
+        })
     }
 }

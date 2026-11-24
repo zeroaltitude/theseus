@@ -60,6 +60,18 @@ pub enum LedgerCmd {
         #[arg(long)]
         over_day_line: bool,
     },
+    /// File the exchanges from before topics were filed per exchange: each one's opening message
+    /// is asked of the ontology's judge once, and touches its topics at the exchange's time. No
+    /// topic is made and no session is filed. Yours to run, in person. Run `--dry-run` first.
+    Topics {
+        /// Count the exchanges it would ask and their worst case, and ask nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// The most this run may spend, in dollars (default 10). It stops before the exchange
+        /// that would pass it; a rerun goes on from there.
+        #[arg(long)]
+        cap_usd: Option<f64>,
+    },
 }
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
@@ -89,6 +101,9 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
                 (dry_run, cap_usd, over_day_line),
             )
             .await
+        }
+        LedgerCmd::Topics { dry_run, cap_usd } => {
+            return crate::exchanges_cmd::topics(conn, json, dry_run, cap_usd).await
         }
         LedgerCmd::Head => (
             LedgerVerifyParams {

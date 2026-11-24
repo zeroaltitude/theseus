@@ -210,6 +210,9 @@ pub mod method {
         /// A place's ladder built from its history (issue 44, step 4; `ladder`): its `did` lines and folds,
         /// with a dry run that counts and prices, and a cap.
         EXCHANGE_LADDER = "exchange.ladder",
+        /// The exchanges from before topics were filed per exchange, each opening message asked of the
+        /// ontology's judge once and its topics touched (issue 46), with a dry run that counts and prices, and a cap.
+        EXCHANGE_TOPICS = "exchange.topics",
         /// One turn, whole (theseus-x9swu; `inspect::TurnInspectParams`): the cockpit's inspector at
         /// `/session/<id>/turn/<turn>`. A read; thinking and texts to a private place only.
         TURN_INSPECT = "turn.inspect",

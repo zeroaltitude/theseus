@@ -1,7 +1,8 @@
 //! The history filed under topics once (issue 46; `history.rs`), through a
 //! whole core and the fake Jev, over invented exchanges in a temporary store:
-//! the touches, what it never writes, the resume, the cap and the day's
-//! budget.
+//! the touches, what it never writes, the resume, the dry run, the cap, the
+//! day's budget, who may run it, and that a message's words reach no row and
+//! no answer.
 
 use std::sync::Arc;
 
@@ -9,16 +10,21 @@ use serde_json::{json, Value};
 use theseus_judge::fake::{FakeJev, Scripted};
 use theseus_ontology::{Category, CategoryId, MemberList, Membership, Origin, Record};
 use theseus_protocol::exchange::{ExchangeTopicsParams, ExchangeTopicsResult};
-use theseus_protocol::{LedgerKind, SessionKind};
+use theseus_protocol::{error_code, method, LedgerKind, SessionKind};
 use theseus_store::Store as _;
 
+use crate::approval::Surface;
 use crate::exchange::{self, Exchange, Opener};
 use crate::ledger::LedgerRow;
 use crate::node::Node;
+use crate::peer_proc::Behind;
 use crate::session::SessionRecord;
+use crate::tests_m3::{rpc_as, surface};
 use crate::tests_onto::{bound, rig, rig_with};
 use crate::Core;
 
+/// Words no row and no answer may hold.
+const WORDS: [&str; 2] = ["Quillfeather", "Marrowby"];
 const SAID: &str = "plan the Quillfeather crossing with Marrowby before the tide";
 
 fn id(s: &str) -> CategoryId {
@@ -269,6 +275,39 @@ async fn a_rerun_writes_a_recorded_answers_missing_touches_without_a_call() {
     assert_eq!(timeline(&r.core, "topic:ledger").len(), 1);
 }
 
+/// KEY (the plan's test 4): the dry run counts and prices, calls nothing and
+/// writes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_dry_run_prices_and_calls_nothing() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_a", SAID, 5_000);
+    said(&r.core, &sid, "turn_b", "and the Lantern Ledger too", 6_000);
+    let v = rpc_as(
+        &r.core,
+        surface("sock#1", Surface::Cli),
+        method::EXCHANGE_TOPICS,
+        json!({"dry_run": true}),
+    )
+    .await
+    .unwrap();
+    flush(&r.core).await;
+    let out: ExchangeTopicsResult = serde_json::from_value(v).unwrap();
+    assert!(out.dry_run);
+    assert_eq!(
+        (out.to_ask, out.asked, out.cap_usd),
+        (2, 0, 10.0),
+        "{out:?}"
+    );
+    assert!(out.worst_usd > 0.0, "{out:?}");
+    assert!(r.jev.seen().is_empty(), "no call");
+    assert!(of_kind(&r.core, LedgerKind::JudgeCall).is_empty());
+    assert!(timeline(&r.core, "topic:ledger").is_empty());
+}
+
 /// KEY (the plan's test 5): the run stops before the exchange whose worst
 /// case would pass the cap, says so, and a rerun with room goes on.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -389,4 +428,71 @@ async fn nothing_is_asked_where_the_ontologys_judge_does_not_act() {
         "{out:?}"
     );
     assert!(r.jev.seen().is_empty());
+}
+
+/// KEY: the command is the owner's in person. An agent's process at his
+/// terminal is refused, ledgered, and asks nothing; so is a chat surface.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_agents_process_is_refused_and_asks_nothing() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_old", SAID, 5_000);
+    let agent = surface("sock#2", Surface::Cli).behind(Behind::Agent("claude".into()));
+    let discord = crate::approval::Client::new("discord", Surface::Discord);
+    for (who, client) in [("agent", agent), ("discord", discord)] {
+        for dry_run in [true, false] {
+            let e = rpc_as(
+                &r.core,
+                client.clone(),
+                method::EXCHANGE_TOPICS,
+                json!({"dry_run": dry_run}),
+            )
+            .await
+            .expect_err(who);
+            assert_eq!(e.code, error_code::REFUSED, "{who}: {e:?}");
+        }
+    }
+    let refused = of_kind(&r.core, LedgerKind::ApprovalRefused);
+    assert_eq!(refused.len(), 2, "the agent's two: {refused:?}");
+    assert!(r.jev.seen().is_empty(), "no call");
+    assert!(timeline(&r.core, "topic:ledger").is_empty());
+    assert!(of_kind(&r.core, LedgerKind::JudgeCall).is_empty());
+}
+
+/// KEY: a message's words reach Jev and nothing else here: not the
+/// command's answer, a dry run's or a run's, and not one ledger row the run
+/// wrote.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_word_of_a_message_is_in_the_answer_or_the_rows() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    jev.script_onto("topic_name", "n1", 0.9);
+    let r = rig(jev);
+    ledger_topic(&r.core);
+    let sid = bound(&r.core);
+    said(&r.core, &sid, "turn_old", SAID, 5_000);
+    let mut answers = String::new();
+    for dry_run in [true, false] {
+        let v = rpc_as(
+            &r.core,
+            surface("sock#1", Surface::Cli),
+            method::EXCHANGE_TOPICS,
+            json!({"dry_run": dry_run}),
+        )
+        .await
+        .unwrap();
+        answers.push_str(&v.to_string());
+    }
+    flush(&r.core).await;
+    let sent: String = r.jev.seen().iter().map(|s| s.body.to_string()).collect();
+    assert!(sent.contains(WORDS[0]), "Jev was asked about the message");
+    assert_eq!(timeline(&r.core, "topic:ledger").len(), 1);
+    let rows = format!("{:?}", ledger(&r.core));
+    for w in WORDS {
+        assert!(!answers.contains(w), "{w} in the answer: {answers}");
+        assert!(!rows.contains(w), "{w} in a row");
+    }
 }
