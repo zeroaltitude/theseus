@@ -78,7 +78,7 @@ fn ledger(c: &Core, kind: LedgerKind, session: Option<&str>, data: Value, at_ms:
     c.store.append_ledger(&row).unwrap();
 }
 
-/// A loop.v1 judgment that leaned `complete`, 20 days old, labeled `wrong`
+/// A loop.v2 judgment that leaned `complete`, 20 days old, labeled `wrong`
 /// by the operator today.
 fn wrong_label(c: &Core, now: u64, age_days: u64) {
     let answer = Answer::Choice {
@@ -99,7 +99,7 @@ fn wrong_label(c: &Core, now: u64, age_days: u64) {
         answer,
     };
     let j: Judgment = serde_json::from_value(json!({
-        "id": "jdg_tern", "pack": "loop.v1", "version": 1, "pack_sha256": "00",
+        "id": "jdg_tern", "pack": "loop.v2", "version": 1, "pack_sha256": "00",
         "point": "loop_end", "mode": "shadow", "model": "jev-1.13.0",
         "answered_by": "jev-1.13.0", "model_drift": false,
         "state": {"sha256": "00", "bytes": 10, "tokens": 3, "cap_tokens": 4000,
@@ -116,7 +116,7 @@ fn wrong_label(c: &Core, now: u64, age_days: u64) {
         row.at_unix_ms = at;
         let mut r = NewRecord::json(kinds::LEDGER, None, &row).unwrap();
         r.key = Some(key.to_string());
-        r.scoped(&super::judge::scope_of("loop.v1"))
+        r.scoped(&super::judge::scope_of("loop.v2"))
     };
     let call = crate::fact::judge::JudgeCall {
         judgment: &j,
@@ -132,7 +132,7 @@ fn wrong_label(c: &Core, now: u64, age_days: u64) {
             ),
             scoped(
                 LedgerKind::JudgeLabel,
-                json!({"id": "lbl_1", "judgment": "jdg_tern", "pack": "loop.v1",
+                json!({"id": "lbl_1", "judgment": "jdg_tern", "pack": "loop.v2",
                     "question": "work_state", "label": "wrong", "source": "operator",
                     "who": "test", "via": "cli", "weight": 1.0, "note": ""}),
                 now,

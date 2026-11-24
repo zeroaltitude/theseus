@@ -68,3 +68,59 @@ named at startup.
   the route pack's own `[judge.packs."route.v11"] rung` and may act live (an unpinned turn can switch model where
   it only recorded the verdict before); one that set `small_talk_bar = true` is told that small-talk turns now
   carry admitted recall (the notes a greeting drew reach the model where they were withheld).
+
+## Issue 46: the live packs lose the questions nothing reads
+
+Each new version below is a new file: the old file minus whole question tables and the rules named, with its own
+header comment; every question it keeps is the old one, field for field (a test parses both and says so). The old
+file moves to `packs/retired/` byte for byte, so its digest is the one its stored judgments hold, and it is listed in
+`pack::RETIRED` with its rollback rules copied into `pack::RETIRED_ROLLBACK`. Its judgments still list and read; a
+replay of them is refused, as for every retired version. Each new version is live on landing, the standing rule in
+`docs/development.md`. A settings table that names an old version loads, is ignored and is named at startup; no
+alias carries it to the new name, so rename it.
+
+- **`route.v12`** is `route.v11` without `seal` and `personal` (no code read either answer) and without the
+  `on_path_p95` rule (no code fed it). The `model` instructions lose "and never a model the state lists as not
+  allowed", and the `deepseek_flash` option loses "or when the state says China-origin models are not allowed":
+  the daemon no longer writes `restricted_models` into any state (the route slice, or the inbound batch's shared
+  state), since no model is kept off a session for its origin. The field stays on `RouteFacts`, so a stored input
+  and a case file that set it still read. The ladder adopts v12 (`ladder::adopt`, `WHY_ROUTE_V12`); the learning
+  loop leaves the route pack alone by its constant (`lineage::LEFT_ALONE`), not by a literal name. The labelled
+  cases file declares `route.v12` and is read for v10, v11 and v12 alike. A pinned turn with fewer than two
+  personas asks the route pack nothing; its judgment is recorded as skipped for want of a question.
+- **`classify.v5`** is `classify.v4` without `thread` and `scope`: no turn offers live threads since a message
+  goes to a thread by its address only, so neither could be asked. With them go the "wrong thread" rollback rule
+  (no code writes that label) and the `thread_route` action (no code reads a pack's action): `action = "none"`.
+  The readers that look a message's classify answers up by name (the exchange row's judged answers, the task its
+  words addressed, the offer of a task) read the wired version or the one it replaced
+  (`inbound::reads_as_classify`), so a message judged by `classify.v4` just before the upgrade keeps its
+  answers; a learned version's are not read, as before. `classify.v4`'s labelled set stays its own frozen record.
+- **`onto.v2`** is `onto.v1` without `personal_applies`, `personal`, `elicits`, `shows_people` and
+  `shows_identifiers`, the questions that existed for the restricted-provider rule. Their one reader, the private
+  mark (`judge::onto::mark`), went with them: it decided what later requests could send to models outside an
+  allowlist, ran only under `[ontology] private_mark` (off by default), and even on wrote one trace line.
+  `[ontology] private_mark` loads, is ignored, and is named at startup. The two picture questions, `image_subject`
+  and `shows_screen_or_document`, are still asked, and the owner kept them (2026-11-24): their answers at the act
+  band are written as labels of the message's exchange (`picture:<subject>`, and
+  `picture:shows_screen_or_document` for a yes; `names::pictures`). `judge replay --onto` with no candidate
+  replays the wired onto pack by its constant, and the cockpit counts the onto pack's judgments under the wired
+  name.
+- **`loop.v2`** is `loop.v1` without `stopping_point_defined`, `same_action_repeating`, `cost_out_of_proportion`
+  and `wants_human_input` (no code read their answers) and without the `spend_ratio`,
+  `operator_stop_within_nudge` and `on_path_p95` rules (no code builds their events, so none could fire);
+  `nudge_loop` stays. `work_state` and `announced_unfinished`, which decide the stop nudge, are v1's.
+  `[judge] stop_nudge` lowers the wired loop pack by the judge's own constant (`config::STOP_PACK` is
+  `judge::LOOP_PACK`). The work forecast's line names the loop pack by its id (`loop 0.91`), not a version.
+  The loop state keeps `most_repeated_call`, which only `same_action_repeating` read; the builder is unchanged.
+- **`undo.v2`** is `undo.v1` with its advice for overwriting a file corrected (finding 08-judge-13): the
+  `write_then_rename` shape said to write beside the target and rename into place, which keeps no copy once the
+  rename is done; undo.v2 says to keep the original under a kept name first, in that shape's sentence and in the
+  three places `reversible` and `shape` name it. No option id, bar or `no_match` changed, and every decision the
+  gate makes from a judgment is undo.v1's (a test holds each, with the floor and without). The unfed
+  `on_path_p95` rule is gone; `labels_per_day` stays. The undo pack is an act gate's, so the learning loop leaves
+  it alone (`lineage::LEFT_ALONE`): a learned version stands in shadow in its root's place, and a shadow undo
+  judgment holds nothing. A `[judge.packs."undo.v1"]` table, or a stored rollback of undo.v1, names the retired
+  version and lowers nothing: undo.v2 holds once the ladder has been read after a start (the warm-up before that
+  read, when an unread ladder keeps the pack in shadow, is unchanged). `[judge] reversibility = false` still lowers
+  the wired undo pack, and the owner's rollback of undo.v2 still lowers it, as they did undo.v1. undo.v1's
+  labelled set is undo.v2's too.

@@ -70,8 +70,8 @@ fn a_tasks_models_are_every_model_that_wrote_once_in_order() {
     assert!(chat.task_models.is_empty(), "outside a task: none");
 }
 
-/// No model is kept off a session for its origin (2026-11-21): the key the
-/// live route pack's state still carries always says `allowed`.
+/// No model is kept off a session for its origin (2026-11-21): the fact always
+/// says `allowed`, and since issue 46 no state carries it.
 #[test]
 fn the_restricted_models_fact_always_allows() {
     assert_eq!(
@@ -126,17 +126,13 @@ async fn the_live_route_packs_state_carries_the_facts() {
     let state = std::fs::read_to_string(r.core.store.blobs().path(&digest)).unwrap();
     let state: serde_json::Value = serde_json::from_str(&state).unwrap();
     assert!(state["message"].is_string(), "{state}");
-    for k in [
-        "est_tokens",
-        "price_period",
-        "restricted_models",
-        "switch_cost",
-    ] {
+    for k in ["est_tokens", "price_period", "switch_cost"] {
         assert!(
             state.get(k).is_some(),
-            "{k} not in route.v10's state: {state}"
+            "{k} not in the route pack's state: {state}"
         );
     }
+    assert!(state.get("restricted_models").is_none(), "{state}");
     // A fresh session has no warm model, no last reply and no task: those are left out by design
     // (its `switch_cost` is `about_the_same`).
     assert_eq!(state["switch_cost"], "about_the_same", "{state}");

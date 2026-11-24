@@ -103,7 +103,7 @@ mod tests {
     #[test]
     fn a_mark_is_read_back_as_the_dispatch_it_marked() {
         let mut t = Trace::start("turn", "turn", Value::Null);
-        let d = Dispatch::new("loop.v1", "loop_end", Mode::Shadow);
+        let d = Dispatch::new("loop.v2", "loop_end", Mode::Shadow);
         assert!(d.id.starts_with("jdg_"), "{}", d.id);
         d.mark(&mut t, json!({"loop": 0}));
         let root = t.finish(Value::Null);

@@ -74,12 +74,12 @@ fn every_choice_question_declares_a_no_match() {
     );
     // And the default is carried onto every question as it is asked, which
     // is how it reaches the answer record.
-    let route = by_name("route.v11").expect("route.v11");
+    let route = by_name("route.v12").expect("route.v12");
     let asked = route.ask(&Dynamic::default());
     let model = asked
         .iter()
         .find(|a| a.def == "model")
-        .expect("route.v11 asks `model`");
+        .expect("route.v12 asks `model`");
     assert_eq!(model.no_match.as_deref(), Some("parent"));
 }
 
@@ -91,7 +91,7 @@ fn an_answer_runs_jevs_option_above_the_bar_and_the_declared_default_under_it() 
     use crate::band::band;
     use crate::client::Answer;
     use crate::judge::AnswerRecord;
-    let route = by_name("route.v11").expect("route.v11");
+    let route = by_name("route.v12").expect("route.v12");
     let def = route.question("model").expect("`model`");
     let rec = |confidence: f64| {
         let answer = Answer::Choice {
@@ -686,6 +686,15 @@ fn the_six_packs_ask_what_the_design_says() {
             ],
         ),
         (
+            "loop.v2",
+            &[
+                "LoopEnd Loop UntilNoToolCalls NudgeTask",
+                "announced_unfinished Noul decides",
+                "work_state Choice decides [complete progressing blocked_needs_human thrashing off_task other]",
+                "rollback [nudge_loop]",
+            ],
+        ),
+        (
             "security.v1",
             &[
                 "Gate Security Posture Notice",
@@ -757,6 +766,20 @@ fn the_six_packs_ask_what_the_design_says() {
                 "thread Choice decides from Threads + [new_thread home] only_when Threads",
                 "wants_fresh_look Noul",
                 "rollback [labels_per_day]",
+            ],
+        ),
+        (
+            "classify.v5",
+            &[
+                "Inbound Inbound Conversation None",
+                "addressed_task Choice from Tasks + [none] only_when Tasks",
+                "fragment Noul",
+                "kind Choice decides [new_ask follow_up correction control addressed_to_task social other]",
+                "mentions_other_conversation Noul",
+                "offer_task Noul",
+                "should_promote Noul decides",
+                "wants_fresh_look Noul",
+                "rollback []",
             ],
         ),
         (
@@ -884,6 +907,15 @@ fn the_six_packs_ask_what_the_design_says() {
             ],
         ),
         (
+            "route.v12",
+            &[
+                "Inbound Route SessionProfile Route",
+                "model Choice decides [haiku sonnet opus fable deepseek_flash parent]",
+                "persona Choice from Personas + [prior] only_when Personas",
+                "rollback [labels_per_day pins_per_day]",
+            ],
+        ),
+        (
             "effort.v1",
             &[
                 "Inbound Effort None None",
@@ -916,7 +948,10 @@ fn the_six_packs_ask_what_the_design_says() {
         for q in &p.questions {
             // route.v10's `model` confirms at 0.40 (theseus-h66v4.7, the owner 2026-11-03: "adjust
             // the instruction prompt, test assumptions and bar until we're safely good").
-            let bands = if matches!((*name, q.id.as_str()), ("route.v10" | "route.v11", "model")) {
+            let bands = if matches!(
+                (*name, q.id.as_str()),
+                ("route.v10" | "route.v11" | "route.v12", "model")
+            ) {
                 (0.90, 0.40)
             } else {
                 bands
@@ -1037,10 +1072,10 @@ fn the_loaders_rules_hold_on_all_the_packs() {
     assert_eq!(
         six.len(),
         27,
-        "loop.v1, security.v3, classify.v4, categorize.v1, rerank.v1, route.v11, \
+        "loop.v2, security.v3, classify.v5, categorize.v1, rerank.v1, route.v12, \
          effort.v1, work.v1, citation.v1, people.v1, people_seen.v1, compare.v1, heard.v1, directive.v2, \
-         onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, families.v1, \
-         content.v4, split.v1, undo.v1, delay.v1, precedence.v1, allow_said.v1 and task_words.v1 (the \
+         onto.v2, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, families.v1, \
+         content.v4, split.v1, undo.v2, delay.v1, precedence.v1, allow_said.v1 and task_words.v1 (the \
          versions issue 44 retired are under packs/retired/)"
     );
     for (file, text) in six {
@@ -1182,7 +1217,7 @@ fn split_v1_is_one_deciding_question_about_the_work() {
     }
     assert_eq!(
         p.builder,
-        by_name("classify.v4").unwrap().builder,
+        by_name("classify.v5").unwrap().builder,
         "it batches with classify"
     );
 }
@@ -1848,7 +1883,7 @@ fn a_retired_versions_rollback_rules_are_its_files() {
             "{name}"
         );
     }
-    assert!(crate::pack::retired_rollback("route.v11").is_none());
+    assert!(crate::pack::retired_rollback("route.v12").is_none());
 }
 
 /// Retiring a family's last version keeps the family readable: `role` and

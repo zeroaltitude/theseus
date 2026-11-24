@@ -30,7 +30,7 @@ const DIRECTIVE_V1: &str = include_str!("../fixtures/eval/directive.v1.json");
 const TASK_WORDS_V1: &str = include_str!("../fixtures/eval/task_words.v1.json");
 
 /// The packs with a labelled set.
-pub const PACKS: [&str; 12] = [
+pub const PACKS: [&str; 13] = [
     "classify.v4",
     "recall_cross.v1",
     "families.v1",
@@ -39,6 +39,7 @@ pub const PACKS: [&str; 12] = [
     "content.v3",
     "content.v4",
     "undo.v1",
+    "undo.v2",
     "precedence.v1",
     "directive.v1",
     "directive.v2",
@@ -67,7 +68,8 @@ pub fn set(pack: &str) -> Result<Vec<LabelledCase>> {
         "content.v2" => CONTENT_V2,
         "content.v3" => CONTENT_V3,
         "content.v4" => CONTENT_V4,
-        "undo.v1" => UNDO_V1,
+        // v2 is measured on v1's set: one sentence of advice changed, and no verdict's meaning.
+        "undo.v1" | "undo.v2" => UNDO_V1,
         "precedence.v1" => PRECEDENCE_V1,
         // v2 is measured on v1's set: the same sentences, so the two versions are scored alike.
         "directive.v1" | "directive.v2" => DIRECTIVE_V1,
@@ -856,7 +858,17 @@ mod tests {
     /// if that fallback changes, this is where the pack notices.
     #[test]
     fn undo_v1_fails_open_under_the_bar_and_acts_as_a_hold() {
-        let p = by_name("undo.v1").expect("undo.v1 is embedded");
+        // undo.v1 (retired in issue 46, its file kept) and undo.v2, which acts: the same, each.
+        for name in ["undo.v1", "undo.v2"] {
+            undo_fails_open_and_holds(
+                &by_name(name)
+                    .or_else(|| crate::pack::retired(name))
+                    .unwrap(),
+            );
+        }
+    }
+
+    fn undo_fails_open_and_holds(p: &crate::pack::Pack) {
         let verdict = p.question("reversible").expect("it asks `reversible`");
         assert_eq!(verdict.no_match.as_deref(), Some("reversible"));
         assert!(verdict.decides, "the verdict decides");

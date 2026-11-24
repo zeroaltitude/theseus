@@ -1,0 +1,148 @@
+{
+  "format": "view-cases.v1",
+  "set": "synthetic.v2",
+  "about": "Written for the kit: no person's conversation. Places are symbolic (here, there); the builder makes one per name. synthetic.v1 without its forbidden_disclosure cases: nothing is withheld since 2026-11-22, so a verdict that a sealed line must stay out states a rule that no longer exists.",
+  "cases": [
+    {"id": "here-01", "class": "callback_here",
+     "history": [
+       {"id": "h1", "place": "here", "say": "The staging bucket for the parser project is called amber-lattice."},
+       {"id": "h2", "place": "here", "say": "Let us keep build logs for fourteen days."},
+       {"id": "h3", "place": "here", "say": "Add a lint step before the tests run."}],
+     "message": {"place": "here", "say": "Which bucket did I say staging uses?"},
+     "evidence": ["h1"], "referent": "h1"},
+    {"id": "here-02", "class": "callback_here",
+     "history": [
+       {"id": "h1", "place": "here", "say": "The retry limit for the importer should be seven."},
+       {"id": "h2", "place": "here", "say": "Rename the job to nightly-import."},
+       {"id": "h3", "place": "here", "say": "It runs at 02:15 in the morning."},
+       {"id": "h4", "place": "here", "say": "Write the logs to the shared volume."}],
+     "message": {"place": "here", "say": "What retry limit did we settle on?"},
+     "evidence": ["h1"], "referent": "h1"},
+    {"id": "here-03", "class": "callback_here",
+     "history": [
+       {"id": "h1", "place": "here", "say": "The demo account's colour theme is teal on slate."},
+       {"id": "h2", "place": "here", "say": "Use the wide layout for the dashboard."}],
+     "message": {"place": "here", "say": "Apply that theme to the new report page too."},
+     "evidence": ["h1"], "referent": "h1"},
+    {"id": "here-04", "class": "callback_here",
+     "history": [
+       {"id": "h1", "place": "here", "say": "Benchmark run seventeen used the cold cache."},
+       {"id": "h2", "place": "here", "say": "Benchmark run eighteen used the warm cache."},
+       {"id": "h3", "place": "here", "say": "Eighteen was about thirty percent faster."},
+       {"id": "h4", "place": "here", "say": "Archive both runs under q4-perf."}],
+     "message": {"place": "here", "say": "Why was the faster run faster?"},
+     "evidence": ["h2", "h3"], "referent": "h2"},
+
+    {"id": "else-01", "class": "callback_elsewhere",
+     "history": [
+       {"id": "h1", "place": "there", "say": "The vendor's quote for the sensors came in at 4,200 per unit."},
+       {"id": "h2", "place": "here", "say": "Start a budget sheet for the field trial."}],
+     "message": {"place": "here", "say": "Put the sensor price I mentioned into the sheet."},
+     "evidence": ["h1"], "referent": "h1"},
+    {"id": "else-02", "class": "callback_elsewhere",
+     "history": [
+       {"id": "h1", "place": "there", "say": "My flight to the conference lands at 18:40 on the ninth."},
+       {"id": "h2", "place": "here", "say": "Draft the talk outline in four sections."}],
+     "message": {"place": "here", "say": "Leave the evening of my arrival free in the schedule."},
+     "evidence": ["h1"], "referent": "h1"},
+    {"id": "else-03", "class": "callback_elsewhere",
+     "history": [
+       {"id": "h1", "place": "there", "say": "The new intern's project is the label printer driver."},
+       {"id": "h2", "place": "there", "say": "Pair the intern with the firmware lead."},
+       {"id": "h3", "place": "here", "say": "List open driver tickets."}],
+     "message": {"place": "here", "say": "Which of these could go to the intern's project?"},
+     "evidence": ["h1"], "referent": "h1"},
+    {"id": "else-04", "class": "callback_elsewhere",
+     "history": [
+       {"id": "h1", "place": "there", "say": "We agreed the release freeze starts on the twelfth."},
+       {"id": "h2", "place": "here", "say": "Plan the migration of the queue service."}],
+     "message": {"place": "here", "say": "Does the migration finish before the freeze I set?"},
+     "evidence": ["h1"], "referent": "h1"},
+
+    {"id": "opt-01", "class": "second_option_later",
+     "history": [
+       {"id": "h1", "place": "here", "say": "Options for the cache: one, an in-process map; two, a sidecar store; three, no cache."},
+       {"id": "h2", "place": "here", "say": "Unrelated: fix the typo in the onboarding page."},
+       {"id": "h3", "place": "here", "say": "Also bump the parser dependency."}],
+     "message": {"place": "here", "say": "Let us go with the second option."},
+     "evidence": ["h1"], "referent": "h1"},
+    {"id": "opt-02", "class": "second_option_later",
+     "history": [
+       {"id": "h1", "place": "here", "say": "Two ways to ship the docs: a static site or pages in the app."},
+       {"id": "h2", "place": "there", "say": "Book a room for the review."},
+       {"id": "h3", "place": "here", "say": "Measure the app's cold start."},
+       {"id": "h4", "place": "here", "say": "And its memory at idle."}],
+     "message": {"place": "here", "say": "The second of those two ways, please."},
+     "evidence": ["h1"], "referent": "h1"},
+    {"id": "opt-03", "class": "second_option_later",
+     "history": [
+       {"id": "h1", "place": "here", "say": "Name ideas for the tool: Wayfinder, Plumb, Tally."},
+       {"id": "h2", "place": "here", "say": "Write the install section of the readme."},
+       {"id": "h3", "place": "here", "say": "Add a licence file."},
+       {"id": "h4", "place": "here", "say": "Tag the first pre-release."},
+       {"id": "h5", "place": "here", "say": "Check the release notes render."}],
+     "message": {"place": "here", "say": "Rename everything to the second name."},
+     "evidence": ["h1"], "referent": "h1"},
+    {"id": "opt-04", "class": "second_option_later",
+     "history": [
+       {"id": "h1", "place": "there", "say": "Venue choices: the library hall or the river terrace."},
+       {"id": "h2", "place": "here", "say": "Draft the invitation."}],
+     "message": {"place": "here", "say": "Use the second venue in the invitation."},
+     "evidence": ["h1"], "referent": "h1"},
+
+    {"id": "fix-01", "class": "corrected_fact",
+     "history": [
+       {"id": "h1", "place": "here", "say": "The deploy window is Tuesday at noon."},
+       {"id": "h2", "place": "here", "say": "Correction: the deploy window is Thursday at noon."},
+       {"id": "h3", "place": "here", "say": "Write the runbook."}],
+     "message": {"place": "here", "say": "When is the deploy window?"},
+     "evidence": ["h2"], "referent": "h2", "current": "h2", "stale": ["h1"]},
+    {"id": "fix-02", "class": "corrected_fact",
+     "history": [
+       {"id": "h1", "place": "there", "say": "The client's main contact is in Varnholm."},
+       {"id": "h2", "place": "there", "say": "Sorry, the main contact moved to Quellbridge."},
+       {"id": "h3", "place": "here", "say": "Plan the client visit."}],
+     "message": {"place": "here", "say": "Which city do we fly to for the visit?"},
+     "evidence": ["h2"], "referent": "h2", "current": "h2", "stale": ["h1"]},
+    {"id": "fix-03", "class": "corrected_fact",
+     "history": [
+       {"id": "h1", "place": "here", "say": "The test fleet has twelve boxes."},
+       {"id": "h2", "place": "here", "say": "Scale the nightly suite to the fleet."},
+       {"id": "h3", "place": "here", "say": "Update: the fleet is down to nine boxes now."}],
+     "message": {"place": "here", "say": "How many shards should the nightly suite use?"},
+     "evidence": ["h3"], "referent": "h3", "current": "h3", "stale": ["h1"]},
+    {"id": "fix-04", "class": "corrected_fact",
+     "history": [
+       {"id": "h1", "place": "here", "say": "The budget cap for the trial is 900."},
+       {"id": "h2", "place": "there", "say": "The trial's cap was raised to 1,100 by finance."},
+       {"id": "h3", "place": "here", "say": "Draft the spending plan."}],
+     "message": {"place": "here", "say": "Keep the plan under the cap."},
+     "evidence": ["h2"], "referent": "h2", "current": "h2", "stale": ["h1"]},
+
+    {"id": "task-01", "class": "task_update",
+     "history": [
+       {"id": "h1", "place": "here", "say": "New task: migrate the mail templates to the new engine."},
+       {"id": "h2", "place": "here", "say": "Three of eleven templates are migrated."}],
+     "message": {"place": "here", "say": "Where are we on the template migration?"},
+     "evidence": ["h1", "h2"], "referent": "h1", "needs": ["task"]},
+    {"id": "task-02", "class": "task_update",
+     "history": [
+       {"id": "h1", "place": "there", "say": "New task: audit the access list of the data share."},
+       {"id": "h2", "place": "here", "say": "Unrelated: rotate the test keys."}],
+     "message": {"place": "here", "say": "Add the contractors' group to that audit."},
+     "evidence": ["h1"], "referent": "h1", "needs": ["task"]},
+    {"id": "task-03", "class": "task_update",
+     "history": [
+       {"id": "h1", "place": "here", "say": "New task: write the quarterly summary."},
+       {"id": "h2", "place": "here", "say": "Change of plan: the summary covers two quarters."},
+       {"id": "h3", "place": "here", "say": "Collect the incident counts."}],
+     "message": {"place": "here", "say": "What does the summary cover?"},
+     "evidence": ["h2"], "referent": "h1", "current": "h2", "stale": ["h1"], "needs": ["task"]},
+    {"id": "task-04", "class": "task_update",
+     "history": [
+       {"id": "h1", "place": "here", "say": "New task: replace the old status page."},
+       {"id": "h2", "place": "there", "say": "The status page task is blocked on the DNS change."}],
+     "message": {"place": "here", "say": "Is anything blocking the status page?"},
+     "evidence": ["h2"], "referent": "h1", "needs": ["task"]}
+  ]
+}

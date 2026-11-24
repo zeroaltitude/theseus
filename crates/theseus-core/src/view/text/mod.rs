@@ -7,11 +7,13 @@
 //! - [`parts`]: an exchange's parts, each labelled by its own provenance.
 //! - [`literal`]: data in framing (a place, a source, a path, a name) as a visibly quoted literal.
 //! - [`blocks`]: a fold node's block and a band's closing count.
+//! - [`kept`]: the bytes of its text a one-line cut kept.
 //! - [`page`]: the memory page, the fixed text of the system part that tells the model how its context is
 //!   built.
 
 pub mod blocks;
 pub mod forms;
+pub mod kept;
 pub mod labels;
 pub mod literal;
 pub mod page;

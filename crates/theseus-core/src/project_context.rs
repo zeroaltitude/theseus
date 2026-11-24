@@ -33,7 +33,10 @@
 //! FAST: discovery is `stat` alone, two names per directory from the
 //! repository root down to the session's directory, and the reading is the
 //! context-file reader's, with its stat-based cache. A session at the root
-//! of a repository with no nested files pays two stats a compile.
+//! of a repository with no nested files pays two stats a compile. A grant
+//! reads more, once: [`walk`] finds the instruction files under the root,
+//! nearest the root first, for the sighting the grant stores (§8, "After a
+//! grant"), bounded in directory entries and in time.
 
 use std::path::{Path, PathBuf};
 
@@ -77,6 +80,10 @@ pub struct Found {
 pub struct Discovered {
     /// The repository this was discovered in, canonical; none outside one.
     pub root: Option<PathBuf>,
+    /// The directories the repository's files were looked for in: the chain
+    /// from the root down to the session's directory, root first. Empty
+    /// outside a repository.
+    pub dirs: Vec<PathBuf>,
     /// The user-level file, when the owner has one.
     pub user: Option<Found>,
     /// The repository's files in precedence order (§5): the root's
@@ -129,28 +136,36 @@ pub fn discover(state_dir: &Path, dir: &Path) -> Discovered {
 /// Discovery over the paths given, so a test drives it without a repository
 /// of its own: the chain from `root` down to `dir`, and `user`.
 pub fn discover_in(root: Option<&Path>, dir: &Path, user: Option<&Path>) -> Discovered {
+    let dirs = root.map(|r| chain_dirs(r, dir)).unwrap_or_default();
     Discovered {
         root: root.map(Path::to_path_buf),
         user: user.and_then(|p| found(p, 0)),
-        project: root.map(|r| chain(r, dir)).unwrap_or_default(),
+        project: chain(&dirs),
+        dirs,
     }
 }
 
-/// The files of every directory from `root` down to `dir`, in precedence
-/// order. A `dir` that is not under `root` is read as the root alone: the
-/// resolver gives both canonically, so that is a race, not a path to follow.
-fn chain(root: &Path, dir: &Path) -> Vec<Found> {
+/// Every directory from `root` down to `dir`, root first. A `dir` that is
+/// not under `root` is read as the root alone: the resolver gives both
+/// canonically, so that is a race, not a path to follow.
+fn chain_dirs(root: &Path, dir: &Path) -> Vec<PathBuf> {
     let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-    let mut dirs: Vec<&Path> = if dir.starts_with(root) {
+    let mut dirs: Vec<PathBuf> = if dir.starts_with(root) {
         dir.ancestors()
             .take_while(|d| *d != root)
             .chain(std::iter::once(root))
+            .map(Path::to_path_buf)
             .collect()
     } else {
-        vec![root]
+        vec![root.to_path_buf()]
     };
     dirs.reverse();
-    dirs.into_iter()
+    dirs
+}
+
+/// The files of `dirs`, in precedence order.
+fn chain(dirs: &[PathBuf]) -> Vec<Found> {
+    dirs.iter()
         .enumerate()
         .flat_map(|(depth, d)| {
             NAMES
@@ -158,6 +173,113 @@ fn chain(root: &Path, dir: &Path) -> Vec<Found> {
                 .filter_map(move |n| found(&d.join(n), depth))
         })
         .collect()
+}
+
+/// The most directory entries a grant's [`walk`] reads, counted as the
+/// directory listings return them: every entry, an error included, kept or
+/// not.
+pub const WALK_ENTRIES: usize = 20_000;
+
+/// The time allowance of a grant's [`walk`], and then of its digests:
+/// checked between filesystem calls in the walk and between files in the
+/// digests, so one call that blocks is not interrupted.
+pub const WALK_TIME: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The most files a grant digests.
+pub const DIGEST_FILES: usize = 1_000;
+
+/// Every instruction file under `root`, for the sighting a grant stores
+/// (§8, "After a grant"), nearest the root first.
+///
+/// It is a plain breadth-first walk over the directory listings. It reads
+/// no ignore file of any kind, never enters `.git`, and does not follow a
+/// symlinked directory. The only things it opens are directories, and the
+/// only files it stats are the two names ([`found`], so a symlinked
+/// `AGENTS.md` that resolves to a regular file is taken, as a compile takes
+/// it). Breadth-first, so the files nearest the root are found before a deep
+/// build or dependency tree spends the allowance.
+///
+/// It is bounded. The entry allowance bounds the raw directory entries it
+/// reads: at most [`WALK_ENTRIES`] in all, every entry a listing returns,
+/// an error included, kept or not. The time allowance, [`WALK_TIME`], is
+/// checked between filesystem calls: before each directory is opened,
+/// before each entry is read and its type read, and before each instruction
+/// file is stat'ed. Past either it stops, and what it found by then is the
+/// answer; the entries of a directory already read when the entry
+/// allowance is spent are still used. An error on a directory or an entry
+/// passes that one over. So a grant never fails because of the walk, and a
+/// file it did not reach is new to the sighting when a compile first finds
+/// it. One filesystem call that blocks (a stalled network mount) is not
+/// interrupted.
+pub fn walk(root: &Path) -> Vec<Found> {
+    walk_within(root, WALK_ENTRIES, WALK_TIME)
+}
+
+/// [`walk`] within `entries` directory entries and `time`. Within one
+/// directory the entries read are sorted by name before they are used, so
+/// the answer is steady on a tree that fits.
+pub(crate) fn walk_within(root: &Path, entries: usize, time: std::time::Duration) -> Vec<Found> {
+    walk_by(root, entries, time, |d: &Path| std::fs::read_dir(d))
+}
+
+/// [`walk_within`], listing each directory through `open`, so a test can
+/// count what the walk reads.
+///
+/// Both allowances are checked before a directory is opened and before
+/// each entry is asked of its listing, and every entry the listing returns
+/// counts at once, an error included: the walk reads no entry past
+/// `entries`. The time is also checked before an entry's type is read and
+/// before each instruction file is stat'ed. When only the entry allowance
+/// is spent, the entries already read are still used.
+pub(crate) fn walk_by<L>(
+    root: &Path,
+    entries: usize,
+    time: std::time::Duration,
+    mut open: impl FnMut(&Path) -> std::io::Result<L>,
+) -> Vec<Found>
+where
+    L: Iterator<Item = std::io::Result<std::fs::DirEntry>>,
+{
+    let start = std::time::Instant::now();
+    let late = || start.elapsed() >= time;
+    let mut read = 0;
+    let mut out = Vec::new();
+    let mut dirs = std::collections::VecDeque::from([(root.to_path_buf(), 0)]);
+    while let Some((dir, depth)) = dirs.pop_front() {
+        if read >= entries || late() {
+            break;
+        }
+        let Ok(mut listing) = open(&dir) else {
+            continue;
+        };
+        let mut here = Vec::new();
+        while read < entries && !late() {
+            let Some(entry) = listing.next() else { break };
+            read += 1;
+            let Ok(entry) = entry else { continue };
+            if late() {
+                break;
+            }
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            here.push((entry.file_name(), kind));
+        }
+        here.sort_by(|a, b| a.0.cmp(&b.0));
+        for (name, kind) in here {
+            if kind.is_dir() {
+                if name != ".git" {
+                    dirs.push_back((dir.join(name), depth + 1));
+                }
+            } else if NAMES.iter().any(|n| name == *n) {
+                if late() {
+                    return out;
+                }
+                out.extend(found(&dir.join(name), depth));
+            }
+        }
+    }
+    out
 }
 
 /// `path` as a `Found`, when it is a regular file that exists. An absent
@@ -451,7 +573,15 @@ pub fn block(
             // are the turn's (`observe_project`); this is the block's half,
             // which is where the model sees it.
             let root = found.root.as_deref().expect("a project file has a root");
-            let seen = change::observe(cfg, store, files, root, &found.project, flagged);
+            let seen = change::observe(
+                cfg,
+                store,
+                files,
+                root,
+                &found.project,
+                &found.dirs,
+                flagged,
+            );
             let carry: Vec<Found> = found
                 .project
                 .iter()

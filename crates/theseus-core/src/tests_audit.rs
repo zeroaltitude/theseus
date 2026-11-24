@@ -15,7 +15,7 @@ use crate::provider::Scripted;
 use crate::rpc::Core;
 use crate::tests_replay::{call_row, judgment, loop_state, rig, rows};
 
-/// What the audit model answers: two of loop.v1's questions rightly, one
+/// What the audit model answers: two of loop.v2's questions rightly, one
 /// outside its options, and one the pack does not ask.
 fn audit_answer() -> Scripted {
     Scripted::text(
@@ -24,14 +24,14 @@ fn audit_answer() -> Scripted {
     )
 }
 
-/// Five answered `loop.v1` judgments, each with its state's blob.
+/// Five answered `loop.v2` judgments, each with its state's blob.
 fn five(c: &Core) {
     let mut records = Vec::new();
     for (i, name) in ["heron", "wren", "gull", "tern", "kite"].iter().enumerate() {
         let (state, blob) = loop_state(c, &format!("Count the {name}s at dusk."));
         let j = judgment(
             &format!("jdg_{name}"),
-            "loop.v1",
+            "loop.v2",
             &state,
             vec![],
             json!({"blob": blob, "session": "ses_x", "turn": format!("trn_{name}")}),
@@ -70,7 +70,7 @@ async fn an_audit_labels_a_seeded_sample_once() {
             out.asked,
             out.failed
         ),
-        ("loop.v1", 5, 3, 3, 0)
+        ("loop.v2", 5, 3, 3, 0)
     );
     assert_eq!((out.labels, out.dropped), (6, 6));
     assert!(out.stopped.is_none());
@@ -172,7 +172,7 @@ fn a_seed_draws_one_sample() {
             at_ms: i,
             row_ms: i,
             judgment: serde_json::from_value(json!({
-                "id": format!("jdg_{i}"), "pack": "loop.v1", "version": 1, "pack_sha256": "",
+                "id": format!("jdg_{i}"), "pack": "loop.v2", "version": 1, "pack_sha256": "",
                 "point": "loop_end", "mode": "shadow", "model": "jev-1.13.0",
                 "answered_by": null, "model_drift": false,
                 "state": {"sha256": "", "bytes": 0, "tokens": 0, "cap_tokens": 1,
@@ -207,7 +207,7 @@ async fn an_audit_stops_at_its_per_run_cap() {
     let probe = rig(vec![], &jev, |_| {});
     let (state, _) = loop_state(&probe.core, "Count the herons at dusk.");
     let _ = state;
-    let pack = theseus_judge::pack::by_name("loop.v1").unwrap();
+    let pack = theseus_judge::pack::by_name("loop.v2").unwrap();
     let (live, _) = probe.core.live_profile();
     let target = probe
         .core

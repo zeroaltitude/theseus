@@ -106,18 +106,18 @@ pub struct JudgeConfig {
     /// rewrite a pack's text.
     #[serde(default)]
     pub learn: LearnConfig,
-    /// The stop nudge (theseus-fh0u, the owner's D8): `loop.v1` live at a
+    /// The stop nudge (theseus-fh0u, the owner's D8): the loop pack live at a
     /// turn's stop, so a private turn whose last message announced work still
-    /// to come goes on once more. `false` keeps `loop.v1` in shadow, judging
+    /// to come goes on once more. `false` keeps the loop pack in shadow, judging
     /// and acting on nothing; `theseus nudge off` lowers it for one session.
     #[serde(default = "yes")]
     pub stop_nudge: bool,
     /// The reversibility classifier (theseus-p5kln, row B6 `theseus-2yowd`):
-    /// `undo.v1` asked on the tool gate's own path, so a call that would lose
+    /// the undo pack asked on the tool gate's own path, so a call that would lose
     /// something is held and the model re-plans it, and one whose loss no
     /// reshaping could touch waits for the owner. On by default, the owner's
     /// own word (2026-11-12: "i would like it wired and switched on").
-    /// `false` keeps `undo.v1` in shadow: it is still judged and recorded,
+    /// `false` keeps the undo pack in shadow: it is still judged and recorded,
     /// and it holds and raises nothing.
     #[serde(default = "yes")]
     pub reversibility: bool,
@@ -222,13 +222,16 @@ pub struct JudgePackConfig {
 /// The one pack whose line may say `notices`.
 pub const NOTICES_PACK: &str = "security.v3";
 
-/// The pack `stop_nudge` switches: `loop.v1`, whose learned versions its
-/// line binds too (`JudgeService::capped_by_root`).
-pub const STOP_PACK: &str = "loop.v1";
+/// The pack `stop_nudge` switches: the wired loop pack, whose learned
+/// versions its line binds too (`JudgeService::capped_by_root`). The judge's
+/// own constant, so a new version cannot leave the switch on a retired one.
+pub const STOP_PACK: &str = crate::judge::LOOP_PACK;
 
-/// The pack `reversibility` switches: `undo.v1`, whose learned versions its
-/// line binds too (`JudgeService::capped_by_root`).
-pub const UNDO_PACK: &str = "undo.v1";
+/// The pack `reversibility` switches: `undo.v2` (issue 46; `undo.v1` with its
+/// advice for overwriting a file corrected), whose learned versions its line
+/// binds too (`JudgeService::capped_by_root`). The learning loop leaves it
+/// alone (`judge::lineage::LEFT_ALONE`).
+pub const UNDO_PACK: &str = "undo.v2";
 
 fn live() -> PackMode {
     PackMode::Live
@@ -401,12 +404,12 @@ impl JudgeConfig {
             Some(false) => PackMode::Shadow,
             _ => PackMode::Live,
         };
-        // loop.v1's one action is the stop nudge (theseus-fh0u): its switch.
+        // The loop pack's one action is the stop nudge (theseus-fh0u): its switch.
         let nudge = match (pack, self.stop_nudge) {
             (STOP_PACK, false) => PackMode::Shadow,
             _ => PackMode::Live,
         };
-        // undo.v1's actions are the hold and the raise (theseus-p5kln): its
+        // The undo pack's actions are the hold and the raise (theseus-p5kln): its
         // switch, which leaves the judgment and takes only the acting.
         let undo = match (pack, self.reversibility) {
             (UNDO_PACK, false) => PackMode::Shadow,
@@ -488,8 +491,8 @@ pub(crate) fn the_templates_judge_section(cfg: &crate::Config) {
     let j = &cfg.judge;
     assert!(!j.enabled, "the template's judge line says off");
     assert!(cfg.secrets.contains_key(&j.key_secret));
-    assert_eq!(j.packs["loop.v1"].mode, Some(PackMode::Off));
-    assert_eq!(j.packs["loop.v1"].sample, Some(0.5));
+    assert_eq!(j.packs["loop.v2"].mode, Some(PackMode::Off));
+    assert_eq!(j.packs["loop.v2"].sample, Some(0.5));
     assert!(j.retired().is_empty(), "the template sets no retired key");
     assert_eq!(j.packs["rerank.v1"].mode, Some(PackMode::Off));
     assert_eq!(j.packs[NOTICES_PACK].notices, Some(true));
@@ -531,7 +534,7 @@ mod tests {
     fn the_judge_is_off_without_a_key_and_the_template_says_so() {
         let d = JudgeConfig::default();
         assert!(!d.enabled && d.enabled_setting.is_none());
-        assert_eq!(d.mode_of("loop.v1", PackMode::Shadow), PackMode::Off);
+        assert_eq!(d.mode_of("loop.v2", PackMode::Shadow), PackMode::Off);
         let example = crate::Config::example().judge;
         assert!(!example.enabled);
         assert!(
@@ -552,25 +555,25 @@ mod tests {
     fn the_config_lowers_a_packs_mode_and_never_raises_it() {
         let on = |extra: &str| cfg(&format!("enabled = true\n{extra}")).unwrap();
         let shadow = PackMode::Shadow;
-        assert_eq!(on("").mode_of("loop.v1", shadow), shadow);
-        let raise = on("max_mode = \"live\"\n[packs.\"loop.v1\"]\nrung = \"live\"");
-        assert_eq!(raise.mode_of("loop.v1", shadow), shadow, "never raised");
-        let canary = on("[packs.\"loop.v1\"]\nrung = \"canary\"");
-        assert_eq!(canary.mode_of("loop.v1", shadow), shadow);
-        let off = on("[packs.\"loop.v1\"]\nrung = \"off\"");
-        assert_eq!(off.mode_of("loop.v1", shadow), PackMode::Off);
+        assert_eq!(on("").mode_of("loop.v2", shadow), shadow);
+        let raise = on("max_mode = \"live\"\n[packs.\"loop.v2\"]\nrung = \"live\"");
+        assert_eq!(raise.mode_of("loop.v2", shadow), shadow, "never raised");
+        let canary = on("[packs.\"loop.v2\"]\nrung = \"canary\"");
+        assert_eq!(canary.mode_of("loop.v2", shadow), shadow);
+        let off = on("[packs.\"loop.v2\"]\nrung = \"off\"");
+        assert_eq!(off.mode_of("loop.v2", shadow), PackMode::Off);
         assert_eq!(
             off.mode_of("security.v1", shadow),
             shadow,
             "one pack's line"
         );
         let capped = on("max_mode = \"shadow\"");
-        assert_eq!(capped.mode_of("loop.v1", PackMode::Live), shadow);
+        assert_eq!(capped.mode_of("loop.v2", PackMode::Live), shadow);
         let none = on("max_mode = \"off\"");
-        assert_eq!(none.mode_of("loop.v1", shadow), PackMode::Off);
+        assert_eq!(none.mode_of("loop.v2", shadow), PackMode::Off);
     }
 
-    /// `stop_nudge` (theseus-fh0u): on by default, so loop.v1 acts as the
+    /// `stop_nudge` (theseus-fh0u): on by default, so loop.v2 acts as the
     /// ladder gives it; off, it is held in shadow, its learned versions with
     /// it, and every other pack is as it was.
     #[test]
@@ -584,14 +587,26 @@ mod tests {
         assert_eq!(
             off.mode_of("route.v3", live),
             live,
-            "loop.v1's switch alone"
+            "loop.v2's switch alone"
         );
-        let quiet = on("stop_nudge = false\n[packs.\"loop.v1\"]\nrung = \"off\"");
+        let quiet = on("stop_nudge = false\n[packs.\"loop.v2\"]\nrung = \"off\"");
         assert_eq!(quiet.mode_of(STOP_PACK, live), PackMode::Off);
     }
 
+    /// The switch lowers the loop pack the judge asks, whatever its version:
+    /// `STOP_PACK` is the wired loop pack, so a new version of it cannot leave
+    /// `stop_nudge = false` lowering a retired name while the new one acts
+    /// (issue 46).
+    #[test]
+    fn the_stop_nudge_switch_lowers_the_wired_loop_pack() {
+        let off = cfg("enabled = true\nstop_nudge = false").unwrap();
+        let loop_pack = crate::judge::LOOP_PACK;
+        assert_eq!(off.mode_of(loop_pack, PackMode::Live), PackMode::Shadow);
+        assert_eq!(crate::judge::wired_mode(loop_pack), PackMode::Live);
+    }
+
     /// `reversibility` (theseus-p5kln): on by default, the owner's own word,
-    /// so undo.v1 acts as the ladder gives it; off, it is held in shadow,
+    /// so the undo pack acts as the ladder gives it; off, it is held in shadow,
     /// judging and holding nothing, and every other pack is as it was.
     #[test]
     fn the_reversibility_switch_holds_undo_v1_in_shadow() {
@@ -607,10 +622,12 @@ mod tests {
         assert_eq!(
             off.mode_of(STOP_PACK, live),
             live,
-            "undo.v1's switch alone, and not the stop nudge's"
+            "the undo pack's switch alone, and not the stop nudge's"
         );
         assert_eq!(off.mode_of("route.v3", live), live);
-        let quiet = on("reversibility = false\n[packs.\"undo.v1\"]\nrung = \"off\"");
+        let quiet = on(&format!(
+            "reversibility = false\n[packs.\"{UNDO_PACK}\"]\nrung = \"off\""
+        ));
         assert_eq!(quiet.mode_of(UNDO_PACK, live), PackMode::Off);
     }
 
@@ -623,7 +640,7 @@ mod tests {
         assert!(cfg("enable = true").is_err(), "an unknown key");
         let bad = cfg("[packs.\"nope.v9\"]\nrung = \"off\"").unwrap();
         assert!(format!("{:#}", bad.validate(&secrets).unwrap_err()).contains("nope.v9"));
-        let bad = cfg("[packs.\"loop.v1\"]\nsample = 1.5").unwrap();
+        let bad = cfg("[packs.\"loop.v2\"]\nsample = 1.5").unwrap();
         assert!(bad.validate(&secrets).is_err());
         let on = cfg("enabled = true").unwrap();
         on.validate(&secrets).unwrap();
@@ -651,8 +668,8 @@ mod tests {
             .validate(&secrets)
             .unwrap_err();
         assert!(format!("{e:#}").contains("only \"security.v3\""), "{e:#}");
-        let s = cfg("[packs.\"loop.v1\"]\nsample = 0.25").unwrap();
-        assert_eq!(s.sample_of("loop.v1", 1.0), 0.25);
+        let s = cfg("[packs.\"loop.v2\"]\nsample = 0.25").unwrap();
+        assert_eq!(s.sample_of("loop.v2", 1.0), 0.25);
         assert_eq!(s.sample_of("security.v1", 1.0), 1.0);
         // A retired pack's table (security.v1 is no longer asked, theseus-rwpbg.6)
         // still loads while the build embeds the pack: it names a pack nothing wires.

@@ -51,7 +51,7 @@ pub(super) async fn running(core: &Arc<Core>, r: &Reader<'_>, here: bool) -> Str
             out,
             "- {} · {at} · {} since {} · {} turn{} · ${:.2} of ${:.2}",
             crate::task::short(&v.session_id),
-            super::clip(&v.attention.label, 80),
+            super::clip(&v.attention.label, 80, r.cuts),
             crate::wake::local(v.attention.since_ms).full(),
             v.turns,
             if v.turns == 1 { "" } else { "s" },

@@ -3,23 +3,21 @@
 scratch daemon, and a per-turn cost table, with a stand-in model.
 
     python3 bench/view/proof.py --bin-dir target/debug --out /tmp/proof
-    python3 bench/view/proof.py --bin-dir target/debug --out /tmp/proof --assembly view --cases wake,fork
+    python3 bench/view/proof.py --bin-dir target/debug --out /tmp/proof --cases wake,fork
 
 **What it runs.** Each case is one function, run on a scratch daemon of its
 own (`scratch.py`) on an EMPTY store it makes itself, so nothing it reads was
 written by a person: every word is the suite's own. The model is a local
 stand-in (`Model` below, on bench/recall's `standin.py` frames) that answers
 by script, counts what it is sent, and charges nothing; nothing reaches a
-network. Every case runs in two modes:
-
-- `view`: the scratch daemon's settings say `[context] assembly = "view"`;
-- `default`: they say nothing of it, so the daemon's own default decides.
+network. There is one context, the view: a turn is assembled no other way, so
+each case runs once.
 
 Each case ends with one line, `case <name>: ok|FAILED <why>`, and the suite
-prints one table, case x mode: `ok`, `hand-back(<reasons>)` (a turn the view
-handed to the transcript: the `context.view_fallback` rows), or `FAILED`,
-each with the strategies of the case's compilations (`context.compiled`
-rows). What a case asserts is what a person needs: an answer arrived, or the
+prints one table, a row a case: `ok`, `hand-back(<reasons>)` (a
+`context.view_fallback` row, which no build since the cut writes), or
+`FAILED`, each with the strategies of the case's compilations
+(`context.compiled` rows). What a case asserts is what a person needs: an answer arrived, or the
 turn ended in a plain failure. Counts and names only.
 
 **The cost table** (`--cost-turns`, 30 by default): one place, short
@@ -27,8 +25,7 @@ messages, a tool call every seventh turn. Per turn, the stand-in's count of
 the turn's first request (the compiler's rule, `tokens.py`) and the length of
 its byte-identical prefix with the previous turn's first request (tools, then
 system, then messages, in the request's own order, cache marks taken out),
-which is what a provider's prompt cache could read. Run in both modes; on
-today's code `default` is the transcript.
+which is what a provider's prompt cache could read.
 
 **What it does not show.** The stand-in has no cache and no judgement: the
 shared prefix is what a cache COULD read, not what one did, and no answer's
@@ -64,7 +61,6 @@ import scratch  # noqa: E402
 import standin  # noqa: E402
 import tokens as tk  # noqa: E402
 
-MODES = ("view", "default")
 REPLY = "Done."
 # A writer's answer (a call that offers no tools: the ladder's `did` line and fold, a compaction's summary): a
 # title line, then an account, which is the shape a fold must have (`ladder/fold.rs`, `parse`); a `did` line
@@ -250,14 +246,11 @@ def merge(base: dict, extra: dict) -> dict:
     return out
 
 
-def settings(mode: str, projects: Path, extra: dict | None = None) -> dict:
-    """The bench profile with the case's own settings and the mode's; then the kit's `config`, so its rules
-    (a local model only, a spend limit, nothing listening) are applied last and win."""
+def settings(projects: Path, extra: dict | None = None) -> dict:
+    """The bench profile with the case's own settings; then the kit's `config`, so its rules (a local model
+    only, a spend limit, nothing listening) are applied last and win."""
     base = merge(tomllib.loads(scratch.PROFILE.read_text()), extra or {})
-    base = merge(base, {"tools": {"projects_dir": str(projects)}})
-    if mode == "view":
-        base = merge(base, {"context": {"assembly": "view"}})
-    return base
+    return merge(base, {"tools": {"projects_dir": str(projects)}})
 
 
 class Daemon(scratch.Scratch):
@@ -716,18 +709,18 @@ def tool_results(model: Model, limit: int = 240) -> list[str]:
 DEBUG = False
 
 
-def run_case(name: str, mode: str, bin_dir: Path, out: Path) -> dict:
-    """One case in one mode, on a daemon of its own; its verdict and what the ledger says."""
+def run_case(name: str, bin_dir: Path, out: Path) -> dict:
+    """One case, on a daemon of its own; its verdict and what the ledger says."""
     f, extra = CASES[name]
-    res: dict = {"case": name, "mode": mode}
+    res: dict = {"case": name}
     if name in NOT_DRIVEN:
         ok, why = f(None)
         res.update(ok=ok, why=why, not_driven=True)
         return res
-    root = out / mode / name
+    root = out / name
     model = Model()
     try:
-        d = Daemon(bin_dir, root, model, settings(mode, root / "projects", extra))
+        d = Daemon(bin_dir, root, model, settings(root / "projects", extra))
         with d:
             c = Case(d, model, root)
             try:
@@ -764,13 +757,10 @@ def cell(r: dict) -> str:
     return f"{head} [{strat}]" if strat else head
 
 
-def table(results: list[dict], modes) -> str:
-    by = {(r["case"], r["mode"]): r for r in results}
-    lines = ["| case | " + " | ".join(modes) + " |", "|---|" + "---|" * len(modes)]
-    for name in CASES:
-        if any((name, m) in by for m in modes):
-            lines.append(f"| {name} | " + " | ".join(cell(by[(name, m)]) if (name, m) in by else "-"
-                                                     for m in modes) + " |")
+def table(results: list[dict]) -> str:
+    by = {r["case"]: r for r in results}
+    lines = ["| case | result |", "|---|---|"]
+    lines += [f"| {name} | {cell(by[name])} |" for name in CASES if name in by]
     return "\n".join(lines)
 
 
@@ -827,12 +817,57 @@ def writer_quiet(model: Model, timeout: float = WRITER_WAIT) -> None:
             return
 
 
+def classes(mine: list[dict], line: str, steps: int) -> list[str]:
+    """Each call of a turn's span, in order, and exactly one class each, from one pass: `off` (it offers no
+    tools), `extra` (its opening text is not this turn's), `first` (the turn's own earliest round-0 call), then
+    the turn's other own calls in arrival order: `follow` while the script has steps left for them (its `steps`,
+    one for a turn with no script, less the first), `extra` past them."""
+    first = next((k for k, x in enumerate(mine) if x["tools"] and x["round"] == 0 and line in turn_text(x["req"])),
+                 None)
+    left = steps - (first is not None)
+    out = []
+    for k, x in enumerate(mine):
+        if not x["tools"]:
+            out.append("off")
+        elif line not in turn_text(x["req"]):
+            out.append("extra")
+        elif k == first:
+            out.append("first")
+        elif left > 0:
+            out.append("follow")
+            left -= 1
+        else:
+            out.append("extra")
+    return out
+
+
 def extra_calls(mine: list[dict], line: str, steps: int) -> list[dict]:
-    """The tool-offering calls in a turn's span that the turn's script does not account for: any whose
-    opening text is not this turn's, and the turn's own beyond its `steps` (one for a turn with no script)."""
-    tools = [x for x in mine if x["tools"]]
-    own = [x for x in tools if line in turn_text(x["req"])]
-    return [x for x in tools if line not in turn_text(x["req"])] + own[steps:]
+    """The tool-offering calls in a turn's span that the turn's script does not account for (`classes`)."""
+    return [x for x, c in zip(mine, classes(mine, line, steps)) if c == "extra"]
+
+
+class PartsDisagree(AssertionError):
+    """A cost run's parts do not add to its total: a request in two classes, or in none."""
+
+
+PARTS = ("follow", "off", "extra")
+
+
+def check_parts(r: dict) -> None:
+    """Each turn's first, follow-up, off-turn and extra calls add to its span, and the turns' parts with the
+    calls outside every span add to the run's total, in calls and in tokens; else `PartsDisagree`."""
+    for x in r["rows"]:
+        calls = (x["tokens"] is not None) + sum(x[f"{p}_calls"] for p in PARTS)
+        tokens = (x["tokens"] or 0) + sum(x[f"{p}_tokens"] for p in PARTS)
+        if (calls, tokens) != (x["all_calls"], x["all_tokens"]):
+            raise PartsDisagree(f"turn {x.get('turn')}: parts {calls} calls {tokens} tokens, span "
+                                f"{x['all_calls']} calls {x['all_tokens']} tokens")
+    firsts = sum(1 for x in r["rows"] if x["tokens"] is not None)
+    calls = firsts + sum(r[f"{p}_calls"] for p in PARTS) + r["outside_calls"]
+    tokens = r["total_tokens"] + sum(r[f"{p}_tokens"] for p in PARTS) + r["outside_tokens"]
+    if (calls, tokens) != (r["all_calls"], r["all_tokens"]):
+        raise PartsDisagree(f"parts {calls} calls {tokens} tokens, all requests {r['all_calls']} calls "
+                            f"{r['all_tokens']} tokens")
 
 
 def call_probe(x: dict, chars: int = 200) -> dict:
@@ -846,18 +881,22 @@ def call_probe(x: dict, chars: int = 200) -> dict:
             "max_tokens": x.get("max_tokens"), "tokens": x["counted"]}
 
 
-def cost_run(mode: str, bin_dir: Path, out: Path, n: int, name: str = "cost",
+def cost_run(bin_dir: Path, out: Path, n: int, name: str = "cost",
              conversation=short_conversation, extra: dict | None = None) -> dict:
     """A conversation in one place. Per turn: its first request's tokens and the prefix it shares with the
     previous turn's first request; the model calls the turn made; the calls made OFF the turn (a call that
     offers no tools, between this turn's start and the next's: the ladder's `did` lines and folds, a
-    compaction's summary), with their tokens; and the turn's compilations by strategy."""
+    compaction's summary), with their tokens; its follow-up requests (a tool turn's later steps); and the
+    turn's compilations by strategy. `all_calls` and `all_tokens` count EVERY request the stand-in was sent,
+    each once: a turn's span (`all_*` of its row), and any outside every turn's span (`outside_*`). Each call
+    of a span has one class (`classes`), so the parts add to the total; `check_parts` holds the run to it."""
     lines, script = conversation(n)
     model = Model(script)
-    root = out / mode / name
+    root = out / name
     per: list[dict] = []
+    spans: set[int] = set()
     try:
-        with Daemon(bin_dir, root, model, settings(mode, root / "projects", extra)) as d:
+        with Daemon(bin_dir, root, model, settings(root / "projects", extra)) as d:
             s = open_session(d, name, root / "projects" / name)
             for i, line in enumerate(lines, 1):
                 before = len(model.seen)
@@ -868,14 +907,17 @@ def cost_run(mode: str, bin_dir: Path, out: Path, n: int, name: str = "cost",
                 writer_quiet(model)
                 with model.lock:
                     mine = model.seen[before:]
-                first = [x for x in mine if x["tools"] and x["round"] == 0 and line in turn_text(x["req"])]
-                off = [x for x in mine if not x["tools"]]
+                spans.update(range(before, before + len(mine)))
+                cls = classes(mine, line, len(script.get(line) or [{}]))
+                first, off, extra, follow = ([x for x, c in zip(mine, cls) if c == want]
+                                             for want in ("first", "off", "extra", "follow"))
                 kinds = Counter(WRITER_KINDS.get(x.get("max_tokens"), "other") for x in off)
-                extra = extra_calls(mine, line, len(script.get(line) or [{}]))
                 per.append({"turn": i, "answered": answered(v), "req": first[0] if first else None,
                             "calls": sum(1 for x in mine if x["tools"]), "off_calls": len(off),
                             "off_tokens": sum(x["counted"] for x in off), "off_kinds": dict(kinds),
                             "extra_calls": len(extra), "extra_tokens": sum(x["counted"] for x in extra),
+                            "follow_calls": len(follow), "follow_tokens": sum(x["counted"] for x in follow),
+                            "all_calls": len(mine), "all_tokens": sum(x["counted"] for x in mine),
                             **({"extra": [call_probe(x) for x in extra]} if DEBUG and extra else {})})
             started = [r for r in rows(d, "turn.started") if r.get("session_id") == s]
             by_turn: dict = {}
@@ -884,6 +926,9 @@ def cost_run(mode: str, bin_dir: Path, out: Path, n: int, name: str = "cost",
             seen = observe(d)
     finally:
         model.close()
+    with model.lock:
+        every = list(model.seen)
+    outside = [x for k, x in enumerate(every) if k not in spans]
     for p, r in zip(per, started):
         p["strategies"] = dict(by_turn.get(r.get("turn_id")) or {})
     table_rows, prev = [], None
@@ -901,36 +946,33 @@ def cost_run(mode: str, bin_dir: Path, out: Path, n: int, name: str = "cost",
         prev = b
     total = sum(r["tokens"] or 0 for r in table_rows)
     shared = sum(r["shared_tokens"] or 0 for r in table_rows)
-    return {"mode": mode, "case": name, "rows": table_rows, "total_tokens": total, "shared_tokens": shared,
+    run = {"case": name, "rows": table_rows, "total_tokens": total, "shared_tokens": shared,
             "unshared_tokens": total - shared, "off_calls": sum(r["off_calls"] for r in table_rows),
             "off_tokens": sum(r["off_tokens"] for r in table_rows),
             "off_kinds": dict(sum((Counter(r["off_kinds"]) for r in table_rows), Counter())),
             "extra_calls": sum(r["extra_calls"] for r in table_rows),
             "extra_tokens": sum(r["extra_tokens"] for r in table_rows),
+            "follow_calls": sum(r["follow_calls"] for r in table_rows),
+            "follow_tokens": sum(r["follow_tokens"] for r in table_rows),
+            "outside_calls": len(outside), "outside_tokens": sum(x["counted"] for x in outside),
+            "all_calls": len(every), "all_tokens": sum(x["counted"] for x in every),
             "unanswered": sum(1 for r in table_rows if not r["answered"]),
             "strategies": seen["strategies"], "fallback": seen["fallback"]}
+    check_parts(run)
+    return run
 
 
-def cost_table(runs: list[dict]) -> str:
-    modes = [r["mode"] for r in runs]
-    lines = ["| turn | " + " | ".join(f"{m} tokens | {m} shared" for m in modes) + " |",
-             "|---|" + "---|---|" * len(modes)]
-    for i in range(len(runs[0]["rows"])):
-        cells = []
-        for r in runs:
-            x = r["rows"][i]
-            cells += [str(x["tokens"]) if x["tokens"] is not None else "-",
-                      str(x["shared_tokens"]) if x["shared_tokens"] is not None else "-"]
-        lines.append(f"| {runs[0]['rows'][i]['turn']} | " + " | ".join(cells) + " |")
-    lines.append("| total | " + " | ".join(f"{r['total_tokens']} | {r['shared_tokens']}" for r in runs) + " |")
-    lines.append("| not shared | " + " | ".join(f"{r['unshared_tokens']} | " for r in runs) + " |")
-    if len(runs) == 2 and runs[1]["total_tokens"] and runs[1]["unshared_tokens"]:
-        a, b = runs
-        lines.append("")
-        lines.append(f"ratio {a['mode']}/{b['mode']}: total {a['total_tokens'] / b['total_tokens']:.2f}, "
-                     f"not shared {a['unshared_tokens'] / b['unshared_tokens']:.2f}")
-    for r in runs:
-        lines.append(f"{r['mode']}: compilations {r['strategies']}, hand-backs {r['fallback'] or 0}")
+def cost_table(r: dict) -> str:
+    """Per turn, its FIRST request's tokens and the prefix that request shares with the turn before's; then
+    every request of the run (`all_line`)."""
+    lines = ["| turn | first request | shared prefix |", "|---|---|---|"]
+    for x in r["rows"]:
+        lines.append(f"| {x['turn']} | {x['tokens'] if x['tokens'] is not None else '-'} | "
+                     f"{x['shared_tokens'] if x['shared_tokens'] is not None else '-'} |")
+    lines.append(f"| total | {r['total_tokens']} | {r['shared_tokens']} |")
+    lines.append(f"| not shared | {r['unshared_tokens']} | |")
+    lines.append(all_line(r))
+    lines.append(f"compilations {r['strategies']}, hand-backs {r['fallback'] or 0}")
     return "\n".join(lines)
 
 
@@ -938,44 +980,42 @@ def strat(d: dict) -> str:
     return ",".join(f"{k}{'x' + str(n) if n > 1 else ''}" for k, n in sorted(d.items())) or "-"
 
 
-def long_table(runs: list[dict]) -> str:
-    """A long cost case: per turn and mode, tokens, shared, not shared, the turn's calls, the calls off the
-    turn (with their kinds and tokens), and the compilations; then the totals and the ratios."""
-    modes = [r["mode"] for r in runs]
-    head = " | ".join(f"{m} tokens | {m} not shared | {m} calls | {m} off-turn | {m} compiled" for m in modes)
-    lines = [f"### {runs[0]['case']}", "", f"| turn | {head} |", "|---|" + "---|" * 5 * len(modes)]
-    for i in range(len(runs[0]["rows"])):
-        cells = []
-        for r in runs:
-            x = r["rows"][i]
-            unshared = x["tokens"] - x["shared_tokens"] if x["tokens"] is not None else None
-            kinds = " ".join(f"{k}{n}" for k, n in sorted(x["off_kinds"].items()))
-            cells += [str(x["tokens"]) if x["tokens"] is not None else "-",
-                      str(unshared) if unshared is not None else "-", str(x["calls"]),
-                      f"{x['off_calls']} ({kinds}) {x['off_tokens']}t" if x["off_calls"] else "0",
-                      strat(x.get("strategies") or {})]
-        lines.append(f"| {runs[0]['rows'][i]['turn']} | " + " | ".join(cells) + " |")
+def long_table(r: dict) -> str:
+    """A long cost case: per turn, tokens, not shared, the turn's calls, the calls off the turn (with their
+    kinds and tokens), and the compilations; then the totals."""
+    lines = [f"### {r['case']}", "", "| turn | tokens | not shared | calls | off-turn | compiled |",
+             "|---|---|---|---|---|---|"]
+    for x in r["rows"]:
+        unshared = x["tokens"] - x["shared_tokens"] if x["tokens"] is not None else None
+        kinds = " ".join(f"{k}{n}" for k, n in sorted(x["off_kinds"].items()))
+        cells = [str(x["tokens"]) if x["tokens"] is not None else "-",
+                 str(unshared) if unshared is not None else "-", str(x["calls"]),
+                 f"{x['off_calls']} ({kinds}) {x['off_tokens']}t" if x["off_calls"] else "0",
+                 strat(x.get("strategies") or {})]
+        lines.append(f"| {x['turn']} | " + " | ".join(cells) + " |")
     lines.append("")
-    for r in runs:
-        lines.append(f"{r['mode']}: sent {r['total_tokens']}, not shared {r['unshared_tokens']}, off-turn "
-                     f"{r['off_calls']} calls {r['off_tokens']} tokens {r['off_kinds']}, extra "
-                     f"{r.get('extra_calls', 0)} calls {r.get('extra_tokens', 0)} tokens, unanswered {r['unanswered']}, "
-                     f"compilations {r['strategies']}, hand-backs {r['fallback'] or 0}")
-    if len(runs) == 2 and runs[1]["total_tokens"]:
-        a, b = runs
-        ratio = lambda x, y: f"{x / y:.2f}" if y else "-"  # noqa: E731
-        lines.append(f"ratio {a['mode']}/{b['mode']}: sent {ratio(a['total_tokens'], b['total_tokens'])}, not shared "
-                     f"{ratio(a['unshared_tokens'], b['unshared_tokens'])}, sent + off-turn "
-                     f"{ratio(a['total_tokens'] + a['off_tokens'], b['total_tokens'] + b['off_tokens'])}, all calls "
-                     f"{ratio(all_tokens(a), all_tokens(b))}")
-    if runs[0]["case"] in COLD:
-        lines += ["", cold_line(runs)]
+    lines.append(f"first requests {r['total_tokens']} tokens, not shared {r['unshared_tokens']}")
+    lines.append(f"{all_line(r)}; unanswered {r['unanswered']}, compilations {r['strategies']}, hand-backs "
+                 f"{r['fallback'] or 0}")
+    if r["case"] in COLD:
+        lines += ["", cold_line(r)]
     return "\n".join(lines)
 
 
 def all_tokens(r: dict) -> int:
-    """Every token the run sent: the turns' first requests, the calls off the turns, and the extra calls."""
-    return r["total_tokens"] + r["off_tokens"] + r.get("extra_tokens", 0)
+    """Every token of every request the stand-in was sent in the run, each request counted once."""
+    return r.get("all_tokens", 0)
+
+
+def all_line(r: dict) -> str:
+    """Every request of the run, and its parts: each turn's first request, a tool turn's follow-ups, the calls
+    off the turns, the extra calls, and any outside every turn's span."""
+    firsts = sum(1 for x in r.get("rows") or [] if x.get("tokens") is not None)
+    return (f"all requests {r.get('all_calls', 0)} calls {all_tokens(r)} tokens: first {firsts} calls "
+            f"{r['total_tokens']} tokens, follow-up {r.get('follow_calls', 0)} calls {r.get('follow_tokens', 0)} "
+            f"tokens, off-turn {r.get('off_calls', 0)} calls {r.get('off_tokens', 0)} tokens "
+            f"{r.get('off_kinds', {})}, extra {r.get('extra_calls', 0)} calls {r.get('extra_tokens', 0)} tokens, "
+            f"outside a turn {r.get('outside_calls', 0)} calls {r.get('outside_tokens', 0)} tokens")
 
 
 # A cold start: the first turn after the provider's cache has gone is written whole. Sonnet 5.5's cache-write
@@ -984,26 +1024,23 @@ COLD = {"cold_start_61"}
 WRITE_5M, WRITE_1H = 2.50, 4.00
 
 
-def cold_line(runs: list[dict]) -> str:
-    """The last turn's whole request, as the first turn after a lapse writes it, for each mode."""
-    parts = []
-    for r in runs:
-        x = r["rows"][-1]
-        t = x["tokens"] or 0
-        parts.append(f"{r['mode']} {t} tokens (${t * WRITE_5M / 1e6:.3f} at the 5-minute write, "
-                     f"${t * WRITE_1H / 1e6:.3f} at the 1-hour write; {x['tokens'] - x['shared_tokens'] if x['tokens'] else '-'}"
-                     f" not shared while cached)")
-    return f"cold start, turn {runs[0]['rows'][-1]['turn']} after a lapse (its whole request): " + "; ".join(parts)
+def cold_line(r: dict) -> str:
+    """The last turn's whole request, as the first turn after a lapse writes it."""
+    x = r["rows"][-1]
+    t = x["tokens"] or 0
+    return (f"cold start, turn {x['turn']} after a lapse (its whole request): {t} tokens "
+            f"(${t * WRITE_5M / 1e6:.3f} at the 5-minute write, ${t * WRITE_1H / 1e6:.3f} at the 1-hour write; "
+            f"{x['tokens'] - x['shared_tokens'] if x['tokens'] else '-'} not shared while cached)")
 
 
-def expect_cut(results: list[dict], costs: list[dict], modes) -> list[str]:
-    """What keeps the cut from being accepted: in BOTH modes, a driven case that is not ok, any hand-back
+def expect_cut(results: list[dict], costs: list[dict]) -> list[str]:
+    """What keeps the cut from being accepted: a driven case that is not ok, any hand-back
     (`context.view_fallback` row), any compilation whose strategy is not `view`, in a case or a cost run."""
-    bad = [f"mode {m}: not run" for m in MODES if m not in modes]
+    bad = []
     for r in results:
         if r.get("not_driven"):
             continue
-        cell = f"{r['case']} [{r['mode']}]"
+        cell = r["case"]
         if not r["ok"]:
             bad.append(f"{cell}: FAILED {r.get('why')}")
         if r.get("fallback"):
@@ -1011,7 +1048,7 @@ def expect_cut(results: list[dict], costs: list[dict], modes) -> list[str]:
         if set(r.get("strategies") or {}) - {"view"}:
             bad.append(f"{cell}: compilations {r['strategies']}")
     for c in costs:
-        cell = f"cost {c.get('case', 'cost')} [{c['mode']}]"
+        cell = f"cost {c.get('case', 'cost')}"
         if c.get("fallback"):
             bad.append(f"{cell}: hand-back {c['fallback']}")
         if set(c.get("strategies") or {}) - {"view"}:
@@ -1036,15 +1073,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--bin-dir", default="target/debug")
     ap.add_argument("--out", required=True, help="an empty directory of the suite's own")
-    ap.add_argument("--assembly", choices=(*MODES, "both"), default="both")
     ap.add_argument("--cases", default="all", help="names, comma-separated, or all, or none")
     ap.add_argument("--cost-turns", type=int, default=30, help="0: no cost table")
     ap.add_argument("--cost-long", action="store_true",
                     help="the long cost cases: 120 short turns in one place, 20 tool-heavy turns, and a cold start "
                          "at turn 61")
     ap.add_argument("--expect-cut", action="store_true",
-                    help="the cut's acceptance: exit nonzero unless, in both modes, every driven case is ok, no "
-                         "hand-back exists and every compilation is the view's")
+                    help="the cut's acceptance: exit nonzero unless every driven case is ok, no hand-back exists "
+                         "and every compilation is the view's")
     ap.add_argument("--debug", action="store_true",
                     help="a failing case's tool results and offered tools in proof.json (the suite's own words)")
     a = ap.parse_args(argv)
@@ -1052,41 +1088,39 @@ def main(argv: list[str] | None = None) -> int:
     DEBUG = a.debug
     out = scratch.check_out(Path(a.out))
     out.mkdir(parents=True, exist_ok=True)
-    modes = MODES if a.assembly == "both" else (a.assembly,)
     names = [] if a.cases == "none" else list(CASES) if a.cases == "all" else a.cases.split(",")
     unknown = [n for n in names if n not in CASES]
     if unknown:
         ap.error(f"unknown cases: {unknown}")
     results = []
-    for mode in modes:
-        for name in names:
-            r = run_case(name, mode, Path(a.bin_dir), out)
-            results.append(r)
-            print(f"[{mode}] {verdict_line(r)}", flush=True)
+    for name in names:
+        r = run_case(name, Path(a.bin_dir), out)
+        results.append(r)
+        print(verdict_line(r), flush=True)
     report: dict = {"results": results}
     costs: list[dict] = []
     if names:
-        print("\n" + table(results, modes))
+        print("\n" + table(results))
     if a.cost_turns:
-        runs = [cost_run(m, Path(a.bin_dir), out, a.cost_turns) for m in modes]
-        report["cost"] = runs
-        costs += runs
-        print("\n" + cost_table(runs))
+        run = cost_run(Path(a.bin_dir), out, a.cost_turns)
+        report["cost"] = run
+        costs.append(run)
+        print("\n" + cost_table(run))
     if a.cost_long:
         report["cost_long"] = {}
         for name, (conv, n, extra) in LONG.items():
-            runs = [cost_run(m, Path(a.bin_dir), out, n, name, conv, extra) for m in modes]
-            report["cost_long"][name] = runs
-            costs += runs
-            print("\n" + long_table(runs), flush=True)
+            run = cost_run(Path(a.bin_dir), out, n, name, conv, extra)
+            report["cost_long"][name] = run
+            costs.append(run)
+            print("\n" + long_table(run), flush=True)
         for name, why in LONG_NOT_DRIVEN.items():
             print(f"\n### {name}\n\n{why}")
     if a.expect_cut:
-        bad = expect_cut(results, costs, modes)
+        bad = expect_cut(results, costs)
         report["expect_cut"] = bad
         print("\n## The cut's acceptance (--expect-cut)\n")
         print("\n".join(f"- {b}" for b in bad) if bad else "accepted: every driven case ok, no hand-back, "
-              "every compilation the view's, in both modes")
+              "every compilation the view's")
     (out / "proof.json").write_text(json.dumps(report, indent=1, sort_keys=True) + "\n")
     if a.expect_cut and report["expect_cut"]:
         return 2

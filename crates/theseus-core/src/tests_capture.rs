@@ -166,7 +166,7 @@ async fn a_sure_preference_is_kept_with_a_notice_and_an_undo_revokes_it() {
     let with = asked_directive(&jev);
     assert_eq!(with.len(), 1);
     let ids: Vec<&String> = with[0]["questions"].as_object().unwrap().keys().collect();
-    assert!(ids.iter().any(|i| *i == "classify.v4/kind"), "{ids:?}");
+    assert!(ids.iter().any(|i| *i == "classify.v5/kind"), "{ids:?}");
     assert_eq!(
         jev.connections(),
         5,
@@ -565,10 +565,10 @@ async fn the_batchs_two_packs_split_its_cost_by_question_count() {
             .find(|d| d["pack"] == pack)
     };
     until("both rows", || {
-        of("classify.v4").is_some() && of("directive.v2").is_some()
+        of("classify.v5").is_some() && of("directive.v2").is_some()
     })
     .await;
-    let (c, d) = (of("classify.v4").unwrap(), of("directive.v2").unwrap());
+    let (c, d) = (of("classify.v5").unwrap(), of("directive.v2").unwrap());
     assert_eq!(c["call"]["id"], d["call"]["id"], "one call");
     assert_eq!(c["call"]["packs"], 2, "{c}");
     let (qc, qd) = (

@@ -59,6 +59,7 @@ impl TurnRunner {
             &self.context_files,
             root,
             &found.project,
+            &found.dirs,
             flagged,
         );
         for c in &seen.fresh {

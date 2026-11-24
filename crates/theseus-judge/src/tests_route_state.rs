@@ -222,3 +222,43 @@ fn the_effort_and_work_slices_are_their_own_states() {
         .collect();
     assert!(states[0] != states[1] && states[1] != states[2] && states[0] != states[2]);
 }
+
+/// `restricted_models` left the state with route.v12 (issue 46): no model is kept off a session for its
+/// origin, so the fact was always `allowed` and nothing asked about it. Neither the route slice nor the
+/// shared inbound state (classify, onto, directive, split) carries it, whatever the input's field says, and
+/// every other key is as it was.
+#[test]
+fn no_judge_state_carries_restricted_models() {
+    let directive = crate::pack::by_name("directive.v2").unwrap();
+    for r in [RestrictedModels::Allowed, RestrictedModels::NotAllowed] {
+        let mut f = facts();
+        f.restricted_models = r;
+        let i = route_input("thank you!", "discord_dm", f);
+        let route = route_state(&i, 3000, &NoScrub).state.value();
+        assert_eq!(
+            keys(&route),
+            [
+                "author",
+                "current_model",
+                "est_tokens",
+                "last_reply_model",
+                "message",
+                "place_kind",
+                "price_period",
+                "switch_cost",
+            ],
+            "{route}"
+        );
+        assert_eq!(keys(&route), ROUTE_STATE_KEYS);
+        let shared = crate::builders::prepare(
+            &directive,
+            &crate::builders::Input::Inbound(i.clone()),
+            &NoScrub,
+        )
+        .unwrap()
+        .state
+        .value();
+        assert!(shared.get("restricted_models").is_none(), "{shared}");
+        assert_eq!(shared["price_period"], "off_peak", "the other facts stay");
+    }
+}

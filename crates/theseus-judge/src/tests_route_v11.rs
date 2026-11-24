@@ -1,8 +1,8 @@
 //! `route.v11`: `route.v10` with the `fable` option's description saying Fable 5.2 and its prices (the owner,
-//! 2026-11-14, "1 A; 2 A"), and nothing else. v10 stays embedded as it was, its own cases are v11's, and v11's
-//! golden request is v10's with the one description and the pack's name.
+//! 2026-11-14, "1 A; 2 A"), and nothing else. Both are retired now (issue 46), their files kept as they were,
+//! and v10's cases are read for each.
 
-use crate::pack::{by_name, Pack};
+use crate::pack::Pack;
 use crate::route_cases::{CaseSet, V10};
 
 fn means_of(p: &Pack) -> String {
@@ -22,7 +22,7 @@ fn means_of(p: &Pack) -> String {
 #[test]
 fn v11_is_v10_but_for_the_fable_options_words() {
     let v10 = crate::pack::retired("route.v10").expect("route.v10 is retired, its file kept");
-    let v11 = by_name("route.v11").expect("route.v11 is embedded");
+    let v11 = crate::pack::retired("route.v11").expect("route.v11 is retired, its file kept");
     assert_eq!((v10.version, v11.version), (10, 11));
     let mut planted = (*v10).clone();
     planted.version = 11;
@@ -47,7 +47,7 @@ fn v10_still_says_fable_5_1_and_v11_says_5_2_at_its_prices() {
         old.starts_with("Fable 5.1 (Anthropic, US), the most capable: $10 in, $50 out, $0.25 a cache read per million."),
         "{old}"
     );
-    let new = means_of(&by_name("route.v11").unwrap());
+    let new = means_of(&crate::pack::retired("route.v11").unwrap());
     assert!(
         new.starts_with("Fable 5.2 (Anthropic, US), the most capable: $8 in, $40 out, $0.20 a cache read per million."),
         "{new}"
@@ -63,14 +63,14 @@ fn v10_still_says_fable_5_1_and_v11_says_5_2_at_its_prices() {
 #[test]
 fn v10s_cases_are_read_for_v11_as_they_are_for_v10() {
     let a = CaseSet::parse(V10, &crate::pack::retired("route.v10").unwrap()).unwrap();
-    let b = CaseSet::parse(V10, &by_name("route.v11").unwrap()).unwrap();
+    let b = CaseSet::parse(V10, &crate::pack::retired("route.v11").unwrap()).unwrap();
     assert_eq!(a.cases.len(), b.cases.len());
     assert!(a.cases.len() >= 62);
     assert_eq!(
         a.cases.iter().map(|c| (&c.id, &c.want)).collect::<Vec<_>>(),
         b.cases.iter().map(|c| (&c.id, &c.want)).collect::<Vec<_>>()
     );
-    let v8 = V10.replace("pack = \"route.v11\"", "pack = \"route.v8\"");
-    let e = CaseSet::parse(&v8, &by_name("route.v11").unwrap()).unwrap_err();
+    let v8 = V10.replace("pack = \"route.v12\"", "pack = \"route.v8\"");
+    let e = CaseSet::parse(&v8, &crate::pack::retired("route.v11").unwrap()).unwrap_err();
     assert!(e.contains("written for route.v8, not route.v11"), "{e}");
 }

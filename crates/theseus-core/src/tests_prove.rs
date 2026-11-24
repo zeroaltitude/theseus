@@ -130,7 +130,7 @@ fn label_row(id: &str, j: &str, label: Value, source: &str, weight: f64) -> NewR
     let mut r = ledger(
         LedgerKind::JudgeLabel,
         None,
-        json!({"id": id, "judgment": j, "pack": "loop.v1", "question": "work_state",
+        json!({"id": id, "judgment": j, "pack": "loop.v2", "question": "work_state",
             "label": label, "source": source, "who": "test", "via": "cli", "weight": weight,
             "note": ""}),
         END,
@@ -201,29 +201,29 @@ fn judged_rows() -> Vec<NewRecord> {
     let j = judgment;
     let mut calls = vec![
         // a: canary, called complete, no label: success once read.
-        j("jdg_a1", "loop.v1", "ses_a", "canary", "complete", 40),
+        j("jdg_a1", "loop.v2", "ses_a", "canary", "complete", 40),
         // Another pack's judgment of the same session: its cost counts.
         j("jdg_a2", "security.v1", "ses_a", "canary", "complete", 25),
         // b: control, the system's near-identical rule: a false completion.
-        j("jdg_b1", "loop.v1", "ses_b", "control", "complete", 40),
+        j("jdg_b1", "loop.v2", "ses_b", "control", "complete", 40),
         // c: canary, Jev said progressing (continue), then complete.
-        j("jdg_c1", "loop.v1", "ses_c", "canary", "progressing", 40),
-        j("jdg_c2", "loop.v1", "ses_c", "canary", "complete", 40),
+        j("jdg_c1", "loop.v2", "ses_c", "canary", "progressing", 40),
+        j("jdg_c2", "loop.v2", "ses_c", "canary", "complete", 40),
         // d: control, the execution failed.
-        j("jdg_d1", "loop.v1", "ses_d", "control", "complete", 40),
+        j("jdg_d1", "loop.v2", "ses_d", "control", "complete", 40),
         // f: cancelled, judged.
-        j("jdg_f1", "loop.v1", "ses_f", "canary", "complete", 40),
+        j("jdg_f1", "loop.v2", "ses_f", "canary", "complete", 40),
         // g: canary; a candidate version's judgment in the other arm says
         // nothing of this canary.
-        j("jdg_g1", "loop.v1", "ses_g", "canary", "complete", 40),
-        j("jdg_g2", "loop.v2", "ses_g", "control", "complete", 40),
+        j("jdg_g1", "loop.v2", "ses_g", "canary", "complete", 40),
+        j("jdg_g2", "loop.v3", "ses_g", "control", "complete", 40),
         // h: judged outside a canary only.
-        j("jdg_h1", "loop.v1", "ses_h", "all", "complete", 40),
+        j("jdg_h1", "loop.v2", "ses_h", "all", "complete", 40),
         // i: both arms.
-        j("jdg_i1", "loop.v1", "ses_i", "canary", "complete", 40),
-        j("jdg_i2", "loop.v1", "ses_i", "control", "complete", 40),
+        j("jdg_i1", "loop.v2", "ses_i", "canary", "complete", 40),
+        j("jdg_i2", "loop.v2", "ses_i", "control", "complete", 40),
         // k: control, its 24 hours not yet read: no outcome.
-        j("jdg_k1", "loop.v1", "ses_k", "control", "complete", 40),
+        j("jdg_k1", "loop.v2", "ses_k", "control", "complete", 40),
     ];
     calls[3].answers = answers("progressing", 0.95, 0.05);
     let mut recs: Vec<NewRecord> = calls.iter().map(call_row).collect();
@@ -512,7 +512,7 @@ async fn the_method_is_the_generator_over_its_records() {
     assert_ne!(report["verdict"]["kind"], "insufficient");
 }
 
-/// The default window begins at `loop.v1`'s latest move to canary: a task
+/// The default window begins at `loop.v2`'s latest move to canary: a task
 /// that ended before it is not read.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_default_window_is_the_canarys() {
@@ -520,7 +520,7 @@ async fn the_default_window_is_the_canarys() {
     let c = &r.core;
     let ladder = c.runner.judge.ladder();
     let row = theseus_protocol::packs::PackModeRow {
-        pack: "loop.v1".into(),
+        pack: "loop.v2".into(),
         mode: "canary".into(),
         from: "shadow".into(),
         share: Some(0.5),
@@ -552,7 +552,7 @@ async fn the_default_window_is_the_canarys() {
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     ladder
         .write(theseus_protocol::packs::PackModeRow {
-            pack: "loop.v1".into(),
+            pack: "loop.v2".into(),
             mode: "canary".into(),
             from: "canary".into(),
             share: Some(0.2),
@@ -574,11 +574,11 @@ async fn the_default_window_is_the_canarys() {
     assert_eq!(all.tasks, 11);
 }
 
-/// A learned version of loop.v1, `loop.v101`, in its lineage: its
+/// A learned version of loop.v2, `loop.v101`, in its lineage: its
 /// `pack.version` row, read back by the next read of the lineage.
 pub(crate) fn learned_loop(c: &Core) {
-    let text = include_str!("../../theseus-judge/packs/loop.v1.toml").replacen(
-        "version = 1",
+    let text = include_str!("../../theseus-judge/packs/loop.v2.toml").replacen(
+        "version = 2",
         "version = 101",
         1,
     );
@@ -587,22 +587,22 @@ pub(crate) fn learned_loop(c: &Core) {
     let l = crate::judge::lineage::Learned {
         pack: std::sync::Arc::new(pack),
         text,
-        parent: "loop.v1".into(),
-        root: "loop.v1".into(),
+        parent: "loop.v2".into(),
+        root: "loop.v2".into(),
         proposal: "prp_heron".into(),
         at_ms: END,
     };
     let mut r = ledger(LedgerKind::PackVersion, None, l.data(), END - 120_000);
     r.key = Some(crate::judge::lineage::key("loop.v101"));
     c.store
-        .append(&[r.scoped(&crate::judge::lineage::scope("loop.v1"))])
+        .append(&[r.scoped(&crate::judge::lineage::scope("loop.v2"))])
         .unwrap();
     c.runner.judge.lineage().forget();
 }
 
-/// A task judged by a learned version standing in loop.v1's place is left
+/// A task judged by a learned version standing in loop.v2's place is left
 /// out as `learned_version`, never `never_judged` (theseus-ag0t); one judged
-/// by both, its stops not all loop.v1's, is left out too; the others are as
+/// by both, its stops not all loop.v2's, is left out too; the others are as
 /// before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_task_a_learned_version_judged_is_left_out_as_learned() {
@@ -634,7 +634,7 @@ async fn a_task_a_learned_version_judged_is_left_out_as_learned() {
         ]
         .into()
     );
-    // g, judged by loop.v1 in its canary: a learned judgment too leaves it
+    // g, judged by loop.v2 in its canary: a learned judgment too leaves it
     // out.
     c.store
         .append(&[call_row(&judgment(
@@ -664,7 +664,7 @@ async fn the_window_names_a_learned_version_placed_inside_it() {
     let (r, _) = seeded().await;
     let c = &r.core;
     learned_loop(c);
-    let plain = "every task that ended: loop.v1 has not moved to canary";
+    let plain = "every task that ended: loop.v2 has not moved to canary";
     assert_eq!(c.judge_prove(Value::Null).await.unwrap().window, plain);
     let ladder = c.runner.judge.ladder();
     let row = |pack: &str, mode: &str, declined: bool| theseus_protocol::packs::PackModeRow {
@@ -687,7 +687,7 @@ async fn the_window_names_a_learned_version_placed_inside_it() {
     assert_eq!(
         v.window,
         format!(
-            "{plain}; a learned version stood in loop.v1's place: loop.v101 moved to shadow \
+            "{plain}; a learned version stood in loop.v2's place: loop.v101 moved to shadow \
              on {today}"
         )
     );
@@ -700,16 +700,16 @@ async fn the_window_names_a_learned_version_placed_inside_it() {
         "{}",
         v.window
     );
-    // loop.v1's own canary, after both: the window opens there, and they
+    // loop.v2's own canary, after both: the window opens there, and they
     // are before it, but loop.v101 still stands as it opens (theseus-clbx).
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    ladder.write(row("loop.v1", "canary", false)).unwrap();
+    ladder.write(row("loop.v2", "canary", false)).unwrap();
     let v = c.judge_prove(Value::Null).await.unwrap();
-    let opened = format!("tasks that ended since loop.v1's move to canary 0.5 on {today}");
+    let opened = format!("tasks that ended since loop.v2's move to canary 0.5 on {today}");
     assert_eq!(
         v.window,
         format!(
-            "{opened}; loop.v101 stood in loop.v1's place from before it (canary 0.5 since \
+            "{opened}; loop.v101 stood in loop.v2's place from before it (canary 0.5 since \
              {today})"
         )
     );
@@ -719,20 +719,20 @@ async fn the_window_names_a_learned_version_placed_inside_it() {
         .write(row("loop.v101", "rolled_back", false))
         .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    ladder.write(row("loop.v1", "canary", false)).unwrap();
+    ladder.write(row("loop.v2", "canary", false)).unwrap();
     assert_eq!(c.judge_prove(Value::Null).await.unwrap().window, opened);
     // Placed again inside the window: both clauses.
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     ladder.write(row("loop.v101", "shadow", false)).unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    ladder.write(row("loop.v1", "canary", false)).unwrap();
+    ladder.write(row("loop.v2", "canary", false)).unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     ladder.write(row("loop.v101", "live", false)).unwrap();
     assert_eq!(
         c.judge_prove(Value::Null).await.unwrap().window,
         format!(
-            "{opened}; loop.v101 stood in loop.v1's place from before it (shadow since {today}); \
-             a learned version stood in loop.v1's place: loop.v101 moved to live on {today}"
+            "{opened}; loop.v101 stood in loop.v2's place from before it (shadow since {today}); \
+             a learned version stood in loop.v2's place: loop.v101 moved to live on {today}"
         )
     );
 }
@@ -744,7 +744,7 @@ fn seen(id: &str, session: &str, arm: &str, work: &str, position: u64) -> Seen {
         position,
         at_ms: position,
         row_ms: position,
-        judgment: judgment(id, "loop.v1", session, arm, work, 1_000),
+        judgment: judgment(id, "loop.v2", session, arm, work, 1_000),
     }
 }
 
@@ -759,7 +759,7 @@ fn cohort(input: &mut Input, arm: &str, n: u32, wins: u32, spend: u64) {
         input
             .loop_scope
             .judgments
-            .entry("loop.v1".into())
+            .entry("loop.v2".into())
             .or_default()
             .push(seen(&id, &session, arm, "complete", u64::from(i)));
         if i >= wins {
@@ -770,7 +770,7 @@ fn cohort(input: &mut Input, arm: &str, n: u32, wins: u32, spend: u64) {
                     at_ms: 1,
                     id: system_key(&id, "work_state", "false_completion"),
                     judgment: id.clone(),
-                    pack: "loop.v1".into(),
+                    pack: "loop.v2".into(),
                     question: Some("work_state".into()),
                     about: None,
                     label: json!({"not": "complete"}),
@@ -889,7 +889,7 @@ async fn ten_thousand_tasks_read_in_time() {
         let arm = if i % 2 == 0 { "canary" } else { "control" };
         recs.push(call_row(&judgment(
             &format!("jdg_{name}"),
-            "loop.v1",
+            "loop.v2",
             &format!("ses_{name}"),
             arm,
             "complete",

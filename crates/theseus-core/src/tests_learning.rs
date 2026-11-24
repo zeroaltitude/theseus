@@ -197,7 +197,7 @@ async fn a_label_is_the_operators_from_a_private_place() {
     let c = &r.core;
     let j = judgment(
         "jdg_heron",
-        "loop.v1",
+        "loop.v2",
         loop_answers("complete", 0.8, 0.3),
         json!({"session": "ses_x"}),
         900,
@@ -213,7 +213,7 @@ async fn a_label_is_the_operators_from_a_private_place() {
     let out = c
         .judge_label(&p(Some("work_state"), json!("progressing")), "cli")
         .unwrap();
-    assert_eq!((out.pack.as_str(), out.weight), ("loop.v1", 1.0));
+    assert_eq!((out.pack.as_str(), out.weight), ("loop.v2", 1.0));
     let written = rows(c, "judge:loop", LedgerKind::JudgeLabel);
     assert_eq!(written.len(), 1);
     let d = &written[0].1.data;
@@ -303,7 +303,7 @@ async fn a_label_and_a_report_through_the_protocol() {
     let c = &r.core;
     let j = judgment(
         "jdg_wren",
-        "loop.v1",
+        "loop.v2",
         loop_answers("complete", 0.8, 0.3),
         json!({}),
         900,
@@ -342,7 +342,7 @@ async fn a_label_and_a_report_through_the_protocol() {
     .await;
     let rep: LearningReport = serde_json::from_value(rep["result"].clone()).unwrap();
     assert_eq!(rep.trigger, "on_demand");
-    let lp = rep.packs.iter().find(|p| p.pack == "loop.v1").unwrap();
+    let lp = rep.packs.iter().find(|p| p.pack == "loop.v2").unwrap();
     assert_eq!((lp.calls, lp.labeled, rep.labels.operator), (1, 1, 1));
     assert!(lp
         .holdout
@@ -395,7 +395,7 @@ struct Want {
     disagree: u32,
 }
 
-/// 120 `loop.v1` judgments over the last day, three in four labeled (each
+/// 120 `loop.v2` judgments over the last day, three in four labeled (each
 /// with a lighter system label that disagrees), and the pairs they make.
 fn synthetic(now: u64) -> (Vec<NewRecord>, Want) {
     let mut rng = Rng(0x5EED_1234_ABCD_0042);
@@ -414,7 +414,7 @@ fn synthetic(now: u64) -> (Vec<NewRecord>, Want) {
         latency.entry(class).or_default().push(ms);
         let j = judgment(
             &id,
-            "loop.v1",
+            "loop.v2",
             loop_answers(top, conf, p),
             json!({"class": class}),
             ms,
@@ -432,7 +432,7 @@ fn synthetic(now: u64) -> (Vec<NewRecord>, Want) {
         records.push(label_row(
             &format!("lbl_s{i}"),
             &id,
-            "loop.v1",
+            "loop.v2",
             Some("work_state"),
             json!("other"),
             0.5,
@@ -440,7 +440,7 @@ fn synthetic(now: u64) -> (Vec<NewRecord>, Want) {
         records.push(label_row(
             &format!("lbl_o{i}"),
             &id,
-            "loop.v1",
+            "loop.v2",
             Some("work_state"),
             json!(truth),
             1.0,
@@ -448,7 +448,7 @@ fn synthetic(now: u64) -> (Vec<NewRecord>, Want) {
         records.push(label_row(
             &format!("lbl_n{i}"),
             &id,
-            "loop.v1",
+            "loop.v2",
             Some("announced_unfinished"),
             json!(yes),
             1.0,
@@ -488,7 +488,7 @@ async fn the_reports_numbers_equal_learns_on_the_same_pairs() {
     } = want;
     c.store.append(&records).unwrap();
     let rep = c.run_learning(now, "on_demand", |_| {}).unwrap();
-    let lp = rep.packs.iter().find(|p| p.pack == "loop.v1").unwrap();
+    let lp = rep.packs.iter().find(|p| p.pack == "loop.v2").unwrap();
     assert_eq!(
         (lp.calls, lp.answered, lp.labeled),
         (n as u32, n as u32, 90)
@@ -572,7 +572,7 @@ async fn a_holdout_is_frozen_into_the_report() {
     ] {
         let j = judgment(
             id,
-            "loop.v1",
+            "loop.v2",
             loop_answers("progressing", 0.95, 0.2),
             json!({}),
             300,
@@ -582,7 +582,7 @@ async fn a_holdout_is_frozen_into_the_report() {
     records.push(label_row(
         "lbl_in1",
         "jdg_in1",
-        "loop.v1",
+        "loop.v2",
         Some("work_state"),
         json!("progressing"),
         1.0,
@@ -590,7 +590,7 @@ async fn a_holdout_is_frozen_into_the_report() {
     records.push(label_row(
         "lbl_old",
         "jdg_old",
-        "loop.v1",
+        "loop.v2",
         None,
         json!("wrong"),
         1.0,
@@ -600,7 +600,7 @@ async fn a_holdout_is_frozen_into_the_report() {
     let h = &rep
         .packs
         .iter()
-        .find(|p| p.pack == "loop.v1")
+        .find(|p| p.pack == "loop.v2")
         .unwrap()
         .holdout;
     assert_eq!((h.start_ms, h.end_ms), (midnight - 14 * DAY_MS, midnight));
@@ -621,7 +621,7 @@ async fn a_holdout_is_frozen_into_the_report() {
     // the same day freezes the same holdout.
     let late = judgment(
         "jdg_late",
-        "loop.v1",
+        "loop.v2",
         loop_answers("complete", 0.9, 0.1),
         json!({}),
         300,
@@ -633,7 +633,7 @@ async fn a_holdout_is_frozen_into_the_report() {
     let h2 = &again
         .packs
         .iter()
-        .find(|p| p.pack == "loop.v1")
+        .find(|p| p.pack == "loop.v2")
         .unwrap()
         .holdout;
     assert_eq!(h2.judgments, h.judgments);
@@ -644,7 +644,7 @@ fn loop_context(res: &theseus_protocol::TurnSubmitResult, decision: &str, class:
     json!({"session": res.session_id, "turn": res.turn_id, "decision": decision, "class": class})
 }
 
-/// The history `loop.v1`'s rules read: a reply then "Go on."; a turn the
+/// The history `loop.v2`'s rules read: a reply then "Go on."; a turn the
 /// budget ended, then "continue"; a task, then a near-identical one. Each
 /// judged turn's judgment, as the sink would write it.
 async fn loop_history(c: &Arc<Core>) -> Vec<Judgment> {
@@ -687,28 +687,28 @@ async fn loop_history(c: &Arc<Core>) -> Vec<Judgment> {
     vec![
         judgment(
             "jdg_a",
-            "loop.v1",
+            "loop.v2",
             loop_answers("complete", 0.9, 0.1),
             loop_context(&a, "no_tool_calls", "reply"),
             300,
         ),
         judgment(
             "jdg_a2",
-            "loop.v1",
+            "loop.v2",
             loop_answers("complete", 0.9, 0.1),
             loop_context(&a2, "no_tool_calls", "reply"),
             300,
         ),
         judgment(
             "jdg_b",
-            "loop.v1",
+            "loop.v2",
             loop_answers("complete", 0.9, 0.1),
             loop_context(&b, "budget_exhausted", "reply"),
             300,
         ),
         judgment(
             "jdg_t",
-            "loop.v1",
+            "loop.v2",
             loop_answers("complete", 0.9, 0.1),
             loop_context(&tr, "no_tool_calls", "task"),
             300,
@@ -716,7 +716,7 @@ async fn loop_history(c: &Arc<Core>) -> Vec<Judgment> {
     ]
 }
 
-/// `loop.v1`'s system labels from a scripted history: "go on" within 10
+/// `loop.v2`'s system labels from a scripted history: "go on" within 10
 /// minutes is stopped too early; a near-identical task brief is a false
 /// completion; a turn the budget ended takes none; and a second run writes
 /// nothing again.
@@ -762,7 +762,7 @@ async fn loops_system_labels_come_from_the_history_and_are_written_once() {
     );
     assert!(labels.iter().all(|(_, r)| r.data["weight"] == 0.5));
     assert_eq!(first.labels.system_written, 2);
-    let lp = first.packs.iter().find(|p| p.pack == "loop.v1").unwrap();
+    let lp = first.packs.iter().find(|p| p.pack == "loop.v2").unwrap();
     assert_eq!(lp.labeled, 2, "both grade work_state's `complete`");
     // A second run: nothing written again.
     let second = c.run_learning(now + 1, "on_demand", |_| {}).unwrap();
@@ -929,7 +929,7 @@ async fn a_continuation_counts_only_inside_its_window() {
     .map(|(id, res)| {
         let j = judgment(
             id,
-            "loop.v1",
+            "loop.v2",
             loop_answers("complete", 0.9, 0.1),
             loop_context(res, "no_tool_calls", "reply"),
             300,
@@ -989,7 +989,7 @@ async fn a_second_run_reads_only_what_can_still_change() {
             "class": "reply"});
         let j = judgment(
             &format!("jdg_old_{i:03}"),
-            "loop.v1",
+            "loop.v2",
             loop_answers("complete", 0.9, 0.1),
             ctx,
             300,
@@ -1000,7 +1000,7 @@ async fn a_second_run_reads_only_what_can_still_change() {
     let open = turn(c, None, "Draft the release notes.").await;
     let j = judgment(
         "jdg_open",
-        "loop.v1",
+        "loop.v2",
         loop_answers("complete", 0.9, 0.1),
         loop_context(&open, "no_tool_calls", "reply"),
         300,
@@ -1017,7 +1017,7 @@ async fn a_second_run_reads_only_what_can_still_change() {
     // never cuts past the newest judgment its run read).
     let witness = judgment(
         "jdg_witness",
-        "loop.v1",
+        "loop.v2",
         loop_answers("complete", 0.9, 0.1),
         json!({"decision": "no_tool_calls", "class": "reply"}),
         300,
@@ -1066,7 +1066,7 @@ async fn a_run_whose_clock_read_ahead_closes_no_open_window() {
         let now = theseus_protocol::now_unix_ms();
         let j = judgment(
             "jdg_probe",
-            "loop.v1",
+            "loop.v2",
             loop_answers("complete", 0.9, 0.1),
             loop_context(&res, "no_tool_calls", "reply"),
             300,
@@ -1113,7 +1113,7 @@ async fn a_mark_without_its_cut_walks_everything_once() {
     let now = theseus_protocol::now_unix_ms();
     let j = judgment(
         "jdg_old",
-        "loop.v1",
+        "loop.v2",
         loop_answers("complete", 0.9, 0.1),
         loop_context(&res, "no_tool_calls", "reply"),
         300,
@@ -1121,7 +1121,7 @@ async fn a_mark_without_its_cut_walks_everything_once() {
     // A later judgment that reads no session: where the next mark cuts.
     let witness = judgment(
         "jdg_witness",
-        "loop.v1",
+        "loop.v2",
         loop_answers("complete", 0.9, 0.1),
         json!({"decision": "no_tool_calls", "class": "reply"}),
         300,
