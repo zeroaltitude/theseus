@@ -66,6 +66,16 @@ pub(crate) fn copy<T: Serialize + DeserializeOwned>(exits: &Exits, value: &T) ->
     serde_json::from_value(v).ok()
 }
 
+/// Rebuild the daemon's raw-cut titles from already masked display notes.
+/// An older daemon's absent title keeps the renderer's note fallback.
+pub(crate) fn wake_titles(wakes: &mut [theseus_protocol::WakeInfo]) {
+    for w in wakes {
+        if w.title.is_some() {
+            w.title = Some(theseus_core::session::title_from(&w.note)).filter(|t| !t.is_empty());
+        }
+    }
+}
+
 pub(crate) fn face(exits: &Exits, value: &super::sched::Face) -> super::sched::Face {
     let mut f = value.clone();
     f.title = exits

@@ -142,3 +142,25 @@ async fn wakes_mask_note_before_cut_r5() {
     assert!(!text.contains("vau"), "{text}");
     assert!(text.contains("[red"), "{text}");
 }
+
+#[tokio::test]
+async fn wakes_rebuild_core_cut_title_from_masked_note_r6() {
+    let (_dir, core, _fake, _shared) = rig();
+    let (mut place, _rx) = tests::place_for_tests(&core, "ses_parent");
+    let note = format!("{}{}", "x".repeat(55), VALUE);
+    let wake = theseus_protocol::WakeInfo {
+        title: Some(theseus_core::session::title_from(&note)),
+        note,
+        ..Default::default()
+    };
+    let hold = crate::rpc_client::slow_once(
+        theseus_protocol::method::WAKE_LIST,
+        "",
+        json!({"wakes":[wake]}),
+    );
+    hold.release.notify_one();
+    let text = place.control(Control::Wakes, "keeper").await;
+    assert!(text.contains("Wakes here"), "{text}");
+    assert!(!text.contains("vau"), "{text}");
+    assert!(text.contains("[red"), "{text}");
+}

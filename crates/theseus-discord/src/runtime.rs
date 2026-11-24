@@ -2249,10 +2249,13 @@ impl Place {
                     )
                     .await
                 {
-                    Ok(l) => crate::render::wakes(
-                        &crate::render::leaving::copy(&self.shared.core.exits, &l.wakes)
-                            .unwrap_or_default(),
-                    ),
+                    Ok(l) => {
+                        let mut shown =
+                            crate::render::leaving::copy(&self.shared.core.exits, &l.wakes)
+                                .unwrap_or_default();
+                        crate::render::leaving::wake_titles(&mut shown);
+                        crate::render::wakes(&shown)
+                    }
                     Err(e) => format!("⚠️ Could not list the wakes: {e}."),
                 }
             }
