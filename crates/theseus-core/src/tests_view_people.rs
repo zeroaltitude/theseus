@@ -12,6 +12,7 @@ use crate::provider::ProviderRequest;
 use crate::tests_private_view::session_in;
 use crate::tests_view_compile::{asked, texts, turn_as, view_rig};
 use crate::view::select::RECENT_TOKENS;
+use crate::view::sources_people::NAME_IN_WRAPPER_BYTES;
 use crate::view::text::tokens;
 use crate::view::wire_text::BESIDE_HEAD;
 
@@ -282,6 +283,7 @@ async fn recent_as_laid(name: &str) -> Vec<String> {
 
 /// KEY: every recent line, its two headings, both wrappers and the name in them counted as the request lays
 /// them, keeps within the lines' bound, each line whole; an ordinary name, and one that grows under escaping.
+/// The name in the wrapper is whole when it is ordinary, and within its own bound once escaped when it grows.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_recent_lines_keep_their_bound_as_the_request_lays_them() {
     for name in ["Wren Hallam".to_string(), "[".repeat(100)] {
@@ -291,6 +293,13 @@ async fn the_recent_lines_keep_their_bound_as_the_request_lays_them() {
         for l in &lines {
             assert!(l.starts_with("outside text from \""), "{l}");
             assert!(l.contains("[end of outside text, fence "), "{l}");
+            let rest = &l["outside text from ".len()..];
+            let quoted = &rest[..rest.find("; not the person's words").unwrap()];
+            assert!(quoted.len() > 2, "{l}");
+            assert!(quoted.len() - 2 <= NAME_IN_WRAPPER_BYTES, "{quoted}");
+            if name == "Wren Hallam" {
+                assert_eq!(quoted, "\"Wren Hallam\"");
+            }
         }
     }
 }
