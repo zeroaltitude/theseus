@@ -25,6 +25,16 @@ use crate::types::ExecState;
 use anyhow::Result;
 
 impl Kernel {
+    /// A retained frame leaves the execution index stale until reopen. Never
+    /// regenerate a running transition from that stale snapshot.
+    pub(crate) fn require_indexed_admission(&self) -> Result<()> {
+        anyhow::ensure!(
+            self.store().stats()?.index_gap.is_none(),
+            "admission waits for the retained log frames to be replayed on reopen"
+        );
+        Ok(())
+    }
+
     /// Hold a turn on `execution_id` for new input, writing nothing: it must
     /// be queued, waiting or blocked (input wakes it), no turn may be held on
     /// it, and the ceiling must have room. Refused as `admit_input` refuses:
@@ -65,6 +75,7 @@ impl Kernel {
     /// under the frame's lock: a cancel that landed since the hold refuses it
     /// (`NotRunnable`), and the frame writes nothing.
     pub fn admit_held(&self, guard: &TurnGuard) -> Result<bool> {
+        self.require_indexed_admission()?;
         let id = guard.execution_id.as_str();
         self.frame(&[id], |k| {
             if k.admitted(guard)? {
@@ -95,3 +106,7 @@ impl Kernel {
             .is_some_and(|e| e.turns >= guard.turn))
     }
 }
+
+#[cfg(test)]
+#[path = "held_tests_retained.rs"]
+mod tests_retained;

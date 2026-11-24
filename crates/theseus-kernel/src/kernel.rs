@@ -1087,6 +1087,7 @@ impl Kernel {
     /// (`held.rs`); without it the core's admission queue keeps the ceiling
     /// (theseus-4g0l).
     pub(crate) fn hold(&self, e: &Execution, count: bool) -> Result<TurnGuard> {
+        self.require_indexed_admission()?;
         {
             let mut held = self.held.lock().unwrap();
             if held.contains(&e.id) {
