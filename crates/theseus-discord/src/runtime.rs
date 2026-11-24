@@ -1396,6 +1396,7 @@ impl Shared {
                     Ok(_) => format!("❎ **Declined** by {who} · {line}"),
                     Err(e) => format!("⚠️ Could not answer: {e} · {line}"),
                 };
+                let content = command_reply::leaving(&self.core.exits, &content);
                 self.core.binding_ledger(
                     LedgerKind::DiscordConfirm,
                     None,
@@ -2272,12 +2273,13 @@ impl Place {
                     .await
                 {
                     Ok(r) => {
-                        let note = r.wake.note.lines().next().unwrap_or_default();
+                        let note = self.shared.core.exits.text(&r.wake.note).0;
+                        let note = note.lines().next().unwrap_or_default();
                         return format!(
                             "⏹️ Wake `{}` cancelled: it will not run. It was due <t:{}:t>: {}",
                             r.wake.short,
                             r.wake.due_at_ms / 1000,
-                            crate::render::clip(note, 200)
+                            crate::render::clip(&self.shared.core.exits.text(note).0, 200)
                         );
                     }
                     Err(e) if e.code == theseus_protocol::error_code::NOT_FOUND => e.message,

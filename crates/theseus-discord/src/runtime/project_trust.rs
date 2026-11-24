@@ -248,6 +248,7 @@ impl Shared {
 
     /// The command's answer: ephemeral, so the command adds no noise to the place.
     async fn project_respond(self: &Arc<Self>, i: &Interaction, said: String) {
+        let said = super::command_reply::leaving(&self.core.exits, &said);
         let resp = InteractionResponse {
             kind: InteractionResponseType::ChannelMessageWithSource,
             data: Some(InteractionResponseData {
@@ -536,5 +537,21 @@ mod tests {
         assert!(many.len() <= MAX_TEXT + 80, "{} bytes", many.len());
         assert!(many.contains("/srv/gauge-0"), "it keeps the first: {many}");
         assert!(many.contains("more · `theseus project trusted`"), "{many}");
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn project_response_masks_error_words() {
+        let (_dir, _core, fake, shared) = rig();
+        shared
+            .project_respond(&interaction(), format!("Could not read {VALUE}"))
+            .await;
+        let replies = fake.replies();
+        let text = replies[0].content.as_deref().unwrap();
+        assert!(!text.contains(VALUE), "{text}");
+        assert!(text.contains("[redacted:"), "{text}");
     }
 }

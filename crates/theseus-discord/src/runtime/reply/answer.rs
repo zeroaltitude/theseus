@@ -250,12 +250,13 @@ impl Shared {
 
     /// A line to the replier, as a reply to their message.
     async fn tell_replier(&self, m: &Message, text: &str) {
+        let text = crate::runtime::command_reply::leaving(&self.core.exits, text);
         let none = AllowedMentions::default();
         let sent = self
             .http
             .create_message(m.channel_id)
             .reply(m.id)
-            .content(text)
+            .content(&text)
             .allowed_mentions(Some(&none))
             .await;
         if let Err(e) = sent {
@@ -334,5 +335,29 @@ mod tests {
         assert_eq!(read("yes", &header()), Said::Bare("approve".into()));
         assert_eq!(read("approve 4", &header()), Said::Ordinary);
         assert_eq!(read("approve 2 and 3", &header()), Said::Ordinary);
+    }
+}
+
+#[cfg(test)]
+mod exit_tests_r4 {
+    use crate::runtime::tests_exits_r3::*;
+    #[tokio::test]
+    async fn dm_refusal_masks_before_sending() {
+        let (_dir, _core, fake, shared) = rig();
+        let m = shared
+            .http
+            .create_message(twilight_model::id::Id::new(42))
+            .content("answer")
+            .await
+            .unwrap()
+            .model()
+            .await
+            .unwrap();
+        shared
+            .tell_replier(&m, &format!("Your answer did not count: {VALUE}"))
+            .await;
+        let text = &fake.messages(42).last().unwrap().content.clone();
+        assert!(!text.contains(VALUE), "{text}");
+        assert!(text.contains("[redacted:"), "{text}");
     }
 }

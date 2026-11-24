@@ -66,3 +66,59 @@ pub(super) fn parent() -> super::threads::Parent {
         tx: tokio::sync::mpsc::unbounded_channel().0,
     }
 }
+
+#[tokio::test]
+async fn confirm_settle_masks_error_words_r4() {
+    let (_dir, _core, fake, shared) = rig();
+    let (tx, _rx) = mpsc::unbounded_channel();
+    {
+        let mut routes = shared.routes.lock().unwrap();
+        routes.by_channel.insert(42, tx);
+        routes.users.insert(42, vec![7]);
+    }
+    let m = shared
+        .http
+        .create_message(Id::new(42))
+        .content("Question")
+        .await
+        .unwrap()
+        .model()
+        .await
+        .unwrap();
+    let mut i = interaction();
+    i.kind = twilight_model::application::interaction::InteractionType::MessageComponent;
+    i.data = Some(
+        serde_json::from_value(
+            json!({"custom_id":format!("confirm:decline:{VALUE}"), "component_type":2}),
+        )
+        .map(InteractionData::MessageComponent)
+        .unwrap(),
+    );
+    i.message = Some(m);
+    shared.on_interaction(i).await;
+    let text = fake.messages(42).last().unwrap().content.clone();
+    assert!(text.contains("Could not answer"), "{text}");
+    assert!(!text.contains(VALUE), "{text}");
+    assert!(text.contains("[redacted:"), "{text}");
+}
+
+#[tokio::test]
+async fn cancel_command_masks_note_before_cut_r4() {
+    let (_dir, core, _fake, _shared) = rig();
+    let (mut place, _rx) = tests::place_for_tests(&core, "ses_parent");
+    let wake = theseus_protocol::WakeInfo {
+        note: format!("{}{}", "x".repeat(195), VALUE),
+        ..Default::default()
+    };
+    let hold = crate::rpc_client::slow_once(
+        theseus_protocol::method::WAKE_CANCEL,
+        "exit_command",
+        json!({"wake":wake}),
+    );
+    hold.release.notify_one();
+    let text = place
+        .control(Control::Cancel(Some("exit_command".into())), "keeper")
+        .await;
+    assert!(!text.contains("vau"), "{text}");
+    assert!(text.contains("[red"), "{text}");
+}
