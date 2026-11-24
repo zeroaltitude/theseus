@@ -97,8 +97,8 @@ fn names(cfg: &Config) -> Vec<&str> {
 /// the start's ignored list, and one warning line names it and why it went.
 #[test]
 fn a_settings_file_naming_every_retired_key_loads_and_names_each() {
-    let (cfg, warnings) =
-        Config::parse(&format!("narrative = true\n{BASE}{EVERY}")).expect("an old settings file loads");
+    let (cfg, warnings) = Config::parse(&format!("narrative = true\n{BASE}{EVERY}"))
+        .expect("an old settings file loads");
     let ignored = names(&cfg);
     for k in RETIRED {
         let name = match k.section {

@@ -62,8 +62,10 @@ const LOOK_BACK: &str =
     "the history tool, context.history, is the one way to look back (issue 46): it \
                          reads every place, by words, a thing or a place, so this tool is gone";
 const NARRATIVE: &str = "the narrative always runs and the web UI always shows its tab (issue 46)";
-const VOICE: &str = "a call's timings are the code's, and Flux ends a turn by its own defaults (issue 46)";
-const DISCORD: &str = "fixed at what it did by default: replies edited every 1.2 s, no embed per notified call, \
+const VOICE: &str =
+    "a call's timings are the code's, and Flux ends a turn by its own defaults (issue 46)";
+const DISCORD: &str =
+    "fixed at what it did by default: replies edited every 1.2 s, no embed per notified call, \
                        the status line and the bot's own emojis on (issue 46)";
 const STEER: &str =
     "a message sent while a turn runs always joins that turn at its next loop (issue 46)";

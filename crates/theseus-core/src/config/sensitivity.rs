@@ -329,11 +329,7 @@ mod tests {
 
     #[test]
     fn ordinary_settings_are_ordinary() {
-        for s in [
-            "import.notes.enabled",
-            "tui.theme",
-            "memory.enabled",
-        ] {
+        for s in ["import.notes.enabled", "tui.theme", "memory.enabled"] {
             assert_eq!(reason(&p(s)), None, "{s} must be ordinary");
         }
     }

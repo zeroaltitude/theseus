@@ -405,7 +405,10 @@ mod tests {
         let cfg = with("[voice]\nenabled = true").unwrap();
         assert_eq!((cfg.voice.judge_unclear, super::JUDGE_MS), (true, 250));
         let cfg = with("[voice]\njudge_unclear = false\njudge_ms = 400").unwrap();
-        assert_eq!((cfg.voice.judge_unclear, cfg.ignored_keys.len()), (false, 1));
+        assert_eq!(
+            (cfg.voice.judge_unclear, cfg.ignored_keys.len()),
+            (false, 1)
+        );
         for bad in ["0", "2001"] {
             let cfg = with(&format!("[voice]\njudge_ms = {bad}")).unwrap();
             assert!(

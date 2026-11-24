@@ -75,7 +75,12 @@ mod tests {
             Config::EXAMPLE_TOML
         ))
         .unwrap();
-        let named = |k: &str| knobs.ignored_keys.iter().any(|i| i.name == format!("voice.{k}"));
+        let named = |k: &str| {
+            knobs
+                .ignored_keys
+                .iter()
+                .any(|i| i.name == format!("voice.{k}"))
+        };
         assert!(named("eot_threshold"));
         assert!(named("eager_eot_threshold"));
         assert!(named("eot_timeout_ms"));
