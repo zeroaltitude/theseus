@@ -765,3 +765,25 @@ async fn three_asks_in_one_response_send_two() {
         .count();
     assert_eq!(refused, 1);
 }
+
+/// An answer whose known value starts before the cap and ends after it: the stored result in the asking
+/// conversation stops at the value's edge, keeps no piece of it, and says it was cut.
+#[tokio::test]
+async fn an_answers_cap_stops_before_a_known_value() {
+    let r = rig_on(true, &[("db_password", VALUE)], |_| {}).await;
+    let lead = "word ".repeat((ANSWER_MAX_CHARS - 10) / 5);
+    assert!(lead.len() < ANSWER_MAX_CHARS && lead.len() + VALUE.len() > ANSWER_MAX_CHARS);
+    let answer = format!("{lead}{VALUE} and the end");
+    *r.model.answer.lock().unwrap() = Some(Scripted::text(&answer));
+    r.calls(vec![vec![ask_of(&r.task)]]);
+    crate::test_support::turn(&r.core, &r.parent, "ask the task why").await;
+    let (status, content, outside) = only_answer(&r);
+    assert_eq!(status, ResultStatus::Ok, "{content}");
+    assert!(outside, "{content}");
+    for piece in [&VALUE[..8], &VALUE[VALUE.len() - 8..], "vault-v", "7b3d"] {
+        assert!(!content.contains(piece), "{piece} is kept: {content}");
+    }
+    assert!(!content.contains("and the end"), "{content}");
+    assert!(content.contains("[cut at about 1,500 tokens]"), "{content}");
+    fenced(&content, lead.trim_end());
+}

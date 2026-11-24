@@ -467,28 +467,31 @@ fn settled(core: &Core, p: &Planned, resp: &ModelResponse, started_ms: u64) -> T
             "an asked task's call was not settled; the reconcile settles it at its deadline");
     }
     ToolOutput {
-        text: words(p, resp, cost),
+        text: words(p, resp, cost, &core.tools.scrubber.cuts()),
         meta: json!({"task": p.task.id, "version": p.task.version, "asked": p.asked,
             "of": ASKS_PER_TURN, "cost_usd": micros_to_usd(cost)}),
     }
 }
 
-/// The result: the head that says whose words these are, the answer (cut by code) inside its outside fence,
-/// and what it cost.
-fn words(p: &Planned, resp: &ModelResponse, cost: theseus_kernel::Micros) -> String {
+/// The result: the head that says whose words these are, the answer (cut by code where `cuts` says, so a
+/// known value it keeps is whole) inside its outside fence, and what it cost.
+fn words(
+    p: &Planned,
+    resp: &ModelResponse,
+    cost: theseus_kernel::Micros,
+    cuts: &crate::scrub::Cuts,
+) -> String {
     let mut out = format!(
         "{}: its own answer, from its own view; not a record, and not the owner's word]\n\n",
         head(&p.task)
     );
     let text = resp.text.trim();
+    let (kept, cut) = cuts.head(text, ANSWER_MAX_CHARS);
     match text.is_empty() {
         true => out.push_str("[no words: it answered with nothing to show]"),
-        false => {
-            let kept: String = text.chars().take(ANSWER_MAX_CHARS).collect();
-            out.push_str(&wrap_outside(Some(&source(&p.task)), &kept));
-        }
+        false => out.push_str(&wrap_outside(Some(&source(&p.task)), kept)),
     }
-    if text.chars().count() > ANSWER_MAX_CHARS {
+    if cut {
         out.push_str("\n\n[cut at about 1,500 tokens]");
     }
     if crate::provider::hit_cap(resp.stop_reason.as_deref()) {
