@@ -196,10 +196,6 @@ enum Cmd {
         /// the store.
         #[arg(long, default_value_t = 900)]
         settle_secs: u64,
-        /// Read each task as a turn does (theseus-q1tbn): a question about
-        /// time searches on its subject and ranks by the time of its events.
-        #[arg(long)]
-        temporal: bool,
         /// A JSON file of `{"<item id>": "<task>"}` asked in place of the
         /// exam's own tasks.
         #[arg(long)]
@@ -384,7 +380,6 @@ fn main() -> Result<()> {
             json,
             floor,
             settle_secs,
-            temporal,
             tasks,
         } => {
             anyhow::ensure!((0.0..=1.0).contains(&floor), "--floor is a share, 0 to 1");
@@ -405,7 +400,6 @@ fn main() -> Result<()> {
                 floor,
                 wait_ms: 60_000,
                 settle: Duration::from_secs(settle_secs),
-                temporal,
                 tasks: match tasks {
                     Some(p) => serde_json::from_slice(&std::fs::read(&p)?)?,
                     None => Default::default(),

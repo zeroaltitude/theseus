@@ -128,8 +128,8 @@ fn native_call(rest: &[String], now_ms: u64) -> Option<String> {
         }
         _ => return None,
     };
-    // A query in a shell variable (`$q`), or none, gives the call's shape. Words that name a time are a date
-    // the history tool's words cannot say.
+    // A query in a shell variable (`$q`), or none, gives the call's shape. Words that name a time get no line:
+    // the call it names carries words alone, which would search the time as words.
     let query = query.trim();
     let shape = query.is_empty() || query.contains('$');
     if !shape && crate::recall::when::read_local(query, now_ms).is_some() {

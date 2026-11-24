@@ -2206,21 +2206,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     two queries go on one connection, the words' first (`tender/pair.rs`, `IndexTender::query_two`), which closes
     once no one waits (the deadline passed, or the turn dropped its `Begun`, which aborts its task), so the tender
     stops embedding. Tests: `tests_recall_deadline.rs` (a stand-in socket that counts connections).
-  - **Questions about time** (theseus-q1tbn; `recall/temporal.rs`, `recall/stamp.rs`): a turn whose new words ask
-    "when did / was / is", "what day / date / time did", "how long ago / since", "the first / last time", "the most
-    recent / earliest", or "before / after <event>" is read by a small deterministic reader (`temporal::read`, a
-    `Kind`: `When`, `Order`, `Duration`, `Latest`, `Earliest`; no model call; a time that is only the subject, "what
-    time zone do I use", is left alone, the table is `recall/tests_time.rs`). Its words go out as the event alone
-    (`temporal::subject`: the temporal words match every dated note), and the pack is ordered by the event's time
-    (`temporal::order`, applied in `Memory::manifest_ranked` through `rerank::eligible`/`repack`, so the filters and
-    the place rule run first): of the first 12 matches, notes that state the event (a time expression, or a change
-    verb) go before notes that only mention it, each tier oldest first for `When` and `Earliest`, newest first for
-    `Latest`, both ends first for `Order` and `Duration`. The manifest's `temporal` names the kind. A live rerank
-    (32d) orders by Jev, over this. A header's date is the note's own, in the daemon's zone with the weekday and zone
-    (`said Tue 2026-03-17 19:40 MST`), and where the shown text names a relative or partial time, the date it resolves
-    to against the note's own day (`; "yesterday" = Mon 2026-03-16`, `stamp::header_time_in`, which never reads the
-    clock); headers written before this one keep their UTC bytes. Tests: `recall/tests_time.rs`,
-    `tests_recall_time.rs`, `recall::render::tests`; the exam's `probe --temporal` applies the same reader and order.
+  - **Recall reads no English from the message** (issue 46): the turn's words are searched as written; nothing reads
+    a named time, a question about time or a "now" from them, and nothing narrows, reorders or marks the pack for one.
+    A time is the model's to ask, through `context.history {when | from/to}` (`when::read_local` reads that argument,
+    and the MCP search's and a card's), and a recalled note's header says when it was said
+    (`said Tue 2026-03-17 19:40 MST`, `stamp::said_in`, in the daemon's zone), never what its words' "yesterday"
+    meant; headers frozen before keep their bytes. Tests: `tests_recall_plain.rs`, `recall/tests_time.rs`,
+    `recall::render::tests`.
   - **The subject beside a same-kind value** (theseus-96cyh; `recall/neighbour.rs`): a recalled chunk about another
     subject of the type the question asked after (another host, path or crate than the one it names) says whose it is,
     `about host db-stage.example.test, not the asked host db-prod.example.test`, so the model cannot read the
@@ -2235,30 +2227,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     in memory only, never on the wire or in the store (no format change; `memory.search` clients never see it). No
     config key switches it off. Tests: `recall::neighbour::tests` (the rule), `tests_recall_neighbour.rs` (the header
     on the node, whole-core).
-  - **Current-value questions** (theseus-mo1vm; `recall/current.rs`, `recall/tests_current.rs`): a "now / currently /
-    still" question that asks for a value ("how many days of X do we keep now?", "which port is Y on now?", "do we
-    still keep 30 days?") is `temporal::Kind::Current`; `temporal::read` hands a question it reads no event in to
-    `current::read`, and a "now" question that is an event, or asks for no value ("what are we doing now?", "what day
-    is it now?", "what time does the backup run now?"), is read as before. Notes about such a subject repeat every
-    value it had, so the pack goes by `current::order`: the hits that state the subject's value (half the
-    question's content words, rounded up, and a number) first, newest first (a `supersedes` link among them wins over time; the
-    exam's probe has none), the rest after in relevance order. An older statement whose values do not include the
-    newest's carries `, superseded: older than the <day> statement` at the end of its frozen header
-    (`RecallItem.superseded`, `#[serde(skip)]`, set by `current::mark` after `fill` and read by `hold_node`'s
-    `current::with_mark`); nothing else changes, so a pack with no such question renders byte for byte as before. A
-    live rerank (`refill`) keeps the marks: it reads them off the manifest's items before the repack
-    (`current::marked`) and sets them again on the same keys after the fill (`current::apply`), as it does the
-    neighbour note; a statement first admitted by Jev's order goes unmarked. A date or a timestamp in a note's text
-    (`2026-03-02`, `2026-03-02T08:00:00Z`) is not a value of it, nor any part of one (`current::values` skips the
-    whole run). Tests: `recall/tests_current.rs`, `tests_recall_current.rs` (the marks through a live rerank).
   - **`memory.lookup` is gone** (D6 step 6): the history tool, `context.history`, is the model's one way to look
     back, and an old `[policy.tools] "memory.lookup"` is a retired key (`config/retired_keys.rs`). A `proc_run` of
     the daemon's own CLI's search by words alone (`memory search`, `memory index search`) ends with a
     `[native: context_history {"words":…} …]` line, after the cap (`native.rs`, `ResultNode.hint`). It says what
     that call is: a search of THIS place's history by those words, which a `place` turns to another's, and not the
     CLI's search. A search naming a session, a source filter, a date or a tag, or whose words name a time, gets no
-    line, nor does a session or span command, since the history tool can say none of them. The CLI still runs,
-    since running it may be the work. Tests: `tests_native_hint.rs`, `native::tests`. What is left of
+    line, since the line's call carries words alone (the tool pages a span only by its own `when` or `from`/`to`);
+    nor does a session or span command, since the tool opens no session by id and lists none by a span. The CLI
+    still runs, since running it may be the work. Tests: `tests_native_hint.rs`, `native::tests`. What is left of
     `memory_lookup.rs` and `memory_lookup/read.rs` is the MCP server's search below, and goes with it (D6 step 7).
   - **The MCP server's memory tools** (theseus-02i1h; `memory_lookup/mcp.rs`, `rpc/memory_read.rs`): `memory_search` and
     `memory_get` are one read-only method, `memory.lookup`, in `mcp_server::ALLOWED`, served by `memory_lookup`'s own

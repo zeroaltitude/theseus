@@ -560,8 +560,6 @@ mod tests_rebase_view;
 #[cfg(test)]
 mod tests_recall;
 #[cfg(test)]
-mod tests_recall_current;
-#[cfg(test)]
 mod tests_recall_deadline;
 #[cfg(test)]
 mod tests_recall_loading;
@@ -570,15 +568,13 @@ mod tests_recall_neighbour;
 #[cfg(test)]
 mod tests_recall_node;
 #[cfg(test)]
+mod tests_recall_plain;
+#[cfg(test)]
 mod tests_recall_precision;
 #[cfg(test)]
 mod tests_recall_share;
 #[cfg(test)]
 mod tests_recall_standin;
-#[cfg(test)]
-mod tests_recall_time;
-#[cfg(test)]
-mod tests_recall_when;
 #[cfg(test)]
 mod tests_recall_words;
 #[cfg(test)]

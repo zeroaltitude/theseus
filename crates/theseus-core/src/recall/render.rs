@@ -91,24 +91,17 @@ pub fn frozen_range(source: &str, excerpt: &str) -> (u32, u32) {
 /// An item's header, frozen when it is recalled (§2.11's testimony): its
 /// origin (what it is, whose: a message's author, a reply's model; and its
 /// place, `TurnRunner::place_name`), when it was said (the owner's zone,
-/// with the weekday; and, where the text names a relative time, the date it
-/// resolves to, `stamp`), and as of which position: `a reply by glm-5.3-flash
-/// in #harbor, said Wed 2026-09-30 07:34 MST; "yesterday" = Tue 2026-09-29
-/// (as of @18231)`. A node recalled before 35a keeps the header it was
-/// frozen with (`in <session>`, no model, UTC): its bytes never change.
+/// with the weekday, `stamp`), and as of which position: `a reply by
+/// glm-5.3-flash in #harbor, said Wed 2026-09-30 07:34 MST (as of @18231)`.
+/// A node recalled before 35a keeps the header it was frozen with (`in
+/// <session>`, no model, UTC), and one recalled before issue 46 its
+/// `; "yesterday" = …`: their bytes never change.
 pub fn header(n: &Node, position: u64, place: &str) -> String {
-    header_in(n, position, place, &super::text_of(n), &stamp::system)
+    header_in(n, position, place, &stamp::system)
 }
 
-/// `header`, resolving the times `shown` (the text the item shows) names,
-/// in `zone`.
-pub fn header_in(
-    n: &Node,
-    position: u64,
-    place: &str,
-    shown: &str,
-    zone: stamp::ZoneAt<'_>,
-) -> String {
+/// `header`, in `zone`.
+pub fn header_in(n: &Node, position: u64, place: &str, zone: stamp::ZoneAt<'_>) -> String {
     let what = match &n.body {
         Body::UserMessage { .. } => match n.author.as_deref() {
             Some(a) if !a.is_empty() => format!("a message from {a}"),
@@ -145,8 +138,8 @@ pub fn header_in(
         Body::Erased { .. } => "an erased node".to_string(),
     };
     format!(
-        "{what} in {place}, {} (as of @{position})",
-        stamp::header_time_in(n.created_at_ms, shown, zone)
+        "{what} in {place}, said {} (as of @{position})",
+        stamp::said_in(n.created_at_ms, zone)
     )
 }
 
@@ -216,7 +209,7 @@ pub fn shown_text(n: &Node, (start, end): (u32, u32)) -> String {
 /// value (35a).
 pub fn item_header(n: &Node, position: u64, place: &str, chunk: (u32, u32)) -> String {
     let shown = shown_text(n, chunk);
-    let header = header_in(n, position, place, &shown, &stamp::system);
+    let header = header(n, position, place);
     let header = format!("{header}, {}", super::evidence::evidence(n));
     match volatile(n, &shown) {
         Some(mark) => format!("{header}, {mark}"),
@@ -385,7 +378,7 @@ mod tests {
         let mut n = Node::user("ses_weir", None, "cli", "x");
         n.created_at_ms = 1_790_000_000_000;
         assert_eq!(
-            header_in(&n, 42, "#harbor", "x", &phoenix),
+            header_in(&n, 42, "#harbor", &phoenix),
             "a message from cli in #harbor, said Mon 2026-09-21 07:13 MST (as of @42)"
         );
         let mut reply = Node::assistant(
@@ -409,9 +402,37 @@ mod tests {
         );
         reply.created_at_ms = 1_790_000_040_000;
         assert_eq!(
-            header_in(&reply, 18231, "#harbor", "Low tide at noon.", &phoenix),
+            header_in(&reply, 18231, "#harbor", &phoenix),
             "a reply by glm-5.3-flash in #harbor, said Mon 2026-09-21 07:14 MST (as of @18231)"
         );
+    }
+
+    /// A header says when its note was said, and no more: a relative time in
+    /// the note's words is the model's to read, never resolved here (issue 46).
+    #[test]
+    fn a_header_says_when_it_was_said_and_resolves_no_words() {
+        let mut n = Node::user(
+            "ses_weir",
+            None,
+            "cli",
+            "yesterday we moved the relay to 23817",
+        );
+        n.created_at_ms = 1_790_000_000_000;
+        let said = format!("said {}", stamp::said_in(n.created_at_ms, &stamp::system));
+        let h = header(&n, 7, "#harbor");
+        assert_eq!(
+            h,
+            format!("a message from cli in #harbor, {said} (as of @7)")
+        );
+        assert!(!h.contains("\"yesterday\" ="), "{h}");
+        let whole = item_header(&n, 7, "#harbor", (0, 37));
+        assert!(
+            whole.starts_with(&format!(
+                "a message from cli in #harbor, {said} (as of @7), "
+            )),
+            "{whole}"
+        );
+        assert!(!whole.contains("\"yesterday\" ="), "{whole}");
     }
 
     /// A volatile value, by the labeler's rule over the shown text, marks
@@ -442,8 +463,8 @@ mod tests {
         assert_eq!(
             item_header(&gauge, 42, "#harbor", (0, 73)),
             format!(
-                "a message from cli in #harbor, {} (as of @42), session weir, volatile: as of {}, unverified",
-                stamp::header_time(gauge.created_at_ms, &all),
+                "a message from cli in #harbor, said {} (as of @42), session weir, volatile: as of {}, unverified",
+                stamp::said_in(gauge.created_at_ms, &stamp::system),
                 stamp::date(gauge.created_at_ms)
             )
         );
@@ -461,6 +482,24 @@ mod tests {
         let text = render(&[item("msg_heron", (0, 28), old)], &sources);
         assert!(
             text.contains(&format!("\n(1) {old}\n    \"The heron")),
+            "{text}"
+        );
+    }
+
+    /// A header an older factory froze with the date a word of its note
+    /// named (`; "yesterday" = …`) renders those bytes unchanged: a header
+    /// says no such date now, but an old record reads as it was written.
+    #[test]
+    fn an_old_header_with_a_resolved_word_renders_its_stored_bytes() {
+        let mut rota = Node::user("ses_weir", None, "cli", "We moved the rota yesterday.");
+        rota.id = "msg_rota".into();
+        rota.created_at_ms = 1_773_801_600_000;
+        let sources: Sources = [(rota.id.clone(), Arc::new(rota))].into_iter().collect();
+        let old = "a message from cli in #harbor, said Tue 2026-03-17 19:40 MST; \
+                   \"yesterday\" = Mon 2026-03-16 (as of @7)";
+        let text = render(&[item("msg_rota", (0, 28), old)], &sources);
+        assert!(
+            text.contains(&format!("\n(1) {old}\n    \"We moved")),
             "{text}"
         );
     }
