@@ -210,6 +210,11 @@ pub fn data_through(
 
 /// Recover all included item labels, not only the source's first label of each kind.
 /// Reads label records rather than the whole transcript, so unlabeled history stays cheap.
+/// A record that does not read is read as far as it reads (`item_labels::kept`), and never fails
+/// the fork: each raised label in it that reads is carried as an item's is, placed by the record's
+/// node, else by its own, and judged by the record's kind, else by its own. One with no node to place
+/// it by is carried (fewer labels is never the careful side); its item's removals are not read, and
+/// the session's still cover it, from when it was raised when the record's entry does not read.
 pub(crate) fn item_data_through(
     store: &Store,
     session: &str,
@@ -228,11 +233,34 @@ pub(crate) fn item_data_through(
         through = through.min(origin.position);
         sid = origin.session;
     }
+    let inside = |node: &str| -> Result<Option<bool>> {
+        Ok((store.get_node(node)?)
+            .map(|(pos, n)| bounds.get(&n.session_id).is_some_and(|end| pos <= *end)))
+    };
     for record in store
         .inner()
         .latest_with_prefix(kinds::META, crate::item_labels::PREFIX)?
     {
-        let item: crate::item_labels::ItemLabels = serde_json::from_slice(&record.payload)?;
+        use crate::item_labels::kept::{of_record, Kept};
+        let item = match of_record(&record) {
+            Kept::Whole(item) => item,
+            Kept::Part(p) => {
+                for label in p.raised {
+                    if !p.kind.unwrap_or(label.kind).on_session() {
+                        continue;
+                    }
+                    let carried = match p.node.as_deref().or(label.node.as_deref()) {
+                        Some(node) => inside(node)?.unwrap_or(false),
+                        None => true,
+                    };
+                    if carried {
+                        let entered = p.entered_ms.unwrap_or(label.at_ms);
+                        flags.raise_after(label, entered);
+                    }
+                }
+                continue;
+            }
+        };
         if !item.kind.on_session() {
             continue;
         }
