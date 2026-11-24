@@ -2,6 +2,7 @@
 //! run behind a swapped runner. Each test starts a real child through `run_command`, the code
 //! `run` itself calls, with a command and a deadline of its own.
 
+use std::os::unix::ffi::OsStrExt;
 use std::time::{Duration, Instant};
 
 use tokio::process::Command;
@@ -40,15 +41,22 @@ async fn a_child_that_exits_non_zero_says_its_code() {
     assert_eq!(ran.why().as_deref(), Some("it exited 3"));
 }
 
-/// The pids whose command line holds `marker`.
-fn with_marker(marker: &str) -> Vec<u32> {
+/// The pids of every `sleep` whose first argument is exactly `duration`: argv read from each
+/// `/proc/<pid>/cmdline` (NUL-separated), argv[0]'s file name `sleep` and argv[1] the whole
+/// duration, never a part of a longer one.
+fn sleepers(duration: &str) -> Vec<u32> {
     std::fs::read_dir("/proc")
         .unwrap()
         .flatten()
         .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
         .filter(|p| {
-            std::fs::read(format!("/proc/{p}/cmdline"))
-                .is_ok_and(|c| String::from_utf8_lossy(&c).contains(marker))
+            std::fs::read(format!("/proc/{p}/cmdline")).is_ok_and(|c| {
+                let argv: Vec<&[u8]> = c.split(|b| *b == 0).collect();
+                argv.len() >= 2
+                    && std::path::Path::new(std::ffi::OsStr::from_bytes(argv[0])).file_name()
+                        == Some(std::ffi::OsStr::new("sleep"))
+                    && argv[1] == duration.as_bytes()
+            })
         })
         .collect()
 }
@@ -79,7 +87,7 @@ async fn a_child_past_its_deadline_is_killed_and_reaped() {
         started.elapsed()
     );
     assert!(ran.pid > 0 && !alive(ran.pid), "the child is gone: {ran:?}");
-    let left = with_marker(&format!("sleep\0{marker}"));
+    let left = sleepers(&marker);
     assert!(left.is_empty(), "nothing it started is left: {left:?}");
 }
 
