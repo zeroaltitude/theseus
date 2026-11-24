@@ -226,33 +226,42 @@ fn newest_of(store: &Store, turn: &str, n: usize) -> anyhow::Result<Vec<String>>
         .collect()
 }
 
-/// The view, if it reads; one that cannot is left out with a warning.
-fn readable(store: &Store, turn: &str, compilation: &str) -> Option<ViewRecord> {
-    match read(store, compilation) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::warn!(turn, compilation, error = %format!("{e:#}"),
-                "a view record cannot be read; it is left out");
-            None
-        }
-    }
+/// The view, if it reads; one that cannot is left out with a warning (the error).
+fn readable(store: &Store, turn: &str, compilation: &str) -> Result<Option<ViewRecord>, ()> {
+    read(store, compilation).map_err(|e| {
+        tracing::warn!(turn, compilation, error = %format!("{e:#}"),
+            "a view record cannot be read; it is left out");
+    })
 }
 
 /// A turn's newest view: the one its last compile was given.
 pub fn newest(store: &Store, turn: &str) -> anyhow::Result<Option<ViewRecord>> {
     Ok(newest_of(store, turn, 1)?
         .first()
-        .and_then(|c| readable(store, turn, c)))
+        .and_then(|c| readable(store, turn, c).ok().flatten()))
 }
 
 /// A turn's newest [`VIEWS_READ`] views, in the order they were built.
 pub fn of_turn(store: &Store, turn: &str) -> anyhow::Result<Vec<ViewRecord>> {
-    let mut out: Vec<ViewRecord> = newest_of(store, turn, VIEWS_READ)?
-        .iter()
-        .filter_map(|c| readable(store, turn, c))
-        .collect();
+    Ok(of_turn_unread(store, turn)?.0)
+}
+
+/// [`of_turn`], and the compilations of those of the views this build cannot read (a later build's names),
+/// each left out with a warning: both in the order built.
+pub fn of_turn_unread(
+    store: &Store,
+    turn: &str,
+) -> anyhow::Result<(Vec<ViewRecord>, Vec<String>)> {
+    let (mut out, mut unread) = (Vec::new(), Vec::new());
+    for c in newest_of(store, turn, VIEWS_READ)? {
+        match readable(store, turn, &c) {
+            Ok(v) => out.extend(v),
+            Err(()) => unread.push(c),
+        }
+    }
     out.reverse();
-    Ok(out)
+    unread.reverse();
+    Ok((out, unread))
 }
 
 /// A view's counts.

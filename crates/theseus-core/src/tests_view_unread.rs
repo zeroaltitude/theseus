@@ -1,18 +1,22 @@
 //! A view record this build cannot read (issue 44): a later build may write names of bands and reasons this one
 //! does not know, and an install rolled back to this build still meets those records. Every reader passes over
 //! such a record: the history tool still answers a bare page, a page by date and an open (its bare page begins
-//! where that view was made, and hides nothing the view's window would have paged), and the model's look at its
-//! view answers.
+//! where that view was made, and hides nothing the view's window would have paged), the owner's `view show`
+//! says which view it cannot read and lists the turn's others, and the model's look at its view answers.
 
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
+use theseus_protocol::method;
+use theseus_protocol::view::ViewShowResult;
 use theseus_store::{kinds, NewRecord};
 
+use crate::approval::Surface;
 use crate::history_tool::page::{self, Lens};
 use crate::node::Body;
 use crate::provider::Scripted;
 use crate::session::SessionRecord;
+use crate::tests_m3::{rpc_as, surface};
 use crate::tests_places::{answers_a_call, last_user, rig_scripted, session, turn, Rig};
 use crate::view::history::HistoryArgs;
 use crate::view::record;
@@ -200,6 +204,44 @@ async fn a_bare_page_past_an_unreadable_view_hides_nothing_its_window_would_have
         "{read:?} {unread:?}"
     );
     assert!(turns.iter().all(|t| unread.contains(t)), "{unread:?}");
+}
+
+/// The owner's `view show` of a turn whose view this build cannot read says so, by its compilation; another
+/// turn's view is still listed.
+#[tokio::test]
+async fn view_show_says_which_view_this_build_cannot_read() {
+    let r = rig();
+    let c = &r.core;
+    let sid = session(c, None);
+    turn(c, &sid, "the zircon heron nests by the north weir").await;
+    let first = turn_of(c, &sid, "zircon heron");
+    let cid = written_by_a_later_build(c, &sid);
+    turn(c, &sid, "and the plum orchard is due a visit").await;
+    let second = turn_of(c, &sid, "plum orchard");
+    let shown = |t: &str| {
+        let core = c.clone();
+        let t = t.to_string();
+        async move {
+            let v = rpc_as(
+                &core,
+                surface("sock#1", Surface::Cli),
+                method::VIEW_SHOW,
+                json!({ "turn_id": t }),
+            )
+            .await
+            .unwrap();
+            serde_json::from_value::<ViewShowResult>(v).unwrap()
+        }
+    };
+    let unread = shown(&first).await;
+    assert!(
+        !unread.views.iter().any(|v| v.compilation == cid),
+        "{unread:?}"
+    );
+    assert_eq!(unread.unread, vec![cid], "{unread:?}");
+    let read = shown(&second).await;
+    assert_eq!(read.views.len(), 1, "{read:?}");
+    assert!(read.unread.is_empty(), "{read:?}");
 }
 
 /// The model's look at a turn's view answers when this build cannot read that view: it is passed over, as
