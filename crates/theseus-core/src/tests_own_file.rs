@@ -86,6 +86,15 @@ pub(crate) fn look_of(core: &Core) -> Look {
 
 /// One turn in `dir`; the request the model was sent.
 pub(crate) async fn turn(core: &Arc<Core>, fake: &FakeProvider, dir: &Path) -> ProviderRequest {
+    turn_in(core, fake, dir).await.1
+}
+
+/// [`turn`], with the session it ran in.
+pub(crate) async fn turn_in(
+    core: &Arc<Core>,
+    fake: &FakeProvider,
+    dir: &Path,
+) -> (String, ProviderRequest) {
     let (client, server) = tokio::io::duplex(1 << 20);
     let (sr, sw) = tokio::io::split(server);
     let srv = tokio::spawn(core.clone().serve_connection(sr, sw, "cli".into()));
@@ -110,7 +119,11 @@ pub(crate) async fn turn(core: &Arc<Core>, fake: &FakeProvider, dir: &Path) -> P
     drop((cw, lines));
     let _ = srv.await;
     assert!(r.error.is_none(), "{:?}", r.error);
-    fake.requests().pop().expect("the model was asked")
+    let session = r.result.expect("a result")["session_id"]
+        .as_str()
+        .expect("the turn names its session")
+        .to_string();
+    (session, fake.requests().pop().expect("the model was asked"))
 }
 
 /// Block 3 of a request: the last system block.
@@ -346,4 +359,66 @@ async fn health_says_so_while_it_differs() {
         .append(&look.accept_records(&v).unwrap())
         .unwrap();
     assert_eq!(r.core.health().own_file, None);
+}
+
+/// The turn's `context.compiled` row names the accepted version block 3
+/// carried, at the user level and by its digest; and the text is in block 3
+/// and in no block above it: it never enters the spec's context files,
+/// which the project layer renders.
+#[tokio::test]
+async fn a_turns_compiled_row_names_the_accepted_digest() {
+    let r = rig();
+    r.write(&format!("{KEPT}\n"));
+    r.core.own_file_first_start().unwrap();
+    r.write(&format!("{LATER}\n"));
+    let req = turn(&r.core, &r.fake, &r.work).await;
+    let rows = crate::test_support::rows_100k(&r.core, "context.compiled");
+    let files = rows.last().unwrap()["context_files"].clone();
+    let own: Vec<&serde_json::Value> = files
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["level"] == "user")
+        .collect();
+    assert_eq!(own.len(), 1, "{files}");
+    let Accepted::Some(n) = look_of(&r.core).accepted else {
+        panic!("accepted at the first start")
+    };
+    assert_eq!(own[0]["digest"], n.digest.unwrap());
+    assert_eq!(own[0]["path"], r.path().display().to_string());
+    let (last, above) = req.system.split_last().unwrap();
+    assert!(last["text"].as_str().unwrap().contains(KEPT));
+    assert!(
+        above.iter().all(|b| !b.to_string().contains(KEPT)),
+        "only block 3 carries it"
+    );
+}
+
+/// `context explain` lists nothing of the owner's file as gone. Its entry is
+/// in the turn's `context.compiled` row alone; explain says the request
+/// against the stored compilation's manifest, which is built from the spec
+/// and never names it.
+#[tokio::test]
+async fn explain_does_not_list_the_user_file_as_gone() {
+    let r = rig();
+    r.write(&format!("{KEPT}\n"));
+    r.core.own_file_first_start().unwrap();
+    let (session, _) = turn_in(&r.core, &r.fake, &r.work).await;
+    let out = r
+        .core
+        .context_explain(
+            &theseus_protocol::context::ContextExplainParams {
+                session_id: session,
+                turn_id: None,
+            },
+            true,
+        )
+        .unwrap();
+    let shown = r.path().display().to_string();
+    let gone: Vec<_> = out
+        .parts
+        .iter()
+        .filter(|p| p.then.as_deref() == Some("gone"))
+        .collect();
+    assert!(gone.iter().all(|p| p.name != shown), "{gone:?}");
 }

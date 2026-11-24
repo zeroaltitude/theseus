@@ -403,6 +403,33 @@ impl Look {
         }
     }
 
+    /// The manifest's record of the accepted version a compile carries: the
+    /// path, the digest and the bytes of the text, at the user level. None
+    /// when no text is carried (none accepted, an absence accepted, or a
+    /// version the store does not answer for). The text's cut note, when
+    /// it has one, is part of the stored text, as it is of the block.
+    pub fn carried(
+        &self,
+        store: &crate::store::Store,
+        files: &ContextFiles,
+    ) -> Option<crate::compiler::ContextFileRef> {
+        let Accepted::Some(n) = &self.accepted else {
+            return None;
+        };
+        let text = accepted_text(store, files, &self.pid, n)?;
+        Some(crate::compiler::ContextFileRef {
+            path: self.path.display().to_string(),
+            digest: n.digest.clone(),
+            bytes: text.len() as u64,
+            cut: false,
+            missing: None,
+            persona: None,
+            level: theseus_protocol::ContextLevel::User,
+            public: false,
+            withheld: None,
+        })
+    }
+
     /// Nothing carried, because the store did not answer for the accepted
     /// version; one line when there is a file to name.
     fn unreadable(&self, shown: &str) -> Carry {

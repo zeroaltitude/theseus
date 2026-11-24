@@ -136,6 +136,8 @@ impl TurnRunner {
             (&nodes, read_before, i),
             (tasks, project),
         );
+        // The owner's own file, as block 3 carries it (`own_file_step`).
+        summary.context_files.extend(self.own_file_ref());
         self.summary_done(t, &mut summary, (&nodes, &compiled, spec), cold);
         // While routing decides, the rows wait for the compile the call uses
         // (`route_step`, theseus-d13v): one `context.compiled` and one

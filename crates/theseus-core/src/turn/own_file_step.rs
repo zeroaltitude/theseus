@@ -8,6 +8,18 @@ use crate::fact::own_file::OwnFileChanged;
 use crate::project_context::own_file::{Accepted, Look, Noticed};
 
 impl TurnRunner {
+    /// The accepted version this compile's block 3 carries, for the
+    /// `context.compiled` row's `context_files`, beside the spec's: never in
+    /// `RequestSpec::context_files`, which the project layer renders. None
+    /// without tools, where block 3 is empty, and when no text is carried.
+    pub(super) fn own_file_ref(&self) -> Option<crate::compiler::ContextFileRef> {
+        if !self.tools.enabled() {
+            return None;
+        }
+        Look::of(&self.cfg, &self.store, &self.context_files)
+            .carried(&self.store, &self.context_files)
+    }
+
     /// One `own_file.changed` row when the file on disk differs from the
     /// accepted version and this digest has not been ledgered yet, and the
     /// record that it has, in the turn's next frame. The block
