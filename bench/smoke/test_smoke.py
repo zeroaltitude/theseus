@@ -471,6 +471,15 @@ class RoutePart(unittest.TestCase):
         old = smoke.route_part(self.runs(*[replay(model_ok=37, must_ok=9)] * 3), None, live="route.v8")
         self.assertTrue(old["na"])
 
+    def test_a_v11_cases_set_on_a_daemon_that_acts_with_v12_is_held_to_the_bar(self):
+        """route.v12 is route.v11 without the questions nothing read (issue 46): a set declaring v11 is v12's, so on
+        a v12 daemon it is graded, not "n/a until the flip"."""
+        p = smoke.route_part(self.runs(*[replay(model_ok=37, must_ok=9, pack="route.v11")] * 3), None,
+                             live="route.v12", cases_pack="route.v11")
+        self.assertFalse(p["ok"])
+        self.assertFalse(p.get("na"))
+        self.assertIn("37/61 on the model < 49", p["note"])
+
     def test_a_canary_of_the_cases_pack_or_an_unreadable_ladder_is_held_to_the_bar(self):
         for live in ("route.v8,route.v10", "None", "route.v8,", ""):
             p = smoke.route_part(self.runs(*[replay(model_ok=37, must_ok=9)] * 3), None, live=live)

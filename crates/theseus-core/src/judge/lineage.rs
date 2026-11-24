@@ -48,7 +48,7 @@ pub fn key(name: &str) -> String {
 /// step leaves alone (the route pack and rerank.v1, live with their own
 /// rollback rules). Only a wired root is a candidate, so a retired version
 /// needs no line here.
-pub const LEFT_ALONE: [&str; 2] = ["route.v11", "rerank.v1"];
+pub const LEFT_ALONE: [&str; 2] = [super::inbound::ROUTE_PACK, "rerank.v1"];
 
 /// One learned version, read back.
 #[derive(Debug, Clone)]

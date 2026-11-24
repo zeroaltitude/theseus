@@ -345,8 +345,9 @@ pub struct InboundInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub onto: Option<Box<OntoInput>>,
     /// What the daemon knows and Jev is not asked to work out (route.v10,
-    /// theseus-9f72b): the price period, whether a restricted model is
-    /// allowed, the model of the last reply, a task's models. Left out when
+    /// theseus-9f72b): the price period, the model of the last reply, a
+    /// task's models (`restricted_models` is read and no longer written
+    /// into a state, issue 46). Left out when
     /// none, so a state without them is byte for byte the one before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route: Option<RouteFacts>,

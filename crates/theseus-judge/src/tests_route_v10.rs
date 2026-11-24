@@ -1,5 +1,5 @@
 //! `route.v10` and its cases (theseus-h66v4, row 1), retired with its file kept
-//! under `packs/retired/` (issue 46; the cases now declare `route.v11`): the pack
+//! under `packs/retired/` (issue 46; the cases now declare `route.v12`): the pack
 //! lints (no computation words, `confirm <= act`, every `no_match` among its
 //! options, its rollback rules real), holds the design's text but for the
 //! owner's two edits of 2026-10-29 22:46, and carries v8's (so v9's)
@@ -279,7 +279,7 @@ fn persona_seal_and_personal_are_the_earlier_packs_word_for_word() {
 #[test]
 fn the_cases_hold_the_designs_counts_and_ids() {
     let s = set();
-    assert_eq!(s.pack, "route.v11");
+    assert_eq!(s.pack, "route.v12");
     // 62 replay cases: L1 to L20, W1 to W38 (W39 and W40 are daemon tests), the
     // three switch-cost cases W41 to W43, and W44, the second half of the pair
     // the owner made of W33 on 2026-11-03 ("If a stall is due to bad planning,
@@ -436,12 +436,13 @@ fn a_case_asks_model_and_personal_of_the_route_pack_and_its_state_is_under_the_c
             "message",
             "place_kind",
             "price_period",
-            "restricted_models",
             "est_tokens",
             "switch_cost",
         ] {
             assert!(v.get(field).is_some(), "{}: no {field} in {v}", c.id);
         }
+        // Written into no state since issue 46, whatever the case says.
+        assert!(v.get("restricted_models").is_none(), "{}: {v}", c.id);
         // A model that is none (a fresh session, a job) is left out, as the daemon leaves it.
         for (field, model) in [
             ("last_reply_model", &c.state.last_reply_model),

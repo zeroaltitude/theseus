@@ -57,13 +57,14 @@ pub const CLASSIFY_PACK: &str = "classify.v4";
 pub const OFFER_QUESTION: &str = "offer_task";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
 /// live.
-/// The acting route pack: `route.v11` (theseus-h66v4), where Jev chooses the model
+/// The acting route pack: `route.v12` (issue 46), where Jev chooses the model
 /// directly (`effort.v1`, `work.v1` and `split.v1` are asked beside it), live at once
 /// with its own rollback rules (the ladder's adoption row, `judge::ladder::adopt`).
-/// It is `route.v10` with the `fable` option's description saying Fable 5.2 and its
-/// prices (the owner, 2026-11-14); `route.v10` and earlier stay embedded for their
-/// history, and the ladder never runs them again.
-pub const ROUTE_PACK: &str = "route.v11";
+/// It is `route.v11` without the `seal` and `personal` questions, which nothing read,
+/// and without the two clauses of `model` about a state's "not allowed" models;
+/// `route.v11` and earlier are retired (`pack::RETIRED`), their judgments still read,
+/// and the ladder never runs them again.
+pub const ROUTE_PACK: &str = "route.v12";
 /// DIRECTIVE (theseus-slvl.5), at `inbound`, batched with `classify.v1` and
 /// `role.v1` (no request of its own), live: asked only for the owner's own
 /// message in a place only the owner writes in (`Inbound.capture`).
@@ -878,8 +879,10 @@ struct Ready {
 }
 
 /// The operator named the model, and with it the effort, so route.v10 does not
-/// ask Jev either (theseus-h66v4, design §1.4 step 1); `persona`,
-/// `seal` and `personal` still ask. A pack that asks no `model` is untouched.
+/// ask Jev either (theseus-h66v4, design §1.4 step 1); `persona` still asks.
+/// A pinned turn with fewer than two personas asks route.v12 nothing, and its
+/// judgment is skipped for want of a question. A pack that asks no `model` is
+/// untouched.
 fn unasked_when_pinned(ask: &mut Ask, pinned: bool) {
     if pinned && super::route_facts::asks_model(&ask.pack) {
         ask.asked

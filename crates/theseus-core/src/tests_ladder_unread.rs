@@ -81,7 +81,7 @@ async fn before_the_warm_read_a_judged_turn_reads_and_writes_nothing_of_the_ladd
         // writes the adoptions before it).
         let c = core_at(dir.path(), work.path(), Some(&jev));
         let p = PackRollbackParams {
-            pack: "route.v11".into(),
+            pack: "route.v12".into(),
             why: Some("too many switches".into()),
             off: false,
         };
@@ -96,7 +96,7 @@ async fn before_the_warm_read_a_judged_turn_reads_and_writes_nothing_of_the_ladd
     assert_eq!(res.tool_calls, 1, "{res:?}");
     // Every point judged: the inbound batch's two, the gate's one, and
     // the loop's end.
-    let want = ["classify.v4", "route.v11", "security.v3", "loop.v1"];
+    let want = ["classify.v4", "route.v12", "security.v3", "loop.v1"];
     let judged = || -> Vec<String> {
         crate::tests_judge::kinds(&c.store, "judge.call")
             .iter()
@@ -117,7 +117,7 @@ async fn before_the_warm_read_a_judged_turn_reads_and_writes_nothing_of_the_ladd
     assert_eq!(j.ladder().reads(), 0, "nothing of the ladder was read");
     assert_eq!(pack_modes(&c), before, "no pack.mode row written");
     // What would act judges in shadow until the read.
-    for p in ["route.v11", "rerank.v1", "security.v3"] {
+    for p in ["route.v12", "rerank.v1", "security.v3"] {
         assert_eq!(j.mode_for(p, &res.session_id).mode, PackMode::Shadow, "{p}");
     }
     assert!(
@@ -137,9 +137,9 @@ async fn before_the_warm_read_a_judged_turn_reads_and_writes_nothing_of_the_ladd
     c.warm_ladder();
     until("the warm read", || j.ladder_read()).await;
     assert_eq!(j.ladder().reads(), 1);
-    assert_eq!(j.ladder().standing("route.v11").rung, Rung::RolledBack);
+    assert_eq!(j.ladder().standing("route.v12").rung, Rung::RolledBack);
     assert_eq!(
-        j.mode_for("route.v11", &res.session_id).mode,
+        j.mode_for("route.v12", &res.session_id).mode,
         PackMode::Shadow,
         "rolled back"
     );

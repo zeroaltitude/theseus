@@ -133,3 +133,19 @@ fn an_old_settings_file_with_compactions_summary_profile_loads() {
     assert!(named, "{warnings:?}");
     assert!(parse("[memory]\nsummary_profil = \"off\"\n").is_err());
 }
+
+/// A settings file written for route.v11, retired by route.v12 (issue 46), still loads: its table is read,
+/// named in the one line, and applies to nothing. No alias carries it to the new version.
+#[test]
+fn a_settings_table_for_route_v11_loads_and_is_named_retired() {
+    let (cfg, warnings) = parse("[judge.packs.\"route.v11\"]\nrung = \"shadow\"\n").unwrap();
+    let lines = trimmed(&warnings);
+    assert_eq!(lines.len(), 1, "{warnings:?}");
+    assert!(
+        lines[0].contains("judge.packs.\"route.v11\""),
+        "{}",
+        lines[0]
+    );
+    assert_eq!(cfg.judge.retired(), ["judge.packs.\"route.v11\""]);
+    assert!(crate::judge::WIRED.iter().all(|(p, _)| *p != "route.v11"));
+}

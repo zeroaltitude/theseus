@@ -749,3 +749,17 @@ async fn a_machine_label_trains_but_never_enters_the_holdout() {
     // The machine label is no error the writer reads: only the owner's are.
     assert_eq!(p.new_errors, 10, "{p:?}");
 }
+
+/// The learning loop never rewrites the acting route pack, whatever version it is: `LEFT_ALONE` names it by
+/// its constant, so a new route version cannot slip into the roots the loop rewrites (issue 46).
+#[test]
+fn the_learning_loop_never_rewrites_the_acting_route_pack() {
+    let route = crate::judge::inbound::ROUTE_PACK;
+    assert_eq!(
+        crate::judge::wired_mode(route),
+        crate::config::PackMode::Live
+    );
+    let roots = crate::learning::propose::roots();
+    assert!(!roots.contains(&route), "{route} in {roots:?}");
+    assert!(!roots.contains(&"rerank.v1"), "{roots:?}");
+}

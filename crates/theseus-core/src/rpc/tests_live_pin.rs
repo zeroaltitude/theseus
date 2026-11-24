@@ -104,7 +104,10 @@ async fn profile_use_is_a_pin_when_route_v10_acts() {
     );
     assert_eq!(res.route.as_ref().unwrap().reason, "pinned");
     assert_eq!(o.r.claude.requests()[0].model, "claude-haiku-5-5");
-    crate::tests_route::until_calls(&jev, 2).await;
+    // The batch; a pin with one persona asks the route pack nothing (issue 46), so a moment
+    // more, and no route request comes.
+    crate::tests_route::until_calls(&jev, 1).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let asked: Vec<String> = jev
         .seen()
         .iter()

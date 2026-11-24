@@ -130,7 +130,7 @@ thinking_display = "summarized"
 max_loops = 40
 refusal_fallbacks = true
 
-# The profiles that run the models Jev chooses among (route.v11): Haiku 5.5, Sonnet 5.5,
+# The profiles that run the models Jev chooses among (route.v12): Haiku 5.5, Sonnet 5.5,
 # Opus 5.5, Fable 5.2 and DeepSeek Flash. A profile is also a pin: `-P`, `theseus profile use`,
 # a place's profile, or a key such as [memory] synth_profile.
 [profiles.opus]
@@ -1707,7 +1707,7 @@ max_errors = 40                         # the most the writer reads, newest firs
 margin = 0.02                           # at the minimum sample, precision and recall each up by this on every deciding question
 
 # ---------------------------------------------------------------- routing
-# Jev chooses the model (route.v11, theseus-h66v4). While [judge] is on, the route pack asks at
+# Jev chooses the model (route.v12, theseus-h66v4). While [judge] is on, the route pack asks at
 # each message you send which model it needs and the effort its reply needs, from one
 # table of the models on offer (price, origin, thinking, what each is for and not for), and the
 # turn runs on the configured profile that runs the model Jev picked: its provider's key settled,

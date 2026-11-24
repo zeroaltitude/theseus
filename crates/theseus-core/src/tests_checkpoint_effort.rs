@@ -203,7 +203,7 @@ fn evidence_lines(jev: &FakeJev) -> Vec<(Option<String>, String)> {
         .iter()
         // The model question's request: `work.v1` is asked at the same checkpoint and reads the
         // same lines.
-        .filter(|s| s.body["questions"].get("route.v11/model").is_some())
+        .filter(|s| s.body["questions"].get("route.v12/model").is_some())
         .filter_map(|s| {
             let body = s.body.to_string();
             let at = body.find("Checkpoints this turn:")?;

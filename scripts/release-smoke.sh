@@ -142,7 +142,7 @@ part_tb() {
 
 part_route() {
   local cases=crates/theseus-judge/packs/route.v10.cases.toml effort_pack=crates/theseus-judge/packs/effort.v1.toml
-  local route_pack=crates/theseus-judge/packs/route.v11.toml
+  local route_pack=crates/theseus-judge/packs/route.v12.toml
   local i t0 rc help live args=() copies=()
   help="$("$bin/theseus" judge replay --help 2>&1)"
   if [[ "$help" != *--cases* ]]; then

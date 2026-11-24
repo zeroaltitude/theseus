@@ -597,7 +597,7 @@ async fn the_adoption_is_written_once_after_serving() {
 }
 
 /// Each adopted rule fires on its scripted events, and not one short:
-/// `route.v11`'s 5 pins (its file's own count), `rerank.v1`'s 2 breaker opens, `recall_cross.v1`'s 2
+/// `route.v12`'s 5 pins (its file's own count), `rerank.v1`'s 2 breaker opens, `recall_cross.v1`'s 2
 /// (theseus-tbqpy), `security.v3`'s 31 notices; each is a day's brake, until
 /// the next local midnight.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -606,7 +606,7 @@ async fn each_adopted_rule_fires_on_its_events_and_not_on_a_near_miss() {
     type Event = fn(String) -> CanaryEvent;
     let cases: [(&str, usize, Event, &str); 4] = [
         (
-            "route.v11",
+            "route.v12",
             5,
             |day| CanaryEvent::Pinned { day },
             "pins_per_day",
@@ -868,10 +868,12 @@ async fn a_canary_judgment_records_its_arm() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_three_live_packs_are_adopted_once_after_serving() {
     let dir = tempfile::tempdir().unwrap();
-    let live = ["route.v11", "rerank.v1", "security.v3"];
-    let why = |p: &str| match p {
-        "route.v11" => "the owner's decision of 2026-11-14",
+    let live = ["route.v12", "rerank.v1", "security.v3"];
+    let why = |p: &str| {
+        match p {
+        "route.v12" => "a new compiled version goes live on landing (docs/development.md); issue 46: the live packs lose the questions nothing reads",
         _ => "decision of 2026-10-04",
+    }
     };
     let c = core_at(dir.path(), None, |_| {});
     for p in live {

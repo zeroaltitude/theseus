@@ -3,7 +3,7 @@
 //!
 //! - `route.v1` asks in a request of its own beside the batch of
 //!   `classify.v4` and `role.v1`, so its verdict comes when its questions
-//!   (route.v10's two: the model and the personal one) are
+//!   (route.v12's one: the model) are
 //!   answered, never after the batch's; each judgment is recorded once,
 //!   with its own request's cost; `effort.v1`, `work.v1` and `split.v1` each ask
 //!   in a request of their own beside it.
@@ -88,7 +88,7 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
         BTreeMap::from([
             ("classify.v4".to_string(), 1),
             ("effort.v1".to_string(), 1),
-            ("route.v11".to_string(), 1),
+            ("route.v12".to_string(), 1),
             ("split.v1".to_string(), 1),
             ("work.v1".to_string(), 1)
         ]),
@@ -98,17 +98,14 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
     assert_eq!(seen.len(), 5, "route, effort, work, split and the batch");
     let route_req = seen
         .iter()
-        .find(|s| asked(&s.body).contains("route.v11/model"))
+        .find(|s| asked(&s.body).contains("route.v12/model"))
         .unwrap();
-    // route.v10's two questions, the model and the personal one, in its one request
-    // (theseus-qe3v, theseus-gasov; the effort and the context are not its any more).
+    // route.v12's one question here, the model, in its one request (theseus-qe3v; the effort and
+    // the context are not its any more, and `personal` went with issue 46).
     assert_eq!(
         asked(&route_req.body),
-        BTreeSet::from([
-            "route.v11/model".to_string(),
-            "route.v11/personal".to_string()
-        ]),
-        "route.v10's two questions, one request"
+        BTreeSet::from(["route.v12/model".to_string()]),
+        "route.v12's one question, one request"
     );
     // Every request's judgments: one call each, the call's own pack and question counts, and the
     // request's own billed usage and price.
@@ -183,7 +180,7 @@ async fn the_verdict_reaches_the_turn_before_the_batch_answers() {
     assert!(
         kinds(&r.core.store, "judge.call")
             .iter()
-            .all(|j| j.data["pack"] == "route.v11"),
+            .all(|j| j.data["pack"] == "route.v12"),
         "the batch had not answered"
     );
 }

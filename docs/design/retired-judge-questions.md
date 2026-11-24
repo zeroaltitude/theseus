@@ -68,3 +68,23 @@ named at startup.
   the route pack's own `[judge.packs."route.v11"] rung` and may act live (an unpinned turn can switch model where
   it only recorded the verdict before); one that set `small_talk_bar = true` is told that small-talk turns now
   carry admitted recall (the notes a greeting drew reach the model where they were withheld).
+
+## Issue 46: the live packs lose the questions nothing reads
+
+Each new version below is a new file: the old file minus whole question tables and the rules named, with its own
+header comment; every question it keeps is the old one, field for field (a test parses both and says so). The old
+file moves to `packs/retired/` byte for byte, so its digest is the one its stored judgments hold, and it is listed in
+`pack::RETIRED` with its rollback rules copied into `pack::RETIRED_ROLLBACK`. Its judgments still list and read; a
+replay of them is refused, as for every retired version. Each new version is live on landing, the standing rule in
+`docs/development.md`. A settings table that names an old version loads, is ignored and is named at startup; no
+alias carries it to the new name, so rename it.
+
+- **`route.v12`** is `route.v11` without `seal` and `personal` (no code read either answer) and without the
+  `on_path_p95` rule (no code fed it). The `model` instructions lose "and never a model the state lists as not
+  allowed", and the `deepseek_flash` option loses "or when the state says China-origin models are not allowed":
+  the daemon no longer writes `restricted_models` into any state (the route slice, or the inbound batch's shared
+  state), since no model is kept off a session for its origin. The field stays on `RouteFacts`, so a stored input
+  and a case file that set it still read. The ladder adopts v12 (`ladder::adopt`, `WHY_ROUTE_V12`); the learning
+  loop leaves the route pack alone by its constant (`lineage::LEFT_ALONE`), not by a literal name. The labelled
+  cases file declares `route.v12` and is read for v10, v11 and v12 alike. A pinned turn with fewer than two
+  personas asks the route pack nothing; its judgment is recorded as skipped for want of a question.
