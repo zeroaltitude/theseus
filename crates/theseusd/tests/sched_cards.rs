@@ -114,7 +114,10 @@ impl Rig {
     /// The daemon's log lines of each card it wrote, for a failure's message.
     fn card_lines(&self) -> String {
         let log = self.log();
-        let lines: Vec<&str> = log.lines().filter(|l| l.contains("the schedule card")).collect();
+        let lines: Vec<&str> = log
+            .lines()
+            .filter(|l| l.contains("the schedule card"))
+            .collect();
         lines.join("\n")
     }
 
@@ -252,7 +255,12 @@ fn a_restart_keeps_one_card_and_one_post_each_in_their_true_states() {
         r.cards("tide check"),
         r.held()
     );
-    assert_eq!(r.cards("Paint the buoy").len(), 1, "the fake holds:\n{}", r.held());
+    assert_eq!(
+        r.cards("Paint the buoy").len(),
+        1,
+        "the fake holds:\n{}",
+        r.held()
+    );
     assert_eq!(r.posts("tide check").len(), 1);
     assert_eq!(r.posts("Paint the buoy").len(), 1);
     let task = &r.cards("Paint the buoy")[0];

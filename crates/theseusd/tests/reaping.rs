@@ -277,12 +277,16 @@ impl Rig {
                 out.push(format!("    its tool result: {:?}", n["text"]));
             }
         }
+        if let Err(e) = &rows {
+            out.push(format!("(ledger.tail failed: {e})"));
+        }
+        if let Err(e) = &nodes {
+            out.push(format!("(session.history failed: {e})"));
+        }
         format!(
-            "the failed jobs of {}:\n{}{}{}",
+            "the failed jobs of {}:\n{}",
             turn["execution_id"],
-            out.join("\n"),
-            rows.err().map_or(String::new(), |e| format!("\n(ledger.tail failed: {e})")),
-            nodes.err().map_or(String::new(), |e| format!("\n(session.history failed: {e})"))
+            out.join("\n")
         )
     }
 
