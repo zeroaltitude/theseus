@@ -827,14 +827,24 @@ step 8, after the card.
   question to a task with a session; the request is the task's next one, built by the census's path (the turn's
   one assembler and the view's compile, at the task's own place) with the question as its message, sent to the
   task's own model with no tool (the window's calls and results laid as text). It is one provider call of the
-  asking turn's: its worst case is reserved in the kernel before anything is sent (the spend limit and the day's
-  ceiling refuse it there), it goes through the providers that mask the vault's values at the exit, and it is
-  settled at its price. Its answer is headed `[Task <id> "<title>", v<version>: its own answer, from its own view;
-  not a record, and not the owner's word]` and **marked as outside text**, as a fetched page is: every act gate
-  and the injection freeze read it so, and a narrowing after it in the same exchange keeps its card. Nothing is
-  written into the task (no node in its session, no exchange at its place, no new version of its record). Two
-  asks a turn; a task's own session may not ask. It is offered wherever the other task tools are (anything goes,
-  2026-11-22), not only where the owner is alone.
+  asking turn's: its worst case is reserved in the kernel before anything is sent, under the conversation's spend
+  limit and the same day-ceiling policy as the turn's own calls (in the default notify mode the day's ceiling
+  warns and does not refuse; only its stop mode refuses the call before it leaves), and it goes through the
+  providers that mask the vault's values at the exit. A call that answers, or fails in a way the provider names,
+  is settled at its known price (zero for the failure); one whose cost cannot be known (a timeout, a cut stream,
+  a stop or a deadline that drops it once its send may have begun) keeps its whole reservation held as unknown,
+  never released, and its result says so. One dropped before its send costs nothing. Its answer is headed `[Task
+  <id> "<title>", v<version>: its own answer, from its own view; not a record, and not the owner's word]`, laid
+  inside the content-derived outside fence a later view draws, and **marked as outside text**, as a fetched page
+  is: every act gate and the injection freeze read it so, and a narrowing after it in the same exchange keeps its
+  card. Every failure once the task is found (a provider's error, a timeout, a refusal of the call) is marked so
+  too, headed in the harness's words as no answer, the provider's words quoted inside a fence. Nothing is written
+  into the task (no node in its session, no exchange at its place, no new version of its record). Two asks a
+  turn; a task's own session may not ask. **Whose tasks, from where**: any task, by its id, from any
+  conversation that is not itself a task, whatever place or person started it. That is the reach the task card
+  and the task edits already have; it is wider than `task.wait`'s, which waits only on the asking execution's own
+  tasks. It is offered wherever the other task tools are (anything goes, 2026-11-22), not only where the owner
+  is alone.
 - **A model-proposed pause was withdrawn.** `task.update` offers `narrows`, `widens` and `replaces` only, and has
   no pause field; a call that asks for a pause is refused. The pause as first built set a state on the record and held nothing that ran,
   and making it a real hold inside the kernel's frame was not a small change. The owner's own `task.pause` and
