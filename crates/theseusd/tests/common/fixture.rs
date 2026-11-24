@@ -39,9 +39,12 @@ pub trait Fixture {
 
     /// Wait for `f` to give something: 40 s on a quiet machine, and in proportion to what
     /// `busy_factor` measured on a busy one, up to 100 s (nextest ends a test at 120 s).
+    /// The factor is measured once, at the first wait; a failure says it beside the one now.
     fn wait<T>(&self, what: &str, mut f: impl FnMut() -> Option<T>) -> T {
+        static FACTOR: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
         static LIMIT: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
-        let limit = *LIMIT.get_or_init(|| (40 * theseus_sim::busy_factor()).min(100));
+        let limit =
+            *LIMIT.get_or_init(|| (40 * *FACTOR.get_or_init(theseus_sim::busy_factor)).min(100));
         let t0 = Instant::now();
         loop {
             if let Some(v) = f() {
@@ -49,11 +52,25 @@ pub trait Fixture {
             }
             assert!(
                 t0.elapsed() < Duration::from_secs(limit),
-                "no {what} in {limit} s; the daemon's log ends:\n{}",
+                "no {what} in {limit} s (busy factor {} at the first wait, {} now); the daemon's log ends:\n{}",
+                FACTOR.get().copied().unwrap_or(0),
+                theseus_sim::busy_factor(),
                 tail(&self.log(), 30)
             );
             std::thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    /// `health` on the socket once it answers; a daemon that has exited is said at once, with its
+    /// status and log, and not waited for as a slow one.
+    fn socket_or_exit(&self, d: &mut Daemon) -> Option<Value> {
+        if let Some(status) = d.try_wait() {
+            panic!(
+                "theseusd exited ({status}) before the socket; the daemon's log ends:\n{}",
+                tail(&self.log(), 30)
+            );
+        }
+        self.call("health", Value::Null).ok()
     }
 
     /// The daemon on the rig's `config.toml`, its `bin` first on `PATH`, once
@@ -64,7 +81,7 @@ pub trait Fixture {
             .append(true)
             .open(self.path("theseusd.log"))
             .unwrap();
-        let d = Daemon::spawn(
+        let mut d = Daemon::spawn(
             std::process::Command::new(env!("CARGO_BIN_EXE_theseusd"))
                 .arg("--config")
                 .arg(self.path("config.toml"))
@@ -89,7 +106,7 @@ pub trait Fixture {
                 .stdout(Stdio::null())
                 .stderr(log),
         );
-        self.wait("the socket", || self.call("health", Value::Null).ok());
+        self.wait("the socket", || self.socket_or_exit(&mut d));
         d
     }
 
@@ -101,7 +118,7 @@ pub trait Fixture {
             .append(true)
             .open(self.path("theseusd.log"))
             .unwrap();
-        let d = Daemon::spawn(
+        let mut d = Daemon::spawn(
             std::process::Command::new(env!("CARGO_BIN_EXE_theseusd"))
                 .arg("--config")
                 .arg(self.path("config.toml"))
@@ -127,7 +144,7 @@ pub trait Fixture {
                 .stdout(Stdio::null())
                 .stderr(log),
         );
-        self.wait("the socket", || self.call("health", Value::Null).ok());
+        self.wait("the socket", || self.socket_or_exit(&mut d));
         d
     }
 }
