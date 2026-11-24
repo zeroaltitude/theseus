@@ -3,8 +3,8 @@ $ theseus history --when 2026-11-11 --label personal
 history.read
 --- stdout
 ── 2 exchanges of every place's history, newest first
-2026-11-11 13:06 · discord:dm:5551 · the owner: «the clinic moved my appointment to Friday» → you did: «noted the new time and set a wake» · turn_b2 · personal: on the message
-2026-11-11 05:20 · place not recorded · author unknown: «draft the note to my sister» → your reply began: «Here is a draft» · turn_a1 · personal: on the reply
+2026-11-11 13:06 · discord:dm:5551 · the owner: «the clinic moved my appointment to Friday» → you did: «noted the new time and set a wake» · personal: on the message · turn_b2
+2026-11-11 05:20 · place not recorded · author unknown: «draft the note to my sister» → your reply began: «Here is a draft» · personal: on the reply · turn_a1
 ── more before these: theseus history --when 2026-11-11 --label personal --before 1794312000000:turn_a1
 --- stderr
 --- exit 0

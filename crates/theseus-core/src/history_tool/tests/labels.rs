@@ -197,15 +197,70 @@ async fn a_label_line_says_what_it_was_on_and_a_removal() {
             .to_string()
     };
     assert!(
-        line("turn_0001").ends_with("personal: on the message, since removed by the owner"),
+        line("turn_0001")
+            .ends_with("· personal: on the message, since removed by the owner · turn_0001"),
         "{page}"
     );
     assert!(
-        line("turn_0002").ends_with("personal: on the reply"),
+        line("turn_0002").ends_with("· personal: on the reply · turn_0002"),
         "{page}"
     );
     assert!(
-        line("turn_0003").ends_with("personal: on something it read"),
+        line("turn_0003").ends_with("· personal: on something it read · turn_0003"),
         "{page}"
+    );
+}
+
+/// A line's handle is its last field, by rule (a reader of a page takes the handle as the field after a line's
+/// last ` · `): through the page renderer, on a content label's page whose lines carry what the label was on, on
+/// a topic's page whose lines carry none, and on a date's page of every place.
+#[tokio::test]
+async fn a_lines_last_field_is_its_handle_with_or_without_a_label() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let me = session(&r.core, None);
+    let day = noon_nov(11);
+    let (ask, _) = put(
+        &r.core.store,
+        &Ex {
+            at: day,
+            things: &["label:personal", "topic:kelp"],
+            ..ex(1, HERE, &me)
+        },
+    );
+    labelled(
+        &r.core.store,
+        &ask.id,
+        ItemKind::OperatorMessage,
+        Flag::Personal,
+        true,
+    );
+    put(
+        &r.core.store,
+        &Ex {
+            at: day + 1_000,
+            things: &["label:personal", "topic:kelp"],
+            ..ex(2, DM, &me)
+        },
+    );
+    let mut tails = 0;
+    for v in [
+        json!({"label": "personal"}),
+        json!({"label": "topic:kelp"}),
+        json!({"when": "2026-11-11"}),
+    ] {
+        let page = call(&r.core, &me, v.clone()).await.unwrap();
+        let lines: Vec<&str> = page.lines().filter(|l| l.starts_with("- ")).collect();
+        assert_eq!(lines.len(), 2, "{v}: {page}");
+        for l in lines {
+            let (rest, last) = l.rsplit_once(" · ").unwrap_or_else(|| panic!("{l}"));
+            assert!(["turn_0001", "turn_0002"].contains(&last), "{v}: {l}");
+            tails +=
+                usize::from(rest.ends_with("personal: on the message, since removed by the owner"));
+        }
+    }
+    assert_eq!(
+        tails, 1,
+        "the label's page carries its tail before the handle"
     );
 }

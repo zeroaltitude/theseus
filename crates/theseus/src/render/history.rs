@@ -32,8 +32,8 @@ pub fn page_lines(h: &SessionHistoryResult) -> Vec<Line> {
 }
 
 /// A search's page (`history.read`, issue 44): a heading, one line an exchange (when · place · whose words:
-/// the words → what was done · handle, and what a content label was on), and how the page ends, with the
-/// command that reads on (`again`, the search's own flags) when there is more.
+/// the words → what was done · what a content label was on · handle: the handle is a line's last field), and how
+/// the page ends, with the command that reads on (`again`, the search's own flags) when there is more.
 pub fn read_lines(r: &HistoryReadResult, again: &str) -> Vec<Line> {
     let mut out = Vec::new();
     let of = match r.place.as_str() {
@@ -53,17 +53,15 @@ pub fn read_lines(r: &HistoryReadResult, again: &str) -> Vec<Line> {
             (None, Some(b)) => format!("your reply began: «{b}»"),
             (None, None) => "reply not summarised".into(),
         };
-        let mut text = format!(
-            "{} · {} · {}: «{}» → {did} · {}",
+        let labels = (l.labels.as_deref()).map_or_else(String::new, |x| format!(" · {x}"));
+        let text = format!(
+            "{} · {} · {}: «{}» → {did}{labels} · {}",
             l.when,
             place_said(&l.place),
             l.who,
             l.words,
             l.handle
         );
-        if let Some(labels) = &l.labels {
-            text.push_str(&format!(" · {labels}"));
-        }
         push(&mut out, Tag::Plain, &text);
     }
     let on = |c: &theseus_protocol::memory::HistoryCursor| {
