@@ -16,20 +16,19 @@ use std::collections::{BTreeMap, HashSet};
 
 use theseus_memory::gate::{PointOfView, Veil};
 use theseus_protocol::view::{
-    ViewBudget, ViewCount, ViewEarlier, ViewPiece, ViewPreviewResult, ViewShown, ViewSlot,
-    ViewTally,
+    ViewBudget, ViewCount, ViewEarlier, ViewPreviewResult, ViewShown, ViewTally,
 };
 
-use super::{fold_constituents, Asked, Built, RequestSpec, TurnRunner};
+use super::{Asked, Built, RequestSpec, TurnRunner};
 use crate::ladder::view::StoreLadder;
 use crate::session::SessionRecord;
 use crate::store::Transcript;
 use crate::stub::Kind;
-use crate::view::budget::{Overflow, Shown};
+use crate::view::budget::Overflow;
 use crate::view::record::show::{name, PieceText, Reader, Source};
 use crate::view::record::source::GateSource;
 use crate::view::record::ViewRecord;
-use crate::view::{Label, Pos, Slot, SourceRange, Space};
+use crate::view::{Pos, SourceRange, Space};
 use crate::view_gate::{place_name, session_marks, Gate, Verified};
 
 /// The most of a place's newest touches read to find the sessions that ran exchanges there.
@@ -162,26 +161,19 @@ impl TurnRunner {
             spec,
             &self.view_budget(spec),
         )?;
-        let source = GateSource {
-            runner: self,
-            pov: gate_pov.clone(),
-            asker: None,
-        };
+        let source = GateSource::new(self, gate_pov.clone(), None);
         let reader = Reader {
             source: &source,
             text: p.text,
             restricted: gate_pov.present != theseus_memory::gate::Present::OwnerAlone,
         };
         let (view, overflow, folds) = match &built.assembled {
-            Ok(a) => {
-                let levels: BTreeMap<&str, u8> = (a.ladder.nodes.iter())
-                    .map(|n| (n.handle.0.as_str(), n.level))
-                    .collect();
+            Ok(_) => {
                 let record = built.frozen.record.clone();
                 let record = record.map(|v| ViewRecord::new(PREVIEW_TURN, v));
                 let shown = record.as_ref().map(|r| {
-                    let mut v = reader.show(r);
-                    let folds = self.with_folds(&mut v, r, &gate_pov, &levels);
+                    let v = reader.show(r);
+                    let folds = folds_of(&v);
                     (v, folds)
                 });
                 let (v, f) = shown.map_or((None, BTreeMap::new()), |(v, f)| (Some(v), f));
@@ -218,55 +210,6 @@ impl TurnRunner {
         })
     }
 
-    /// The fold nodes the assembly laid, listed with their level and tokens when the gate admits every
-    /// exchange each stands for (the gated ladder's rule, read again for this reader); the listing's own
-    /// reader proves no fold. Returns the count by level.
-    fn with_folds(
-        &self,
-        v: &mut ViewShown,
-        rec: &ViewRecord,
-        pov: &PointOfView,
-        levels: &BTreeMap<&str, u8>,
-    ) -> BTreeMap<String, u64> {
-        let mut by_level = BTreeMap::new();
-        let mut slots: BTreeMap<Slot, ViewSlot> = std::mem::take(&mut v.slots)
-            .into_iter()
-            .filter_map(|s| Some((serde_json::from_value(s.slot.clone().into()).ok()?, s)))
-            .collect();
-        for s in rec
-            .shown
-            .iter()
-            .filter(|s| matches!(s.piece.range.space, Space::Folds { .. }))
-        {
-            let Some(level) = levels.get(s.piece.handle.0.as_str()) else {
-                continue;
-            };
-            if !self.fold_admitted(pov, &s.piece.handle.0) {
-                continue;
-            }
-            *by_level.entry(level.to_string()).or_default() += 1;
-            let slot = slots.entry(s.piece.slot).or_insert_with(|| ViewSlot {
-                slot: name(&s.piece.slot),
-                ..ViewSlot::default()
-            });
-            slot.tokens += s.tokens;
-            v.totals.shown += 1;
-            v.totals.tokens += s.tokens;
-            slot.pieces.push(fold_piece(s, &rec.pov));
-        }
-        v.slots = slots.into_values().collect();
-        by_level
-    }
-
-    /// Whether the gate admits fold node `id` whole to the owner's look: every exchange it stands for
-    /// resolves (`fold_constituents`), and every session it stands for is admitted.
-    fn fold_admitted(&self, pov: &PointOfView, id: &str) -> bool {
-        fold_constituents(&self.store, id).is_some_and(|all| {
-            all.iter()
-                .all(|e| self.session_admitted(pov, &e.session_id))
-        })
-    }
-
     /// The earlier turns of `place`'s sessions the owner's look admits, counted from the nodes the gate
     /// admits alone: a turn whose exchange is another place's is not counted.
     fn earlier(&self, pov: &PointOfView, place: &str) -> anyhow::Result<ViewEarlier> {
@@ -295,22 +238,13 @@ impl TurnRunner {
     }
 }
 
-/// A fold node laid, by reference.
-fn fold_piece(s: &Shown, pov: &crate::view::PointOfView) -> ViewPiece {
-    let p = &s.piece;
-    ViewPiece {
-        handle: p.handle.0.clone(),
-        kind: "folds".into(),
-        first: p.range.first.id.clone(),
-        last: p.range.last.id.clone(),
-        band: name(&p.band),
-        form: name(&s.form),
-        tokens: s.tokens,
-        reasons: p.reasons.iter().map(name).collect(),
-        label: name(&Label::of(p, pov)),
-        labels: Vec::new(),
-        text: None,
+/// The folds the listing holds, counted by level: the shared reader lists a fold only when it proves it.
+fn folds_of(v: &ViewShown) -> BTreeMap<String, u64> {
+    let mut by_level = BTreeMap::new();
+    for level in (v.slots.iter().flat_map(|s| &s.pieces)).filter_map(|x| x.level) {
+        *by_level.entry(level.to_string()).or_default() += 1;
     }
+    by_level
 }
 
 /// The floor's overflow, by its numbers, with its exchange named only when this reader's source admits

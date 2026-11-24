@@ -128,34 +128,49 @@ impl Core {
         };
         Ok(ViewShowResult {
             turn_id: p.turn_id.clone(),
-            views: views.iter().map(|v| self.owners(v, shown)).collect(),
+            views: self.owners_all(&views, shown).0,
             tallies,
             withheld: (!p.text).then(|| NO_TEXT.into()),
         })
     }
 
-    /// One view as the owner inspects it: the owner alone, at the view's own anchor, with no asker, so a
-    /// sealed or seal-pending source stays out.
+    /// Every view of a call as the owner inspects it, and the units spent proving its folds and task cards:
+    /// one source for each anchor, made here and dropped when this returns, so what several views hold is
+    /// proven once a call and nothing is kept for the next.
+    pub(crate) fn owners_all(
+        &self,
+        views: &[ViewRecord],
+        text: Option<&dyn PieceText>,
+    ) -> (Vec<theseus_protocol::view::ViewShown>, u64) {
+        let mut sources: std::collections::BTreeMap<String, GateSource<'_>> = Default::default();
+        for v in views {
+            (sources.entry(anchor_of(v))).or_insert_with_key(|anchor| self.owners_source(anchor));
+        }
+        let shown = (views.iter())
+            .map(|v| self.owners(&sources[&anchor_of(v)], v, text))
+            .collect();
+        (shown, sources.values().map(GateSource::reads).sum())
+    }
+
+    /// The owner alone, at a view's own anchor, with no asker, so a sealed or seal-pending source stays out.
+    fn owners_source(&self, anchor: &str) -> GateSource<'_> {
+        let pov = PointOfView {
+            anchor: anchor.into(),
+            place: Place::Private,
+            present: Present::OwnerAlone,
+        };
+        GateSource::new(&self.runner, pov, None)
+    }
+
+    /// One view as the owner inspects it, through `source`.
     fn owners(
         &self,
+        source: &GateSource<'_>,
         v: &ViewRecord,
         text: Option<&dyn PieceText>,
     ) -> theseus_protocol::view::ViewShown {
-        let anchor = match &v.pov.anchor {
-            Anchor::Place(p) => p.clone(),
-            Anchor::Task(t) => format!("task:{t}"),
-        };
-        let source = GateSource {
-            runner: &self.runner,
-            pov: PointOfView {
-                anchor,
-                place: Place::Private,
-                present: Present::OwnerAlone,
-            },
-            asker: None,
-        };
         let mut shown = Reader {
-            source: &source,
+            source,
             text,
             restricted: false,
         }
@@ -167,5 +182,13 @@ impl Core {
             p.labels = crate::item_labels::piece_lines(&self.store, o.as_deref(), at);
         }
         shown
+    }
+}
+
+/// A view's anchor, as the gate names it.
+fn anchor_of(v: &ViewRecord) -> String {
+    match &v.pov.anchor {
+        Anchor::Place(p) => p.clone(),
+        Anchor::Task(t) => format!("task:{t}"),
     }
 }

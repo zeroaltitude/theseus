@@ -31,7 +31,7 @@ fn the_look_lists_at_most_its_bound_and_says_how_many_more_it_may_read() {
         ],
         ..ViewShown::default()
     };
-    let said = bounded(v);
+    let said = bounded(v, 0);
     assert_eq!(said.matches("x:t").count(), PIECES, "{said}");
     assert!(
         !said.contains("  now "),
@@ -48,7 +48,16 @@ fn the_look_lists_at_most_its_bound_and_says_how_many_more_it_may_read() {
         }],
         ..ViewShown::default()
     };
-    assert!(!bounded(small).contains("more pieces"));
+    assert!(!bounded(small.clone(), 0).contains("more pieces"));
+    let said = bounded(small, 3);
+    assert!(
+        said.contains(&format!(
+            "  (3 folds or task cards were not checked and are not listed: a look proves at most {PROOF} of \
+             their sources)\n"
+        )),
+        "{said}"
+    );
+    assert!(!said.contains("more pieces"), "{said}");
 }
 
 #[test]
