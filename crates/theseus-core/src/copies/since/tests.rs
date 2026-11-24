@@ -180,7 +180,7 @@ fn a_retracted_source_the_kept_text_does_not_show_lays_no_line() {
         crate::graph::VIA_HISTORY,
         &src.id,
     );
-    let laid = lay_one(&s, &BTreeSet::from([src.id.clone()]), &n);
+    let laid = lay_one(&s, &BTreeSet::from([src.id]), &n);
     assert_eq!(
         serde_json::to_vec(&laid).unwrap(),
         serde_json::to_vec(&n).unwrap()
