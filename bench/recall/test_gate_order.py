@@ -38,3 +38,10 @@ class GateOrder(unittest.TestCase):
             names.index("recall tests"), names.index("test build"),
             "gate.sh runs `recall tests` before `test build`, so bench/recall's driver tests either skip "
             f"(no binaries) or drive the previous head's: {names}")
+
+    def test_real_daemon_tests_run_after_build_and_recall(self):
+        names = phase_order()
+        self.assertIn("real daemon tests", names)
+        self.assertIn('phase "real daemon tests" ran_or_skipped real_daemon_tests', GATE.read_text())
+        self.assertGreater(names.index("real daemon tests"), names.index("test build"))
+        self.assertEqual(names.index("real daemon tests"), names.index("recall tests") + 1)
