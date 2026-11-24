@@ -550,3 +550,20 @@ fn an_old_view_record_naming_a_retired_band_still_reads() {
         [("past".to_string(), 2)]
     );
 }
+
+/// A band or a slot this build does not know, a newer build's or a misspelling, is refused, as a record, as a
+/// tally's key and alone: only the names slot E's bands and slot E itself were stored under read as retired.
+#[test]
+fn a_band_or_slot_this_build_does_not_know_is_refused() {
+    use std::collections::BTreeMap;
+    for band in ["past90", "pasts7", "a_band_from_a_newer_build"] {
+        let got = serde_json::from_str::<crate::view::select::Band>(&format!("\"{band}\""));
+        assert!(got.is_err(), "{band}: {got:?}");
+    }
+    for slot in ["pasts", "e", "a_slot_from_a_newer_build"] {
+        let got = serde_json::from_str::<crate::view::Slot>(&format!("\"{slot}\""));
+        assert!(got.is_err(), "{slot}: {got:?}");
+        let key = serde_json::from_str::<BTreeMap<crate::view::Slot, u32>>(&format!("{{\"{slot}\": 1}}"));
+        assert!(key.is_err(), "{slot} as a tally's key: {key:?}");
+    }
+}

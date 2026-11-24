@@ -121,9 +121,10 @@ pub enum Slot {
     Called,
     /// I: the clock, the branch line, the task ticker, then his message.
     Now,
-    /// A slot no longer laid, as an old view record or tally names it (E, `past`, removed 2026-11-24). Only
-    /// ever read from a stored record: no row of the admission table has it.
-    #[serde(other)]
+    /// A slot no longer laid, as an old view record or tally names it (E, `past`, removed 2026-11-24): that name,
+    /// and no other, reads as this one; a name this build does not know is refused, as it always was. Only ever
+    /// read from a stored record: no row of the admission table has it.
+    #[serde(alias = "past")]
     Retired,
 }
 

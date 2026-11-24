@@ -57,8 +57,10 @@ pub enum Band {
     /// H: recall.
     Recall,
     /// A band no longer laid, as an old view record names it (slot E's `past7`, `past30`, `past_older`, removed
-    /// 2026-11-24). Only ever read from a stored record: no row of [`ADMISSION`] has it, so no view lays it.
-    #[serde(other)]
+    /// 2026-11-24): those three names, and no other, read as this one; a name this build does not know is
+    /// refused, as it always was. Only ever read from a stored record: no row of [`ADMISSION`] has it, so no view
+    /// lays it.
+    #[serde(alias = "past7", alias = "past30", alias = "past_older")]
     Retired,
 }
 
