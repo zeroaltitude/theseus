@@ -205,3 +205,14 @@ async fn a_played_looks_stored_result_holds_no_part_of_a_known_value() {
         whole_or_absent("the request sent", &whole, V);
     }
 }
+
+/// A message whose words run on past where a part's cut now stops is copied up to that edge, not up to 8,000.
+#[test]
+fn a_copied_span_ends_where_the_cut_fell() {
+    let cuts = knowing(&[VALUE]);
+    let part = format!("{}{VALUE}{}", "a".repeat(7_990), "b".repeat(100));
+    let spans = vec![("msg_a".to_string(), 7_000, 8_090)];
+    let (said, shown) = assemble(vec![(part, spans)], &cuts);
+    whole_or_absent("the answer", &said, VALUE);
+    assert_eq!(shown, [("msg_a".to_string(), 7_000, 7_990)]);
+}
