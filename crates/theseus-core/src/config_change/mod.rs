@@ -231,11 +231,10 @@ impl Tool for Propose {
          its path (`self.budget.usd`, `import.notes.enabled`, or a whole table such as `mcp.servers.<name>`) with \
          its new value, or `remove: true`, and give a one-line reason in the owner's words. Never write TOML or text \
          for the file. The result says each setting's value before, set or default, so no look is needed first \
-         (`config.show` reads other settings). Theseus checks that the settings still load, then shows the owner one \
-         card with each value before and after; only their yes changes anything, and the daemon writes it itself. \
-         An ordinary setting (no card set for this tool) is written at once instead, and the owner is told, with \
-         how to undo it. A setting that governs what Theseus may do (approvals, secrets, the sandbox, places, who the owner is, \
-         a raised spend) needs a second proof as well. A secret in the vault is used by `vault.use`, never by writing \
+         (`config.show` reads other settings). Theseus checks that the settings still load; the daemon then writes an \
+         ordinary setting at once and tells the owner, and one that governs what Theseus may do waits on the owner's \
+         card with each value before and after (approvals, secrets, the sandbox, places, who the owner is and a \
+         raised spend need a second proof as well). A secret in the vault is used by `vault.use`, never by writing \
          an `op://` reference here. A fact its maker publishes (a model's exact name, a provider's address and \
          protocol) may be looked up with the web tools rather than asked for: give it with a `source`, never a \
          guess. The owner still confirms, on the card, where a secret is sent. Offered only to the owner, in a \
@@ -321,12 +320,10 @@ impl Tool for RestartTool {
     }
 
     fn description(&self) -> &str {
-        "Restart Theseus, on the owner's word, with no change to its settings: at once, and the \
-         owner is told, once for each message of theirs. A second restart before they write \
-         again, one while a change it would make live sends a secret or names an address, or \
-         any when they set this tool to ask, waits on one card that says what a restart cuts (a \
-         running turn, a job, the self-improvement loop's build). Theseus then tells them it is \
-         back and how long it took. Offered only to the owner, in a private place."
+        "Restart Theseus, on the owner's word, with no change to its settings: at once, telling \
+         the owner, once per message of theirs. A second, or one that would make a newly written \
+         secret or address live, waits on their card, which says what a restart cuts. Theseus \
+         then tells them it is back. Offered only to the owner, in a private place."
     }
 
     fn input_schema(&self) -> Value {

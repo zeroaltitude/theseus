@@ -204,7 +204,7 @@ async fn a_sensitive_change_keeps_its_card_whatever_the_setting() {
     for (path, value, proof, fresh) in [
         ("policy.enforcement", json!("approve"), true, false),
         ("kernel.daily_spend_ceiling_usd", json!(400.0), true, false),
-        ("places.owner", json!(["discord:9"]), true, true),
+        ("places.owner", json!(["discord:4100000000000000099"]), true, true),
         ("content_based_security.injection", json!("refuse"), false, false),
     ] {
         let sid = r.session();
@@ -267,6 +267,14 @@ async fn a_restart_runs_with_no_card_once_per_message_of_the_owners() {
     let r = rig_told();
     let sid = r.session();
     let restart = json!({"reason": "it feels stuck"});
+    // The daemon admits the turn, so the restart waits for it to end, as it does
+    // for every turn it admits.
+    let slot = r
+        .core
+        .tools
+        .admission
+        .try_take(crate::turn::admission::Class::Person)
+        .expect("a slot");
     r.steps(
         &sid,
         vec![
@@ -275,6 +283,7 @@ async fn a_restart_runs_with_no_card_once_per_message_of_the_owners() {
         ],
     )
     .await;
+    drop(slot);
     let (status, text) = r.result_of(&sid, "p1");
     assert_eq!(status, ResultStatus::Ok, "{text}");
     assert!(

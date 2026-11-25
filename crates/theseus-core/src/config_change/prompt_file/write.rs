@@ -16,7 +16,6 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use serde_json::Value;
-use theseus_kernel::Action;
 
 use super::{put, read_text, resolve, KIND};
 use crate::config_change::write::{self, Kept};
@@ -35,7 +34,6 @@ impl Core {
     /// the digest of the file before and the digest after.
     pub(crate) fn write_prompt_file(
         &self,
-        a: &Action,
         args: &Value,
         by: &str,
         via: &str,

@@ -33,7 +33,10 @@ async fn a_server_is_attached_on_a_code_and_removed_inside_the_window() {
     let r = rig();
     let secret = r.core.proofs.enrol_stand_in();
     let sid = r.session();
-    r.turn(&sid, "mcp_attach", wc()).await;
+    // Given a secret: the code is asked (issue 57).
+    let mut call = wc();
+    call["env"] = json!({"WC_KEY": "wc_key"});
+    r.turn(&sid, "mcp_attach", call).await;
     let q = r.asked().remove(0);
     assert!(q.reason.contains("wc-server"), "{}", q.reason);
     // The yes alone is refused; nothing was written, started for good or loaded.

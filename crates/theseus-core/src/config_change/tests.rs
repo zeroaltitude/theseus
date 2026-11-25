@@ -1011,20 +1011,17 @@ async fn a_task_and_a_shared_place_cannot_propose() {
     assert!(r.asked().is_empty());
 }
 
-/// A change that reaches a sensitive setting gets a card that is marked as
-/// needing the second proof: named whole, as a table, or deeper. With no app
-/// paired it cannot be approved, and nothing is written.
+/// A change that reaches a setting the code is kept for gets a card that is
+/// marked as needing the second proof: named whole, as a table, or deeper. With
+/// no app paired it cannot be approved, and nothing is written. Any other
+/// sensitive setting keeps its card with no mark (issue 57).
 #[tokio::test]
 async fn a_sensitive_change_is_asked_with_the_second_proof_marked() {
     let r = rig();
     for call in [
         change("kernel.daily_spend_ceiling_usd", json!(300)),
-        change("tools.roots", json!(["/tmp/elsewhere"])),
         change("mcp.servers.files", json!({"command": ["files-server"]})),
         change("policy.enforcement", json!("open")),
-        change("model.system", json!("be brief")),
-        change("discord.rest_proxy", json!("evil.test:80")),
-        change("model.provider", json!("anthropic")),
     ] {
         let sid = r.session();
         r.turn(&sid, call.clone()).await;
@@ -1041,6 +1038,25 @@ async fn a_sensitive_change_is_asked_with_the_second_proof_marked() {
             e.to_string().contains("theseus owner proof enroll"),
             "{call}: {e:#}"
         );
+        r.core
+            .confirm_action(&q.correlation_id, false, None, "cli")
+            .unwrap();
+    }
+    // Issue 57: a folder, prompt text, an address and a provider keep their card,
+    // with no code.
+    for call in [
+        change("tools.roots", json!(["/tmp/elsewhere"])),
+        change("model.system", json!("be brief")),
+        change("discord.rest_proxy", json!("evil.test:80")),
+        change("model.provider", json!("anthropic")),
+    ] {
+        let sid = r.session();
+        r.turn(&sid, call.clone()).await;
+        let (status, text) = r.result(&sid);
+        assert_eq!(status, ResultStatus::Ok, "{call}: {text}");
+        assert!(!text.contains("with the second proof"), "{call}: {text}");
+        let q = r.asked().pop().expect("a card");
+        assert!(!q.needs_proof && !q.needs_fresh_proof, "{call}");
         r.core
             .confirm_action(&q.correlation_id, false, None, "cli")
             .unwrap();

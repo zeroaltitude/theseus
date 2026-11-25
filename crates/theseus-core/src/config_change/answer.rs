@@ -212,8 +212,7 @@ impl Core {
         }
         // A prompt file is changed in its own way: no restart, its own copies.
         if super::prompt_file::write::is_card(args) {
-            let a = q.action.ok_or("a prompt file is changed only on a card's yes")?;
-            let (previous, before, after) = self.write_prompt_file(a, args, by, via)?;
+            let (previous, before, after) = self.write_prompt_file(args, by, via)?;
             return Ok(Applied {
                 previous,
                 before,

@@ -214,7 +214,7 @@ async fn the_card_shows_the_daemons_own_difference_whole() {
         "{card}"
     );
     assert!(
-        card.contains("a second proof is needed as well as your yes"),
+        card.contains("It goes into every later prompt: read it before you say yes."),
         "{card}"
     );
     assert!(card.contains("no restart"), "{card}");
@@ -224,7 +224,7 @@ async fn the_card_shows_the_daemons_own_difference_whole() {
         card.chars().count()
     );
     // The question is marked for the proof, and nothing is written yet.
-    assert!(q.needs_proof && !q.needs_fresh_proof, "{q:?}");
+    assert!(!q.needs_proof && !q.needs_fresh_proof, "{q:?}");
     assert_eq!(f.text(), before);
 }
 
@@ -383,10 +383,11 @@ async fn a_replacement_must_find_its_text_exactly_once() {
     assert!(f.r.asked().is_empty());
 }
 
-/// A decline and an expiry write nothing; neither does a yes with no second
-/// proof, with or without an app paired.
+/// A decline and an expiry write nothing; the card's yes alone writes it, with
+/// no app paired and no code (issue 57: prompt text keeps its card, and needs no
+/// code).
 #[tokio::test]
-async fn no_yes_and_no_proof_writes_nothing() {
+async fn no_yes_writes_nothing_and_the_yes_alone_writes_it() {
     let f = files();
     let before = f.text();
     let call = || replace(&f.named, "Rule 20: be careful.", "Rule 20: be kind.");
@@ -398,22 +399,14 @@ async fn no_yes_and_no_proof_writes_nothing() {
     let ttl = f.r.core.kernel.config().confirm_ttl_ms;
     assert_eq!(f.r.core.expire_questions(q.requested_at_ms + ttl + 1), 1);
     assert_eq!(f.text(), before);
-    // No app paired: cannot be approved at all.
-    let q = f.ask(call()).await;
-    let e = answer(&f.r, &q.correlation_id, true, None)
-        .await
-        .unwrap_err();
-    assert!(e.message.contains("theseus owner proof enroll"), "{e:?}");
-    // An app paired, and no code: not approved.
-    let secret = f.r.core.proofs.enrol_stand_in();
-    let e = answer(&f.r, &q.correlation_id, true, None)
-        .await
-        .unwrap_err();
-    assert!(e.message.contains("second proof"), "{e:?}");
-    assert_eq!(f.text(), before);
     assert!(f.r.rows("config.changed").is_empty());
     assert!(crate::config_change::write::previous_files(&f.r.state).is_empty());
-    let _ = secret;
+    // No app paired, no code: the yes alone writes it.
+    let q = f.ask(call()).await;
+    assert!(!q.needs_proof, "{q:?}");
+    answer(&f.r, &q.correlation_id, true, None).await.unwrap();
+    assert!(f.text().contains("Rule 20: be kind."), "{}", f.text());
+    assert_eq!(f.r.rows("config.changed").len(), 1);
 }
 
 /// A file edited between the card and the yes is refused and left alone.
@@ -531,7 +524,7 @@ async fn a_yes_writes_it_keeps_the_copy_and_an_undo_restores_it_exactly() {
         u.reason
     );
     assert!(!u.reason.contains("changed again since"), "{}", u.reason);
-    assert!(u.needs_proof);
+    assert!(!u.needs_proof);
     let code = crate::owner_proof::Proofs::stand_in_code(&secret, 1);
     answer(&f.r, &u.correlation_id, true, Some(&code))
         .await

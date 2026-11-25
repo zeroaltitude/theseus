@@ -442,10 +442,11 @@ async fn the_old_true_and_the_default_ask_on_a_root_owned_layout_and_install_not
             "{mode:?}: {steps:?}"
         );
     }
-    // With the proof not wired (nothing stands in), the legacy value makes no card either: it never reaches the helper.
+    // With no authenticator app paired the legacy value makes the card too (issue 57: the card alone), and installs
+    // nothing by itself.
     let t = rooted(SelfInstall::Legacy, None);
     t.join().await;
-    assert!(t.cards().is_empty() && t.helper.installed.lock().unwrap().is_empty());
+    assert!(t.cards().len() == 1 && t.helper.installed.lock().unwrap().is_empty());
 }
 
 /// "auto" makes no card and installs; "off" never calls the helper; a user's own layout is not this module's.
