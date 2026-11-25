@@ -373,3 +373,55 @@ async fn a_self_loop_session_asking_every_place_keeps_to_its_own() {
     assert!(!page.contains("turn_0002"), "another place: {page}");
     assert!(!page.contains("every place"), "{page}");
 }
+
+/// `[context] history_page_exchanges` sizes the page of the real tool: at 20, a bare call and a `place: "*"`
+/// call each give 20 lines a page, and each page's `next`, passed back as `before`, gives the next ones with no
+/// gap and no repeat.
+#[tokio::test]
+async fn the_history_page_setting_sizes_the_real_tools_pages() {
+    use crate::tests_places::{rig_with, session};
+    let r = rig_with(|c| c.context.history_page_exchanges = Some(20));
+    let me = session(&r.core, None);
+    let other = session(&r.core, None);
+    for i in 1..=50u64 {
+        let place = if i % 2 == 0 { HERE } else { DM };
+        put(&r.core.store, &ex(i, place, &other));
+    }
+    let at = PointOfView {
+        now_ms: noon_nov(22),
+        ..pov(HERE, Present::Open)
+    };
+    let page = |v: Value| {
+        let (core, me, at) = (&r.core, &me, &at);
+        async move {
+            let o = answer(core, &Board::default(), (me, "t"), at, &args(v))
+                .await
+                .unwrap_or_else(|e| panic!("{e}"));
+            // Each line of a page names its exchange: `turn_` and four digits.
+            let lines: Vec<String> = (o.text.lines())
+                .filter(|l| l.starts_with("- "))
+                .filter_map(|l| l.find("turn_").and_then(|i| l.get(i..i + 9)))
+                .map(str::to_string)
+                .collect();
+            (lines, o.meta)
+        }
+    };
+    for (asked, all) in [(json!({}), 25), (json!({"place": "*"}), 50)] {
+        let (first, meta) = page(asked.clone()).await;
+        assert_eq!(meta["page"], 20, "{asked}: {meta}");
+        assert_eq!((first.len(), &meta["lines"]), (20, &json!(20)), "{asked}: {first:?}");
+        let mut next = asked.clone();
+        next["before"] = meta["next"].clone();
+        let (second, meta) = page(next).await;
+        assert_eq!(second.len(), (all - 20).min(20), "{asked}: {second:?} {meta}");
+        let both: HashSet<&String> = first.iter().chain(&second).collect();
+        assert_eq!(both.len(), first.len() + second.len(), "{asked}: no repeat");
+        let newest: Vec<String> = (1..=50u64)
+            .rev()
+            .filter(|i| all == 50 || i % 2 == 0)
+            .take(first.len() + second.len())
+            .map(|i| format!("turn_{i:04}"))
+            .collect();
+        assert_eq!([first, second].concat(), newest, "{asked}: newest first, no gap");
+    }
+}
