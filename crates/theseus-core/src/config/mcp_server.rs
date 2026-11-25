@@ -35,9 +35,9 @@ pub struct McpServerConfig {
     /// budget); past it, 429 with `Retry-After`.
     #[serde(default = "default_rpm")]
     pub requests_per_minute: u32,
-    /// Turns on the `memory_search` and `memory_get` tools: an MCP client
-    /// reads the owner's private memory, with no model call (theseus-02i1h).
-    /// Off by default.
+    /// Turns on the `context_history` tool: an MCP client reads the owner's
+    /// conversations' history, with no model call (issue 46; it once turned
+    /// on `memory_search` and `memory_get`, which went). Off by default.
     #[serde(default)]
     pub memory: bool,
 }

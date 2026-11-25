@@ -95,7 +95,7 @@ The gate does not run them: run them before a commit. `test_e2e.py` needs the de
   reply read back as a person sees it. The DM is its own place with its own session, so the Discord steps share one
   session of their own; the daemon's footer line (`-# profile · model · loops · $ · s`) is split from the reply before
   the checks read it, and its dollars are counted in the budget.
-- **mcp**: not driven. Theseus's MCP server serves `memory_search` and `memory_get` (reads with no model call), not
+- **mcp**: not driven. Theseus's MCP server serves `context_history` (a read with no model call), not
   conversation turns, so there is no persona to probe through it.
 
 Claude Code has one surface: its `rpc` and `discord` steps run as ordinary `claude -p` turns in the same session.

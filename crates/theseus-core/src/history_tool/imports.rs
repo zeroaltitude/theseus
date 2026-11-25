@@ -1,8 +1,8 @@
 //! The history tool's search of imported conversations (D6 step 6, round 2; the plan's parity step 4):
 //! `place: "import"`, or `"import:<book>"` for one book, with `words`, and a span (`when`, or `from` and `to`)
 //! if one is wanted. Imported messages are nodes, not exchanges, so no timeline holds them: the search is the
-//! MCP server's own engine (`memory_lookup::imported`, recall's pipeline kept to imported sessions), never a
-//! second one, and its bounds are that engine's.
+//! engine the MCP server's old memory tools read through (`memory_lookup::imported`, recall's pipeline kept to
+//! imported sessions), never a second one, and its bounds are that engine's.
 //!
 //! Each hit is a page line: its message's own date, `import:<book>` as its place, its words, and its session's
 //! id as the handle `open` reads whole. A hit is shown only from its node as read now, and is outside text by

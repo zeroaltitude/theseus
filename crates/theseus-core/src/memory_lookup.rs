@@ -1,12 +1,12 @@
-//! The read behind the MCP server's `memory_search` and `memory_get` (`mcp`): a search of words through
-//! recall's own pipeline (the index, the filters, the pack), kept to a span of time and to a book's or a
-//! topic's sessions; each item with its as-of date, its session, its source and its sensitivity. A label veils
-//! nothing (anything goes, 2026-11-22).
+//! The history tool's search of imported conversations by words ([`imported`]): a search of words through
+//! recall's own pipeline (the index, the filters, the pack), kept to a span of time and to a book's sessions;
+//! each item with its as-of date, its session, its source and its sensitivity. A label veils nothing (anything
+//! goes, 2026-11-22).
 //!
-//! The model's own tool over it, `memory.lookup`, is gone (D6 step 6): the history tool, `context.history`, is
-//! the model's one way to look back, and an old `[policy.tools] "memory.lookup"` is a retired key. The history
-//! tool's search of imported conversations by words reads through this engine too ([`imported`]): one search,
-//! never a second.
+//! The tools that once read through it are gone: the model's `memory.lookup` (D6 step 6; an old
+//! `[policy.tools] "memory.lookup"` is a retired key), and the MCP server's `memory_search` and `memory_get`
+//! (issue 46). The history tool, `context.history` (an MCP client's `context_history`), is the one way to look
+//! back.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -19,31 +19,22 @@ use crate::config::memory::MemoryArm;
 use crate::recall::when::When;
 use crate::Core;
 
-pub(crate) mod mcp;
-mod read;
+mod imported;
 
-/// The label of an imported item whose episode's labels could not be read.
-pub const UNREAD: &str = "labels unread";
+pub(crate) use imported::{imported, ImportHit};
 
-/// A page's items by default, and at most.
-const PAGE: u64 = 8;
-const PAGE_MAX: u64 = 25;
-/// The answer's token budget by default, and at most.
-const BUDGET: u64 = 1_500;
+/// The answer's token budget at most.
 const BUDGET_MAX: u64 = 6_000;
 /// The longest an index's answer is waited for.
 const DEADLINE: Duration = Duration::from_secs(2);
 /// The most sessions a book or a topic narrows a search of words to.
 const SESSIONS_MAX: u64 = 500;
 
-/// What a search is kept to: a span (`when`, or `from` and `to`), a book or a topic, or one session; and, for
-/// the history tool's search, imported sessions alone (`imports`).
+/// What a search is kept to: a book or a topic, or one session; and, for the history tool's search, imported
+/// sessions alone (`imports`).
 #[derive(Debug, Clone, Default)]
 struct Args {
     imports: bool,
-    when: Option<String>,
-    from: Option<String>,
-    to: Option<String>,
     book: Option<String>,
     topic: Option<String>,
     session: Option<String>,
@@ -53,70 +44,16 @@ fn some(s: &Option<String>) -> Option<&str> {
     s.as_deref().map(str::trim).filter(|s| !s.is_empty())
 }
 
-impl Args {
-    /// The span `when`, `from` and `to` name, read as a turn's words are, as
-    /// of `now_ms`: `from`'s start to `to`'s end.
-    fn span(&self, now_ms: u64) -> Result<Option<When>, String> {
-        let read = |field: &str, s: &str| {
-            crate::recall::when::read_local(s, now_ms)
-                .ok_or_else(|| format!("{field} {s:?} names no time: write 2026-03, 2026-03-14, March 2026, or last week"))
-        };
-        let mut w = match some(&self.when) {
-            Some(s) => Some(read("when", s)?),
-            None => None,
-        };
-        let from = some(&self.from).map(|s| read("from", s)).transpose()?;
-        let to = some(&self.to).map(|s| read("to", s)).transpose()?;
-        if from.is_some() || to.is_some() {
-            let said = [from.as_ref(), to.as_ref()]
-                .iter()
-                .flatten()
-                .map(|w| w.said.as_str())
-                .collect::<Vec<_>>()
-                .join(" to ");
-            let mut span = w.take().unwrap_or(When {
-                from_ms: None,
-                to_ms: None,
-                said: String::new(),
-            });
-            if let Some(f) = from {
-                span.from_ms = f.from_ms;
-            }
-            if let Some(t) = to {
-                span.to_ms = t.to_ms;
-            }
-            span.said = match span.said.is_empty() {
-                true => said,
-                false => format!("{}, {said}", span.said),
-            };
-            w = Some(span);
-        }
-        if let Some(s) = &w {
-            if let (Some(f), Some(t)) = (s.from_ms, s.to_ms) {
-                if t <= f {
-                    return Err(format!("{} ends before it begins", s.said));
-                }
-            }
-        }
-        Ok(w)
-    }
-}
-
 /// One item of a page, as the answer says it.
 #[derive(Default)]
 struct Item {
     when: String,
     session_id: String,
-    sensitivity: Option<String>,
     book: Option<String>,
     text: String,
-    /// A hit's node, its WAL position and its own time (unix ms), for the
-    /// citation the MCP tools give; a catalog's episode has none.
+    /// A hit's node and its own time (unix ms); a catalog's episode has none.
     node_id: String,
-    position: u64,
     at_ms: u64,
-    /// The harness that held it: `theseus`, or an imported episode's source.
-    harness: String,
 }
 
 /// Whether `session` is an imported episode whose tag was erased.
@@ -179,8 +116,6 @@ fn episode_item(e: &ImportedEpisode, text: Option<String>) -> Item {
     Item {
         when: span_words(e.start_ms, e.end_ms),
         session_id: e.session_id.clone(),
-        harness: e.source.clone(),
-        sensitivity: Some(e.sensitivity.clone()),
         book: e.book.clone(),
         text: text
             .or_else(|| e.summary_text.clone())
@@ -272,60 +207,6 @@ async fn by_words(
 
 /// The most candidates a search of words fetches, refills included.
 const CANDIDATES_MAX: usize = 100;
-
-/// One imported message a search found: its node, its session, its own time, its book and its words.
-pub(crate) struct ImportHit {
-    pub node_id: String,
-    pub session_id: String,
-    pub at_ms: u64,
-    pub book: Option<String>,
-    pub text: String,
-}
-
-/// The history tool's search of imported conversations (D6 step 6, round 2): this engine's [`by_words`], over
-/// every session when unqualified (as the unrestricted search ranks), or narrowed to a `book`'s sessions or to
-/// the episodes in `when` (round 3), and kept to imported hits; the hits from `offset` (clamped to the bound), at
-/// most `limit`, whether more lie past them, and why the search may be incomplete (stale hits that filled what
-/// was read, a hit that could not be read, a narrowing, or the bound of [`CANDIDATES_MAX`] filled).
-pub(crate) async fn imported(
-    core: &Arc<Core>,
-    words: &str,
-    when: Option<&When>,
-    book: Option<&str>,
-    (offset, limit): (u64, u64),
-) -> Result<(Vec<ImportHit>, bool, Option<String>), String> {
-    let a = Args {
-        imports: true,
-        book: book.map(str::to_string),
-        ..Args::default()
-    };
-    // The most the index is asked, whatever the page (as the MCP search asks it): a total that moved with the
-    // page would break a cursor. A forged offset past it is the bound, never an overflow.
-    let bound = CANDIDATES_MAX as u64;
-    let offset = offset.min(bound);
-    let (_, items, _, incomplete) =
-        by_words(core, None, words.to_string(), &a, when, bound).await?;
-    let fetched = items.len();
-    let items: Vec<Item> = (items.into_iter())
-        .filter(|i| crate::import::is_imported(&i.session_id))
-        .collect();
-    let more = items.len() as u64 > offset.saturating_add(limit);
-    // The bound filled (other conversations' hits among them): what lay past it was never ranked.
-    let incomplete = incomplete.or_else(|| {
-        (!more && fetched >= CANDIDATES_MAX)
-            .then(|| format!("a search reads at most {CANDIDATES_MAX} hits"))
-    });
-    let hits = (items.into_iter().skip(offset as usize).take(limit as usize))
-        .map(|i| ImportHit {
-            node_id: i.node_id,
-            session_id: i.session_id,
-            at_ms: i.at_ms,
-            book: i.book,
-            text: i.text,
-        })
-        .collect();
-    Ok((hits, more, incomplete))
-}
 
 /// One fetch of a search of words: recall's pipeline over the index's `want` best, as a turn of `session`
 /// would run it.
@@ -498,12 +379,10 @@ async fn items_of(
                 it
             }
             // An imported session the catalog did not name: its labels
-            // are unknown, and said so.
+            // are unknown.
             None if crate::import::is_imported(&i.session_id) => Item {
                 when: String::new(),
                 session_id: i.session_id.clone(),
-                harness: "imported".into(),
-                sensitivity: Some(UNREAD.into()),
                 book: None,
                 text,
                 ..Item::default()
@@ -518,8 +397,6 @@ async fn items_of(
                 Item {
                     when: at,
                     session_id: i.session_id.clone(),
-                    harness: "theseus".into(),
-                    sensitivity: None,
                     book: None,
                     text,
                     ..Item::default()
@@ -528,7 +405,6 @@ async fn items_of(
         };
         items.push(Item {
             node_id: i.node_id.clone(),
-            position: i.position,
             at_ms: match item.at_ms {
                 0 => core
                     .store
