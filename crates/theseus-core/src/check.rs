@@ -457,7 +457,8 @@ pub fn said(text: String, mut meta: Value, basis: &TaskCheck) -> (String, Value)
 }
 
 /// The checked task's standing `objective` and `acceptance` pieces, read
-/// from its `Arrangement` node: none for a task from before 27.
+/// from its `Arrangement` node, those kept by reference with their words
+/// read (`arrangement::laid`): none for a task from before 27.
 fn inherited(store: &crate::store::Store, rec: Option<&SessionRecord>) -> Vec<Piece> {
     let Some(id) = rec.and_then(|r| r.task.as_ref()?.arrangement.clone()) else {
         return vec![];
@@ -465,7 +466,7 @@ fn inherited(store: &crate::store::Store, rec: Option<&SessionRecord>) -> Vec<Pi
     let Ok(Some((_, n))) = store.get_node(&id) else {
         return vec![];
     };
-    let Body::Arrangement { pieces, .. } = n.body else {
+    let Body::Arrangement { pieces, .. } = arr::laid(store, &n).body else {
         return vec![];
     };
     pieces

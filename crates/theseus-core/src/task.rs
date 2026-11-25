@@ -686,7 +686,7 @@ pub fn create<'a>(
             let mut arrangement = Some(Node::arrangement(
                 &task.session_id,
                 &author,
-                pieces.clone(),
+                crate::arrangement::stored(pieces.clone()),
                 i.fidelity_ack,
             ));
             // A task handed to a profile runs on it, and its end speaks in the conversation.
