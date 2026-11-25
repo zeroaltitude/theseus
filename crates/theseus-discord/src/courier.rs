@@ -25,6 +25,7 @@ pub(crate) mod ask;
 mod board;
 mod catchup;
 mod held;
+mod notices;
 mod offer;
 mod recall;
 mod subagent;
@@ -365,6 +366,8 @@ pub(crate) struct Lane {
     pub v2: v2::State,
     /// The outage this lane is coming back from (theseus-ss36w).
     catchup: catchup::State,
+    /// The FYIs waiting on the notices place (`notices.rs`).
+    notices: notices::State,
 }
 
 impl Lane {
@@ -408,6 +411,7 @@ impl Lane {
             seek_stale: false,
             v2: v2::State::default(),
             catchup: catchup::State::default(),
+            notices: notices::State::default(),
         }
     }
 
@@ -420,6 +424,7 @@ impl Lane {
                 .into_iter()
                 .chain(self.held.as_ref().map(|h| h.1))
                 .chain(self.v2.due())
+                .chain(self.notices.wake())
                 .min();
             let msg = match wake {
                 Some(at) => tokio::select! {
@@ -621,7 +626,7 @@ impl Lane {
             if self.shared.is_retired(&self.target) {
                 return false;
             }
-            let Some(a) = self.shared.core.outbox.next_for(&self.target) else {
+            let Some(a) = self.next_post() else {
                 return true;
             };
             // It waits, and the posts after it wait behind it; the stream
@@ -700,10 +705,13 @@ impl Lane {
     /// One post: planned into writes, dispatched, written, settled. An error
     /// back means Discord is away (or the store would not take the settle)
     /// and the post waits, dispatched; a refusal settles it as failed, and the
-    /// lane goes on.
+    /// lane goes on. An FYI for the notices place that meets an absent Discord
+    /// waits aside and Ok comes back; one Discord refuses there for good is
+    /// written to the DM instead (`notices.rs`).
     async fn deliver(&mut self, a: &Action) -> Result<(), SendErr> {
         let t0 = std::time::Instant::now();
-        let plan = match self.plan(a).await {
+        self.notices.dm = None;
+        let mut plan = match self.plan(a).await {
             Ok(p) => p,
             Err(e) if e.away => return Err(e),
             Err(e) => {
@@ -716,6 +724,10 @@ impl Lane {
                     json!({"error": e.message}),
                 );
             }
+        };
+        // An FYI for the notices place: its DM; none back, it went aside.
+        let Some(mut notices) = self.take_notices_dm(a) else {
+            return Ok(());
         };
         if plan.writes.is_empty() {
             // Nothing to send (`Plan::nothing`): the post ends well and
@@ -768,7 +780,12 @@ impl Lane {
             {
                 w.content = format!("{}\n{}", w.content, render::RESENT);
             }
-            match self.write(&w).await {
+            let wrote = self.write(&w).await;
+            let fyi = (&mut notices, maybe_landed, &mut plan.extra);
+            let Some(wrote) = self.through_notices(a, &w, wrote, fyi).await else {
+                return Ok(());
+            };
+            match wrote {
                 Ok(Some((c, m))) => messages.push((w.key.clone(), c, m)),
                 Ok(None) => {}
                 Err(e) if e.away => return Err(e),
@@ -787,6 +804,9 @@ impl Lane {
                     );
                 }
             }
+        }
+        if notices.is_some() {
+            self.notices_ok();
         }
         let mut extra = plan.extra;
         extra["ms"] = json!(t0.elapsed().as_millis() as u64);
@@ -893,10 +913,13 @@ impl Lane {
             "settle" => Ok(self.settled(&body)),
             "notice" | "hands_alert" => {
                 // The operator lane has no place of its own: its notices go
-                // where approvals go, as `restarted`'s do (theseus-haw2b).
+                // where approvals go, as `restarted`'s do (theseus-haw2b), and an
+                // FYI to the notices place when one is bound.
                 let (channel, extra) = match self.kind {
                     "operator" => {
-                        let (channel, place) = self.operator_channel(&body).await?;
+                        let dm = self.operator_channel(&body).await?;
+                        let t = body["text"].as_str().unwrap_or("");
+                        let (channel, place) = self.informed(kind_of(a), &body, t, dm);
                         (channel, json!({"place": place}))
                     }
                     _ => (self.place_channel().await?, json!({})),
@@ -964,7 +987,8 @@ impl Lane {
                     .filter_map(|t| t.as_str().map(str::to_string))
                     .collect();
                 let t = render::restarted(body["at_unix_ms"].as_u64().unwrap_or(0), &tables);
-                let (channel, place) = self.operator_channel(&body).await?;
+                let dm = self.operator_channel(&body).await?;
+                let (channel, place) = self.informed("restarted", &body, &t, dm);
                 Ok(Plan {
                     writes: vec![text(
                         t,
@@ -983,7 +1007,8 @@ impl Lane {
             // 36b, 36c): the owner hears it.
             "mcp_changed" | "mcp_prompt_changed" => {
                 let t = mcp_note(&body);
-                let (channel, place) = self.operator_channel(&body).await?;
+                let dm = self.operator_channel(&body).await?;
+                let (channel, place) = self.informed(kind_of(a), &body, &t, dm);
                 Ok(Plan {
                     writes: vec![text(t, format!("note:{corr}"), channel, None, Event::Mcp)],
                     extra: json!({"place": place}),
@@ -1622,7 +1647,8 @@ impl Lane {
     async fn disk_post(&mut self, body: &Value, corr: &str) -> Result<Plan, SendErr> {
         let t = crate::diskwords::disk_note(body);
         let ping = self.pings(policy::of_disk(body));
-        let (channel, place) = self.operator_channel(body).await?;
+        let dm = self.operator_channel(body).await?;
+        let (channel, place) = self.informed("disk", body, &t, dm);
         Ok(Plan {
             writes: vec![Write {
                 key: format!("note:{corr}"),
@@ -1642,7 +1668,6 @@ impl Lane {
     /// under its judgment's key, with its right / wrong / noise.
     async fn jev_post(&mut self, a: &Action, body: &Value) -> Result<Plan, SendErr> {
         let dm = self.owner_dm().await?;
-        let (channel, place) = self.announced(body, dm);
         let (content, key, buttons) = match kind_of(a) {
             "jev_notice" => {
                 let judgment = body["judgment"].as_str().unwrap_or(&a.correlation_id);
@@ -1710,6 +1735,7 @@ impl Lane {
                 (t, format!("note:{}", a.correlation_id), Buttons::Keep)
             }
         };
+        let (channel, place) = self.informed(kind_of(a), body, &content, dm);
         Ok(Plan {
             writes: vec![Write {
                 key,
@@ -1734,20 +1760,13 @@ impl Lane {
     /// With no announcement place bound this is `dm` itself, byte for byte,
     /// which is why a daemon that binds none writes exactly what it wrote
     /// before. The post still travels the operator's own lane — one writer,
-    /// in order — and only the channel it writes to moves.
+    /// in order — and only the channel it writes to moves. An FYI note goes
+    /// there too, by [`Lane::informed`].
     fn announced(&self, body: &Value, dm: (u64, String)) -> (u64, String) {
         if !theseus_core::outbox::announces(body) {
             return dm;
         }
-        // The owner's own word first (`notify here`, theseus-nuqut), then the
-        // bindings file's `notify = true`, then the DM.
-        if let Some(c) = self.shared.notify_said() {
-            return (c, format!("discord:channel:{c}"));
-        }
-        if self.shared.notify_dm() {
-            return dm;
-        }
-        self.shared.place_bits.notify_place().unwrap_or(dm)
+        self.notices_place(dm)
     }
 
     /// Where a Jev notice goes: the owner's DM, the one approvals go to,
