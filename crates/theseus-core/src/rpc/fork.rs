@@ -88,7 +88,6 @@ impl Core {
 
         let (profile, limit) = self.fork_target(&p, &source)?;
         let authority = src_exec.map(|e| e.authority).unwrap_or_default();
-        let role = self.fork_role(&source, &authority)?;
 
         let title = p.title.unwrap_or_else(|| {
             crate::fork::default_title(source.title.as_deref(), source.label.as_deref())
@@ -116,7 +115,7 @@ impl Core {
             &c,
             (&source, &at_node),
             base.as_ref(),
-            (authority, limit, role),
+            (authority, limit),
         )?;
         // Reconcile after publishing the fork edge: a concurrent landing either
         // sees this edge or is already present in the item records read here.
@@ -229,12 +228,9 @@ impl Core {
         c: &Compilation,
         (source, at): (&SessionRecord, &Node),
         base: Option<&Compilation>,
-        (authority, limit, role): (
-            theseus_kernel::Authority,
-            Option<theseus_kernel::Micros>,
-            Option<crate::rsi::roles::Role>,
-        ),
+        (authority, limit): (theseus_kernel::Authority, Option<theseus_kernel::Micros>),
     ) -> Result<(theseus_kernel::Execution, u64), RpcFailure> {
+        let role = self.fork_role(source, &authority)?;
         let mut bytes = 0u64;
         let exec = self.kernel.frame(&[], |k| {
             let exec = k.open_execution(&rec.session_id, rec.kind, authority, limit, None)?;

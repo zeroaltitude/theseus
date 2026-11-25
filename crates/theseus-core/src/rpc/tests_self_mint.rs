@@ -595,8 +595,7 @@ async fn a_mint_writer_is_laid_no_held_back_instance_and_cannot_page_or_search_o
     }
     let sent = |who: &str| {
         let q = (model.requests().into_iter())
-            .filter(|q| crate::tests_places::last_user(q).contains(&format!("{who}: HARBOR")))
-            .next_back()
+            .rfind(|q| crate::tests_places::last_user(q).contains(&format!("{who}: HARBOR")))
             .expect("its request");
         serde_json::to_string(&q.messages).unwrap()
     };
