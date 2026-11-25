@@ -7482,7 +7482,11 @@ mod web {
         assert_eq!(notices.len(), 1, "{notices:?}");
         let told = crate::tests_places::told_notes(&r.core);
         assert_eq!(told.len(), 1, "{told:?}");
-        assert!(told[0].contains("127.0.0.1 is a loopback address."), "{}", told[0]);
+        assert!(
+            told[0].contains("127.0.0.1 is a loopback address."),
+            "{}",
+            told[0]
+        );
     }
 
     /// web.search runs at no looser a posture than its key's: `open` by the
