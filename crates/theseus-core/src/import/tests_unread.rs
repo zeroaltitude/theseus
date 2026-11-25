@@ -40,7 +40,7 @@ async fn a_tag_record_that_does_not_read_is_passed_over_and_named() {
     let list = call(c, method::IMPORT_LIST, Value::Null).await;
     let list: ImportListResult = serde_json::from_value(list.expect("the list completes")).unwrap();
     assert_eq!(list.tags.len(), 1, "{list:?}");
-    assert_eq!(list.unread, [key.clone()]);
+    assert_eq!(list.unread, [key.as_str()]);
     let page = call(c, method::IMPORT_SESSIONS, json!({"limit": 1})).await;
     let page: ImportSessionsResult =
         serde_json::from_value(page.expect("the sessions complete")).unwrap();
@@ -76,7 +76,7 @@ async fn a_tag_record_that_does_not_read_is_named_by_its_key_alone() {
     let key = unread_tag(c);
     let log = crate::test_support::Log::default();
     let read = log.capture(|| super::write::list(&c.store));
-    assert_eq!(read.unwrap().unread, [key.clone()]);
+    assert_eq!(read.unwrap().unread, [key.as_str()]);
     let text = log.text();
     assert_eq!(text.matches(key.as_str()).count(), 1, "{text}");
     assert!(!text.contains(TAG_WORDS), "the record was quoted: {text}");
