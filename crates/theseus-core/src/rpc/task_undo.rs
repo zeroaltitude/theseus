@@ -75,10 +75,9 @@ impl Core {
             from: Some(now.version),
             detail: json!({"fields": "undo", "undid": version, "by": who.label}),
         };
-        self.store.append(&[
-            graph::record(&task)?,
-            crate::fact::task_graph::row_of(&rec, "updated", &change)?,
-        ])?;
+        let mut row = crate::fact::task_graph::row_of(&rec, "updated", &change)?;
+        row.key = Some(undo::undone_key(&task.id, version));
+        self.store.append(&[graph::record(&task)?, row])?;
         crate::fact::task_graph::announce(&rec, "updated", &change);
         Ok(TaskUndoResult { task, restored })
     }

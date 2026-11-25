@@ -15,7 +15,8 @@
 //!   time of the change aside (they only count edits). It does so only while
 //!   the task is still at the version the change made: one that moved since is
 //!   refused, so a later edit is never lost, and a second undo of the same
-//!   change finds the task moved and does nothing.
+//!   change finds the task moved and does nothing. Its row is written under a
+//!   key of its own (`undone_key`), so `told.undo` sees it was done.
 
 use anyhow::Result;
 use serde_json::Value;
@@ -30,6 +31,20 @@ pub const TOLD: &str = "task.told:";
 /// The key of the row of the told change that made `version` of `task`.
 pub fn told_key(task: &str, version: u64) -> String {
     format!("{TOLD}{task}:v{version}")
+}
+
+/// Every undo's row key begins so.
+pub const UNDONE: &str = "task.undone:";
+
+/// The key of the row of the undo of the told change that made `version` of
+/// `task`: `told.undo` looks for it before it runs an undo again.
+pub fn undone_key(task: &str, version: u64) -> String {
+    format!("{UNDONE}{task}:v{version}")
+}
+
+/// Whether the told change that made `version` of `task` was undone.
+pub fn undone(store: &Store, task: &str, version: u64) -> Result<bool> {
+    Ok(store.ledger_by_key(&undone_key(task, version))?.is_some())
 }
 
 /// Whether abandoning `rec` keeps its card whatever the posture: a self-loop

@@ -189,6 +189,7 @@ impl Core {
                 .self_item_closed(id)
                 .map_err(RpcFailure::invalid)?
                 .then_some("the item has left the backlog"),
+            Undo::TaskUndo { .. } => None,
         })
     }
 

@@ -233,6 +233,42 @@ async fn his_objective_changed_runs_unasked_and_his_undo_puts_it_back_exactly() 
     stop_holding(&r);
 }
 
+/// A crash between the undo and the note's record of it: the task is back,
+/// and the next press finds that, marks the note and writes nothing again.
+#[tokio::test]
+async fn a_task_undo_whose_receipt_was_lost_counts_once() {
+    use std::sync::atomic::Ordering;
+    let (r, s, t) = with_his_task(|_| {}).await;
+    let before = r.task(&t.id);
+    r.calls(&[(
+        "task_update",
+        json!({"id": t.id, "version": before.version,
+               "patch": {"objective": "chart the inner harbour instead"}}),
+    )]);
+    turn(&r.core, &s, "make it the inner harbour").await;
+    let told = notes(&r.core);
+    assert_eq!(told.len(), 1, "told once: {told:?}");
+    let how = &told[0].1;
+
+    crate::rpc::told::FAULT_RECEIPT.store(true, Ordering::SeqCst);
+    let lost = press(&r.core, how).await;
+    assert!(lost.is_err(), "the receipt was lost: {lost:?}");
+    let back = r.task(&t.id);
+    assert_eq!(content(&back), content(&before), "the undo itself was done");
+
+    let again = press(&r.core, how).await.unwrap();
+    assert_eq!(again["found"], json!(true), "{again}");
+    assert!(
+        again["text"]
+            .as_str()
+            .is_some_and(|t| t.ends_with("Nothing left to undo: the task is back as it was.")),
+        "{again}"
+    );
+    assert_eq!(r.task(&t.id), back, "nothing ran twice");
+    assert!(press(&r.core, how).await.is_err(), "a third press is refused");
+    stop_holding(&r);
+}
+
 /// With `task.update = "approve"` set, the same change asks, with the words
 /// of the card, the proposal on the task and the task as it was.
 #[tokio::test]
