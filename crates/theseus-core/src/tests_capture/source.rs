@@ -55,6 +55,8 @@ async fn a_tasks_a_wakes_and_a_reports_turn_are_not_heard() {
     let l = life_with(dir.path(), |p| {
         p.cfg.judge.enabled = true;
         p.cfg.judge.api_base = jev.base();
+        // Past the turns' own work, below a wait's 20 s guard.
+        p.cfg.judge.total_secs = 10;
         crate::tests_inbound::inbound_only(&mut p.cfg);
         p.secrets = crate::tests_judge::board();
     });
