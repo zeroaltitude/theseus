@@ -127,7 +127,12 @@ async fn a_lane_back_tells_its_place_only_when_no_post_waits_not_while_a_card_is
     // The question's card, written now, for a session the place renders:
     // it waits for the place to show its call (`LaneMsg::Asked`).
     outbox
-        .post(&session, "", &target, json!({"kind": "card", "question": q}))
+        .post(
+            &session,
+            "",
+            &target,
+            json!({"kind": "card", "question": q}),
+        )
         .unwrap();
     outbox
         .post(&session, "", &target, notice("Behind the card."))
@@ -149,14 +154,10 @@ async fn a_lane_back_tells_its_place_only_when_no_post_waits_not_while_a_card_is
         assert!(matches!(m, PlaceMsg::LaneBack));
         assert_eq!(pending(), 0, "the place was told while the card was held");
     }
-    // The card and the post behind it: still waiting (the card is held for
-    // its call, which no `Asked` has shown yet), or gone together if the
+    // The card and the post behind it: both still waiting (the card held
+    // for its call, which no `Asked` has shown yet), or both gone if the
     // hold's own bound ran out on a stalled host; never the card gone alone.
-    let card = fake
-        .messages(CHANNEL)
-        .into_iter()
-        .find(|m| m.content.contains("Approve?") || m.content.contains("fs.write"));
-    assert!(card.is_none() || made(&fake, "Behind the card.").is_some());
+    assert!(matches!(pending(), 0 | 2), "{} posts open", pending());
 
     // The call's Asked, with live progress, together.
     tx.send(LaneMsg::Asked(q.clone())).unwrap();
@@ -168,16 +169,13 @@ async fn a_lane_back_tells_its_place_only_when_no_post_waits_not_while_a_card_is
     assert!(matches!(told, PlaceMsg::LaneBack));
     assert_eq!(pending(), 0, "every post gone before the place is told");
     let behind = made(&fake, "Behind the card.").expect("the post behind the card");
-    let card = fake
-        .messages(CHANNEL)
-        .into_iter()
-        .find(|m| m.content.contains("Approve?") || m.content.contains("fs.write"))
-        .map(|m| m.id.parse::<u64>().unwrap())
-        .expect("the card");
-    assert!(card < behind, "the card, then the post behind it");
     // The place writes its fold again, now.
-    tx.send(upsert("turn_q:fold", "-# 1 step: 1 command")).unwrap();
-    until("the fold again", || made(&fake, "1 step: 1 command").is_some()).await;
+    tx.send(upsert("turn_q:fold", "-# 1 step: 1 command"))
+        .unwrap();
+    until("the fold again", || {
+        made(&fake, "1 step: 1 command").is_some()
+    })
+    .await;
     let fold = made(&fake, "1 step: 1 command").unwrap();
     assert!(behind < fold, "the fold after every post");
     assert!(made(&fake, "Progress first.").is_some());

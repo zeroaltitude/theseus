@@ -256,7 +256,10 @@ async fn forty_turns_in_an_outage_leave_at_most_the_held_folds_and_the_card_goes
     let new_fold = |m: &Msg| {
         !before.contains(&m.id) && m.buttons.iter().any(|b| b.custom_id.starts_with("fold:"))
     };
-    within(30, "a fold written again", || r.posted(ANA_DM).iter().any(new_fold)).await;
+    within(30, "a fold written again", || {
+        r.posted(ANA_DM).iter().any(new_fold)
+    })
+    .await;
     // An observation of absence: more folds than the place holds would show
     // here. It cannot fail a correct lane, only give a wrong one time to show.
     tokio::time::sleep(Duration::from_secs(2)).await;

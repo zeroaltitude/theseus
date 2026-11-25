@@ -238,7 +238,10 @@ async fn a_press_outlasts_the_fold_update_the_lane_still_holds() {
                 gate.to_string_lossy()
             );
             vec![
-                Scripted::tools("", &[("m1", "proc_run", json!({"argv": ["sh", "-c", wait]}))]),
+                Scripted::tools(
+                    "",
+                    &[("m1", "proc_run", json!({"argv": ["sh", "-c", wait]}))],
+                ),
                 Scripted::text("No such chart."),
             ]
         },
@@ -256,7 +259,8 @@ async fn a_press_outlasts_the_fold_update_the_lane_still_holds() {
     .await;
     let f = folds(&r, ANA_DM).remove(0);
     let pressed = r.press(&f.id, "Show steps", (ANA, "ana"));
-    r.until("the press with its place", || acked(&r, &pressed)).await;
+    r.until("the press with its place", || acked(&r, &pressed))
+        .await;
     std::fs::write(r.dir.path().join("work").join("gate"), "").unwrap();
     r.until("the call ended and the turn with it", || {
         !r.ledger("turn.ended").is_empty()
