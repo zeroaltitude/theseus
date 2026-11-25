@@ -79,7 +79,8 @@ async fn an_execution_that_does_not_decode_is_named_by_its_position_alone() {
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = std::sync::Arc::new(FakeProvider::scripted(vec![]));
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake, store)).unwrap();
-    let payload = serde_json::to_vec(&words()).unwrap();
+    // An older schema's budget, which is read as units: here it is words.
+    let payload = serde_json::to_vec(&serde_json::json!({"schema": 1, "budget": WORDS})).unwrap();
     let (read, skipped) = logged(&["position=4711"], || {
         core.kernel
             .decode_executions_skipping([(4711, payload.as_slice())])
