@@ -54,6 +54,11 @@ pub enum Undo {
     /// method of its own: `told.undo` runs it inside the core.
     #[serde(rename = "google.take_back")]
     GoogleTakeBack(String),
+    /// An undo with no method of its own, for the tests: its arm in
+    /// `rpc::told` counts the times it ran.
+    #[cfg(test)]
+    #[serde(rename = "test.probe")]
+    Probe(String),
 }
 
 impl Undo {
@@ -66,6 +71,8 @@ impl Undo {
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
             Undo::GoogleTakeBack(_) => method::TOLD_UNDO,
+            #[cfg(test)]
+            Undo::Probe(_) => method::TOLD_UNDO,
         }
     }
 
@@ -79,19 +86,42 @@ impl Undo {
             Undo::GoogleTakeBack(id) => json!({"id": id, "author": author}),
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
+            #[cfg(test)]
+            Undo::Probe(id) => json!({"id": id, "author": author}),
         }
     }
 
-    /// The command that does the same from a shell.
+    /// The command that does the same from a shell. An undo with no method
+    /// of its own answers [`by_door`]: the note's own `theseus told undo`.
     pub fn command(&self) -> String {
         match self {
             Undo::RoutineDelete(id) => format!("theseus routine rm {id}"),
             Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
-            Undo::GoogleTakeBack(id) => format!("the Undo button (Google act {id})"),
+            Undo::GoogleTakeBack(_) => by_door(),
+            #[cfg(test)]
+            Undo::Probe(_) => by_door(),
         }
     }
+}
+
+/// Where a note names its own post id. The id is minted when the note is
+/// staged, after its words are written, so the words carry this mark and
+/// every reader of a note fills it ([`filled`]: [`of`], and Discord's send).
+/// The stored words keep the mark.
+pub const THIS_POST: &str = "<this-note>";
+
+/// The command that undoes a note through its own door from a terminal,
+/// `theseus told undo <its post id>`: the `command()` of an undo with no
+/// method of its own.
+pub fn by_door() -> String {
+    format!("theseus told undo {THIS_POST}")
+}
+
+/// A note's words as read: its own post id where they name it.
+pub fn filled(text: &str, post: &str) -> String {
+    text.replace(THIS_POST, post)
 }
 
 /// Stage the note to the operator: `title` (what was done), `by` (which
@@ -126,9 +156,35 @@ pub fn of(kernel: &Kernel, post: &str) -> Result<Option<(String, Undo)>> {
     }
     let undo = serde_json::from_value(body["undo"].clone())?;
     Ok(Some((
-        body["text"].as_str().unwrap_or("").to_string(),
+        filled(body["text"].as_str().unwrap_or(""), post),
         undo,
     )))
+}
+
+/// The note `name` names: its post id, or the end of one no other told
+/// note's id shares. None when no told note has it.
+pub fn resolve(kernel: &Kernel, name: &str) -> Result<Option<String>> {
+    if of(kernel, name)?.is_some() {
+        return Ok(Some(name.to_string()));
+    }
+    if name.is_empty() {
+        return Ok(None);
+    }
+    let all: Vec<String> = kernel
+        .outbox_actions()?
+        .into_iter()
+        .filter(|a| body_of(a)["kind"] == KIND && a.correlation_id.ends_with(name))
+        .map(|a| a.correlation_id)
+        .collect();
+    match all.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(one.clone())),
+        many => anyhow::bail!(
+            "`{name}` ends {} notes' ids ({}): give more of it",
+            many.len(),
+            many.join(", ")
+        ),
+    }
 }
 
 /// Who undid a note, and when.
@@ -225,7 +281,8 @@ mod tests {
     }
 
     /// An undo with no method of its own runs inside `told.undo`: its method
-    /// is that door's, and its tag names it in the note's body alone.
+    /// is that door's, its tag names it in the note's body alone, and its
+    /// way back from a terminal is the door's own verb.
     #[test]
     fn a_google_take_back_has_no_method_of_its_own() {
         let u = Undo::GoogleTakeBack("nod_1".into());
@@ -239,7 +296,7 @@ mod tests {
             u.params("ana", None),
             json!({"id": "nod_1", "author": "ana"})
         );
-        assert_eq!(u.command(), "the Undo button (Google act nod_1)");
+        assert_eq!(u.command(), "theseus told undo <this-note>");
     }
 
     /// A restart: the core gone and its store opened again under a new one.

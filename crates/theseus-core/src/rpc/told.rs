@@ -49,20 +49,24 @@ pub struct ToldUndoResult {
 /// One undo at a time, so two quick presses undo once.
 static UNDOING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// How many times the tests' undo with no method ran.
+#[cfg(test)]
+pub(crate) static PROBED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// A fault planted between an undo's effect and its receipt (tests only).
 #[cfg(test)]
 pub(crate) static FAULT_RECEIPT: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 /// An undo that failed after it may have begun: never "nothing was undone".
-fn unfinished(undo: &Undo, e: RpcFailure) -> RpcFailure {
+fn unfinished(undo: &Undo, post: &str, e: RpcFailure) -> RpcFailure {
     RpcFailure {
         code: e.code,
         message: format!(
             "The undo did not finish: {}. The note is not marked undone, and part of it may \
              already be done. Press Undo again to finish it, or use `{}`.",
             e.message,
-            undo.command()
+            told::filled(&undo.command(), post)
         ),
         data: json!({"unfinished": true, "cause": e.message}),
     }
@@ -114,11 +118,17 @@ impl Core {
         let what = format!("the undo of note {post}");
         self.judge_act(who, Act::Told { what: &what })
             .map_err(failure)?;
-        let Some((text, undo)) = told::of(&self.kernel, post).map_err(RpcFailure::invalid)? else {
-            return Err(RpcFailure::new(
+        // Its post id, or the end of one (`theseus told undo`).
+        let found = told::resolve(&self.kernel, post).map_err(RpcFailure::invalid)?;
+        let not_found = || {
+            RpcFailure::new(
                 error_code::NOT_FOUND,
                 format!("no note {post} with an undo"),
-            ));
+            )
+        };
+        let post = &found.ok_or_else(not_found)?;
+        let Some((text, undo)) = told::of(&self.kernel, post).map_err(RpcFailure::invalid)? else {
+            return Err(not_found());
         };
         if let Some(u) = told::undone(&self.store, post).map_err(RpcFailure::invalid)? {
             return Err(RpcFailure {
@@ -140,7 +150,7 @@ impl Core {
                     Ok(Some(found)) => {
                         self.receipt(post, who, told::found_text(&text, found), true)
                     }
-                    _ => Err(unfinished(&undo, e)),
+                    _ => Err(unfinished(&undo, post, e)),
                 };
             }
         }
@@ -193,6 +203,8 @@ impl Core {
             // press after a crash runs the restore again, which sets each
             // thing to what it was before the act: what is back stays back.
             Undo::GoogleTakeBack(_) => None,
+            #[cfg(test)]
+            Undo::Probe(_) => None,
         })
     }
 
@@ -232,6 +244,11 @@ impl Core {
                 self.self_drop(&p, who).map(drop).map_err(failure)
             }
             Undo::GoogleTakeBack(id) => self.google_take_back(id).await,
+            #[cfg(test)]
+            Undo::Probe(_) => {
+                PROBED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }
         }
     }
 }

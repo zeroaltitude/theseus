@@ -440,3 +440,32 @@ async fn a_told_notes_send_its_undo_edit_and_its_replies_are_masked() {
     let (text, _) = told::of(&r.core.kernel, &post).unwrap().unwrap();
     assert!(text.contains(SECRET), "the stored note keeps its words");
 }
+
+/// A note that names itself (an undo with no method of its own writes
+/// `told::by_door()`) reaches Discord with its own post id filled in, so
+/// its `theseus told undo` works as written.
+#[tokio::test]
+async fn a_note_naming_itself_reaches_discord_with_its_own_post_id() {
+    let r = rig().await;
+    let id = wake(&r).await;
+    let (a, frame) = told::stage(
+        &r.core.outbox,
+        None,
+        "Theseus took something back",
+        "In “Tides”, without asking you",
+        &format!("Or from a terminal: `{}`", told::by_door()),
+        &Undo::WakeCancel(id),
+    )
+    .unwrap();
+    r.core.store.append(&frame).unwrap();
+    r.core.outbox.posted(&a);
+    let post = a.correlation_id;
+    let m = note(&r, &post).await;
+    assert!(
+        m.content
+            .contains(&format!("Or from a terminal: `theseus told undo {post}`")),
+        "{}",
+        m.content
+    );
+    assert!(!m.content.contains(told::THIS_POST), "{}", m.content);
+}

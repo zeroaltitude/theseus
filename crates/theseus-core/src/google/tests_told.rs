@@ -91,8 +91,9 @@ fn notes(r: &Rig) -> Vec<(String, Option<String>)> {
             match b["kind"].as_str() {
                 Some("told") => {
                     assert_eq!(b["undo"]["method"], "google.take_back", "{b}");
-                    let id = b["undo"]["id"].as_str().unwrap();
-                    let line = format!("\nUndo: `the Undo button (Google act {id})`");
+                    // The door's own verb, with this note's post id.
+                    let text = crate::owner_note::told::filled(&text, &post);
+                    let line = format!("\nUndo: `theseus told undo {post}`");
                     assert!(text.ends_with(&line), "{text}");
                     (text.strip_suffix(&line).unwrap().to_string(), Some(post))
                 }
