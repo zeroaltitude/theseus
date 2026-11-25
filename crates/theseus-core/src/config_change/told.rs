@@ -26,6 +26,7 @@ use theseus_store::{kinds, NewRecord};
 use super::answer::{changed_row, undone_row, Asked};
 use super::{edit, history, write};
 use crate::config::sensitivity;
+use crate::owner_note::told as told_note;
 use crate::rpc::Core;
 use crate::toolrun::{ToolRuntime, TurnCtx};
 
@@ -137,15 +138,40 @@ fn trigger(args: &Value, setting: &str, tool: &str) -> String {
     format!("{}; {tool} ran with no card ({setting})", asked_in(args))
 }
 
+/// What the owner is told of an act written with no card.
+pub enum Note {
+    /// A note with nothing a press could undo: a restart, or a removal (undone
+    /// by attaching again, which asks).
+    Plain(String),
+    /// A note with its Undo (`owner_note::told`): what was done, where it was
+    /// asked, more, and the undo.
+    Undo {
+        title: String,
+        by: String,
+        body: String,
+        undo: crate::owner_note::told::Undo,
+    },
+}
+
+impl Note {
+    /// The note's lines after its head and its trigger line.
+    pub fn body(&self) -> String {
+        match self {
+            Note::Plain(t) => t.lines().skip(2).collect::<Vec<_>>().join("\n"),
+            Note::Undo { body, .. } => body.trim_end().to_string(),
+        }
+    }
+}
+
 /// The note for a change written with no card (`number` is its number in the
-/// history), and its undo.
+/// history), with the Undo that puts it back.
 pub fn change_note(
     args: &Value,
     settings: &[super::diff::Setting],
     number: u32,
     (tool, setting): (&str, &str),
     outside_text: bool,
-) -> String {
+) -> Note {
     let mut body = String::new();
     for s in settings {
         body.push_str(&format!(
@@ -164,9 +190,6 @@ pub fn change_note(
              search or a server).\n",
         );
     }
-    body.push_str(&format!(
-        "To undo it, ask Theseus to undo change #{number}.\n"
-    ));
     let title = match args["undoes"]["number"].as_u64() {
         Some(n) => format!("Undid settings change #{n}"),
         None => format!(
@@ -174,12 +197,12 @@ pub fn change_note(
             crate::narrative::count(settings.len() as u64, "setting", "settings")
         ),
     };
-    crate::owner_note::note(
-        crate::owner_note::Kind::Fyi,
-        &title,
-        &trigger(args, setting, tool),
-        &body,
-    )
+    Note::Undo {
+        title,
+        by: trigger(args, setting, tool),
+        body,
+        undo: crate::owner_note::told::Undo::ConfigUndo(number),
+    }
 }
 
 /// The note for a restart run with no card.
@@ -243,7 +266,7 @@ impl Core {
     pub(crate) fn write_told(
         &self,
         t: Told<'_>,
-        words: impl FnOnce(u32) -> (String, Option<String>),
+        words: impl FnOnce(u32) -> (String, Option<Note>),
     ) -> Result<String, String> {
         let q = Asked {
             id: t.id,
@@ -253,8 +276,22 @@ impl Core {
         let applied = self.write_change(q, t.by, t.setting)?;
         let (said, note) = words(applied.previous);
         let who = &t.args["asked_by"];
+        // A note with its Undo is staged with the act's rows, and posted after.
+        let mut staged = None;
         let rows = (|| -> anyhow::Result<Vec<NewRecord>> {
             let mut rows = t.records;
+            if let Some(Note::Undo {
+                title,
+                by,
+                body,
+                undo,
+            }) = &note
+            {
+                let (post, records) =
+                    told_note::stage(&self.outbox, Some(t.session_id), title, by, body, undo)?;
+                rows.extend(records);
+                staged = Some(post);
+            }
             rows.push(NewRecord::json(
                 kinds::META,
                 Some(&super::call_key(t.id)),
@@ -283,7 +320,10 @@ impl Core {
             write::drop_candidate(&self.tools.config_change.state, sha);
         }
         // To the notices place when one is bound (`outbox::ANNOUNCE_KEY`).
-        if let Some(note) = note {
+        if let Some(post) = &staged {
+            self.outbox.posted(post);
+        }
+        if let Some(Note::Plain(note)) = note {
             if let Err(e) = self.outbox.to_operator(
                 Some(t.session_id),
                 json!({"kind": "notice", "text": note, "announce": true}),

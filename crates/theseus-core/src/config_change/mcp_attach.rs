@@ -621,7 +621,7 @@ fn detach_told(
         setting: &setting,
         records,
     };
-    core.write_told(t, |_| (said, Some(note))).map(Some)
+    core.write_told(t, |_| (said, Some(super::told::Note::Plain(note)))).map(Some)
 }
 
 /// Settings that change anything but the server's own table are not this tool's.

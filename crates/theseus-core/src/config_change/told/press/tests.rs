@@ -26,7 +26,12 @@ async fn a_change_then_its_undo_pressed_leaves_the_settings_byte_for_byte() {
         .as_u64()
         .unwrap();
     back(&r);
-    let notes = crate::tests_day_ceiling::posts(&r.core, "notice").len();
+    let notes = || {
+        crate::tests_day_ceiling::posts(&r.core, crate::owner_note::told::KIND).len()
+            + crate::tests_day_ceiling::posts(&r.core, "notice").len()
+    };
+    let before = notes();
+    assert_eq!(before, 1, "the change's own note");
     let said = r
         .core
         .undo_change_pressed(n as u32, "owner", "discord")
@@ -48,11 +53,7 @@ async fn a_change_then_its_undo_pressed_leaves_the_settings_byte_for_byte() {
     let undone = r.rows("config.undone");
     assert_eq!(undone.len(), 1, "{undone:?}");
     assert_eq!(undone[0]["undone"], json!(n));
-    assert_eq!(
-        crate::tests_day_ceiling::posts(&r.core, "notice").len(),
-        notes,
-        "no second note: the pressed note says it"
-    );
+    assert_eq!(notes(), before, "no second note: the pressed note says it");
     // A second press finds the change already undone and writes nothing.
     back(&r);
     let again = r
@@ -67,7 +68,6 @@ async fn a_change_then_its_undo_pressed_leaves_the_settings_byte_for_byte() {
 #[tokio::test]
 async fn a_press_for_a_change_not_in_the_history_writes_nothing() {
     let r = rig_told();
-    let sid = r.session();
     let why = r
         .core
         .undo_change_pressed(7, "owner", "discord")

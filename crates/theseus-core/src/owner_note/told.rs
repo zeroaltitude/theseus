@@ -39,6 +39,11 @@ pub enum Undo {
     /// `self.drop`: a self backlog item is dropped.
     #[serde(rename = "self.drop")]
     SelfDrop(String),
+    /// A settings change put back, by its number in the history. It has no
+    /// method of its own (`config.undo` is a tool): the core puts it back by
+    /// the undo's own write (`config_change::told::press`).
+    #[serde(rename = "config.undo")]
+    ConfigUndo(u32),
 }
 
 impl Undo {
@@ -50,6 +55,7 @@ impl Undo {
             Undo::WakeCancel(_) => method::WAKE_CANCEL,
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
+            Undo::ConfigUndo(_) => crate::config_change::undo::UNDO,
         }
     }
 
@@ -62,6 +68,7 @@ impl Undo {
             }
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
+            Undo::ConfigUndo(n) => json!({"change": n, "author": author}),
         }
     }
 
@@ -72,6 +79,8 @@ impl Undo {
             Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
+            // No shell command puts a settings change back: the words that ask.
+            Undo::ConfigUndo(n) => format!("ask Theseus to undo settings change #{n}"),
         }
     }
 }

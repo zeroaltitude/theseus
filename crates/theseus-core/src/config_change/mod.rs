@@ -416,7 +416,7 @@ pub fn restart(
             setting: &setting,
             records: vec![spend],
         };
-        let said = core.write_told(t, |_| (said, Some(note)))?;
+        let said = core.write_told(t, |_| (said, Some(told::Note::Plain(note))))?;
         return Ok((said, json!({"told": true})));
     }
     let question = card::restart_question(&card::RestartFacts {
@@ -766,7 +766,7 @@ fn write_change_told(
             "Done, with no card ({setting} lets {tool} run): the daemon wrote it, and the owner \
              was told how to undo it. It is change #{n}: `config.undo` with change {n} puts it \
              back.\n{}\n{}",
-            note.lines().skip(2).collect::<Vec<_>>().join("\n"),
+            note.body(),
             show::before(base, settings)
         );
         (said, Some(note))

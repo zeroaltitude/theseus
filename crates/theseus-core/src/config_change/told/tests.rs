@@ -45,27 +45,48 @@ fn each_note_says_what_was_done_where_and_how_to_undo_it() {
         "[import.notes]\nenabled = false\n",
     )
     .unwrap();
-    let n = change_note(
+    let Note::Undo {
+        title,
+        by,
+        body,
+        undo,
+    } = change_note(
         &args,
         &settings,
         4,
         ("config.propose", "enforcement = notify"),
         true,
+    )
+    else {
+        panic!("a change's note has its Undo")
+    };
+    assert_eq!(title, "Changed 1 setting");
+    assert_eq!(
+        by,
+        "asked in discord:dm:7; config.propose ran with no card (enforcement = notify)"
     );
     assert_eq!(
-        n,
-        "ℹ️ FYI · Changed 1 setting\n\
-         asked in discord:dm:7; config.propose ran with no card (enforcement = notify)\n\
-         - import.notes.enabled: on → off\n\
+        body,
+        "- import.notes.enabled: on → off\n\
          Theseus restarts itself to apply it.\n\
          This conversation had read text from outside since your last message (a page, a search \
-         or a server).\n\
-         To undo it, ask Theseus to undo change #4."
+         or a server).\n"
     );
-    let undo = json!({"undoes": {"number": 4}, "asked_by": {}});
-    let n = change_note(&undo, &settings, 5, ("config.undo", "x = open"), false);
-    assert!(n.starts_with("ℹ️ FYI · Undid settings change #4\nasked in a conversation in the terminal or the web UI; config.undo ran with no card (x = open)\n"), "{n}");
-    assert!(n.ends_with("ask Theseus to undo change #5."), "{n}");
+    assert_eq!(undo, crate::owner_note::told::Undo::ConfigUndo(4));
+    assert_eq!(undo.command(), "ask Theseus to undo settings change #4");
+    let undid = json!({"undoes": {"number": 4}, "asked_by": {}});
+    let Note::Undo { title, by, undo, .. } =
+        change_note(&undid, &settings, 5, ("config.undo", "x = open"), false)
+    else {
+        panic!("an undo's note has its Undo")
+    };
+    assert_eq!(title, "Undid settings change #4");
+    assert_eq!(
+        by,
+        "asked in a conversation in the terminal or the web UI; config.undo ran with no card \
+         (x = open)"
+    );
+    assert_eq!(undo, crate::owner_note::told::Undo::ConfigUndo(5));
     let r = restart_note(&args, "enforcement = notify");
     assert!(crate::owner_note::is_headed(&r), "{r}");
     assert!(r.contains("nothing to undo"), "{r}");

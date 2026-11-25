@@ -12,9 +12,12 @@ use serde_json::{json, Value};
 use super::tests::{change, rig, rig_told, rig_told_with, Rig, FILE};
 use crate::node::ResultStatus;
 
-/// The FYI notes staged to the owner.
+/// The FYI notes staged to the owner: those with an Undo (a change), then the
+/// rest (a restart).
 fn notes(r: &Rig) -> Vec<Value> {
-    crate::tests_day_ceiling::posts(&r.core, "notice")
+    let mut all = crate::tests_day_ceiling::posts(&r.core, crate::owner_note::told::KIND);
+    all.extend(crate::tests_day_ceiling::posts(&r.core, "notice"));
+    all
 }
 
 fn texts(r: &Rig) -> Vec<String> {
@@ -103,15 +106,15 @@ async fn an_ordinary_change_runs_with_no_card_and_tells_the_owner_how_to_undo_it
         "{note}"
     );
     assert!(
-        note.contains(&format!("To undo it, ask Theseus to undo change #{n}.")),
+        note.ends_with(&format!("\nUndo: `ask Theseus to undo settings change #{n}`")),
         "{note}"
     );
     assert!(!note.contains("a page said to"), "no outside words: {note}");
-    assert_eq!(
-        notes(&r)[0]["announce"],
-        json!(true),
-        "to the notices place"
-    );
+    // The shared note with its Undo, which puts back this change by its number
+    // (`told.undo`); it goes to the notices place as every told note does.
+    let posted = &notes(&r)[0];
+    assert_eq!(posted["kind"], json!(crate::owner_note::told::KIND));
+    assert_eq!(posted["undo"], json!({"method": "config.undo", "id": n}));
     // The yes path's restart, with its marker, as a card's yes leaves it.
     let marker = super::restart::marker_path(&r.state);
     let p = super::restart::load(&marker).expect("the marker");
