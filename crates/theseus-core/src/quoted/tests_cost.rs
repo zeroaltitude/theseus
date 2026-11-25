@@ -64,12 +64,14 @@ fn look_back(turn: &str, call: &str, quoted: &[(String, u64, u32)]) -> Node {
     n
 }
 
-/// A window of `n` look backs of `q` messages each, none quoted twice, stored among `others` messages.
-fn window(s: &Store, n: usize, q: usize, others: usize) -> Vec<(u64, Stub)> {
-    let quoted = messages(s, n * q, others);
+/// A window of `n` look backs of `q` messages each, stored among `others` messages: none quoted twice, or, `same`,
+/// each look back quoting the same `q`.
+fn window(s: &Store, n: usize, q: usize, others: usize, same: bool) -> Vec<(u64, Stub)> {
+    let quoted = messages(s, if same { q } else { n * q }, others);
     (0..n)
         .map(|i| {
-            let node = look_back("t0", &format!("c{i}"), &quoted[i * q..(i + 1) * q]);
+            let mine = if same { 0..q } else { i * q..(i + 1) * q };
+            let node = look_back("t0", &format!("c{i}"), &quoted[mine]);
             (10_000 + i as u64, Stub::from(node))
         })
         .collect()
@@ -83,7 +85,7 @@ struct Cost {
     quotes: usize,
     /// Newest records read by a call's check of what the lay read.
     call: usize,
-    /// Nodes the lay says it read (the call checks each).
+    /// Distinct nodes the lay says it read, over the whole window (the call checks each).
     read: usize,
     lay_time: Duration,
     call_time: Duration,
@@ -96,6 +98,9 @@ fn cost(s: &Store, window: &[(u64, Stub)]) -> Cost {
     let mut read = Vec::new();
     let t = Instant::now();
     let laid = lay_window(s, window.to_vec(), &since, &mut read).unwrap();
+    // As the frozen view keeps them (`turn::view_step`'s window): distinct over all the window's results.
+    read.sort();
+    read.dedup();
     let lay_time = t.elapsed();
     let erase = ERASED_READS.with(|c| c.replace(0));
     assert_eq!(laid.len(), window.len());
@@ -122,27 +127,34 @@ fn cost(s: &Store, window: &[(u64, Stub)]) -> Cost {
 }
 
 /// The counts the bench prints are what laying reads: one erase check per quote of a message (before the nodes are
-/// made distinct), one read of each quote, and at a call one check per node the lay says it read.
+/// made distinct), one read of each quote, and at a call one check per distinct node the window read; three look
+/// backs quoting the same four messages are checked at a call as four.
 #[test]
 fn laying_a_window_reads_what_the_measure_counts() {
     let dir = tempfile::tempdir().unwrap();
     let s = store_in(&dir);
-    let w = window(&s, 3, 4, 20);
+    let w = window(&s, 3, 4, 20, false);
     let c = cost(&s, &w);
     assert_eq!((c.erase, c.quotes, c.read, c.call), (12, 12, 12, 12));
+    let w = window(&s, 3, 4, 20, true);
+    let c = cost(&s, &w);
+    assert_eq!((c.erase, c.quotes, c.read, c.call), (12, 12, 4, 4));
 }
 
-/// The bench: windows of 1 to 40 look backs of 10 to 50 messages each, among 2,000 other messages; the counts, and
-/// the median and first wall time of 20 lays and checks each.
+/// The bench: windows of 1 to 40 look backs of 10 to 50 messages each, among 2,000 other messages, each quoting
+/// messages no other quotes or (`same`) all quoting the same ones; the counts, and the median and first wall time of
+/// 20 lays and checks each.
 #[test]
 #[ignore = "a bench: run with --ignored --nocapture"]
 fn the_read_cost_of_laying_by_reference() {
     const RUNS: usize = 20;
     eprintln!("looks quotes | erase quotes store | call | lay first, median | call median");
-    for (n, q) in [(1, 10), (1, 50), (10, 10), (10, 50), (40, 10), (40, 50)] {
+    let unique =
+        [(1, 10), (1, 50), (10, 10), (10, 50), (40, 10), (40, 50)].map(|(n, q)| (n, q, false));
+    for (n, q, same) in unique.into_iter().chain([(10, 10, true), (40, 50, true)]) {
         let dir = tempfile::tempdir().unwrap();
         let s = store_in(&dir);
-        let w = window(&s, n, q, 2_000);
+        let w = window(&s, n, q, 2_000, same);
         let runs: Vec<Cost> = (0..RUNS).map(|_| cost(&s, &w)).collect();
         let median = |f: fn(&Cost) -> Duration| {
             let mut t: Vec<Duration> = runs.iter().map(f).collect();
@@ -154,7 +166,8 @@ fn the_read_cost_of_laying_by_reference() {
             .iter()
             .all(|r| (r.erase, r.quotes, r.call) == (c.erase, c.quotes, c.call)));
         eprintln!(
-            "{n} {q} | {} {} {} | {} | {:?} {:?} | {:?}",
+            "{n} {q}{} | {} {} {} | {} | {:?} {:?} | {:?}",
+            if same { " same" } else { "" },
             c.erase,
             c.quotes,
             c.erase + 2 * c.quotes,
