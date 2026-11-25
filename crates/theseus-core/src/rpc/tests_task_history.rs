@@ -439,3 +439,20 @@ async fn past_the_hard_stop_the_digest_says_where_it_stopped() {
     // With room for all of it, nothing is cut.
     assert!(r.core.digest_window(0, 20_000).unwrap().1.is_none());
 }
+
+/// A report's first line, cut at its length, stops before a value the vault
+/// knows, and one holding a line break is left out whole too.
+#[test]
+fn a_reports_first_line_stops_before_a_known_value() {
+    use crate::tests_cut_sites::{whole_or_absent, V};
+    let board = crate::secrets::SecretBoard::empty();
+    board.hold("cut_test", crate::secrets::Secret::new(V.into()));
+    let line = super::first_line(&format!("\n{}{V} done\nmore", "x".repeat(230))).unwrap();
+    whole_or_absent("the line", &line, V);
+    assert_eq!(line, format!("{}…", "x".repeat(230)));
+    let broken = "kqzv-0417-wjxp\n9932-hmfb-ylno";
+    board.hold("cut_broken", crate::secrets::Secret::new(broken.into()));
+    let line = super::first_line(&format!("found {broken} here")).unwrap();
+    whole_or_absent("the line", &line, broken);
+    assert_eq!(line, "found …");
+}

@@ -145,7 +145,7 @@ fn source_name(source: &str) -> String {
 }
 
 fn clip(s: &str) -> String {
-    let t: String = s.chars().take(200).collect();
+    let (t, _) = crate::scrub::safe::head(s, 200);
     t.lines().next().unwrap_or("").trim().to_string()
 }
 

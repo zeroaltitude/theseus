@@ -89,8 +89,7 @@ pub(super) fn label(argv: &[String]) -> String {
     if all.chars().count() <= 60 {
         return all;
     }
-    let cut: String = all.chars().take(59).collect();
-    format!("{cut}…")
+    crate::scrub::safe::head_marked(&all, 59)
 }
 
 /// Has the job ended, however it did?

@@ -33,10 +33,7 @@ pub fn clean(raw: Option<&str>) -> Option<String> {
     if one.is_empty() {
         return None;
     }
-    Some(match one.chars().count() > SOURCE_CHARS {
-        true => format!("{}…", one.chars().take(SOURCE_CHARS).collect::<String>()),
-        false => one,
-    })
+    Some(crate::scrub::safe::head_marked(&one, SOURCE_CHARS))
 }
 
 /// The source the model gave for the setting `path`, as the card keeps it.
