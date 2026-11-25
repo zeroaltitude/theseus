@@ -124,6 +124,16 @@ impl Core {
                 };
                 self.self_drop(&p, who).map(drop).map_err(failure)
             }
+            Undo::SelfPause(why) => {
+                let p = theseus_protocol::rsi::SelfPauseParams {
+                    clear: false,
+                    why: Some(why.clone()),
+                    author,
+                    discord,
+                    ..Default::default()
+                };
+                self.self_pause(&p, who).map(drop).map_err(failure)
+            }
         }
     }
 }

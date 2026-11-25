@@ -121,8 +121,9 @@ async fn a_chat_pause_runs_unasked_and_is_told_once() {
 }
 
 /// KEY (issue 57): by default an unpause runs with no question put, the owner is told once with its
-/// Undo, and the press (a pause again, `self.pause`'s own rule: anyone may pause) puts the builds
-/// back on hold. Someone else's press from a shared channel pauses too, as a pause only does less.
+/// Undo, and the owner's press (`told.undo`, which pauses again) puts the builds back on hold, once.
+/// Someone else's press from a shared channel is refused by the note's door and pauses nothing,
+/// though a pause by itself is anyone's: the note's rule decides, not the method's.
 #[tokio::test]
 async fn a_chat_unpause_runs_unasked_and_its_undo_pauses_again() {
     let (r, text) = unasked("unpause", true).await;
@@ -143,6 +144,19 @@ async fn a_chat_unpause_runs_unasked_and_its_undo_pauses_again() {
         n.ends_with("Undo: `theseus self pause paused again from its note`"),
         "{n}"
     );
+    let theirs = press(
+        &r.core,
+        &notes[0],
+        crate::approval::Surface::Discord,
+        "someone",
+        shared_place(),
+    )
+    .await;
+    assert_eq!(
+        theirs.error.map(|e| e.code),
+        Some(theseus_protocol::error_code::REFUSED)
+    );
+    assert!(r.core.self_paused().is_none(), "nothing was paused");
     let mine = press(
         &r.core,
         &notes[0],
@@ -158,19 +172,18 @@ async fn a_chat_unpause_runs_unasked_and_its_undo_pauses_again() {
         "{}",
         p.words()
     );
-    // Cleared once more, someone else's press from a shared channel pauses as well: a pause is
-    // anyone's, and only does less.
+    // A second press is refused by the core: the note was undone once.
     r.core.self_pause_apply(true, None, "test");
-    let theirs = press(
+    let again = press(
         &r.core,
         &notes[0],
-        crate::approval::Surface::Discord,
-        "someone",
-        shared_place(),
+        crate::approval::Surface::Cli,
+        "the owner",
+        None,
     )
     .await;
-    assert!(theirs.error.is_none(), "{:?}", theirs.error);
-    assert!(r.core.self_paused().is_some());
+    assert!(again.error.is_some(), "{:?}", again.result);
+    assert!(r.core.self_paused().is_none(), "undone once");
 }
 
 /// A call that changes nothing (an unpause with nothing paused) is no act, and tells nothing.

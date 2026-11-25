@@ -77,12 +77,16 @@ async fn chat_filing() -> (Rig, String) {
 }
 
 /// The FYI notes staged to the operator: an announcement told only (`notice`), or one with its
-/// undo (`told`, `owner_note::told`), as bodies.
+/// undo (`told`, `owner_note::told`), as bodies, each with its post's id as `post`.
 pub(super) fn notes(core: &Core) -> Vec<Value> {
     core.outbox
         .open_for(crate::outbox::OPERATOR_TARGET)
         .iter()
-        .map(|a| crate::outbox::body_of(a).clone())
+        .map(|a| {
+            let mut b = crate::outbox::body_of(a).clone();
+            b["post"] = json!(a.correlation_id);
+            b
+        })
         .filter(|b| {
             (b["kind"] == "notice" && b[crate::outbox::ANNOUNCE_KEY] == true)
                 || b["kind"] == crate::owner_note::told::KIND
@@ -95,8 +99,8 @@ pub(super) fn notes(core: &Core) -> Vec<Value> {
         .collect()
 }
 
-/// A press of a note's Undo, as `undo`'s own method with the presser's params, through the RPC
-/// on `surface` (as the Discord binding's press calls it).
+/// A press of a note's Undo: `told.undo` on the note's post as the presser, through the RPC on
+/// `surface` (as the Discord binding's press calls it).
 pub(super) async fn press(
     core: &Arc<Core>,
     note: &Value,
@@ -104,9 +108,8 @@ pub(super) async fn press(
     who: &str,
     discord: Option<Value>,
 ) -> theseus_protocol::Response {
-    let undo: crate::owner_note::told::Undo = serde_json::from_value(note["undo"].clone()).unwrap();
-    let discord = discord.map(|d| serde_json::from_value(d).unwrap());
-    crate::tests_capture::call_on(core, surface, undo.method(), undo.params(who, discord)).await
+    let p = json!({"post": note["post"], "author": who, "discord": discord});
+    crate::tests_capture::call_on(core, surface, theseus_protocol::method::TOLD_UNDO, p).await
 }
 
 /// Where someone else presses from: a guild channel nobody bound private.
