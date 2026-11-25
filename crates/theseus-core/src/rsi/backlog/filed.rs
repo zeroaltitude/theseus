@@ -295,7 +295,10 @@ mod tests {
         let board = crate::secrets::SecretBoard::empty();
         board.hold("cut_test", crate::secrets::Secret::new(V.into()));
         // No space to fall back to: the title is cut where it is long.
-        let title = title_of("", Some(&format!("{}{V} again", "t".repeat(TITLE_MAX - 10))));
+        let title = title_of(
+            "",
+            Some(&format!("{}{V} again", "t".repeat(TITLE_MAX - 10))),
+        );
         assert!(title.ends_with('…'), "{title}");
         whole_or_absent("the filed title", &title, V);
     }
