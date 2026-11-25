@@ -69,6 +69,25 @@ fn marker(line: &str) -> Option<bool> {
         .map(|at| !line[at + MARKER.len()..].trim().is_empty())
 }
 
+/// The code of the chain that line `k`, a line starting with `.`, goes on:
+/// the lines before it back to the chain's first, comment lines left out and
+/// each line's own trailing comment too, joined.
+fn chain_before(lines: &[(usize, &str)], k: usize) -> String {
+    let mut parts = Vec::new();
+    for (_, l) in lines[..k].iter().rev() {
+        let t = l.trim();
+        if t.starts_with("//") {
+            continue;
+        }
+        parts.push(t.split(" //").next().unwrap_or(t).trim_end());
+        if !t.starts_with('.') {
+            break;
+        }
+    }
+    parts.reverse();
+    parts.concat()
+}
+
 fn scan(code: &str) -> Found {
     let mut found = Found::default();
     let lines = live_lines(code);
@@ -80,15 +99,23 @@ fn scan(code: &str) -> Found {
         if text.starts_with("//") {
             continue;
         }
-        // A chain rustfmt broke: `.chars()` on one line, `.take(` on the next.
-        let above = k.checked_sub(1).map(|p| lines[p].1);
-        let joined = match above {
-            Some(a) if text.starts_with('.') => format!("{}{text}", a.trim()),
-            _ => text.to_string(),
+        // A chain rustfmt broke over lines, comment lines among its links:
+        // the line found is the one where an idiom ends, its cutting call.
+        let before = if text.starts_with('.') {
+            chain_before(&lines, k)
+        } else {
+            String::new()
         };
-        if !IDIOMS.iter().any(|i| joined.contains(i)) {
+        let joined = format!("{before}{text}");
+        let ends_here = |i: &&str| {
+            joined
+                .match_indices(*i)
+                .any(|(at, _)| at + i.len() > before.len())
+        };
+        if !IDIOMS.iter().any(ends_here) {
             continue;
         }
+        let above = k.checked_sub(1).map(|p| lines[p].1);
         let marked = marker(line).is_some() || above.and_then(marker).is_some();
         if !marked {
             found.unmarked.push((*n, line.trim().to_string()));
@@ -193,9 +220,33 @@ mod tests {
 fn g(s: &str) -> Option<&str> {
     s.get(..4)
 }
+fn h(s: &str) -> String {
+    s.chars()
+        .rev()
+        .take(8)
+        .collect::<String>()
+}
+fn i(s: &str) -> String {
+    s.chars() // each one
+        // the first eight
+        .take(8)
+        .collect()
+}
+fn j(s: &str) -> String {
+    s.chars()
+        .rev() // plain cut: a local display
+        .take(8)
+        .collect::<String>()
+}
+fn k(s: &str) -> String {
+    s.chars() // each one
+        // plain cut: a local display
+        .take(8)
+        .collect()
+}
 ";
     let found = scan(code);
     let lines = |v: &[(usize, String)]| v.iter().map(|(n, _)| *n).collect::<Vec<_>>();
-    assert_eq!(lines(&found.unmarked), vec![2, 29]);
+    assert_eq!(lines(&found.unmarked), vec![2, 29, 34, 40]);
     assert_eq!(lines(&found.no_reason), vec![14]);
 }
