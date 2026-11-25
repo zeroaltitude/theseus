@@ -19,9 +19,7 @@ use crate::provider::{ProviderRequest, Scripted};
 use crate::rpc::Core;
 use crate::session::SessionRecord;
 use crate::test_support::session_rows_1k;
-use crate::tests_tasks::{
-    answers_a_call, arranged, first_user, last_user, rig, turn, until, ASK,
-};
+use crate::tests_tasks::{answers_a_call, arranged, first_user, last_user, rig, turn, until, ASK};
 
 const CHILD: &str = "CHILD: run the daemon crate's tests";
 const ROUTINE: &str = "ROUTINE: run the daemon crate's tests";
