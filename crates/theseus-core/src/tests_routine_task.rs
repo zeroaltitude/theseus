@@ -2,7 +2,9 @@
 //! there to be precious few hard gates /anywhere/ in theseus"). Its card waits
 //! on the owner as any routine's does; the owner's yes makes the routine. Before,
 //! the card was raised and the yes was then answered "a task cannot set up a
-//! routine". A sibling of `tests_ask`, whose rig it uses.
+//! routine". A sibling of `tests_ask`, whose rig it uses. Each sets the tool to
+//! approve, as the owner can (issue 57: with nothing set it is made and he is
+//! told, `tests_tell_timers`).
 
 use serde_json::{json, Value};
 
@@ -60,7 +62,11 @@ fn model() -> impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static {
 /// routine, and the task is told it exists.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_task_proposes_a_routine_and_the_owners_yes_makes_it() {
-    let r = rig(model(), |_| {});
+    let r = rig(model(), |cfg| {
+        cfg.policy
+            .tools
+            .insert("routine.create".into(), crate::policy::Posture::Approve);
+    });
     let parent = parent_session(&r.core);
     r.core.bind_places(vec![crate::places::BoundPlace {
         target: "discord:dm:42".into(),
@@ -102,7 +108,11 @@ async fn a_task_proposes_a_routine_and_the_owners_yes_makes_it() {
 /// gate is the owner's, not the session's kind.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_task_s_routine_waits_on_the_owner_and_a_no_makes_nothing() {
-    let r = rig(model(), |_| {});
+    let r = rig(model(), |cfg| {
+        cfg.policy
+            .tools
+            .insert("routine.create".into(), crate::policy::Posture::Approve);
+    });
     let parent = parent_session(&r.core);
     r.core.bind_places(vec![crate::places::BoundPlace {
         target: "discord:dm:42".into(),
@@ -161,7 +171,11 @@ async fn a_task_s_project_review_is_made_by_the_owners_yes() {
                 )],
             )
         },
-        |_| {},
+        |cfg| {
+            cfg.policy
+                .tools
+                .insert("routine.create".into(), crate::policy::Posture::Approve);
+        },
     );
     let parent = parent_session(&r.core);
     r.core.bind_places(vec![crate::places::BoundPlace {

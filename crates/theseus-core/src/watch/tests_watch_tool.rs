@@ -1,6 +1,7 @@
-//! The model's `watch` tool through the whole core (theseus-f2r2b): a
-//! watch that runs a command is approved once, at its creation, with the
-//! command shown, and the command that was approved is the command that runs,
+//! The model's `watch` tool through the whole core (theseus-f2r2b): with
+//! `watch` set to approve, a watch that runs a command is approved once, at
+//! its creation, with the command shown (issue 57: with nothing set it is set
+//! and the owner told), and the command that was approved is the command that runs,
 //! every time, in the sandbox's place (a stand-in here); a watch is on the
 //! commitments block with its last value; the model cannot move one; and a
 //! met watch's `then: turn` gives its conversation a turn whose node reads
@@ -144,12 +145,19 @@ fn hook(calls: &Arc<Mutex<Vec<Vec<String>>>>) -> crate::watch::check::RunHook {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_command_watch_asks_once_with_the_command_shown_and_the_command_never_changes() {
-    let r = rig_scripted(|_| {}, script);
+    let r = rig_scripted(
+        |cfg| {
+            cfg.policy
+                .tools
+                .insert("watch".into(), crate::policy::Posture::Approve);
+        },
+        script,
+    );
     let calls = Arc::new(Mutex::new(Vec::new()));
     r.core.watches.set_run_hook(hook(&calls));
     let sid = session(&r.core, Some(&format!("dm:{OWNER}")));
     let res = turn(&r.core, &sid, "WATCH RUN").await;
-    // It asks, whatever the posture says, and the card shows the command.
+    // It asks where `watch` is set to approve, and the card shows the command.
     let corr = res.awaiting_confirm.as_deref().unwrap_or_else(|| {
         panic!(
             "a command watch asks, but: {}",

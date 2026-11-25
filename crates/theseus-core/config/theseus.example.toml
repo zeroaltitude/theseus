@@ -767,8 +767,8 @@ agent_processes = ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]
 # "wake.move" = "notify"
 # "watch" = "notify"            # a new watch tells you with an Undo; "approve" asks first, the command shown
 # "wake.cancel" = "notify"
-# recurring work (routines): setting one up tells you with its Delete, and its first run is at
-# least ten minutes away; "approve" asks first on a card
+# recurring work (routines, a project's review too): setting one up tells you with its Delete,
+# and its first run is at least ten minutes away; "approve" asks first on a card
 # "routine.create" = "notify"
 # long-term work (projects): attaching a conversation to a project
 # "project.attach" = "notify"

@@ -583,13 +583,18 @@ fn each_check_alone_falls_to_the_card() {
 }
 
 /// Through a turn: a change to the owner's task that names a message with no
-/// mark of his waits on its card, the task as it was, and its proposal's row
-/// says why it fell to the card (the cards are counted).
+/// mark of his waits on its card where he set `task.update` to ask (issue 57:
+/// with nothing set it is told, `tests_tell_tasks`), the task as it was, and
+/// its proposal's row says why it fell to the card (the cards are counted).
 #[tokio::test]
 async fn a_change_naming_words_that_are_not_his_waits_on_its_card() {
-    use crate::tests_task_graph::{rig, rows, session, turn};
+    use crate::tests_task_graph::{rig_on, rows, session, turn};
     use serde_json::json;
-    let r = rig();
+    let r = rig_on(tempfile::tempdir().unwrap(), |cfg| {
+        cfg.policy
+            .tools
+            .insert("task.update".into(), crate::policy::Posture::Approve);
+    });
     let c = &r.core;
     let s = session(c);
     c.store
@@ -912,6 +917,11 @@ fn naming_core() -> (
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = crate::Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    // The owner set `task.update` to ask (issue 57: with nothing set a change
+    // his words do not carry is told, `tests_tell_tasks`).
+    cfg.policy
+        .tools
+        .insert("task.update".into(), crate::policy::Posture::Approve);
     let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
     let model = std::sync::Arc::new(Naming {
         store: store.clone(),

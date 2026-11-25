@@ -365,12 +365,8 @@ pub fn authority_for(
     plan: Plan,
     (asks, abandon_follows_posture): (bool, bool),
 ) -> Plan {
-    let mut plan = plan;
-    // Told, not asked (issue 57): an act the owner can undo exactly runs at
-    // its tool's own posture, and he is told, with an Undo. `asks`: the
-    // operator set the tool to approve, and its card keeps its words.
-    if !asks && plan.authority.is_some() && told(tc.store, name, input) {
-        plan.authority = None;
+    let mut plan = as_told(tc.store, name, input, plan, asks);
+    if plan.authority.is_none() {
         return plan;
     }
     // The operator set `task.close` below approve: abandoning a self-loop item
@@ -379,17 +375,17 @@ pub fn authority_for(
         plan.authority = None;
         return plan;
     }
-    // A routine's creation always waits (theseus-pvm5c), and a command watch
-    // asks the owner once at its creation (theseus-f2r2b): neither is a task
-    // call, so this is not the place that clears their question; layer 1 only
-    // guards the owner's tasks. A question for the owner (`owner_ask`, theseus-j7cje)
-    // always waits for the owner too.
+    // Set to approve, a routine's creation (theseus-pvm5c) and a watch
+    // (theseus-f2r2b) keep their card: neither is a task call, so this is not
+    // the place that clears their question; layer 1 only guards the owner's
+    // tasks. A question for the owner (`owner_ask`, theseus-j7cje) always
+    // waits for the owner.
     let own = name == crate::routine_tool::CREATE
         || name == crate::watch_tool::WATCH
         || name == crate::ask::OWNER_ASK;
-    // Only a task edit's authority is conditional; another tool that names one
-    // (`thread.split`, and task.create's plan naming a project's review
-    // routine, theseus-n5ui2) always waits for the owner.
+    // Only a task edit's authority is conditional here; another tool that
+    // names one (`thread.split`, and task.create's plan naming a project's
+    // review routine set to approve, theseus-n5ui2) waits for the owner.
     if plan.authority.is_some() && !own && is_edit(name) && !waits(tc.store, name, input) {
         plan.authority = None;
     }
@@ -397,6 +393,23 @@ pub fn authority_for(
     // card once an independent judgment says so (issue 44; none does yet, so
     // every change keeps it).
     if plan.authority.is_some() && name == UPDATE && by_words(tc, input).is_ok() {
+        plan.authority = None;
+    }
+    plan
+}
+
+/// Told, not asked (issue 57): an act the owner can undo exactly runs at its
+/// tool's own posture, and he is told, with an Undo, so its plan names no
+/// authority. `asks`: the operator set the tool to approve, and its card keeps
+/// its words. `policy.explain`'s agreement with the gate reads it too.
+pub fn as_told(
+    store: &crate::store::Store,
+    name: &str,
+    input: &Value,
+    mut plan: Plan,
+    asks: bool,
+) -> Plan {
+    if !asks && plan.authority.is_some() && told(store, name, input) {
         plan.authority = None;
     }
     plan
@@ -410,9 +423,11 @@ fn told(store: &crate::store::Store, name: &str, input: &Value) -> bool {
     match name {
         UPDATE => true,
         CLOSE => owners_target(store, name, input).is_none_or(|t| !super::undo::keeps_card(&t)),
-        n => n == crate::routine_tool::CREATE
-            || n == crate::task::CREATE
-            || n == crate::watch_tool::WATCH,
+        n => {
+            n == crate::routine_tool::CREATE
+                || n == crate::task::CREATE
+                || n == crate::watch_tool::WATCH
+        }
     }
 }
 
@@ -569,8 +584,9 @@ impl Tool for TaskClose {
         "Close a task: `done` with its evidence (each an identity, such as `commit:<sha>` or \
          `job:<id>`, and its node when you have one), or `abandoned`. Evidence is only ever \
          added. Abandoning a task the task graph marks \"the operator's objective\" is the \
-         operator's: it runs and tells them, and they can undo it (an item of Theseus's own \
-         self-improvement backlog waits for their yes); any other task's applies at once. Name \
+         operator's: it runs and tells them, and they can undo it (it waits for their yes if \
+         they set closing to approve, and for an item of Theseus's own self-improvement \
+         backlog unless they set it to notify); any other task's applies at once. Name \
          the `version` you read; a stale one is refused with the task as it is now."
     }
 

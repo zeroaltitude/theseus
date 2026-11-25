@@ -414,8 +414,10 @@ async fn the_review_runs_and_lands_in_the_projects_log() {
     assert!(brief.contains("Decisions for you"), "{brief}");
 }
 
-/// Layer 1 still guards the owner's goal: an agent's edit of the acceptance of
-/// a project the owner made waits for the owner and changes nothing.
+/// Layer 1 still guards the owner's goal where he made `task.update` ask (his
+/// "should have asked" press here; issue 57: with nothing set it is told,
+/// `tests_tell_tasks`): an agent's edit of the acceptance of a project the
+/// owner made waits for the owner and changes nothing.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_edit_of_the_owners_acceptance_is_refused() {
     let r = rig_with_posture();
@@ -430,6 +432,9 @@ async fn an_agent_edit_of_the_owners_acceptance_is_refused() {
     )]);
     turn(&r.core, &s, "move the first milestone").await;
     assert_eq!(r.task(&m1).version, 2);
+    rpc(&r.core, "policy.tighten", json!({"tool": "task.update"}))
+        .await
+        .unwrap();
     r.calls(&[(
         "task_update",
         json!({"id": id, "version": 1,
@@ -501,12 +506,18 @@ async fn the_model_plans_a_milestone_and_attaches_its_conversation() {
 // ------------------------------------------------------------- the slice
 
 /// The model plans a project with a weekly review: the review is a routine,
-/// which spends money on a schedule, so the call waits on one card. A no
+/// which spends money on a schedule, so with `routine.create` set to approve
+/// (issue 57) the call waits on one card. A no
 /// makes nothing; a yes makes the project, its milestones (one frame, as the
 /// model's own) and the routine, and the reminders go to its conversation.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_models_project_waits_on_one_card_and_a_yes_makes_it_with_its_review() {
-    let r = rig_with_posture();
+    let r = crate::tests_task_graph::rig_on(tempfile::tempdir().unwrap(), |c| {
+        c.policy.enforcement = crate::policy::Posture::Notify;
+        c.policy
+            .tools
+            .insert("routine.create".into(), crate::policy::Posture::Approve);
+    });
     let s = session(&r.core);
     let input = json!({
         "title": "Harbour survey", "kind": "project",

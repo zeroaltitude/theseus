@@ -91,6 +91,15 @@ pub(crate) fn rig() -> Rig {
     rig_with(|_| {})
 }
 
+/// `routine.create` set to approve, as the owner can set it: the model's
+/// routine then waits on its card (issue 57: with nothing set it is made and
+/// he is told, `tests_tell_timers`).
+fn approve_routines(cfg: &mut Config) {
+    cfg.policy
+        .tools
+        .insert("routine.create".into(), crate::policy::Posture::Approve);
+}
+
 /// The rig over the template, with `tune` applied to its config before the daemon is built.
 fn rig_with(tune: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
@@ -601,9 +610,10 @@ async fn after_downtime_one_catch_up_says_how_many_were_missed_or_none_runs() {
     ));
 }
 
+/// With `routine.create` set to approve (issue 57).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_routine_the_model_sets_up_waits_on_one_card_and_is_listed_in_its_commitments() {
-    let r = rig();
+    let r = rig_with(approve_routines);
     let s = crate::tests_task_graph::session(&r.core);
     *r.model.call.lock().unwrap() = Some(json!({
         "title": "Morning digest", "schedule": "weekdays 08:00", "brief": BRIEF,
@@ -948,10 +958,10 @@ async fn an_unconfigured_daemon_refuses_a_routine_naming_500_dollars_a_month_and
 
 /// The same refusal on the model's own path: a `routine_create` naming $500 a month is turned back
 /// before any card, with the key named in the tool's result, and a figure within the ceilings still
-/// reaches its one card (theseus-3i6d1).
+/// reaches its one card (theseus-3i6d1), with `routine.create` set to approve (issue 57).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_routine_the_model_proposes_at_500_dollars_a_month_is_refused_before_a_card() {
-    let r = rig();
+    let r = rig_with(approve_routines);
     let s = crate::tests_task_graph::session(&r.core);
     *r.model.call.lock().unwrap() = Some(json!({
         "title": "Morning digest", "schedule": "weekdays 08:00", "brief": BRIEF,

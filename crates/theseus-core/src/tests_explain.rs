@@ -180,6 +180,9 @@ fn input_for(tool: &dyn Tool, open: &Path) -> Value {
 fn gated(core: &Core, sid: &str, tool: &dyn Tool, input: &Value) -> Option<(String, String)> {
     let rt = &core.tools;
     let plan = tool.plan(input, &rt.ctx).ok()?;
+    // What can be undone asks only where its tool is set to (issue 57).
+    let asks = rt.set_to_ask(tool.name());
+    let plan = crate::task_graph::tools::as_told(&core.store, tool.name(), input, plan, asks);
     let view = core.runner.view_of(sid);
     // A glide's other place is its call's (38b), which neither a probe nor
     // this input names: `policy.explain` gives the rule as a condition.

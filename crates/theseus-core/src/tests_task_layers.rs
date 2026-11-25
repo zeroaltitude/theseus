@@ -11,7 +11,7 @@ use theseus_store::{kinds, NewRecord};
 use crate::node::ResultStatus;
 use crate::task_graph::{self as graph, TaskState};
 use crate::tests_layouts::TASK_BEFORE_MODEL_MARK;
-use crate::tests_task_graph::{results, rig, rows, session, turn};
+use crate::tests_task_graph::{results, rig, rig_on, rows, session, turn};
 
 /// A plan item's acceptance change and its abandoning apply at once, with no
 /// question at the template's posture (notify), each a new version with its
@@ -98,12 +98,17 @@ async fn a_plan_items_layer_one_applies_at_once_and_so_does_a_split_childs() {
 }
 
 /// A record written before the model's mark (the layout sample) reads as the
-/// owner's: a change to its acceptance waits on its card, its proposal on the
-/// record; and that question, unanswered past its life, is held with its
-/// proposal (it expired and cleared it before theseus-v2dnc).
+/// owner's: with `task.update = "approve"` set (issue 57: with nothing set it
+/// is told, `tests_tell_tasks`), a change to its acceptance waits on its card,
+/// its proposal on the record; and that question, unanswered past its life, is
+/// held with its proposal (it expired and cleared it before theseus-v2dnc).
 #[tokio::test]
 async fn an_old_records_change_waits_and_its_expiry_clears_the_proposal() {
-    let r = rig();
+    let r = rig_on(tempfile::tempdir().unwrap(), |cfg| {
+        cfg.policy
+            .tools
+            .insert("task.update".into(), crate::policy::Posture::Approve);
+    });
     let c = &r.core;
     let s = session(c);
     c.store

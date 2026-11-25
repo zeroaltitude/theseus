@@ -444,16 +444,21 @@ fn from_a_guild() -> Answerer {
 
 /// A change to the owner's task's acceptance (a task session opened with a
 /// brief and its arrangement, held open here) is a proposal that waits for
-/// the operator, at every posture (`task.update` is open here): written on
-/// the task with its card, the task unchanged. A shared place's answer is
+/// the operator where `task.update` is set to approve (issue 57: with nothing
+/// set it is told, `tests_tell_tasks`): written on the task with its card,
+/// the task unchanged. A shared place's answer is
 /// refused and the proposal stays; the operator's yes applies it in one
 /// frame (`task.change_accepted`), and the next turn's view shows it. A no
 /// leaves the task as it was (`task.change_declined`).
 #[tokio::test]
 async fn a_layer_one_change_waits_and_accept_applies_it_and_decline_leaves_it() {
     let r = rig_on(tempfile::tempdir().unwrap(), |cfg| {
-        cfg.policy.tools.insert("task.update".into(), Posture::Open);
-        cfg.policy.tools.insert("task.close".into(), Posture::Open);
+        cfg.policy
+            .tools
+            .insert("task.update".into(), Posture::Approve);
+        cfg.policy
+            .tools
+            .insert("task.close".into(), Posture::Approve);
     });
     let c = &r.core;
     let s = session(c);
@@ -557,12 +562,15 @@ async fn a_layer_one_change_waits_and_accept_applies_it_and_decline_leaves_it() 
 }
 
 /// With `task.close = notify` set by the operator, abandoning the owner's
-/// task is a notice, not an ask; an objective change still asks, and with the
-/// line unset (the test above) abandoning still asks.
+/// task is a notice, not an ask; an objective change still asks where
+/// `task.update` is set to approve, and with `task.close` set to approve (the
+/// test above) abandoning still asks.
 #[tokio::test]
 async fn abandoning_follows_an_explicit_notify_but_an_objective_change_still_asks() {
     let r = rig_on(tempfile::tempdir().unwrap(), |cfg| {
-        cfg.policy.tools.insert("task.update".into(), Posture::Open);
+        cfg.policy
+            .tools
+            .insert("task.update".into(), Posture::Approve);
         cfg.policy
             .tools
             .insert("task.close".into(), Posture::Notify);
@@ -619,12 +627,15 @@ async fn abandoning_follows_an_explicit_notify_but_an_objective_change_still_ask
         .store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
-/// With `task.close` unset, abandoning the owner's task asks; the operator's
-/// yes closes it and records exactly one acceptance and one close.
+/// With `task.close` set to approve, abandoning the owner's task asks; the
+/// operator's yes closes it and records exactly one acceptance and one close.
 #[tokio::test]
 async fn an_abandon_the_operator_said_yes_to_records_one_acceptance() {
     let r = rig_on(tempfile::tempdir().unwrap(), |cfg| {
         cfg.policy.tools.insert("task.update".into(), Posture::Open);
+        cfg.policy
+            .tools
+            .insert("task.close".into(), Posture::Approve);
     });
     let c = &r.core;
     let s = session(c);
@@ -661,11 +672,14 @@ async fn an_abandon_the_operator_said_yes_to_records_one_acceptance() {
 
 /// A layer-1 change is answered through `work.answer` with its own two
 /// options (theseus-ds5os): `accept` applies it, `decline` leaves the task as
-/// it was, and a call's `approve` is not one of them.
+/// it was, and a call's `approve` is not one of them. It asks where
+/// `task.update` is set to approve (issue 57).
 #[tokio::test]
 async fn a_layer_one_change_is_answered_with_accept_or_decline() {
     let r = rig_on(tempfile::tempdir().unwrap(), |cfg| {
-        cfg.policy.tools.insert("task.update".into(), Posture::Open);
+        cfg.policy
+            .tools
+            .insert("task.update".into(), Posture::Approve);
     });
     let c = &r.core;
     let s = session(c);

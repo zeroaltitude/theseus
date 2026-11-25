@@ -422,8 +422,17 @@ fn read_a_page_in(store: &crate::store::Store, session: &str, turn: Option<&str>
     n.id
 }
 
+/// The owner set `task.update` to ask, as he can (issue 57): a change his own
+/// words do not carry then waits on its card. With nothing set it is told,
+/// with an undo (`tests_tell_tasks`), and his words still apply one.
 fn judging_core() -> (tempfile::TempDir, Arc<crate::rpc::Core>, Arc<Judging>) {
-    judging_core_with(|_| {})
+    judging_core_with(asking)
+}
+
+fn asking(cfg: &mut crate::Config) {
+    cfg.policy
+        .tools
+        .insert("task.update".into(), crate::policy::Posture::Approve);
 }
 
 fn judging_core_with(
@@ -564,10 +573,11 @@ async fn in_shadow_his_clean_narrowing_would_apply_once_and_keeps_its_card() {
 
 /// With its judge acting, his clean narrowing applies at once, without a
 /// card, and spends the message's receipt; a second change from the same
-/// message keeps its card.
+/// message is not carried by his words: with nothing set on `task.update` it
+/// is told, with the record before it kept for its undo (issue 57).
 #[tokio::test]
 async fn acting_his_clean_narrowing_applies_once_and_a_second_keeps_its_card() {
-    let (_dir, core, model) = judging_core();
+    let (_dir, core, model) = judging_core_with(|_| {});
     let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
     let first = submit(&core, owner(), "hello", None).await;
     let said = "make it the north side only";
@@ -582,9 +592,9 @@ async fn acting_his_clean_narrowing_applies_once_and_a_second_keeps_its_card() {
     submit(&core, owner(), said, Some(&first.session_id)).await;
     let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
     assert_eq!(
-        (now.version, now.objective.as_str()),
-        (2, new.as_str()),
-        "applied once"
+        (now.version, now.objective.clone()),
+        (3, format!("{new}; {said}")),
+        "his words applied once, and the second was told"
     );
     let accepted = crate::test_support::ledger_rows_100k(&core, "task.change_accepted");
     assert_eq!(accepted.len(), 1);
@@ -598,9 +608,14 @@ async fn acting_his_clean_narrowing_applies_once_and_a_second_keeps_its_card() {
         .expect("the receipt is spent");
     assert_eq!((r.base_version, r.acting), (1, true));
     let rows = proposed(&core);
-    assert_eq!(rows.len(), 1, "the second waits on a card: {rows:?}");
-    assert_eq!(rows[0]["would"], "card");
-    assert_eq!(core.confirm_list().unwrap().len(), 1, "one card asks");
+    assert!(rows.is_empty(), "no card: {rows:?}");
+    let told: Vec<_> = crate::test_support::ledger_rows_100k(&core, "task.updated")
+        .into_iter()
+        .filter(|r| r.data["told"] == true)
+        .collect();
+    assert_eq!(told.len(), 1, "the second is told: {told:?}");
+    assert_eq!(told[0].data["before"]["objective"], json!(new));
+    assert!(core.confirm_list().unwrap().is_empty(), "nothing asks");
 }
 
 /// A page the session read before his message, and an agent's process at
@@ -1084,11 +1099,13 @@ fn a_turn_given_the_places_last_words_is_outside() {
 /// Review 2, item 4: the rollback lands BETWEEN the gate and the lock. The
 /// gate reads a live pack and lets the call run without its card; the test
 /// holds the task's lock, so the run waits; the rollback is written; then the
-/// lock is let go. The run's own check under the lock reads the rollback and
-/// refuses: nothing changes, nothing is spent.
+/// lock is let go. The run's own check under the lock reads the rollback: his
+/// words do not carry the change and nothing is spent. With nothing set on
+/// `task.update` it is told, with the record before it kept for its undo
+/// (issue 57), not accepted in his words.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_rollback_between_the_gate_and_the_lock_is_honoured() {
-    let (_dir, core, model) = judging_core();
+    let (_dir, core, model) = judging_core_with(|_| {});
     let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
     let first = submit(&core, owner(), "hello", None).await;
     ladder_row(&core.store, "live");
@@ -1117,9 +1134,15 @@ async fn a_rollback_between_the_gate_and_the_lock_is_honoured() {
     let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
     assert_eq!(
         (now.version, &now.objective),
-        (1, &before.objective),
-        "nothing changed"
+        (2, &new),
+        "told, not accepted in his words"
     );
+    let told: Vec<_> = crate::test_support::ledger_rows_100k(&core, "task.updated")
+        .into_iter()
+        .filter(|r| r.data["told"] == true)
+        .collect();
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert_eq!(told[0].data["before"]["objective"], json!(before.objective));
     assert!(crate::test_support::ledger_rows_100k(&core, "task.change_accepted").is_empty());
     assert!(
         proposed(&core).is_empty(),
@@ -1151,7 +1174,12 @@ async fn a_rollback_between_the_gate_and_the_lock_is_honoured() {
 #[tokio::test]
 async fn in_a_view_an_outside_piece_from_another_session_keeps_the_card() {
     for page in [true, false] {
-        let (_dir, core, model) = judging_core_with(|_| {});
+        // The owner set `task.update` to ask where the card is the point.
+        let (_dir, core, model) = judging_core_with(|c| {
+            if page {
+                asking(c);
+            }
+        });
         let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
         let a = submit(&core, owner(), "hello", None).await;
         if page {
@@ -1247,7 +1275,10 @@ async fn a_latched_digest_keeps_the_card() {
 /// `restricts`, still requires the card.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_watchs_observed_value_in_the_request_keeps_the_card() {
-    let (dir, core, model) = judging_core_with(|c| c.tools.roots = vec![]);
+    let (dir, core, model) = judging_core_with(|c| {
+        c.tools.roots = vec![];
+        asking(c);
+    });
     let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
     let first = submit(&core, owner(), "hello", None).await;
     let file = dir.path().join("status.txt");

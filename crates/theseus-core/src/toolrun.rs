@@ -738,6 +738,14 @@ impl ToolRuntime {
             && self.posture_now(name).posture == crate::policy::Posture::Notify
     }
 
+    /// Whether the operator set `name` to ask (issue 57): an act that can be
+    /// undone asks only then. A project's review is a routine, so for
+    /// `task.create` `routine.create`'s setting says so too.
+    pub fn set_to_ask(&self, name: &str) -> bool {
+        let approve = |n: &str| self.posture_now(n).posture == Posture::Approve;
+        approve(name) || (name == crate::task::CREATE && approve(crate::routine_tool::CREATE))
+    }
+
     /// A tool's posture now: the config's, or its tightening's when that is
     /// stricter (theseus-sgh).
     pub fn posture_now(&self, name: &str) -> crate::policy::PostureNow {
@@ -1230,10 +1238,7 @@ impl ToolRuntime {
         let planned = tool.plan(&call.input, &ctx);
         // Layer 1 guards only the owner's tasks (theseus-ext.10), and what can
         // be undone asks only where its tool is set to (issue 57).
-        let asks = (
-            self.posture_now(tool.name()).posture == Posture::Approve,
-            self.abandon_follows_posture(),
-        );
+        let asks = (self.set_to_ask(tool.name()), self.abandon_follows_posture());
         let planned = planned
             .map(|p| crate::task_graph::tools::authority_for(tc, tool.name(), &call.input, p, asks));
         // A read of Theseus's own settings is asked when the turn read outside text.

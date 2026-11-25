@@ -347,8 +347,9 @@ fn a_tasks_home_is_its_roots_origin_or_a_task_sessions_parents() {
     assert_eq!(homed(&all, "ses_lighthouse").len(), 5);
 }
 
-/// What the model is told about abandoning is true in both postures: it asks
-/// unless the operator set `task.close` to notify (theseus-3i6d1).
+/// What the model is told about abandoning is true in both postures: it runs
+/// and tells unless the operator set `task.close` to approve (theseus-3i6d1;
+/// issue 57).
 #[test]
 fn the_models_words_on_abandoning_name_the_notify_posture() {
     use theseus_tools::Tool;
@@ -363,7 +364,7 @@ fn the_models_words_on_abandoning_name_the_notify_posture() {
     let desc = tools::TaskClose.description();
     for (what, text) in [("head", head.as_str()), ("description", desc)] {
         assert!(
-            text.contains("abandon") && text.contains("notify") && !text.contains("task.close"),
+            text.contains("abandon") && text.contains("approve") && !text.contains("task.close"),
             "{what}: {text}"
         );
     }

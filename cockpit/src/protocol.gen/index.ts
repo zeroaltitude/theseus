@@ -782,6 +782,8 @@ export type * from './TaskRetryResult';
 export type * from './TaskStartParams';
 export type * from './TaskStartResult';
 export type * from './TaskState';
+export type * from './TaskUndoParams';
+export type * from './TaskUndoResult';
 export type * from './TaskViewSummary';
 export type * from './TasksHealth';
 export type * from './TelemetryStatus';

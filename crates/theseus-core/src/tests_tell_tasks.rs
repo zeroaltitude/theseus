@@ -100,14 +100,20 @@ async fn his_objective_changed_runs_unasked_and_his_undo_puts_it_back_exactly() 
                          "acceptance": ["the inner chart exists"]}}),
     )]);
     turn(&r.core, &s, "make it the inner harbour").await;
-    assert!(r.core.confirm_list().unwrap().is_empty(), "nothing is asked");
+    assert!(
+        r.core.confirm_list().unwrap().is_empty(),
+        "nothing is asked"
+    );
     let changed = r.task(&t.id);
     assert_eq!(changed.objective, "chart the inner harbour instead");
     assert_eq!(changed.version, before.version + 1);
     let said = told(&r, "task.updated");
     assert_eq!(said.len(), 1, "{said:?}");
     assert_eq!(said[0]["before"]["objective"], json!(before.objective));
-    assert!(rows(&r.core, "task.change_accepted").is_empty(), "nobody accepted it");
+    assert!(
+        rows(&r.core, "task.change_accepted").is_empty(),
+        "nobody accepted it"
+    );
 
     let refused = undo_by_a_stranger(&r, &t.id, changed.version).await;
     assert!(refused.is_err(), "{refused:?}");
@@ -145,7 +151,9 @@ async fn his_approve_on_task_update_still_asks_with_the_cards_words() {
     assert_eq!(asked.len(), 1, "{asked:?}");
     assert!(asked[0].reason.contains("layer 1"), "{}", asked[0].reason);
     assert!(
-        asked[0].reason.contains("objective after: \"chart the inner harbour instead\""),
+        asked[0]
+            .reason
+            .contains("objective after: \"chart the inner harbour instead\""),
         "{}",
         asked[0].reason
     );
@@ -167,7 +175,10 @@ async fn his_task_abandoned_runs_unasked_and_his_undo_reopens_it_exactly() {
         json!({"id": t.id, "version": before.version, "outcome": "abandoned"}),
     )]);
     turn(&r.core, &s, "drop it").await;
-    assert!(r.core.confirm_list().unwrap().is_empty(), "nothing is asked");
+    assert!(
+        r.core.confirm_list().unwrap().is_empty(),
+        "nothing is asked"
+    );
     let closed = r.task(&t.id);
     assert_eq!(closed.state, TaskState::Abandoned);
     let said = told(&r, "task.closed");

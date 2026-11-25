@@ -43,7 +43,8 @@ use theseus_protocol::tasks::{TaskKind, TaskRecord};
 /// review is one) and the defaults.
 pub type Ext<'a> = (&'a crate::routine::Book, &'a crate::config::ProjectsConfig);
 
-/// Why `task.create` of a project with a review always asks: its authority.
+/// Why `task.create` of a project with a review asks where the owner set
+/// `routine.create` (or `task.create`) to approve: its authority (issue 57).
 pub const ASKS_REVIEW: &str =
     "a project's weekly review is a routine, which spends money on a schedule, so it waits for your yes";
 
