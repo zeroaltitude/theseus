@@ -62,6 +62,7 @@ pub struct Exits {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Found {
     names: BTreeMap<String, u32>,
+    key_collision: bool,
 }
 
 impl Found {
@@ -120,13 +121,27 @@ impl Exits {
                 substitute(&sub, s, &mut found);
             });
         }
+        let mut extra = Value::Object(req.extra.clone().into_iter().collect());
+        scan(&extra, &mut |s| {
+            substitute(&sub, s, &mut found);
+        });
         if found.is_empty() || !self.on {
             return (None, found);
         }
         let mut out = req.clone();
         let mut sink = Found::default();
         for v in parts_mut(&mut out) {
-            replace(v, &mut |s| substitute(&sub, s, &mut sink));
+            if !replace(v, &mut |s| substitute(&sub, s, &mut sink)) {
+                found.key_collision = true;
+                return (None, found);
+            }
+        }
+        if !replace(&mut extra, &mut |s| substitute(&sub, s, &mut sink)) {
+            found.key_collision = true;
+            return (None, found);
+        }
+        if let Value::Object(fields) = extra {
+            out.extra = fields.into_iter().collect();
         }
         (Some(out), found)
     }
@@ -168,11 +183,7 @@ fn substitute(sub: &Substitution, s: &str, found: &mut Found) -> Option<String> 
 
 /// The request's text-bearing values.
 fn parts(req: &ProviderRequest) -> impl Iterator<Item = &Value> {
-    req.system
-        .iter()
-        .chain(&req.messages)
-        .chain(&req.tools)
-        .chain(req.extra.values())
+    req.system.iter().chain(&req.messages).chain(&req.tools)
 }
 
 fn parts_mut(req: &mut ProviderRequest) -> impl Iterator<Item = &mut Value> {
@@ -180,7 +191,6 @@ fn parts_mut(req: &mut ProviderRequest) -> impl Iterator<Item = &mut Value> {
         .iter_mut()
         .chain(req.messages.iter_mut())
         .chain(req.tools.iter_mut())
-        .chain(req.extra.values_mut())
 }
 
 /// Every string of `v`.
@@ -188,23 +198,42 @@ fn scan(v: &Value, f: &mut impl FnMut(&str)) {
     match v {
         Value::String(s) => f(s),
         Value::Array(a) => a.iter().for_each(|x| scan(x, f)),
-        Value::Object(o) => o.values().for_each(|x| scan(x, f)),
+        Value::Object(o) => {
+            for (key, value) in o {
+                f(key);
+                scan(value, f);
+            }
+        }
         _ => {}
     }
 }
 
 /// Every string of `v`, replaced by what `f` gives for it.
-fn replace(v: &mut Value, f: &mut impl FnMut(&str) -> Option<String>) {
+fn replace(v: &mut Value, f: &mut impl FnMut(&str) -> Option<String>) -> bool {
     match v {
         Value::String(s) => {
             if let Some(n) = f(s) {
                 *s = n;
             }
         }
-        Value::Array(a) => a.iter_mut().for_each(|x| replace(x, f)),
-        Value::Object(o) => o.values_mut().for_each(|x| replace(x, f)),
+        Value::Array(a) => {
+            if !a.iter_mut().all(|x| replace(x, f)) {
+                return false;
+            }
+        }
+        Value::Object(o) => {
+            let mut replaced = serde_json::Map::new();
+            for (key, mut value) in std::mem::take(o) {
+                let key = f(&key).unwrap_or(key);
+                if !replace(&mut value, f) || replaced.insert(key, value).is_some() {
+                    return false;
+                }
+            }
+            *o = replaced;
+        }
         _ => {}
     }
+    true
 }
 
 tokio::task_local! {
@@ -326,6 +355,13 @@ impl Provider for Substituting {
         let (sent, found) = self.out.request(req);
         let op = CALL.try_with(|c| c.op).ok().flatten().unwrap_or("stream");
         self.note(req, &found, sent.is_some(), op);
+        if found.key_collision {
+            return Box::pin(async {
+                Err(anyhow::anyhow!(
+                    "redaction would merge JSON field names; request not sent"
+                ))
+            });
+        }
         match sent {
             None => self.inner.stream_message(req, on_delta),
             Some(owned) => {
@@ -340,6 +376,13 @@ impl Provider for Substituting {
     fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
         let (sent, found) = self.out.request(req);
         self.note(req, &found, sent.is_some(), "count_tokens");
+        if found.key_collision {
+            return Box::pin(async {
+                Err(anyhow::anyhow!(
+                    "redaction would merge JSON field names; request not sent"
+                ))
+            });
+        }
         match sent {
             None => self.inner.count_tokens(req),
             Some(owned) => {

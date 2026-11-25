@@ -525,3 +525,23 @@ async fn no_item_text_in_any_row() {
     }
     let _: BTreeMap<String, u64> = r.core.sealed().unwrap().counts();
 }
+
+/// The view assembles every request: its code is a behaviour path (05-self-loop-join-2).
+#[test]
+fn the_view_and_its_step_are_held() {
+    for path in [
+        "crates/theseus-core/src/view/render.rs",
+        "crates/theseus-core/src/view/select.rs",
+        "crates/theseus-core/src/view/select/here.rs",
+        "crates/theseus-core/src/view/budget/cut.rs",
+        "crates/theseus-core/src/turn/view_step.rs",
+        "crates/theseus-core/src/turn/view_step/recall.rs",
+        "crates/theseus-core/src/memory_lookup.rs",
+    ] {
+        assert_eq!(
+            touches(&[path]).as_deref(),
+            Some(path),
+            "{path} is not held"
+        );
+    }
+}

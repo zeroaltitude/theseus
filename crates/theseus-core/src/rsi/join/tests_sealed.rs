@@ -340,3 +340,19 @@ async fn the_checked_row_names_mains_commit_and_build() {
     let model = s.r.core.cfg.profile(&live).unwrap().model.clone();
     assert_eq!(checked["model"], json!(model), "{checked}");
 }
+
+/// A branch that changes only the view is scored with every_branch off, and held for its fall.
+#[tokio::test]
+async fn a_view_only_branch_is_scored_and_held() {
+    let s = rigged(SelfMode::Act, false, 2);
+    let mut files = PROVED.to_vec();
+    files.push(("crates/theseus-core/src/view/render.rs", "// trimmed\n"));
+    let (branch, _head) = s.r.seed("tsk_view", &files, SONNET);
+    let scorer = Canned::new(&s.main, six("tides", 6, 3), six("tides", 4, 5));
+    let pass = s.r.core.self_join_pass(&s.seams(&scorer)).await.unwrap();
+    assert_eq!(pass.stopped, [(branch, "sealed".to_string())], "{pass:?}");
+    assert!(
+        !scorer.asked().is_empty(),
+        "the view-only branch was scored"
+    );
+}
