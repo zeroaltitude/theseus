@@ -19,10 +19,11 @@
 //!   existing self-improvement config gate, off by default.
 //! - **It is no [`crate::places::public_tool`]**, so a shared place is never
 //!   offered it and the gate refuses it there.
-//! - **[`theseus_protocol::Plan::authority`] is set**, so the gate asks at
-//!   every posture, as the floor does, and the filing waits for the owner's
-//!   own tap. That is what "filing validated as him" means on this route:
-//!   the model can propose a filing, and only a person's yes writes one.
+//! - **No [`theseus_protocol::Plan::authority`]** (issue 57: the owner wants
+//!   approvals only for what is dangerous and cannot be undone): the call
+//!   follows `self.file`'s own posture like any tool, and the owner is told
+//!   once, with how to undo it (`self.drop`). He can still make it ask with
+//!   `[policy.tools] "self.file" = "approve"`.
 //! - **The owner's own place only**, the same wall `card.observed` keeps
 //!   ([`crate::card::tool`]): a private place he is alone in
 //!   ([`Core::owner_alone_in`]) and never a task's session. That is what
@@ -96,9 +97,9 @@ impl Tool for SelfFile {
         "Put a finding on Theseus's own self-improvement backlog, so the self loop works on it. \
          `finding` is what is wrong, in the words of the person who found it; `title` is the one \
          line the backlog lists it by. The item is marked for good as a person's choice, with who \
-         filed it, and it is never confused with one Theseus mined from its own record. It waits \
-         for the owner's yes before it is filed, and with self-improvement off the item sits and \
-         nothing runs. Use it when a person names a defect in Theseus itself; use \
+         filed it, and it is never confused with one Theseus mined from its own record. The owner \
+         is told of each filing, with how to drop it, and with self-improvement off the item sits \
+         and nothing runs. Use it when a person names a defect in Theseus itself; use \
          self.propose_change to offer a fix for an item that is already on the backlog."
     }
 
@@ -139,13 +140,10 @@ impl Tool for SelfFile {
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let a = Args::parse(input)?;
         let title = super::filed::title_of(&a.finding, a.title.as_deref());
+        // No `authority`: the call follows the tool's own posture, and the
+        // owner is told of the filing with its undo (issue 57).
         Ok(Plan {
             summary: format!("file a self-improvement item: {title}"),
-            // The gate asks at every posture, so a person's own yes is what
-            // puts work into the self loop -- never the model's word alone.
-            authority: Some(format!(
-                "put a finding on Theseus's own self-improvement backlog: {title}"
-            )),
             ..Default::default()
         })
     }
@@ -195,6 +193,18 @@ fn filed(core: &Core, private: bool, session: &str, a: Args) -> Result<ToolOutpu
     let f = core
         .self_file_in_chat(&a.finding, a.title.as_deref(), OWNER)
         .map_err(|e| format!("the filing could not be written: {e:#}"))?;
+    // The finding's words are the model's, so the note names the item, not them.
+    tell(
+        core,
+        session,
+        "A finding was filed for the self loop",
+        "Theseus put a finding on its own self-improvement backlog from this chat",
+        &format!(
+            "Item {} is on the backlog at rank {}. The self loop picks it up on its next pass.\n\
+             Undo: `theseus self drop {}`",
+            f.item, f.rank, f.item
+        ),
+    );
     Ok(ToolOutput {
         text: format!(
             "Filed {} ({}) on the self-improvement backlog at rank {}, by {}. It is marked a person's choice for good, and the loop picks it up on its next pass. `theseus self move {} 1` puts it first.",
@@ -202,6 +212,27 @@ fn filed(core: &Core, private: bool, session: &str, a: Args) -> Result<ToolOutpu
         ),
         meta: json!({"item": f.item, "cause": f.cause, "rank": f.rank}),
     })
+}
+
+/// The owner told once of what a chat tool did on his behalf (issue 57): an
+/// FYI note to the operator, where announcements go when a place for them is
+/// bound, naming the conversation and what it did. `did` and `body` are the
+/// tool's own words: no word the model wrote, and no secret. A note that
+/// cannot be posted is logged; the act stands.
+pub(crate) fn tell(core: &Core, session: &str, title: &str, did: &str, body: &str) {
+    let rec: Option<crate::session::SessionRecord> = core.store.get_session(session).ok().flatten();
+    let named = rec.and_then(|r| r.label.filter(|l| !l.is_empty()).or(r.title));
+    let here = crate::judge::onto::words::in_conversation(named.as_deref());
+    let text = crate::owner_note::note(
+        crate::owner_note::Kind::Fyi,
+        title,
+        &format!("{here}, {did}"),
+        body,
+    );
+    let body = json!({"kind": "notice", "text": text, crate::outbox::ANNOUNCE_KEY: true});
+    if let Err(e) = core.outbox.to_operator(Some(session), body) {
+        tracing::warn!(session, error = %format!("{e:#}"), "self: the owner's note was not posted");
+    }
 }
 
 /// Who a chat filing is by. It is a constant and not a name the model wrote:
@@ -281,8 +312,10 @@ mod tests {
         assert_eq!(a.title, None);
     }
 
+    /// The plan sets no `authority` (issue 57): the call follows its own
+    /// posture, and its summary names the title.
     #[test]
-    fn the_plan_asks_at_every_posture_and_names_the_title() {
+    fn the_plan_follows_the_tools_posture_and_names_the_title() {
         let ctx = ToolCtx::default();
         let p = SelfFile
             .plan(
@@ -294,8 +327,7 @@ mod tests {
             p.summary,
             "file a self-improvement item: The digest folds two kinds."
         );
-        let a = p.authority.expect("a filing waits for a person's own yes");
-        assert!(a.contains("The digest folds two kinds."), "{a}");
+        assert_eq!(p.authority, None, "no ask at every posture");
         // A given title is what both lines say.
         let p = SelfFile
             .plan(

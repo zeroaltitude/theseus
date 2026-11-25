@@ -4,9 +4,10 @@
 //! `theseus self pause` and the RPC method do.
 //!
 //! It is held exactly as `self.file` is (`rsi::backlog::tool`): registered only while `[self] mode =
-//! "act"`; no public tool, so never offered in a shared place; `Plan::authority` is set, so the
-//! gate asks for the owner's own yes at every posture; and the owner's own place only, never a
-//! task's session (`backlog::tool::wall`), so the call can only be the owner's. A pause set from
+//! "act"`; no public tool, so never offered in a shared place; no `Plan::authority` (issue 57), so
+//! the call follows `self.pause`'s own posture and the owner is told once (an unpause with its undo,
+//! a pause again); and the owner's own place only, never a task's session
+//! (`backlog::tool::wall`), so the call can only be the owner's. A pause set from
 //! chat is the same pause: a state of the running daemon, cleared by `unpause` or a restart.
 
 use std::sync::{Arc, OnceLock, Weak};
@@ -18,7 +19,7 @@ use theseus_tools::{
     AsyncMediaRun, Backend, Retry, Tool, ToolClass, ToolCtx, ToolFailure, ToolOutput,
 };
 
-use super::backlog::tool::{wall, Wall};
+use super::backlog::tool::{tell, wall, Wall};
 use crate::rpc::Core;
 
 pub const PAUSE: &str = "self.pause";
@@ -69,8 +70,8 @@ impl Tool for SelfPause {
         "Pause or unpause the new builds Theseus starts to improve itself, short of its kill switch. \
          `action` is \"pause\" or \"unpause\"; `why` is a few words. While paused, no new self build \
          starts; builds already running finish, and reviews and joins go on. A pause is cleared by \
-         unpausing or by a restart of the daemon. It waits for the owner's yes, and it is only for \
-         the owner's own conversation. Use it when the owner asks for the loop to stop starting \
+         unpausing or by a restart of the daemon. The owner is told of each change, and it is only \
+         for the owner's own conversation. Use it when the owner asks for the loop to stop starting \
          builds for a while (a benchmark is running, say); use self.file for a defect in Theseus itself."
     }
 
@@ -113,10 +114,9 @@ impl Tool for SelfPause {
             true => "let new self-improvement builds start again".to_string(),
             false => "pause new self-improvement builds".to_string(),
         };
+        // No `authority`: the call follows the tool's own posture, and the owner is told (issue 57).
         Ok(Plan {
-            summary: summary.clone(),
-            // The gate asks at every posture, so the owner's own yes is what acts, never the model's word alone.
-            authority: Some(summary),
+            summary,
             ..Default::default()
         })
     }
@@ -175,6 +175,25 @@ pub(crate) fn paused(
         .to_string());
     }
     let r = core.self_pause_apply(a.clears(), a.why.as_deref(), OWNER);
+    // Told once, when it changed anything; the reason is the model's words, so it is not quoted.
+    match (a.clears(), r.changed) {
+        (false, true) => tell(
+            core,
+            session,
+            "New self builds are paused",
+            "Theseus paused its new self-improvement builds from this chat",
+            "No new self build starts until they are unpaused or Theseus restarts. Builds already \
+             running finish.",
+        ),
+        (true, true) => tell(
+            core,
+            session,
+            "New self builds may start again",
+            "Theseus unpaused its self-improvement builds from this chat",
+            "The pause is cleared: the self loop may start new builds.\nUndo: `theseus self pause`",
+        ),
+        _ => {}
+    }
     let text = match (a.clears(), r.changed, &r.words) {
         (false, true, Some(w)) => format!("New self builds are {w}. Unpause lets them start."),
         (false, false, Some(w)) => format!("Already {w}."),
