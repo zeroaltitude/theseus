@@ -245,7 +245,10 @@ async fn an_asked_directive_is_kept_widened_or_dropped_by_the_answer() {
     hears(&jev, "correction", 0.4, ("session", 0.9));
     let r = rig_capture(&jev, 7);
     let sid = ask(&r.core, None, "hello").await.session_id;
-    until("its note", || !rows(&r.core, "standing.candidate").is_empty()).await;
+    until("its note", || {
+        !rows(&r.core, "standing.candidate").is_empty()
+    })
+    .await;
     let tables = "stop using tables for lists";
     twice(&r, &sid, tables, "again, no tables for lists please", 1).await;
     let l = list(&r.core).await;
