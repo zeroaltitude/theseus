@@ -1327,7 +1327,6 @@ fn serving_begins(core: &Arc<Core>, serving: u64) {
 /// Discord (`bindings`: the socket daemon only), and the GitHub check. A
 /// copy the daemon wrote acts at once (theseus-zmgb). `keep` is a note read
 /// before serving, kept as the copy now.
-#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn after_serving(
     core: Arc<Core>,
     keep: Option<String>,
