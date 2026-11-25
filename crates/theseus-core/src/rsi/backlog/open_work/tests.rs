@@ -160,3 +160,14 @@ fn the_chat_s_registry_holds_it_with_the_source_on_and_a_shared_place_never_does
     assert!(offered(PlaceClass::Private, OPEN_WORK, &[]));
     assert!(!offered(PlaceClass::Shared, OPEN_WORK, &[]));
 }
+
+/// A title cut where it is long stops before a value the board knows.
+#[test]
+fn a_long_title_line_stops_before_a_known_value() {
+    use crate::tests_cut_sites::{whole_or_absent, V};
+    let board = crate::secrets::SecretBoard::empty();
+    board.hold("cut_test", crate::secrets::Secret::new(V.into()));
+    let line = one_line(&format!("{}{V} again", "t".repeat(TITLE_CHARS - 10)));
+    assert!(line.ends_with('…'), "{line}");
+    whole_or_absent("the listed title", &line, V);
+}

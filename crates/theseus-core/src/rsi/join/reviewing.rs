@@ -506,7 +506,8 @@ impl Run<'_> {
                 self.b.branch,
                 &self.b.head[..self.b.head.len().min(12)]
             );
-            let note: String = reasons.join("; ").chars().take(1_000).collect();
+            let joined = reasons.join("; ");
+            let (note, _) = crate::scrub::safe::head(&joined, 1_000);
             frame.extend(self.reopened(identity, format!("rejected by {}: {note}", v.reviewer))?);
         }
         self.core.store.append(&frame)?;

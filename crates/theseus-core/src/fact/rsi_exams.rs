@@ -110,7 +110,7 @@ impl ExamPass {
             sealed_dropped: 0,
             unreviewed: 0,
             capped: 0,
-            error: Some(error.chars().take(300).collect()),
+            error: Some(crate::scrub::safe::head(error, 300).0.into()),
         }
     }
 }

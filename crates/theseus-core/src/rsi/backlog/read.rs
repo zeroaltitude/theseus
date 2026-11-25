@@ -386,7 +386,7 @@ pub(super) fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
 /// characters. Empty when it said nothing.
 fn line(text: &str, max: usize) -> String {
     let one = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    one.chars().take(max).collect()
+    crate::scrub::safe::head(&one, max).0.to_string()
 }
 
 /// Where a failed action went and why, for its observation's note: the tool,

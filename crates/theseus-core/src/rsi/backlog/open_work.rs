@@ -177,12 +177,12 @@ fn one_line(s: &str) -> String {
     if one.chars().count() <= TITLE_CHARS {
         return one;
     }
-    let cut: String = one.chars().take(TITLE_CHARS).collect();
-    let next_is_space = one.chars().nth(TITLE_CHARS) == Some(' ');
+    let (cut, _) = crate::scrub::safe::head(&one, TITLE_CHARS);
+    let next_is_space = one[cut.len()..].starts_with(' ');
     let whole = match cut.rsplit_once(' ') {
-        _ if next_is_space => cut.as_str(),
+        _ if next_is_space => cut,
         Some((head, _)) if !head.is_empty() => head,
-        _ => cut.as_str(),
+        _ => cut,
     };
     format!("{}…", whole.trim_end())
 }

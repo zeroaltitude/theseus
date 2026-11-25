@@ -783,7 +783,7 @@ fn committed(p: &Place, t: &Tree, subject: &str, body: String) -> anyhow::Result
 /// The commit's subject: the change's first line, then the item.
 fn subject(i: &Input) -> String {
     let first = i.why.trim().lines().next().unwrap_or("").trim();
-    let first: String = first.chars().take(64).collect();
+    let (first, _) = crate::scrub::safe::head(first, 64);
     format!("self: {} ({})", first.trim_end_matches('.'), i.item.trim())
 }
 
