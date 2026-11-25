@@ -370,11 +370,11 @@ pub fn resolve(
             )
         };
         let body = superseded_by.is_none().then(|| {
-            let (t, _) = crate::toolrun::cap(&text, PIECE_CHARS, &rest, cuts);
+            let (t, _) = crate::toolrun::cap(&text, PIECE_CHARS, rest, cuts);
             t
         });
         let parts = match (superseded_by, positions.get(node.id.as_str())) {
-            (None, Some(at)) => quoted(node, *at, &text, &rest, cuts),
+            (None, Some(at)) => quoted(node, *at, &text, rest, cuts),
             _ => Vec::new(),
         };
         out.push(Piece {
