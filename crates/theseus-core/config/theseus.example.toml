@@ -1778,8 +1778,9 @@ min_loops_between = 4                   # at most one verdict per this many loop
 # The injection question is never asked of your own messages. The
 # sensitive-names list above and a Google result (`[google]`) raise `confidential` the same way, with no
 # model call.
-# Reading outside text holds nothing any more: `[policy] external_text` and `external_programs` were
-# retired with the external-text hold, and a config that names either fails to load, naming this table.
+# `[policy] external_text` and `external_programs` were retired with the external-text hold, and a
+# config that names either fails to load, naming this table. What is left of that hold is `outside`
+# below: the looks, the settings read and the profile tools, after outside text or with the flag.
 # [content_based_security]
 # session_flags = true                  # off: nothing is classified and no label is raised
 # injection = "notify"                  # the default: the label is raised and told, and nothing
@@ -1788,6 +1789,11 @@ min_loops_between = 4                   # at most one verdict per this many loop
 #                                       # you clear the label. The default is notify because an
 #                                       # unsandboxed L0 session is default-trusted: the
 #                                       # classifier warns you, it does not latch the session
+# outside = "notify"                    # the default: a look, a settings read or a profile call
+#                                       # made after outside text was read since your last message,
+#                                       # or with the injection flag, runs and you get one FYI note.
+#                                       # "ask" puts each to you first, with an answer that also
+#                                       # clears the hold. vault.use and vault.keep ask first at both
 # max_pieces = 20                       # a long item is split at 6,000 characters a piece; this
 #                                       # bounds how many are read. 20 fits the largest item that
 #                                       # can exist (a 100,000-character file read) whole. Past the

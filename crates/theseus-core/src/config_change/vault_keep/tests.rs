@@ -94,7 +94,13 @@ fn wrote(dir: &Path) -> bool {
 /// The settings rig with one `[secrets]` entry that reads "Settings key", and
 /// the stub as the daemon's vault.
 fn rig_vault(mode: &str) -> (Rig, tempfile::TempDir) {
-    let r = rig_with(|cfg, _| {
+    rig_vault_at(mode, crate::content::OutsideMode::default())
+}
+
+/// [`rig_vault`] at `[content_based_security] outside = outside`.
+fn rig_vault_at(mode: &str, outside: crate::content::OutsideMode) -> (Rig, tempfile::TempDir) {
+    let r = rig_with(move |cfg, _| {
+        cfg.content_based_security.outside = outside;
         cfg.secrets.insert(
             "settings_key".into(),
             "op://Harbor/Settings key/credential".into(),
@@ -726,12 +732,13 @@ async fn a_bad_value_is_refused_before_anything_is_spent_or_written() {
 }
 
 /// A turn that read text from outside is asked first, before the vault is
-/// listed; a task's session is refused in the tool's words.
+/// listed, at `[content_based_security] outside = "ask"`; a task's session is
+/// refused in the tool's words.
 #[tokio::test]
 async fn a_steered_turn_is_asked_first_and_a_task_is_refused() {
     use crate::content::{ContentFlags, Flag, ItemKind, Label};
     use theseus_judge::band::Band;
-    let (r, dir) = rig_vault("ok");
+    let (r, dir) = rig_vault_at("ok", crate::content::OutsideMode::Ask);
     let sid = r.session();
     let mut rec: crate::session::SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     let mut flags = ContentFlags::default();

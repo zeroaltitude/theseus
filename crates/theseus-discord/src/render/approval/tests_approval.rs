@@ -292,3 +292,34 @@ fn a_held_call_says_its_cause_whole() {
         }
     }
 }
+
+/// A held look's card that offers "Approve and clear" (issue 54) says what that answer does in the
+/// line of answers, and its reason no longer tells how to clear the flag: the answer does it.
+#[test]
+fn a_cleared_holds_card_says_what_its_third_answer_does() {
+    use theseus_core::config_change::{flag_way_in, hold_words, FLAG_HOLD};
+    use theseus_protocol::grants::GrantOffer;
+    let way = flag_way_in(Some("discord:dm:1"), "ses_01a1593f784974cf92a4a4666c968b67");
+    let said = hold_words("look at what Theseus runs as", false, true, &way).unwrap();
+    let reason = format!("look: look.theseus — approve (layer 1: {said})");
+    let mut req = request(json!({ "reason": reason, "tool": "look.theseus" }));
+    req.grant_offer = Some(GrantOffer::clear(true));
+    let c = card(&req, &Route::Here, "");
+    assert!(
+        c.content.contains(&format!(
+            "why it asks: look at what Theseus runs as: {FLAG_HOLD}\n"
+        )),
+        "{}",
+        c.content
+    );
+    assert!(!c.content.contains("/trust"), "{}", c.content);
+    assert!(
+        c.content.contains("**Approve** runs this one call · **Approve and clear** runs it and \
+                            clears the flag (what it flagged stays here) · **Decline** refuses it"),
+        "{}",
+        c.content
+    );
+    // Without the offer, the way stays.
+    let c = card(&request(json!({ "reason": reason })), &Route::Here, "");
+    assert!(c.content.contains("/trust"), "{}", c.content);
+}

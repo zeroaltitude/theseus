@@ -18,7 +18,16 @@ use crate::secrets::{OpReader, Secret};
 const KEY_VALUE: &str = "INVENTED-KEY-VALUE-0001";
 
 pub(super) fn rig_with_a_vault(mode: &str) -> (Rig, std::path::PathBuf, tempfile::TempDir) {
-    let r = rig_with(|cfg, _| {
+    rig_with_a_vault_at(mode, crate::content::OutsideMode::default())
+}
+
+/// [`rig_with_a_vault`] at `[content_based_security] outside = outside`.
+pub(super) fn rig_with_a_vault_at(
+    mode: &str,
+    outside: crate::content::OutsideMode,
+) -> (Rig, std::path::PathBuf, tempfile::TempDir) {
+    let r = rig_with(move |cfg, _| {
+        cfg.content_based_security.outside = outside;
         cfg.secrets.insert(
             "lantern_key".into(),
             "op://Harbor/Lantern key/credential".into(),
@@ -254,12 +263,13 @@ async fn with_no_token_the_look_says_so_and_lists_the_sources() {
 }
 
 /// A turn that was steered (it read text from outside) is asked first, and the
-/// vault's program is not run until the owner says yes.
+/// vault's program is not run until the owner says yes: at `[content_based_security]
+/// outside = "ask"` (at the default it runs and the owner is told, `tests_quiet`).
 #[tokio::test]
 async fn a_steered_turn_is_asked_before_the_vault_is_read() {
     use crate::content::{ContentFlags, Flag, ItemKind, Label};
     use theseus_judge::band::Band;
-    let (r, dir, _d) = rig_with_a_vault("ok");
+    let (r, dir, _d) = rig_with_a_vault_at("ok", crate::content::OutsideMode::Ask);
     let sid = r.session();
     let mut rec: crate::session::SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     let mut flags = ContentFlags::default();

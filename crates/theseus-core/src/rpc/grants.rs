@@ -35,12 +35,23 @@ impl Core {
         gate: Option<&GateRecord>,
     ) -> Option<GrantOffer> {
         let decision = gate?.decision.as_ref()?;
+        let class = self.runner.class_of(&session.session_id);
+        let approve = decision.posture.as_deref() == Some("approve");
         crate::policy::grants::plan_offer(
             tool,
-            self.runner.class_of(&session.session_id),
-            decision.posture.as_deref() == Some("approve"),
+            class,
+            approve,
             decision.class.as_deref() == Some("l1"),
         )
+        .or_else(|| {
+            crate::policy::grants::hold_offer(
+                tool,
+                class,
+                approve,
+                decision.floor,
+                &decision.reason,
+            )
+        })
     }
 
     /// `action.confirm` with `grant`: approve the call and take its offer.
@@ -73,6 +84,9 @@ impl Core {
                 offered.pattern
             );
         }
+        if offered.kind == theseus_protocol::grants::KIND_CLEAR {
+            return self.confirm_clearing(&rec, correlation_id, note, who, &offered);
+        }
         // A plan's second yes is a mode: the plan's own tool moves the
         // conversation once the call runs (theseus-lyxy).
         let modes = &self.tools.modes;
@@ -80,6 +94,34 @@ impl Core {
         let done = self.confirm_action_with(correlation_id, true, note, who, Default::default());
         if done.is_err() {
             modes.unpick(correlation_id);
+        }
+        done
+    }
+}
+
+impl Core {
+    /// "Approve and clear" (issue 54): the flag, when the press offers to clear it and the
+    /// session still carries it, is removed first through `content.unlabel` as the presser, so it
+    /// is judged as `/trust` and the notice's Remove are, and a press that may not remove it
+    /// changes nothing; then the call is approved, and its result is the boundary the hold counts
+    /// from, as if the owner had just spoken.
+    fn confirm_clearing(
+        &self,
+        rec: &SessionRecord,
+        correlation_id: &str,
+        note: Option<&str>,
+        who: Answerer,
+        offered: &GrantOffer,
+    ) -> Result<theseus_protocol::ActionConfirmResult> {
+        let flagged = rec.data.as_ref().is_some_and(|d| d.frozen());
+        if offered.pattern == theseus_protocol::grants::CLEAR_FLAG && flagged {
+            self.unlabel_session(&rec.session_id, "injection", who.clone())?;
+        }
+        let holds = &self.tools.holds;
+        holds.clear_on(correlation_id);
+        let done = self.confirm_action_with(correlation_id, true, note, who, Default::default());
+        if done.is_err() {
+            holds.unclear(correlation_id);
         }
         done
     }

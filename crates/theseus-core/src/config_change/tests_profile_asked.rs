@@ -6,7 +6,7 @@
 use serde_json::json;
 use theseus_protocol::ConfirmRequest;
 
-use super::tests::{rig, Rig};
+use super::tests::{rig_with, Rig};
 use super::tests_answer::owner_in_dm;
 use crate::approval::{Answerer, Surface};
 use crate::bus::EventSink;
@@ -16,6 +16,12 @@ use crate::node::{Body, ResultStatus};
 use crate::profile_tool::{ASK, HOLD, RUN};
 use crate::session::SessionRecord;
 use crate::turn::TurnRequest;
+
+/// These cards are the hold's at `[content_based_security] outside = "ask"`: at the default the
+/// calls run and the owner is told (`tests_quiet`).
+fn rig() -> Rig {
+    rig_with(|c, _| c.content_based_security.outside = crate::content::OutsideMode::Ask)
+}
 
 /// What the asked model says.
 const HELLO: &str = "Hello from the other model, after the yes.";

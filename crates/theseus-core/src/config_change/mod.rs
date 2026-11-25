@@ -35,6 +35,7 @@ pub mod card;
 pub mod diff;
 pub mod edit;
 pub mod history;
+pub mod hold;
 pub mod long_value;
 pub mod mcp_attach;
 pub mod prompt_file;
@@ -343,6 +344,15 @@ pub fn flag_way_in(place: Option<&str>, session_id: &str) -> String {
     }
 }
 
+/// A hold's words without the way to clear the flag, for a card whose own answer clears it
+/// ("Approve and clear", issue 54); any other clause as it is.
+pub fn without_way(clause: &str) -> &str {
+    match clause.find(FLAG_HOLD) {
+        Some(i) => &clause[..i + FLAG_HOLD.len()],
+        None => clause,
+    }
+}
+
 /// Whether a rule's clause is a hold's words ([`hold_words`]).
 pub(crate) fn is_hold_words(clause: &str) -> bool {
     clause.contains(OUTSIDE_HOLD) || clause.contains(FLAG_HOLD)
@@ -469,12 +479,11 @@ pub fn restart(
 }
 
 /// Whether any result after the owner's last message is marked as outside
-/// text.
+/// text. A result whose call the owner approved with "Approve and clear" counts
+/// as his message ([`hold::span`]), its own mark included.
 pub(crate) fn outside_since_owner(nodes: &[(u64, crate::node::Node)]) -> bool {
-    let last_said = nodes
-        .iter()
-        .rposition(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }));
-    nodes[last_said.map_or(0, |i| i + 1)..]
+    let (from, _) = hold::span(nodes);
+    nodes[from..]
         .iter()
         .any(|(_, n)| crate::external::is_outside(n))
 }
@@ -839,6 +848,8 @@ pub(crate) mod tests_answer;
 pub(crate) mod tests_hold;
 #[cfg(test)]
 mod tests_look;
+#[cfg(test)]
+mod tests_quiet;
 #[cfg(test)]
 mod tests_look_card;
 #[cfg(test)]

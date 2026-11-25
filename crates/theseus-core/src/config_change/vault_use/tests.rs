@@ -20,7 +20,17 @@ use crate::secrets::OpReader;
 const VALUE: &str = "INVENTED-FIELD-VALUE-9";
 
 fn rig_vault(mode: &str) -> (Rig, std::path::PathBuf, tempfile::TempDir) {
-    let r = rig();
+    rig_vault_at(mode, crate::content::OutsideMode::default())
+}
+
+/// [`rig_vault`] at `[content_based_security] outside = outside`.
+fn rig_vault_at(
+    mode: &str,
+    outside: crate::content::OutsideMode,
+) -> (Rig, std::path::PathBuf, tempfile::TempDir) {
+    let r = crate::config_change::tests::rig_with(move |c, _| {
+        c.content_based_security.outside = outside;
+    });
     let dir = tempfile::tempdir().unwrap();
     r.core
         .tools
@@ -412,12 +422,13 @@ async fn an_undo_may_put_back_a_reference() {
 }
 
 /// A turn that read text from outside since the owner's last message is asked
-/// at the gate before anything is read from the vault.
+/// at the gate before anything is read from the vault, at `[content_based_security]
+/// outside = "ask"`.
 #[tokio::test]
 async fn a_steered_turn_is_asked_before_the_vault_is_read() {
     use crate::content::{ContentFlags, Flag, ItemKind, Label};
     use theseus_judge::band::Band;
-    let (r, dir, _d) = rig_vault("ok");
+    let (r, dir, _d) = rig_vault_at("ok", crate::content::OutsideMode::Ask);
     let sid = r.session();
     let mut rec: crate::session::SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     let mut flags = ContentFlags::default();

@@ -247,6 +247,21 @@ pub fn rule_clause(reason: &str) -> Option<String> {
         .then(|| clause.to_string())
 }
 
+/// The rule's clause as a card for `req` says it: [`rule_clause`], and for a
+/// held look whose card offers "Approve and clear" (issue 54), without the way
+/// to clear the flag, which that answer does.
+pub fn card_clause(req: &ConfirmRequest) -> Option<String> {
+    let clause = rule_clause(&req.reason)?;
+    let clears = req
+        .grant_offer
+        .as_ref()
+        .is_some_and(|o| o.kind == theseus_protocol::grants::KIND_CLEAR);
+    Some(match clears {
+        true => crate::config_change::without_way(&clause).to_string(),
+        false => clause,
+    })
+}
+
 /// Why the gate holds the call, in words: the floor, the rule's own clause,
 /// else the tool's posture.
 fn held_of(req: &ConfirmRequest, clause: Option<&str>) -> String {
@@ -265,7 +280,7 @@ fn held_of(req: &ConfirmRequest, clause: Option<&str>) -> String {
 fn clause_of(req: &ConfirmRequest) -> Option<String> {
     match req.tool == crate::config_change::ACK {
         true => None,
-        false => rule_clause(&req.reason),
+        false => card_clause(req),
     }
 }
 
