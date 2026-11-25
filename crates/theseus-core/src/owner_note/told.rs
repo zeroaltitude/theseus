@@ -40,10 +40,11 @@ pub enum Undo {
     /// `self.drop`: a self backlog item is dropped.
     #[serde(rename = "self.drop")]
     SelfDrop(String),
-    /// `google.undo`: a tidy Google act's own opposite runs, named by the
-    /// act's result node (`google::told`).
-    #[serde(rename = "google.undo")]
-    GoogleUndo(String),
+    /// A tidy Google act's own opposite (an untrash, a restore, a trash
+    /// again), named by the act's result node (`google::told`). It has no
+    /// method of its own: `told.undo` runs it inside the core.
+    #[serde(rename = "google.take_back")]
+    GoogleTakeBack(String),
 }
 
 impl Undo {
@@ -55,7 +56,7 @@ impl Undo {
             Undo::WakeCancel(_) => method::WAKE_CANCEL,
             Undo::StandingRevoke(_) => method::STANDING_REVOKE,
             Undo::SelfDrop(_) => method::SELF_DROP,
-            Undo::GoogleUndo(_) => method::GOOGLE_UNDO,
+            Undo::GoogleTakeBack(_) => method::TOLD_UNDO,
         }
     }
 
@@ -63,9 +64,10 @@ impl Undo {
     /// pressed wherever the method takes it.
     pub fn params(&self, author: &str, discord: Option<DiscordOrigin>) -> Value {
         match self {
-            Undo::RoutineDelete(id) | Undo::StandingRevoke(id) | Undo::GoogleUndo(id) => {
+            Undo::RoutineDelete(id) | Undo::StandingRevoke(id) => {
                 json!({"id": id, "author": author, "discord": discord})
             }
+            Undo::GoogleTakeBack(id) => json!({"id": id, "author": author}),
             Undo::WakeCancel(id) => json!({"wake": id, "author": author}),
             Undo::SelfDrop(id) => json!({"item": id, "author": author, "discord": discord}),
         }
@@ -78,7 +80,7 @@ impl Undo {
             Undo::WakeCancel(id) => format!("theseus cancel {id}"),
             Undo::StandingRevoke(id) => format!("theseus standing revoke {id}"),
             Undo::SelfDrop(id) => format!("theseus self drop {id}"),
-            Undo::GoogleUndo(id) => format!("theseus google undo {id}"),
+            Undo::GoogleTakeBack(id) => format!("the Undo button (Google act {id})"),
         }
     }
 }
@@ -187,12 +189,6 @@ mod tests {
                 "item",
                 "theseus self drop rtn_1",
             ),
-            (
-                Undo::GoogleUndo(id.clone()),
-                method::GOOGLE_UNDO,
-                "id",
-                "theseus google undo rtn_1",
-            ),
         ];
         for (u, m, field, cmd) in cases {
             assert_eq!(u.method(), m);
@@ -206,6 +202,24 @@ mod tests {
             assert_eq!(p["author"], json!("ana"));
             assert_eq!(u.command(), cmd);
         }
+    }
+
+    /// An undo with no method of its own runs inside `told.undo`: its method
+    /// is that door's, and its tag names it in the note's body alone.
+    #[test]
+    fn a_google_take_back_has_no_method_of_its_own() {
+        let u = Undo::GoogleTakeBack("nod_1".into());
+        assert_eq!(u.method(), method::TOLD_UNDO);
+        assert_eq!(
+            serde_json::to_value(&u).unwrap(),
+            json!({"method": "google.take_back", "id": "nod_1"})
+        );
+        assert!(!method::ALL.contains(&"google.take_back"));
+        assert_eq!(
+            u.params("ana", None),
+            json!({"id": "nod_1", "author": "ana"})
+        );
+        assert_eq!(u.command(), "the Undo button (Google act nod_1)");
     }
 
     /// A restart: the core gone and its store opened again under a new one.

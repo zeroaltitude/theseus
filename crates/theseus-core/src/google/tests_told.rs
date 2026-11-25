@@ -33,28 +33,29 @@ fn plan(r: &Rig, name: &str, input: Value) -> theseus_tools::Plan {
         .unwrap_or_else(|e| panic!("{name}: {e}"))
 }
 
-/// The FYI notes staged to the operator: each one's text, and the id its
-/// Undo names (`owner_note::told`), or none for a note told without one.
+/// The FYI notes staged to the operator: each one's text, and for a note
+/// with an Undo (`owner_note::told`) its post, which `told.undo` takes; none
+/// for a note told without one.
 fn notes(r: &Rig) -> Vec<(String, Option<String>)> {
     r.core
         .outbox
         .open_for(crate::outbox::OPERATOR_TARGET)
         .iter()
-        .map(|a| crate::outbox::body_of(a).clone())
-        .filter(|b| {
+        .map(|a| (a.correlation_id.clone(), crate::outbox::body_of(a).clone()))
+        .filter(|(_, b)| {
             b["text"]
                 .as_str()
                 .is_some_and(|t| t.starts_with("ℹ️ FYI · "))
         })
-        .map(|b| {
+        .map(|(post, b)| {
             let text = b["text"].as_str().unwrap().to_string();
             match b["kind"].as_str() {
                 Some("told") => {
-                    assert_eq!(b["undo"]["method"], "google.undo", "{b}");
-                    let id = b["undo"]["id"].as_str().unwrap().to_string();
-                    let line = format!("\nUndo: `theseus google undo {id}`");
+                    assert_eq!(b["undo"]["method"], "google.take_back", "{b}");
+                    let id = b["undo"]["id"].as_str().unwrap();
+                    let line = format!("\nUndo: `the Undo button (Google act {id})`");
                     assert!(text.ends_with(&line), "{text}");
-                    (text.strip_suffix(&line).unwrap().to_string(), Some(id))
+                    (text.strip_suffix(&line).unwrap().to_string(), Some(post))
                 }
                 _ => {
                     assert_eq!(b["kind"], "notice", "{b}");
@@ -93,16 +94,17 @@ fn not_the_owner() -> [crate::approval::Answerer; 2] {
     [stranger(Some("7")), stranger(None)]
 }
 
-/// The one note a turn staged, its words and its Undo's id: a press by
-/// anyone but the owner in a private place changes nothing in Google (`same`
-/// still holds after each), and the owner's runs the act's opposite.
+/// The one note a turn staged, its words, and its Undo pressed through the
+/// one door, `told.undo`: a press by anyone but the owner in a private place
+/// changes nothing in Google (`same` still holds after each), the owner's
+/// runs the act's opposite and says so, and a second press does nothing.
 async fn press(r: &Rig, words: &str, same: impl Fn() -> bool) {
     let n = notes(r);
     assert_eq!(n.len(), 1, "{n:?}");
     assert_eq!(n[0].0, words);
-    let id = n[0].1.clone().expect("an Undo");
+    let post = n[0].1.clone().expect("an Undo");
     for who in not_the_owner() {
-        let e = r.core.google_undo(&id, &who).await.unwrap_err();
+        let e = r.core.told_undo(&post, &who).await.unwrap_err();
         assert_eq!(
             e.code,
             theseus_protocol::error_code::REFUSED,
@@ -111,7 +113,10 @@ async fn press(r: &Rig, words: &str, same: impl Fn() -> bool) {
         );
         assert!(same(), "{} changed nothing", who.label);
     }
-    r.core.google_undo(&id, &owner()).await.unwrap();
+    let done = r.core.told_undo(&post, &owner()).await.unwrap();
+    assert_eq!(done.text, format!("{words}\n↩️ Undone by the CLI."));
+    let again = r.core.told_undo(&post, &owner()).await.unwrap_err();
+    assert_eq!(again.data["undone_by"], "the CLI", "{}", again.message);
 }
 
 /// Each call a note's undo carries, run as its press would: through
@@ -365,7 +370,7 @@ async fn a_google_call_trash_runs_unasked_and_its_undo_is_the_untrash() {
     );
     // A node that is no tidy act's is refused, and so is an unknown one.
     for id in ["nod_nothing", ""] {
-        let e = r.core.google_undo(id, &owner()).await.unwrap_err();
+        let e = r.core.google_take_back(id).await.unwrap_err();
         assert!(e.message.contains("no Google act"), "{}", e.message);
     }
 }

@@ -470,7 +470,6 @@ mod tests {
         method::GOOGLE_AUTH_FINISH,
         method::GOOGLE_REVOKE,
         method::GOOGLE_STATUS,
-        method::GOOGLE_UNDO,
         method::CALENDAR_WINDOW,
     ];
 

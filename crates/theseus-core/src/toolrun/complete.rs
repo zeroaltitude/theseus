@@ -77,7 +77,7 @@ impl ToolRuntime {
         };
         let (post, more) = match told::undo_calls(node) {
             Some(_) => {
-                let undo = crate::owner_note::told::Undo::GoogleUndo(node.id.clone());
+                let undo = crate::owner_note::told::Undo::GoogleTakeBack(node.id.clone());
                 crate::owner_note::told::stage(tc.outbox, None, &p.title, &p.by, &p.body, &undo)?
             }
             None => {

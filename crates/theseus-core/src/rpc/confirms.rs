@@ -1222,10 +1222,6 @@ pub(crate) enum Act<'a> {
     /// made one would schedule its own work. Only the owner, from a private
     /// place. `what` names it: `the watch "PR 123 merged?"`.
     Watch { method: &'static str, what: &'a str },
-    /// A tidy Google act taken back (issue 57, `google.undo`): it writes to
-    /// the owner's mail or Drive, so only the owner, from a private place.
-    /// `what` names it: `the undo of nod_…`.
-    Google { method: &'static str, what: &'a str },
     /// The release of self-improvement's kill switch (theseus-pw1q.2,
     /// `self.resume`): only the owner turns it back on (the CLI, the web UI,
     /// or an author holding an owner handle, in any bound place:
@@ -1308,7 +1304,6 @@ impl Act<'_> {
             Act::Standing { method, .. } | Act::Trust { method, .. } => method,
             Act::Routine { method, .. } => method,
             Act::Watch { method, .. } => method,
-            Act::Google { method, .. } => method,
             Act::SelfResume { .. } => theseus_protocol::method::SELF_RESUME,
             Act::SelfBacklog { method, .. } => method,
             Act::SelfNarrow { method, .. } => method,

@@ -124,6 +124,7 @@ impl Core {
                 };
                 self.self_drop(&p, who).map(drop).map_err(failure)
             }
+            Undo::GoogleTakeBack(id) => self.google_take_back(id).await,
         }
     }
 }
