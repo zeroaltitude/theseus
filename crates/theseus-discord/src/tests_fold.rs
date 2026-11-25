@@ -582,7 +582,9 @@ fn fyi(words: &str) -> Value {
 
 /// The bot's DM message whose first version holds `s`.
 fn dm_with(r: &Rig, s: &str) -> Option<Msg> {
-    r.posted(ANA_DM).into_iter().find(|m| m.versions[0].contains(s))
+    r.posted(ANA_DM)
+        .into_iter()
+        .find(|m| m.versions[0].contains(s))
 }
 
 /// Ana owns the rig; `dm` is her DM's extra lines, `notices` binds a notices
@@ -626,13 +628,17 @@ async fn a_standalone_fyi_in_the_dm_is_one_closed_line_that_opens() {
     let r = note_rig("", false).await;
     let words = "The persona files moved into the ontology.";
     stage_note(&r, fyi(words));
-    r.until("the folded note", || dm_with(&r, "-# ℹ️ FYI: a note").is_some())
-        .await;
+    r.until("the folded note", || {
+        dm_with(&r, "-# ℹ️ FYI: a note").is_some()
+    })
+    .await;
     let m = dm_with(&r, "-# ℹ️ FYI: a note").unwrap();
     assert_eq!(m.content, "-# ℹ️ FYI: a note");
     assert_eq!(labels(&m), ["Show note"]);
     assert!(
-        r.posted(ANA_DM).iter().all(|x| x.versions.iter().all(|v| !v.contains(words))),
+        r.posted(ANA_DM)
+            .iter()
+            .all(|x| x.versions.iter().all(|v| !v.contains(words))),
         "the words were never shown closed"
     );
     r.press(&m.id, "Show note", (ANA, "ana"));
@@ -642,7 +648,10 @@ async fn a_standalone_fyi_in_the_dm_is_one_closed_line_that_opens() {
     .await;
     let open = dm_with(&r, "-# ℹ️ FYI: a note").unwrap();
     use theseus_core::owner_note::{note, Kind};
-    assert_eq!(open.content, note(Kind::Fyi, "Personas moved", "a start", words));
+    assert_eq!(
+        open.content,
+        note(Kind::Fyi, "Personas moved", "a start", words)
+    );
     assert_eq!(labels(&open), ["Hide note"]);
     r.press(&m.id, "Hide note", (ANA, "ana"));
     r.until("the note closed", || {
@@ -662,7 +671,10 @@ async fn an_open_dm_and_the_notices_place_get_the_note_as_before() {
     r.until("the note's words", || dm_with(&r, words).is_some())
         .await;
     let m = dm_with(&r, words).unwrap();
-    assert_eq!(m.content, note(Kind::Fyi, "Personas moved", "a start", words));
+    assert_eq!(
+        m.content,
+        note(Kind::Fyi, "Personas moved", "a start", words)
+    );
     assert!(m.buttons.is_empty(), "{m:#?}");
     r.stop();
 
@@ -678,7 +690,10 @@ async fn an_open_dm_and_the_notices_place_get_the_note_as_before() {
         .into_iter()
         .find(|m| m.content.contains(words))
         .unwrap();
-    assert!(m.buttons.iter().all(|b| !b.custom_id.starts_with("fold:")), "{m:#?}");
+    assert!(
+        m.buttons.iter().all(|b| !b.custom_id.starts_with("fold:")),
+        "{m:#?}"
+    );
 }
 
 /// What needs the owner, and a note with a button of its own, are written as
@@ -722,8 +737,10 @@ async fn a_forged_note_press_shows_nothing() {
     let r = note_rig("", false).await;
     let words = "Words only their own message may show.";
     let post = stage_note(&r, fyi(words));
-    r.until("the folded note", || dm_with(&r, "-# ℹ️ FYI: a note").is_some())
-        .await;
+    r.until("the folded note", || {
+        dm_with(&r, "-# ℹ️ FYI: a note").is_some()
+    })
+    .await;
     let url = format!("http://{}/api/v10/channels/{ANA_DM}/messages", r.fake.addr);
     let posted: Value = reqwest::Client::new()
         .post(url)
@@ -745,6 +762,11 @@ async fn a_forged_note_press_shows_nothing() {
         })
     })
     .await;
-    let m = r.fake.messages(ANA_DM).into_iter().find(|m| m.id == id).unwrap();
+    let m = r
+        .fake
+        .messages(ANA_DM)
+        .into_iter()
+        .find(|m| m.id == id)
+        .unwrap();
     assert!(!m.content.contains(words), "{m:#?}");
 }

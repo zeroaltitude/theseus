@@ -205,7 +205,11 @@ impl Shared {
         let ours = a
             .as_ref()
             .is_some_and(|a| a.external_op_id.as_deref() == Some(m.id.to_string().as_str()));
-        let Some(text) = a.as_ref().filter(|_| ours).and_then(crate::courier::note_words) else {
+        let Some(text) = a
+            .as_ref()
+            .filter(|_| ours)
+            .and_then(crate::courier::note_words)
+        else {
             self.followup(i, NOTE_GONE).await;
             return;
         };
