@@ -30,15 +30,23 @@ pub struct ContextConfig {
     /// smaller one makes clearing come sooner and cost less.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_window_tokens: Option<u64>,
+    /// The topic block's own cap (issue 48), inside the ceiling: the task's
+    /// card, the things named and in play, then recall, cut first. Absent:
+    /// `view::budget::TOPIC_MAX_TOKENS` (8000); 1000 to 20000.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic_max_tokens: Option<u64>,
 }
 
 /// `persona_max_tokens`' default and bounds.
 pub const PERSONA_MAX_TOKENS: u64 = 2000;
 pub const PERSONA_MAX_TOKENS_RANGE: std::ops::RangeInclusive<u64> = 200..=8000;
+/// `topic_max_tokens`' bounds.
+pub const TOPIC_MAX_TOKENS_RANGE: std::ops::RangeInclusive<u64> = 1000..=20000;
 
 impl ContextConfig {
     pub fn is_empty(&self) -> bool {
         self.files.is_empty()
+            && self.topic_max_tokens.is_none()
             && self.default_persona.is_none()
             && self.working_window_tokens.is_none()
             && self.persona_max_tokens.is_none()
@@ -49,7 +57,21 @@ impl ContextConfig {
         self.persona_max_tokens.unwrap_or(PERSONA_MAX_TOKENS)
     }
 
+    /// The topic block may be this many tokens.
+    pub fn topic_cap(&self) -> u64 {
+        self.topic_max_tokens
+            .unwrap_or(crate::view::budget::TOPIC_MAX_TOKENS)
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
+        if let Some(n) = self
+            .topic_max_tokens
+            .filter(|n| !TOPIC_MAX_TOKENS_RANGE.contains(n))
+        {
+            anyhow::bail!(
+                "context.topic_max_tokens = {n} is out of range: 1000 to 20000 (the topic block beside the message, recall cut first; default 8000)"
+            );
+        }
         if let Some(n) = self
             .persona_max_tokens
             .filter(|n| !PERSONA_MAX_TOKENS_RANGE.contains(n))

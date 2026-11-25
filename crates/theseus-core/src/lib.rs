@@ -786,6 +786,8 @@ mod tests_view_resume;
 #[cfg(test)]
 mod tests_view_sources;
 #[cfg(test)]
+mod tests_view_topic;
+#[cfg(test)]
 mod tests_view_unread;
 #[cfg(test)]
 mod tests_wait_cost;

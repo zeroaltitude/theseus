@@ -2441,6 +2441,8 @@ mod tests_persona;
 #[cfg(test)]
 mod tests_sensitivity;
 #[cfg(test)]
+mod tests_topic_cap;
+#[cfg(test)]
 mod tests_trimmed;
 
 #[test]

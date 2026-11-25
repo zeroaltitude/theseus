@@ -30,6 +30,11 @@ impl Item {
     pub fn here(&self) -> bool {
         self.piece.slot == Slot::Here
     }
+
+    /// Counted against the topic block's own cap as well as the ceiling.
+    pub fn topic(&self) -> bool {
+        self.piece.slot == Slot::Called
+    }
 }
 
 /// Whether the row at this priority is never cut: the frame (the compiler's, counted first) or a floor row

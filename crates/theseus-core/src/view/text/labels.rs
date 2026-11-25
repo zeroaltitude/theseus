@@ -252,7 +252,7 @@ pub fn reason(r: Reason) -> &'static str {
         Reason::Past => "the owner's own earlier words",
         Reason::Waiting => "still waiting between you",
         Reason::AtHand => "the work at hand",
-        Reason::InPlay => "named in the last exchanges here",
+        Reason::InPlay => "named in or filed under the last exchanges here",
         Reason::Named => "named in this message",
         Reason::Linked => "linked to what is in view",
         Reason::Reached => "reached by this message",

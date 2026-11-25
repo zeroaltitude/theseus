@@ -92,6 +92,7 @@ fn budget(ceiling: u64, here_allowance: u64) -> Budget {
         reserve: 0,
         floor_only: false,
         bare: false,
+        topic: ceiling,
     }
 }
 
@@ -407,4 +408,80 @@ fn the_budgeter_is_linear_in_its_pieces() {
         "{large} operations at 5,000 against {small} at 500"
     );
     assert!(large <= 20 * 10_000, "{large} operations for 10,000 pieces");
+}
+
+/// The topic block (slot H: the task's card, the things named and in play, recall) is held to its own cap
+/// inside the ceiling, and cut from its own end: recall first, then what is in play. Nothing outside it is
+/// cut for it, however much room the ceiling has.
+#[test]
+fn the_topic_block_is_held_to_its_cap_and_recall_is_cut_first() {
+    let pieces = || {
+        let card = |band, thing, at| piece(band, fact(thing), at, Form::Whole, (300, 100, 10));
+        vec![
+            card(Band::TaskCard, "task", 4),
+            card(Band::Named, "named", 3),
+            card(Band::InPlay, "played", 2),
+            card(Band::Recall, "recalled", 9),
+            card(Band::Waiting, "waiting", 1),
+        ]
+    };
+    let capped = |topic| Budget {
+        topic,
+        ..budget(60_000, 150_000)
+    };
+    let card = 300 + H;
+    let whole = |band, at| (band, at, Form::Whole);
+    let uncut = run(pieces(), &budget(60_000, 150_000)).expect("fits");
+    assert_eq!(forms(&uncut).len(), 5, "under the ceiling alone nothing is cut");
+
+    let v = run(pieces(), &capped(3 * card + 100 + H)).expect("fits");
+    assert_eq!(
+        forms(&v),
+        [
+            whole(Band::Waiting, 1),
+            whole(Band::TaskCard, 4),
+            whole(Band::Named, 3),
+            whole(Band::InPlay, 2),
+            (Band::Recall, 9, Form::Spoken),
+        ],
+        "recall steps down first"
+    );
+
+    let v = run(pieces(), &capped(3 * card + R)).expect("fits");
+    assert_eq!(
+        forms(&v),
+        [
+            whole(Band::Waiting, 1),
+            whole(Band::TaskCard, 4),
+            whole(Band::Named, 3),
+            whole(Band::InPlay, 2),
+        ],
+        "recall is dropped before any card steps down"
+    );
+    assert_eq!(
+        v.residue,
+        [Residue {
+            band: Band::Recall,
+            pieces: 1,
+            tokens: card
+        }]
+    );
+
+    let v = run(pieces(), &capped(2 * card + 2 * R)).expect("fits");
+    assert_eq!(
+        forms(&v),
+        [
+            whole(Band::Waiting, 1),
+            whole(Band::TaskCard, 4),
+            whole(Band::Named, 3),
+        ],
+        "then what is in play; the task's card and the named things stand"
+    );
+    let block: u64 = (v.shown.iter())
+        .filter(|s| s.piece.slot == Slot::Called)
+        .map(|s| s.tokens)
+        .sum::<u64>()
+        + 2 * R;
+    assert!(block <= 2 * card + 2 * R, "the block within its cap: {block}");
+    assert_eq!(v.tokens, 3 * card + 2 * R, "the waiting card is not cut for it");
 }
