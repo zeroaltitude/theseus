@@ -140,7 +140,9 @@ impl<'a> People<'a> {
             let mut walk = Walk::new(snap, roots, RECENT_READ_MOST);
             let mut lines = 0usize;
             while lines < RECENT_LINES {
-                let Some(touch) = walk.next_touch()? else { break };
+                let Some(touch) = walk.next_touch()? else {
+                    break;
+                };
                 let Some(e) = touch else { continue };
                 if window.contains(&e.turn_id) {
                     continue;

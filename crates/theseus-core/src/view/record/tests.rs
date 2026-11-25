@@ -277,12 +277,7 @@ fn by_default_a_reader_is_shown_ids_kinds_forms_tokens_and_reasons_and_no_text()
 fn with_more_hidden() -> ViewRecord {
     let mut v = view(1);
     for (id, tokens) in [("far2", 900u64), ("far3", 5)] {
-        let mut p = piece(
-            "discord:dm:7",
-            id,
-            Band::Everywhere,
-            &[Reason::Elsewhere],
-        );
+        let mut p = piece("discord:dm:7", id, Band::Everywhere, &[Reason::Elsewhere]);
         p.sizes.whole = tokens;
         v.shown.push(shown(p));
     }

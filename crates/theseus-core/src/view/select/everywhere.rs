@@ -79,7 +79,9 @@ impl<'a> Everywhere<'a> {
             .collect();
         let mut walk = Walk::every_person(snap, EVERYWHERE_READ_MOST)?;
         while out.len() < EVERYWHERE_EXCHANGES {
-            let Some(touch) = walk.next_touch()? else { break };
+            let Some(touch) = walk.next_touch()? else {
+                break;
+            };
             let Some(e) = touch else { continue };
             let Some(f) = self.src.exchanges.facts(&e.turn_id)? else {
                 continue;
@@ -116,7 +118,14 @@ impl<'a> Everywhere<'a> {
 
 /// One exchange as a line: its words and `did` line, within [`EVERYWHERE_LINE_TOKENS`].
 fn line(e: &ExchangeRef, f: &ExchangeFacts) -> Piece {
-    let mut p = make::exchange(e, f, Band::Everywhere, Reason::Elsewhere, Form::Line, Cut::Window);
+    let mut p = make::exchange(
+        e,
+        f,
+        Band::Everywhere,
+        Reason::Elsewhere,
+        Form::Line,
+        Cut::Window,
+    );
     p.sizes.line = p.sizes.line.min(EVERYWHERE_LINE_TOKENS);
     p
 }

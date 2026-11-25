@@ -461,9 +461,14 @@ fn everywhere_shows_the_newest_fifteen_not_shown_here_with_their_places() {
         ex_,
     );
     let laid = select_as(&s, Band::Everywhere, &pov_of("owner", "local"));
-    let newest: Vec<String> = (0..EVERYWHERE_EXCHANGES).map(|i| format!("e{i:02}")).collect();
+    let newest: Vec<String> = (0..EVERYWHERE_EXCHANGES)
+        .map(|i| format!("e{i:02}"))
+        .collect();
     assert_eq!(ids(&laid), newest);
-    assert!(ids(&laid).contains(&"e02"), "a guest's words in a shared place");
+    assert!(
+        ids(&laid).contains(&"e02"),
+        "a guest's words in a shared place"
+    );
     for p in &laid {
         assert_eq!((p.slot, p.form), (Slot::Elsewhere, Form::Line));
         assert_eq!(p.reasons, BTreeSet::from([Reason::Elsewhere]));
