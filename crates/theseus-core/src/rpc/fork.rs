@@ -88,17 +88,7 @@ impl Core {
 
         let (profile, limit) = self.fork_target(&p, &source)?;
         let authority = src_exec.map(|e| e.authority).unwrap_or_default();
-        // A fork of a session the self loop opened is given its source's role (`rsi::roles`), so it is offered
-        // what its source is and its view reads what its source's does. A role that cannot be read refuses it.
-        let role = match authority.principal == crate::rsi::SELF_PRINCIPAL {
-            true => self.runner.role_read(&source.session_id).map_err(|e| {
-                refused(format!(
-                    "the job the self loop opened {} for cannot be read, so it is not forked: {e:#}",
-                    source.session_id
-                ))
-            })?,
-            false => None,
-        };
+        let role = self.fork_role(&source, &authority)?;
 
         let title = p.title.unwrap_or_else(|| {
             crate::fork::default_title(source.title.as_deref(), source.label.as_deref())
@@ -208,6 +198,25 @@ impl Core {
             return Err(invalid("budget_usd must be a positive number of dollars"));
         }
         Ok((profile, p.budget_usd.map(theseus_kernel::usd_to_micros)))
+    }
+
+    /// The role a fork of `source` is given: its source's, when the self loop opened it (`rsi::roles`), so the
+    /// fork is offered what its source is and its view reads what its source's does; none for any other. A role
+    /// that cannot be read refuses the fork.
+    fn fork_role(
+        &self,
+        source: &SessionRecord,
+        authority: &theseus_kernel::Authority,
+    ) -> Result<Option<crate::rsi::roles::Role>, RpcFailure> {
+        if authority.principal != crate::rsi::SELF_PRINCIPAL {
+            return Ok(None);
+        }
+        self.runner.role_read(&source.session_id).map_err(|e| {
+            refused(format!(
+                "the job the self loop opened {} for cannot be read, so it is not forked: {e:#}",
+                source.session_id
+            ))
+        })
     }
 
     /// The fork's one frame: its execution, its session record, its first

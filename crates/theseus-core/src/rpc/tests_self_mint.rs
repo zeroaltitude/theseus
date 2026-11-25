@@ -501,16 +501,18 @@ fn all_items(c: &Core) -> Vec<theseus_protocol::rsi::SelfBacklogItem> {
         .items
 }
 
-/// A mint's writer, opened by the real night's start (`mint_open`), keeps to its own place (issue 53): its brief
-/// promises the instances that check its tool are held back from it. A held-back instance, which an ordinary
-/// session at another place is laid through recall and pages, opens and finds by every place, is not laid in
-/// the writer's request, and its history tool neither pages nor opens it, nor its session, nor searches the
-/// imports.
-#[tokio::test]
-async fn a_mint_writer_is_laid_no_held_back_instance_and_cannot_page_or_search_one() {
-    use crate::exchange::{exchange_record, touch, Exchange, Opener, Root, OWNER};
-    use crate::node::Node;
-    const HELD: &str = "HELD-BACK-HARBOR: merge the job branch and push it";
+/// The words of a held-back instance, as its exchange records them.
+const HELD: &str = "HELD-BACK-HARBOR: merge the job branch and push it";
+
+/// A night that started one mint, on a core whose recall reads: the core, its model, the writer's session, one
+/// of the instances held back from it, and the night's time.
+fn mint_started() -> (
+    Arc<Core>,
+    Arc<FakeProvider>,
+    String,
+    crate::rsi::mine::Occurrence,
+    u64,
+) {
     let base = acting(true);
     let mut cfg = (*base.cfg).clone();
     cfg.self_improve.mint.per_night = 1;
@@ -519,17 +521,21 @@ async fn a_mint_writer_is_laid_no_held_back_instance_and_cannot_page_or_search_o
     let c = Core::build(Parts::for_tests(cfg, model.clone(), base.store.clone())).unwrap();
     c.self_resume(&Default::default(), &Answerer::from("the CLI"))
         .unwrap();
-    let dir = repo();
     let t = now();
-    seed(&c, &dir, t, None);
+    seed(&c, &repo(), t, None);
     let night = c.backlog_night(t).unwrap();
     let s = &night.started[0];
     let placeholder = s.mint.clone().expect("a mint start");
-    let writer = s.session_id.clone();
     let held = read_check(c.tools.flows.root(), &placeholder).unwrap()[0].clone();
-    // The held-back instance as a turn's exchange is recorded: its words, at its own place.
+    (c, model, s.session_id.clone(), held, t)
+}
+
+/// `held` as a turn's exchange is recorded, [`HELD`] its words, at its own place, and recall made to read its
+/// session; the place.
+fn record_held(c: &Arc<Core>, held: &crate::rsi::mine::Occurrence, t: u64) -> String {
+    use crate::exchange::{exchange_record, touch, Exchange, Opener, Root, OWNER};
     let place = crate::view_gate::place_name(&c.runner, &held.session).unwrap();
-    let ask = Node::user(&held.session, Some(&held.turn), "owner", HELD);
+    let ask = crate::node::Node::user(&held.session, Some(&held.turn), "owner", HELD);
     let x = Exchange {
         turn_id: held.turn.clone(),
         session_id: held.session.clone(),
@@ -550,89 +556,64 @@ async fn a_mint_writer_is_laid_no_held_back_instance_and_cannot_page_or_search_o
     recs.extend(touch(Root::Person(OWNER), &held.turn, &held.session, t));
     c.store.append(&recs).unwrap();
     (c.runner.memory).set_ask(crate::tests_private_view::index_of(
-        &c,
+        c,
         vec![held.session.clone()],
     ));
+    place
+}
+
+/// `sid`'s answer to a history call `a`, as the tool runs it.
+async fn history(c: &Arc<Core>, sid: &str, a: Value) -> Result<String, String> {
+    let pov = crate::history_tool::pov_of(c, sid, "t_now", None, crate::places::PlaceClass::Private);
+    let a: crate::view::history::HistoryArgs = serde_json::from_value(a).unwrap();
+    let board = crate::history_tool::Board::default();
+    crate::history_tool::answer(c, &board, (sid, "t_now"), &pov, &a)
+        .await
+        .map(|o| o.text)
+}
+
+/// A mint's writer, opened by the real night's start (`mint_open`), keeps to its own place (issue 53): its brief
+/// promises the instances that check its tool are held back from it. A held-back instance, which an ordinary
+/// session at another place is laid through recall and pages, opens and finds by every place, is not laid in
+/// the writer's request, and its history tool neither pages nor opens it, nor its session, nor searches the
+/// imports.
+#[tokio::test]
+async fn a_mint_writer_is_laid_no_held_back_instance_and_cannot_page_or_search_one() {
+    let (c, model, writer, held, t) = mint_started();
+    let place = record_held(&c, &held, t);
     // The writer: no role, its own place.
     assert_eq!(c.tools.self_pr.role(&writer), None);
     assert!(crate::view_gate::Verified::of_session(&c.runner, &writer).own_place_only());
-    let ordinary = {
-        let rec =
-            crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
-        c.store.put_session(&rec.session_id, &rec).unwrap();
-        rec.session_id
-    };
+    let ordinary = session(&c, &repo());
     // Laid: the ordinary session's request holds the held-back words through recall; the writer's does not.
     for (sid, who) in [(&ordinary, "ordinary"), (&writer, "writer")] {
-        crate::tests_view_hand_backs::unmarked(
-            &c,
-            sid,
-            &format!("{who}: HARBOR merge the job branch?"),
-        )
-        .await
-        .unwrap();
+        let asks = format!("{who}: HARBOR merge the job branch?");
+        crate::tests_view_hand_backs::unmarked(&c, sid, &asks)
+            .await
+            .unwrap();
     }
     let sent = |who: &str| {
         let q = (model.requests().into_iter())
             .filter(|q| crate::tests_places::last_user(q).contains(&format!("{who}: HARBOR")))
-            .last()
+            .next_back()
             .expect("its request");
         serde_json::to_string(&q.messages).unwrap()
     };
-    assert!(
-        sent("ordinary").contains("HELD-BACK-HARBOR"),
-        "the control is laid it"
-    );
-    assert!(
-        !sent("writer").contains("HELD-BACK-HARBOR"),
-        "the writer is not"
-    );
+    assert!(sent("ordinary").contains("HELD-BACK-HARBOR"), "the control is laid it");
+    assert!(!sent("writer").contains("HELD-BACK-HARBOR"), "the writer is not");
     // Paged, opened, found: the ordinary session reaches it, the writer does not.
-    let history = |sid: String, a: Value| {
-        let c = c.clone();
-        async move {
-            let pov = crate::history_tool::pov_of(
-                &c,
-                &sid,
-                "t_now",
-                None,
-                crate::places::PlaceClass::Private,
-            );
-            let a: crate::view::history::HistoryArgs = serde_json::from_value(a).unwrap();
-            crate::history_tool::answer(
-                &c,
-                &crate::history_tool::Board::default(),
-                (&sid, "t_now"),
-                &pov,
-                &a,
-            )
-            .await
-            .map(|o| o.text)
-        }
-    };
     for a in [
         json!({"open": held.turn.clone()}),
         json!({"place": place.clone()}),
         json!({"place": "*"}),
     ] {
-        let wide = history(ordinary.clone(), a.clone())
-            .await
-            .unwrap_or_else(|e| e);
-        assert!(
-            wide.contains("HELD-BACK-HARBOR"),
-            "{a}: the control: {wide}"
-        );
-        let own = history(writer.clone(), a.clone())
-            .await
-            .unwrap_or_else(|e| e);
+        let wide = history(&c, &ordinary, a.clone()).await.unwrap_or_else(|e| e);
+        assert!(wide.contains("HELD-BACK-HARBOR"), "{a}: the control: {wide}");
+        let own = history(&c, &writer, a.clone()).await.unwrap_or_else(|e| e);
         assert!(!own.contains("HELD-BACK-HARBOR"), "{a}: the writer: {own}");
     }
-    let opened = history(writer.clone(), json!({"open": held.session.clone()})).await;
+    let opened = history(&c, &writer, json!({"open": held.session.clone()})).await;
     assert!(opened.is_err(), "its session does not open: {opened:?}");
-    let searched = history(
-        writer.clone(),
-        json!({"place": "import", "words": "HARBOR"}),
-    )
-    .await;
+    let searched = history(&c, &writer, json!({"place": "import", "words": "HARBOR"})).await;
     assert!(searched.is_err(), "no import search: {searched:?}");
 }
