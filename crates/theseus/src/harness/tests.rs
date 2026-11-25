@@ -418,6 +418,7 @@ fn the_default_tag_is_the_sources_live_tag_else_todays() {
             tag("claude-code-2026-09-03", "claude-code", 4, 4, 30),
             tag("openclaw-2026", "openclaw-store", 9, 0, 40),
         ],
+        unread: vec![],
     };
     assert_eq!(
         run::default_tag(&listed, Source::ClaudeCode, "2026-10-11"),
