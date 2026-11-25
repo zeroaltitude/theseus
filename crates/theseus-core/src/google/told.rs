@@ -40,7 +40,11 @@ pub fn mail_trashed(done: &[(&str, &str)]) -> Value {
         .collect();
     told(
         "Moved mail to the Trash",
-        format!("Moved {} Gmail thread(s) to the Trash: {}.", ids.len(), ids.join(", ")),
+        format!(
+            "Moved {} Gmail thread(s) to the Trash: {}.",
+            ids.len(),
+            ids.join(", ")
+        ),
         "Undo takes them out of the Trash.".into(),
         undo,
     )
@@ -49,8 +53,14 @@ pub fn mail_trashed(done: &[(&str, &str)]) -> Value {
 /// A Drive file moved to the Trash (`trashed`) or restored from it.
 pub fn drive_trashed(id: &str, trashed: bool) -> Value {
     let (title, did) = match trashed {
-        true => ("Moved a Drive file to the Trash", "Moved Drive file {id} to the Trash."),
-        false => ("Restored a Drive file from the Trash", "Restored Drive file {id} from the Trash."),
+        true => (
+            "Moved a Drive file to the Trash",
+            "Moved Drive file {id} to the Trash.",
+        ),
+        false => (
+            "Restored a Drive file from the Trash",
+            "Restored Drive file {id} from the Trash.",
+        ),
     };
     let back = match trashed {
         true => "Undo restores it.",
@@ -191,7 +201,10 @@ mod tests {
             assert!(s.starts_with("ℹ️ FYI · "), "{s}");
             assert!(s.contains("In “tidy my inbox”, without asking you"), "{s}");
             let s = text(&t, "ses_1", None).unwrap();
-            assert!(s.contains("In conversation ses_1, without asking you"), "{s}");
+            assert!(
+                s.contains("In conversation ses_1, without asking you"),
+                "{s}"
+            );
         }
         assert_eq!(text(&json!({"x": 1}), "ses_1", None), None);
     }

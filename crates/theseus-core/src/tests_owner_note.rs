@@ -149,7 +149,11 @@ fn spend_families() -> Vec<(&'static str, String)> {
         crate::google::told::text(&t, "ses_1", Some("tidy the inbox")).unwrap()
     };
     let google_trash = told(crate::google::told::mail_trashed(&[("threads", "t1")]));
-    let google_revoke = told(crate::google::told::drive_revoked("doc1", "a@example.test", "reader"));
+    let google_revoke = told(crate::google::told::drive_revoked(
+        "doc1",
+        "a@example.test",
+        "reader",
+    ));
     let persona = crate::turn::persona_step::missing_text("wren", "/p/SOUL.md", "denied");
     vec![
         ("day ceiling", ceiling),

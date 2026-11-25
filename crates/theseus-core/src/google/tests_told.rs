@@ -40,7 +40,11 @@ fn notes(r: &Rig) -> Vec<String> {
         .open_for(crate::outbox::OPERATOR_TARGET)
         .iter()
         .map(|a| crate::outbox::body_of(a).clone())
-        .filter(|b| b["text"].as_str().is_some_and(|t| t.starts_with("ℹ️ FYI · ")))
+        .filter(|b| {
+            b["text"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("ℹ️ FYI · "))
+        })
         .map(|b| {
             assert_eq!(b["kind"], "notice", "{b}");
             assert_eq!(b["announce"], true, "{b}");
@@ -52,7 +56,10 @@ fn notes(r: &Rig) -> Vec<String> {
 /// Each call a note's undo carries, run as its press would: through
 /// `google.call`, which none of them makes ask.
 async fn undo(r: &Rig, out: &ToolOutput) {
-    let calls = out.meta[super::told::KEY]["undo"].as_array().unwrap().clone();
+    let calls = out.meta[super::told::KEY]["undo"]
+        .as_array()
+        .unwrap()
+        .clone();
     assert!(!calls.is_empty(), "{}", out.meta);
     for c in calls {
         assert!(plan(r, "google.call", c.clone()).authority.is_none(), "{c}");
@@ -81,7 +88,11 @@ fn share(id: &str, input: Value) -> Scripted {
 #[tokio::test]
 async fn a_drive_trash_runs_unasked_is_told_once_and_its_undo_restores_it() {
     let trash = json!({"id": "doc1", "trash": true});
-    let r = drive_rig_with(vec![share("c1", trash.clone()), Scripted::text("Done.")], |_| {}).await;
+    let r = drive_rig_with(
+        vec![share("c1", trash.clone()), Scripted::text("Done.")],
+        |_| {},
+    )
+    .await;
     let drive = Drive::install(&r.fake);
     drive.add(File::doc("doc1", "Plan", "# Plan\n"));
     assert!(plan(&r, "drive.share", trash.clone()).authority.is_none());
@@ -104,7 +115,12 @@ async fn a_drive_trash_runs_unasked_is_told_once_and_its_undo_restores_it() {
     let after = drive.file("doc1").unwrap();
     assert!(!after.trashed);
     assert_eq!(
-        (after.name, after.parents, after.shared, after.permissions.len()),
+        (
+            after.name,
+            after.parents,
+            after.shared,
+            after.permissions.len()
+        ),
         ("Plan".to_string(), vec!["root".to_string()], false, 0)
     );
     // A restore is its own opposite's undo.
@@ -124,7 +140,11 @@ async fn a_drive_trash_runs_unasked_is_told_once_and_its_undo_restores_it() {
 async fn a_drive_revoke_runs_unasked_and_says_how_to_give_it_back_and_a_grant_still_asks() {
     let remove = json!({"id": "doc1", "email": "collaborator@example.test", "remove": true});
     let grant = json!({"id": "doc1", "email": "collaborator@example.test", "role": "writer"});
-    let r = drive_rig_with(vec![share("c1", remove.clone()), Scripted::text("Done.")], |_| {}).await;
+    let r = drive_rig_with(
+        vec![share("c1", remove.clone()), Scripted::text("Done.")],
+        |_| {},
+    )
+    .await;
     let drive = Drive::install(&r.fake);
     drive.add(File::doc("doc1", "Plan", "# Plan\n"));
     // The grant is made directly (as the owner's approved call would be), so there is access to take.
@@ -145,14 +165,20 @@ async fn a_drive_revoke_runs_unasked_and_says_how_to_give_it_back_and_a_grant_st
     );
     // No button: giving access back is a grant, and a grant asks at every posture.
     let out = ok(&r, "drive.share", grant.clone()).await;
-    assert!(out.meta.get(super::told::KEY).is_none(), "a grant is not told: it asked");
+    assert!(
+        out.meta.get(super::told::KEY).is_none(),
+        "a grant is not told: it asked"
+    );
     let out = ok(&r, "drive.share", remove).await;
     assert_eq!(out.meta[super::told::KEY]["undo"], json!([]));
     let t = tool(&r, "drive.share");
     let p = plan(&r, "drive.share", grant);
     assert!(p.authority.is_some());
     assert!(!r.core.tools.policy.posture_only(t.as_ref(), &p));
-    assert_eq!(r.core.tools.policy.decide(t.as_ref(), &p).posture, Posture::Approve);
+    assert_eq!(
+        r.core.tools.policy.decide(t.as_ref(), &p).posture,
+        Posture::Approve
+    );
     // A write into a shared folder still asks.
     drive.add(File::folder("team", "Team").shared());
     let into = json!({"name": "Notes", "content": "x", "folder": "team", "into_shared": true});
@@ -164,7 +190,9 @@ async fn a_drive_revoke_runs_unasked_and_says_how_to_give_it_back_and_a_grant_st
 async fn an_explicit_approve_on_the_tool_still_asks_for_a_trash_and_tells_nothing() {
     let trash = json!({"id": "doc1", "trash": true});
     let r = drive_rig_with(vec![share("c1", trash.clone())], |c| {
-        c.policy.tools.insert("drive.share".into(), Posture::Approve);
+        c.policy
+            .tools
+            .insert("drive.share".into(), Posture::Approve);
     })
     .await;
     let drive = Drive::install(&r.fake);
@@ -290,7 +318,10 @@ async fn a_message_put_in_or_a_calendar_made_is_told_with_how_to_take_it_back() 
     let out = ok(&r, "google.call", insert).await;
     let told = &out.meta[super::told::KEY];
     assert_eq!(told["undo"], json!([]));
-    assert_eq!(told["back"], "To take it back, move message m77 to the Trash.");
+    assert_eq!(
+        told["back"],
+        "To take it back, move message m77 to the Trash."
+    );
     let made = json!({"method": "calendar.calendars.insert", "body": {"summary": "Trips"}});
     assert!(plan(&r, "google.call", made.clone()).authority.is_none());
     let out = ok(&r, "google.call", made).await;

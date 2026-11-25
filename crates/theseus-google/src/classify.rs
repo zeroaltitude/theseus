@@ -184,8 +184,14 @@ mod tests {
         // What the owner can take back himself is a tidy write: it is told,
         // and does not ask (issue 57).
         for (id, tidy) in [
-            ("gmail.users.messages.import", "puts a message into the mailbox"),
-            ("gmail.users.messages.insert", "puts a message into the mailbox"),
+            (
+                "gmail.users.messages.import",
+                "puts a message into the mailbox",
+            ),
+            (
+                "gmail.users.messages.insert",
+                "puts a message into the mailbox",
+            ),
             ("gmail.users.messages.trash", "moves to or from the trash"),
             ("gmail.users.messages.untrash", "moves to or from the trash"),
             ("gmail.users.threads.trash", "moves to or from the trash"),
@@ -260,8 +266,14 @@ mod tests {
             c("POST", "/drive/v3/files/abc/permissions/p1:trash"),
             Class::Authority
         );
-        assert_eq!(c("DELETE", "/gmail/v1/users/me/messages/abc/trash"), Class::Authority);
-        assert_eq!(c("POST", "/calendar/v3/calendars/c1/clear"), Class::Authority);
+        assert_eq!(
+            c("DELETE", "/gmail/v1/users/me/messages/abc/trash"),
+            Class::Authority
+        );
+        assert_eq!(
+            c("POST", "/calendar/v3/calendars/c1/clear"),
+            Class::Authority
+        );
         assert_eq!(tidy("POST", "/calendar/v3/calendars/c1/clear"), None);
         assert_eq!(c("GET", "/gmail/v1/users/me/messages"), Class::Read);
         assert_eq!(c("POST", "/gmail/v1/users/me/labels"), Class::Write);

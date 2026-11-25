@@ -134,7 +134,11 @@ async fn share_always_asks_whatever_the_posture_and_trash_follows_the_tools_own(
     assert!(res.awaiting_confirm.is_some(), "share it: {res:?}");
     let res = crate::test_support::turn(&r.core, &session(&r.core), "trash it").await;
     assert!(res.awaiting_confirm.is_none(), "trash it: {res:?}");
-    let shared = r.fake.log().into_iter().any(|l| l.path.ends_with("/permissions"));
+    let shared = r
+        .fake
+        .log()
+        .into_iter()
+        .any(|l| l.path.ends_with("/permissions"));
     assert!(!shared, "nothing was shared");
     assert!(drive.file("doc1").unwrap().trashed);
     let asked = ledgered(&r.core, "tool.confirm_requested");
@@ -159,7 +163,9 @@ async fn a_trash_asks_when_the_owner_sets_its_tool_to_approve() {
         vec![call_of("c2", "drive_share", trash.clone())],
         |c| {
             c.policy.enforcement = Posture::Open;
-            c.policy.tools.insert("drive.share".into(), Posture::Approve);
+            c.policy
+                .tools
+                .insert("drive.share".into(), Posture::Approve);
         },
     )
     .await;
