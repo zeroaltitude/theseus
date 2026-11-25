@@ -129,6 +129,13 @@ impl Core {
     /// digests of its other finds are bounded, and a file they did not reach
     /// is new when a compile first finds it; a grant naming that file's
     /// directory pins it.
+    ///
+    /// **A trust of a repository already trusted accepts what is there now**
+    /// (the owner, 2026-11-24): it is the same grant, its row, and a fresh
+    /// sighting, and it drops the act key's hold (`change::Held`), in one
+    /// frame. So the owner's yes to a held or waiting change is one command,
+    /// which he alone can give (`Act::Trust` above), and `untrust` then
+    /// `trust` stays the same yes.
     pub fn project_trust(&self, path: &Path, who: impl Into<Answerer>) -> Result<Trusted> {
         let who = who.into();
         self.judge_act(
@@ -141,12 +148,6 @@ impl Core {
         let root = Self::trust_root(path)?;
         let id = repo_id(&root);
         let mut grants = Grants::read(&self.store)?;
-        if let Some(g) = grants.repos.get(&id) {
-            return Ok(Trusted {
-                id,
-                grant: g.clone(),
-            });
-        }
         let grant = Grant {
             root: root.display().to_string(),
             by: who.who(),
@@ -165,8 +166,13 @@ impl Core {
             change::grant(&self.runner.context_files, &root, path, grant.at_ms)
         });
         let rec = self.rec(None);
-        self.store
-            .append(&[rec.row(&fact)?, grants.record()?, seen.record(&id)?])?;
+        let mut records = vec![rec.row(&fact)?, grants.record()?, seen.record(&id)?];
+        if change::Held::read(&self.store, &id).is_some() {
+            records.push(theseus_store::NewRecord::delete_meta(&change::held_key(
+                &id,
+            )));
+        }
+        self.store.append(&records)?;
         rec.announce(&fact);
         Ok(Trusted { id, grant })
     }
@@ -185,12 +191,12 @@ impl Core {
     /// `[project] on_change = "ask"`, where a changed file is named and not
     /// read until he does it.
     ///
-    /// **The writer key's hold goes with it** (`change::Held`, S31-1), for
-    /// the same two reasons and in the same frame. It is also the whole
-    /// release route for that hold: the card that built it was told not to
-    /// invent a command surface, and the state already had a yes -- he reads
-    /// the file and grants the repository again. One route, so there is no
-    /// second one to get wrong.
+    /// **The act key's hold goes with it** (`change::Held`, S31-1), for
+    /// the same two reasons and in the same frame. The release of that hold
+    /// is the trust route and no other: the card that built it was told not
+    /// to invent a command surface, and the state already had a yes -- he
+    /// reads the file and grants the repository again, with this then
+    /// `project_trust`, or with `project_trust` alone.
     pub fn project_untrust(&self, path: &Path, who: impl Into<Answerer>) -> Result<Trusted> {
         let who = who.into();
         self.judge_act(

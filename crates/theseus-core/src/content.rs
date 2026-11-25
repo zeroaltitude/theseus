@@ -576,12 +576,11 @@ pub fn local_read(tool: &str) -> bool {
 /// code — a write, a program, and everything that leaves this machine.
 ///
 /// One function with two readers, deliberately (S31-1). [`refusal`] asks it
-/// to decide what a frozen session may not do; `project_context::change::wrote`
-/// asks it to decide after which calls a granted repository's instruction
-/// files are worth re-digesting. Those two sets must be the same set: a call
-/// that can change a file is a call the writer key must watch, and a tool
-/// added to one list and not the other would be a hole in whichever was
-/// missed.
+/// to decide what a frozen session may not do; `ToolRuntime::hold_projects`
+/// asks it to decide after which calls every granted repository is held
+/// (`project_context::change::hold_all`). Those two sets must be the same
+/// set: a call that can change a file is a call that must hold, and a tool
+/// added to one list and not the other would be missed by one of them.
 pub fn acts(class: ToolClass, tool: &str) -> bool {
     !(class == ToolClass::Read && local_read(tool))
 }
