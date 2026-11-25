@@ -185,6 +185,13 @@ async fn field_names_are_asked_first_after_outside_text() {
         .await;
     assert_eq!(r.asked().len(), 1, "{:?}", r.asked());
     assert!(
+        r.asked()[0]
+            .reason
+            .contains(crate::config_change::FLAG_HOLD),
+        "the flag: {}",
+        r.asked()[0].reason
+    );
+    assert!(
         logged(&dir).is_empty(),
         "nothing was asked of the vault yet"
     );

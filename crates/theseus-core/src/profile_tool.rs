@@ -43,7 +43,7 @@ use theseus_tools::{
 
 use crate::approval::Answerer;
 use crate::chat_acts::Said;
-use crate::config_change::{outside_text, wall};
+use crate::config_change::{flag_way, hold_words, outside_text, wall};
 use crate::toolrun::TurnCtx;
 use crate::Core;
 
@@ -114,7 +114,7 @@ pub(crate) fn ask_if_outside(tc: &TurnCtx<'_>, name: &str, plan: Plan) -> Plan {
         return plan;
     }
     let (outside, steered) = outside_text(tc);
-    held(name, outside, steered, plan)
+    held(name, outside, steered, &flag_way(tc), plan)
 }
 
 /// Handing work to a profile starts a task, so where `task.create` is held to ask first (its
@@ -131,14 +131,13 @@ pub(crate) fn ask_if_task_asks(name: &str, task_asks: bool, mut plan: Plan) -> P
     plan
 }
 
-/// [`ask_if_outside`], on the facts it reads.
-fn held(name: &str, outside: bool, steered: bool, mut plan: Plan) -> Plan {
-    if NAMES.contains(&name) && (outside || steered) {
-        plan.authority = Some(format!(
-            "{}: this conversation has read text from outside since your last message, so the \
-             request may not be only yours",
-            about(name)
-        ));
+/// [`ask_if_outside`], on the facts it reads: each cause in its own words, with `way` to clear
+/// the session's flag.
+fn held(name: &str, outside: bool, steered: bool, way: &str, mut plan: Plan) -> Plan {
+    if NAMES.contains(&name) {
+        if let Some(said) = hold_words(about(name), outside, steered, way) {
+            plan.authority = Some(said);
+        }
     }
     plan
 }

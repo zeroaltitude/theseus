@@ -342,21 +342,19 @@ pub(crate) fn ask_if_outside(tc: &TurnCtx<'_>, name: &str, plan: Plan) -> Plan {
         return plan;
     }
     let (outside, steered) = super::outside_text(tc);
-    held(name, outside, steered, plan)
+    held(name, outside, steered, &super::flag_way(tc), plan)
 }
 
-/// [`ask_if_outside`], on the facts it reads.
-fn held(name: &str, outside: bool, steered: bool, mut plan: Plan) -> Plan {
-    if outside || steered {
-        let what = match name {
-            USE => "look in Theseus's vault to use a secret",
-            super::vault_keep::KEEP => "ask to keep a secret in Theseus's vault",
-            _ => return plan,
-        };
-        plan.authority = Some(format!(
-            "{what}: this conversation has read text from outside since your last message, so \
-             the request may not be only yours"
-        ));
+/// [`ask_if_outside`], on the facts it reads: each cause in its own words, with `way` to clear
+/// the session's flag.
+fn held(name: &str, outside: bool, steered: bool, way: &str, mut plan: Plan) -> Plan {
+    let what = match name {
+        USE => "look in Theseus's vault to use a secret",
+        super::vault_keep::KEEP => "ask to keep a secret in Theseus's vault",
+        _ => return plan,
+    };
+    if let Some(said) = super::hold_words(what, outside, steered, way) {
+        plan.authority = Some(said);
     }
     plan
 }

@@ -170,3 +170,31 @@ fn an_approve_list_card_says_why() {
     assert_eq!(p.why, "");
     assert_eq!(p.held, "`proc.run` is set to ask before it runs");
 }
+
+/// A hold on a look, a profile tool, a settings read or a vault call prints its
+/// cause whole, with no "layer 1:" (the gate's name for it, not the owner's), in
+/// `why` and `held`; a task's own layer 1 keeps the policy's words.
+#[test]
+fn a_holds_words_are_printed_whole_without_layer_one() {
+    use crate::config_change::{hold_words, tests_hold::ways};
+    let state = Path::new("/home/x/.theseus");
+    let what = "hand another model profile a piece of work";
+    for way in ways() {
+        for (o, s) in [(true, false), (false, true)] {
+            let said = hold_words(what, o, s, &way).unwrap();
+            let req = ConfirmRequest {
+                tool: "profile.run".into(),
+                input: json!({"profile": "glm", "work": "say hello"}),
+                reason: format!("hand over: profile.run — approve (layer 1: {said})"),
+                ..Default::default()
+            };
+            let p = plain(&req, &gloss(state, None));
+            assert_eq!((p.why.as_str(), p.held.as_str()), (said.as_str(), said.as_str()));
+        }
+    }
+    let task = "change task: task.update — approve (layer 1: the task's objective is yours)";
+    assert_eq!(
+        rule_clause(task).as_deref(),
+        Some("layer 1: the task's objective is yours")
+    );
+}

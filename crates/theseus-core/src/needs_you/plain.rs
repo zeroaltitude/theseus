@@ -214,7 +214,9 @@ pub fn risk_of(req: &ConfirmRequest) -> &'static str {
 }
 
 /// The clause a rule gives for asking: the text of the reason's last
-/// `— approve (…)`, any `§` reference cut. None when the owner's own posture
+/// `— approve (…)`, any `§` reference cut, and no "layer 1:" before a hold's
+/// words (`config_change::hold_words`), which is the gate's name and not the
+/// owner's. None when the owner's own posture
 /// asks (`enforcement = approve`, a `[policy.…]` setting, a tightening) or the
 /// reason says nothing: those need no clause. The one reading of a reason that
 /// every surface shares (the Discord card's `why it asks`, the plain words).
@@ -229,6 +231,10 @@ pub fn rule_clause(reason: &str) -> Option<String> {
     let clause = words.join(" ");
     let clause =
         clause.trim_matches(|c: char| c == ',' || c == ';' || c == ':' || c.is_whitespace());
+    let clause = match clause.strip_prefix("layer 1: ") {
+        Some(said) if crate::config_change::is_hold_words(said) => said,
+        _ => clause,
+    };
     let posture = ["enforcement = approve", "[policy.", "tightened by"];
     (!clause.is_empty() && !posture.iter().any(|p| clause.starts_with(p)))
         .then(|| clause.to_string())

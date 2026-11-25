@@ -300,6 +300,54 @@ pub(crate) fn outside_text(tc: &TurnCtx<'_>) -> (bool, bool) {
     (outside, steered)
 }
 
+/// The hold's words when outside text alone holds the call.
+pub const OUTSIDE_HOLD: &str = "this conversation has read text from outside since your last \
+     message; this ends with your next message";
+
+/// The hold's words when the session's flag holds the call, before the way to clear it.
+pub const FLAG_HOLD: &str = "Theseus's check flagged text in this conversation as trying to \
+     steer it; it asks each time until you clear the flag";
+
+/// Why a call that reads Theseus's own state is held, in the words of its cause (`what` is
+/// what the call asks to do): the session's flag, which asks every time until the owner clears
+/// it (`way`, from [`flag_way`]); else outside text, which ends with the owner's next message.
+/// None when neither holds. Each sentence fits whole in what a card prints of it
+/// (`needs_you::rule_clause`, cut at 200 characters by the Discord card).
+pub fn hold_words(what: &str, outside: bool, steered: bool, way: &str) -> Option<String> {
+    match (outside, steered) {
+        (_, true) => Some(format!("{what}: {FLAG_HOLD}: {way}")),
+        (true, false) => Some(format!("{what}: {OUTSIDE_HOLD}")),
+        (false, false) => None,
+    }
+}
+
+/// How the owner clears the session's flag, where this conversation is.
+pub(crate) fn flag_way(tc: &TurnCtx<'_>) -> String {
+    let place = tc.outbox.try_target(tc.session_id).ok().flatten();
+    flag_way_in(place.as_deref(), tc.session_id)
+}
+
+/// [`flag_way`], on the facts it reads: in the owner's Discord DM, `/trust` there or Remove on
+/// the flag's notice, which only that place has; anywhere else, the command that works from
+/// every terminal, naming the session by its last four characters.
+pub fn flag_way_in(place: Option<&str>, session_id: &str) -> String {
+    match place {
+        Some(p) if p.starts_with("discord:dm:") => {
+            "/trust in the DM, or Remove on its ⚑ notice".into()
+        }
+        _ => {
+            let n = session_id.chars().count();
+            let tail: String = session_id.chars().skip(n.saturating_sub(4)).collect();
+            format!("`theseus content remove {tail} injection`")
+        }
+    }
+}
+
+/// Whether a rule's clause is a hold's words ([`hold_words`]).
+pub(crate) fn is_hold_words(clause: &str) -> bool {
+    clause.contains(OUTSIDE_HOLD) || clause.contains(FLAG_HOLD)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RestartInput {
@@ -787,6 +835,8 @@ pub fn confirm_request(
 pub(crate) mod tests;
 #[cfg(test)]
 pub(crate) mod tests_answer;
+#[cfg(test)]
+pub(crate) mod tests_hold;
 #[cfg(test)]
 mod tests_look;
 #[cfg(test)]

@@ -280,8 +280,9 @@ async fn a_steered_turn_is_asked_before_the_vault_is_read() {
     assert_eq!(asks.len(), 1, "{asks:?}");
     assert_eq!(asks[0].tool, "look.vault");
     assert!(
-        asks[0].reason.contains("read text from outside"),
-        "{}",
+        asks[0].reason.contains(crate::config_change::FLAG_HOLD)
+            && !asks[0].reason.contains("read text from outside"),
+        "the flag, not outside text: {}",
         asks[0].reason
     );
     assert!(

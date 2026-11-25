@@ -753,8 +753,9 @@ async fn a_steered_turn_is_asked_first_and_a_task_is_refused() {
     assert_eq!(asks.len(), 1, "{asks:?}");
     assert_eq!(asks[0].tool, "vault.keep");
     assert!(
-        asks[0].reason.contains("read text from outside"),
-        "{}",
+        asks[0].reason.contains(crate::config_change::FLAG_HOLD)
+            && !asks[0].reason.contains("read text from outside"),
+        "the flag, not outside text: {}",
         asks[0].reason
     );
     assert!(argv(dir.path()).is_empty(), "the vault was not listed yet");

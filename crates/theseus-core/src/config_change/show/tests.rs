@@ -257,19 +257,19 @@ async fn a_task_cannot_read_the_settings() {
     );
 }
 
-/// A read in a turn that read outside text since the owner's last message is
-/// put to the owner, as any call that asks is; a clean one is not.
+/// A read in a turn that read outside text since the owner's last message, or
+/// whose session is flagged, is put to the owner, as any call that asks is, each
+/// cause in its own words; a clean one is not.
 #[test]
 fn a_read_after_outside_text_is_asked_and_a_clean_one_is_free() {
+    use crate::config_change::tests_hold::{each_cause_is_said, ways};
     let plan = || Plan {
         summary: "read".into(),
         ..Default::default()
     };
-    assert!(held(SHOW, false, false, plan()).authority.is_none());
-    assert!(held(SHOW, true, false, plan()).authority.is_some());
-    assert!(held(SHOW, false, true, plan()).authority.is_some());
+    each_cause_is_said(SHOW, |o, s, way| held(SHOW, o, s, way, plan()).authority);
     // No other tool is touched.
-    assert!(held("config.history", true, true, plan())
+    assert!(held("config.history", true, true, &ways()[1], plan())
         .authority
         .is_none());
 }

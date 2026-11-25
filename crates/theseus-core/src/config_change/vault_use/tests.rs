@@ -438,11 +438,28 @@ async fn a_steered_turn_is_asked_before_the_vault_is_read() {
     assert_eq!(asks.len(), 1, "{asks:?}");
     assert_eq!(asks[0].tool, USE);
     assert!(
-        asks[0].reason.contains("read text from outside"),
-        "{}",
+        asks[0].reason.contains(crate::config_change::FLAG_HOLD)
+            && !asks[0].reason.contains("read text from outside"),
+        "the flag, not outside text: {}",
         asks[0].reason
     );
     assert!(logged(&dir).is_empty(), "the vault was not read yet");
+}
+
+/// Both vault calls are held for each cause in its own words, and no other tool is touched.
+#[test]
+fn each_vault_call_says_why_it_is_held() {
+    use crate::config_change::tests_hold::{each_cause_is_said, ways};
+    let plan = || Plan {
+        summary: "vault".into(),
+        ..Default::default()
+    };
+    for tool in [USE, crate::config_change::vault_keep::KEEP] {
+        each_cause_is_said(tool, |o, s, way| held(tool, o, s, way, plan()).authority);
+    }
+    assert!(held("look.vault", true, true, &ways()[1], plan())
+        .authority
+        .is_none());
 }
 
 /// A task's session is refused in the tool's words, and the vault is not read.

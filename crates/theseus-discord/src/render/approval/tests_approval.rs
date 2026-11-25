@@ -269,3 +269,26 @@ fn a_floor_hold_names_its_program_and_says_where_the_look_is() {
         );
     }
 }
+
+/// A held call's card says its cause whole (the Discord card cuts `why it asks` at
+/// 200 characters), with no "layer 1:".
+#[test]
+fn a_held_call_says_its_cause_whole() {
+    use theseus_core::config_change::{flag_way_in, hold_words};
+    let session = "ses_01a1593f784974cf92a4a4666c968b67";
+    let what = "hand another model profile a piece of work";
+    for place in [Some("discord:dm:1180000000000000000"), None] {
+        let way = flag_way_in(place, session);
+        for (outside, steered) in [(true, false), (false, true)] {
+            let said = hold_words(what, outside, steered, &way).unwrap();
+            let reason = format!("hand over: profile.run — approve (layer 1: {said})");
+            let c = card(&request(json!({ "reason": reason })), &Route::Here, "");
+            assert!(
+                c.content.contains(&format!("why it asks: {said}\n")),
+                "{}",
+                c.content
+            );
+            assert!(!c.content.contains("layer 1"), "{}", c.content);
+        }
+    }
+}
