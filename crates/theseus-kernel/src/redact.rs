@@ -21,9 +21,17 @@
 //! read of a job's last 4 MiB is the job's real end. The copy's memory is one
 //! read's buffer and that ring, whatever the job prints. A wrapper killed
 //! before the pipe's end loses the ring, and its file holds the head.
+//!
+//! When bytes between the two ends are dropped, each end is cut between words:
+//! a value the vault knows holds no whitespace, so a kept end never holds a
+//! piece of one. At the pipe's end the head's end moves back to its last
+//! whitespace (the file is cut there) and the end's start moves forward to its
+//! first, when a run of non-space bytes crosses either; a run longer than an
+//! end's room leaves that end empty. The bytes left out are counted with the
+//! dropped middle. Only ASCII whitespace ends a run: the spool is bytes.
 
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
@@ -99,7 +107,8 @@ pub struct Copied {
     /// since theseus-gsn9, those between the head and the end the ring kept.
     pub dropped: u64,
     /// The head's bytes, and the end's that follow the marker (theseus-gsn9),
-    /// when bytes between them were dropped; 0 and 0 otherwise.
+    /// when bytes between them were dropped; 0 and 0 otherwise. Either is 0
+    /// with a marker when a run longer than its room was left out.
     pub head: u64,
     pub tail: u64,
     /// Why the file stopped taking the output before the cap: a write that
@@ -115,6 +124,9 @@ struct Ring {
     cap: usize,
     start: usize,
     len: usize,
+    /// The byte just before what it holds, the last that no longer fit;
+    /// none while every byte it took still fits.
+    before: Option<u8>,
 }
 
 impl Ring {
@@ -124,6 +136,7 @@ impl Ring {
             cap: cap as usize,
             start: 0,
             len: 0,
+            before: None,
         }
     }
 
@@ -137,15 +150,18 @@ impl Ring {
             self.buf = vec![0u8; self.cap];
         }
         let mut gone = 0u64;
+        let mut skipped = None;
         let bytes = match bytes.len().checked_sub(self.cap) {
             Some(over) if over > 0 => {
                 gone += over as u64;
+                skipped = Some(bytes[over - 1]);
                 &bytes[over..]
             }
             _ => bytes,
         };
         let over = (self.len + bytes.len()).saturating_sub(self.cap);
         if over > 0 {
+            self.before = Some(self.buf[(self.start + over - 1) % self.cap]);
             self.start = (self.start + over) % self.cap;
             self.len -= over;
             gone += over as u64;
@@ -155,7 +171,25 @@ impl Ring {
         self.buf[at..at + first].copy_from_slice(&bytes[..first]);
         self.buf[..bytes.len() - first].copy_from_slice(&bytes[first..]);
         self.len += bytes.len();
+        if skipped.is_some() {
+            self.before = skipped;
+        }
         gone
+    }
+
+    /// How many of its first bytes a kept end leaves out: none when the byte
+    /// before them or the first is whitespace; else up to its first
+    /// whitespace, or all it holds when it holds none.
+    fn lead(&self) -> usize {
+        let (a, b) = self.pieces();
+        match (self.before, a.first()) {
+            (Some(p), Some(f)) if !p.is_ascii_whitespace() && !f.is_ascii_whitespace() => a
+                .iter()
+                .chain(b)
+                .position(u8::is_ascii_whitespace)
+                .unwrap_or(self.len),
+            _ => 0,
+        }
     }
 
     /// What it holds, oldest first, in at most two pieces.
@@ -174,6 +208,7 @@ impl Ring {
         self.buf.fill(0);
         self.buf = Vec::new();
         (self.cap, self.start, self.len) = (0, 0, 0);
+        self.before = None;
         held
     }
 }
@@ -187,6 +222,10 @@ struct Capped {
     ring: Ring,
     /// The head's bytes written.
     head: u64,
+    /// How many of the head's last bytes are not whitespace.
+    run: u64,
+    /// The first byte past the head.
+    next: Option<u8>,
     dropped: Arc<AtomicU64>,
     /// What the ring holds now, which the report names while the copy goes on.
     held: Arc<AtomicU64>,
@@ -199,16 +238,22 @@ impl Capped {
     fn put(&mut self, bytes: &[u8]) {
         let fits = (bytes.len() as u64).min(self.room) as usize;
         if fits > 0 {
-            if let Err(e) = self.file.write_all(&bytes[..fits]) {
+            let head = &bytes[..fits];
+            if let Err(e) = self.file.write_all(head) {
                 self.fail(e);
                 self.drop_bytes(fits as u64);
             } else {
                 self.room -= fits as u64;
                 self.head += fits as u64;
+                self.run = match head.iter().rposition(u8::is_ascii_whitespace) {
+                    Some(i) => (fits - 1 - i) as u64,
+                    None => self.run + fits as u64,
+                };
             }
         }
         let rest = &bytes[fits..];
         if !rest.is_empty() {
+            self.next.get_or_insert(rest[0]);
             let gone = self.ring.push(rest);
             self.drop_bytes(gone);
             self.held.store(self.ring.len as u64, Ordering::Relaxed);
@@ -237,26 +282,54 @@ impl Capped {
         self.room == 0 && self.ring.cap == 0
     }
 
+    /// Cut the file back to the head's last whitespace when a run of non-space
+    /// bytes crosses the head's end; the run's bytes the head held are
+    /// counted dropped. A head that is one run is left out whole.
+    fn cut_head(&mut self) -> std::io::Result<()> {
+        if self.run == 0 || self.next.is_none_or(|b| b.is_ascii_whitespace()) {
+            return Ok(());
+        }
+        let end = self.file.stream_position()?;
+        let to = end.saturating_sub(self.run);
+        self.file.set_len(to)?;
+        self.file.seek(SeekFrom::Start(to))?;
+        self.head -= self.run;
+        self.drop_bytes(self.run);
+        self.run = 0;
+        Ok(())
+    }
+
     /// The pipe's end: the ring's bytes follow the head, after the marker
-    /// when bytes between them were dropped. Returns the head's bytes and the
-    /// end's when there was a marker, (0, 0) when there was none.
+    /// when bytes between them were dropped, each end then cut between words.
+    /// Returns the head's bytes and the end's when there was a marker, (0, 0)
+    /// when there was none.
     fn finish(&mut self) -> (u64, u64) {
         if self.ring.len == 0 {
             return (0, 0);
         }
-        let dropped = self.dropped.load(Ordering::Relaxed);
-        let tail = self.ring.len as u64;
-        let written = {
+        let cut = self.dropped.load(Ordering::Relaxed) > 0;
+        let lead = if cut { self.ring.lead() } else { 0 };
+        let mut tail = self.ring.len as u64;
+        let mut written = if cut { self.cut_head() } else { Ok(()) };
+        if written.is_ok() {
+            self.drop_bytes(lead as u64);
+            tail -= lead as u64;
+            let dropped = self.dropped.load(Ordering::Relaxed);
             let (a, b) = self.ring.pieces();
-            let line = (dropped > 0).then(|| marker(dropped, tail));
-            line.map_or(Ok(()), |l| self.file.write_all(l.as_bytes()))
+            let (a, b) = match lead.checked_sub(a.len()) {
+                Some(past) => (&[][..], &b[past..]),
+                None => (&a[lead..], b),
+            };
+            let line = cut.then(|| marker(dropped, tail));
+            written = line
+                .map_or(Ok(()), |l| self.file.write_all(l.as_bytes()))
                 .and_then(|()| self.file.write_all(a))
-                .and_then(|()| self.file.write_all(b))
-        };
+                .and_then(|()| self.file.write_all(b));
+        }
         self.ring.close();
         self.held.store(0, Ordering::Relaxed);
         match written {
-            Ok(()) if dropped > 0 => (self.head, tail),
+            Ok(()) if cut => (self.head, tail),
             Ok(()) => (0, 0),
             Err(e) => {
                 self.error = Some(e.to_string());
@@ -308,6 +381,8 @@ impl Copier {
             room: head,
             ring: Ring::new(tail),
             head: 0,
+            run: 0,
+            next: None,
             dropped: dropped.clone(),
             held: held.clone(),
             error: None,
@@ -442,26 +517,47 @@ mod tests {
         c.wait(Duration::from_secs(10)).unwrap().unwrap()
     }
 
-    /// `input`, as the copy keeps it under a cap of `max`: the whole, or
-    /// the head, the marker, and the exact last bytes.
-    fn kept(input: &[u8], max: u64) -> Vec<u8> {
+    /// Where `input`'s kept ends fall under a cap of `max`, when bytes between them are dropped: the head's end
+    /// moved back, and the end's start moved forward, until neither falls between two bytes that are not
+    /// whitespace.
+    fn ends(input: &[u8], max: u64) -> Option<(usize, usize)> {
         let (head, tail) = split(max);
-        if input.len() as u64 <= head + tail {
-            return input.to_vec();
+        let len = input.len();
+        if len as u64 <= head + tail {
+            return None;
         }
-        let dropped = input.len() as u64 - head - tail;
-        [
-            &input[..head as usize],
-            marker(dropped, tail).as_bytes(),
-            &input[input.len() - tail as usize..],
-        ]
-        .concat()
+        let within = |p: usize| {
+            p > 0
+                && p < len
+                && !input[p - 1].is_ascii_whitespace()
+                && !input[p].is_ascii_whitespace()
+        };
+        let mut h = head as usize;
+        while within(h) {
+            h -= 1;
+        }
+        let mut t = len - tail as usize;
+        while within(t) {
+            t += 1;
+        }
+        Some((h, t))
+    }
+
+    /// `input`, as the copy keeps it under a cap of `max`: the whole, or
+    /// the head, the marker, and the last bytes, each end cut between words.
+    fn kept(input: &[u8], max: u64) -> Vec<u8> {
+        let Some((h, t)) = ends(input, max) else {
+            return input.to_vec();
+        };
+        let tail = (input.len() - t) as u64;
+        let dropped = (t - h) as u64;
+        [&input[..h], marker(dropped, tail).as_bytes(), &input[t..]].concat()
     }
 
     /// The cap (theseus-102) keeps both ends (theseus-gsn9): the file holds
     /// the head, a marker that counts the bytes dropped between, and the
-    /// output's exact last bytes, never more than the cap; the rest is read
-    /// and counted, so the writer finishes.
+    /// output's last bytes, each end cut between words, never more than the
+    /// cap; the rest is read and counted, so the writer finishes.
     #[test]
     fn the_copy_keeps_the_head_and_the_exact_last_bytes_and_counts_the_middle() {
         let d = tempfile::tempdir().unwrap();
@@ -472,13 +568,14 @@ mod tests {
         assert_eq!(split(100_000), (49_872, 50_000));
         assert_eq!(file, kept(&input, 100_000));
         assert!(file.len() <= 100_000, "{}", file.len());
-        assert_eq!(&file[file.len() - 50_000..], &input[250_000..]);
+        // The head ends after the space at 49,730; the end starts at the tab at 250,005.
+        assert_eq!(&file[file.len() - 49_995..], &input[250_005..]);
         assert_eq!(
             copied,
             Copied {
-                dropped: 200_128,
-                head: 49_872,
-                tail: 50_000,
+                dropped: 200_274,
+                head: 49_731,
+                tail: 49_995,
                 write_error: None
             }
         );
@@ -510,10 +607,15 @@ mod tests {
             let file = std::fs::read(&path).unwrap();
             assert_eq!(file, kept(&input, max), "{len} bytes");
             assert!(file.len() as u64 <= max, "{len} bytes: {}", file.len());
-            let dropped = len.saturating_sub(head + tail);
+            let (h, t) = ends(&input, max).unwrap_or((0, 0));
+            let dropped = (t - h) as u64;
             assert_eq!(copied.dropped, dropped, "{len} bytes");
-            let ends = if dropped > 0 { (head, tail) } else { (0, 0) };
-            assert_eq!((copied.head, copied.tail), ends, "{len} bytes");
+            let kept_ends = if dropped > 0 {
+                (h as u64, len - t as u64)
+            } else {
+                (0, 0)
+            };
+            assert_eq!((copied.head, copied.tail), kept_ends, "{len} bytes");
         }
         assert_eq!(split(300), (300, 0), "too small for both ends");
         let input = vec![9u8; 1_000];
@@ -570,6 +672,200 @@ mod tests {
         let copied = copy_through(File::create(&path).unwrap(), 1 << 20, input.clone());
         assert_eq!(std::fs::read(&path).unwrap(), input);
         assert_eq!(copied, Copied::default());
+    }
+
+    /// `n` bytes of four-letter words, each followed by a space.
+    fn words(n: usize) -> Vec<u8> {
+        (0..n)
+            .map(|i| if i % 5 == 4 { b' ' } else { b'w' })
+            .collect()
+    }
+
+    /// A value the vault might know: no whitespace in it.
+    const VALUE: &[u8] = b"tv-invented_token-7f3a9c0d";
+
+    /// A run of non-space bytes across the head's end is not cut: the head ends at the space before it, and the
+    /// run's bytes the head had are counted with the dropped middle.
+    #[test]
+    fn a_run_across_the_heads_end_is_whole_or_absent_in_the_head() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("out");
+        let (head, _) = split(10_000);
+        let at = head as usize - 10;
+        let input = [&words(at - 1)[..], b" ", VALUE, b" ", &words(30_000)].concat();
+        let copied = copy_through(File::create(&path).unwrap(), 10_000, input.clone());
+        let file = std::fs::read(&path).unwrap();
+        assert_eq!(file, kept(&input, 10_000));
+        assert_eq!(copied.head, at as u64);
+        assert_eq!(&file[..at], &input[..at]);
+        assert!(
+            file[at..].starts_with(b"\n[theseus: "),
+            "the marker follows the space"
+        );
+        assert!(
+            !file.windows(3).any(|w| w == b"tv-"),
+            "no piece of the value"
+        );
+        assert_eq!(
+            copied.head + copied.dropped + copied.tail,
+            input.len() as u64
+        );
+    }
+
+    /// The same across the end's start: the end starts at the space after the run.
+    #[test]
+    fn a_run_across_the_ends_start_is_whole_or_absent_in_the_end() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("out");
+        let (_, tail) = split(10_000);
+        let len = 30_000;
+        let at = len - tail as usize - 10;
+        let input = [
+            &words(at - 1)[..],
+            b" ",
+            VALUE,
+            b" ",
+            &words(len - at - VALUE.len() - 1),
+        ]
+        .concat();
+        assert_eq!(input.len(), len);
+        let copied = copy_through(File::create(&path).unwrap(), 10_000, input.clone());
+        let file = std::fs::read(&path).unwrap();
+        assert_eq!(file, kept(&input, 10_000));
+        let after = at + VALUE.len();
+        assert_eq!(copied.tail, (len - after) as u64);
+        assert!(file.ends_with(&input[after..]));
+        assert!(
+            !file.windows(3).any(|w| w == b"c0d"),
+            "no piece of the value"
+        );
+        assert_eq!(copied.head + copied.dropped + copied.tail, len as u64);
+    }
+
+    /// A run longer than an end's room is left out whole: one past the cap leaves the marker alone in the file,
+    /// which counts every byte; one longer than the head alone leaves the head empty.
+    #[test]
+    fn a_run_longer_than_an_ends_room_is_left_out_whole() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("one");
+        let copied = copy_through(File::create(&path).unwrap(), 10_000, vec![b'x'; 30_000]);
+        assert_eq!(std::fs::read(&path).unwrap(), marker(30_000, 0).as_bytes());
+        assert_eq!(
+            copied,
+            Copied {
+                dropped: 30_000,
+                head: 0,
+                tail: 0,
+                write_error: None
+            }
+        );
+        let path = d.path().join("head");
+        let input = [&vec![b'x'; 20_000][..], b"\n", &words(9_999)].concat();
+        let copied = copy_through(File::create(&path).unwrap(), 10_000, input.clone());
+        let file = std::fs::read(&path).unwrap();
+        assert_eq!(file, kept(&input, 10_000));
+        assert!(file.starts_with(b"\n[theseus: "), "an empty head");
+        assert_eq!(copied.head, 0);
+        assert!(copied.tail > 0);
+    }
+
+    /// The copy cuts bytes that are not UTF-8 between words as it cuts text: only ASCII whitespace ends a run.
+    #[test]
+    fn bytes_that_are_not_utf8_are_cut_between_words() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("out");
+        let input: Vec<u8> = (0..30_000u32)
+            .map(|i| {
+                if i % 97 == 96 {
+                    b'\n'
+                } else {
+                    0x80 | (i % 128) as u8
+                }
+            })
+            .collect();
+        assert!(std::str::from_utf8(&input).is_err());
+        let copied = copy_through(File::create(&path).unwrap(), 10_000, input.clone());
+        let file = std::fs::read(&path).unwrap();
+        assert_eq!(file, kept(&input, 10_000));
+        assert_eq!(file[copied.head as usize - 1], b'\n');
+        assert_eq!(input[input.len() - copied.tail as usize], b'\n');
+    }
+
+    /// An output within the cap is kept byte for byte, a run of non-space bytes as long as both ends included.
+    #[test]
+    fn an_output_within_the_cap_is_kept_byte_for_byte() {
+        let d = tempfile::tempdir().unwrap();
+        let (head, tail) = split(10_000);
+        for input in [
+            vec![b'x'; (head + tail) as usize],
+            [&words(head as usize + 3)[..], VALUE].concat(),
+        ] {
+            let path = d.path().join(format!("out-{}", input.len()));
+            let copied = copy_through(File::create(&path).unwrap(), 10_000, input.clone());
+            assert_eq!(std::fs::read(&path).unwrap(), input);
+            assert_eq!(copied, Copied::default());
+        }
+    }
+
+    /// Over random bytes, caps and lengths: what fits is kept whole; past it, the file is a head of the output,
+    /// the marker, and an end of it, with every byte counted, and neither edge falls between two bytes that are
+    /// not whitespace.
+    #[test]
+    fn no_kept_edge_falls_inside_a_run_of_non_space_bytes() {
+        let d = tempfile::tempdir().unwrap();
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for case in 0..200 {
+            let max = 600 + next() % 2_400;
+            let len = (next() % (4 * max)) as usize;
+            // One space in `sparse` bytes, on average: short words, long ones, and runs past an end's room.
+            let sparse = [2, 8, 64, 4_096][case % 4];
+            let input: Vec<u8> = (0..len)
+                .map(|_| match next() {
+                    r if r % sparse == 0 => b" \n\t"[(r >> 8) as usize % 3],
+                    r => (r >> 16) as u8,
+                })
+                .collect();
+            let path = d.path().join(format!("out-{case}"));
+            let copied = copy_through(File::create(&path).unwrap(), max, input.clone());
+            let file = std::fs::read(&path).unwrap();
+            assert_eq!(
+                file,
+                kept(&input, max),
+                "case {case}: {len} bytes, a cap of {max}"
+            );
+            let (head, tail) = split(max);
+            if len as u64 <= head + tail {
+                assert_eq!(copied, Copied::default(), "case {case}");
+                continue;
+            }
+            let (h, t) = (copied.head as usize, len - copied.tail as usize);
+            assert!(
+                copied.head <= head && copied.tail <= tail,
+                "case {case}: {copied:?}"
+            );
+            assert_eq!(
+                copied.head + copied.dropped + copied.tail,
+                len as u64,
+                "case {case}"
+            );
+            assert_eq!(&file[..h], &input[..h], "case {case}");
+            assert!(file.ends_with(&input[t..]), "case {case}");
+            let space = |p: usize| input[p].is_ascii_whitespace();
+            assert!(
+                h == 0 || space(h - 1) || space(h),
+                "case {case}: the head ends inside a run at {h}"
+            );
+            assert!(
+                t == len || space(t - 1) || space(t),
+                "case {case}: the end starts inside a run at {t}"
+            );
+        }
     }
 
     /// What the copy takes in one read.
@@ -633,6 +929,13 @@ mod tests {
         }
     }
 
+    /// `total` bytes of lines of eight: a cap whose ends fall on a multiple of eight cuts them at a line's end.
+    fn lines(total: usize) -> Vec<u8> {
+        (0..total)
+            .map(|i| if i % 8 == 7 { b'\n' } else { b'x' })
+            .collect()
+    }
+
     /// Copy `total` bytes into `sink` under a cap of `max`. The command has written them all and closed its end
     /// before the copy starts (the pipe is made to hold them), so nothing a test reads moves under it but the
     /// copy; with `held`, one more handle on the command's end stays open, as a descendant's does. The sink's
@@ -650,13 +953,13 @@ mod tests {
             "the pipe was not made to hold {total} bytes (it holds {holds}): {}",
             std::io::Error::last_os_error()
         );
-        write.write_all(&vec![b'x'; total]).unwrap();
+        write.write_all(&lines(total)).unwrap();
         let holder = held.then(|| write.try_clone().unwrap());
         drop(write);
         let (room, path) = (sink.room, sink.path);
         let ours = OwnedFd::from(sink.to.try_clone().unwrap());
         let copier = Copier::spawn(read, sink.to, max).unwrap();
-        let expect = kept(&vec![b'x'; total], max).len();
+        let expect = kept(&lines(total), max).len();
         let reader = std::thread::spawn(move || {
             let _ = gate.recv();
             let mut from = std::fs::File::open(&path).unwrap();

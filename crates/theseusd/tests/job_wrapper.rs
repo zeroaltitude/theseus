@@ -469,7 +469,7 @@ fn a_job_that_prints_past_the_cap_keeps_both_ends_and_runs_to_its_end() {
     let printed = 5 * 1024 * 1024 + "the end\n".len() as u64;
     rig.start_capped(
         "act_chatty",
-        "head -c 5242880 /dev/zero; echo 'the end'; : > after; exit 3",
+        "head -c 5242880 /dev/zero | tr '\\0' '\\n'; echo 'the end'; : > after; exit 3",
         None,
         cap,
     );
@@ -499,12 +499,15 @@ fn a_job_that_prints_past_the_cap_keeps_both_ends_and_runs_to_its_end() {
     let out = std::fs::read(c.result_ref.unwrap()).unwrap();
     assert!(out.len() as u64 <= cap, "{}", out.len());
     let (first, rest) = out.split_at(head as usize);
-    assert!(first.iter().all(|&b| b == 0), "the first bytes it printed");
+    assert!(
+        first.iter().all(|&b| b == b'\n'),
+        "the first bytes it printed"
+    );
     let (between, end) = rest.split_at(marker.len());
     assert_eq!(between, marker.as_bytes());
     assert_eq!(end.len() as u64, tail);
-    assert!(end.ends_with(b"\0\0the end\n"), "the last bytes it printed");
-    assert!(end[..end.len() - 8].iter().all(|&b| b == 0));
+    assert!(end.ends_with(b"\n\nthe end\n"), "the last bytes it printed");
+    assert!(end[..end.len() - 8].iter().all(|&b| b == b'\n'));
 }
 
 /// A command that ignores SIGTERM, as `trap '' TERM` makes it (its `sleep`s
