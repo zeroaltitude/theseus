@@ -81,6 +81,10 @@ impl From<String> for ContextEntry {
 /// The most of one file the system block carries.
 pub const MAX_BYTES: usize = 64 * 1024;
 
+/// Bytes read past [`MAX_BYTES`], so a known value that runs across the cap
+/// is seen whole and the cut can end before it.
+const MARGIN: usize = 4 * 1024;
+
 /// A file changed this shortly before it was read is read again next time.
 const RACY: Duration = Duration::from_secs(2);
 
@@ -317,7 +321,7 @@ impl ContextFiles {
         let read_at = SystemTime::now();
         let mut buf = Vec::new();
         std::fs::File::open(path)
-            .and_then(|f| f.take(MAX_BYTES as u64 + 1).read_to_end(&mut buf))
+            .and_then(|f| f.take((MAX_BYTES + MARGIN) as u64).read_to_end(&mut buf))
             .map_err(|e| reason(&e))?;
         self.reads.fetch_add(1, Ordering::Relaxed);
         let held = Arc::new(section(shown, buf));
@@ -356,19 +360,32 @@ pub(crate) fn header(shown: &str, level: &Level) -> String {
     }
 }
 
-/// A file's record and text from up to `MAX_BYTES + 1` bytes of it.
-fn section(shown: &str, mut buf: Vec<u8>) -> Held {
+/// A file's record and text from up to `MAX_BYTES + MARGIN` bytes of it:
+/// past `MAX_BYTES` it is cut, at a character and before any known value.
+fn section(shown: &str, buf: Vec<u8>) -> Held {
     let cut = buf.len() > MAX_BYTES;
-    if cut {
-        buf.truncate(MAX_BYTES);
+    let all = String::from_utf8_lossy(&buf);
+    let text = if cut {
         // Do not end inside a UTF-8 sequence.
-        if let Err(e) = std::str::from_utf8(&buf) {
+        let mut end = MAX_BYTES;
+        if let Err(e) = std::str::from_utf8(&buf[..end]) {
             if e.error_len().is_none() {
-                buf.truncate(e.valid_up_to());
+                end = e.valid_up_to();
             }
         }
-    }
-    let text = String::from_utf8_lossy(&buf).into_owned();
+        let plain = String::from_utf8_lossy(&buf[..end]).into_owned();
+        // A known value that runs across the cap moves the cut to its start.
+        let (known, _) = crate::scrub::safe::head_bytes(&all, plain.len());
+        let (floor, _) =
+            crate::scrub::safe::head_bytes_with(&crate::scrub::Cuts::none(), &all, plain.len());
+        if known.len() < floor.len() {
+            known.to_string()
+        } else {
+            plain
+        }
+    } else {
+        all.into_owned()
+    };
     let digest = {
         use sha2::{Digest, Sha256};
         hex::encode(Sha256::digest(text.as_bytes()))[..16].to_string()
@@ -483,6 +500,25 @@ mod tests {
         assert!(f
             .section
             .ends_with("[Cut: only the first 65,536 bytes of this file are included.]"));
+    }
+
+    /// A known value that runs across the cap is kept whole or not at all:
+    /// the file's section ends before it, and its record counts what is kept.
+    #[test]
+    fn a_file_cut_at_its_byte_cap_holds_a_value_whole_or_not_at_all() {
+        use crate::tests_cut_sites::{whole_or_absent, V};
+        let board = crate::secrets::SecretBoard::empty();
+        board.hold("cut_test", crate::secrets::Secret::new(V.into()));
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("KEYS.md");
+        let text = format!("{}{V}{}", "o".repeat(MAX_BYTES - 10), "o".repeat(100));
+        std::fs::write(&p, &text).unwrap();
+        let (f, _) = ContextFiles::default().load(&system(&[&p]));
+        let f = &f[0];
+        assert!(f.file.cut);
+        let rest = f.section.replace(&"o".repeat(1_000), "");
+        whole_or_absent("the file's section", &rest, V);
+        assert_eq!(f.file.bytes, MAX_BYTES as u64 - 10);
     }
 
     #[test]

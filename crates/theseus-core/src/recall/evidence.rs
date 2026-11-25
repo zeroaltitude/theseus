@@ -84,7 +84,7 @@ fn one_line(text: &str) -> String {
     if flat.chars().count() <= SHOWN {
         return flat;
     }
-    let cut: String = flat.chars().take(SHOWN - 1).collect();
+    let (cut, _) = crate::scrub::safe::head(&flat, SHOWN - 1);
     format!("{}…", cut.trim_end())
 }
 

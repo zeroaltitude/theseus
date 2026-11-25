@@ -16,7 +16,7 @@ use theseus_tools::{Tool, ToolFailure};
 
 use crate::config::WebToolsConfig;
 use crate::cpu::CpuPool;
-use crate::scrub::Scrubber;
+use crate::scrub::{safe, Cuts, Scrubber};
 
 pub mod fetch;
 pub mod html;
@@ -148,18 +148,49 @@ fn build(dns: net::Dns) -> Result<reqwest::Client, String> {
         .map_err(|e| format!("the web client did not start: {e}"))
 }
 
-/// A response's body, up to `cap` bytes, and whether there was more.
+/// Bytes read past a body's cap, so a known value that runs across the cap is
+/// seen whole and a text body's cut can end before it.
+const MARGIN: usize = 4 * 1024;
+
+/// A response's body, up to `cap` bytes, and whether there was more. A text
+/// body cut at the cap ends before any known value the cap would split.
 async fn body(resp: &mut reqwest::Response, cap: usize) -> Result<(Vec<u8>, bool), reqwest::Error> {
+    let most = cap.saturating_add(MARGIN);
     let mut out = Vec::new();
     while let Some(chunk) = resp.chunk().await? {
-        let room = cap - out.len();
+        let room = most - out.len();
         if chunk.len() > room {
             out.extend_from_slice(&chunk[..room]);
-            return Ok((out, true));
+            break;
         }
         out.extend_from_slice(&chunk);
     }
-    Ok((out, false))
+    if out.len() <= cap {
+        return Ok((out, false));
+    }
+    out.truncate(kept(&out, cap));
+    Ok((out, true))
+}
+
+/// How many of `out`'s bytes a cut at `cap` keeps: `cap`, or fewer when `out`
+/// is text and a known value runs across `cap`.
+fn kept(out: &[u8], cap: usize) -> usize {
+    let text = match std::str::from_utf8(out) {
+        Ok(t) => t,
+        // The read stopped inside a character.
+        Err(e) if e.error_len().is_none() => match std::str::from_utf8(&out[..e.valid_up_to()]) {
+            Ok(t) => t,
+            Err(_) => return cap,
+        },
+        Err(_) => return cap,
+    };
+    let (known, _) = safe::head_bytes(text, cap);
+    let (plain, _) = safe::head_bytes_with(&Cuts::none(), text, cap);
+    if known.len() < plain.len() {
+        known.len()
+    } else {
+        cap
+    }
 }
 
 /// Why a request failed, in one line: each distinct cause, outermost first.
@@ -177,11 +208,7 @@ fn causes(e: &(dyn std::error::Error + 'static)) -> String {
     if parts.len() > 1 && parts[0].starts_with("error sending request") {
         parts.remove(0);
     }
-    let line = parts.join(": ");
-    match line.char_indices().nth(300) {
-        Some((i, _)) => format!("{}…", &line[..i]),
-        None => line,
-    }
+    safe::head_marked(&parts.join(": "), 300)
 }
 
 /// `200 OK`, `429 Too Many Requests`.

@@ -126,10 +126,7 @@ pub struct Sources<'a> {
 
 fn cut(s: &str, n: usize) -> String {
     let one: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    match one.char_indices().nth(n) {
-        Some((i, _)) => format!("{}…", &one[..i]),
-        None => one,
-    }
+    crate::scrub::safe::head_marked(&one, n)
 }
 
 /// Up to `most` of `items` as lines, the last one counting the rest when
