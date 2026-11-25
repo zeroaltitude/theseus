@@ -5,6 +5,7 @@
 use serde_json::{json, Value};
 use theseus_protocol::import::{ImportListResult, ImportSessionsResult};
 use theseus_protocol::method;
+use theseus_store::Store as _;
 
 use super::tag_key;
 use super::tests::{call, fixture, import, lines, live};
