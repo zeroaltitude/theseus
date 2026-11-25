@@ -78,3 +78,47 @@ async fn look_parts_render_byte_identical() {
     let rendered = quotes::render_with(&parts, |q| quotes::read(&r.core.store, q));
     assert_eq!(rendered, text);
 }
+
+/// The look's message line and the whole answer's cut, through its writer, with a made-up value across each: the line
+/// clipped at its 600 characters and the answer cut at its allowance never store a range that begins or ends inside
+/// the value, and what they show holds none of it but whole.
+#[tokio::test]
+async fn a_looks_quotes_never_begin_or_end_inside_a_known_value() {
+    const VALUE: &str = "kelp-ferry-0417-vault-token";
+    let r = rig_scripted(|_| {}, |_| crate::provider::Scripted::text("ok"));
+    let sid = session(&r.core, None);
+    let said = format!("{} {VALUE} by the weir", "t".repeat(LINE_CHARS - 10));
+    let answer = format!("{} {VALUE} and the mill", "w".repeat(300));
+    r.core
+        .store
+        .append(&[
+            Node::user(&sid, Some("trn_1"), "cli", &said)
+                .record()
+                .unwrap(),
+            reply(&sid, &answer).record().unwrap(),
+        ])
+        .unwrap();
+    let cuts = crate::scrub::Scrubber::with_values(vec![(VALUE.into(), "v".into())]).cuts();
+    let read = |q: &crate::quotes::Quote| quotes::read_as_written(&r.core.store, q);
+    let (w, shown) = history::history(&r.core, &sid, MESSAGES, &cuts);
+    let (text, parts) = w.clone().into_parts();
+    assert_eq!(quotes::render_with(&parts, read), text);
+    assert!(
+        quotes::cut_through(&parts, read, &[VALUE]).is_empty(),
+        "{parts:#?}"
+    );
+    assert!(quotes::no_part_of(&text, VALUE), "{text}");
+    // The whole answer cut inside the reply's value.
+    let (whole, _) = assembled(vec![(w, shown)], &cuts);
+    let at = whole.text().rfind(VALUE).unwrap() + 9;
+    let max = whole.text()[..at].chars().count();
+    let (cut, _) = cut_kept(whole, max, &cuts);
+    let (text, parts) = cut.into_parts();
+    assert!(text.contains("[cut at "), "{text}");
+    assert_eq!(quotes::render_with(&parts, read), text);
+    assert!(
+        quotes::cut_through(&parts, read, &[VALUE]).is_empty(),
+        "{parts:#?}"
+    );
+    assert!(quotes::no_part_of(&text, VALUE), "{text}");
+}

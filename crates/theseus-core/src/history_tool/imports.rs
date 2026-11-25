@@ -161,9 +161,24 @@ pub(super) fn project(
             continue;
         };
         let outside = super::session::imported_outside(store, &node);
-        let (shown, kept) = cut_kept(&h.text, WORDS_CHARS, cuts);
-        // The words the cut kept, in the node's text; past them only the search's own `…`, which is code.
         let body = h.text.strip_suffix('\u{2026}').unwrap_or(&h.text).len();
+        // The excerpt's edges in the node's text where a cut may fall there (`cuts`): one the search put inside a
+        // known value keeps none of it, and the words are then cut from the node's text between those edges.
+        let (to, from) = cuts.around(&field, at + body, at);
+        let (shown, kept, at) = match (from, to) == (at, at + body) {
+            true => {
+                let (shown, kept) = cut_kept(&h.text, WORDS_CHARS, cuts);
+                (shown, kept, at)
+            }
+            false => {
+                let (shown, kept) = cut_kept(&field[from..to.max(from)], WORDS_CHARS, cuts);
+                match shown.ends_with('\u{2026}') {
+                    true => (shown, kept, from),
+                    false => (format!("{shown}\u{2026}"), kept, from),
+                }
+            }
+        };
+        // The words the cut kept, in the node's text; past them only an `…`, which is code.
         let range = at + kept.start.min(body)..at + kept.end.min(body);
         let words = written::quoted(
             (&node.id, position),

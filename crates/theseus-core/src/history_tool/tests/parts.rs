@@ -68,7 +68,7 @@ fn golden(text: &str, sid: &str) -> String {
 }
 
 /// One exchange of `e`, its nodes made at its own time.
-fn put_at(store: &Store, e: &Ex<'_>, reply_text: &str) -> (Node, Node) {
+pub(super) fn put_at(store: &Store, e: &Ex<'_>, reply_text: &str) -> (Node, Node) {
     let mut ask = Node::user(e.session, Some(&e.turn), "owner", &e.words);
     ask.created_at_ms = e.at;
     let mut said = reply(e.session, &e.turn, reply_text);

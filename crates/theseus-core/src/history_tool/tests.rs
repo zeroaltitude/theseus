@@ -20,6 +20,7 @@ use crate::view::history::{HistoryArgs, HistoryPage, PageEnd, LOOKS_PER_TURN};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, Handle, PointOfView, Present};
 
+mod edges;
 mod every;
 mod handles;
 mod kept;
