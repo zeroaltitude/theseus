@@ -19,7 +19,7 @@ use crate::view::{
 };
 
 const DAY: u64 = 86_400_000;
-/// The heading slot E gives his earlier words, and a recalled word of his from this place.
+/// The heading slot H gives a recalled word of his from this place: his earlier words.
 const HIS_PAST: &str = "chosen: the owner's own earlier words";
 
 /// Every turn is the view's (the setting is retired): nothing to set.
@@ -55,9 +55,9 @@ fn blocks_with(q: &ProviderRequest, words: &str) -> Vec<(String, String)> {
 }
 
 /// The owner's own ordinary message at this place, before its `/new` mark and over thirty days old, is in
-/// neither the window (after the mark) nor his past (beyond thirty days slot E keeps only a correction, a
-/// standing record or what still waits). Recalled on a later turn, it is laid once, as his past: in a
-/// block headed as his earlier words, testimony, never as the conversation here.
+/// neither the window (after the mark) nor any band by age (the view has none). Recalled on a later turn,
+/// it is laid once, as his past: in a block headed as his earlier words, testimony, never as the
+/// conversation here.
 #[tokio::test]
 async fn his_old_word_here_before_new_is_laid_once_as_his_past() {
     const OLD: &str = "the Hollowmere hives take the clover syrup from the east shed in winter";
