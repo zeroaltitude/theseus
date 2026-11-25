@@ -61,7 +61,11 @@ fn notes(r: &Rig) -> Vec<String> {
         .outbox
         .open_for(crate::outbox::OPERATOR_TARGET)
         .iter()
-        .filter_map(|a| crate::outbox::body_of(a)["text"].as_str().map(str::to_string))
+        .filter_map(|a| {
+            crate::outbox::body_of(a)["text"]
+                .as_str()
+                .map(str::to_string)
+        })
         .filter(|t| t.starts_with("ℹ️ FYI · Theseus went on without asking"))
         .collect()
 }
@@ -260,7 +264,7 @@ fn the_hold_counts_from_a_cleared_result() {
     let later = result("c", Some("https://pages.example.test/guide"), &Value::Null);
     assert!(super::outside_since_owner(&nodes(vec![read.clone()])));
     assert!(!super::outside_since_owner(&nodes(vec![read.clone(), clear.clone()])));
-    assert!(super::outside_since_owner(&nodes(vec![read.clone(), clear.clone(), later])));
+    assert!(super::outside_since_owner(&nodes(vec![read.clone(), clear, later])));
     let own = result("d", Some("https://pages.example.test/guide"), &cleared);
     assert!(super::outside_since_owner(&nodes(vec![read, own])), "its own mark counts");
 }

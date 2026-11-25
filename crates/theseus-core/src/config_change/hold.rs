@@ -26,7 +26,7 @@ use theseus_protocol::Plan;
 
 use crate::content::{Flag, OutsideMode};
 use crate::node::{Body, Node};
-use crate::toolrun::TurnCtx;
+use crate::toolrun::{ToolRuntime, TurnCtx};
 
 /// The tools whose held card offers "Approve and clear": the settings read, the three looks and
 /// the three profile tools.
@@ -128,14 +128,13 @@ pub(crate) fn span(nodes: &[(u64, Node)]) -> (usize, Option<&str>) {
     }
 }
 
-/// The hold on the nine tools at `mode`: at `ask`, each tool's own; at `notify`, none, and the
-/// owner is told ([`tell`]), unless `freeze` (`[content_based_security] injection = "refuse"`)
-/// refuses the call of a flagged session after this, as it refuses every one of the nine there.
-/// Any other tool's plan is returned as it came.
+/// The hold on the nine tools at `[content_based_security] outside`: at `ask`, each tool's own;
+/// at `notify`, none, and the owner is told ([`tell`]), unless `injection = "refuse"` refuses the
+/// call of a flagged session after this, as it refuses every one of the nine there. Any other
+/// tool's plan is returned as it came.
 pub(crate) fn ask_or_tell(
-    holds: &Holds,
+    rt: &ToolRuntime,
     tc: &TurnCtx<'_>,
-    (mode, freeze): (OutsideMode, bool),
     name: &str,
     input: &Value,
     plan: Plan,
@@ -143,7 +142,7 @@ pub(crate) fn ask_or_tell(
     if !QUIET.contains(&name) {
         return plan;
     }
-    match mode {
+    match rt.outside_mode() {
         OutsideMode::Ask => {
             let plan = super::show::ask_if_outside(tc, name, plan);
             let plan = crate::look::ask_if_outside(tc, name, plan);
@@ -151,7 +150,7 @@ pub(crate) fn ask_or_tell(
             super::vault_use::ask_if_outside(tc, name, plan)
         }
         OutsideMode::Notify => {
-            tell(holds, tc, freeze, name, input);
+            tell(&rt.holds, tc, rt.frozen_refuses(), name, input);
             plan
         }
     }

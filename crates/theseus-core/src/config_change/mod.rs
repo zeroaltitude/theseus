@@ -873,8 +873,6 @@ pub(crate) mod tests_hold;
 #[cfg(test)]
 mod tests_look;
 #[cfg(test)]
-mod tests_quiet;
-#[cfg(test)]
 mod tests_look_card;
 #[cfg(test)]
 mod tests_look_fields;
@@ -900,6 +898,8 @@ mod tests_profile_run;
 mod tests_profile_run_more;
 #[cfg(test)]
 mod tests_proof;
+#[cfg(test)]
+mod tests_quiet;
 #[cfg(test)]
 mod tests_source;
 #[cfg(test)]

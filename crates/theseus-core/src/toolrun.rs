@@ -745,7 +745,7 @@ impl ToolRuntime {
 
     /// Whether `[content_based_security] injection = "refuse"`: a flagged session's calls that act
     /// are refused.
-    fn frozen_refuses(&self) -> bool {
+    pub(crate) fn frozen_refuses(&self) -> bool {
         self.jobs.core().is_some_and(|c| {
             c.cfg.content_based_security.injection == crate::content::InjectionMode::Refuse
         })
@@ -1261,20 +1261,10 @@ impl ToolRuntime {
                 self.abandon_follows_posture(),
             )
         });
-        // A read of Theseus's own settings, a look at Theseus or the vault's names (issue 26), a
-        // profile call (issue 28) and a use or keep of a vault item, before the daemon reads
-        // anything from it (issue 26), after outside text or with the flag: asked, or told, as
-        // `[content_based_security] outside` says (issue 54).
-        let outside = (self.outside_mode(), self.frozen_refuses());
+        // The settings read, the looks, the profile tools and the vault's two, after outside text
+        // or with the flag: asked or told, as `[content_based_security] outside` says (issue 54).
         let planned = planned.map(|p| {
-            crate::config_change::hold::ask_or_tell(
-                &self.holds,
-                tc,
-                outside,
-                tool.name(),
-                &call.input,
-                p,
-            )
+            crate::config_change::hold::ask_or_tell(self, tc, tool.name(), &call.input, p)
         });
         // Handing work to a profile starts a task, so it asks where starting one asks.
         let task_asks =
