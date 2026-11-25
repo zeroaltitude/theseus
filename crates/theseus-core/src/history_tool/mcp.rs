@@ -74,6 +74,7 @@ fn line(l: HistoryLine, cuts: &crate::scrub::Cuts) -> HistoryReadLine {
         reply_begins,
         outside,
         labels,
+        quotes: _,
     } = l;
     let outside = outside || person.as_deref().is_some_and(|p| p != OWNER);
     HistoryReadLine {
@@ -303,6 +304,7 @@ mod tests {
             reply_begins: None,
             outside: false,
             labels: None,
+            quotes: Default::default(),
         };
         let read = line(l, &crate::scrub::Cuts::live());
         assert!(read.who.starts_with("outside text, ppp"), "{}", read.who);

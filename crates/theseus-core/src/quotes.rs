@@ -21,9 +21,13 @@ use theseus_store::{kinds, Store as _};
 use crate::copies::since::Since;
 use crate::ladder::did::{DidLine, DID_PREFIX};
 use crate::node::{AttachmentContent, Body, Node};
+use crate::scrub::Cuts;
 use crate::store::Store;
 
 pub mod cap;
+
+/// The one reader of a stored result kept by reference, under the plan's name (`crate::quoted`).
+pub use crate::quoted::laid;
 
 /// What a quote of a node that was erased since shows, in place of its words.
 pub const ERASED_QUOTE: &str = "[words since erased]";
@@ -192,6 +196,83 @@ fn did(store: &Store, q: &Quote) -> Read {
     match at(store, q, kinds::META, &key).and_then(|r| r.decode::<DidLine>().ok()) {
         Some(d) => Read::Field(d.line),
         None => Read::Unreadable,
+    }
+}
+
+/// Whether every quote of `parts` begins and ends where `cuts` lets a cut fall in its field (`Cuts::before`):
+/// never inside a known value, verbatim or in any encoding the snapshot reads. A range a producer may store; a
+/// quote whose field cannot be read is not one. The renderer refuses no in-bounds range, so a producer that
+/// stores parts asks this first and keeps its words when it fails.
+pub(crate) fn edges_hold(store: &Store, parts: &[Part], cuts: &Cuts) -> bool {
+    edges_hold_with(parts, |q| read(store, q), cuts)
+}
+
+/// [`edges_hold`], each quote's record read by `read`.
+pub(crate) fn edges_hold_with(
+    parts: &[Part],
+    mut read: impl FnMut(&Quote) -> Read,
+    cuts: &Cuts,
+) -> bool {
+    parts.iter().all(|p| match p {
+        Part::Code(_) => true,
+        Part::Quote(q) => match read(q) {
+            Read::Field(f) => [q.from, q.to].into_iter().all(|at| {
+                let at = at as usize;
+                // plain cut: a check of a stored edge, which cuts nothing; `cuts.before` places it
+                at <= f.len() && f.is_char_boundary(at) && cuts.before(&f, at) == at
+            }),
+            Read::Erased | Read::Unreadable => false,
+        },
+    })
+}
+
+/// The quotes of `parts` whose range begins or ends strictly inside a span `values` take in its field, verbatim or
+/// in any encoding the scrubber reads, as the scrubber's own finder sees the field (`scrub::oracle`); a quote that
+/// cannot be read counts too. A test's check of the ranges a producer stores: apart from where any cut chose its
+/// edge, not from how the scrubber finds a value.
+#[cfg(test)]
+pub(crate) fn cut_through(
+    parts: &[Part],
+    mut read: impl FnMut(&Quote) -> Read,
+    values: &[&str],
+) -> Vec<Quote> {
+    let inside = |spans: &[(usize, usize)], at: u32| {
+        (spans.iter()).any(|(a, b)| *a < at as usize && (at as usize) < *b)
+    };
+    (parts.iter())
+        .filter_map(|p| match p {
+            Part::Quote(q) => Some(q),
+            Part::Code(_) => None,
+        })
+        .filter(|q| match read(q) {
+            Read::Field(f) => {
+                let spans = crate::scrub::oracle::spans_of(&f, values);
+                inside(&spans, q.from) || inside(&spans, q.to)
+            }
+            Read::Erased | Read::Unreadable => true,
+        })
+        .cloned()
+        .collect()
+}
+
+/// Whether `text` holds no part of `value` but whole ones: with each whole `value` taken out, no run of eight of its
+/// characters is left. A test's check of what is rendered from a stored range.
+#[cfg(test)]
+pub(crate) fn no_part_of(text: &str, value: &str) -> bool {
+    let rest = text.replace(value, "");
+    let chars: Vec<char> = value.chars().collect();
+    (chars.windows(8)).all(|w| !rest.contains(&w.iter().collect::<String>()))
+}
+
+/// What `q` read when it was written: its record at its position, whether erased since or not. A test's view of
+/// a stored result as it was written; no reader shows it.
+#[cfg(test)]
+pub(crate) fn read_as_written(store: &Store, q: &Quote) -> Read {
+    match q.field {
+        Field::Did => did(store, q),
+        _ => (at(store, q, kinds::NODE, &q.node).and_then(|r| r.decode::<Node>().ok()))
+            .and_then(|n| field_of(&n, q.field))
+            .map_or(Read::Unreadable, Read::Field),
     }
 }
 

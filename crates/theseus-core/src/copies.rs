@@ -53,16 +53,24 @@ pub fn route(tool: &str) -> Option<&'static str> {
 /// 4. **A session's handle** is shared by every message of that import session: it shows `source` only in a
 ///    result not cut, or when `source` is the one node of its session the result links (`alone`, asked only
 ///    then).
+///
+/// A result kept by reference (`quotes`) says exactly what it showed: it shows `source` when one of its quotes
+/// names `source` and keeps a byte of it, whatever tool of [`COPIERS`] wrote it; the rules above are for a
+/// result stored with its words.
 pub fn shows(result: &Node, source: &Node, alone: impl FnOnce() -> bool) -> bool {
     let Body::ToolResult {
         tool,
         content,
         truncated,
+        parts,
         ..
     } = &result.body
     else {
         return false;
     };
+    if !parts.is_empty() {
+        return copier(tool) && quotes(parts, &source.id);
+    }
     if route(tool) != Some(VIA_HISTORY) {
         return false;
     }
@@ -87,6 +95,14 @@ pub fn shows(result: &Node, source: &Node, alone: impl FnOnce() -> bool) -> bool
         Some(Head::Imports) => session.is_some_and(names) && (!*truncated || alone()),
         None => false,
     }
+}
+
+/// Whether `parts` quote at least one byte of the node `id`.
+fn quotes(parts: &[crate::quotes::Part], id: &str) -> bool {
+    parts.iter().any(|p| match p {
+        crate::quotes::Part::Quote(q) => q.node == id && q.to > q.from,
+        crate::quotes::Part::Code(_) => false,
+    })
 }
 
 /// What a history result is, by its first line as each renderer writes it.
@@ -301,6 +317,51 @@ mod tests {
         };
         assert!(cut_imports(true), "the one node of its session linked");
         assert!(!cut_imports(false), "another linked node shares it");
+    }
+
+    /// A result kept by reference shows a source when a quote of it kept a byte, whatever the runtime cut: an
+    /// open cut by the runtime, a look's result, a quote of another node, an empty quote, a handle in the code's
+    /// own words, and another tool's result are each told apart by the parts alone.
+    #[test]
+    fn a_parts_result_shows_a_source_by_a_kept_quote_of_it() {
+        use crate::quotes::{Field, Form, Part, Quote};
+        let source = Node::user("ses_a", Some("turn_a"), "cli", "words");
+        let quote = |node: &str, (from, to): (u32, u32)| {
+            Part::Quote(Quote {
+                node: node.into(),
+                position: 7,
+                field: Field::Text,
+                from,
+                to,
+                form: Form::Margin1,
+            })
+        };
+        let of = |tool: &str, truncated: bool, parts: Vec<Part>| {
+            let mut n = result(tool, "", truncated);
+            if let Body::ToolResult { parts: p, .. } = &mut n.body {
+                *p = parts;
+            }
+            n
+        };
+        let head =
+            || Part::Code("[Exchange \"turn_a\", in \"cli\", 2026-03-03: what was said]\n".into());
+        let history = crate::view::history::HISTORY_TOOL;
+        let cut = of(history, true, vec![head(), quote(&source.id, (0, 5))]);
+        assert!(
+            shows(&cut, &source, || unreachable!()),
+            "a cut open's kept quote"
+        );
+        let look = of(crate::look::WORK, false, vec![quote(&source.id, (0, 2))]);
+        assert!(shows(&look, &source, || unreachable!()), "a look's quote");
+        let other = of(history, false, vec![head(), quote("msg_other", (0, 5))]);
+        assert!(
+            !shows(&other, &source, || true),
+            "the handle in code, another node quoted"
+        );
+        let empty = of(history, false, vec![head(), quote(&source.id, (3, 3))]);
+        assert!(!shows(&empty, &source, || true), "no byte kept");
+        let tool = of("fs.read", false, vec![quote(&source.id, (0, 5))]);
+        assert!(!shows(&tool, &source, || true), "another tool");
     }
 
     /// A copier's sources are taken out of its meta, and each distinct one is one edge by its route.

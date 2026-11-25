@@ -707,8 +707,13 @@ impl Node {
                 tool,
                 status,
                 content,
+                parts,
                 ..
-            } => format!("{tool} [{}] {content}", status.as_str()),
+            } => format!(
+                "{tool} [{}] {}",
+                status.as_str(),
+                crate::quoted::words_or_line(content, parts)
+            ),
             Body::Recall { items, .. } => format!(
                 "recalled {}",
                 crate::narrative::count(items.len() as u64, "note", "notes")

@@ -363,9 +363,12 @@ impl Board {
                     work::words(&core, &who, &ask, &cuts)
                         .await
                         .map(|(said, shown)| {
-                            // The messages it shows: its result's edges to them (`copies`).
+                            // The messages it shows: its result's edges to them (`copies`); and the answer
+                            // as parts, which the runtime keeps in place of its words.
+                            let (said, parts) = said.into_parts();
                             let mut o = output(said, WORK);
                             o.meta[crate::copies::KEY] = json!(shown);
+                            o.meta[crate::history_tool::written::PARTS] = json!(parts);
                             (o, None, None)
                         })
                         .map_err(ToolFailure::new)

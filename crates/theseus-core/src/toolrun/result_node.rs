@@ -86,6 +86,8 @@ pub(super) struct ResultNode<'a> {
     pub(super) hint: Option<String>,
     /// Where the output in its text is, kept whole when cut (theseus-v73m).
     pub(super) kept: Option<kept::Source>,
+    /// Its text as parts, kept in place of its words (issue 49).
+    pub(super) by_ref: Option<super::parts::ByRef<'a>>,
 }
 
 impl<'a> ResultNode<'a> {
@@ -109,6 +111,7 @@ impl<'a> ResultNode<'a> {
             external: None,
             hint: None,
             kept: None,
+            by_ref: None,
         }
     }
 }

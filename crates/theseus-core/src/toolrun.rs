@@ -68,6 +68,7 @@ mod operands;
 pub(crate) mod order;
 mod own_command;
 mod parallel;
+mod parts;
 mod peek;
 mod proc_cap;
 mod proposal;
@@ -869,21 +870,31 @@ impl ToolRuntime {
         r: ResultNode<'_>,
     ) -> Node {
         let r = self.fit_noted(r);
-        // What the cap leaves out: kept, or the tool's to say (theseus-v73m).
-        // A whole output past `[tools] large_payload_chars` is also flagged
-        // as a large payload here, where it enters (theseus-czpp).
-        let kept::Capped {
-            content,
-            truncated,
-            full_ref,
-            payload,
-        } = self.capped(session_id, &r, &r.text);
         // A job of the daemon's own CLI names the native call that does it,
         // after the cap so no cut takes it (theseus-8c8s); and a call that
         // ran in a group says so, so the model learns what one response may
         // hold (theseus-da46).
         let group = parallel::beside_line().filter(|_| !r.late);
-        let content = content + &ended(r.hint.as_deref(), group.as_deref());
+        // A look back's result is kept by reference: its parts, capped as
+        // its text would be (issue 49).
+        let (capped, parts) = match self.capped_parts(&r, group.as_deref()) {
+            Some((parts, capped)) => (capped, parts),
+            None => {
+                // What the cap leaves out: kept, or the tool's to say
+                // (theseus-v73m). A whole output past `[tools]
+                // large_payload_chars` is also flagged as a large payload
+                // here, where it enters (theseus-czpp).
+                let c = self.capped(session_id, &r, &r.text);
+                let content = c.content + &ended(r.hint.as_deref(), group.as_deref());
+                (kept::Capped { content, ..c }, Vec::new())
+            }
+        };
+        let kept::Capped {
+            content,
+            truncated,
+            full_ref,
+            payload,
+        } = capped;
         Node::tool_result(
             session_id,
             turn_id,
@@ -907,7 +918,7 @@ impl ToolRuntime {
                 // Its whole output is held out of every compile and read
                 // back by hand (theseus-czpp).
                 payload,
-                parts: Vec::new(),
+                parts,
             },
         )
     }
@@ -923,7 +934,7 @@ impl ToolRuntime {
             Body::ToolResult { status, .. } => *status,
             _ => ResultStatus::Error,
         };
-        tc.store.append(&[node.record()?])?;
+        tc.store.append(&[parts::record(node)?])?;
         Self::announce_end(tc, node);
         self.queue_content(tc.session_id, std::slice::from_ref(node));
         Ok(status)

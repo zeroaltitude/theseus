@@ -428,8 +428,11 @@ impl Folding<'_> {
                 content,
                 duration_ms,
                 meta,
+                parts,
                 ..
             } => {
+                // A result kept by reference: no store here, so its fixed line, never an empty text.
+                let content = crate::quoted::words_or_line(content, parts);
                 let Some(p) = self
                     .pending
                     .remove(&(node.session_id.clone(), tool_use_id.clone()))

@@ -687,7 +687,7 @@ pub fn create<'a>(
             let mut arrangement = Some(Node::arrangement(
                 &task.session_id,
                 &author,
-                pieces.clone(),
+                crate::arrangement::stored(pieces.clone()),
                 i.fidelity_ack,
             ));
             // A task handed to a profile runs on it, and its end speaks in the conversation.
@@ -1039,7 +1039,8 @@ fn arranged(
             message,
         })
     })?;
-    let pieces = arr::resolve(a, nodes, holder, &tc.scrubber.cuts()).map_err(refuse)?;
+    let pieces =
+        arr::resolve_shown(tc.store, a, nodes, holder, &tc.scrubber.cuts()).map_err(refuse)?;
     let humans = arr::human_messages_since_last_task(nodes);
     let brief = i.brief.as_deref().unwrap_or_default();
     arr::fidelity(brief, humans, &pieces, i.fidelity_ack).map_err(refuse)?;

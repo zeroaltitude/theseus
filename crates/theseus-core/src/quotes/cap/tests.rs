@@ -367,3 +367,48 @@ fn the_kept_runs_of_a_cut_through_parts_never_begin_or_end_inside_an_encoded_kno
         "no cut met a value the rendering hides: the oracle tried nothing"
     );
 }
+
+/// Each range the cap over parts would store, over the same cases as the runs' test, one quote at a time: where a
+/// quote of it begins or ends inside a value (the scrubber's own finder, `quotes::cut_through`), the runtime's check
+/// says no (`quotes::edges_hold`), and the result keeps its words; where none does, it says yes.
+#[test]
+fn a_capped_quote_that_ends_inside_a_value_is_never_stored_by_reference() {
+    let mut draw = Draw::new(0x2545_f491_4f6c_dd1d);
+    let (mut checked, mut refused) = (0, 0);
+    for round in 0..150 {
+        let value = VALUES[round % VALUES.len()];
+        let cuts = knowing(&[value]).cuts();
+        let mut fields = Fields(HashMap::new());
+        let mut parts = Vec::new();
+        for _ in 0..2 + draw.below(4) {
+            let n = draw.below(12);
+            parts.push(Part::Code(format!(" {} ", draw.filler(n))));
+            let (f, _) = draw.text_at(value);
+            let form = [
+                Form::Verbatim,
+                Form::Flat1,
+                Form::Clip1,
+                Form::Margin1,
+                Form::Line1,
+            ][draw.below(5)];
+            parts.push(fields.quote(f.clone(), 0..f.len(), form));
+        }
+        let chars = fields.render(&parts).chars().count();
+        for max in (64..chars).step_by(3 + round % 5) {
+            let (capped, _) = cap_with(parts.clone(), fields.read(), max, rest, &cuts);
+            let through = crate::quotes::cut_through(&capped, fields.read(), &[value]);
+            let held = crate::quotes::edges_hold_with(&capped, fields.read(), &cuts);
+            assert_eq!(held, through.is_empty(), "max {max}: {through:#?}");
+            refused += usize::from(!held);
+            checked += 1;
+        }
+    }
+    assert!(checked > 2_000, "{checked}");
+    // The cap alone does not keep this rule: a quote it keeps may end at a line break inside a value its run holds
+    // whole. The check refuses those, and the runtime stores their words.
+    assert!(
+        refused > 0,
+        "no capped quote ended inside a value: the check refused nothing"
+    );
+    eprintln!("capped {checked}, refused {refused}");
+}

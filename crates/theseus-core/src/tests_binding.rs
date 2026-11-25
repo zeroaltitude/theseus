@@ -722,3 +722,274 @@ async fn a_standing_record_revoked_between_two_calls_is_not_sent_again() {
     let chains = chains(&r, &res.turn_id);
     assert_ne!(chains.first(), chains.last(), "a new chain: {chains:?}");
 }
+
+/// What a look back kept by reference quotes (issue 49): a message of another session.
+const QUOTED: &str = "the grey heron nests by the old weir";
+
+/// A look back of the turn `turn` of `sid`, kept by reference, added after its answer as a later step
+/// would be: the call, its result quoting a message of another session as a page line, and the answer after
+/// it. The quoted message's id, and the result's rendering.
+fn looked_back(core: &Core, sid: &str, turn: &str) -> (String, String) {
+    use crate::compiler::tests_view::{result, said};
+    use crate::node::{Body, Node};
+    use crate::quotes::{Field, Form, Part, Quote};
+    let put = |n: &Node| core.store.append(&[n.record().unwrap()]).unwrap()[0];
+    let source = Node::user("ses_weir", Some("t_weir"), "cli", QUOTED);
+    let at = put(&source);
+    let ours = |mut n: Node| {
+        n.session_id = sid.to_string();
+        n.loop_index = Some(1);
+        n
+    };
+    let input = json!({"words": "heron"});
+    let asked = ours(said(
+        turn,
+        vec![
+            json!({"type": "tool_use", "id": "toolu_h", "name": "context_history", "input": input}),
+        ],
+    ));
+    let call = ours(Node::tool_call(
+        sid,
+        Some(turn),
+        Some(1),
+        Body::ToolCall {
+            tool_use_id: "toolu_h".into(),
+            tool: "context.history".into(),
+            wire_name: "context_history".into(),
+            input,
+            assistant_node: asked.id.clone(),
+            correlation_id: None,
+            gate: None,
+        },
+    ));
+    let mut page = ours(result(turn, "toolu_h", ""));
+    if let Body::ToolResult { tool, parts, .. } = &mut page.body {
+        *tool = "context.history".into();
+        *parts = vec![
+            Part::Code("- ".into()),
+            Part::Quote(Quote {
+                node: source.id.clone(),
+                position: at,
+                field: Field::Text,
+                from: 0,
+                to: QUOTED.len() as u32,
+                form: Form::Flat1,
+            }),
+            Part::Code(" \u{b7} t_weir".into()),
+        ];
+    }
+    let done = ours(said(
+        turn,
+        vec![json!({"type": "text", "text": "It nests by the weir."})],
+    ));
+    for n in [&asked, &call, &page, &done] {
+        put(n);
+    }
+    (source.id, format!("- {QUOTED} \u{b7} t_weir"))
+}
+
+/// A look back kept by reference in the window, its quoted message erased between the turn's two calls
+/// (issue 49): the first call lays the rendering, the second lays the erased line in place of the words on a
+/// new chain (its answers so far without their thinking), and the provider that refuses a changed prefix
+/// under a thinking block takes it: no 400.
+#[tokio::test]
+async fn an_erase_between_steps_starts_a_new_chain_not_a_400() {
+    let r = rig(
+        Binding::Refuse,
+        vec![
+            Scripted::text("Noted."),
+            thinks_then_reads("toolu_a"),
+            Scripted::text("Four."),
+        ],
+    );
+    let sid = private_session(&r.core);
+    let first = say(&r.core, &sid, "where does the heron nest?")
+        .await
+        .unwrap();
+    let (source, shown) = looked_back(&r.core, &sid, &first.turn_id);
+    let core = r.core.clone();
+    between_calls(&sid, move || {
+        let (_, n) = core.store.get_node(&source).unwrap().unwrap();
+        let gone = n.erased(theseus_protocol::now_unix_ms(), "a test");
+        core.store.append(&[gone.record().unwrap()]).unwrap();
+    });
+    let res = say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .unwrap();
+    assert_eq!(res.output, "Four.", "{res:?}");
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 3, "one call, then two");
+    let said = |q: &ProviderRequest| serde_json::to_string(&q.messages).unwrap();
+    assert!(said(&reqs[1]).contains(&shown), "{}", said(&reqs[1]));
+    let after = said(&reqs[2]);
+    assert!(!after.contains(QUOTED), "{after}");
+    assert!(after.contains(crate::quotes::ERASED_QUOTE), "{after}");
+    let chains = chains(&r, &res.turn_id);
+    assert_ne!(chains.first(), chains.last(), "a new chain: {chains:?}");
+}
+
+/// `turn.inspect` shows a result kept by reference as its rendering, as the model was shown it (issue 49).
+#[tokio::test]
+async fn inspect_shows_the_rendering() {
+    let r = rig(Binding::Refuse, vec![Scripted::text("Noted.")]);
+    let sid = private_session(&r.core);
+    let first = say(&r.core, &sid, "where does the heron nest?")
+        .await
+        .unwrap();
+    let (_, shown) = looked_back(&r.core, &sid, &first.turn_id);
+    let out = r
+        .core
+        .turn_inspect(
+            &theseus_protocol::inspect::TurnInspectParams {
+                session_id: sid.clone(),
+                turn_id: first.turn_id,
+            },
+            false,
+        )
+        .unwrap();
+    let call = (out.loops.iter())
+        .flat_map(|l| &l.calls)
+        .find(|c| c.tool_use_id == "toolu_h")
+        .expect("the look back's call");
+    assert_eq!(call.content, shown);
+}
+
+/// Two messages of another session that a look back's page quotes, line by line, and an older look back that
+/// holds the first one's words.
+const NORTH: &str = "the heron nests by the north weir";
+const SOUTH: &str = "the tern nests by the south weir";
+
+/// A turn of `sid` that looked back twice, added after its answer as later steps would be: a page kept by
+/// reference quoting [`NORTH`] and [`SOUTH`] line by line, and a result stored with its words (as a build
+/// before references wrote it) that showed [`NORTH`]. The two messages and the page.
+fn looked_back_twice(core: &Core, sid: &str, turn: &str) -> ([crate::node::Node; 2], String) {
+    use crate::compiler::tests_view::{result, said};
+    use crate::graph::{Edge, EdgeKind, VIA_HISTORY};
+    use crate::node::{Body, Node};
+    use crate::quotes::{Field, Form, Part, Quote};
+    let put = |n: &Node| core.store.append(&[n.record().unwrap()]).unwrap()[0];
+    let north = Node::user("ses_weir", Some("t_north"), "cli", NORTH);
+    let south = Node::user("ses_weir", Some("t_south"), "cli", SOUTH);
+    let at = [put(&north), put(&south)];
+    let ours = |mut n: Node| {
+        n.session_id = sid.to_string();
+        n.loop_index = Some(1);
+        n
+    };
+    let input = json!({"words": "weir"});
+    let use_of =
+        |id: &str| json!({"type": "tool_use", "id": id, "name": "context_history", "input": input});
+    let asked = ours(said(turn, vec![use_of("toolu_p"), use_of("toolu_o")]));
+    let call = |id: &str| {
+        ours(Node::tool_call(
+            sid,
+            Some(turn),
+            Some(1),
+            Body::ToolCall {
+                tool_use_id: id.into(),
+                tool: "context.history".into(),
+                wire_name: "context_history".into(),
+                input: input.clone(),
+                assistant_node: asked.id.clone(),
+                correlation_id: None,
+                gate: None,
+            },
+        ))
+    };
+    let mut page = ours(result(turn, "toolu_p", ""));
+    if let Body::ToolResult { tool, parts, .. } = &mut page.body {
+        *tool = "context.history".into();
+        for (i, (n, words)) in [(&north, NORTH), (&south, SOUTH)].into_iter().enumerate() {
+            parts.push(Part::Code("- ".into()));
+            parts.push(Part::Quote(Quote {
+                node: n.id.clone(),
+                position: at[i],
+                field: Field::Text,
+                from: 0,
+                to: words.len() as u32,
+                form: Form::Flat1,
+            }));
+            parts.push(Part::Code(format!(
+                " \u{b7} {}\n",
+                n.turn_id.as_deref().unwrap()
+            )));
+        }
+    }
+    let mut old = ours(result(
+        turn,
+        "toolu_o",
+        &format!("- {NORTH} \u{b7} t_north"),
+    ));
+    if let Body::ToolResult { tool, .. } = &mut old.body {
+        *tool = "context.history".into();
+    }
+    let done = ours(said(
+        turn,
+        vec![json!({"type": "text", "text": "They nest by the weirs."})],
+    ));
+    for n in [
+        &asked,
+        &call("toolu_p"),
+        &page,
+        &call("toolu_o"),
+        &old,
+        &done,
+    ] {
+        put(n);
+    }
+    let edge = Edge::new(EdgeKind::DerivedFrom, &old.id, &north.id, VIA_HISTORY);
+    core.store.append(&[edge.record().unwrap()]).unwrap();
+    ([north, south], page.id)
+}
+
+/// The window lays a look back kept by reference through one path with every other node (issue 49): a quoted
+/// message erased since blanks only its own quote's words, the other line keeps its words, and the page's own
+/// "wrong" mark is said after its rendering; a result stored with its words that showed the erased message is
+/// laid as one line, as before.
+#[tokio::test]
+async fn a_parts_result_blanks_only_its_erased_quote_and_says_its_own_mark_in_the_window() {
+    let r = rig(
+        Binding::Refuse,
+        vec![Scripted::text("Noted."), Scripted::text("Four.")],
+    );
+    let sid = private_session(&r.core);
+    let first = say(&r.core, &sid, "where do the birds nest?")
+        .await
+        .unwrap();
+    let ([north, _], page) = looked_back_twice(&r.core, &sid, &first.turn_id);
+    r.core
+        .store
+        .append(&[north
+            .erased(theseus_protocol::now_unix_ms(), "a test")
+            .record()
+            .unwrap()])
+        .unwrap();
+    let label = theseus_protocol::memory::MemoryLabelParams {
+        node_id: page,
+        label: "wrong".into(),
+        recall_id: None,
+        note: None,
+    };
+    r.core.memory_label(&label, "cli").unwrap();
+    say(&r.core, &sid, "and the tern?").await.unwrap();
+    let reqs = r.fake.requests();
+    let sent = serde_json::to_string(&reqs[1].messages).unwrap();
+    let lines = format!(
+        "- {} \u{b7} t_north\\n- {SOUTH} \u{b7} t_south\\n",
+        crate::quotes::ERASED_QUOTE
+    );
+    assert!(
+        sent.contains(&lines),
+        "only the erased quote is blanked: {sent}"
+    );
+    let own = "[Since this was said: it was labelled wrong or stale. The words above are as they were said.]";
+    assert!(
+        sent.contains(&format!("{lines}\\n{own}")),
+        "its own mark after it: {sent}"
+    );
+    assert!(!sent.contains(NORTH), "{sent}");
+    assert!(
+        sent.contains(crate::copies::since::ERASED_RESULT),
+        "the old result blanks whole: {sent}"
+    );
+}

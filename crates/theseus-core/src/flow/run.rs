@@ -171,8 +171,13 @@ fn stored_result(
             content,
             meta,
             late: false,
+            parts,
             ..
-        } => Ok((status, content, meta)),
+        } => match parts.is_empty() {
+            true => Ok((status, content, meta)),
+            // A result kept by reference reads as its rendering (issue 49).
+            false => Ok((status, crate::quoted::shown_text(store, &parts), meta)),
+        },
         _ => anyhow::bail!("settled flow result is not a foreground tool result"),
     }
 }
@@ -462,6 +467,26 @@ mod result_tests {
         assert_eq!(result.1, "the actual output");
         assert!(stored_result(&store, "ses_flow", "missing").is_err());
         assert!(stored_result(&store, "other_session", &node.id).is_err());
+    }
+
+    /// A step's result kept by reference reads as its rendering (issue 49), never as an empty output.
+    #[test]
+    fn a_step_result_kept_by_reference_reads_as_its_rendering() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+        let said = crate::node::Node::user("ses_harbour", None, "owner", "the tide turns at four");
+        let at = store.append(&[said.record().unwrap()]).unwrap()[0];
+        let body: Body = serde_json::from_value(json!({
+            "kind": "tool_result", "tool_use_id": "call_one", "tool": "context.history",
+            "status": "ok", "is_error": false, "content": "",
+            "parts": [{"code": "- "}, {"quote": {"node": said.id, "position": at, "field": "text",
+                "from": 0, "to": 22, "form": "verbatim"}}]
+        }))
+        .unwrap();
+        let node = crate::node::Node::tool_result("ses_flow", Some("turn_flow"), None, body);
+        store.append(&[node.record().unwrap()]).unwrap();
+        let result = stored_result(&store, "ses_flow", &node.id).unwrap();
+        assert_eq!(result.1, "- the tide turns at four");
     }
 
     #[test]
