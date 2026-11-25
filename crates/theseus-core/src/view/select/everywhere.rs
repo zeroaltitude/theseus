@@ -25,8 +25,9 @@ use super::sources::{ExchangeFacts, Sources};
 use super::walk::Walk;
 use super::{Band, Selector, Snapshot};
 
-/// The newest exchanges from every place laid beside the message.
-pub const EVERYWHERE_EXCHANGES: usize = 15;
+/// The newest exchanges from every place laid beside the message when `[context] everywhere_exchanges` is
+/// absent; the selector lays as many as `Sources::sizes` names, read as HERE's size is.
+pub use crate::config::context::EVERYWHERE_EXCHANGES;
 /// The most references of every person's timelines read for them, a touch met twice counted twice.
 pub const EVERYWHERE_READ_MOST: usize = RECENT_READ_MOST;
 /// One line's words and `did` line: beyond it, the line is cut where it is laid, with its handle
@@ -61,8 +62,8 @@ impl<'a> Everywhere<'a> {
         Self { src }
     }
 
-    /// The newest lines from every place this conversation does not show, at most [`EVERYWHERE_EXCHANGES`],
-    /// chosen over those the gate admits.
+    /// The newest lines from every place this conversation does not show, at most the setting's
+    /// (`Sources::sizes`, [`EVERYWHERE_EXCHANGES`] by default), chosen over those the gate admits.
     pub fn look(&self, pov: &PointOfView, snap: &dyn Snapshot) -> anyhow::Result<Look> {
         let mut out = Vec::new();
         let Some(speaker) = pov.person.as_deref() else {
@@ -79,7 +80,7 @@ impl<'a> Everywhere<'a> {
             .flat_map(|p| p.handles.into_iter().chain([p.person]))
             .collect();
         let mut walk = Walk::every_person(snap, EVERYWHERE_READ_MOST)?;
-        while out.len() < EVERYWHERE_EXCHANGES {
+        while out.len() < self.src.sizes.everywhere {
             let Some(touch) = walk.next_touch()? else {
                 break;
             };

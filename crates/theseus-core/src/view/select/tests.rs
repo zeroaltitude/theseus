@@ -492,6 +492,28 @@ fn everywhere_shows_the_newest_fifteen_not_shown_here_with_their_places() {
     }
 }
 
+/// KEY: how many lines EVERYWHERE lays is the setting `[context] everywhere_exchanges`, as HERE's size is a
+/// setting: a setting of 5 lays the newest 5.
+#[test]
+fn everywhere_lays_as_many_as_its_setting_names() {
+    let mut s = Store::default();
+    for i in 0..20u64 {
+        s.ex.push(ex(&format!("e{i:02}"), ["a", "b"][(i % 2) as usize], 1 + i));
+    }
+    let mut src = sources(&s, "");
+    src.sizes = crate::config::context::Sizes {
+        everywhere: 5,
+        ..Default::default()
+    };
+    let table = table(src, Vec::new(), Vec::new());
+    let sel = (table.iter())
+        .find(|t| t.band() == Band::Everywhere)
+        .expect("a selector for EVERYWHERE");
+    let mut laid = sel.select(&pov(Present::OwnerAlone), &s).expect("selects");
+    laid.sort_by_key(|p| std::cmp::Reverse(p.range.last.clone()));
+    assert_eq!(ids(&laid), ["e00", "e01", "e02", "e03", "e04"]);
+}
+
 /// KEY (the conductor's ruling on the plan's Q2): this place's exchanges since its `/new` mark are its window
 /// and ladder's, and left out; so are those from before it, his past, which nothing lays as anything else.
 #[test]
