@@ -68,6 +68,11 @@ pub(crate) fn parse(custom_id: &str) -> Option<(String, Option<usize>)> {
     (!turn.is_empty()).then(|| (turn.to_string(), page))
 }
 
+/// Whether `i` is a press on a fold.
+pub(super) fn is_press(i: &Interaction) -> bool {
+    matches!(&i.data, Some(InteractionData::MessageComponent(c)) if parse(&c.custom_id).is_some())
+}
+
 fn button(label: &str, custom_id: String) -> Component {
     Component::Button(Button {
         id: None,

@@ -1283,15 +1283,12 @@ impl Shared {
             return;
         };
         self.board.update(|s| s.interactions += 1);
-        // A fold's press shows only what was shown openly: anyone here may.
-        if self.fold_press(&i, &tx).await {
-            return;
-        }
         let who = user
             .as_ref()
             .map(|(_, n)| format!("discord:{n}"))
             .unwrap_or_else(|| "discord".into());
-        if !allowed {
+        // A fold's press shows only what was shown openly: anyone here may.
+        if !allowed && !fold::is_press(&i) {
             self.respond(
                 &i,
                 InteractionResponseType::ChannelMessageWithSource,
@@ -1301,9 +1298,11 @@ impl Shared {
             .await;
             return;
         }
-        // `/prompt`: its autocomplete, its modal, and the modal's submit, which
-        // answer in their own ways (`runtime/prompt.rs`).
-        if self.prompt_interaction(&i, &tx, &who).await
+        // A fold's press (`runtime/fold.rs`); `/prompt`: its autocomplete, its
+        // modal, and the modal's submit, which answer in their own ways
+        // (`runtime/prompt.rs`).
+        if self.fold_press(&i, &tx).await
+            || self.prompt_interaction(&i, &tx, &who).await
             || self.remind_interaction(&i, &who).await
             || live_board::work_interaction(&i, &tx, &who)
         {
