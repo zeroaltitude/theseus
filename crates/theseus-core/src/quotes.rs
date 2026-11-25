@@ -195,6 +195,18 @@ fn did(store: &Store, q: &Quote) -> Read {
     }
 }
 
+/// What `q` read when it was written: its record at its position, whether erased since or not. A test's view of
+/// a stored result as it was written; no reader shows it.
+#[cfg(test)]
+pub(crate) fn read_as_written(store: &Store, q: &Quote) -> Read {
+    match q.field {
+        Field::Did => did(store, q),
+        _ => (at(store, q, kinds::NODE, &q.node).and_then(|r| r.decode::<Node>().ok()))
+            .and_then(|n| field_of(&n, q.field))
+            .map_or(Read::Unreadable, Read::Field),
+    }
+}
+
 /// The record at `q`'s position, when it is of `kind` under `key`.
 fn at(store: &Store, q: &Quote, kind: u16, key: &str) -> Option<theseus_store::Record> {
     let rec = store.inner().get(q.position).ok().flatten()?;
