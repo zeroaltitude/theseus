@@ -304,16 +304,25 @@ async fn narrowed_to(
     )))
 }
 
-/// `import.sessions`, on the blocking pool, as a private place asks it.
+/// `import.sessions`, on the blocking pool, as a private place asks it. A catalog that passed over tag records
+/// it could not read is an error that counts them: the episodes it lists are not all there are, so a search
+/// read through it would call the others absent.
 async fn catalog(
     core: &Arc<Core>,
     p: ImportSessionsParams,
 ) -> Result<theseus_protocol::import::ImportSessionsResult, String> {
     let c = core.clone();
-    tokio::task::spawn_blocking(move || c.import_sessions(&p, true))
+    let r = tokio::task::spawn_blocking(move || c.import_sessions(&p, true))
         .await
         .map_err(|e| e.to_string())?
-        .map_err(|e| format!("the imported episodes could not be read: {e:#}"))
+        .map_err(|e| format!("the imported episodes could not be read: {e:#}"))?;
+    match r.tags_unread {
+        Some(n) if n > 0 => Err(format!(
+            "{n} of the import's tag records could not be read, so the imported conversations are not \
+             known in full: nothing was searched, and none is said to be absent"
+        )),
+        _ => Ok(r),
+    }
 }
 
 /// Recall's admitted items as the answer says them: an imported one with
