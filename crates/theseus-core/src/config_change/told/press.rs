@@ -17,6 +17,15 @@ use crate::config_change::{diff, edit, history, read_base, sensitive, undo, writ
 use crate::rpc::Core;
 
 impl Core {
+    /// Whether settings change `number` was already put back: a
+    /// `config.undone` row names it, written with the undo's own change.
+    pub(crate) fn settings_change_undone(&self, number: u32) -> bool {
+        history::rows(&self.store).iter().any(|r| {
+            r.kind == LedgerKind::ConfigUndone.as_str()
+                && r.data["undone"].as_u64() == Some(u64::from(number))
+        })
+    }
+
     /// Put back settings change `number` for an Undo pressed on its note, by
     /// `by` through `via`, in the conversation that made the change: what was
     /// done, or why nothing was.
