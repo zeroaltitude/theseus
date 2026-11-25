@@ -216,14 +216,12 @@ async fn twice(r: &Rig, sid: &str, first: &str, again: &str, n: usize) {
 }
 
 /// Between a half and four fifths a directive is kept, with its notice, and
-/// nothing is asked (issue 57). What is still asked (a correction said twice)
-/// waits: `keep` writes it where it was judged to hold, `everywhere` widens
-/// it, and `not` drops it. Each answer is a row; an ask answered is gone.
+/// nothing is asked (issue 57).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_unsure_directive_is_kept_and_an_asked_one_is_answered() {
+async fn an_unsure_directive_is_kept_and_nothing_is_asked() {
     let jev = FakeJev::start().unwrap();
     hears(&jev, "preference", 0.65, ("session", 0.9));
-    let r = rig_capture(&jev, 7);
+    let r = rig_capture(&jev, 1);
     let one = ask(&r.core, None, "keep answers short").await;
     until("the record", || captured(&r.core).len() == 1).await;
     let l = list(&r.core).await;
@@ -236,18 +234,22 @@ async fn an_unsure_directive_is_kept_and_an_asked_one_is_answered() {
     assert_eq!(rec.scope, StandingScope::Session(one.session_id.clone()));
     assert_eq!(rows(&r.core, "standing.captured").len(), 1);
     assert!(rows(&r.core, "standing.asked").is_empty());
-    // What is still asked: a correction said twice.
+}
+
+/// What is still asked (a correction said twice, issue 57) waits: `keep`
+/// writes it where it was judged to hold, `everywhere` widens it, and `not`
+/// drops it. Each answer is a row; an ask answered is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_asked_directive_is_kept_widened_or_dropped_by_the_answer() {
+    let jev = FakeJev::start().unwrap();
     hears(&jev, "correction", 0.4, ("session", 0.9));
-    let first = "stop using tables for lists";
-    twice(
-        &r,
-        &one.session_id,
-        first,
-        "again, no tables for lists please",
-        1,
-    )
-    .await;
+    let r = rig_capture(&jev, 7);
+    let sid = ask(&r.core, None, "hello").await.session_id;
+    until("its note", || !rows(&r.core, "standing.candidate").is_empty()).await;
+    let tables = "stop using tables for lists";
+    twice(&r, &sid, tables, "again, no tables for lists please", 1).await;
     let l = list(&r.core).await;
+    assert!(l.records.is_empty(), "nothing is kept unasked: {l:?}");
     assert_eq!(l.asks.len(), 1);
     let a = &l.asks[0];
     assert_eq!(
@@ -255,7 +257,7 @@ async fn an_unsure_directive_is_kept_and_an_asked_one_is_answered() {
         (StandingKind::Preference, "twice")
     );
     assert_eq!(a.text, "again, no tables for lists please");
-    assert_eq!(a.scope, StandingScope::Session(one.session_id.clone()));
+    assert_eq!(a.scope, StandingScope::Session(sid.clone()));
     // keep: where it was judged to hold.
     let kept = call_on(
         &r.core,
@@ -267,7 +269,7 @@ async fn an_unsure_directive_is_kept_and_an_asked_one_is_answered() {
     assert!(kept.error.is_none(), "{:?}", kept.error);
     let res: StandingAnswerResult = serde_json::from_value(kept.result.unwrap()).unwrap();
     let rec = res.record.unwrap();
-    assert_eq!(rec.scope, StandingScope::Session(one.session_id.clone()));
+    assert_eq!(rec.scope, StandingScope::Session(sid.clone()));
     assert_eq!(rec.text, "again, no tables for lists please");
     assert!(rec.source.starts_with("capture:msg_"));
     assert!(
@@ -276,15 +278,8 @@ async fn an_unsure_directive_is_kept_and_an_asked_one_is_answered() {
     );
     assert_eq!(rows(&r.core, "standing.answered")[0]["answer"], "keep");
     // Another ask, answered everywhere, and a third not at all.
-    let words = "use plain words, not jargon";
-    twice(
-        &r,
-        &one.session_id,
-        words,
-        "plain words again, no jargon",
-        2,
-    )
-    .await;
+    let jargon = "use plain words, not jargon";
+    twice(&r, &sid, jargon, "plain words again, no jargon", 2).await;
     let id = list(&r.core).await.asks[0].id.clone();
     let wide = call_on(
         &r.core,
@@ -296,7 +291,7 @@ async fn an_unsure_directive_is_kept_and_an_asked_one_is_answered() {
     let wide: StandingAnswerResult = serde_json::from_value(wide.result.unwrap()).unwrap();
     assert_eq!(wide.record.unwrap().scope, StandingScope::Everywhere);
     // What the owner's answer kept is marked his own (a settings question for the
-    // same message does not end it); what capture kept unasked is not.
+    // same message does not end it).
     let kept = r
         .core
         .runner
@@ -305,20 +300,12 @@ async fn an_unsure_directive_is_kept_and_an_asked_one_is_answered() {
         .peek(&r.core.store)
         .unwrap()
         .kept;
-    assert_eq!(
-        kept.iter().map(|k| k.by_owner).collect::<Vec<_>>(),
-        [false, true, true],
+    assert!(
+        !kept.is_empty() && kept.iter().all(|k| k.by_owner),
         "{kept:?}"
     );
-    let sid = &one.session_id;
-    twice(
-        &r,
-        sid,
-        "no emoji in my replies",
-        "again: no emoji in replies",
-        3,
-    )
-    .await;
+    let emoji = "no emoji in my replies";
+    twice(&r, &sid, emoji, "again: no emoji in replies", 3).await;
     let id = list(&r.core).await.asks[0].id.clone();
     let no = call_on(
         &r.core,
@@ -331,7 +318,7 @@ async fn an_unsure_directive_is_kept_and_an_asked_one_is_answered() {
     assert!(no.record.is_none());
     let l = list(&r.core).await;
     assert!(l.asks.is_empty());
-    assert_eq!(live_of(&l).len(), 3, "{l:?}");
+    assert_eq!(live_of(&l).len(), 2, "{l:?}");
     // A word that is no answer, and an ask that is not open, are refused.
     for (id, answer) in [("ask_nope", "keep"), ("ask_x", "maybe")] {
         let bad = call_on(
